@@ -95,7 +95,8 @@ class AgentRunProfile(BaseModel):
     def knowledge_filter(self) -> frozenset[tuple[str, str]] | None:
         """Sources retrieval may use: None for the whole workspace."""
         if self.knowledge_mode == KnowledgeMode.SELECTED:
-            return frozenset((source.type, source.id) for source in self.knowledge_sources)
+            # A collection was expanded into its notes and documents when the run started.
+            return frozenset((source.type, source.id) for source in self.knowledge_sources if source.type != "collection")
         return None
 
     def persona(self) -> str:

@@ -210,6 +210,7 @@ from .learning_store import new_signal, record_server_signal
 from . import delivery
 from .tyre.api import router as tyre_router
 from .tyre.tools import register_tyre_tools
+from .green_concrete_ops import register_green_concrete_tools
 from .commands import router as commands_router
 from .favorites import router as favorites_router
 from .knowledge_base import router as knowledge_router
@@ -262,6 +263,7 @@ from .office_logo_api import router as office_logo_router
 from .office_visitors_api import router as office_visitors_router
 from .record_retention_api import router as record_retention_router
 from .office_green_concrete_api import router as office_green_concrete_router
+from .green_concrete_kit_api import router as green_concrete_kit_router
 from .executive_api import router as executive_router
 from .live_agent_meeting_api import router as live_agent_meeting_router
 from .executive_pa import router as executive_pa_router
@@ -475,6 +477,7 @@ app.include_router(record_retention_router)
 app.include_router(office_green_concrete_router)
 app.include_router(office_staff_desks_router)
 app.include_router(office_staffing_router)
+app.include_router(green_concrete_kit_router)
 app.include_router(executive_router)
 app.include_router(live_agent_meeting_router)
 app.include_router(executive_pa_router)
@@ -559,11 +562,11 @@ app.include_router(setup_plans_router)
 repository = memory_repository
 model_gateway = build_default_model_gateway()
 integration_registry = default_integration_registry(settings)
-tool_registry = register_calendar_tools(register_brevo_tools(register_call_tools(register_business_tools(register_mail_tools(register_finance_tools(register_marketing_tools(register_tyre_tools(register_commerce_tools(email_inbox.register_email_tools(register_whatsapp_tools(register_developer_tools(default_tool_registry(
+tool_registry = register_green_concrete_tools(register_calendar_tools(register_brevo_tools(register_call_tools(register_business_tools(register_mail_tools(register_finance_tools(register_marketing_tools(register_tyre_tools(register_commerce_tools(email_inbox.register_email_tools(register_whatsapp_tools(register_developer_tools(default_tool_registry(
     configured_external_handler(settings, integration_registry),
     configured_web_search_handler(settings, integration_registry.workspace_enabled(SEARXNG_INTEGRATION_ID)),
 )))))))
-))))))
+)))))))
 # Browser research (docs/browser-research.md): always registered, off per workspace until an owner turns it on.
 register_browser_tools(tool_registry, settings, integration_registry.workspace_enabled(BROWSER_INTEGRATION_ID))
 # Reports and other features send through whichever delivery tools are registered.
@@ -1465,7 +1468,9 @@ async def run_task_for_automation(context: TenantContext, task_id: str) -> None:
             raise StepFailed(f"The agent task {task_id} no longer exists in this workspace.")
         if task.status not in {TaskStatus.CREATED, TaskStatus.QUEUED} or unit.find_run_for_task(task.id, context):
             raise _AlreadyStarted  # a repeated hand-off
-        return None
+        # A step that runs as an agent: the agent as it is now, with the run's owner's identity (a paused agent
+        # answers 409 and the step fails with that sentence).
+        return agent_run_profile(context, _usable_agent(context, task.agent_id)) if task.agent_id else None
 
     try:
         async with _task_lock(context, task_id):
@@ -1473,7 +1478,7 @@ async def run_task_for_automation(context: TenantContext, task_id: str) -> None:
                 with tenant_unit_of_work(context) as unit:
                     task = unit.get_task(task_id, context)
                     try:
-                        check(unit, task)
+                        agent = check(unit, task)
                     except _AlreadyStarted:
                         return
                     runtime = AgentRuntime(
@@ -1482,7 +1487,7 @@ async def run_task_for_automation(context: TenantContext, task_id: str) -> None:
                         tools=tool_registry,
                         retriever=retriever_for(context, model_gateway),
                     )
-                    await _queue_durable_run(task, context, unit, runtime)  # type: ignore[arg-type]
+                    await _queue_durable_run(task, context, unit, runtime, agent=agent)  # type: ignore[arg-type]
                     return
             try:
                 await _run_inline_task(context, task_id, check, unit_of_work=tenant_unit_of_work)

@@ -26,6 +26,7 @@ import { hqLiveAr } from './hqLive.ar.ts';
 import { hqPanelsAr } from './hqPanels.ar.ts';
 import { hqProvisioningAr } from './hqProvisioning.ar.ts';
 import { officeStaffingAr } from './officeStaffing.ar.ts';
+import { greenConcreteKitAr } from './greenConcreteKit.ar.ts';
 import { hqNavAr } from './hqNav.ar.ts';
 import { hqAssignAr } from './hqAssign.ar.ts';
 import { hqStarterCampusAr } from './hqStarterCampus.ar.ts';
@@ -1740,6 +1741,29 @@ export const ar: Record<MessageKey, Message> = {
   'agents.memory.manual': 'أضيفت يدويًا',
   'agents.memory.deleteNamed': 'حذف الذكرى: {text}',
   'agents.memory.deleteTitle': 'حذف هذه الذكرى؟',
+  'agents.memory.kind': 'النوع',
+  'agents.memory.kind.fact': 'حقيقة',
+  'agents.memory.kind.decision': 'قرار',
+  'agents.memory.source': 'المصدر',
+  'agents.memory.sourcePlaceholder': 'مثلا: إجراء الإطارات، الإصدار 3',
+  'agents.memory.date': 'صحيح منذ',
+  'agents.memory.err.content': 'اكتب ما يجب أن يتذكره الوكيل.',
+  'agents.memory.err.contentLong': 'اجعل الذكرى أقل من 2000 حرف.',
+  'agents.memory.err.sourceLong': 'اجعل المصدر أقل من 200 حرف.',
+  'agents.memory.err.date': 'أدخل التاريخ كيوم كامل.',
+  'agents.memory.err.future': 'لا يمكن أن يكون التاريخ في المستقبل.',
+  'agents.memory.filter': 'عرض',
+  'agents.memory.filter.all': 'الحقائق والقرارات',
+  'agents.memory.emptyEdit': 'لا ذكريات بعد. أضف حقيقة أو قرارا أعلاه مع مصدره.',
+  'agents.memory.editText': 'الذكرى',
+  'agents.memory.saveEdit': 'حفظ التغييرات',
+  'agents.memory.fromFile': 'من مستند',
+  'agents.memory.asOf': 'صحيح منذ {date}',
+  'agents.memory.edited': 'معدّلة',
+  'agents.memory.expires': 'تحذف في {date} (قواعد الذاكرة)',
+  'agents.memory.kept': 'تبقى حتى تحذف',
+  'agents.memory.edit': 'تعديل',
+  'agents.memory.editNamed': 'تعديل الذكرى: {text}',
   'agents.owner': 'أنشأه',
   'agents.you': 'أنت',
   'agents.createdAt': 'أُنشئ',
@@ -3292,6 +3316,7 @@ export const ar: Record<MessageKey, Message> = {
   ...hqPanelsAr,
   ...hqProvisioningAr,
   ...officeStaffingAr,
+  ...greenConcreteKitAr,
   ...hqNavAr,
   ...hqAssignAr,
   ...hqStarterCampusAr,

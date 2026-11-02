@@ -211,12 +211,12 @@ def check_steps(steps: list[WorkflowStep]) -> list[WorkflowStep]:
                 raise ValueError(f"{label}: the task title is longer than {TASK_TITLE_MAX} characters.")
             if len(prompt) > TASK_PROMPT_MAX:
                 raise ValueError(f"{label}: the task prompt is longer than {TASK_PROMPT_MAX} characters.")
-            agent_id = step.input.get("agent_id")
-            if agent_id is not None and (not isinstance(agent_id, str) or not 1 <= len(agent_id) <= 80):
-                raise ValueError(f'{label}: "agent_id" must be the id of an agent, or left out to run as the automation\'s owner.')
             run_flag = step.input.get("run", True)
             if not isinstance(run_flag, bool):
                 raise ValueError(f'{label}: "run" must be true (run the task) or false (only create it).')
+            agent = step.input.get("agent_id")
+            if agent is not None and (not isinstance(agent, str) or not re.fullmatch(r"[A-Za-z0-9_.:-]{1,80}", agent)):
+                raise ValueError(f'{label}: "agent_id" must be the id of an agent in this workspace.')
         if step.action == "email.send":
             _check_email_step(label, step)
         if step.action == "finance.intel.cycle" and step.input.get("phase") not in FINANCE_INTEL_PHASES:
@@ -639,7 +639,7 @@ class TaskOutcome:
 class RunEffects(Protocol):
     """Side effects of automation work, applied inside the engine's unit of work."""
 
-    def create_task(self, context: TenantContext, title: str, prompt: str, agent_id: str | None = None) -> Task: ...
+    def create_task(self, context: TenantContext, title: str, prompt: str, *, agent_id: str | None = None) -> Task: ...
     def record_event(self, event: DomainEvent) -> None: ...
     def record_audit(self, record: AuditRecord) -> None: ...
     def wants_failure_notice(self, context: TenantContext, user_id: str) -> bool: ...
@@ -664,13 +664,13 @@ class RepositoryEffects:
         self._preferences = preferences
         self.deferred: list[DeferredStep] = []
 
-    def create_task(self, context: TenantContext, title: str, prompt: str, agent_id: str | None = None) -> Task:
+    def create_task(self, context: TenantContext, title: str, prompt: str, *, agent_id: str | None = None) -> Task:
         now = utc_now()
         task = Task(
+            agent_id=agent_id,
             id=new_id("task"),
             title=title,
             prompt=prompt,
-            agent_id=agent_id,
             status=TaskStatus.CREATED,
             tenant_id=context.tenant_id,
             workspace_id=context.workspace_id,
@@ -941,8 +941,8 @@ def _perform(
         prompt = _input_text(state, "prompt", scope, untrusted=True)[:TASK_PROMPT_MAX]
         if not title or not prompt:
             raise StepFailed("The step's input has no task title or prompt. Edit the workflow and retry the run.")
-        # Run as a chosen agent (docs/automation.md#run-as-an-agent): its tools, autonomy, caps
-        # and loop limits apply. The owner opts in per step with ``agent_id``.
+        # Run as a chosen agent (docs/automation.md#run-as-an-agent): the task carries its id and the run
+        # applies its profile, tools, autonomy, caps and loop limits; a paused or deleted agent fails the step.
         agent_id = state.input.get("agent_id") if isinstance(state.input.get("agent_id"), str) else None
         if agent_id:
             from .agent_loop_limits import automation_agent
