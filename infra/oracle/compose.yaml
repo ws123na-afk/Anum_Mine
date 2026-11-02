@@ -291,6 +291,10 @@ services:
       # Private web search (the searxng service below); a workspace owner can switch
       # the web_search tool off under Integrations.
       ANUM_SEARXNG_URL: http://searxng:8080
+      # Browser research (docs/browser-research.md): the browser service of the `browser`
+      # profile, http://browser:8090. Empty: web.browse_page says "Not available on this server".
+      ANUM_BROWSER_RESEARCH_URL: ${ANUM_BROWSER_RESEARCH_URL:-}
+      ANUM_BROWSER_RESEARCH_TOKEN: ${ANUM_BROWSER_TOKEN:-}
       # Upload malware scanning (docs/files.md#malware-scanning): every upload and email
       # attachment goes to the clamd service below; while clamd is down or still loading
       # its signatures, uploads fail with 503 and nothing is stored (fail closed).
@@ -424,6 +428,7 @@ services:
       - edge
       - backend
       - egress
+      - browser
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -592,6 +597,45 @@ services:
       retries: 3
       start_period: 20s
     mem_limit: 512m
+    logging: *logging
+
+  # --- Browser research (profile `browser`; docs/browser-research.md) ----------------
+  # Runs Chromium for the web.browse_page tool, in its own container with no ANUM secrets
+  # (only the token the API sends). No published port and no Caddy route: the API calls
+  # http://browser:8090 on the internal `browser` network; `browser-egress` is its own
+  # route to the internet, shared with nothing else, so it reaches neither PostgreSQL,
+  # Valkey nor the other services. Every page request goes through the network guard
+  # (public addresses only, DNS pinned). Same code as the API image, built with Chromium.
+  browser:
+    profiles: ["browser"]
+    build:
+      <<: *api-build
+      args:
+        ANUM_BROWSER: "1"
+    image: anum/browser:local
+    restart: unless-stopped
+    command: ["python", "-m", "anum_api.browser_research.service"]
+    environment:
+      ANUM_BROWSER_SERVICE_TOKEN: ${ANUM_BROWSER_TOKEN:?set ANUM_BROWSER_TOKEN in infra/oracle/.env}
+      ANUM_BROWSER_CONCURRENCY: "1"
+    networks:
+      - browser
+      - browser-egress
+    read_only: true
+    tmpfs:
+      - /tmp:size=256m
+      - /app/.cache:size=16m
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 256
+    cpus: 1.0
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8090/healthz', timeout=4)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    mem_limit: 1g
     logging: *logging
 
   # --- ClamAV clamd (upload malware scanning) ----------------------------------------
@@ -1023,6 +1067,18 @@ networks:
     ipam:
       config:
         - subnet: 172.30.30.0/24
+  # The API and the browser service (profile `browser`). Internal: the browser container
+  # reaches nothing else of ANUM.
+  browser:
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.30.60.0/24
+  # The browser service's own route to the internet, shared with no other container.
+  browser-egress:
+    ipam:
+      config:
+        - subnet: 172.30.70.0/24
   # The Beszel hub and its agent (profiles `monitoring`, `monitoring-agent`). Internal:
   # the agent has no route to the internet.
   monitoring:
