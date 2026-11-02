@@ -1,7 +1,8 @@
 // The platform owner's billing console (docs/billing.md#platform-console-platform_operator): revenue
 // summary, every customer subscription with search, status filter and paging, one organisation's
 // billing and invoices, the plan catalog, and the issuer's settings (bank details, tax, dunning,
-// Stripe). Only platform operators; anyone else gets the API's refusal.
+// Stripe and Moyasar), the company details and legal facts, and the Ready to sell checklist
+// (docs/selling-readiness.md). Only platform operators; anyone else gets the API's refusal.
 import { useCallback, useEffect, useId, useState, type FormEvent } from 'react';
 import { Lock, Play, Plus, ReceiptText, RefreshCw } from 'lucide-react';
 import type { OrganisationSummary } from '@anum/contracts';
@@ -20,9 +21,12 @@ import { Badge, Empty, Note, Pager, date } from './parts';
 import { ConsoleOrganisation } from './ConsoleOrganisation';
 import { ConsolePlans } from './ConsolePlans';
 import { ConsoleSettings } from './ConsoleSettings';
+import { ConsoleMoyasar } from './ConsoleMoyasar';
+import { ConsoleCompany } from './ConsoleCompany';
+import { ConsoleReadiness } from './ConsoleReadiness';
 
-type Tab = 'subscriptions' | 'plans' | 'settings';
-const TABS: Tab[] = ['subscriptions', 'plans', 'settings'];
+type Tab = 'subscriptions' | 'plans' | 'settings' | 'company' | 'ready';
+const TABS: Tab[] = ['subscriptions', 'plans', 'settings', 'company', 'ready'];
 type Load<T> = { state: 'loading' } | { state: 'ready'; value: T } | { state: 'denied' | 'error'; message: string };
 const failed = (e: unknown): Load<never> => ({ state: isPermissionDenied(e) ? 'denied' : 'error', message: describeError(e) });
 
@@ -68,7 +72,10 @@ export function BillingConsole() {
     {flash && <Note error={flash.error}>{flash.text}</Note>}
     {org ? <ConsoleOrganisation tenantId={org} onBack={() => setOrg(null)} onChanged={refresh} />
       : tab === 'subscriptions' ? <Subscriptions key={tick} onOpen={setOrg} onStart={() => setStarting(true)} />
-      : tab === 'plans' ? <ConsolePlans /> : <ConsoleSettings />}
+      : tab === 'plans' ? <ConsolePlans />
+      : tab === 'company' ? <ConsoleCompany />
+      : tab === 'ready' ? <ConsoleReadiness onOpenTab={(next) => { setTab(next); setOrg(null); }} />
+      : <div className="blStack"><ConsoleMoyasar /><ConsoleSettings /></div>}
     {starting && <StartDialog onClose={() => setStarting(false)} onStarted={(name, tenantId) => { setStarting(false); setFlash({ text: t('billing.console.started', { name }) }); refresh(); setOrg(tenantId); }} />}
   </div>;
 }

@@ -191,6 +191,7 @@ from .business import register_business_tools, router as business_router
 from .brevo import register_brevo_tools, router as brevo_router
 from .billing import build_billing_scheduler, console as billing_console_router, public as billing_public_router
 from .billing import router as billing_router, signup_router as billing_signup_router, webhooks as billing_webhook_router
+from .billing import public_legal_router as billing_public_legal_router, selling_router as billing_selling_router
 from .billing.api import _BlockedChange, blocked_change_handler
 from .billing.enforce import require_capacity
 from .user_preferences import router as user_preferences_router
@@ -501,6 +502,9 @@ app.include_router(billing_router)
 app.include_router(billing_console_router)
 app.include_router(billing_public_router)
 app.include_router(billing_signup_router)
+# Ready to sell (docs/selling-readiness.md): company details, the public legal facts and the checklist.
+app.include_router(billing_selling_router)
+app.include_router(billing_public_legal_router)
 app.add_exception_handler(_BlockedChange, blocked_change_handler)
 app.include_router(user_preferences_router)
 app.include_router(push_router)

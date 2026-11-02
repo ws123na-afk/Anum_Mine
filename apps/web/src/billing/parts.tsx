@@ -108,7 +108,7 @@ export function InvoiceTable({ items, caption, onOpen, onDownload }: { items: In
 }
 
 /** An invoice: parties, lines, VAT with its rate, totals, payments, credit notes and the bank details. */
-export function InvoiceBody({ invoice }: { invoice: Invoice }) {
+export function InvoiceBody({ invoice, paymentActions }: { invoice: Invoice; paymentActions?: (payment: Invoice['payments'][number]) => ReactNode }) {
   const money = (minor: number) => formatMoney(minor, invoice.currency);
   const bill = invoice.bill_to ?? {}, issuer = invoice.issuer ?? {};
   const address = (row: Record<string, string>) => [row.company_name || row.display_name, row.address_line1, row.address_line2, [row.postal_code, row.city].filter(Boolean).join(' '), row.country].filter(Boolean);
@@ -138,7 +138,8 @@ export function InvoiceBody({ invoice }: { invoice: Invoice }) {
       {invoice.amount_credited_minor > 0 && <div><dt>{t('billing.invoice.credited')}</dt><dd>{money(invoice.amount_credited_minor)}</dd></div>}
       <div className="blGrand"><dt>{t('billing.invoice.amountDue')}</dt><dd>{money(invoice.amount_due_minor)}</dd></div>
     </dl>
-    <section><h4>{t('billing.invoice.payments')}</h4>{invoice.payments.length ? <ul className="blList">{invoice.payments.map((p) => <li key={p.id}><strong>{money(p.amount_minor)}</strong><span>{t(`billing.method.${p.method}` as MessageKey)}</span><span className="muted">{date(p.received_at)}</span>{p.reference && <span className="muted" dir="auto">{t('billing.invoice.reference', { reference: p.reference })}</span>}{p.has_proof && <span className="muted">{t('billing.invoice.proof', { name: p.proof_name ?? '-' })}</span>}</li>)}</ul> : <p className="muted">{t('billing.invoice.noPayments')}</p>}</section>
+    <section><h4>{t('billing.invoice.payments')}</h4>{invoice.payments.length ? <ul className="blList">{invoice.payments.map((p) => <li key={p.id}><strong>{money(p.amount_minor)}</strong><span>{t(`billing.method.${p.method}` as MessageKey)}</span><span className="muted">{date(p.received_at)}</span>{p.reference && <span className="muted" dir="auto">{t('billing.invoice.reference', { reference: p.reference })}</span>}{p.has_proof && <span className="muted">{t('billing.invoice.proof', { name: p.proof_name ?? '-' })}</span>}{(p.refunded_minor ?? 0) > 0 && <span className="muted">{t('billing.refund.refundedOf', { amount: money(p.refunded_minor ?? 0) })}</span>}{paymentActions && <span className="cellActions">{paymentActions(p)}</span>}</li>)}</ul> : <p className="muted">{t('billing.invoice.noPayments')}</p>}</section>
+    {(invoice.refunds?.length ?? 0) > 0 && <section><h4>{t('billing.refund.title')}</h4><ul className="blList">{invoice.refunds!.map((r) => <li key={r.id}><strong>{money(r.amount_minor)}</strong><Badge tone={r.status === 'succeeded' ? 'success' : r.status === 'failed' ? 'dangerTone' : 'warning'}>{t(`billing.refund.status.${r.status}` as MessageKey)}</Badge><span>{r.provider ? t('billing.refund.byProvider', { provider: r.provider === 'moyasar' ? 'Moyasar' : r.provider }) : t('billing.refund.byHand')}</span><span className="muted">{date(r.created_at)}</span><span className="muted" dir="auto">{r.reason}</span>{r.failure && <span className="muted" dir="auto">{r.failure}</span>}</li>)}</ul></section>}
     {invoice.credit_notes.length > 0 && <section><h4>{t('billing.invoice.creditNotes')}</h4><ul className="blList">{invoice.credit_notes.map((n) => <li key={n.id}><strong dir="ltr">{n.number}</strong><span>{money(n.total_minor)}</span><span className="muted">{date(n.issued_at)}</span><span className="muted" dir="auto">{n.reason}</span></li>)}</ul></section>}
     {invoice.status === 'open' && <BankDetailsBlock bank={invoice.bank_details} reference={invoice.number} />}
   </div>;

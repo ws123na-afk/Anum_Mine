@@ -18,11 +18,15 @@ const viewports = [
   { width: 1440, height: 900 }, { width: 1366, height: 768 }, { width: 1024, height: 768 }, { width: 768, height: 1024 }, { width: 390, height: 844 },
 ];
 
-/** Answers GET /health like the API and records every other API call, which a public page must never make. */
+/** No company details entered yet: GET /api/v1/public/legal as a fresh deployment answers it. */
+const EMPTY_LEGAL = { configured: false, company: {}, values: {}, published: [], missing: {} };
+
+/** Answers GET /health and the public legal facts like the API, and records every other API call, which a public page must never make. */
 async function mockHealth(page: Page, answer: 'ok' | 'down' | 'error' = 'ok'): Promise<string[]> {
   const others: string[] = [];
   await page.route(`${API}/**`, async (route) => {
     const url = new URL(route.request().url());
+    if (url.pathname === '/api/v1/public/legal' && !route.request().headers().authorization) return route.fulfill({ status: 200, json: EMPTY_LEGAL, headers: { 'access-control-allow-origin': '*' } });
     if (url.pathname !== '/health') { others.push(url.pathname); return route.fulfill({ status: 401, json: { detail: 'Not signed in' } }); }
     if (answer === 'down') return route.abort('connectionrefused');
     if (answer === 'error') return route.fulfill({ status: 503, json: { detail: 'unavailable' } });
@@ -50,7 +54,7 @@ for (const doc of legal) {
     // The source's own DRAFT line is replaced by the banner; owner facts are marked.
     await expect(page.locator('.legalBody')).not.toContainText('DRAFT, owner and a lawyer');
     await expect(page.locator('.legalBody mark.placeholder').first()).toBeVisible();
-    await expect(page.getByText('Last updated: {{EFFECTIVE_DATE}}')).toBeVisible();
+    await expect(page.locator('.publicMeta')).toContainText('Last updated: Not set yet EFFECTIVE_DATE');
     // Every section is in the contents list and the list jumps to it.
     const firstEntry = page.locator('.legalToc a').first();
     await expect(firstEntry).toBeVisible();

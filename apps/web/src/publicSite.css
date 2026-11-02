@@ -56,7 +56,18 @@
 .legalBody a { color: var(--d-sky); overflow-wrap: anywhere; }
 .legalBody code { background: var(--d-glass-2); border-radius: 6px; font-family: var(--d-mono); font-size: .9em; overflow-wrap: anywhere; padding: 1px 5px; }
 .legalBody blockquote { border-inline-start: 3px solid var(--d-line-strong); color: var(--d-muted); padding-inline-start: var(--d-s3); }
-.legalBody mark.placeholder, .publicMeta mark.placeholder { background: rgb(var(--c-warn) / .18); border-radius: 4px; color: var(--d-warn); font-family: var(--d-mono); font-size: .88em; overflow-wrap: anywhere; padding: 0 4px; }
+.legalBody mark.placeholder, .publicMeta mark.placeholder { background: rgb(var(--c-warn) / .18); border-radius: 4px; color: var(--d-warn); font-size: .92em; font-weight: 600; overflow-wrap: anywhere; padding: 0 4px; }
+.legalBody mark.placeholder small, .publicMeta mark.placeholder small { font-family: var(--d-mono); font-size: .8em; font-weight: 400; opacity: .85; }
+.companyCard, .rightsPanel { background: var(--d-glass-1); border: 1px solid var(--d-line); border-radius: var(--d-r-control); margin-bottom: var(--d-s5); max-width: 760px; padding: var(--d-s4); }
+.companyCard h2, .rightsPanel h2 { align-items: center; display: flex; font-size: var(--text-xl); gap: var(--d-s2); margin: 0 0 var(--d-s3); }
+.companyCard dl { display: grid; gap: var(--d-s2) var(--d-s4); grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); margin: 0; }
+.companyCard dt { color: var(--d-faint); font-size: var(--text-sm); }
+.companyCard dd { margin: 0; overflow-wrap: anywhere; }
+.rightsPanel { margin: var(--d-s6) 0 0; }
+.rightsPanel ul { display: grid; gap: var(--d-s3); list-style: none; margin: var(--d-s3) 0; padding: 0; }
+.rightsPanel li { display: grid; gap: var(--d-s1); }
+.rightsPanel li span { color: var(--d-muted); font-size: var(--text-md); }
+.publicAction { align-items: center; color: var(--d-sky); display: inline-flex; font-weight: 600; gap: var(--d-s2); min-height: 32px; }
 .legalTable { border: 1px solid var(--d-line); border-radius: var(--d-r-control); margin: 0 0 var(--d-s4); max-width: 100%; overflow-x: auto; }
 .legalTable table { border-collapse: collapse; font-size: var(--text-md); min-width: 560px; width: 100%; }
 .legalTable th, .legalTable td { border-bottom: 1px solid var(--d-line); padding: var(--d-s2) var(--d-s3); text-align: start; vertical-align: top; }

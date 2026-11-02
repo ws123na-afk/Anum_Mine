@@ -74,7 +74,17 @@ export function readLegalDocument(markdown: string): LegalDocument {
     if (last && updated === null) { updated = last[1].trim(); continue; }
     body.push(line);
   }
-  return { title, updated, body: body.join('\n').trim(), placeholders: placeholdersIn(markdown) };
+  const text = body.join('\n').trim();
+  // The DRAFT notice's own `{{PLACEHOLDER}}` example is not a fact to fill in.
+  return { title, updated, body: text, placeholders: placeholdersIn([title, updated ?? '', text].join('\n')) };
+}
+
+/** The placeholder name without braces (`{{LEGAL_ENTITY_NAME}}` to `LEGAL_ENTITY_NAME`). */
+export const placeholderKey = (placeholder: string): string => placeholder.replace(/^\{\{|\}\}$/g, '');
+
+/** The placeholders of a document that the company details and legal facts do not fill yet. */
+export function remainingPlaceholders(doc: Pick<LegalDocument, 'placeholders'>, values: Record<string, string | null> | null | undefined): string[] {
+  return doc.placeholders.filter((p) => !values?.[placeholderKey(p)]);
 }
 
 /**
@@ -83,9 +93,30 @@ export function readLegalDocument(markdown: string): LegalDocument {
  */
 export type LegalState = 'published' | 'draft' | 'blocked';
 
-export function legalState(id: LegalDocId, doc: LegalDocument, published: Set<LegalDocId>): LegalState {
+export function legalState(id: LegalDocId, doc: LegalDocument, published: Set<LegalDocId>, values?: Record<string, string | null> | null): LegalState {
   if (!published.has(id)) return 'draft';
-  return doc.placeholders.length ? 'blocked' : 'published';
+  return remainingPlaceholders(doc, values).length ? 'blocked' : 'published';
+}
+
+/**
+ * Published ids: the build's VITE_ANUM_LEGAL_PUBLISHED, plus the documents the platform owner marked
+ * published (after a lawyer's review) in the console, as the public legal facts report them.
+ */
+export function publishedIds(build: Set<LegalDocId>, fromApi: readonly string[] | null | undefined): Set<LegalDocId> {
+  const out = new Set(build);
+  for (const id of fromApi ?? []) if (isLegalDocId(id)) out.add(id);
+  return out;
+}
+
+/** Text split into plain parts, filled values and `{{PLACEHOLDER}}`s still missing. */
+export type FilledPart = { text: string; kind: 'text' | 'value' | 'missing'; key?: string };
+export function fillPlaceholders(text: string, values: Record<string, string | null> | null | undefined): FilledPart[] {
+  return splitPlaceholders(text).map((part) => {
+    if (!part.placeholder) return { text: part.text, kind: 'text' };
+    const key = placeholderKey(part.text);
+    const value = values?.[key];
+    return value ? { text: value, kind: 'value', key } : { text: part.text, kind: 'missing', key };
+  });
 }
 
 // Links between the documents are written as relative .md links (docs:check verifies them) and as

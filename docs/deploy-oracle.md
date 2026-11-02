@@ -511,6 +511,8 @@ Nightly (`anum-backup.timer` → `infra/oracle/backup.sh backup`):
 
 Files are `0600` in `0700` directories owned by uid 10001. Workspace files are not in the dump: bucket versioning covers them.
 
+After steps 1 and 2 and after step 4, `backup.sh` writes `status/last-local.json` and `status/last-offsite.json` under the backup directory (`ok`, `finished_at`, `last_success_at`, `keep_days`; no paths or secrets, world-readable). The API mounts that folder read-only (`ANUM_BACKUP_STATUS_DIR`) and the platform console's Ready to sell checklist shows the last result ([Ready to sell](selling-readiness.md#backups)).
+
 Commands (on the VM, from `~/anum/infra/oracle`):
 
 | Command | What it does |

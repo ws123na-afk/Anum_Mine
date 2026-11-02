@@ -304,7 +304,9 @@ def overview(context: TenantContext = Depends(tenant_context)) -> dict[str, Any]
         "currency": sub["currency"] if sub else "SAR",
         "payment": {
             "bank_transfer": bank_details(issuer or {}),
-            "card_enabled": bool(issuer and issuer["stripe_enabled"] and issuer["stripe_secret_ciphertext"]),
+            "card_enabled": bool(issuer and ((issuer["stripe_enabled"] and issuer["stripe_secret_ciphertext"])
+                                             or (issuer.get("moyasar_enabled") and issuer.get("moyasar_secret_ciphertext")))),
+            "card_provider": _card_provider(issuer) if issuer else None,
         },
         "issuer": {"name": (issuer or {}).get("issuer_name") or "", "email": (issuer or {}).get("issuer_email") or ""},
     }
@@ -468,6 +470,15 @@ def _stripe_secret(issuer: dict[str, Any], field: str) -> str | None:
     return secret_cipher().decrypt(ciphertext)
 
 
+def _card_provider(issuer: dict[str, Any]) -> str | None:
+    """Which card provider takes payments: Moyasar (Saudi, mada) when on, else Stripe, else none."""
+    if issuer.get("moyasar_enabled") and issuer.get("moyasar_secret_ciphertext"):
+        return "moyasar"
+    if issuer.get("stripe_enabled") and issuer.get("stripe_secret_ciphertext"):
+        return "stripe"
+    return None
+
+
 @router.post("/invoices/{invoice_id}/checkout")
 def checkout(invoice_id: str, context: TenantContext = Depends(tenant_context), repository: AnumRepository = Depends(repository_context)) -> dict[str, Any]:
     _admin(context, manage=True)
@@ -476,20 +487,30 @@ def checkout(invoice_id: str, context: TenantContext = Depends(tenant_context), 
         issuer = svc.issuer_settings(rows, invoice["issuer_tenant_id"])
     if invoice["status"] != "open" or int(invoice["amount_due_minor"]) <= 0:
         raise HTTPException(status_code=409, detail=f"Invoice {invoice['number']} has nothing left to pay.")
-    secret = _stripe_secret(issuer, "stripe_secret_ciphertext")
-    if secret is None:
+    provider_name = _card_provider(issuer)
+    if provider_name is None:
         raise HTTPException(status_code=409, detail="Card payments are not turned on; pay by bank transfer with the details on the invoice.")
     base = (settings.web_app_url or "").rstrip("/")
     if not base:
         raise HTTPException(status_code=409, detail="Card payments need ANUM_WEB_APP_URL set on the server; pay by bank transfer for now.")
+    success_url, cancel_url = f"{base}/#settings/billing?paid={invoice_id}", f"{base}/#settings/billing?invoice={invoice_id}"
     try:
-        session = StripeProvider(secret).create_checkout(
-            invoice=invoice, success_url=f"{base}/#settings/billing?paid={invoice_id}", cancel_url=f"{base}/#settings/billing?invoice={invoice_id}",
-        )
+        if provider_name == "moyasar":
+            from .selling import moyasar_for
+
+            provider = moyasar_for(issuer)
+            if provider is None:
+                raise ProviderError("Moyasar is not set up; pay by bank transfer for now.")
+            session = provider.create_checkout(invoice=invoice, success_url=success_url, cancel_url=cancel_url)
+        else:
+            secret = _stripe_secret(issuer, "stripe_secret_ciphertext")
+            if secret is None:
+                raise ProviderError("Stripe is not set up; pay by bank transfer for now.")
+            session = StripeProvider(secret).create_checkout(invoice=invoice, success_url=success_url, cancel_url=cancel_url)
     except ProviderError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from None
-    _audit(repository, context, "billing.checkout.create", invoice_id, {"provider": "stripe", "amount_minor": invoice["amount_due_minor"]})
-    return {"url": session.url, "session_id": session.session_id}
+    _audit(repository, context, "billing.checkout.create", invoice_id, {"provider": provider_name, "amount_minor": invoice["amount_due_minor"]})
+    return {"url": session.url, "session_id": session.session_id, "provider": provider_name}
 
 
 # ----------------------------------------------------------------------------- onboarding checklist
