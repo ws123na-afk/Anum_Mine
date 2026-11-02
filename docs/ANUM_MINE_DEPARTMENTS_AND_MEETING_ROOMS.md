@@ -63,6 +63,10 @@ Staff desks: the staff desk mapping (which desk a role sits at) is built in anot
 - Starting a meeting: in a meeting room with no live meeting the owner sees **Start a meeting here**, which opens the meeting sessions panel with that room chosen. The panel's create form has a room list (this workspace's meeting rooms, or no room). Anyone else sees who can start one.
 - Not built: a scheduled or paused meeting does not mark the room (only `active` does); one live meeting is shown per room; moving a meeting to another room after creation is not offered; the executive building's own room panel (`renderRoomPanel`) is not replaced.
 
+## 3a. Each office's blueprint
+
+The roles above, the Staff my campus roles and the Green Concrete people are now grouped per office kind in the [office staffing blueprint](ANUM_MINE_OFFICE_STAFFING.md): Marketing, Technology, Research and Legal rooms (O3) each map to a unit with its roles, their skills, tools, rules and data sources, and the Command Center's Offices and agents tab shows the gap per office and applies it with an owner's click.
+
 ## 4. Tests
 
 - API unit: `tests/test_office_provisioning.py` (catalogue honesty, least privilege, cost caps, new departments, every non-missing tool and skill resolves against the live registry), `tests/test_office_layout.py` (enum, constraint literal and API literal in step), `tests/test_office_starter_campus.py` (departments of the master list, the fill rule).
