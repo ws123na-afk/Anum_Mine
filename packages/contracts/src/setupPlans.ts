@@ -4,7 +4,7 @@
 export type SetupPlanPhase = 'pilot' | 'all';
 export type SetupPlanSection =
   | 'workspaces' | 'governance' | 'knowledge' | 'budget' | 'skills' | 'agents' | 'assistants'
-  | 'commands' | 'automations' | 'manual' | 'unsupported';
+  | 'commands' | 'automations' | 'controls' | 'home' | 'offices' | 'business_agents' | 'manual' | 'unsupported';
 export type SetupPlanAction =
   | 'create' | 'update' | 'present' | 'kept' | 'skipped' | 'later' | 'manual' | 'builtin' | 'unsupported';
 export type SetupPlanOutcome =
@@ -46,10 +46,21 @@ export interface SetupPlanSummary {
 
 export interface SetupPlanSupportNote { label: string; plan: string; support: 'supported' | 'partial' | 'unsupported'; anum: string }
 
+/** What the person chose on the page; the preview and the apply take the same options. */
+export interface SetupPlanOptions {
+  /** Also make the plan's business agents in each business workspace (whole plan; checked per workspace). */
+  business_workspaces: boolean;
+  /** New and untouched plan automations run as their agent (its tools, autonomy, caps and loop limits). */
+  run_automations_as_agents: boolean;
+  /** Seat each agent at a free desk of its headquarters office, where one exists. */
+  seat_in_offices: boolean;
+}
+
 export interface SetupPlanPreview {
   plan: SetupPlanSummary;
   phase: SetupPlanPhase;
   overwrite_edited: boolean;
+  options: SetupPlanOptions;
   access: { owner: boolean; organization_admin: boolean; can_apply: boolean; notes: string[] };
   budget_aed: number;
   budget_usd: number;
@@ -59,7 +70,25 @@ export interface SetupPlanPreview {
   memory_rules: SetupPlanSupportNote[];
 }
 
-export interface SetupPlanApplyRequest { phase: SetupPlanPhase; overwrite_edited: boolean; plan_version: number }
+export interface SetupPlanApplyRequest extends SetupPlanOptions { phase: SetupPlanPhase; overwrite_edited: boolean; plan_version: number }
+
+/** The live checklist (GET /setup-plans/{id}/checklist): each manual step read from real state. */
+export type SetupChecklistState = 'done' | 'todo' | 'partial' | 'cannot_check' | 'no_access';
+
+export interface SetupChecklistDetail { label: string; state: SetupChecklistState; note: string | null }
+
+export interface SetupChecklistItem {
+  key: string;
+  check: string | null;
+  title: string;
+  detail: string;
+  state: SetupChecklistState;
+  summary: string;
+  view: string | null;
+  details: SetupChecklistDetail[];
+}
+
+export interface SetupChecklist { plan_id: string; done: number; total: number; items: SetupChecklistItem[] }
 
 export interface SetupPlanApplyResult extends SetupPlanPreview {
   outcomes: Record<string, number>;

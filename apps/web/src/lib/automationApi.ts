@@ -71,3 +71,9 @@ export const setTriggerEnabled = (triggerId: string, enabled: boolean) =>
 export const rotateTriggerSecret = (triggerId: string) => apiRequest<TriggerWithSecret>(`${base}/triggers/${id(triggerId)}/rotate-secret`, json('POST'));
 export const takeOverTrigger = (triggerId: string) => apiRequest<AutomationTrigger>(`${base}/triggers/${id(triggerId)}/take-over`, json('POST'));
 export const deleteTrigger = (triggerId: string) => remove(`${base}/triggers/${id(triggerId)}`);
+
+/** Agents an automation's task step may run as: the ones the caller can see (docs/automation.md#run-as-an-agent). */
+export async function listRunAsAgents(): Promise<{ id: string; name: string; status: string }[]> {
+  const page = await apiRequest<{ items: { id: string; name: string; status: string }[] }>('/api/v1/agents?limit=100', { method: 'GET' });
+  return page.items.map((agent) => ({ id: agent.id, name: agent.name, status: agent.status }));
+}

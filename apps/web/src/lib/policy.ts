@@ -70,3 +70,17 @@ export function twoPersonWarning(draft: PolicyDraft, members: WorkspaceMember[] 
   if (owners >= 2) return null;
   return owners === 1 ? t('policy.warnOneOwner') : t('policy.warnNoOwner');
 }
+
+// ---------------------------------------------------------------- approval-ageing reminder (docs/approvals-and-risk.md#approval-ageing-reminder)
+
+export interface ApprovalReminderSettings { reminder_hours: number | null; updated_by: string | null; updated_at: string | null }
+
+/** The hours an owner can choose: an approval expires after 24, so 1 to 23. */
+export const REMINDER_HOURS: readonly number[] = [1, 2, 3, 4, 6, 8, 12, 18, 23];
+
+/** The choices shown: the fixed list plus a stored value that is not in it, in order. */
+export function reminderChoices(current: number | null): number[] {
+  const values = new Set(REMINDER_HOURS);
+  if (current !== null) values.add(current);
+  return [...values].sort((a, b) => a - b);
+}

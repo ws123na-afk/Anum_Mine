@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 
 // Setup plan (docs/setup-plan.md): preview, confirm, apply, result; permission denied, errors and
@@ -7,6 +8,8 @@ import { expect, test, type Page } from '@playwright/test';
 type Json = Record<string, any>;
 const pilot: Json = JSON.parse(readFileSync(new URL('./support/setupPlanFixture.json', import.meta.url), 'utf8'));
 const checksFixture: Json = JSON.parse(readFileSync(new URL('./support/setupPlanChecks.json', import.meta.url), 'utf8'));
+const checklistFixture: Json = JSON.parse(readFileSync(new URL('./support/setupPlanChecklist.json', import.meta.url), 'utf8'));
+const DEFAULTS = { business_workspaces: false, run_automations_as_agents: false, seat_in_offices: true };
 const now = new Date().toISOString();
 const envelope = (code: string, message: string) => ({ error: { code, message, correlation_id: 'corr_e2e', details: [] } });
 const denied = 'Only a workspace owner or an organization administrator can preview and apply a setup plan, because it creates agents, automations and organization policy.';
@@ -58,6 +61,7 @@ async function mockApi(page: Page, options: Options = {}) {
       return json(options.empty ? [] : [current.plan]);
     }
     if (path.endsWith('/checks') && method === 'GET') return json(checks);
+    if (path.endsWith('/checklist') && method === 'GET') return json(checklistFixture);
     if (path.includes('/checks/') && method === 'PUT') {
       const id = path.split('/').pop()!;
       const body = request.postDataJSON() as Json;
@@ -75,6 +79,11 @@ async function mockApi(page: Page, options: Options = {}) {
       const preview = clone(current);
       preview.phase = phase;
       preview.overwrite_edited = url.searchParams.get('overwrite_edited') === 'true';
+      preview.options = {
+        business_workspaces: url.searchParams.get('business_workspaces') === 'true',
+        run_automations_as_agents: url.searchParams.get('run_automations_as_agents') === 'true',
+        seat_in_offices: url.searchParams.get('seat_in_offices') !== 'false',
+      };
       if (previews++ === 0 && options.slowFirstPreviewMs) {
         // The first answer arrives after a later one, as on a slow network.
         await new Promise((resolve) => setTimeout(resolve, options.slowFirstPreviewMs));
@@ -119,7 +128,7 @@ test('an owner previews the pilot, confirms and sees what was created', async ({
   await expect(page.getByRole('heading', { name: /^Applied at / })).toBeVisible();
   await expect(page.locator('.planOutcomes')).toContainText('Created');
   const apply = calls.find((c) => c.method === 'POST' && c.path.endsWith('/apply'));
-  expect(apply?.body).toEqual({ phase: 'pilot', overwrite_edited: false, plan_version: 3 });
+  expect(apply?.body).toEqual({ phase: 'pilot', overwrite_edited: false, plan_version: 4, ...DEFAULTS });
   // The fresh preview says there is nothing left to change.
   await expect(page.getByRole('button', { name: 'Nothing to change' })).toBeDisabled();
 });
@@ -143,7 +152,7 @@ test('the whole plan and "Replace my changes" are sent as chosen, and items can 
   await page.getByRole('alertdialog').getByRole('button', { name: 'Apply now' }).click();
   await expect(page.getByRole('heading', { name: /^Applied at / })).toBeVisible();
   const apply = calls.find((c) => c.method === 'POST' && c.path.endsWith('/apply'));
-  expect(apply?.body).toEqual({ phase: 'all', overwrite_edited: true, plan_version: 3 });
+  expect(apply?.body).toEqual({ phase: 'all', overwrite_edited: true, plan_version: 4, ...DEFAULTS });
 });
 
 test('a late answer for an earlier choice never replaces the newest preview, and apply sends what is shown', async ({ page }) => {
@@ -160,7 +169,7 @@ test('a late answer for an earlier choice never replaces the newest preview, and
   await page.getByRole('alertdialog').getByRole('button', { name: 'Apply now' }).click();
   await expect(page.getByRole('heading', { name: /^Applied at / })).toBeVisible();
   const apply = calls.find((c) => c.method === 'POST' && c.path.endsWith('/apply'));
-  expect(apply?.body).toEqual({ phase: 'all', overwrite_edited: false, plan_version: 3 });
+  expect(apply?.body).toEqual({ phase: 'all', overwrite_edited: false, plan_version: 4, ...DEFAULTS });
 });
 
 test('pilot checks: record a result with a note and evidence, and the Week 1 gate follows', async ({ page }) => {
@@ -223,6 +232,42 @@ test('an empty server explains where plans come from', async ({ page }) => {
   await expect(page.getByText('No setup plan is available on this server.')).toBeVisible();
 });
 
+test('the options are previewed and sent with the apply', async ({ page }) => {
+  const calls = await mockApi(page);
+  await page.goto('/#setup');
+  await page.getByRole('button', { name: 'Whole plan' }).click();
+  await page.getByLabel('Run automations as their agent').check();
+  await page.getByLabel('Also add agents to each business workspace').check();
+  await page.getByLabel('Seat agents in their office').uncheck();
+  await expect.poll(() => calls.some((c) => c.path.endsWith('/preview') && c.method === 'GET')).toBe(true);
+  await expect(page.getByRole('button', { name: 'Apply whole plan' })).toBeEnabled();
+  await page.getByRole('button', { name: 'Apply whole plan' }).click();
+  await expect(page.getByRole('alertdialog')).toContainText('With these choices: Also add agents to each business workspace, Run automations as their agent.');
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Apply now' }).click();
+  await expect(page.getByRole('heading', { name: /^Applied at / })).toBeVisible();
+  const apply = calls.find((c) => c.method === 'POST' && c.path.endsWith('/apply'));
+  expect(apply?.body).toEqual({ phase: 'all', overwrite_edited: false, plan_version: 4, business_workspaces: true, run_automations_as_agents: true, seat_in_offices: false });
+});
+
+test('your checklist reads real state, puts what is left first and links to where to fix it', async ({ page }) => {
+  await mockApi(page);
+  await page.goto('/#setup');
+  await page.getByRole('button', { name: /Your checklist/ }).click();
+  await expect(page.getByRole('heading', { name: /of 12 done/ })).toBeVisible();
+  const rows = page.locator('.planListRow');
+  await expect(rows).toHaveCount(12);
+  await expect(rows.first().locator('.statusBadge').first()).toHaveText('To do');
+  const twoStep = rows.filter({ hasText: 'two-step sign-in' });
+  await expect(twoStep).toContainText('Check it yourself');
+  await expect(twoStep).toContainText('Keycloak');
+  const integrations = rows.filter({ hasText: 'Connect integrations' });
+  await expect(integrations.getByRole('link', { name: /Open the page for Connect integrations/ })).toHaveAttribute('href', '#integrations');
+  await integrations.getByText('Details').click();
+  await expect(integrations).toContainText('Mailbox');
+  const serious = (await new AxeBuilder({ page }).include('main').analyze()).violations.filter((item) => item.impact === 'critical' || item.impact === 'serious');
+  expect(serious).toEqual([]);
+});
+
 test('a plan changed since the preview asks to review again', async ({ page }) => {
   await mockApi(page, { applyFails: 409 });
   await page.goto('/#setup');
@@ -239,6 +284,15 @@ test('the page reads right to left in Arabic', async ({ page }) => {
   expect(await page.evaluate(() => document.documentElement.dir)).toBe('rtl');
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   expect(overflow).toBeLessThanOrEqual(0);
+  await expect(page.getByText('أجلس الوكلاء في مكاتبهم')).toBeVisible();
+  const serious = (await new AxeBuilder({ page }).include('main').analyze()).violations.filter((item) => item.impact === 'critical' || item.impact === 'serious');
+  expect(serious).toEqual([]);
+  await page.getByRole('button', { name: /قائمة مهامك/ }).click();
+  await expect(page.getByRole('heading', { name: /أُنجز .* من 12/ })).toBeVisible();
+  const listOverflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  expect(listOverflow).toBeLessThanOrEqual(0);
+  const listSerious = (await new AxeBuilder({ page }).include('main').analyze()).violations.filter((item) => item.impact === 'critical' || item.impact === 'serious');
+  expect(listSerious).toEqual([]);
 });
 
 for (const size of [
@@ -267,5 +321,14 @@ for (const size of [
     const checksOverflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
     expect(checksOverflow).toBeLessThanOrEqual(0);
     if (process.env.ANUM_SCREENSHOTS) await page.screenshot({ path: testInfo.outputPath(`checks-${size.width}.png`), fullPage: false });
+    await page.getByRole('button', { name: /Your checklist/ }).click();
+    await expect(page.locator('.planListRow').first()).toBeVisible();
+    const listOverflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+    expect(listOverflow).toBeLessThanOrEqual(0);
+    for (const link of await page.locator('.planListRow .planOpen').all()) {
+      const box = (await link.boundingBox())!;
+      expect(box.x + box.width).toBeLessThanOrEqual(size.width);
+    }
+    if (process.env.ANUM_SCREENSHOTS) await page.screenshot({ path: testInfo.outputPath(`list-${size.width}.png`), fullPage: false });
   });
 }

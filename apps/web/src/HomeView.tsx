@@ -3,9 +3,9 @@
 // meetings, automation alerts, budget use), Today's focus, what ANUM noticed, recent activity, pinned
 // apps and quick links into every area. Giving orders is the ANUM Command page; Home links to it.
 // Every number comes from the workspace's API (lib/homeApi.ts and the shell's tasks and approvals).
-import { useCallback, useEffect, useId, useMemo, useState, type FormEvent, type ReactNode } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useId, useMemo, useState, type FormEvent, type ReactNode } from 'react';
 import {
-  ArrowDown, ArrowRight, ArrowUp, BellRing, Bot, CalendarDays, CheckCircle2, ExternalLink, FileText, Inbox, LayoutGrid, Lightbulb, ListTodo,
+  ArrowDown, ArrowRight, ArrowUp, BellRing, Settings2, Bot, CalendarDays, CheckCircle2, ExternalLink, FileText, Inbox, LayoutGrid, Lightbulb, ListTodo,
   Mail, MessageCircle, MessageSquare, Mic, Pin as PinIcon, Plus, RefreshCw, ShieldCheck, Sparkles, Trash2, Wallet, Workflow, X, XCircle,
 } from 'lucide-react';
 import type { Approval, ModelBudgetOverview, Task } from '@anum/contracts';
@@ -19,8 +19,10 @@ import { commandTone } from './lib/commands';
 import { listEmailAccounts } from './lib/emailApi';
 import {
   PINNABLE_FEATURES, QUICK_LINKS, budgetUse, dayPart, greetingName, movePin, page, pendingApprovals, sourceState, taskGlance, todaysMeetings,
-  validLink, viewForFeature, type CalendarEvent, type FocusItem, type HomeSummary, type HomeTarget, type Insight, type Pin, type PinKind,
+  validLink, viewForFeature, WIDE_SECTIONS, type CalendarEvent, type FocusItem, type HomeLayout, type HomeSection, type HomeSummary, type HomeTarget, type Insight, type Pin, type PinKind,
 } from './lib/home';
+
+const HomeArrangeDialog = lazy(() => import('./HomeArrangeDialog'));
 import * as homeApi from './lib/homeApi';
 import type { View } from './lib/shell';
 import { viewLabel } from './lib/shell';
@@ -63,6 +65,10 @@ export function HomeView({ tasks, approvals, loading, userName, owner, alerts, b
   const [meetings, setMeetings] = useState<Load<CalendarEvent[]>>({ state: 'loading' });
   const [budget, setBudget] = useState<Load<ModelBudgetOverview>>({ state: 'loading' });
   const [now, setNow] = useState(() => new Date());
+  const [layout, setLayout] = useState<HomeLayout | null>(null);
+  const [arranging, setArranging] = useState(false);
+  // The person's own order (docs/home.md#arrange-home); a failed read keeps the default page.
+  useEffect(() => { void homeApi.getLayout().then(setLayout).catch(() => setLayout(null)); }, []);
 
   const loadSummary = useCallback(() => settle(setSummary, homeApi.getSummary()), []);
   const loadInsights = useCallback(() => settle(setInsights, homeApi.getInsights()), []);
@@ -91,23 +97,8 @@ export function HomeView({ tasks, approvals, loading, userName, owner, alerts, b
   const glance = useMemo(() => taskGlance(tasks), [tasks]);
   const failedRuns = summary.state === 'ready' ? summary.value.counts.automations ?? 0 : 0;
 
-  return <div className="homePage">
-    <header className="homeHeader">
-      <div>
-        <p className="eyebrow">{formatDateTime(now, { weekday: 'long', day: 'numeric', month: 'long' })}</p>
-        <h1 id="view-title">{name ? greeting : t(`home.greetingUnnamed.${dayPart(now)}` as MessageKey)}</h1>
-        <p className="homeLead">{t('home.lead')}</p>
-      </div>
-      <div className="homeHeaderActions">
-        <button type="button" className="secondary smallButton" onClick={() => { loadAll(); loadBudget(); }}><RefreshCw aria-hidden="true" />{t('home.refresh')}</button>
-        <button type="button" className="primaryButton" onClick={() => onGo('command')}><Sparkles aria-hidden="true" />{t('home.giveOrder')}</button>
-      </div>
-    </header>
-
-    {/* The first-run billing checklist for billing admins (docs/billing.md); hidden for everyone else. */}
-    <OnboardingChecklist />
-
-    <section className="glance" aria-labelledby="glance-title">
+  const parts: Record<HomeSection, ReactNode> = {
+    glance: <section className="glance" aria-labelledby="glance-title">
       <h2 id="glance-title" className="sectionTitle">{t('home.glance.title')}</h2>
       <ul className="glanceGrid">
         <Glance icon={<ShieldCheck />} tone={waiting.length ? 'warning' : 'ok'} label={t('home.glance.approvals')} value={loading && !approvals.length ? null : String(waiting.length)}
@@ -132,30 +123,52 @@ export function HomeView({ tasks, approvals, loading, userName, owner, alerts, b
           detail={alerts.length + failedRuns ? t('home.glance.automationsDetail', { count: alerts.length + failedRuns }) : t('home.glance.automationsNone')} onOpen={() => onGo('automation')} />
         <BudgetGlance budget={budget} onOpen={() => onGo('budgets')} />
       </ul>
-    </section>
-
-    <div className="homeGrid">
-      <div className="homeColumn">
-        <ApprovalsPanel waiting={waiting} busy={busy} decide={decide} loading={loading && !approvals.length} onOpenAll={() => onGo('approvals')} onOpenTask={onOpenTask} />
-        <FocusPanel summary={summary} onRetry={loadSummary} onOpen={(target) => openTarget(target, onGo, onOpenTask)} onCommand={() => onGo('command')} />
-        <ActivityPanel summary={summary} onRetry={loadSummary} onOpen={(target) => openTarget(target, onGo, onOpenTask)} onGo={onGo} />
-      </div>
-      <div className="homeColumn">
-        <MeetingsPanel meetings={meetings} now={now} onRetry={loadMeetings} onGo={onGo} />
-        <AlertsPanel alerts={alerts} summary={summary} onOpenAlert={onOpenAlert} onGo={onGo} onOpenTarget={(target) => openTarget(target, onGo, onOpenTask)} />
-        <InsightsPanel insights={insights} onRetry={loadInsights} onChanged={loadInsights}
-          onOpen={(target) => openTarget(target, onGo, onOpenTask)} onCommand={onCommand} />
-      </div>
-    </div>
-
-    <PinsPanel pins={pins} onRetry={loadPins} onChanged={setPins} onGo={onGo} onSwitchWorkspace={onSwitchWorkspace} />
-
-    <nav className="quickLinks" aria-labelledby="links-title">
+    </section>,
+    decisions: <ApprovalsPanel waiting={waiting} busy={busy} decide={decide} loading={loading && !approvals.length} onOpenAll={() => onGo('approvals')} onOpenTask={onOpenTask} />,
+    focus: <FocusPanel summary={summary} onRetry={loadSummary} onOpen={(target) => openTarget(target, onGo, onOpenTask)} onCommand={() => onGo('command')} />,
+    activity: <ActivityPanel summary={summary} onRetry={loadSummary} onOpen={(target) => openTarget(target, onGo, onOpenTask)} onGo={onGo} />,
+    meetings: <MeetingsPanel meetings={meetings} now={now} onRetry={loadMeetings} onGo={onGo} />,
+    alerts: <AlertsPanel alerts={alerts} summary={summary} onOpenAlert={onOpenAlert} onGo={onGo} onOpenTarget={(target) => openTarget(target, onGo, onOpenTask)} />,
+    insights: <InsightsPanel insights={insights} onRetry={loadInsights} onChanged={loadInsights}
+          onOpen={(target) => openTarget(target, onGo, onOpenTask)} onCommand={onCommand} />,
+    pinned: <PinsPanel pins={pins} onRetry={loadPins} onChanged={setPins} onGo={onGo} onSwitchWorkspace={onSwitchWorkspace} />,
+    goto: <nav className="quickLinks" aria-labelledby="links-title">
       <h2 id="links-title" className="sectionTitle">{t('home.links.title')}</h2>
       <ul>{QUICK_LINKS.map((view) => <li key={view}><button type="button" className="quickLink" onClick={() => onGo(view)}>
         <span className="quickLinkIcon" aria-hidden="true">{LINK_ICON[view] ?? <LayoutGrid />}</span><span>{viewLabel(view)}</span><ArrowRight className="flipRtl" aria-hidden="true" />
       </button></li>)}</ul>
-    </nav>
+    </nav>,
+  };
+
+  return <div className="homePage">
+    <header className="homeHeader">
+      <div>
+        <p className="eyebrow">{formatDateTime(now, { weekday: 'long', day: 'numeric', month: 'long' })}</p>
+        <h1 id="view-title">{name ? greeting : t(`home.greetingUnnamed.${dayPart(now)}` as MessageKey)}</h1>
+        <p className="homeLead">{t('home.lead')}</p>
+      </div>
+      <div className="homeHeaderActions">
+        <button type="button" className="secondary smallButton" onClick={() => { loadAll(); loadBudget(); }}><RefreshCw aria-hidden="true" />{t('home.refresh')}</button>
+        {layout && <button type="button" className="secondary smallButton" onClick={() => setArranging(true)}><Settings2 aria-hidden="true" />{t('home.arrange.open')}</button>}
+        <button type="button" className="primaryButton" onClick={() => onGo('command')}><Sparkles aria-hidden="true" />{t('home.giveOrder')}</button>
+      </div>
+    </header>
+
+    {/* The first-run billing checklist for billing admins (docs/billing.md); hidden for everyone else. */}
+    <OnboardingChecklist />
+
+    {layout?.customized
+      ? <div className="homeFlow">{layout.sections.map((key) => <div key={key} className={`homeFlowItem ${WIDE_SECTIONS.has(key) ? 'wide' : ''}`}>{parts[key]}</div>)}</div>
+      : <>
+        {parts.glance}
+        <div className="homeGrid">
+          <div className="homeColumn">{parts.decisions}{parts.focus}{parts.activity}</div>
+          <div className="homeColumn">{parts.meetings}{parts.alerts}{parts.insights}</div>
+        </div>
+        {parts.pinned}
+        {parts.goto}
+      </>}
+    {arranging && layout && <Suspense fallback={null}><HomeArrangeDialog layout={layout} onSaved={setLayout} onClose={() => setArranging(false)} /></Suspense>}
   </div>;
 }
 

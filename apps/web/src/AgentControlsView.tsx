@@ -4,6 +4,7 @@
 // `can_manage`, or its 403), never guessed from the token here.
 import { useCallback, useEffect, useId, useState, type ReactNode } from 'react';
 import { Bot, CircleDot, Lock, OctagonX, Play, RefreshCw, Save, Search, ShieldAlert, ShieldCheck } from 'lucide-react';
+import { AgentLoopLimitsPanel } from './AgentLoopLimitsPanel';
 import { ConfirmDialog } from './Dialog';
 import { formatResetDate } from './lib/admin';
 import {
@@ -50,6 +51,7 @@ export function AgentControlsView({ onOpenAgents, onStopChanged }: { onOpenAgent
     {controls && <EmergencyStopCard controls={controls} onChanged={changed} />}
     {controls?.emergency_stop.engaged && controls.can_engage && <HeldPanel key={controls.emergency_stop.changed_at ?? 'held'} />}
     <AgentCapsPanel onOpenAgents={onOpenAgents} />
+    <AgentLoopLimitsPanel onOpenAgents={onOpenAgents} />
   </>;
 }
 

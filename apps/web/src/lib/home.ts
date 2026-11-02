@@ -146,3 +146,32 @@ export function validLink(value: string): boolean {
     return false;
   }
 }
+
+// ---------------------------------------------------------------- arrange Home (docs/home.md#arrange-home)
+
+/** The Home sections an owner chooses and orders, in the default order (the API's HOME_SECTIONS). */
+export const HOME_SECTIONS = ['glance', 'decisions', 'focus', 'activity', 'meetings', 'alerts', 'insights', 'pinned', 'goto'] as const;
+export type HomeSection = typeof HOME_SECTIONS[number];
+export interface HomeLayout { sections: HomeSection[]; hidden: HomeSection[]; default: HomeSection[]; customized: boolean }
+
+/** Sections that take the page's full width when Home follows a chosen order. */
+export const WIDE_SECTIONS: ReadonlySet<HomeSection> = new Set(['glance', 'pinned', 'goto']);
+
+/** Move one section up (-1) or down (+1) in the order; out of range leaves it as it is. */
+export function moveSection(order: readonly HomeSection[], section: HomeSection, step: -1 | 1): HomeSection[] {
+  const index = order.indexOf(section);
+  const target = index + step;
+  if (index < 0 || target < 0 || target >= order.length) return [...order];
+  const next = [...order];
+  [next[index], next[target]] = [next[target], next[index]];
+  return next;
+}
+
+/** The draft the arrange dialog edits: every section in order, each shown or not. */
+export function layoutDraft(layout: Pick<HomeLayout, 'sections'>): { section: HomeSection; shown: boolean }[] {
+  const rest = HOME_SECTIONS.filter((s) => !layout.sections.includes(s));
+  return [...layout.sections.map((section) => ({ section, shown: true })), ...rest.map((section) => ({ section, shown: false }))];
+}
+
+/** The sections to save: the shown ones in their order (at least one). */
+export const layoutToSave = (draft: readonly { section: HomeSection; shown: boolean }[]): HomeSection[] => draft.filter((row) => row.shown).map((row) => row.section);

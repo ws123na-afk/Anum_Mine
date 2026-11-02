@@ -47,6 +47,8 @@ MODULE_PREFIXES = {
     "mail": "/api/v1/mail",
     "mail_ai": "/api/v1/mail/ai",
     "whatsapp": "/api/v1/whatsapp",
+    "contact_consents": "/api/v1/contact-consents",
+    "approval_reminders": "/api/v1/approval-reminders",
 }
 _CALL_WEBHOOK = (
     "The voice provider's signed delivery during a call, not a person's action; call starts, ends, "
