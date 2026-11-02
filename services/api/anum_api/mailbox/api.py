@@ -24,7 +24,7 @@ from pydantic import BaseModel, Field
 from ..agent_tools import ToolCall
 from ..audit import AuditRecord
 from ..authorization import Permission
-from ..dependencies import has_permission, repository_context, require_permission, tenant_context
+from ..dependencies import UnitsOfWork, has_permission, repository_context, require_permission, run_in_unit, tenant_context, units_of_work
 from ..email_api import _pause_for_approval, _retire
 from .. import file_policy
 from ..file_policy import content_disposition
@@ -537,25 +537,25 @@ def update_password(
 
 @router.post("/accounts/{account_id}/check", response_model=AccountView)
 async def check_account(
-    account_id: str, context: TenantContext = Depends(tenant_context), repository: AnumRepository = Depends(repository_context)
+    account_id: str, context: TenantContext = Depends(tenant_context), units: UnitsOfWork = Depends(units_of_work)
 ) -> AccountView:
     """Sign in to the mail server now and record the mailbox's health."""
     _require(context, Permission.EMAIL_READ, READ_DENIED)
     _available(context)
-    account, access = load_access(context, account_id, "read")
+    account, access = await asyncio.to_thread(load_access, context, account_id, "read")
     try:
         await on_server(context, account, lambda server: server.check_login())
     except MailError as exc:
-        _audit(repository, context, "mail.account.check", account.id, "failure", {"reason": exc.kind})
+        await run_in_unit(units, context, _audit, context, "mail.account.check", account.id, "failure", {"reason": exc.kind})
         if access != "owner":
             # A shared mailbox's health is its owner's to record: answer with what this check saw.
             failed = AccountStatus.AUTH_FAILED if exc.kind == "auth" else AccountStatus.OFFLINE if exc.kind in {"offline", "tls"} else AccountStatus.ERROR
             return _account_view(account.model_copy(update={"status": failed, "last_error": exc.message, "last_checked_at": utc_now()}), access)
-        return _account_view(_load_account(context, account_id), access)
-    _audit(repository, context, "mail.account.check", account.id)
+        return _account_view(await asyncio.to_thread(_load_account, context, account_id), access)
+    await run_in_unit(units, context, _audit, context, "mail.account.check", account.id)
     if access != "owner":
         return _account_view(account.model_copy(update={"status": AccountStatus.CONNECTED, "last_error": None, "last_checked_at": utc_now()}), access)
-    return _account_view(_load_account(context, account_id), access)
+    return _account_view(await asyncio.to_thread(_load_account, context, account_id), access)
 
 
 @router.delete("/accounts/{account_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -695,52 +695,57 @@ async def _resolve_target(context: TenantContext, account: MailAccount, target: 
 
 @router.post("/accounts/{account_id}/flags", response_model=ActionResult)
 async def set_flags(
-    account_id: str, body: FlagBody, context: TenantContext = Depends(tenant_context), repository: AnumRepository = Depends(repository_context)
+    account_id: str, body: FlagBody, context: TenantContext = Depends(tenant_context), units: UnitsOfWork = Depends(units_of_work)
 ) -> ActionResult:
     """Read or unread, starred or not, on the mail server."""
     _require(context, Permission.EMAIL_ACT, ACT_DENIED)
     _available(context)
-    account = _load_account(context, account_id, "send")
+    account = await asyncio.to_thread(_load_account, context, account_id, "send")
     await _server(context, account, lambda server: server.set_flag(body.folder, body.uids, body.flag, body.value))
-    _audit(repository, context, f"mail.message.{body.flag}", account.id, metadata={"count": len(body.uids), "value": body.value})
+    await run_in_unit(units, context, _audit, context, f"mail.message.{body.flag}", account.id, metadata={"count": len(body.uids), "value": body.value})
     return ActionResult(status="done", summary=f"Updated {len(body.uids)} message(s).")
 
 
 @router.post("/accounts/{account_id}/move", response_model=ActionResult)
 async def move_messages(
-    account_id: str, body: MoveBody, context: TenantContext = Depends(tenant_context), repository: AnumRepository = Depends(repository_context)
+    account_id: str, body: MoveBody, context: TenantContext = Depends(tenant_context), units: UnitsOfWork = Depends(units_of_work)
 ) -> ActionResult:
     """Archive, mark as junk, move to Trash, or back to the inbox (all reversible)."""
     _require(context, Permission.EMAIL_ACT, ACT_DENIED)
     _available(context)
-    account = _load_account(context, account_id, "send")
+    account = await asyncio.to_thread(_load_account, context, account_id, "send")
     target = await _resolve_target(context, account, body.to)
     if target == body.folder:
         raise HTTPException(status_code=409, detail="The messages are already in that folder.")
     await _server(context, account, lambda server: server.move(body.folder, body.uids, target))
-    _audit(repository, context, "mail.message.move", account.id, metadata={"count": len(body.uids), "to_role": body.to if body.to in {"inbox", "archive", "junk", "trash"} else "folder"})
+    await run_in_unit(units, context, _audit, context, "mail.message.move", account.id, metadata={"count": len(body.uids), "to_role": body.to if body.to in {"inbox", "archive", "junk", "trash"} else "folder"})
     return ActionResult(status="done", summary=f"Moved {len(body.uids)} message(s).")
 
 
 @router.post("/accounts/{account_id}/delete", response_model=ActionResult)
 async def delete_messages(
-    account_id: str, body: DeleteBody, context: TenantContext = Depends(tenant_context), repository: AnumRepository = Depends(repository_context)
+    account_id: str, body: DeleteBody, context: TenantContext = Depends(tenant_context), units: UnitsOfWork = Depends(units_of_work)
 ) -> ActionResult:
     """Delete for good (Trash or Junk only): waits for an approval of exactly these messages."""
     _require(context, Permission.EMAIL_ACT, ACT_DENIED)
     _available(context)
-    account = _load_account(context, account_id)
+    account = await asyncio.to_thread(_load_account, context, account_id)
     folders: list[Folder] = await _server(context, account, lambda server: server.folders())
     found = next((f for f in folders if f.id == body.folder), None)
     if found is None or found.role not in {"trash", "junk"}:
         raise HTTPException(status_code=409, detail="Move messages to Trash first. Only Trash and Junk can be emptied for good.")
     uids = sorted(set(body.uids))
     call = ToolCall(name=DELETE_TOOL, arguments={"account_id": account.id, "owner_user_id": account.owner_user_id, "mailbox": account.address, "folder": body.folder, "uids": uids})
-    _, approval = _pause_for_approval(
-        repository, context, call, f"Delete {len(uids)} message(s) for good from {found.name}",
-        f"Delete {len(uids)} message(s) for good from {found.name} in {account.address}.", registry=mail_tool_registry(),
-    )
-    _audit(repository, context, "mail.message.delete.requested", account.id, metadata={"count": len(uids), "approval_id": approval.id, "payload_hash": approval.payload_hash})
+
+    def request_approval(repository: AnumRepository) -> Approval:
+        _, approval = _pause_for_approval(
+            repository, context, call, f"Delete {len(uids)} message(s) for good from {found.name}",
+            f"Delete {len(uids)} message(s) for good from {found.name} in {account.address}.", registry=mail_tool_registry(),
+        )
+        _audit(repository, context, "mail.message.delete.requested", account.id, metadata={"count": len(uids), "approval_id": approval.id, "payload_hash": approval.payload_hash})
+        return approval
+
+    approval = await run_in_unit(units, context, request_approval)
     return ActionResult(status="waiting_approval", summary="Waiting for approval to delete for good.", approval=approval)
 
 
@@ -812,7 +817,7 @@ async def get_draft(draft_id: str, context: TenantContext = Depends(tenant_conte
 
 @router.post("/drafts", response_model=DraftView, status_code=status.HTTP_201_CREATED)
 async def create_draft(
-    body: DraftCreate, context: TenantContext = Depends(tenant_context), repository: AnumRepository = Depends(repository_context)
+    body: DraftCreate, context: TenantContext = Depends(tenant_context), units: UnitsOfWork = Depends(units_of_work)
 ) -> DraftView:
     """A new message, or a reply, reply to all or forward of a message (quoted, threaded)."""
     _require(context, Permission.EMAIL_ACT, ACT_DENIED)
@@ -860,7 +865,7 @@ async def create_draft(
     if identity is not None and identity.signature.strip():
         draft.body = with_signature(draft.body, identity.signature)[:MAX_BODY]
 
-    def save() -> DraftView:
+    def save(repository: AnumRepository) -> DraftView:
         with open_mail_store(context) as store:
             store.save_draft(draft)
         carried = 0
@@ -876,7 +881,7 @@ async def create_draft(
         )
         return _draft_view(draft, repository, context, None, account, identity)
 
-    return await asyncio.to_thread(save)
+    return await run_in_unit(units, context, save)
 
 
 def _carry_attachments(context: TenantContext, draft: MailDraft, raw: bytes) -> tuple[int, list[str]]:
@@ -999,7 +1004,7 @@ async def upload_attachment(
     request: Request,
     name: str = Query(min_length=1, max_length=255, description="The file name (URL-encoded)"),
     context: TenantContext = Depends(tenant_context),
-    repository: AnumRepository = Depends(repository_context),
+    units: UnitsOfWork = Depends(units_of_work),
 ) -> OutgoingFileView:
     """Attach the raw request body as a file: the workspace upload checks and malware scan, then the caps."""
     _require(context, Permission.EMAIL_ACT, ACT_DENIED)
@@ -1010,7 +1015,7 @@ async def upload_attachment(
     content = await read_upload_body(request, mail_settings.outbound_attachment_max_bytes)
     content_type = request.headers.get("content-type")
 
-    def attach() -> OutgoingFileView:
+    def attach(repository: AnumRepository) -> OutgoingFileView:
         # Off the event loop (docs/realtime.md#event-loop): the store, the scan and the audit.
         if draft.status != DraftStatus.DRAFT:
             # A new file withdraws the approval or the schedule before it is attached.
@@ -1025,7 +1030,7 @@ async def upload_attachment(
         _audit(repository, context, "mail.attachment.add", draft.id, metadata={"attachment_id": attachment.id, "size": attachment.size_bytes, "scanned": attachment.scanned})
         return _file_view(attachment)
 
-    return await asyncio.to_thread(attach)
+    return await run_in_unit(units, context, attach)
 
 
 @router.delete("/drafts/{draft_id}/attachments/{attachment_id}", status_code=status.HTTP_204_NO_CONTENT)

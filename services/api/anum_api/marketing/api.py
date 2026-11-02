@@ -19,7 +19,7 @@ from pydantic import BaseModel, Field
 
 from .. import cron
 from ..authorization import Permission
-from ..dependencies import repository_context, require_permission, tenant_context
+from ..dependencies import UnitsOfWork, repository_context, require_permission, run_in_unit, tenant_context, units_of_work
 from ..repository import AnumRepository
 from ..schemas import Approval, ApprovalStatus, TenantContext, new_id, utc_now
 from . import analytics, assist, publisher, report_delivery
@@ -190,10 +190,10 @@ async def oauth_start(payload: OAuthStart, context: TenantContext = Depends(tena
 async def oauth_callback(
     payload: OAuthCallback,
     context: TenantContext = Depends(tenant_context),
-    repository: AnumRepository = Depends(repository_context),
+    units: UnitsOfWork = Depends(units_of_work),
 ) -> list[SocialAccountView]:
     _manage(context)
-    return [SocialAccountView.of(account) for account in await finish_oauth(context, payload.code, payload.state, repository)]
+    return [SocialAccountView.of(account) for account in await finish_oauth(context, payload.code, payload.state, units)]
 
 
 @router.post("/accounts/{account_id}/check", response_model=SocialAccountView)
@@ -207,11 +207,11 @@ async def check(account_id: str, context: TenantContext = Depends(tenant_context
 async def disconnect(
     account_id: str,
     context: TenantContext = Depends(tenant_context),
-    repository: AnumRepository = Depends(repository_context),
+    units: UnitsOfWork = Depends(units_of_work),
 ) -> SocialAccountView:
     """Revoke at the platform (where it offers that) and forget the tokens; queued posts go back to draft."""
     _manage(context)
-    return SocialAccountView.of(await revoke_account(context, account_id, repository))
+    return SocialAccountView.of(await revoke_account(context, account_id, units))
 
 
 # -- preferences --------------------------------------------------------------------------------
@@ -551,7 +551,7 @@ def delete_post(post_id: str, context: TenantContext = Depends(tenant_context), 
 
 
 @router.post("/posts/{post_id}/schedule", response_model=PostView)
-async def schedule(
+def schedule(
     post_id: str,
     payload: PostSchedule,
     context: TenantContext = Depends(tenant_context),
@@ -560,7 +560,7 @@ async def schedule(
     """Ask to publish at ``scheduled_at`` (now when empty). Waits for an owner's approval
     unless the post's campaign has an approved auto-post for this account."""
     _write(context)
-    return await schedule_post(context, post_id, payload.scheduled_at, repository)
+    return schedule_post(context, post_id, payload.scheduled_at, repository)
 
 
 @router.post("/posts/{post_id}/reschedule", response_model=PostView)
@@ -610,7 +610,7 @@ def cancel(post_id: str, context: TenantContext = Depends(tenant_context), repos
 
 
 @router.post("/posts/{post_id}/publish", response_model=PostView)
-async def publish_now(post_id: str, context: TenantContext = Depends(tenant_context), repository: AnumRepository = Depends(repository_context)) -> PostView:
+async def publish_now(post_id: str, context: TenantContext = Depends(tenant_context), units: UnitsOfWork = Depends(units_of_work)) -> PostView:
     """Publish an already approved (scheduled) post right away instead of at its time."""
     _write(context)
 
@@ -626,17 +626,17 @@ async def publish_now(post_id: str, context: TenantContext = Depends(tenant_cont
     # Store work in worker threads; only the platform call waits on the loop (docs/realtime.md#event-loop).
     await asyncio.to_thread(due_now)
     await publisher.publish(context, post_id)
-    return await asyncio.to_thread(_view_one, context, post_id, repository)
+    return await run_in_unit(units, context, lambda repository: _view_one(context, post_id, repository))
 
 
 @router.post("/posts/{post_id}/retry", response_model=PostView)
-async def retry(post_id: str, context: TenantContext = Depends(tenant_context), repository: AnumRepository = Depends(repository_context)) -> PostView:
+async def retry(post_id: str, context: TenantContext = Depends(tenant_context), units: UnitsOfWork = Depends(units_of_work)) -> PostView:
     """Try a failed post again. The approval still covers it if the content is unchanged;
     otherwise it has to be scheduled (and approved) again."""
     _write(context)
-    await asyncio.to_thread(_reschedule_failed, context, post_id, repository)
+    await run_in_unit(units, context, lambda repository: _reschedule_failed(context, post_id, repository))
     await publisher.publish(context, post_id)
-    return await asyncio.to_thread(_view_one, context, post_id, repository)
+    return await run_in_unit(units, context, lambda repository: _view_one(context, post_id, repository))
 
 
 def _reschedule_failed(context: TenantContext, post_id: str, repository: AnumRepository) -> None:
@@ -801,7 +801,7 @@ async def analytics_best_times(platform: Platform | None = None, context: Tenant
 
 
 @router.get("/reports/weekly", response_model=analytics.WeeklyReport)
-async def weekly_report(
+def weekly_report(
     week_start: date | None = None,
     language: Language = Language.EN,
     context: TenantContext = Depends(tenant_context),
@@ -821,11 +821,11 @@ async def deliver_weekly_report(
     week_start: date | None = None,
     language: Language = Language.EN,
     context: TenantContext = Depends(tenant_context),
-    repository: AnumRepository = Depends(repository_context),
+    units: UnitsOfWork = Depends(units_of_work),
 ) -> report_delivery.DeliveryResult:
     """Ask to send the weekly report by email and/or WhatsApp. Each channel waits for approval."""
-    report = await weekly_report(week_start=week_start, language=language, context=context)
-    return await report_delivery.deliver(context, repository, report, payload)
+    report = await asyncio.to_thread(weekly_report, week_start=week_start, language=language, context=context)
+    return await report_delivery.deliver(context, units, report, payload)
 
 
 class AssistantAsk(BaseModel):

@@ -13,7 +13,6 @@ These adapters are small on purpose: tests replace them, and a new channel adds 
 
 from __future__ import annotations
 
-import asyncio
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
@@ -21,7 +20,7 @@ from typing import Any
 from fastapi import HTTPException
 
 from ..authorization import Permission
-from ..dependencies import has_permission, held_unit
+from ..dependencies import UnitsOfWork, has_permission, run_in_unit
 from ..schemas import TenantContext
 from .service import http_error
 
@@ -85,8 +84,9 @@ def load_whatsapp_source(context: TenantContext, conversation_id: str) -> Source
     )
 
 
-async def request_email_reply(context: TenantContext, repository: Any, message_id: str, body: str) -> DeliveryRequest:
-    """An email inbox reply draft with exactly ``body``, then its ``send_email`` approval request."""
+async def request_email_reply(context: TenantContext, units: UnitsOfWork, message_id: str, body: str) -> DeliveryRequest:
+    """An email inbox reply draft with exactly ``body``, then its ``send_email`` approval request
+    (in its own short unit of work; no transaction is open while the provider answers)."""
     from .. import email_api, email_inbox
 
     if not has_permission(context, Permission.EMAIL_ACT):
@@ -96,7 +96,7 @@ async def request_email_reply(context: TenantContext, repository: Any, message_i
     except email_inbox.EmailError as exc:
         raise http_error(exc.status, exc.message) from None
     try:
-        response = await asyncio.to_thread(email_api.request_send_approval, draft.id, context, repository)
+        response = await run_in_unit(units, context, lambda repository: email_api.request_send_approval(draft.id, context, repository))
     except HTTPException as exc:
         return DeliveryRequest("failed", draft.id, None, None, None, str(exc.detail))
     approval = response.approval
@@ -104,11 +104,11 @@ async def request_email_reply(context: TenantContext, repository: Any, message_i
                            "Waiting for approval: an owner approves it in Approvals, then the inbox sends it.", approval)
 
 
-async def request_whatsapp_reply(context: TenantContext, repository: Any, conversation_id: str, body: str) -> DeliveryRequest:
+async def request_whatsapp_reply(context: TenantContext, units: UnitsOfWork, conversation_id: str, body: str) -> DeliveryRequest:
     """A WhatsApp reply through the WhatsApp send path (free text always waits for approval)."""
     from .. import whatsapp
 
-    response = await whatsapp.send(conversation_id, whatsapp.SendRequest(text=body), context, held_unit(repository))
+    response = await whatsapp.send(conversation_id, whatsapp.SendRequest(text=body), context, units)
     approval = response.approval
     status = {"awaiting_approval": "pending_approval", "sent": "sent"}.get(response.outcome, "failed")
     return DeliveryRequest(status, response.message.id, approval.id if approval else None, response.message.task_id,
