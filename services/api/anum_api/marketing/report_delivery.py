@@ -14,6 +14,7 @@ A channel that is not set up reports ``not_connected``; a channel that fails rep
 
 from __future__ import annotations
 
+import asyncio
 from typing import Literal
 
 from fastapi import HTTPException
@@ -88,7 +89,7 @@ async def deliver_email(context: TenantContext, repository: AnumRepository, repo
     with email_inbox.open_email_store(context) as store:
         store.add_draft(draft)
     try:
-        response = await email_api.request_send_approval(draft.id, context, repository)
+        response = await asyncio.to_thread(email_api.request_send_approval, draft.id, context, repository)
     except HTTPException as exc:
         return ChannelResult(outcome="failed", detail=_detail(exc), target=account.address)
     return ChannelResult(

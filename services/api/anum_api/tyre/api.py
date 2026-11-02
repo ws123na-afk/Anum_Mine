@@ -223,7 +223,7 @@ def _validated_endpoint(payload: ConnectionInput, secret: str | None) -> str:
 
 
 @router.put("/connection", response_model=SetupView)
-async def save_connection(
+def save_connection(
     payload: ConnectionInput,
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
@@ -263,7 +263,7 @@ async def save_connection(
 
 
 @router.delete("/connection", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_connection(
+def delete_connection(
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
 ) -> Response:
@@ -315,7 +315,7 @@ async def discover(context: TenantContext = Depends(tenant_context)) -> Discover
 
 
 @router.get("/presets/{name}", response_model=TyreMapping)
-async def get_preset(name: str, context: TenantContext = Depends(tenant_context)) -> TyreMapping:
+def get_preset(name: str, context: TenantContext = Depends(tenant_context)) -> TyreMapping:
     """A ready-made mapping, fitted to the last discovered schema when there is one."""
     _read(context)
     preset = PRESETS.get(name)
@@ -329,7 +329,7 @@ async def get_preset(name: str, context: TenantContext = Depends(tenant_context)
 
 
 @router.put("/mapping", response_model=SetupView)
-async def save_mapping(
+def save_mapping(
     payload: TyreMapping,
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
@@ -367,7 +367,7 @@ async def preview_mapping(payload: TyreMapping, context: TenantContext = Depends
 
 
 @router.put("/assumptions", response_model=SetupView)
-async def save_assumptions(
+def save_assumptions(
     payload: Assumptions,
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
@@ -439,7 +439,7 @@ class DashboardView(BaseModel):
 
 
 @router.get("/dashboard", response_model=DashboardView)
-async def dashboard(context: TenantContext = Depends(tenant_context)) -> DashboardView:
+def dashboard(context: TenantContext = Depends(tenant_context)) -> DashboardView:
     loaded, forecasts = _loaded(context)
     today = utc_now().date()
     summary = fleet_summary(loaded.snapshot.dataset, loaded.connection.assumptions, today, forecasts)
@@ -590,7 +590,7 @@ class AlertPage(BaseModel):
 
 
 @router.get("/alerts", response_model=AlertPage)
-async def list_alerts(
+def list_alerts(
     status_filter: Literal["active", "open", "acknowledged", "resolved"] | None = Query(default="active", alias="status"),
     kind: AlertKind | None = None,
     q: str | None = Query(default=None, max_length=100),
@@ -707,7 +707,7 @@ async def create_report(
 
 
 @router.get("/reports", response_model=ReportPage)
-async def list_reports(
+def list_reports(
     kind: ReportKind | None = None,
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
@@ -752,7 +752,7 @@ async def export_report(
 
 
 @router.delete("/reports/{report_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_report(
+def delete_report(
     report_id: str,
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),

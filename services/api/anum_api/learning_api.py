@@ -340,7 +340,7 @@ async def learning_overview(context: TenantContext = Depends(tenant_context)) ->
 
 
 @router.put("/settings", response_model=LearningOverview)
-async def set_learning(
+def set_learning(
     payload: LearningSettingsUpdate,
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
@@ -362,7 +362,7 @@ async def set_learning(
 
 
 @router.post("/feedback", response_model=FeedbackResult)
-async def record_feedback(
+def record_feedback(
     payload: FeedbackCreate,
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
@@ -407,7 +407,7 @@ async def record_feedback(
 
 
 @router.get("/ratings", response_model=RatingsView)
-async def my_ratings(
+def my_ratings(
     surface: Surface,
     subject_id: list[str] = Query(default_factory=list, max_length=100),
     context: TenantContext = Depends(tenant_context),
@@ -434,7 +434,7 @@ async def my_ratings(
 
 
 @router.get("/signals", response_model=SignalPage)
-async def list_signals(
+def list_signals(
     kind: SignalKind | None = None,
     surface: Surface | None = None,
     q: str | None = Query(default=None, max_length=200),
@@ -453,7 +453,7 @@ async def list_signals(
 
 
 @router.get("/signals/{signal_id}", response_model=SignalView)
-async def get_signal(signal_id: str, context: TenantContext = Depends(tenant_context)) -> SignalView:
+def get_signal(signal_id: str, context: TenantContext = Depends(tenant_context)) -> SignalView:
     _member(context)
     with open_learning_store(context) as store:
         signal = store.get_signal(signal_id)
@@ -463,7 +463,7 @@ async def get_signal(signal_id: str, context: TenantContext = Depends(tenant_con
 
 
 @router.delete("/signals/{signal_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_signal(
+def delete_signal(
     signal_id: str,
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
@@ -484,14 +484,14 @@ async def delete_signal(
 
 
 @router.get("/profile", response_model=ProfileView)
-async def get_profile(context: TenantContext = Depends(tenant_context)) -> ProfileView:
+def get_profile(context: TenantContext = Depends(tenant_context)) -> ProfileView:
     _member(context)
     with open_learning_store(context) as store:
         return _profile_view(store.get_profile())
 
 
 @router.put("/profile", response_model=ProfileView)
-async def set_profile(
+def set_profile(
     payload: StyleOverrides,
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
@@ -509,7 +509,7 @@ async def set_profile(
 
 
 @router.post("/profile/reset", response_model=ResetResult)
-async def reset_profile(
+def reset_profile(
     payload: ResetLearning,
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
@@ -529,7 +529,7 @@ async def reset_profile(
 
 
 @router.get("/preferences", response_model=PreferencePage)
-async def list_preferences(
+def list_preferences(
     q: str | None = Query(default=None, max_length=200),
     limit: int = Query(default=25, ge=1, le=MAX_PAGE),
     offset: int = Query(default=0, ge=0, le=100_000),
@@ -544,7 +544,7 @@ async def list_preferences(
 
 
 @router.post("/preferences", response_model=LearnedPreference, status_code=status.HTTP_201_CREATED)
-async def create_preference(
+def create_preference(
     payload: PreferenceWrite,
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
@@ -561,7 +561,7 @@ async def create_preference(
 
 
 @router.put("/preferences/{preference_id}", response_model=LearnedPreference)
-async def update_preference(
+def update_preference(
     preference_id: str,
     payload: PreferenceWrite,
     context: TenantContext = Depends(tenant_context),
@@ -579,7 +579,7 @@ async def update_preference(
 
 
 @router.delete("/preferences/{preference_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_preference(
+def delete_preference(
     preference_id: str,
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
@@ -635,7 +635,7 @@ def _activities(context: TenantContext, repository: AnumRepository, since: datet
 
 
 @router.get("/routines", response_model=RoutineList)
-async def list_routines(
+def list_routines(
     routine_status: RoutineStatus | None = Query(default=None, alias="status"),
     context: TenantContext = Depends(tenant_context),
 ) -> RoutineList:
@@ -647,7 +647,7 @@ async def list_routines(
 
 
 @router.post("/routines/detect", response_model=RoutineList)
-async def detect_my_routines(
+def detect_my_routines(
     payload: DetectRoutines,
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
@@ -695,7 +695,7 @@ def _routine_or_404(store: LearningStore, routine_id: str) -> Routine:
 
 
 @router.post("/routines/{routine_id}/accept", response_model=Routine)
-async def accept_routine(
+def accept_routine(
     routine_id: str,
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
@@ -743,7 +743,7 @@ async def accept_routine(
 
 
 @router.post("/routines/{routine_id}/confirm", response_model=Routine)
-async def confirm_routine(
+def confirm_routine(
     routine_id: str,
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
@@ -771,7 +771,7 @@ async def confirm_routine(
 
 
 @router.post("/routines/{routine_id}/dismiss", response_model=Routine)
-async def dismiss_routine(
+def dismiss_routine(
     routine_id: str,
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
@@ -787,7 +787,7 @@ async def dismiss_routine(
 
 
 @router.delete("/routines/{routine_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_routine(
+def delete_routine(
     routine_id: str,
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
@@ -877,7 +877,7 @@ def _generate_note(context: TenantContext, repository: AnumRepository, now: date
 
 
 @router.get("/notes", response_model=NotePage)
-async def list_notes(
+def list_notes(
     limit: int = Query(default=4, ge=1, le=52),
     offset: int = Query(default=0, ge=0, le=10_000),
     context: TenantContext = Depends(tenant_context),
@@ -902,7 +902,7 @@ async def list_notes(
 
 
 @router.post("/notes/refresh", response_model=NoteView)
-async def refresh_note(
+def refresh_note(
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
 ) -> NoteView:
@@ -925,7 +925,7 @@ def _suggestion_or_404(store: LearningStore, suggestion_id: str) -> Suggestion:
 
 
 @router.post("/suggestions/{suggestion_id}/apply", response_model=SuggestionView)
-async def apply_suggestion(
+def apply_suggestion(
     suggestion_id: str,
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
@@ -983,7 +983,7 @@ async def apply_suggestion(
 
 
 @router.post("/suggestions/{suggestion_id}/dismiss", response_model=SuggestionView)
-async def dismiss_suggestion(
+def dismiss_suggestion(
     suggestion_id: str,
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),

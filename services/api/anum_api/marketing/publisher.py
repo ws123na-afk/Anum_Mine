@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from typing import Any
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 
@@ -76,6 +77,39 @@ async def publish(context: TenantContext, post_id: str) -> Post | None:
         # The organization's emergency stop holds the post: still scheduled, published on a
         # pass after an owner turns the stop off (docs/agent-controls.md).
         return None
+    # Every store read and write runs in a worker thread (docs/realtime.md#event-loop); the
+    # scheduler also runs this in its own thread and loop.
+    claimed = await asyncio.to_thread(_claim, context, post_id)
+    if claimed is None or isinstance(claimed, Post):
+        return claimed
+    post, account = claimed
+
+    from ..demo import is_demo
+
+    if is_demo(context):  # nothing is published from a demo workspace (docs/demo-workspace.md)
+        error = PlatformError(code="demo_workspace", message="Nothing is published from the demo workspace.", fix="Publish from a real workspace.")
+        return await asyncio.to_thread(_finish_failed, context, post.id, error, retry=False)
+    if await asyncio.to_thread(governance_denies_publish, context):
+        error = PlatformError(code="policy_denied", message="An organization policy pack now denies publishing.", fix="Ask an organization admin to change the policy, then retry.")
+        return await asyncio.to_thread(_finish_failed, context, post.id, error, retry=False)
+    try:
+        token = await access_token(context, account)
+        media = await asyncio.to_thread(load_media, context, post)
+        result = await clients.connector(account.provider).publish(clients.PublishRequest(
+            account=account, access_token=token, text=check(post).composed, title=post.title, hashtags=post.hashtags,
+            link_url=post.link_url, media=media, language=post.language.value,
+        ))
+    except clients.PlatformCallError as exc:
+        return await asyncio.to_thread(_finish_failed, context, post.id, exc.error, retry=exc.error.retryable)
+    except Exception as exc:  # unexpected: never leave the post "publishing"
+        logger.exception("marketing_publish_crashed", extra={"anum_marketing": {"event": "publish_crashed", "post_id": post.id}})
+        error = PlatformError(code="internal", message=f"Publishing stopped with an internal error ({type(exc).__name__}).", fix="Check the platform before retrying: the post may or may not be live.")
+        return await asyncio.to_thread(_finish_failed, context, post.id, error, retry=False)
+    return await asyncio.to_thread(_finish_published, context, post, account, result)
+
+
+def _claim(context: TenantContext, post_id: str) -> Post | tuple[Post, Any] | None:
+    """Move the post to publishing (or refuse it): the post alone when it is not published."""
     with open_marketing_store(context) as store:
         post = store.get_post(context, post_id, for_update=True)
         if post is None or post.status != PostStatus.SCHEDULED:
@@ -100,28 +134,10 @@ async def publish(context: TenantContext, post_id: str) -> Post | None:
     if post.status != PostStatus.PUBLISHING or account is None:
         audit(None, context, "marketing.post.not_published", post.id, outcome="denied", metadata={"reason": post.last_error.code if post.last_error else None}, actor=PUBLISHER_ACTOR)
         return post
+    return post, account
 
-    from ..demo import is_demo
 
-    if is_demo(context):  # nothing is published from a demo workspace (docs/demo-workspace.md)
-        error = PlatformError(code="demo_workspace", message="Nothing is published from the demo workspace.", fix="Publish from a real workspace.")
-        return _finish_failed(context, post.id, error, retry=False)
-    if governance_denies_publish(context):
-        error = PlatformError(code="policy_denied", message="An organization policy pack now denies publishing.", fix="Ask an organization admin to change the policy, then retry.")
-        return _finish_failed(context, post.id, error, retry=False)
-    try:
-        token = await access_token(context, account)
-        media = load_media(context, post)
-        result = await clients.connector(account.provider).publish(clients.PublishRequest(
-            account=account, access_token=token, text=check(post).composed, title=post.title, hashtags=post.hashtags,
-            link_url=post.link_url, media=media, language=post.language.value,
-        ))
-    except clients.PlatformCallError as exc:
-        return _finish_failed(context, post.id, exc.error, retry=exc.error.retryable)
-    except Exception as exc:  # unexpected: never leave the post "publishing"
-        logger.exception("marketing_publish_crashed", extra={"anum_marketing": {"event": "publish_crashed", "post_id": post.id}})
-        error = PlatformError(code="internal", message=f"Publishing stopped with an internal error ({type(exc).__name__}).", fix="Check the platform before retrying: the post may or may not be live.")
-        return _finish_failed(context, post.id, error, retry=False)
+def _finish_published(context: TenantContext, post: Post, account: Any, result: Any) -> Post:
     now = utc_now()
     with open_marketing_store(context) as store:
         current = store.get_post(context, post.id, for_update=True) or post

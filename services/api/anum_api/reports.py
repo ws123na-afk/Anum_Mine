@@ -1029,7 +1029,7 @@ def _get_or_404(context: TenantContext, report_id: str) -> Report:
 
 
 @router.get("", response_model=ReportPage)
-async def list_reports(
+def list_reports(
     type: str | None = Query(default=None, max_length=60),
     q: str | None = Query(default=None, max_length=200),
     created_by_kind: CreatedByKind | None = Query(default=None),
@@ -1079,7 +1079,7 @@ async def get_report(report_id: str, context: TenantContext = Depends(tenant_con
 
 
 @router.patch("/{report_id}", response_model=ReportView)
-async def update_report(
+def update_report(
     report_id: str, payload: ReportUpdate, context: TenantContext = Depends(tenant_context)
 ) -> ReportView:
     require_permission(context, Permission.TASK_READ)
@@ -1100,7 +1100,7 @@ async def update_report(
 
 
 @router.delete("/{report_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_report(report_id: str, context: TenantContext = Depends(tenant_context)) -> Response:
+def delete_report(report_id: str, context: TenantContext = Depends(tenant_context)) -> Response:
     require_permission(context, Permission.TASK_READ)
     report = _get_or_404(context, report_id)
     if not _can_manage(report, context):
@@ -1291,7 +1291,7 @@ class ShareResult(BaseModel):
 
 
 @router.post("/{report_id}/share/email", response_model=ShareResult)
-async def share_by_email(
+def share_by_email(
     report_id: str,
     payload: EmailShare,
     context: TenantContext = Depends(tenant_context),
@@ -1336,7 +1336,7 @@ async def share_by_email(
     )
     with email_inbox.open_email_store(context) as store:
         store.add_draft(draft)
-    response = await email_api.request_send_approval(draft.id, context, repository)
+    response = email_api.request_send_approval(draft.id, context, repository)
     return ShareResult(
         channel="email",
         status="awaiting_approval",

@@ -499,7 +499,10 @@ class IndexOutcome(BaseModel):
 
 
 class RetrievalIndexer:
-    """Chunks, embeds and stores one source at a time, in the caller's scope."""
+    """Chunks, embeds and stores one source at a time, in the caller's scope.
+
+    Every store call runs in a worker thread (``asyncio.to_thread``), never on the event loop
+    (docs/realtime.md#event-loop): the indexer is awaited from request handlers."""
 
     def __init__(
         self,
@@ -531,20 +534,20 @@ class RetrievalIndexer:
         if fmt is not None:
             return await self._index_document(context, record, content, fmt)
         if not is_text_file(record.name, record.content_type):
-            return self._record_skip(context, SourceType.FILE, record.id, record.sha256, "not_text", record.name)
+            return await self._record_skip(context, SourceType.FILE, record.id, record.sha256, "not_text", record.name)
         if len(content) > MAX_INDEXED_FILE_BYTES:
-            return self._record_skip(context, SourceType.FILE, record.id, record.sha256, "too_large", record.name)
+            return await self._record_skip(context, SourceType.FILE, record.id, record.sha256, "too_large", record.name)
         try:
             text = content.decode("utf-8")
         except UnicodeDecodeError:
-            return self._record_skip(context, SourceType.FILE, record.id, record.sha256, "not_utf8", record.name)
+            return await self._record_skip(context, SourceType.FILE, record.id, record.sha256, "not_utf8", record.name)
         return await self.index_text(context, SourceType.FILE, record.id, text, name=record.name)
 
     async def _index_document(self, context: TenantContext, record: Any, content: bytes, fmt: DocumentFormat) -> IndexOutcome:
         """A PDF, Office or OpenDocument file: extracted off the event loop, chunked per page, slide or
         sheet, each chunk starting with its ``[name, page n]`` line (doc_extract.py)."""
         model = self.embedder.model_name
-        existing = self.store.get_source(context, SourceType.FILE, record.id)
+        existing = await asyncio.to_thread(self.store.get_source, context, SourceType.FILE, record.id)
         if (
             existing is not None
             and existing.status == IndexStatus.INDEXED
@@ -567,7 +570,8 @@ class RetrievalIndexer:
             )
             if exc.reason == EXTRACT_TIMEOUT:
                 # Load can make a file slow; failed (not skipped) so a re-index tries again.
-                self.store.save_source(
+                await asyncio.to_thread(
+                    self.store.save_source,
                     context,
                     self._source(
                         context, SourceType.FILE, record.id, record.sha256, IndexStatus.FAILED, record.name,
@@ -578,7 +582,7 @@ class RetrievalIndexer:
                 return IndexOutcome(
                     source_type=SourceType.FILE, source_id=record.id, status=IndexStatus.FAILED, error=exc.reason
                 )
-            return self._record_skip(context, SourceType.FILE, record.id, record.sha256, exc.reason, record.name)
+            return await self._record_skip(context, SourceType.FILE, record.id, record.sha256, exc.reason, record.name)
         return await self._index_pieces(
             context, SourceType.FILE, record.id, record.sha256, document_chunks(record.name, document),
             name=record.name,
@@ -599,7 +603,7 @@ class RetrievalIndexer:
             raise ValueError("a private source can only be indexed by its owner")
         digest = sha256_text(text)
         model = self.embedder.model_name
-        existing = self.store.get_source(context, source_type, source_id)
+        existing = await asyncio.to_thread(self.store.get_source, context, source_type, source_id)
         if (
             existing is not None
             and existing.status == IndexStatus.INDEXED
@@ -633,7 +637,7 @@ class RetrievalIndexer:
     ) -> IndexOutcome:
         model = self.embedder.model_name
         if not pieces:
-            return self._record_skip(context, source_type, source_id, digest, "empty", name, owner_user_id)
+            return await self._record_skip(context, source_type, source_id, digest, "empty", name, owner_user_id)
         try:
             response = await self.embedder.embed(pieces)
         except Exception as exc:
@@ -647,7 +651,8 @@ class RetrievalIndexer:
                 type(exc).__name__,
                 extra={"anum_retrieval": {"event": "index_failed", "error": error, "error_class": type(exc).__name__}},
             )
-            self.store.save_source(
+            await asyncio.to_thread(
+                self.store.save_source,
                 context,
                 self._source(
                     context, source_type, source_id, digest, IndexStatus.FAILED, name, model, expires_at,
@@ -663,7 +668,7 @@ class RetrievalIndexer:
             if any(component != 0.0 for component in vector)
         ]
         if not usable:
-            return self._record_skip(context, source_type, source_id, digest, "empty", name, owner_user_id)
+            return await self._record_skip(context, source_type, source_id, digest, "empty", name, owner_user_id)
         chunks = [
             ChunkInput(
                 id=new_id("chunk"),
@@ -678,7 +683,7 @@ class RetrievalIndexer:
             context, source_type, source_id, digest, IndexStatus.INDEXED, name, response.model, expires_at,
             chunk_count=len(chunks), owner_user_id=owner_user_id,
         )
-        self.store.save_source(context, source, chunks)
+        await asyncio.to_thread(self.store.save_source, context, source, chunks)
         return IndexOutcome(
             source_type=source_type, source_id=source_id, status=IndexStatus.INDEXED, chunk_count=len(chunks)
         )
@@ -686,7 +691,7 @@ class RetrievalIndexer:
     def remove(self, context: TenantContext, source_type: SourceType, source_id: str) -> bool:
         return self.store.delete_source(context, source_type, source_id)
 
-    def _record_skip(
+    async def _record_skip(
         self,
         context: TenantContext,
         source_type: SourceType,
@@ -696,7 +701,8 @@ class RetrievalIndexer:
         name: str | None,
         owner_user_id: str | None = None,
     ) -> IndexOutcome:
-        self.store.save_source(
+        await asyncio.to_thread(
+            self.store.save_source,
             context,
             self._source(
                 context, source_type, source_id, digest, IndexStatus.SKIPPED, name, None, None,

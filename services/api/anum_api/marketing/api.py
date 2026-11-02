@@ -9,6 +9,8 @@ that an owner decides in the ordinary approvals flow.
 
 from __future__ import annotations
 
+import asyncio
+
 from datetime import date, datetime, timedelta
 from typing import Any, Literal
 
@@ -166,7 +168,7 @@ async def get_setup(context: TenantContext = Depends(tenant_context)) -> Marketi
 
 
 @router.get("/accounts", response_model=list[SocialAccountView])
-async def list_accounts(context: TenantContext = Depends(tenant_context)) -> list[SocialAccountView]:
+def list_accounts(context: TenantContext = Depends(tenant_context)) -> list[SocialAccountView]:
     _read(context)
     with open_marketing_store(context) as store:
         return [SocialAccountView.of(account) for account in store.list_accounts(context)]
@@ -222,7 +224,7 @@ async def get_preferences(context: TenantContext = Depends(tenant_context)) -> M
 
 
 @router.put("/preferences", response_model=MarketingPreferences)
-async def put_preferences(payload: PreferencesUpdate, context: TenantContext = Depends(tenant_context)) -> MarketingPreferences:
+def put_preferences(payload: PreferencesUpdate, context: TenantContext = Depends(tenant_context)) -> MarketingPreferences:
     _manage(context)
     try:
         cron.zone(payload.timezone)
@@ -269,7 +271,7 @@ def _dates(start: date | None, end: date | None) -> None:
 
 
 @router.get("/campaigns", response_model=list[CampaignView])
-async def list_campaigns(
+def list_campaigns(
     campaign_status: CampaignStatus | None = Query(default=None, alias="status"),
     q: str | None = Query(default=None, max_length=200),
     limit: int = Query(default=20, ge=1, le=MAX_PAGE),
@@ -288,7 +290,7 @@ async def list_campaigns(
 
 
 @router.post("/campaigns", response_model=CampaignView, status_code=status.HTTP_201_CREATED)
-async def create_campaign(
+def create_campaign(
     payload: CampaignCreate,
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
@@ -306,7 +308,7 @@ async def create_campaign(
 
 
 @router.get("/campaigns/{campaign_id}", response_model=CampaignView)
-async def get_campaign(campaign_id: str, context: TenantContext = Depends(tenant_context), repository: AnumRepository = Depends(repository_context)) -> CampaignView:
+def get_campaign(campaign_id: str, context: TenantContext = Depends(tenant_context), repository: AnumRepository = Depends(repository_context)) -> CampaignView:
     _read(context)
     with open_marketing_store(context) as store:
         campaign = _campaign_or_404(store, context, campaign_id)
@@ -315,7 +317,7 @@ async def get_campaign(campaign_id: str, context: TenantContext = Depends(tenant
 
 
 @router.put("/campaigns/{campaign_id}", response_model=CampaignView)
-async def update_campaign(
+def update_campaign(
     campaign_id: str,
     payload: CampaignUpdate,
     context: TenantContext = Depends(tenant_context),
@@ -339,7 +341,7 @@ async def update_campaign(
 
 
 @router.delete("/campaigns/{campaign_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_campaign(campaign_id: str, context: TenantContext = Depends(tenant_context), repository: AnumRepository = Depends(repository_context)) -> Response:
+def delete_campaign(campaign_id: str, context: TenantContext = Depends(tenant_context), repository: AnumRepository = Depends(repository_context)) -> Response:
     """Delete a campaign; its posts stay (without a campaign). Refused while posts are queued."""
     _write(context)
     with open_marketing_store(context) as store:
@@ -354,7 +356,7 @@ async def delete_campaign(campaign_id: str, context: TenantContext = Depends(ten
 
 
 @router.post("/campaigns/{campaign_id}/auto-post", response_model=CampaignView)
-async def set_auto_post(
+def set_auto_post(
     campaign_id: str,
     payload: AutoPostRequest,
     context: TenantContext = Depends(tenant_context),
@@ -408,7 +410,7 @@ async def set_auto_post(
 
 
 @router.get("/posts", response_model=list[PostView])
-async def list_posts(
+def list_posts(
     post_status: list[PostStatus] = Query(default_factory=list, alias="status"),
     campaign_id: str | None = Query(default=None, max_length=80),
     platform: Platform | None = None,
@@ -451,7 +453,7 @@ def _view_one(context: TenantContext, post_id: str, repository: AnumRepository) 
 
 
 @router.post("/posts", response_model=list[PostView], status_code=status.HTTP_201_CREATED)
-async def create_posts(
+def create_posts(
     payload: PostCreate,
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
@@ -498,7 +500,7 @@ async def get_post(post_id: str, context: TenantContext = Depends(tenant_context
 
 
 @router.put("/posts/{post_id}", response_model=PostView)
-async def update_post(
+def update_post(
     post_id: str,
     payload: PostUpdate,
     context: TenantContext = Depends(tenant_context),
@@ -535,7 +537,7 @@ async def update_post(
 
 
 @router.delete("/posts/{post_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_post(post_id: str, context: TenantContext = Depends(tenant_context), repository: AnumRepository = Depends(repository_context)) -> Response:
+def delete_post(post_id: str, context: TenantContext = Depends(tenant_context), repository: AnumRepository = Depends(repository_context)) -> Response:
     """Remove a post from ANUM. A published post stays on the platform (delete it there)."""
     _write(context)
     with open_marketing_store(context) as store:
@@ -562,7 +564,7 @@ async def schedule(
 
 
 @router.post("/posts/{post_id}/reschedule", response_model=PostView)
-async def reschedule(
+def reschedule(
     post_id: str,
     payload: PostReschedule,
     context: TenantContext = Depends(tenant_context),
@@ -592,7 +594,7 @@ async def reschedule(
 
 
 @router.post("/posts/{post_id}/cancel", response_model=PostView)
-async def cancel(post_id: str, context: TenantContext = Depends(tenant_context), repository: AnumRepository = Depends(repository_context)) -> PostView:
+def cancel(post_id: str, context: TenantContext = Depends(tenant_context), repository: AnumRepository = Depends(repository_context)) -> PostView:
     """Stop a scheduled or pending post; it stays as a cancelled post that can be scheduled again."""
     _write(context)
     with open_marketing_store(context) as store:
@@ -611,15 +613,20 @@ async def cancel(post_id: str, context: TenantContext = Depends(tenant_context),
 async def publish_now(post_id: str, context: TenantContext = Depends(tenant_context), repository: AnumRepository = Depends(repository_context)) -> PostView:
     """Publish an already approved (scheduled) post right away instead of at its time."""
     _write(context)
-    with open_marketing_store(context) as store:
-        post = get_post_or_404(store, context, post_id, for_update=True)
-        if post.status != PostStatus.SCHEDULED or not post.approved_hash:
-            raise http_error(409, "Only approved, scheduled posts can be published now. Schedule it first to ask for approval.")
-        post.scheduled_at = utc_now()
-        post.next_attempt_at = None
-        store.save_post(post)
+
+    def due_now() -> None:
+        with open_marketing_store(context) as store:
+            post = get_post_or_404(store, context, post_id, for_update=True)
+            if post.status != PostStatus.SCHEDULED or not post.approved_hash:
+                raise http_error(409, "Only approved, scheduled posts can be published now. Schedule it first to ask for approval.")
+            post.scheduled_at = utc_now()
+            post.next_attempt_at = None
+            store.save_post(post)
+
+    # Store work in worker threads; only the platform call waits on the loop (docs/realtime.md#event-loop).
+    await asyncio.to_thread(due_now)
     await publisher.publish(context, post_id)
-    return _view_one(context, post_id, repository)
+    return await asyncio.to_thread(_view_one, context, post_id, repository)
 
 
 @router.post("/posts/{post_id}/retry", response_model=PostView)
@@ -627,6 +634,12 @@ async def retry(post_id: str, context: TenantContext = Depends(tenant_context), 
     """Try a failed post again. The approval still covers it if the content is unchanged;
     otherwise it has to be scheduled (and approved) again."""
     _write(context)
+    await asyncio.to_thread(_reschedule_failed, context, post_id, repository)
+    await publisher.publish(context, post_id)
+    return await asyncio.to_thread(_view_one, context, post_id, repository)
+
+
+def _reschedule_failed(context: TenantContext, post_id: str, repository: AnumRepository) -> None:
     with open_marketing_store(context) as store:
         post = get_post_or_404(store, context, post_id, for_update=True)
         if post.status != PostStatus.FAILED and not publisher.stale(post):
@@ -639,8 +652,6 @@ async def retry(post_id: str, context: TenantContext = Depends(tenant_context), 
         post.attempts = 0
         store.save_post(post)
     audit(repository, context, "marketing.post.retried", post_id)
-    await publisher.publish(context, post_id)
-    return _view_one(context, post_id, repository)
 
 
 # -- media ------------------------------------------------------------------------------------------
@@ -656,7 +667,7 @@ class MediaFile(BaseModel):
 
 
 @router.get("/media", response_model=list[MediaFile])
-async def list_media(
+def list_media(
     q: str | None = Query(default=None, max_length=200),
     limit: int = Query(default=100, ge=1, le=500),
     context: TenantContext = Depends(tenant_context),
@@ -678,7 +689,7 @@ async def list_media(
 
 
 @router.get("/media/{link}", include_in_schema=True)
-async def public_media(link: str) -> Response:
+def public_media(link: str) -> Response:
     """A file behind a signed, expiring link, for platforms that fetch media by URL (Instagram).
 
     No sign-in: the link itself is the credential (encrypted with ``ANUM_SECRETS_KEY``,
@@ -727,13 +738,19 @@ async def utm(payload: UtmRequest, context: TenantContext = Depends(tenant_conte
 async def assist_ideas(payload: AssistIdeas, context: TenantContext = Depends(tenant_context)) -> assist.IdeasResult:
     """Post ideas with English and Arabic copy and hashtags, through the budgeted model gateway."""
     _write(context)
-    prefs = preferences(context)
-    if payload.campaign_id:
+
+    def load() -> tuple[Any, AssistIdeas]:
+        prefs = preferences(context)
+        if not payload.campaign_id:
+            return prefs, payload
         with open_marketing_store(context) as store:
             campaign = _campaign_or_404(store, context, payload.campaign_id)
-        payload = payload.model_copy(update={
+        return prefs, payload.model_copy(update={
             "brief": payload.brief or campaign.brief, "product": payload.product or campaign.product,
         })
+
+    # The reads run in a worker thread; only the model call waits on the loop.
+    prefs, payload = await asyncio.to_thread(load)
     if not (payload.brief.strip() or payload.product.strip() or payload.feature.strip()):
         raise http_error(422, "Describe what to promote: a brief, a product or a feature.")
     return await assist.ideas(

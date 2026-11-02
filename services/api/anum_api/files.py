@@ -914,33 +914,28 @@ async def upload_file(
     from .billing.enforce import require_capacity
 
     await asyncio.to_thread(require_capacity, context, "storage", len(content))
-    quota = settings.files_workspace_quota_bytes
-    with open_file_metadata_store(context) as store:
-        current = store.usage(context)
-    if current.used_bytes + len(content) > quota:
-        raise _quota_error(current, len(content))
-    file_id = new_id("file")
-    try:
-        key = workspace_object_key(context.tenant_id, context.workspace_id, "files", file_id, digest)
-    except ValueError as exc:
-        raise HTTPException(422, "Invalid tenant or workspace identifier") from exc
-    now = utc_now()
-    record = FileRecord(id=file_id, tenant_id=context.tenant_id, workspace_id=context.workspace_id,
-                        name=name, content_type=allowed.content_type, size_bytes=len(content), sha256=digest,
-                        storage_key=key, created_by=context.user_id, created_at=now,
-                        scan_status="clean" if scanned else None, scanned_at=now if scanned else None)
-    file_store.storage.put(key, content, allowed.content_type)
-    try:
+
+    def keep() -> FileRecord:
+        # The quota check, the object write and the metadata insert run in a worker thread.
+        quota = settings.files_workspace_quota_bytes
         with open_file_metadata_store(context) as store:
-            store.add(record, quota)
-    except StorageQuotaExceeded as exc:
-        # A concurrent upload took the space between the check above and this insert.
-        file_store.storage.delete(key)
-        raise _quota_error(exc.usage, len(content)) from exc
-    except BaseException:
-        # No metadata, no object: never leave unreachable bytes behind.
-        file_store.storage.delete(key)
-        raise
+            current = store.usage(context)
+        if current.used_bytes + len(content) > quota:
+            raise _quota_error(current, len(content))
+        file_id = new_id("file")
+        try:
+            key = workspace_object_key(context.tenant_id, context.workspace_id, "files", file_id, digest)
+        except ValueError as exc:
+            raise HTTPException(422, "Invalid tenant or workspace identifier") from exc
+        now = utc_now()
+        record = FileRecord(id=file_id, tenant_id=context.tenant_id, workspace_id=context.workspace_id,
+                            name=name, content_type=allowed.content_type, size_bytes=len(content), sha256=digest,
+                            storage_key=key, created_by=context.user_id, created_at=now,
+                            scan_status="clean" if scanned else None, scanned_at=now if scanned else None)
+        _store_new_object(context, record, content, quota)
+        return record
+
+    record = await asyncio.to_thread(keep)
     # Text files become retrievable context (docs/memory.md#retrieval); best effort,
     # a failure is recorded on the index row and retried by POST /{id}/reindex.
     from .retrieval_api import index_uploaded_file
@@ -949,23 +944,42 @@ async def upload_file(
     # Automations can start on uploads (docs/automation.md#event-triggers); ids and metadata only.
     from .automation_triggers import record_inbound_events
 
-    record_inbound_events(
-        context,
-        [
-            (
-                "file.uploaded",
-                record.id,
-                {
-                    "file_id": record.id,
-                    "name": record.name,
-                    "content_type": record.content_type,
-                    "size_bytes": record.size_bytes,
-                    "uploaded_by": context.user_id,
-                },
-            )
-        ],
-    )
-    return _views(context, [record])[0]
+    def announce() -> FileView:
+        record_inbound_events(
+            context,
+            [
+                (
+                    "file.uploaded",
+                    record.id,
+                    {
+                        "file_id": record.id,
+                        "name": record.name,
+                        "content_type": record.content_type,
+                        "size_bytes": record.size_bytes,
+                        "uploaded_by": context.user_id,
+                    },
+                )
+            ],
+        )
+        return _views(context, [record])[0]
+
+    return await asyncio.to_thread(announce)
+
+
+def _store_new_object(context: TenantContext, record: FileRecord, content: bytes, quota: int) -> None:
+    """Write the bytes, then the metadata row; never leave unreachable bytes behind."""
+    file_store.storage.put(record.storage_key, content, record.content_type)
+    try:
+        with open_file_metadata_store(context) as store:
+            store.add(record, quota)
+    except StorageQuotaExceeded as exc:
+        # A concurrent upload took the space between the check and this insert.
+        file_store.storage.delete(record.storage_key)
+        raise _quota_error(exc.usage, len(content)) from exc
+    except BaseException:
+        # No metadata, no object: never leave unreachable bytes behind.
+        file_store.storage.delete(record.storage_key)
+        raise
 
 
 async def save_generated_file(context: TenantContext, name: str, content: bytes) -> FileView:
@@ -981,30 +995,27 @@ async def save_generated_file(context: TenantContext, name: str, content: bytes)
     except file_policy.UnsupportedFileType as exc:
         raise HTTPException(status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, str(exc)) from exc
     quota = settings.files_workspace_quota_bytes
-    with open_file_metadata_store(context) as store:
-        current = store.usage(context)
-    if current.used_bytes + len(content) > quota:
-        raise _quota_error(current, len(content))
-    digest = hashlib.sha256(content).hexdigest()
-    file_id = new_id("file")
-    key = workspace_object_key(context.tenant_id, context.workspace_id, "files", file_id, digest)
-    record = FileRecord(id=file_id, tenant_id=context.tenant_id, workspace_id=context.workspace_id,
-                        name=name, content_type=allowed.content_type, size_bytes=len(content), sha256=digest,
-                        storage_key=key, created_by=context.user_id, created_at=utc_now())
-    file_store.storage.put(key, content, allowed.content_type)
-    try:
+
+    def keep() -> FileRecord:
         with open_file_metadata_store(context) as store:
-            store.add(record, quota)
-    except StorageQuotaExceeded as exc:
-        file_store.storage.delete(key)
-        raise _quota_error(exc.usage, len(content)) from exc
-    except BaseException:
-        file_store.storage.delete(key)
-        raise
+            current = store.usage(context)
+        if current.used_bytes + len(content) > quota:
+            raise _quota_error(current, len(content))
+        digest = hashlib.sha256(content).hexdigest()
+        file_id = new_id("file")
+        key = workspace_object_key(context.tenant_id, context.workspace_id, "files", file_id, digest)
+        record = FileRecord(id=file_id, tenant_id=context.tenant_id, workspace_id=context.workspace_id,
+                            name=name, content_type=allowed.content_type, size_bytes=len(content), sha256=digest,
+                            storage_key=key, created_by=context.user_id, created_at=utc_now())
+        _store_new_object(context, record, content, quota)
+        return record
+
+    # Off the event loop (docs/realtime.md#event-loop): the quota read, the bytes and the row.
+    record = await asyncio.to_thread(keep)
     from .retrieval_api import index_uploaded_file
 
     await index_uploaded_file(context, record, content)
-    return _views(context, [record])[0]
+    return await asyncio.to_thread(lambda: _views(context, [record])[0])
 
 
 def file_link(context: TenantContext, record: FileRecord) -> FileLink:
@@ -1268,21 +1279,26 @@ async def _make_current(
 ) -> FileRecord:
     """Swap in new current bytes under the quota; never leave unreachable bytes behind."""
     quota = settings.files_workspace_quota_bytes
-    try:
-        with open_file_metadata_store(context) as store:
-            updated = store.replace_content(context, record.id, record.sha256, content, quota, source_version_id)
-    except StorageQuotaExceeded as exc:
-        if not key_existed:
-            file_store.storage.delete(content.storage_key)
-        raise _quota_error(exc.usage, content.size_bytes) from exc
-    except FileContentChanged as exc:
-        if not key_existed:
-            file_store.storage.delete(content.storage_key)
-        raise HTTPException(409, VERSION_CHANGED) from exc
-    except BaseException:
-        if not key_existed:
-            file_store.storage.delete(content.storage_key)
-        raise
+
+    def swap() -> FileRecord:
+        # In a worker thread (docs/realtime.md#event-loop): the row swap and any clean-up.
+        try:
+            with open_file_metadata_store(context) as store:
+                return store.replace_content(context, record.id, record.sha256, content, quota, source_version_id)
+        except StorageQuotaExceeded as exc:
+            if not key_existed:
+                file_store.storage.delete(content.storage_key)
+            raise _quota_error(exc.usage, content.size_bytes) from exc
+        except FileContentChanged as exc:
+            if not key_existed:
+                file_store.storage.delete(content.storage_key)
+            raise HTTPException(409, VERSION_CHANGED) from exc
+        except BaseException:
+            if not key_existed:
+                file_store.storage.delete(content.storage_key)
+            raise
+
+    updated = await asyncio.to_thread(swap)
     # The index follows the current bytes (docs/memory.md#retrieval); best effort, as on upload.
     from .retrieval_api import reindex_one_file
 
@@ -1322,7 +1338,7 @@ async def upload_file_version(
     """Upload new content for a file. The current bytes become an older version; the name and
     type stay (the content must match the file's extension), and the same checks as an upload
     apply: size, signature, the malware scan and the workspace quota."""
-    record = _manageable(context, file_id)
+    record = await asyncio.to_thread(_manageable, context, file_id)
     allowed = resolve_upload_type(record.name, request.headers.get("content-type"))
     content = await _read_body(request, settings.max_upload_body_bytes)
     digest = hashlib.sha256(content).hexdigest()
@@ -1331,23 +1347,29 @@ async def upload_file_version(
     scanned = await asyncio.to_thread(check_upload_content, record.name, allowed, content)
     if digest == record.sha256:
         raise HTTPException(409, SAME_CONTENT)
-    quota = settings.files_workspace_quota_bytes
-    with open_file_metadata_store(context) as store:
-        current = store.usage(context)
-        added = store.added_bytes(context, file_id, digest, len(content))
-    if current.used_bytes + added > quota:
-        raise _quota_error(current, len(content))
-    try:
-        key = workspace_object_key(context.tenant_id, context.workspace_id, "files", file_id, digest)
-    except ValueError as exc:
-        raise HTTPException(422, "Invalid tenant or workspace identifier") from exc
-    now = utc_now()
-    new = FileContent(content_type=allowed.content_type, size_bytes=len(content), sha256=digest, storage_key=key,
-                      created_by=context.user_id, created_at=now,
-                      scan_status="clean" if scanned else None, scanned_at=now if scanned else None)
-    file_store.storage.put(key, content, allowed.content_type)
+
+    def prepare() -> tuple[FileContent, int]:
+        # The quota read and the object write run in a worker thread (docs/realtime.md#event-loop).
+        quota = settings.files_workspace_quota_bytes
+        with open_file_metadata_store(context) as store:
+            current = store.usage(context)
+            added = store.added_bytes(context, file_id, digest, len(content))
+        if current.used_bytes + added > quota:
+            raise _quota_error(current, len(content))
+        try:
+            key = workspace_object_key(context.tenant_id, context.workspace_id, "files", file_id, digest)
+        except ValueError as exc:
+            raise HTTPException(422, "Invalid tenant or workspace identifier") from exc
+        now = utc_now()
+        new = FileContent(content_type=allowed.content_type, size_bytes=len(content), sha256=digest, storage_key=key,
+                          created_by=context.user_id, created_at=now,
+                          scan_status="clean" if scanned else None, scanned_at=now if scanned else None)
+        file_store.storage.put(key, content, allowed.content_type)
+        return new, added
+
+    new, added = await asyncio.to_thread(prepare)
     updated = await _make_current(context, record, new, content, key_existed=added == 0)
-    return _views(context, [updated])[0]
+    return await asyncio.to_thread(lambda: _views(context, [updated])[0])
 
 
 @router.get("/{file_id}/versions/{version_id}/content")
@@ -1371,21 +1393,26 @@ def download_file_version(file_id: str, version_id: str, context: TenantContext 
 async def restore_file_version(file_id: str, version_id: str, context: TenantContext = Depends(tenant_context)) -> FileView:
     """Make an older version current again. The current bytes become an older version too, so a
     restore can itself be undone; the restored bytes are shared, so it takes no extra space."""
-    record = _manageable(context, file_id)
-    version = _version(context, file_id, version_id)
-    if version.scan_status == "infected":
-        raise HTTPException(409, _version_quarantined(record, version))
-    if version.sha256 == record.sha256:
-        raise HTTPException(409, SAME_CONTENT)
-    try:
-        data = file_store.storage.get(version.storage_key)
-    except FileNotFoundError as exc:
-        raise HTTPException(404, "File content not found") from exc
+
+    def load() -> tuple[FileRecord, Any, bytes]:
+        record = _manageable(context, file_id)
+        version = _version(context, file_id, version_id)
+        if version.scan_status == "infected":
+            raise HTTPException(409, _version_quarantined(record, version))
+        if version.sha256 == record.sha256:
+            raise HTTPException(409, SAME_CONTENT)
+        try:
+            return record, version, file_store.storage.get(version.storage_key)
+        except FileNotFoundError as exc:
+            raise HTTPException(404, "File content not found") from exc
+
+    # Reads in a worker thread (docs/realtime.md#event-loop).
+    record, version, data = await asyncio.to_thread(load)
     new = FileContent(content_type=version.content_type, size_bytes=version.size_bytes, sha256=version.sha256,
                       storage_key=version.storage_key, created_by=context.user_id, created_at=utc_now(),
                       scan_status=version.scan_status, scan_signature=version.scan_signature, scanned_at=version.scanned_at)
     updated = await _make_current(context, record, new, data, key_existed=True, source_version_id=version.id)
-    return _views(context, [updated])[0]
+    return await asyncio.to_thread(lambda: _views(context, [updated])[0])
 
 
 @router.delete("/{file_id}/versions/{version_id}", status_code=status.HTTP_204_NO_CONTENT)

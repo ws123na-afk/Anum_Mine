@@ -665,7 +665,7 @@ async def get_model_budgets(context: TenantContext = Depends(tenant_context)) ->
 
 
 @router.put("/{scope}", response_model=ModelBudgetOverview)
-async def set_model_budget(
+def set_model_budget(
     scope: BudgetScope,
     payload: ModelBudgetLimits,
     context: TenantContext = Depends(tenant_context),

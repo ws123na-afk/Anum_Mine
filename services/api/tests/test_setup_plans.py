@@ -350,10 +350,10 @@ def test_a_failed_item_is_reported_released_and_created_by_the_next_apply(client
 
     real = knowledge_base.create_collection
 
-    async def broken(payload, context):  # type: ignore[no-untyped-def]
+    def broken(payload, context):  # type: ignore[no-untyped-def]
         if payload.name == "05 Finance":
             raise RuntimeError("store unavailable")
-        return await real(payload, context)
+        return real(payload, context)
 
     monkeypatch.setattr(knowledge_base, "create_collection", broken)
     result = apply(client)

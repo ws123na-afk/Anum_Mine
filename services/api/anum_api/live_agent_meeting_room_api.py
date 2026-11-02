@@ -190,7 +190,7 @@ async def event_source(
 
 
 @router.get("/{meeting_id}/events/stream")
-async def stream_events(request: Request, meeting_id: MeetingId, after: int = Query(default=0, ge=0),
+def stream_events(request: Request, meeting_id: MeetingId, after: int = Query(default=0, ge=0),
                         last_event_id: str | None = Header(default=None, alias="Last-Event-ID"),
                         context: TenantContext = Depends(tenant_context, scope="function")) -> StreamingResponse:
     _read(context)

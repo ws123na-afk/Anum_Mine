@@ -13,6 +13,8 @@ It is not synced with Google or Microsoft calendars yet.
 
 from __future__ import annotations
 
+import asyncio
+
 import re
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -448,7 +450,7 @@ def create_event_for(context: TenantContext, payload: EventCreate) -> CalendarEv
 
 
 @router.get("/events", response_model=EventPage)
-async def list_events(
+def list_events(
     start: datetime | None = None,
     end: datetime | None = None,
     include_cancelled: bool = False,
@@ -492,7 +494,7 @@ async def create_event(
 
 
 @router.get("/events/{event_id}", response_model=EventView)
-async def get_event(event_id: str, context: TenantContext = Depends(tenant_context)) -> EventView:
+def get_event(event_id: str, context: TenantContext = Depends(tenant_context)) -> EventView:
     _require(context, Permission.CALENDAR_READ, READ_DENIED)
     with open_calendar_store(context) as store:
         return _view(context, _load(store, event_id))
@@ -510,21 +512,27 @@ async def update_event(
     for required in ("title", "kind", "status", "starts_at", "ends_at"):
         if required in changes and changes[required] is None:
             raise HTTPException(status_code=422, detail=f"{required} cannot be empty")
-    with open_calendar_store(context) as store:
-        event = _load(store, event_id)
-        if not _can_manage(context, event):
-            raise HTTPException(status_code=403, detail=MANAGE_DENIED)
-        merged = event.model_dump()
-        merged.update({k: v for k, v in changes.items() if k != "attendees"})
-        if payload.attendees is not None:
-            merged["attendees"] = [a.model_dump() for a in _attendees(payload.attendees, event.attendees)]
-        merged.update(updated_by=context.user_id, updated_at=utc_now())
-        try:
-            updated = CalendarEvent.model_validate(merged)
-        except ValueError as exc:
-            raise HTTPException(status_code=422, detail=_first_error(exc)) from None
-        store.save(updated)
-    _audit(repository, context, "calendar.event.updated", event_id, {"fields": sorted(changes)})
+
+    def save() -> CalendarEvent:
+        with open_calendar_store(context) as store:
+            event = _load(store, event_id)
+            if not _can_manage(context, event):
+                raise HTTPException(status_code=403, detail=MANAGE_DENIED)
+            merged = event.model_dump()
+            merged.update({k: v for k, v in changes.items() if k != "attendees"})
+            if payload.attendees is not None:
+                merged["attendees"] = [a.model_dump() for a in _attendees(payload.attendees, event.attendees)]
+            merged.update(updated_by=context.user_id, updated_at=utc_now())
+            try:
+                updated = CalendarEvent.model_validate(merged)
+            except ValueError as exc:
+                raise HTTPException(status_code=422, detail=_first_error(exc)) from None
+            store.save(updated)
+        _audit(repository, context, "calendar.event.updated", event_id, {"fields": sorted(changes)})
+        return updated
+
+    # The store and the audit run in a worker thread (docs/realtime.md#event-loop).
+    updated = await asyncio.to_thread(save)
     if updated.connection_id:
         from .calendar_sync import attach_and_push
 
@@ -533,7 +541,7 @@ async def update_event(
 
 
 @router.put("/events/{event_id}/attendees/{attendee_id}/response", response_model=EventView)
-async def record_response(
+def record_response(
     event_id: str,
     attendee_id: str,
     payload: ResponseUpdate,
@@ -564,10 +572,15 @@ async def delete_event(
     repository: AnumRepository = Depends(repository_context),
 ) -> Response:
     _require(context, Permission.CALENDAR_READ, READ_DENIED)
-    with open_calendar_store(context) as store:
-        event = _load(store, event_id)
-        if not _can_manage(context, event):
-            raise HTTPException(status_code=403, detail=MANAGE_DENIED)
+
+    def load() -> CalendarEvent:
+        with open_calendar_store(context) as store:
+            event = _load(store, event_id)
+            if not _can_manage(context, event):
+                raise HTTPException(status_code=403, detail=MANAGE_DENIED)
+        return event
+
+    event = await asyncio.to_thread(load)
     if event.connection_id and event.external_id:
         from .calendar_sync import CalendarSyncError, remove_at_provider
 
@@ -578,9 +591,13 @@ async def delete_event(
                 status_code=502,
                 detail=f"The event was not deleted because the connected calendar could not remove it: {exc.message} Try again, or disconnect the calendar first.",
             ) from None
-    with open_calendar_store(context) as store:
-        store.delete(event_id)
-    _audit(repository, context, "calendar.event.deleted", event_id)
+
+    def delete() -> None:
+        with open_calendar_store(context) as store:
+            store.delete(event_id)
+        _audit(repository, context, "calendar.event.deleted", event_id)
+
+    await asyncio.to_thread(delete)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -589,7 +606,7 @@ def _when(value: datetime) -> str:
 
 
 @router.get("/next-steps", response_model=NextSteps)
-async def next_steps(
+def next_steps(
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
 ) -> NextSteps:
