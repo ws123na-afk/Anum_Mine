@@ -31,6 +31,8 @@ FINANCE_TRIGGERS = frozenset(
         "paper", "shadow", "simulate", "simulated", "simulation", "portfolio", "portfolios",
         # Arabic: trial (paper), simulation, portfolio.
         "تجريبي", "تجريبيا", "تجريبية", "محاكاة", "المحفظة", "محفظة", "محفظتي",
+        # Fund research (docs/finance-research.md#assistant): the ETF words and the Shariah-screened tickers.
+        "etf", "etfs", "ibkr", "shariah", "halal", "spus", "hlal", "umma", "spre", "spsk", "حلال", "صندوق",
     }
 )
 

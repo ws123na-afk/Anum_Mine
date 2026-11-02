@@ -44,6 +44,9 @@ READ_TOOLS = (
     "finance.safe_to_spend", "finance.guardian.rules", "finance.guardian.check",
     # Stage 6: the person's SIMULATED paper and shadow portfolios. Read only.
     "finance.paper.portfolios",
+    # Research (docs/finance-research.md#assistant): a fund's figures with sources, or the owner's IBKR
+    # portfolio as IBKR last reported it. Read only; every number comes from the data.
+    "finance.research",
 )
 # Stage 6: an assistant may only PROPOSE a simulated (paper or shadow) order. It waits for the
 # person's own approval with the code shown; there is no tool that approves, trades for real,
@@ -370,6 +373,60 @@ async def _guardian_propose(call: ToolCall, context: TenantContext) -> ToolResul
     )
 
 
+def _fact(fact: dict[str, Any], suffix: str = "") -> str:
+    return f"{fact['value']}{suffix}" if fact.get("value") is not None else "not available"
+
+
+async def _research(call: ToolCall, context: TenantContext) -> ToolResult:
+    """Text built only from the gathered data (and an AI summary that passed the number check)."""
+    if not _has(context, Permission.FINANCE_READ):
+        return _denied()
+    import asyncio
+
+    from ..schemas import utc_now
+    from . import research_service as rsvc
+    from .ibkr_service import BrokerRefusal
+
+    symbol = str(call.arguments.get("symbol") or "").strip().upper()
+    note = rsvc.DISCLAIMER
+    try:
+        if not symbol:
+            p = await asyncio.to_thread(rsvc.portfolio, context, utc_now())
+            if not p["connected"]:
+                return ToolResult(status="succeeded", summary=f"Your IBKR account is not connected ({p['mode'].upper()} mode). Connect it under Finance, IBKR trading.",
+                                  output=p)
+            if not p.get("synced_at"):
+                return ToolResult(status="succeeded", summary="IBKR is connected but not read yet. Press Read IBKR now under Finance, IBKR trading.", output=p)
+            held = "; ".join(f"{x['symbol']}: {x['quantity']} share(s), value USD {x['market_value'] or '-'}, unrealised USD {x['unrealized_pnl'] or '-'}"
+                             for x in p["positions"]) or "no positions"
+            summary = (f"Your IBKR {p['mode'].upper()} account as IBKR reported it at {p['synced_at']}: net value USD {p['net_liquidation'] or '-'}, "
+                       f"today's profit or loss USD {p['daily_pnl'] or '-'}, unrealised USD {p['unrealized_pnl'] or '-'}, realised USD {p['realized_pnl'] or '-'}. "
+                       f"Holdings: {held}. Unrealised changes every day and is not money made or lost until you sell. {note}")
+            return ToolResult(status="succeeded", summary=summary, output=p)
+        r = await asyncio.to_thread(rsvc.research, context, symbol, utc_now())
+    except BrokerRefusal as exc:
+        return ToolResult(status="blocked", summary=exc.message)
+    returns = ", ".join(f"{k}: {_fact(v['total'], '%')}" for k, v in r["returns"].items())
+    falls = "; ".join(f"{d['fall_percent']}% from {d['peak_date']} to {d['trough_date']}, "
+                      + (f"back by {d['recovered_date']}" if d["recovered_date"] else "not recovered yet") for d in r["drawdowns"]["items"][:2]) or "not available"
+    fund = r["fund"]
+    sources = ", ".join(s["name"] for s in r["sources"] if s["used"])
+    lines = [
+        f"{r['symbol']} ({r['name']}): {r['shariah']['label']}" + (f", {r['shariah']['screen']}" if r["shariah"]["screen"] else "") + ".",
+        f"Last close USD {_fact(r['prices']['last_close'])} ({r['prices'].get('to') or 'no date'}). Price change: {returns}.",
+        f"Worst falls: {falls}. Yearly volatility: {_fact(r['volatility']['yearly'], '%')}.",
+        f"Holdings: {_fact(fund['holdings_count'])}; issuer: {_fact(fund['issuer'])}; expense ratio: not available.",
+        f"Sources: {sources or 'none answered'}.",
+    ]
+    summary_view = r.get("summary")
+    if summary_view and summary_view.get("status") == "ok" and summary_view.get("current"):
+        s = summary_view["summary"]
+        lines.append(f"AI summary (checked: every number is from the data; not advice): suggestion {s['suggestion']}. " + " ".join(s["reasons"][:3]))
+    lines.append(note)
+    output = {k: r[k] for k in ("symbol", "name", "shariah", "prices", "returns", "drawdowns", "volatility", "fund", "dividends", "sources", "gathered_at")}
+    return ToolResult(status="succeeded", summary=" ".join(lines), output=output)
+
+
 async def _paper_portfolios(call: ToolCall, context: TenantContext) -> ToolResult:
     if not _has(context, Permission.FINANCE_READ):
         return _denied()
@@ -510,6 +567,11 @@ async def _widen_propose(call: ToolCall, context: TenantContext) -> ToolResult:
 
 
 SCHEMAS: dict[str, dict[str, Any]] = {
+    "finance.research": {
+        "type": "object",
+        "properties": {"symbol": {"type": "string", "pattern": r"^[A-Za-z][A-Za-z0-9.]{0,9}$", "description": "A listed US ETF; leave out for your portfolio"}},
+        "additionalProperties": False,
+    },
     "finance.summary": {
         "type": "object",
         "properties": {"month": {"type": "string", "pattern": r"^\d{4}-(0[1-9]|1[0-2])$", "description": "YYYY-MM; this month if left out"}},
@@ -612,6 +674,10 @@ def register_finance_tools(registry: ToolRegistry) -> ToolRegistry:
         "finance.guardian.rules": ("Your own Guardian spending rules, this month's alerts and changes waiting for you. Read only.", _guardian_rules),
         "finance.guardian.check": (
             "Check what your Guardian rules say about a spend, without doing anything. Read only: ANUM moves no money.", _guardian_check,
+        ),
+        "finance.research": (
+            "Research one listed US ETF (price history, worst falls, volatility, fund facts, Shariah label, sources and dates) or, "
+            "with no symbol, how your IBKR portfolio is doing from IBKR's last figures. Read only; not financial advice.", _research,
         ),
         "finance.paper.portfolios": (
             "Your own SIMULATED paper and shadow portfolios: simulated cash, positions and P&L with the fee and slippage "
@@ -777,6 +843,26 @@ _PAPER_READ = re.compile(
 )
 
 
+_RESEARCH = re.compile(r"\b(?:research|analy[sz]e|look into|tell me about)\s+(?:the\s+)?(?P<sym>[A-Za-z]{2,6})\b|(?:ابحث عن|حلل|تحليل)\s+(?P<ar>[A-Za-z]{2,6})\b",
+                       re.IGNORECASE)
+_PORTFOLIO = re.compile(r"\bhow(?:'s| is| are)\s+(?:my\s+)?(?:portfolio|investments?|ibkr|holdings)\b|\bmy (?:ibkr )?portfolio\b|كيف (?:حال )?محفظتي|أداء محفظتي",
+                        re.IGNORECASE)
+
+
+def research_call(text: str) -> ToolCall | None:
+    """"research SPUS" or "how is my portfolio doing", in the user's own words (threat model G5)."""
+    from .ibkr_rules import US_ETFS
+
+    found = _RESEARCH.search(text)
+    if found:
+        symbol = (found.group("sym") or found.group("ar") or "").upper()
+        if symbol in US_ETFS:
+            return ToolCall(name="finance.research", arguments={"symbol": symbol})
+    if _PORTFOLIO.search(text) and not _PAPER_READ.search(text):
+        return ToolCall(name="finance.research", arguments={})
+    return None
+
+
 def paper_call(text: str) -> ToolCall | None:
     """A SIMULATED order or the paper portfolios, asked in the user's own words (never a live order)."""
     if not _PAPER_MARK.search(text) and not _PAPER_READ.search(text):
@@ -824,6 +910,9 @@ def plan_call(prompt: str, today: date | None = None) -> ToolCall | None:
     simulated = paper_call(text)
     if simulated is not None:
         return simulated
+    researched = research_call(text)
+    if researched is not None:
+        return researched
     if is_money_movement(text):
         return None
     proposal = _proposal(text)

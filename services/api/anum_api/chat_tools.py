@@ -466,6 +466,7 @@ COMMERCE_READ_TOOLS = frozenset({"commerce.sales_summary", "commerce.list_orders
 FINANCE_READ_TOOLS = frozenset({
     "finance.summary", "finance.transactions.search", "finance.bills.upcoming",
     "finance.safe_to_spend", "finance.guardian.rules", "finance.guardian.check", "finance.paper.portfolios",
+    "finance.research",  # docs/finance-research.md#assistant: figures with their sources, read only
 })
 # A Guardian proposal only waits for the person's own confirmation in Finance, Guardian; a
 # SIMULATED paper order only waits for the person's own approval in Finance, Paper trading.
@@ -892,7 +893,14 @@ def summary_messages(
     ]
 
 
+# Research answers are written from the gathered data only (docs/finance-research.md#assistant): no free
+# model answer above the card, because a streamed answer could state a number that is not in the data.
+DATA_ONLY_TOOLS = frozenset({"finance.research"})
+
+
 def needs_summary(card: ChatCard, result: "ToolResult | None") -> bool:
+    if card.tool in DATA_ONLY_TOOLS:
+        return False
     return card.state == "results" and result is not None and result.status == "succeeded" and (
         card.tool in {"search_email", "list_whatsapp_conversations", "web_search", "web.browse_page"}
         or card.tool in COMMERCE_READ_TOOLS

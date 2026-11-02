@@ -7,6 +7,7 @@ import { commerceAr } from './commerce.ar.ts';
 import { financeAr } from './finance.ar.ts';
 import { financeTradingAr } from './financeTrading.ar.ts';
 import { financeIbkrAr } from './financeIbkr.ar.ts';
+import { financeResearchAr } from './financeResearch.ar.ts';
 import { financeIntelAr } from './financeIntel.ar.ts';
 import { financeEquityAr } from './financeEquity.ar.ts';
 import { financeReportsAr } from './financeReports.ar.ts';
@@ -92,6 +93,7 @@ export const ar: Record<MessageKey, Message> = {
   ...financeAr,
   ...financeTradingAr,
   ...financeIbkrAr,
+  ...financeResearchAr,
   ...financeIntelAr,
   ...financeEquityAr,
   ...financeReportsAr,
