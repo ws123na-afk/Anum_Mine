@@ -22,13 +22,31 @@ export function summarize(frames: readonly number[]): FrameSummary {
   };
 }
 
-/** The last `size` samples; the median of them is the rolling frame time. */
+/**
+ * The last `size` samples; the median of them is the rolling frame time. Allocation free: the governor feeds it on every frame, so it
+ * keeps a fixed ring and sorts into a fixed scratch buffer (no array copies, no garbage for the collector to pause on).
+ */
 export class RollingFrames {
-  private readonly values: number[] = [];
+  private readonly ring: Float64Array;
+  private readonly scratch: Float64Array;
   private readonly size: number;
-  constructor(size: number) { this.size = size; }
-  push(ms: number): void { this.values.push(ms); if (this.values.length > this.size) this.values.shift(); }
-  clear(): void { this.values.length = 0; }
-  get length(): number { return this.values.length; }
-  median(): number { return percentile([...this.values].sort((a, b) => a - b), 0.5); }
+  private head = 0;
+  private count = 0;
+  constructor(size: number) { this.size = Math.max(1, size); this.ring = new Float64Array(this.size); this.scratch = new Float64Array(this.size); }
+  push(ms: number): void { this.ring[this.head] = ms; this.head = (this.head + 1) % this.size; if (this.count < this.size) this.count += 1; }
+  clear(): void { this.head = 0; this.count = 0; }
+  get length(): number { return this.count; }
+  /** The `p` quantile (0 to 1) with the same rank rule as `percentile`; 0 when empty. */
+  quantile(p: number): number {
+    const n = this.count, a = this.scratch;
+    if (n === 0) return 0;
+    for (let i = 0; i < n; i++) {
+      const v = this.ring[i];
+      let j = i - 1;
+      while (j >= 0 && a[j] > v) { a[j + 1] = a[j]; j -= 1; }
+      a[j + 1] = v;
+    }
+    return a[Math.min(n - 1, Math.max(0, Math.ceil(p * n) - 1))];
+  }
+  median(): number { return this.quantile(0.5); }
 }

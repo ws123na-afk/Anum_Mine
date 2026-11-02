@@ -82,3 +82,23 @@ export type QualityState = Readonly<{
   /** The governor is allowed to change the picture (false when pinned, on a software rasteriser, or during a benchmark). */
   governed: boolean;
 }>;
+
+/** One shader variant of the scene materials: with or without the sun's shadow, and drawn to the canvas or into the night glow pass's render target. */
+export type ProgramVariant = Readonly<{ shadows: boolean; glow: boolean }>;
+
+/**
+ * The shader variants a set of rungs draws with (the warm-up compiles them before they are needed, `hqWarmup.ts`). three.js keys a program on
+ * whether shadows are on and on whether it draws into a render target, so a switch between shadows on and off, or the first glow frame of the
+ * evening, compiles every scene material again unless these were compiled first. The simple materials are other material objects (the last
+ * rung builds them), so lean rungs are left out. `glow` false leaves out the render target variants (a daytime benchmark never draws them).
+ */
+export function programVariants(steps: readonly StepSettings[], glow = true): ProgramVariant[] {
+  const out: ProgramVariant[] = [];
+  const add = (v: ProgramVariant) => { if (!out.some((o) => o.shadows === v.shadows && o.glow === v.glow)) out.push(v); };
+  for (const s of steps) {
+    if (s.lean) continue;
+    add({ shadows: s.shadowSize > 0, glow: false });
+    if (glow && s.bloom) add({ shadows: s.shadowSize > 0, glow: true });
+  }
+  return out;
+}

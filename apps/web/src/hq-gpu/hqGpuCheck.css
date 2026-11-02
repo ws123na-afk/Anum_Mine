@@ -32,6 +32,8 @@
 .hqGpuVerdict p:first-child { font-size: var(--text-sm); line-height: 1.5; }
 .hqGpuVerdict[data-kind="software"], .hqGpuVerdict[data-kind="no-webgl"], .hqGpuVerdict[data-kind="poor"] { border-color: var(--hq-warn, var(--d-line-strong)); }
 .hqGpuControls button { min-height: 40px; }
+.hqGpuCheck { align-items: center; color: var(--d-text); display: flex; font-size: var(--text-sm); gap: var(--d-s2); margin-top: var(--d-s2); min-height: 32px; }
+.hqGpuCheck input { height: 18px; margin: 0; width: 18px; }
 @media (max-width: 760px) {
   .hqGpu { width: 100vw; border-inline-start: 0; }
   .hqGpuFacts { grid-template-columns: minmax(0, 1fr); }
