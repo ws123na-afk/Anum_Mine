@@ -339,8 +339,23 @@ def check_agent_cap(context: TenantContext, agent_id: str, *, now: datetime | No
 
 def record_agent_usage(context: TenantContext, agent_id: str, usage: ModelUsage, *, now: datetime | None = None) -> ModelUsageTotals:
     moment = now or utc_now()
+    month = month_start(moment)
+    delta = UsageDelta.of(usage)
     with open_agent_controls_store(context) as store:
-        return store.record_agent_usage(context, agent_id, month_start(moment), UsageDelta.of(usage), moment)
+        totals = store.record_agent_usage(context, agent_id, month, delta, moment)
+        cap = store.get_cap(context, agent_id)
+    if cap is not None:
+        # Owners hear about 50, 75, 90 and 100 percent of the agent's cap in the app.
+        from .budget_alerts import alert_agent, crossed
+
+        checks = (
+            ("cost", cap.monthly_cost_limit_usd, totals.estimated_cost_usd, delta.estimated_cost_usd or 0.0),
+            ("tokens", cap.monthly_token_limit, float(totals.total_tokens), float(delta.input_tokens + delta.output_tokens)),
+        )
+        for kind, limit, after, step in checks:
+            for percent in crossed(after - step, after, None if limit is None else float(limit)):
+                alert_agent(context, _agent_name(context, agent_id) or agent_id, kind, percent, float(limit or 0), next_month_start(month))
+    return totals
 
 
 def _agent_name(context: TenantContext, agent_id: str) -> str | None:

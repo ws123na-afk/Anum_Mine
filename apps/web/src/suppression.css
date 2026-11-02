@@ -30,3 +30,15 @@
   .suppRow { grid-template-columns: 1fr; }
   .suppRow > button { justify-self: start; }
 }
+
+/* Consent records (docs/privacy.md#consent-records-for-campaigns). */
+.consentPanel { display: grid; gap: var(--d-s3); margin-top: var(--d-s4); min-width: 0; padding: var(--d-s5); }
+.consentRule { align-items: flex-start; cursor: pointer; display: flex; gap: var(--d-s2); max-width: 70ch; }
+.consentRule input { accent-color: var(--d-violet); flex: none; height: 18px; margin: 2px 0 0; min-height: 0; padding: 0; width: 18px; }
+.consentRule span { display: grid; gap: 2px; }
+.consentPager { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); justify-content: space-between; }
+.consentList { display: grid; gap: var(--d-s2); min-width: 0; }
+.consentRows { display: grid; gap: var(--d-s2); list-style: none; margin: 0; padding: 0; }
+.consentRow { border-top: 1px solid var(--d-line); display: grid; gap: var(--d-s1); min-width: 0; padding-top: var(--d-s2); }
+.consentRow p { margin: 0; overflow-wrap: anywhere; }
+.consentHead { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); }

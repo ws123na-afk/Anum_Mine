@@ -1,18 +1,25 @@
 // Setup plan page helpers (docs/setup-plan.md): grouping, filters, the rollout track and the
 // result summary. Pure, so `pnpm --filter @anum/web test:unit` covers them without a browser.
 import type {
-  PilotCheck, PilotCheckStatus, PilotChecks, SetupPlanAction, SetupPlanApplyRequest, SetupPlanApplyResult, SetupPlanItem, SetupPlanLink, SetupPlanOutcome, SetupPlanPhase, SetupPlanPreview, SetupPlanSection, SetupPlanWeek,
+  PilotCheck, PilotCheckStatus, PilotChecks, SetupChecklist, SetupChecklistItem, SetupChecklistState, SetupPlanAction, SetupPlanApplyRequest, SetupPlanApplyResult, SetupPlanItem, SetupPlanLink, SetupPlanOptions, SetupPlanOutcome, SetupPlanPhase, SetupPlanPreview, SetupPlanSection, SetupPlanWeek,
 } from '@anum/contracts';
 import { t, type MessageKey } from './i18n.ts';
 
 export type {
-  PilotCheck, PilotCheckStatus, PilotChecks, SetupPlanAction, SetupPlanApplyResult, SetupPlanItem, SetupPlanOutcome, SetupPlanPhase, SetupPlanPreview, SetupPlanSection, SetupPlanSummary,
+  PilotCheck, PilotCheckStatus, PilotChecks, SetupChecklist, SetupChecklistItem, SetupChecklistState, SetupPlanAction, SetupPlanApplyResult, SetupPlanItem, SetupPlanOptions, SetupPlanOutcome, SetupPlanPhase, SetupPlanPreview, SetupPlanSection, SetupPlanSummary,
 } from '@anum/contracts';
 
 /** Sections in the order the plan is applied (dependencies first), then what stays for people. */
 export const SECTION_ORDER: readonly SetupPlanSection[] = [
-  'workspaces', 'governance', 'knowledge', 'budget', 'skills', 'agents', 'assistants', 'commands', 'automations', 'manual', 'unsupported',
+  'workspaces', 'governance', 'knowledge', 'budget', 'skills', 'agents', 'controls', 'offices', 'business_agents', 'assistants', 'commands', 'automations', 'home',
+  'manual', 'unsupported',
 ];
+
+/** The page's defaults: offices on (a seat only where an office exists), the two wider choices off. */
+export const DEFAULT_OPTIONS: SetupPlanOptions = { business_workspaces: false, run_automations_as_agents: false, seat_in_offices: true };
+
+const sameOptions = (a: SetupPlanOptions, b: SetupPlanOptions) =>
+  a.business_workspaces === b.business_workspaces && a.run_automations_as_agents === b.run_automations_as_agents && a.seat_in_offices === b.seat_in_offices;
 
 /** Actions that change something when the plan is applied. */
 export const CHANGING: ReadonlySet<SetupPlanAction> = new Set(['create', 'update']);
@@ -49,14 +56,27 @@ export function groupBySection(items: readonly SetupPlanItem[]): { section: Setu
   return SECTION_ORDER.map((section) => ({ section, items: items.filter((item) => item.section === section) })).filter((group) => group.items.length > 0);
 }
 
-/** Whether the shown preview was built with the choices on screen (phase and "Replace my changes"). */
-export const previewMatches = (preview: Pick<SetupPlanPreview, 'phase' | 'overwrite_edited'>, phase: SetupPlanPhase, overwrite: boolean): boolean =>
-  preview.phase === phase && preview.overwrite_edited === overwrite;
+/** Whether the shown preview was built with the choices on screen (phase, "Replace my changes" and the options). */
+export const previewMatches = (
+  preview: Pick<SetupPlanPreview, 'phase' | 'overwrite_edited'> & { options?: SetupPlanOptions },
+  phase: SetupPlanPhase, overwrite: boolean, options: SetupPlanOptions = DEFAULT_OPTIONS,
+): boolean => preview.phase === phase && preview.overwrite_edited === overwrite && sameOptions(preview.options ?? DEFAULT_OPTIONS, options);
 
-/** The apply request for a preview: the same phase and overwrite the owner reviewed, and its plan version. */
-export const applyRequestFor = (preview: Pick<SetupPlanPreview, 'phase' | 'overwrite_edited'> & { plan: { version: number } }): SetupPlanApplyRequest => ({
-  phase: preview.phase, overwrite_edited: preview.overwrite_edited, plan_version: preview.plan.version,
+/** The apply request for a preview: the same phase, overwrite and options the owner reviewed, and its plan version. */
+export const applyRequestFor = (
+  preview: Pick<SetupPlanPreview, 'phase' | 'overwrite_edited'> & { options?: SetupPlanOptions; plan: { version: number } },
+): SetupPlanApplyRequest => ({
+  phase: preview.phase, overwrite_edited: preview.overwrite_edited, plan_version: preview.plan.version, ...(preview.options ?? DEFAULT_OPTIONS),
 });
+
+/** The preview query for the choices on screen. */
+export function previewQuery(phase: SetupPlanPhase, overwrite: boolean, options: SetupPlanOptions): string {
+  const query = new URLSearchParams({
+    phase, overwrite_edited: String(overwrite), business_workspaces: String(options.business_workspaces),
+    run_automations_as_agents: String(options.run_automations_as_agents), seat_in_offices: String(options.seat_in_offices),
+  });
+  return query.toString();
+}
 
 /** How many items applying the plan would create, update, or link (an existing object with the plan's name is recorded, not changed). */
 export const changeCount = (preview: Pick<SetupPlanPreview, 'items'>): number =>
@@ -85,7 +105,7 @@ export const failedItems = (result: Pick<SetupPlanApplyResult, 'items'>): SetupP
 /** Reasons whose wording is fixed are shown in the reader's language; the others are the API's own sentence. */
 const LOCALIZED_REASONS = new Set([
   'needs_org_admin', 'needs_owner', 'not_in_phase', 'edited_by_owner', 'removed_by_owner', 'found_by_name', 'already_applied', 'busy', 'recreate', 'set_by_someone',
-  'resume_stopped_apply',
+  'resume_stopped_apply', 'already_set', 'missing_dependency', 'no_offices', 'will_run_as_agent', 'workspace_missing',
 ]);
 
 export function reasonText(item: Pick<SetupPlanItem, 'reason_code' | 'reason'>): string {
@@ -130,3 +150,22 @@ export function evidenceProblem(evidence: string): MessageKey | null {
 /** "x of 18 passed" with the failures, and whether the Week 1 gate is open. */
 export const checksSummary = (checks: Pick<PilotChecks, 'passed' | 'failed' | 'total' | 'done'>) =>
   ({ passed: checks.passed, failed: checks.failed, total: checks.total, done: checks.done });
+
+// ---------------------------------------------------------------- live checklist
+
+export function checklistTone(state: SetupChecklistState): Tone {
+  if (state === 'done') return 'success';
+  if (state === 'partial') return 'warning';
+  if (state === 'todo') return 'dangerTone';
+  return 'neutral';
+}
+
+export const checklistStateLabel = (state: SetupChecklistState): string => t(`plan.list.state.${state}` as MessageKey);
+
+/** Steps still to do first (todo, then partial), then those ANUM cannot read, then done ones; the plan's order within each. */
+export function orderChecklist(items: readonly SetupChecklistItem[]): SetupChecklistItem[] {
+  const rank: Record<SetupChecklistState, number> = { todo: 0, partial: 1, no_access: 2, cannot_check: 3, done: 4 };
+  return items.map((item, index) => ({ item, index })).sort((a, b) => rank[a.item.state] - rank[b.item.state] || a.index - b.index).map((row) => row.item);
+}
+
+export const checklistSummary = (list: Pick<SetupChecklist, 'done' | 'total'>) => ({ done: list.done, total: list.total, complete: list.total > 0 && list.done === list.total });

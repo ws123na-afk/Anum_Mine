@@ -1,6 +1,6 @@
 # ANUM MINE headquarters: graphics check, frame governor and GPU recovery
 
-Date: 26 October 2026. Updated 2 November 2026 with the first real GPU report ([Real devices](#real-devices)) and the tuning it led to.
+Date: 26 October 2026. Updated 2 November 2026 with the first real GPU report ([Real devices](#real-devices)) and the tuning it led to, and again the same day with the second report (a regression: twice the draw calls and twice the GPU time) and its fixes ([Draw calls](#draw-calls), [Render scale](#render-scale), [Texture uploads](#texture-uploads), [Labels over the scene](#labels-over-the-scene)).
 
 ## What is proven and what is not
 
@@ -30,7 +30,7 @@ How a run measures: before the first tier, every shader variant the measured tie
 
 Verdict rules (`lib/hqGpuReport.ts`, `verdictFor`): the heaviest tier whose median is 18.5 ms or less and whose 95th percentile is 25 ms or less holds 60 frames a second; failing that, the heaviest with a median of 34 ms or less and a 95th percentile of 50 ms or less holds 30; failing that, the lightest tier with "struggles". A software rasteriser always gets the software verdict (lightest tier), whatever the timings say.
 
-Per tier the report also holds `warmupMs` (milliseconds from the switch until the frames settled, not timed), `gpu` (`medianMs`, `p95Ms`, `samples` from the timer query, or null) and `hitches` (`count` of timed frames over 50 ms, how many of them `compile`d shader programs and how many allocated `buffers`). All numbers.
+Per tier the report also holds `warmupMs` (milliseconds from the switch until the frames settled, not timed), `gpu` (`medianMs`, `p95Ms`, `samples` from the timer query, or null) and `hitches` (`count` of timed frames over 50 ms, how many of them `compile`d shader programs, how many allocated `buffers` and, since the second report, how many came right after a live atlas was `uploads`ed to the GPU again). All numbers.
 
 Memory estimate: three.js and the browser do not report real GPU memory. The estimate adds geometry buffers, texture sizes (with mipmaps), the canvas, the shadow map and the glow targets.
 
@@ -65,7 +65,49 @@ The first real report showed rare long frames on every tier (500 to 600 ms) and 
 - **Canvas reallocated on every tier switch.** Every switch forced `setSize`, which reallocates the drawing buffer even at the same size. It now resizes only when the size or pixel ratio really changed.
 - **Garbage from the frame loop.** The governor's rolling windows copied and sorted an array on every frame (about 300 young collections per 300,000 frames); they now use fixed buffers and allocate nothing. The draw no longer builds key strings for the canvas size and shadow camera, filters the mesh list, rebuilds the light preset, the effect list or the view projection twice per frame.
 
-Not changed, and still possible causes of a rare long frame: the live screen and billboard atlases (2048 pixels wide) are uploaded again with new mipmaps when a cell changes (at most once a second per cell); a model arriving from its lazy chunk compiles on its first frame; the first visit to dusk or night bakes its reflection map; the simple materials (the governor's last rung) are new material objects and compile when it is reached. The new hitch counts in the report ("compiling shaders", new buffers) tell these apart on the next real run.
+Not changed, and still possible causes of a rare long frame: the live screen and billboard atlases (2048 pixels wide) are uploaded again whole when a cell changes (at most once a second per cell, see [Texture uploads](#texture-uploads)); a model arriving from its lazy chunk compiles on its first frame; the first visit to dusk or night bakes its reflection map; the simple materials (the governor's last rung) are new material objects and compile when it is reached. The new hitch counts in the report ("compiling shaders", new buffers) tell these apart on the next real run.
+
+## Draw calls
+
+The second real report (2 November, 12:07) counted 160 draw calls on the campus where the first had 74. The cause, measured with the scene's own counters (a local build with the owner's GPU name, the starter campus of 16 buildings, 1707 by 960): every campus item was cut by surface class and each piece drawn on its own, so every building cost 7 to 12 draw calls (its flat, glass, concrete, metal, wood, foliage, beacon, cloth, sign surfaces), and the roof detail of each tall building 2 more. 16 buildings made 144 calls; the owner's campus made 160. The count did not change between the two builds the owner compared (both 144 on the same campus here): the grounded buildings (#328) add podium, columns, beams and cores to a building's own mesh and no draw call (a building view still draws 72), and nothing else in between added meshes. What changed is how much of the campus was in view: the bigger stage (#335) and the taller window show every building.
+
+The fix, `lib/hqBatches.ts`: the pieces of all items that draw the same way are merged, one mesh per surface class per batch. The buildings and their roof detail form one batch, the scenery (never culled) one, the billboards one (their materials change per tier). Items stay apart only where the renderer needs them apart: a lift group (a cut-away floor that eases), a model stand-in (hidden when the model loads), moving parts and transparent glass (sorted back to front one by one). The hover and selection glow still finds each building: every vertex carries its item's pick number (`aPick`), and the shader lights the vertices whose number is the selected or hovered one, so no uniform is written per mesh.
+
+| Campus (starter, 16 buildings, local build, owner's GPU name) | Before | After |
+|---|---|---|
+| Draw calls (`data-drawn`, every tier) | 144 | 37 |
+| Triangles | 171,703 | 171,703 |
+| Planned draw calls of the scene's own meshes, 8 / 16 / 24 buildings (`test/hqDrawBudget.test.ts`) | 93 / 171 / 251 | 26 / 26 / 26 |
+
+The 37 are the 26 scene meshes plus the sky, the contact discs, the moving vehicles and the model layer. A new building adds no draw call unless it brings a surface class no other building has. `test/hqDrawBudget.test.ts` fails if the campus needs more than 32 calls or if each building adds more than half a call on average, and checks that a grounded building (every starter campus building, closed and cut away) stays one mesh per class.
+
+## Render scale
+
+The second report also measured GPU time per frame (the timer query): 23.6 ms on Low and 28 to 30 ms on the others, at 1707 by 960 CSS pixels and a device pixel ratio of 1.13, that is 2.1 million device pixels. The first run had 1707 by 735 (1.6 million) and a smaller stage: here the stage is 660 CSS pixels tall at that window where it was 435, half as many pixels again. An integrated GPU's cost grows with the pixels it fills, so every tier now has a pixel budget on GPUs that share the laptop's memory (integrated, phone, unknown, software): the pixel ratio is lowered until the canvas fits (`maxPixels`, `pixelBudget` and `budgetedDpr` in `lib/hqQualityTiers.ts`).
+
+| Tier | Budget, integrated GPU | Budget, discrete or Apple M | Owner's 1707 x 960 at 1.13 |
+|---|---|---|---|
+| Low | 1.0 million | 1.0 million | ratio 0.78, 1.0 million pixels (was 2.1) |
+| Medium | 1.4 million | 1.4 million | ratio 0.92, 1.4 million |
+| High | 1.8 million | none | ratio 1.05, 1.8 million |
+| Ultra | none | none | ratio 1.13, 2.1 million |
+
+The governor's rungs (pixel ratio 0.85, then 0.7) multiply the budgeted ratio, so on a slow frame it still lowers the pixels further, never under a ratio of 0.5. The photographic extension keeps its full ratio. Ultra and a discrete card's High keep the look of the grounded buildings untouched.
+
+## Texture uploads
+
+A frame over 50 ms that compiled nothing and allocated nothing (23 to 26 per tier in the second report) is either a GPU bound frame that missed two refreshes (at 28 ms a frame, 30 a second, one late frame is a 50 to 67 ms gap) or work the counters did not see. The counters did not see texture uploads: when a billboard changes, the whole board atlas (2048 pixels wide) goes to the GPU again, and the fade from the old face to the new one (#317) did that every 50 ms, eight times per change. Now:
+
+- The renderer uploads a live atlas (billboards, screens) only when its version moved (`lib/hqUploadGate.ts`): the same canvas at the same version is never uploaded again, so an unchanged campus uploads nothing (checked in the browser: 0 `texImage2D` and 0 `texSubImage2D` calls in 5 idle seconds).
+- The fade draws in 100 ms steps (four uploads per change instead of eight), and the lowest tiers' boards (256 pixel cells) change at once: one upload.
+- `stats.uploads` counts the uploads, and the Graphics check reports how many long frames came right after one (`hitches.uploads`), so the next report tells an upload from a slow GPU.
+
+## Labels over the scene
+
+The cards over the scene are HTML. Two per-frame costs were found and fixed:
+
+- **Layout every frame.** The billboard card pass read the size and place of every building card and panel (`getBoundingClientRect`) right after the main pass had written their positions, which forced a layout of the whole page on every frame the camera moved. The main pass now returns where it put its cards (from its own placement and the cached card sizes), and the panels are read at most four times a second, before any card is written. Attributes and styles are written only when they change.
+- **Glass blur on a moving canvas.** Each card blurs what is behind it (`backdrop-filter`), and behind it is a canvas that redraws every frame, so the compositor blurs every card's area again on every frame. On Low and Medium, on the simple materials and on a software rasteriser the stage says `data-lite="true"` and the cards are drawn without the blur, a little more opaque (`hqLabels.css`).
 
 ## The frame governor
 
@@ -128,14 +170,14 @@ The script starts Chromium headed with `--use-angle=default --enable-gpu-rasteri
 
 ## Re-run after an update (compare before and after)
 
-On the same laptop, plugged in, other apps closed, the same browser window size as before (the first report was Chrome at 1707 by 735 CSS pixels, campus by day):
+On the same laptop, plugged in, other apps closed. Keep the browser window the same size for both runs (the second report was 1707 by 960 CSS pixels; Chrome's window size is in the report's `gpu.viewport`), and the campus by day.
 
-1. Pull the update and open the Office as usual. Open **Office tools, Graphics check**. If a tier is pinned, press **Back to automatic** first, so the automatic choice is what you see: on this laptop the chip should now say **Graphics: High**.
-2. Set the length to **5 seconds** (as the first run) and leave the camera on the campus by day. Press **Benchmark every tier** and do not touch the window until it says Done.
-3. Press **Save report (JSON)** and send `anum-hq-graphics-report.json`. Compare with the first report: Low's worst frame and 95th percentile should no longer carry the 3.4 s warm-up, the cards show the warm-up separately, and "Frames over 50 ms" says how many long frames are left and whether they compiled shaders.
-4. Optional, the fuller run: `node scripts/hq-gpu-check.mjs --url https://app.anum360os.com --login --length 5` and send the folder it names (it adds a building with a floor change).
-
-With the remember box ticked, step 2 also pins the verdict's tier on this laptop; untick it before step 2 to keep the quality automatic.
+1. Pull the update (on the VM: `cd ~/anum && git pull` and the usual deploy), then reload the Office with Ctrl+F5 so the new build loads.
+2. Open **Office tools, Graphics check**. If a tier is pinned (the chip says "pinned"), press **Back to automatic** first. Untick "After a benchmark of every tier, use its result on this device" if you only want to measure.
+3. Stay on the campus, by day, camera where it opens. Set the length to **5 seconds**, press **Benchmark every tier**, and do not touch the window until it says Done.
+4. Press **Save report (JSON)** and send `anum-hq-graphics-report.json`.
+5. What to look for, against the second report: **Draw calls** about 40 on every tier (was 160); **GPU time** on Low about half of 23.6 ms; Medium and High lower than 28 to 30 ms; fewer **frames over 50 ms**, and the new `uploads` figure in the report says how many of the rest followed a billboard upload.
+6. Optional, a building too: open any building, run **Benchmark every tier** again and save that report as well (it adds a floor change). Or the script: `node scripts/hq-gpu-check.mjs --url https://app.anum360os.com --login --length 5` and send the folder it names.
 
 ## Real devices
 
@@ -154,17 +196,32 @@ Windows, Chrome 156, ANGLE Direct3D 11 (`Intel(R) UHD Graphics 620 (0x00005917)`
 
 Verdict: reduced to High at 60 frames a second. Reading: High and Medium hold 60 frames a second for the typical frame; Ultra drops about 1 frame in 14. Low, the first tier measured, timed its switch stall (the warm-up bug above), so its figures describe the switch, not Low. What changed because of it: the automatic choice, the warm-up, the hitch rule of the governor (all above). Still to do: the re-run on this laptop after the update, a building run with a floor change, and a night run (the glow).
 
+### 2 November 2026, 12:07: the same laptop after the grounded buildings and the declutter (regression)
+
+Same laptop, Chrome 156, device pixel ratio 1.13, window 1707 by 960 CSS pixels (taller than the first run), campus by day, 5 second runs, Low pinned by the owner. The automatic choice would have been High. GPU time from the timer query; hitches are frames over 50 ms. The report is kept as `apps/web/test/fixtures/gpu-report-2026-11-02-uhd620-after.json`.
+
+| Tier | Frames | Median | 95th percentile | Worst | fps | Dropped | GPU time median | Hitches (compile, buffers) | Warm-up | Draw calls | Triangles |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| Low | 109 | 33.4 | 51.3 | 749.4 | 22.0 | 93 | 23.57 | 23 (0, 0) | 887 | 160 | 179,275 |
+| Medium | 96 | 33.4 | 68.1 | 733.6 | 19.9 | 83 | 29.56 | 26 (0, 0) | 1770 | 160 | 179,275 |
+| High | 81 | 49.3 | 67.6 | 899.3 | 16.2 | 70 | 27.66 | 23 (0, 0) | 1792 | 160 | 179,275 |
+| Ultra | 119 | 33.4 | 66.8 | 73.2 | 23.8 | 113 | 29.28 | 26 (0, 0) | 745 | 160 | 179,275 |
+
+Verdict: poor, Low at 22 frames a second. Reading: the warm-up fix holds (no 3.4 s frame, no compile or buffer in any long frame), but the GPU is busy 24 to 30 ms a frame, so frames land on 30 or 20 a second and every late one is a hitch. Causes found and fixed: one mesh per surface class per building ([Draw calls](#draw-calls): 160 here, 144 to 37 in the local build), 31 percent more window pixels and a stage half as tall again ([Render scale](#render-scale)), whole-atlas billboard uploads every 50 ms during a fade ([Texture uploads](#texture-uploads)), a forced page layout and a glass blur per card on every frame ([Labels over the scene](#labels-over-the-scene)). Still to do: the re-run below this fix, on the same laptop at the same window size.
+
 ## Tests
 
 - Unit (`test/hqGpu.test.ts`): the tier registry (ordered, unique, named in both languages, the pin parser), the ladder, frame statistics, the governor with simulated frame times (healthy, slow, hitches, slow climb back, hysteresis, no flip-flop, disabled, reset), verdicts, software detection, the report shape and anonymity, the telemetry hook.
 - Browser (`e2e/hq-gpu-check.spec.ts`, software GL): the panel opens from Office tools and reports a software rasteriser honestly; the chip; a benchmark of every tier; the pin and "Back to automatic"; the saved report; a lost and restored context (banner does not block, scene returns); a context that never returns (list and plan, then "Try 3D again"); a simulated shader link failure (simple materials, scene stays); axe; English and Arabic (right to left); 1440x900, 1366x768, 1024x768, 768x1024 and 390x844 with no horizontal overflow.
 - Browser (`e2e/hq-gpu-script.spec.ts`): the owner script's options and a full run against the mocked office.
+- Unit (`test/hqDrawBudget.test.ts`): the campus draw call budget (32 calls for 8, 16 or 24 buildings; it was one per class per building), the batch rules (lifts, model stand-ins, glass and billboards apart), the renderer building through the batches with the pick number glow, every grounded starter building one mesh per class, a live atlas never uploaded again at the same version, the lowest tiers changing a board without a fade, and the pixel budget at the owner's window size.
 - Unit (`test/hqGpuTuning.test.ts`): the automatic start tier per renderer string (the owner's UHD 620 starts at High), frame streams rebuilt from the real report and checked against every figure in it, the governor on them (Ultra steps down, High and Medium never, no flip-flop), the windows and governor allocating nothing (or next to nothing) per frame, the shader variants per ladder, the warm-up rule, the benchmark compiling first and timing none of a scripted 3.4 s switch stall, the new report fields.
 - Browser (`e2e/hq-gpu-check.spec.ts`, "shader warm-up"): after the warm-up, a benchmark that switches through every tier creates no new shader program (without the warm-up the same run creates 9), the cards show the warm-up, and software drawing is never remembered.
 
 ## Gaps
 
-- One real device so far, integrated, before the tuning. The hitch rule (40 ms, 25 ms) is set from it; the median thresholds (26 ms, 19 ms, 12 s) and the verdict limits are still reasoned defaults. The start tiers for discrete, Apple M and phone GPUs are reasoned, not measured.
+- One real device so far, integrated: two reports, the second a regression; the fixes above are measured here with the scene's own counters and a software rasteriser, not yet on the laptop.
+- An integrated GPU still draws Medium and High near its limit at 1.4 and 1.8 million pixels; whether that holds 60 frames a second there is the re-run's question. The hitch rule (40 ms, 25 ms) is set from it; the median thresholds (26 ms, 19 ms, 12 s) and the verdict limits are still reasoned defaults. The start tiers for discrete, Apple M and phone GPUs are reasoned, not measured.
 - GPU time is measured by the benchmark only where the browser offers the timer query (Chrome on Windows does; many browsers do not); the governor judges frame time.
 - The memory figure is an estimate.
 - Antialiasing is chosen when the context is created and is not part of the ladder.

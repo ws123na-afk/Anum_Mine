@@ -55,8 +55,8 @@ export type TierResult = Readonly<{
   warmupMs?: number;
   /** GPU time per frame from the timer query extension; null where the browser does not offer it. */
   gpu?: Readonly<{ medianMs: number; p95Ms: number; samples: number }> | null;
-  /** Timed frames over 50 ms, and how many of them compiled shader programs or allocated geometry or textures. */
-  hitches?: Readonly<{ count: number; compile: number; buffers: number }> | null;
+  /** Timed frames over 50 ms, and how many of them compiled shader programs, allocated geometry or textures, or uploaded a live atlas again (`uploads`, since 2 Nov). */
+  hitches?: Readonly<{ count: number; compile: number; buffers: number; uploads?: number }> | null;
 }>;
 
 export type VerdictKind = 'no-webgl' | 'software' | 'unmeasured' | 'fits' | 'reduced' | 'poor';
@@ -128,7 +128,7 @@ export function buildReport(input: { now: Date; probe: GpuProbe; quality: Qualit
       shadowSize: r.shadowSize, bloom: r.bloom, memoryEstimateMb: num(r.memoryEstimateMb, 1), floorChange: r.floorChange,
       warmupMs: Math.round(r.warmupMs ?? 0),
       gpu: r.gpu ? { medianMs: num(r.gpu.medianMs), p95Ms: num(r.gpu.p95Ms), samples: Math.round(r.gpu.samples) } : null,
-      hitches: r.hitches ? { count: Math.round(r.hitches.count), compile: Math.round(r.hitches.compile), buffers: Math.round(r.hitches.buffers) } : null,
+      hitches: r.hitches ? { count: Math.round(r.hitches.count), compile: Math.round(r.hitches.compile), buffers: Math.round(r.hitches.buffers), ...(r.hitches.uploads !== undefined ? { uploads: Math.round(r.hitches.uploads) } : {}) } : null,
     })),
     verdict: { ...verdict, tierKey: tierKey(verdict.tier) },
     notes: (input.notes ?? []).slice(0, 10).map((n) => clip(n, 200)),

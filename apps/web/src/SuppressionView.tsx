@@ -4,6 +4,7 @@
 import { useCallback, useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { BellOff, CircleDot, Download, Lock, Plus, RefreshCw, RotateCcw, Search, Trash2 } from 'lucide-react';
 import { ConfirmDialog } from './Dialog';
+import { ConsentRecordsPanel } from './ConsentRecordsPanel';
 import { describeError, isPermissionDenied } from './lib/errors';
 import { formatDateTime, t } from './lib/i18n';
 import {
@@ -202,5 +203,6 @@ export function SuppressionView() {
         <input id={ids.removeReason} dir="auto" value={removeReasonText} maxLength={300} onChange={(e) => setRemoveReasonText(e.target.value)} /></label>
       {removeError && <Notice error>{removeError}</Notice>}
     </ConfirmDialog>}
+    {ready && <ConsentRecordsPanel />}
   </>;
 }
