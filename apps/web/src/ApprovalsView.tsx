@@ -17,7 +17,7 @@ import { rich } from './rich';
  * Resolves with the API's refusal when the decision is not allowed (403, for example the
  * two-person rule refusing to let you approve your own high-risk task), otherwise with null.
  */
-type Decide = (approval: Approval, decision: 'approve' | 'reject', reason?: string) => Promise<string | null>;
+export type Decide = (approval: Approval, decision: 'approve' | 'reject', reason?: string) => Promise<string | null>;
 
 const formatDate = (value: string) => formatDateTime(value);
 
@@ -194,7 +194,7 @@ export function ApprovalsView({ items, busy, decide, metric, empty, userId, onOp
   );
 }
 
-function PendingApproval({ approval, busy, decide, now, userId }: { approval: Approval; busy: boolean; decide: Decide; now: Date; userId?: string | null }) {
+export function PendingApproval({ approval, busy, decide, now, userId }: { approval: Approval; busy: boolean; decide: Decide; now: Date; userId?: string | null }) {
   const alreadyApproved = hasApproved(approval, userId);
   // The API says whether this person may decide (approval routing by AED amount); a person the
   // route does not list sees the item read-only, with the reason.
@@ -277,7 +277,7 @@ function RoutingBlock({ route }: { route: NonNullable<ReturnType<typeof routingV
   );
 }
 
-function ArgumentList({ approval }: { approval: Approval }) {
+export function ArgumentList({ approval }: { approval: Approval }) {
   const rows = argumentRows(approval.arguments);
   if (!rows.length) return <p className="muted">{t('approvals.noArguments')}</p>;
   return (
@@ -308,7 +308,7 @@ function ProgressLine({ approval }: { approval: Approval }) {
   );
 }
 
-function TargetLine({ approval }: { approval: Approval }) {
+export function TargetLine({ approval }: { approval: Approval }) {
   if (!approval.target) return null;
   return (
     <small className="approvalTarget">
@@ -317,7 +317,7 @@ function TargetLine({ approval }: { approval: Approval }) {
   );
 }
 
-function HashLine({ approval }: { approval: Approval }) {
+export function HashLine({ approval }: { approval: Approval }) {
   return (
     <small className="approvalHash" title={approval.payloadHash ?? undefined}>
       <Fingerprint aria-hidden size={12} /> {t('approvals.payloadHash')} <code dir="ltr">{shortHash(approval.payloadHash)}</code>

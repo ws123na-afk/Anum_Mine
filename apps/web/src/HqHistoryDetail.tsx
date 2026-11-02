@@ -9,6 +9,7 @@ import { type SourceSummary } from './lib/hqHistoryApi';
 import { actionLabel, fieldLabel, outcomeLabel, valueLabel, whenLabel, whoLabel, type NameMap } from './lib/hqHistoryText';
 import { recordDiffs } from './lib/hqRoomHistory';
 import { formatDateTime, t, type MessageKey } from './lib/i18n';
+import { openHqPanel, panelForRecord } from './lib/hqWorkPanels';
 
 const VIEW_HASH: Readonly<Partial<Record<SourceKind, string>>> = { task: '#tasks', run: '#tasks', approval: '#approvals', meeting: '#meetings' };
 const SHOWN_KEYS = new Set(['before', 'after', 'office_resource', 'resource_kind']);
@@ -56,6 +57,11 @@ function SourceCard({ source, names, onLocateRoom, canLocate, onNavigate, onShow
             <dl>{state.summary.fields.map((f) => (
               <div key={f.label}><dt>{t(f.label as MessageKey)}</dt><dd>{f.time ? formatDateTime(f.value) : f.value}</dd></div>
             ))}</dl>
+            {panelForRecord(source.kind, source.id) && (
+              <button type="button" className="hqLinkButton" data-testid="hist-open-here" onClick={() => { const p = panelForRecord(source.kind, source.id); if (p) openHqPanel(p); }}>
+                {t('hqHist.source.openHere', { kind })}
+              </button>
+            )}
             {hash && onNavigate && (
               <button type="button" className="hqLinkButton" onClick={() => onNavigate(hash)}>
                 <ExternalLink aria-hidden="true" />{t('hqHist.source.openIn', { view: t(`hqHist.source.view.${source.kind}` as MessageKey) })}

@@ -237,6 +237,8 @@ export const hqEn = {
   'hq.work.steps': 'Latest steps',
   'hq.work.noRun': 'This task has not run yet.',
   'hq.work.openTasks': 'Open Tasks',
+  'hq.work.openTask': 'Open task',
+  'hq.work.review': 'Review here',
   'hq.work.approvals': 'Waiting for approval',
   'hq.work.expired': 'expired',
   'hq.work.openApprovals': 'Open Approvals',

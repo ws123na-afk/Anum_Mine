@@ -52,3 +52,4 @@
 .hqAsCard button{padding:6px 12px;min-height:36px;font-size:var(--text-2xs)}
 .hqAsCardList{margin:0;padding-inline-start:18px;display:grid;gap:2px;line-height:1.4}
 .hqAsCard[data-phase=cancelled]{border-color:#547789}
+.hqAsTarget{display:flex;flex-wrap:wrap;gap:4px 16px;padding-bottom:0}

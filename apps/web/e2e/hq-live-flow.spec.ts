@@ -38,8 +38,10 @@ test('the dock summarises real records and lists what is stuck with a reason and
   await expect(stuck).toContainText('A new lead has had no owner for 5 h. The limit is 4 h.');
   await expect(stuck).toContainText('No owner yet, so no office');
   await expect(dock(page).getByText('Commerce orders: Not connected.')).toBeVisible();
+  // The approval opens beside the office, not on the Approvals page (the office is never left for it).
   await stuck.getByRole('button', { name: 'Decide the approval' }).click();
-  await expect(page).toHaveURL(/#approvals$/);
+  await expect(page.getByRole('complementary', { name: 'Approvals waiting' })).toBeVisible();
+  await expect(page).toHaveURL(/#office-preview$/);
 });
 
 test('rooms carry a badge with the real counts and selecting it filters the dock to that office', async ({ page }) => {
