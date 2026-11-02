@@ -1217,3 +1217,20 @@ def test_calls_script_opens_only_the_relay_ports_before_the_reject_rule() -> Non
     assert '$2 == "REJECT"' in script and "/etc/iptables/rules.v4" in script
     assert "--dport 3478" in script and "udp" in script and "ANUM_TURN_MIN_PORT" in script
     assert "sudo -n true" in script
+
+
+def test_anum_services_drop_capabilities_and_privilege_gain() -> None:
+    """ANUM's own non-root containers run without Linux capabilities and cannot gain privileges
+    through setuid binaries (docs/security.md#pre-sale-review-november-2026). Caddy (binds 80 and
+    443), PostgreSQL, Valkey and the third-party images keep their image defaults."""
+    services = _compose()["services"]
+    for name in ("api", "web", "keycloak", "migrate", "retention"):
+        service = services[name]
+        assert service["cap_drop"] == ["ALL"], name
+        assert "no-new-privileges:true" in service["security_opt"], name
+        assert not service.get("cap_add") and not service.get("privileged"), name
+    for name, service in services.items():
+        assert not service.get("privileged"), name
+        assert "docker.sock" not in str(service.get("volumes", [])), name
+    # Only Caddy publishes ports.
+    assert {name for name, service in services.items() if service.get("ports")} == {"caddy"}
