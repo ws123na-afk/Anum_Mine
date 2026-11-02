@@ -161,7 +161,7 @@ Audit records carry ids and codes only: never an account id, amount, price, quan
 
 ## Storage
 
-Migration `0122_finance_ibkr_live` (expand only): `finance_broker_settings`, `finance_broker_connections`, `finance_broker_orders`, `finance_broker_events`, each with forced RLS, the tenant policy, a restrictive owner-only policy and the tenant purge policy; listed in the tenant lifecycle registry. Deleting the person's finance data deletes them. Database checks: one active connection per environment, gateway host from the fixed list, no secret kept on a revoked connection, positive sizes, filled never above the quantity.
+Migration `0122_finance_ibkr_live` (expand only): `finance_broker_settings`, `finance_broker_connections`, `finance_broker_orders`, `finance_broker_events`, each with forced RLS, the tenant policy, a restrictive owner-only policy and the tenant purge policy; listed in the tenant lifecycle registry. Deleting the person's finance data deletes them. Migration `0124_ibkr_purge_policy` lets the restrictive owner-only policy also admit `anum_tenant_purger` (as 0079 does for the other owner-only tables), so an organisation or workspace deletion removes these rows too; the purge role still reaches them only through its own purge policy and can never write. Database checks: one active connection per environment, gateway host from the fixed list, no secret kept on a revoked connection, positive sizes, filled never above the quantity.
 
 ## The owner's steps
 
