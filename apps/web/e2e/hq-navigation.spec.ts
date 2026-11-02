@@ -353,6 +353,8 @@ for (const locale of ['en', 'ar'] as const) {
       await page.addInitScript(() => { try { localStorage.setItem('anum.hq.light', 'day'); } catch { /* storage blocked */ } });
       await useSavedLocale(page, locale);
       await page.addInitScript((value) => { try { localStorage.setItem('anum.theme', value); } catch { /* storage blocked */ } }, theme);
+      // The floor list and the side column docked (a person's choice), as in openOffice.
+      await page.addInitScript(() => { try { localStorage.setItem('anum.hq.nav.rail', 'open'); localStorage.setItem('anum.hq.nav.side', 'open'); } catch { /* storage blocked */ } });
       await mockHq(page, { campus: 'api', commerce: 'connected', meetings: 'live' });
       await page.setViewportSize({ width: 1440, height: 900 });
       await page.goto('/#office-preview');

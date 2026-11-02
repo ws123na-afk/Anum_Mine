@@ -102,7 +102,10 @@ type Drawer = null | 'floors' | 'side';
 export function HqNavigation(props: HqNavigationProps) {
   const locale = useLocale();
   const { handles, level, view, campus, building, floor } = props;
-  const { layout, focus, stripOpen, toggleRail, toggleRailDock, toggleSide, toggleStrip, toggleFocus } = useNavLayout();
+  const nav = useNavLayout();
+  const { focus, stripOpen, toggleRail, toggleRailDock, toggleSide, toggleStrip, toggleFocus } = nav;
+  // Without WebGL there is no floor selector in a scene (the 2D plan stands in for it), so the floor list is docked from 900 px: it is then the floor control.
+  const layout = !props.webglOk && nav.layout.rail === 'drawer' && nav.layout.width >= 900 && !focus ? { ...nav.layout, rail: 'full' as const } : nav.layout;
   const [drawer, setDrawer] = useState<Drawer>(null);
   const [tab, setTab] = useState<'plan' | 'moves' | 'assistant'>('plan');
   const [liveCam, setLive] = useState('');
@@ -314,7 +317,8 @@ export function HqNavigation(props: HqNavigationProps) {
   // The fold switch exists only while something is docked beside the scene (or the scene already has it all): never a dead button.
   const canFocus = layout.width >= 900 && (focus || docked || layout.side === 'open' || layout.side === 'hidden');
   const sideLabel = level === 'building' ? t('hqNav.drawer.side') : t('hqNav.drawer.moves');
-  const floorsButton = level === 'building' && building ? (floorsDocks
+  // Without WebGL the list stays docked from 900 px, so no Floors button there (it would change nothing).
+  const floorsButton = level === 'building' && building && !(floorsDocks && !props.webglOk) ? (floorsDocks
     ? <button type="button" className="hqGhost" data-testid="hq-floors-toggle" aria-expanded={docked} onClick={toggleRailDock}><Layers aria-hidden="true" />{t('hqNav.drawer.floors')}</button>
     : <button type="button" className="hqGhost" data-testid="hq-floors-toggle" aria-expanded={drawer === 'floors'} onClick={openDrawer('floors')}><Layers aria-hidden="true" />{t('hqNav.drawer.floors')}</button>) : null;
   const sideDrawerButton = layout.side === 'drawer' ? <button type="button" className="hqGhost" aria-expanded={drawer === 'side'} onClick={openDrawer('side')}><CalendarDays aria-hidden="true" />{sideLabel}</button> : null;

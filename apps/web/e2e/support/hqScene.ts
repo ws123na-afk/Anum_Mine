@@ -38,7 +38,10 @@ const live = (page: Page) => page.locator('.hqLive');
 /** Opens Office tools and returns the menu item named `name` (the menu closes again when an item is chosen). */
 export async function officeMenuItem(page: Page, name: string | RegExp) {
   const tools = live(page).getByRole('button', { name: /^(Office tools|أدوات المكتب)$/ });
+  // A choice closes the menu on the next task: let a closing menu finish before reading its state.
+  await page.waitForTimeout(100);
   if ((await tools.getAttribute('aria-expanded')) !== 'true') await tools.click();
+  await expect(live(page).locator('.hqMenu')).toBeVisible();
   return live(page).locator('.hqMenu').getByRole('button', { name });
 }
 

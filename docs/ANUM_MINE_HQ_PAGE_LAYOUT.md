@@ -24,7 +24,7 @@ status row: Total agents chips (when the side column is not open) and the Live f
 | 900 to 1279 | drawer from the header button | chips in the status row | under the scene |
 | under 900 | drawer (bottom sheet under 760 px) | chips in the status row | under the scene, stage first |
 
-The floor list with thumbnails (`FloorRail.tsx`) is not docked by default: the floor selector in the scene is the one floor control ([labels](ANUM_MINE_HQ_LABELS.md#declutter)). The **Floors** button in the header docks it beside the scene from 900 px (press again to put it away; the choice is kept in this browser under `anum.hq.nav.rail`) and opens it as a drawer under 900 px or in focus mode.
+The floor list with thumbnails (`FloorRail.tsx`) is not docked by default: the floor selector in the scene is the one floor control ([labels](ANUM_MINE_HQ_LABELS.md#declutter)). The **Floors** button in the header docks it beside the scene from 900 px (press again to put it away; the choice is kept in this browser under `anum.hq.nav.rail`) and opens it as a drawer under 900 px or in focus mode. Without WebGL there is no scene and so no floor selector: the floor list is then docked from 900 px (the 2D plan beside it) and the Floors button is not shown there.
 
 Heights come from three shared variables on `.hqNav` (`--hq-above`, `--hq-below`, `--hq-stage-h`), never a fixed height. The header buttons for the panels (`Floors`, `Plan and people` or `Quick moves`) are portalled into the page header's tool row, so they cost the scene no row of their own; the panel switches (`Hide side panels`, `Show side panels`, `Show the side panel`) are portalled into the Office tools menu.
 
