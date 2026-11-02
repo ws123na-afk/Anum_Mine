@@ -57,6 +57,10 @@ EXEMPT: dict[tuple[str, str], str] = {
         "Stripe's signed delivery, not a person's action; each event id is stored once and the payment it "
         "records carries the provider id and the system:stripe actor."
     ),
+    ("POST", "/api/v1/billing/webhooks/moyasar/{issuer_tenant_id}"): (
+        "Moyasar's delivery, checked by its secret token and read back from Moyasar's API, not a person's action; "
+        "each event id is stored once and the payment or refund it records carries the provider id and the system:moyasar actor."
+    ),
     ("POST", "/api/v1/calls/webhooks/twilio/{route_id}/voice"): _CALL_WEBHOOK,
     ("POST", "/api/v1/calls/webhooks/twilio/{route_id}/dial/{call_id}"): _CALL_WEBHOOK,
     ("POST", "/api/v1/calls/webhooks/twilio/{route_id}/status"): _CALL_WEBHOOK,

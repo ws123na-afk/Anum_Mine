@@ -199,6 +199,8 @@ def test_every_purged_table_is_covered_by_the_purge_migration() -> None:
             "office_agent_provisions": "0106_agent_provisioning",
             "office_desk_staffing": "0109_staff_desks",
             "office_building_logos": "0117_building_logo_signs",
+            "billing_refunds": "0123_selling_readiness",
+            "billing_company_profiles": "0123_selling_readiness",
             "workspace_record_retention": "0120_record_retention",
             "office_visitors": "0118_career_visitor_register",
             **{name: "0122_finance_ibkr_live" for name in (
