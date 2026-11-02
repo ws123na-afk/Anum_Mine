@@ -238,6 +238,8 @@ kbd { background: var(--d-glass-2); border: 1px solid var(--d-line-strong); bord
 .iconButton:hover { background: var(--d-glass-2); border-color: var(--d-line-strong); }
 .iconButton svg { height: 18px; width: 18px; }
 .iconButton.small { height: 36px; width: 36px; }
+/* The count is drawn from data-count so the button's spoken name (its aria-label) holds all of its visible text. */
+.bellCount::before { content: attr(data-count); }
 .bellCount {
   background: #e11d48; border: 2px solid var(--d-bg); border-radius: 999px; color: #fff; font-size: var(--text-2xs); font-weight: 800; inset-block-start: -6px; inset-inline-end: -6px;
   line-height: 16px; min-width: 20px; padding: 0 4px; position: absolute; text-align: center;

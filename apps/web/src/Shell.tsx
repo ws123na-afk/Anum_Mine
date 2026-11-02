@@ -253,7 +253,7 @@ export function NotificationsMenu({ approvals, alerts, notices, team, onOpenAppr
   const pick = (action: () => void) => { setOpen(false); action(); };
   return <div className="popoverRoot" ref={root}>
     <button type="button" className="iconButton bellButton" aria-expanded={open} aria-controls={panelId} aria-label={t('notifications.button', { count })} title={t('notifications.title')} onClick={() => setOpen(!open)}>
-      <Bell aria-hidden="true" />{count > 0 && <span className="bellCount" aria-hidden="true">{badgeText(count)}</span>}
+      <Bell aria-hidden="true" />{count > 0 && <span className="bellCount" aria-hidden="true" data-count={badgeText(count)} />}
     </button>
     {open && <section className="popover notificationsPanel" id={panelId} role="dialog" aria-label={t('notifications.title')}>
       <h2>{t('notifications.title')}</h2>
@@ -298,9 +298,10 @@ export function UserMenu({ name, userId, role, signOut, onGo }: {
   const roleText = role ? t(`workspaceAdmin.role.${role}` as MessageKey) : null;
   const pick = (target: 'settings' | 'language' | 'appearance' | 'notifications' | 'privacy') => { setOpen(false); onGo(target); };
   return <div className="popoverRoot" ref={root}>
-    <button type="button" className="userButton" aria-expanded={open} aria-controls={panelId} aria-label={t('user.menu', { name: shown })} onClick={() => setOpen(!open)}>
+    <button type="button" className="userButton" aria-expanded={open} aria-controls={panelId} onClick={() => setOpen(!open)}>
       <span className="avatar" aria-hidden="true">{initials(shown)}</span>
       <span className="userText"><strong dir="auto">{shown}</strong>{roleText && <span className="planPill">{roleText}</span>}</span>
+      <span className="visuallyHidden">{t('user.menu', { name: shown })}</span>
       <ChevronDown aria-hidden="true" />
     </button>
     {open && <section className="popover userPanel" id={panelId} role="dialog" aria-label={t('user.menuTitle')}>
