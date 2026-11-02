@@ -12,6 +12,8 @@ person's approval bound to the payload hash. Both act in the mailbox owner's own
 
 from __future__ import annotations
 
+import asyncio
+
 from typing import Any
 
 from ..agent_tools import ToolCall, ToolDefinition, ToolResult
@@ -68,6 +70,12 @@ def forward_problem(addresses: list[str], mailbox: str) -> str | None:
 
 
 async def change_mail_settings(call: ToolCall, context: TenantContext) -> ToolResult:
+    """Apply an approved change of one mailbox's settings (owner scope, version checked).
+    It awaits nothing, so it runs in a worker thread (docs/realtime.md#event-loop)."""
+    return await asyncio.to_thread(_change_mail_settings, call, context)
+
+
+def _change_mail_settings(call: ToolCall, context: TenantContext) -> ToolResult:
     """Apply an approved change of one mailbox's settings (owner scope, version checked)."""
     args = call.arguments
     owner = _owner(call, context)
@@ -113,6 +121,12 @@ async def change_mail_settings(call: ToolCall, context: TenantContext) -> ToolRe
 
 
 async def activate_mail_forward_rule(call: ToolCall, context: TenantContext) -> ToolResult:
+    """Turn on an approved forwarding rule, only if it still does exactly what was approved.
+    It awaits nothing, so it runs in a worker thread (docs/realtime.md#event-loop)."""
+    return await asyncio.to_thread(_activate_mail_forward_rule, call, context)
+
+
+def _activate_mail_forward_rule(call: ToolCall, context: TenantContext) -> ToolResult:
     """Turn on an approved forwarding rule, only if it still does exactly what was approved."""
     args = call.arguments
     owner = _owner(call, context)

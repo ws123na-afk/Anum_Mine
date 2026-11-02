@@ -46,13 +46,13 @@ from .agent_tools import ToolCall, ToolDefinition, ToolPolicyDecision, ToolPolic
 from .audit import AuditRecord
 from .authorization import Permission
 from .autonomy import AutonomyFacts, normalize_recipient
-from .dependencies import _unit_of_work, has_permission, repository_context, require_permission, tenant_context
+from .dependencies import UnitsOfWork, _unit_of_work, has_permission, repository_context, require_permission, run_in_unit, tenant_context, units_of_work
 from .events import CanonicalEventName, create_event
 from .hardening import InMemoryTokenBucket, client_key
 from .model_budget import ModelBudgetExceededError
 from .model_gateway import MockModelGateway, ModelGateway, build_default_model_gateway
 from .repository import AnumRepository
-from .runtime import AgentRuntime
+from .runtime import AgentRuntime, finish_execution_in_units
 from .suppression import SuppressionChannel, apply_inbound_keyword, keyword_of
 from .schemas import (
     AgentRunStep,
@@ -852,25 +852,21 @@ async def triage_conversations(context: TenantContext, conversation_ids: list[st
         return 0
     done = 0
     try:
-        with open_whatsapp_store(context) as store:
-            account = store.get_account()
-            if account is None or not account.triage_enabled:
-                return 0
-        if getattr(workspace_gateway(context), "provider", None) == "mock":
+        # Store steps run in worker threads, each in its own short unit; only the model call
+        # waits on the event loop (docs/realtime.md#event-loop).
+        account = await asyncio.to_thread(_stored_account, context, False)
+        if account is None or not account.triage_enabled:
+            return 0
+        if getattr(await asyncio.to_thread(workspace_gateway, context), "provider", None) == "mock":
             return 0
         for conversation_id in conversation_ids[:20]:
-            with open_whatsapp_store(context) as store:
-                conversation = store.get_conversation(conversation_id)
-                if conversation is None or not conversation.needs_triage:
-                    continue
-                messages = list(reversed(store.list_messages(conversation_id, limit=12, before=None)))
+            loaded = await asyncio.to_thread(_conversation_for_triage, context, conversation_id)
+            if loaded is None:
+                continue
+            conversation, messages = loaded
             suggestion = await make_suggestion(context, conversation, messages)
-            with open_whatsapp_store(context) as store:
-                current = store.get_conversation(conversation_id)
-                if current is None:
-                    continue
-                _apply_suggestion(current, suggestion, utc_now())
-                store.save_conversation(current)
+            if not await asyncio.to_thread(_keep_suggestion, context, conversation_id, suggestion):
+                continue
             done += 1
     except ModelBudgetExceededError:
         logger.info("whatsapp_triage_budget_exhausted", extra={"anum_whatsapp": {"event": "triage_budget"}})
@@ -881,6 +877,25 @@ async def triage_conversations(context: TenantContext, conversation_ids: list[st
             extra={"anum_whatsapp": {"event": "triage_failed", "error_class": type(exc).__name__}},
         )
     return done
+
+
+def _conversation_for_triage(context: TenantContext, conversation_id: str, *, only_untriaged: bool = True,
+                             limit: int = 12) -> tuple[Conversation, list[Message]] | None:
+    with open_whatsapp_store(context) as store:
+        conversation = store.get_conversation(conversation_id)
+        if conversation is None or (only_untriaged and not conversation.needs_triage):
+            return None
+        return conversation, list(reversed(store.list_messages(conversation_id, limit=limit, before=None)))
+
+
+def _keep_suggestion(context: TenantContext, conversation_id: str, suggestion: Any) -> bool:
+    with open_whatsapp_store(context) as store:
+        current = store.get_conversation(conversation_id)
+        if current is None:
+            return False
+        _apply_suggestion(current, suggestion, utc_now())
+        store.save_conversation(current)
+    return True
 
 
 # -- tools ----------------------------------------------------------------------------------
@@ -916,10 +931,16 @@ async def list_tool(call: ToolCall, context: TenantContext) -> ToolResult:
     limit = _bounded_int(args.get("limit"), 20, 50)
     query = str(args.get("query") or "").strip()[:200] or None
     now = utc_now()
-    with open_whatsapp_store(context) as store:
-        if store.get_account() is None:
-            return _failed("WhatsApp is not connected for this workspace.")
-        items = store.list_conversations(limit=limit, before=None, query=query, filter=chosen)
+
+    def load() -> list[Conversation] | None:
+        with open_whatsapp_store(context) as store:
+            if store.get_account() is None:
+                return None
+            return store.list_conversations(limit=limit, before=None, query=query, filter=chosen)
+
+    items = await asyncio.to_thread(load)
+    if items is None:
+        return _failed("WhatsApp is not connected for this workspace.")
     rows = [_conversation_summary(item, now) for item in items]
     unread = sum(1 for item in items if item.unread_count)
     waiting = sum(1 for item in items if item.last_direction == Direction.INBOUND)
@@ -935,11 +956,10 @@ async def read_tool(call: ToolCall, context: TenantContext) -> ToolResult:
     conversation_id = str(call.arguments.get("conversation_id") or "")
     limit = _bounded_int(call.arguments.get("limit"), 20, 100)
     now = utc_now()
-    with open_whatsapp_store(context) as store:
-        conversation = store.get_conversation(conversation_id)
-        if conversation is None:
-            return _failed("That WhatsApp conversation was not found.")
-        messages = list(reversed(store.list_messages(conversation_id, limit=limit, before=None)))
+    loaded = await asyncio.to_thread(_conversation_for_triage, context, conversation_id, only_untriaged=False, limit=limit)
+    if loaded is None:
+        return _failed("That WhatsApp conversation was not found.")
+    conversation, messages = loaded
     rows = [
         {
             "id": message.id,
@@ -963,17 +983,12 @@ async def read_tool(call: ToolCall, context: TenantContext) -> ToolResult:
 async def draft_tool(call: ToolCall, context: TenantContext) -> ToolResult:
     conversation_id = str(call.arguments.get("conversation_id") or "")
     instructions = str(call.arguments.get("instructions") or "").strip()[:500] or None
-    with open_whatsapp_store(context) as store:
-        conversation = store.get_conversation(conversation_id)
-        if conversation is None:
-            return _failed("That WhatsApp conversation was not found.")
-        messages = list(reversed(store.list_messages(conversation_id, limit=12, before=None)))
+    loaded = await asyncio.to_thread(_conversation_for_triage, context, conversation_id, only_untriaged=False)
+    if loaded is None:
+        return _failed("That WhatsApp conversation was not found.")
+    conversation, messages = loaded
     suggestion = await make_suggestion(context, conversation, messages, instructions=instructions)
-    with open_whatsapp_store(context) as store:
-        current = store.get_conversation(conversation_id)
-        if current is not None:
-            _apply_suggestion(current, suggestion, utc_now())
-            store.save_conversation(current)
+    await asyncio.to_thread(_keep_suggestion, context, conversation_id, suggestion)
     return ToolResult(
         status="succeeded",
         summary=f"Drafted a reply ({suggestion.category.value}); nothing was sent.",
@@ -1034,6 +1049,11 @@ def _settle_message(context: TenantContext, message_id: str | None, conversation
     return message
 
 
+def _send_target(context: TenantContext, conversation_id: str) -> tuple[WhatsAppAccount | None, Conversation | None]:
+    with open_whatsapp_store(context) as store:
+        return store.get_account(include_secrets=True), store.get_conversation(conversation_id)
+
+
 async def send_tool(call: ToolCall, context: TenantContext) -> ToolResult:
     """Send an approved free-form reply, only inside the 24-hour customer-service window."""
     args = call.arguments
@@ -1043,9 +1063,7 @@ async def send_tool(call: ToolCall, context: TenantContext) -> ToolResult:
     reply_to = str(args.get("reply_to") or "") or None
     if not text or len(text) > MAX_TEXT:
         return _failed(f"Not sent: the reply needs text (at most {MAX_TEXT} characters).")
-    with open_whatsapp_store(context) as store:
-        account = store.get_account(include_secrets=True)
-        conversation = store.get_conversation(conversation_id)
+    account, conversation = await asyncio.to_thread(_send_target, context, conversation_id)
     if account is None or setup_problems():
         return _failed("Not sent: WhatsApp is not connected for this workspace.")
     if conversation is None or args.get("to") != conversation.wa_id:
@@ -1054,15 +1072,15 @@ async def send_tool(call: ToolCall, context: TenantContext) -> ToolResult:
     fallback = _outbound(context, conversation, body=text, kind="text", status_=MessageStatus.SENDING, reply_to=reply_to)
     if not conversation.is_window_open(now):
         reason = "Not sent: " + window_refusal(conversation, now)
-        _settle_message(context, message_id, conversation, wamid=None, error=reason, fallback=fallback)
+        await asyncio.to_thread(_settle_message, context, message_id, conversation, wamid=None, error=reason, fallback=fallback)
         return _failed(reason, conversation_id=conversation.id)
     try:
         wamid = await graph_client(account).send_text(account.phone_number_id, conversation.wa_id, text, reply_to=reply_to)
     except WhatsAppGraphError as exc:
         reason = "Not sent: " + (window_refusal(conversation, now) if exc.outside_window else exc.message)
-        _settle_message(context, message_id, conversation, wamid=None, error=reason, fallback=fallback)
+        await asyncio.to_thread(_settle_message, context, message_id, conversation, wamid=None, error=reason, fallback=fallback)
         return _failed(reason, conversation_id=conversation.id, meta_code=exc.code)
-    message = _settle_message(context, message_id, conversation, wamid=wamid, error=None, fallback=fallback)
+    message = await asyncio.to_thread(_settle_message, context, message_id, conversation, wamid=wamid, error=None, fallback=fallback)
     return ToolResult(
         status="succeeded",
         summary=f"Sent the WhatsApp reply to {conversation.contact_name or conversation.wa_id}.",
@@ -1079,9 +1097,7 @@ async def template_tool(call: ToolCall, context: TenantContext) -> ToolResult:
     raw_parameters = args.get("parameters") or []
     parameters = [str(item) for item in raw_parameters] if isinstance(raw_parameters, list) else []
     message_id = str(args.get("message_id") or "") or None
-    with open_whatsapp_store(context) as store:
-        account = store.get_account(include_secrets=True)
-        conversation = store.get_conversation(conversation_id)
+    account, conversation = await asyncio.to_thread(_send_target, context, conversation_id)
     if account is None or setup_problems():
         return _failed("Not sent: WhatsApp is not connected for this workspace.")
     if conversation is None or args.get("to") != conversation.wa_id:
@@ -1092,19 +1108,23 @@ async def template_tool(call: ToolCall, context: TenantContext) -> ToolResult:
         template = find_template(await templates_for(account), name, language)
         problem = template_problem(template, name, language, parameters)
         if problem:
-            _settle_message(context, message_id, conversation, wamid=None, error="Not sent: " + problem, fallback=fallback)
+            await asyncio.to_thread(_settle_message, context, message_id, conversation, wamid=None, error="Not sent: " + problem, fallback=fallback)
             return _failed("Not sent: " + problem)
         wamid = await graph_client(account).send_template(account.phone_number_id, conversation.wa_id, name, language, parameters)
     except WhatsAppGraphError as exc:
-        _settle_message(context, message_id, conversation, wamid=None, error="Not sent: " + exc.message, fallback=fallback)
+        await asyncio.to_thread(_settle_message, context, message_id, conversation, wamid=None, error="Not sent: " + exc.message, fallback=fallback)
         return _failed("Not sent: " + exc.message, meta_code=exc.code)
     fallback.body = fill_template(template.body if template else "", parameters)
-    with open_whatsapp_store(context) as store:
-        row = store.get_message(message_id) if message_id else None
-        if row is not None and not row.body:
-            row.body = fallback.body
-            store.save_message(row)
-    message = _settle_message(context, message_id, conversation, wamid=wamid, error=None, fallback=fallback)
+
+    def settle() -> Message:
+        with open_whatsapp_store(context) as store:
+            row = store.get_message(message_id) if message_id else None
+            if row is not None and not row.body:
+                row.body = fallback.body
+                store.save_message(row)
+        return _settle_message(context, message_id, conversation, wamid=wamid, error=None, fallback=fallback)
+
+    message = await asyncio.to_thread(settle)
     return ToolResult(
         status="succeeded",
         summary=f"Sent the WhatsApp template {name} to {conversation.contact_name or conversation.wa_id}.",
@@ -1514,24 +1534,25 @@ async def draft_reply(
     conversation_id: str,
     payload: DraftRequest | None = None,
     context: TenantContext = Depends(tenant_context),
-    repository: AnumRepository = Depends(repository_context),
+    units: UnitsOfWork = Depends(units_of_work),
 ) -> Suggestion:
     """A suggested reply (and the triage) for the conversation. Nothing is sent."""
     require_permission(context, Permission.WHATSAPP_REPLY)
     instructions = " ".join(((payload.instructions if payload else None) or "").split()) or None
 
-    def load() -> tuple[Conversation, list[Any]]:
+    def load(_repository: AnumRepository) -> tuple[Conversation, list[Any]]:
         with open_whatsapp_store(context) as store:
             conversation = _conversation_or_404(store, conversation_id)
             return conversation, list(reversed(store.list_messages(conversation_id, limit=12, before=None)))
 
-    # Store work in worker threads; only the model call waits on the loop (docs/realtime.md#event-loop).
-    conversation, messages = await asyncio.to_thread(load)
+    # Store work in worker threads, each step in its own short unit of work; only the model
+    # call waits on the loop, with no transaction open (docs/realtime.md#event-loop).
+    conversation, messages = await run_in_unit(units, context, load)
     if not messages:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="The conversation has no messages to answer yet.")
     suggestion = await make_suggestion(context, conversation, messages, instructions=instructions)
 
-    def keep() -> None:
+    def keep(repository: AnumRepository) -> None:
         with open_whatsapp_store(context) as store:
             current = _conversation_or_404(store, conversation_id)
             _apply_suggestion(current, suggestion, utc_now())
@@ -1542,7 +1563,7 @@ async def draft_reply(
             metadata={"category": str(suggestion.category), "source": suggestion.source, "instructions": instructions is not None},
         )
 
-    await asyncio.to_thread(keep)
+    await run_in_unit(units, context, keep)
     return suggestion
 
 
@@ -1600,9 +1621,13 @@ def _start_tool_run(
     repository.record_event(
         create_event(CanonicalEventName.TASK_CREATED, context, task.id, {"title": task.title}, correlation_id=task.id, created_at=now).event
     )
-    runtime = AgentRuntime(MockModelGateway(), repository, tools=register_whatsapp_tools(ToolRegistry()))
+    runtime = _send_runtime(repository)
     run = runtime.new_run(task)
     return runtime, task, run
+
+
+def _send_runtime(repository: AnumRepository) -> AgentRuntime:
+    return AgentRuntime(MockModelGateway(), repository, tools=register_whatsapp_tools(ToolRegistry()))
 
 
 def _checkpoint(runtime: AgentRuntime, task: Task, run: Any, context: TenantContext, call: ToolCall) -> ToolPolicyDecision:
@@ -1638,7 +1663,7 @@ async def send(
     conversation_id: str,
     payload: SendRequest,
     context: TenantContext = Depends(tenant_context),
-    repository: AnumRepository = Depends(repository_context),
+    units: UnitsOfWork = Depends(units_of_work),
 ) -> SendResponse:
     """Ask to send a reply. Free-form text always waits for approval (and needs the 24-hour
     window). Whether a template goes out at once is decided by the runtime's tool policy and
@@ -1652,7 +1677,7 @@ async def send(
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Send either a text reply or a template.")
     now = utc_now()
 
-    def target() -> tuple[WhatsAppAccount, Conversation, str | None]:
+    def target(_repository: AnumRepository) -> tuple[WhatsAppAccount, Conversation, str | None]:
         with open_whatsapp_store(context) as store:
             account = _require_account(store, include_secrets=payload.template is not None)
             conversation = _conversation_or_404(store, conversation_id)
@@ -1664,9 +1689,10 @@ async def send(
                 reply_to = quoted.wamid
         return account, conversation, reply_to
 
-    # Store and runtime bookkeeping run in worker threads (docs/realtime.md#event-loop); only
-    # Meta's template list and the tool's own execution are awaited on the loop.
-    account, conversation, reply_to = await asyncio.to_thread(target)
+    # Store and runtime bookkeeping run in worker threads, each step in its own short unit of
+    # work (docs/realtime.md#event-loop); only Meta's template list and the tool's own
+    # execution are awaited on the loop, with no transaction open.
+    account, conversation, reply_to = await run_in_unit(units, context, target)
     if setup_problems():
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="WhatsApp is not usable: " + ", ".join(setup_problems()))
 
@@ -1705,7 +1731,7 @@ async def send(
         title = f"WhatsApp template {chosen.name} to {conversation.contact_name or conversation.wa_id}"
         prompt = f"Send the WhatsApp template {chosen.name} ({chosen.language}) to {conversation.contact_name or conversation.wa_id} (+{conversation.wa_id}): {body}"
 
-    def propose() -> tuple[AgentRuntime, Task, Any, Approval | None, str, str, Any]:
+    def propose(repository: AnumRepository) -> tuple[AgentRuntime, Task, Any, Approval | None, str, str, Any]:
         """Store the message, plan the tool call and let policy decide; the tool does not run here."""
         with open_whatsapp_store(context) as store:
             store.add_message(message)
@@ -1720,7 +1746,7 @@ async def send(
             with open_whatsapp_store(context) as store:
                 store.save_message(message)
             _audit(repository, context, "whatsapp.send.blocked", conversation.id, "denied", {"tool": call.name, "task_id": task.id})
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"Not sent: {decision.reason}")
+            return runtime, task, run, None, "blocked", f"Not sent: {decision.reason}", None
         if decision.outcome == ToolPolicyOutcome.REQUIRE_APPROVAL:
             runtime._pause_for_approval(task, run, context, call, decision)
             repository.save_task(task)
@@ -1737,13 +1763,16 @@ async def send(
         # The runtime evaluates again before running (quiet hours may have just begun).
         return runtime, task, run, None, "", "", runtime.begin_execution(task, run, context)
 
-    runtime, task, run, approval, outcome_text, detail, executed = await asyncio.to_thread(propose)
+    runtime, task, run, approval, outcome_text, detail, executed = await run_in_unit(units, context, propose)
+    if outcome_text == "blocked":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=detail)
     outcome: Literal["sent", "awaiting_approval", "failed"] = "awaiting_approval"
     if not outcome_text:
         if executed is not None:
-            await runtime.finish_execution(task, run, context, executed)
+            # The executing checkpoint is committed; Meta is called with no transaction open.
+            run = await finish_execution_in_units(_send_runtime, units, task, run, context, executed)
 
-        def settle() -> tuple[Approval | None, str, str]:
+        def settle(repository: AnumRepository) -> tuple[Approval | None, str, str]:
             nonlocal message
             repository.save_task(task)
             repository.save_run(run)
@@ -1762,11 +1791,11 @@ async def send(
             result = "sent" if message.status == MessageStatus.SENT else "failed"
             return None, result, "Sent." if result == "sent" else (message.error or run.result or "Not sent.")
 
-        approval, outcome_text, detail = await asyncio.to_thread(settle)
+        approval, outcome_text, detail = await run_in_unit(units, context, settle)
     outcome = outcome_text  # type: ignore[assignment]
-    await asyncio.to_thread(
-        _audit,
-        repository, context, "whatsapp.send.requested", conversation.id,
+    await run_in_unit(
+        units, context, _audit,
+        context, "whatsapp.send.requested", conversation.id,
         metadata={"tool": call.name, "task_id": task.id, "outcome": outcome,
                   "approval_id": approval.id if approval else None, "payload_hash": approval.payload_hash if approval else None},
     )

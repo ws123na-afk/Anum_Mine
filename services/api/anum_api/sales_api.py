@@ -27,7 +27,7 @@ from .db.sales_repository import SalesCRMStore
 from .marketing_sales_orchestration import plan_inbound_handoff
 from .sales_lead_lifecycle import (
     Lead, LeadStatus, create_lead, edit_lead, transition_lead, draft_quote,
-    propose_follow_up, sales_overview,
+    propose_follow_up,
 )
 from .schemas import TenantContext, utc_now
 from .repository import AnumRepository
@@ -253,17 +253,13 @@ def create_followup(
 
 @router.get("/overview")
 def overview(context: TenantContext = Depends(tenant_context)) -> dict:
+    """The WhatsApp figures, read from the one lead list (Business leads with the WhatsApp
+    source, docs/business.md#whatsapp-leads), plus the enquiries still waiting to join it.
+    ``quoted`` counts leads in Business's ``offered`` state."""
     require_read(context)
-    with sales_store(context) as store:
-        # Bounded summary until server-side aggregation/paging is implemented.
-        leads = store.list_leads(limit=100)
-        summary = sales_overview(leads, tenant_id=context.tenant_id, workspace_id=context.workspace_id)
-        return {
-            "leads": summary.leads, "qualified": summary.qualified,
-            "quoted": summary.quoted, "won": summary.won, "lost": summary.lost,
-            "by_intent": summary.by_intent,
-            "scope": "latest_100_leads", "revenue_estimate": None,
-        }
+    from .business.whatsapp_leads import whatsapp_overview
+
+    return whatsapp_overview(context)
 
 
 @router.get("/leads/{lead_id}/history")

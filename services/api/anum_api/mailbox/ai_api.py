@@ -20,7 +20,7 @@ from pydantic import BaseModel, Field
 
 from ..agent_tools import ToolCall, ToolPolicyOutcome, ToolResult
 from ..authorization import Permission
-from ..dependencies import has_permission, repository_context, tenant_context
+from ..dependencies import UnitsOfWork, has_permission, run_in_unit, tenant_context, units_of_work
 from ..email_api import _pause_for_approval
 from ..file_policy import content_disposition
 from ..model_gateway import MockModelGateway
@@ -174,37 +174,42 @@ def _failure(result: ToolResult) -> HTTPException:
     return HTTPException(status_code=int(code) if isinstance(code, int) and 400 <= code < 600 else 502, detail=result.summary)
 
 
-async def _mediated(repository: AnumRepository, context: TenantContext, call: ToolCall, title: str, audit_target: str) -> tuple[ToolResult | None, Approval | None]:
-    """Run ``call`` under the same tool policy an agent gets; pause it when policy asks."""
-    registry = mail_tool_registry()
-    runtime = AgentRuntime(MockModelGateway(), repository, tools=registry)
+async def _mediated(units: UnitsOfWork, context: TenantContext, call: ToolCall, title: str, audit_target: str) -> tuple[ToolResult | None, Approval | None]:
+    """Run ``call`` under the same tool policy an agent gets; pause it when policy asks.
 
-    def decide() -> tuple[Any, Approval | None]:
-        # The policy read, the refusal audit and the approval write run off the event loop.
+    The policy read, the refusal audit, the approval write and the result's audit each run
+    in their own short unit of work in a worker thread; the tool (the mail server and the
+    model) runs with no transaction open (docs/realtime.md#event-loop)."""
+    registry = mail_tool_registry()
+
+    def decide(repository: AnumRepository) -> tuple[str, Approval | None, str]:
+        runtime = AgentRuntime(MockModelGateway(), repository, tools=registry)
         decision = runtime.evaluate(call, context)
         if decision.outcome == ToolPolicyOutcome.BLOCK:
             _audit(repository, context, f"mail.ai.{call.name}", audit_target, "denied", {"reason": decision.reason[:200]})
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"Blocked by policy: {decision.reason}")
+            return "blocked", None, decision.reason
         if decision.outcome == ToolPolicyOutcome.REQUIRE_APPROVAL:
             _, approval = _pause_for_approval(repository, context, call, title, f"{title} ({call.name}).", registry=registry)
-            return decision, approval
-        return decision, None
+            return "approval", approval, ""
+        return "run", None, ""
 
-    _, approval = await asyncio.to_thread(decide)
+    outcome, approval, reason = await run_in_unit(units, context, decide)
+    if outcome == "blocked":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"Blocked by policy: {reason}")
     if approval is not None:
         return None, approval
     result = await registry.execute(call, context)
-    await asyncio.to_thread(
-        _audit,
-        repository, context, f"mail.ai.{call.name}", audit_target, "success" if result.status == "succeeded" else "failure",
+    await run_in_unit(
+        units, context, _audit,
+        context, f"mail.ai.{call.name}", audit_target, "success" if result.status == "succeeded" else "failure",
         {**result.audit_metadata, "kind": result.output.get("kind") if result.status != "succeeded" and isinstance(result.output, dict) else None},
     )
     return result, None
 
 
-async def _free(repository: AnumRepository, context: TenantContext, call: ToolCall, title: str, target: str) -> dict[str, Any]:
+async def _free(units: UnitsOfWork, context: TenantContext, call: ToolCall, title: str, target: str) -> dict[str, Any]:
     """A read-only AI action: it must be allowed now (it has no meaning as a later approval)."""
-    result, approval = await _mediated(repository, context, call, title, target)
+    result, approval = await _mediated(units, context, call, title, target)
     if approval is not None or result is None:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -224,7 +229,7 @@ def _ready(context: TenantContext, permission: Permission) -> None:
 
 
 @router.get("/status", response_model=AiStatus)
-async def ai_status(context: TenantContext = Depends(tenant_context)) -> AiStatus:
+def ai_status(context: TenantContext = Depends(tenant_context)) -> AiStatus:
     """Whether AI can run on mail for this workspace now (a model is set up), and who may use it."""
     _require(context, Permission.EMAIL_READ, READ_DENIED)
     reason = ai.ai_unavailable_reason(context)
@@ -235,25 +240,25 @@ async def ai_status(context: TenantContext = Depends(tenant_context)) -> AiStatu
 
 
 @router.post("/summarize", response_model=SummaryResult)
-async def summarize(body: SummarizeBody, context: TenantContext = Depends(tenant_context), repository: AnumRepository = Depends(repository_context)) -> SummaryResult:
+async def summarize(body: SummarizeBody, context: TenantContext = Depends(tenant_context), units: UnitsOfWork = Depends(units_of_work)) -> SummaryResult:
     """A summary of one message (or its thread) for the person. Changes nothing anywhere."""
     _ready(context, Permission.EMAIL_READ)
     call = ToolCall(name=ai.SUMMARIZE_TOOL, arguments={"account_id": body.account_id, "folder": body.folder, "uid": body.uid, "thread": body.thread})
-    output = await _free(repository, context, call, "Summarise email", body.account_id)
+    output = await _free(units, context, call, "Summarise email", body.account_id)
     return SummaryResult(**{key: output[key] for key in SummaryResult.model_fields})
 
 
 @router.post("/classify", response_model=ClassifyResult)
-async def classify(body: MessageRef, context: TenantContext = Depends(tenant_context), repository: AnumRepository = Depends(repository_context)) -> ClassifyResult:
+async def classify(body: MessageRef, context: TenantContext = Depends(tenant_context), units: UnitsOfWork = Depends(units_of_work)) -> ClassifyResult:
     """A category and a priority for one message, from a fixed list."""
     _ready(context, Permission.EMAIL_READ)
     call = ToolCall(name=ai.CLASSIFY_TOOL, arguments={"account_id": body.account_id, "folder": body.folder, "uid": body.uid})
-    output = await _free(repository, context, call, "Label email", body.account_id)
+    output = await _free(units, context, call, "Label email", body.account_id)
     return ClassifyResult(**{key: output[key] for key in ClassifyResult.model_fields})
 
 
 @router.post("/draft-reply", response_model=DraftReplyResult, status_code=status.HTTP_201_CREATED)
-async def draft_reply(body: DraftReplyBody, context: TenantContext = Depends(tenant_context), repository: AnumRepository = Depends(repository_context)) -> DraftReplyResult:
+async def draft_reply(body: DraftReplyBody, context: TenantContext = Depends(tenant_context), units: UnitsOfWork = Depends(units_of_work)) -> DraftReplyResult:
     """A reply written by the model into the person's drafts (to the original's sender). Sends nothing."""
     _ready(context, Permission.EMAIL_ACT)
     call = ToolCall(
@@ -264,14 +269,14 @@ async def draft_reply(body: DraftReplyBody, context: TenantContext = Depends(ten
             **({"identity_id": body.identity_id} if body.identity_id is not None else {}),
         },
     )
-    result, approval = await _mediated(repository, context, call, "Draft an email reply with AI", body.account_id)
+    result, approval = await _mediated(units, context, call, "Draft an email reply with AI", body.account_id)
     if approval is not None:
         return DraftReplyResult(status="waiting_approval", draft=None, approval=approval, injection_suspected=False, model=None)
     if result is None or result.status != "succeeded":
         if result is None:  # pragma: no cover - _mediated returns a result or an approval
             raise HTTPException(status_code=500, detail="The draft tool did not run.")
         raise _failure(result)
-    def saved_view() -> DraftView:
+    def saved_view(repository: AnumRepository) -> DraftView:
         with open_mail_store(context) as store:
             draft = store.get_draft(str(result.output["draft_id"]))
         if draft is None:  # pragma: no cover - saved by the tool just now
@@ -279,7 +284,7 @@ async def draft_reply(body: DraftReplyBody, context: TenantContext = Depends(ten
         return _draft_view(draft, repository, context)
 
     return DraftReplyResult(
-        status="done", draft=await asyncio.to_thread(saved_view), approval=None,
+        status="done", draft=await run_in_unit(units, context, saved_view), approval=None,
         injection_suspected=bool(result.output.get("injection_suspected")), model=str(result.output.get("model") or "") or None,
     )
 
@@ -315,11 +320,11 @@ def list_labels(
 
 
 @router.post("/classify-page", response_model=PageResult)
-async def classify_page(body: PageBody, context: TenantContext = Depends(tenant_context), repository: AnumRepository = Depends(repository_context)) -> PageResult:
+async def classify_page(body: PageBody, context: TenantContext = Depends(tenant_context), units: UnitsOfWork = Depends(units_of_work)) -> PageResult:
     """Label all: every message on the shown page without a label yet (at most 25)."""
     _ready(context, Permission.EMAIL_READ)
     call = ToolCall(name=ai.PAGE_TOOL, arguments={"account_id": body.account_id, "folder": body.folder, "uids": body.uids, "force": body.force})
-    output = await _free(repository, context, call, "Label email", body.account_id)
+    output = await _free(units, context, call, "Label email", body.account_id)
     labels = [LabelView(uid=item["uid"], category=item["category"], priority=item["priority"], reason="", source=item["source"]) for item in output["labels"]]
     summary = f"Labelled {output['labelled']} message(s)."
     return PageResult(labels=labels, labelled=output["labelled"], skipped=output["skipped"], failed=output["failed"], summary=summary)
@@ -334,17 +339,24 @@ FORWARD_NOTE_INSTRUCTIONS = (
 
 
 async def start_forward(
-    repository: AnumRepository, context: TenantContext, *, account_id: str | None, folder: str, uid: int, to: list[str],
+    units: UnitsOfWork, context: TenantContext, *, account_id: str | None, folder: str, uid: int, to: list[str],
     note: str | None, write_note: bool, idempotency_key: str, identity_id: str | None = None,
 ) -> ForwardResult:
     """A forward draft to the addresses the person gave, then the ``send_mail`` approval of
-    exactly that message. Shared by the Email page and the assistant (``request_mail_action``)."""
+    exactly that message. Shared by the Email page and the assistant (``request_mail_action``).
+
+    Each store step runs in its own short unit of work (``units``) in a worker thread; none is
+    held while the mail server or the model answers (docs/realtime.md#event-loop)."""
     try:
         recipients = clean_addresses(to)
         if not recipients:
             raise MailError(422, "Add at least one recipient.", "recipients")
-        account = ai.mailbox_for(context, account_id, "send") if account_id else ai.default_mailbox(context, "send")
-        identity = ai.pick_identity(context, account, identity_id)
+
+        def mailbox(_repository: AnumRepository) -> tuple[Any, Any]:
+            found = ai.mailbox_for(context, account_id, "send") if account_id else ai.default_mailbox(context, "send")
+            return found, ai.pick_identity(context, found, identity_id)
+
+        account, identity = await run_in_unit(units, context, mailbox)
         _, original = await ai.fetch_parsed(context, account, folder, uid)
         text = (note or "").strip()
         if not text and write_note:
@@ -352,12 +364,18 @@ async def start_forward(
             text = ai.reply_body(answer)[:2_000]
     except MailError as exc:
         raise _mail_http(exc) from None
-    with open_mail_store(context) as store:
-        existing = store.find_by_key(account.id, idempotency_key)
-    if existing is not None:
+
+    def earlier(repository: AnumRepository) -> DraftView | None:
+        with open_mail_store(context) as store:
+            existing = store.find_by_key(account.id, idempotency_key)
+        if existing is None:
+            return None
         if existing.kind != "forward" or existing.source_uid != uid or existing.source_folder != folder:
             raise HTTPException(status_code=409, detail="This send key was already used for another message.")
-        view = _draft_view(existing, repository, context)
+        return _draft_view(existing, repository, context)
+
+    view = await run_in_unit(units, context, earlier)
+    if view is not None:
         return ForwardResult(draft=view, approval=view.approval)
     now = utc_now()
     draft = MailDraft(
@@ -367,26 +385,35 @@ async def start_forward(
         to=recipients, subject=forward_subject(original.subject), source_folder=folder, source_uid=uid,
         body=(ai.signed(text, identity) + quoted(original, forward=True))[:MAX_BODY],
     )
-    with open_mail_store(context) as store:
-        store.save_draft(draft)
-    _audit(repository, context, "mail.draft.create", draft.id, metadata={"kind": "forward", "ai_note": bool(write_note and not note)})
-    try:
-        sent = await asyncio.to_thread(send_draft, draft.id, SendBody(idempotency_key=idempotency_key), context, repository)
-    except HTTPException:
-        # Not waiting for approval (a limit or a check refused it): leave no stray draft behind.
+    def create(repository: AnumRepository) -> Any:
+        with open_mail_store(context) as store:
+            store.save_draft(draft)
+        _audit(repository, context, "mail.draft.create", draft.id, metadata={"kind": "forward", "ai_note": bool(write_note and not note)})
+
+    def ask(repository: AnumRepository) -> Any:
+        return send_draft(draft.id, SendBody(idempotency_key=idempotency_key), context, repository)
+
+    def discard(_repository: AnumRepository) -> None:
         with open_mail_store(context) as store:
             store.delete_draft(draft.id)
+
+    await run_in_unit(units, context, create)
+    try:
+        sent = await run_in_unit(units, context, ask)
+    except HTTPException:
+        # Not waiting for approval (a limit or a check refused it): leave no stray draft behind.
+        await run_in_unit(units, context, discard)
         raise
     return ForwardResult(draft=sent.draft, approval=sent.approval)
 
 
 @router.post("/forward", response_model=ForwardResult)
-async def forward(body: ForwardBody, context: TenantContext = Depends(tenant_context), repository: AnumRepository = Depends(repository_context)) -> ForwardResult:
+async def forward(body: ForwardBody, context: TenantContext = Depends(tenant_context), units: UnitsOfWork = Depends(units_of_work)) -> ForwardResult:
     """Forward one message to the addresses the person typed. A forward is a send: it waits for
     the same ``send_mail`` approval of exactly this message (payload hash), never sent by AI."""
     _ready(context, Permission.EMAIL_ACT)
     return await start_forward(
-        repository, context, account_id=body.account_id, folder=body.folder, uid=body.uid, to=body.to, note=body.note,
+        units, context, account_id=body.account_id, folder=body.folder, uid=body.uid, to=body.to, note=body.note,
         write_note=body.write_note, idempotency_key=body.idempotency_key, identity_id=body.identity_id,
     )
 
@@ -394,11 +421,15 @@ async def forward(body: ForwardBody, context: TenantContext = Depends(tenant_con
 OWNER_ACTIONS = {ai.ARCHIVE_TOOL: "archive", ai.EXPORT_TOOL: "export", DELETE_TOOL: "delete for good"}
 
 
-async def ask_owner_action(repository: AnumRepository, context: TenantContext, tool: str, account_id: str | None, folder: str, uids: list[int]) -> tuple[Approval, str, int]:
+async def ask_owner_action(units: UnitsOfWork, context: TenantContext, tool: str, account_id: str | None, folder: str, uids: list[int]) -> tuple[Approval, str, int]:
     """Pause ``tool`` (bulk archive, export or delete for good) for an approval of exactly these
-    messages in the caller's own mailbox. Shared by the Email page and the assistant."""
+    messages in the caller's own mailbox. Shared by the Email page and the assistant. Store
+    steps run in short units of work (``units``), none held while the mail server answers."""
     try:
-        account = ai.mailbox_for(context, account_id, "owner") if account_id else ai.default_mailbox(context, "owner")
+        account = await run_in_unit(
+            units, context,
+            lambda _repository: ai.mailbox_for(context, account_id, "owner") if account_id else ai.default_mailbox(context, "owner"),
+        )
         uids = sorted(set(uids))
         extra: dict[str, Any] = {}
         if tool == ai.EXPORT_TOOL:
@@ -418,26 +449,27 @@ async def ask_owner_action(repository: AnumRepository, context: TenantContext, t
         arguments = {**arguments, "requested_by": context.user_id, **extra}
     count = len(uids)
     verb = OWNER_ACTIONS[tool]
-    _, approval = await _mediated(repository, context, ToolCall(name=tool, arguments=arguments), f"{verb.capitalize()} {count} message(s) from {folder}", account.id)
+    _, approval = await _mediated(units, context, ToolCall(name=tool, arguments=arguments), f"{verb.capitalize()} {count} message(s) from {folder}", account.id)
     if approval is None:  # pragma: no cover - always_ask: never allowed without approval
         raise HTTPException(status_code=500, detail=f"{verb.capitalize()} ran without an approval.")
-    _audit(repository, context, f"mail.ai.{tool}.requested", account.id, metadata={"count": count, "approval_id": approval.id, "payload_hash": approval.payload_hash})
+    await run_in_unit(units, context, _audit, context, f"mail.ai.{tool}.requested", account.id,
+                      metadata={"count": count, "approval_id": approval.id, "payload_hash": approval.payload_hash})
     return approval, account.address, count
 
 
 @router.post("/archive", response_model=WaitingResult)
-async def archive(body: BulkBody, context: TenantContext = Depends(tenant_context), repository: AnumRepository = Depends(repository_context)) -> WaitingResult:
+async def archive(body: BulkBody, context: TenantContext = Depends(tenant_context), units: UnitsOfWork = Depends(units_of_work)) -> WaitingResult:
     """Archive many messages at once: waits for an approval of exactly these messages."""
     _ready(context, Permission.EMAIL_ACT)
-    approval, mailbox, count = await ask_owner_action(repository, context, ai.ARCHIVE_TOOL, body.account_id, body.folder, body.uids)
+    approval, mailbox, count = await ask_owner_action(units, context, ai.ARCHIVE_TOOL, body.account_id, body.folder, body.uids)
     return WaitingResult(status="waiting_approval", summary=f"Waiting for approval to archive {count} message(s) in {mailbox}.", approval=approval)
 
 
 @router.post("/export", response_model=WaitingResult)
-async def export(body: ExportBody, context: TenantContext = Depends(tenant_context), repository: AnumRepository = Depends(repository_context)) -> WaitingResult:
+async def export(body: ExportBody, context: TenantContext = Depends(tenant_context), units: UnitsOfWork = Depends(units_of_work)) -> WaitingResult:
     """Export messages as an mbox file: waits for an approval, then downloads for one hour."""
     _ready(context, Permission.EMAIL_ACT)
-    approval, mailbox, count = await ask_owner_action(repository, context, ai.EXPORT_TOOL, body.account_id, body.folder, body.uids)
+    approval, mailbox, count = await ask_owner_action(units, context, ai.EXPORT_TOOL, body.account_id, body.folder, body.uids)
     return WaitingResult(status="waiting_approval", summary=f"Waiting for approval to export {count} message(s) from {mailbox}.", approval=approval)
 
 
@@ -456,18 +488,24 @@ def _message_ids(server: Any, folder: str, uids: list[int]) -> dict[int, str | N
 async def download_export(
     approval_id: str,
     context: TenantContext = Depends(tenant_context),
-    repository: AnumRepository = Depends(repository_context),
+    units: UnitsOfWork = Depends(units_of_work),
 ) -> Response:
     """The approved export as an mbox download, for the person who asked, within one hour."""
     _ready(context, Permission.EMAIL_ACT)
-    approval = repository.get_approval(approval_id, context)
-    if approval is None or approval.action != ai.EXPORT_TOOL or approval.arguments.get("requested_by") != context.user_id:
-        raise HTTPException(status_code=404, detail="Export not found.")
-    if approval.status != ApprovalStatus.APPROVED:
-        raise HTTPException(status_code=409, detail=f"This export is {approval.status.value}, not approved.")
-    task = repository.get_task(approval.task_id, context)
-    if task is None or task.status != TaskStatus.COMPLETED:
-        raise HTTPException(status_code=409, detail="This export did not finish. Ask for it again.")
+
+    def approved(repository: AnumRepository) -> tuple[Approval, Any]:
+        approval = repository.get_approval(approval_id, context)
+        if approval is None or approval.action != ai.EXPORT_TOOL or approval.arguments.get("requested_by") != context.user_id:
+            raise HTTPException(status_code=404, detail="Export not found.")
+        if approval.status != ApprovalStatus.APPROVED:
+            raise HTTPException(status_code=409, detail=f"This export is {approval.status.value}, not approved.")
+        task = repository.get_task(approval.task_id, context)
+        if task is None or task.status != TaskStatus.COMPLETED:
+            raise HTTPException(status_code=409, detail="This export did not finish. Ask for it again.")
+        return approval, task
+
+    # The approval is read in a short unit of work; the mail server is read with none open.
+    approval, _task = await run_in_unit(units, context, approved)
     if approval.decided_at is None or utc_now() - approval.decided_at > ai.EXPORT_WINDOW:
         raise HTTPException(status_code=410, detail="This export link has expired (one hour after approval). Ask for it again.")
     args = approval.arguments
@@ -475,7 +513,7 @@ async def download_export(
     uids = [int(u) for u in args.get("uids") or []]
     bound = list(args.get("message_ids") or [])
     try:
-        account = ai.mailbox_for(context, str(args.get("account_id") or ""), "owner")
+        account = await asyncio.to_thread(ai.mailbox_for, context, str(args.get("account_id") or ""), "owner")
 
         def job(server: Any) -> list[bytes]:
             out: list[bytes] = []
@@ -494,7 +532,7 @@ async def download_export(
         messages = await on_server(context, account, job)
     except MailError as exc:
         raise _mail_http(exc) from None
-    _audit(repository, context, "mail.ai.export.downloaded", account.id, metadata={"count": len(messages), "approval_id": approval.id})
+    await run_in_unit(units, context, _audit, context, "mail.ai.export.downloaded", account.id, metadata={"count": len(messages), "approval_id": approval.id})
     name = re.sub(r"[^A-Za-z0-9._-]", "_", f"mail-export-{utc_now().strftime('%Y%m%d-%H%M')}.mbox")
     return Response(
         content=ai.mbox(messages), media_type="application/mbox",

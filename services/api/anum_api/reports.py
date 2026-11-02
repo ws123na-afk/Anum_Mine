@@ -42,7 +42,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from .authorization import Permission
-from .dependencies import has_permission, repository_context as _repository_context, require_permission, tenant_context
+from .dependencies import has_permission, held_unit, repository_context as _repository_context, require_permission, tenant_context
 from .schemas import TenantContext, new_id, utc_now
 from .scoped_store import open_scoped_store
 
@@ -1363,7 +1363,7 @@ async def share_by_whatsapp(
     from . import whatsapp
 
     text = share_text(report, payload.note, max_chars=min(SHARE_TEXT_CHARS, whatsapp.MAX_TEXT))
-    result = await whatsapp.send(payload.conversation_id, whatsapp.SendRequest(text=text), context, repository)
+    result = await whatsapp.send(payload.conversation_id, whatsapp.SendRequest(text=text), context, held_unit(repository))
     return ShareResult(
         channel="whatsapp",
         status=result.outcome,

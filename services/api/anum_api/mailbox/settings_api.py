@@ -397,7 +397,7 @@ def pause_rule(rule_id: str, context: TenantContext = Depends(tenant_context), r
 
 
 @router.post("/rules/{rule_id}/resume", response_model=RuleResult)
-async def resume_rule(rule_id: str, context: TenantContext = Depends(tenant_context), repository: AnumRepository = Depends(repository_context)) -> RuleResult:
+def resume_rule(rule_id: str, context: TenantContext = Depends(tenant_context), repository: AnumRepository = Depends(repository_context)) -> RuleResult:
     """Ask for approval to forward again with this rule (it starts from mail that arrives after)."""
     rule, account = _load_rule(context, rule_id)
     if rule.status == "active":

@@ -149,13 +149,14 @@ async def on_server(context: TenantContext, account: MailAccount, job: Callable[
         result = await asyncio.to_thread(job, server)
     except MailServerError as exc:
         if exc.kind in {"auth", "offline", "tls"}:
-            _record_health(context, account, _status_for(exc), exc.message)
-            monitor.bump(context, "auth_failed" if exc.kind == "auth" else "server_offline")
+            # Health and the ops counter are written in a worker thread (docs/realtime.md#event-loop).
+            await asyncio.to_thread(_record_health, context, account, _status_for(exc), exc.message)
+            await asyncio.to_thread(monitor.bump, context, "auth_failed" if exc.kind == "auth" else "server_offline")
         status = HTTP_STATUS.get(exc.kind, 502)
         message = "The mail server refused the saved password. Enter it again in Mailbox settings." if exc.kind == "auth" else exc.message
         raise MailError(status, message, exc.kind) from None
     if account.status != AccountStatus.CONNECTED or account.last_checked_at is None:
-        _record_health(context, account, AccountStatus.CONNECTED, None)
+        await asyncio.to_thread(_record_health, context, account, AccountStatus.CONNECTED, None)
     return result
 
 
@@ -303,55 +304,64 @@ async def send_mail(call: ToolCall, context: TenantContext) -> ToolResult:
         require_available(owner)
     except MailError as exc:
         return _failed(f"Not sent: {exc.message}")
-    draft_id = str(args.get("draft_id") or "")
-    identity: MailIdentity | None = None
-    with open_mail_store(owner) as store:
-        draft = store.get_draft(draft_id)
-        found = store.get_accessible_account(str(args.get("account_id") or "")) if draft else None
-        attachments = store.list_attachments(draft.id) if draft else []
-        if draft is not None and draft.identity_id:
-            identity = store.get_identity(draft.identity_id)
-    account = found[0] if found else None
-    if draft is None or account is None or draft.account_id != account.id:
-        return _failed("Not sent: the message or its mailbox is gone, or the mailbox is no longer shared with the writer.")
-    if not allows(found[1] if found else None, "send"):
-        return _failed("Not sent: the mailbox's owner no longer lets the writer send from it.", draft_id=draft.id)
-    if draft.identity_id and (identity is None or identity.account_id != account.id):
-        return _failed("Not sent: the sender identity was removed. Pick a sender and send again.", draft_id=draft.id)
-    if draft.status == DraftStatus.SENT:
-        return ToolResult(status="succeeded", summary="This message was already sent.", output={"draft_id": draft.id})
-    if draft.status == DraftStatus.SCHEDULED:
-        return ToolResult(status="succeeded", summary="This message is already scheduled.", output={"draft_id": draft.id, "send_at": utc_iso(draft.send_at)})
-    if draft.status in {DraftStatus.SENDING, DraftStatus.UNKNOWN}:
-        return _failed("Not sent again: an earlier attempt may have reached the server. Check Sent.", draft_id=draft.id)
-    if draft.status != DraftStatus.PENDING_APPROVAL:
-        return _failed("Not sent: the message is no longer waiting for approval.", draft_id=draft.id)
-    expected = send_arguments(draft, account, attachments, identity)
-    if expected != {key: args.get(key) for key in expected}:
-        return _failed("Not sent: the message changed after it was sent for approval.", draft_id=draft.id)
-    now = utc_now()
-    if draft.send_at is not None and draft.send_at > now:
+
+    def prepare() -> ToolResult | tuple[MailDraft, MailAccount, list[MailAttachment], MailIdentity | None]:
+        """Every check and the send claim, in a worker thread (docs/realtime.md#event-loop)."""
+        draft_id = str(args.get("draft_id") or "")
+        identity: MailIdentity | None = None
         with open_mail_store(owner) as store:
-            if not store.mark_scheduled(draft.id, content_hash(expected)):
-                return _failed("Not scheduled: the message is no longer waiting for approval.", draft_id=draft.id)
-        when = utc_iso(draft.send_at)
-        return ToolResult(
-            status="succeeded",
-            summary=f"Scheduled for {when} from {expected['from']} to {', '.join(draft.to)}: {draft.subject or '(no subject)'}",
-            output={"draft_id": draft.id, "message_id": draft.message_id, "send_at": when, "scheduled": True},
-            audit_metadata={"tool": SEND_TOOL, "draft_id": draft.id, "scheduled": True, "attachments": len(attachments)},
-        )
-    if draft.send_at is not None and now - draft.send_at > DUE_GRACE:
+            draft = store.get_draft(draft_id)
+            found = store.get_accessible_account(str(args.get("account_id") or "")) if draft else None
+            attachments = store.list_attachments(draft.id) if draft else []
+            if draft is not None and draft.identity_id:
+                identity = store.get_identity(draft.identity_id)
+        account = found[0] if found else None
+        if draft is None or account is None or draft.account_id != account.id:
+            return _failed("Not sent: the message or its mailbox is gone, or the mailbox is no longer shared with the writer.")
+        if not allows(found[1] if found else None, "send"):
+            return _failed("Not sent: the mailbox's owner no longer lets the writer send from it.", draft_id=draft.id)
+        if draft.identity_id and (identity is None or identity.account_id != account.id):
+            return _failed("Not sent: the sender identity was removed. Pick a sender and send again.", draft_id=draft.id)
+        if draft.status == DraftStatus.SENT:
+            return ToolResult(status="succeeded", summary="This message was already sent.", output={"draft_id": draft.id})
+        if draft.status == DraftStatus.SCHEDULED:
+            return ToolResult(status="succeeded", summary="This message is already scheduled.", output={"draft_id": draft.id, "send_at": utc_iso(draft.send_at)})
+        if draft.status in {DraftStatus.SENDING, DraftStatus.UNKNOWN}:
+            return _failed("Not sent again: an earlier attempt may have reached the server. Check Sent.", draft_id=draft.id)
+        if draft.status != DraftStatus.PENDING_APPROVAL:
+            return _failed("Not sent: the message is no longer waiting for approval.", draft_id=draft.id)
+        expected = send_arguments(draft, account, attachments, identity)
+        if expected != {key: args.get(key) for key in expected}:
+            return _failed("Not sent: the message changed after it was sent for approval.", draft_id=draft.id)
+        now = utc_now()
+        if draft.send_at is not None and draft.send_at > now:
+            with open_mail_store(owner) as store:
+                if not store.mark_scheduled(draft.id, content_hash(expected)):
+                    return _failed("Not scheduled: the message is no longer waiting for approval.", draft_id=draft.id)
+            when = utc_iso(draft.send_at)
+            return ToolResult(
+                status="succeeded",
+                summary=f"Scheduled for {when} from {expected['from']} to {', '.join(draft.to)}: {draft.subject or '(no subject)'}",
+                output={"draft_id": draft.id, "message_id": draft.message_id, "send_at": when, "scheduled": True},
+                audit_metadata={"tool": SEND_TOOL, "draft_id": draft.id, "scheduled": True, "attachments": len(attachments)},
+            )
+        if draft.send_at is not None and now - draft.send_at > DUE_GRACE:
+            with open_mail_store(owner) as store:
+                store.expire_unapproved(draft.id, now - DUE_GRACE)
+            return _failed(NOT_APPROVED_IN_TIME, draft_id=draft.id)
+        since = now - timedelta(hours=1)
         with open_mail_store(owner) as store:
-            store.expire_unapproved(draft.id, now - DUE_GRACE)
-        return _failed(NOT_APPROVED_IN_TIME, draft_id=draft.id)
-    since = now - timedelta(hours=1)
-    with open_mail_store(owner) as store:
-        if store.count_sends_since(account.id, since) >= cfg().send_per_hour:
-            monitor.bump(owner, "send_rate_limited")
-            return _failed(f"Not sent: this mailbox already sent {cfg().send_per_hour} messages in the last hour. Try again later.", draft_id=draft.id)
-        if not store.claim_send(draft.id, now + SEND_LEASE):
-            return _failed("Not sent: another attempt is already sending this message.", draft_id=draft.id)
+            if store.count_sends_since(account.id, since) >= cfg().send_per_hour:
+                monitor.bump(owner, "send_rate_limited")
+                return _failed(f"Not sent: this mailbox already sent {cfg().send_per_hour} messages in the last hour. Try again later.", draft_id=draft.id)
+            if not store.claim_send(draft.id, now + SEND_LEASE):
+                return _failed("Not sent: another attempt is already sending this message.", draft_id=draft.id)
+        return draft, account, attachments, identity
+
+    prepared = await asyncio.to_thread(prepare)
+    if isinstance(prepared, ToolResult):
+        return prepared
+    draft, account, attachments, identity = prepared
     return await deliver(owner, draft, account, attachments, identity)
 
 
@@ -381,7 +391,7 @@ async def deliver(
 
     refusal = send_refusal(owner)  # nothing leaves a demo workspace (docs/demo-workspace.md)
     if refusal:
-        record_send(owner, draft.id, DraftStatus.FAILED, refusal)
+        await asyncio.to_thread(record_send, owner, draft.id, DraftStatus.FAILED, refusal)
         return _failed(refusal, draft_id=draft.id)
     from_address, from_name = sender_of(account, identity)
     from .outgoing import AttachmentGone, read_attachment
@@ -389,7 +399,7 @@ async def deliver(
     try:
         files = tuple([OutgoingFile(a.filename, a.content_type, await asyncio.to_thread(read_attachment, a)) for a in attachments])
     except AttachmentGone as exc:
-        record_send(owner, draft.id, DraftStatus.FAILED, exc.message)
+        await asyncio.to_thread(record_send, owner, draft.id, DraftStatus.FAILED, exc.message)
         return _failed(f"Not sent: {exc.message}", draft_id=draft.id)
     outgoing = Outgoing(
         sender_name=from_name, sender_address=from_address, to=draft.to, cc=draft.cc, bcc=draft.bcc,
@@ -403,14 +413,15 @@ async def deliver(
         report = await on_server(owner, account, lambda server: server.send(from_address, recipients, raw))
     except MailError as exc:
         if exc.kind == "uncertain":
-            record_send(owner, draft.id, DraftStatus.UNKNOWN, exc.message[:500])
-            monitor.bump(owner, "send_unknown")
+            await asyncio.to_thread(record_send, owner, draft.id, DraftStatus.UNKNOWN, exc.message[:500])
+            await asyncio.to_thread(monitor.bump, owner, "send_unknown")
             return _failed(exc.message, draft_id=draft.id)
-        record_send(owner, draft.id, DraftStatus.FAILED, exc.message[:500])
-        monitor.bump(owner, "send_failed")
+        await asyncio.to_thread(record_send, owner, draft.id, DraftStatus.FAILED, exc.message[:500])
+        await asyncio.to_thread(monitor.bump, owner, "send_failed")
         return _failed(f"Not sent: {exc.message}", draft_id=draft.id)
-    record_send(owner, draft.id, DraftStatus.SENT, None)
-    monitor.bump(owner, "sent")
+    # The outcome is written in worker threads; only the mail server waits on the loop.
+    await asyncio.to_thread(record_send, owner, draft.id, DraftStatus.SENT, None)
+    await asyncio.to_thread(monitor.bump, owner, "sent")
 
     def save_copy(server: MailServer) -> bool:
         sent = folder_by_role(server.folders(), "sent")
@@ -430,7 +441,7 @@ async def deliver(
         saved = await on_server(owner, account, save_copy)
     except MailError as exc:
         logger.warning("mail.sent_copy_failed", extra={"anum_kind": exc.kind})
-    record_send(owner, draft.id, DraftStatus.SENT, None if saved else "Sent, but the copy could not be saved to the Sent folder.", saved)
+    await asyncio.to_thread(record_send, owner, draft.id, DraftStatus.SENT, None if saved else "Sent, but the copy could not be saved to the Sent folder.", saved)
     refused = sorted(report.refused)
     summary = f"Sent from {from_address} to {', '.join(draft.to)}: {draft.subject or '(no subject)'}"
     if refused:
@@ -454,8 +465,12 @@ async def delete_mail(call: ToolCall, context: TenantContext) -> ToolResult:
         require_available(owner)
     except MailError as exc:
         return _failed(f"Not deleted: {exc.message}")
-    with open_mail_store(owner) as store:
-        account = store.get_account(str(args.get("account_id") or ""))
+
+    def mailbox() -> MailAccount | None:
+        with open_mail_store(owner) as store:
+            return store.get_account(str(args.get("account_id") or ""))
+
+    account = await asyncio.to_thread(mailbox)
     if account is None:
         return _failed("Not deleted: the mailbox is gone.")
     folder = str(args.get("folder") or "")

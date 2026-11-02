@@ -17,7 +17,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from .. import delivery
 from ..audit import AuditRecord
 from ..authorization import Permission
-from ..dependencies import repository_context, require_owner_or_org_admin, require_permission, tenant_context
+from ..dependencies import UnitsOfWork, repository_context, require_owner_or_org_admin, require_permission, run_in_unit, tenant_context, units_of_work
 from ..repository import AnumRepository
 from ..schemas import TenantContext, new_id, utc_now
 from ..settings import settings
@@ -906,13 +906,13 @@ def _email_text(invoice: dict[str, Any], reminder: int = 0) -> tuple[str, str]:
 
 
 async def request_invoice_email(
-    context: TenantContext, repository: AnumRepository, tenant_id: str, invoice: dict[str, Any], to: str, *, channel: str = "email", reminder: int = 0,
+    context: TenantContext, units: UnitsOfWork, tenant_id: str, invoice: dict[str, Any], to: str, *, channel: str = "email", reminder: int = 0,
 ) -> delivery.DeliveryOutcome:
     """Plan the invoice email as a delivery: it waits in Approvals and nothing is sent before someone approves it."""
     reference = await asyncio.to_thread(delivery.attachment_reference, INVOICE_ATTACHMENT_KIND, f"{tenant_id}:{invoice['id']}", "pdf", context)
     subject, text = _email_text(invoice, reminder)
     return await delivery.request_delivery(
-        context, repository, channel=channel, to=to, subject=subject, text=text, attachments=[reference],
+        context, units, channel=channel, to=to, subject=subject, text=text, attachments=[reference],
         title=f"Send invoice {invoice['number']}" if not reminder else f"Send reminder for invoice {invoice['number']}",
     )
 
@@ -920,23 +920,25 @@ async def request_invoice_email(
 @console.post("/organizations/{tenant_id}/invoices/{invoice_id}/email")
 async def email_invoice(
     tenant_id: str, invoice_id: str, payload: EmailInput, context: TenantContext = Depends(tenant_context),
-    repository: AnumRepository = Depends(repository_context),
+    units: UnitsOfWork = Depends(units_of_work),
 ) -> dict[str, Any]:
     _operator(context)
 
-    def load() -> tuple[dict[str, Any], dict[str, Any]]:
+    def load(_repository: AnumRepository) -> tuple[dict[str, Any], dict[str, Any]]:
         with open_billing(tenant_id) as rows:
             account = _customer_account(context, tenant_id, rows)
             return account, _invoice_or_404(rows, invoice_id)
 
-    account, invoice = await asyncio.to_thread(load)
+    # Each store step in its own short unit of work in a worker thread; the delivery tool
+    # runs with no transaction open (docs/realtime.md#event-loop).
+    account, invoice = await run_in_unit(units, context, load)
     if invoice["status"] in ("draft", "void"):
         raise HTTPException(status_code=409, detail=f"Invoice {invoice['number'] or invoice_id} is {invoice['status']}; only issued invoices are emailed.")
     to = (payload.to or account["contact_email"] or "").strip()
     if not is_email(to):
         raise HTTPException(status_code=422, detail="Enter the email address to send to, or add a billing contact email to the organisation.")
     try:
-        outcome = await request_invoice_email(context, repository, tenant_id, invoice, to, channel=payload.channel)
+        outcome = await request_invoice_email(context, units, tenant_id, invoice, to, channel=payload.channel)
     except delivery.DeliveryUnavailableError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from None
     entry = {"status": outcome.status, "approval_id": outcome.approval_id, "task_id": outcome.task_id, "requested_at": utc_now().isoformat(),
@@ -947,7 +949,8 @@ async def email_invoice(
             rows.update("billing_invoices", {"id": invoice_id}, {"last_email": entry, "updated_at": utc_now()})
 
     await asyncio.to_thread(remember)
-    _audit(repository, context, "billing.invoice.email_requested", invoice_id, {"tenant": tenant_id, "status": outcome.status, "task_id": outcome.task_id})
+    await run_in_unit(units, context, _audit, context, "billing.invoice.email_requested", invoice_id,
+                      {"tenant": tenant_id, "status": outcome.status, "task_id": outcome.task_id})
     message = {"waiting_approval": "The email waits for an approval: approve it in Approvals and it will be sent.", "sent": "Sent."}.get(
         outcome.status, outcome.summary or "Not sent.")
     return {"status": outcome.status, "approval_id": outcome.approval_id, "payload_hash": outcome.payload_hash, "task_id": outcome.task_id, "message": message}
