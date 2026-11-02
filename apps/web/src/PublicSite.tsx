@@ -10,7 +10,7 @@ import { parseMarkdown, type MdBlock, type MdInline } from './lib/markdown';
 import { LEGAL_SOURCES } from './lib/legalDocs';
 import {
   LEGAL_DOCS, STATUS_PATH, STATUS_REFRESH_MS, TRUST_PATH, apiHealthy, checkEndpoint, discoveryHealthy, fillPlaceholders, headingIds, internalPath,
-  legalState, overallState, parsePublished, publishedIds, readLegalDocument, remainingPlaceholders, rewriteDocLinks, statusTargets,
+  legalLanguage, legalState, localizeLegalValues, overallState, parsePublished, publishedIds, readLegalDocument, remainingPlaceholders, rewriteDocLinks, statusTargets,
   type ComponentCheck, type ComponentState, type LegalDocId, type PublicRoute,
 } from './lib/publicSite';
 import { getPublicLegal } from './lib/publicLegalApi';
@@ -70,14 +70,17 @@ type LegalLoad = { state: 'loading' } | { state: 'ready'; value: PublicLegal } |
 const RIGHTS_DOCS: ReadonlySet<LegalDocId> = new Set(['privacy', 'dpa', 'terms']);
 
 function LegalPage({ id }: { id: LegalDocId }) {
-  const doc = useMemo(() => readLegalDocument(LEGAL_SOURCES[id]), [id]);
+  // The text follows the site language switch: docs/legal/ar for Arabic, docs/legal for English.
+  const language = legalLanguage(getLocale());
+  const dir = language === 'ar' ? 'rtl' : 'ltr';
+  const doc = useMemo(() => readLegalDocument(LEGAL_SOURCES[language][id]), [id, language]);
   const [facts, setFacts] = useState<LegalLoad>({ state: 'loading' });
   useEffect(() => {
     let live = true;
     getPublicLegal().then((value) => { if (live) setFacts({ state: 'ready', value }); }, () => { if (live) setFacts({ state: 'error' }); });
     return () => { live = false; };
   }, []);
-  const values = facts.state === 'ready' ? facts.value.values : null;
+  const values = facts.state === 'ready' ? localizeLegalValues(facts.value.values, language) : null;
   const published = publishedIds(PUBLISHED, facts.state === 'ready' ? facts.value.published : null);
   const state = legalState(id, doc, published, values);
   const remaining = remainingPlaceholders(doc, values);
@@ -85,15 +88,15 @@ function LegalPage({ id }: { id: LegalDocId }) {
   const headings = blocks.filter((b): b is Extract<MdBlock, { kind: 'heading' }> => b.kind === 'heading' && b.level === 2);
   const ids = headingIds(headings.map((h) => inlineText(h.inline)));
   const idOf = new Map(headings.map((h, i) => [h, ids[i]]));
-  return <LegalValues.Provider value={values}><article className="legalDoc" lang="en" aria-labelledby="legal-title" aria-busy={facts.state === 'loading'}>
+  return <LegalValues.Provider value={values}><article className="legalDoc" lang={language} dir={dir} aria-labelledby="legal-title" aria-busy={facts.state === 'loading'}>
     <div className="publicIntro">
       <p className="publicEyebrow" lang={getLocale()}><FileText aria-hidden="true" size={16} />{t('public.legal.eyebrow')}</p>
-      <h1 id="legal-title" dir="ltr">{doc.title}</h1>
+      <h1 id="legal-title" dir={dir}>{doc.title}</h1>
       <p className="publicMeta">
         {doc.updated && <span lang={getLocale()}><PlaceholderText text={t('public.legal.updated', { date: doc.updated })} /></span>}
         {state === 'published' && <span className="publicBadge ok" lang={getLocale()}>{t('public.legal.publishedBadge')}</span>}
       </p>
-      {getLocale() !== 'en' && <p className="publicNote" lang={getLocale()}>{t('public.legal.englishOnly')}</p>}
+      {language === 'ar' && <p className="publicNote" lang="ar">{t('public.legal.translationNote')}</p>}
     </div>
     {state !== 'published' && <section className="draftBanner" role="note" aria-labelledby="draft-title" lang={getLocale()}>
       <CircleAlert aria-hidden="true" size={20} />
@@ -112,7 +115,7 @@ function LegalPage({ id }: { id: LegalDocId }) {
         <h2 id="legal-toc" lang={getLocale()}>{t('public.legal.contents')}</h2>
         <ol>{headings.map((h, i) => <li key={ids[i]}><a href={`#${ids[i]}`}><Inlines parts={h.inline} plain /></a></li>)}</ol>
       </nav>}
-      <div className="legalBody" dir="ltr">
+      <div className="legalBody" dir={dir}>
         {blocks.map((b, i) => <Block key={i} block={b} id={b.kind === 'heading' ? idOf.get(b) : undefined} />)}
         {RIGHTS_DOCS.has(id) && <RightsPanel />}
       </div>

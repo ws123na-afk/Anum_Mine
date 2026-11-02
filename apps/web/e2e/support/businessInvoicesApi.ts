@@ -29,10 +29,18 @@ export interface InvoicesMock {
   seedSent: (fields?: Json) => string;
   /** A customer reports a payment from the portal: a pending notice appears on the invoice. */
   seedNotice: (invoiceId: string, fields?: Json) => string;
+  /** An owner approves the waiting invoice email or reminder in Approvals: the message is sent. */
+  approveMessage: (invoiceId: string) => void;
   accessLinks: Json[];
 }
 
-interface Options { role?: 'owner' | 'member'; listStatus?: 403 | 500; noProject?: boolean; withContractShare?: boolean }
+interface Options {
+  role?: 'owner' | 'member'; listStatus?: 403 | 500; noProject?: boolean; withContractShare?: boolean;
+  /** The owner's Moyasar (Platform billing): on in test mode, off, or the check fails. */
+  moyasar?: 'on' | 'off' | 'error';
+  /** No email integration that can attach a PDF is connected. */
+  noEmail?: boolean;
+}
 
 export async function mockInvoices(page: Page, options: Options = {}): Promise<InvoicesMock> {
   const role = options.role ?? 'owner';
@@ -43,7 +51,7 @@ export async function mockInvoices(page: Page, options: Options = {}): Promise<I
   const decisions: Json[] = [];
   let counter = 0, sequence = 0;
   const id = (prefix: string) => `${prefix}_${++counter}`;
-  const mock: InvoicesMock = { calls: [], approveSend: () => undefined, rejectSend: () => undefined, seedSent: () => '', seedNotice: () => '', accessLinks: access };
+  const mock: InvoicesMock = { calls: [], approveSend: () => undefined, rejectSend: () => undefined, seedSent: () => '', seedNotice: () => '', approveMessage: () => undefined, accessLinks: access };
   const project = {
     id: 'bprj_1', ...scope, proposal_id: 'bprop_1', proposal_version: 1, opportunity_id: 'bopp_1', account_id: 'bacc_1', name: 'Website rebuild', status: 'active', currency: 'SAR',
     contract_total: 5750, owner_id: 'user_local', start_on: null, contract_limits: '', created_by: 'user_local', created_at: now(), updated_at: now(), account_name: 'Acme Trading',
@@ -85,7 +93,16 @@ export async function mockInvoices(page: Page, options: Options = {}): Promise<I
       remove_payment: role === 'owner' && (status === 'sent' || status === 'paid'),
       credit: role === 'owner' && status === 'sent' && dueState(invoice).balance > 0, credit_enabled: true, void_credit_note: role === 'owner' && (status === 'sent' || status === 'paid'),
       decide_notice: status === 'sent' || status === 'paid',
+      email: status === 'sent' || status === 'paid', remind: status === 'sent' && dueState(invoice).overdue,
+      payment_link: status === 'sent' && dueState(invoice).balance > 0,
     };
+  };
+  const liveReminders = (invoice: Json) => (invoice.messages as Json[]).filter((m) => m.kind === 'reminder' && (m.status === 'sent' || m.status === 'waiting_approval')).length;
+  const nextReminder = (invoice: Json) => {
+    const state = dueState(invoice);
+    if (!state.overdue || (invoice.messages as Json[]).some((m) => m.kind === 'reminder' && m.status === 'waiting_approval')) return null;
+    const count = liveReminders(invoice);
+    return count < 4 && state.days_overdue >= [1, 7, 14, 30][count] ? count + 1 : null;
   };
   const dueState = (invoice: Json) => {
     const due = invoice.due_date ? String(invoice.due_date) : null;
@@ -101,6 +118,8 @@ export async function mockInvoices(page: Page, options: Options = {}): Promise<I
     payments: invoice.payments, approval_state: invoice.status === 'pending_approval' ? 'pending' : 'none',
     approval: invoice.status === 'pending_approval' ? { id: 'approval_inv', task_id: 'task_inv', action: 'business.send_invoice', risk_level: 'high', status: 'pending', reason: '', created_at: now(), decided_at: null, arguments: {}, payload_hash: invoice.requested_hash, expires_at: null, decided_by: null, decision_reason: null } : null,
     issues: invoice.status === 'draft' || invoice.status === 'pending_approval' ? issues(invoice) : [], can: canOf(invoice),
+    messages: invoice.messages, next_reminder: nextReminder(invoice),
+    payment_link: (invoice.links as Json[]).find((l) => l.status === 'open' && Number(l.amount) === dueState(invoice).balance && invoice.status === 'sent') ?? null,
   });
   const item = (invoice: Json) => ({
     id: invoice.id, number: invoice.number, status: invoice.status, account_id: invoice.account_id, account_name: 'Acme Trading', project_id: invoice.project_id, project_name: invoice.project_id ? 'Website rebuild' : null,
@@ -114,7 +133,7 @@ export async function mockInvoices(page: Page, options: Options = {}): Promise<I
     id: id('binv'), ...scope, account_id: 'bacc_1', project_id: null, status: 'draft', currency: 'SAR', lines: [], subtotal: 0, tax: 0, total: 0, amount_paid: 0, amount_credited: 0, due_in_days: 14, seq: null, number: null,
     issue_date: null, due_date: null, customer_reference: '', notes: '', payment_terms: '', bill_to_name: 'Acme Trading', bill_to_address: 'Riyadh', bill_to_email: 'sara@acme.example', bill_to_tax_number: '',
     seller: null, content_hash: null, requested_hash: null, approval_id: null, requested_by: null, requested_at: null, sent_by: null, sent_at: null, paid_at: null, voided_by: null, voided_at: null,
-    void_reason: '', decision_note: '', created_by: 'user_local', created_at: now(), updated_at: now(), payments: [], credit_notes: [], payment_notices: [], ...fields,
+    void_reason: '', decision_note: '', created_by: 'user_local', created_at: now(), updated_at: now(), payments: [], credit_notes: [], payment_notices: [], messages: [], links: [], ...fields,
   });
   const line = (description: string, unitPrice: number, quantity: number, tax: number, source: string, sourceId: string | null) => ({ description, kind: 'service', quantity, unit_price: unitPrice, tax_rate_pct: tax, source, source_id: sourceId, gross_total: null, net: 0, tax: 0, total: 0 });
   mock.seedSent = (fields: Json = {}) => {
@@ -129,6 +148,10 @@ export async function mockInvoices(page: Page, options: Options = {}): Promise<I
     const notice = { id: id('bpnote'), ...scope, invoice_id: invoiceId, account_id: 'bacc_1', access_id: 'bpacc_1', contact_id: 'bcon_1', payer_name: 'Sara Khan', amount: 400, paid_on: day(-1), method: 'bank_transfer', reference: 'TRX-31', note: '', status: 'pending', decided_by: null, decided_at: null, decision_note: '', payment_id: null, created_at: now(), updated_at: now(), ...fields };
     (invoice.payment_notices as Json[]).unshift(notice);
     return String(notice.id);
+  };
+  mock.approveMessage = (invoiceId) => {
+    const invoice = invoices.find((entry) => entry.id === invoiceId)!;
+    for (const message of invoice.messages as Json[]) if (message.status === 'waiting_approval') Object.assign(message, { status: 'sent', detail: 'Sent after approval.', updated_at: now() });
   };
   mock.approveSend = (invoiceId) => { const invoice = invoices.find((entry) => entry.id === invoiceId)!; send(invoice); };
   mock.rejectSend = (invoiceId, reason) => { const invoice = invoices.find((entry) => entry.id === invoiceId)!; Object.assign(invoice, { status: 'draft', decision_note: `Rejected by user_owner: ${reason}`, approval_id: null, requested_hash: null }); };
@@ -151,7 +174,7 @@ export async function mockInvoices(page: Page, options: Options = {}): Promise<I
     const path = url.pathname.replace('/api/v1/business', '');
     const method = request.method();
     const parts = path.split('/').filter(Boolean);
-    const mine = parts[0] === 'invoices' || parts[0] === 'billing-profile' || (parts[0] === 'portal') || path === '/accounts' || parts[0] === 'accounts' || (path === '/projects' && method === 'GET');
+    const mine = parts[0] === 'invoices' || parts[0] === 'payment-provider' || parts[0] === 'billing-profile' || (parts[0] === 'portal') || path === '/accounts' || parts[0] === 'accounts' || (path === '/projects' && method === 'GET');
     if (!mine || (parts[0] === 'accounts' && parts.length > 2)) return route.fallback();
     const body = request.postData() ? request.postDataJSON() as Json : {};
     mock.calls.push({ method, path, body });
@@ -189,6 +212,11 @@ export async function mockInvoices(page: Page, options: Options = {}): Promise<I
 
     if (options.listStatus === 403 && parts[0] === 'invoices') return denied("Business is for workspace owners and members: it holds contacts' personal data. Ask an owner to make you a member.");
     if (options.listStatus === 500 && parts[0] === 'invoices') return json(envelope('internal_error', 'Database unavailable'), 500);
+
+    if (path === '/payment-provider') {
+      if (options.moyasar === 'error') return json(envelope('internal_error', 'Billing settings unavailable'), 500);
+      return json(options.moyasar === 'on' ? { moyasar: 'on', mode: 'test' } : { moyasar: 'off', mode: null });
+    }
 
     if (path === '/invoices/summary') {
       const sum = (rows: Json[], key: string) => Math.round(rows.reduce((total, entry) => total + Number(entry[key]), 0) * 100) / 100;
@@ -275,7 +303,10 @@ export async function mockInvoices(page: Page, options: Options = {}): Promise<I
         if (status !== 'sent') return json(envelope('conflict', `The invoice is ${status}; payments are recorded on a sent invoice.`), 409);
         const balance = dueState(invoice).balance;
         if (Number(body.amount) > balance) return json(envelope('validation_error', `The payment is more than the balance of ${balance.toFixed(2)}.`), 422);
-        (invoice.payments as Json[]).push({ id: id('bpay'), ...scope, invoice_id: invoice.id, amount: body.amount, paid_on: body.paid_on, method: body.method ?? 'bank_transfer', reference: body.reference ?? '', note: body.note ?? '', recorded_by: 'user_local', created_at: now(), updated_at: now() });
+        const key = request.headers()['idempotency-key'];
+        const repeat = key ? (invoice.payments as Json[]).find((p) => p.idempotency_key === key) : undefined;
+        if (repeat) return json(view(invoice), 200);
+        (invoice.payments as Json[]).push({ id: id('bpay'), ...scope, idempotency_key: key ?? null, invoice_id: invoice.id, amount: body.amount, paid_on: body.paid_on, method: body.method ?? 'bank_transfer', reference: body.reference ?? '', note: body.note ?? '', recorded_by: 'user_local', created_at: now(), updated_at: now() });
         invoice.amount_paid = Math.round(((invoice.payments as Json[]).reduce((sum, p) => sum + Number(p.amount), 0)) * 100) / 100;
         if (dueState(invoice).balance <= 0) Object.assign(invoice, { status: 'paid', paid_at: now() });
         return json(view(invoice), 201);
@@ -322,6 +353,43 @@ export async function mockInvoices(page: Page, options: Options = {}): Promise<I
         if (found.status !== 'pending') return json(envelope('conflict', `This notice was already ${found.status}.`), 409);
         Object.assign(found, { status: 'rejected', decided_by: 'user_local', decided_at: now(), decision_note: body.reason });
         return json(view(invoice));
+      }
+      if ((parts[2] === 'email' || parts[2] === 'reminders') && method === 'POST') {
+        const reminder = parts[2] === 'reminders';
+        if (options.noEmail) return json(envelope('conflict', 'No email integration that can send attachments is connected, so nothing can be sent. Download the PDF and send it yourself, or connect one in Integrations.'), 409);
+        if (status !== 'sent' && status !== 'paid') return json(envelope('conflict', 'Only a sent invoice is emailed.'), 409);
+        if (reminder && !dueState(invoice).overdue) return json(envelope('conflict', `Invoice ${invoice.number} is not overdue yet; it is due on ${invoice.due_date}.`), 409);
+        if ((invoice.messages as Json[]).some((m) => m.kind === (reminder ? 'reminder' : 'invoice') && m.status === 'waiting_approval')) return json(envelope('conflict', 'An email for this invoice is already waiting for approval. Approve or reject it in Approvals first.'), 409);
+        const to = String(body.to ?? invoice.bill_to_email ?? '');
+        const number = reminder ? liveReminders(invoice) + 1 : null;
+        const arabic = body.language === 'ar';
+        const subject = reminder ? (arabic ? `تذكير: الفاتورة ${invoice.number} متأخرة السداد` : `Reminder: invoice ${invoice.number} is overdue`) : (arabic ? `فاتورة ${invoice.number} من Najd Digital Co.` : `Invoice ${invoice.number} from Najd Digital Co.`);
+        const message = { id: id('binmsg'), ...scope, invoice_id: invoice.id, kind: reminder ? 'reminder' : 'invoice', reminder_number: number, language: body.language ?? 'en', to_email: to, subject,
+          status: 'waiting_approval', approval_id: id('approval'), task_id: id('task'), payload_hash: 'ab'.repeat(32), detail: 'Waiting for approval.', requested_by: 'user_local', created_at: now(), updated_at: now() };
+        (invoice.messages as Json[]).push(message);
+        return json({ message, payload_hash: message.payload_hash, invoice: view(invoice) }, 201);
+      }
+      if (parts[2] === 'messages') return json(invoice.messages);
+      if (parts[2] === 'payment-link' && method === 'POST') {
+        if (options.moyasar !== 'on') return json(envelope('conflict', 'Card payments are off. The owner turns Moyasar on in Platform billing > Settings > Moyasar.'), 409);
+        const balance = dueState(invoice).balance;
+        if (status !== 'sent' || balance <= 0) return json(envelope('conflict', 'A payment link is made for a sent invoice with a balance.'), 409);
+        const links = invoice.links as Json[];
+        if (!links.some((l) => l.status === 'open' && Number(l.amount) === balance)) {
+          for (const l of links) l.status = 'replaced';
+          links.push({ id: id('binlink'), ...scope, invoice_id: invoice.id, provider: 'moyasar', provider_invoice_id: `inv_${counter}`, url: `https://checkout.moyasar.example/invoices/inv_${counter}`, amount: balance, currency: invoice.currency, status: 'open', created_by: 'user_local', created_at: now(), updated_at: now() });
+        }
+        return json(view(invoice), 201);
+      }
+      if (parts[2] === 'payments' && parts[4] === 'receipt') {
+        const found = (invoice.payments as Json[]).find((p) => p.id === parts[3]);
+        if (!found) return json(envelope('not_found', 'Payment not found'), 404);
+        return route.fulfill({ status: 200, contentType: 'application/pdf', headers: { 'content-disposition': `attachment; filename="receipt-${invoice.number}-${String(found.id).slice(-8)}.pdf"`, 'access-control-expose-headers': 'Content-Disposition' }, body: '%PDF-1.4 mock' });
+      }
+      if (parts[2] === 'credit-notes' && parts[4] === 'pdf') {
+        const found = (invoice.credit_notes as Json[]).find((entry) => entry.id === parts[3]);
+        if (!found) return json(envelope('not_found', 'Credit note not found'), 404);
+        return route.fulfill({ status: 200, contentType: 'application/pdf', headers: { 'content-disposition': `attachment; filename="${found.number}.pdf"`, 'access-control-expose-headers': 'Content-Disposition' }, body: '%PDF-1.4 mock' });
       }
       if (parts[2] === 'pdf') {
         return route.fulfill({ status: 200, contentType: 'application/pdf', headers: { 'content-disposition': `attachment; filename="${invoice.number ?? `draft-${invoice.id}`}.pdf"`, 'access-control-expose-headers': 'Content-Disposition' }, body: '%PDF-1.4 mock' });

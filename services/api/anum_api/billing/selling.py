@@ -38,7 +38,7 @@ from . import moyasar as moy
 from . import service as svc
 from .api import _admin, _audit, _customer_account, _email_connected, _invoice_or_404, _operator, _raise, console, is_email, router, webhooks
 from .enforce import clear_cache
-from .pdf import receipt_filename, render_receipt
+from .pdf import credit_note_filename, receipt_filename, render_credit_note, render_receipt
 from .providers import ProviderError, SignatureError
 from .rows import RowConflict, Rows, open_billing
 from .views import invoice_detail_view, moyasar_view, refund_view
@@ -177,7 +177,7 @@ def handle_moyasar_event(issuer_tenant_id: str, payload: bytes, *, now: datetime
         try:
             payment = provider.fetch_payment(payment_id)
             metadata = payment.metadata
-            if not metadata.get("anum_invoice_id") and payment.invoice_id:
+            if not metadata.get("anum_invoice_id") and not metadata.get("anum_business_invoice_id") and payment.invoice_id:
                 metadata = provider.invoice_metadata(payment.invoice_id)
         except ProviderError as exc:
             # Not recorded as seen: Moyasar retries and the next delivery tries again.
@@ -185,7 +185,13 @@ def handle_moyasar_event(issuer_tenant_id: str, payload: bytes, *, now: datetime
             raise HTTPException(status_code=502, detail=str(exc)) from None
         outcome = "ignored"
         tenant_id, invoice_id = metadata.get("anum_tenant_id", ""), metadata.get("anum_invoice_id", "")
-        if tenant_id and invoice_id and re.fullmatch(TENANT_ID, tenant_id):
+        if metadata.get("anum_business_invoice_id"):
+            # A customer of the issuer's own Business desk paid an invoice (docs/business.md#payment-links).
+            if event_type == "payment_paid" and payment.status == "paid":
+                from ..business.invoice_send import apply_moyasar_payment
+
+                outcome = apply_moyasar_payment(issuer_tenant_id, metadata, payment.id, payment.status, payment.amount_minor, payment.currency, now)
+        elif tenant_id and invoice_id and re.fullmatch(TENANT_ID, tenant_id):
             if event_type == "payment_paid" and payment.status == "paid":
                 outcome = _apply_moyasar_payment(issuer_tenant_id, tenant_id, invoice_id, payment, now)
             elif event_type == "payment_refunded":
@@ -439,6 +445,31 @@ def console_receipt(tenant_id: str, invoice_id: str, payment_id: str, context: T
     with open_billing(tenant_id) as rows:
         _customer_account(context, tenant_id, rows)
         return _receipt(rows, invoice_id, payment_id)
+
+
+def _credit_note_pdf(rows: Rows, invoice_id: str, note_id: str) -> Response:
+    invoice = _invoice_or_404(rows, invoice_id)
+    note = rows.get("billing_credit_notes", id=note_id)
+    if note is None or note["invoice_id"] != invoice_id:
+        raise HTTPException(status_code=404, detail="That credit note is not on this invoice.")
+    return Response(content=render_credit_note(invoice, note), media_type="application/pdf", headers={
+        "Content-Disposition": f'attachment; filename="{credit_note_filename(note)}"', "Cache-Control": "private, no-store",
+    })
+
+
+@router.get("/invoices/{invoice_id}/credit-notes/{note_id}/pdf")
+def own_credit_note_pdf(invoice_id: str, note_id: str, context: TenantContext = Depends(tenant_context)) -> Response:
+    _admin(context)
+    with open_billing(context.tenant_id) as rows:
+        return _credit_note_pdf(rows, invoice_id, note_id)
+
+
+@console.get("/organizations/{tenant_id}/invoices/{invoice_id}/credit-notes/{note_id}/pdf")
+def console_credit_note_pdf(tenant_id: str, invoice_id: str, note_id: str, context: TenantContext = Depends(tenant_context)) -> Response:
+    _operator(context)
+    with open_billing(tenant_id) as rows:
+        _customer_account(context, tenant_id, rows)
+        return _credit_note_pdf(rows, invoice_id, note_id)
 
 
 # ----------------------------------------------------------------------------- company details and legal facts

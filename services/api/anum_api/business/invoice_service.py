@@ -118,6 +118,7 @@ def credit_split(invoice: Invoice, existing: list[CreditNote], amount: Decimal) 
 
 def apply_payment(
     store: BusinessStore, context: TenantContext, invoice: Invoice, *, amount: Decimal, paid_on: date, method: PaymentMethod, reference: str, note: str, now: datetime,
+    idempotency_key: str | None = None, provider: str | None = None, provider_payment_id: str | None = None,
 ) -> tuple[Invoice, InvoicePayment]:
     """Record a payment on a sent invoice (the rules both the owner's form and the confirmation of a
     customer's notice follow). The invoice is paid when payments and credits cover its total; its
@@ -136,6 +137,7 @@ def apply_payment(
     payment = InvoicePayment(
         id=new_id("binpay"), tenant_id=context.tenant_id, workspace_id=context.workspace_id, invoice_id=invoice.id, amount=amount, paid_on=paid_on,
         method=method, reference=reference, note=note, recorded_by=context.user_id, created_at=now, updated_at=now,
+        idempotency_key=idempotency_key, provider=provider, provider_payment_id=provider_payment_id,  # type: ignore[arg-type]
     )
     store.add("invoice_payments", payment)
     paid = money(invoice.amount_paid + amount)

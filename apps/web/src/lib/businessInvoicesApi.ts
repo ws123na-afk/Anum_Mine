@@ -1,8 +1,8 @@
 // Invoices and the customer portal's owner routes over the live API (/api/v1/business, docs/business.md#invoices,
 // docs/business-portal.md). Every route checks the caller's role on the server; a 403 carries the API's own sentence.
 import type {
-  Billable, BillingProfile, BusinessInvoice, BusinessPage, CreditNote, CreditNoteInput, InvoiceCreate, InvoiceListItem, InvoiceStatus, InvoiceSummary, InvoiceUpdate, PaymentInput,
-  PaymentNotice, PortalAccessCreated, PortalAccessInput, PortalAccessItem, PortalDecisionRow,
+  Billable, BillingProfile, BusinessInvoice, BusinessPage, BusinessPaymentProvider, CreditNote, CreditNoteInput, InvoiceCreate, InvoiceEmailInput, InvoiceEmailResult,
+  InvoiceListItem, InvoiceMessage, InvoiceStatus, InvoiceSummary, InvoiceUpdate, PaymentInput, PaymentNotice, PortalAccessCreated, PortalAccessInput, PortalAccessItem, PortalDecisionRow,
 } from '@anum/contracts';
 import { apiBaseUrl, apiRequest, apiRequestVoid, authHeaders } from './api';
 import { apiErrorFromResponse } from './errors';
@@ -37,7 +37,9 @@ export const deleteInvoice = (invoiceId: string) => apiRequestVoid(`${BASE}/invo
 export const requestInvoiceApproval = (invoiceId: string) => apiRequest<BusinessInvoice>(`${BASE}/invoices/${id(invoiceId)}/request-approval`, json('POST'));
 export const cancelInvoiceRequest = (invoiceId: string) => apiRequest<BusinessInvoice>(`${BASE}/invoices/${id(invoiceId)}/cancel-request`, json('POST'));
 export const voidInvoice = (invoiceId: string, reason: string) => apiRequest<BusinessInvoice>(`${BASE}/invoices/${id(invoiceId)}/void`, json('POST', { reason }));
-export const recordPayment = (invoiceId: string, body: PaymentInput) => apiRequest<BusinessInvoice>(`${BASE}/invoices/${id(invoiceId)}/payments`, json('POST', body));
+/** One key per open payment form: a retry of the same submit finds the first payment instead of recording it twice. */
+export const recordPayment = (invoiceId: string, body: PaymentInput, idempotencyKey: string) =>
+  apiRequest<BusinessInvoice>(`${BASE}/invoices/${id(invoiceId)}/payments`, { ...json('POST', body), headers: { 'content-type': 'application/json', 'Idempotency-Key': idempotencyKey } });
 export const removePayment = (invoiceId: string, paymentId: string) => apiRequest<BusinessInvoice>(`${BASE}/invoices/${id(invoiceId)}/payments/${id(paymentId)}`, { method: 'DELETE' });
 
 /** The printable page (text/html) fetched with the app's own credentials. */
@@ -53,6 +55,26 @@ export async function downloadInvoicePdf(invoiceId: string): Promise<string> {
   if (!response.ok) throw await apiErrorFromResponse(response);
   return saveBlob(await response.blob(), fileNameFromDisposition(response.headers.get('content-disposition'), 'invoice.pdf'));
 }
+
+async function saveFile(path: string, fallback: string): Promise<string> {
+  const response = await fetch(`${apiBaseUrl}${path}`, { headers: await authHeaders() });
+  if (!response.ok) throw await apiErrorFromResponse(response);
+  return saveBlob(await response.blob(), fileNameFromDisposition(response.headers.get('content-disposition'), fallback));
+}
+
+/** A receipt PDF for one recorded payment (English and Arabic). Returns the file name. */
+export const downloadReceipt = (invoiceId: string, paymentId: string) => saveFile(`${BASE}/invoices/${id(invoiceId)}/payments/${id(paymentId)}/receipt`, 'receipt.pdf');
+/** A credit note PDF (English and Arabic). Returns the file name. */
+export const downloadCreditNotePdf = (invoiceId: string, creditNoteId: string) => saveFile(`${BASE}/invoices/${id(invoiceId)}/credit-notes/${id(creditNoteId)}/pdf`, 'credit-note.pdf');
+
+// emailing the invoice and payment reminders: each request waits for an owner's approval (docs/business.md#emailing-an-invoice-and-reminders)
+export const listInvoiceMessages = (invoiceId: string) => apiRequest<InvoiceMessage[]>(`${BASE}/invoices/${id(invoiceId)}/messages`, { method: 'GET' });
+export const emailInvoice = (invoiceId: string, body: InvoiceEmailInput) => apiRequest<InvoiceEmailResult>(`${BASE}/invoices/${id(invoiceId)}/email`, json('POST', body));
+export const remindInvoice = (invoiceId: string, body: InvoiceEmailInput) => apiRequest<InvoiceEmailResult>(`${BASE}/invoices/${id(invoiceId)}/reminders`, json('POST', body));
+
+// card payment links through the owner's Moyasar (docs/business.md#payment-links)
+export const getPaymentProvider = () => apiRequest<BusinessPaymentProvider>(`${BASE}/payment-provider`, { method: 'GET' });
+export const makePaymentLink = (invoiceId: string) => apiRequest<BusinessInvoice>(`${BASE}/invoices/${id(invoiceId)}/payment-link`, json('POST'));
 
 // credit notes (owners issue and void) and customers' payment reports (members and owners decide)
 export const listCreditNotes = (invoiceId: string) => apiRequest<CreditNote[]>(`${BASE}/invoices/${id(invoiceId)}/credit-notes`, { method: 'GET' });

@@ -3,7 +3,7 @@
 // browser. The API is the authority: it recomputes every total and rechecks every rule.
 import type {
   Billable, BillingProfile, BusinessCurrency, CreditNoteInput, CreditNoteStatus, InvoiceCreate, InvoiceListItem, InvoicePaymentState, InvoiceStatus, InvoiceSummary,
-  InvoiceUpdate, LineKind, ManualInvoiceLine, PaymentInput, PaymentMethod, PaymentNoticeStatus,
+  InvoiceUpdate, LineKind, ManualInvoiceLine, PaymentInput, PaymentMethod, PaymentNoticeStatus, InvoiceEmailInput, InvoiceMessage, InvoiceMessageStatus,
 } from '@anum/contracts';
 import { t, type MessageKey } from './i18n.ts';
 import { formatMoney, parseAmount, type Tone } from './business.ts';
@@ -258,3 +258,30 @@ export function today(now: Date = new Date()): string {
 
 /** What the list shows in the "when" column: due date for open invoices, issue date otherwise. */
 export const listDate = (item: Pick<InvoiceListItem, 'status' | 'due_date' | 'issue_date'>) => (item.status === 'sent' ? item.due_date : item.issue_date);
+
+// ---- emails, reminders and payment links (docs/business.md#emailing-an-invoice-and-reminders) ----
+
+export const SEND_LANGUAGES = ['en', 'ar'] as const;
+export const messageStatusLabel = (status: InvoiceMessageStatus) => label(`inv.send.status.${status}`);
+export function messageTone(status: InvoiceMessageStatus): Tone {
+  return status === 'sent' ? 'success' : status === 'waiting_approval' ? 'warning' : status === 'rejected' ? 'neutral' : 'dangerTone';
+}
+export const messageTitle = (item: Pick<InvoiceMessage, 'kind' | 'reminder_number'>) =>
+  item.kind === 'reminder' ? t('inv.send.kind.reminder', { number: item.reminder_number ?? 1 }) : t('inv.send.kind.invoice');
+
+const EMAIL = /^[^@\s<>"']{1,64}@[A-Za-z0-9.-]{1,190}\.[A-Za-z]{2,24}$/;
+/** The email request: an empty address means the buyer email on the invoice (the server checks it is there). */
+export function emailBody(to: string, language: 'en' | 'ar'): Check<InvoiceEmailInput> {
+  const address = to.trim();
+  if (address && !EMAIL.test(address)) return { ok: false, error: t('inv.send.badEmail') };
+  return { ok: true, value: address ? { to: address, language } : { language } };
+}
+
+/** A fresh key for one open payment form, sent as Idempotency-Key so a retried submit records the money once. */
+export function newPaymentKey(random: () => string = () => (globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`)): string {
+  return `pay-${random()}`.replace(/[^A-Za-z0-9_-]/g, '').slice(0, 80);
+}
+
+/** Whether a message is still waiting for an owner. */
+export const waitingMessages = (items: readonly Pick<InvoiceMessage, 'status' | 'kind'>[], kind: InvoiceMessage['kind']) =>
+  items.some((item) => item.kind === kind && item.status === 'waiting_approval');
