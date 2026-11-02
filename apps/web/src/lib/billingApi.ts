@@ -29,7 +29,7 @@ export const reactivateSubscription = (): Promise<{ subscription: Subscription; 
 export const saveAccount = (body: AccountBody): Promise<Account> => apiRequest(`${ORG}/account`, { method: 'PUT', ...json(body) });
 export const listInvoices = (filter: InvoiceFilter): Promise<Page<InvoiceSummary>> => get(invoicesPath(ORG, filter));
 export const getInvoice = (invoiceId: string): Promise<Invoice> => get(`${ORG}/invoices/${id(invoiceId)}`);
-export const downloadInvoice = (invoice: Pick<InvoiceSummary, 'id' | 'number'>): Promise<void> => downloadPdf(`${ORG}/invoices/${id(invoice.id)}/pdf`, invoice.number ?? invoice.id);
+export const downloadInvoice = (invoice: Pick<InvoiceSummary, 'id' | 'number'>): Promise<void> => downloadFile(`${ORG}/invoices/${id(invoice.id)}/pdf`, invoice.number ?? invoice.id);
 export const checkout = (invoiceId: string): Promise<{ url: string }> => post(`${ORG}/invoices/${id(invoiceId)}/checkout`);
 export const getOnboarding = (): Promise<Onboarding> => get(`${ORG}/onboarding`);
 export const dismissOnboarding = (): Promise<{ dismissed: boolean }> => post(`${ORG}/onboarding/dismiss`);
@@ -47,7 +47,7 @@ export const runBilling = (): Promise<RunResult> => post(`${CONSOLE}/run`);
 export const getOrganisation = (tenantId: string): Promise<ConsoleOrganisation> => get(consoleOrgPath(tenantId));
 export const listOrgInvoices = (tenantId: string, filter: InvoiceFilter): Promise<Page<InvoiceSummary>> => get(invoicesPath(consoleOrgPath(tenantId), filter));
 export const getOrgInvoice = (tenantId: string, invoiceId: string): Promise<Invoice> => get(`${consoleOrgPath(tenantId)}/invoices/${id(invoiceId)}`);
-export const downloadOrgInvoice = (tenantId: string, invoice: Pick<InvoiceSummary, 'id' | 'number'>): Promise<void> => downloadPdf(`${consoleOrgPath(tenantId)}/invoices/${id(invoice.id)}/pdf`, invoice.number ?? invoice.id);
+export const downloadOrgInvoice = (tenantId: string, invoice: Pick<InvoiceSummary, 'id' | 'number'>): Promise<void> => downloadFile(`${consoleOrgPath(tenantId)}/invoices/${id(invoice.id)}/pdf`, invoice.number ?? invoice.id);
 export const recordPayment = (tenantId: string, invoiceId: string, body: PaymentBody): Promise<{ payment_id: string; invoice: Invoice }> => post(`${consoleOrgPath(tenantId)}/invoices/${id(invoiceId)}/payments`, body);
 export const issueCreditNote = (tenantId: string, invoiceId: string, body: { total_minor: number; reason: string }): Promise<{ invoice: Invoice }> => post(`${consoleOrgPath(tenantId)}/invoices/${id(invoiceId)}/credit-notes`, body);
 export const voidInvoice = (tenantId: string, invoiceId: string): Promise<Invoice> => post(`${consoleOrgPath(tenantId)}/invoices/${id(invoiceId)}/void`);
@@ -70,7 +70,7 @@ export const createOrganisation = (body: SignupBody): Promise<SignupResult> => p
 // ---- files -------------------------------------------------------------------------------------------------
 
 /** An invoice PDF through the signed-in request (bearer token), saved from a same-origin blob URL. */
-async function downloadPdf(path: string, name: string): Promise<void> {
+export async function downloadFile(path: string, name: string): Promise<void> {
   const response = await fetch(`${apiBaseUrl}${path}`, { headers: await authHeaders() });
   if (!response.ok) throw await apiErrorFromResponse(response);
   const disposition = response.headers.get('content-disposition') ?? '';

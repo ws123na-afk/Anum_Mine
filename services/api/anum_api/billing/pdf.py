@@ -42,6 +42,7 @@ def render_invoice(detail: dict[str, Any]) -> bytes:
     )
     document.paragraph(
         "From: " + ", ".join(v for v in (issuer.get("issuer_name"), issuer.get("issuer_address"),
+                                       f"Registration {issuer['issuer_registration']}" if issuer.get("issuer_registration") else "",
                                        f"VAT {issuer['issuer_vat_number']}" if issuer.get("issuer_vat_number") else "",
                                        issuer.get("issuer_email")) if v),
         size=9,
@@ -87,4 +88,47 @@ def render_invoice(detail: dict[str, Any]) -> bytes:
             + f". Use {invoice.get('number')} as the reference.",
             size=9,
         )
+    return document.render()
+
+
+def receipt_filename(invoice: dict[str, Any], payment: dict[str, Any]) -> str:
+    return f"receipt-{invoice.get('number') or invoice['id']}-{payment['id'][-8:]}.pdf"
+
+
+def render_receipt(invoice: dict[str, Any], payment: dict[str, Any], refunds: list[dict[str, Any]]) -> bytes:
+    """A payment receipt: who was paid, by whom, how much, for which invoice, and any refunds of it."""
+    currency = payment.get("currency") or invoice["currency"]
+    issuer = invoice.get("issuer") or {}
+    bill_to = invoice.get("bill_to") or {}
+    document = PdfDocument(footer=f"{issuer.get('issuer_name') or 'ANUM'} - Receipt for {invoice.get('number') or ''}")
+    document.heading(f"Payment receipt for invoice {invoice.get('number') or '-'}")
+    document.paragraph(
+        "Received by: " + ", ".join(v for v in (issuer.get("issuer_name"), issuer.get("issuer_address"),
+                                              f"Registration {issuer['issuer_registration']}" if issuer.get("issuer_registration") else "",
+                                              f"VAT {issuer['issuer_vat_number']}" if issuer.get("issuer_vat_number") else "",
+                                              issuer.get("issuer_email")) if v),
+        size=9,
+    )
+    document.paragraph(
+        "Received from: " + ", ".join(v for v in (bill_to.get("company_name") or bill_to.get("display_name"), bill_to.get("contact_email"),
+                                                f"VAT {bill_to['vat_number']}" if bill_to.get("vat_number") else "") if v),
+        size=9,
+    )
+    method = str(payment.get("method") or "").replace("_", " ")
+    provider = f" through {payment['provider'].title()}" if payment.get("provider") else ""
+    document.table("Payment", ["", ""], [
+        ["Date", _date(payment.get("received_at"))],
+        ["Amount", money(int(payment["amount_minor"]), currency)],
+        ["Method", f"{method}{provider}"],
+        ["Reference", payment.get("reference") or "-"],
+        ["Invoice", invoice.get("number") or "-"],
+        ["Invoice total", money(int(invoice["total_minor"]), invoice["currency"])],
+        ["Still due on the invoice", money(int(invoice["amount_due_minor"]), invoice["currency"])],
+    ])
+    if refunds:
+        document.table(
+            "Refunds of this payment", ["Date", "Status", "Amount"],
+            [[_date(r.get("created_at")), r["status"], money(int(r["amount_minor"]), currency)] for r in refunds],
+        )
+    document.paragraph("Card details are entered on the payment provider's page and are never seen or stored by ANUM.", size=8)
     return document.render()

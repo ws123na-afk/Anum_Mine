@@ -112,6 +112,9 @@ What an injected instruction can do today, and what stops it:
 | I2 | E | Cross-tenant reads through a query bug. | RLS enabled and forced on every tenant table; tenant and workspace set per transaction; tests run as a non-superuser role (`tests/test_postgres_rls.py`); backups verify RLS after restore (`infra/backup/anum_backup.py`). | Mitigated |
 | I3 | E | Token claims grant workspace power. | The persisted membership decides the role, not realm roles. | Mitigated |
 | I4 | D | Request floods or oversized bodies. | Token bucket rate limit, body limits (`anum_api/hardening.py`), 429/413 counted in metrics. | Mitigated (per replica unless Valkey backend) |
+| I6 | E | A new route or table skips the tenant model (no permission check, no forced RLS). | `tests/test_security_inventory.py` fails on a route without an authentication dependency or permission check unless listed with a reason; `tests/test_postgres_security_inventory.py` fails on any table without forced RLS and a policy, a permissive policy not bounded by `anum.tenant_id`, a role that bypasses RLS or a `SECURITY DEFINER` function ([Pre-sale review](security.md#pre-sale-review-november-2026)). | Mitigated |
+| I7 | D | Unauthenticated webhook floods stall the event loop. | Public webhooks do their database work in worker threads and limit refused deliveries per caller (commerce, automation, WhatsApp); new async routes that open a store on the loop fail the inventory test. 262 authenticated routes still do (P7). | Partial |
+| I8 | S | Password guessing against Keycloak. | Password rules and a temporary lockout after 10 failures in shared realms and through `keycloak-2fa.sh apply`; second factor on every password sign-in ([Sign-in protection](security.md#sign-in-protection)). | Mitigated |
 | I5 | I | Cross-tenant events on the bus. | Tenant/workspace tokens in subjects; SSE filters by scope; relay role reads only unpublished rows (`migrations/versions/0007_event_outbox.py`). | Mitigated |
 
 ### Operations (B6 to B8)
@@ -135,6 +138,10 @@ Reviewed against [Approvals and risk](approvals-and-risk.md). The basic flow hol
 | A5 | **Kept, with an opt-in (0012_approval_policy).** `medium` risk tools run without approval by default. The doc defines medium as "modify private state, create durable records, or use paid services". | Done: a per-workspace `medium_risk_requires_approval` setting (owner-only, audited) makes medium tools pause like high ones. Still required: `medium` tools must be idempotent or reversible, and paid-service tools stay behind the per-tenant budgets (G4). | Low |
 | A6 | **Fixed as an option (0012_approval_policy).** A single owner can create and approve their own high-risk task. | Done: per-workspace `two_person_rule` (owner-only, audited). When on, neither the task creator nor the user whose run proposed the call can approve a high-risk action (`403` with a clear message, `approval.self_approval_denied` audit record); another owner must. Off by default for single-user workspaces. | Low |
 | A7 | Skill selection is by keyword (`agent_skills.py:29`): any text containing a trigger word proposes the external action. | Acceptable while approval gates it; document the triggers and log selection reasons. | Low |
+
+### Live trading with Interactive Brokers
+
+The one path that can move real money ([finance-live-trading.md](finance-live-trading.md#security-review)): an agent can only propose paper orders and never approve (code and database); the owner approves each order with the payload hash, once, before it expires; every hard limit is checked at approval and again right before sending from fresh IBKR data; IBKR's "confirm this order" questions are always declined; the gateway is reached only on fixed hosts with a pinned certificate and no redirects; IBKR credentials (no password exists) are Fernet-encrypted, never returned and erased on disconnect; live needs the deployment flag, the named IBKR executor, the paper proof, the owner's typed code and a cooling-off, each tested on its own; the kill switch cancels every open order at IBKR and confirms each cancel.
 
 ## Gaps
 

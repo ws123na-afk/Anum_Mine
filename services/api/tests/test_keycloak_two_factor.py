@@ -504,6 +504,24 @@ def test_shared_realm_carries_the_same_two_factor_policy() -> None:
     assert "requiredActions" not in shared
 
 
+
+def test_shared_and_running_realms_get_password_rules_and_a_sign_in_lockout(keycloak: FakeKeycloak) -> None:
+    """Keycloak's defaults are no password rules and a lockout only after 30 failures
+    (docs/security.md#sign-in-protection). The imported realm and ``apply`` on a running
+    server set the same rules as self sign-up does."""
+    realm_script = _load("anum_keycloak_realm", REALM_SCRIPT)
+    social = _load("anum_keycloak_social_login", REALM_SCRIPT.parents[1] / "keycloak" / "social_login.py")
+    assert realm_script.SIGN_IN_PROTECTION == tf.SIGN_IN_PROTECTION
+    assert tf.SIGN_IN_PROTECTION["passwordPolicy"] == social.REALM_PASSWORD_RULES
+    assert "length(12)" in tf.SIGN_IN_PROTECTION["passwordPolicy"]
+    assert tf.SIGN_IN_PROTECTION["bruteForceProtected"] is True and tf.SIGN_IN_PROTECTION["failureFactor"] <= 10
+    shared = realm_script.shared_realm(json.loads(REALM.read_text(encoding="utf-8")))
+    for key, value in tf.SIGN_IN_PROTECTION.items():
+        assert shared[key] == value, key
+    run_apply(keycloak, "auth.example.test")
+    for key, value in tf.SIGN_IN_PROTECTION.items():
+        assert keycloak.realm[key] == value, key
+
 def test_development_realm_stays_password_only() -> None:
     # Local compose runs Keycloak 25 and the authenticated journey posts the password
     # form alone (services/api/scripts/journey.py): no 2FA in the development realm.

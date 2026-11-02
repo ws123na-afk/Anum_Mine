@@ -38,7 +38,7 @@ export interface Meter { key: MeterKey; used: number; limit: number | null; unit
 export interface BankDetails { enabled: boolean; bank_name: string; account_name: string; iban: string; swift: string }
 export interface Overview {
   account: Account | null; subscription: Subscription | null; usage: { period: string; meters: Meter[] }; state: 'active' | 'read_only';
-  open_balance_minor: number; overdue: boolean; currency: string; payment: { bank_transfer: BankDetails; card_enabled: boolean };
+  open_balance_minor: number; overdue: boolean; currency: string; payment: { bank_transfer: BankDetails; card_enabled: boolean; card_provider?: CardProvider | null };
   issuer: { name: string; email?: string };
 }
 export interface Preview { effective: 'now' | 'period_end'; amount_minor: number; tax_minor: number; total_minor: number; credit_minor: number; blocked_by: Blocked[]; currency?: string }
@@ -51,10 +51,14 @@ export interface InvoiceSummary {
   reminders_sent?: number; last_email?: { status?: string; approval_id?: string | null; at?: string } | null;
 }
 export interface InvoiceLine { id: string; description: string; quantity: number; unit_minor: number; amount_minor: number; kind: string; period_start: string | null; period_end: string | null }
-export interface Payment { id: string; amount_minor: number; currency: string; method: string; reference: string; received_at: string; has_proof: boolean; proof_name: string | null; provider: string | null; recorded_by: string | null }
+export interface Payment { id: string; amount_minor: number; currency: string; method: string; reference: string; received_at: string; has_proof: boolean; proof_name: string | null; provider: string | null; recorded_by: string | null; refunded_minor?: number; refundable_minor?: number }
+export type CardProvider = 'moyasar' | 'stripe';
+export type RefundStatus = 'pending' | 'succeeded' | 'failed';
+export interface Refund { id: string; payment_id: string; amount_minor: number; currency: string; provider: string | null; status: RefundStatus; reason: string; credit_note_id: string | null; failure: string | null; created_at: string }
+export interface RefundBody { amount_minor: number; reason: string; mode: 'provider' | 'manual'; idempotency_key: string }
 export interface CreditNote { id: string; number: string; reason: string; subtotal_minor: number; tax_minor: number; total_minor: number; issued_at: string }
 export interface Invoice extends InvoiceSummary {
-  bill_to: Record<string, string>; issuer: Record<string, string>; bank_details: BankDetails; lines: InvoiceLine[]; payments: Payment[]; credit_notes: CreditNote[];
+  bill_to: Record<string, string>; issuer: Record<string, string>; bank_details: BankDetails; lines: InvoiceLine[]; payments: Payment[]; credit_notes: CreditNote[]; refunds?: Refund[];
 }
 export interface Page<T> { items: T[]; total: number; limit?: number; offset?: number }
 

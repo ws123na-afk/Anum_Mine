@@ -5,6 +5,7 @@ import type { Message } from './types.ts';
 import { commerceEn } from './commerce.en.ts';
 import { financeEn } from './finance.en.ts';
 import { financeTradingEn } from './financeTrading.en.ts';
+import { financeIbkrEn } from './financeIbkr.en.ts';
 import { financeIntelEn } from './financeIntel.en.ts';
 import { financeEquityEn } from './financeEquity.en.ts';
 import { financeReportsEn } from './financeReports.en.ts';
@@ -22,6 +23,7 @@ import { hqGpuEn } from './hqGpu.en.ts';
 import { hqLiveEn } from './hqLive.en.ts';
 import { hqPanelsEn } from './hqPanels.en.ts';
 import { hqProvisioningEn } from './hqProvisioning.en.ts';
+import { officeStaffingEn } from './officeStaffing.en.ts';
 import { hqNavEn } from './hqNav.en.ts';
 import { hqAssignEn } from './hqAssign.en.ts';
 import { hqStarterCampusEn } from './hqStarterCampus.en.ts';
@@ -88,6 +90,7 @@ export const en = {
   // ---- Finance (finance.en.ts) ----
   ...financeEn,
   ...financeTradingEn,
+  ...financeIbkrEn,
   ...financeIntelEn,
   ...financeEquityEn,
   ...financeReportsEn,
@@ -3260,6 +3263,7 @@ export const en = {
   ...hqLiveEn,
   ...hqPanelsEn,
   ...hqProvisioningEn,
+  ...officeStaffingEn,
   ...hqNavEn,
   ...hqAssignEn,
   ...hqStarterCampusEn,

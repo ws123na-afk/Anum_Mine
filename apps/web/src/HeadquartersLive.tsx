@@ -65,6 +65,7 @@ const GreenConcreteDialog = lazy(() => import('./hq-green-concrete/GreenConcrete
 const StaffDesksDialog = lazy(() => import('./hq-staff-desks/StaffDesksDialog').then((m) => ({ default: m.StaffDesksDialog })));
 // Office tools overlays (missing roles with the proposal dialog, workstations, agent meetings, the guided visit): each opens on a click, never
 // for the first campus frame, so each is its own chunk (docs/ANUM_MINE_HQ_PERFORMANCE_BUDGET.md, budget headroom pass).
+const OfficeStaffingCard = lazy(() => import('./hq-staffing/OfficeStaffingCard'));
 const OrgGapsPanel = lazy(() => import('./hq-provisioning/OrgGapsPanel').then((m) => ({ default: m.OrgGapsPanel })));
 const OfficeWorkstations = lazy(() => import('./OfficeWorkstations').then((m) => ({ default: m.OfficeWorkstations })));
 const AgentMeetingSessions = lazy(() => import('./AgentMeetingSessions').then((m) => ({ default: m.AgentMeetingSessions })));
@@ -577,7 +578,8 @@ export function HeadquartersLive(props: HeadquartersProps) {
         ? props.renderRoomPanel(roomRef(roomPanelRoom), ctx)
         : <><RoomPanel room={roomPanelRoom} desks={roomDesks} presence={presenceIndex} onClose={closePanels} onOpenAgent={(id, desk) => selectAgent(id, desk)} buildingKind={moduleBuildingKind(currentBuilding)} canManage={canManage} onOpenFlow={openFlowFor} onOpenGaps={() => setOverlay('gaps')} onOpenReception={openReception} visitors={visitorCounts?.get(roomPanelRoom.id)} wall={isOperationsRoom(roomPanelRoom) ? wallModel : null} onReloadWall={() => void flow.reload()}
           meeting={liveMeetingByRoom.get(roomPanelRoom.id) ?? null} meetingsKnown={meetings !== null} onStartMeeting={() => { setMeetingRoomId(roomPanelRoom.id); setOverlay('agentMeetings'); }}
-          shifts={registryBuilding?.shifts ?? null} /><Suspense fallback={null}><HqTeamPanel flowState={flowState} onAvatarChanged={() => void controller.refresh()} onHistory={openMemberHistory} roomId={roomPanelRoom.id} refreshKey={flow.snapshot?.as_of ?? 0} onNavigate={goTo} onOpenSpaces={() => setOverlay('spaces')} /></Suspense></>)}
+          shifts={registryBuilding?.shifts ?? null} /><Suspense fallback={null}><HqTeamPanel flowState={flowState} onAvatarChanged={() => void controller.refresh()} onHistory={openMemberHistory} roomId={roomPanelRoom.id} refreshKey={flow.snapshot?.as_of ?? 0} onNavigate={goTo} onOpenSpaces={() => setOverlay('spaces')} /></Suspense>
+          <Suspense fallback={null}><OfficeStaffingCard buildingId={registryBuilding?.id ?? null} refreshKey={state?.updatedAt ?? null} onNavigate={goTo} /></Suspense></>)}
         <HistoryLauncher label={t('hqHist.launch.room')} onClick={() => openHistory({ kind: 'room', roomId: roomPanelRoom.id, label: roomName(roomPanelRoom, locale), deskIds: roomPanelRoom.deskIds }, 'timeline')} /></>
       : null;
 

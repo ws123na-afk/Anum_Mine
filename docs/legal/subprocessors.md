@@ -16,6 +16,15 @@ Last updated: {{EFFECTIVE_DATE}}
 | DuckDNS | Points our host names at the server, if the deployment uses DuckDNS names instead of its own domain. | The server's IP address only; no customer data. | {{DUCKDNS_LOCATION}} | {{IN_USE_DUCKDNS}} |
 | Render Services, Inc. | Alternative hosting for the API, web app, sign-in service and database. | All Service data, if this path is used. | {{RENDER_REGION}} | {{IN_USE_RENDER}} |
 
+## Payments
+
+Card payments are taken on the payment provider's own page. Card numbers go from the payer's browser to the provider and never reach ANUM.
+
+| Provider | What it does for ANUM | Personal data it handles | Location | In use |
+|---|---|---|---|---|
+| Moyasar (Moyasar Company for Information Technology) | Takes card, mada, Apple Pay and STC Pay payments for our invoices and refunds them. | The payer's card details (on Moyasar's page), the invoice number, amount and the payer's name and email if given. | {{MOYASAR_REGION}} | {{IN_USE_MOYASAR}} |
+| Stripe Payments Europe, Ltd. or Stripe, Inc. | Takes card payments for our invoices. | The same as Moyasar. | {{STRIPE_REGION}} | {{IN_USE_STRIPE}} |
+
 ## AI model providers
 
 The workspace's model configuration decides which one receives prompts. With Ollama on our own server, prompts do not leave our infrastructure.

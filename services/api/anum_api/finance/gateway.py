@@ -302,6 +302,10 @@ def approve(store: FinanceStore, context: TenantContext, intent_id: str, shown_h
     single-use claim succeeds. Live intents are refused whatever else holds.
     """
     intent = own_intent(store, context, intent_id)
+    if intent.account_id and intent.account_id.startswith("ibkr:"):
+        # An IBKR order is approved only on its own path (ibkr_service.approve), which re-checks
+        # every hard limit from fresh IBKR data. This simulated path never runs one.
+        raise GatewayRefusal("broker_order", "Approve IBKR orders under Finance, IBKR, where every limit is checked again.")
     if intent.mode == ExecMode.LIVE:
         raise refuse_live(store, context)
     if intent.owner_user_id != context.user_id:  # the store already filters on the owner

@@ -53,6 +53,8 @@ _TENANT_WIDE = frozenset(
         "billing_number_sequences",
         "billing_webhook_events",
         "billing_signups",
+        "billing_refunds",
+        "billing_company_profiles",
         "approval_rules",
         "autonomy_guardrails",
         "contact_suppressions",
@@ -155,6 +157,7 @@ def domain_of(table: str) -> str:
 
 # Children before parents. Keep every tenant table here (the tests check it).
 _ORDER = (
+    "billing_refunds",
     "billing_invoice_lines",
     "billing_credit_notes",
     "billing_payments",
@@ -168,6 +171,7 @@ _ORDER = (
     "billing_number_sequences",
     "billing_webhook_events",
     "billing_signups",
+    "billing_company_profiles",
     "app_call_signals",
     "app_calls",
     "call_ai_requests",
@@ -187,6 +191,10 @@ _ORDER = (
     "mail_identities",
     "mail_account_grants",
     "mail_accounts",
+    "finance_broker_events",
+    "finance_broker_orders",
+    "finance_broker_connections",
+    "finance_broker_settings",
     "finance_agent_decisions",
     "finance_strategy_runs",
     "finance_strategies",

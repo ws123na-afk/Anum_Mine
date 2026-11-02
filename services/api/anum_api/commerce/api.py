@@ -14,9 +14,11 @@ Who can do what (checked here, on the server, for every route):
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import hmac
 import json
+import re
 import time
 from datetime import date, datetime, timedelta
 from typing import Any
@@ -28,6 +30,7 @@ from ..agent_tools import ToolCall, ToolRegistry
 from ..audit import AuditRecord
 from ..authorization import Permission
 from ..dependencies import has_permission, repository_context, require_permission, tenant_context
+from ..hardening import InMemoryTokenBucket, client_key
 from ..events import CanonicalEventName, create_event
 from ..model_gateway import MockModelGateway
 from ..repository import AnumRepository
@@ -71,7 +74,7 @@ from .models import (
     marketplace_name,
 )
 from .store import MAX_PAGE, open_commerce_store
-from .sync import SyncReport, ingest_webhook, sync_connector, workspace_settings
+from .sync import SyncReport, ingest_webhook_blocking, sync_connector, workspace_settings
 from .tools import change_tool, register_commerce_tools
 from .tyre import TyreSpec, parse_tyre
 
@@ -563,6 +566,32 @@ async def rotate_webhook_secret(
     return ConnectorCreated(connector=connector_view(connector), webhook_secret=secret)
 
 
+# Refused deliveries per caller address: enough for a store's retries, not for guessing.
+_webhook_refusals = InMemoryTokenBucket(rate_per_second=0.2, burst=20)
+_WEBHOOK_ID = re.compile(r"[A-Za-z0-9_\-]{1,80}")
+
+
+def reset_webhook_limits() -> None:
+    """Tests: a fresh refusal bucket."""
+    global _webhook_refusals
+    _webhook_refusals = InMemoryTokenBucket(rate_per_second=0.2, burst=20)
+
+
+def _webhook_secret(context: TenantContext, connector_id: str) -> tuple[Connector | None, str | None]:
+    """Blocking: the connection and its webhook secret (decrypted). Runs in a worker thread,
+    never on the event loop: this route is reachable without a session
+    (docs/security.md#pre-sale-review-november-2026)."""
+    with open_commerce_store(context) as store:
+        connector = store.get_connector(context, connector_id)
+        ciphertext = store.credentials_ciphertext(context, connector_id) if connector else None
+    if connector is None or connector.settings.get("mode") != OwnStoreMode.WEBHOOK.value or not connector.enabled:
+        return None, None
+    try:
+        return connector, decrypt_credentials(ciphertext).get("webhook_secret", "") or None
+    except SecretDecryptionError:
+        return connector, None
+
+
 @router.post("/webhooks/{tenant_id}/{workspace_id}/{connector_id}", include_in_schema=True)
 async def receive_webhook(
     tenant_id: str,
@@ -577,29 +606,37 @@ async def receive_webhook(
     ``X-Anum-Timestamp`` is the Unix time of sending; ``X-Anum-Signature`` is
     ``sha256=`` and the hex HMAC-SHA256 of ``"<timestamp>.<raw body>"``. The body is
     ``{"events": [{"type": "order" | "product" | "return", "data": {...}}]}`` in the
-    own-store contract's shapes. Events older than five minutes are refused.
+    own-store contract's shapes. Events older than five minutes are refused. Every
+    database read and write runs in a worker thread; refused deliveries are limited per
+    caller address (429 once a caller keeps sending bad ones).
     """
-    context = TenantContext(tenant_id=tenant_id[:80], workspace_id=workspace_id[:80], user_id=f"webhook:{connector_id[:60]}", roles=[])
     refused = HTTPException(status_code=401, detail="Signature missing, expired or invalid.")
+
+    def refuse(error: HTTPException) -> HTTPException:
+        decision = _webhook_refusals.acquire(client_key(request.scope))
+        if not decision.allowed:
+            return HTTPException(
+                status_code=429, detail="Too many refused deliveries; retry later.",
+                headers={"Retry-After": str(decision.retry_after_seconds)},
+            )
+        return error
+
+    if not all(_WEBHOOK_ID.fullmatch(value) for value in (tenant_id, workspace_id, connector_id)):
+        raise refuse(HTTPException(status_code=404, detail="Connection not found"))
+    context = TenantContext(tenant_id=tenant_id, workspace_id=workspace_id, user_id=f"webhook:{connector_id[:60]}", roles=[])
     try:
         sent_at = int(x_anum_timestamp)
     except ValueError:
-        raise refused from None
+        raise refuse(refused) from None
     if abs(time.time() - sent_at) > WEBHOOK_TOLERANCE_SECONDS:
-        raise refused
+        raise refuse(refused)
     body = await request.body()
-    with open_commerce_store(context) as store:
-        connector = store.get_connector(context, connector_id)
-        ciphertext = store.credentials_ciphertext(context, connector_id) if connector else None
-    if connector is None or connector.settings.get("mode") != OwnStoreMode.WEBHOOK.value or not connector.enabled:
-        raise HTTPException(status_code=404, detail="Connection not found")
-    try:
-        secret = decrypt_credentials(ciphertext).get("webhook_secret", "")
-    except SecretDecryptionError:
-        raise refused from None
-    expected = "sha256=" + hmac.new(secret.encode(), f"{sent_at}.".encode() + body, hashlib.sha256).hexdigest()
+    connector, secret = await asyncio.to_thread(_webhook_secret, context, connector_id)
+    if connector is None:
+        raise refuse(HTTPException(status_code=404, detail="Connection not found"))
+    expected = "sha256=" + hmac.new((secret or "").encode(), f"{sent_at}.".encode() + body, hashlib.sha256).hexdigest()
     if not secret or not hmac.compare_digest(expected, x_anum_signature):
-        raise refused
+        raise refuse(refused)
     try:
         payload = json.loads(body)
     except ValueError:
@@ -607,7 +644,7 @@ async def receive_webhook(
     events = payload.get("events") if isinstance(payload, dict) else None
     if not isinstance(events, list) or len(events) > 500:
         raise HTTPException(status_code=422, detail='Send {"events": [...]} with at most 500 events.')
-    counts = await ingest_webhook(context, connector, [e for e in events if isinstance(e, dict)])
+    counts = await asyncio.to_thread(ingest_webhook_blocking, context, connector, [e for e in events if isinstance(e, dict)])
     return {"accepted": sum(counts.values()), "counts": counts}
 
 

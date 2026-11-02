@@ -22,15 +22,19 @@ The five documents in `docs/legal/` are drafts written from what the code and de
 
 The web app renders them from the same files: `apps/web/src/lib/legalDocs.ts` imports the Markdown at build time (`?raw`), `src/lib/publicSite.ts` drops the source's DRAFT quote, reads the title and "Last updated" line, rewrites links between the documents to their routes, and `PublicSite.tsx` renders the result with the safe Markdown reader (`src/lib/markdown.ts`: text nodes only, `http(s)` and `mailto` links only). Placeholders are highlighted. The documents are English only; the Arabic interface says so above the text. The web image copies `docs/legal` for this (`apps/web/Dockerfile`, `Dockerfile.dockerignore`), and Render rebuilds the web service when `docs/legal/**` changes.
 
+### Company details fill the documents
+
+The platform owner enters the company details and the legal facts in Platform billing > Company and legal; each page reads them from `GET /api/v1/public/legal` and fills every `{{PLACEHOLDER}}` as it renders, showing **Not set yet** for the rest, a "Who provides ANUM" card, and, on the privacy, DPA and terms pages, buttons to the app's own export and deletion flows. Facts the server knows (service address, retention, subprocessors in use, Moyasar and Stripe) are generated, never typed. The owner can mark a document published there after confirming a lawyer reviewed it. See [Ready to sell](selling-readiness.md#company-and-legal).
+
 ### Publishing a document
 
 Each page shows a **Draft, not yet published** banner until the build marks it published:
 
-1. The owner and a lawyer approve the text and replace every `{{PLACEHOLDER}}` in the file.
+1. The owner and a lawyer approve the text, and every `{{PLACEHOLDER}}` is filled (by the company details and legal facts in the console, or in the file).
 2. Set `VITE_ANUM_LEGAL_PUBLISHED` for the web build to the published ids, comma-separated (`terms,privacy,dpa,aup,subprocessors`) or `all`: `ANUM_LEGAL_PUBLISHED` in `infra/oracle/.env` (passed as a build argument by `infra/oracle/compose.yaml`), the `VITE_ANUM_LEGAL_PUBLISHED` variable of the Render web service, or `--build-arg` for a plain `docker build`.
 3. Rebuild the web image (`docker compose up -d --build web` on the VM).
 
-A document marked published that still contains a placeholder keeps the banner and says how many facts are missing (`legalState` returns `blocked`), so a half-filled document cannot be shown as final.
+Alternatively the owner ticks Published in Platform billing > Company and legal (after confirming the lawyer's review); either way, a document marked published that still has a fact not set keeps the banner and says how many facts are missing (`legalState` returns `blocked`), so a half-filled document cannot be shown as final.
 
 ### ANUM_PRIVACY_POLICY_URL
 

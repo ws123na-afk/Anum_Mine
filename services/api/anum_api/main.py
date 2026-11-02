@@ -165,6 +165,7 @@ from .finance.intel_control_api import router as finance_intel_control_router
 from .finance.wider_api import router as finance_wider_router
 from .finance.intel_api import router as finance_intel_router
 from .finance.broker_api import router as finance_broker_router
+from .finance.ibkr_api import router as finance_ibkr_router
 from .finance.sync import build_finance_scheduler
 from .finance.tools import register_finance_tools
 from .mailbox.ai_api import router as mail_ai_router
@@ -189,6 +190,7 @@ from .business import register_business_tools, router as business_router
 from .brevo import register_brevo_tools, router as brevo_router
 from .billing import build_billing_scheduler, console as billing_console_router, public as billing_public_router
 from .billing import router as billing_router, signup_router as billing_signup_router, webhooks as billing_webhook_router
+from .billing import public_legal_router as billing_public_legal_router, selling_router as billing_selling_router
 from .billing.api import _BlockedChange, blocked_change_handler
 from .billing.enforce import require_capacity
 from .user_preferences import router as user_preferences_router
@@ -245,6 +247,7 @@ from .office_presence_api import router as office_presence_router
 from .office_flow_api import router as office_flow_router
 from .office_provisioning_api import router as office_provisioning_router
 from .office_staff_desks_api import router as office_staff_desks_router
+from .office_staffing_api import router as office_staffing_router
 from .office_assign_api import router as office_assign_router
 from .office_building_api import router as office_building_router
 from .office_starter_campus_api import router as office_starter_campus_router
@@ -463,6 +466,7 @@ app.include_router(office_visitors_router)
 app.include_router(record_retention_router)
 app.include_router(office_green_concrete_router)
 app.include_router(office_staff_desks_router)
+app.include_router(office_staffing_router)
 app.include_router(executive_router)
 app.include_router(live_agent_meeting_router)
 app.include_router(executive_pa_router)
@@ -497,6 +501,9 @@ app.include_router(billing_router)
 app.include_router(billing_console_router)
 app.include_router(billing_public_router)
 app.include_router(billing_signup_router)
+# Ready to sell (docs/selling-readiness.md): company details, the public legal facts and the checklist.
+app.include_router(billing_selling_router)
+app.include_router(billing_public_legal_router)
 app.add_exception_handler(_BlockedChange, blocked_change_handler)
 app.include_router(user_preferences_router)
 app.include_router(push_router)
@@ -507,6 +514,7 @@ app.include_router(finance_trading_router)
 app.include_router(finance_wider_router)
 app.include_router(finance_intel_router)
 app.include_router(finance_broker_router)
+app.include_router(finance_ibkr_router)
 app.include_router(finance_intel_control_router)
 app.include_router(tyre_router)
 event_runtime.add_listener(push_dispatcher.submit)
