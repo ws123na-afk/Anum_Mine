@@ -254,20 +254,25 @@ function cancelFade(node: HTMLElement): void {
   delete node.dataset.fade;
 }
 
-type Memo = { vp: Float32Array; width: number; height: number; inset: number; labels: readonly LabelInput[]; eye: string; keep: string };
+type Memo = { vp: Float32Array; width: number; height: number; inset: number; labels: readonly LabelInput[]; eye: string; keep: string; rects: Rect[] };
 const memos = new WeakMap<object, Memo>();
 
-/** Writes placements to the label wrappers (display, transform, z-index, density) and caches card sizes. */
+/**
+ * Writes placements to the label wrappers (display, transform, z-index, density) and caches card sizes. Returns where the shown cards are
+ * (from the placement and the cached sizes, never read back from the page), so a second pass can keep round them without a forced layout.
+ * Only attributes that changed are written: an unchanged attribute write still costs the browser a style pass.
+ */
 export function placeLabels(
   labels: readonly LabelInput[], nodes: ReadonlyMap<string, HTMLElement>, sizes: Map<string, Size>,
   vp: Mat4, width: number, height: number, bottomInset = 0, eye: Vec3 | null = null, keepOut: readonly Rect[] = [],
-): void {
+): Rect[] {
   const eyeKey = eye ? `${eye.x.toFixed(2)},${eye.y.toFixed(2)},${eye.z.toFixed(2)}` : '';
   const keep = keepOut.map((r) => `${Math.round(r.x0)},${Math.round(r.y0)},${Math.round(r.x1)},${Math.round(r.y1)}`).join(';');
   const prev = memos.get(sizes);
   // A frame with the same camera, size and labels would write the same values: skip it.
-  if (prev && prev.labels === labels && prev.width === width && prev.height === height && prev.inset === bottomInset && prev.eye === eyeKey && prev.keep === keep && prev.vp.every((v, i) => v === vp[i])) return;
-  memos.set(sizes, { vp: Float32Array.from(vp), width, height, inset: bottomInset, labels, eye: eyeKey, keep });
+  if (prev && prev.labels === labels && prev.width === width && prev.height === height && prev.inset === bottomInset && prev.eye === eyeKey && prev.keep === keep && prev.vp.every((v, i) => v === vp[i])) return prev.rects;
+  const rects: Rect[] = [];
+  memos.set(sizes, { vp: Float32Array.from(vp), width, height, inset: bottomInset, labels, eye: eyeKey, keep, rects });
   const sizeOf = (id: string, density: Density): Size => {
     const key = `${id}|${density}`;
     const cached = sizes.get(key);
@@ -289,17 +294,23 @@ export function placeLabels(
     const node = nodes.get(labels[i].id);
     const p = placements[i];
     if (!node) continue;
-    node.dataset.occluded = p.occluded ? 'true' : 'false';
+    const occluded = p.occluded ? 'true' : 'false';
+    if (node.dataset.occluded !== occluded) node.dataset.occluded = occluded;
     const crowded = !p.shown && p.crowded === true;
     const hidden = crowded ? 'crowded' : 'no';
     if (node.dataset.hidden !== hidden) node.dataset.hidden = hidden;
     if (!p.shown && !crowded) { if (node.style.display !== 'none') fadeOut(node); continue; }
     cancelFade(node);
     if (node.dataset.density !== p.density) node.dataset.density = p.density;
-    node.style.display = '';
-    node.style.transform = `translate3d(${p.x.toFixed(1)}px, ${p.y.toFixed(1)}px, 0) translate(-50%, -100%)`;
-    node.style.zIndex = String(Math.max(1, Math.round(5000 - p.depth * 10) - (labels[i].priority ?? 0) * 1000));
+    if (node.style.display !== '') node.style.display = '';
+    const transform = `translate3d(${p.x.toFixed(1)}px, ${p.y.toFixed(1)}px, 0) translate(-50%, -100%)`;
+    if (node.style.transform !== transform) node.style.transform = transform;
+    const z = String(Math.max(1, Math.round(5000 - p.depth * 10) - (labels[i].priority ?? 0) * 1000));
+    if (node.style.zIndex !== z) node.style.zIndex = z;
+    const size = sizeOf(labels[i].id, p.density);
+    if (p.shown && size.w > 14 && size.h > 14) rects.push({ x0: p.x - size.w / 2, y0: p.y - size.h, x1: p.x + size.w / 2, y1: p.y });
   }
+  return rects;
 }
 
 /**

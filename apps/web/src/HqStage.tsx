@@ -149,6 +149,9 @@ export function HqStage(props: Props) {
   const extraSizes = useRef(new Map<string, { w: number; h: number }>());
   const extraHost = useRef<HTMLDivElement>(null);
   const keepOut = useRef<readonly Rect[]>([]);
+  /** The panels the billboard cards keep round, and when they were last read (see onFrame). */
+  const extraPanels = useRef<readonly Rect[]>([]);
+  const extraPanelsAt = useRef(0);
   const lastModelSig = useRef('');
   const size = useRef({ width: 1, height: 1 });
   const pointers = useRef(new Map<number, Pointer>());
@@ -186,7 +189,10 @@ export function HqStage(props: Props) {
       // The controls over the scene are read when they change size (never per frame), so a card is not drawn under one.
       if (propsRef.current.labelKeepOut && host.current) stopKeepOut = labelLib.bindKeepOut(host.current, propsRef.current.labelKeepOut, (rects) => { keepOut.current = rects; created?.requestFrame(); });
       const r: HqRenderer | null = Renderer.create(el, {
-        onQuality: (state) => { setGpuState(state); emitGpuTelemetry({ kind: 'quality', tier: tierById(state.tier).key, step: state.step, reason: state.reason }); },
+        onQuality: (state) => {
+          // The cheap tiers draw the cards over the scene without the glass blur (hqLabels.css `data-lite`): a blur over a canvas that redraws is a second full pass of the compositor each frame.
+          if (host.current) host.current.dataset.lite = state.tier <= 1 || state.settings.lean || state.software ? 'true' : 'false';
+          setGpuState(state); emitGpuTelemetry({ kind: 'quality', tier: tierById(state.tier).key, step: state.step, reason: state.reason }); },
         onLost: () => {
           setStatus('recovering');
           emitGpuTelemetry({ kind: 'context-lost' });
@@ -201,18 +207,24 @@ export function HqStage(props: Props) {
         onError: (error) => propsRef.current.onUnavailable(error.message),
         onFrame: (vp, aspect) => {
           const { width, height } = size.current;
-          placeLabels?.(labelsRef.current, labelEls.current, labelSizes.current, vp, width, height, 64, cameraEye(live.current), keepOut.current);
-          if (extraRef.current.length && placeLabels && host.current) {
-            // The billboard pass: it reads where the main cards and the panels are and keeps round them; the main pass above never sees it.
+          // Reads first, then writes: the panels the billboard cards keep round are read at most four times a second, before this frame
+          // writes any label (a read after the writes forced a layout of the whole page every frame).
+          const sel = propsRef.current.extraKeepOut;
+          if (extraRef.current.length && sel && host.current && performance.now() - extraPanelsAt.current > 250) {
+            extraPanelsAt.current = performance.now();
             const box = host.current.getBoundingClientRect();
-            const around: Rect[] = [];
-            const add = (el: Element) => {
+            const rects: Rect[] = [];
+            host.current.parentElement?.querySelectorAll(sel).forEach((el) => {
               const r = el.getBoundingClientRect();
-              if (r.width > 14 && r.height > 14) around.push({ x0: r.left - box.left - 4, y0: r.top - box.top - 4, x1: r.right - box.left + 4, y1: r.bottom - box.top + 4 });
-            };
-            labelEls.current.forEach((el) => { if (el.style.display !== 'none' && el.dataset.hidden !== 'crowded') add(el); });
-            const sel = propsRef.current.extraKeepOut;
-            if (sel) host.current.parentElement?.querySelectorAll(sel).forEach(add);
+              if (r.width > 14 && r.height > 14) rects.push({ x0: r.left - box.left - 4, y0: r.top - box.top - 4, x1: r.right - box.left + 4, y1: r.bottom - box.top + 4 });
+            });
+            extraPanels.current = rects;
+          }
+          const main = placeLabels?.(labelsRef.current, labelEls.current, labelSizes.current, vp, width, height, 64, cameraEye(live.current), keepOut.current) ?? [];
+          if (extraRef.current.length && placeLabels && host.current) {
+            // The billboard pass keeps round the main cards (where the pass above put them) and the panels; the main pass never sees it.
+            const around: Rect[] = main.map((r) => ({ x0: r.x0 - 4, y0: r.y0 - 4, x1: r.x1 + 4, y1: r.y1 + 4 }));
+            around.push(...extraPanels.current);
             if (extraHost.current) { const w = width >= 700 ? '1' : '0'; if (extraHost.current.dataset.wide !== w) extraHost.current.dataset.wide = w; }
             placeLabels(extraRef.current, extraEls.current, extraSizes.current, vp, width, height, 64, cameraEye(live.current), around);
           }
@@ -270,9 +282,9 @@ export function HqStage(props: Props) {
       r.setCamera(live.current);
       r.setNight(nightNow.current);
       if (propsRef.current.scene) { r.setScene(propsRef.current.scene); shownScene.current = propsRef.current.scene; }
-      r.setScreens(propsRef.current.screenAtlas?.canvas ?? null);
+      r.setScreens(propsRef.current.screenAtlas?.canvas ?? null, propsRef.current.screenAtlas?.version);
       { const plan = propsRef.current.glassPlan; giveGlassPlan(r, plan, () => propsRef.current.glassPlan === plan); }
-      r.setBoards(propsRef.current.boardAtlas?.canvas ?? null);
+      r.setBoards(propsRef.current.boardAtlas?.canvas ?? null, propsRef.current.boardAtlas?.version);
       r.setHighlight(propsRef.current.hoverId, propsRef.current.selectedId);
       resizeObserver = new ResizeObserver(() => {
         const box = el.getBoundingClientRect();
@@ -312,8 +324,8 @@ export function HqStage(props: Props) {
     if (canvas.current) canvas.current.dataset.glassPlanWanted = plan?.revision ?? '';
     giveGlassPlan(renderer.current, plan, () => propsRef.current.glassPlan === plan);
   }, [props.glassPlan]);
-  useEffect(() => { renderer.current?.setScreens(props.screenAtlas?.canvas ?? null); }, [props.screenAtlas?.canvas, props.screenAtlas?.version]);
-  useEffect(() => { renderer.current?.setBoards(props.boardAtlas?.canvas ?? null); }, [props.boardAtlas?.canvas, props.boardAtlas?.version]);
+  useEffect(() => { renderer.current?.setScreens(props.screenAtlas?.canvas ?? null, props.screenAtlas?.version); }, [props.screenAtlas?.canvas, props.screenAtlas?.version]);
+  useEffect(() => { renderer.current?.setBoards(props.boardAtlas?.canvas ?? null, props.boardAtlas?.version); }, [props.boardAtlas?.canvas, props.boardAtlas?.version]);
   useEffect(() => { renderer.current?.setHighlight(props.hoverId, props.selectedId); }, [props.hoverId, props.selectedId]);
   useLayoutEffect(() => { labelSizes.current.clear(); renderer.current?.requestFrame(); }, [labels]);
   useLayoutEffect(() => { extraSizes.current.clear(); renderer.current?.requestFrame(); }, [props.extraLabels]);

@@ -13,8 +13,11 @@ import { iconPath } from '../lib/hqIcons.ts';
 export const BOARD_MIN_MS = 1000;
 /** How long a changed board takes to fade from its old face to its new one. */
 export const BOARD_FADE_MS = 400;
-/** The fade is drawn in steps this far apart (8 steps over 400 ms): a timer, not a frame loop, so an idle campus draws nothing. */
-export const BOARD_FADE_STEP_MS = 50;
+/**
+ * The fade is drawn in steps this far apart (4 steps over 400 ms): a timer, not a frame loop, so an idle campus draws nothing. Every step
+ * uploads the whole atlas to the GPU again (a few megabytes): 50 ms steps cost an integrated GPU a long frame each (owner report, 2 Nov).
+ */
+export const BOARD_FADE_STEP_MS = 100;
 /** Boards that fade at the same time, at most; any more change at once (a language switch) and the rest change without a fade. */
 export const BOARD_FADE_MAX = 4;
 
@@ -269,7 +272,8 @@ export class BoardAtlas {
 
   /** Keeps the old pixels of board `index` and lets `fadeStep` blend the new face in; false when it changes at once instead. */
   private startFade(index: number, face: BoardFace, now: number): boolean {
-    if (!(this.fadeMs > 0) || !this.canvas || !this.ctx?.drawImage) return false;
+    // The smallest cells are the lowest tiers' boards (hqQualityTiers `boardCell` 256): they change at once, one upload instead of a fade's four.
+    if (!(this.fadeMs > 0) || this.layout.cellW < 512 || !this.canvas || !this.ctx?.drawImage) return false;
     const { cellW, cellH } = this.layout;
     const { x, y } = this.layout.origin(index);
     // A board that changes again while it fades keeps what it shows now (a blend) as its old face and starts again.

@@ -244,7 +244,7 @@ test('the benchmark compiles first, then warms each tier, and times none of the 
       assert.ok(r.frames.worstMs < HITCH_MS, `${r.key}: worst ${r.frames.worstMs} ms, no switch stall timed`);
       assert.ok(Math.abs(r.frames.medianMs - 16.7) < 0.01);
       assert.ok((r.warmupMs ?? 0) >= 3381.5 + 600 + 516.5, `${r.key}: the stalls are in the warm-up (${r.warmupMs} ms)`);
-      assert.deepEqual(r.hitches, { count: 0, compile: 0, buffers: 0 });
+      assert.deepEqual(r.hitches, { count: 0, compile: 0, buffers: 0, uploads: 0 });
       assert.equal(r.gpu, null, 'no timer query here');
     }
     assert.equal(calls[calls.length - 1], 'pin:null:true', 'the tier in force is restored');
