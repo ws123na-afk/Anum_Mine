@@ -64,6 +64,8 @@ PUBLIC_ROUTES: dict[str, str] = {
     "POST /api/v1/automation/hooks/{tenant_id}/{workspace_id}/{trigger_id}": "HMAC signature with the trigger's secret, replay window, refusal limit per caller.",
     "POST /api/v1/commerce/webhooks/{tenant_id}/{workspace_id}/{connector_id}": "HMAC signature with the connection's secret, five-minute window, refusal limit per caller.",
     "POST /api/v1/billing/webhooks/stripe/{issuer_tenant_id}": "Stripe signature with the issuer's webhook secret.",
+    "POST /api/v1/billing/webhooks/moyasar/{issuer_tenant_id}": "Moyasar secret token compared in constant time, then the payment is read back from Moyasar's API with the issuer's key; database work in a thread.",
+    "GET /api/v1/public/legal": "The configured issuer's company details and legal facts for the public legal pages, through the narrow platform reader; no tenant id.",
     "GET /api/v1/whatsapp/webhook": "Meta's subscription check against the hashed verify token.",
     "POST /api/v1/whatsapp/webhook": "X-Hub-Signature-256 with the app secret, bad-signature limit per caller.",
     "POST /api/v1/calls/webhooks/twilio/{route_id}/voice": "Twilio signature with the account's auth token; unguessable route id.",
