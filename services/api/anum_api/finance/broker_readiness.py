@@ -200,6 +200,9 @@ class LivePreflightResult(BaseModel):
     missing_research_requirements: list[str]
     missing_live_review_requirements: list[str]
     system_preconditions: list[Precondition]
+    # For Interactive Brokers: the IBKR connector's own live gates for this person, read only
+    # (docs/finance-live-trading.md#locks). Empty for other brokers or without a profile.
+    broker_gates: list[Precondition] = Field(default_factory=list)
     notes: list[InfoNote]
     broker: BrokerKind | None = None
     assets: list[AssetKind] = Field(default_factory=list)
@@ -220,6 +223,7 @@ PREFLIGHT_EXPLANATION = (
 
 def evaluate_live_preflight(
     facts: BrokerReadiness, profile: BrokerProfile | None, system: list[Precondition],
+    broker_gates: list[Precondition] | None = None,
 ) -> LivePreflightResult:
     """The checklist, the server's own live preconditions and informational notes, in one answer.
 
@@ -233,6 +237,7 @@ def evaluate_live_preflight(
         missing_research_requirements=checklist.missing_research_requirements,
         missing_live_review_requirements=checklist.missing_live_review_requirements,
         system_preconditions=list(system),
+        broker_gates=list(broker_gates or []) if profile and profile.broker == BrokerKind.INTERACTIVE_BROKERS else [],
         notes=informational_notes(profile),
         broker=profile.broker if profile else None,
         assets=list(profile.assets) if profile else [],

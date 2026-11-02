@@ -51,6 +51,12 @@ export type TierResult = Readonly<{
   memoryEstimateMb: number;
   /** False when the scene had no cut-away floor to change (the campus view). */
   floorChange: boolean;
+  /** Milliseconds from the tier switch until the frames settled; none of it is in `frames`. */
+  warmupMs?: number;
+  /** GPU time per frame from the timer query extension; null where the browser does not offer it. */
+  gpu?: Readonly<{ medianMs: number; p95Ms: number; samples: number }> | null;
+  /** Timed frames over 50 ms, and how many of them compiled shader programs or allocated geometry or textures. */
+  hitches?: Readonly<{ count: number; compile: number; buffers: number }> | null;
 }>;
 
 export type VerdictKind = 'no-webgl' | 'software' | 'unmeasured' | 'fits' | 'reduced' | 'poor';
@@ -120,6 +126,9 @@ export function buildReport(input: { now: Date; probe: GpuProbe; quality: Qualit
     tiers: input.results.map((r) => ({
       tier: r.tier, key: clip(r.key, 20), frames: cleanFrames(r.frames), drawCalls: Math.round(r.drawCalls), triangles: Math.round(r.triangles), dpr: num(r.dpr),
       shadowSize: r.shadowSize, bloom: r.bloom, memoryEstimateMb: num(r.memoryEstimateMb, 1), floorChange: r.floorChange,
+      warmupMs: Math.round(r.warmupMs ?? 0),
+      gpu: r.gpu ? { medianMs: num(r.gpu.medianMs), p95Ms: num(r.gpu.p95Ms), samples: Math.round(r.gpu.samples) } : null,
+      hitches: r.hitches ? { count: Math.round(r.hitches.count), compile: Math.round(r.hitches.compile), buffers: Math.round(r.hitches.buffers) } : null,
     })),
     verdict: { ...verdict, tierKey: tierKey(verdict.tier) },
     notes: (input.notes ?? []).slice(0, 10).map((n) => clip(n, 200)),
@@ -140,3 +149,14 @@ export function reportLooksAnonymous(json: string): boolean {
   return !/https?:\/\/|@[a-z0-9-]+\.[a-z]{2,}|tenant|workspace|user_?id|account|session|token|bearer/i.test(json);
 }
 
+/**
+ * The tier a finished benchmark may remember for this device (written as the existing pin, undone by Back to automatic), or null: only a
+ * run over every registered tier on a graphics card, with a verdict that names a tier. A software rasteriser already gets the lightest tier
+ * automatically, so nothing is pinned there.
+ */
+export function rememberTierFor(probe: GpuProbe, results: readonly TierResult[]): number | null {
+  if (probe.software !== false) return null;
+  if (!HQ_TIERS.every((t) => results.some((r) => r.tier === t.id))) return null;
+  const v = verdictFor(probe, results);
+  return v.kind === 'fits' || v.kind === 'reduced' || v.kind === 'poor' ? v.tier : null;
+}
