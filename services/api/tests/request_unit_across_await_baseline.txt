@@ -2,47 +2,13 @@
 # await that is not a worker thread: a provider, model, tool or mail server call, or another async
 # helper (docs/realtime.md#event-loop). Frozen by tests/test_helpers_off_event_loop.py: this list
 # may only shrink. Fix one with `units: UnitsOfWork = Depends(units_of_work)` and run_in_unit.
-DELETE /api/v1/marketing/accounts/{account_id}
-GET /api/v1/developer/requests
-GET /api/v1/developer/requests/{request_id}
 GET /api/v1/events/stream
 GET /api/v1/home/insights
 GET /api/v1/home/summary
-POST /api/v1/agent-runs/{run_id}/resume
-POST /api/v1/approvals/{approval_id}/approve
-POST /api/v1/approvals/{approval_id}/reject
 POST /api/v1/autonomy/actions/{action_id}/undo
-POST /api/v1/business/support/tickets/{ticket_id}/replies/{reply_id}/request-approval
-POST /api/v1/developer/projects/{project_id}/install-workflow
-POST /api/v1/developer/projects/{project_id}/test
-POST /api/v1/developer/requests
-POST /api/v1/developer/requests/{request_id}/cancel
-POST /api/v1/developer/requests/{request_id}/merge-approval
 POST /api/v1/executive-pa/invoke
 POST /api/v1/home/insights/{key}/dismiss
 POST /api/v1/home/insights/{key}/snooze
-POST /api/v1/integrations/setup/{item_id}/check
-POST /api/v1/mail/accounts/{account_id}/check
-POST /api/v1/mail/accounts/{account_id}/delete
-POST /api/v1/mail/accounts/{account_id}/flags
-POST /api/v1/mail/accounts/{account_id}/move
-POST /api/v1/mail/drafts
-POST /api/v1/mail/drafts/{draft_id}/attachments
-POST /api/v1/marketing/oauth/callback
-POST /api/v1/marketing/posts/{post_id}/publish
-POST /api/v1/marketing/posts/{post_id}/retry
-POST /api/v1/marketing/posts/{post_id}/schedule
-POST /api/v1/marketing/reports/weekly/deliver
 POST /api/v1/memories
 POST /api/v1/platform/billing/run
-POST /api/v1/reports/{report_id}/files
-POST /api/v1/reports/{report_id}/share/whatsapp
 POST /api/v1/retrieval/index
-POST /api/v1/sales/leads/{lead_id}/quotes/{quote_id}/request-whatsapp-delivery
-POST /api/v1/tasks/bulk
-POST /api/v1/tasks/{task_id}/cancel
-POST /api/v1/tyre/connection/test
-POST /api/v1/tyre/sync
-POST /api/v1/whatsapp/account/check
-POST /api/v1/whatsapp/account/test
-PUT /api/v1/whatsapp/account

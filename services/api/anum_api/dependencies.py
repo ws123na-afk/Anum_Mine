@@ -552,18 +552,6 @@ def units_of_work() -> UnitsOfWork:
     return _membership_unit_of_work
 
 
-def held_unit(repository: AnumRepository) -> UnitsOfWork:
-    """A ``UnitsOfWork`` that hands out a unit the caller already holds (and commits itself),
-    for code that is not yet split into short units. Each step still runs in a worker thread,
-    but the caller's transaction stays open across the awaits in between."""
-
-    @contextmanager
-    def unit(_context: TenantContext) -> Iterator[AnumRepository]:
-        yield repository
-
-    return unit
-
-
 async def run_in_unit(units: UnitsOfWork, context: TenantContext, work: Callable[..., T], *args: Any, **kwargs: Any) -> T:
     """``work(repository, *args, **kwargs)`` in its own short unit of work, in a worker thread.
 

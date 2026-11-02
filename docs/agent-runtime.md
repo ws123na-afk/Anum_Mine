@@ -37,6 +37,8 @@ With `ANUM_RUNTIME_BACKEND=inline` (the Oracle VM) the run, retry, automation an
 
 A cancel during the run is answered at once. The run stops at its next step with 409 and never overwrites the cancel; if the cancel came while the tool ran, the response says the action may already have taken effect. A failure before step 3 gives the task its earlier status back. A tool error after step 3 fails the run. A claim left by a process that stopped mid-run can be taken over by Run or Retry after `ANUM_INLINE_RUN_LEASE_SECONDS` (900); Cancel clears it at once. The API process also holds the task's run lock (`_task_lock`) for the whole run, as before.
 
+An approval decision (`POST /approvals/{id}/approve`) and `POST /agent-runs/{id}/resume` follow steps 4 and 5 the same way (`inline_runs.execute_committed`): their first short unit makes every check, records the decision and commits the run as `executing`, so the approval is used once even though no row lock is held while the tool runs ([Realtime](realtime.md#event-loop)).
+
 Before October 2026 an inline run held its request transaction and the task's `SELECT ... FOR UPDATE` lock across the model call. A Cancel, Archive or rename of that task then waited for the lock on the event loop, the run could never resume to release it, and the whole API stopped answering. With no lock timeout this lasted indefinitely; it was reproduced with the run's transaction idle and the cancel waiting for more than nine minutes. `services/api/tests/test_postgres_loop_responsiveness.py` covers a run with six open event streams, and a cancel during a run ([Realtime](realtime.md#event-loop)).
 
 ## Durable Execution

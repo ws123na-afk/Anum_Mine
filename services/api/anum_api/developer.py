@@ -44,7 +44,7 @@ from .agent_tools import ToolCall, ToolDefinition, ToolRegistry, ToolResult
 from .audit import AuditRecord
 from .authorization import Permission
 from .demo import is_demo_workspace, refuse_send_in_demo
-from .dependencies import _unit_of_work, repository_context, require_permission, tenant_context
+from .dependencies import UnitsOfWork, _unit_of_work, repository_context, require_permission, run_in_unit, tenant_context, units_of_work
 from .developer_github import ChecksState, GitHubClient, GitHubError, PullRequest, WorkflowRun
 from .developer_projects import (
     DEFAULT_WORKFLOW,
@@ -919,7 +919,7 @@ def _view(request: DeveloperRequest, repository: AnumRepository, context: Tenant
 
 async def _refresh(
     request: DeveloperRequest,
-    repository: AnumRepository,
+    units: UnitsOfWork,
     context: TenantContext,
     *,
     force: bool = False,
@@ -932,8 +932,9 @@ async def _refresh(
         project = await asyncio.to_thread(project_for, request, context)
     request, changed = await sync(request, project, force=force)
 
-    def keep() -> None:
-        # Off the event loop (docs/realtime.md#event-loop); GitHub was read above with no store open.
+    def keep(repository: AnumRepository) -> None:
+        # Off the event loop in its own short unit of work (docs/realtime.md#event-loop); GitHub
+        # was read above with no store or transaction open.
         if request.synced_at is not None:
             with open_developer_store(context) as store:
                 store.save(request)
@@ -961,7 +962,7 @@ async def _refresh(
                     ).event
                 )
 
-    await asyncio.to_thread(keep)
+    await run_in_unit(units, context, keep)
     return request
 
 
@@ -1275,16 +1276,18 @@ def delete_project(
 async def test_project(
     project_id: str,
     context: TenantContext = Depends(tenant_context),
-    repository: AnumRepository = Depends(repository_context),
+    units: UnitsOfWork = Depends(units_of_work),
 ) -> DeveloperProjectView:
     """Test connection: the repository is reachable with the token and has the workflow."""
     _require_owner(context)
     _require_enabled(context)
-    project = _project_or_404(context, project_id)
+    project = await asyncio.to_thread(_project_or_404, context, project_id)
     project = await _run_check(project, context)
     ok = project.last_check is not None and project.last_check.ok
-    _audit_project(
-        repository,
+    await run_in_unit(
+        units,
+        context,
+        _audit_project,
         context,
         "developer.project.tested",
         project,
@@ -1319,7 +1322,7 @@ async def _run_check(project: DeveloperProject, context: TenantContext) -> Devel
 async def install_project_workflow(
     project_id: str,
     context: TenantContext = Depends(tenant_context),
-    repository: AnumRepository = Depends(repository_context),
+    units: UnitsOfWork = Depends(units_of_work),
 ) -> InstallWorkflowResult:
     """Open a pull request in the project's repository that adds the coding workflow.
 
@@ -1343,14 +1346,14 @@ async def install_project_workflow(
             if exc.status in {403, 404, 422}
             else ""
         )
-        await asyncio.to_thread(
-            _audit_project, repository, context, "developer.project.workflow_install_failed", project, "failure", {"github_status": exc.status}
+        await run_in_unit(
+            units, context, _audit_project, context, "developer.project.workflow_install_failed", project, "failure", {"github_status": exc.status}
         )
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY, detail=f"The workflow could not be proposed. {exc.message}{hint}"
         ) from None
 
-    def keep() -> DeveloperProject:
+    def keep(repository: AnumRepository) -> DeveloperProject:
         with open_project_store(context) as projects:
             current = projects.get(project.id, context) or project
             current.install_pr_number, current.install_pr_url = pull.number, pull.html_url
@@ -1365,7 +1368,7 @@ async def install_project_workflow(
         )
         return current
 
-    current = await asyncio.to_thread(keep)
+    current = await run_in_unit(units, context, keep)
     return InstallWorkflowResult(
         project=project_view(current, environment_token()),
         pull_request_number=pull.number,
@@ -1445,7 +1448,7 @@ def _chosen_project(payload: DeveloperRequestCreate, context: TenantContext) -> 
 async def create_request(
     payload: DeveloperRequestCreate,
     context: TenantContext = Depends(tenant_context),
-    repository: AnumRepository = Depends(repository_context),
+    units: UnitsOfWork = Depends(units_of_work),
 ) -> DeveloperRequestView:
     _require_owner(context)
     refuse_send_in_demo(context)
@@ -1476,7 +1479,7 @@ async def create_request(
     )
     request.branch = f"{BRANCH_PREFIX}{request.id}"
     if mentions_protected(text) and not payload.allow_protected_paths:
-        await asyncio.to_thread(_audit, repository, context, "developer.request.refused", request, "denied", {"reason": "protected_paths"})
+        await run_in_unit(units, context, _audit, context, "developer.request.refused", request, "denied", {"reason": "protected_paths"})
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=(
@@ -1525,11 +1528,11 @@ async def create_request(
         )
     except GitHubError as exc:
 
-        def not_sent(error: GitHubError) -> None:
+        def not_sent(repository: AnumRepository, error: GitHubError) -> None:
             _mark_not_sent(context, request, f"Not sent to GitHub: {error.message}")
             _audit(repository, context, "developer.request.dispatch_failed", request, "failure", {"github_status": error.status})
 
-        await asyncio.to_thread(not_sent, exc)
+        await run_in_unit(units, context, not_sent, exc)
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=f"The request could not be sent to GitHub. {exc.message}",
@@ -1539,7 +1542,7 @@ async def create_request(
         _mark_not_sent(context, request, "Not sent: the API stopped while sending the request to GitHub.")
         raise
 
-    def created() -> DeveloperRequestView:
+    def created(repository: AnumRepository) -> DeveloperRequestView:
         record_model_usage(
             context,
             ModelUsage(
@@ -1559,7 +1562,7 @@ async def create_request(
         )
         return _view(request, repository, context)
 
-    return await asyncio.to_thread(created)
+    return await run_in_unit(units, context, created)
 
 
 @router.get("/requests", response_model=list[DeveloperRequestView])
@@ -1569,7 +1572,7 @@ async def list_requests(
     q: str | None = Query(default=None, max_length=200),
     project_id: str | None = Query(default=None, max_length=80),
     context: TenantContext = Depends(tenant_context),
-    repository: AnumRepository = Depends(repository_context),
+    units: UnitsOfWork = Depends(units_of_work),
 ) -> list[DeveloperRequestView]:
     """Newest first. Unfinished requests on the page are refreshed from GitHub (cached briefly)."""
     _require_owner(context)
@@ -1593,10 +1596,10 @@ async def list_requests(
         for item in items:
             project = projects.get(item.project_id) if item.project_id else legacy
             if item.status not in TERMINAL and project is not None:
-                item = await _refresh(item, repository, context, project=project)
+                item = await _refresh(item, units, context, project=project)
             refreshed.append(item)
         items = refreshed
-    return await asyncio.to_thread(lambda: [_view(item, repository, context) for item in items])
+    return await run_in_unit(units, context, lambda repository: [_view(item, repository, context) for item in items])
 
 
 @router.get("/requests/{request_id}", response_model=DeveloperRequestView)
@@ -1604,13 +1607,13 @@ async def get_request(
     request_id: str,
     refresh: bool = Query(default=False),
     context: TenantContext = Depends(tenant_context),
-    repository: AnumRepository = Depends(repository_context),
+    units: UnitsOfWork = Depends(units_of_work),
 ) -> DeveloperRequestView:
     _require_owner(context)
     request = await asyncio.to_thread(_request_or_404, context, request_id)
     if not setup_problems() and enabled_for(context):
-        request = await _refresh(request, repository, context, force=refresh)
-    return await asyncio.to_thread(_view, request, repository, context)
+        request = await _refresh(request, units, context, force=refresh)
+    return await run_in_unit(units, context, lambda repository: _view(request, repository, context))
 
 
 def _request_or_404(context: TenantContext, request_id: str) -> DeveloperRequest:
@@ -1622,7 +1625,7 @@ def _request_or_404(context: TenantContext, request_id: str) -> DeveloperRequest
 async def request_merge_approval(
     request_id: str,
     context: TenantContext = Depends(tenant_context),
-    repository: AnumRepository = Depends(repository_context),
+    units: UnitsOfWork = Depends(units_of_work),
 ) -> MergeApprovalResponse:
     """Ask for the merge: a paused ``developer.merge_pull_request`` call waiting for approval.
 
@@ -1637,9 +1640,9 @@ async def request_merge_approval(
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="The request's project was removed; it cannot be merged from ANUM.")
     if not project.enabled:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"The project {project.name} is turned off. Turn it on to merge.")
-    request = await _refresh(request, repository, context, force=True, project=project)
+    request = await _refresh(request, units, context, force=True, project=project)
     # Everything after the GitHub refresh is database work: it runs in a worker thread.
-    return await asyncio.to_thread(_propose_merge, request, project, context, repository)
+    return await run_in_unit(units, context, lambda repository: _propose_merge(request, project, context, repository))
 
 
 def _request_and_project(context: TenantContext, request_id: str) -> tuple[DeveloperRequest, DeveloperProject | None]:
@@ -1757,7 +1760,7 @@ def _propose_merge(
 async def cancel_request(
     request_id: str,
     context: TenantContext = Depends(tenant_context),
-    repository: AnumRepository = Depends(repository_context),
+    units: UnitsOfWork = Depends(units_of_work),
 ) -> DeveloperRequestView:
     """Stop the coding run if it is still going, close the pull request and delete the branch."""
     _require_owner(context)
@@ -1778,10 +1781,10 @@ async def cancel_request(
                 await client.close_pull(pull.number)
             await client.delete_branch(request.branch)
         except GitHubError as exc:
-            await asyncio.to_thread(_audit, repository, context, "developer.request.cancel_failed", request, "failure", {"github_status": exc.status})
+            await run_in_unit(units, context, _audit, context, "developer.request.cancel_failed", request, "failure", {"github_status": exc.status})
             raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"GitHub refused the cancel. {exc.message}") from None
 
-    def cancel() -> DeveloperRequestView:
+    def cancel(repository: AnumRepository) -> DeveloperRequestView:
         _retire_merge_task(repository, context, request)
         now = utc_now()
         request.status = DevRequestStatus.CANCELLED
@@ -1796,4 +1799,4 @@ async def cancel_request(
         _audit(repository, context, "developer.request.cancelled", request)
         return _view(request, repository, context)
 
-    return await asyncio.to_thread(cancel)
+    return await run_in_unit(units, context, cancel)

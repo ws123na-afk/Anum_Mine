@@ -43,13 +43,14 @@ from pydantic import BaseModel, Field
 from .audit import AuditRecord
 from .authorization import Permission
 from .dependencies import (
+    UnitsOfWork,
     has_permission,
     is_organization_admin,
-    repository_context,
     require_permission,
+    run_in_unit,
     tenant_context,
+    units_of_work,
 )
-from .repository import AnumRepository
 from .schemas import TenantContext, new_id, utc_now
 from .settings import settings
 
@@ -640,9 +641,10 @@ async def _reach(host: str, port: int) -> None:
 async def check_integration_setup(
     item_id: str,
     context: TenantContext = Depends(tenant_context),
-    repository: AnumRepository = Depends(repository_context),
+    units: UnitsOfWork = Depends(units_of_work),
 ) -> SetupCheck:
-    """Can the API reach the host the operator configured for this integration? Audited."""
+    """Can the API reach the host the operator configured for this integration? Audited, in a
+    short unit of work after the probe: none is open while the host answers."""
     require_permission(context, Permission.INTEGRATION_READ)
     if not can_check(context):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=CHECK_DENIED)
@@ -664,7 +666,7 @@ async def check_integration_setup(
         reachable, detail = False, type(exc).__name__
     latency = int((time.monotonic() - started) * 1000)
     checked_at = utc_now()
-    repository.record_audit(
+    await run_in_unit(units, context, lambda repository: repository.record_audit(
         AuditRecord(
             id=new_id("audit"),
             tenant_id=context.tenant_id,
@@ -677,7 +679,7 @@ async def check_integration_setup(
             created_at=checked_at,
             metadata={"reachable": reachable, "latency_ms": latency, "detail": detail},
         )
-    )
+    ))
     return SetupCheck(
         id=entry.id,
         reachable=reachable,

@@ -287,7 +287,7 @@ class TestView(BaseModel):
 @router.post("/connection/test", response_model=TestView)
 async def test_connection(
     context: TenantContext = Depends(tenant_context),
-    repository: AnumRepository = Depends(repository_context),
+    units: UnitsOfWork = Depends(units_of_work),
 ) -> TestView:
     _require(context, Permission.TYRE_MANAGE, OWNER_ONLY)
     try:
@@ -295,8 +295,13 @@ async def test_connection(
     except service.NotConnectedError as exc:
         raise _conflict(exc) from None
     ok = connection.status == ConnectionStatus.OK
-    _audit(repository, context, "tyre.connection.tested", "tyre_connection", outcome="success" if ok else "failure")
-    return TestView(ok=ok, message=message, setup=_setup(context))
+
+    def done(repository: AnumRepository) -> SetupView:
+        _audit(repository, context, "tyre.connection.tested", "tyre_connection", outcome="success" if ok else "failure")
+        return _setup(context)
+
+    # No transaction is open while the source answers (docs/realtime.md#event-loop).
+    return TestView(ok=ok, message=message, setup=await run_in_unit(units, context, done))
 
 
 @router.post("/discover", response_model=DiscoveryView)
@@ -399,19 +404,24 @@ class SyncResultView(BaseModel):
 @router.post("/sync", response_model=SyncResultView)
 async def sync(
     context: TenantContext = Depends(tenant_context),
-    repository: AnumRepository = Depends(repository_context),
+    units: UnitsOfWork = Depends(units_of_work),
 ) -> SyncResultView:
-    """Read the mapped tables now and recompute forecasts and alerts."""
+    """Read the mapped tables now and recompute forecasts and alerts. No transaction is open
+    while the source answers; the audit runs in its own short unit (docs/realtime.md#event-loop)."""
     _require(context, Permission.TYRE_OPERATE, OPERATORS_ONLY)
     try:
         outcome = await service.sync(context, context.user_id)
     except service.NotConnectedError as exc:
         raise _conflict(exc) from None
     except TyreSourceError as exc:
-        _audit(repository, context, "tyre.sync", "tyre_snapshot", {"error": exc.message[:200]}, outcome="failure")
+        await run_in_unit(units, context, _audit, context, "tyre.sync", "tyre_snapshot", {"error": exc.message[:200]}, outcome="failure")
         raise _source_error(exc, status.HTTP_502_BAD_GATEWAY if "mapping" not in exc.message else status.HTTP_409_CONFLICT) from None
-    _audit(repository, context, "tyre.sync", "tyre_snapshot", {**outcome.counts, "new_alerts": len(outcome.raised)})
-    return SyncResultView(setup=_setup(context), new_alerts=len(outcome.raised))
+
+    def done(repository: AnumRepository) -> SetupView:
+        _audit(repository, context, "tyre.sync", "tyre_snapshot", {**outcome.counts, "new_alerts": len(outcome.raised)})
+        return _setup(context)
+
+    return SyncResultView(setup=await run_in_unit(units, context, done), new_alerts=len(outcome.raised))
 
 
 # --- dashboard, forecasts, plan -------------------------------------------------------------

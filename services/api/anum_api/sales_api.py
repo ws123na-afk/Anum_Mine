@@ -21,7 +21,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from .authorization import Permission
-from .dependencies import require_permission, tenant_context, repository_context
+from .dependencies import UnitsOfWork, require_permission, tenant_context, units_of_work
 from .db.session import SessionLocal, set_tenant_context
 from .db.sales_repository import SalesCRMStore
 from .marketing_sales_orchestration import plan_inbound_handoff
@@ -30,7 +30,6 @@ from .sales_lead_lifecycle import (
     propose_follow_up,
 )
 from .schemas import TenantContext, utc_now
-from .repository import AnumRepository
 from .whatsapp import SendRequest, send as governed_whatsapp_send
 
 router = APIRouter(prefix="/api/v1/sales", tags=["sales"])
@@ -312,7 +311,7 @@ def _quote_whatsapp_text(lead: Lead, quote) -> str:
 async def request_quote_whatsapp_delivery(
     lead_id: str, quote_id: str,
     context: TenantContext = Depends(tenant_context),
-    repository: AnumRepository = Depends(repository_context),
+    units: UnitsOfWork = Depends(units_of_work),
 ) -> dict:
     """Request the existing always-approved freeform WhatsApp delivery tool.
 
@@ -342,8 +341,9 @@ async def request_quote_whatsapp_delivery(
     # Store work in worker threads, never on the event loop (docs/realtime.md#event-loop).
     text, conversation_id = await asyncio.to_thread(reserve)
     try:
+        # The WhatsApp send opens its own short units of work (docs/realtime.md#event-loop).
         result = await governed_whatsapp_send(
-            conversation_id, SendRequest(text=text), context, repository,
+            conversation_id, SendRequest(text=text), context, units,
         )
     except Exception:
         await asyncio.to_thread(finish, None, "draft")

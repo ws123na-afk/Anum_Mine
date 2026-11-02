@@ -1244,7 +1244,7 @@ def get_account(context: TenantContext = Depends(tenant_context)) -> AccountView
 async def put_account(
     payload: AccountUpdate,
     context: TenantContext = Depends(tenant_context),
-    repository: AnumRepository = Depends(repository_context),
+    units: UnitsOfWork = Depends(units_of_work),
 ) -> AccountView:
     """Connect or update this workspace's WhatsApp number (owners). Omitted secrets keep the saved ones."""
     require_permission(context, Permission.WHATSAPP_MANAGE)
@@ -1259,7 +1259,7 @@ async def put_account(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"Use a verify token of at least {MIN_VERIFY_TOKEN} random characters.",
         )
-    def save() -> bool:
+    def save(repository: AnumRepository) -> bool:
         now = utc_now()
         try:
             with open_whatsapp_store(context) as store:
@@ -1318,9 +1318,9 @@ async def put_account(
         )
         return changed
 
-    # Store work and the audit run in worker threads; only Meta's check waits on the loop
-    # (docs/realtime.md#event-loop).
-    changed = await asyncio.to_thread(save)
+    # Store work and the audit run in worker threads, in their own short unit of work; only
+    # Meta's check waits on the loop, with no transaction open (docs/realtime.md#event-loop).
+    changed = await run_in_unit(units, context, save)
     if changed and not setup_problems():
         full = await asyncio.to_thread(_stored_account, context, True)
         if full is not None:
@@ -1342,14 +1342,14 @@ def _required_account(context: TenantContext) -> WhatsAppAccount:
 @router.post("/account/check", response_model=AccountView)
 async def check_account(
     context: TenantContext = Depends(tenant_context),
-    repository: AnumRepository = Depends(repository_context),
+    units: UnitsOfWork = Depends(units_of_work),
 ) -> AccountView:
     """Health: ask Meta for the phone number's profile with the saved token."""
     require_permission(context, Permission.WHATSAPP_MANAGE)
     account = await asyncio.to_thread(_required_account, context)
     checked = await _check(account, utc_now())
 
-    def record() -> AccountView:
+    def record(repository: AnumRepository) -> AccountView:
         saved = _save_checked(context, checked)
         _audit(
             repository, context, "whatsapp.account.checked", f"whatsapp:{saved.phone_number_id}",
@@ -1357,14 +1357,14 @@ async def check_account(
         )
         return _account_view(saved, context)
 
-    return await asyncio.to_thread(record)
+    return await run_in_unit(units, context, record)
 
 
 @router.post("/account/test")
 async def test_account(
     payload: TestSend | None = None,
     context: TenantContext = Depends(tenant_context),
-    repository: AnumRepository = Depends(repository_context),
+    units: UnitsOfWork = Depends(units_of_work),
 ) -> dict[str, str]:
     """Send a template to the owner's own number (Meta's sample ``hello_world`` by default)."""
     require_permission(context, Permission.WHATSAPP_MANAGE)
@@ -1385,12 +1385,12 @@ async def test_account(
             account.phone_number_id, account.owner_test_number, payload.template, payload.language, []
         )
     except WhatsAppGraphError as exc:
-        await asyncio.to_thread(
-            _audit, repository, context, "whatsapp.test.failed", f"whatsapp:{account.phone_number_id}", "failure", {"meta_code": exc.code}
+        await run_in_unit(
+            units, context, _audit, context, "whatsapp.test.failed", f"whatsapp:{account.phone_number_id}", "failure", {"meta_code": exc.code}
         )
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"The test message was not sent. {exc.message}") from None
-    await asyncio.to_thread(
-        _audit, repository, context, "whatsapp.test.sent", f"whatsapp:{account.phone_number_id}", metadata={"template": payload.template}
+    await run_in_unit(
+        units, context, _audit, context, "whatsapp.test.sent", f"whatsapp:{account.phone_number_id}", metadata={"template": payload.template}
     )
     return {"status": "sent", "wamid": wamid, "to": account.owner_test_number}
 

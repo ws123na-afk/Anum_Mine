@@ -21,7 +21,7 @@ from fastapi import APIRouter, Depends, Query as Q, Response, status
 from pydantic import BaseModel, Field
 
 from ..authorization import Permission
-from ..dependencies import has_permission, repository_context, tenant_context
+from ..dependencies import UnitsOfWork, has_permission, repository_context, run_in_unit, tenant_context, units_of_work
 from ..punctuation import plain_dashes
 from ..repository import AnumRepository
 from ..schemas import Approval, TenantContext, new_id, utc_now
@@ -791,19 +791,25 @@ def _result(context: TenantContext, repository: AnumRepository, ticket_id: str, 
 async def request_reply_approval(
     ticket_id: str, reply_id: str,
     context: TenantContext = Depends(tenant_context),
-    repository: AnumRepository = Depends(repository_context),
+    units: UnitsOfWork = Depends(units_of_work),
 ) -> ReplyRequestResult:
     """Hand exactly this reply to the inbox's approval path. Nothing is sent until an owner
-    approves it there with the payload hash (the inbox's own rules decide)."""
+    approves it there with the payload hash (the inbox's own rules decide). Each store step
+    runs in its own short unit of work; none is open while the inbox's provider or Meta
+    answers (docs/realtime.md#event-loop)."""
     write(context)
     ticket, reply = await asyncio.to_thread(_claim_reply, context, ticket_id, reply_id)
     if reply.channel == ReplyChannel.EMAIL:
-        outcome = await support_channels.request_email_reply(context, repository, ticket.source_ref or "", reply.body)
+        outcome = await support_channels.request_email_reply(context, units, ticket.source_ref or "", reply.body)
     else:
-        outcome = await support_channels.request_whatsapp_reply(context, repository, ticket.source_ref or "", reply.body)
+        outcome = await support_channels.request_whatsapp_reply(context, units, ticket.source_ref or "", reply.body)
     await asyncio.to_thread(_record_request, context, ticket_id, reply_id, outcome)
-    audit(repository, context, "business.ticket.reply_requested", ticket_id,
-          metadata={"reply_id": reply_id, "channel": reply.channel.value, "status": outcome.status, "approval_id": outcome.approval_id,
-                    "payload_hash": outcome.payload_hash},
-          outcome="success" if outcome.status != "failed" else "failure")
-    return await asyncio.to_thread(_result, context, repository, ticket_id, reply_id, outcome.detail)
+
+    def recorded(repository: AnumRepository) -> ReplyRequestResult:
+        audit(repository, context, "business.ticket.reply_requested", ticket_id,
+              metadata={"reply_id": reply_id, "channel": reply.channel.value, "status": outcome.status, "approval_id": outcome.approval_id,
+                        "payload_hash": outcome.payload_hash},
+              outcome="success" if outcome.status != "failed" else "failure")
+        return _result(context, repository, ticket_id, reply_id, outcome.detail)
+
+    return await run_in_unit(units, context, recorded)

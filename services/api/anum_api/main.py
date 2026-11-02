@@ -1,5 +1,5 @@
 import asyncio
-from dataclasses import replace
+from dataclasses import dataclass, replace
 import json
 from datetime import datetime, timezone
 from collections.abc import AsyncIterator, Callable
@@ -22,6 +22,7 @@ from .dependencies import (
     provisioning_repository_context,
     provisioning_tenant_context,
     require_permission,
+    run_in_unit,
     tenant_context,
     UnitsOfWork,
     units_of_work,
@@ -73,7 +74,7 @@ from .realtime import live_event_source
 from .runtime import AgentRuntime
 from .durable_runs import build_run_dispatcher, run_input_for, workflow_id_for
 from .valkey import CoordinationUnavailable, LockNotAcquired, build_run_lock_manager
-from .agent_tools import default_tool_registry
+from .agent_tools import ToolCall, default_tool_registry
 from .tool_governance import decision_requirements, match_governance, required_approvals
 from .suppression import suppressed_for_call
 from .approval_routing import (
@@ -231,7 +232,7 @@ from .team_work import build_team_reminder_scheduler, router as team_router
 from .automation_dispatch import automation_dispatcher
 from .files import router as files_router
 from .retrieval_api import forget_memory, index_memory_note, retriever_for, router as retrieval_router
-from .inline_runs import RunClaimLost, claim_expired, run_inline
+from .inline_runs import RunClaimLost, claim_expired, execute_committed, run_inline
 from .skills_api import configure_tool_catalog, router as skills_router
 from .model_budget import ModelBudgetExceededError, check_model_budget, router as model_budget_router
 from .agent_controls import AgentsStoppedError, agents_stopped, configure_cancel_notifier, router as agent_controls_router
@@ -963,20 +964,23 @@ async def summarize_tasks(
 async def bulk_tasks(
     payload: TaskBulkRequest,
     context: TenantContext = Depends(tenant_context),
-    repository: AnumRepository = Depends(repository_context),
+    units: UnitsOfWork = Depends(units_of_work),
 ) -> TaskBulkResponse:
-    """Archive, restore or cancel up to 100 tasks; each task answers as its single route would."""
+    """Archive, restore or cancel up to 100 tasks; each task answers as its single route would,
+    in its own short unit of work (a cancel tells the durable workflow after its commit)."""
     require_permission(context, Permission.TASK_READ)
-    handlers = {
-        TaskBulkAction.ARCHIVE: archive_task,
-        TaskBulkAction.UNARCHIVE: unarchive_task,
-        TaskBulkAction.CANCEL: cancel_task,
-    }
-    handler = handlers[payload.action]
     results: list[TaskBulkItemResult] = []
     for task_id in payload.task_ids:
         try:
-            task = await handler(task_id, context=context, repository=repository)
+            if payload.action == TaskBulkAction.CANCEL:
+                task = await cancel_task(task_id, context=context, units=units)
+            else:
+                handler = archive_task if payload.action == TaskBulkAction.ARCHIVE else unarchive_task
+                task = await run_in_unit(
+                    units, context, lambda repository, handler=handler, task_id=task_id: handler(
+                        task_id, context=context, repository=repository
+                    )
+                )
         except HTTPException as exc:
             results.append(
                 TaskBulkItemResult(task_id=task_id, ok=False, status_code=exc.status_code, message=str(exc.detail))
@@ -1091,7 +1095,7 @@ async def update_task(
 
 
 @app.post("/api/v1/tasks/{task_id}/archive", response_model=Task)
-async def archive_task(
+def archive_task(
     task_id: str,
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
@@ -1115,7 +1119,7 @@ async def archive_task(
 
 
 @app.post("/api/v1/tasks/{task_id}/unarchive", response_model=Task)
-async def unarchive_task(
+def unarchive_task(
     task_id: str,
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
@@ -1480,11 +1484,13 @@ automation_dispatcher.configure(task_runner=run_task_for_automation)
 async def cancel_task(
     task_id: str,
     context: TenantContext = Depends(tenant_context),
-    repository: AnumRepository = Depends(repository_context),
+    units: UnitsOfWork = Depends(units_of_work),
 ) -> Task:
     # The row lock and writes run in a worker thread: on the event loop they stalled every other
-    # request (even /health) for as long as the database took (docs/realtime.md#event-loop).
-    task, run = await asyncio.to_thread(cancel_task_record, task_id, context, repository)
+    # request (even /health) for as long as the database took (docs/realtime.md#event-loop). They
+    # commit in their own short unit before the durable workflow is told, so no transaction or
+    # row lock is held while the dispatcher answers.
+    task, run = await run_in_unit(units, context, lambda repository: cancel_task_record(task_id, context, repository))
     if run_dispatcher is not None and run is not None:
         await run_dispatcher.cancelled(context, task.id)
     return task
@@ -1586,33 +1592,56 @@ async def get_latest_task_run(
 async def resume_agent_run(
     run_id: str,
     context: TenantContext = Depends(tenant_context),
-    repository: AnumRepository = Depends(repository_context),
+    units: UnitsOfWork = Depends(units_of_work),
 ) -> RunTaskResponse:
+    """Resume a run stranded at an executable checkpoint. The checks and the ``executing``
+    checkpoint commit in one short unit of work; the tool runs with none open; the outcome is
+    written in a new unit that re-checks the claim (docs/realtime.md#event-loop)."""
     require_permission(context, Permission.TASK_RUN)
-    run = repository.get_run(run_id, context)
+    run = await run_in_unit(units, context, lambda repository: repository.get_run(run_id, context))
     if not run:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent run not found")
-    async with _task_lock(context, run.task_id):
-        task = _get_task_for_context(run.task_id, context, repository, for_update=True)
-        run = repository.get_run(run_id, context) or run
-        runtime = AgentRuntime(budgeted_model_gateway(context, model_gateway), repository, tools=tool_registry)
+    task_id = run.task_id
+    gateways: list[Any] = []
+
+    def runtime_for(repository: AnumRepository) -> AgentRuntime:
+        return AgentRuntime(gateways[0], repository, tools=tool_registry)
+
+    def begin(repository: AnumRepository) -> tuple[Task, AgentRun, ToolCall | None]:
+        task = _get_task_for_context(task_id, context, repository, for_update=True)
+        current = repository.get_run(run_id, context) or run
+        gateways.append(budgeted_model_gateway(context, model_gateway))
+        runtime = runtime_for(repository)
         try:
+            runtime.check_resumable(task, current)
             if run_dispatcher is not None:
                 # The worker resumes from the same checkpoint; this only (re)starts its workflow.
-                runtime.check_resumable(task, run)
-                await _dispatch(context, task.id, run.id)
-                return RunTaskResponse(task=task, run=run, approval=None)
-            resumed = await runtime.resume_run(task, run, context)
+                return task, current, None
+            call = runtime.begin_execution(task, current, context, record_resume=True)
         except ValueError as exc:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
-    repository.save_task(task)
-    repository.save_run(resumed)
-    approval = (
-        repository.get_approval(resumed.checkpoint.approval_id, context)
-        if resumed.checkpoint.approval_id
-        else None
-    )
-    return RunTaskResponse(task=task, run=resumed, approval=_approval_with_progress(approval, context, repository))
+        repository.save_task(task)
+        repository.save_run(current)
+        return task, current, call
+
+    async with _task_lock(context, task_id):
+        task, run, call = await run_in_unit(units, context, begin)
+        if run_dispatcher is not None:
+            await _dispatch(context, task.id, run.id)
+            return RunTaskResponse(task=task, run=run, approval=None)
+        if call is not None:
+            try:
+                task, run = await execute_committed(
+                    context, task, run, call, unit_of_work=units, runtime_factory=runtime_for
+                )
+            except RunClaimLost as exc:
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=exc.message) from exc
+
+    def shown(repository: AnumRepository) -> Approval | None:
+        approval = repository.get_approval(run.checkpoint.approval_id, context) if run.checkpoint.approval_id else None
+        return _approval_with_progress(approval, context, repository)
+
+    return RunTaskResponse(task=task, run=run, approval=await run_in_unit(units, context, shown))
 
 
 @app.get("/api/v1/events", response_model=list[DomainEvent])
@@ -1918,10 +1947,10 @@ async def approve(
     payload: ApprovalDecisionRequest,
     request: Request,
     context: TenantContext = Depends(tenant_context),
-    repository: AnumRepository = Depends(repository_context),
+    units: UnitsOfWork = Depends(units_of_work),
 ) -> ApprovalDecisionResponse | JSONResponse:
     # Owners hold approval:decide; anyone else may decide only an approval an organization
-    # approval rule routes to them (checked in _decide_approval_locked).
+    # approval rule routes to them (checked in _decide_in_unit).
     require_permission(context, Permission.APPROVAL_READ)
     # While the emergency stop is on a held action stays held: approving it is refused (423)
     # and it stays pending; rejecting it still works (docs/agent-controls.md).
@@ -1934,7 +1963,7 @@ async def approve(
         payload.reason,
         request,
         context,
-        repository,
+        units,
     )
 
 
@@ -1948,7 +1977,7 @@ async def reject(
     request: Request,
     payload: ApprovalRejectRequest | None = None,
     context: TenantContext = Depends(tenant_context),
-    repository: AnumRepository = Depends(repository_context),
+    units: UnitsOfWork = Depends(units_of_work),
 ) -> ApprovalDecisionResponse | JSONResponse:
     require_permission(context, Permission.APPROVAL_READ)
     return await _decide_approval(
@@ -1958,7 +1987,7 @@ async def reject(
         payload.reason if payload else None,
         request,
         context,
-        repository,
+        units,
     )
 
 
@@ -2040,15 +2069,59 @@ async def _decide_approval(
     reason: str | None,
     request: Request,
     context: TenantContext,
-    repository: AnumRepository,
+    units: UnitsOfWork,
 ) -> ApprovalDecisionResponse | JSONResponse:
-    approval = repository.get_approval(approval_id, context)
+    """Decide an approval with no transaction open while its tool runs (docs/realtime.md#event-loop).
+
+    1. One short unit locks the task and the approval (``FOR UPDATE``), checks everything
+       (pending, expiry, payload hash, routing and governance, the two-person rule, the
+       integration target), records the decision with its event and audit record and, for an
+       inline run whose last approval this is, commits the run as ``executing``. A second
+       approve of the same approval then finds it decided (409): it is used once.
+    2. The tool runs with no transaction and no row lock held.
+    3. A new short unit re-checks the claim (the run is still that ``executing`` checkpoint)
+       and records the outcome (``inline_runs.execute_committed``). A cancel meanwhile is kept
+       and answered 409; a tool that raises fails the run.
+    """
+    approval = await run_in_unit(units, context, lambda repository: repository.get_approval(approval_id, context))
     if not approval:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Approval not found")
     async with _task_lock(context, approval.task_id):
-        return await _decide_approval_locked(
-            approval_id, decision, shown_hash, reason, request, context, repository
+        decided = await run_in_unit(
+            units, context, _decide_in_unit, approval_id, decision, shown_hash, reason, request, context
         )
+        if decided.signal and run_dispatcher is not None:
+            # The workflow applies the decision; a lost signal is caught by its next poll.
+            await run_dispatcher.approval_decided(context, decided.task_id, approval_id)
+        if decided.execute is None or decided.runtime_factory is None:
+            return decided.response
+        task, run, call = decided.execute
+        try:
+            task, run = await execute_committed(
+                context, task, run, call,
+                unit_of_work=units,
+                runtime_factory=decided.runtime_factory,
+                approval_id=approval_id,
+            )
+        except RunClaimLost as exc:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=exc.message) from exc
+        response = decided.response
+        if not isinstance(response, ApprovalDecisionResponse):  # pragma: no cover - set with execute
+            return response
+        return response.model_copy(update={"task": task, "run": run})
+
+
+@dataclass
+class _Decided:
+    """What the decision's unit of work committed, and what is left to do with none open."""
+
+    response: ApprovalDecisionResponse | JSONResponse
+    task_id: str = ""
+    # Signal the durable workflow (ANUM_RUNTIME_BACKEND=temporal) after the commit.
+    signal: bool = False
+    # An inline run committed as ``executing``: run its tool, then settle it.
+    execute: tuple[Task, AgentRun, ToolCall] | None = None
+    runtime_factory: Callable[[AnumRepository], AgentRuntime] | None = None
 
 
 # Risk levels the optional two-person rule applies to (docs/approvals-and-risk.md, A6).
@@ -2420,15 +2493,17 @@ def _approval_with_progress(
     return shown
 
 
-async def _decide_approval_locked(
+def _decide_in_unit(
+    repository: AnumRepository,
     approval_id: str,
     decision: ApprovalStatus,
     shown_hash: str | None,
     reason: str | None,
     request: Request,
     context: TenantContext,
-    repository: AnumRepository,
-) -> ApprovalDecisionResponse | JSONResponse:
+) -> _Decided:
+    """Step 1 of ``_decide_approval``, in one short unit of work in a worker thread. A
+    returned refusal commits (its audit record stays); a raised one rolls back."""
     approval = repository.get_approval(approval_id, context)
     if not approval:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Approval not found")
@@ -2452,9 +2527,10 @@ async def _decide_approval_locked(
     if not has_permission(context, Permission.APPROVAL_DECIDE):
         delegated_refusal = _delegated_refusal(request, context, repository, task, approval, route, recorded, decision)
         if delegated_refusal is not None:
-            return delegated_refusal
+            return _Decided(delegated_refusal)
 
-    runtime = AgentRuntime(budgeted_model_gateway(context, model_gateway), repository, tools=tool_registry)
+    gateway = budgeted_model_gateway(context, model_gateway)
+    runtime = AgentRuntime(gateway, repository, tools=tool_registry)
     # The approval's own run: a retried task has several runs (docs/tasks.md#retry).
     run = (
         repository.get_run(approval.run_id, context) if approval.run_id else None
@@ -2462,19 +2538,20 @@ async def _decide_approval_locked(
     now = utc_now()
     if runtime.expire_if_due(task, approval, context, now):
         # Commit the expiry (and the failed run) but refuse the decision. Nothing is
-        # raised, so the request's unit of work commits before the 410 is sent.
-        if run_dispatcher is not None:
-            if run:
-                await run_dispatcher.approval_decided(context, task.id, approval.id)
-        elif run is not None and run.checkpoint.approval_id == approval.id:
+        # raised, so this unit of work commits before the 410 is sent.
+        if run_dispatcher is None and run is not None and run.checkpoint.approval_id == approval.id:
             runtime.begin_execution(task, run, context, approval=approval)
             repository.save_task(task)
             repository.save_run(run)
-        return error_response(
-            request,
-            status_code=status.HTTP_410_GONE,
-            code=ErrorCode.GONE,
-            message="Approval expired; the action was not executed",
+        return _Decided(
+            error_response(
+                request,
+                status_code=status.HTTP_410_GONE,
+                code=ErrorCode.GONE,
+                message="Approval expired; the action was not executed",
+            ),
+            task.id,
+            signal=run_dispatcher is not None and run is not None,
         )
     if shown_hash is not None or decision == ApprovalStatus.APPROVED:
         if approval.payload_hash is None or shown_hash != approval.payload_hash:
@@ -2493,7 +2570,7 @@ async def _decide_approval_locked(
                 request, context, repository, task, approval, now
             )
         if refusal is not None:
-            return refusal
+            return _Decided(refusal)
     if (
         decision == ApprovalStatus.APPROVED
         and approval.risk_level in TWO_PERSON_RISK_LEVELS
@@ -2516,27 +2593,31 @@ async def _decide_approval_locked(
                 metadata={"task_id": task.id, "tool": approval.action, "risk_level": approval.risk_level.value},
             )
         )
-        return error_response(
-            request,
-            status_code=status.HTTP_403_FORBIDDEN,
-            code=ErrorCode.FORBIDDEN,
-            message=(
-                "This workspace requires two people for high-risk actions: you created or "
-                "started this task, so another owner must approve it. You can still reject it."
-            ),
+        return _Decided(
+            error_response(
+                request,
+                status_code=status.HTTP_403_FORBIDDEN,
+                code=ErrorCode.FORBIDDEN,
+                message=(
+                    "This workspace requires two people for high-risk actions: you created or "
+                    "started this task, so another owner must approve it. You can still reject it."
+                ),
+            )
         )
 
     if decision == ApprovalStatus.APPROVED and runtime.refuse_changed_target(task, run, approval, context, now):
         # Every approve, partial or final, re-checks the integration target the way
         # execution does. Nothing is raised, so the expired approval, the failed run and
-        # the approval.target_mismatch audit record commit with this request.
+        # the approval.target_mismatch audit record commit with this unit of work.
         repository.save_task(task)
         if run is not None:
             repository.save_run(run)
-            if run_dispatcher is not None:
-                await run_dispatcher.approval_decided(context, task.id, approval.id)
-        return ApprovalDecisionResponse(
-            approval=_approval_with_progress(approval, context, repository) or approval, task=task, run=run
+        return _Decided(
+            ApprovalDecisionResponse(
+                approval=_approval_with_progress(approval, context, repository) or approval, task=task, run=run
+            ),
+            task.id,
+            signal=run is not None and run_dispatcher is not None,
         )
 
     approvers = recorded
@@ -2565,8 +2646,10 @@ async def _decide_approval_locked(
         approvers = [*approvers, approver]
         if len(approvers) < requirements.required:
             _learn_from_decision(context, approval, ApprovalStatus.APPROVED, reason)
-            return _record_partial_approval(
-                context, repository, task, run, approval, approvers, requirements, reason, now
+            return _Decided(
+                _record_partial_approval(
+                    context, repository, task, run, approval, approvers, requirements, reason, now
+                )
             )
 
     approval.status = decision
@@ -2620,15 +2703,19 @@ async def _decide_approval_locked(
     _learn_from_decision(context, approval, decision, reason)
     (shown,) = _with_progress([approval], context, repository)
     if run_dispatcher is not None:
-        # The workflow applies the decision; a lost signal is caught by its next poll.
-        if run:
-            await run_dispatcher.approval_decided(context, task.id, approval.id)
-        return ApprovalDecisionResponse(approval=shown, task=task, run=run)
-    resumed_run = await runtime.resume_after_approval(task, run, approval, context) if run else None
+        return _Decided(ApprovalDecisionResponse(approval=shown, task=task, run=run), task.id, signal=run is not None)
+    # Inline: re-check the payload hash, expiry, target and policy, and commit the run as
+    # ``executing`` with the decision; the tool runs after this unit of work has committed.
+    call = runtime.begin_execution(task, run, context, approval=approval) if run else None
     repository.save_task(task)
-    if resumed_run:
-        repository.save_run(resumed_run)
-    return ApprovalDecisionResponse(approval=shown, task=task, run=resumed_run)
+    if run:
+        repository.save_run(run)
+    return _Decided(
+        ApprovalDecisionResponse(approval=shown, task=task, run=run),
+        task.id,
+        execute=(task, run, call) if run is not None and call is not None else None,
+        runtime_factory=lambda unit: AgentRuntime(gateway, unit, tools=tool_registry),
+    )
 
 
 def _learn_from_decision(
