@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import inspect
 import json
 import logging
 from collections.abc import Callable, Coroutine
@@ -474,9 +475,10 @@ def fingerprint(value: Any) -> str:
     return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":"), default=str).encode()).hexdigest()
 
 
-def _run(awaitable: Coroutine[Any, Any, T]) -> T:
-    """Run an ``async def`` route function from this worker thread (never on the event loop)."""
-    return asyncio.run(awaitable)
+def _run(awaitable: Coroutine[Any, Any, T] | T) -> T:
+    """Run an ``async def`` route function from this worker thread (never on the event loop).
+    A plain ``def`` route has already run when it is called: its value is returned as is."""
+    return asyncio.run(awaitable) if inspect.iscoroutine(awaitable) else awaitable  # type: ignore[return-value]
 
 
 def _error_text(exc: Exception) -> str:

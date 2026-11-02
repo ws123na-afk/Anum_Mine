@@ -259,7 +259,7 @@ def agent_run_profile(context: TenantContext, profile: AgentProfile) -> AgentRun
 
 
 @router.get("/skills/usage", response_model=SkillUsagePage)
-async def skill_usage(context: TenantContext = Depends(tenant_context)) -> SkillUsagePage:
+def skill_usage(context: TenantContext = Depends(tenant_context)) -> SkillUsagePage:
     """Which of the agents the caller can see load each skill."""
     require_permission(context, Permission.TASK_READ)
     with open_agent_store(context) as store:
@@ -277,7 +277,7 @@ async def skill_usage(context: TenantContext = Depends(tenant_context)) -> Skill
 
 
 @router.get("/{agent_id}/skills", response_model=AgentSkillLoadout)
-async def agent_skills(agent_id: str, context: TenantContext = Depends(tenant_context)) -> AgentSkillLoadout:
+def agent_skills(agent_id: str, context: TenantContext = Depends(tenant_context)) -> AgentSkillLoadout:
     """The agent's skills with their state, version, tools and how they load."""
     require_permission(context, Permission.TASK_READ)
     with open_agent_store(context) as store:

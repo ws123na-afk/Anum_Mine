@@ -30,6 +30,8 @@ or a workspace owner for a shared collection.
 
 from __future__ import annotations
 
+import asyncio
+
 import logging
 import re
 from collections.abc import Iterator
@@ -49,7 +51,7 @@ from .memory import KNOWLEDGE_BASE_SOURCE_TYPE, MemoryNote, MemoryProvenance, Re
 from .model_budget import ModelBudgetExceededError, check_model_budget
 from .model_gateway import ChatMessage, ModelGateway, ModelRoute, route_gateway
 from .prompt_provenance import Provenance, label_untrusted, with_untrusted_rules
-from .retrieval import IndexStatus, RetrievalIndexer, SourceType, build_embedder, open_retrieval_store
+from .retrieval import IndexStatus, SourceType, build_embedder, open_retrieval_store
 from .schemas import TenantContext, new_id, utc_now
 from .scoped_store import open_scoped_store
 from .voice import voice_model_gateway
@@ -537,7 +539,7 @@ def _touch(context: TenantContext, collection: Collection) -> None:
 
 
 @router.get("/collections", response_model=list[CollectionView])
-async def list_collections(context: TenantContext = Depends(tenant_context)) -> list[CollectionView]:
+def list_collections(context: TenantContext = Depends(tenant_context)) -> list[CollectionView]:
     require_permission(context, Permission.MEMORY_READ)
     with open_knowledge_store(context) as store:
         collections = store.list_collections(context)
@@ -546,7 +548,7 @@ async def list_collections(context: TenantContext = Depends(tenant_context)) -> 
 
 
 @router.post("/collections", response_model=CollectionView, status_code=status.HTTP_201_CREATED)
-async def create_collection(payload: CollectionCreate, context: TenantContext = Depends(tenant_context)) -> CollectionView:
+def create_collection(payload: CollectionCreate, context: TenantContext = Depends(tenant_context)) -> CollectionView:
     require_permission(context, Permission.MEMORY_CREATE)
     now = utc_now()
     collection = Collection(
@@ -568,7 +570,7 @@ async def create_collection(payload: CollectionCreate, context: TenantContext = 
 
 
 @router.get("/collections/{collection_id}", response_model=CollectionView)
-async def get_collection(collection_id: str, context: TenantContext = Depends(tenant_context)) -> CollectionView:
+def get_collection(collection_id: str, context: TenantContext = Depends(tenant_context)) -> CollectionView:
     require_permission(context, Permission.MEMORY_READ)
     collection = _collection_or_404(context, collection_id)
     with open_knowledge_store(context) as store:
@@ -577,7 +579,7 @@ async def get_collection(collection_id: str, context: TenantContext = Depends(te
 
 
 @router.patch("/collections/{collection_id}", response_model=CollectionView)
-async def update_collection(
+def update_collection(
     collection_id: str, payload: CollectionUpdate, context: TenantContext = Depends(tenant_context)
 ) -> CollectionView:
     require_permission(context, Permission.MEMORY_READ)
@@ -596,7 +598,7 @@ async def update_collection(
 
 
 @router.delete("/collections/{collection_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_collection(collection_id: str, context: TenantContext = Depends(tenant_context)) -> Response:
+def delete_collection(collection_id: str, context: TenantContext = Depends(tenant_context)) -> Response:
     """Delete the collection and its notes. Documents stay in Files."""
     require_permission(context, Permission.MEMORY_READ)
     collection = _collection_or_404(context, collection_id)
@@ -626,7 +628,7 @@ def _delete_notes(context: TenantContext, note_ids: list[str]) -> None:
 
 
 @router.get("/collections/{collection_id}/items", response_model=ItemPage)
-async def list_items(
+def list_items(
     collection_id: str,
     q: str | None = Query(default=None, max_length=200),
     tag: str | None = Query(default=None, max_length=TAG_CHARS),
@@ -664,15 +666,24 @@ async def upload_document(
     context: TenantContext = Depends(tenant_context),
 ) -> ItemView:
     """Upload a document into the collection: a workspace file, indexed, then organised here."""
-    collection = _collection_or_404(context, collection_id)
-    _require_add(context, collection)
-    _check_room(context, collection)
+    collection = await asyncio.to_thread(_addable_collection, context, collection_id)
     from .files import upload_file
 
     record = await upload_file(
         request, context, name_param=name, x_file_name=x_file_name, x_content_sha256=x_content_sha256
     )
     item = _new_item(context, collection, ItemKind.FILE, record.id, record.name, (x_item_tags or "").split(","))
+    return await asyncio.to_thread(_save_new_item, context, collection, item)
+
+
+def _addable_collection(context: TenantContext, collection_id: str) -> Collection:
+    collection = _collection_or_404(context, collection_id)
+    _require_add(context, collection)
+    _check_room(context, collection)
+    return collection
+
+
+def _save_new_item(context: TenantContext, collection: Collection, item: Item) -> ItemView:
     with open_knowledge_store(context) as store:
         store.save_item(item)
     _touch(context, collection)
@@ -680,7 +691,7 @@ async def upload_document(
 
 
 @router.post("/collections/{collection_id}/files", response_model=ItemView, status_code=status.HTTP_201_CREATED)
-async def link_file(
+def link_file(
     collection_id: str, payload: FileLink, context: TenantContext = Depends(tenant_context)
 ) -> ItemView:
     """Organise an existing workspace file in the collection."""
@@ -705,9 +716,7 @@ async def create_note(
     collection_id: str, payload: NoteCreate, context: TenantContext = Depends(tenant_context)
 ) -> NoteView:
     """Write a note in the collection: a memory (private in a private collection), indexed."""
-    collection = _collection_or_404(context, collection_id)
-    _require_add(context, collection)
-    _check_room(context, collection)
+    collection = await asyncio.to_thread(_addable_collection, context, collection_id)
     now = utc_now()
     note = MemoryNote(
         id=new_id("mem"),
@@ -726,20 +735,29 @@ async def create_note(
         created_at=now,
         owner_user_id=collection.owner_user_id,
     )
-    from .retrieval_api import index_memory_note
+    from .retrieval_api import index_committed_note
 
-    with open_memory_repository(context) as memories:
-        stored = memories.create(note)
-        await index_memory_note(context, stored, memories)
+    def create() -> MemoryNote:
+        with open_memory_repository(context) as memories:
+            return memories.create(note)
+
+    # The note commits in a worker thread, then is indexed with no transaction held across
+    # the embedding (docs/realtime.md#event-loop).
+    stored = await asyncio.to_thread(create)
+    await index_committed_note(context, stored)
     item = _new_item(context, collection, ItemKind.NOTE, stored.id, payload.title, payload.tags)
-    try:
-        with open_knowledge_store(context) as store:
-            store.save_item(item)
-    except BaseException:
-        _delete_notes(context, [stored.id])  # never leave an unlisted note behind
-        raise
-    _touch(context, collection)
-    return NoteView(**_views(context, [item])[0].model_dump(), content=stored.content)
+
+    def list_it() -> NoteView:
+        try:
+            with open_knowledge_store(context) as store:
+                store.save_item(item)
+        except BaseException:
+            _delete_notes(context, [stored.id])  # never leave an unlisted note behind
+            raise
+        _touch(context, collection)
+        return NoteView(**_views(context, [item])[0].model_dump(), content=stored.content)
+
+    return await asyncio.to_thread(list_it)
 
 
 def _item_or_404(context: TenantContext, item_id: str) -> Item:
@@ -757,7 +775,7 @@ def _may_edit_item(item: Item, collection: Collection, context: TenantContext) -
 
 
 @router.get("/items/{item_id}", response_model=NoteView | ItemView)
-async def get_item(item_id: str, context: TenantContext = Depends(tenant_context)) -> ItemView:
+def get_item(item_id: str, context: TenantContext = Depends(tenant_context)) -> ItemView:
     require_permission(context, Permission.MEMORY_READ)
     item = _item_or_404(context, item_id)
     view = _views(context, [item])[0]
@@ -770,8 +788,7 @@ async def get_item(item_id: str, context: TenantContext = Depends(tenant_context
 @router.patch("/items/{item_id}", response_model=NoteView | ItemView)
 async def update_item(item_id: str, payload: ItemUpdate, context: TenantContext = Depends(tenant_context)) -> ItemView:
     require_permission(context, Permission.MEMORY_READ)
-    item = _item_or_404(context, item_id)
-    collection = _collection_or_404(context, item.collection_id)
+    item, collection = await asyncio.to_thread(_item_and_collection, context, item_id)
     if not _may_edit_item(item, collection, context):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Only the item's author or the collection's manager can change it")
     if payload.content is not None and item.kind != ItemKind.NOTE:
@@ -782,32 +799,48 @@ async def update_item(item_id: str, payload: ItemUpdate, context: TenantContext 
         item.tags = _tags(payload.tags)
     content: str | None = None
     if payload.content is not None:
-        from .retrieval_api import index_memory_note
+        from .retrieval_api import index_committed_note
+        text = payload.content.strip()
 
-        with open_memory_repository(context) as memories:
-            note = memories.get(item.source_id, context)
-            if note is None:
-                raise HTTPException(status.HTTP_404_NOT_FOUND, "This note's text is gone; delete the item")
-            provenance = note.provenance.model_copy(update={"created_at": utc_now()})
-            updated = memories.update_content(note.id, context, payload.content.strip(), provenance, utc_now())
-            if updated is None:
-                raise HTTPException(status.HTTP_404_NOT_FOUND, "This note's text is gone; delete the item")
-            await index_memory_note(context, updated, memories)
-            content = updated.content
+        def rewrite() -> MemoryNote:
+            with open_memory_repository(context) as memories:
+                note = memories.get(item.source_id, context)
+                if note is None:
+                    raise HTTPException(status.HTTP_404_NOT_FOUND, "This note's text is gone; delete the item")
+                provenance = note.provenance.model_copy(update={"created_at": utc_now()})
+                updated = memories.update_content(note.id, context, text, provenance, utc_now())
+                if updated is None:
+                    raise HTTPException(status.HTTP_404_NOT_FOUND, "This note's text is gone; delete the item")
+                return updated
+
+        # Committed in a worker thread, then indexed with no transaction held across the embedding.
+        updated = await asyncio.to_thread(rewrite)
+        await index_committed_note(context, updated)
+        content = updated.content
     item.updated_at = utc_now()
-    with open_knowledge_store(context) as store:
-        store.save_item(item)
-    view = _views(context, [item])[0]
-    if item.kind == ItemKind.NOTE:
-        if content is None:
-            note_now = _live_notes(context, {item.source_id}).get(item.source_id)
-            content = note_now.content if note_now else ""
-        return NoteView(**view.model_dump(), content=content)
-    return view
+
+    def save() -> ItemView:
+        with open_knowledge_store(context) as store:
+            store.save_item(item)
+        view = _views(context, [item])[0]
+        if item.kind == ItemKind.NOTE:
+            text = content
+            if text is None:
+                note_now = _live_notes(context, {item.source_id}).get(item.source_id)
+                text = note_now.content if note_now else ""
+            return NoteView(**view.model_dump(), content=text)
+        return view
+
+    return await asyncio.to_thread(save)
+
+
+def _item_and_collection(context: TenantContext, item_id: str) -> tuple[Item, Collection]:
+    item = _item_or_404(context, item_id)
+    return item, _collection_or_404(context, item.collection_id)
 
 
 @router.delete("/items/{item_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_item(item_id: str, context: TenantContext = Depends(tenant_context)) -> Response:
+def delete_item(item_id: str, context: TenantContext = Depends(tenant_context)) -> Response:
     """Remove an item. A note is deleted with it; a document stays in Files."""
     require_permission(context, Permission.MEMORY_DELETE)
     item = _item_or_404(context, item_id)
@@ -834,38 +867,42 @@ class ReindexResult(BaseModel):
 async def reindex_collection(collection_id: str, context: TenantContext = Depends(tenant_context)) -> ReindexResult:
     """(Re)index the collection's documents and notes that are missing, failed or changed."""
     require_permission(context, Permission.MEMORY_CREATE)
-    collection = _collection_or_404(context, collection_id)
     from .files import file_store
-    from .retrieval_api import default_model_gateway
+    from .retrieval_api import _file_indexer
 
-    with open_knowledge_store(context) as store:
-        items = store.list_items(context, collection.id)
-    files = _file_records(context, {i.source_id for i in items if i.kind == ItemKind.FILE})
-    notes = _live_notes(context, {i.source_id for i in items if i.kind == ItemKind.NOTE})
+    def load() -> tuple[list[Item], dict[str, Any], dict[str, Any]]:
+        collection = _collection_or_404(context, collection_id)
+        with open_knowledge_store(context) as store:
+            items = store.list_items(context, collection.id)
+        files = _file_records(context, {i.source_id for i in items if i.kind == ItemKind.FILE})
+        notes = _live_notes(context, {i.source_id for i in items if i.kind == ItemKind.NOTE})
+        return items, files, notes
+
+    # Reads in a worker thread; the indexer opens a short unit of work per store call in a
+    # worker thread too, so nothing is held on the loop or across an embedding.
+    items, files, notes = await asyncio.to_thread(load)
     result = ReindexResult(items=[])
-    embedder = build_embedder(context, default_model_gateway())
+    indexer = await _file_indexer(context)
     for item in items:
-        with open_retrieval_store(context) as retrieval:
-            indexer = RetrievalIndexer(retrieval, embedder)
-            if item.kind == ItemKind.FILE:
-                record = files.get(item.source_id)
-                if record is None:
-                    result.missing += 1
-                    continue
-                try:
-                    content = file_store.storage.get(record.storage_key)
-                except FileNotFoundError:
-                    result.missing += 1
-                    continue
-                outcome = await indexer.index_file(context, record, content)
-            else:
-                note = notes.get(item.source_id)
-                if note is None:
-                    result.missing += 1
-                    continue
-                if note.owner_user_id is not None and note.owner_user_id != context.user_id:
-                    continue
-                outcome = await indexer.index_memory(context, note)
+        if item.kind == ItemKind.FILE:
+            record = files.get(item.source_id)
+            if record is None:
+                result.missing += 1
+                continue
+            try:
+                content = await asyncio.to_thread(file_store.storage.get, record.storage_key)
+            except FileNotFoundError:
+                result.missing += 1
+                continue
+            outcome = await indexer.index_file(context, record, content)
+        else:
+            note = notes.get(item.source_id)
+            if note is None:
+                result.missing += 1
+                continue
+            if note.owner_user_id is not None and note.owner_user_id != context.user_id:
+                continue
+            outcome = await indexer.index_memory(context, note)
         if outcome.reused:
             result.reused += 1
         elif outcome.status == IndexStatus.INDEXED:
@@ -874,7 +911,7 @@ async def reindex_collection(collection_id: str, context: TenantContext = Depend
             result.failed += 1
         else:
             result.skipped += 1
-    result.items = _views(context, items)
+    result.items = await asyncio.to_thread(_views, context, items)
     return result
 
 

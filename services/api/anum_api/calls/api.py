@@ -8,6 +8,8 @@ lift opt-outs. Every state change is audited with ids and counts only.
 
 from __future__ import annotations
 
+import asyncio
+
 import logging
 import re
 from datetime import date, datetime, timezone
@@ -709,12 +711,17 @@ def delete_call(call_id: str, context: TenantContext = Depends(tenant_context)) 
 async def summarize_call(call_id: str, context: TenantContext = Depends(tenant_context)) -> CallView:
     """Write the AI summary and a suggested follow-up from the notes or transcript (budgeted)."""
     require(context, Permission.CALL_LOG)
-    with open_calls_store(context) as store:
-        entry = _call_or_404(store, call_id)
-    require_edit(context, entry.user_id)
-    if not (entry.notes or entry.transcript):
-        raise HTTPException(status_code=422, detail="Add notes about the call first; the summary is written from them.")
-    gateway = ai.call_gateway(context)
+
+    def load() -> tuple[CallEntry, Any]:
+        with open_calls_store(context) as store:
+            entry = _call_or_404(store, call_id)
+        require_edit(context, entry.user_id)
+        if not (entry.notes or entry.transcript):
+            raise HTTPException(status_code=422, detail="Add notes about the call first; the summary is written from them.")
+        return entry, ai.call_gateway(context)
+
+    # Reads and writes run in worker threads; only the model call waits on the loop.
+    entry, gateway = await asyncio.to_thread(load)
     if not ai.model_ready(gateway):
         raise HTTPException(status_code=409, detail="Summaries need a real model. Connect one in Settings > Model; the notes are saved.")
     try:
@@ -723,12 +730,16 @@ async def summarize_call(call_id: str, context: TenantContext = Depends(tenant_c
         if not isinstance(exc, (ModelBudgetExceededError, ai.CallAiParseError)):
             logger.warning("call_summary_failed", extra={"anum_error_class": type(exc).__name__})
         raise _model_error(exc) from None
-    with open_calls_store(context) as store:
-        current = _call_or_404(store, call_id, lock=True)
-        saved = service.apply_summary(current, result)
-        store.save_call(saved)
-    service.audit(context, "call.summarized", call_id, metadata={"follow_up": saved.follow_up is not None, "model": result.provenance.get("model")})
-    return _call_view(context, saved)
+
+    def save() -> CallView:
+        with open_calls_store(context) as store:
+            current = _call_or_404(store, call_id, lock=True)
+            saved = service.apply_summary(current, result)
+            store.save_call(saved)
+        service.audit(context, "call.summarized", call_id, metadata={"follow_up": saved.follow_up is not None, "model": result.provenance.get("model")})
+        return _call_view(context, saved)
+
+    return await asyncio.to_thread(save)
 
 
 @router.put("/log/{call_id}/follow-up", response_model=CallView)
@@ -850,8 +861,7 @@ async def save_provider(payload: ProviderUpdate, context: TenantContext = Depend
         ))
     if (payload.api_key_sid is None) != (payload.twiml_app_sid is None):
         raise HTTPException(status_code=422, detail="Browser calls need both the API key SID and the TwiML app SID (or neither).")
-    with open_calls_store(context) as store:
-        existing = store.get_provider()
+    existing = await asyncio.to_thread(_stored_provider, context)
     old = service.credentials_of(existing) if existing is not None else None
     auth_token = payload.auth_token or (old.auth_token if old and existing and existing.account_sid == payload.account_sid else None)
     if not auth_token:
@@ -865,7 +875,7 @@ async def save_provider(payload: ProviderUpdate, context: TenantContext = Depend
     try:
         detail = await checker.check()
     except ProviderError as exc:
-        service.audit(context, "call.provider.check", "twilio", outcome="failure", metadata={"stage": "save"})
+        await asyncio.to_thread(service.audit, context, "call.provider.check", "twilio", outcome="failure", metadata={"stage": "save"})
         raise HTTPException(status_code=422, detail=f"Not saved: {exc.detail}") from None
     now = utc_now()
     account = ProviderAccount(
@@ -880,34 +890,46 @@ async def save_provider(payload: ProviderUpdate, context: TenantContext = Depend
         cost_per_minute_cents=payload.cost_per_minute_cents, last_check_status="ok", last_check_detail=detail[:500], last_checked_at=now,
         updated_by=context.user_id, created_at=existing.created_at if existing else now, updated_at=now,
     )
-    with open_calls_store(context) as store:
-        store.save_provider(account)
-    service.audit(context, "call.provider.saved", "twilio", metadata={
-        "replaced": existing is not None, "browser_calls": bool(account.api_key_sid), "recording": account.recording_enabled,
-        "ai_calls": account.ai_calls_enabled, "inbound_ai": account.inbound_ai_enabled,
-    })
+
+    def save() -> None:
+        with open_calls_store(context) as store:
+            store.save_provider(account)
+        service.audit(context, "call.provider.saved", "twilio", metadata={
+            "replaced": existing is not None, "browser_calls": bool(account.api_key_sid), "recording": account.recording_enabled,
+            "ai_calls": account.ai_calls_enabled, "inbound_ai": account.inbound_ai_enabled,
+        })
+
+    await asyncio.to_thread(save)
     return _provider_view(account)
 
 
 @router.post("/provider/check", response_model=ProviderView)
 async def check_provider(context: TenantContext = Depends(tenant_context)) -> ProviderView:
     require(context, Permission.CALL_MANAGE)
-    with open_calls_store(context) as store:
-        account = store.get_provider()
+    account = await asyncio.to_thread(_stored_provider, context)
     if account is None:
         raise HTTPException(status_code=404, detail="No voice provider is connected.")
     try:
         detail, result = await service.voice(account).check(), "ok"
     except ProviderError as exc:
         detail, result = exc.detail, "failed"
+
+    def record() -> ProviderAccount:
+        with open_calls_store(context) as store:
+            current = store.get_provider()
+            if current is None:
+                raise HTTPException(status_code=404, detail="No voice provider is connected.")
+            current = current.model_copy(update={"last_check_status": result, "last_check_detail": detail[:500], "last_checked_at": utc_now()})
+            store.save_provider(current)
+        service.audit(context, "call.provider.check", "twilio", outcome="success" if result == "ok" else "failure")
+        return current
+
+    return _provider_view(await asyncio.to_thread(record))
+
+
+def _stored_provider(context: TenantContext) -> ProviderAccount | None:
     with open_calls_store(context) as store:
-        current = store.get_provider()
-        if current is None:
-            raise HTTPException(status_code=404, detail="No voice provider is connected.")
-        current = current.model_copy(update={"last_check_status": result, "last_check_detail": detail[:500], "last_checked_at": utc_now()})
-        store.save_provider(current)
-    service.audit(context, "call.provider.check", "twilio", outcome="success" if result == "ok" else "failure")
-    return _provider_view(current)
+        return store.get_provider()
 
 
 @router.delete("/provider", status_code=status.HTTP_204_NO_CONTENT)

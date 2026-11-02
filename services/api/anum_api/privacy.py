@@ -37,6 +37,8 @@ never content.
 
 from __future__ import annotations
 
+import asyncio
+
 import json
 import logging
 from collections.abc import Iterator
@@ -1388,7 +1390,7 @@ def _notes(language: Language) -> dict[str, str]:
 
 
 @router.get("", response_model=PrivacySummary)
-async def privacy_summary(
+def privacy_summary(
     context: TenantContext = Depends(tenant_context),
     language: Language = Depends(request_language),
 ) -> PrivacySummary:
@@ -1423,7 +1425,7 @@ async def privacy_summary(
     "/export",
     responses={200: {"content": {"application/json": {}}, "description": "The caller's data (anum.privacy-export/v1)"}},
 )
-async def export_my_data(context: TenantContext = Depends(tenant_context)) -> Response:
+def export_my_data(context: TenantContext = Depends(tenant_context)) -> Response:
     _require_member(context)
     limit = settings.privacy_export_max_bytes
     with open_privacy_store(context) as store:
@@ -1467,11 +1469,23 @@ async def delete_my_data(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"Type {DELETE_CONFIRMATION} exactly to confirm. Nothing was deleted.",
         )
-    with open_privacy_store(context) as store:
-        private_mailboxes = [item for item in store.email_accounts_connected() if str(item.visibility) == "private"]
+    private_mailboxes = await asyncio.to_thread(_private_mailboxes, context)
     # Withdraw ANUM's access at the provider first (as disconnecting a mailbox does), outside
     # the database transaction; a failure never stops the deletion.
     notes, revoked = await revoke_mailboxes(private_mailboxes)
+    # The deletion runs in a worker thread, never on the event loop (docs/realtime.md#event-loop).
+    deleted, kept = await asyncio.to_thread(_delete_private, context, revoked)
+    return DeleteResult(
+        deleted=deleted, kept=kept, notes=[localize_message(note, language) for note in notes], **_notes(language)
+    )
+
+
+def _private_mailboxes(context: TenantContext) -> list[EmailAccount]:
+    with open_privacy_store(context) as store:
+        return [item for item in store.email_accounts_connected() if str(item.visibility) == "private"]
+
+
+def _delete_private(context: TenantContext, revoked: int) -> tuple[Any, Any]:
     # Calls (and their recording files) go first, in their own units of work.
     calls_deleted = delete_my_calls(context)
     with open_privacy_store(context) as store:
@@ -1490,9 +1504,7 @@ async def delete_my_data(
             file_store.storage.delete(key)
         except Exception as exc:  # the metadata is gone, so the bytes are unreachable
             logger.warning("privacy_recording_delete_failed error_class=%s", type(exc).__name__)
-    return DeleteResult(
-        deleted=deleted, kept=kept, notes=[localize_message(note, language) for note in notes], **_notes(language)
-    )
+    return deleted, kept
 
 
 async def revoke_mailboxes(accounts: list[EmailAccount]) -> tuple[list[str], int]:
