@@ -121,6 +121,11 @@ function PreflightResult({ result, titleId }: { result: FinancePreflight; titleI
     <ul className="finRules finPreconditions">{result.system_preconditions.map((p) => <li key={p.code} className={p.met ? '' : 'finUnmet'}>
       {p.met ? <CircleCheck aria-hidden="true" /> : <CircleX aria-hidden="true" />}
       <span>{t(`finance.live.pre.${p.code}` as MessageKey)}<span className="visuallyHidden"> {t(p.met ? 'finance.live.met' : 'finance.live.unmet')}</span></span></li>)}</ul>
+    {(result.broker_gates ?? []).length > 0 && <>
+      <h4 className="finSubHead">{t('finance.preflight.brokerGates')}</h4>
+      <ul className="finRules finPreconditions">{(result.broker_gates ?? []).map((p) => <li key={p.code} className={p.met ? '' : 'finUnmet'}>
+        {p.met ? <CircleCheck aria-hidden="true" /> : <CircleX aria-hidden="true" />}
+        <span>{p.message}<span className="visuallyHidden"> {t(p.met ? 'finance.live.met' : 'finance.live.unmet')}</span></span></li>)}</ul></>}
     {result.notes.length > 0 && <>
       <h4 className="finSubHead">{t('finance.preflight.notes')}</h4>
       <ul className="finRules">{result.notes.map((note) => {

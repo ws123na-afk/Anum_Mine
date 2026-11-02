@@ -372,7 +372,27 @@ def evaluate(action: GuardianAction, rules: GuardianRules, state: LedgerState) -
     return _decide(reasons)
 
 
-def gate(action: GuardianAction, rules: GuardianRules, state: LedgerState, *, simulated: bool = False) -> Decision:
+class LiveClearance:
+    """Proof that every live gate held for this one action (docs/finance-live-trading.md#locks).
+
+    Only ``ibkr_service`` makes one, after checking the deployment flag and broker, the owner's
+    live connection, paper proof, typed switch, cooling-off, limits, reconciliation and kill
+    switches. With it the kernel stops adding its own ``execution_not_available`` deny for a
+    trade; the person's rules still decide. Nothing else can lift that deny.
+    """
+
+    __slots__ = ("gates",)
+
+    def __init__(self, gates: list[str]) -> None:
+        self.gates = tuple(gates)
+
+
+LIVE_GATES = ("deployment_flag", "live_broker", "live_connection", "paper_proof", "owner_switch", "cooling_off", "limits",
+              "reconciliation", "kill_switches")
+
+
+def gate(action: GuardianAction, rules: GuardianRules, state: LedgerState, *, simulated: bool = False,
+         live: LiveClearance | None = None) -> Decision:
     """The mandatory check before any finance action: the rules plus the kernel's own limits.
 
     No rule can lift a kernel limit. ANUM moves no real money (stage 8 ships off and no live
@@ -388,6 +408,11 @@ def gate(action: GuardianAction, rules: GuardianRules, state: LedgerState, *, si
         reasons.append(Reason(
             code="simulated_only", outcome="allow",
             message="Simulated: nothing is bought, sold, paid or sent, and no real account is used.",
+        ))
+    elif action.kind == ActionKind.TRADE and live is not None and set(LIVE_GATES) <= set(live.gates):
+        reasons.append(Reason(
+            code="live_cleared", outcome="allow",
+            message="A real order: every live gate holds and you approve it yourself. Your rules decide.",
         ))
     elif action.kind in MONEY_MOVING:
         reasons.append(Reason(

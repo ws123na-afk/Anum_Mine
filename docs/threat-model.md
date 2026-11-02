@@ -136,6 +136,10 @@ Reviewed against [Approvals and risk](approvals-and-risk.md). The basic flow hol
 | A6 | **Fixed as an option (0012_approval_policy).** A single owner can create and approve their own high-risk task. | Done: per-workspace `two_person_rule` (owner-only, audited). When on, neither the task creator nor the user whose run proposed the call can approve a high-risk action (`403` with a clear message, `approval.self_approval_denied` audit record); another owner must. Off by default for single-user workspaces. | Low |
 | A7 | Skill selection is by keyword (`agent_skills.py:29`): any text containing a trigger word proposes the external action. | Acceptable while approval gates it; document the triggers and log selection reasons. | Low |
 
+### Live trading with Interactive Brokers
+
+The one path that can move real money ([finance-live-trading.md](finance-live-trading.md#security-review)): an agent can only propose paper orders and never approve (code and database); the owner approves each order with the payload hash, once, before it expires; every hard limit is checked at approval and again right before sending from fresh IBKR data; IBKR's "confirm this order" questions are always declined; the gateway is reached only on fixed hosts with a pinned certificate and no redirects; IBKR credentials (no password exists) are Fernet-encrypted, never returned and erased on disconnect; live needs the deployment flag, the named IBKR executor, the paper proof, the owner's typed code and a cooling-off, each tested on its own; the kill switch cancels every open order at IBKR and confirms each cancel.
+
 ## Gaps
 
 | # | Gap | Proposed fix | Needed before |

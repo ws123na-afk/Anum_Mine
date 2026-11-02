@@ -1,0 +1,168 @@
+{
+  "schema": "anum.hq.gpu-report/1",
+  "generatedAt": "2026-11-02T06:36:32.564Z",
+  "gpu": {
+    "webglVersion": 2,
+    "renderer": "ANGLE (Intel, Intel(R) UHD Graphics 620 (0x00005917) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+    "vendor": "Google Inc. (Intel)",
+    "unmasked": true,
+    "software": false,
+    "maxTextureSize": 16384,
+    "maxCubeMapSize": 16384,
+    "maxAnisotropy": 16,
+    "maxVertexUniformVectors": 4096,
+    "maxFragmentUniformVectors": 1024,
+    "extensions": [
+      "EXT_clip_control",
+      "EXT_color_buffer_float",
+      "EXT_color_buffer_half_float",
+      "EXT_conservative_depth",
+      "EXT_depth_clamp",
+      "EXT_disjoint_timer_query_webgl2",
+      "EXT_float_blend",
+      "EXT_polygon_offset_clamp",
+      "EXT_render_snorm",
+      "EXT_texture_compression_bptc",
+      "EXT_texture_compression_rgtc",
+      "EXT_texture_filter_anisotropic",
+      "EXT_texture_mirror_clamp_to_edge",
+      "EXT_texture_norm16",
+      "KHR_parallel_shader_compile",
+      "NV_shader_noperspective_interpolation",
+      "OES_draw_buffers_indexed",
+      "OES_sample_variables",
+      "OES_shader_multisample_interpolation",
+      "OES_texture_float_linear",
+      "OVR_multiview2",
+      "WEBGL_blend_func_extended",
+      "WEBGL_clip_cull_distance",
+      "WEBGL_compressed_texture_s3tc",
+      "WEBGL_compressed_texture_s3tc_srgb",
+      "WEBGL_debug_renderer_info",
+      "WEBGL_debug_shaders",
+      "WEBGL_lose_context",
+      "WEBGL_multi_draw",
+      "WEBGL_polygon_mode",
+      "WEBGL_provoking_vertex",
+      "WEBGL_stencil_texturing"
+    ],
+    "used": {
+      "EXT_color_buffer_float": true,
+      "EXT_color_buffer_half_float": true,
+      "OES_texture_float_linear": true,
+      "EXT_texture_filter_anisotropic": true,
+      "WEBGL_debug_renderer_info": true,
+      "KHR_parallel_shader_compile": true,
+      "EXT_disjoint_timer_query_webgl2": true
+    },
+    "dpr": 1.13,
+    "viewport": {
+      "width": 1707,
+      "height": 735
+    },
+    "cores": 8,
+    "deviceMemoryGb": 8,
+    "browser": "Chrome 156",
+    "os": "Windows"
+  },
+  "quality": {
+    "tier": "ultra",
+    "reason": "automatic",
+    "governorStep": 0,
+    "governorSteps": 7,
+    "dprScale": 1,
+    "shadowSize": 2048,
+    "bloom": true,
+    "lean": false,
+    "pinned": null
+  },
+  "tiers": [
+    {
+      "tier": 0,
+      "key": "low",
+      "frames": {
+        "count": 55,
+        "medianMs": 16.7,
+        "p95Ms": 516.5,
+        "worstMs": 3381.5,
+        "meanMs": 109.33,
+        "droppedFrames": 12,
+        "fps": 9.1
+      },
+      "drawCalls": 74,
+      "triangles": 141361,
+      "dpr": 1.13,
+      "shadowSize": 0,
+      "bloom": false,
+      "memoryEstimateMb": 26,
+      "floorChange": false
+    },
+    {
+      "tier": 1,
+      "key": "medium",
+      "frames": {
+        "count": 262,
+        "medianMs": 16.7,
+        "p95Ms": 16.8,
+        "worstMs": 566.3,
+        "meanMs": 19.07,
+        "droppedFrames": 4,
+        "fps": 52.4
+      },
+      "drawCalls": 74,
+      "triangles": 141361,
+      "dpr": 1.13,
+      "shadowSize": 1024,
+      "bloom": false,
+      "memoryEstimateMb": 30,
+      "floorChange": false
+    },
+    {
+      "tier": 2,
+      "key": "high",
+      "frames": {
+        "count": 238,
+        "medianMs": 16.7,
+        "p95Ms": 16.8,
+        "worstMs": 616.2,
+        "meanMs": 21,
+        "droppedFrames": 3,
+        "fps": 47.6
+      },
+      "drawCalls": 75,
+      "triangles": 141373,
+      "dpr": 1.13,
+      "shadowSize": 1024,
+      "bloom": false,
+      "memoryEstimateMb": 30,
+      "floorChange": false
+    },
+    {
+      "tier": 3,
+      "key": "ultra",
+      "frames": {
+        "count": 201,
+        "medianMs": 16.7,
+        "p95Ms": 66.7,
+        "worstMs": 516.1,
+        "meanMs": 24.86,
+        "droppedFrames": 14,
+        "fps": 40.2
+      },
+      "drawCalls": 74,
+      "triangles": 141361,
+      "dpr": 1.13,
+      "shadowSize": 2048,
+      "bloom": false,
+      "memoryEstimateMb": 42,
+      "floorChange": false
+    }
+  ],
+  "verdict": {
+    "kind": "reduced",
+    "tier": 2,
+    "fps": 60,
+    "tierKey": "high"
+  },
+  "notes": []
+}
