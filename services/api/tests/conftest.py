@@ -257,6 +257,14 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
             config.hook.pytest_deselected(items=live)
             items[:] = [item for item in items if "live_model" not in item.keywords]
 
+    # Real-browser tests need Playwright and Chromium: they run only when the -m expression
+    # names them (the "Browser research kernel" CI job), deselected otherwise, never skipped.
+    if "browser" not in (config.getoption("markexpr", "") or ""):
+        driven = [item for item in items if "browser" in item.keywords]
+        if driven:
+            config.hook.pytest_deselected(items=driven)
+            items[:] = [item for item in items if "browser" not in item.keywords]
+
     if os.getenv("ANUM_TEST_DATABASE_URL"):
         return
 

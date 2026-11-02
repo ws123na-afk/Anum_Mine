@@ -25,6 +25,8 @@ State at handoff: every PR from the 18 October session is merged into `main` (#1
 
 11. **Invitation and notification email** (`docs/notifications.md#email`, `docs/identity.md#invitation-email`): invitations and every Email switch send through ANUM's system mail. Fill `ANUM_SMTP_HOST`, `ANUM_SMTP_PORT`, `ANUM_SMTP_USERNAME`, `ANUM_SMTP_FROM` in `infra/oracle/.env` and put the mailbox's app password in `ANUM_SMTP_PASSWORD` (typed on the VM with `read -s`, never in chat), then `docker compose up -d api` and press **Send me a test email** in Settings, Notifications. Until then the invite form says ANUM cannot email and the owner copies the link.
 
+12. **Browser research** (`docs/browser-research.md#setting-it-up`, optional): add `browser` to `COMPOSE_PROFILES` and set `ANUM_BROWSER_RESEARCH_URL=http://browser:8090` in `infra/oracle/.env`, run `update.sh` (about 650 MB more disk), add the metadata drop rule, then turn it on per workspace under Integrations, Browser research. Until then `web.browse_page` says "Not available on this server".
+
 ## Build work still open (with reasons)
 
 - **Team calls:** no real-device call yet; no CallKit/ConnectionService screens, group calls, video switch mid-call or screen sharing; signaling polls the database instead of the event bus.

@@ -23,18 +23,20 @@ export type CoreOptions = Readonly<{
   /** The sign atlas cell with the floor's name; null draws no sign. */
   plate: SignCell | null;
   ghost: boolean;
+  /** Height of the shaft and the stair wall: up to the underside of the slab above, so the core carries it (default: the room walls). */
+  height?: number;
 }>;
 
 export function drawCore(opaque: MeshBuilder, glass: MeshBuilder, amb: MeshBuilder, o: CoreOptions): void {
   const { x, z, y, ghost } = o;
-  const W = CORE_WIDTH, D = CORE_DEPTH;
+  const W = CORE_WIDTH, D = CORE_DEPTH, H = o.height ?? WALL_HEIGHT;
   opaque.withMat(MAT.tile, () => opaque.box(x, y, z, W, 0.06, D, ghost ? scale(STONE, 0.8) : STONE, { skip: ['bottom'], shade: false, emissive: ghost ? 0.05 : 0.6 }));
   // The lift shaft: a cream block on the east side of the north half, full height with a cornice.
   const sx = x + 1.9, sw = W - 1.9, sd = 4.0;
-  opaque.withMat(MAT.concrete, () => opaque.box(sx, y + 0.06, z, sw, WALL_HEIGHT - 0.06, sd, hex('#e9e4d6'), { emissive: 0.25, grad: 0.15 }));
-  opaque.box(sx - 0.04, y + WALL_HEIGHT, z - 0.04, sw + 0.08, 0.1, sd + 0.08, hex('#45d0b5'), { emissive: 0.5, shade: false });
+  opaque.withMat(MAT.concrete, () => opaque.box(sx, y + 0.06, z, sw, H - 0.06, sd, hex('#e9e4d6'), { emissive: 0.25, grad: 0.15 }));
+  opaque.box(sx - 0.04, y + Math.min(H, WALL_HEIGHT), z - 0.04, sw + 0.08, 0.1, sd + 0.08, hex('#45d0b5'), { emissive: 0.5, shade: false });
   // The stair well on the south half: a back wall, a flight of steps rising towards +z and a glass balustrade on the open side.
-  opaque.withMat(MAT.concrete, () => opaque.box(sx, y + 0.06, z + sd + 0.6, sw, WALL_HEIGHT - 0.06, 0.12, hex('#e9e4d6'), { emissive: 0.25, grad: 0.15 }));
+  opaque.withMat(MAT.concrete, () => opaque.box(sx, y + 0.06, z + sd + 0.6, sw, H - 0.06, 0.12, hex('#e9e4d6'), { emissive: 0.25, grad: 0.15 }));
   if (ghost) return;
   for (const lx of [0, 1]) {
     const dx = sx - 0.01, dz = z + 0.55 + lx * 1.5;
