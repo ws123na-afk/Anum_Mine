@@ -1,0 +1,17 @@
+/* IBKR trading (docs/finance-live-trading.md). Shared finance tokens; content-driven heights only. */
+.ibkrPanel { display: grid; gap: var(--d-s4); min-width: 0; }
+.ibkrMode { letter-spacing: 0.04em; margin-inline-start: var(--d-s2); vertical-align: middle; }
+.ibkrStatus, .ibkrFigures { margin-block: var(--d-s3); }
+.ibkrCards { display: grid; gap: var(--d-s3); grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr)); }
+.ibkrCard { border: 1px solid var(--d-line); border-radius: var(--d-r-panel); display: grid; gap: var(--d-s3); min-width: 0; padding: var(--d-s3); }
+.ibkrCard h3 { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); margin: 0; }
+.ibkrActions { flex-wrap: wrap; }
+.ibkrTicket { max-width: 40rem; }
+.ibkrSide { border: 0; display: flex; flex-wrap: wrap; gap: var(--d-s3); margin: 0; padding: 0; }
+.ibkrEstimate { font-weight: 600; margin: 0; }
+.ibkrPlan { align-items: end; display: flex; flex-wrap: wrap; gap: var(--d-s3); }
+.ibkrPlan input { max-width: 9rem; }
+.ibkrCode strong { font-family: var(--font-mono); font-size: var(--text-lg); letter-spacing: 0.2em; }
+.ibkrUnread strong { font-weight: 700; }
+.ibkrReview dd { overflow-wrap: anywhere; }
+.ibkrDetail { color: var(--d-faint); display: block; font-size: var(--text-xs); }

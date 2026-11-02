@@ -764,6 +764,8 @@ export interface FinancePreflight {
   missing_research_requirements: FinancePreflightFact[];
   missing_live_review_requirements: FinancePreflightFact[];
   system_preconditions: FinanceLivePrecondition[];
+  /** For Interactive Brokers: the IBKR connector's own live gates for this person (docs/finance-live-trading.md#locks). */
+  broker_gates?: FinanceLivePrecondition[];
   notes: FinancePreflightNote[];
   broker: FinanceBrokerKind | null;
   assets: FinanceBrokerAsset[];

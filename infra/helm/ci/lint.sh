@@ -108,6 +108,12 @@ refuses "ANUM_SENTRY_DSN must look like" --set config.ANUM_SENTRY_DSN=https://er
 refuses "ANUM_FINANCE_LIVE_ENABLED must stay false" --set-string config.ANUM_FINANCE_LIVE_ENABLED=true
 refuses "ANUM_FINANCE_LIVE_ENABLED must stay false" --set-string extraEnv.ANUM_FINANCE_LIVE_ENABLED=1
 refuses "ANUM_FINANCE_WIDER_LIVE_ENABLED must stay false" --set-string config.ANUM_FINANCE_WIDER_LIVE_ENABLED=true
+# Live IBKR (docs/finance-live-trading.md#locks): only the reviewed broker lifts the startup refusal.
+refuses "ANUM_FINANCE_LIVE_BROKER must be empty or ibkr" --set-string config.ANUM_FINANCE_LIVE_BROKER=alpaca
+refuses "ANUM_FINANCE_LIVE_ENABLED must stay false" --set-string config.ANUM_FINANCE_LIVE_ENABLED=true --set-string config.ANUM_FINANCE_LIVE_BROKER=
+helm template anum "$CHART" -f "$CHART/values-staging.yaml" --set-string config.ANUM_FINANCE_LIVE_ENABLED=true \
+  --set-string config.ANUM_FINANCE_LIVE_BROKER=ibkr >/dev/null || fail "the chart must accept live IBKR, as the API does"
+log "accepted as expected: ANUM_FINANCE_LIVE_ENABLED=true with ANUM_FINANCE_LIVE_BROKER=ibkr"
 refuses "ANUM_FCM_SERVICE_ACCOUNT_JSON carries" --set-string config.ANUM_FCM_SERVICE_ACCOUNT_JSON=example-service-account
 refuses "ANUM_FCM_SERVICE_ACCOUNT_JSON carries" --set-string extraEnv.ANUM_FCM_SERVICE_ACCOUNT_JSON=example
 

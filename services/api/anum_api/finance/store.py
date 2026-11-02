@@ -169,6 +169,13 @@ class FinanceStore(Protocol):
     def delete_everything(self, context: TenantContext) -> int: ...
 
 
+def _ibkr_memory():  # type: ignore[no-untyped-def]
+    """The in-memory IBKR store (``ibkr_store``), deleted and counted with the rest of finance."""
+    from .ibkr_store import ibkr_memory_store
+
+    return ibkr_memory_store
+
+
 def mine(item: object, context: TenantContext) -> bool:
     return (
         item.tenant_id == context.tenant_id
@@ -806,7 +813,7 @@ class InMemoryFinanceStore:
         with self._lock:
             rows = sum(1 for table in self._tables() for v in table.values() if mine(v, context))
             keyed = (self.settings, self.plans, self.exec_settings)
-            return rows + sum(int(self._key(context) in table) for table in keyed)
+            return rows + sum(int(self._key(context) in table) for table in keyed) + _ibkr_memory().count_everything(context)
 
     def delete_everything(self, context: TenantContext) -> int:
         with self._lock:
@@ -818,7 +825,7 @@ class InMemoryFinanceStore:
             for keyed in (self.settings, self.plans, self.exec_settings):
                 if keyed.pop(self._key(context), None) is not None:
                     removed += 1
-            return removed
+            return removed + _ibkr_memory().delete_everything(context)
 
 
 finance_store = InMemoryFinanceStore()
