@@ -991,6 +991,12 @@ async def get_agent(agent_id: str, context: TenantContext = Depends(tenant_conte
 async def update_agent(
     agent_id: str, payload: AgentProfileUpdate, context: TenantContext = Depends(tenant_context)
 ) -> AgentProfileView:
+    return update_agent_governed(agent_id, payload, context)
+
+
+def update_agent_governed(agent_id: str, payload: AgentProfileUpdate, context: TenantContext) -> AgentProfileView:
+    """Synchronous body of ``PATCH /agents/{id}`` (permission, edit right, version check, capability checks,
+    audit), for callers that already run off the event loop (the office staffing apply uses it)."""
     require_permission(context, Permission.TASK_CREATE)
     changes = payload.model_dump(exclude_unset=True)
     expected_version = changes.pop("version", None)
