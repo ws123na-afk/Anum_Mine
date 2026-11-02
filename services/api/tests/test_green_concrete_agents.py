@@ -40,7 +40,7 @@ from anum_api.tyre.model import (
 
 TENANT, WORKSPACE = "tenant_gc_kit", "workspace_gc_kit"
 ARABIC = re.compile(r"[؀-ۿ]")
-LONG_DASHES = re.compile("[–—]")
+LONG_DASHES = re.compile("[\u2013\u2014]")
 
 
 def headers(user: str = "user_owner", role: str = "owner", workspace: str = WORKSPACE) -> dict[str, str]:

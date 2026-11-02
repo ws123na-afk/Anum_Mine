@@ -113,7 +113,7 @@ describe('messages', () => {
       assert.ok(arabic, key);
       assert.equal(placeholders(arabic), placeholders(value), key);
       assert.ok(/[؀-ۿ]/.test(JSON.stringify(arabic)), key);
-      assert.ok(!/[–—]/.test(JSON.stringify(value) + JSON.stringify(arabic)), key);
+      assert.ok(!/[\u2013\u2014]/.test(JSON.stringify(value) + JSON.stringify(arabic)), key);
     }
     for (const key of Object.keys(en).filter((k) => k.startsWith('agents.memory.'))) assert.ok(key in ar, key);
   });
