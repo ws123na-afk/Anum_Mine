@@ -45,8 +45,9 @@ export function WorkDrawer({ region, title, onClose, onRefresh, fullPage, foot, 
     heading.current?.focus();
     const key = (e: KeyboardEvent) => {
       if (e.key !== 'Escape' || e.defaultPrevented) return;
-      // A dialog opened over the drawer (a confirm, the assign dialog) closes first.
-      if (document.querySelector('[role=dialog][aria-modal=true]')) return;
+      // A dialog the person is working in (a confirm, the assign dialog) closes first.
+      const active = document.activeElement;
+      if (active instanceof HTMLElement && !active.closest('.hqWd') && active.closest('[role=dialog][aria-modal=true]')) return;
       e.preventDefault(); e.stopPropagation(); close.current();
     };
     document.addEventListener('keydown', key);
