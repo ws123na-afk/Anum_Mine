@@ -105,7 +105,10 @@ def admin_plan_view(plan: dict[str, Any]) -> dict[str, Any]:
             "created_at": plan["created_at"], "updated_at": plan["updated_at"]}
 
 
-def settings_view(row: dict[str, Any]) -> dict[str, Any]:
+STRIPE_EVENTS = ["checkout.session.completed", "charge.refunded", "refund.created", "refund.updated", "refund.failed"]
+
+
+def settings_view(row: dict[str, Any], issuer_tenant_id: str | None = None) -> dict[str, Any]:
     keys = ("issuer_name", "issuer_address", "issuer_vat_number", "issuer_email", "bank_name", "bank_account_name", "bank_iban",
             "bank_swift", "invoice_prefix", "credit_note_prefix", "payment_terms_days", "tax_rules", "default_tax_bp",
             "reminder_days", "grace_days", "sending_workspace_id", "stripe_enabled")
@@ -114,6 +117,9 @@ def settings_view(row: dict[str, Any]) -> dict[str, Any]:
     out["has_stripe_webhook_secret"] = bool(row.get("stripe_webhook_secret_ciphertext"))
     out["stripe_test_mode"] = row.get("stripe_key_mode") == "test" if row.get("stripe_key_mode") else None
     out["moyasar_enabled"] = bool(row.get("moyasar_enabled"))
+    # Where the owner points Stripe's webhook, and the events to send (docs/selling-readiness.md#stripe-uae).
+    out["stripe_webhook_url"] = f"/api/v1/billing/webhooks/stripe/{issuer_tenant_id}" if issuer_tenant_id else None
+    out["stripe_events"] = list(STRIPE_EVENTS)
     return out
 
 

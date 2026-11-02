@@ -2,7 +2,7 @@
 // (docs/business.md#emailing-an-invoice-and-reminders, docs/business.md#payment-links).
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
-import { emailBody, messageStatusLabel, messageTitle, messageTone, newPaymentKey, waitingMessages } from '../src/lib/invoices.ts';
+import { emailBody, linkProvider, messageStatusLabel, messageTitle, messageTone, newPaymentKey, waitingMessages } from '../src/lib/invoices.ts';
 import { setLocale, t } from '../src/lib/i18n.ts';
 
 describe('invoice emails and reminders', () => {
@@ -46,5 +46,25 @@ describe('idempotent payments', () => {
     assert.match(newPaymentKey(), /^pay-[A-Za-z0-9_-]{8,76}$/);
     assert.notEqual(newPaymentKey(), newPaymentKey());
     assert.equal(newPaymentKey(() => 'a/b c+d'), 'pay-abcd');
+  });
+});
+
+describe('card payment link provider (Moyasar or Stripe)', () => {
+  test('a shown link names its own provider', () => {
+    assert.equal(linkProvider({ provider: 'stripe' }, { moyasar: 'on', stripe: 'on', provider: 'moyasar', mode: 'test' }), 'stripe');
+    assert.equal(linkProvider({ provider: 'moyasar' }, null), 'moyasar');
+  });
+  test('without a link, the provider a new link would use, or none when card payments are off', () => {
+    assert.equal(linkProvider(null, { moyasar: 'off', stripe: 'on', provider: 'stripe', mode: 'live' }), 'stripe');
+    assert.equal(linkProvider(undefined, { moyasar: 'off', stripe: 'off', provider: null, mode: null }), null);
+    assert.equal(linkProvider(null, null), null);
+  });
+  test('each provider has a line in English and Arabic', () => {
+    for (const locale of ['en', 'ar'] as const) {
+      setLocale(locale);
+      for (const key of ['inv.link.via.moyasar', 'inv.link.via.stripe', 'inv.pay.viaStripe'] as const) assert.notEqual(t(key), key);
+    }
+    setLocale('en');
+    assert.match(t('inv.link.off'), /Stripe/);
   });
 });

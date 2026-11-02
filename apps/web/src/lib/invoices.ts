@@ -4,6 +4,7 @@
 import type {
   Billable, BillingProfile, BusinessCurrency, CreditNoteInput, CreditNoteStatus, InvoiceCreate, InvoiceListItem, InvoicePaymentState, InvoiceStatus, InvoiceSummary,
   InvoiceUpdate, LineKind, ManualInvoiceLine, PaymentInput, PaymentMethod, PaymentNoticeStatus, InvoiceEmailInput, InvoiceMessage, InvoiceMessageStatus,
+  BusinessPaymentProvider, CardProvider, InvoicePaymentLink,
 } from '@anum/contracts';
 import { t, type MessageKey } from './i18n.ts';
 import { formatMoney, parseAmount, type Tone } from './business.ts';
@@ -285,3 +286,9 @@ export function newPaymentKey(random: () => string = () => (globalThis.crypto?.r
 /** Whether a message is still waiting for an owner. */
 export const waitingMessages = (items: readonly Pick<InvoiceMessage, 'status' | 'kind'>[], kind: InvoiceMessage['kind']) =>
   items.some((item) => item.kind === kind && item.status === 'waiting_approval');
+
+/** The card provider a payment link block names: the shown link's own provider, else the one a new link would use
+ * (Moyasar when it is on, else Stripe, as the API decides), else none (card payments are off). */
+export function linkProvider(link: Pick<InvoicePaymentLink, 'provider'> | null | undefined, state: BusinessPaymentProvider | null): CardProvider | null {
+  return link?.provider ?? state?.provider ?? null;
+}

@@ -83,12 +83,25 @@ test('the owner Moyasar gives a card payment link the team can copy', async ({ p
   await expect(block.getByRole('status')).toHaveText(/Link copied\.|Could not copy/);
 });
 
+test('with Stripe on and Moyasar off, the link is a Stripe Payment Link', async ({ page }) => {
+  const mock = await mockInvoices(page, { moyasar: 'off', stripe: 'on' });
+  const id = mock.seedSent();
+  await page.goto(`/#business-invoices/${id}`);
+  const block = page.getByRole('dialog').locator('section', { has: page.getByRole('heading', { name: 'Card payment link' }) });
+  await expect(block.getByText('Through Stripe: cards and the wallets turned on in the Stripe account.')).toBeVisible();
+  await expect(block.getByText('Test mode: no real money moves.')).toBeVisible();
+  await block.getByRole('button', { name: 'Make a payment link' }).click();
+  await expect(block.getByRole('link', { name: /buy\.stripe\.example/ })).toBeVisible();
+  expect(mock.calls.filter((call) => call.method === 'POST' && call.path === `/invoices/${id}/payment-link`)).toHaveLength(1);
+  await sweep(page, 'Stripe payment link');
+});
+
 test('card payments off, and a failed check with a retry', async ({ page }) => {
   const off = await mockInvoices(page, { moyasar: 'off' });
   const id = off.seedSent();
   await page.goto(`/#business-invoices/${id}`);
   const block = page.getByRole('dialog').locator('section', { has: page.getByRole('heading', { name: 'Card payment link' }) });
-  await expect(block.getByText(/Card payments are off\. The owner turns Moyasar on/)).toBeVisible();
+  await expect(block.getByText(/Card payments are off\. The owner turns Stripe \(or Moyasar for a Saudi company\) on/)).toBeVisible();
   await expect(block.getByRole('button', { name: 'Make a payment link' })).toHaveCount(0);
 
   const tab = await page.context().newPage();
@@ -140,13 +153,13 @@ for (const size of GATE_SIZES) {
       test.setTimeout(120_000);
       for (const locale of ['en', 'ar'] as const) {
         const tab = await page.context().newPage();
-        const mock = await mockInvoices(tab, { moyasar: 'on' });
+        const mock = await mockInvoices(tab, { moyasar: 'off', stripe: 'on' });
         const id = mock.seedSent({ issue_date: day(-30), due_date: day(-9), bill_to_name: 'شركة الأمل للتجارة' });
         await useSavedLocale(tab, locale);
         await tab.goto(`/#business-invoices/${id}`);
         const drawer = tab.getByRole('dialog');
         await drawer.getByRole('button', { name: locale === 'ar' ? 'إنشاء رابط دفع' : 'Make a payment link' }).click();
-        await expect(drawer.getByRole('link', { name: /checkout\.moyasar\.example/ })).toBeVisible();
+        await expect(drawer.getByRole('link', { name: /buy\.stripe\.example/ })).toBeVisible();
         await drawer.getByRole('button', { name: locale === 'ar' ? 'إرسال تذكير' : 'Send a reminder' }).click();
         await tab.getByRole('form').getByRole('button', { name: locale === 'ar' ? 'طلب الموافقة' : 'Ask for approval' }).click();
         await expect(drawer.getByText(locale === 'ar' ? 'بانتظار الموافقة' : 'Waiting for approval').first()).toBeVisible();
