@@ -214,6 +214,9 @@ def check_steps(steps: list[WorkflowStep]) -> list[WorkflowStep]:
             run_flag = step.input.get("run", True)
             if not isinstance(run_flag, bool):
                 raise ValueError(f'{label}: "run" must be true (run the task) or false (only create it).')
+            agent = step.input.get("agent_id")
+            if agent is not None and (not isinstance(agent, str) or not re.fullmatch(r"[A-Za-z0-9_.:-]{1,80}", agent)):
+                raise ValueError(f'{label}: "agent_id" must be the id of an agent in this workspace.')
         if step.action == "email.send":
             _check_email_step(label, step)
         if step.action == "finance.intel.cycle" and step.input.get("phase") not in FINANCE_INTEL_PHASES:
@@ -636,7 +639,7 @@ class TaskOutcome:
 class RunEffects(Protocol):
     """Side effects of automation work, applied inside the engine's unit of work."""
 
-    def create_task(self, context: TenantContext, title: str, prompt: str) -> Task: ...
+    def create_task(self, context: TenantContext, title: str, prompt: str, *, agent_id: str | None = None) -> Task: ...
     def record_event(self, event: DomainEvent) -> None: ...
     def record_audit(self, record: AuditRecord) -> None: ...
     def wants_failure_notice(self, context: TenantContext, user_id: str) -> bool: ...
@@ -661,9 +664,10 @@ class RepositoryEffects:
         self._preferences = preferences
         self.deferred: list[DeferredStep] = []
 
-    def create_task(self, context: TenantContext, title: str, prompt: str) -> Task:
+    def create_task(self, context: TenantContext, title: str, prompt: str, *, agent_id: str | None = None) -> Task:
         now = utc_now()
         task = Task(
+            agent_id=agent_id,
             id=new_id("task"),
             title=title,
             prompt=prompt,
@@ -937,7 +941,11 @@ def _perform(
         prompt = _input_text(state, "prompt", scope, untrusted=True)[:TASK_PROMPT_MAX]
         if not title or not prompt:
             raise StepFailed("The step's input has no task title or prompt. Edit the workflow and retry the run.")
-        task = effects.create_task(context, title, prompt)
+        # A step may run as an agent (docs/automation.md#steps): the task carries its id and the run applies that
+        # agent's profile, tools, autonomy and approvals; a paused or deleted agent fails the step.
+        agent_id = state.input.get("agent_id") if isinstance(state.input.get("agent_id"), str) else None
+        task = (effects.create_task(context, title, prompt, agent_id=agent_id) if agent_id
+                else effects.create_task(context, title, prompt))
         state.output = {"task_id": task.id, "title": task.title}
         if state.input.get("run", True) is False:
             return {**state.output, "run": False}

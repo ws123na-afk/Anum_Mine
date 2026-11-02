@@ -633,6 +633,10 @@ def test_every_state_changing_agent_route_is_audited_without_content(client: Tes
         "POST", f"/api/v1/agents/{agent['id']}/memories", OWNER, sent=["The supplier is in Jeddah"],
         json={"content": "The supplier is in Jeddah"},
     ).json()
+    probe.call(
+        "PATCH", f"/api/v1/agents/{agent['id']}/memories/{memory['id']}", OWNER, sent=["The supplier moved to Dammam"],
+        json={"content": "The supplier moved to Dammam", "kind": "decision"},
+    )
     probe.call("DELETE", f"/api/v1/agents/{agent['id']}/memories/{memory['id']}", OWNER)
     probe.call("DELETE", f"/api/v1/agents/{agent['id']}", OWNER)
     probe.assert_covered()

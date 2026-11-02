@@ -8,6 +8,8 @@ Audit records are written in the same transaction as the change they describe.
 
 from __future__ import annotations
 
+from datetime import datetime
+
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session
 
@@ -15,6 +17,7 @@ from anum_api.agent_profiles import (
     AgentAutonomy,
     AgentCategory,
     AgentMemory,
+    AgentMemoryKind,
     AgentMemorySource,
     AgentModelRoute,
     AgentProfile,
@@ -71,6 +74,13 @@ def _memory(record: AgentMemoryRecord) -> AgentMemory:
         task_id=record.task_id,
         created_by=record.created_by,
         created_at=record.created_at,
+        kind=AgentMemoryKind(record.kind or "fact"),
+        source_label=record.source_label,
+        source_date=record.source_date,
+        source_file_id=record.source_file_id,
+        updated_at=record.updated_at,
+        updated_by=record.updated_by,
+        expires_at=record.expires_at,
     )
 
 
@@ -171,10 +181,40 @@ class SqlAlchemyAgentStore:
                 task_id=memory.task_id,
                 created_by=memory.created_by,
                 created_at=memory.created_at,
+                kind=memory.kind.value,
+                source_label=memory.source_label,
+                source_date=memory.source_date,
+                source_file_id=memory.source_file_id,
+                expires_at=memory.expires_at,
             )
         )
         self.session.flush()
         return memory
+
+    def update_memory(self, memory: AgentMemory) -> bool:
+        record = self.session.scalar(
+            select(AgentMemoryRecord).where(*self._memory_scope(memory.agent_id), AgentMemoryRecord.id == memory.id)
+        )
+        if record is None:
+            return False
+        record.content = memory.content
+        record.kind = memory.kind.value
+        record.source_label = memory.source_label
+        record.source_date = memory.source_date
+        record.updated_at = memory.updated_at
+        record.updated_by = memory.updated_by
+        record.expires_at = memory.expires_at
+        self.session.flush()
+        return True
+
+    def delete_expired_memories(self, context: TenantContext, agent_id: str, now: datetime) -> int:
+        result = self.session.execute(
+            delete(AgentMemoryRecord).where(
+                *self._memory_scope(agent_id), AgentMemoryRecord.expires_at.is_not(None), AgentMemoryRecord.expires_at <= now
+            )
+        )
+        self.session.flush()
+        return int(result.rowcount or 0)
 
     def delete_memory(self, context: TenantContext, agent_id: str, memory_id: str) -> bool:
         result = self.session.execute(

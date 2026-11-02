@@ -957,7 +957,7 @@ def _reply_context(context: TenantContext, conversation: Conversation, question:
         persona = agent.persona()
         route = ModelRoute(agent.model_route)
         blocks = [
-            label_untrusted(memory.content, source=Provenance.MEMORY, origin=f"agent-memory/{memory.id}", max_chars=2000)
+            label_untrusted(memory.for_prompt(), source=Provenance.MEMORY, origin=f"agent-memory/{memory.id}", max_chars=2000)
             for memory in agent_memories_for_run(context, agent.id)
         ]
     return _ReplyContext(

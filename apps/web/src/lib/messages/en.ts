@@ -25,6 +25,7 @@ import { hqLiveEn } from './hqLive.en.ts';
 import { hqPanelsEn } from './hqPanels.en.ts';
 import { hqProvisioningEn } from './hqProvisioning.en.ts';
 import { officeStaffingEn } from './officeStaffing.en.ts';
+import { greenConcreteKitEn } from './greenConcreteKit.en.ts';
 import { hqNavEn } from './hqNav.en.ts';
 import { hqAssignEn } from './hqAssign.en.ts';
 import { hqStarterCampusEn } from './hqStarterCampus.en.ts';
@@ -1739,6 +1740,29 @@ export const en = {
   'agents.memory.manual': 'Added by hand',
   'agents.memory.deleteNamed': 'Delete memory: {text}',
   'agents.memory.deleteTitle': 'Delete this memory?',
+  'agents.memory.kind': 'Kind',
+  'agents.memory.kind.fact': 'Fact',
+  'agents.memory.kind.decision': 'Decision',
+  'agents.memory.source': 'Where it comes from',
+  'agents.memory.sourcePlaceholder': 'For example: Tyre SOP, version 3',
+  'agents.memory.date': 'True from',
+  'agents.memory.err.content': 'Write what the agent should remember.',
+  'agents.memory.err.contentLong': 'Keep a memory under 2,000 characters.',
+  'agents.memory.err.sourceLong': 'Keep the source under 200 characters.',
+  'agents.memory.err.date': 'Enter the date as a full day.',
+  'agents.memory.err.future': 'The date cannot be in the future.',
+  'agents.memory.filter': 'Show',
+  'agents.memory.filter.all': 'Facts and decisions',
+  'agents.memory.emptyEdit': 'No memories yet. Add a fact or a decision above, with where it comes from.',
+  'agents.memory.editText': 'Memory',
+  'agents.memory.saveEdit': 'Save changes',
+  'agents.memory.fromFile': 'From a document',
+  'agents.memory.asOf': 'true from {date}',
+  'agents.memory.edited': 'edited',
+  'agents.memory.expires': 'removed on {date} (memory rules)',
+  'agents.memory.kept': 'kept until deleted',
+  'agents.memory.edit': 'Edit',
+  'agents.memory.editNamed': 'Edit memory: {text}',
   'agents.owner': 'Created by',
   'agents.you': 'You',
   'agents.createdAt': 'Created',
@@ -3272,6 +3296,7 @@ export const en = {
   ...hqPanelsEn,
   ...hqProvisioningEn,
   ...officeStaffingEn,
+  ...greenConcreteKitEn,
   ...hqNavEn,
   ...hqAssignEn,
   ...hqStarterCampusEn,

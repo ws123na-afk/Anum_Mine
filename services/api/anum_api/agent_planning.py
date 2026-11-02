@@ -60,7 +60,7 @@ class AgentPlanner:
         tools = self.tools.names
         if agent is not None:
             tools = {name for name in tools if agent.tool_allowed(name)}
-        selected = self.skills.select(task.prompt, tools)
+        selected = self.skills.select(task.prompt, tools, include_agent_only=agent is not None)
         if agent is not None:
             selected = [skill for skill in selected if agent.skill_allowed(skill.id)]
         # Planning is agent work: the capable model (docs/model-gateway.md#model-routing),
@@ -151,6 +151,9 @@ def choose_tool_call(
         # "ask Ahmed to call the supplier by Thursday": the tool parses the user's own
         # sentence (never model output) and resolves the person in the workspace.
         return ToolCall(name="team.assign_task", arguments={"command": " ".join(prompt.split())[:500]})
+    gc_call = _green_concrete_call(prompt, skills)
+    if gc_call is not None:
+        return gc_call
     brevo_call = _brevo_call(prompt, skills)
     if brevo_call is not None:
         return brevo_call
@@ -224,6 +227,15 @@ def choose_tool_call(
         # (threat model G5); the tool caps its length.
         return ToolCall(name="web_search", arguments={"query": " ".join(prompt.split())[:400]})
     return ToolCall(name="anum.respond", arguments={"text": planned_text})
+
+
+def _green_concrete_call(prompt: str, skills: Sequence[SkillManifest]) -> ToolCall | None:
+    """A Green Concrete role skill's one read tool, with the period from the user's own words."""
+    if not any(skill.id.startswith("gc.") for skill in skills):
+        return None
+    from .green_concrete_kit import choose_call
+
+    return choose_call(prompt, [skill.id for skill in skills])
 
 
 def _marketing_call(task: Task, skills: Sequence[SkillManifest]) -> ToolCall | None:
