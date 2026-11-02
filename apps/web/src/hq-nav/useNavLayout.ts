@@ -26,15 +26,17 @@ export const SIDE_DOCK_MIN = 1600;
  * Pure: the layout for a viewport width and the person's choices (docs/ANUM_MINE_HQ_PAGE_LAYOUT.md). The in-scene floor selector is the
  * one floor control, so the floor list with thumbnails is docked only when the person asks for it (the Floors button), from 900 px.
  */
-export function layoutFor(width: number, railPref: RailPref, sidePref: Pref, focus = false): NavLayout {
-  let rail: RailMode = width < 900 || railPref === null || railPref === 'closed' ? 'drawer' : railPref === 'slim' ? 'slim' : 'full';
+export function layoutFor(width: number, railPref: RailPref, sidePref: Pref, focus = false, sceneless = false): NavLayout {
+  // Without a 3D scene (no WebGL) there is no floor selector and no stage to give room to: the floor list docks by default from 900 px
+  // and the side column from 1280 px, as before the declutter.
+  let rail: RailMode = width < 900 || railPref === 'closed' || (railPref === null && !sceneless) ? 'drawer' : railPref === 'slim' ? 'slim' : 'full';
   // Focus mode gives the whole width to the scene: no rail and no side column (drawers stay reachable from the toolbar).
   if (focus && rail !== 'drawer') rail = 'hidden';
-  const side: SideMode = width < 1280 ? 'drawer' : focus || sidePref === 'closed' ? 'hidden' : sidePref === 'open' || width >= SIDE_DOCK_MIN ? 'open' : 'drawer';
+  const side: SideMode = width < 1280 ? 'drawer' : focus || sidePref === 'closed' ? 'hidden' : sidePref === 'open' || sceneless || width >= SIDE_DOCK_MIN ? 'open' : 'drawer';
   return { rail, side, compact: width < 760, width };
 }
 
-export function useNavLayout() {
+export function useNavLayout(sceneless = false) {
   const [width, setWidth] = useState(() => (typeof window === 'undefined' ? 1440 : window.innerWidth));
   const [railPref, setRailPref] = useState<RailPref>(() => readRail());
   const [sidePref, setSidePref] = useState<Pref>(() => read(SIDE_KEY));
@@ -46,7 +48,7 @@ export function useNavLayout() {
     window.addEventListener('resize', onResize);
     return () => { window.removeEventListener('resize', onResize); cancelAnimationFrame(raf); };
   }, []);
-  const layout = layoutFor(width, railPref, sidePref, focus);
+  const layout = layoutFor(width, railPref, sidePref, focus, sceneless);
   // The docked rail's own collapse button: whole and slim.
   const toggleRail = useCallback(() => { const next: RailPref = layout.rail === 'full' ? 'slim' : 'open'; setRailPref(next); writeRail(next); }, [layout.rail]);
   // The Floors button: dock the floor list beside the scene, or put it away again (it then opens as a drawer).

@@ -149,6 +149,11 @@ test('layout by width: the floor list docks only when asked, the side column doc
   assert.equal(layoutFor(1440, null, 'open').side, 'open', 'the person can dock the side column on a laptop');
   assert.equal(layoutFor(1024, null, 'open').side, 'drawer');
   assert.equal(layoutFor(1920, null, 'closed').side, 'hidden');
+  // Without a 3D scene (no WebGL) the floor list and the side column dock by default, and the person can still put them away.
+  assert.deepEqual([layoutFor(1440, null, null, false, true).rail, layoutFor(1440, null, null, false, true).side], ['full', 'open']);
+  assert.equal(layoutFor(1440, 'closed', 'closed', false, true).rail, 'drawer');
+  assert.equal(layoutFor(1440, 'closed', 'closed', false, true).side, 'hidden');
+  assert.equal(layoutFor(768, null, null, false, true).rail, 'drawer');
 });
 
 test('a workspace with several registry buildings draws each; other workspaces stay as they are', async () => {
