@@ -328,6 +328,17 @@ class Quote(_Frozen):
     ask: Decimal | None
     updated_ms: int | None
     closing_price: bool  # the last price is the previous close ("C" marker), not a live trade
+    # IBKR field 6509, first letter: R real time, D delayed (free, about 15 minutes), Z frozen,
+    # Y frozen delayed, N no market data permission. Empty when IBKR did not say.
+    availability: str = ""
+
+    @property
+    def delayed(self) -> bool:
+        return self.availability[:1] in {"D", "Y"}
+
+    @property
+    def frozen(self) -> bool:
+        return self.availability[:1] in {"Z", "Y", "N"}
 
 
 class PlacedOrder(_Frozen):
@@ -474,7 +485,7 @@ class IbkrClient:
 
     def positions(self) -> list[Position]:
         result: list[Position] = []
-        for page in range(0, 10):
+        for page in range(10):
             raw = self._call("positions", account=self.account_id, page=str(page))
             rows = raw if isinstance(raw, list) else []
             for item in rows:
@@ -559,13 +570,14 @@ class IbkrClient:
         return result
 
     def quote(self, conid: int) -> Quote:
-        raw = self._call("snapshot", params={"conids": str(conid), "fields": "31,84,86"})
+        raw = self._call("snapshot", params={"conids": str(conid), "fields": "31,84,86,6509"})
         for item in raw if isinstance(raw, list) else []:
             if isinstance(item, dict) and str(item.get("conid")) == str(conid):
                 last_text = str(item.get("31") or "")
                 updated = item.get("_updated")
                 return Quote(conid=conid, last=_dec(last_text), bid=_dec(item.get("84")), ask=_dec(item.get("86")),
-                             updated_ms=int(updated) if isinstance(updated, (int, float)) else None, closing_price=last_text.startswith("C"))
+                             updated_ms=int(updated) if isinstance(updated, (int, float)) else None, closing_price=last_text.startswith("C"),
+                             availability=str(item.get("6509") or "")[:4])
         return Quote(conid=conid, last=None, bid=None, ask=None, updated_ms=None, closing_price=False)
 
     # orders -------------------------------------------------------------------------------------

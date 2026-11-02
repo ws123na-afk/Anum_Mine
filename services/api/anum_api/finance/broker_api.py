@@ -21,7 +21,8 @@ from .broker_import import parse_broker_statement_csv
 from .broker_analytics import StatementAnalytics, analyze_broker_statement
 from .broker_history import StatementChangeReport, compare_broker_history
 from .broker_paper import PaperSimulationRequest, PaperSimulationResult, simulate_paper_trade
-from .broker_readiness import BrokerProfile, BrokerReadiness, LivePreflightResult, evaluate_live_preflight
+from .live import Precondition
+from .broker_readiness import BrokerKind, BrokerProfile, BrokerReadiness, LivePreflightResult, evaluate_live_preflight
 from .broker_reconciliation import (
     BrokerDataError, BrokerReconciliation, BrokerSnapshot,
     ReconciliationTolerance, reconcile_snapshots,
@@ -91,7 +92,12 @@ def readiness(
     _read(context)
     with open_finance_store(context) as store:
         system = gateway.preconditions(store, context)
-    result = evaluate_live_preflight(request.facts, request.profile, system)
+    ibkr: list[Precondition] = []
+    if request.profile is not None and request.profile.broker == BrokerKind.INTERACTIVE_BROKERS:
+        from .ibkr_api import live_gate_preconditions
+
+        ibkr = [Precondition(code=c.code, met=c.ok, message=c.message) for c in live_gate_preconditions(context)]
+    result = evaluate_live_preflight(request.facts, request.profile, system, ibkr)
     _audit(repository, context, "finance.broker.live_preflight", context.user_id)
     return result
 

@@ -85,6 +85,11 @@ class FinanceConfig(BaseSettings):
 
     model_config = SettingsConfigDict(env_prefix="ANUM_FINANCE_", env_file=".env", extra="ignore", hide_input_in_errors=True)
 
+    @field_validator("live_broker", mode="before")
+    @classmethod
+    def _broker_name(cls, value: object) -> object:
+        return value.strip().lower() if isinstance(value, str) else value
+
     @field_validator("live_enabled")
     @classmethod
     def _live_needs_an_executor(cls, value: bool, info: ValidationInfo) -> bool:

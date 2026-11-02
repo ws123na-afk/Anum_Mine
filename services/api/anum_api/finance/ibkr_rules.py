@@ -20,7 +20,7 @@ from enum import StrEnum
 from typing import Any, Literal
 from zoneinfo import ZoneInfo
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .intel.markets import venue
 
@@ -28,9 +28,9 @@ NEW_YORK = ZoneInfo("America/New_York")
 USD = "USD"
 
 # Hard ceilings no owner edit can pass (the database repeats the per-order one for live orders).
-CEILING_CAPITAL = Decimal("10000")
-CEILING_ORDER = Decimal("1000")
-CEILING_DAILY_LOSS = Decimal("1000")
+CEILING_CAPITAL = Decimal(10000)
+CEILING_ORDER = Decimal(1000)
+CEILING_DAILY_LOSS = Decimal(1000)
 CEILING_ORDERS_PER_DAY = 20
 QUOTE_MAX_AGE_SECONDS = 120
 FRACTION_DIGITS = 4
@@ -50,7 +50,13 @@ US_ETFS: dict[str, str] = {
     "BIL": "SPDR Bloomberg 1-3 Month T-Bill ETF", "SHV": "iShares Short Treasury Bond ETF",
     "VIG": "Vanguard Dividend Appreciation ETF", "SCHD": "Schwab U.S. Dividend Equity ETF",
     "VYM": "Vanguard High Dividend Yield ETF", "GLD": "SPDR Gold Shares", "IAU": "iShares Gold Trust",
+    # Shariah-screened by the fund's issuer (owner decision, 2 Nov 2026: halal investing first).
+    # ANUM shows the issuer's own label; it does not certify compliance.
+    "SPUS": "SP Funds S&P 500 Sharia Industry Exclusions ETF", "HLAL": "Wahed FTSE USA Shariah ETF",
+    "UMMA": "Wahed Dow Jones Islamic World ETF", "SPRE": "SP Funds S&P Global REIT Sharia ETF",
+    "SPSK": "SP Funds Dow Jones Global Sukuk ETF",
 }
+SHARIAH_ETFS = frozenset({"SPUS", "HLAL", "UMMA", "SPRE", "SPSK"})
 US_EXCHANGES = frozenset({"ARCA", "NYSE", "NASDAQ", "BATS", "AMEX", "NYSEARCA", "CBOE"})
 
 # Early closes (13:00 New York) on the exchanges' published calendars for 2026 and 2027.
@@ -92,13 +98,13 @@ class BrokerLimits(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    max_capital: Decimal = Field(default=Decimal("50"), gt=0, le=CEILING_CAPITAL)
-    max_order: Decimal = Field(default=Decimal("10"), gt=0, le=CEILING_ORDER)
-    max_daily_loss: Decimal = Field(default=Decimal("5"), gt=0, le=CEILING_DAILY_LOSS)
+    max_capital: Decimal = Field(default=Decimal(50), gt=0, le=CEILING_CAPITAL)
+    max_order: Decimal = Field(default=Decimal(10), gt=0, le=CEILING_ORDER)
+    max_daily_loss: Decimal = Field(default=Decimal(5), gt=0, le=CEILING_DAILY_LOSS)
     max_orders_per_day: int = Field(default=3, ge=1, le=CEILING_ORDERS_PER_DAY)
-    price_band_percent: Decimal = Field(default=Decimal("2"), ge=Decimal("0.1"), le=Decimal("10"))
+    price_band_percent: Decimal = Field(default=Decimal(2), ge=Decimal("0.1"), le=Decimal(10))
     session_buffer_minutes: int = Field(default=15, ge=0, le=60)
-    fee_buffer: Decimal = Field(default=Decimal("1"), ge=0, le=Decimal("50"))
+    fee_buffer: Decimal = Field(default=Decimal(1), ge=0, le=Decimal(50))
 
     @model_validator(mode="after")
     def _order_within_capital(self) -> BrokerLimits:
@@ -124,6 +130,7 @@ class AllowedSymbol(BaseModel):
     conid: int = Field(gt=0)
     name: str = ""
     exchange: str = ""
+    shariah_screened: bool = False  # by the fund issuer's own Shariah board; ANUM does not certify it
 
 
 class LiveSwitch(BaseModel):
@@ -149,7 +156,25 @@ class Reconciliation(BaseModel):
     baseline_at: datetime | None = None
     # How much of each ANUM order was already filled when the baseline was taken (order id -> quantity text).
     filled_at_baseline: dict[str, str] = Field(default_factory=dict)
-    explained: int = 0  # mismatches the owner explained with a note
+    episodes: int = 0  # times the records went from matching to not matching
+    explained: int = 0  # of those, how many the owner explained with a note
+
+
+class BuyPlan(BaseModel):
+    """A regular buy the owner sets: on ``day_of_month`` ANUM PROPOSES one buy for approval. It never sends."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(min_length=1, max_length=80)
+    symbol: str = Field(min_length=1, max_length=10)
+    amount: Decimal = Field(gt=0, le=CEILING_ORDER, decimal_places=2)
+    day_of_month: int = Field(ge=1, le=28)
+    active: bool = True
+    last_proposed: str | None = None  # the New York month ("2026-11") a proposal was last made
+
+    def due(self, now: datetime) -> bool:
+        local = now.astimezone(NEW_YORK)
+        return self.active and local.day >= self.day_of_month and self.last_proposed != f"{local:%Y-%m}"
 
 
 class BrokerSettings(BaseModel):
@@ -157,6 +182,7 @@ class BrokerSettings(BaseModel):
 
     limits: BrokerLimits = Field(default_factory=BrokerLimits)
     allowed: list[AllowedSymbol] = Field(default_factory=list, max_length=25)
+    buy_plans: list[BuyPlan] = Field(default_factory=list, max_length=10)
     fractional_ok: bool = False
     cooling_off_hours: int = Field(default=24, ge=1, le=168)
     live: LiveSwitch = Field(default_factory=LiveSwitch)
@@ -305,6 +331,7 @@ class OrderFacts(BaseModel):
     quote_last: Decimal | None = None
     quote_age_seconds: float | None = None
     quote_is_close: bool = False
+    quote_delayed: bool = False  # free delayed data (about 15 minutes old): same band, labelled, never widened
     cash: Decimal | None = None  # settled USD cash at IBKR
     positions_value: Decimal = Decimal(0)  # market value of all positions
     position_quantity: Decimal = Decimal(0)  # this contract
@@ -377,10 +404,11 @@ def price_band(limit_price: Decimal, facts: OrderFacts, band_percent: Decimal) -
         return False, "IBKR has no current price for this ETF, so the price band cannot be checked."
     if age > QUOTE_MAX_AGE_SECONDS:
         return False, "IBKR's price is too old to check the price band."
+    kind = "delayed price (about 15 minutes old)" if facts.quote_delayed else "last price"
     gap = abs(limit_price - last) / last * 100
     if gap > band_percent:
-        return False, f"Your limit is {gap.quantize(Decimal('0.01'))} percent from the last price {last}, outside your {band_percent} percent band."
-    return True, f"Your limit is within {band_percent} percent of the last price {last}."
+        return False, f"Your limit is {gap.quantize(Decimal('0.01'))} percent from IBKR's {kind} {last}, outside your {band_percent} percent band."
+    return True, f"Your limit is within {band_percent} percent of IBKR's {kind} {last}."
 
 
 def failed(checks: list[Check]) -> list[Check]:
@@ -449,4 +477,4 @@ def new_baseline(recon: Reconciliation, positions: dict[str, Decimal], orders: l
     """Accept IBKR's current positions as the starting point (on connect, or after the owner explains a difference)."""
     return Reconciliation(state="ok", checked_at=now, mismatches=[], baseline={k: str(v) for k, v in positions.items()}, baseline_at=now,
                           filled_at_baseline={o.id: str(o.filled_quantity) for o in orders if o.filled_quantity},
-                          explained=recon.explained + (1 if explained else 0))
+                          episodes=recon.episodes, explained=recon.explained + (1 if explained else 0))

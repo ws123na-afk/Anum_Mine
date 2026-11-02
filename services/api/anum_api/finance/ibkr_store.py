@@ -16,7 +16,14 @@ from typing import Protocol
 
 from ..schemas import TenantContext
 from ..scoped_store import open_scoped_store
-from .ibkr_rules import BrokerConnection, BrokerEvent, BrokerOrder, BrokerSettings, Environment, OrderState
+from .ibkr_rules import (
+    BrokerConnection,
+    BrokerEvent,
+    BrokerOrder,
+    BrokerSettings,
+    Environment,
+    OrderState,
+)
 from .store import FinanceStore, finance_store
 
 MAX_EVENTS_PAGE = 100

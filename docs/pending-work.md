@@ -19,7 +19,7 @@ State at handoff: every PR from the 18 October session is merged into `main` (#1
 5. **Phone calls through a provider** (`docs/calls.md#owner-steps`): Twilio account, number, API key and TwiML app, entered in Calls, Provider. Off until then; paid per minute.
 6. **Brevo** (`docs/brevo.md`): paste the API key in Marketing, Email campaigns, Connection (never in chat); authenticate sending domains in Brevo (DKIM, brevo-code).
 7. **Audit leftovers** (`docs/business/P0_CI_REMEDIATION.md`): staging smoke test, migration dry run and restore drill on the VM; turn on branch protection.
-8. **Finance** (`docs/finance-trading-readiness.md`): choose market-data providers; live trading stays off.
+8. **Finance, IBKR trading** (`docs/finance-live-trading.md#the-owners-steps`): create the IBKR paper account, run the Client Portal Gateway on the VM and log in through an SSH tunnel, connect it in Finance, IBKR trading (never in chat), add a Shariah-screened ETF, then do the paper period (20 orders, 14 days). Decide the per-order limit: with whole shares only, USD 10 buys no share of most ETFs. Live stays off until the paper proof is green and you give the written go-ahead.
 9. **Codex review limit** is used up; reviews resume when the owner adds credits.
 10. **Organisation export and deletion** (`docs/organisation-lifecycle.md`, migration `0079_tenant_lifecycle`): the new NOLOGIN role `anum_tenant_purger` must exist before that migration runs. The Oracle update does it (`db-init` runs `bootstrap-database.sql` first); on Render or Kubernetes re-run `infra/helm/bootstrap-database.sql` as the database admin before deploying.
 

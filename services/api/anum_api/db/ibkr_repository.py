@@ -11,11 +11,29 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import BigInteger, Boolean, DateTime, Integer, Numeric, String, Text, delete, func, select, update
+from sqlalchemy import (
+    BigInteger,
+    Boolean,
+    DateTime,
+    Integer,
+    Numeric,
+    String,
+    Text,
+    delete,
+    func,
+    select,
+    update,
+)
 from sqlalchemy.dialects.postgresql import JSONB, insert
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
-from anum_api.finance.ibkr_rules import BrokerConnection, BrokerEvent, BrokerOrder, BrokerSettings, Environment
+from anum_api.finance.ibkr_rules import (
+    BrokerConnection,
+    BrokerEvent,
+    BrokerOrder,
+    BrokerSettings,
+    Environment,
+)
 from anum_api.schemas import TenantContext
 
 from .models import Base
