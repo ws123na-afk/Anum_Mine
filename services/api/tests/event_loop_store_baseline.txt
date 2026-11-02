@@ -122,7 +122,6 @@ GET /api/v1/whatsapp/conversations
 GET /api/v1/whatsapp/conversations/{conversation_id}
 GET /api/v1/whatsapp/messages/{message_id}/media
 GET /api/v1/whatsapp/templates
-PATCH /api/v1/agents/{agent_id}
 PATCH /api/v1/calendar/events/{event_id}
 PATCH /api/v1/commerce/connectors/{connector_id}
 PATCH /api/v1/commerce/products/{product_id}
