@@ -201,6 +201,7 @@ x-user-roles: owner,member
 - [Data Processing Addendum (draft)](docs/legal/data-processing-addendum.md)
 - [Acceptable Use Policy (draft)](docs/legal/acceptable-use-policy.md)
 - [Subprocessor list (draft)](docs/legal/subprocessors.md)
+- Arabic texts of the same drafts (same placeholders, a lawyer must approve them too): [Terms](docs/legal/ar/terms-of-service.md), [Privacy](docs/legal/ar/privacy-policy.md), [DPA](docs/legal/ar/data-processing-addendum.md), [Acceptable use](docs/legal/ar/acceptable-use-policy.md), [Subprocessors](docs/legal/ar/subprocessors.md)
 - [Store data safety and app privacy answers](docs/store-data-safety.md)
 - [Skills](docs/skills.md)
 - [Workspace files](docs/files.md)

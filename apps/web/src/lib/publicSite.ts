@@ -3,6 +3,12 @@
 // the Markdown sources are imported by legalDocs.ts (Vite) and read from disk by the tests.
 
 export type LegalDocId = 'terms' | 'privacy' | 'dpa' | 'aup' | 'subprocessors';
+/** The languages each legal document is written in: docs/legal (English) and docs/legal/ar (Arabic). */
+export type LegalLanguage = 'en' | 'ar';
+export const LEGAL_LANGUAGES: readonly LegalLanguage[] = ['en', 'ar'];
+export const legalLanguage = (locale: string): LegalLanguage => (locale === 'ar' ? 'ar' : 'en');
+/** Where the Arabic text of a document lives (same file name, same placeholders). */
+export const arabicFile = (file: string) => `ar/${file}`;
 export type PublicRoute = { kind: 'legal'; doc: LegalDocId } | { kind: 'trust' } | { kind: 'status' };
 
 /** Every legal document: its route and its source file in docs/legal. Order is the footer order. */
@@ -70,13 +76,41 @@ export function readLegalDocument(markdown: string): LegalDocument {
     if (!title && /^#\s+/.test(line)) { title = line.replace(/^#\s+/, '').trim(); continue; }
     if (/^>\s*\*\*DRAFT/.test(line)) { inDraftNotice = true; continue; }
     if (inDraftNotice) { if (line.startsWith('>')) continue; inDraftNotice = false; }
-    const last = /^Last updated:\s*(.+)$/.exec(line);
+    const last = /^(?:Last updated|آخر تحديث):\s*(.+)$/.exec(line);
     if (last && updated === null) { updated = last[1].trim(); continue; }
     body.push(line);
   }
   const text = body.join('\n').trim();
   // The DRAFT notice's own `{{PLACEHOLDER}}` example is not a fact to fill in.
   return { title, updated, body: text, placeholders: placeholdersIn([title, updated ?? '', text].join('\n')) };
+}
+
+// Values the server generates in English (docs/selling-readiness.md#company-and-legal) shown in the
+// Arabic text: fixed words become Arabic; anything the owner typed stays as typed.
+const ARABIC_VALUES: Record<string, string> = {
+  Yes: 'نعم', No: 'لا', 'Not used': 'غير مستخدم', 'Only when a workspace connects its own account': 'فقط عندما تربط مساحة العمل حسابها الخاص',
+};
+const ARABIC_COUNTRIES: Record<string, string> = {
+  'Saudi Arabia': 'المملكة العربية السعودية', 'United Arab Emirates': 'الإمارات العربية المتحدة', 'United States': 'الولايات المتحدة',
+  Bahrain: 'البحرين', Kuwait: 'الكويت', Oman: 'عُمان', Qatar: 'قطر', 'United Kingdom': 'المملكة المتحدة',
+};
+
+/** The filled values in the page's language. */
+export function localizeLegalValues(values: Record<string, string | null> | null | undefined, language: LegalLanguage): Record<string, string | null> | null {
+  if (!values) return null;
+  if (language === 'en') return values;
+  const out: Record<string, string | null> = {};
+  for (const [key, value] of Object.entries(values)) {
+    if (value === null) { out[key] = null; continue; }
+    let text = ARABIC_VALUES[value] ?? value;
+    const plan = /^the plan page at (\S+) or the order form we agree with you$/.exec(text);
+    if (plan) text = `صفحة الخطط على ${plan[1]} أو نموذج الطلب الذي نتفق عليه معكم`;
+    for (const [country, arabic] of Object.entries(ARABIC_COUNTRIES)) {
+      if (text === country || text.startsWith(`${country} (`) || text.endsWith(`, ${country}`)) text = text.replace(country, arabic);
+    }
+    out[key] = text;
+  }
+  return out;
 }
 
 /** The placeholder name without braces (`{{LEGAL_ENTITY_NAME}}` to `LEGAL_ENTITY_NAME`). */

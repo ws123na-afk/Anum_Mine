@@ -122,6 +122,23 @@ class MoyasarProvider:
             raise ProviderError("Moyasar did not return a payment page address.")
         return Checkout(url=url, session_id=str(body.get("id") or ""))
 
+    def create_payment_page(self, *, amount_minor: int, currency: str, description: str, success_url: str, back_url: str,
+                            metadata: dict[str, str]) -> Checkout:
+        """A Moyasar invoice for any amount ANUM is owed (a Business invoice's balance, for instance)."""
+        currency = currency.upper()
+        if currency not in CURRENCIES:
+            raise ProviderError(f"Moyasar card payments are set up for {', '.join(CURRENCIES)}; this invoice is in {currency}.")
+        if amount_minor <= 0:
+            raise ProviderError("There is nothing to pay on this invoice.")
+        body = self._call("POST", "/invoices", json={
+            "amount": int(amount_minor), "currency": currency, "description": description[:250],
+            "success_url": success_url, "back_url": back_url, "metadata": metadata,
+        }, what="the payment page")
+        url = str(body.get("url") or "")
+        if not url.startswith("https://"):
+            raise ProviderError("Moyasar did not return a payment page address.")
+        return Checkout(url=url, session_id=str(body.get("id") or ""))
+
     def fetch_payment(self, payment_id: str) -> MoyasarPayment:
         if not payment_id or "/" in payment_id or len(payment_id) > 100:
             raise ProviderError("That is not a Moyasar payment id.")

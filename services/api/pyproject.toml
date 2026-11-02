@@ -56,8 +56,9 @@ exclude = ["migrations*", "tests*"]
 [tool.setuptools.package-data]
 # The coding workflow developer mode installs in target repositories (docs/developer-mode.md).
 # The checked-in setup plan blueprints (docs/setup-plan.md).
+# The Arabic font the PDF writer embeds, with its licence (anum_api/pdf_fonts/SOURCE.txt).
 # The trading knowledge library, read at startup (docs/finance-trading-intel.md#skills-and-tools).
-anum_api = ["workflow_templates/*.yml", "blueprints/*.json", "finance/intel/skills/*/SKILL.md", "finance/intel/skills/*/tools.json", "finance/intel/skills/*/references/*.md"]
+anum_api = ["pdf_fonts/*.ttf", "pdf_fonts/*.txt", "workflow_templates/*.yml", "blueprints/*.json", "finance/intel/skills/*/SKILL.md", "finance/intel/skills/*/tools.json", "finance/intel/skills/*/references/*.md"]
 
 [tool.pytest.ini_options]
 addopts = "--strict-markers"

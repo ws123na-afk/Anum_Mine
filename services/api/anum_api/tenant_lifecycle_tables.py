@@ -229,6 +229,8 @@ _ORDER = (
     "business_outreach_settings",
     "business_portal_decisions",
     "business_portal_access",
+    "business_invoice_messages",
+    "business_invoice_payment_links",
     "business_payment_notices",
     "business_credit_notes",
     "business_invoice_payments",

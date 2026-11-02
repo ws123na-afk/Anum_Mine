@@ -26,7 +26,7 @@ export const publicSiteEn = {
   'public.legal.publishedBadge': 'Published',
   'public.legal.updated': 'Last updated: {date}',
   'public.legal.contents': 'On this page',
-  'public.legal.englishOnly': 'This document is available in English only.',
+  'public.legal.translationNote': 'This is a translation of the English text. The English text applies until a lawyer approves this translation.',
   'public.legal.table': 'Table',
   'public.trust.eyebrow': 'Trust',
   'public.trust.title': 'Trust and security',
