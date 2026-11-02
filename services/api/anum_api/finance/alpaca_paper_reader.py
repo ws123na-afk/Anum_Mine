@@ -12,7 +12,7 @@ from decimal import Decimal
 from enum import StrEnum
 from typing import Callable
 from urllib.error import HTTPError, URLError
-from urllib.request import Request, urlopen
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -63,6 +63,22 @@ class PaperPosition(BaseModel):
     paper_only: bool = True
 
 
+class _DenyRedirects(HTTPRedirectHandler):
+    """Refuse every redirect so the paper API keys are never sent to another URL.
+
+    ``urlopen`` follows redirects and copies the request headers, the key headers
+    included, to the new location. The reader talks to one fixed origin and two
+    fixed paths, so any redirect is unexpected and is refused.
+    """
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # type: ignore[no-untyped-def]
+        raise BrokerPaperReadError("Paper broker redirects are not allowed")
+
+
+def _opener():  # type: ignore[no-untyped-def]
+    return build_opener(_DenyRedirects())
+
+
 class AlpacaPaperReader:
     """Inject transport for testing; fixed-origin GET only, no arbitrary URLs.
 
@@ -79,8 +95,10 @@ class AlpacaPaperReader:
     @staticmethod
     def _urlopen(request: Request, limit: int) -> bytes:
         try:
-            with urlopen(request, timeout=TIMEOUT_SECONDS) as response:  # nosec B310
+            with _opener().open(request, timeout=TIMEOUT_SECONDS) as response:  # nosec B310
                 data = response.read(limit + 1)
+        except BrokerPaperReadError:
+            raise
         except (HTTPError, URLError, TimeoutError, OSError) as exc:
             raise BrokerPaperReadError("Paper brokerage connection unavailable") from exc
         return data

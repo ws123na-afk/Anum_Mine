@@ -64,8 +64,10 @@ const known = (key: string): key is MessageKey => Object.hasOwn(CATALOGS.en, key
 
 export const categoryName = (category: Category): string => t(`setup.cat.${category}`);
 
-/** One line on what a deployment service is for, by kind; its health detail when the kind is new. */
-export function servicePurpose(item: Pick<IntegrationState, 'kind' | 'detail'>): string {
+/** One line on what a deployment service is for: its own line, else by kind, else its health detail. */
+export function servicePurpose(item: Pick<IntegrationState, 'kind' | 'detail'> & { id?: string }): string {
+  const own = `setup.service.${item.id ?? ''}`;
+  if (item.id && known(own)) return t(own);
   const key = `setup.kind.${item.kind}`;
   return known(key) ? t(key) : item.detail;
 }

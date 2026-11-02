@@ -205,6 +205,7 @@ All under `/api/v1/finance`, every route checking permissions on the server:
 | `GET /execution/status`, `GET /execution/intents?status=&mode=&limit=&offset=`, `GET /execution/intents/{id}`, `GET /execution/live`, `GET /execution/wider` | `finance:read` |
 | `POST /execution/intents`, `POST /execution/intents/{id}/approve`, `POST /execution/intents/{id}/reject`, `POST /execution/live/changes`, `POST /execution/live/opt-out`, `POST /execution/wider/widenings`, `POST /execution/wider/widenings/{id}/approve`, `POST /execution/wider/widenings/{id}/reject`, `POST /execution/wider/review` | `finance:manage` (only the request's owner; live requests always 409) |
 | `PUT /execution/kill-switch` | `finance:manage`; `scope: global` also needs a workspace owner or an organisation administrator |
+| `POST /broker/readiness` ([live eligibility preflight](#live-eligibility-preflight)), `POST /broker/statement-preview`, `/broker/reconcile`, `/broker/analyze`, `/broker/history`, `/broker/paper/simulate` | `finance:read` (read only: nothing is saved except the preflight's audit row) |
 
 ## Permissions
 
@@ -285,6 +286,17 @@ Nothing below exists; each item needs the owner, and the code needs a separate, 
 3. A live executor built and reviewed against that provider's documented API, with its own tests, and a contract migration that lifts the database's no-live check.
 4. The owner's live limits: per action, per day, per month, currencies, and the instruments or accounts allowed.
 5. The owner's explicit written approval to switch on bounded live actions, recorded before the operator sets `ANUM_FINANCE_LIVE_ENABLED`.
+
+## Live eligibility preflight
+
+One place answers "what is still missing before live trading could ever be considered": `POST /api/v1/finance/broker/readiness` (`finance/broker_readiness.py`), shown on Finance, Execution as **Live eligibility check** (English and Arabic). It merges the stage 8 preconditions above with the broker onboarding checklist ([Broker onboarding](finance-broker-onboarding.md)), and replaces the separate preflight endpoint proposed in PR #237.
+
+- **Input:** the person's own ticks in three groups (broker, account and data; research and paper testing; live review), and optionally a profile: the broker (Alpaca, Interactive Brokers or another), the two-letter country of residence and the assets (stocks, crypto). No account number, key or password is accepted: unknown fields are refused (422).
+- **Answer:** the missing items per group and a stage (`not_connected`, `read_only`, `live_blocked`); the person's **own live preconditions read from the database** (`gateway.preconditions`: deployment flag, live executor, write connector, opt-in, limits, both kill switches), so it reads only the caller's rows under RLS; informational notes. It always says `live_trading_enabled: false`, `eligibility_confirmed: false`, `credentials_connected: false`, `deposits_into_anum_supported: false` and `orders_sent: 0`, and the response model cannot hold any other value. A fully ticked list still leaves live off, because ANUM has no live executor.
+- **Read only:** it changes no setting, connects nothing, reads no key and sends no order. The only write is an audit row `finance.broker.live_preflight` with the actor, tenant, workspace and the person's id as target, and empty metadata: no country, assets or ticks are logged.
+- **Permission:** `finance:read` (owners and members); viewers get 403 with who can change it.
+- **Saudi residents and crypto** (informational, never a gate it can lift): when the country is `SA` and crypto is chosen, the answer adds a note with its source. Saudi Arabia's standing committee on virtual currencies, which includes the Saudi Central Bank (SAMA) and the Capital Market Authority (CMA), stated on 12 August 2018 that virtual currencies are not regulated in the Kingdom and that no party is licensed by the regulators to deal in them ([CMA statement](https://cma.gov.sa/en/MediaCenter/PR/Pages/Virtual_Currencies.aspx), [SAMA statement](https://www.sama.gov.sa/en-US/News/Pages/news12082018.aspx)). This is the most recent official statement found on 2 November 2026; re-check it, the broker's own terms for Saudi residents and legal advice before any crypto.
+- Tests: `services/api/tests/test_finance_live_preflight.py`, `test_finance_broker_readiness.py`, `test_postgres_finance_live_preflight.py` (RLS as the app role, audit rows), `apps/web/test/financePreflight.test.ts`, `apps/web/e2e/finance-live-preflight.spec.ts` (main path, Saudi note, every ticked, client checks, error with retry, denied, Arabic, the responsive gate at five sizes).
 
 ## Wider live
 

@@ -76,6 +76,12 @@ def build_activities(
             configured_web_search_handler(config, integrations.workspace_enabled(SEARXNG_INTEGRATION_ID)),
         )
     ))))))))))))
+    if tools is None:
+        # The same browser research tool as the API (docs/browser-research.md).
+        from .browser_research import BROWSER_INTEGRATION_ID
+        from .browser_research.tool import register_browser_tools
+
+        register_browser_tools(registry, config, integrations.workspace_enabled(BROWSER_INTEGRATION_ID))
 
     def runtime_factory(context: TenantContext, repository: AnumRepository) -> AgentRuntime:
         from .retrieval_api import retriever_for
