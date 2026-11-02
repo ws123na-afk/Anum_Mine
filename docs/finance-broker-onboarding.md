@@ -8,6 +8,12 @@ research validation and independent live-readiness review. It **does not** conne
 broker, hold deposits, transfer money, fetch real market data or place real orders.
 No deployment variable or gate has been relaxed.
 
+The checklist is served by `POST /api/v1/finance/broker/readiness` as the live eligibility
+preflight ([Finance](finance.md#live-eligibility-preflight)): it adds the person's own live
+preconditions from the database, the broker country and asset eligibility items, paper
+testing and keys kept in the secret store, and a Saudi crypto note. It always answers that
+live trading is off and that no order was sent.
+
 ## Mandatory custody model
 
 Deposits and withdrawals must occur directly with the owner's regulated brokerage
