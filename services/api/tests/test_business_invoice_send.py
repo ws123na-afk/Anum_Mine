@@ -22,7 +22,7 @@ from pypdf import PdfReader
 
 from anum_api import delivery, main
 from anum_api.agent_tools import ToolCall, ToolDefinition, ToolResult
-from anum_api.billing import moyasar
+from anum_api.billing import moyasar, providers
 from anum_api.billing.rows import memory_db
 from anum_api.business.store import business_store
 from anum_api.dependencies import memory_repository
@@ -34,6 +34,8 @@ from test_business import BASE, MEMBER, OTHER_TENANT, OTHER_WORKSPACE, OWNER, TE
 from test_business_change_orders import project as make_project
 from test_business_invoices import create, send, set_profile
 from test_selling_readiness import MOYASAR_KEY, WEBHOOK_TOKEN, FakeMoyasar
+from test_stripe_payments import STRIPE_KEY, FakeStripe, form_of
+from test_stripe_payments import WEBHOOK_SECRET as STRIPE_WEBHOOK_SECRET
 
 client = TestClient(main.app)
 TODAY = utc_now().date().isoformat()
@@ -322,11 +324,11 @@ def webhook(payment_id: str, event_id: str) -> Any:
 
 def test_card_payment_links_are_off_until_the_owner_turns_moyasar_on(fake_moyasar: FakeMoyasar, monkeypatch: pytest.MonkeyPatch) -> None:
     sent = arabic_invoice()
-    assert ok(client.get(f"{BASE}/payment-provider", headers=MEMBER)) == {"moyasar": "off", "mode": None}
+    assert ok(client.get(f"{BASE}/payment-provider", headers=MEMBER)) == {"moyasar": "off", "stripe": "off", "provider": None, "mode": None}
     refused = client.post(f"{BASE}/invoices/{sent['id']}/payment-link", headers=MEMBER)
     assert refused.status_code == 409 and "Moyasar" in refused.text and fake_moyasar.requests == []
     turn_on_moyasar(monkeypatch)
-    assert ok(client.get(f"{BASE}/payment-provider", headers=MEMBER)) == {"moyasar": "on", "mode": "test"}
+    assert ok(client.get(f"{BASE}/payment-provider", headers=MEMBER)) == {"moyasar": "on", "stripe": "off", "provider": "moyasar", "mode": "test"}
     assert client.get(f"{BASE}/payment-provider", headers=VIEWER).status_code == 403
 
 
@@ -370,3 +372,112 @@ def test_a_payment_link_for_another_tenant_is_ignored(fake_moyasar: FakeMoyasar,
     assert ok(client.get(f"{BASE}/invoices/{sent['id']}", headers=MEMBER))["amount_paid"] == 0
     assert client.post(f"{BASE}/invoices/{sent['id']}/payment-link", headers=VIEWER).status_code == 403
     assert client.post(f"{BASE}/invoices/{sent['id']}/payment-link", headers=OTHER_TENANT).status_code == 404
+
+
+# -- Stripe payment links (a UAE company's Stripe account) ----------------------------------------------
+
+
+@pytest.fixture
+def fake_stripe(monkeypatch: pytest.MonkeyPatch) -> FakeStripe:
+    fake = FakeStripe()
+    monkeypatch.setattr(providers, "transport", httpx.MockTransport(fake.handler))
+    monkeypatch.setattr(settings, "web_app_url", "https://app.example")
+    return fake
+
+
+def turn_on_stripe(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The owner of this organisation turns Stripe on in Platform billing (the issuer is this tenant); Moyasar stays off."""
+    monkeypatch.setattr(settings, "billing_issuer_tenant_id", TENANT)
+    operator = {**OWNER, "x-user-roles": "owner,platform_operator"}
+    ok(client.put("/api/v1/platform/billing/settings", headers=operator,
+                  json={"issuer_name": "ANUM FZ-LLC", "stripe_enabled": True, "stripe_secret_key": STRIPE_KEY, "stripe_webhook_secret": STRIPE_WEBHOOK_SECRET}))
+
+
+def aed_invoice() -> dict[str, Any]:
+    """A sent AED invoice: 1000 net + 5% UAE VAT = 1050, so 105000 fils."""
+    set_profile()
+    project = make_project(total=1000, tax=0)
+    drafted = ok(create(account_id=project["account_id"], bill_to_name="Al Amal Trading LLC", bill_to_email="finance@amal.example", currency="AED",
+                        lines=[{"description": "Consulting", "quantity": 1, "unit_price": 1000, "tax_rate_pct": 5}]), 201)
+    return send(drafted)
+
+
+def stripe_session(link: dict[str, Any], event_id: str, payment_intent: str, amount: int, metadata: dict[str, str] | None, currency: str = "aed") -> Any:
+    obj: dict[str, Any] = {"id": f"cs_{event_id}", "payment_status": "paid", "amount_total": amount, "currency": currency,
+                           "payment_intent": payment_intent, "payment_link": link["provider_invoice_id"]}
+    if metadata is not None:
+        obj["metadata"] = metadata
+    payload = json.dumps({"id": event_id, "type": "checkout.session.completed", "data": {"object": obj}}).encode()
+    header = providers.sign_stripe_payload(payload, STRIPE_WEBHOOK_SECRET, int(utc_now().timestamp()))
+    return client.post(f"/api/v1/billing/webhooks/stripe/{TENANT}", content=payload, headers={"stripe-signature": header})
+
+
+def test_stripe_payment_links_when_stripe_is_on_and_moyasar_off(fake_stripe: FakeStripe, monkeypatch: pytest.MonkeyPatch) -> None:
+    turn_on_stripe(monkeypatch)
+    assert ok(client.get(f"{BASE}/payment-provider", headers=MEMBER)) == {"moyasar": "off", "stripe": "on", "provider": "stripe", "mode": "test"}
+    sent = aed_invoice()
+    link = ok(client.post(f"{BASE}/invoices/{sent['id']}/payment-link", headers=MEMBER), 201)["payment_link"]
+    assert link["provider"] == "stripe" and link["url"].startswith("https://buy.stripe.example/") and link["amount"] == 1050
+    price = form_of(fake_stripe.calls("POST", "/v1/prices")[0])
+    assert price["currency"] == "aed" and price["unit_amount"] == "105000"  # fils
+    made = fake_stripe.calls("POST", "/v1/payment_links")[0]
+    form = form_of(made)
+    assert made.headers["idempotency-key"] and form["restrictions[completed_sessions][limit]"] == "1"
+    assert form["after_completion[redirect][url]"] == "https://app.example/business?tab=invoices"
+    assert form["metadata[anum_business_invoice_id]"] == sent["id"] and form["payment_intent_data[metadata][anum_tenant_id]"] == TENANT
+    assert "metadata[anum_invoice_id]" not in form  # never mistaken for an ANUM subscription invoice
+    # The same link while the balance is unchanged; nothing new at Stripe.
+    again = ok(client.post(f"{BASE}/invoices/{sent['id']}/payment-link", headers=MEMBER), 201)["payment_link"]
+    assert again["id"] == link["id"] and len(fake_stripe.calls("POST", "/v1/payment_links")) == 1
+    # Viewers cannot make one; another organisation cannot see the invoice.
+    assert client.post(f"{BASE}/invoices/{sent['id']}/payment-link", headers=VIEWER).status_code == 403
+    assert client.post(f"{BASE}/invoices/{sent['id']}/payment-link", headers=OTHER_TENANT).status_code == 404
+
+
+def test_a_stripe_payment_link_is_paid_once_through_the_signed_webhook(fake_stripe: FakeStripe, monkeypatch: pytest.MonkeyPatch) -> None:
+    turn_on_stripe(monkeypatch)
+    sent = aed_invoice()
+    link = ok(client.post(f"{BASE}/invoices/{sent['id']}/payment-link", headers=MEMBER), 201)["payment_link"]
+    metadata = fake_stripe.links[link["provider_invoice_id"]]["metadata"]
+    # A forged delivery (wrong signing secret) changes nothing.
+    payload = json.dumps({"id": "evt_forged", "type": "checkout.session.completed", "data": {"object": {"payment_status": "paid"}}}).encode()
+    forged = providers.sign_stripe_payload(payload, "whsec_wrong", int(utc_now().timestamp()))
+    assert client.post(f"/api/v1/billing/webhooks/stripe/{TENANT}", content=payload, headers={"stripe-signature": forged}).status_code == 400
+    assert ok(stripe_session(link, "evt_1", "pi_biz_1", 105000, metadata))["outcome"] == "paid"
+    assert ok(stripe_session(link, "evt_1", "pi_biz_1", 105000, metadata))["duplicate"] is True
+    assert ok(stripe_session(link, "evt_2", "pi_biz_1", 105000, metadata))["outcome"] == "duplicate_payment"
+    paid = ok(client.get(f"{BASE}/invoices/{sent['id']}", headers=MEMBER))
+    assert paid["status"] == "paid" and paid["amount_paid"] == 1050 and len(paid["payments"]) == 1
+    payment = paid["payments"][0]
+    assert payment["method"] == "card" and payment["provider"] == "stripe" and payment["provider_payment_id"] == "pi_biz_1"
+    assert paid["payment_link"] is None
+
+
+def test_a_stripe_session_without_metadata_reads_it_from_the_payment_link(fake_stripe: FakeStripe, monkeypatch: pytest.MonkeyPatch) -> None:
+    turn_on_stripe(monkeypatch)
+    sent = aed_invoice()
+    link = ok(client.post(f"{BASE}/invoices/{sent['id']}/payment-link", headers=MEMBER), 201)["payment_link"]
+    assert ok(stripe_session(link, "evt_nometa", "pi_biz_2", 105000, None))["outcome"] == "paid"
+    assert fake_stripe.calls("GET", f"/v1/payment_links/{link['provider_invoice_id']}")
+    assert ok(client.get(f"{BASE}/invoices/{sent['id']}", headers=MEMBER))["status"] == "paid"
+
+
+def test_a_stripe_payment_for_another_tenant_or_currency_is_ignored(fake_stripe: FakeStripe, monkeypatch: pytest.MonkeyPatch) -> None:
+    turn_on_stripe(monkeypatch)
+    sent = aed_invoice()
+    link = ok(client.post(f"{BASE}/invoices/{sent['id']}/payment-link", headers=MEMBER), 201)["payment_link"]
+    metadata = dict(fake_stripe.links[link["provider_invoice_id"]]["metadata"])
+    assert ok(stripe_session(link, "evt_f", "pi_f", 105000, {**metadata, "anum_tenant_id": "tenant_someone_else"}))["outcome"] == "ignored"
+    assert ok(stripe_session(link, "evt_c", "pi_c", 105000, metadata, currency="usd"))["outcome"] == "ignored"
+    assert ok(client.get(f"{BASE}/invoices/{sent['id']}", headers=MEMBER))["amount_paid"] == 0
+
+
+def test_a_replaced_stripe_link_is_turned_off(fake_stripe: FakeStripe, monkeypatch: pytest.MonkeyPatch) -> None:
+    turn_on_stripe(monkeypatch)
+    sent = aed_invoice()
+    first = ok(client.post(f"{BASE}/invoices/{sent['id']}/payment-link", headers=MEMBER), 201)["payment_link"]
+    ok(pay(sent["id"], 50), 201)  # the balance changes, so the next link is for a new amount
+    second = ok(client.post(f"{BASE}/invoices/{sent['id']}/payment-link", headers=MEMBER), 201)["payment_link"]
+    assert second["id"] != first["id"] and second["amount"] == 1000
+    assert fake_stripe.links[first["provider_invoice_id"]]["active"] is False
+    assert fake_stripe.links[second["provider_invoice_id"]]["active"] is True

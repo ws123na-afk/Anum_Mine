@@ -6,6 +6,22 @@ Implemented in `services/api/anum_api/billing/moyasar.py` (the Moyasar adapter),
 
 ## Payment provider
 
+**Owner decision (2 Nov 2026): Stripe is the card provider.** The owner has a UAE trade licence and no Saudi company, so ANUM takes card payments through **Stripe** with a UAE Stripe account, in AED (amounts in fils). Moyasar stays in ANUM as an **optional** provider for a company registered in Saudi Arabia: it needs a Saudi commercial registration, so it is not turned on now. When both are on, Moyasar takes new payments and Stripe still refunds and reconciles the payments it took. How Stripe works in ANUM: [Customer billing: Stripe](billing.md#payment-collection) and [Stripe refunds](billing.md#stripe-refunds); Business invoice links: [Business: payment links](business.md#payment-links).
+
+### Stripe UAE
+
+Stripe for a UAE company: what the owner does, in order. Nothing here needs a code change; the keys are entered in the console and stored only as Fernet ciphertexts.
+
+1. **Open the Stripe account.** At stripe.com, sign up with the company email and choose the United Arab Emirates as the country. Stripe asks for: the legal business name and trade licence (number, issuing authority, a copy of the licence), the business address in the UAE, the company's website (the app address and the published legal pages: terms, privacy and refund wording), a description of what is sold (ANUM software subscriptions and invoices for services), the owner's personal details and Emirates ID or passport (and those of anyone owning 25% or more), a UAE bank account in the company's name (IBAN) for payouts in AED, and the statement descriptor customers see on their card statement. Stripe may ask for more documents while it verifies the account; payouts start once it is verified.
+2. **Test keys first.** In the Stripe dashboard, switch on Test mode, open Developers, API keys, and copy the **Secret key** (`sk_test_...`). A restricted key (`rk_test_...`) also works if it may write Checkout Sessions, Prices, Payment Links and Refunds and read PaymentIntents, Payment Links and Refunds.
+3. **Enter the keys in ANUM.** Platform billing > Settings > Card payments (Stripe): paste the secret key, tick "Let customers pay open invoices by card", and save. Copy the webhook address shown there (`https://api.anum360os.com/api/v1/billing/webhooks/stripe/<your organisation id>`).
+4. **Add the webhook in Stripe.** Developers, Webhooks, Add endpoint: paste that address and pick the events `checkout.session.completed`, `charge.refunded`, `refund.created`, `refund.updated` and `refund.failed`. Copy the endpoint's **Signing secret** (`whsec_...`), paste it under "Webhook signing secret" in ANUM and save. Without it no payment or refund is confirmed, and the checklist says so.
+5. **Prices and tax in AED.** Create the plans in AED (Platform billing > Plans; ANUM stores the price in fils, AED 100.00 is 10000) and add `AE` at 5% to the tax rules once the company is VAT registered (with its TRN as the VAT number in Company and legal).
+6. **Test a payment and a refund.** Bill a test organisation, open its invoice as its billing admin and press Pay by card; pay with Stripe's test card `4242 4242 4242 4242` (any future date, any CVC). The invoice turns paid and the console shows a `stripe` payment. Then refund part of it from the console (Refund, "Stripe refunds the card now"): a credit note appears and Stripe's dashboard shows the refund. Make one refund in the Stripe dashboard too and check that ANUM records it as "Refunded in the Stripe dashboard". For a Business invoice, make a payment link and pay it the same way.
+7. **Switch to live.** In Stripe, turn off Test mode, copy the live secret key (`sk_live_...`), add the same webhook endpoint in live mode and copy its live signing secret. Replace both in ANUM. The checklist's card payment item turns Done only with live keys.
+
+Moyasar's steps (below) apply only to a Saudi company.
+
 ### Why Moyasar
 
 Two Saudi payment providers were compared from what is publicly documented about them (the official documentation sites could not be fetched from the build environment, so the choice must be confirmed by the owner when opening the account):
@@ -20,7 +36,7 @@ Two Saudi payment providers were compared from what is publicly documented about
 | Sandbox | Test keys `sk_test_` on the same API | Test host |
 | Webhooks | A shared `secret_token` in the body | AES-256-GCM encrypted body with IV and tag headers |
 
-Moyasar was chosen: the cleanest API, a hosted page that keeps ANUM out of card data, and one key pair for every card brand. Its one weakness is the webhook: it carries the owner's secret token inside the JSON body instead of an HMAC header. ANUM makes up for it: the token is compared in constant time (`hmac.compare_digest`), and **no amount, status, currency or invoice is ever taken from the delivered body**. The payment is fetched again from Moyasar's API with the secret key (`GET /v1/payments/{id}`, and `GET /v1/invoices/{id}` for the ANUM ids in its metadata) and only what Moyasar's API says is recorded. A forged delivery with a stolen token can therefore only make ANUM look up a real payment.
+For a Saudi company, Moyasar was chosen: the cleanest API, a hosted page that keeps ANUM out of card data, and one key pair for every card brand. Its one weakness is the webhook: it carries the owner's secret token inside the JSON body instead of an HMAC header. ANUM makes up for it: the token is compared in constant time (`hmac.compare_digest`), and **no amount, status, currency or invoice is ever taken from the delivered body**. The payment is fetched again from Moyasar's API with the secret key (`GET /v1/payments/{id}`, and `GET /v1/invoices/{id}` for the ANUM ids in its metadata) and only what Moyasar's API says is recorded. A forged delivery with a stolen token can therefore only make ANUM look up a real payment.
 
 ### How it works
 
@@ -33,10 +49,10 @@ Moyasar was chosen: the cleanest API, a hosted page that keeps ANUM out of card 
 
 `POST /api/v1/platform/billing/organizations/{tenant_id}/invoices/{invoice_id}/payments/{payment_id}/refunds {amount_minor, reason, mode, idempotency_key}` (platform owner only, for organisations it bills):
 
-- `mode: "provider"` refunds a Moyasar card payment through Moyasar; `mode: "manual"` records money returned outside ANUM (a bank transfer back, or a refund done in the Stripe dashboard). A non-Moyasar payment cannot use `provider` (`409` says to record it by hand).
+- `mode: "provider"` refunds a card payment through the provider that took it: Moyasar through Moyasar, Stripe through Stripe's Refunds API ([Stripe refunds](billing.md#stripe-refunds)); `mode: "manual"` records money returned outside ANUM (a bank transfer back). A payment no provider took cannot use `provider` (`409` says to record it by hand). A refund made in the Stripe or Moyasar dashboard is recorded by the provider's webhook, so it is not also recorded by hand.
 - The amount is at most what is left of the payment (its amount less refunds that did not fail), the invoice's paid amount and its uncredited total (`422` otherwise).
 - **Idempotent.** `idempotency_key` (8 to 120 characters) is unique per issuer (`uq_billing_refunds_key`). The same key with the same payment and amount returns the first refund (`200`) and never refunds twice; with anything else `409`. The web dialog makes one key per dialog, so a retry after a network error is the same refund.
-- **No transaction across the provider call.** The refund is claimed as `pending` in one short transaction, Moyasar is called with none open, then the result is booked in a second one. A replay of a claim still `pending` (the API died between the two) first reads the payment's `refunded` total from Moyasar and only calls the refund again when Moyasar has not refunded it yet. A provider refusal marks the refund `failed` with the reason and books nothing; the amount is free for a new attempt.
+- **No transaction across the provider call.** The refund is claimed as `pending` in one short transaction, the provider is called with none open, then the result is booked in a second one. The route is `async`: every database step runs in a worker thread and the audit record in its own unit of work. A replay of a claim still `pending` (the API died between the two) first reads the payment's `refunded` total from Moyasar and only calls the refund again when Moyasar has not refunded it yet. A provider refusal marks the refund `failed` with the reason and books nothing; the amount is free for a new attempt.
 - **Booking.** A succeeded refund issues a credit note for the same amount (next gapless `CN-` number, reason `Refund: ...`), lowers the invoice's paid amount and raises its credited amount, so `total = paid + credited + due` still holds: nothing becomes due again and nothing lands on the credit balance.
 - **Refunds made in the Moyasar dashboard.** A `payment_refunded` webhook compares Moyasar's refunded total with ANUM's refunds of that payment: pending ones it covers succeed; any extra is recorded once as a refund "Refunded in the Moyasar dashboard" with its credit note (keyed by the payment id and Moyasar's total).
 - Audited as `billing.refund.create` with ids, amount, mode and status only.
@@ -71,7 +87,7 @@ The platform owner's company details live in `billing_company_profiles` (one row
 - **Data subject rights**: access, correction, deletion and export; the privacy, DPA and terms pages end with a panel whose buttons open the app's own flows: Download my data and Delete my data (Settings > Privacy, [Privacy](privacy.md)), Export or delete the organisation (Settings > Workspace > Data export and deletion, [Organisation export and deletion](organisation-lifecycle.md)) and the retention settings. The DPA no longer says organisation deletion is an operator task: it is self-service with a cooling-off period.
 - **Cross-border transfers**: the server location from the company details and the subprocessor locations, with the transfer statement and mechanism as facts counsel writes, naming the Saudi transfer regulation and the UAE PDPL rules.
 - **Breach notification**: a new Privacy Policy section (the competent authority, SDAIA or the UAE Data Office, and affected people, within the period the applicable law sets; customers within the DPA's hours), and the DPA's breach section adds help with notifying authorities.
-- **Subprocessors**: a new Payments table (Moyasar, Stripe) and every "In use" column generated from what this deployment has turned on.
+- **Subprocessors**: a new Payments table (Moyasar, Stripe) and every "In use" column generated from what this deployment has turned on. With Stripe on and Moyasar off (the UAE setup), Stripe is listed "Yes" with its location to fill in and Moyasar "Not used".
 
 ### Cookies
 
@@ -83,7 +99,7 @@ Platform billing > **Ready to sell** (`GET /api/v1/platform/readiness`, platform
 
 | Item | Done when | Otherwise it says | Fix |
 |---|---|---|---|
-| Card payment provider | Moyasar or Stripe is on with a key and a webhook secret | Each provider's state; a **Check** state while only test keys are saved; whether bank details are on invoices | Settings tab |
+| Card payment provider | Stripe (a UAE company) or Moyasar (a Saudi company) is on with a key and a webhook secret | Which provider takes card payments now (`active`: Moyasar when it is on, else Stripe) and its currencies; each provider's state; that Moyasar is optional and needs a Saudi company; a **Check** state while the active provider has only test keys; whether bank details are on invoices | Settings tab |
 | Company details | Legal name, registration number and country, address, contact email, privacy email and server location are set | Which fields are empty | Company and legal tab |
 | Mail sending | A mailbox is connected in the owner's workspace (invoice emails go through it, after approval) | Whether a mailbox and server SMTP are set; SPF cannot be known from code | Email, plus the DNS check |
 | Backups on the server, Off-site backups | The last run recorded by `backup.sh` succeeded | Not recorded, never succeeded, or the last run's time and the last success; the Backblaze key hint for off-site | Run `backup.sh backup` on the server |
@@ -107,6 +123,6 @@ Platform billing > **Ready to sell** (`GET /api/v1/platform/readiness`, platform
 
 - No real Moyasar payment has been made: the adapter was tested only against a fake. The first test-mode payment, refund and webhook must be checked on staging with the owner's `sk_test_` key, and Moyasar must confirm AED on the account.
 - Moyasar's official API documentation could not be read from the build environment; the request and response fields follow Moyasar's published API as known, and the owner's first sandbox payment is the check.
-- Stripe refunds are recorded by hand (mode `manual`); there is no Stripe refund API call.
+- Stripe refunds go through Stripe's API ([Stripe refunds](billing.md#stripe-refunds)), tested only against a fake Stripe (`tests/test_stripe_payments.py`); the owner's first test-mode refund on staging is the check.
 - The console's "collected this month" counts payments received and does not subtract refunds.
 - The Arabic legal texts are translations written for this change and not yet reviewed by a lawyer; until a lawyer approves them the page says the English text applies. Legal facts the owner types in English are shown as typed on the Arabic page.

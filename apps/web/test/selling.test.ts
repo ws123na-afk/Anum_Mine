@@ -7,7 +7,7 @@ import {
   LEGAL_DOCS, fillPlaceholders, legalState, placeholderKey, publishedIds, readLegalDocument, remainingPlaceholders,
 } from '../src/lib/publicSite.ts';
 import {
-  fixTarget, missingCompany, missingKeys, missingTotal, newIdempotencyKey, refundableOf, sortReadiness, validDomain, validEmail,
+  fixTarget, missingCompany, missingKeys, missingTotal, newIdempotencyKey, providerRefundLabel, refundableOf, refundsThroughProvider, sortReadiness, validDomain, validEmail,
   type ReadinessItem,
 } from '../src/lib/selling.ts';
 import { billingAr } from '../src/lib/messages/billing.ar.ts';
@@ -73,6 +73,17 @@ test('refund helpers never offer more than the API allows and use a fresh key', 
   assert.equal(refundableOf({ amount_minor: 500, refundable_minor: -1 }), 0);
   assert.equal(newIdempotencyKey(() => 'abc'), 'refund-abc');
   assert.match(newIdempotencyKey(), /^refund-[0-9a-f-]{36}$/);
+});
+
+test('Moyasar and Stripe card payments are refunded through the provider; others by hand', () => {
+  assert.ok(refundsThroughProvider('stripe') && refundsThroughProvider('moyasar'));
+  assert.ok(!refundsThroughProvider(null) && !refundsThroughProvider(undefined) && !refundsThroughProvider('bank_transfer'));
+  assert.equal(providerRefundLabel('stripe'), 'billing.refund.viaStripe');
+  assert.equal(providerRefundLabel('moyasar'), 'billing.refund.viaMoyasar');
+  assert.ok(billingEn['billing.refund.viaStripe'] && billingAr['billing.refund.viaStripe']);
+  // The checklist says a Saudi provider is optional for a UAE company.
+  assert.match(billingEn['selling.ready.provider.moyasarOptional'], /Saudi/);
+  assert.match(billingEn['selling.ready.fix.payment_provider'], /Stripe/);
 });
 
 test('every new message exists in English and Arabic with the same placeholders', () => {

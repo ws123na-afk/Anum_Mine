@@ -45,8 +45,10 @@ function detailText(item: ReadinessItem): string[] {
   const lines: string[] = [];
   switch (item.key) {
     case 'payment_provider':
-      lines.push(t('selling.ready.provider.moyasar', { state: t(`selling.ready.providerState.${String(d.moyasar)}` as MessageKey) }));
+      if (d.active === 'stripe' || d.active === 'moyasar') lines.push(t(`selling.ready.provider.active.${d.active}` as MessageKey, { currencies: ((d.currencies as string[] | undefined) ?? []).join(', ') }));
       lines.push(t('selling.ready.provider.stripe', { state: t(`selling.ready.providerState.${String(d.stripe)}` as MessageKey) }));
+      lines.push(t('selling.ready.provider.moyasar', { state: t(`selling.ready.providerState.${String(d.moyasar)}` as MessageKey) }));
+      if (d.moyasar_optional !== false) lines.push(t('selling.ready.provider.moyasarOptional'));
       if (item.state === 'warning') lines.push(t('selling.ready.provider.testKeys'));
       lines.push(d.bank_transfer ? t('selling.ready.provider.bankOn') : t('selling.ready.provider.bankOff'));
       break;

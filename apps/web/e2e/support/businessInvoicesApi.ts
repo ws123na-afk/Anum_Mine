@@ -38,6 +38,8 @@ interface Options {
   role?: 'owner' | 'member'; listStatus?: 403 | 500; noProject?: boolean; withContractShare?: boolean;
   /** The owner's Moyasar (Platform billing): on in test mode, off, or the check fails. */
   moyasar?: 'on' | 'off' | 'error';
+  /** The owner's Stripe (a UAE company): used for links when Moyasar is not on. */
+  stripe?: 'on' | 'off';
   /** No email integration that can attach a PDF is connected. */
   noEmail?: boolean;
 }
@@ -215,7 +217,8 @@ export async function mockInvoices(page: Page, options: Options = {}): Promise<I
 
     if (path === '/payment-provider') {
       if (options.moyasar === 'error') return json(envelope('internal_error', 'Billing settings unavailable'), 500);
-      return json(options.moyasar === 'on' ? { moyasar: 'on', mode: 'test' } : { moyasar: 'off', mode: null });
+      const active = options.moyasar === 'on' ? 'moyasar' : options.stripe === 'on' ? 'stripe' : null;
+      return json({ moyasar: options.moyasar === 'on' ? 'on' : 'off', stripe: options.stripe === 'on' ? 'on' : 'off', provider: active, mode: active ? 'test' : null });
     }
 
     if (path === '/invoices/summary') {
@@ -371,13 +374,15 @@ export async function mockInvoices(page: Page, options: Options = {}): Promise<I
       }
       if (parts[2] === 'messages') return json(invoice.messages);
       if (parts[2] === 'payment-link' && method === 'POST') {
-        if (options.moyasar !== 'on') return json(envelope('conflict', 'Card payments are off. The owner turns Moyasar on in Platform billing > Settings > Moyasar.'), 409);
+        const provider = options.moyasar === 'on' ? 'moyasar' : options.stripe === 'on' ? 'stripe' : null;
+        if (!provider) return json(envelope('conflict', 'Card payments are off. The owner turns Stripe or Moyasar on in Platform billing > Settings.'), 409);
         const balance = dueState(invoice).balance;
         if (status !== 'sent' || balance <= 0) return json(envelope('conflict', 'A payment link is made for a sent invoice with a balance.'), 409);
         const links = invoice.links as Json[];
         if (!links.some((l) => l.status === 'open' && Number(l.amount) === balance)) {
           for (const l of links) l.status = 'replaced';
-          links.push({ id: id('binlink'), ...scope, invoice_id: invoice.id, provider: 'moyasar', provider_invoice_id: `inv_${counter}`, url: `https://checkout.moyasar.example/invoices/inv_${counter}`, amount: balance, currency: invoice.currency, status: 'open', created_by: 'user_local', created_at: now(), updated_at: now() });
+          links.push({ id: id('binlink'), ...scope, invoice_id: invoice.id, provider, provider_invoice_id: provider === 'stripe' ? `plink_${counter}` : `inv_${counter}`,
+            url: provider === 'stripe' ? `https://buy.stripe.example/plink_${counter}` : `https://checkout.moyasar.example/invoices/inv_${counter}`, amount: balance, currency: invoice.currency, status: 'open', created_by: 'user_local', created_at: now(), updated_at: now() });
         }
         return json(view(invoice), 201);
       }
