@@ -26,7 +26,9 @@ import {
 } from 'three';
 import type { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
 import type { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
-import { VERTEX_FLOATS, MAT } from './hqGeometry.ts';
+import { VERTEX_FLOATS } from './hqGeometry.ts';
+import { batchItems, classOf, pickNumbers, type Cls } from './hqBatches.ts';
+import { UploadGate } from './hqUploadGate.ts';
 import { poseAt, type AmbientMotion } from '../hqAssets/interior/ambient.ts';
 import { cameraEye, type CameraState } from './headquartersSpatial.ts';
 import { DUSK, lightingFor } from './hqLighting.ts';
@@ -36,21 +38,13 @@ import { clipPlanes, viewProjection } from './hqMath.ts';
 import { LIFT_MS, easeLift, type AmbientItem, type RenderItem, type RenderScene, type RenderStats, type RendererCallbacks } from './hqRenderTypes.ts';
 import { drawMaterialTexture, drawSignAtlas, type MaterialTextureKind } from './hqTextures.ts';
 import { ModelLayer } from './hqModelLayer.ts';
-import { QUALITY_PIN_KEY, ladderFor, parsePin, programVariants, tierById, type QualityState, type StepSettings, type TierReason } from './hqQualityTiers.ts';
+import { QUALITY_PIN_KEY, budgetedDpr, ladderFor, pixelBudget, parsePin, programVariants, tierById, type QualityState, type StepSettings, type TierReason } from './hqQualityTiers.ts';
 import type { FrameGovernor } from './hqGovernor.ts';
 import { PROMOTE_FRAMES, classifyRenderer, parseFxOff, shouldPromote, startTierFor, type FxName, type GpuClass } from './hqQualityTier.ts';
 import type { PhotoFx, PbrHook } from './hqPhotoFx.ts';
 import type { ModelGroup } from './hqModels.ts';
 
 export type { RenderItem, RenderScene, RenderStats, RendererCallbacks } from './hqRenderTypes.ts';
-
-type Cls = 'paint' | 'flat' | 'concrete' | 'tile' | 'asphalt' | 'grass' | 'wood' | 'metal' | 'water' | 'glass' | 'roller' | 'sign' | 'court' | 'pane' | 'foliage' | 'cloth' | 'beacon' | 'board' | 'boardFlat' | 'screen';
-
-const CLASS_OF_MAT: Readonly<Record<number, Cls>> = {
-  [MAT.flat]: 'flat', [MAT.concrete]: 'concrete', [MAT.tile]: 'tile', [MAT.asphalt]: 'asphalt', [MAT.grass]: 'grass', [MAT.wood]: 'wood',
-  [MAT.metal]: 'metal', [MAT.water]: 'water', [MAT.glass]: 'glass', [MAT.roller]: 'roller', [MAT.sign]: 'sign', [MAT.court]: 'court', [MAT.paint]: 'paint', [MAT.screen]: 'screen',
-  [MAT.foliage]: 'foliage', [MAT.cloth]: 'cloth', [MAT.beacon]: 'beacon',
-};
 
 /** World units per texture repeat, as a frequency. */
 const TEX_SCALE: Partial<Record<Cls, number>> = { concrete: 0.25, tile: 0.4, asphalt: 0.3, grass: 0.1, wood: 0.5, metal: 0.5, roller: 0.5, court: 0.25 };
@@ -59,9 +53,12 @@ const srgbToLinear = (c: number) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1
 
 // ---------------------------------------------------------------- shader patches
 
-const VERT_COMMON = 'attribute float aEm;\nvarying float vEm;\nvarying vec3 vWPos;\nvarying vec3 vWNrm;\nvarying vec2 vPUv;\nuniform float uTime;\nuniform float uAmb;';
-const VERT_BODY = 'vPUv = uv;\nvEm = aEm;\nvWPos = (modelMatrix * vec4(position, 1.0)).xyz;\nvWNrm = normalize(mat3(modelMatrix) * normal);';
+const VERT_COMMON = 'attribute float aEm;\nattribute float aPick;\nvarying float vPick;\nvarying float vEm;\nvarying vec3 vWPos;\nvarying vec3 vWNrm;\nvarying vec2 vPUv;\nuniform float uTime;\nuniform float uAmb;';
+const VERT_BODY = 'vPUv = uv;\nvEm = aEm;\nvPick = aPick;\nvWPos = (modelMatrix * vec4(position, 1.0)).xyz;\nvWNrm = normalize(mat3(modelMatrix) * normal);';
 const FRAG_COMMON = `varying float vEm;
+varying float vPick;
+uniform float uHlSel;
+uniform float uHlHov;
 varying vec3 vWPos;
 varying vec3 vWNrm;
 varying vec2 vPUv;
@@ -69,7 +66,6 @@ uniform float uNight;
 uniform float uLit;
 uniform float uTime;
 uniform float uAmb;
-uniform float uHighlight;
 uniform vec2 uDetail;
 uniform sampler2D uTexMap;
 uniform float uTexScale;
@@ -204,24 +200,23 @@ const WATER_GLINT = `
     float s = sin(vWPos.x * 2.3 + uTime * 1.7) * sin(vWPos.z * 2.1 - uTime * 1.3);
     totalEmissiveRadiance += uSunCol * pow(max(s, 0.0), 14.0) * 0.5 * (1.0 - uNight) * uAmb;
   }`;
-const HIGHLIGHT = '  totalEmissiveRadiance += vec3(0.08, 0.2, 0.17) * uHighlight;';
+/** The hover and selection glow: a vertex's pick number (`hqBatches.pickNumbers`, 0 = none) against the selected and hovered ones. */
+const HIGHLIGHT = '  totalEmissiveRadiance += vec3(0.08, 0.2, 0.17) * (vPick > 0.5 && abs(vPick - uHlSel) < 0.5 ? 1.0 : vPick > 0.5 && abs(vPick - uHlHov) < 0.5 ? 0.6 : 0.0);';
 
 type Shared = {
   uNight: IUniform<number>; uLit: IUniform<number>; uTime: IUniform<number>; uAmb: IUniform<number>; uDetail: IUniform<Vector2>;
   uSkyTop: IUniform<Color>; uSkyHor: IUniform<Color>; uSunDir: IUniform<Vector3>; uSunCol: IUniform<Color>; uRipples: IUniform<Vector4[]>;
+  uHlSel: IUniform<number>; uHlHov: IUniform<number>;
 };
 type Variant = 'std' | 'glass' | 'water' | 'foliage' | 'cloth' | 'beacon';
 
 /** `rich` adds the lit rooms behind glass, the water rings and the sky's clouds; a software rasteriser compiles and runs the plain programs. */
 function patched(material: Material, shared: Shared, opts: { texture?: Texture; scale?: number; variant?: Variant; rich?: boolean; pbr?: () => PbrHook | null }): void {
-  const hl: IUniform<number> = { value: 0 };
   const variant = opts.variant ?? 'std';
-  material.userData.hl = hl;
   material.onBeforeCompile = (shader) => {
     const pb = opts.pbr?.() ?? null;
     if (pb) for (const key of Object.keys(pb.uniforms)) shader.uniforms[key] = pb.uniforms[key];
     for (const key of Object.keys(shared) as Array<keyof Shared>) shader.uniforms[key] = shared[key];
-    shader.uniforms.uHighlight = hl;
     shader.uniforms.uTexMap = { value: opts.texture ?? null };
     shader.uniforms.uTexScale = { value: opts.scale ?? 0.25 };
     const sway = variant === 'foliage' ? SWAY_FOLIAGE : variant === 'cloth' ? SWAY_CLOTH : '';
@@ -315,7 +310,7 @@ function probeGpu(): string {
 
 
 export class HqRenderer {
-  readonly stats: RenderStats = { frames: 0, lastDrawMs: 0, avgDrawMs: 0, drawn: 0, culled: 0, triangles: 0, dpr: 1, shadowSize: 0, bloom: false, ambient: 0, ambientMoving: false, tier: 0, fx: '', sceneFx: 'loading', scenery: { level: 0, frames: 0, clock: 0, vehicles: 0 }, models: { placed: 0, figures: 0, loaded: 0, asked: 0, bytes: 0, loadMs: 0, fallbacks: [], looks: [] } };
+  readonly stats: RenderStats = { frames: 0, lastDrawMs: 0, avgDrawMs: 0, drawn: 0, culled: 0, triangles: 0, dpr: 1, uploads: 0, shadowSize: 0, bloom: false, ambient: 0, ambientMoving: false, tier: 0, fx: '', sceneFx: 'loading', scenery: { level: 0, frames: 0, clock: 0, vehicles: 0 }, models: { placed: 0, figures: 0, loaded: 0, asked: 0, bytes: 0, loadMs: 0, fallbacks: [], looks: [] } };
   private readonly renderer: WebGLRenderer;
   private readonly scene = new Scene();
   private readonly camera = new PerspectiveCamera(40, 1, 0.2, 1000);
@@ -327,11 +322,17 @@ export class HqRenderer {
     uNight: { value: 0 }, uLit: { value: 0 }, uTime: { value: 0 }, uAmb: { value: 0 }, uDetail: { value: new Vector2(60, 200) },
     uSkyTop: { value: new Color() }, uSkyHor: { value: new Color() }, uSunDir: { value: new Vector3(0, -1, 0) }, uSunCol: { value: new Color() },
     uRipples: { value: Array.from({ length: MAX_RIPPLES }, () => new Vector4(0, 0, 0, 0)) },
+    uHlSel: { value: -1 }, uHlHov: { value: -1 },
   };
+  /** Pick numbers of the scene's item ids, for the glow (`hqBatches.pickNumbers`). */
+  private picks = new Map<string, number>();
   private readonly materials = new Map<Cls, Material>();
   private readonly textures: Texture[] = [];
   private signTexture: Texture | null = null;
   private boardSource: HTMLCanvasElement | null = null;
+  /** Uploads a live atlas only when its drawing changed (hqUploadGate.ts). */
+  private readonly boardGate = new UploadGate<HTMLCanvasElement>();
+  private readonly screenGate = new UploadGate<HTMLCanvasElement>();
   private boardTexture: Texture | null = null;
   private boardTierUnlit = false;
   /** The billboards take the flat unlit material: the tier says so, or the simple materials are on (the governor's last rung). */
@@ -857,35 +858,44 @@ export class HqRenderer {
     return this.software && this.forcedScenery === null && (cls === 'foliage' || cls === 'cloth' || cls === 'beacon') ? 'flat' : cls;
   }
 
-  private addItem(item: RenderItem, transparent: boolean, scene: RenderScene): void {
-    // Baked ambient occlusion (and tall walls cut so it has a gradient to carry): a vertex colour multiplier, free per frame.
-    // A software rasteriser bakes the campus only: a floor view rebuilds on every click and a bake is CPU time its slow frames cannot spare.
-    const baked = !transparent && this.sceneFx && !this.fxOff.has('ao') && (!this.software || this.lastScene?.scenery !== undefined) ? this.sceneFx.prepare(item.vertices, this.cheap || this.software) : null;
-    const v = baked ? baked.vertices : item.vertices;
-    const aoOf = baked ? baked.ao : null;
-    const total = v.length / VERTEX_FLOATS;
-    const buckets = new Map<Cls, number[]>();
-    for (let t = 0; t + 2 < total; t += 3) {
-      const base = t * VERTEX_FLOATS;
-      const em = v[base + 9];
-      const cls: Cls = transparent ? 'pane' : em >= 2 ? 'glass' : this.stillClass(CLASS_OF_MAT[v[base + 10]] ?? 'flat');
-      let list = buckets.get(cls);
-      if (!list) { list = []; buckets.set(cls, list); }
-      list.push(t);
+  /**
+   * One batch of items (`hqBatches.batchItems`): every item is cut by surface class and the pieces of all the items in the batch are merged,
+   * so the batch costs one draw call per class however many buildings it holds. Each vertex keeps its item's pick number for the glow.
+   */
+  private addItem(item: RenderItem, transparent: boolean, scene: RenderScene): void { this.addBatch([item], transparent, scene); }
+
+  private addBatch(items: readonly RenderItem[], transparent: boolean, scene: RenderScene): void {
+    const buckets = new Map<Cls, Array<{ v: Float32Array; ao: Float32Array | null; pick: number; t: number }>>();
+    for (const item of items) {
+      // Baked ambient occlusion (and tall walls cut so it has a gradient to carry): a vertex colour multiplier, free per frame.
+      // A software rasteriser bakes the campus only: a floor view rebuilds on every click and a bake is CPU time its slow frames cannot spare.
+      const baked = !transparent && this.sceneFx && !this.fxOff.has('ao') && (!this.software || this.lastScene?.scenery !== undefined) ? this.sceneFx.prepare(item.vertices, this.cheap || this.software) : null;
+      const v = baked ? baked.vertices : item.vertices;
+      const ao = baked ? baked.ao : null;
+      const pick = this.picks.get(item.id) ?? 0;
+      const total = v.length / VERTEX_FLOATS;
+      for (let t = 0; t + 2 < total; t += 3) {
+        const cls = classOf(v, t, transparent, (c) => this.stillClass(c));
+        let list = buckets.get(cls);
+        if (!list) { list = []; buckets.set(cls, list); }
+        list.push({ v, ao, pick, t });
+      }
     }
+    const first = items[0];
     for (const [cls, tris] of buckets) {
       const n = tris.length * 3;
-      const position = new Float32Array(n * 3), normal = new Float32Array(n * 3), color = new Float32Array(n * 3), em = new Float32Array(n), uv = new Float32Array(n * 2);
+      const position = new Float32Array(n * 3), normal = new Float32Array(n * 3), color = new Float32Array(n * 3), em = new Float32Array(n), uv = new Float32Array(n * 2), pk = new Float32Array(n);
       let o = 0;
-      for (const t of tris) {
+      for (const { v, ao, pick, t } of tris) {
         for (let k = 0; k < 3; k++) {
           const s = (t + k) * VERTEX_FLOATS;
-          position.set([v[s], v[s + 1], v[s + 2]], o * 3);
-          normal.set([v[s + 3], v[s + 4], v[s + 5]], o * 3);
-          const a = aoOf ? aoOf[t + k] : 1;
-          color.set([srgbToLinear(v[s + 6]) * a, srgbToLinear(v[s + 7]) * a, srgbToLinear(v[s + 8]) * a], o * 3);
+          position[o * 3] = v[s]; position[o * 3 + 1] = v[s + 1]; position[o * 3 + 2] = v[s + 2];
+          normal[o * 3] = v[s + 3]; normal[o * 3 + 1] = v[s + 4]; normal[o * 3 + 2] = v[s + 5];
+          const a = ao ? ao[t + k] : 1;
+          color[o * 3] = srgbToLinear(v[s + 6]) * a; color[o * 3 + 1] = srgbToLinear(v[s + 7]) * a; color[o * 3 + 2] = srgbToLinear(v[s + 8]) * a;
           em[o] = v[s + 9];
-          uv.set([v[s + 11], v[s + 12]], o * 2);
+          uv[o * 2] = v[s + 11]; uv[o * 2 + 1] = v[s + 12];
+          pk[o] = pick;
           o += 1;
         }
       }
@@ -894,42 +904,39 @@ export class HqRenderer {
       geometry.setAttribute('normal', new Float32BufferAttribute(normal, 3));
       geometry.setAttribute('color', new Float32BufferAttribute(color, 3));
       geometry.setAttribute('aEm', new Float32BufferAttribute(em, 1));
+      geometry.setAttribute('aPick', new Float32BufferAttribute(pk, 1));
       geometry.setAttribute('uv', new Float32BufferAttribute(uv, 2));
       geometry.computeBoundingSphere();
-      const material = this.materials.get(item.board ? (cls === 'sign' ? 'board' : this.boardUnlit ? 'boardFlat' : cls) : cls)!;
+      const material = this.materials.get(first.board ? (cls === 'sign' ? 'board' : this.boardUnlit ? 'boardFlat' : cls) : cls)!;
       if (cls === 'pane') (material as MeshPhysicalMaterial).opacity = scene.glassAlpha ?? 0.22;
       const mesh = new Mesh(geometry, material);
-      mesh.frustumCulled = item.cull !== false;
-      mesh.userData.id = item.id;
-      mesh.userData.hl = 0;
-      mesh.userData.fallbackOf = item.fallbackOf ?? null;
-      mesh.userData.lift = item.lift ?? null;
-      if (item.board && cls !== 'sign') mesh.userData.boardCls = cls;
-      mesh.visible = !item.fallbackOf || !this.readyGroups.has(item.fallbackOf);
-      const sunOk = cls !== 'sign' && cls !== 'pane' && cls !== 'glass' && !(item.board && this.boardUnlit);
+      // The items of a batch share these (they are part of its key).
+      mesh.frustumCulled = first.cull !== false;
+      mesh.userData.id = items.length === 1 ? first.id : null;
+      mesh.userData.items = items.length;
+      mesh.userData.fallbackOf = first.fallbackOf ?? null;
+      mesh.userData.lift = first.lift ?? null;
+      if (first.board && cls !== 'sign') mesh.userData.boardCls = cls;
+      mesh.visible = !first.fallbackOf || !this.readyGroups.has(first.fallbackOf);
+      const sunOk = cls !== 'sign' && cls !== 'pane' && cls !== 'glass' && !(first.board && this.boardUnlit);
       mesh.castShadow = sunOk && cls !== 'water';
       mesh.receiveShadow = cls !== 'sign' && cls !== 'pane';
-      mesh.onBeforeRender = (_r, _s, _c, _g, mat) => {
-        const hl = (mat as Material).userData.hl as IUniform<number> | undefined;
-        if (!hl) return;
-        const value = mesh.userData.hl as number;
-        if (hl.value !== value) { hl.value = value; (mat as Material & { uniformsNeedUpdate: boolean }).uniformsNeedUpdate = true; }
-      };
       this.scene.add(mesh);
       this.meshes.push(mesh);
     }
   }
 
-  /** Campus only (not a building's floors): roof coping and plant, window sills, planters and the soft contact discs under cars, trees and wall feet. */
-  private addCampusDetail(scene: RenderScene): void {
+  /** Campus only (not a building's floors): roof coping and plant, window sills and planters (returned, to be batched with the buildings) and the soft contact discs under cars, trees and wall feet. */
+  private addCampusDetail(scene: RenderScene): RenderItem[] {
     const fx = this.campusFx;
-    if (!fx || !scene.scenery || !this.campusFxAllowed()) return;
+    const extra: RenderItem[] = [];
+    if (!fx || !scene.scenery || !this.campusFxAllowed()) return extra;
     const contacts: Float32Array[] = [];
     for (const item of scene.opaque) {
       const tall = item.bounds.max.y - item.bounds.min.y > 6;
       if (tall && !this.fxOff.has('detail')) {
-        const extra = fx.detailOf(item.vertices, item.id);
-        if (extra) this.addItem({ id: item.id, vertices: extra, bounds: item.bounds, cull: item.cull }, false, scene);
+        const vertices = fx.detailOf(item.vertices, item.id);
+        if (vertices) extra.push({ id: item.id, vertices, bounds: item.bounds, cull: item.cull, ...(item.board ? { board: true } : {}), ...(item.lift ? { lift: item.lift } : {}), ...(item.fallbackOf ? { fallbackOf: item.fallbackOf } : {}) });
       }
       if (!this.fxOff.has('contact')) contacts.push(fx.contactsOf(item.vertices));
     }
@@ -937,6 +944,7 @@ export class HqRenderer {
     let at = 0;
     for (const c of contacts) { all.set(c, at); at += c.length; }
     if (all.length) { this.contactMesh = fx.contactMesh(all); this.scene.add(this.contactMesh); this.photo?.setPrepassHidden(this.contactMesh); }
+    return extra;
   }
 
   setScene(scene: RenderScene): void {
@@ -945,9 +953,10 @@ export class HqRenderer {
     if (scene.models?.length && !this.layer) this.layer = new ModelLayer(this.scene, this.cheap, (ready) => this.applyReady(ready), () => this.requestFrame());
     if (!this.layer && scene.halos?.length) this.layer = new ModelLayer(this.scene, this.cheap, (ready) => this.applyReady(ready), () => this.requestFrame());
     if (this.layer) { this.readyGroups = scene.models?.length ? this.layer.readyNow(scene.models) : new Set(); this.layer.setNight(this.night); }
-    for (const item of scene.opaque) this.addItem(item, false, scene);
+    this.picks = pickNumbers([...scene.opaque, ...scene.glass, ...(scene.ambient ?? [])].map((i) => i.id));
+    // Opaque items are merged by surface class (hqBatches.ts): one draw call per class per batch, not per class per building.
+    for (const batch of batchItems([...scene.opaque, ...this.addCampusDetail(scene)])) this.addBatch(batch, false, scene);
     for (const item of scene.glass) this.addItem(item, true, scene);
-    this.addCampusDetail(scene);
     for (const item of scene.ambient ?? []) this.addAmbient(item, scene);
     if (this.layer) {
       this.layer.setHalos(scene.halos);
@@ -987,9 +996,11 @@ export class HqRenderer {
 
 
   /** The live screen atlas (desk monitors and video walls): a canvas the lazy screens chunk draws into. A new canvas makes a new texture, the same canvas is uploaded again. */
-  setScreens(source: HTMLCanvasElement | null): void {
+  setScreens(source: HTMLCanvasElement | null, version?: number): void {
+    const step = this.screenGate.step(source, version);
+    if (step === 'none') return;
     const m = this.materials.get('screen') as MeshBasicMaterial;
-    if (source !== this.screenSource) {
+    if (step === 'new') {
       this.screenTexture?.dispose();
       this.screenSource = source;
       this.screenTexture = null;
@@ -1001,14 +1012,17 @@ export class HqRenderer {
       }
       m.map = this.screenTexture;
       m.needsUpdate = true;
-    } else if (this.screenTexture) this.screenTexture.needsUpdate = true;
+    } else if (this.screenTexture) { this.screenTexture.needsUpdate = true; this.stats.uploads = this.boardGate.uploads + this.screenGate.uploads; }
     this.requestFrame();
   }
 
+
   /** The live board atlas (the billboards): a canvas the lazy billboard chunk draws into. A new canvas makes a new texture, the same canvas is uploaded again. */
-  setBoards(source: HTMLCanvasElement | null): void {
+  setBoards(source: HTMLCanvasElement | null, version?: number): void {
+    const step = this.boardGate.step(source, version);
+    if (step === 'none') return;
     const m = this.materials.get('board') as MeshBasicMaterial;
-    if (source !== this.boardSource) {
+    if (step === 'new') {
       this.boardTexture?.dispose();
       this.boardSource = source;
       this.boardTexture = null;
@@ -1020,9 +1034,10 @@ export class HqRenderer {
       }
       m.map = this.boardTexture;
       m.needsUpdate = true;
-    } else if (this.boardTexture) this.boardTexture.needsUpdate = true;
+    } else if (this.boardTexture) { this.boardTexture.needsUpdate = true; this.stats.uploads = this.boardGate.uploads + this.screenGate.uploads; }
     this.requestFrame();
   }
+
 
   /** What the work layer chunk needs (see `hqWorkLayer.setWork`): the scene, a frame request, the lights level and whether drawing is slow. */
   workHooks() {
@@ -1108,7 +1123,8 @@ export class HqRenderer {
   setReducedMotion(reduced: boolean): void { this.reducedMotion = reduced; this.requestFrame(); }
 
   private applyHighlight(): void {
-    for (const mesh of this.meshes) mesh.userData.hl = mesh.userData.id === this.selected ? 1 : mesh.userData.id === this.hover ? 0.6 : 0;
+    this.shared.uHlSel.value = (this.selected !== null && this.picks.get(this.selected)) || -1;
+    this.shared.uHlHov.value = (this.hover !== null && this.picks.get(this.hover)) || -1;
   }
 
   get isLost(): boolean { return this.lost; }
@@ -1235,7 +1251,10 @@ export class HqRenderer {
 
   private resize(): { width: number; height: number; dpr: number } {
     const box = this.canvas.getBoundingClientRect();
-    const dpr = Math.max(0.6, Math.min(this.maxDpr, window.devicePixelRatio || 1) * this.dprScale);
+    // The tier's pixel budget first (hqQualityTiers `pixelBudget`: an integrated GPU's cost grows with the pixels), then the governor's rung.
+    const budget = this.photoActive() ? null : pixelBudget(tierById(this.override ?? this.pinned ?? this.quality), this.gpu);
+    const base = budgetedDpr(Math.min(this.maxDpr, window.devicePixelRatio || 1), box.width * box.height, budget);
+    const dpr = Math.max(0.5, base * this.dprScale);
     if (Math.abs(box.width - this.sizeW) > 0.05 || Math.abs(box.height - this.sizeH) > 0.05 || Math.abs(dpr - this.sizeDpr) > 0.005) {
       this.sizeW = box.width; this.sizeH = box.height; this.sizeDpr = dpr;
       this.renderer.setPixelRatio(dpr);

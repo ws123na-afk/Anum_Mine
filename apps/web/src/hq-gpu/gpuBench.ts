@@ -85,9 +85,9 @@ function gpuTimer(gl: GL | null): { tick(): void; poll(out: number[]): void; sto
 }
 
 /** Programs, geometries and textures three.js holds now: a frame that adds to them compiled shaders or uploaded buffers. */
-function counts(r: HqRenderer): { programs: number; buffers: number } {
+function counts(r: HqRenderer): { programs: number; buffers: number; uploads: number } {
   const info = innerOf(r).renderer.info as { programs?: unknown[] | null; memory?: { geometries: number; textures: number } } | undefined;
-  return { programs: info?.programs?.length ?? 0, buffers: (info?.memory?.geometries ?? 0) + (info?.memory?.textures ?? 0) };
+  return { programs: info?.programs?.length ?? 0, buffers: (info?.memory?.geometries ?? 0) + (info?.memory?.textures ?? 0), uploads: r.stats.uploads ?? 0 };
 }
 
 /** Time one tier for `ms` milliseconds after it has warmed up. Returns null when `signal` aborted. */
@@ -118,9 +118,9 @@ async function runTier(r: HqRenderer, id: number, ms: number, signal: AbortSigna
   const timer = gpuTimer(gl);
   const gpu: number[] = [];
   const frames: number[] = [];
-  let hitches = 0, compile = 0, buffers = 0;
+  let hitches = 0, compile = 0, buffers = 0, uploads = 0;
   let before = counts(r);
-  let changed = { programs: false, buffers: false };
+  let changed = { programs: false, buffers: false, uploads: false };
   const started = last;
   let liftedDown = false, liftedUp = false;
   timer?.tick();
@@ -135,9 +135,9 @@ async function runTier(r: HqRenderer, id: number, ms: number, signal: AbortSigna
     if (t > ms) break;
     frames.push(gap);
     // The long gap ending now was spent in the previous frame's draw: what that draw changed was counted at the previous tick.
-    if (gap > HITCH_MS) { hitches += 1; if (changed.programs) compile += 1; if (changed.buffers) buffers += 1; }
+    if (gap > HITCH_MS) { hitches += 1; if (changed.programs) compile += 1; if (changed.buffers) buffers += 1; if (changed.uploads) uploads += 1; }
     const after = counts(r);
-    changed = { programs: after.programs > before.programs, buffers: after.buffers > before.buffers };
+    changed = { programs: after.programs > before.programs, buffers: after.buffers > before.buffers, uploads: after.uploads > before.uploads };
     before = after;
     orbit(now - switched);
     if (floors && t > ms * 0.4 && !liftedDown) { liftedDown = true; setLiftValues(r, { [floor as string]: 0 }); }
@@ -158,7 +158,7 @@ async function runTier(r: HqRenderer, id: number, ms: number, signal: AbortSigna
     tier: id, key: tier.key, frames: summarize(frames), drawCalls: s.drawn, triangles: s.triangles, dpr: s.dpr, shadowSize: s.shadowSize, bloom: s.bloom,
     memoryEstimateMb: memory / 1048576, floorChange: floors, warmupMs,
     gpu: gpuSorted.length >= 10 ? { medianMs: percentile(gpuSorted, 0.5), p95Ms: percentile(gpuSorted, 0.95), samples: gpuSorted.length } : null,
-    hitches: { count: hitches, compile, buffers },
+    hitches: { count: hitches, compile, buffers, uploads },
   };
 }
 
