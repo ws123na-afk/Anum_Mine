@@ -72,6 +72,7 @@ ENDPOINTS = {
     "pnl": ("GET", "/iserver/account/pnl/partitioned"),
     "stocks": ("GET", "/trsrv/stocks"),
     "snapshot": ("GET", "/iserver/marketdata/snapshot"),
+    "history": ("GET", "/iserver/marketdata/history"),
     "place_order": ("POST", "/iserver/account/{account}/orders"),
     "reply": ("POST", "/iserver/reply/{reply}"),
     "cancel_order": ("DELETE", "/iserver/account/{account}/order/{order}"),
@@ -579,6 +580,13 @@ class IbkrClient:
                              updated_ms=int(updated) if isinstance(updated, (int, float)) else None, closing_price=last_text.startswith("C"),
                              availability=str(item.get("6509") or "")[:4])
         return Quote(conid=conid, last=None, bid=None, ask=None, updated_ms=None, closing_price=False)
+
+    def history(self, conid: int, *, period: str = "10y", bar: str = "1w") -> Any:
+        """Historical bars (research only, docs/finance-research.md#sources): IBKR's raw answer, parsed by
+        ``research_data.parse_ibkr_history``. Split-adjusted by IBKR, not dividend-adjusted."""
+        if not re.fullmatch(r"[0-9]{1,3}(d|w|m|y)", period) or not re.fullmatch(r"[0-9]{1,2}(d|w|m)", bar):
+            raise IbkrError("bad_request", "A history request ANUM does not send.")
+        return self._call("history", params={"conid": str(conid), "period": period, "bar": bar, "outsideRth": "false"})
 
     # orders -------------------------------------------------------------------------------------
 

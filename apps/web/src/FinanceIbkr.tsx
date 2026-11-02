@@ -489,7 +489,7 @@ function Plans({ overview: o, say, onChanged }: { overview: IbkrOverview; say: S
     <p className="muted">{t('ibkr.plans.intro')}</p>
     {allowed.length === 0 ? <p className="muted">{t('ibkr.ticket.noSymbolsText')}</p> : <>
       {rows.length === 0 && <p className="muted">{t('ibkr.plans.none')}</p>}
-      {rows.map((row, index) => <fieldset key={row.id ?? `new-${index}`} className="finMapping ibkrPlan"><legend>{t('ibkr.plans.plan', { n: index + 1 })}</legend>
+      {rows.map((row, index) => <fieldset key={row.id ?? `new-${index}`} className="finMapping ibkrPlan"><legend>{t('ibkr.plans.plan', { n: index + 1 })}{o.settings.buy_plans.find((p) => p.id === row.id)?.paper_only && <> <span className="statusBadge neutral">{t('ibkr.plans.paperOnly')}</span></>}</legend>
         <label className="cmInline"><span>{t('ibkr.col.symbol')}</span><select value={row.symbol} onChange={(e) => set(index, { symbol: e.target.value })}>{allowed.map((s) => <option key={s} value={s}>{s}</option>)}</select></label>
         <label className="cmInline"><span>{t('ibkr.plans.amount')}</span><input value={row.amount} inputMode="decimal" dir="ltr" onChange={(e) => set(index, { amount: e.target.value })} /></label>
         <label className="cmInline"><span>{t('ibkr.plans.day')}</span><input type="number" min={1} max={28} value={row.day_of_month} dir="ltr" onChange={(e) => set(index, { day_of_month: Number(e.target.value) })} /></label>

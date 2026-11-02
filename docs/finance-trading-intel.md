@@ -21,6 +21,10 @@ The code is the pure package `services/api/anum_api/finance/intel/`: no network 
 
 No code here can place a real order. A strategy signal becomes, at most, a SIMULATED paper order request through the existing Guardian `gate` and execution gateway, approved by the person.
 
+## Fund research
+
+Research on real funds the owner can trade (price history, worst falls, fund facts, Shariah status, an AI summary checked against the data, backtests of simple rules with whole shares and the owner's limits, and paper runs) is a separate, real-data feature: [Fund research](finance-research.md). The simulated research and paper trading on this page are unchanged. Not financial advice; no guaranteed returns.
+
 ## Calendars
 
 `intel/markets.py`. Each venue has a time zone (DST handled by `zoneinfo`), regular hours and trading weekdays:

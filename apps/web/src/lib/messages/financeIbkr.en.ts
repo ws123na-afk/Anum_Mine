@@ -226,6 +226,7 @@ export const financeIbkrEn = {
   'ibkr.plans.amount': 'Amount (USD)',
   'ibkr.plans.day': 'Day of month (1 to 28)',
   'ibkr.plans.active': 'On',
+  'ibkr.plans.paperOnly': 'Paper only (from research)',
   'ibkr.plans.remove': 'Remove plan {n}',
   'ibkr.plans.add': 'Add plan',
   'ibkr.plans.save': 'Save plans',
