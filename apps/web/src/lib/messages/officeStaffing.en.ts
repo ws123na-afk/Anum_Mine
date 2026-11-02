@@ -75,6 +75,8 @@ export const officeStaffingEn = {
   'ostaff.gap.cantEdit': 'Only the agent\'s creator, or a workspace owner for a shared agent, can change it.',
   'ostaff.rule.autonomy': 'stricter autonomy',
   'ostaff.rule.cost_cap': 'monthly cost cap',
+  'ostaff.rule.knowledge': 'the Green Concrete knowledge collection',
+  'ostaff.gap.knowledge': 'Does not read the Green Concrete knowledge collection yet.',
   'ostaff.rule.never_list': 'the never list',
   'ostaff.otherAgents': 'Other agents in this office',
   'ostaff.otherAgentsText': 'These agents sit here but match no role of the blueprint. Nothing is changed for them.',

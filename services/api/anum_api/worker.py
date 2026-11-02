@@ -62,6 +62,7 @@ def build_activities(
     from .mailbox.service import register_mail_tools
     from .developer import register_developer_tools
     from .tyre.tools import register_tyre_tools
+    from .green_concrete_ops import register_green_concrete_tools
     from .marketing import register_marketing_tools
     from .business import register_business_tools
     from .brevo import register_brevo_tools
@@ -70,12 +71,12 @@ def build_activities(
 
     integrations = default_integration_registry(config)
     email_inbox.integration_enabled = lambda context, integration_id: not integrations.switched_off(integration_id, context)
-    registry = tools or register_calendar_tools(register_brevo_tools(register_call_tools(register_business_tools(register_mail_tools(register_finance_tools(register_marketing_tools(register_tyre_tools(register_commerce_tools(email_inbox.register_email_tools(register_whatsapp_tools(register_developer_tools(
+    registry = tools or register_green_concrete_tools(register_calendar_tools(register_brevo_tools(register_call_tools(register_business_tools(register_mail_tools(register_finance_tools(register_marketing_tools(register_tyre_tools(register_commerce_tools(email_inbox.register_email_tools(register_whatsapp_tools(register_developer_tools(
         default_tool_registry(
             configured_external_handler(config, integrations),
             configured_web_search_handler(config, integrations.workspace_enabled(SEARXNG_INTEGRATION_ID)),
         )
-    ))))))))))))
+    )))))))))))))
     if tools is None:
         # The same browser research tool as the API (docs/browser-research.md).
         from .browser_research import BROWSER_INTEGRATION_ID

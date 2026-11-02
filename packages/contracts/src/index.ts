@@ -269,5 +269,6 @@ export * from './officeStarterCampus.js';
 export * from './officeGreenConcrete.js';
 export * from './officeStaffDesks.js';
 export * from './officeStaffing.js';
+export * from './greenConcreteKit.js';
 export * from './officeVisitors.js';
 export * from './tyreEventTimes.js';

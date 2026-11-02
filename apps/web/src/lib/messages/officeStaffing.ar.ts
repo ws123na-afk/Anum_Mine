@@ -76,6 +76,8 @@ export const officeStaffingAr: Record<keyof typeof officeStaffingEn, Message> = 
   'ostaff.gap.cantEdit': 'لا يغيّر الوكيل إلا منشئه، أو مالك مساحة العمل إذا كان الوكيل مشتركا.',
   'ostaff.rule.autonomy': 'استقلالية أشد',
   'ostaff.rule.cost_cap': 'سقف التكلفة الشهري',
+  'ostaff.rule.knowledge': 'مجموعة معرفة جرين كونكريت',
+  'ostaff.gap.knowledge': 'لا يقرأ مجموعة معرفة جرين كونكريت بعد.',
   'ostaff.rule.never_list': 'قائمة الممنوعات',
   'ostaff.otherAgents': 'وكلاء آخرون في هذا المكتب',
   'ostaff.otherAgentsText': 'هؤلاء الوكلاء يجلسون هنا لكنهم لا يطابقون أي دور في المخطط. لا يتغير لهم شيء.',

@@ -54,6 +54,13 @@ class SkillManifest(BaseModel):
     triggers: frozenset[str] = Field(default_factory=frozenset)
     required_tools: frozenset[str] = Field(default_factory=frozenset)
     risk_level: RiskLevel = RiskLevel.LOW
+    # Reviewed instructions a first-party role skill loads into every run and chat of an agent
+    # that allows it (docs/agents.md#skills). Empty for the classic built-in skills.
+    instructions: str = ""
+    name_ar: str = ""
+    description_ar: str = ""
+    # Selected only for an agent that allows it, never for the plain Assistant (role skills).
+    agent_only: bool = False
 
 
 class SkillRegistry:
@@ -70,12 +77,13 @@ class SkillRegistry:
         """Every skill, in registration order."""
         return list(self._manifests.values())
 
-    def select(self, prompt: str, available_tools: set[str]) -> list[SkillManifest]:
+    def select(self, prompt: str, available_tools: set[str], *, include_agent_only: bool = False) -> list[SkillManifest]:
         words = prompt_words(prompt)
         return [
             manifest
             for manifest in self._manifests.values()
-            if (not manifest.triggers or bool(words & manifest.triggers))
+            if (include_agent_only or not manifest.agent_only)
+            and (not manifest.triggers or bool(words & manifest.triggers))
             and manifest.required_tools <= available_tools
         ]
 
@@ -267,8 +275,16 @@ def default_skill_registry() -> SkillRegistry:
             # The trading knowledge library: six SKILL.md packages under finance/intel/skills
             # (docs/finance-trading-intel.md#skills-and-tools), selected where their tools are registered.
             *_trading_skills(),
+            # Green Concrete role skills (docs/ANUM_MINE_GREEN_CONCRETE_AGENTS.md), agent only.
+            *_green_concrete_skills(),
         ]
     )
+
+
+def _green_concrete_skills() -> list[SkillManifest]:
+    from .green_concrete_kit import skill_manifests
+
+    return skill_manifests()
 
 
 def _trading_skills() -> list[SkillManifest]:
