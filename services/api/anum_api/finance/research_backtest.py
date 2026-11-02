@@ -50,8 +50,8 @@ class Commission(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     per_share: Decimal = Field(default=Decimal("0.005"), ge=0, le=Decimal("0.1"))
-    minimum: Decimal = Field(default=Decimal("1.00"), ge=0, le=Decimal("20"))
-    max_percent: Decimal = Field(default=Decimal("1"), ge=0, le=Decimal("5"))  # of the order's value
+    minimum: Decimal = Field(default=Decimal("1.00"), ge=0, le=Decimal(20))
+    max_percent: Decimal = Field(default=Decimal(1), ge=0, le=Decimal(5))  # of the order's value
 
     def fee(self, shares: int, price: Decimal) -> Decimal:
         if shares <= 0:

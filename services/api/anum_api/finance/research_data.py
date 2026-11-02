@@ -436,7 +436,7 @@ async def fetch(client: httpx.AsyncClient, url: str, *, headers: dict[str, str] 
             if response.status_code != 200:
                 raise SourceError("http_error", f"{parts.hostname} answered HTTP {response.status_code}.")
             body = bytearray()
-            async for chunk in response.aiter_raw():
+            async for chunk in response.aiter_bytes():
                 body.extend(chunk)
                 if len(body) > cap:
                     raise SourceError("too_large", f"{parts.hostname} sent more data than ANUM accepts.")

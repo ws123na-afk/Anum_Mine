@@ -42,6 +42,7 @@ class FakeIbkr:
     flex_ready: bool = True
     next_id: int = 1000
     now_ts: float = 0.0
+    history: list[dict[str, Any]] | None = None  # bars for /iserver/marketdata/history (research); None answers an error
     availability: str = "DPB"  # free delayed data, as a USD 50 account without a subscription gets  # the test's clock; 0 = real time
 
     def __call__(self, request: HttpRequest) -> tuple[int, bytes]:
@@ -85,6 +86,10 @@ class FakeIbkr:
         if path == "/trsrv/stocks":
             symbol = query["symbols"][0]
             return self._json({symbol: [{"name": symbol + " ETF", "assetClass": "STK", "contracts": [{"conid": SPY, "exchange": "ARCA", "isUS": True}]}]})
+        if path == "/iserver/marketdata/history":
+            if self.history is None:
+                return 500, b'{"error":"no history"}'
+            return self._json({"symbol": "SPY", "data": self.history, "points": len(self.history)})
         if path == "/iserver/marketdata/snapshot":
             conid = int(query["conids"][0])
             updated = int(((self.now_ts or time.time()) - self.quote_age_seconds) * 1000)

@@ -226,6 +226,7 @@ export const financeIbkrAr: Record<keyof typeof financeIbkrEn, Message> = {
   'ibkr.plans.amount': 'المبلغ (دولار)',
   'ibkr.plans.day': 'يوم الشهر (1 إلى 28)',
   'ibkr.plans.active': 'مفعلة',
+  'ibkr.plans.paperOnly': 'تجريبية فقط (من البحث)',
   'ibkr.plans.remove': 'إزالة الخطة {n}',
   'ibkr.plans.add': 'إضافة خطة',
   'ibkr.plans.save': 'حفظ الخطط',

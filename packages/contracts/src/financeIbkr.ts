@@ -21,9 +21,13 @@ export interface IbkrLimits {
 /** shariah_screened: by the fund issuer's own Shariah board; ANUM does not certify it. */
 export interface IbkrAllowedSymbol { symbol: string; conid: number; name: string; exchange: string; shariah_screened: boolean }
 
-export interface IbkrBuyPlan { id: string; symbol: string; amount: string; day_of_month: number; active: boolean; last_proposed: string | null }
+export interface IbkrBuyPlan {
+  id: string; symbol: string; amount: string; day_of_month: number; active: boolean; last_proposed: string | null;
+  /** Made by a research backtest's Paper run (docs/finance-research.md#paper-run): proposes paper orders only. */
+  paper_only?: boolean; origin?: string | null;
+}
 
-export interface IbkrBuyPlanInput { id?: string | null; symbol: string; amount: string; day_of_month: number; active: boolean }
+export interface IbkrBuyPlanInput { id?: string | null; symbol: string; amount: string; day_of_month: number; active: boolean; paper_only?: boolean }
 
 export interface IbkrLiveSwitch {
   on: boolean;
