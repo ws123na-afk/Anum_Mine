@@ -299,3 +299,17 @@
 .finIntelPick.finChecks { grid-template-columns: repeat(auto-fill, minmax(min(100%, 18rem), 1fr)); }
 .finIntelPick .finCheck { flex-wrap: wrap; }
 .finIntelImport button { align-items: center; display: inline-flex; gap: var(--d-s2); min-height: 36px; white-space: nowrap; }
+
+/* Live eligibility check (FinanceLivePreflight.tsx): read only, live stays off. */
+.finPreflightProfile { display: grid; gap: 0 var(--d-s3); grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr)); }
+.finPreflightProfile > .field { margin-top: 0; }
+.finPreflightProfile > .field > label { color: var(--d-muted); font-size: var(--text-sm); font-weight: 600; }
+.finPreflightFacts { display: grid; gap: 0 var(--d-s3); grid-template-columns: repeat(auto-fill, minmax(min(100%, 22rem), 1fr)); }
+.finPreflightFacts .finCheck { align-items: flex-start; padding-block: var(--d-s2); }
+.finPreflightFacts .finCheck input { flex: none; margin-top: 2px; }
+.finPreflightResult { display: grid; gap: var(--d-s3); margin-top: var(--d-s4); min-width: 0; }
+.finPreflightAnswer { display: grid; gap: var(--d-s3); min-width: 0; }
+.finPreflightAnswer p { margin: 0; }
+.finPreflightGroups { display: grid; gap: var(--d-s3); grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr)); }
+.finPreflightGroups > div { display: grid; gap: var(--d-s2); align-content: start; min-width: 0; }
+.finPreflightAnswer a { align-items: center; display: inline-flex; gap: var(--d-s1); }

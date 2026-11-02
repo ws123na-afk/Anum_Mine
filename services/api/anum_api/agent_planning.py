@@ -1,3 +1,4 @@
+import re
 from collections.abc import Collection, Sequence
 from typing import TYPE_CHECKING
 
@@ -125,6 +126,18 @@ def _fleet_work_words(prompt: str) -> bool:
                           prompt, re.IGNORECASE))
 
 
+_HTTPS_ADDRESS = re.compile(r"https://[^\s<>\"'`]+", re.IGNORECASE)
+
+
+def first_https_address(prompt: str) -> str | None:
+    """The first https address written in the prompt, without trailing punctuation."""
+    found = _HTTPS_ADDRESS.search(prompt)
+    if found is None:
+        return None
+    address = found.group(0).rstrip(".,;:!?)]}،")
+    return address[:2048] if len(address) > len("https://") else None
+
+
 def choose_tool_call(
     prompt: str, skills: Sequence[SkillManifest], planned_text: str, available_tools: Collection[str] = ()
 ) -> ToolCall:
@@ -200,6 +213,12 @@ def choose_tool_call(
         from .tyre.tools import choose_call
 
         return choose_call(prompt)
+    if any(skill.id == "anum.browser-research" for skill in skills):
+        # The address comes from the user's own prompt, never retrieved text or model output
+        # (threat model G5); the tool checks it again (docs/browser-research.md).
+        address = first_https_address(prompt)
+        if address is not None:
+            return ToolCall(name="web.browse_page", arguments={"url": address})
     if any(skill.id == "anum.web-search" for skill in skills):
         # The query is the user's own prompt, never retrieved text or model output
         # (threat model G5); the tool caps its length.

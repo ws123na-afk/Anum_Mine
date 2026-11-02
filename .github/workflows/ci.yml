@@ -77,6 +77,31 @@ jobs:
       - run: python -m pip install --disable-pip-version-check -e "services/api[test]"
       - run: python -m pytest services/api -m "not database"
 
+  # Browser research (docs/browser-research.md): the kernel's network guard in a real Chromium
+  # (SSRF, DNS rebinding, redirects, downloads, forms). Deselected in "API unit tests"; here
+  # none may be skipped.
+  api-browser-research:
+    name: Browser research kernel
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7.1.0
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: services/api/pyproject.toml
+      - run: python -m pip install --disable-pip-version-check "pip==24.3.1"
+      - run: python -m pip install --disable-pip-version-check -e "services/api[test,browser]"
+      - run: python -m playwright install --with-deps --only-shell chromium
+      - name: Run the real-browser tests (none may be skipped)
+        run: |
+          set -o pipefail
+          python -m pytest services/api -m browser -rs | tee browser.log
+          if grep -q "SKIPPED" browser.log; then
+            echo "::error::Browser research tests were skipped"
+            exit 1
+          fi
+
   # The Playwright suite in six shards, each on its own runner with the fixed ports 4173, 4174 and
   # 4175 (apps/web/playwright.config.ts). "Browser end-to-end" below is the one required check: it
   # passes only when every shard passed, and merges the shards' reports into one HTML report.

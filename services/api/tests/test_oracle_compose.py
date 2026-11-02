@@ -47,7 +47,7 @@ KEYCLOAK_ADMIN_VARS = {
     "KC_BOOTSTRAP_ADMIN_USERNAME",
     "KC_BOOTSTRAP_ADMIN_PASSWORD",
 }
-LONG_RUNNING = {"caddy", "postgres", "api", "web", "keycloak", "valkey", "ollama", "searxng", "clamd", "beszel", "beszel-agent", "glitchtip", "coturn"}
+LONG_RUNNING = {"caddy", "postgres", "api", "web", "keycloak", "valkey", "ollama", "searxng", "clamd", "beszel", "beszel-agent", "glitchtip", "coturn", "browser"}
 MONITORING = {"beszel", "beszel-agent", "glitchtip"}
 ONE_SHOT = {"db-init", "migrate", "retention", "backup", "restore-tools", "backup-upload", "ollama-pull"}
 API_REQUIRED = {
@@ -335,6 +335,7 @@ def test_env_example_holds_placeholders_only() -> None:
         "ANUM_BACKUP_ENCRYPTION_PASSPHRASE",
         "SEARXNG_SECRET",
         "ANUM_TURN_SECRET",
+        "ANUM_BROWSER_TOKEN",
     }
     owner = {key for key, value in example.items() if OWNER_PLACEHOLDER in value}
     assert {"ANUM_WEB_HOST", "ANUM_API_HOST", "ANUM_AUTH_HOST", "ACME_EMAIL"} <= owner
@@ -829,6 +830,34 @@ def test_install_runs_owner_commands_when_started_with_sudo() -> None:
     )
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip() == "nobody"
+
+
+def test_the_browser_service_is_isolated_and_off_by_default() -> None:
+    """docs/browser-research.md#the-browser-service: own container, no ANUM secrets."""
+    compose = _compose()
+    services = compose["services"]
+    browser = services["browser"]
+    assert browser["profiles"] == ["browser"]
+    assert browser["build"]["args"] == {"ANUM_BROWSER": "1"}
+    assert browser["command"] == ["python", "-m", "anum_api.browser_research.service"]
+    assert set(browser["networks"]) == {"browser", "browser-egress"}
+    assert not browser.get("ports") and not browser.get("expose")
+    assert "browser:8090" not in CADDYFILE.read_text(encoding="utf-8")
+    # Only the token: no database URL, secrets key or provider key reaches Chromium's container.
+    assert set(_env(browser)) == {"ANUM_BROWSER_SERVICE_TOKEN", "ANUM_BROWSER_CONCURRENCY"}
+    assert _env(browser)["ANUM_BROWSER_SERVICE_TOKEN"].startswith("${ANUM_BROWSER_TOKEN:?")
+    assert browser["read_only"] is True and browser["cap_drop"] == ["ALL"]
+    assert "no-new-privileges:true" in browser["security_opt"]
+    assert browser["mem_limit"] and browser["pids_limit"] and browser["cpus"]
+    networks = compose["networks"]
+    assert networks["browser"]["internal"] is True
+    # The browser's networks are shared with the API only (browser) and with nothing (egress).
+    on_browser = {name for name, service in services.items() if "browser" in (service.get("networks") or [])}
+    on_egress = {name for name, service in services.items() if "browser-egress" in (service.get("networks") or [])}
+    assert on_browser == {"api", "browser"} and on_egress == {"browser"}
+    api = _env(services["api"])
+    assert api["ANUM_BROWSER_RESEARCH_URL"] == "${ANUM_BROWSER_RESEARCH_URL:-}"
+    assert api["ANUM_BROWSER_RESEARCH_TOKEN"] == "${ANUM_BROWSER_TOKEN:-}"
 
 
 def test_searxng_is_private_and_only_the_api_uses_it() -> None:

@@ -39,6 +39,10 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# Only the browser image installs it (docs/browser-research.md#the-browser-image).
+browser = [
+  "playwright==1.56.0"
+]
 test = [
   "moto[s3]==5.2.4",
   "pytest==9.1.1"
@@ -66,7 +70,8 @@ markers = [
   "s3: tests that require an S3-compatible endpoint such as SeaweedFS (ANUM_TEST_S3_ENDPOINT)",
   "clamav: tests that require a reachable ClamAV clamd (ANUM_TEST_CLAMD_HOST, ANUM_TEST_CLAMD_PORT)",
   "temporal: tests that require a Temporal server (ANUM_TEST_TEMPORAL_TARGET or a downloadable test server)",
-  "live_model: calls the real hosted model API (ANTHROPIC_API_KEY); deselected unless -m names live_model"
+  "live_model: calls the real hosted model API (ANTHROPIC_API_KEY); deselected unless -m names live_model",
+  "browser: drives a real Chromium through Playwright (ANUM_TEST_CHROMIUM_PATH or an installed browser); deselected unless -m names browser"
 ]
 
 [tool.ruff]
