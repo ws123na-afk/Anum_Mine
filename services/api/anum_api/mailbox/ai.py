@@ -22,6 +22,7 @@ send access, bulk archive and export need the mailbox's owner.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import re
@@ -188,11 +189,13 @@ async def _ask_model(context: TenantContext, prompt: str) -> tuple[str, str]:
     """(answer text, provider/model). One budgeted call through the workspace's gateway."""
     from ..email_inbox import _gateway_for
 
-    reason = ai_unavailable_reason(context)
+    # The workspace's model settings are read in a worker thread (docs/realtime.md#event-loop).
+    reason = await asyncio.to_thread(ai_unavailable_reason, context)
     if reason:
         raise MailError(409, reason, "ai_unavailable")
+    gateway = await asyncio.to_thread(_gateway_for, context)
     try:
-        response = await _gateway_for(context).generate_text(prompt)
+        response = await gateway.generate_text(prompt)
     except ModelBudgetExceededError:
         raise
     except Exception as exc:  # any provider failure reads the same to the person
@@ -378,17 +381,24 @@ async def target_of(call: ToolCall, context: TenantContext, needed: Literal["rea
     selector = call.arguments.get("selector")
     if isinstance(selector, dict) and call.arguments.get("uid") is None:
         account_id = str(call.arguments.get("account_id") or "")
-        account = mailbox_for(context, account_id, needed) if account_id else default_mailbox(context, needed)
+        account = await _mailbox(context, account_id, needed)
         folder, found = await select_messages(context, account, {**selector, "count": 1})
         return account, folder, found[0][0]
     account_id, folder, uid = _target(call)
-    return mailbox_for(context, account_id, needed), folder, uid
+    return await asyncio.to_thread(mailbox_for, context, account_id, needed), folder, uid
+
+
+async def _mailbox(context: TenantContext, account_id: str, needed: Literal["read", "send", "owner"]) -> MailAccount:
+    """``mailbox_for`` (or ``default_mailbox`` without an id), read in a worker thread."""
+    if account_id:
+        return await asyncio.to_thread(mailbox_for, context, account_id, needed)
+    return await asyncio.to_thread(default_mailbox, context, needed)
 
 
 async def summarize_mail(call: ToolCall, context: TenantContext) -> ToolResult:
     """Summarise one message, or its thread, as text for the person. Sends and changes nothing."""
     try:
-        require_available(context)
+        await asyncio.to_thread(require_available, context)
         account, folder, uid = await target_of(call, context, "read")
         _, parsed = await fetch_parsed(context, account, folder, uid)
         messages = await thread_of(context, account, folder, uid, parsed) if call.arguments.get("thread") is True else [(folder, uid, parsed)]
@@ -449,7 +459,7 @@ async def classify_mail(call: ToolCall, context: TenantContext) -> ToolResult:
     """A category and priority from a fixed list (the model's answer is never used as anything
     else), kept for the person so the list shows it."""
     try:
-        require_available(context)
+        await asyncio.to_thread(require_available, context)
         account, folder, uid = await target_of(call, context, "read")
         raw, parsed = await fetch_parsed(context, account, folder, uid)
         answer, model = await _ask_model(context, with_untrusted_rules(CLASSIFY_INSTRUCTIONS, message_block(parsed, f"mail:{folder}:{uid}", MESSAGE_PROMPT_CHARS)))
@@ -457,7 +467,7 @@ async def classify_mail(call: ToolCall, context: TenantContext) -> ToolResult:
         return _from_error(exc)
     values = label_from(answer, raw, parsed)
     category, priority, reason, source = values
-    store_label(context, account, folder, uid, parsed.message_id, values, model)
+    await asyncio.to_thread(store_label, context, account, folder, uid, parsed.message_id, values, model)
     suspected = injection_suspected(parsed.text, parsed.subject)
     return ToolResult(
         status="succeeded",
@@ -473,33 +483,35 @@ PAGE_CONCURRENCY = 4
 async def classify_mail_page(call: ToolCall, context: TenantContext) -> ToolResult:
     """Label a page of messages (at most 25), one model call per message so no message can
     steer another's label. Messages already labelled are skipped unless ``force``."""
-    import asyncio
-
     args = call.arguments
     try:
-        require_available(context)
+        await asyncio.to_thread(require_available, context)
         selector = args.get("selector")
         if isinstance(selector, dict) and not args.get("uids"):
             account_id = str(args.get("account_id") or "")
-            account = mailbox_for(context, account_id, "read") if account_id else default_mailbox(context, "read")
+            account = await _mailbox(context, account_id, "read")
             folder, picked = await select_messages(context, account, {**selector, "count": selector.get("count") or 10})
             uids = [uid for uid, _, _ in picked]
         else:
-            account = mailbox_for(context, str(args.get("account_id") or ""), "read")
+            account = await asyncio.to_thread(mailbox_for, context, str(args.get("account_id") or ""), "read")
             folder = str(args.get("folder") or "")
             if not folder or len(folder) > 500:
                 raise MailError(422, "Pick a folder first.", "folder")
             uids = sorted({int(u) for u in args.get("uids") or [] if isinstance(u, int) and not isinstance(u, bool) and u > 0}, reverse=True)[:MAX_SELECT]
             if not uids:
                 raise MailError(422, "There are no messages on this page to label.", "uids")
-        if ai_unavailable_reason(context):
-            raise MailError(409, ai_unavailable_reason(context) or "", "ai_unavailable")
+        unavailable = await asyncio.to_thread(ai_unavailable_reason, context)
+        if unavailable:
+            raise MailError(409, unavailable, "ai_unavailable")
     except MailError as exc:
         return _from_error(exc)
     from .labels import open_label_store
 
-    with open_label_store(context) as store:
-        existing = store.labels_for(account.id, folder, uids)
+    def labelled_already() -> Any:
+        with open_label_store(context) as store:
+            return store.labels_for(account.id, folder, uids)
+
+    existing = await asyncio.to_thread(labelled_already)
     todo = uids if args.get("force") is True else [uid for uid in uids if uid not in existing]
     gate = asyncio.Semaphore(PAGE_CONCURRENCY)
     results: dict[int, dict[str, Any]] = {}
@@ -516,7 +528,7 @@ async def classify_mail_page(call: ToolCall, context: TenantContext) -> ToolResu
                 failures.append(exc.message)
                 return
             values = label_from(answer, raw, parsed)
-            store_label(context, account, folder, uid, parsed.message_id, values, model)
+            await asyncio.to_thread(store_label, context, account, folder, uid, parsed.message_id, values, model)
             suspected += 1 if injection_suspected(parsed.text, parsed.subject) else 0
             results[uid] = {"uid": uid, "category": values[0], "priority": values[1], "source": values[3]}
 
@@ -589,9 +601,9 @@ async def draft_mail_reply(call: ToolCall, context: TenantContext) -> ToolResult
     kind = "reply_all" if call.arguments.get("kind") == "reply_all" else "reply"
     instructions = _clean(call.arguments.get("instructions"), MAX_INSTRUCTIONS)
     try:
-        require_available(writer)
+        await asyncio.to_thread(require_available, writer)
         account, folder, uid = await target_of(call, writer, "send")
-        identity = pick_identity(writer, account, call.arguments.get("identity_id"))
+        identity = await asyncio.to_thread(pick_identity, writer, account, call.arguments.get("identity_id"))
         _, original = await fetch_parsed(writer, account, folder, uid)
         guidance = DRAFT_INSTRUCTIONS + (DRAFT_INSTRUCTIONS_FROM_OWNER.format(instructions=instructions) if instructions else "")
         answer, model = await _ask_model(writer, with_untrusted_rules(guidance, message_block(original, f"mail:{folder}:{uid}", MESSAGE_PROMPT_CHARS)))
@@ -618,8 +630,7 @@ async def draft_mail_reply(call: ToolCall, context: TenantContext) -> ToolResult
     draft.to = _valid([a for a in to if a.lower() not in own_addresses] or to)
     draft.cc = [a for a in _valid(cc) if a.lower() not in {x.lower() for x in draft.to}]
     draft.body = (signed(text, identity) + quoted(original, forward=False))[:100_000]
-    with open_mail_store(writer) as store:
-        store.save_draft(draft)
+    await asyncio.to_thread(_save_draft, writer, draft)
     suspected = injection_suspected(original.text, original.subject)
     return ToolResult(
         status="succeeded",
@@ -627,6 +638,11 @@ async def draft_mail_reply(call: ToolCall, context: TenantContext) -> ToolResult
         output={"draft_id": draft.id, "to": draft.to, "subject": draft.subject, "from": sender, "identity_id": draft.identity_id, "model": model, "injection_suspected": suspected},
         audit_metadata={"tool": DRAFT_TOOL, "draft_id": draft.id, "kind": kind, "body_chars": len(text), "model": model},
     )
+
+
+def _save_draft(context: TenantContext, draft: MailDraft) -> None:
+    with open_mail_store(context) as store:
+        store.save_draft(draft)
 
 
 # -- tools that always wait for an approval ---------------------------------------------------
@@ -651,8 +667,8 @@ async def archive_mail_bulk(call: ToolCall, context: TenantContext) -> ToolResul
     if not uids:
         return _failed("Not archived: no messages were named.", 422, "uids")
     try:
-        require_available(owner)
-        account = mailbox_for(owner, str(call.arguments.get("account_id") or ""), "owner")
+        await asyncio.to_thread(require_available, owner)
+        account = await asyncio.to_thread(mailbox_for, owner, str(call.arguments.get("account_id") or ""), "owner")
 
         def job(server: MailServer) -> int:
             folders = server.folders()
@@ -685,8 +701,8 @@ async def export_mail(call: ToolCall, context: TenantContext) -> ToolResult:
     if not uids:
         return _failed("Not exported: no messages were named.", 422, "uids")
     try:
-        require_available(owner)
-        account = mailbox_for(owner, str(call.arguments.get("account_id") or ""), "owner")
+        await asyncio.to_thread(require_available, owner)
+        account = await asyncio.to_thread(mailbox_for, owner, str(call.arguments.get("account_id") or ""), "owner")
         folder = str(call.arguments.get("folder") or "")
         folders = await on_server(owner, account, lambda server: server.folders())
         if not any(item.id == folder for item in folders):
@@ -723,29 +739,30 @@ async def request_mail_action(call: ToolCall, context: TenantContext) -> ToolRes
     if action not in REQUEST_ACTIONS:
         return _failed("The assistant can ask to forward, archive, export or delete mail; nothing else.", 422, "action")
     try:
-        require_available(context)
-        account = default_mailbox(context, "send" if action == "forward" else "owner")
+        await asyncio.to_thread(require_available, context)
+        account = await asyncio.to_thread(default_mailbox, context, "send" if action == "forward" else "owner")
         folder, picked = await select_messages(context, account, {**selector, "count": 1 if action == "forward" else selector.get("count")})
     except MailError as exc:
         return _from_error(exc)
     uids = [uid for uid, _, _ in picked]
     subjects = [subject or "(no subject)" for _, _, subject in picked]
     try:
-        with tenant_unit_of_work(context) as repository:
-            if action == "forward":
-                to = [str(item) for item in args.get("to") or [] if isinstance(item, str)]
-                if not to:
-                    raise MailError(422, "Say who to forward it to, with their email address.", "recipients")
-                # One key per request and message: asking again answers with the same approval.
-                seed = json.dumps([account.id, folder, uids[0], picked[0][1], sorted(to)], separators=(",", ":"))
-                key = "assist-" + hashlib.sha256(seed.encode()).hexdigest()[:40]
-                result = await start_forward(repository, context, account_id=account.id, folder=folder, uid=uids[0], to=to, note=None, write_note=False, idempotency_key=key)
-                approval = result.approval
-                if approval is None:
-                    raise MailError(409, f"That message is already {result.draft.status.value}.", "state")
-            else:
-                tool = {"archive": ARCHIVE_TOOL, "export": EXPORT_TOOL, "delete": "delete_mail"}[action]
-                approval, _, _ = await ask_owner_action(repository, context, tool, account.id, folder, uids)
+        # Short units of work (``tenant_unit_of_work`` per store step), none held while the
+        # mail server or the model answers (docs/realtime.md#event-loop).
+        if action == "forward":
+            to = [str(item) for item in args.get("to") or [] if isinstance(item, str)]
+            if not to:
+                raise MailError(422, "Say who to forward it to, with their email address.", "recipients")
+            # One key per request and message: asking again answers with the same approval.
+            seed = json.dumps([account.id, folder, uids[0], picked[0][1], sorted(to)], separators=(",", ":"))
+            key = "assist-" + hashlib.sha256(seed.encode()).hexdigest()[:40]
+            result = await start_forward(tenant_unit_of_work, context, account_id=account.id, folder=folder, uid=uids[0], to=to, note=None, write_note=False, idempotency_key=key)
+            approval = result.approval
+            if approval is None:
+                raise MailError(409, f"That message is already {result.draft.status.value}.", "state")
+        else:
+            tool = {"archive": ARCHIVE_TOOL, "export": EXPORT_TOOL, "delete": "delete_mail"}[action]
+            approval, _, _ = await ask_owner_action(tenant_unit_of_work, context, tool, account.id, folder, uids)
     except MailError as exc:
         return _from_error(exc)
     except HTTPException as exc:

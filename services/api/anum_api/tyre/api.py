@@ -7,6 +7,7 @@ connect the data source and change the mapping and assumptions (``tyre:manage``)
 
 from __future__ import annotations
 
+import asyncio
 import re
 from datetime import date, datetime, timedelta
 from typing import Any, Literal
@@ -17,7 +18,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from .. import delivery
 from ..audit import AuditRecord
 from ..authorization import Permission
-from ..dependencies import has_permission, repository_context, tenant_context
+from ..dependencies import UnitsOfWork, has_permission, repository_context, run_in_unit, tenant_context, units_of_work
 from ..repository import AnumRepository
 from ..schemas import TenantContext, new_id, utc_now
 from . import service
@@ -793,12 +794,14 @@ class DeliveryView(BaseModel):
 
 
 async def deliver(
-    context: TenantContext, repository: AnumRepository, report: TyreReport, payload: DeliveryInput
+    context: TenantContext, units: UnitsOfWork, report: TyreReport, payload: DeliveryInput
 ) -> DeliveryView:
-    reference = delivery.attachment_reference(REPORT_ATTACHMENT_KIND, report.id, payload.format, context)
+    """Every store step runs in its own short unit of work in a worker thread; the delivery
+    tool runs with no transaction open (docs/realtime.md#event-loop)."""
+    reference = await asyncio.to_thread(delivery.attachment_reference, REPORT_ATTACHMENT_KIND, report.id, payload.format, context)
     try:
         outcome = await delivery.request_delivery(
-            context, repository, channel=payload.channel, to=payload.to,
+            context, units, channel=payload.channel, to=payload.to,
             subject=f"{report.title} ({report.period_from} to {report.period_to})",
             text=summary_text(report.content), attachments=[reference],
             title=f"Send tyre report: {report.title}",
@@ -808,15 +811,20 @@ async def deliver(
     entry = {"channel": payload.channel, "to": payload.to, "format": payload.format, "status": outcome.status,
              "approval_id": outcome.approval_id, "task_id": outcome.task_id,
              "requested_at": utc_now().isoformat(), "requested_by": context.user_id}
-    with open_tyre_store(context) as store:
-        current = store.get_report(context, report.id)
-        if current is not None:
-            current.deliveries = (current.deliveries + [entry])[-20:]
-            store.save_report(current)
-            report = current
-    _audit(repository, context, "tyre.report.delivery_requested", report.id,
-           {"channel": payload.channel, "status": outcome.status, "task_id": outcome.task_id},
-           outcome="success" if outcome.status in ("sent", "waiting_approval") else "failure")
+    def remember(repository: AnumRepository) -> TyreReport:
+        kept = report
+        with open_tyre_store(context) as store:
+            current = store.get_report(context, report.id)
+            if current is not None:
+                current.deliveries = (current.deliveries + [entry])[-20:]
+                store.save_report(current)
+                kept = current
+        _audit(repository, context, "tyre.report.delivery_requested", kept.id,
+               {"channel": payload.channel, "status": outcome.status, "task_id": outcome.task_id},
+               outcome="success" if outcome.status in ("sent", "waiting_approval") else "failure")
+        return kept
+
+    report = await run_in_unit(units, context, remember)
     message = {
         "waiting_approval": "Sending needs an approval: approve it in Approvals and it will be sent.",
         "sent": "Sent.",
@@ -830,11 +838,12 @@ async def deliver_report(
     report_id: str,
     payload: DeliveryInput,
     context: TenantContext = Depends(tenant_context),
-    repository: AnumRepository = Depends(repository_context),
+    units: UnitsOfWork = Depends(units_of_work),
 ) -> DeliveryView:
     """Send the report through a connected email or WhatsApp integration (approval rules apply)."""
     _require(context, Permission.TYRE_OPERATE, OPERATORS_ONLY)
-    return await deliver(context, repository, _report_or_404(context, report_id), payload)
+    report = await run_in_unit(units, context, lambda _repository: _report_or_404(context, report_id))
+    return await deliver(context, units, report, payload)
 
 
 def _resolve_report_attachment(context: TenantContext, report_id: str, fmt: str) -> tuple[str, str, bytes] | None:

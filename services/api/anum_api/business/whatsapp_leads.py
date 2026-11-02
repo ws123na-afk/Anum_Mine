@@ -3,9 +3,10 @@
 The WhatsApp Sales CRM (``sales_leads``, migration 0102) keeps working as the store its quotes,
 follow-ups and consent records point at. Business is the one lead list: a WhatsApp lead is
 *mapped* into a Business lead with ``channel = whatsapp``, the conversation it came from, its
-normalised phone number and the ``sales_lead_id`` of the row it came from (migration 0125). Until
-a later contract step drops the old list, readers read both: the Leads list shows the WhatsApp
-leads that are not mapped yet next to the Business leads.
+normalised phone number and the ``sales_lead_id`` of the row it came from (migration 0125). The
+WhatsApp ingestion now writes the Business lead itself (``join_from_ingestion``, the contract
+step); readers still read both, so rows from before it (and enquiries that wait for the owner's
+answer about a possible same person) show as WhatsApp leads that are not mapped yet.
 
 Mapping never merges two people on its own. A WhatsApp lead whose normalised phone number is
 already on a Business lead (its contact's phone or another mapped WhatsApp lead) is shown to the
@@ -249,9 +250,14 @@ def _title(wa: SalesLead) -> str:
     return f"WhatsApp enquiry from {who}"[:200] if who else "WhatsApp enquiry"
 
 
-def map_whatsapp_lead(store: BusinessStore, context: TenantContext, wa: SalesLead, now: datetime, *, link_to: str | None = None) -> Lead:
+def map_whatsapp_lead(
+    store: BusinessStore, context: TenantContext, wa: SalesLead, now: datetime, *, link_to: str | None = None, owner_id: str | None = None,
+) -> Lead:
     """Bring one WhatsApp lead into the Business list: as a new lead, or linked to ``link_to``
-    (the owner confirmed it is the same person). Refuses a lead that is already mapped."""
+    (the owner confirmed it is the same person). Refuses a lead that is already mapped.
+
+    ``owner_id`` is who owns a new lead when the CRM row names nobody (the WhatsApp ingestion
+    passes the person who connected WhatsApp); without it the caller owns it."""
     decisions = _decisions(store)
     if wa.id in mapped_ids(store, decisions):
         raise http_error(409, "This WhatsApp lead is already in the lead list.")
@@ -273,16 +279,17 @@ def map_whatsapp_lead(store: BusinessStore, context: TenantContext, wa: SalesLea
         return lead
 
     label = _label(wa)
+    owner = wa.assigned_to or owner_id or context.user_id
     account = Account(
         id=new_id("bacct"), tenant_id=context.tenant_id, workspace_id=context.workspace_id, name=label, name_key=name_key(label),
-        source=RecordSource.INBOUND, owner_id=context.user_id, created_by=context.user_id, created_at=now, updated_at=now,
+        source=RecordSource.INBOUND, owner_id=owner, created_by=context.user_id, created_at=now, updated_at=now,
         notes="Added from a WhatsApp enquiry.",
     )
     store.add("accounts", account)
     stage = STAGE_TEXT.get(wa.status, str(wa.status))
     lead = Lead(
         id=new_id("blead"), tenant_id=context.tenant_id, workspace_id=context.workspace_id, account_id=account.id,
-        title=_title(wa), owner_id=wa.assigned_to or context.user_id, source=RecordSource.INBOUND,
+        title=_title(wa), owner_id=owner, source=RecordSource.INBOUND,
         next_step=f"WhatsApp Sales CRM stage: {stage}.", created_by=context.user_id, created_at=wa.created_at, updated_at=now,
         channel="whatsapp", channel_conversation_id=wa.source_conversation_id, channel_phone=phone, sales_lead_id=wa.id,
     )
@@ -298,6 +305,39 @@ def map_whatsapp_lead(store: BusinessStore, context: TenantContext, wa: SalesLea
     record_activity(store, context, "lead_created", f"Lead \"{lead.title}\" added from a WhatsApp enquiry (CRM stage {stage}).",
                     lead_id=lead.id, account_id=account.id, metadata={"sales_lead_id": wa.id, "conversation_id": wa.source_conversation_id})
     return lead
+
+
+def join_from_ingestion(store: BusinessStore, context: TenantContext, wa: SalesLead, now: datetime, *, owner_id: str | None = None) -> str:
+    """The contract step of the one lead list: the WhatsApp ingestion writes the Business lead itself.
+
+    Called right after the WhatsApp Sales CRM recorded (or found) the enquiry's ``sales_leads`` row,
+    in the conversation's tenant and workspace. Answers what happened:
+
+    * ``created``: no open Business lead has the number, so the enquiry is a new lead
+      (``channel = whatsapp``, the conversation, the phone and ``sales_lead_id``), exactly as
+      **Add as a lead** would make it;
+    * ``updated``: it was already in the list and its WhatsApp link was filled in;
+    * ``unchanged``: it was already in the list (mapped, or merged into a lead by the owner);
+    * ``waiting``: the number is already on an open lead the owner has not answered about. It is
+      never merged on its own: it waits under **WhatsApp leads** for **Same person: link** or
+      **Different people** (the existing duplicate rules).
+    """
+    decisions = _decisions(store)
+    if wa.id in mapped_ids(store, decisions):
+        linked = store.first("leads", sales_lead_id=wa.id)
+        if linked is not None and not linked.channel_conversation_id and wa.source_conversation_id:
+            linked.channel = "whatsapp"
+            linked.channel_conversation_id = wa.source_conversation_id
+            linked.channel_phone = linked.channel_phone or normal_phone(wa.phone_e164)
+            linked.updated_at = now
+            store.save("leads", linked)
+            return "updated"
+        return "unchanged"
+    leads = _open_leads(store)
+    if suggestions_for(wa, leads, _contact_keys(store, leads), decisions):
+        return "waiting"
+    map_whatsapp_lead(store, context, wa, now, owner_id=owner_id)
+    return "created"
 
 
 def keep_separate(store: BusinessStore, context: TenantContext, first: str, second: str, now: datetime) -> None:
@@ -336,3 +376,51 @@ def merge_leads(store: BusinessStore, context: TenantContext, keep_id: str, merg
                     lead_id=keep.id, account_id=keep.account_id, metadata={"merged": merged.id})
     record_decision(store, context, pair_key(lead_ref(keep.id), lead_ref(merged.id)), "merged", now)
     return keep, merged
+
+
+# -- the WhatsApp figures -------------------------------------------------------------------------
+
+# Reached qualified or later and still in play or won (the CRM's "qualified" figure counted the same).
+QUALIFIED_OR_LATER = frozenset({
+    LeadState.QUALIFIED, LeadState.CONTACTED, LeadState.REPLIED, LeadState.MEETING, LeadState.OFFERED, LeadState.WON,
+})
+
+
+def whatsapp_overview(context: TenantContext) -> dict[str, Any]:
+    """The Sales overview figures, read from the one lead list: Business leads with the WhatsApp
+    source (``channel = whatsapp``), counted by Business's own states. ``waiting`` counts the
+    WhatsApp Sales CRM enquiries that are not in the list yet (older rows, and enquiries waiting
+    for the owner's answer about a possible same person). ``by_intent`` is the service each lead's
+    enquiry asked about, read from the CRM row it came from. Counts only, no personal data."""
+    from .store import open_business_store
+
+    whatsapp = {"channel": "whatsapp"}
+    with open_business_store(context) as store:
+        def count(**where: Any) -> int:
+            return store.count("leads", Query(where={**whatsapp, **where}, limit=1))
+
+        figures = {
+            "leads": count(),
+            "qualified": count(state=QUALIFIED_OR_LATER),
+            "quoted": count(state=LeadState.OFFERED),
+            "won": count(state=LeadState.WON),
+            "lost": count(state=LeadState.LOST),
+        }
+        done = mapped_ids(store, _decisions(store))
+        linked, _ = store.find("leads", Query(where=whatsapp, limit=MAX_OPEN_SCAN * 5, order_by="created_at"))
+        in_list = {lead.sales_lead_id for lead in linked if lead.sales_lead_id}
+    with open_whatsapp_leads(context) as source:
+        rows = source.list_for_mapping(limit=MAX_SOURCE)
+    by_intent: dict[str, int] = {}
+    for wa in rows:
+        if wa.id in in_list:
+            key = getattr(wa.intent, "value", str(wa.intent))
+            by_intent[key] = by_intent.get(key, 0) + 1
+    return {
+        **figures,
+        "waiting": sum(1 for wa in rows if wa.id not in done),
+        "by_intent": by_intent,
+        "source": "business_leads",
+        "scope": "all_whatsapp_leads",
+        "revenue_estimate": None,
+    }

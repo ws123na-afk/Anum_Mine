@@ -21,7 +21,7 @@ from fastapi import HTTPException
 from pydantic import BaseModel, Field
 
 from ..authorization import Permission
-from ..dependencies import has_permission
+from ..dependencies import has_permission, held_unit
 from ..repository import AnumRepository
 from ..schemas import TenantContext, new_id, utc_now
 from .analytics import WeeklyReport
@@ -111,7 +111,7 @@ async def deliver_whatsapp(context: TenantContext, repository: AnumRepository, r
         return ChannelResult(outcome="not_connected", detail="Connect WhatsApp Business in WhatsApp to send the report.")
     _subject, body = report_text(report)
     try:
-        response = await whatsapp.send(conversation_id, whatsapp.SendRequest(text=body[: whatsapp.MAX_TEXT]), context, repository)
+        response = await whatsapp.send(conversation_id, whatsapp.SendRequest(text=body[: whatsapp.MAX_TEXT]), context, held_unit(repository))
     except HTTPException as exc:
         return ChannelResult(outcome="failed", detail=_detail(exc), target=conversation_id)
     if response.outcome == "failed":

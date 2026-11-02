@@ -21,7 +21,7 @@ from typing import Any
 from fastapi import HTTPException
 
 from ..authorization import Permission
-from ..dependencies import has_permission
+from ..dependencies import has_permission, held_unit
 from ..schemas import TenantContext
 from .service import http_error
 
@@ -108,7 +108,7 @@ async def request_whatsapp_reply(context: TenantContext, repository: Any, conver
     """A WhatsApp reply through the WhatsApp send path (free text always waits for approval)."""
     from .. import whatsapp
 
-    response = await whatsapp.send(conversation_id, whatsapp.SendRequest(text=body), context, repository)
+    response = await whatsapp.send(conversation_id, whatsapp.SendRequest(text=body), context, held_unit(repository))
     approval = response.approval
     status = {"awaiting_approval": "pending_approval", "sent": "sent"}.get(response.outcome, "failed")
     return DeliveryRequest(status, response.message.id, approval.id if approval else None, response.message.task_id,

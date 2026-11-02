@@ -2,6 +2,7 @@ import asyncio
 from collections.abc import Callable, Iterator
 from contextlib import AbstractContextManager, contextmanager
 from dataclasses import dataclass
+from typing import Any, TypeVar
 
 from fastapi import Depends, Header, HTTPException, Request, status
 from opentelemetry import trace
@@ -536,6 +537,7 @@ def repository_context(
 
 
 UnitsOfWork = Callable[[TenantContext], AbstractContextManager[AnumRepository]]
+T = TypeVar("T")
 
 
 def _membership_unit_of_work(context: TenantContext) -> AbstractContextManager[AnumRepository]:
@@ -548,6 +550,33 @@ def units_of_work() -> UnitsOfWork:
     tool call: inline task runs (inline_runs.py) open a new one per step, in a worker
     thread. A dependency so tests can swap it like ``repository_context``."""
     return _membership_unit_of_work
+
+
+def held_unit(repository: AnumRepository) -> UnitsOfWork:
+    """A ``UnitsOfWork`` that hands out a unit the caller already holds (and commits itself),
+    for code that is not yet split into short units. Each step still runs in a worker thread,
+    but the caller's transaction stays open across the awaits in between."""
+
+    @contextmanager
+    def unit(_context: TenantContext) -> Iterator[AnumRepository]:
+        yield repository
+
+    return unit
+
+
+async def run_in_unit(units: UnitsOfWork, context: TenantContext, work: Callable[..., T], *args: Any, **kwargs: Any) -> T:
+    """``work(repository, *args, **kwargs)`` in its own short unit of work, in a worker thread.
+
+    For an ``async`` route that awaits a provider, a model or a tool: each store step opens,
+    commits and closes its own unit (membership checked, like ``repository_context``), so no
+    transaction or pooled connection is held across the await and nothing blocks the event
+    loop (docs/realtime.md#event-loop). An exception rolls that step back."""
+
+    def run() -> T:
+        with units(context) as repository:
+            return work(repository, *args, **kwargs)
+
+    return await asyncio.to_thread(run)
 
 
 @dataclass(frozen=True)
