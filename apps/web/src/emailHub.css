@@ -26,7 +26,7 @@
 .hubRailNote { display: grid; gap: var(--d-s2); margin: var(--d-s2) 0 0; }
 .hubAddress { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
 .hubCount {
-  background: var(--d-violet); border-radius: 999px; color: #fff; flex: none; font-size: var(--text-xs); font-weight: 700; line-height: 1;
+  border: 1px solid var(--d-line); border-radius: 999px; color: var(--d-text); flex: none; font-size: var(--text-xs); font-weight: 700; line-height: 1;
   min-width: 22px; padding: 4px 6px; text-align: center;
 }
 .hubShared { align-items: center; color: var(--d-muted); display: inline-flex; font-size: var(--text-xs); gap: 2px; }

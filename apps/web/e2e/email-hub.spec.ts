@@ -69,6 +69,8 @@ test('one Email entry: All inboxes lists both sources with badges and opens each
   await page.getByRole('button', { name: /Do you have 205\/55R16 in stock/ }).click();
   await expect(page.getByText('Do you have 205/55R16 in stock?', { exact: false }).last()).toBeVisible();
   await expect(page.getByRole('button', { name: 'Open in shop@example.com' })).toBeVisible();
+  // On a phone the reader replaces the list: start again from the list.
+  await page.reload();
   await page.locator('.hubRow.hubRow .mailRowOpen').filter({ has: page.locator('.hubSource', { hasText: 'Own server' }) }).click();
   await expect(page.locator('.mailReader h2')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Open in admin@example.com' })).toBeVisible();

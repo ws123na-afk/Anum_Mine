@@ -58,7 +58,8 @@ export function WhatsAppWaiting({ setup, onChanged, onOpenLead }: { setup: Busin
     return result.linked ? t('bizw.linked', { name: waitingName(item) }) : t('bizw.added', { name: waitingName(item) });
   });
 
-  if (load.kind === 'hidden') return null;
+  // After the last waiting lead joined the list, its outcome still shows.
+  if (load.kind === 'hidden') return note ? <Note error={note.error}>{note.text}</Note> : null;
   const shown = open ?? (total <= 3 || Boolean(search));
   const canWrite = setup.permissions.write, canManage = setup.permissions.manage;
   return <section className="surface bzWaiting" aria-labelledby={titleId}>
@@ -117,8 +118,8 @@ export function DuplicatePairs({ setup, onChanged, onOpenLead }: { setup: Busine
     try { setNote({ text: await run() }); await fetchPairs(); onChanged(); }
     catch (error) { setNote({ text: describeError(error), error: true }); } finally { setBusy(false); }
   }
-  if (load.kind === 'hidden' && !note) return null;
   if (load.kind === 'loading') return null;
+  if (load.kind === 'hidden') return note ? <Note error={note.error}>{note.text}</Note> : null;
   return <section className="surface bzWaiting" aria-labelledby={titleId}>
     <div className="bzWaitingHead"><div><h3 id={titleId}><Users aria-hidden="true" className="bzInlineIcon" />{t('bizd.title', { count: pairs.length })}</h3><p className="muted">{t('bizd.text')}</p></div></div>
     {note && <Note error={note.error}>{note.text}</Note>}
