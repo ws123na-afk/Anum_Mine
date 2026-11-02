@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { mockHq, type HqMockOptions } from './support/hqCampusApi';
 import { useSavedLocale } from './support/workspaceApi';
-import { reloadReleasingGl, sceneReady } from './support/hqScene';
+import { cameraOptions, officeMenuItem, reloadReleasingGl, sceneReady } from './support/hqScene';
 
 // ANUM MINE headquarters (docs/ANUM_MINE_HQ_EXTENSION_POINTS.md): the campus of workspaces, the
 // building cutaway, the accessible list, the no-WebGL fallback and the navigation command. The API is
@@ -35,8 +35,9 @@ test('the campus shows one building per workspace with real counts, and opens a 
   const totals = hq(page).getByRole('region', { name: 'Total agents' });
   await expect(totals).toContainText('4 of 6 buildings report presence');
   await expect(totals.getByRole('img')).toHaveAccessibleName('22 agents by status');
-  // The concept toggle stays, visibly separate.
-  await expect(page.getByRole('group', { name: 'Office presentation mode' })).toBeVisible();
+  // The concept preview stays a separate, labelled choice: it moved into the Office tools menu (the preview shows the mode switch to come back).
+  await expect(await officeMenuItem(page, 'Concept preview')).toBeVisible();
+  await page.keyboard.press('Escape');
 
   await hq(page).getByRole('button', { name: /^Al Noor Fleet HQ\./ }).click();
   const detail = hq(page).getByRole('complementary', { name: 'About Al Noor Fleet HQ' });
@@ -82,6 +83,7 @@ test('night glow is off under reduced motion', async ({ page }) => {
 test('night and day both draw and the toggle keeps the page inside the viewport', async ({ page }) => {
   await openOffice(page);
   const canvas = hq(page).locator('canvas.hqCanvas');
+  await cameraOptions(page); // Day, Blue hour and Night moved under More camera options
   await hq(page).getByRole('button', { name: 'Night', exact: true }).click();
   await expect(hq(page).locator('.hqStage')).toHaveAttribute('data-night', 'true');
   await page.waitForTimeout(700);
@@ -210,7 +212,8 @@ test('a stale building type save asks the owner to reopen the card', async ({ pa
 
 test('the concept preview stays a separate, labelled mode', async ({ page }) => {
   await openOffice(page);
-  await page.getByRole('button', { name: 'Concept preview' }).click();
+  // The concept preview is a choice of the Office tools menu.
+  await (await officeMenuItem(page, 'Concept preview')).click();
   await expect(page.locator('.anumOfficeTour')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Authenticated office' })).toBeVisible();
   await page.getByRole('button', { name: 'Authenticated office' }).click();

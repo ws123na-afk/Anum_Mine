@@ -14,10 +14,10 @@ A mode of the building view: the camera looks at the whole active floor from hig
 
 Ways in and out:
 
-- The **Floor overview** button in the bottom toolbar of the building view, and **Whole floor** at the top of the floor rail (also in the rail's drawer on narrow screens). Both show `aria-pressed` and stay in step (the state lives in `HeadquartersLive`).
+- The **Floor overview** button in the bottom toolbar of the building view, and **Whole floor** at the top of the floor list (docked by the Floors button, or its drawer). Both show `aria-pressed` and stay in step (the state lives in `HeadquartersLive`).
 - Another floor (rail, the floor control, the previous and next buttons) keeps the mode and shows that floor.
 - **Escape**, either button, or leaving the building ends it. Choosing **Inside** a room ends it too (the Inside camera has its own framing).
-- The fold control ("Hide side panels") and any resize frame the floor again for the new stage shape. The navigation strip is untouched; its Home stop returns to the overview camera while the mode is on.
+- The fold control ("Hide side panels", in Office tools) and any resize frame the floor again for the new stage shape. The navigation strip is untouched; its Home stop returns to the overview camera while the mode is on.
 - Only the room cards are drawn in this mode (desk and agent cards are left out so rooms stay readable); the room panel still lists the people.
 
 Numbers shown are the saved registry (rooms, desks) and the presence list (agents seated); an unknown value is never invented.

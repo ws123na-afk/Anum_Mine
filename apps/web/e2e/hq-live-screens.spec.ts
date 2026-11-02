@@ -7,7 +7,7 @@ import { hqRegistry, openHq, TENANT_A } from './support/hqApi';
 import { mockProvisioning } from './support/hqProvisioningApi';
 import { FX, greenRegistry, mockGreenWork, newState } from './support/hqGreenConcreteApi';
 import { useSavedLocale } from './support/workspaceApi';
-import { sceneReady } from './support/hqScene';
+import { sceneReady, widenScene } from './support/hqScene';
 
 // The 3D screens in the rooms (docs/ANUM_MINE_HQ_LIVE_SCREENS.md): the Operations wall and the desk monitors show what is running, drawn on
 // the meshes. The API is mocked at http://localhost:8000; every name and number is plainly fake. The page reports what the screens say in
@@ -49,8 +49,7 @@ async function bareStage(page: Page) {
 /** Picks a room (once), hides the page chrome for the capture, then moves the stage camera with the wheel (dolly) and the keys (q and e turn it). */
 async function closeUp(page: Page, room: string | null, wheel: number, keys: string, shotName: string, inside = false) {
   if (room) {
-    const hide = hq(page).getByRole('button', { name: /Hide side panels/ });
-    if (await hide.count()) await hide.click({ timeout: 4000 }).catch(() => undefined);
+    await widenScene(page).catch(() => undefined); // Hide side panels moved into Office tools
     await hq(page).getByRole('button', { name: new RegExp(`^${room}`) }).first().click({ force: true });
     await page.waitForTimeout(1200);
     const full = hq(page).getByRole('button', { name: 'Full screen' });
