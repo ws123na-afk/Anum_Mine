@@ -98,6 +98,16 @@ export function newIdempotencyKey(random: () => string = () => crypto.randomUUID
 }
 
 /** What a payment still allows to refund (the API's own figure when present). */
+/** Card payments ANUM refunds through the provider's API (Moyasar or Stripe); anything else is recorded by hand. */
+export function refundsThroughProvider(provider: string | null | undefined): provider is 'moyasar' | 'stripe' {
+  return provider === 'moyasar' || provider === 'stripe';
+}
+
+/** The message key naming how a provider refund goes back to the card. */
+export function providerRefundLabel(provider: 'moyasar' | 'stripe'): 'billing.refund.viaMoyasar' | 'billing.refund.viaStripe' {
+  return provider === 'stripe' ? 'billing.refund.viaStripe' : 'billing.refund.viaMoyasar';
+}
+
 export function refundableOf(payment: { amount_minor: number; refundable_minor?: number }): number {
   return Math.max(0, payment.refundable_minor ?? payment.amount_minor);
 }

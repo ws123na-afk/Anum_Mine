@@ -362,8 +362,8 @@ export interface InvoicePayment extends Scoped {
   invoice_id: string; amount: number; paid_on: string; method: PaymentMethod; reference: string; note: string; recorded_by: string;
   /** The form's key for one submit: a retry with the same key is the same payment. */
   idempotency_key?: string | null;
-  /** A payment Moyasar reported (a payment link), recorded once per Moyasar payment id. */
-  provider?: 'moyasar' | null; provider_payment_id?: string | null;
+  /** A payment Moyasar or Stripe reported (a payment link), recorded once per provider payment id. */
+  provider?: CardProvider | null; provider_payment_id?: string | null;
 }
 
 export type InvoiceMessageKind = 'invoice' | 'reminder';
@@ -375,12 +375,15 @@ export interface InvoiceMessage extends Scoped {
 }
 export interface InvoiceEmailInput { to?: string; language: 'en' | 'ar' }
 export interface InvoiceEmailResult { message: InvoiceMessage; payload_hash: string | null; invoice: BusinessInvoice }
-/** A Moyasar hosted payment page for a sent invoice's balance (docs/business.md#payment-links). */
+/** A hosted payment page for a sent invoice's balance: a Moyasar page or a Stripe Payment Link (docs/business.md#payment-links). */
 export interface InvoicePaymentLink extends Scoped {
-  invoice_id: string; provider: 'moyasar'; provider_invoice_id: string; url: string; amount: number; currency: BusinessCurrency;
+  invoice_id: string; provider: CardProvider; provider_invoice_id: string; url: string; amount: number; currency: BusinessCurrency;
   status: 'open' | 'paid' | 'replaced'; created_by: string;
 }
-export interface BusinessPaymentProvider { moyasar: 'on' | 'off'; mode: string | null }
+/** The card providers the owner can turn on in Platform billing: Moyasar (Saudi company) or Stripe (UAE company). */
+export type CardProvider = 'moyasar' | 'stripe';
+/** Which card provider makes new payment links: Moyasar when it is on, else Stripe, else none. */
+export interface BusinessPaymentProvider { moyasar: 'on' | 'off'; stripe: 'on' | 'off'; provider: CardProvider | null; mode: string | null }
 
 /** Money an owner took off a sent invoice; the invoice itself never changes (docs/business.md#credit-notes). */
 export interface CreditNote extends Scoped {

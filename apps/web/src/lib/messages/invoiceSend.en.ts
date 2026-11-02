@@ -33,9 +33,11 @@ export const invoiceSendEn = {
   'inv.send.openApprovals': 'Open Approvals',
   'inv.send.notIssued': 'Only a sent invoice is emailed. Ask for approval to send it first.',
   'inv.send.notOverdue': 'Reminders are for overdue invoices with a balance.',
-  // card payment links (Moyasar)
+  // card payment links (Moyasar or Stripe)
   'inv.link.title': 'Card payment link',
-  'inv.link.help': 'A Moyasar page where the customer pays the balance by card, mada or Apple Pay. ANUM never sees card details. The link is added to the PDF, the email and the customer portal.',
+  'inv.link.help': 'A secure card payment page where the customer pays the balance. ANUM never sees card details. The link is added to the PDF, the email and the customer portal.',
+  'inv.link.via.moyasar': 'Through Moyasar: card, mada or Apple Pay.',
+  'inv.link.via.stripe': 'Through Stripe: cards and the wallets turned on in the Stripe account.',
   'inv.link.make': 'Make a payment link',
   'inv.link.made': 'Payment link ready.',
   'inv.link.copy': 'Copy link',
@@ -43,7 +45,7 @@ export const invoiceSendEn = {
   'inv.link.copyFailed': 'Could not copy. Select the link and copy it yourself.',
   'inv.link.open': 'Open payment page',
   'inv.link.amount': 'For {amount}',
-  'inv.link.off': 'Card payments are off. The owner turns Moyasar on in Platform billing, Settings.',
+  'inv.link.off': 'Card payments are off. The owner turns Stripe (or Moyasar for a Saudi company) on in Platform billing, Settings.',
   'inv.link.loading': 'Checking card payments...',
   'inv.link.failed': 'Could not check whether card payments are on. Try again.',
   'inv.link.test': 'Test mode: no real money moves.',
@@ -53,4 +55,5 @@ export const invoiceSendEn = {
   'inv.receipt.saved': 'Saved {name}.',
   'inv.credit.pdf': 'Credit note PDF',
   'inv.pay.viaMoyasar': 'Paid by card through Moyasar',
+  'inv.pay.viaStripe': 'Paid by card through Stripe',
 } satisfies Record<string, Message>;
