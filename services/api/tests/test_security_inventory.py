@@ -204,19 +204,52 @@ def _reaches_permission_check(fn: Callable[..., Any], seen: set[int], depth: int
     return False
 
 
+def _loop_nodes(body: list[ast.stmt]) -> Iterator[ast.AST]:
+    """Nodes that run on the event loop: the async body, minus nested plain functions and
+    lambdas (they run where they are called; see ``_opens_store_on_loop``). Nested ``async``
+    functions run on the loop, so their bodies count."""
+    stack: list[ast.AST] = [node for node in body if not isinstance(node, ast.FunctionDef)]
+    while stack:
+        node = stack.pop()
+        yield node
+        for child in ast.iter_child_nodes(node):
+            if not isinstance(child, (ast.FunctionDef, ast.Lambda)):
+                stack.append(child)
+
+
+def _opens_store(nodes: Iterator[ast.AST]) -> bool:
+    return any(
+        isinstance(node, ast.With)
+        and any(marker in ast.unparse(item.context_expr) for item in node.items for marker in _STORE_OPENERS)
+        for node in nodes
+    )
+
+
 def _opens_store_on_loop(fn: Callable[..., Any]) -> bool:
+    """A ``with`` store opener that runs on the event loop: in the async body itself, or in a
+    nested plain function the async body calls directly. A nested function handed to
+    ``asyncio.to_thread`` (or any other callee) runs in a worker thread and does not count."""
     fn = inspect.unwrap(fn)
     if not inspect.iscoroutinefunction(fn):
         return False
     tree = _source_tree(fn)
     if tree is None:
         return False
-    for node in ast.walk(tree):
-        if isinstance(node, ast.With):
-            for item in node.items:
-                if any(marker in ast.unparse(item.context_expr) for marker in _STORE_OPENERS):
-                    return True
-    return False
+    route = tree.body[0]
+    if not isinstance(route, ast.AsyncFunctionDef):
+        return False
+    on_loop = list(_loop_nodes(route.body))
+    if _opens_store(iter(on_loop)):
+        return True
+    nested = {
+        node.name: node
+        for node in ast.walk(route)
+        if isinstance(node, ast.FunctionDef) and _opens_store(_loop_nodes(node.body))
+    }
+    called = {
+        node.func.id for node in on_loop if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)
+    }
+    return bool(called & set(nested))
 
 
 @pytest.fixture(scope="module")
@@ -293,3 +326,53 @@ def test_narrow_roles_are_granted_without_inherit() -> None:
     assert narrow <= set(to_app), sorted(narrow - set(to_app))
     for role, options in to_app.items():
         assert "inherit false" in options, f"{role} is granted to anum_app with INHERIT"
+
+
+def _detector_cases() -> dict[str, Callable[..., Any]]:
+    import asyncio
+
+    def open_thing() -> Any: ...
+
+    async def opens_in_body() -> None:
+        with open_thing():
+            pass
+
+    async def hands_it_to_a_thread() -> None:
+        def load() -> None:
+            with open_thing():
+                pass
+
+        await asyncio.to_thread(load)
+
+    async def calls_it_on_the_loop() -> None:
+        def load() -> None:
+            with open_thing():
+                pass
+
+        load()
+
+    async def nested_async_counts() -> None:
+        async def inner() -> None:
+            with open_thing():
+                pass
+
+        await inner()
+
+    def plain_route() -> None:
+        with open_thing():
+            pass
+
+    return {fn.__name__: fn for fn in (opens_in_body, hands_it_to_a_thread, calls_it_on_the_loop, nested_async_counts, plain_route)}
+
+
+def test_the_event_loop_detector_follows_where_a_store_opener_runs() -> None:
+    """A nested plain function handed to ``asyncio.to_thread`` runs in a worker thread; one
+    the async body calls directly, or a nested ``async`` function, runs on the loop."""
+    found = {name: _opens_store_on_loop(fn) for name, fn in _detector_cases().items()}
+    assert found == {
+        "opens_in_body": True,
+        "hands_it_to_a_thread": False,
+        "calls_it_on_the_loop": True,
+        "nested_async_counts": True,
+        "plain_route": False,
+    }

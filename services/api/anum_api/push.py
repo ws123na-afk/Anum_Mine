@@ -289,14 +289,14 @@ async def get_push_status(context: TenantContext = Depends(tenant_context)) -> P
 
 
 @router.get("/me/devices", response_model=list[PushDevice])
-async def list_my_devices(context: TenantContext = Depends(tenant_context)) -> list[PushDevice]:
+def list_my_devices(context: TenantContext = Depends(tenant_context)) -> list[PushDevice]:
     """The caller's own phones registered in this workspace (newest last)."""
     with open_push_device_store(context) as store:
         return [device.view() for device in store.list(context)]
 
 
 @router.post("/me/devices", response_model=PushDevice, status_code=status.HTTP_201_CREATED)
-async def register_my_device(
+def register_my_device(
     payload: DeviceRegistration,
     response: Response,
     context: TenantContext = Depends(tenant_context),
@@ -356,7 +356,7 @@ async def register_my_device(
 
 
 @router.delete("/me/devices/{device_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def remove_my_device(
+def remove_my_device(
     device_id: str,
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),

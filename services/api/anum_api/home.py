@@ -26,6 +26,8 @@ command module (``/api/v1/quick-commands``); ``GET /commands`` adds them after t
 
 from __future__ import annotations
 
+import asyncio
+
 import inspect
 import logging
 import re
@@ -396,7 +398,11 @@ def unregister_source(name: str) -> None:
 
 
 async def _call(collect: Callable[[HomeScope], Any], scope: HomeScope) -> Any:
-    result = collect(scope)
+    """Run one source. A plain function reads its module's stores, so it runs in a worker
+    thread, never on the event loop (docs/realtime.md#event-loop); an async one is awaited."""
+    if inspect.iscoroutinefunction(inspect.unwrap(collect)):
+        return await collect(scope)
+    result = await asyncio.to_thread(collect, scope)
     if inspect.isawaitable(result):
         result = await result
     return result
@@ -644,10 +650,13 @@ async def home_summary(
 
     from .home_sources import recent_activity, today_progress
 
-    progress = today_progress(scope) if has_permission(context, Permission.TASK_READ) else None
-    activity = recent_activity(scope)[:MAX_ACTIVITY]
-    with open_home_store(context) as store:
-        profile = store.get_profile(context) or HomeProfile()
+    def rest() -> tuple[Any, list[Any], HomeProfile]:
+        progress = today_progress(scope) if has_permission(context, Permission.TASK_READ) else None
+        activity = recent_activity(scope)[:MAX_ACTIVITY]
+        with open_home_store(context) as store:
+            return progress, activity, store.get_profile(context) or HomeProfile()
+
+    progress, activity, profile = await asyncio.to_thread(rest)
     return HomeSummary(
         generated_at=scope.now,
         profile=profile,
@@ -663,7 +672,7 @@ async def home_summary(
 
 
 @router.put("/profile", response_model=HomeProfile)
-async def set_profile(
+def set_profile(
     payload: ProfileUpdate,
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
@@ -681,7 +690,7 @@ async def set_profile(
 
 
 @router.get("/pins", response_model=list[Pin])
-async def list_pins(context: TenantContext = Depends(tenant_context)) -> list[Pin]:
+def list_pins(context: TenantContext = Depends(tenant_context)) -> list[Pin]:
     require_permission(context, Permission.TASK_READ)
     with open_home_store(context) as store:
         return store.list_pins(context)
@@ -698,7 +707,7 @@ def _check_workspace_pin(context: TenantContext, target: str) -> str | None:
 
 
 @router.post("/pins", response_model=Pin, status_code=status.HTTP_201_CREATED)
-async def add_pin(
+def add_pin(
     payload: PinCreate,
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
@@ -725,7 +734,7 @@ async def add_pin(
 
 
 @router.patch("/pins/{pin_id}", response_model=Pin)
-async def update_pin(
+def update_pin(
     pin_id: str,
     payload: PinUpdate,
     context: TenantContext = Depends(tenant_context),
@@ -758,7 +767,7 @@ async def update_pin(
 
 
 @router.delete("/pins/{pin_id}", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
-async def delete_pin(
+def delete_pin(
     pin_id: str,
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
@@ -772,7 +781,7 @@ async def delete_pin(
 
 
 @router.put("/pins/order", response_model=list[Pin])
-async def reorder_pins(
+def reorder_pins(
     payload: PinOrder,
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
@@ -866,13 +875,17 @@ async def list_insights(
     require_permission(context, Permission.TASK_READ)
     scope = _scope(request, context, repository)
     insights, statuses = await collect_insights(scope)
-    with open_home_store(context) as store:
-        states = store.list_insight_states(context)
+    states = await asyncio.to_thread(_insight_states, context)
     viewed = [_with_state(i, states.get(i.key), scope.now) for i in insights]
     rank = {"high": 0, "medium": 1, "low": 2}
     viewed.sort(key=lambda i: (rank[i.severity], -(i.created_at or scope.now).timestamp()))
     visible = [i for i in viewed if include_hidden or i.state == "new"]
     return InsightList(items=visible, hidden=sum(1 for i in viewed if i.state != "new"), sources=statuses)
+
+
+def _insight_states(context: TenantContext) -> dict[str, InsightStateRecord]:
+    with open_home_store(context) as store:
+        return store.list_insight_states(context)
 
 
 async def _current_insight(request: Request, context: TenantContext, repository: AnumRepository, key: str) -> Insight:
@@ -896,12 +909,21 @@ async def dismiss_insight(
     require_permission(context, Permission.TASK_READ)
     insight = await _current_insight(request, context, repository, key)
     now = utc_now()
-    with open_home_store(context) as store:
-        record = store.save_insight_state(
-            context, InsightStateRecord(key=key, state=InsightStateKind.DISMISSED, until=None, updated_at=now)
-        )
-    _audit(repository, context, "home.insight_dismissed", key, {"source": insight.source, "kind": insight.kind})
+    record = await asyncio.to_thread(
+        _save_insight_state, context, repository,
+        InsightStateRecord(key=key, state=InsightStateKind.DISMISSED, until=None, updated_at=now),
+        "home.insight_dismissed", {"source": insight.source, "kind": insight.kind},
+    )
     return _with_state(insight, record, now)
+
+
+def _save_insight_state(
+    context: TenantContext, repository: AnumRepository, state: InsightStateRecord, action: str, metadata: dict[str, Any]
+) -> InsightStateRecord:
+    with open_home_store(context) as store:
+        record = store.save_insight_state(context, state)
+    _audit(repository, context, action, state.key, metadata)
+    return record
 
 
 @router.post("/insights/{key}/snooze", response_model=Insight)
@@ -917,17 +939,16 @@ async def snooze_insight(
     insight = await _current_insight(request, context, repository, key)
     now = utc_now()
     hours = (payload or SnoozeBody()).hours
-    with open_home_store(context) as store:
-        record = store.save_insight_state(
-            context,
-            InsightStateRecord(key=key, state=InsightStateKind.SNOOZED, until=now + timedelta(hours=hours), updated_at=now),
-        )
-    _audit(repository, context, "home.insight_snoozed", key, {"source": insight.source, "hours": hours})
+    record = await asyncio.to_thread(
+        _save_insight_state, context, repository,
+        InsightStateRecord(key=key, state=InsightStateKind.SNOOZED, until=now + timedelta(hours=hours), updated_at=now),
+        "home.insight_snoozed", {"source": insight.source, "hours": hours},
+    )
     return _with_state(insight, record, now)
 
 
 @router.delete("/insights/{key}/state", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
-async def restore_insight(
+def restore_insight(
     key: str,
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),

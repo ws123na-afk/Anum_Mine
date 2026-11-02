@@ -907,7 +907,7 @@ async def agent_catalog(context: TenantContext = Depends(tenant_context)) -> Age
 
 
 @router.get("", response_model=AgentPage)
-async def list_agents(
+def list_agents(
     category: AgentCategory | None = None,
     agent_status: AgentStatus | None = Query(default=None, alias="status"),
     q: str | None = Query(default=None, max_length=120),
@@ -980,7 +980,7 @@ def create_agent_governed(payload: AgentProfileCreate, context: TenantContext, i
 
 
 @router.get("/{agent_id}", response_model=AgentProfileView)
-async def get_agent(agent_id: str, context: TenantContext = Depends(tenant_context)) -> AgentProfileView:
+def get_agent(agent_id: str, context: TenantContext = Depends(tenant_context)) -> AgentProfileView:
     require_permission(context, Permission.TASK_READ)
     with open_agent_store(context) as store:
         profile = _agent_or_404(store, context, agent_id)
@@ -1039,7 +1039,7 @@ def update_agent_governed(agent_id: str, payload: AgentProfileUpdate, context: T
 
 
 @router.delete("/{agent_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None)
-async def delete_agent(agent_id: str, context: TenantContext = Depends(tenant_context)) -> Response:
+def delete_agent(agent_id: str, context: TenantContext = Depends(tenant_context)) -> Response:
     """Delete the agent and its memories. Its tasks and chats stay in the workspace history."""
     require_permission(context, Permission.TASK_CREATE)
     with open_agent_store(context) as store:
@@ -1051,7 +1051,7 @@ async def delete_agent(agent_id: str, context: TenantContext = Depends(tenant_co
 
 
 @router.get("/{agent_id}/memories", response_model=AgentMemoryPage)
-async def list_agent_memories(
+def list_agent_memories(
     agent_id: str,
     q: str | None = Query(default=None, max_length=120),
     limit: int = Query(default=DEFAULT_LIST_LIMIT, ge=1, le=MAX_LIST_LIMIT),
@@ -1077,7 +1077,7 @@ async def list_agent_memories(
 
 
 @router.post("/{agent_id}/memories", response_model=AgentMemory, status_code=status.HTTP_201_CREATED)
-async def create_agent_memory(
+def create_agent_memory(
     agent_id: str, payload: AgentMemoryCreate, context: TenantContext = Depends(tenant_context)
 ) -> AgentMemory:
     require_permission(context, Permission.MEMORY_CREATE)
@@ -1117,7 +1117,7 @@ def _require_agent_task(context: TenantContext, agent_id: str, task_id: str) -> 
 
 
 @router.delete("/{agent_id}/memories/{memory_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None)
-async def delete_agent_memory(agent_id: str, memory_id: str, context: TenantContext = Depends(tenant_context)) -> Response:
+def delete_agent_memory(agent_id: str, memory_id: str, context: TenantContext = Depends(tenant_context)) -> Response:
     require_permission(context, Permission.MEMORY_DELETE)
     with open_agent_store(context) as store:
         profile = _agent_or_404(store, context, agent_id)

@@ -819,7 +819,7 @@ def delete_turn(
 
 
 @router.put("/{conversation_id}/turns/{turn_id}/feedback", response_model=TurnFeedbackResult)
-async def rate_turn(
+def rate_turn(
     conversation_id: str,
     turn_id: str,
     payload: TurnFeedback,
@@ -847,7 +847,7 @@ async def rate_turn(
         from .learning_api import FeedbackCreate, record_feedback
 
         try:
-            learned = await record_feedback(
+            learned = record_feedback(
                 FeedbackCreate(surface=Surface.CHAT, subject_id=turn_id, rating=payload.rating, reason=reason),
                 context,
                 repository,

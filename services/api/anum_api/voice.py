@@ -545,7 +545,7 @@ def append_voice_transcript(
 
 
 @router.post("/sessions/{session_id}/commands", response_model=VoiceCommandResult)
-async def submit_voice_command(
+def submit_voice_command(
     session_id: str,
     payload: VoiceCommandCreate,
     context: TenantContext = Depends(tenant_context),

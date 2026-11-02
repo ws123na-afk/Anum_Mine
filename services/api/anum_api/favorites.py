@@ -243,7 +243,7 @@ def forget_item(context: TenantContext, item_type: FavoriteType, item_id: str) -
 
 
 @router.get("", response_model=FavoritePage)
-async def list_favorites(
+def list_favorites(
     item_type: FavoriteType | None = Query(default=None),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0, le=MAX_FAVORITES_PER_USER),
@@ -256,7 +256,7 @@ async def list_favorites(
 
 
 @router.post("", response_model=Favorite, status_code=status.HTTP_201_CREATED)
-async def add_favorite(
+def add_favorite(
     payload: FavoriteCreate,
     response: Response,
     context: TenantContext = Depends(tenant_context),
@@ -288,7 +288,7 @@ async def add_favorite(
 
 
 @router.delete("", status_code=status.HTTP_204_NO_CONTENT)
-async def remove_favorite_item(
+def remove_favorite_item(
     item_type: FavoriteType = Query(),
     item_id: str = Query(min_length=1, max_length=200),
     context: TenantContext = Depends(tenant_context),
@@ -300,7 +300,7 @@ async def remove_favorite_item(
 
 
 @router.delete("/{favorite_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def remove_favorite(favorite_id: str, context: TenantContext = Depends(tenant_context)) -> Response:
+def remove_favorite(favorite_id: str, context: TenantContext = Depends(tenant_context)) -> Response:
     with open_favorite_store(context) as store:
         if not store.delete(context, favorite_id):
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Favorite not found")

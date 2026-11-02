@@ -836,7 +836,7 @@ async def process_meeting(context: TenantContext, meeting_id: str, *, transcribe
 
 
 @router.get("/setup", response_model=MeetingSetup)
-async def meeting_setup(context: TenantContext = Depends(tenant_context)) -> MeetingSetup:
+def meeting_setup(context: TenantContext = Depends(tenant_context)) -> MeetingSetup:
     """What this deployment and the caller can do: transcription, connectors, model, email."""
     require_permission(context, Permission.MEETING_READ)
     transcriber = build_transcriber(settings)
@@ -919,7 +919,7 @@ async def import_recording(
         raise HTTPException(status_code=415, detail="Upload an audio or video recording (" + ", ".join(sorted(RECORDING_EXTENSIONS)) + ").")
     requested = _language(language)
     when = _occurred(occurred_at)
-    agent = _check_agent(context, agent_skill_id)
+    agent = await asyncio.to_thread(_check_agent, context, agent_skill_id)
     content = await request.body()
     limit = settings.meeting_recording_max_bytes
     if not content:
@@ -929,25 +929,30 @@ async def import_recording(
     content_type = request.headers.get("content-type", "application/octet-stream").split(";", 1)[0].strip() or "application/octet-stream"
     from .files import remove_workspace_file, store_workspace_file
 
-    record = store_workspace_file(context, name, content, content_type)
-    meeting = _new_meeting(
-        context,
-        title=_title(title, PurePath(name).stem),
-        source=MeetingSource.RECORDING,
-        language=requested,
-        occurred_at=when,
-        agent_skill_id=agent,
-        status_=MeetingStatus.QUEUED,
-        recording_file_id=record.id,
-        source_file_name=name,
-    )
-    try:
-        with open_meeting_store(context) as store:
-            store.add(meeting)
-    except BaseException:
-        remove_workspace_file(context, record.id)
-        raise
-    _emit(context, _event("MEETING_IMPORTED"), meeting)
+    def keep() -> Meeting:
+        # The file, the meeting row and the event run in a worker thread (docs/realtime.md#event-loop).
+        record = store_workspace_file(context, name, content, content_type)
+        meeting = _new_meeting(
+            context,
+            title=_title(title, PurePath(name).stem),
+            source=MeetingSource.RECORDING,
+            language=requested,
+            occurred_at=when,
+            agent_skill_id=agent,
+            status_=MeetingStatus.QUEUED,
+            recording_file_id=record.id,
+            source_file_name=name,
+        )
+        try:
+            with open_meeting_store(context) as store:
+                store.add(meeting)
+        except BaseException:
+            remove_workspace_file(context, record.id)
+            raise
+        _emit(context, _event("MEETING_IMPORTED"), meeting)
+        return meeting
+
+    meeting = await asyncio.to_thread(keep)
     background.add_task(process_meeting, context, meeting.id, transcribe=True)
     return meeting
 
@@ -1004,7 +1009,7 @@ async def import_transcript(
     name = _file_name(name_param, x_file_name)
     requested = _language(language)
     when = _occurred(occurred_at)
-    agent = _check_agent(context, agent_skill_id)
+    agent = await asyncio.to_thread(_check_agent, context, agent_skill_id)
     content = await request.body()
     limit = settings.meeting_transcript_max_bytes
     if len(content) > limit:
@@ -1013,7 +1018,8 @@ async def import_transcript(
         parsed = parse_transcript(name, content, max_bytes=limit)
     except TranscriptParseError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from None
-    meeting = _save_transcript_meeting(
+    meeting = await asyncio.to_thread(
+        _save_transcript_meeting,
         context,
         parsed,
         title=_title(title, PurePath(name).stem),
@@ -1062,7 +1068,7 @@ async def connector_callback(payload: OAuthCallback, context: TenantContext = De
     """Finish connecting: the state must name the caller, then the code becomes tokens."""
     _require_create(context)
     try:
-        provider = connectors.decode_state(payload.state, context)
+        provider = await asyncio.to_thread(connectors.decode_state, payload.state, context)
         _require_available(provider)
         tokens, label, external_user_id = await connectors.exchange_code(provider, payload.code, settings)
     except connectors.ConnectorError as exc:
@@ -1081,13 +1087,22 @@ async def connector_callback(payload: OAuthCallback, context: TenantContext = De
         connected_at=now,
         updated_at=now,
     )
-    with connectors.open_connection_store(context) as store:
-        store.save(connection)
+    await asyncio.to_thread(_save_connection, context, connection)
     return ConnectorStatus(provider=provider, available=True, connected=True, account_label=label, connected_at=now)
 
 
+def _save_connection(context: TenantContext, connection: Any) -> None:
+    with connectors.open_connection_store(context) as store:
+        store.save(connection)
+
+
+def _imported_ids(context: TenantContext, source: MeetingSource) -> dict[str, str]:
+    with open_meeting_store(context) as store:
+        return store.external_ids(context, source)
+
+
 @router.delete("/connectors/{provider}", status_code=status.HTTP_204_NO_CONTENT)
-async def connector_disconnect(provider: str, context: TenantContext = Depends(tenant_context)) -> Response:
+def connector_disconnect(provider: str, context: TenantContext = Depends(tenant_context)) -> Response:
     """Forget the caller's tokens (revoke ANUM's access in Zoom or Microsoft as well)."""
     require_permission(context, Permission.MEETING_READ)
     chosen = _provider(provider)
@@ -1113,8 +1128,7 @@ async def connector_meetings(
     except connectors.ConnectorError as exc:
         raise _connector_error(exc) from None
     source = MeetingSource(chosen.value)
-    with open_meeting_store(context) as store:
-        imported = store.external_ids(context, source)
+    imported = await asyncio.to_thread(_imported_ids, context, source)
     return [item.model_copy(update={"imported_meeting_id": imported.get(item.external_id)}) for item in found]
 
 
@@ -1129,11 +1143,10 @@ async def connector_import(
     _require_create(context)
     chosen = _provider(provider)
     _require_available(chosen)
-    agent = _check_agent(context, payload.agent_skill_id)
+    agent = await asyncio.to_thread(_check_agent, context, payload.agent_skill_id)
     source = MeetingSource(chosen.value)
-    with open_meeting_store(context) as store:
-        if payload.external_id in store.external_ids(context, source):
-            raise HTTPException(status_code=409, detail="This transcript is already imported in this workspace.")
+    if payload.external_id in await asyncio.to_thread(_imported_ids, context, source):
+        raise HTTPException(status_code=409, detail="This transcript is already imported in this workspace.")
     try:
         token, connection = await connectors.fresh_access_token(context, chosen, settings)
         fetched = await connectors.fetch_transcript(
@@ -1145,7 +1158,8 @@ async def connector_import(
         parsed = parse_cues(fetched.vtt)
     except TranscriptParseError as exc:
         raise HTTPException(status_code=422, detail=f"The {chosen.value.title()} transcript could not be read: {exc}") from None
-    meeting = _save_transcript_meeting(
+    meeting = await asyncio.to_thread(
+        _save_transcript_meeting,
         context,
         parsed,
         title=_title(fetched.title, "Meeting"),
@@ -1385,57 +1399,62 @@ async def send_follow_up(
     chosen mailbox, then a paused ``send_email`` call that an approver must approve with
     the payload hash shown. Only then is exactly this text sent to these recipients.
     """
-    from .dependencies import _unit_of_work
-    from .email_api import request_send_approval
-    from .email_inbox import EmailDraft, open_email_store, visible_accounts
-
     require_permission(context, Permission.MEETING_READ)
     if not has_permission(context, Permission.EMAIL_ACT):
         raise HTTPException(status_code=403, detail="Sending email needs the owner or member role in this workspace.")
     async with _send_lock:
-        with open_meeting_store(context) as store:
-            meeting = _get_or_404(store, context, meeting_id)
-        _require_edit(context, meeting)
-        draft = meeting.follow_up
-        if draft is None or not draft.to or not draft.subject or not draft.body:
-            raise HTTPException(status_code=422, detail="Add at least one recipient, a subject and a body first.")
-        if draft.approval_id:
-            raise HTTPException(status_code=409, detail="This follow-up is already waiting for approval or was sent.")
-        with open_email_store(context) as emails:
-            account = next((item for item in visible_accounts(emails, context) if item.id == payload.account_id), None)
-        if account is None:
-            raise HTTPException(status_code=409, detail=NO_MAILBOX)
-        now = utc_now()
-        from_model = meeting.provenance is not None and not draft.edited
-        email_draft = EmailDraft(
-            id=new_id("emd"),
-            tenant_id=context.tenant_id,
-            workspace_id=context.workspace_id,
-            account_id=account.id,
-            to=list(draft.to),
-            subject=draft.subject,
-            body=draft.body,
-            source="model" if from_model else "person",
-            model_provider=meeting.provenance.provider if from_model and meeting.provenance else None,
-            model_name=meeting.provenance.model if from_model and meeting.provenance else None,
-            created_by=context.user_id,
-            created_at=now,
-            updated_at=now,
+        # The send lock orders concurrent sends; the work itself runs in a worker thread.
+        return await asyncio.to_thread(_send_follow_up, meeting_id, payload, context)
+
+
+def _send_follow_up(meeting_id: str, payload: FollowUpSend, context: TenantContext) -> Meeting:
+    from .dependencies import _unit_of_work
+    from .email_api import request_send_approval
+    from .email_inbox import EmailDraft, open_email_store, visible_accounts
+
+    with open_meeting_store(context) as store:
+        meeting = _get_or_404(store, context, meeting_id)
+    _require_edit(context, meeting)
+    draft = meeting.follow_up
+    if draft is None or not draft.to or not draft.subject or not draft.body:
+        raise HTTPException(status_code=422, detail="Add at least one recipient, a subject and a body first.")
+    if draft.approval_id:
+        raise HTTPException(status_code=409, detail="This follow-up is already waiting for approval or was sent.")
+    with open_email_store(context) as emails:
+        account = next((item for item in visible_accounts(emails, context) if item.id == payload.account_id), None)
+    if account is None:
+        raise HTTPException(status_code=409, detail=NO_MAILBOX)
+    now = utc_now()
+    from_model = meeting.provenance is not None and not draft.edited
+    email_draft = EmailDraft(
+        id=new_id("emd"),
+        tenant_id=context.tenant_id,
+        workspace_id=context.workspace_id,
+        account_id=account.id,
+        to=list(draft.to),
+        subject=draft.subject,
+        body=draft.body,
+        source="model" if from_model else "person",
+        model_provider=meeting.provenance.provider if from_model and meeting.provenance else None,
+        model_name=meeting.provenance.model if from_model and meeting.provenance else None,
+        created_by=context.user_id,
+        created_at=now,
+        updated_at=now,
+    )
+    with open_email_store(context) as emails:
+        emails.add_draft(email_draft)
+    with _unit_of_work(context, require_membership=True) as repository:
+        result = request_send_approval(email_draft.id, context, repository)
+    with open_meeting_store(context) as store:
+        current = _get_or_404(store, context, meeting_id, lock=True)
+        follow_up = (current.follow_up or draft).model_copy(
+            update={
+                "email_draft_id": email_draft.id,
+                "approval_id": result.approval.id,
+                "send_task_id": result.approval.task_id,
+                "sent_from": account.address,
+            }
         )
-        with open_email_store(context) as emails:
-            emails.add_draft(email_draft)
-        with _unit_of_work(context, require_membership=True) as repository:
-            result = await request_send_approval(email_draft.id, context, repository)
-        with open_meeting_store(context) as store:
-            current = _get_or_404(store, context, meeting_id, lock=True)
-            follow_up = (current.follow_up or draft).model_copy(
-                update={
-                    "email_draft_id": email_draft.id,
-                    "approval_id": result.approval.id,
-                    "send_task_id": result.approval.task_id,
-                    "sent_from": account.address,
-                }
-            )
-            updated = current.model_copy(update={"follow_up": follow_up, "updated_at": utc_now()})
-            store.save(updated)
+        updated = current.model_copy(update={"follow_up": follow_up, "updated_at": utc_now()})
+        store.save(updated)
     return updated

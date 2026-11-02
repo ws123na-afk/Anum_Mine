@@ -26,6 +26,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import hmac
 import logging
@@ -1213,7 +1214,7 @@ def _save_checked(context: TenantContext, account: WhatsAppAccount) -> WhatsAppA
 
 
 @router.get("/account", response_model=AccountView)
-async def get_account(context: TenantContext = Depends(tenant_context)) -> AccountView:
+def get_account(context: TenantContext = Depends(tenant_context)) -> AccountView:
     require_permission(context, Permission.WHATSAPP_READ)
     with open_whatsapp_store(context) as store:
         return _account_view(store.get_account(), context)
@@ -1238,69 +1239,84 @@ async def put_account(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=f"Use a verify token of at least {MIN_VERIFY_TOKEN} random characters.",
         )
-    now = utc_now()
-    try:
-        with open_whatsapp_store(context) as store:
-            existing = store.get_account()
-            if existing is None and None in secrets.values():
-                missing = [label for key, label in (("access_token", "access token"), ("app_secret", "app secret"), ("verify_token", "verify token")) if secrets[key] is None]
-                raise HTTPException(
-                    status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-                    detail="To connect WhatsApp, enter the " + ", ".join(missing) + ".",
+    def save() -> bool:
+        now = utc_now()
+        try:
+            with open_whatsapp_store(context) as store:
+                existing = store.get_account()
+                if existing is None and None in secrets.values():
+                    missing = [label for key, label in (("access_token", "access token"), ("app_secret", "app secret"), ("verify_token", "verify token")) if secrets[key] is None]
+                    raise HTTPException(
+                        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                        detail="To connect WhatsApp, enter the " + ", ".join(missing) + ".",
+                    )
+                changed = existing is None or any(secrets.values()) or (
+                    existing.phone_number_id, existing.business_account_id
+                ) != (payload.phone_number_id, payload.business_account_id)
+                account = WhatsAppAccount(
+                    tenant_id=context.tenant_id,
+                    workspace_id=context.workspace_id,
+                    phone_number_id=payload.phone_number_id,
+                    business_account_id=payload.business_account_id,
+                    display_phone_number=None if changed else existing.display_phone_number if existing else None,
+                    verified_name=None if changed else existing.verified_name if existing else None,
+                    quality_rating=None if changed else existing.quality_rating if existing else None,
+                    verify_token_hash=verify_token_hash(secrets["verify_token"]) if secrets["verify_token"] else existing.verify_token_hash,  # type: ignore[union-attr]
+                    owner_test_number=payload.owner_test_number,
+                    auto_send_templates=payload.auto_send_templates,
+                    triage_enabled=payload.triage_enabled,
+                    message_retention_days=(
+                        payload.message_retention_days
+                        if "message_retention_days" in payload.model_fields_set
+                        else existing.message_retention_days if existing else None
+                    ),
+                    status=AccountStatus.UNVERIFIED if changed else existing.status,  # type: ignore[union-attr]
+                    last_error=None if changed else existing.last_error if existing else None,
+                    last_checked_at=None if changed else existing.last_checked_at if existing else None,
+                    last_webhook_at=existing.last_webhook_at if existing else None,
+                    created_at=existing.created_at if existing else now,
+                    updated_at=now,
+                    updated_by=context.user_id,
                 )
-            changed = existing is None or any(secrets.values()) or (
-                existing.phone_number_id, existing.business_account_id
-            ) != (payload.phone_number_id, payload.business_account_id)
-            account = WhatsAppAccount(
-                tenant_id=context.tenant_id,
-                workspace_id=context.workspace_id,
-                phone_number_id=payload.phone_number_id,
-                business_account_id=payload.business_account_id,
-                display_phone_number=None if changed else existing.display_phone_number if existing else None,
-                verified_name=None if changed else existing.verified_name if existing else None,
-                quality_rating=None if changed else existing.quality_rating if existing else None,
-                verify_token_hash=verify_token_hash(secrets["verify_token"]) if secrets["verify_token"] else existing.verify_token_hash,  # type: ignore[union-attr]
-                owner_test_number=payload.owner_test_number,
-                auto_send_templates=payload.auto_send_templates,
-                triage_enabled=payload.triage_enabled,
-                message_retention_days=(
-                    payload.message_retention_days
-                    if "message_retention_days" in payload.model_fields_set
-                    else existing.message_retention_days if existing else None
-                ),
-                status=AccountStatus.UNVERIFIED if changed else existing.status,  # type: ignore[union-attr]
-                last_error=None if changed else existing.last_error if existing else None,
-                last_checked_at=None if changed else existing.last_checked_at if existing else None,
-                last_webhook_at=existing.last_webhook_at if existing else None,
-                created_at=existing.created_at if existing else now,
-                updated_at=now,
-                updated_by=context.user_id,
-            )
-            store.save_account(account, access_token=secrets["access_token"], app_secret=secrets["app_secret"])
-    except PhoneNumberTakenError:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="This phone number id is already connected to another ANUM workspace. Disconnect it there first.",
-        ) from None
-    with _template_lock:
-        _template_cache.pop((context.tenant_id, context.workspace_id), None)
-    _audit(
-        repository, context, "whatsapp.account.saved", f"whatsapp:{payload.phone_number_id}",
-        metadata={
-            "created": existing is None,
-            "secrets_changed": sorted(key for key, value in secrets.items() if value),
-            "auto_send_templates": len(payload.auto_send_templates),
-            "triage_enabled": payload.triage_enabled,
-            "message_retention_days": account.message_retention_days,
-        },
-    )
+                store.save_account(account, access_token=secrets["access_token"], app_secret=secrets["app_secret"])
+        except PhoneNumberTakenError:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="This phone number id is already connected to another ANUM workspace. Disconnect it there first.",
+            ) from None
+        with _template_lock:
+            _template_cache.pop((context.tenant_id, context.workspace_id), None)
+        _audit(
+            repository, context, "whatsapp.account.saved", f"whatsapp:{payload.phone_number_id}",
+            metadata={
+                "created": existing is None,
+                "secrets_changed": sorted(key for key, value in secrets.items() if value),
+                "auto_send_templates": len(payload.auto_send_templates),
+                "triage_enabled": payload.triage_enabled,
+                "message_retention_days": account.message_retention_days,
+            },
+        )
+        return changed
+
+    # Store work and the audit run in worker threads; only Meta's check waits on the loop
+    # (docs/realtime.md#event-loop).
+    changed = await asyncio.to_thread(save)
     if changed and not setup_problems():
-        with open_whatsapp_store(context) as store:
-            full = store.get_account(include_secrets=True)
+        full = await asyncio.to_thread(_stored_account, context, True)
         if full is not None:
-            _save_checked(context, await _check(full, utc_now()))
+            checked = await _check(full, utc_now())
+            await asyncio.to_thread(_save_checked, context, checked)
+    return await asyncio.to_thread(lambda: _account_view(_stored_account(context, False), context))
+
+
+def _stored_account(context: TenantContext, include_secrets: bool) -> WhatsAppAccount | None:
     with open_whatsapp_store(context) as store:
-        return _account_view(store.get_account(), context)
+        return store.get_account(include_secrets=include_secrets)
+
+
+def _required_account(context: TenantContext) -> WhatsAppAccount:
+    with open_whatsapp_store(context) as store:
+        return _require_account(store, include_secrets=True)
 
 
 @router.post("/account/check", response_model=AccountView)
@@ -1310,14 +1326,18 @@ async def check_account(
 ) -> AccountView:
     """Health: ask Meta for the phone number's profile with the saved token."""
     require_permission(context, Permission.WHATSAPP_MANAGE)
-    with open_whatsapp_store(context) as store:
-        account = _require_account(store, include_secrets=True)
-    saved = _save_checked(context, await _check(account, utc_now()))
-    _audit(
-        repository, context, "whatsapp.account.checked", f"whatsapp:{saved.phone_number_id}",
-        "success" if saved.status == AccountStatus.CONNECTED else "failure", {"status": str(saved.status)},
-    )
-    return _account_view(saved, context)
+    account = await asyncio.to_thread(_required_account, context)
+    checked = await _check(account, utc_now())
+
+    def record() -> AccountView:
+        saved = _save_checked(context, checked)
+        _audit(
+            repository, context, "whatsapp.account.checked", f"whatsapp:{saved.phone_number_id}",
+            "success" if saved.status == AccountStatus.CONNECTED else "failure", {"status": str(saved.status)},
+        )
+        return _account_view(saved, context)
+
+    return await asyncio.to_thread(record)
 
 
 @router.post("/account/test")
@@ -1334,8 +1354,7 @@ async def test_account(
     payload = payload or TestSend()
     if not TEMPLATE_NAME.match(payload.template) or not LANGUAGE_CODE.match(payload.language):
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Enter a template name and a language code such as en_US.")
-    with open_whatsapp_store(context) as store:
-        account = _require_account(store, include_secrets=True)
+    account = await asyncio.to_thread(_required_account, context)
     if not account.owner_test_number:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
@@ -1346,14 +1365,18 @@ async def test_account(
             account.phone_number_id, account.owner_test_number, payload.template, payload.language, []
         )
     except WhatsAppGraphError as exc:
-        _audit(repository, context, "whatsapp.test.failed", f"whatsapp:{account.phone_number_id}", "failure", {"meta_code": exc.code})
+        await asyncio.to_thread(
+            _audit, repository, context, "whatsapp.test.failed", f"whatsapp:{account.phone_number_id}", "failure", {"meta_code": exc.code}
+        )
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=f"The test message was not sent. {exc.message}") from None
-    _audit(repository, context, "whatsapp.test.sent", f"whatsapp:{account.phone_number_id}", metadata={"template": payload.template})
+    await asyncio.to_thread(
+        _audit, repository, context, "whatsapp.test.sent", f"whatsapp:{account.phone_number_id}", metadata={"template": payload.template}
+    )
     return {"status": "sent", "wamid": wamid, "to": account.owner_test_number}
 
 
 @router.delete("/account", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_account(
+def delete_account(
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
 ) -> Response:
@@ -1375,8 +1398,7 @@ async def list_templates(
     context: TenantContext = Depends(tenant_context),
 ) -> TemplateList:
     require_permission(context, Permission.WHATSAPP_READ)
-    with open_whatsapp_store(context) as store:
-        account = _require_account(store, include_secrets=True)
+    account = await asyncio.to_thread(_required_account, context)
     try:
         found = await templates_for(account, refresh=refresh)
     except WhatsAppGraphError as exc:
@@ -1401,7 +1423,7 @@ def _conversation_or_404(store: WhatsAppStoreProtocol, conversation_id: str) -> 
 
 
 @router.get("/conversations", response_model=list[ConversationView])
-async def list_conversations(
+def list_conversations(
     limit: int = Query(default=30, ge=1, le=MAX_LISTED),
     before: str | None = Query(default=None, max_length=80),
     q: str | None = Query(default=None, max_length=200),
@@ -1451,7 +1473,7 @@ def _message_views(store: WhatsAppStoreProtocol, repository: AnumRepository, con
 
 
 @router.get("/conversations/{conversation_id}", response_model=MessagePage)
-async def get_conversation(
+def get_conversation(
     conversation_id: str,
     limit: int = Query(default=30, ge=1, le=MAX_LISTED),
     before: str | None = Query(default=None, max_length=80),
@@ -1474,7 +1496,7 @@ async def get_conversation(
 
 
 @router.post("/conversations/{conversation_id}/read", response_model=ConversationView)
-async def mark_read(conversation_id: str, context: TenantContext = Depends(tenant_context)) -> ConversationView:
+def mark_read(conversation_id: str, context: TenantContext = Depends(tenant_context)) -> ConversationView:
     """Mark the conversation read in ANUM (nothing is sent to the customer)."""
     require_permission(context, Permission.WHATSAPP_READ)
     now = utc_now()
@@ -1497,21 +1519,30 @@ async def draft_reply(
     """A suggested reply (and the triage) for the conversation. Nothing is sent."""
     require_permission(context, Permission.WHATSAPP_REPLY)
     instructions = " ".join(((payload.instructions if payload else None) or "").split()) or None
-    with open_whatsapp_store(context) as store:
-        conversation = _conversation_or_404(store, conversation_id)
-        messages = list(reversed(store.list_messages(conversation_id, limit=12, before=None)))
+
+    def load() -> tuple[Conversation, list[Any]]:
+        with open_whatsapp_store(context) as store:
+            conversation = _conversation_or_404(store, conversation_id)
+            return conversation, list(reversed(store.list_messages(conversation_id, limit=12, before=None)))
+
+    # Store work in worker threads; only the model call waits on the loop (docs/realtime.md#event-loop).
+    conversation, messages = await asyncio.to_thread(load)
     if not messages:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="The conversation has no messages to answer yet.")
     suggestion = await make_suggestion(context, conversation, messages, instructions=instructions)
-    with open_whatsapp_store(context) as store:
-        current = _conversation_or_404(store, conversation_id)
-        _apply_suggestion(current, suggestion, utc_now())
-        store.save_conversation(current)
-    # Which conversation and how the suggestion was made; never its text or the instructions.
-    _audit(
-        repository, context, "whatsapp.draft.suggested", conversation_id,
-        metadata={"category": str(suggestion.category), "source": suggestion.source, "instructions": instructions is not None},
-    )
+
+    def keep() -> None:
+        with open_whatsapp_store(context) as store:
+            current = _conversation_or_404(store, conversation_id)
+            _apply_suggestion(current, suggestion, utc_now())
+            store.save_conversation(current)
+        # Which conversation and how the suggestion was made; never its text or the instructions.
+        _audit(
+            repository, context, "whatsapp.draft.suggested", conversation_id,
+            metadata={"category": str(suggestion.category), "source": suggestion.source, "instructions": instructions is not None},
+        )
+
+    await asyncio.to_thread(keep)
     return suggestion
 
 
@@ -1519,11 +1550,15 @@ async def draft_reply(
 async def get_media(message_id: str, context: TenantContext = Depends(tenant_context)) -> Response:
     """Download a message's media from Meta on demand (size-capped; not stored by ANUM)."""
     require_permission(context, Permission.WHATSAPP_READ)
-    with open_whatsapp_store(context) as store:
-        message = store.get_message(message_id)
-        if message is None or message.media is None:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="This message has no media.")
-        account = _require_account(store, include_secrets=True)
+
+    def load() -> tuple[Any, WhatsAppAccount]:
+        with open_whatsapp_store(context) as store:
+            message = store.get_message(message_id)
+            if message is None or message.media is None:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="This message has no media.")
+            return message, _require_account(store, include_secrets=True)
+
+    message, account = await asyncio.to_thread(load)
     try:
         media = await graph_client(account).media(message.media.id, max_bytes=whatsapp_settings.media_max_bytes)
     except WhatsAppGraphError as exc:
@@ -1616,15 +1651,22 @@ async def send(
     if bool(text) == bool(payload.template):
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Send either a text reply or a template.")
     now = utc_now()
-    with open_whatsapp_store(context) as store:
-        account = _require_account(store, include_secrets=payload.template is not None)
-        conversation = _conversation_or_404(store, conversation_id)
-        reply_to = None
-        if payload.reply_to_message_id:
-            quoted = store.get_message(payload.reply_to_message_id)
-            if quoted is None or quoted.conversation_id != conversation_id or not quoted.wamid:
-                raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="The quoted message is not in this conversation.")
-            reply_to = quoted.wamid
+
+    def target() -> tuple[WhatsAppAccount, Conversation, str | None]:
+        with open_whatsapp_store(context) as store:
+            account = _require_account(store, include_secrets=payload.template is not None)
+            conversation = _conversation_or_404(store, conversation_id)
+            reply_to = None
+            if payload.reply_to_message_id:
+                quoted = store.get_message(payload.reply_to_message_id)
+                if quoted is None or quoted.conversation_id != conversation_id or not quoted.wamid:
+                    raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="The quoted message is not in this conversation.")
+                reply_to = quoted.wamid
+        return account, conversation, reply_to
+
+    # Store and runtime bookkeeping run in worker threads (docs/realtime.md#event-loop); only
+    # Meta's template list and the tool's own execution are awaited on the loop.
+    account, conversation, reply_to = await asyncio.to_thread(target)
     if setup_problems():
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="WhatsApp is not usable: " + ", ".join(setup_problems()))
 
@@ -1663,61 +1705,67 @@ async def send(
         title = f"WhatsApp template {chosen.name} to {conversation.contact_name or conversation.wa_id}"
         prompt = f"Send the WhatsApp template {chosen.name} ({chosen.language}) to {conversation.contact_name or conversation.wa_id} (+{conversation.wa_id}): {body}"
 
-    with open_whatsapp_store(context) as store:
-        store.add_message(message)
-    runtime, task, run = _start_tool_run(repository, context, call, title, prompt)
-    message.task_id = task.id
-    decision = _checkpoint(runtime, task, run, context, call)
-
-    approval: Approval | None = None
-    detail: str
-    if decision.outcome == ToolPolicyOutcome.BLOCK:
-        runtime._fail(task, run, context, decision.reason)
-        repository.save_task(task)
-        repository.save_run(run)
-        message.status, message.error = MessageStatus.NOT_SENT, f"Not sent: {decision.reason}"
+    def propose() -> tuple[AgentRuntime, Task, Any, Approval | None, str, str, Any]:
+        """Store the message, plan the tool call and let policy decide; the tool does not run here."""
         with open_whatsapp_store(context) as store:
-            store.save_message(message)
-        _audit(repository, context, "whatsapp.send.blocked", conversation.id, "denied", {"tool": call.name, "task_id": task.id})
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"Not sent: {decision.reason}")
-    if decision.outcome == ToolPolicyOutcome.REQUIRE_APPROVAL:
-        runtime._pause_for_approval(task, run, context, call, decision)
-        repository.save_task(task)
-        repository.save_run(run)
-        approval = repository.get_approval(run.checkpoint.approval_id, context) if run.checkpoint.approval_id else None
-        message.status = MessageStatus.AWAITING_APPROVAL
-        message.approval_id = approval.id if approval else None
-        with open_whatsapp_store(context) as store:
-            store.save_message(message)
-        outcome: Literal["sent", "awaiting_approval", "failed"] = "awaiting_approval"
-        detail = "Waiting for approval. An owner approves it here or under Approvals; then it is sent."
-    else:
-        message.status = MessageStatus.SENDING
-        with open_whatsapp_store(context) as store:
-            store.save_message(message)
-        # The runtime evaluates again before running (quiet hours may have just begun).
-        executed = runtime.begin_execution(task, run, context)
-        if executed is not None:
-            await runtime.finish_execution(task, run, context, executed)
-        repository.save_task(task)
-        repository.save_run(run)
-        if executed is None and run.checkpoint.phase == RunPhase.WAITING_APPROVAL and run.checkpoint.approval_id:
-            approval = repository.get_approval(run.checkpoint.approval_id, context)
+            store.add_message(message)
+        runtime, task, run = _start_tool_run(repository, context, call, title, prompt)
+        message.task_id = task.id
+        decision = _checkpoint(runtime, task, run, context, call)
+        if decision.outcome == ToolPolicyOutcome.BLOCK:
+            runtime._fail(task, run, context, decision.reason)
+            repository.save_task(task)
+            repository.save_run(run)
+            message.status, message.error = MessageStatus.NOT_SENT, f"Not sent: {decision.reason}"
+            with open_whatsapp_store(context) as store:
+                store.save_message(message)
+            _audit(repository, context, "whatsapp.send.blocked", conversation.id, "denied", {"tool": call.name, "task_id": task.id})
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"Not sent: {decision.reason}")
+        if decision.outcome == ToolPolicyOutcome.REQUIRE_APPROVAL:
+            runtime._pause_for_approval(task, run, context, call, decision)
+            repository.save_task(task)
+            repository.save_run(run)
+            approval = repository.get_approval(run.checkpoint.approval_id, context) if run.checkpoint.approval_id else None
             message.status = MessageStatus.AWAITING_APPROVAL
             message.approval_id = approval.id if approval else None
             with open_whatsapp_store(context) as store:
                 store.save_message(message)
-            outcome = "awaiting_approval"
-            detail = "Waiting for approval. An owner approves it here or under Approvals; then it is sent."
-        else:
+            return runtime, task, run, approval, "awaiting_approval", "Waiting for approval. An owner approves it here or under Approvals; then it is sent.", None
+        message.status = MessageStatus.SENDING
+        with open_whatsapp_store(context) as store:
+            store.save_message(message)
+        # The runtime evaluates again before running (quiet hours may have just begun).
+        return runtime, task, run, None, "", "", runtime.begin_execution(task, run, context)
+
+    runtime, task, run, approval, outcome_text, detail, executed = await asyncio.to_thread(propose)
+    outcome: Literal["sent", "awaiting_approval", "failed"] = "awaiting_approval"
+    if not outcome_text:
+        if executed is not None:
+            await runtime.finish_execution(task, run, context, executed)
+
+        def settle() -> tuple[Approval | None, str, str]:
+            nonlocal message
+            repository.save_task(task)
+            repository.save_run(run)
+            if executed is None and run.checkpoint.phase == RunPhase.WAITING_APPROVAL and run.checkpoint.approval_id:
+                waiting = repository.get_approval(run.checkpoint.approval_id, context)
+                message.status = MessageStatus.AWAITING_APPROVAL
+                message.approval_id = waiting.id if waiting else None
+                with open_whatsapp_store(context) as store:
+                    store.save_message(message)
+                return waiting, "awaiting_approval", "Waiting for approval. An owner approves it here or under Approvals; then it is sent."
             with open_whatsapp_store(context) as store:
                 message = store.get_message(message.id) or message
                 if executed is None and message.status == MessageStatus.SENDING:
                     message.status, message.error = MessageStatus.NOT_SENT, "Not sent: " + (run.steps[-1].summary if run.steps else "blocked by policy.")
                     store.save_message(message)
-            outcome = "sent" if message.status == MessageStatus.SENT else "failed"
-            detail = "Sent." if outcome == "sent" else (message.error or run.result or "Not sent.")
-    _audit(
+            result = "sent" if message.status == MessageStatus.SENT else "failed"
+            return None, result, "Sent." if result == "sent" else (message.error or run.result or "Not sent.")
+
+        approval, outcome_text, detail = await asyncio.to_thread(settle)
+    outcome = outcome_text  # type: ignore[assignment]
+    await asyncio.to_thread(
+        _audit,
         repository, context, "whatsapp.send.requested", conversation.id,
         metadata={"tool": call.name, "task_id": task.id, "outcome": outcome,
                   "approval_id": approval.id if approval else None, "payload_hash": approval.payload_hash if approval else None},
@@ -1792,6 +1840,12 @@ async def receive_webhook(request: Request, background: BackgroundTasks) -> Resp
         payload = None
     if not isinstance(payload, dict) or payload.get("object") != "whatsapp_business_account":
         return JSONResponse(status_code=status.HTTP_400_BAD_REQUEST, content={"error": {"code": "bad_request", "message": "Not a WhatsApp Business Account webhook."}})
+    # Routing, the signature check against each account's stored secret and the writes all
+    # read the database: a worker thread, never the event loop (docs/realtime.md#event-loop).
+    return await asyncio.to_thread(_receive_verified, request, background, body, match.group(1), payload)
+
+
+def _receive_verified(request: Request, background: BackgroundTasks, body: bytes, signature: str, payload: dict[str, Any]) -> Response:
     by_phone = _phone_ids(payload)
     for phone_id in by_phone:
         decision = _webhook_buckets.acquire(f"phone:{phone_id}")
@@ -1804,7 +1858,7 @@ async def receive_webhook(request: Request, background: BackgroundTasks) -> Resp
         context = system_context(tenant_id, workspace_id)
         with open_whatsapp_store(context) as store:
             account = store.get_account(include_secrets=True)
-        if account is not None and account.phone_number_id == phone_id and _signature_ok(account.app_secret, body, match.group(1)):
+        if account is not None and account.phone_number_id == phone_id and _signature_ok(account.app_secret, body, signature):
             verified.append((context, by_phone[phone_id]))
     if not verified:
         decision = _bad_signature_buckets.acquire(client_key(request.scope))

@@ -10,6 +10,8 @@ labels only, never mail text, summaries or drafts.
 
 from __future__ import annotations
 
+import asyncio
+
 import re
 from typing import Any, Literal
 
@@ -176,15 +178,24 @@ async def _mediated(repository: AnumRepository, context: TenantContext, call: To
     """Run ``call`` under the same tool policy an agent gets; pause it when policy asks."""
     registry = mail_tool_registry()
     runtime = AgentRuntime(MockModelGateway(), repository, tools=registry)
-    decision = runtime.evaluate(call, context)
-    if decision.outcome == ToolPolicyOutcome.BLOCK:
-        _audit(repository, context, f"mail.ai.{call.name}", audit_target, "denied", {"reason": decision.reason[:200]})
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"Blocked by policy: {decision.reason}")
-    if decision.outcome == ToolPolicyOutcome.REQUIRE_APPROVAL:
-        _, approval = _pause_for_approval(repository, context, call, title, f"{title} ({call.name}).", registry=registry)
+
+    def decide() -> tuple[Any, Approval | None]:
+        # The policy read, the refusal audit and the approval write run off the event loop.
+        decision = runtime.evaluate(call, context)
+        if decision.outcome == ToolPolicyOutcome.BLOCK:
+            _audit(repository, context, f"mail.ai.{call.name}", audit_target, "denied", {"reason": decision.reason[:200]})
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"Blocked by policy: {decision.reason}")
+        if decision.outcome == ToolPolicyOutcome.REQUIRE_APPROVAL:
+            _, approval = _pause_for_approval(repository, context, call, title, f"{title} ({call.name}).", registry=registry)
+            return decision, approval
+        return decision, None
+
+    _, approval = await asyncio.to_thread(decide)
+    if approval is not None:
         return None, approval
     result = await registry.execute(call, context)
-    _audit(
+    await asyncio.to_thread(
+        _audit,
         repository, context, f"mail.ai.{call.name}", audit_target, "success" if result.status == "succeeded" else "failure",
         {**result.audit_metadata, "kind": result.output.get("kind") if result.status != "succeeded" and isinstance(result.output, dict) else None},
     )
@@ -260,12 +271,15 @@ async def draft_reply(body: DraftReplyBody, context: TenantContext = Depends(ten
         if result is None:  # pragma: no cover - _mediated returns a result or an approval
             raise HTTPException(status_code=500, detail="The draft tool did not run.")
         raise _failure(result)
-    with open_mail_store(context) as store:
-        draft = store.get_draft(str(result.output["draft_id"]))
-    if draft is None:  # pragma: no cover - saved by the tool just now
-        raise HTTPException(status_code=500, detail="The draft was not saved.")
+    def saved_view() -> DraftView:
+        with open_mail_store(context) as store:
+            draft = store.get_draft(str(result.output["draft_id"]))
+        if draft is None:  # pragma: no cover - saved by the tool just now
+            raise HTTPException(status_code=500, detail="The draft was not saved.")
+        return _draft_view(draft, repository, context)
+
     return DraftReplyResult(
-        status="done", draft=_draft_view(draft, repository, context), approval=None,
+        status="done", draft=await asyncio.to_thread(saved_view), approval=None,
         injection_suspected=bool(result.output.get("injection_suspected")), model=str(result.output.get("model") or "") or None,
     )
 
@@ -275,7 +289,7 @@ def _label_view(label: Any) -> LabelView:
 
 
 @router.get("/labels", response_model=list[LabelView])
-async def list_labels(
+def list_labels(
     account_id: str = Query(min_length=1, max_length=80),
     folder: str = Query(min_length=1, max_length=500),
     uids: str = Query(min_length=1, max_length=2_000, description="Comma-separated UIDs of the shown page (at most 100)."),
@@ -357,7 +371,7 @@ async def start_forward(
         store.save_draft(draft)
     _audit(repository, context, "mail.draft.create", draft.id, metadata={"kind": "forward", "ai_note": bool(write_note and not note)})
     try:
-        sent = await send_draft(draft.id, SendBody(idempotency_key=idempotency_key), context, repository)
+        sent = await asyncio.to_thread(send_draft, draft.id, SendBody(idempotency_key=idempotency_key), context, repository)
     except HTTPException:
         # Not waiting for approval (a limit or a check refused it): leave no stray draft behind.
         with open_mail_store(context) as store:
