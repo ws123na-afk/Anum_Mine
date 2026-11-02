@@ -85,8 +85,10 @@ export interface IssuerSettings {
   bank_iban: string; bank_swift: string; invoice_prefix: string; credit_note_prefix: string; payment_terms_days: number; tax_rules: Record<string, number>;
   default_tax_bp: number; reminder_days: number[]; grace_days: number; sending_workspace_id: string | null; stripe_enabled: boolean;
   has_stripe_secret_key: boolean; has_stripe_webhook_secret: boolean; stripe_test_mode: boolean | null;
+  /** Where Stripe sends its events (path under the API), and which events to pick in the Stripe dashboard. */
+  stripe_webhook_url?: string | null; stripe_events?: string[];
 }
-export type SettingsBody = Omit<IssuerSettings, 'has_stripe_secret_key' | 'has_stripe_webhook_secret' | 'stripe_test_mode'> & { stripe_secret_key: string | null; stripe_webhook_secret: string | null };
+export type SettingsBody = Omit<IssuerSettings, 'has_stripe_secret_key' | 'has_stripe_webhook_secret' | 'stripe_test_mode' | 'stripe_webhook_url' | 'stripe_events'> & { stripe_secret_key: string | null; stripe_webhook_secret: string | null };
 export interface PaymentBody { amount_minor: number; method: PaymentMethod; reference: string; received_at?: string; proof?: { name: string; content_type: ProofType; data_base64: string } }
 export type ProofType = 'application/pdf' | 'image/png' | 'image/jpeg';
 export interface EmailOutcome { status: string; approval_id: string | null; payload_hash: string | null; task_id?: string | null; message: string }

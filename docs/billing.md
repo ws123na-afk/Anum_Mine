@@ -4,7 +4,7 @@ ANUM bills its own customers: each customer company is an organisation (tenant, 
 
 Implemented in `services/api/anum_api/billing/` (models, store, service, enforcement, jobs, provider adapters, routes), migration `0094_customer_billing`, web `apps/web/src/billing/` (Billing settings page, platform console, public pricing page, sign-up and onboarding checklist), Flutter `apps/mobile/lib/features/billing/`.
 
-Money is always an integer number of **minor units** (`price_minor`, `total_minor`: halalas for SAR, cents for USD) plus an ISO 4217 `currency`. SAR is the default currency. Times are ISO 8601 UTC.
+Money is always an integer number of **minor units** (`price_minor`, `total_minor`: halalas for SAR, fils for AED, cents for USD) plus an ISO 4217 `currency`. SAR is the default currency; a UAE owner sets plans in AED (AED 1.00 is 100 fils) and adds `AE: 500` (5% VAT) to the tax rules. Times are ISO 8601 UTC.
 
 ## Who can do what
 
@@ -88,13 +88,27 @@ The tax rate comes from the billing account's country in `tax_rules` (basis poin
 
 The default is **manual / bank transfer** (no paid tool is needed): the invoice and the Billing page show the issuer's bank details and the invoice number as the transfer reference. The platform owner records each payment with its reference and an optional proof file; a payment that covers the amount due marks the invoice `paid`.
 
-**Stripe** is an optional adapter behind `PaymentProvider` (`billing/providers.py`), **off by default** and with no key in the repository. The platform owner turns it on in the console and enters the secret key and webhook signing secret, which are stored only as Fernet ciphertexts (`ANUM_SECRETS_KEY`, rotated by `python -m anum_api.rotate_secrets`) and never returned. With it on, an organisation admin can pay an open invoice by card (`POST /api/v1/billing/invoices/{id}/checkout` returns a Stripe Checkout URL). Stripe calls `POST /api/v1/billing/webhooks/stripe/{issuer_tenant_id}`:
+**Stripe** is the card provider for an owner with a UAE company (owner decision, 2 Nov 2026: Moyasar needs a Saudi company), an adapter behind `PaymentProvider` (`billing/providers.py`), **off by default** and with no key in the repository. Owner steps: [Stripe for a UAE company](selling-readiness.md#stripe-uae). The platform owner turns it on in the console and enters the secret key and webhook signing secret, which are stored only as Fernet ciphertexts (`ANUM_SECRETS_KEY`, rotated by `python -m anum_api.rotate_secrets`) and never returned. With it on, an organisation admin can pay an open invoice by card (`POST /api/v1/billing/invoices/{id}/checkout` returns a Stripe Checkout URL). Stripe calls `POST /api/v1/billing/webhooks/stripe/{issuer_tenant_id}`:
 
 - the `Stripe-Signature` header is verified (HMAC-SHA256 over `timestamp.body` with the webhook secret, 5 minute tolerance, constant-time compare); anything else is `400` and changes nothing;
 - each event id is stored once in `billing_webhook_events`; a repeated delivery answers `200` and does nothing (idempotent);
-- `checkout.session.completed` records a `stripe` payment for the invoice named in the session metadata, after checking that the invoice's organisation is billed by this issuer; the payment's provider id is unique, so a payment is never recorded twice. What Stripe collects is never dropped: an amount above what was due (after a partial bank payment or a credit), or a payment for an invoice that was paid another way meanwhile, is added to the account's credit balance and logged. A payment is applied once per Stripe payment id, whatever event carries it.
+- `checkout.session.completed` records a `stripe` payment for the invoice named in the session metadata, after checking that the invoice's organisation is billed by this issuer and that the session's currency is the invoice's; the payment's provider id (the PaymentIntent `pi_...`) is unique, so a payment is never recorded twice. What Stripe collects is never dropped: an amount above what was due (after a partial bank payment or a credit), or a payment for an invoice that was paid another way meanwhile, is added to the account's credit balance and logged. A payment is applied once per Stripe payment id, whatever event carries it. A session that pays a Business invoice's Payment Link is recorded on that invoice instead ([Business: payment links](business.md#payment-links));
+- `charge.refunded`, `charge.refund.updated`, `refund.created`, `refund.updated` and `refund.failed` reconcile refunds ([Stripe refunds](#stripe-refunds));
+- no transaction is open while Stripe's API is asked anything: the event's signature and whether it was seen are checked in one short transaction, Stripe is called with none open, and the event id is stored together with its effect in a second one. If Stripe cannot be reached the answer is `502` and the event is not stored, so Stripe's retry tries again.
 
-Test mode keys (`sk_test_...`) work the same way; the console shows whether the key is a test key.
+**Currencies.** Stripe receives the same integer minor units ANUM stores: fils for AED, halalas for SAR, cents for USD (also EUR and GBP). Any other currency (a zero-decimal or three-decimal one such as KWD) and any amount under Stripe's minimum charge (AED 2.00, SAR 2.00, USD 0.50, EUR 0.50, GBP 0.30) is refused with a message before Stripe is called.
+
+Test mode keys (`sk_test_...`) work the same way; the console shows whether the key is a test key, and Settings shows the webhook address to paste into Stripe with the events to pick (`stripe_webhook_url`, `stripe_events` on `GET /platform/billing/settings`). Stripe counts as ready (for the checklist and Business payment links) only with both the secret key and the webhook signing secret.
+
+### Stripe refunds
+
+A recorded Stripe payment is refunded through Stripe's Refunds API from the console's refund dialog (`POST .../payments/{payment_id}/refunds` with `mode: "provider"`, the same route, rules and limits as Moyasar refunds in [Ready to sell](selling-readiness.md#refunds)):
+
+- **Full or partial.** `POST /v1/refunds {payment_intent, amount, reason: requested_by_customer, metadata[anum_refund_id, anum_tenant_id, anum_invoice_id]}` for any amount up to what is left of the payment, the invoice's paid amount and its uncredited total.
+- **Never twice.** The request carries `Idempotency-Key: anum-refund-<refund id>`, one per ANUM refund, and the ANUM refund is unique per issuer and the dialog's own key. A replay of a refund still `pending` first lists the payment's refunds at Stripe (`GET /v1/refunds?payment_intent=`) and uses the one carrying this refund's id in its metadata, so a refund Stripe made before ANUM heard back is found, not made again. When Stripe gives no clear answer (a timeout, a network error or a 5xx) the refund stays `pending`, its amount stays reserved, and the answer is `502` saying to send the same refund again; a clear refusal (4xx) marks it `failed` and frees the amount.
+- **Booking.** Stripe's refund id (`re_...`) is stored as `provider_refund_id`, unique per issuer and provider. A refund Stripe reports `succeeded` issues the credit note at once (the same booking as a Moyasar refund: gapless `CN-` number, paid amount lowered, credited amount raised, nothing on the credit balance). One Stripe reports `pending` stays pending until a refund webhook says it succeeded; `failed` or `canceled` marks it failed.
+- **Webhooks.** For a refund event ANUM reads the payment's metadata (`GET /v1/payment_intents/{id}`) and every refund of that payment from Stripe's API, and makes its own refunds match: a pending ANUM refund that succeeded is booked, one that failed is marked failed, and a refund made in the Stripe dashboard (no ANUM refund id) is recorded once, keyed by Stripe's refund id, as "Refunded in the Stripe dashboard" with its credit note. A refund of another issuer's customer is ignored. A refund Stripe fails after ANUM booked it is logged (`billing_stripe_refund_failed_after_booking`) for a person to check; its credit note stands.
+- Row locks: a refund row is locked (`FOR UPDATE`) before it is booked, so the route and a webhook arriving at the same moment never book it twice. The route itself is `async` with every database step in a worker thread and its audit record in its own unit of work, so no transaction is open while Stripe is called.
 
 ### Moyasar
 
@@ -102,7 +116,7 @@ Test mode keys (`sk_test_...`) work the same way; the console shows whether the 
 
 ### Refunds and receipts
 
-`POST /platform/billing/organizations/{tenant_id}/invoices/{id}/payments/{payment_id}/refunds {amount_minor, reason, mode, idempotency_key}` refunds a Moyasar payment through Moyasar or records money returned by hand, idempotent per key, with a credit note for the same amount (table `billing_refunds`). `GET .../payments/{payment_id}/receipt` (organisation and console) answers a PDF receipt. See [Ready to sell](selling-readiness.md#refunds).
+`POST /platform/billing/organizations/{tenant_id}/invoices/{id}/payments/{payment_id}/refunds {amount_minor, reason, mode, idempotency_key}` refunds a Moyasar or Stripe card payment through its provider or records money returned by hand, idempotent per key, with a credit note for the same amount (table `billing_refunds`). `GET .../payments/{payment_id}/receipt` (organisation and console) answers a PDF receipt. See [Ready to sell](selling-readiness.md#refunds).
 
 ## Documents
 
@@ -137,7 +151,7 @@ All routes are under `/api/v1`. Errors use the standard envelope (`{"error": {"c
 | `GET /billing/invoices?q=&status=&limit=&offset=` | `{items: [InvoiceSummary], total}`; `q` matches the number. |
 | `GET /billing/invoices/{id}` | `Invoice`: summary plus `lines`, `payments` (without proof bytes), `credit_notes`, `bank_details`. |
 | `GET /billing/invoices/{id}/pdf` | The PDF (`Content-Disposition: attachment`). |
-| `POST /billing/invoices/{id}/checkout` | A Stripe Checkout URL when Stripe is on (`409` otherwise). |
+| `POST /billing/invoices/{id}/checkout` | A Moyasar page when Moyasar is on, else a Stripe Checkout URL when Stripe is on (`409` otherwise); `{url, session_id, provider}`. |
 | `GET /billing/onboarding` | The first-run checklist: `{items: [{key, done}], complete, dismissed}`; keys `invite_team`, `connect_email`, `choose_plan`, `add_payment_details`. |
 | `POST /billing/onboarding/dismiss` | Hide the checklist. |
 
@@ -175,6 +189,7 @@ Owner settings (see [Deploy on Oracle](deploy-oracle.md#self-serve-sign-up) and 
 
 ## Tests
 
+- `services/api/tests/test_stripe_payments.py` (a fake Stripe over `httpx.MockTransport`, never the real service): Checkout in AED fils, SAR halalas and USD cents; KWD and amounts under the minimum refused before any call; a session in another currency ignored; full and partial refunds through Stripe with the Idempotency-Key and metadata, the credit note and no credit balance; the same key replayed, a different refund with that key refused, more than the payment refused; no answer from Stripe keeping the refund pending and a replay finding it instead of refunding again; a refusal booking nothing; a pending refund confirmed or failed by the webhook (amounts read from Stripe's API, not the delivery); a dashboard refund recorded once; bad signatures changing nothing and calling nothing; another issuer's customer ignored; permissions and tenant isolation; Stripe turned off; the checklist and subprocessor list with Stripe on and Moyasar off; Stripe without its webhook secret not counted as ready.
 - `services/api/tests/test_billing.py`: proration, tax, gapless numbering, dunning transitions, trial expiry, limit enforcement, read-only mode, Stripe webhook signatures and idempotency, permissions, the public endpoint leaking nothing, sign-up provisioning and its limits, the audit walk.
 - `services/api/tests/test_postgres_billing.py`: forced RLS on every table across tenants, the reader roles' column grants and policies, numbering under PostgreSQL, sign-up provisioning isolated per tenant.
 - Web: `apps/web/test/billing.test.ts`, `apps/web/e2e/billing.spec.ts` (view plan, upgrade, invoice, record payment) and `apps/web/e2e/signup.spec.ts` (pricing, sign-up, onboarding).
@@ -184,7 +199,8 @@ Owner settings (see [Deploy on Oracle](deploy-oracle.md#self-serve-sign-up) and 
 
 - The billing contact and address are edited on the web only; the phone shows them.
 - Moyasar was exercised only against a fake Moyasar (`tests/test_selling_readiness.py`); the first sandbox payment and refund must be checked on staging.
-- Stripe was exercised only against a stand-in (signatures, idempotency, the Checkout request); the first real test-mode payment should be checked on staging. No Playwright spec drives the Stripe redirect, the console's plan editor, issuer settings form or start-billing dialog.
+- Stripe was exercised only against a fake Stripe (`tests/test_stripe_payments.py`: payments, refunds, Payment Links, webhooks); the first real test-mode payment, partial refund, dashboard refund and Payment Link must be checked on staging with the owner's `sk_test_` key. Stripe's API documentation could not be read from the build environment; the requests follow Stripe's published API as known (Refunds, Payment Links with `restrictions.completed_sessions`, Prices, PaymentIntents), and the owner's first test payment is the check. No Playwright spec drives the Stripe redirect, the console's plan editor or start-billing dialog.
+- A refund Stripe fails after ANUM booked it (rare, card-specific) is logged for a person to check; its credit note is not reversed automatically.
 - The `anum-provisioner` Keycloak client is created by hand (steps in [Deploy on Oracle](deploy-oracle.md#self-serve-sign-up)); it is not in the realm file and the linking call was tested against a stand-in of Keycloak's admin API.
 - The console's MRR and totals assume one currency (SAR); plans in another currency are listed but summed as is.
 - The console's subscription list is assembled in the API process (fine for hundreds of customers, not paged in SQL).

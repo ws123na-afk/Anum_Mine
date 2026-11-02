@@ -1,13 +1,13 @@
 // The invoice drawer's "Email and reminders" and "Card payment link" blocks (docs/business.md#emailing-an-invoice-and-reminders,
 // docs/business.md#payment-links). Asking to email an invoice or send a reminder never sends it: the API plans the email as a
-// delivery that waits for an owner's approval in Approvals. A payment link is a Moyasar page the customer pays on; ANUM never
+// delivery that waits for an owner's approval in Approvals. A payment link is a Moyasar page or a Stripe Payment Link the customer pays on; ANUM never
 // sees card details.
 import { useEffect, useId, useState, type FormEvent } from 'react';
 import { BellRing, Copy, CreditCard, ExternalLink, Mail } from 'lucide-react';
 import type { BusinessInvoice, BusinessPaymentProvider } from '@anum/contracts';
-import { getLocale, t } from './lib/i18n';
+import { getLocale, t, type MessageKey } from './lib/i18n';
 import { formatMoney } from './lib/business';
-import { SEND_LANGUAGES, emailBody, messageStatusLabel, messageTitle, messageTone, waitingMessages } from './lib/invoices';
+import { SEND_LANGUAGES, emailBody, linkProvider, messageStatusLabel, messageTitle, messageTone, waitingMessages } from './lib/invoices';
 import * as inv from './lib/businessInvoicesApi';
 import { Modal } from './Dialog';
 import { Badge, Note, failure, when } from './BusinessParts';
@@ -93,6 +93,8 @@ export function PaymentLinkBlock({ invoice, write, onChanged }: { invoice: Busin
   }, [relevant, tick]);
   if (!relevant) return null;
   const link = invoice.payment_link;
+  // The provider of the link shown, else the one a new link would use.
+  const via = linkProvider(link, provider.kind === 'ready' ? provider.value : null);
   async function make() {
     setBusy(true); setProblem(null);
     try { onChanged(await inv.makePaymentLink(invoice.id), t('inv.link.made')); } catch (error) { setProblem(failure(error, t('inv.link.make'))); } finally { setBusy(false); }
@@ -106,7 +108,8 @@ export function PaymentLinkBlock({ invoice, write, onChanged }: { invoice: Busin
     {provider.kind === 'loading' && <p className="muted" role="status">{t('inv.link.loading')}</p>}
     {provider.kind === 'error' && <><Note error>{provider.message}</Note>
       <div className="bzInline"><button type="button" className="secondary" onClick={() => setTick((value) => value + 1)}>{t('common.tryAgain')}</button></div></>}
-    {provider.kind === 'ready' && provider.value.moyasar === 'off' && !link && <p className="muted bzHint">{t('inv.link.off')}</p>}
+    {provider.kind === 'ready' && !provider.value.provider && !link && <p className="muted bzHint">{t('inv.link.off')}</p>}
+    {via && <p className="muted bzHint">{t(`inv.link.via.${via}` as MessageKey)}</p>}
     {provider.kind === 'ready' && provider.value.mode === 'test' && <p className="muted bzHint">{t('inv.link.test')}</p>}
     {link && <div className="invLink">
       <p className="muted">{t('inv.link.amount', { amount: formatMoney(link.amount, link.currency) })}</p>
@@ -117,7 +120,7 @@ export function PaymentLinkBlock({ invoice, write, onChanged }: { invoice: Busin
       </div>
       <p className="muted bzHint" role="status">{copyNote}</p>
     </div>}
-    {!link && write && invoice.can.payment_link && provider.kind === 'ready' && provider.value.moyasar === 'on' &&
+    {!link && write && invoice.can.payment_link && provider.kind === 'ready' && provider.value.provider !== null &&
       <div className="bzInline"><button type="button" disabled={busy} onClick={() => void make()}><CreditCard aria-hidden="true" />{busy ? t('dialog.working') : t('inv.link.make')}</button></div>}
     {problem && <Note error>{problem}</Note>}
   </section>;

@@ -138,8 +138,8 @@ class InvoicePayment(Scoped):
     recorded_by: str
     # A key the form sends once per submit: a retry with the same key is the same payment.
     idempotency_key: str | None = Field(default=None, min_length=8, max_length=80)
-    # A payment a provider reported (Moyasar), recorded once per provider payment id.
-    provider: Literal["moyasar"] | None = None
+    # A payment a provider reported (Moyasar or Stripe), recorded once per provider payment id.
+    provider: Literal["moyasar", "stripe"] | None = None
     provider_payment_id: str | None = Field(default=None, max_length=200)
 
 
@@ -185,7 +185,7 @@ class PaymentLink(Scoped):
     provider's invoice id and the page address are kept; card details never reach ANUM."""
 
     invoice_id: str
-    provider: Literal["moyasar"] = "moyasar"
+    provider: Literal["moyasar", "stripe"] = "moyasar"
     provider_invoice_id: str = Field(max_length=200)
     url: str = Field(max_length=500, pattern=r"^https://")
     amount: Money

@@ -10,7 +10,7 @@ import {
 } from '../lib/billing';
 import { describeError, isPermissionDenied } from '../lib/errors';
 import { downloadOrgReceipt, refundPayment } from '../lib/sellingApi';
-import { newIdempotencyKey, refundableOf } from '../lib/selling';
+import { newIdempotencyKey, providerRefundLabel, refundableOf, refundsThroughProvider } from '../lib/selling';
 import type { Payment } from '../lib/billing';
 import { t, type MessageKey } from '../lib/i18n';
 import { ConfirmDialog, Drawer, Modal } from '../Dialog';
@@ -156,7 +156,7 @@ function OperatorInvoice({ tenantId, invoiceId, contactEmail, onChanged }: { ten
       <button type="button" className="secondary" onClick={() => void receipt(payment.id)} aria-label={t('billing.receipt.downloadOf', { amount: formatMoney(payment.amount_minor, payment.currency) })}><Download aria-hidden="true" />{t('billing.receipt.download')}</button>
       {refundableOf(payment) > 0 && value.amount_paid_minor > 0 && <button type="button" className="secondary" onClick={() => setRefunding(payment)} aria-label={t('billing.refund.openOf', { amount: formatMoney(payment.amount_minor, payment.currency) })}><Undo2 aria-hidden="true" />{t('billing.refund.open')}</button>}
     </>} />
-    {refunding && <RefundDialog tenantId={tenantId} invoice={value} payment={refunding} onClose={() => setRefunding(null)} onDone={(next, ok) => { setRefunding(null); setInvoice({ state: 'ready', value: next }); setFlash({ text: ok ? t('billing.refund.done', { number: value.number ?? '' }) : t('billing.refund.failedNote'), error: !ok }); onChanged(); }} />}
+    {refunding && <RefundDialog tenantId={tenantId} invoice={value} payment={refunding} onClose={() => setRefunding(null)} onDone={(next, ok, waiting) => { setRefunding(null); setInvoice({ state: 'ready', value: next }); setFlash({ text: !ok ? t('billing.refund.failedNote') : waiting ? t('billing.refund.waitingNote', { number: value.number ?? '' }) : t('billing.refund.done', { number: value.number ?? '' }), error: !ok }); onChanged(); }} />}
     {dialog === 'payment' && <PaymentDialog tenantId={tenantId} invoice={value} onClose={() => setDialog(null)} onDone={(next) => updated(next, t('billing.console.paymentRecorded', { number: value.number ?? '' }))} />}
     {dialog === 'credit' && <CreditDialog tenantId={tenantId} invoice={value} max={creditable} onClose={() => setDialog(null)} onDone={(next) => updated(next, t('billing.console.creditIssued', { number: value.number ?? '' }))} />}
     {dialog === 'email' && <EmailDialog tenantId={tenantId} invoice={value} contactEmail={contactEmail} onClose={() => setDialog(null)} onDone={(outcome) => { setDialog(null); setEmailed(outcome); void load(); }} />}
@@ -240,9 +240,9 @@ function EmailDialog({ tenantId, invoice, contactEmail, onClose, onDone }: { ten
   </form></Modal>;
 }
 
-function RefundDialog({ tenantId, invoice, payment, onClose, onDone }: { tenantId: string; invoice: Invoice; payment: Payment; onClose: () => void; onDone: (invoice: Invoice, ok: boolean) => void }) {
+function RefundDialog({ tenantId, invoice, payment, onClose, onDone }: { tenantId: string; invoice: Invoice; payment: Payment; onClose: () => void; onDone: (invoice: Invoice, ok: boolean, waiting?: boolean) => void }) {
   const max = Math.min(refundableOf(payment), invoice.amount_paid_minor, invoice.total_minor - invoice.amount_credited_minor);
-  const viaProvider = payment.provider === 'moyasar';
+  const viaProvider = refundsThroughProvider(payment.provider);
   const [amount, setAmount] = useState(minorToInput(max, invoice.currency)), [reason, setReason] = useState(''), [mode, setMode] = useState<'provider' | 'manual'>(viaProvider ? 'provider' : 'manual');
   const [busy, setBusy] = useState(false), [problem, setProblem] = useState<string | null>(null);
   // One key per dialog: a retry after a network error is the same refund, never a second one.
@@ -254,14 +254,14 @@ function RefundDialog({ tenantId, invoice, payment, onClose, onDone }: { tenantI
     if (!minor || minor > max) { setProblem(t('billing.refund.range', { max: formatMoney(max, invoice.currency) })); return; }
     if (reason.trim().length < 3) { setProblem(t('billing.console.reasonRequired')); return; }
     setBusy(true); setProblem(null);
-    try { const result = await refundPayment(tenantId, invoice.id, payment.id, { amount_minor: minor, reason: reason.trim(), mode, idempotency_key: key }); onDone(result.invoice, result.refund.status !== 'failed'); }
+    try { const result = await refundPayment(tenantId, invoice.id, payment.id, { amount_minor: minor, reason: reason.trim(), mode, idempotency_key: key }); onDone(result.invoice, result.refund.status !== 'failed', result.refund.status === 'pending'); }
     catch (e) { setProblem(t('billing.failed', { message: describeError(e) })); }
     finally { setBusy(false); }
   };
   return <Modal title={t('billing.refund.titleFor', { number: invoice.number ?? '' })} className="formDialog" onClose={onClose}><form onSubmit={(e) => void submit(e)} noValidate>
     <p className="muted">{t('billing.refund.lead', { max: formatMoney(max, invoice.currency) })}</p>
     <fieldset className="blRadios"><legend>{t('billing.refund.how')}</legend>
-      {viaProvider && <label className="blCheck"><input type="radio" name={`${formId}-mode`} checked={mode === 'provider'} onChange={() => setMode('provider')} /><span>{t('billing.refund.viaMoyasar')}</span></label>}
+      {viaProvider && <label className="blCheck"><input type="radio" name={`${formId}-mode`} checked={mode === 'provider'} onChange={() => setMode('provider')} /><span>{t(providerRefundLabel(payment.provider as 'moyasar' | 'stripe'))}</span></label>}
       <label className="blCheck"><input type="radio" name={`${formId}-mode`} checked={mode === 'manual'} onChange={() => setMode('manual')} /><span>{t('billing.refund.manual')}</span></label>
     </fieldset>
     <label className="field" htmlFor={`${formId}-amount`}><span>{t('billing.refund.amount', { currency: invoice.currency })}</span><input id={`${formId}-amount`} inputMode="decimal" dir="ltr" value={amount} onChange={(e) => setAmount(e.target.value)} required /></label>
