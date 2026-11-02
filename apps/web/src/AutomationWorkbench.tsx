@@ -230,6 +230,15 @@ function Composer({ viewer, existing, onCancel, onSaved }: { viewer: Viewer; exi
       .catch((error) => { if (live) setMailboxes({ state: 'error', message: automationError(error) }); });
     return () => { live = false; };
   }, [draft.steps, mailboxes.state]);
+  // Agents a task step may run as (docs/automation.md#run-as-an-agent): the ones this person can see.
+  const [agents, setAgents] = useState<{ state: 'loading' } | { state: 'ready'; value: { id: string; name: string; status: string }[] } | { state: 'error'; message: string }>({ state: 'loading' });
+  useEffect(() => {
+    if (!draft.steps.some((step) => step.action === 'task.create') || agents.state === 'ready') return;
+    let live = true;
+    automationApi.listRunAsAgents().then((value) => { if (live) setAgents({ state: 'ready', value }); })
+      .catch((error) => { if (live) setAgents({ state: 'error', message: automationError(error) }); });
+    return () => { live = false; };
+  }, [draft.steps, agents.state]);
   const patchStep = (key: string, patch: Partial<StepDraft>) => setDraft((d) => ({ ...d, steps: d.steps.map((s) => s.key === key ? { ...s, ...patch } : s) }));
   const fieldId = (name: string) => `${base}-${name.replace(/[^A-Za-z0-9_-]/g, '-')}`;
 
@@ -278,6 +287,18 @@ function Composer({ viewer, existing, onCancel, onSaved }: { viewer: Viewer; exi
           <Field id={id('title')} label={t('auto.field.taskTitle')} error={e('title')}>{(a) => <input {...a} value={step.title} maxLength={160} onChange={(ev) => patchStep(step.key, { title: ev.target.value })} />}</Field>
           <Field id={id('prompt')} label={t('auto.field.prompt')} error={e('prompt')}>{(a) => <textarea {...a} rows={3} value={step.prompt} maxLength={8000} onChange={(ev) => patchStep(step.key, { prompt: ev.target.value })} />}</Field>
           <label className="autoCheck"><input type="checkbox" checked={step.runTask} onChange={(ev) => patchStep(step.key, { runTask: ev.target.checked })} />{t('auto.field.runTask')}</label>
+          <Field id={id('agent')} label={t('auto.field.runAs')} hint={t('auto.field.runAsHint')} error={agents.state === 'error' ? agents.message : undefined}>{(a) => {
+            const chosen = typeof step.extra.agent_id === 'string' ? step.extra.agent_id : '';
+            const known = agents.state === 'ready' ? agents.value : [];
+            return <select {...a} value={chosen} onChange={(ev) => {
+              const { agent_id: _drop, ...rest } = step.extra;
+              patchStep(step.key, { extra: ev.target.value ? { ...rest, agent_id: ev.target.value } : rest });
+            }}>
+              <option value="">{t('auto.field.runAsOwner')}</option>
+              {chosen && !known.some((x) => x.id === chosen) && <option value={chosen}>{t('auto.field.runAsUnknown')}</option>}
+              {known.map((x) => <option key={x.id} value={x.id}>{x.status === 'active' ? x.name : t('auto.field.runAsPaused', { name: x.name })}</option>)}
+            </select>;
+          }}</Field>
         </>}
         {step.action === 'email.send' && <>
           <Field id={id('accountId')} label={t('auto.field.mailbox')} error={e('accountId') ?? (mailboxes.state === 'error' ? mailboxes.message : undefined)}

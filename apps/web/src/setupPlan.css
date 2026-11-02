@@ -117,3 +117,10 @@
 }
 .planIntro { margin: 0 0 var(--d-s4); max-width: 80ch; }
 .planFilters .planToggle.planOnly { align-self: end; min-height: 44px; align-items: center; }
+
+/* More choices and the live checklist (docs/setup-plan.md#your-checklist). */
+.planOptions { border: 1px solid var(--d-line); border-radius: var(--d-radius); display: grid; gap: var(--d-s2); margin: 0; min-width: 0; padding: var(--d-s2) var(--d-s3); }
+.planOptions legend { font-size: var(--text-sm); font-weight: 600; padding: 0 var(--d-s1); }
+.planListDetails { display: grid; gap: var(--d-s1); list-style: none; margin: var(--d-s2) 0 0; padding: 0; }
+.planListDetails li { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); min-width: 0; }
+.planListDetails li > * { min-width: 0; overflow-wrap: anywhere; }

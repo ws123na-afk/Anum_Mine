@@ -80,6 +80,13 @@ INSIGHT_KEY = re.compile(r"^[a-z][a-z0-9_]{0,40}:[A-Za-z0-9_.:@-]{1,150}$")
 class HomeProfile(BaseModel):
     display_name: str | None = None
     updated_at: datetime | None = None
+    # The caller's chosen order of the web Home's sections (``HOME_SECTIONS``); a section not
+    # listed is hidden. None: the default order with every section (docs/home.md#arrange-home).
+    sections: list[str] | None = None
+
+
+# The web Home's sections, in the default order (docs/home.md#the-web-home).
+HOME_SECTIONS = ("glance", "decisions", "focus", "activity", "meetings", "alerts", "insights", "pinned", "goto")
 
 
 class PinKind(StrEnum):
@@ -215,6 +222,19 @@ class ProfileUpdate(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     display_name: str | None = Field(default=None, max_length=80)
+
+
+class LayoutUpdate(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    sections: list[str] = Field(min_length=1, max_length=len(HOME_SECTIONS))
+
+
+class HomeLayout(BaseModel):
+    sections: list[str]
+    hidden: list[str]
+    default: list[str]
+    customized: bool
 
 
 class SnoozeBody(BaseModel):
@@ -679,11 +699,71 @@ def set_profile(
 ) -> HomeProfile:
     """The name Home greets the caller by (blank clears it). Only the caller's own."""
     require_permission(context, Permission.TASK_READ)
-    profile = HomeProfile(display_name=_clean(payload.display_name), updated_at=utc_now())
     with open_home_store(context) as store:
+        current = store.get_profile(context)
+        profile = HomeProfile(display_name=_clean(payload.display_name), updated_at=utc_now(),
+                              sections=current.sections if current else None)
         saved = store.save_profile(context, profile)
     _audit(repository, context, "home.profile_updated", context.user_id, {"has_name": saved.display_name is not None})
     return saved
+
+
+# -- routes: layout (docs/home.md#arrange-home) ----------------------------------------------------------
+
+
+def _layout(profile: HomeProfile | None) -> HomeLayout:
+    chosen = [s for s in (profile.sections if profile and profile.sections else []) if s in HOME_SECTIONS]
+    sections = chosen or list(HOME_SECTIONS)
+    return HomeLayout(sections=sections, hidden=[s for s in HOME_SECTIONS if s not in sections],
+                      default=list(HOME_SECTIONS), customized=bool(chosen))
+
+
+@router.get("/layout", response_model=HomeLayout)
+def get_layout(context: TenantContext = Depends(tenant_context)) -> HomeLayout:
+    """The caller's Home sections in their chosen order (the caller's own only)."""
+    require_permission(context, Permission.TASK_READ)
+    with open_home_store(context) as store:
+        return _layout(store.get_profile(context))
+
+
+def save_layout(context: TenantContext, sections: list[str] | None) -> HomeLayout:
+    """Store the caller's Home order (None: back to the default). Used by the route and the setup plan."""
+    if sections is not None:
+        unknown = [s for s in sections if s not in HOME_SECTIONS]
+        if unknown:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                                detail=f"Unknown Home sections: {', '.join(unknown)}. Choose from: {', '.join(HOME_SECTIONS)}.")
+        if len(set(sections)) != len(sections):
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="List each Home section once.")
+    with open_home_store(context) as store:
+        current = store.get_profile(context) or HomeProfile()
+        saved = store.save_profile(context, current.model_copy(update={"sections": sections, "updated_at": utc_now()}))
+    return _layout(saved)
+
+
+@router.put("/layout", response_model=HomeLayout)
+def set_layout(
+    payload: LayoutUpdate,
+    context: TenantContext = Depends(tenant_context),
+    repository: AnumRepository = Depends(repository_context),
+) -> HomeLayout:
+    """Choose and order the Home sections; a section left out is hidden."""
+    require_permission(context, Permission.TASK_READ)
+    layout = save_layout(context, list(payload.sections))
+    _audit(repository, context, "home.layout_updated", context.user_id, {"sections": layout.sections})
+    return layout
+
+
+@router.delete("/layout", response_model=HomeLayout)
+def reset_layout(
+    context: TenantContext = Depends(tenant_context),
+    repository: AnumRepository = Depends(repository_context),
+) -> HomeLayout:
+    """Back to the default order with every section shown."""
+    require_permission(context, Permission.TASK_READ)
+    layout = save_layout(context, None)
+    _audit(repository, context, "home.layout_updated", context.user_id, {"sections": None})
+    return layout
 
 
 # -- routes: pins ------------------------------------------------------------------------------------------

@@ -170,6 +170,17 @@ class ToolRegistry:
                 summary="Not sent: " + refusal_reason(hits),
                 audit_metadata={"outcome": "suppressed", "recipients": [hit.masked for hit in hits]},
             )
+        # Marketing sends also need consent (docs/privacy.md#consent-records-for-campaigns).
+        from .contact_consent import audit_consent_refusal, consent_refusal_reason, consent_refusals_for_call
+
+        refusals = await asyncio.to_thread(consent_refusals_for_call, context, call.name, call.arguments, self._definitions.get(call.name))
+        if refusals:
+            await asyncio.to_thread(audit_consent_refusal, context, call.name, refusals, "execute")
+            return ToolResult(
+                status="blocked",
+                summary="Not sent: " + consent_refusal_reason(refusals),
+                audit_metadata={"outcome": "no_consent", "recipients": [r.masked for r in refusals]},
+            )
         return await handler(call, context)
 
 

@@ -222,6 +222,9 @@ from .agent_profiles import router as agents_router
 from .phase5 import router as phase5_router
 from .governance import router as governance_router
 from .suppression import router as suppression_router
+from .contact_consent import router as contact_consent_router
+from .approval_reminders import router as approval_reminders_router
+from .agent_loop_limits import router as agent_loop_limits_router
 from .automation import build_automation_scheduler, register_scheduler_pass, router as automation_router
 from .assistants import router as assistants_router
 from .notifications import router as notifications_router
@@ -445,6 +448,8 @@ app.include_router(privacy_router)
 app.include_router(phase5_router)
 app.include_router(governance_router)
 app.include_router(suppression_router)
+app.include_router(contact_consent_router)
+app.include_router(approval_reminders_router)
 app.include_router(automation_router)
 app.include_router(files_router)
 app.include_router(retrieval_router)
@@ -480,6 +485,7 @@ app.include_router(live_agent_meeting_room_router)
 app.include_router(tenant_lifecycle_router)
 app.include_router(model_budget_router)
 app.include_router(agent_controls_router)
+app.include_router(agent_loop_limits_router)
 app.include_router(developer_router)
 app.include_router(whatsapp_router)
 app.include_router(sales_router)
@@ -1285,6 +1291,8 @@ async def start_task_retry(task_id: str, context: TenantContext, units: UnitsOfW
                 check_model_budget(context)
                 task = _get_task_for_context(task_id, context, repository, for_update=True)
                 _check_retryable(task, context, repository)
+                # The agent's loop limit (docs/agent-controls.md#loop-and-retry-limits).
+                check_retry_allowed(context, repository, task)
                 agent = agent_run_profile(context, _usable_agent(context, task.agent_id)) if task.agent_id else None
                 previous = repository.find_run_for_task(task.id, context)
                 _record_task_event(
@@ -1308,6 +1316,7 @@ async def start_task_retry(task_id: str, context: TenantContext, units: UnitsOfW
             if task is None:
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
             _check_retryable(task, context, repository)
+            check_retry_allowed(context, repository, task)
             # A retry as an agent uses the agent as it is now (docs/agents.md).
             return agent_run_profile(context, _usable_agent(context, task.agent_id)) if task.agent_id else None
 
@@ -1321,6 +1330,12 @@ async def start_task_retry(task_id: str, context: TenantContext, units: UnitsOfW
             )
 
         return await _run_inline_task(context, task_id, check, on_start=retried, unit_of_work=units)
+
+
+def check_retry_allowed(context: TenantContext, repository: AnumRepository, task: Task) -> None:
+    from .agent_loop_limits import check_retry_allowed as check
+
+    check(context, repository, task)
 
 
 def _check_retryable(task: Task, context: TenantContext, repository: AnumRepository) -> None:
