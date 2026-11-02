@@ -866,13 +866,13 @@ export class HqRenderer {
 
   private addBatch(items: readonly RenderItem[], transparent: boolean, scene: RenderScene): void {
     const buckets = new Map<Cls, Array<{ v: Float32Array; ao: Float32Array | null; pick: number; t: number }>>();
-    for (const item of items) {
+    for (const part of items) {
       // Baked ambient occlusion (and tall walls cut so it has a gradient to carry): a vertex colour multiplier, free per frame.
       // A software rasteriser bakes the campus only: a floor view rebuilds on every click and a bake is CPU time its slow frames cannot spare.
-      const baked = !transparent && this.sceneFx && !this.fxOff.has('ao') && (!this.software || this.lastScene?.scenery !== undefined) ? this.sceneFx.prepare(item.vertices, this.cheap || this.software) : null;
-      const v = baked ? baked.vertices : item.vertices;
+      const baked = !transparent && this.sceneFx && !this.fxOff.has('ao') && (!this.software || this.lastScene?.scenery !== undefined) ? this.sceneFx.prepare(part.vertices, this.cheap || this.software) : null;
+      const v = baked ? baked.vertices : part.vertices;
       const ao = baked ? baked.ao : null;
-      const pick = this.picks.get(item.id) ?? 0;
+      const pick = this.picks.get(part.id) ?? 0;
       const total = v.length / VERTEX_FLOATS;
       for (let t = 0; t + 2 < total; t += 3) {
         const cls = classOf(v, t, transparent, (c) => this.stillClass(c));
@@ -881,7 +881,8 @@ export class HqRenderer {
         list.push({ v, ao, pick, t });
       }
     }
-    const first = items[0];
+    // The items of a batch share how they draw (it is the batch key): the first one speaks for all.
+    const item = items[0];
     for (const [cls, tris] of buckets) {
       const n = tris.length * 3;
       const position = new Float32Array(n * 3), normal = new Float32Array(n * 3), color = new Float32Array(n * 3), em = new Float32Array(n), uv = new Float32Array(n * 2), pk = new Float32Array(n);
@@ -907,18 +908,18 @@ export class HqRenderer {
       geometry.setAttribute('aPick', new Float32BufferAttribute(pk, 1));
       geometry.setAttribute('uv', new Float32BufferAttribute(uv, 2));
       geometry.computeBoundingSphere();
-      const material = this.materials.get(first.board ? (cls === 'sign' ? 'board' : this.boardUnlit ? 'boardFlat' : cls) : cls)!;
+      const material = this.materials.get(item.board ? (cls === 'sign' ? 'board' : this.boardUnlit ? 'boardFlat' : cls) : cls)!;
       if (cls === 'pane') (material as MeshPhysicalMaterial).opacity = scene.glassAlpha ?? 0.22;
       const mesh = new Mesh(geometry, material);
       // The items of a batch share these (they are part of its key).
-      mesh.frustumCulled = first.cull !== false;
-      mesh.userData.id = items.length === 1 ? first.id : null;
+      mesh.frustumCulled = item.cull !== false;
+      mesh.userData.id = items.length === 1 ? item.id : null;
       mesh.userData.items = items.length;
-      mesh.userData.fallbackOf = first.fallbackOf ?? null;
-      mesh.userData.lift = first.lift ?? null;
-      if (first.board && cls !== 'sign') mesh.userData.boardCls = cls;
-      mesh.visible = !first.fallbackOf || !this.readyGroups.has(first.fallbackOf);
-      const sunOk = cls !== 'sign' && cls !== 'pane' && cls !== 'glass' && !(first.board && this.boardUnlit);
+      mesh.userData.fallbackOf = item.fallbackOf ?? null;
+      mesh.userData.lift = item.lift ?? null;
+      if (item.board && cls !== 'sign') mesh.userData.boardCls = cls;
+      mesh.visible = !item.fallbackOf || !this.readyGroups.has(item.fallbackOf);
+      const sunOk = cls !== 'sign' && cls !== 'pane' && cls !== 'glass' && !(item.board && this.boardUnlit);
       mesh.castShadow = sunOk && cls !== 'water';
       mesh.receiveShadow = cls !== 'sign' && cls !== 'pane';
       this.scene.add(mesh);
