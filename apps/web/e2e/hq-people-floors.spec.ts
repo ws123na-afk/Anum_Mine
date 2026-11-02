@@ -16,6 +16,8 @@ test.describe.configure({ timeout: 240_000 });
 
 async function openBuilding(page: Page, options: Parameters<typeof mockHq>[1] = { campus: 'api', meetings: 'live' }, size = { width: 1440, height: 900 }) {
   await page.addInitScript(() => { try { localStorage.setItem('anum.hq.light', 'day'); } catch { /* storage blocked */ } });
+  // The floor list is docked only when the person asks (the Floors button); this spec reads the floor from it, so it starts docked.
+  await page.addInitScript(() => { try { localStorage.setItem('anum.hq.nav.rail', 'open'); } catch { /* storage blocked */ } });
   await mockHq(page, options);
   await page.setViewportSize(size);
   await page.goto('/#office-preview');

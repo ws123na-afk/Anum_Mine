@@ -132,17 +132,23 @@ test('flight never puts the eye inside a building', () => {
   assert.ok(buildingCamera({ x: 0, y: 0, z: 0 }, 30).distance > 0);
 });
 
-test('layout by width: rail and side panel become slim, hidden or drawers, and the person can override', async () => {
-  const { layoutFor } = await import('../src/hq-nav/useNavLayout.ts');
-  assert.deepEqual([layoutFor(1440, null, null).rail, layoutFor(1440, null, null).side], ['full', 'open']);
-  assert.deepEqual([layoutFor(1366, null, null).rail, layoutFor(1366, null, null).side], ['slim', 'open']);
-  assert.deepEqual([layoutFor(1024, null, null).rail, layoutFor(1024, null, null).side], ['slim', 'drawer']);
+test('layout by width: the floor list docks only when asked, the side column docks from 1600 px, and the person can override', async () => {
+  const { layoutFor, SIDE_DOCK_MIN } = await import('../src/hq-nav/useNavLayout.ts');
+  // The in-scene floor selector is the one floor control: the floor list is a drawer (the Floors button) until the person docks it.
+  assert.equal(SIDE_DOCK_MIN, 1600);
+  assert.deepEqual([layoutFor(1920, null, null).rail, layoutFor(1920, null, null).side], ['drawer', 'open']);
+  assert.deepEqual([layoutFor(1440, null, null).rail, layoutFor(1440, null, null).side], ['drawer', 'drawer']);
+  assert.deepEqual([layoutFor(1366, null, null).rail, layoutFor(1366, null, null).side], ['drawer', 'drawer']);
+  assert.deepEqual([layoutFor(1024, null, null).rail, layoutFor(1024, null, null).side], ['drawer', 'drawer']);
   assert.deepEqual([layoutFor(768, null, null).rail, layoutFor(768, null, null).side], ['drawer', 'drawer']);
   assert.equal(layoutFor(390, null, null).compact, true);
-  assert.equal(layoutFor(1440, 'closed', null).rail, 'slim');
-  assert.equal(layoutFor(1366, 'open', null).rail, 'full');
+  assert.equal(layoutFor(1440, 'open', null).rail, 'full');
+  assert.equal(layoutFor(1366, 'slim', null).rail, 'slim');
+  assert.equal(layoutFor(1440, 'closed', null).rail, 'drawer');
   assert.equal(layoutFor(700, 'open', 'open').rail, 'drawer');
-  assert.equal(layoutFor(1440, null, 'closed').side, 'hidden');
+  assert.equal(layoutFor(1440, null, 'open').side, 'open', 'the person can dock the side column on a laptop');
+  assert.equal(layoutFor(1024, null, 'open').side, 'drawer');
+  assert.equal(layoutFor(1920, null, 'closed').side, 'hidden');
 });
 
 test('a workspace with several registry buildings draws each; other workspaces stay as they are', async () => {
@@ -187,8 +193,9 @@ test('a registry building resolves by name to the open workspace, another worksp
 
 test('focus mode folds the rail and the side column away; drawers stay reachable', async () => {
   const { layoutFor } = await import('../src/hq-nav/useNavLayout.ts');
-  assert.deepEqual([layoutFor(1440, null, null, true).rail, layoutFor(1440, null, null, true).side], ['hidden', 'hidden']);
-  assert.deepEqual([layoutFor(1024, null, null, true).rail, layoutFor(1024, null, null, true).side], ['hidden', 'drawer']);
-  assert.deepEqual([layoutFor(768, null, null, true).rail, layoutFor(768, null, null, true).side], ['drawer', 'drawer']);
-  assert.equal(layoutFor(1440, null, null, false).rail, 'full');
+  assert.deepEqual([layoutFor(1920, 'open', null, true).rail, layoutFor(1920, 'open', null, true).side], ['hidden', 'hidden']);
+  assert.deepEqual([layoutFor(1440, 'open', 'open', true).rail, layoutFor(1440, 'open', 'open', true).side], ['hidden', 'hidden']);
+  assert.deepEqual([layoutFor(1024, 'open', null, true).rail, layoutFor(1024, 'open', null, true).side], ['hidden', 'drawer']);
+  assert.deepEqual([layoutFor(768, 'open', null, true).rail, layoutFor(768, 'open', null, true).side], ['drawer', 'drawer']);
+  assert.equal(layoutFor(1440, 'open', null, false).rail, 'full');
 });

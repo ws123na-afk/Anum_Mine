@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { floorNameParts, floorShowsLabels, FLOOR_PITCH_M, roomAnchor, roomLabelSpecs, roomSubtitle, SLAB_M, STACKED_LABEL_Y } from '../src/lib/hqLabelModel.ts';
-import { FLOOR_PITCH_M as PLACE_PITCH, SLAB_M as PLACE_SLAB, floorExtent, floorTagSpecs, isOccluded, ndcToPixels, projectToNdc, layoutLabels, segmentHitsBox, slabsAbove, type LabelInput } from '../src/lib/hqLabels.ts';
+import { FLOOR_PITCH_M as PLACE_PITCH, SLAB_M as PLACE_SLAB, boxRect, floorExtent, floorTagSpecs, isOccluded, ndcToPixels, projectToNdc, layoutLabels, segmentHitsBox, slabsAbove, type LabelInput } from '../src/lib/hqLabels.ts';
 import { campusCamera } from '../src/lib/hqCamera.ts';
 import { viewProjection, projectToNdc as mathProject, ndcToPixels as mathPixels } from '../src/lib/hqMath.ts';
 import { cameraEye } from '../src/lib/headquartersSpatial.ts';
@@ -78,7 +78,10 @@ test('segmentHitsBox is a real slab test', () => {
 test('floor tags sit outside the floor on the side nearest the eye', () => {
   const tags = floorTagSpecs({ floors, activeIndex: 1 });
   assert.equal(tags.length, 3);
-  assert.equal(tags[1].priority, 0);
+  // The open floor's tag ranks after the rooms (1) and the seated agents (2), and before the other floors' tags.
+  assert.equal(tags[1].priority, 3);
+  assert.equal(tags[0].priority, 4);
+  assert.deepEqual(tags[0].tiers, ['compact']);
   const e = floorExtent(floors[1])!;
   for (const a of [tags[1].anchor, ...tags[1].alternatives]) {
     const outside = a.x < e.x0 || a.x > e.x1 || a.z < e.z0 || a.z > e.z1;
@@ -179,4 +182,93 @@ test('a building or room off the edge of the stage stays reachable (parked insid
     assert.ok(p.x >= 0 && p.x <= 1200 && p.y >= 0 && p.y <= 640, 'parked inside the stage so a focused card can be seen');
   }
   assert.equal(agent.crowded, undefined, 'an agent card off the edge is hidden');
+});
+
+/* Declutter (docs/ANUM_MINE_HQ_LABELS.md, "Declutter"): anchored floor tags, the near view, the focused room and the priority order. */
+
+const overlapping = (a: { x: number; y: number; density: 'full' | 'compact' | 'dot' }, b: { x: number; y: number; density: 'full' | 'compact' | 'dot' }) => {
+  const sa = sizes[a.density], sb = sizes[b.density];
+  return a.x - sa.w / 2 < b.x + sb.w / 2 - 2 && a.x + sa.w / 2 > b.x - sb.w / 2 + 2 && a.y - sa.h < b.y - 2 && a.y > b.y - sb.h + 2;
+};
+
+test('declutter: an anchored tag stays on its anchor or gives way, never stacked on another label', () => {
+  const at = { x: 0, y: 4, z: 0 };
+  const out = layoutLabels([
+    { id: 'room', anchor: at, priority: 1, tiers: ['full', 'compact', 'dot'] },
+    { id: 'floor:open', anchor: at, priority: 3, tiers: ['full', 'compact'], anchored: true },
+    { id: 'floor:other', anchor: at, priority: 4, tiers: ['compact'], anchored: true },
+  ], vp, 1200, 700, sizeOf);
+  const [room, open, other] = out;
+  assert.ok(room.shown, 'the room (higher priority) keeps its place');
+  for (const tag of [open, other]) assert.ok(!tag.shown || tag.shifted === 0, 'an anchored tag never moves off its anchor');
+  const shown = out.filter((p) => p.shown);
+  for (let i = 0; i < shown.length; i++) for (let j = i + 1; j < shown.length; j++) assert.ok(!overlapping(shown[i], shown[j]), `${shown[i].id} and ${shown[j].id} overlap`);
+  assert.equal(other.shown, false, 'the lowest priority gives way first');
+  // The same on a phone-sized scene: an anchored tag is never squeezed on top of another label.
+  const phone = layoutLabels([
+    { id: 'room', anchor: at, priority: 1, tiers: ['full', 'compact', 'dot'] },
+    { id: 'floor:other', anchor: at, priority: 4, tiers: ['compact'], anchored: true },
+  ], vp, 360, 480, sizeOf, 0, { squeeze: true });
+  assert.ok(!phone[1].shown || !overlapping(phone[0], phone[1]));
+});
+
+test('declutter: an anchored tag off the stage or behind the eye is not drawn (never pulled in from the edge)', () => {
+  // An anchor just past the right edge of the stage (within the old 60 px margin that pulled cards in).
+  let far = { x: 0, y: 4, z: 0 };
+  for (let x = 0; x < 2000; x += 0.5) { const q = ndcToPixels(projectToNdc(vp, { x, y: 4, z: 0 }), 1200, 700); if (q.x > 1210) { far = { x, y: 4, z: 0 }; break; } }
+  const p = ndcToPixels(projectToNdc(vp, far), 1200, 700);
+  assert.ok(p.x > 1200 && p.x < 1260, 'the test anchor is just off the stage');
+  const [tag, plain] = layoutLabels([
+    { id: 'floor:x', anchor: far, priority: 4, tiers: ['compact'], anchored: true },
+    { id: 'room:x', anchor: far, priority: 1, tiers: ['full', 'compact', 'dot'] },
+  ], vp, 1200, 700, sizeOf);
+  assert.equal(tag.shown, false);
+  assert.notEqual(tag.crowded, true, 'it is out of the page, not parked at the edge');
+  assert.ok(plain.shown || plain.crowded === true, 'a room card just off the edge is still pulled in or parked for the keyboard, as before');
+});
+
+test('declutter: a label inside the near view is hidden (minDepth)', () => {
+  const anchor = { x: 0, y: 4, z: 0 };
+  const depth = projectToNdc(vp, anchor).depth;
+  const [near] = layoutLabels([{ id: 'floor:n', anchor, priority: 3, tiers: ['compact'], anchored: true, minDepth: depth + 1 }], vp, 1200, 700, sizeOf);
+  const [ok] = layoutLabels([{ id: 'floor:n', anchor, priority: 3, tiers: ['compact'], anchored: true, minDepth: depth - 1 }], vp, 1200, 700, sizeOf);
+  assert.equal(near.shown, false);
+  assert.equal(ok.shown, true);
+});
+
+test('declutter: no label covers the focused room (avoid), its own card is not affected', () => {
+  const focus = { min: { x: -6, y: 0, z: -6 }, max: { x: 6, y: 3, z: 6 } };
+  const rect = boxRect(vp, focus, 1200, 700)!;
+  assert.ok(rect && rect.x1 > rect.x0 && rect.y1 > rect.y0, 'the room has a screen rectangle');
+  const inside = { x: 0, y: 1, z: 0 };
+  const [own, other, tag] = layoutLabels([
+    { id: 'room:focused', anchor: inside, priority: 0, tiers: ['full'] },
+    { id: 'room:other', anchor: inside, priority: 1, tiers: ['full', 'compact', 'dot'], avoid: [focus] },
+    { id: 'floor:t', anchor: inside, priority: 3, tiers: ['compact'], anchored: true, avoid: [focus] },
+  ], vp, 1200, 700, sizeOf);
+  assert.equal(own.shown, true);
+  for (const p of [other, tag]) {
+    if (!p.shown) continue;
+    const s = sizes[p.density];
+    const covers = p.x - s.w / 2 < rect.x1 - 2 && p.x + s.w / 2 > rect.x0 + 2 && p.y - s.h < rect.y1 - 2 && p.y > rect.y0 + 2;
+    assert.equal(covers, false, `${p.id} covers the focused room`);
+  }
+  assert.equal(tag.shown, false, 'an anchored tag inside the focused room gives way');
+});
+
+test('declutter: the building view priority order is deterministic (selected room, rooms, agents, open floor, other floors)', () => {
+  const at = { x: 0, y: 4, z: 0 };
+  const order = [
+    { id: 'floor:other', priority: 4, tiers: ['compact'] as const, anchored: true },
+    { id: 'floor:open', priority: 3, tiers: ['full', 'compact'] as const, anchored: true },
+    { id: 'room', priority: 1, tiers: ['full', 'compact', 'dot'] as const },
+    { id: 'selected', priority: 0, tiers: ['full'] as const },
+  ];
+  // Twice, in two input orders: the same labels win.
+  const a = layoutLabels(order.map((o) => ({ ...o, anchor: at })), vp, 1200, 700, sizeOf);
+  const b = layoutLabels([...order].reverse().map((o) => ({ ...o, anchor: at })), vp, 1200, 700, sizeOf);
+  const shownIds = (out: typeof a) => out.filter((p) => p.shown && p.shifted === 0).map((p) => p.id).sort();
+  assert.deepEqual(shownIds(a), shownIds(b));
+  assert.ok(shownIds(a).includes('selected'), 'the selected room wins its spot');
+  assert.equal(a.find((p) => p.id === 'floor:other')!.shown, false);
 });

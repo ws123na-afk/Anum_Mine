@@ -166,7 +166,9 @@ test('office preview stays behind sign-in and exposes no workspace data', async 
   }
 
   // The illustrative concept stays a separate, labelled mode.
-  await page.getByRole('button', { name: 'Concept preview' }).click();
+  // It is a choice of the Office tools menu.
+  await page.locator('.hqLive').getByRole('button', { name: 'Office tools' }).click();
+  await page.locator('.hqMenu').getByRole('button', { name: 'Concept preview' }).click();
   await expect(page.locator('.anumOfficeTour')).toBeVisible();
   await expect(page.getByText('CONCEPT VIEW', { exact: true })).toHaveCount(1);
   await expect(page.getByText(/No real task execution/)).toHaveCount(1);

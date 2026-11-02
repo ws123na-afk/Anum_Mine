@@ -7,13 +7,13 @@
  * a record behind it reads "Presence unavailable" or "Not connected".
  * Extension points are documented in docs/ANUM_MINE_HQ_EXTENSION_POINTS.md.
  */
-import { AlertTriangle, Building2, CheckCircle2, Compass, DoorOpen, Gauge, History, Layers, LayoutGrid, Lock, RefreshCcw, Users, Wrench } from 'lucide-react';
+import { AlertTriangle, Building2, CheckCircle2, Compass, DoorOpen, Eye, Gauge, History, Layers, LayoutGrid, Lock, RefreshCcw, Users, Wrench } from 'lucide-react';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { BuildingView, type AgentStyleInfo } from './BuildingView';
 import { CampusListView } from './CampusListView';
 import { BuildingDetail, CampusView } from './CampusView';
 import { HqPlanFallback } from './HqPlanFallback';
-import { GraphicsChip, PresenceLinkChip, ViewSwitch, type HqView } from './HqChrome';
+import { GraphicsChip, StatusChip, ViewSwitch, type HqView } from './HqChrome';
 import { AgentPanel, RoomPanel } from './HqPanels';
 import { activeShiftKey, applyShifts, offShiftKeys } from './lib/hqShifts.ts';
 import { roomMove } from './hq-nav/navModel.ts';
@@ -91,7 +91,8 @@ export type HeadquartersProps = HqCallbacks & HqSlots & Readonly<{
   /** The state of the shell's one workspace event stream (the Executive assistant's results arrive on it). */
   streamState?: 'connecting' | 'live' | 'offline';
   /** Extra controls in the header row (the entrypoint puts its presentation switch here). */
-  headerExtra?: ReactNode;
+  /** Opens the concept preview (the old illustrative tour), from the Office tools menu. */
+  onConceptPreview?: () => void;
 }>;
 
 type Overlay = 'none' | 'spaces' | 'workstations' | 'tour' | 'agentMeetings' | 'teams' | 'gaps';
@@ -111,6 +112,21 @@ export function HeadquartersLive(props: HeadquartersProps) {
   const [state, setState] = useState<OfficeState | null>(null);
   const [overlay, setOverlay] = useState<Overlay>('none');
   const [toolsOpen, setToolsOpen] = useState(false);
+  const toolsButton = useRef<HTMLButtonElement>(null);
+  const toolsMenu = useRef<HTMLUListElement>(null);
+  // The menu closes on Escape (focus back on Office tools) and on a press outside it.
+  useEffect(() => {
+    if (!toolsOpen) return undefined;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { setToolsOpen(false); toolsButton.current?.focus(); } };
+    const onDown = (e: PointerEvent) => { if (!toolsButton.current?.parentElement?.contains(e.target as Node)) setToolsOpen(false); };
+    // A native listener: the panel switches are portalled in from the navigation layer, so React events from them do not reach this menu.
+    const menu = toolsMenu.current;
+    const onPick = (e: MouseEvent) => { if ((e.target as HTMLElement).closest('button')) window.setTimeout(() => { setToolsOpen(false); toolsButton.current?.focus(); }, 0); };
+    window.addEventListener('keydown', onKey);
+    document.addEventListener('pointerdown', onDown);
+    menu?.addEventListener('click', onPick);
+    return () => { window.removeEventListener('keydown', onKey); document.removeEventListener('pointerdown', onDown); menu?.removeEventListener('click', onPick); };
+  }, [toolsOpen]);
   const [starterOpen, setStarterOpen] = useState(false);
   // Floor overview (docs/ANUM_MINE_FLOOR_OVERVIEW.md): the whole active floor from above, every room labelled.
   const [overview, setOverview] = useState(false);
@@ -593,19 +609,21 @@ export function HeadquartersLive(props: HeadquartersProps) {
         </div>
         <div className="hqHeadTools">
           <div className="hqHeadStatus">
-            {props.headerExtra}
-            <PresenceLinkChip link={livePresence.link} />
-            <span className={`hqConn tone-${status === 'ready' ? 'ok' : status === 'error' ? 'stop' : 'warn'}`} role="status">{connection}</span>
-            {webglOk && <GraphicsChip onOpen={() => setGpuOpen(true)} />}
+            <StatusChip link={livePresence.link} data={{ tone: status === 'ready' ? 'ok' : status === 'error' ? 'stop' : 'warn', text: connection }}
+              graphics={webglOk ? <GraphicsChip onOpen={() => setGpuOpen(true)} /> : null} />
           </div>
           <div className="hqHeadActions">
           <button type="button" className="hqIconButton" onClick={retry} disabled={state?.busy} aria-label={t('hq.refresh')} title={t('hq.refresh')}><RefreshCcw aria-hidden="true" /></button>
           <ViewSwitch view={effectiveView} onChange={(v) => { if (v === "3d" && !webglOk) return; setView(v); }} />
           <span className="hqHeadSlot" />
           <div className="hqMenuWrap">
-            <button type="button" className="hqGhost" aria-expanded={toolsOpen} onClick={() => setToolsOpen((v) => !v)}><Wrench aria-hidden="true" />{t('hq.tools')}</button>
+            <button type="button" ref={toolsButton} className="hqGhost" aria-expanded={toolsOpen} onClick={() => setToolsOpen((v) => !v)}><Wrench aria-hidden="true" />{t('hq.tools')}</button>
             {toolsOpen && (
-              <ul className="hqMenu">
+              // One menu for the rarely used header items too: the panel switches (portalled into hqMenuSlot by the navigation layer) and the
+              // concept preview. Any choice closes the menu and gives focus back to Office tools.
+              <ul className="hqMenu" ref={toolsMenu}>
+                <li className="hqMenuGroup"><ul className="hqMenuSlot" /></li>
+                {props.onConceptPreview && <li><button type="button" onClick={props.onConceptPreview}><Eye aria-hidden="true" />{t('hq.menu.concept')}</button></li>}
                 <li><button type="button" aria-pressed={flowOpen} onClick={() => { setFlowOpen((v) => !v); setToolsOpen(false); }}><Layers aria-hidden="true" />{t('hqFlow.open')}</button></li>
                 <li><button type="button" onClick={() => { setStarterOpen(true); setToolsOpen(false); }}><Building2 aria-hidden="true" />{t('hqSc.open')}</button></li>
                 <li><button type="button" onClick={() => { setGreenOpen(true); setToolsOpen(false); }}><Building2 aria-hidden="true" />{t('hqGc.open')}</button></li>

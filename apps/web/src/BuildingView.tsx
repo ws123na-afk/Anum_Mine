@@ -7,7 +7,7 @@ import type { AvatarAppearance } from '@anum/contracts';
 import type { OfficeFlowSnapshot } from '@anum/contracts';
 import type { ChangeBatch } from './useOfficeFlow';
 import { useFlowLabels } from './HqFlowStage';
-import { ArrowLeft, ChevronDown, DoorOpen, Layers } from 'lucide-react';
+import { ChevronDown, DoorOpen, Layers } from 'lucide-react';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 const LiveOpsStrip = lazy(() => import('./HqSceneStrips').then((m) => ({ default: m.LiveOpsStrip })));
@@ -19,14 +19,15 @@ const CommercePanels = lazy(() => import('./BuildingPanels').then((m) => ({ defa
 const FloorRooms = lazy(() => import('./BuildingPanels').then((m) => ({ default: m.FloorRooms })));
 const TyrePanel = lazy(() => import('./BuildingPanels').then((m) => ({ default: m.TyrePanel })));
 const HqCommandWall = lazy(() => import('./HqCommandWall').then((m) => ({ default: m.HqCommandWall })));
-import { BottomToolbar, CameraTools, TotalsPanel } from './HqChrome';
+import { BottomToolbar, TotalsPanel } from './HqChrome';
+import { useIdleFade } from './useIdleFade';
 import { AgentLabelCard, FloorTagCard, RoomIcon, RoomLabelCard } from './HqLabelCards';
 import { roomLabelSpecs, roomSubtitle, visitorLine } from './lib/hqLabelModel.ts';
 import { HqStage, useAspect, type StageLabel } from './HqStage';
 import { visualOfStatus } from './hqAssets/interior/stateVisual.ts';
 import { buildBuildingScene, FLOOR_PITCH, WALL_HEIGHT, type DeskVisual } from './lib/buildingScene.ts';
 import { CUT_PITCH, STACK_AUTO_MAX, cutLifts, facingSides, snapYaw, type CutawayInfo, type Facade, type Side } from './lib/hqCutaway.ts';
-import { HOME_YAW, buildingFitCamera, floorOverviewCamera, clampInside, clampTarget, insideCamera, isInsideView, faceNorth, rotateBy, threeDView, topView, zoomBy } from './lib/hqCamera.ts';
+import { HOME_YAW, buildingFitCamera, floorOverviewCamera, clampInside, clampTarget, insideCamera, isInsideView, faceNorth, rotateBy, threeDView, topView } from './lib/hqCamera.ts';
 import { dolly, type CameraState } from './lib/headquartersSpatial.ts';
 import type { RoomGeometry, SceneBuilding, SceneDesk, SceneFloor } from './lib/headquartersProjection.ts';
 import { deskShiftLine, WORK_STATUSES } from './lib/hqShifts.ts';
@@ -103,6 +104,9 @@ export type BuildingViewProps = Readonly<{
   screenLive?: boolean;
 }>;
 
+/** A floor tag nearer the eye than this (metres) is inside the camera's near view and is not drawn. */
+const FLOOR_TAG_MIN_DEPTH = 3;
+
 export type AgentStyleInfo = Readonly<{ avatar: AvatarAppearance | null; department: string | null }>;
 
 
@@ -157,6 +161,7 @@ export function BuildingView(props: BuildingViewProps) {
     [floors, activeIndex, stackOn, props.selectedRoomId, deskState, props.liveMeetingRoomIds, people, looks, attendees, locale],
   );
   const [wrap, aspect] = useAspect();
+  const idle = useIdleFade(wrap);
   const { overview } = props;
   // The home camera fits the footprint, the turn of the isometric view and the shape of the stage; the overview camera fits the active floor from above.
   const fp = scene.footprint;
@@ -355,10 +360,17 @@ export function BuildingView(props: BuildingViewProps) {
   });
 
   const wantsStack = stackOn && floors.length > 1;
-  // The stacked view's helpers load the first time it is asked for; until then the labels are the single floor's.
+  // The floor tags' helpers (a lazy chunk the stage loads with the renderer); until they are here the scene has no floor tag.
   const [stackLib, setStackLib] = useState<typeof import('./lib/hqLabels.ts') | null>(null);
-  useEffect(() => { if (wantsStack && !stackLib) void import('./lib/hqLabels.ts').then(setStackLib); }, [wantsStack, stackLib]);
+  useEffect(() => { if (!stackLib) void import('./lib/hqLabels.ts').then(setStackLib); }, [stackLib]);
   const stacked = wantsStack && stackLib !== null;
+  // Zoomed in (closer than 60 % of the home framing) or inside a room: only the open floor keeps its tag (docs/ANUM_MINE_HQ_LABELS.md, "Declutter").
+  const zoomedIn = inside || camera.distance < home.distance * 0.6;
+  const focusBox = useMemo(() => {
+    const id = props.selectedRoomId;
+    const handle = id ? scene.rooms.find((r) => r.id === id && r.floorIndex === activeIndex) : null;
+    return handle ? [handle.box] as const : null;
+  }, [scene, props.selectedRoomId, activeIndex]);
   const labels: StageLabel[] = useMemo(() => {
     const list: StageLabel[] = [];
     const roomHandle = new Map(scene.rooms.map((r) => [r.id, r]));
@@ -388,15 +400,23 @@ export function BuildingView(props: BuildingViewProps) {
       const onFloor = spec.floor === activeIndex;
       list.push({
         id: spec.id, anchor: spec.anchor, priority: spec.priority, maxDistance: spec.maxDistance, tiers: spec.tiers, occluders: spec.occluders,
+        // No other room's card covers the room the camera is focused on.
+        avoid: focusBox && room.id !== props.selectedRoomId ? focusBox : undefined,
         node: <RoomLabelCard name={roomName(room)} kind={room.kind} department={room.teamDepartment} sub={visitorLine(room.kind, props.visitorCounts?.get(room.id), roomSubtitle(room, c.desks))} working={c.working} live={props.liveMeetingRoomIds.has(room.id)} selected={room.id === props.selectedRoomId}
           onPick={() => (onFloor ? pickRoom(room.id) : latest.current.onOpenRoom ? latest.current.onOpenRoom(floors[spec.floor].id, room.id) : latest.current.onSelectFloor(floors[spec.floor].id))} />,
       });
     }
-    if (stacked && stackLib) {
+    if (stackLib) {
+      // Floor tags: the open floor's own tag, and with All floors one compact tag per floor at its own edge (never the others while zoomed in).
+      // Each stays at its anchor or gives way, is hidden off the stage, behind a slab above it, too near the eye or over the focused room.
+      const above = stacked ? stackLib.slabsAbove(floors) : null;
       for (const tag of stackLib.floorTagSpecs({ floors, activeIndex })) {
+        const active = tag.floor === activeIndex;
+        if (!active && (!stacked || zoomedIn)) continue;
         const f = floors[tag.floor];
         list.push({ id: tag.id, anchor: tag.anchor, alternatives: tag.alternatives, priority: tag.priority, maxDistance: tag.maxDistance, tiers: tag.tiers,
-          node: <FloorTagCard name={sceneName(f)} rooms={f.rooms.length} active={tag.floor === activeIndex} onPick={() => latest.current.onSelectFloor(f.id)} /> });
+          anchored: true, minDepth: FLOOR_TAG_MIN_DEPTH, occluders: above?.[tag.floor], avoid: focusBox ?? undefined,
+          node: <FloorTagCard name={sceneName(f)} rooms={f.rooms.length} active={active} onPick={() => latest.current.onSelectFloor(f.id)} /> });
       }
     }
     // Agent cards: only for a desk with a real agent record (registry assignment or presence), on the active floor.
@@ -416,7 +436,7 @@ export function BuildingView(props: BuildingViewProps) {
     }
     // The operations wall is not drawn over the scene: its numbers are in the docked room panel and the building panels below (and on the room's own 3D wall screen).
     return [...list, ...flowLabels];
-  }, [roomById, insideRoomId, props.wall, scene, floor, floors, presence, props.selectedRoomId, props.selectedAgentId, props.liveMeetingRoomIds, props.agentStyles, activeIndex, pickRoom, flowLabels, overview, stacked, stackLib]);
+  }, [roomById, insideRoomId, props.wall, scene, floor, floors, presence, props.selectedRoomId, props.selectedAgentId, props.liveMeetingRoomIds, props.agentStyles, activeIndex, pickRoom, flowLabels, overview, stacked, stackLib, zoomedIn, focusBox]);
 
   const agents = useMemo(() => (presence ? totalsOf([...presence.byAgent.values()], props.offShift) : null), [presence, props.offShift]);
   const insideRoom = insideRoomId ? roomById.get(insideRoomId) ?? null : null;
@@ -451,7 +471,6 @@ export function BuildingView(props: BuildingViewProps) {
           </label>
         )}
         <div className="hqFloorControl" role="group" aria-label={t('hq.floor.label')}>
-          <button type="button" onClick={() => stepFloor(-1)} disabled={activeIndex <= 0} aria-label={t('hq.floor.down')}><ArrowLeft aria-hidden="true" className="flip" /></button>
           <label className="hqSelect compactSelect">
             <span className="hqSrOnly">{t('hq.floor.pick')}</span>
             <Layers aria-hidden="true" />
@@ -459,7 +478,6 @@ export function BuildingView(props: BuildingViewProps) {
               {floors.map((f) => <option key={f.id} value={f.id}>{sceneName(f, locale)}</option>)}
             </select>
           </label>
-          <button type="button" onClick={() => stepFloor(1)} disabled={activeIndex >= floors.length - 1} aria-label={t('hq.floor.up')}><ArrowLeft aria-hidden="true" className="flipOpposite" /></button>
           <span className="hqFloorCount" data-testid="hq-floor-count">{t('hq.floor.count', { index: activeIndex + 1, count: floors.length })}</span>
           <div className="hqSegment" role="group" aria-label={t('hq.facade.label')}>
             {(['cutaway', 'closed'] as const).map((f) => (
@@ -493,27 +511,23 @@ export function BuildingView(props: BuildingViewProps) {
             <SceneBackCard name={props.workspaceName} totals={agents} onBack={props.onBack} />
           </Suspense>
         </div>
-        <div className="hqOverlay hqOverlayRight" data-keepout="">
-          <CameraTools
-            yaw={camera.yaw} night={night} onNight={props.onNight}
-            onZoomIn={() => change((c) => zoomBy(c, 0.8))} onZoomOut={() => change((c) => zoomBy(c, 1.25))}
-            onReset={() => { stopGlide(); props.nav?.bridge.cancel(); setInside(false); setHomeYaw(HOME_YAW); setCamera(view === 'top' ? topView(home) : buildingFitCamera(fitBox, aspect, CUT_PITCH, HOME_YAW)); }} onNorth={() => change(faceNorth)}
-          />
-        </div>
         <div className="hqOverlay hqOverlayBottom hqDock" data-keepout="">
           <div className="hqDockTools">
           <BottomToolbar
+            idle={idle}
             inside={{ active: inside, disabled: !selectedRoom || view === 'top', onToggle: toggleInside }}
             overview={{ active: overview, onToggle: toggleOverview }}
             onRotateLeft={() => turn(-1)} onRotateRight={() => turn(1)}
-            onPrev={() => stepFloor(-1)} onNext={() => stepFloor(1)} prevDisabled={activeIndex <= 0} nextDisabled={activeIndex >= floors.length - 1} prevLabel={t('hq.floor.down')} nextLabel={t('hq.floor.up')}
             onZoomIn={() => change((c) => dolly(c, -250))} onZoomOut={() => change((c) => dolly(c, 250))}
+            onReset={() => { stopGlide(); props.nav?.bridge.cancel(); setInside(false); setHomeYaw(HOME_YAW); setCamera(view === 'top' ? topView(home) : buildingFitCamera(fitBox, aspect, CUT_PITCH, HOME_YAW)); }}
+            north={{ yaw: camera.yaw, onNorth: () => change(faceNorth) }} light={{ night, onNight: props.onNight }}
             pan={{ active: panMode, onToggle: () => setPanMode((v) => !v) }}
             fullscreen={props.fullscreen} onFullscreen={props.onToggleFullscreen}
           />
           </div>
           <div className="hqDockFloors">
-            <Suspense fallback={null}><FloorSelector floors={floors.map((f) => ({ id: f.id, name: sceneName(f) }))} activeId={floor.id} stacked={showAll && floors.length > 1} onPick={props.onSelectFloor} onStack={setShowAll} /></Suspense>
+            <Suspense fallback={null}><FloorSelector floors={floors.map((f) => ({ id: f.id, name: sceneName(f) }))} activeId={floor.id} stacked={showAll && floors.length > 1} onPick={props.onSelectFloor} onStack={setShowAll}
+              onStep={stepFloor} canDown={activeIndex > 0} canUp={activeIndex < floors.length - 1} /></Suspense>
           </div>
         </div>
       </div>

@@ -102,7 +102,7 @@ type Drawer = null | 'floors' | 'side';
 export function HqNavigation(props: HqNavigationProps) {
   const locale = useLocale();
   const { handles, level, view, campus, building, floor } = props;
-  const { layout, focus, stripOpen, toggleRail, toggleSide, toggleStrip, toggleFocus } = useNavLayout();
+  const { layout, focus, stripOpen, toggleRail, toggleRailDock, toggleSide, toggleStrip, toggleFocus } = useNavLayout();
   const [drawer, setDrawer] = useState<Drawer>(null);
   const [tab, setTab] = useState<'plan' | 'moves' | 'assistant'>('plan');
   const [liveCam, setLive] = useState('');
@@ -116,6 +116,9 @@ export function HqNavigation(props: HqNavigationProps) {
   // The toolbar (hide the side panels, floors and side drawers) lives in the page header's tool row, so it costs the scene no row of its own.
   const [headSlot, setHeadSlot] = useState<Element | null>(null);
   useLayoutEffect(() => { setHeadSlot(root.current?.closest('.hqLive')?.querySelector('.hqHeadSlot') ?? null); });
+  // The rarely used panel switches (hide or show the side panels) live in the Office tools menu, in its slot while the menu is open.
+  const [menuSlot, setMenuSlot] = useState<Element | null>(null);
+  useLayoutEffect(() => { const el = root.current?.closest('.hqLive')?.querySelector('.hqMenuSlot') ?? null; if (el !== menuSlot) setMenuSlot(el); });
   // Polite announcements: only when a link really changes (never per update).
   const [panelsLive, setPanelsLive] = useState('');
   const lastLive = useRef<{ office: PanelLive | null; flow: PanelLive | null }>({ office: null, flow: null });
@@ -305,28 +308,36 @@ export function HqNavigation(props: HqNavigationProps) {
   }
 
   const stripNode = <Suspense fallback={null}><ViewStrip stops={stops} currentId={currentId} open={stripOpen} thumbKeyOf={stopKey} onToggle={toggleStrip} onGo={goStop} /></Suspense>;
-  // From 900 px there are panels beside the scene to fold away; narrower, they are drawers and the scene already has the width.
-  const canFocus = layout.width >= 900;
-  const toolbar = canFocus || (level === 'building' && layout.rail === 'drawer') || layout.side !== 'open';
+  // From 900 px the floor list can be docked beside the scene (the Floors button); narrower, or in focus mode, it opens as a drawer.
+  const docked = (layout.rail === 'full' || layout.rail === 'slim');
+  const floorsDocks = layout.width >= 900 && !focus;
+  // The fold switch exists only while something is docked beside the scene (or the scene already has it all): never a dead button.
+  const canFocus = layout.width >= 900 && (focus || docked || layout.side === 'open' || layout.side === 'hidden');
   const sideLabel = level === 'building' ? t('hqNav.drawer.side') : t('hqNav.drawer.moves');
-  const toolbarNode = toolbar ? (
-    <div className="hqNavToolbar" role="group" aria-label={t('hqNav.region')}>
-      {level === 'building' && layout.rail === 'drawer' && <button type="button" className="hqGhost" aria-expanded={drawer === 'floors'} onClick={openDrawer('floors')}><Layers aria-hidden="true" />{t('hqNav.drawer.floors')}</button>}
+  const floorsButton = level === 'building' && building ? (floorsDocks
+    ? <button type="button" className="hqGhost" data-testid="hq-floors-toggle" aria-expanded={docked} onClick={toggleRailDock}><Layers aria-hidden="true" />{t('hqNav.drawer.floors')}</button>
+    : <button type="button" className="hqGhost" data-testid="hq-floors-toggle" aria-expanded={drawer === 'floors'} onClick={openDrawer('floors')}><Layers aria-hidden="true" />{t('hqNav.drawer.floors')}</button>) : null;
+  const sideDrawerButton = layout.side === 'drawer' ? <button type="button" className="hqGhost" aria-expanded={drawer === 'side'} onClick={openDrawer('side')}><CalendarDays aria-hidden="true" />{sideLabel}</button> : null;
+  const toolbarNode = floorsButton || sideDrawerButton ? (
+    <div className="hqNavToolbar" role="group" aria-label={t('hqNav.region')}>{floorsButton}{sideDrawerButton}</div>
+  ) : null;
+  const menuNode = canFocus || (layout.side === 'hidden' && !focus) ? (
+    <>
       {canFocus && (
-        <button type="button" className="hqGhost hqFocusToggle" aria-expanded={!focus} onClick={toggleFocus}>
+        <li><button type="button" className="hqFocusToggle" aria-expanded={!focus} onClick={toggleFocus}>
           {focus ? <PanelLeftOpen aria-hidden="true" className="flip" /> : <PanelLeftClose aria-hidden="true" className="flip" />}
           {focus ? t('hqNav.focus.show') : t('hqNav.focus.hide')}
-        </button>
+        </button></li>
       )}
-      {layout.side === 'hidden' && !focus
-        ? <button type="button" className="hqGhost" onClick={toggleSide}><PanelRight aria-hidden="true" />{t('hqNav.side.expand')}</button>
-        : layout.side === 'drawer' && <button type="button" className="hqGhost" aria-expanded={drawer === 'side'} onClick={openDrawer('side')}><CalendarDays aria-hidden="true" />{sideLabel}</button>}
-    </div>
+      {layout.side === 'hidden' && !focus && <li><button type="button" onClick={toggleSide}><PanelRight aria-hidden="true" />{t('hqNav.side.expand')}</button></li>}
+    </>
   ) : null;
+  const toolbar = toolbarNode !== null;
   const totalsStrip = level === 'campus' && !sideInline ? statusNode('strip') : null;
   return (
     <div className="hqNav" ref={root} data-nav="on" data-level={level} data-rail={railOn ? layout.rail : 'none'} data-side={sideInline ? 'open' : layout.side} data-strip={stripOn && stripOpen ? 'open' : 'closed'} data-toolbar={toolbar && !headSlot ? 'on' : 'off'}>
       {toolbarNode && (headSlot ? createPortal(toolbarNode, headSlot) : toolbarNode)}
+      {menuNode && menuSlot && createPortal(menuNode, menuSlot)}
       <div className="hqNavGrid">
         {railOn && building && <Suspense fallback={null}><FloorRail building={building} activeFloorId={floor?.id ?? null} slim={layout.rail === 'slim'} thumbKeyOf={(id) => keyFor(`floor:${id}`)} onPick={pickFloor} onToggle={toggleRail} overview={props.floorOverview} onOverview={() => props.onFloorOverview(!props.floorOverview)} /></Suspense>}
         <div className="hqMainStage">

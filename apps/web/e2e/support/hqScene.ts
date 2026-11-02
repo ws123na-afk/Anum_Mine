@@ -29,3 +29,41 @@ export async function sceneSettled(page: Page, timeout = 90_000): Promise<void> 
   await sceneReady(page, timeout);
   await expect(page.locator('.hqLive canvas.hqCanvas')).toHaveAttribute('data-scene-settled', 'true', { timeout });
 }
+
+/* The decluttered headquarters chrome (docs/ANUM_MINE_HQ_PAGE_LAYOUT.md, "Header"; docs/ANUM_MINE_HQ_LABELS.md, "Declutter"): rarely used
+   header items are in the Office tools menu, the status chips are one chip with a panel, Face north and the light are under More camera
+   options, and the floor list with thumbnails is docked by the Floors button. These helpers reach them the way a person does. */
+const live = (page: Page) => page.locator('.hqLive');
+
+/** Opens Office tools and returns the menu item named `name` (the menu closes again when an item is chosen). */
+export async function officeMenuItem(page: Page, name: string | RegExp) {
+  const tools = live(page).getByRole('button', { name: /^(Office tools|أدوات المكتب)$/ });
+  if ((await tools.getAttribute('aria-expanded')) !== 'true') await tools.click();
+  return live(page).locator('.hqMenu').getByRole('button', { name });
+}
+
+/** Gives the scene the page's whole width: Hide side panels when something is docked beside it, else nothing to do. */
+export async function widenScene(page: Page): Promise<void> {
+  const hide = await officeMenuItem(page, /^(Hide side panels|إخفاء اللوحات الجانبية)$/);
+  if (await hide.count()) { await hide.click(); return; }
+  await page.keyboard.press('Escape');
+}
+
+/** Opens More camera options (Face north, Day, Blue hour, Night). */
+export async function cameraOptions(page: Page): Promise<void> {
+  const more = live(page).getByTestId('hq-cam-more').first();
+  if ((await more.getAttribute('aria-expanded')) !== 'true') await more.click();
+}
+
+/** Opens the status chip's panel (the people link, the office data read and the graphics tier). */
+export async function openStatus(page: Page): Promise<void> {
+  const chip = live(page).getByTestId('hq-status-chip');
+  if ((await chip.getAttribute('aria-expanded')) !== 'true') await chip.click();
+}
+
+/** Docks the floor list with thumbnails beside the scene (900 px and wider; narrower it opens as a drawer). */
+export async function showFloorList(page: Page): Promise<void> {
+  const floors = live(page).getByTestId('hq-floors-toggle');
+  await expect(floors).toBeVisible({ timeout: 30_000 });
+  if ((await floors.getAttribute('aria-expanded')) !== 'true') await floors.click();
+}

@@ -171,7 +171,7 @@ for (const [w, h] of SIZES) {
     expect(box.x).toBeGreaterThanOrEqual(stage.x - 1);
     expect(box.x + box.width).toBeLessThanOrEqual(stage.x + stage.width + 1);
     // The card is under the camera controls: the element at the centre of each control is never the card.
-    for (const control of await hq(page).locator('.hqOverlayRight button, .hqOverlayBottom button').all()) {
+    for (const control of await hq(page).locator('.hqOverlayBottom button').all()) {
       if (!(await control.isVisible())) continue;
       const b = (await control.boundingBox())!;
       const covered = await page.evaluate(([x, y]) => document.elementFromPoint(x, y)?.closest('.hqBillboard') != null, [b.x + b.width / 2, b.y + b.height / 2]);
