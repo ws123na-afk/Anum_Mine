@@ -20,6 +20,9 @@ localhost redirect URIs. A shared Keycloak gets:
   required. The relying party id stays empty (Keycloak then uses its own host name, the
   auth host). The values are the ones ``infra/keycloak/two_factor.py`` applies to a
   running server; a test keeps the two equal;
+* the password rules and sign-in lockout of ``SIGN_IN_PROTECTION`` (12 characters with
+  mixed case and a digit, not the user name or email, no reuse of the last 3; a temporary
+  lockout after 10 failed sign-ins, growing to 15 minutes);
 * every other client, role, mapper and the user profile unchanged.
 
 The 2FA browser flow itself is not part of the import: a realm file that lists any
@@ -56,6 +59,26 @@ TWO_FACTOR_POLICY: dict[str, Any] = {
 }
 
 
+# Password rules and sign-in lockout of a shared realm (docs/security.md#sign-in-protection).
+# Keycloak's own defaults are no password rules at all and a lockout only after 30 failed
+# attempts. Equal to infra/keycloak/two_factor.py SIGN_IN_PROTECTION (applied to a running
+# server) and social_login.REALM_PASSWORD_RULES; a test keeps the three equal.
+SIGN_IN_PROTECTION: dict[str, Any] = {
+    "passwordPolicy": (
+        "length(12) and maxLength(128) and lowerCase(1) and upperCase(1) and digits(1) "
+        "and notUsername and notEmail and passwordHistory(3)"
+    ),
+    "bruteForceProtected": True,
+    "permanentLockout": False,
+    "failureFactor": 10,
+    "waitIncrementSeconds": 60,
+    "maxFailureWaitSeconds": 900,
+    "maxDeltaTimeSeconds": 43200,
+    "quickLoginCheckMilliSeconds": 1000,
+    "minimumQuickLoginWaitSeconds": 60,
+}
+
+
 def _without_dev_server(values: list[str]) -> list[str]:
     return [value for value in values if not value.startswith(DEV_SERVER_PREFIXES)]
 
@@ -68,6 +91,7 @@ def shared_realm(realm: dict[str, Any]) -> dict[str, Any]:
     # (the ANUM login theme shows its non-production notice from that text).
     result["displayName"] = "ANUM"
     result.update(json.loads(json.dumps(TWO_FACTOR_POLICY)))
+    result.update(json.loads(json.dumps(SIGN_IN_PROTECTION)))
     for client in result.get("clients", []):
         if client.get("clientId") not in {"anum-web", "anum-desktop"}:
             continue

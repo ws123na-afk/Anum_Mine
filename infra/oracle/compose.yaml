@@ -201,6 +201,10 @@ services:
     depends_on:
       db-init:
         condition: service_completed_successfully
+    # Non-root image: no Linux capabilities and no privilege gain through setuid binaries
+    # (docs/security.md#pre-sale-review-november-2026).
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
     logging: *logging
 
   # --- API (FastAPI) ----------------------------------------------------------------
@@ -438,6 +442,10 @@ services:
         condition: service_healthy
     stop_grace_period: 30s
     mem_limit: 2g
+    # Non-root image: no Linux capabilities and no privilege gain through setuid binaries
+    # (docs/security.md#pre-sale-review-november-2026).
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
     logging: *logging
 
   # --- Web client (Vite bundle on unprivileged nginx) -------------------------------
@@ -473,6 +481,10 @@ services:
     networks:
       - edge
     mem_limit: 256m
+    # Non-root image: no Linux capabilities and no privilege gain through setuid binaries
+    # (docs/security.md#pre-sale-review-november-2026).
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
     logging: *logging
 
   # --- Keycloak (identity provider) -------------------------------------------------
@@ -553,6 +565,10 @@ services:
         condition: service_completed_successfully
     # Keycloak sizes its heap from this limit (70%).
     mem_limit: 2g
+    # Non-root image: no Linux capabilities and no privilege gain through setuid binaries
+    # (docs/security.md#pre-sale-review-november-2026).
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
     logging: *logging
 
   # --- Valkey (rate limits shared across workers, run locks) ------------------------
@@ -701,6 +717,10 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    # Non-root image: no Linux capabilities and no privilege gain through setuid binaries
+    # (docs/security.md#pre-sale-review-november-2026).
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
     logging: *logging
 
   # Nightly logical backup with infra/backup/anum_backup.py as anum_backup (BYPASSRLS,

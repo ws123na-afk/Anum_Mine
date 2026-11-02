@@ -195,6 +195,18 @@ def test_twiml_escapes_everything_it_says_or_dials() -> None:
     assert 'action="https://x.test/a?b=1&amp;c=2"' in xml
 
 
+
+def test_webhook_provider_lookup_runs_off_the_event_loop(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The provider row is read before the Twilio signature is checked, so that read must run
+    in a worker thread: forged deliveries cannot stall the event loop
+    (docs/security.md#pre-sale-review-november-2026)."""
+    from loop_guard import store_opens_on_loop
+
+    connect(client)
+    with store_opens_on_loop(monkeypatch) as on_loop:
+        assert hook(client, "status", {"CallSid": "CAforged0001", "CallStatus": "completed"}, token="wrong-token-value").status_code == 403
+    assert on_loop == []
+
 def test_twilio_signature_matches_the_documented_example() -> None:
     # The value Twilio's own RequestValidator (twilio-python 9.12) computes for these inputs.
     params = {"CallSid": "CA1234567890ABCDE", "Caller": "+12349013030", "Digits": "1234", "From": "+12349013030", "To": "+18005551212"}
