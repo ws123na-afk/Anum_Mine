@@ -108,9 +108,9 @@ export function ExecutiveCommandCenter({ workspaceId, tenantId, owner, onGo, onS
   return <div className="exPage">
     <PageHeader title={t('nav.executive')} subtitle={t('executive.subtitle')}
       actions={<button type="button" className="secondary" onClick={() => void refresh()} disabled={load.state === 'loading'}><RefreshCw aria-hidden="true" />{t('executive.refresh')}</button>} />
-    <div className="exTabs" role="tablist" aria-label={t('ostaff.tabs')}>
+    <div className="settingsTabs exTabs" role="tablist" aria-label={t('ostaff.tabs')}>
       {(['workspaces', 'offices'] as const).map((id) => <button key={id} type="button" role="tab" id={`ex-tab-${id}`} aria-controls={`ex-panel-${id}`}
-        aria-selected={tab === id} tabIndex={tab === id ? 0 : -1} className={tab === id ? undefined : 'secondary'}
+        aria-selected={tab === id} tabIndex={tab === id ? 0 : -1}
         onClick={() => setTab(id)} onKeyDown={(e) => { if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') { e.preventDefault(); const next = id === 'workspaces' ? 'offices' : 'workspaces'; setTab(next); document.getElementById(`ex-tab-${next}`)?.focus(); } }}>
         {t(id === 'workspaces' ? 'ostaff.tab.workspaces' : 'ostaff.tab.offices')}</button>)}
     </div>
