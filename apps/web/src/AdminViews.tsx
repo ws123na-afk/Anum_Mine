@@ -166,7 +166,7 @@ export function MembersView({ workspaceId, onSwitchWorkspace, onSwitchOrganisati
   return <>
     <section className="moduleIntro">
       <div><p className="eyebrow">{t('memberPage.eyebrow')}</p><h2>{t('memberPage.title')}</h2><p>{t('memberPage.intro', { workspace: workspaceId })}</p></div>
-      <button type="button" onClick={() => { setLoad({ kind: 'loading' }); void refresh(); }}><RefreshCw aria-hidden="true" />{t('admin.refresh')}</button>
+      <button type="button" className="secondary" onClick={() => { setLoad({ kind: 'loading' }); void refresh(); }}><RefreshCw aria-hidden="true" />{t('admin.refresh')}</button>
     </section>
     {flash && <Notice error={flash.error}>{flash.text}</Notice>}
     {load.kind === 'loading' && <Notice>{t('memberPage.loading')}</Notice>}
@@ -435,7 +435,7 @@ export function BudgetsView() {
   return <>
     <section className="moduleIntro">
       <div><p className="eyebrow">{t('budgets.eyebrow')}</p><h2>{t('budgets.title')}</h2><p>{overview ? t('budgets.period', { start: formatResetDate(overview.periodStart, false), reset: formatResetDate(overview.resetsOn) }) : t('budgets.intro')}</p></div>
-      <button type="button" onClick={() => { setLoad({ kind: 'loading' }); void refresh(); }}><RefreshCw aria-hidden="true" />{t('admin.refresh')}</button>
+      <button type="button" className="secondary" onClick={() => { setLoad({ kind: 'loading' }); void refresh(); }}><RefreshCw aria-hidden="true" />{t('admin.refresh')}</button>
     </section>
     {load.kind === 'loading' && <Notice>{t('budgets.loading')}</Notice>}
     {load.kind === 'error' && <Notice error>{t('budgets.error', { message: load.detail })}</Notice>}
@@ -557,7 +557,7 @@ export function ApprovalPolicyView({ workspaceId }: { workspaceId: string }) {
   return <>
     <section className="moduleIntro">
       <div><p className="eyebrow">{t('policy.eyebrow')}</p><h2>{t('policy.title')}</h2><p>{t('policy.intro', { workspace: workspaceId })}</p></div>
-      <button type="button" onClick={() => { setLoad({ kind: 'loading' }); setDenied(null); setFlash(null); void refresh(); }}><RefreshCw aria-hidden="true" />{t('admin.refresh')}</button>
+      <button type="button" className="secondary" onClick={() => { setLoad({ kind: 'loading' }); setDenied(null); setFlash(null); void refresh(); }}><RefreshCw aria-hidden="true" />{t('admin.refresh')}</button>
     </section>
     {load.kind === 'loading' && <Notice>{t('policy.loading')}</Notice>}
     {load.kind === 'error' && <Notice error>{t('policy.error', { message: load.detail })}</Notice>}

@@ -189,3 +189,11 @@ button.secondary.dangerText { color: var(--d-stop); }
 .mkReportSend { display: grid; gap: var(--d-s2); }
 .mkReportSend .actions { margin-top: 0; }
 .mkReportSend select, .mkReport .mkSectionHead select { flex: 1 1 200px; max-width: 320px; min-width: 0; width: auto; }
+
+/* Analytics figures: one strip with hairlines, four across, two on phones (docs/web-design-system.md#pages). */
+.mkMetrics { background: var(--d-line); border: 1px solid var(--d-line); border-radius: var(--d-r-panel); box-shadow: var(--d-elev-1); gap: 1px; grid-template-columns: repeat(4, minmax(0, 1fr)); overflow: hidden; }
+.mkMetrics > .metric { border: 0; border-radius: 0; box-shadow: none; padding: var(--d-s4) var(--d-s5); }
+@media (max-width: 760px) {
+  .mkMetrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .mkMetrics > .metric { padding: var(--d-s3); }
+}
