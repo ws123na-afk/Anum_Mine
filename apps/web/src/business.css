@@ -14,7 +14,8 @@
 .bzBlocked { color: var(--d-stop); font-size: var(--text-sm); }
 
 /* Toolbar: search, filters and the page actions on one row; wraps on narrow screens. */
-.bzToolbar { align-items: end; display: flex; flex-wrap: wrap; gap: var(--d-s3); min-width: 0; }
+.bzToolbar { align-items: end; display: flex; flex-wrap: wrap; font-size: var(--text-md); gap: var(--d-s3); min-width: 0; }
+.bzToolbar button { font-size: var(--text-md); }
 .bzToolbar > .bzHint { flex: 1 1 280px; }
 .bzToolbarEnd { display: flex; flex-wrap: wrap; gap: var(--d-s2); margin-inline-start: auto; }
 .bzSearch { display: flex; flex: 1 1 260px; gap: var(--d-s2); min-width: 0; }
@@ -49,7 +50,7 @@
 /* Drawers: one column of blocks. */
 .bzDrawer { display: grid; gap: var(--d-s4); min-width: 0; }
 .bzLeadHead { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2) var(--d-s3); }
-.bzScore { font-variant-numeric: tabular-nums; font-weight: 700; }
+.bzScore { font-variant-numeric: tabular-nums; font-weight: 600; }
 .bzScore small { color: var(--d-muted); font-weight: 400; }
 .bzBlock { border-top: 1px solid var(--d-line); display: grid; gap: var(--d-s3); min-width: 0; padding-top: var(--d-s4); }
 .bzBlock > h3 { font-size: var(--text-base); margin: 0; }

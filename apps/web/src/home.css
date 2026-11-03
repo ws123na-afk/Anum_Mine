@@ -8,10 +8,10 @@
 /* ---- Greeting */
 .homeHeader { align-items: flex-end; display: flex; flex-wrap: wrap; gap: var(--d-s3) var(--d-s4); justify-content: space-between; }
 .homeHeader > div:first-child { min-width: 0; }
-.homeHeader h1 { font-size: var(--text-6xl); font-weight: 800; overflow-wrap: anywhere; }
+.homeHeader h1 { font-size: var(--text-6xl); font-weight: 600; overflow-wrap: anywhere; }
 .homeLead { color: var(--d-muted); font-size: var(--text-base); margin-top: var(--d-s1); max-width: 64ch; }
 .homeHeaderActions { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); }
-.homeHeaderActions .smallButton { min-height: 44px; }
+.homeHeaderActions .smallButton { min-height: var(--d-control-h); }
 
 /* ---- Today at a glance */
 /* The cards follow the width of the main column, not the window: the sidebar keeps 248px of a
@@ -32,7 +32,7 @@
 .glanceCard.warning { border-color: rgb(var(--c-warn) / .35); }
 .glanceCard.danger { border-color: rgb(var(--c-stop) / .4); }
 .glanceLabel { align-self: center; grid-column: 1; grid-row: 1; color: var(--d-muted); font-size: var(--text-sm); font-weight: 600; min-width: 0; overflow-wrap: anywhere; }
-.glanceValue { align-items: baseline; grid-column: 1 / -1; display: flex; font-size: var(--text-5xl); font-variant-numeric: tabular-nums; font-weight: 800; gap: var(--d-s1); line-height: 1.15; min-height: 30px; }
+.glanceValue { align-items: baseline; grid-column: 1 / -1; display: flex; font-size: var(--text-5xl); font-variant-numeric: tabular-nums; font-weight: 600; gap: var(--d-s1); line-height: 1.15; min-height: 30px; }
 .glanceValue small { color: var(--d-muted); font-size: var(--text-sm); font-weight: 600; }
 .glanceDetail { color: var(--d-faint); font-size: var(--text-xs); grid-column: 1 / -1; overflow-wrap: anywhere; }
 
@@ -57,7 +57,7 @@
 .meetingList li { align-items: center; background: var(--d-glass-1); border: 1px solid var(--d-line); border-radius: var(--d-r-control); display: grid; gap: var(--d-s3); grid-template-columns: auto minmax(0, 1fr) auto; padding: var(--d-s2) var(--d-s3); }
 .meetingList li.done { background: transparent; }
 .meetingList li.done .meetingBody strong { color: var(--d-muted); font-weight: 500; }
-.meetingTime { display: grid; white-space: nowrap; font-size: var(--text-md); font-variant-numeric: tabular-nums; font-weight: 700; }
+.meetingTime { display: grid; white-space: nowrap; font-size: var(--text-md); font-variant-numeric: tabular-nums; font-weight: 600; }
 .meetingTime small { color: var(--d-faint); font-size: var(--text-xs); font-weight: 500; }
 .meetingBody { align-items: center; display: flex; flex-wrap: wrap; gap: 2px var(--d-s2); min-width: 0; }
 .meetingBody strong { flex: 1 1 100%; font-size: var(--text-md); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -121,7 +121,8 @@
 @media (max-width: 480px) {
   .homePage { gap: var(--d-s4); }
   .homeHeaderActions { width: 100%; }
-  .homeHeaderActions > * { flex: 1; }
+  /* The main action takes the room its label needs, so it stays on one line beside Refresh. */
+  .homeHeaderActions > * { flex: 1 1 auto; }
   .glanceCard { padding: var(--d-s3); }
   .glanceIcon { height: 28px; width: 28px; }
   .glanceValue { font-size: var(--text-3xl); }

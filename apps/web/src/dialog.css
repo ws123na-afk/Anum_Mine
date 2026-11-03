@@ -1,15 +1,21 @@
 /* Confirm dialog and side drawer (src/Dialog.tsx). Uses the depth tokens from styles.css. */
 .dialogBackdrop {
   align-items: center; background: var(--d-scrim); display: flex; inset: 0; justify-content: center;
-  padding: var(--d-s4); position: fixed; z-index: 60;
+  padding: var(--d-s4); position: fixed; z-index: var(--z-dialog);
 }
 /* Opening is a state change: a short lift while the scrim fades (none with reduced motion). The panel itself never fades, so its text is at full contrast from the first frame. */
 @keyframes dialogIn { from { transform: translateY(6px) scale(.985); } }
-@keyframes drawerIn { from { transform: translateY(8px); } }
+/* A drawer slides in from the end edge it is attached to (the start edge in Arabic). */
+@keyframes drawerIn { from { transform: translateX(24px); } }
+@keyframes drawerInRtl { from { transform: translateX(-24px); } }
 @keyframes scrimIn { from { background-color: transparent; } }
 .dialogBackdrop { animation: scrimIn var(--d-base) var(--d-ease); }
+.surface.dialogPanel { background: var(--d-surface-2); box-shadow: var(--d-elev-2); }
 .dialogPanel { animation: dialogIn var(--d-base) var(--d-ease); display: grid; gap: var(--d-s3); max-height: calc(100dvh - 2 * var(--d-s4)); max-width: 480px; overflow: auto; padding: var(--d-s5); width: 100%; }
-.dialogPanel h2 { font-size: var(--text-xl); }
+.dialogPanel h2 { font-size: var(--text-xl); font-weight: 600; }
+/* Footer actions sit at the end: the main action last in reading order is the convention the
+   confirm dialogs already follow, so only the alignment changes. */
+.dialogPanel > .actions { justify-content: flex-end; }
 .dialogBody { color: var(--d-muted); display: grid; gap: var(--d-s2); font-size: var(--text-md); }
 .dialogBody strong { color: var(--d-text); }
 .dialogPanel .actions { margin-top: var(--d-s2); }
@@ -18,9 +24,10 @@
   background: var(--d-surface-1); border-inline-start: 1px solid var(--d-line-strong); box-shadow: var(--d-elev-2);
   animation: drawerIn var(--d-base) var(--d-ease); display: flex; flex-direction: column; height: 100dvh; max-width: 100%; width: min(520px, 100vw);
 }
+[dir="rtl"] .drawerPanel { animation-name: drawerInRtl; }
 @media (prefers-reduced-motion: reduce) { .dialogBackdrop, .dialogPanel, .drawerPanel { animation: none; } }
 .drawerHeader { align-items: center; border-bottom: 1px solid var(--d-line); display: flex; gap: var(--d-s3); justify-content: space-between; padding: var(--d-s4) var(--d-s5); }
-.drawerHeader h2 { font-size: var(--text-xl); }
+.drawerHeader h2 { font-size: var(--text-xl); font-weight: 600; }
 .drawerBody { display: grid; align-content: start; gap: var(--d-s4); overflow-y: auto; padding: var(--d-s5); }
 .drawerBody .actions { margin-top: 0; }
 .linkButton {

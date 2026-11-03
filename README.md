@@ -302,6 +302,7 @@ x-user-roles: owner,member
 - [Figma mobile design system](docs/figma-mobile-design.md)
 - [ANUM 360 redesign (owner mockups)](docs/design/anum360.md)
 - [Visual identity: graphite and jade](docs/design/visual-identity.md)
+- [Web design system: foundation and shared components](docs/web-design-system.md)
 - [Repository structure](docs/repository-structure.md)
 - [Scaling](docs/scaling.md)
 - [Governance and scale](docs/governance-and-scale.md)
