@@ -901,3 +901,89 @@ code { unicode-bidi: isolate; }
 .channelHint.warning { color: var(--d-warn); }
 .channelHint.ok { color: var(--d-ok); }
 .channelHint.neutral { color: var(--d-muted); }
+
+/* ==== Redesign (docs/web-design-system.md#pages) ==== */
+/* Summary figures (.metrics): one strip with hairlines between cells instead of separate cards. The
+   grid's background is the hairline colour, so the lines stay right however the cells wrap. */
+.metrics { background: var(--d-line); border: 1px solid var(--d-line); border-radius: var(--d-r-panel); box-shadow: var(--d-elev-1); gap: 1px; overflow: hidden; }
+.metrics > .metric { border: 0; border-radius: 0; box-shadow: none; padding: var(--d-s4) var(--d-s5); }
+.metrics > .metric > strong { font-size: var(--text-4xl); letter-spacing: -.02em; margin-top: var(--d-s1); }
+.metrics .metricTop { font-size: var(--text-sm); }
+.metrics .metricIcon, .metrics .metricIcon svg { color: var(--d-faint); height: 16px; width: 16px; }
+
+/* Approvals: a review queue. On wide screens an index of what waits sits beside the requests; each
+   request reads top to bottom (what it calls, why, exactly what it sends, who may decide) and ends in
+   one decision bar. The card's start edge carries the risk colour; the words are in its meta line. */
+.approvalQueue { display: grid; gap: var(--d-s4); min-width: 0; }
+@media (min-width: 1100px) {
+  .approvalQueue.withIndex { align-items: start; grid-template-columns: minmax(220px, 280px) minmax(0, 1fr); }
+}
+.approvalQueueIndex {
+  background: var(--d-surface-1); border: 1px solid var(--d-line); border-radius: var(--d-r-panel); box-shadow: var(--d-elev-1); display: none; max-height: calc(100dvh - 120px);
+  overflow: auto; padding: var(--d-s2); position: sticky; top: var(--d-s4);
+}
+@media (min-width: 1100px) { .approvalQueueIndex { display: block; } }
+.approvalQueueIndexTitle { color: var(--d-muted); font-size: var(--text-sm); font-weight: 500; padding: var(--d-s2) var(--d-s2) var(--d-s1); }
+.approvalQueueIndex ol { display: grid; gap: 2px; list-style: none; margin: 0; padding: 0; }
+.approvalQueueItem {
+  background: transparent; border: 0; border-inline-start: 3px solid var(--d-line-strong); border-radius: 0 var(--d-r-control) var(--d-r-control) 0; color: var(--d-text);
+  display: grid; gap: 2px; min-height: var(--d-control-h); padding: var(--d-s2) var(--d-s3); text-align: start; transition: background var(--d-fast) var(--d-ease); width: 100%;
+}
+[dir="rtl"] .approvalQueueItem { border-radius: var(--d-r-control) 0 0 var(--d-r-control); }
+.approvalQueueItem:hover { background: var(--d-glass-1); }
+.approvalQueueItem:focus-visible { outline-offset: -2px; }
+.approvalQueueItem strong { font-family: var(--d-mono); font-size: var(--text-sm); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.approvalQueueItem small { color: var(--d-muted); font-size: var(--text-xs); }
+.approvalQueueItem.risk-high { border-inline-start-color: var(--d-stop); }
+.approvalQueueItem.risk-medium { border-inline-start-color: var(--d-warn); }
+.approvalQueue .approvalTable { display: grid; gap: var(--d-s4); padding: 0; background: none; border: 0; box-shadow: none; }
+.approvalQueue .approvalDetail {
+  background: var(--d-surface-1); border: 1px solid var(--d-line); border-inline-start: 3px solid var(--d-accent); border-radius: var(--d-r-panel); box-shadow: var(--d-elev-1);
+  column-gap: var(--d-s4); grid-template-areas: "icon body" "actions actions"; grid-template-columns: 40px minmax(0, 1fr); margin: 0; padding: var(--d-s5) var(--d-s5) 0;
+  scroll-margin-top: var(--d-s4);
+}
+.approvalQueue .approvalDetail[data-risk="high"] { border-inline-start-color: var(--d-stop); }
+.approvalQueue .approvalDetail[data-risk="medium"] { border-inline-start-color: var(--d-warn); }
+.approvalQueue .approvalDetail:focus-visible { outline-offset: 2px; }
+.approvalQueue .approvalIcon { grid-area: icon; height: 40px; width: 40px; }
+.approvalQueue .approvalBody { display: grid; gap: var(--d-s2); grid-area: body; }
+.approvalQueue .approvalBody h3 { font-size: var(--text-xl); font-weight: 600; letter-spacing: -.012em; }
+.approvalQueue .approvalSubhead { color: var(--d-muted); font-size: var(--text-sm); font-weight: 600; margin-top: var(--d-s2); }
+/* The decision bar closes the card: the reason above it, Approve and Reject at the end. */
+.approvalQueue .approvalActions {
+  border-top: 1px solid var(--d-line); grid-area: actions; justify-content: flex-end; margin: var(--d-s4) calc(var(--d-s5) * -1) 0; padding: var(--d-s3) var(--d-s5);
+  background: var(--d-glass-1); border-end-end-radius: var(--d-r-panel); border-end-start-radius: var(--d-r-panel);
+}
+.approvalQueue .approvalTable > :is(.emptyState, .panelEmpty, .paneEmpty) { background: var(--d-surface-1); border: 1px solid var(--d-line); border-radius: var(--d-r-panel); }
+@media (max-width: 760px) {
+  .approvalQueue .approvalDetail { grid-template-areas: "body" "actions"; grid-template-columns: minmax(0, 1fr); padding: var(--d-s4) var(--d-s4) 0; }
+  .approvalQueue .approvalIcon { display: none; }
+  .approvalQueue .approvalActions { margin-inline: calc(var(--d-s4) * -1); padding-inline: var(--d-s4); }
+  .approvalQueue .approvalActions button { flex: 1 1 0; }
+}
+@media (max-width: 480px) {
+  .metrics, .metrics.three { gap: 1px; }
+  .metrics.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .metrics.three > :last-child { grid-column: auto; }
+  .metrics > .metric { padding: var(--d-s3); }
+  .metrics > .metric > strong { font-size: var(--text-2xl); }
+  .metrics.three .metricIcon { display: none; }
+}
+
+/* Settings: on wide screens the sections are a vertical list beside the open section, so the page
+   reads like a settings app (one place to pick, one place to change); narrower screens keep the
+   underlined row above the section. */
+.settingsPage { display: grid; gap: var(--d-s5); min-width: 0; }
+.settingsPageBody { display: grid; gap: var(--d-s5); min-width: 0; }
+.settingsPageBody > * { margin-top: 0; }
+@media (min-width: 1100px) {
+  .settingsPage { align-items: start; grid-template-columns: 200px minmax(0, 1fr); }
+  .settingsTabs.settingsSectionNav {
+    border-bottom: 0; display: grid; gap: 2px; margin: 0; overflow: visible; position: sticky; top: var(--d-s4);
+  }
+  .settingsTabs.settingsSectionNav button {
+    border-radius: var(--d-r-control); box-shadow: none; justify-content: flex-start; min-height: var(--d-control-h-sm); padding: 0 var(--d-s3); position: relative; text-align: start;
+  }
+  .settingsTabs.settingsSectionNav button[aria-current="page"] { background: var(--d-glass-2); box-shadow: inset 3px 0 0 var(--d-accent); }
+  [dir="rtl"] .settingsTabs.settingsSectionNav button[aria-current="page"] { box-shadow: inset -3px 0 0 var(--d-accent); }
+}

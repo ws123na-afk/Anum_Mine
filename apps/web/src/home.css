@@ -140,3 +140,106 @@
 .homeArrangeList label { align-items: center; display: flex; gap: var(--d-s2); min-width: 0; }
 .homeArrangeMove { display: flex; flex: none; gap: var(--d-s1); }
 @media (max-width: 900px) { .homeFlow { grid-template-columns: minmax(0, 1fr); } }
+
+/* ==== Redesign (docs/web-design-system.md#pages): a command-center overview ====
+   One header row, the glance as one tight metric strip (hairlines between cells instead of seven
+   cards), then the panels with today's decisions first. Rows inside panels sit on hairlines, not in
+   boxes of their own, so a panel reads as one surface. */
+.homePage { gap: var(--d-s5); }
+.homeHeader { align-items: end; border-bottom: 0; gap: var(--d-s3) var(--d-s5); }
+.homeHeader .eyebrow { color: var(--d-faint); font-size: var(--text-sm); font-weight: 500; }
+.homeHeader h1 { font-size: var(--text-5xl); letter-spacing: -.028em; line-height: 1.15; margin-top: 2px; }
+.homeLead { font-size: var(--text-md); margin-top: var(--d-s1); }
+.glance > .sectionTitle { color: var(--d-muted); font-size: var(--text-sm); font-weight: 500; margin-bottom: var(--d-s2); }
+
+/* The metric strip: the grid's own background is the hairline colour and each cell sits on the
+   panel surface, so the lines between cells stay right however the cells wrap. */
+.glanceGrid {
+  background: var(--d-line); border: 1px solid var(--d-line); border-radius: var(--d-r-panel); box-shadow: var(--d-elev-1); gap: 1px; overflow: hidden;
+}
+.glanceCard {
+  background: var(--d-surface-1); border: 0; border-radius: 0; gap: 2px var(--d-s2); grid-template-columns: auto minmax(0, 1fr); padding: var(--d-s3) var(--d-s4);
+  transition: background var(--d-fast) var(--d-ease);
+}
+.glanceCard:hover { background: var(--d-control-bg-hover); }
+.glanceCard:focus-visible { outline-offset: -3px; }
+.glanceCard.warning, .glanceCard.danger { border-color: transparent; }
+/* A status cell says so with a short bar along its top edge and its icon colour, beside the words. */
+.glanceCard.warning { box-shadow: inset 0 2px 0 var(--d-warn); }
+.glanceCard.danger { box-shadow: inset 0 2px 0 var(--d-stop); }
+.glanceIcon { background: none; border-radius: 0; color: var(--d-faint); grid-column: 1; height: 16px; width: 16px; }
+.glanceIcon svg { height: 16px; width: 16px; }
+.glanceCard.ok .glanceIcon, .glanceCard.info .glanceIcon { background: none; color: var(--d-faint); }
+.glanceCard.warning .glanceIcon { background: none; color: var(--d-warn); }
+.glanceCard.danger .glanceIcon { background: none; color: var(--d-stop); }
+.glanceLabel { font-size: var(--text-sm); font-weight: 500; grid-column: 2; }
+.glanceValue { font-size: var(--text-4xl); letter-spacing: -.02em; margin-top: var(--d-s1); min-height: 28px; }
+.glanceValue small { font-weight: 500; }
+.glanceDetail { color: var(--d-muted); font-size: var(--text-xs); }
+
+/* Panels: one surface each, a quiet heading, rows on hairlines. */
+.homeGrid { gap: var(--d-s5); grid-template-columns: minmax(0, 8fr) minmax(0, 5fr); }
+.homeColumn { gap: var(--d-s5); }
+.homePage .commandPanel { gap: var(--d-s2); padding: var(--d-s4) var(--d-s5) var(--d-s3); }
+.homePage .panelHead { border-bottom: 1px solid var(--d-line); margin: 0 calc(var(--d-s5) * -1) var(--d-s1); min-height: 40px; padding: 0 var(--d-s5) var(--d-s3); }
+.homePage .panelHead h2 { font-size: var(--text-base); font-weight: 600; }
+.homePage .rowList { gap: 0; }
+.homePage .rowList > li + li { border-top: 1px solid var(--d-line); }
+.homePage .listRow {
+  background: transparent; border: 0; border-radius: var(--d-r-control); margin-inline: calc(var(--d-s2) * -1); min-height: 52px; padding: var(--d-s2);
+  transition: background var(--d-fast) var(--d-ease); width: calc(100% + var(--d-s4));
+}
+.homePage .listRow:hover { background: var(--d-glass-1); }
+.homePage .listRow:focus-visible { outline-offset: -2px; }
+.homePage .rowIcon { border-radius: var(--d-r-sm); height: 28px; width: 28px; }
+.homePage .rowIcon svg { height: 16px; width: 16px; }
+
+/* Today's decisions: the first panel, each request on a warm rail with its action and risk first. */
+.homePage .approvalCards { gap: 0; }
+.homePage .approvalCard {
+  background: transparent; border: 0; border-inline-start: 3px solid var(--d-warn); border-radius: 0; gap: var(--d-s2); margin-block: var(--d-s2); padding: var(--d-s1) 0 var(--d-s1) var(--d-s3);
+}
+.homePage .approvalCard + .approvalCard { border-top: 0; margin-top: var(--d-s3); }
+.homePage .approvalCardTop code { font-size: var(--text-base); }
+
+/* Meetings: a time column and a title, on hairlines. */
+.homePage .meetingList { gap: 0; }
+.homePage .meetingList li { background: transparent; border: 0; border-radius: 0; grid-template-columns: 72px minmax(0, 1fr) auto; padding: var(--d-s2) 0; }
+.homePage .meetingList li + li { border-top: 1px solid var(--d-line); }
+.homePage .meetingTime { font-size: var(--text-md); }
+
+/* Insights: a status rail, no box. */
+.homePage .insightList { gap: var(--d-s3); }
+.homePage .insight { background: transparent; border: 0; border-inline-start: 3px solid var(--d-accent); border-radius: 0; padding: var(--d-s1) 0 var(--d-s1) var(--d-s3); }
+.homePage .insight.high { border-inline-start-color: var(--d-stop); }
+.homePage .insight.medium { border-inline-start-color: var(--d-warn); }
+
+/* Quick links: one quiet list of destinations. */
+.quickLinks > .sectionTitle { color: var(--d-muted); font-size: var(--text-sm); font-weight: 500; margin-bottom: var(--d-s2); }
+.quickLink { background: var(--d-surface-1); border-color: var(--d-line); min-height: 44px; transition: background var(--d-fast) var(--d-ease), border-color var(--d-fast) var(--d-ease); }
+.quickLink:hover { background: var(--d-control-bg-hover); }
+.quickLinkIcon { background: none; color: var(--d-accent); height: 24px; width: 24px; }
+.quickLink { grid-template-columns: 24px minmax(0, 1fr) 16px; }
+
+@media (max-width: 1100px) { .homeGrid { gap: var(--d-s4); grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 480px) {
+  .homeHeader h1 { font-size: var(--text-4xl); }
+  .glanceCard { padding: var(--d-s3); }
+  .glanceValue { font-size: var(--text-3xl); }
+  .homePage .commandPanel { padding: var(--d-s3) var(--d-s4); }
+  .homePage .panelHead { margin-inline: calc(var(--d-s4) * -1); padding-inline: var(--d-s4); }
+  .homePage .meetingList li { grid-template-columns: 64px minmax(0, 1fr); }
+}
+/* The strip is one row wherever the column has room for seven cells. */
+@container (min-width: 900px) {
+  .glanceGrid { grid-template-columns: repeat(7, minmax(0, 1fr)); }
+  .glanceGrid li:last-child { grid-column: auto; }
+  .glanceCard { padding: var(--d-s3); }
+}
+.homePage .commandPanel { padding-top: var(--d-s3); }
+.homePage .panelHead { min-height: 36px; padding-bottom: var(--d-s2); }
+@container (min-width: 900px) {
+  /* Seven to a row: the words carry the cell, the icon gives way so labels stay on one line. */
+  .glanceIcon { display: none; }
+  .glanceLabel { grid-column: 1 / -1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+}

@@ -379,3 +379,25 @@
 .trackerPanel .planActions { justify-content: flex-start; }
 .trackerPanel .nextSteps .quickChips { gap: var(--d-s1) var(--d-s2); }
 .phaseText .trackerResult { max-height: 180px; }
+
+/* ==== Redesign (docs/web-design-system.md#pages): ANUM Command puts the order first ====
+   A smaller orb stage, so the composer (the page's job) sits higher; the capability tiles become one
+   quiet row of labelled shortcuts; panels below read as one surface each. */
+.commandHeader h1 { font-size: var(--text-5xl); letter-spacing: -.028em; }
+.commandHeader p { font-size: var(--text-md); }
+.commandStage { gap: var(--d-s3); }
+.commandStage::before { height: 280px; }
+.commandOrb { height: 176px; width: 176px; }
+.orbChips { gap: var(--d-s2); }
+.orbChip { border-radius: var(--d-r-control); font-size: var(--text-sm); gap: var(--d-s2); min-height: 40px; }
+.chipIcon { border-radius: var(--d-r-sm); height: 26px; width: 26px; }
+.chipIcon svg { height: 16px; width: 16px; }
+.commandComposer { box-shadow: var(--d-elev-2); border-color: rgb(var(--c-accent) / .35); }
+.composerRow textarea { border-radius: var(--d-r-control); font-size: var(--text-base); }
+.tiles { gap: var(--d-s2); grid-auto-columns: max-content; }
+.tile { align-content: center; border-radius: var(--d-r-control); display: inline-flex; flex-direction: row; min-width: 0; gap: var(--d-s2); min-height: 40px; padding: 0 var(--d-s3) 0 var(--d-s2); }
+.tileIcon { background: none; height: 24px; width: 24px; }
+.tileIcon svg { height: 18px; width: 18px; }
+@media (max-width: 760px) {
+  .commandOrb { height: 156px; width: 156px; }
+}

@@ -224,3 +224,31 @@
   .skillPickerList li { grid-template-columns: minmax(0, 1fr); }
   .skillPickerList li button { justify-self: start; }
 }
+
+/* ==== Redesign (docs/web-design-system.md#pages): the agents list is a roster ====
+   One surface with a row per agent on hairlines (not a wall of cards): who it is and what it does on
+   the start side, its category, department, sharing, tools and skills on the end side when the page
+   is wide enough, under it when not. The whole row opens the agent. */
+.agentsView .moduleIntro h2 { font-size: var(--text-2xl); letter-spacing: -.016em; }
+.agentGrid {
+  background: var(--d-surface-1); border: 1px solid var(--d-line); border-radius: var(--d-r-panel); box-shadow: var(--d-elev-1); container-type: inline-size; display: block; overflow: hidden;
+}
+.agentGrid > li { display: block; }
+.agentGrid > li + li { border-top: 1px solid var(--d-line); }
+.agentsView .agentGrid .agentCard {
+  background: transparent; border: 0; border-radius: 0; box-shadow: none; column-gap: var(--d-s4); grid-template-columns: 40px minmax(0, 1fr); padding: var(--d-s3) var(--d-s5);
+  transition: background var(--d-fast) var(--d-ease);
+}
+.agentsView .agentGrid .agentCard:hover { background: var(--d-glass-1); }
+.agentsView .agentGrid .agentCard:focus-within { background: var(--d-glass-1); box-shadow: inset 3px 0 0 var(--d-accent); }
+[dir="rtl"] .agentsView .agentGrid .agentCard:focus-within { box-shadow: inset -3px 0 0 var(--d-accent); }
+.agentGrid .agentMain { column-gap: var(--d-s5); display: grid; grid-template-columns: minmax(0, 1fr); }
+.agentGrid .agentMain h3 { font-size: var(--text-base); }
+.agentGrid .agentMain p { -webkit-line-clamp: 1; font-size: var(--text-md); }
+@container (min-width: 760px) {
+  .agentGrid .agentMain { align-items: center; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); }
+  .agentGrid .agentMain > .rowTitle, .agentGrid .agentMain > p { grid-column: 1; }
+  .agentGrid .agentMain > .agentMeta { grid-column: 2; grid-row: 1 / span 2; margin-top: 0; }
+  .agentGrid .agentMain > :not(.rowTitle, p, .agentMeta) { grid-column: 1 / -1; }
+}
+.agentFilters { gap: var(--d-s2) var(--d-s3); }

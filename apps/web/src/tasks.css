@@ -101,3 +101,37 @@ ol.timeline { list-style: none; padding: 0; }
 .taskTabPanel .sourcesSurface { border-top: 1px solid var(--d-line); padding-top: var(--d-s3); }
 /* No padding around the sources here, so a row's hover background stays inside the pane instead of bleeding past it. */
 .taskTabPanel .sourceLink { margin: 0; width: 100%; }
+
+/* ==== Redesign (docs/web-design-system.md#pages): the composer is a command bar above the work ====
+   One surface across the page: the instructions field and Run task on one row on wide screens, the
+   state line under it. Under it the figures, then the list and the selected task side by side. */
+.taskComposer {
+  background: var(--d-surface-1); border: 1px solid var(--d-line); border-radius: var(--d-r-panel); box-shadow: var(--d-elev-1);
+  column-gap: var(--d-s3); grid-template-columns: minmax(0, 1fr) auto; margin-bottom: var(--d-s4); padding: var(--d-s3) var(--d-s4);
+}
+.taskComposer:focus-within { border-color: rgb(var(--c-accent) / .45); }
+.taskComposer > .field { grid-column: 1; grid-row: 1 / span 2; }
+.taskComposer textarea { min-height: 44px; }
+.taskComposer .taskComposerFoot { display: contents; }
+.taskComposer .taskComposerFoot > button { align-self: end; grid-column: 2; grid-row: 2; }
+.taskComposer .taskComposerFoot > .notice { grid-column: 1 / -1; grid-row: 3; }
+.taskComposer > .fieldError, .taskComposer > .taskHint { grid-column: 1 / -1; }
+.taskComposer .fieldError { color: var(--d-error-text); font-size: var(--text-sm); margin: 0; }
+.taskComposer textarea[aria-invalid="true"] { border-color: rgb(var(--c-stop) / .7); }
+.tasksSplit { margin-top: 0; }
+.taskListHead { background: var(--d-surface-1); }
+.taskList .recordButton { min-height: 56px; }
+.taskList .recordButton.selected { background: var(--d-glass-2); border-color: transparent; box-shadow: inset 3px 0 0 var(--d-accent); }
+[dir="rtl"] .taskList .recordButton.selected { box-shadow: inset -3px 0 0 var(--d-accent); }
+.taskDetailTitle h2 { font-size: var(--text-xl); letter-spacing: -.012em; }
+.taskInstructions { background: var(--d-well); border: 1px solid var(--d-line); border-radius: var(--d-r-control); }
+@media (max-width: 1023px) {
+  /* Phones and tablets show one pane: with a task open, the bar gives the room to its detail. */
+  .taskComposer:has(~ .tasksSplit[data-show="detail"]) { display: none; }
+}
+@media (max-width: 560px) {
+  .taskComposer { grid-template-columns: minmax(0, 1fr); }
+  .taskComposer > .field { grid-row: auto; }
+  .taskComposer .taskComposerFoot > button { grid-column: 1; grid-row: auto; justify-content: center; width: 100%; }
+  .taskComposer .taskComposerFoot > .notice { grid-row: auto; }
+}

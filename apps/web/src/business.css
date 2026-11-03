@@ -211,3 +211,21 @@
 .invLink { display: grid; gap: var(--d-s1); min-width: 0; }
 .invLink p { margin: 0; }
 .invLinkUrl { min-width: 0; overflow-wrap: anywhere; word-break: break-all; text-align: start; }
+
+/* ==== Redesign (docs/web-design-system.md#pages): invoices read like a ledger ====
+   The money figures are one strip with hairlines between them; the table's first column leads with
+   the invoice number in the text colour (underlined on hover), amounts in tabular figures. */
+.invCurrency { padding: var(--d-s4) var(--d-s5); }
+.invCurrency h3 { color: var(--d-muted); font-weight: 500; }
+.invTiles { gap: var(--d-s3) 0; }
+.invTile { border-inline-start: 1px solid var(--d-line); padding-inline: var(--d-s4); }
+.invTile:first-child { border-inline-start: 0; padding-inline-start: 0; }
+.invTile dt { font-weight: 500; }
+.invTile strong { font-size: var(--text-3xl); font-weight: 600; letter-spacing: -.016em; }
+.bzTable .linkButton { color: var(--d-text); font-weight: 600; text-decoration: none; }
+.bzTable .linkButton:hover, .bzTable .linkButton:focus-visible { color: var(--d-accent-text); text-decoration: underline; }
+.bzTable td { font-variant-numeric: tabular-nums; }
+.bzTable tbody tr { transition: background var(--d-fast) var(--d-ease); }
+@media (max-width: 640px) {
+  .invTile { border-inline-start: 0; padding-inline: 0; }
+}

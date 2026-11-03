@@ -67,6 +67,23 @@ All tokens live in the first two blocks of `apps/web/src/styles.css` (dark in `:
 | Badges | Pill, 12 % tint of the status colour, the status in words, 12 px, 600. |
 | Avatars | Jade disc with initials in 600 weight; no white ring. |
 
+## Pages
+
+The second pass recomposed the most used pages on these tokens. Each keeps its routes, test ids and API calls.
+
+| Page | Layout now | Skill that decided it |
+|---|---|---|
+| Home | One header row; the glance is one metric strip (seven cells on one row on wide screens, hairlines between cells, a status bar on the top edge of a cell that needs attention, no icon tiles); panels with today's decisions first, rows on hairlines instead of boxed rows, approvals and insights on a coloured start rail. | `ui-ux-pro-max` (dashboard pattern: KPI strip, then the work queue), `design-taste-frontend` (no equal card wall), `vectorlab-ux-skills:surfaces` (one surface per panel) |
+| Tasks | The composer is a command bar above everything (instructions and Run task on one row); figures under it; the list and the selected task side by side. Run task stays clickable: with nothing written it says what to write and focuses the field. On phones and tablets the bar gives way while a task is open. | `ui-ux-pro-max` (list and detail), `vectorlab-ux-skills:forms` (no disabled submit), `:page-patterns` |
+| Approvals | A review queue: from 1100 px an index of what waits (action, risk, age) sits beside the requests and opens one in place with focus; each request reads top to bottom and ends in one decision bar; its start edge carries the risk colour (the words stay in its meta line). Figures are one strip. | `ui-ux-pro-max` (approval queue), `high-end-visual-design` (one decision moment per card), `vectorlab-ux-skills:surfaces` |
+| Agents | A roster: one surface, a row per agent on hairlines, who it is and what it does on the start side, category, sharing and tools on the end side. | `redesign-existing-projects` (replace the card wall), `design-taste-frontend` (density for a daily tool) |
+| Agent controls | The page title is the only visible title; Refresh is quiet so the emergency stop is the page's main action; the stop card's start edge says its state. | `frontend-design` (one bold element), `vectorlab-ux-skills:verbs` |
+| Email | Three full panes (folders, messages, reader) up to 1680 px: the mailbox list becomes one row above the page instead of a fourth column. | `ui-ux-pro-max` (inbox pattern) |
+| ANUM Command | A smaller orb stage so the composer (the page's job) sits higher and is the raised surface; the capability tiles become one row of labelled shortcuts. | `frontend-design` (the order first), `vectorlab-ux-skills:typography` |
+| Business invoices | The money figures are one strip with hairlines; the table leads with the invoice number in the text colour, amounts in tabular figures. | `vectorlab-ux-skills:spacing`, `:colour-palette` |
+| Settings | From 1100 px the sections are a vertical list beside the open section; narrower screens keep the underlined row. | `ui-ux-pro-max` (settings pattern), `vectorlab-ux-skills:page-patterns` |
+| Summary figures everywhere (`.metrics`) | One strip with hairlines instead of separate cards; three to a row on phones. | `vectorlab-ux-skills:surfaces` |
+
 ## Motion
 
 Only state changes move: hover, press, focus, opening and closing. Entering uses ease-out at 200 ms, leaving ease-in at 150 ms. Only `transform` and `opacity` animate. Nothing loops except loading skeletons and live voice states, and `prefers-reduced-motion: reduce` turns transitions and animations off. The headquarters scene is untouched: no shell motion runs while it renders.
@@ -75,9 +92,9 @@ Only state changes move: hover, press, focus, opening and closing. Entering uses
 
 What this pass did not finish, in order of value:
 
-- **Page-level layouts**: this pass changed the foundation and the shared components, which every page inherits. It did not recompose individual pages (Home, ANUM Command, Tasks, Approvals, Agents, Email, Business, Billing, Settings) beyond fixes found in the screenshots.
-- **Agent controls** shows its title twice (the shell's page title and the view's own section title); fixing it means moving the view to its own page header, which its tests and heading levels depend on.
-- **Disabled submit buttons** (for example Run task while the instructions are empty) go against the forms rule; each form needs its own inline validation before the button can stay enabled.
+- **Disabled submit buttons** remain on other forms (Run task no longer has one); each form needs its own inline validation before the button can stay enabled.
+- **Agents** show no current work or cost in the roster: the agents list API does not return them, and a call per agent would be slow. A list field for both is an API change.
+- **Billing console** keeps the foundation pass only (tabs, strip, buttons); no recomposition.
 - **Text under 12 px**: the shell and shared components no longer use `--text-2xs`; about a hundred page and headquarters rules still do. Raising the token itself would change the headquarters labels, which this pass does not touch.
 - **Tablet width**: at 768 px the 248 px sidebar leaves about 520 px for the page; a narrower or collapsible sidebar between 761 and 1024 px is worth a separate change with its own tests.
 - **Selects** keep the browser's arrow (see Shared components).

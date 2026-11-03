@@ -156,6 +156,8 @@ export function TasksView(p: TasksViewProps) {
 
   const badge = streamBadge(p.stream);
   const composerRef = useRef<HTMLTextAreaElement>(null);
+  // Run task stays clickable: an empty composer says what to write instead of a silent disabled button (docs/web-design-system.md#shared-components).
+  const [emptyTried, setEmptyTried] = useState(false);
   const filterCount = activeFilterCount(query);
   function clearFilters() { setSearch(''); setQuery(EMPTY_QUERY); }
   const canRun = roleAllows(role, 'run', null, userId);
@@ -173,19 +175,21 @@ export function TasksView(p: TasksViewProps) {
 
   return <>
     <PageHeader title={viewLabel('tasks')} subtitle={t('pages2.tasks.subtitle')} actions={<span className={`statusBadge ${badge.tone}`} title={t('tasks.streamTitle')}>{badge.label}</span>} />
+    {/* The composer is the page's first job: a bar above the figures and the list and detail split (docs/web-design-system.md#pages). */}
+    <form className="taskComposer" aria-labelledby="task-composer-heading" onSubmit={(e) => { e.preventDefault(); if (!p.prompt.trim()) { setEmptyTried(true); composerRef.current?.focus(); return; } if (canRun && !p.busy) { setPicked(true); p.runTask(); } }}>
+      <h2 id="task-composer-heading" className="visuallyHidden">{t('tasks.composer.title')}</h2>
+      <label className="field"><span>{t('tasks.instructions')}</span><textarea ref={composerRef} dir="auto" rows={2} value={p.prompt} maxLength={8000} aria-invalid={emptyTried && !p.prompt.trim() ? true : undefined} aria-describedby={emptyTried && !p.prompt.trim() ? 'task-composer-error' : undefined} onChange={(e) => { setEmptyTried(false); p.setPrompt(e.target.value); }} placeholder={t('tasks.instructionsPlaceholder')}
+        onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); e.currentTarget.form?.requestSubmit(); } }} /></label>
+      <div className="taskComposerFoot">
+        <Notice>{p.message}</Notice>
+        <button type="submit" disabled={p.busy || !canRun} title={canRun ? undefined : permissionHint('run')}><Play aria-hidden="true" />{p.busy ? t('tasks.running') : t('tasks.run')}</button>
+      </div>
+      {emptyTried && !p.prompt.trim() && <p id="task-composer-error" className="fieldError" role="alert">{t('tasks.instructionsRequired')}</p>}
+      {!canRun && <p className="muted taskHint">{t('tasks.hint.readOnly', { hint: permissionHint('run') }, { isolate: false })}</p>}
+    </form>
     <PageSummary label={t('tasks.metric.label')} figures={figures} onRetry={refresh} />
     <SplitView className="tasksSplit" show={picked && currentId ? 'detail' : 'list'} label={t('pages2.tasks.split')}>
       <section data-pane="list" className="pane tasksListPane" aria-label={historyLabel}>
-        <form className="taskComposer" aria-labelledby="task-composer-heading" onSubmit={(e) => { e.preventDefault(); if (p.prompt.trim() && canRun && !p.busy) { setPicked(true); p.runTask(); } }}>
-          <h2 id="task-composer-heading" className="visuallyHidden">{t('tasks.composer.title')}</h2>
-          <label className="field"><span>{t('tasks.instructions')}</span><textarea ref={composerRef} dir="auto" rows={2} value={p.prompt} maxLength={8000} onChange={(e) => p.setPrompt(e.target.value)} placeholder={t('tasks.instructionsPlaceholder')}
-            onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); e.currentTarget.form?.requestSubmit(); } }} /></label>
-          <div className="taskComposerFoot">
-            <Notice>{p.message}</Notice>
-            <button type="submit" disabled={p.busy || !p.prompt.trim() || !canRun} title={canRun ? undefined : permissionHint('run')}><Play aria-hidden="true" />{p.busy ? t('tasks.running') : t('tasks.run')}</button>
-          </div>
-          {!canRun && <p className="muted taskHint">{t('tasks.hint.readOnly', { hint: permissionHint('run') }, { isolate: false })}</p>}
-        </form>
         <div className="paneHead taskListHead">
           <h2 aria-live="polite">{listLoading && !all.length ? t('common.loading') : t('tasks.history.count', { shown: all.length, count: summary ? (query.status === 'all' ? summary.total : counts.total) : all.length })}</h2>
           <label className="taskToggle"><input type="checkbox" checked={query.archived} onChange={(e) => { setChecked(new Set()); setQuery({ ...query, archived: e.target.checked }); }} />{summary ? t('tasks.filter.archivedCount', { count: summary.archived }) : t('tasks.filter.archived')}</label>
