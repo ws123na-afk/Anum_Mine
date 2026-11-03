@@ -729,6 +729,7 @@ export const ar: Record<MessageKey, Message> = {
   'tasks.stream.offline': 'التحديثات غير متصلة',
   'tasks.instructions': 'تعليمات المهمة',
   'tasks.instructionsPlaceholder': 'صف النتيجة التي يجب أن ينتجها الوكيل',
+  'tasks.instructionsRequired': 'اكتب ما يجب أن تفعله المهمة، ثم شغّلها.',
   'tasks.running': 'جارٍ التشغيل...',
   'tasks.run': 'تشغيل المهمة',
   'tasks.cancel': 'إلغاء',
@@ -1005,6 +1006,8 @@ export const ar: Record<MessageKey, Message> = {
 
   // ---- Approvals ----
   'approvals.pendingHeading': 'بانتظار القرار',
+  'approvals.queueIndex': 'قائمة الانتظار',
+  'approvals.queueIndexCount': '{count} بانتظار القرار',
   'approvals.queueClear': 'لا شيء في الانتظار',
   'approvals.queueClearText': 'لا توجد إجراءات تحتاج إلى موافقة.',
   'approvals.metric.pending': 'معلّقة',

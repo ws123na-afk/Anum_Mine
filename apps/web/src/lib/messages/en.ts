@@ -728,6 +728,7 @@ export const en = {
   'tasks.stream.offline': 'Updates offline',
   'tasks.instructions': 'Task instructions',
   'tasks.instructionsPlaceholder': 'Describe the result the agent should produce',
+  'tasks.instructionsRequired': 'Write what the task should do, then run it.',
   'tasks.running': 'Running...',
   'tasks.run': 'Run task',
   'tasks.cancel': 'Cancel',
@@ -1004,6 +1005,8 @@ export const en = {
 
   // ---- Approvals ----
   'approvals.pendingHeading': 'Waiting for a decision',
+  'approvals.queueIndex': 'Queue',
+  'approvals.queueIndexCount': '{count} waiting',
   'approvals.queueClear': 'Queue clear',
   'approvals.queueClearText': 'No actions need approval.',
   'approvals.metric.pending': 'Pending',

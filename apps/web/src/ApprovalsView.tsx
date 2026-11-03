@@ -111,6 +111,11 @@ export function ApprovalsView({ items, busy, decide, metric, empty, userId, onOp
     return refusal;
   };
   const clearSearch = () => { setTyped(''); setQuery(''); };
+  const jumpTo = (id: string) => {
+    const card = document.getElementById(`approval-${id}`);
+    card?.scrollIntoView({ block: 'start' });
+    card?.focus({ preventScroll: true });
+  };
   const now = new Date();
   const status = (a: Approval) => effectiveStatus(a, now);
   const { pending, history } = splitApprovals(rows, now);
@@ -151,11 +156,30 @@ export function ApprovalsView({ items, busy, decide, metric, empty, userId, onOp
       {load.state === 'denied' && <section className="surface approvalTable"><PanelDenied title={t('approvals.denied.title')} text={t('approvals.denied.text')} /></section>}
       {load.state === 'error' && <section className="surface approvalTable"><PanelError message={t('approvals.error.text', { reason: load.reason })} onRetry={() => void fetchFirst(false)} /></section>}
       {ready && filter !== 'decided' && (
-        <section className="surface approvalTable" aria-labelledby="approvals-pending-heading">
-          <h2 className="visuallyHidden" id="approvals-pending-heading">{t('approvals.pendingHeading')}</h2>
-          {pending.map((a) => <PendingApproval key={a.id} approval={a} busy={busy} decide={decideAndRefresh} now={now} userId={userId} />)}
-          {!pending.length && (kind === 'search' ? noMatch : empty)}
-        </section>
+        // The review queue: on wide screens an index of what waits sits beside the requests, and picking
+        // one brings its card into view with focus (docs/web-design-system.md#pages).
+        <div className={`approvalQueue ${pending.length > 1 ? 'withIndex' : ''}`}>
+          {pending.length > 1 && (
+            <nav className="approvalQueueIndex" aria-label={t('approvals.queueIndex')}>
+              <p className="approvalQueueIndexTitle">{t('approvals.queueIndexCount', { count: formatNumber(pending.length) })}</p>
+              <ol>
+                {pending.map((a) => (
+                  <li key={a.id}>
+                    <button type="button" className={`approvalQueueItem risk-${a.riskLevel}`} onClick={() => jumpTo(a.id)}>
+                      <strong dir="ltr">{a.action}</strong>
+                      <small>{riskLabel(a.riskLevel)}, {formatDate(a.createdAt)}</small>
+                    </button>
+                  </li>
+                ))}
+              </ol>
+            </nav>
+          )}
+          <section className="surface approvalTable" aria-labelledby="approvals-pending-heading">
+            <h2 className="visuallyHidden" id="approvals-pending-heading">{t('approvals.pendingHeading')}</h2>
+            {pending.map((a) => <PendingApproval key={a.id} approval={a} busy={busy} decide={decideAndRefresh} now={now} userId={userId} />)}
+            {!pending.length && (kind === 'search' ? noMatch : empty)}
+          </section>
+        </div>
       )}
       {ready && filter !== 'pending' && history.length > 0 && (
         <section className="surface approvalTable approvalHistory" aria-label={t('approvals.history')}>
@@ -213,7 +237,7 @@ export function PendingApproval({ approval, busy, decide, now, userId }: { appro
     void decide(approval, decision, typed).then(setRefusal);
   };
   return (
-    <article className="approvalDetail" aria-label={t('approvals.cardLabel', { action: approval.action })}>
+    <article id={`approval-${approval.id}`} tabIndex={-1} data-risk={approval.riskLevel} className="approvalDetail" aria-label={t('approvals.cardLabel', { action: approval.action })}>
       <div className="approvalIcon" aria-hidden="true"><ShieldCheck /></div>
       <div className="approvalBody">
         <h3>{rich('approvals.wantsToCall', { action: <code dir="ltr">{approval.action}</code> })}</h3>
