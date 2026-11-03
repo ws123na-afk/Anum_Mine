@@ -64,7 +64,7 @@
 .mailOutbox > p { font-size: var(--text-sm); margin: 0 0 var(--d-s1); }
 .mailOutboxCount { background: var(--d-glass-3); border-radius: 999px; font-size: var(--text-xs); margin-inline-start: auto; min-width: 24px; padding: 1px var(--d-s2); text-align: center; }
 .mailOutbox .railItem small { align-items: center; display: flex; flex-wrap: wrap; gap: 4px; overflow-wrap: anywhere; }
-.mailOutbox .statusBadge { font-size: var(--text-2xs); padding: 0 6px; }
+.mailOutbox .statusBadge { font-size: var(--text-xs); padding: 0 6px; }
 
 /* List */
 .mailList, .mailDetail { min-width: 0; }
@@ -74,7 +74,7 @@
 .mailRow { align-items: center; border: 1px solid transparent; border-radius: var(--d-r-control); display: flex; gap: 2px; min-width: 0; }
 .mailRow:hover { background: var(--d-glass-1); }
 .mailRow.picked { background: rgb(var(--c-violet) / .07); }
-.mailRow.selected { background: var(--d-glass-2); border-color: rgb(var(--c-violet) / .4); }
+.mailRow.selected { background: var(--d-glass-2); border-color: transparent; box-shadow: inset 3px 0 0 var(--d-accent); }
 .mailRowOpen {
   background: transparent; border: 0; color: var(--d-text); display: grid; flex: 1 1 auto; gap: 2px; min-height: 52px; min-width: 0;
   padding: var(--d-s2) var(--d-s2) var(--d-s2) var(--d-s1); text-align: start;

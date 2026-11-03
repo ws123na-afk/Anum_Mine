@@ -43,7 +43,7 @@
   border: 1px solid var(--d-line); border-radius: var(--d-r-panel); box-shadow: var(--d-elev-1); margin-bottom: var(--d-s4); min-width: 0; padding: var(--d-s3) var(--d-s4);
 }
 .pageFigures { display: grid; gap: var(--d-s3) var(--d-s4); grid-template-columns: repeat(2, minmax(0, 1fr)); margin: 0; }
-.pageFigure { border-inline-start: 1px solid var(--d-line); display: grid; gap: 2px; min-width: 0; padding-inline-start: var(--d-s3); }
+.pageFigure { align-content: start; border-inline-start: 1px solid var(--d-line); display: grid; gap: 2px; min-width: 0; padding-inline-start: var(--d-s3); }
 .pageFigure:nth-child(odd) { border-inline-start: 0; padding-inline-start: 0; }
 @media (min-width: 1024px) {
   .pageFigures[data-count="3"] { grid-template-columns: repeat(3, minmax(0, 1fr)); }

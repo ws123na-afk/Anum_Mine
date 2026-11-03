@@ -57,7 +57,7 @@ All tokens live in the first two blocks of `apps/web/src/styles.css` (dark in `:
 | Component | Rule |
 |---|---|
 | Buttons | Primary: flat jade. Secondary: the control surface with a hairline (white on light, graphite on dark), never a grey fill. Danger: the danger token. 40 px, 600 weight, 8 px radius, 1 px settle on press. |
-| Fields | 40 px, text 14 px on desktop and 16 px on phones (so phones never zoom), hairline that darkens on hover, jade ring on focus, red edge only after use (`:user-invalid`). Selects keep the native arrow: more than twenty component rules set the `background` shorthand on their selects, which would erase a drawn one. |
+| Fields | 40 px, text 14 px on desktop and 16 px on phones (so phones never zoom), hairline that darkens on hover, jade ring on focus, red edge only after use (`:user-invalid`). Selects draw one chevron in the muted text colour (`--d-select-arrow`, one per theme) at the end edge, mirrored in Arabic. The rule outranks the component rules that set the `background` shorthand on their selects, so their colours stay and the arrow survives; headquarters and office panels keep their own select styling. |
 | Cards and panels | L1 surface, hairline, `--d-elev-1`, 12 px radius; inner blocks 8 px. |
 | Tables | L1 surface, sticky header in the faint text colour, hairline rows, tabular figures. |
 | Tabs | The segmented style: a well with the current tab raised. Pills stay for filters. |
@@ -83,6 +83,14 @@ The second pass recomposed the most used pages on these tokens. Each keeps its r
 | Business invoices | The money figures are one strip with hairlines; the table leads with the invoice number in the text colour, amounts in tabular figures. | `vectorlab-ux-skills:spacing`, `:colour-palette` |
 | Settings | From 1100 px the sections are a vertical list beside the open section; narrower screens keep the underlined row. | `ui-ux-pro-max` (settings pattern), `vectorlab-ux-skills:page-patterns` |
 | Summary figures everywhere (`.metrics`) | One strip with hairlines instead of separate cards; three to a row on phones. | `vectorlab-ux-skills:surfaces` |
+| Billing console | One header row: title, the hourly run as its subtitle, Start billing and Run billing now; the figures strip; the section tabs; the subscriptions list as one frame whose table runs to its edges on hairlines. | `vectorlab-ux-skills:page-patterns` (List / Index), `frontend-design` (one primary action) |
+| Automations | The page title is the only visible title; the list is one frame with rows on hairlines and the open one on the jade bar, the automation beside it. | `ui-ux-pro-max` (list and detail), `vectorlab-ux-skills:surfaces` |
+| Team | Ask ANUM is a compact command bar like the Tasks composer; work rows sit on hairlines that run to the panel edges. | `ui-consistency` (one composer pattern), `design-taste-frontend` (density) |
+| WhatsApp, Email, Inbox, Phone calls, Calls and Meetings, Knowledge Base | The selected row of every list beside a detail pane is raised with the jade bar at its start edge (mirrored in Arabic), not a coloured box; WhatsApp conversations sit on hairlines. Email: below 1680 px the mailbox row sits under the page title. | `ui-consistency:finding-patterns` (one selected-row look), `vectorlab-ux-skills:page-patterns` (Split Pane) |
+| Finance | Sixteen sections: from 1280 px a vertical list beside the open section, like Settings; narrower screens keep the underlined row. | `vectorlab-ux-skills:page-patterns`, `ui-ux-pro-max` (settings pattern) |
+| Tyre planning, Marketing analytics, Customer portal | Figures are one strip with hairlines (a status dot on a label that needs attention, numbers in the text colour) instead of a wall of cards. | `vectorlab-ux-skills:surfaces`, `design-taste-frontend` (no equal card grid) |
+| Integrations, Reports, Audit log | The section title that repeated the page title is for screen readers only; Refresh is a quiet secondary action (also Members, Budgets, Approval policy). Report figures read inline on hairlines. | `frontend-design` (one bold element), `vectorlab-ux-skills:typography` |
+| Shell on tablets | From 761 to 1024 px the sidebar is 208 px wide (was 248), so the page keeps about 40 px more; long labels end in an ellipsis. | `vectorlab-ux-skills:viewports` |
 
 ## Motion
 
@@ -94,7 +102,5 @@ What this pass did not finish, in order of value:
 
 - **Disabled submit buttons** remain on other forms (Run task no longer has one); each form needs its own inline validation before the button can stay enabled.
 - **Agents** show no current work or cost in the roster: the agents list API does not return them, and a call per agent would be slow. A list field for both is an API change.
-- **Billing console** keeps the foundation pass only (tabs, strip, buttons); no recomposition.
-- **Text under 12 px**: the shell and shared components no longer use `--text-2xs`; about a hundred page and headquarters rules still do. Raising the token itself would change the headquarters labels, which this pass does not touch.
-- **Tablet width**: at 768 px the 248 px sidebar leaves about 520 px for the page; a narrower or collapsible sidebar between 761 and 1024 px is worth a separate change with its own tests.
-- **Selects** keep the browser's arrow (see Shared components).
+- **Text under 12 px**: no page outside the headquarters uses `--text-2xs` any more; the headquarters labels, billboards and office panels still do, by design (raising the token would change them).
+- **Tablet width**: the sidebar is 208 px from 761 to 1024 px; a collapsible icon rail would give back more room and needs its own navigation tests.

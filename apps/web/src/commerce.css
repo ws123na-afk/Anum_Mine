@@ -69,7 +69,7 @@
 .cmGridLine { stroke: var(--d-line); stroke-width: 1; }
 .cmAxis { stroke: var(--d-line-strong); stroke-width: 1; }
 .cmHit { fill: transparent; }
-.cmTick { fill: var(--d-faint); font-size: var(--text-2xs); }
+.cmTick { fill: var(--d-faint); font-size: var(--text-xs); }
 .cmTooltip { background: var(--d-surface-3); border: 1px solid var(--d-line-strong); border-radius: var(--d-r-control); box-shadow: var(--d-elev-2); display: grid; font-size: var(--text-sm); gap: 2px; inset-block-start: var(--d-s2); inset-inline-end: var(--d-s2); padding: var(--d-s2) var(--d-s3); pointer-events: none; position: absolute; }
 .cmChartTable summary { color: var(--d-sky); cursor: pointer; font-size: var(--text-md); min-height: 32px; }
 

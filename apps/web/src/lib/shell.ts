@@ -47,7 +47,7 @@ export const OPERATOR_ONLY: ReadonlySet<View> = new Set(['organisations', 'platf
  */
 export const OWN_HEADER: ReadonlySet<View> = new Set([
   'home', 'command', 'voice', 'assistant', 'files', 'email', 'inbox', 'whatsapp', 'meetings', 'marketing', 'business',
-  'tasks', 'commerce', 'finance', 'team', 'assistants', 'call', 'calls', 'calendar', 'organisations', 'enterprise', 'skills', 'favorites', 'activity', 'autonomy', 'learning', 'office', 'executive',
+  'tasks', 'commerce', 'finance', 'team', 'assistants', 'call', 'calls', 'calendar', 'organisations', 'platformBilling', 'enterprise', 'skills', 'favorites', 'activity', 'autonomy', 'learning', 'office', 'executive',
 ]);
 
 export function isView(value: string): value is View {

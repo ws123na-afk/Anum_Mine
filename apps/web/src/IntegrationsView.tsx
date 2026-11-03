@@ -133,8 +133,8 @@ export function IntegrationsView({ onGo }: { onGo?: (view: View) => void } = {})
   const loadingAny = servicesLoading || setupState === 'loading';
   const hasRows = rows.length > 0;
   return <div className="intPage">
-    <section className="moduleIntro"><div><p className="eyebrow">{t('integrations.eyebrow')}</p><h2>{t('integrations.title')}</h2><p>{t('integrations.intro')}</p></div>
-      <button type="button" onClick={refresh} disabled={loadingAny}><RefreshCw aria-hidden="true" />{t('integrations.refresh')}</button></section>
+    <section className="moduleIntro"><div><p className="eyebrow">{t('integrations.eyebrow')}</p><h2 className="visuallyHidden">{t('integrations.title')}</h2><p>{t('integrations.intro')}</p></div>
+      <button type="button" className="secondary" onClick={refresh} disabled={loadingAny}><RefreshCw aria-hidden="true" />{t('integrations.refresh')}</button></section>
 
     <section className="surface intToolbar" aria-label={t('setup.toolbar')}>
       <fieldset className="intChips">

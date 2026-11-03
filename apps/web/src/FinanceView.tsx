@@ -103,9 +103,12 @@ export function FinanceView() {
   return <div className="cmLayout finLayout">
     {header}
     <PageSummary label={t('finance.summary.label')} figures={figures} footer={<p className="muted finReadOnly">{t('finance.readOnly')}</p>} />
+    {/* Sixteen sections: a row above the section on smaller screens, a list beside it on wide ones (finance.css). */}
+    <div className="finBody">
     <nav className="settingsTabs cmTabs" aria-label={t('finance.tabs')}>
       {FINANCE_TABS.map((id) => <button key={id} type="button" aria-current={tab === id ? 'page' : undefined} onClick={() => pick(id)}>{t(`finance.tab.${id}` as MessageKey)}</button>)}
     </nav>
+    <div className="finSection">
     {noAccounts && tab !== 'accounts' && <section className="surface cmPanel cmWelcome" aria-labelledby="fin-welcome">
       <Wallet aria-hidden="true" />
       <div><h2 id="fin-welcome">{t('finance.welcome.title')}</h2><p className="muted">{t('finance.welcome.text')}</p>
@@ -128,6 +131,8 @@ export function FinanceView() {
     {tab === 'debts' && <Debts base={base} onChanged={onChanged} />}
     {tab === 'goals' && <Goals base={base} onChanged={onChanged} />}
     {tab === 'holdings' && <Holdings accounts={accountList} onChanged={onChanged} onAddAccount={() => pick('accounts')} />}
+    </div>
+    </div>
     {settingsOpen && <SettingsDialog onClose={(saved) => { setSettingsOpen(false); if (saved) refresh(); }} />}
   </div>;
 }

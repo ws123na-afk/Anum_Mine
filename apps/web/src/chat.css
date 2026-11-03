@@ -195,5 +195,5 @@ button.chatCardItem:hover, a.chatCardItem:hover { background: var(--d-glass-2); 
 .chatRail .railItem strong { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 3; }
 a.railItem { text-decoration: none; }
 a.railItem:hover { background: var(--d-glass-1); border-color: var(--d-line); }
-.chatRail .statusBadge { font-size: var(--text-2xs); padding: 0 6px; }
+.chatRail .statusBadge { font-size: var(--text-xs); padding: 0 6px; }
 .chatRailToggle { flex: none; }

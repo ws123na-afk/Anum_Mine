@@ -26,7 +26,7 @@
   flex: 1 1 auto; font: inherit; gap: var(--d-s3); min-width: 0; padding: var(--d-s2) var(--d-s3); text-align: start; width: 100%;
 }
 .callsRow:hover { background: var(--d-glass-1); }
-.callsRows li.selected .callsRow { background: var(--d-glass-2); border-color: rgb(var(--c-violet) / .4); }
+.callsRows li.selected .callsRow { background: var(--d-glass-2); border-color: transparent; box-shadow: inset 3px 0 0 var(--d-accent); }
 .callsRowIcon { color: var(--d-sky); display: grid; flex: none; height: 32px; place-items: center; width: 32px; }
 .callsRowIcon svg { height: 18px; width: 18px; }
 /* Initials come from data-initials, so a row named by its text never shows a word its name lacks. */
