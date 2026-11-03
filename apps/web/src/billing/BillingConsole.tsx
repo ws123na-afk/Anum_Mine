@@ -16,7 +16,8 @@ import { figure } from '../lib/pageSummary';
 import { describeError, isPermissionDenied } from '../lib/errors';
 import { t, type MessageKey } from '../lib/i18n';
 import { Modal } from '../Dialog';
-import { PageSummary } from '../PageParts';
+import { PageHeader, PageSummary } from '../PageParts';
+import { viewLabel } from '../lib/shell';
 import { Badge, Empty, Note, Pager, date } from './parts';
 import { ConsoleOrganisation } from './ConsoleOrganisation';
 import { ConsolePlans } from './ConsolePlans';
@@ -46,10 +47,14 @@ export function BillingConsole() {
     finally { setRunning(false); }
   };
 
-  if (summary.state === 'denied') return <section className="surface adminForbidden blPanel" aria-labelledby="console-denied">
-    <span className="adminIcon"><Lock aria-hidden="true" /></span>
-    <div><h2 id="console-denied">{t('billing.console.deniedTitle')}</h2><p>{t('billing.console.deniedText')}</p><p className="muted">{summary.message}</p></div>
-  </section>;
+  const crumbs = [{ label: viewLabel('home'), href: '#home' }, { label: viewLabel('platformBilling') }];
+  if (summary.state === 'denied') return <div className="blConsole">
+    <PageHeader title={viewLabel('platformBilling')} crumbs={crumbs} />
+    <section className="surface adminForbidden blPanel" aria-labelledby="console-denied">
+      <span className="adminIcon"><Lock aria-hidden="true" /></span>
+      <div><h2 id="console-denied">{t('billing.console.deniedTitle')}</h2><p>{t('billing.console.deniedText')}</p><p className="muted">{summary.message}</p></div>
+    </section>
+  </div>;
   const s = summary.state === 'ready' ? summary.value : null, cur = s?.currency ?? 'SAR';
   const load = { state: summary.state === 'ready' ? 'ready' as const : summary.state === 'loading' ? 'loading' as const : 'error' as const };
   const figures = [
@@ -59,17 +64,17 @@ export function BillingConsole() {
     figure('overdue', t('billing.console.overdue'), load, () => ({ value: formatMoney(s!.overdue_minor, cur), hint: t('billing.console.pastDue', { count: s!.counts.past_due, readOnly: s!.read_only }), tone: s!.overdue_minor ? 'danger' : 'ok' })),
     figure('collected', t('billing.console.collected'), load, () => ({ value: formatMoney(s!.collected_this_month_minor, cur) })),
   ];
+  // One header row: the title and what billing does on its own, then the two actions that change billing.
   return <div className="blConsole">
+    <PageHeader title={viewLabel('platformBilling')} subtitle={t('billing.console.runHint')} subtitleId="console-run-hint" crumbs={crumbs} actions={<>
+      <button type="button" className="secondary" aria-haspopup="dialog" onClick={() => setStarting(true)}><Plus aria-hidden="true" />{t('billing.console.start')}</button>
+      <button type="button" disabled={running} onClick={() => void run()} aria-describedby="console-run-hint"><Play aria-hidden="true" />{running ? t('billing.console.running') : t('billing.console.run')}</button>
+    </>} />
+    {flash && <Note error={flash.error}>{flash.text}</Note>}
     <PageSummary label={t('billing.console.summary')} figures={figures} onRetry={() => void loadSummary()} />
     <div className="blConsoleBar">
       <nav className="settingsTabs blTabs" aria-label={t('billing.console.sections')}>{TABS.map((id) => <button key={id} type="button" aria-current={tab === id && !org ? 'page' : undefined} onClick={() => { setTab(id); setOrg(null); }}>{t(`billing.console.tab.${id}` as MessageKey)}</button>)}</nav>
-      <div className="actions blInline">
-        <button type="button" className="secondary" aria-haspopup="dialog" onClick={() => setStarting(true)}><Plus aria-hidden="true" />{t('billing.console.start')}</button>
-        <button type="button" disabled={running} onClick={() => void run()} aria-describedby="console-run-hint"><Play aria-hidden="true" />{running ? t('billing.console.running') : t('billing.console.run')}</button>
-      </div>
     </div>
-    <p className="muted blSmall" id="console-run-hint">{t('billing.console.runHint')}</p>
-    {flash && <Note error={flash.error}>{flash.text}</Note>}
     {org ? <ConsoleOrganisation tenantId={org} onBack={() => setOrg(null)} onChanged={refresh} />
       : tab === 'subscriptions' ? <Subscriptions key={tick} onOpen={setOrg} onStart={() => setStarting(true)} />
       : tab === 'plans' ? <ConsolePlans />
@@ -90,7 +95,7 @@ function Subscriptions({ onOpen, onStart }: { onOpen: (tenantId: string) => void
   }, [query, status, offset]);
   useEffect(() => { const timer = setTimeout(() => void load(), query ? 250 : 0); return () => clearTimeout(timer); }, [load, query]);
   const filtered = Boolean(query.trim() || status);
-  return <section className="surface blPanel" aria-labelledby="console-subs-title">
+  return <section className="surface blPanel blSubs" aria-labelledby="console-subs-title">
     <div className="blHead"><div><h2 id="console-subs-title">{t('billing.console.subscriptions')}</h2><p className="muted">{t('billing.console.subscriptionsLead')}</p></div>
       <button type="button" className="secondary" onClick={() => void load()}><RefreshCw aria-hidden="true" />{t('billing.refresh')}</button></div>
     <div className="blToolbar" role="search">
@@ -105,7 +110,7 @@ function Subscriptions({ onOpen, onStart }: { onOpen: (tenantId: string) => void
     {page.state === 'ready' && (page.value.items.length === 0
       ? <Empty icon={<ReceiptText aria-hidden="true" />} title={filtered ? t('billing.console.noMatch') : t('billing.console.none')} text={filtered ? t('billing.console.noMatchText') : t('billing.console.noneText')}
         action={filtered ? <button type="button" className="secondary" onClick={() => { setQuery(''); setStatus(''); }}>{t('billing.clearFilter')}</button> : <button type="button" onClick={onStart}><Plus aria-hidden="true" />{t('billing.console.start')}</button>} />
-      : <div className="pane dataTableWrap"><table className="dataTable blTable">
+      : <div className="dataTableWrap blFlush"><table className="dataTable blTable">
         <caption className="visuallyHidden">{t('billing.console.subscriptions')}</caption>
         <thead><tr><th scope="col">{t('billing.col.organisation')}</th><th scope="col" className="optional">{t('billing.col.plan')}</th><th scope="col">{t('billing.col.status')}</th>
           <th scope="col" className="num">{t('billing.col.mrr')}</th><th scope="col" className="num optional">{t('billing.col.balance')}</th><th scope="col" className="optional">{t('billing.col.periodEnd')}</th>

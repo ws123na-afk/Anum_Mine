@@ -124,3 +124,15 @@
   .autoConditionRow { grid-template-columns: minmax(0, 1fr); }
   .autoConditionRemove { justify-self: end; }
 }
+
+/* The automation list is one frame with rows on hairlines that run to its edges (docs/web-design-system.md#pages). */
+.autoRows { border-top: 1px solid var(--d-line); gap: 0; margin-inline: calc(var(--d-s5) * -1); margin-bottom: calc(var(--d-s5) * -1); }
+.autoRows li + li { border-top: 1px solid var(--d-line); }
+.autoRows .autoRow { border-radius: 0; min-height: 56px; padding-inline: var(--d-s5); }
+.autoRows li:last-child .autoRow { border-end-end-radius: var(--d-r-panel); border-end-start-radius: var(--d-r-panel); }
+.autoList:has(.autoPager) .autoRows { margin-bottom: 0; }
+.autoList .sectionHeader h2 { font-size: var(--text-base); }
+@media (max-width: 480px) {
+  .autoRows { margin-inline: calc(var(--d-s4) * -1); margin-bottom: calc(var(--d-s4) * -1); }
+  .autoRows .autoRow { padding-inline: var(--d-s4); }
+}

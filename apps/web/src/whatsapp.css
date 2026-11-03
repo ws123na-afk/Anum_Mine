@@ -56,7 +56,7 @@
   font-weight: 400; gap: var(--d-s1); justify-content: stretch; min-width: 0; padding: var(--d-s3); text-align: start; width: 100%;
 }
 .waConversation:hover { background: var(--d-glass-1); }
-.waConversation[aria-current="true"] { background: var(--d-glass-2); border-color: rgb(var(--c-violet) / .4); }
+.waConversation[aria-current="true"] { background: var(--d-glass-2); border-color: transparent; box-shadow: inset 3px 0 0 var(--d-accent); }
 .waRowTop { align-items: baseline; display: flex; gap: var(--d-s2); justify-content: space-between; min-width: 0; }
 .waRowTop strong { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .waRowTop time { color: var(--d-faint); flex: none; font-size: var(--text-xs); }
@@ -163,4 +163,14 @@
   .waClosed button { grid-column: 1 / -1; }
   .waFacts > div { grid-template-columns: minmax(0, 1fr); gap: 0; }
   .waTabStatus { margin-inline-start: 0; }
+}
+
+/* Second redesign pass (docs/web-design-system.md#pages): conversations sit on hairlines that run to the
+   list pane's edges, so the list reads as one queue; the open one carries the jade bar. */
+.waConversations { border-top: 1px solid var(--d-line); gap: 0; margin-inline: calc(var(--d-s4) * -1); }
+.waConversations > li + li { border-top: 1px solid var(--d-line); }
+.waConversations .waConversation { border: 0; border-radius: 0; padding-inline: var(--d-s4); }
+@media (max-width: 560px) {
+  .waConversations { margin-inline: calc(var(--d-s3) * -1); }
+  .waConversations .waConversation { padding-inline: var(--d-s3); }
 }

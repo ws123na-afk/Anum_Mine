@@ -58,7 +58,7 @@
 .inboxQueue > p { font-size: var(--text-sm); padding: var(--d-s1) 0; }
 .inboxQueueCount { background: var(--d-glass-3); border-radius: 999px; color: var(--d-text); font-size: var(--text-xs); margin-inline-start: auto; min-width: 24px; padding: 1px var(--d-s2); text-align: center; }
 .inboxQueue .railItem small { align-items: center; display: flex; flex-wrap: wrap; gap: 4px; }
-.inboxQueue .statusBadge { font-size: var(--text-2xs); padding: 0 6px; }
+.inboxQueue .statusBadge { font-size: var(--text-xs); padding: 0 6px; }
 @media (min-width: 1024px) and (max-width: 1279px) {
   .splitView.inboxSplit { grid-template-columns: minmax(300px, 2fr) minmax(0, 3fr); grid-template-rows: auto minmax(0, 1fr); }
   .inboxSplit > .inboxNav { grid-column: 1 / -1; overflow: visible; }
@@ -83,7 +83,7 @@
 .inboxComposeForm .actions { margin-top: 0; }
 .inboxComposeCopies { display: grid; gap: var(--d-s3); }
 .inboxComposeCopies[hidden] { display: none; }
-.inboxKind { font-size: var(--text-2xs); margin-inline-end: var(--d-s2); padding: 1px 8px; }
+.inboxKind { font-size: var(--text-xs); margin-inline-end: var(--d-s2); padding: 1px 8px; }
 
 @media (max-width: 1023px) {
   .inboxSplit[data-show="detail"] > .inboxNav { display: none; }
@@ -100,7 +100,7 @@
   min-height: 44px; padding: var(--d-s2) var(--d-s3); text-align: start; width: 100%;
 }
 .inboxRow:hover { background: var(--d-glass-1); }
-.inboxRow.selected { background: var(--d-glass-2); border-color: rgb(var(--c-violet) / .4); }
+.inboxRow.selected { background: var(--d-glass-2); border-color: transparent; box-shadow: inset 3px 0 0 var(--d-accent); }
 .inboxRowTop { align-items: baseline; display: flex; gap: var(--d-s2); justify-content: space-between; min-width: 0; }
 .inboxRowTop strong { font-size: var(--text-md); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .inboxRowTop time { color: var(--d-faint); flex: none; font-size: var(--text-xs); }
@@ -110,7 +110,7 @@
 .inboxRowSnippet { color: var(--d-muted); display: -webkit-box; font-size: var(--text-sm); overflow: hidden; overflow-wrap: anywhere; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
 .inboxBadges { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); margin-top: var(--d-s1); }
 .inboxBadges svg { color: var(--d-faint); height: 14px; width: 14px; }
-.inboxBadges .statusBadge { font-size: var(--text-2xs); padding: 1px 8px; }
+.inboxBadges .statusBadge { font-size: var(--text-xs); padding: 1px 8px; }
 
 /* The open message */
 .inboxMessage { display: grid; gap: var(--d-s4); padding: var(--d-s4) var(--d-s5) var(--d-s5); min-width: 0; }

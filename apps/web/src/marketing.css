@@ -43,7 +43,7 @@ button.secondary.dangerText { color: var(--d-stop); }
 .mkPostFilters select { flex: 0 1 170px; }
 .mkPostTable .mkExcerpt { -webkit-box-orient: vertical; -webkit-line-clamp: 2; display: -webkit-box; overflow: hidden; }
 .mkPostTable td small, .mkAccountTable th small, .mkProviderTable small { color: var(--d-faint); display: block; font-size: var(--text-xs); margin-top: 2px; overflow-wrap: anywhere; }
-.mkPostTable .mkPlatform, .mkAccountTable .mkPlatform { font-size: var(--text-2xs); }
+.mkPostTable .mkPlatform, .mkAccountTable .mkPlatform { font-size: var(--text-xs); }
 .mkPlanRail { display: grid; min-width: 0; padding: var(--d-s1) 0; }
 .mkSlots .railItem { cursor: default; }
 .mkWeekHead { display: grid; gap: 2px; }
