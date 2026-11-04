@@ -1,0 +1,363 @@
+# Compiled third-party libraries that a package carries inside it (docs/licenses.md).
+#
+# The scan reads one license per package from its metadata. Binary wheels (and other
+# prebuilt packages) can also contain shared libraries built from other projects, each under
+# its own license; those are listed here after a person opened the package and read its
+# license files. license_scan.py prints them in THIRD_PARTY_NOTICES.md under "Native
+# libraries bundled inside packages".
+#
+# `versions` is exact (or a "X.Y.*" prefix): a new version of the package makes the entry
+# stale and fails the scan, so the libraries it bundles are reviewed again. Never edit the
+# license texts in licenses/third-party/: they are copied verbatim.
+#
+#   [[bundled]]
+#   ecosystem = "python"
+#   package = "example"
+#   versions = ["1.2.3"]
+#   reviewed_on = "2026-11-04"
+#   note = "What was opened, for which platforms."
+#   license_texts = ["licenses/third-party/example-1.2.3-LICENSE.txt"]
+#   [[bundled.libraries]]
+#   name = "zlib"
+#   license = "Zlib"                      # SPDX expression as the library's license file states it
+#   copyright = "Jean-loup Gailly and Mark Adler"
+#   source = "https://zlib.net"
+#   notice = "..."                        # optional: credit or notice the license asks for
+
+[[bundled]]
+ecosystem = "python"
+package = "psycopg-binary"
+versions = ["3.3.6"]
+reviewed_on = "2026-11-04"
+note = "Read from the 3.3.6 wheels for CPython 3.13 on manylinux2014 x86_64 and manylinux_2_28 aarch64 (`psycopg_binary.libs/`). The libraries come from the manylinux build images: CentOS 7 packages on x86_64 and AlmaLinux 8 packages on aarch64; their exact source is those distributions' source packages. psycopg itself is LGPL-3.0-only (accepted in scripts/licenses/exceptions.toml). Used unmodified."
+license_texts = [
+  "licenses/third-party/psycopg-3.3.6-LICENSE.txt",
+  "licenses/third-party/GPL-3.0-only.txt",
+  "licenses/third-party/LGPL-2.1-or-later.txt",
+  "licenses/third-party/PostgreSQL.txt",
+  "licenses/third-party/Apache-2.0.txt",
+  "licenses/third-party/OpenSSL.txt",
+  "licenses/third-party/OLDAP-2.8.txt",
+  "licenses/third-party/BSD-Attribution-HPND-disclaimer.txt",
+  "licenses/third-party/MIT.txt",
+  "licenses/third-party/BSD-3-Clause.txt",
+]
+
+[[bundled.libraries]]
+name = "libpq 18 (libpq.so.5.18)"
+license = "PostgreSQL"
+copyright = "PostgreSQL Global Development Group; The Regents of the University of California"
+source = "https://www.postgresql.org/ftp/source/"
+
+[[bundled.libraries]]
+name = "OpenSSL 3 (libssl.so.3, libcrypto.so.3)"
+license = "Apache-2.0"
+copyright = "The OpenSSL Project Authors"
+source = "https://www.openssl.org/source/"
+
+[[bundled.libraries]]
+name = "OpenSSL 1.1.1k (libcrypto.so.1.1.1k, aarch64 wheel only)"
+license = "OpenSSL"
+copyright = "The OpenSSL Project; Eric Young"
+source = "https://www.openssl.org/source/old/1.1.1/"
+notice = "This product includes software developed by the OpenSSL Project for use in the OpenSSL Toolkit (http://www.openssl.org/). This product includes cryptographic software written by Eric Young (eay@cryptsoft.com)."
+
+[[bundled.libraries]]
+name = "MIT Kerberos (libkrb5, libgssapi_krb5, libk5crypto, libkrb5support)"
+license = "MIT"
+copyright = "Massachusetts Institute of Technology and other contributors"
+source = "https://web.mit.edu/kerberos/"
+
+[[bundled.libraries]]
+name = "com_err (libcom_err.so.2)"
+license = "MIT"
+copyright = "Massachusetts Institute of Technology"
+source = "https://e2fsprogs.sourceforge.net/"
+
+[[bundled.libraries]]
+name = "libcrypt (glibc libcrypt.so.1 on x86_64, libxcrypt libcrypt.so.1.1.0 on aarch64)"
+license = "LGPL-2.1-or-later"
+copyright = "Free Software Foundation, Inc. and the libxcrypt contributors"
+source = "https://github.com/besser82/libxcrypt"
+notice = "Weak copyleft (LGPL-2.1-or-later), used unmodified as a separate shared library that can be replaced. If the API image is ever distributed, ship this notice with the LGPL text and provide the library's corresponding source (or a written offer for it)."
+
+[[bundled.libraries]]
+name = "keyutils (libkeyutils.so.1)"
+license = "LGPL-2.1-or-later"
+copyright = "Red Hat, Inc."
+source = "https://people.redhat.com/~dhowells/keyutils/"
+notice = "Weak copyleft (LGPL-2.1-or-later), used unmodified as a separate shared library that can be replaced. If the API image is ever distributed, ship this notice with the LGPL text and provide the library's corresponding source (or a written offer for it)."
+
+[[bundled.libraries]]
+name = "OpenLDAP (libldap, liblber)"
+license = "OLDAP-2.8"
+copyright = "The OpenLDAP Foundation"
+source = "https://www.openldap.org/software/download/"
+
+[[bundled.libraries]]
+name = "Cyrus SASL (libsasl2.so.3)"
+license = "BSD-Attribution-HPND-disclaimer"
+copyright = "Carnegie Mellon University"
+source = "https://www.cyrusimap.org/sasl/"
+notice = "This product includes software developed by Computing Services at Carnegie Mellon University (http://www.cmu.edu/computing/)."
+
+[[bundled.libraries]]
+name = "PCRE (libpcre.so.1 on x86_64, libpcre2-8.so.0 on aarch64)"
+license = "BSD-3-Clause"
+copyright = "University of Cambridge"
+source = "https://www.pcre.org/"
+
+[[bundled.libraries]]
+name = "libselinux (libselinux.so.1)"
+license = "LicenseRef-public-domain"
+copyright = "National Security Agency (public domain)"
+source = "https://github.com/SELinuxProject/selinux"
+
+[[bundled]]
+ecosystem = "python"
+package = "pillow"
+versions = ["13.0.0"]
+reviewed_on = "2026-11-04"
+note = "Read from the 13.0.0 wheels for CPython 3.13 on manylinux_2_28 x86_64 and aarch64 (`pillow.libs/` and the extension modules). Both wheels carry the same LICENSE file, copied verbatim; it holds the full text and copyright notice of every library below. Pillow itself is MIT-CMU. Used unmodified."
+license_texts = [
+  "licenses/third-party/pillow-13.0.0-LICENSE.txt",
+  "licenses/third-party/FTL.txt",
+]
+
+[[bundled.libraries]]
+name = "AOM (in libavif)"
+license = "BSD-2-Clause"
+copyright = "Alliance for Open Media"
+source = "https://aomedia.googlesource.com/aom"
+
+[[bundled.libraries]]
+name = "Brotli (libbrotlicommon, libbrotlidec)"
+license = "MIT"
+copyright = "The Brotli Authors"
+source = "https://github.com/google/brotli"
+
+[[bundled.libraries]]
+name = "bzip2"
+license = "bzip2-1.0.6"
+copyright = "Julian R Seward"
+source = "https://sourceware.org/bzip2/"
+
+[[bundled.libraries]]
+name = "dav1d (in libavif)"
+license = "BSD-2-Clause"
+copyright = "VideoLAN and dav1d authors"
+source = "https://code.videolan.org/videolan/dav1d"
+
+[[bundled.libraries]]
+name = "FreeType 2.14.3 (libfreetype.so.6)"
+license = "FTL"
+copyright = "The FreeType Project (David Turner, Robert Wilhelm, Werner Lemberg)"
+source = "https://freetype.org/download.html"
+notice = "Used under the FreeType License (chosen from FTL OR GPL-2.0-or-later). Portions of this software are copyright \u00a9 The FreeType Project (www.freetype.org), FreeType 2.14.3. All rights reserved."
+
+[[bundled.libraries]]
+name = "HarfBuzz (libharfbuzz.so.0)"
+license = "MIT-Modern-Variant"
+copyright = "Google, Inc., Red Hat, Inc., Behdad Esfahbod and the other HarfBuzz authors"
+source = "https://github.com/harfbuzz/harfbuzz"
+
+[[bundled.libraries]]
+name = "Little CMS 2.19 (liblcms2.so.2)"
+license = "MIT"
+copyright = "Marti Maria Saguer"
+source = "https://www.littlecms.com/"
+
+[[bundled.libraries]]
+name = "libavif"
+license = "BSD-2-Clause"
+copyright = "Joe Drago and the libavif authors"
+source = "https://github.com/AOMediaCodec/libavif"
+
+[[bundled.libraries]]
+name = "libjpeg-turbo (libjpeg.so.62)"
+license = "IJG"
+copyright = "Thomas G. Lane, Guido Vollbeding and the libjpeg-turbo authors"
+source = "https://libjpeg-turbo.org/"
+notice = "This software is based in part on the work of the Independent JPEG Group."
+
+[[bundled.libraries]]
+name = "liblzma (XZ Utils)"
+license = "LicenseRef-public-domain"
+copyright = "Lasse Collin and the XZ Utils contributors (public domain, as Pillow's LICENSE states)"
+source = "https://tukaani.org/xz/"
+
+[[bundled.libraries]]
+name = "libpng (libpng16.so.16)"
+license = "libpng-2.0"
+copyright = "The PNG Reference Library Authors; Cosmin Truta; Glenn Randers-Pehrson; Andreas Dilger; Guy Eric Schalnat, Group 42, Inc."
+source = "http://www.libpng.org/pub/png/libpng.html"
+
+[[bundled.libraries]]
+name = "LibTIFF 4.7.2 (libtiff.so.6)"
+license = "libtiff"
+copyright = "Sam Leffler; Silicon Graphics, Inc."
+source = "https://libtiff.gitlab.io/libtiff/"
+
+[[bundled.libraries]]
+name = "libwebp 1.6.0 (libwebp, libwebpdemux, libwebpmux, libsharpyuv)"
+license = "BSD-3-Clause"
+copyright = "Google Inc."
+source = "https://chromium.googlesource.com/webm/libwebp"
+
+[[bundled.libraries]]
+name = "libyuv"
+license = "BSD-3-Clause"
+copyright = "The LibYuv Project Authors"
+source = "https://chromium.googlesource.com/libyuv/libyuv"
+
+[[bundled.libraries]]
+name = "OpenJPEG (libopenjp2.so.7)"
+license = "BSD-2-Clause"
+copyright = "Universite catholique de Louvain (UCL), Belgium, and the OpenJPEG authors"
+source = "https://www.openjpeg.org/"
+
+[[bundled.libraries]]
+name = "raqm 0.11.0"
+license = "MIT"
+copyright = "Information Technology Authority (ITA); Khaled Hosny"
+source = "https://github.com/HOST-Oman/libraqm"
+
+[[bundled.libraries]]
+name = "Tcl/Tk (stub headers in _imagingtk)"
+license = "TCL"
+copyright = "The Regents of the University of California, Sun Microsystems, Inc., Scriptics Corporation and other parties"
+source = "https://www.tcl-lang.org/"
+
+[[bundled.libraries]]
+name = "libXau, libXdmcp"
+license = "MIT-open-group"
+copyright = "The Open Group"
+source = "https://gitlab.freedesktop.org/xorg/lib"
+
+[[bundled.libraries]]
+name = "libxcb (libxcb.so.1)"
+license = "X11"
+copyright = "Bart Massey, Jamey Sharp and Josh Triplett"
+source = "https://xcb.freedesktop.org/"
+
+[[bundled.libraries]]
+name = "zlib"
+license = "Zlib"
+copyright = "Jean-loup Gailly and Mark Adler"
+source = "https://zlib.net/"
+
+[[bundled.libraries]]
+name = "Zstandard (libzstd.so.1)"
+license = "BSD-3-Clause"
+copyright = "Meta Platforms, Inc. and affiliates"
+source = "https://github.com/facebook/zstd"
+notice = "Used under BSD-3-Clause (chosen from BSD-3-Clause OR GPL-2.0-only)."
+
+[[bundled]]
+ecosystem = "python"
+package = "psycopg-binary"
+versions = ["3.2.3"]
+reviewed_on = "2026-11-04"
+note = "Backup image (infra/backup/Dockerfile). Read from the 3.2.3 wheels for CPython 3.13 on manylinux2014 x86_64 and aarch64 (`psycopg_binary.libs/`); the libraries come from the CentOS 7 based manylinux2014 build images. psycopg itself is LGPL-3.0-only (accepted in scripts/licenses/exceptions.toml). Used unmodified."
+license_texts = [
+  "licenses/third-party/psycopg-3.3.6-LICENSE.txt",
+  "licenses/third-party/GPL-3.0-only.txt",
+  "licenses/third-party/LGPL-2.1-or-later.txt",
+  "licenses/third-party/PostgreSQL.txt",
+  "licenses/third-party/Apache-2.0.txt",
+  "licenses/third-party/OLDAP-2.8.txt",
+  "licenses/third-party/BSD-Attribution-HPND-disclaimer.txt",
+  "licenses/third-party/MIT.txt",
+  "licenses/third-party/BSD-3-Clause.txt",
+]
+
+[[bundled.libraries]]
+name = "libpq 17 (libpq.so.5.17)"
+license = "PostgreSQL"
+copyright = "PostgreSQL Global Development Group; The Regents of the University of California"
+source = "https://www.postgresql.org/ftp/source/"
+
+[[bundled.libraries]]
+name = "OpenSSL 3 (libssl.so.3, libcrypto.so.3)"
+license = "Apache-2.0"
+copyright = "The OpenSSL Project Authors"
+source = "https://www.openssl.org/source/"
+
+[[bundled.libraries]]
+name = "MIT Kerberos (libkrb5, libgssapi_krb5, libk5crypto, libkrb5support)"
+license = "MIT"
+copyright = "Massachusetts Institute of Technology and other contributors"
+source = "https://web.mit.edu/kerberos/"
+
+[[bundled.libraries]]
+name = "com_err (libcom_err.so.2)"
+license = "MIT"
+copyright = "Massachusetts Institute of Technology"
+source = "https://e2fsprogs.sourceforge.net/"
+
+[[bundled.libraries]]
+name = "keyutils (libkeyutils.so.1)"
+license = "LGPL-2.1-or-later"
+copyright = "Red Hat, Inc."
+source = "https://people.redhat.com/~dhowells/keyutils/"
+notice = "Weak copyleft (LGPL-2.1-or-later), used unmodified as a separate shared library that can be replaced. If the backup image is ever distributed, ship this notice with the LGPL text and provide the library's corresponding source (or a written offer for it)."
+
+[[bundled.libraries]]
+name = "OpenLDAP (libldap, liblber)"
+license = "OLDAP-2.8"
+copyright = "The OpenLDAP Foundation"
+source = "https://www.openldap.org/software/download/"
+
+[[bundled.libraries]]
+name = "Cyrus SASL (libsasl2.so.3)"
+license = "BSD-Attribution-HPND-disclaimer"
+copyright = "Carnegie Mellon University"
+source = "https://www.cyrusimap.org/sasl/"
+notice = "This product includes software developed by Computing Services at Carnegie Mellon University (http://www.cmu.edu/computing/)."
+
+[[bundled.libraries]]
+name = "PCRE (libpcre.so.1)"
+license = "BSD-3-Clause"
+copyright = "University of Cambridge"
+source = "https://www.pcre.org/"
+
+[[bundled.libraries]]
+name = "libselinux (libselinux.so.1)"
+license = "LicenseRef-public-domain"
+copyright = "National Security Agency (public domain)"
+source = "https://github.com/SELinuxProject/selinux"
+
+[[bundled]]
+ecosystem = "python"
+package = "playwright"
+versions = ["1.56.0"]
+reviewed_on = "2026-11-04"
+note = "Browser image only (services/api/Dockerfile with ANUM_BROWSER=1). Read from the 1.56.0 manylinux1 x86_64 wheel: `playwright/driver/` holds a Node.js binary and the playwright-core npm package, each with its own license files, copied verbatim. At image build time `playwright install --with-deps --only-shell chromium` also downloads the Chromium headless shell (revision 1194, Chromium 141.0.7390.37) into /opt/ms-playwright and installs its Debian runtime packages; those Debian packages are in the image's Trivy SBOM. Chromium's own third-party components are NOT enumerated here: the download could not be fetched for review (its host is blocked from the review machine), so the Chromium row points at Chromium's license and credits instead."
+license_texts = [
+  "licenses/third-party/playwright-1.56.0/nodejs-22.20.0-LICENSE.txt",
+  "licenses/third-party/playwright-1.56.0/playwright-core-1.56.1-LICENSE.txt",
+  "licenses/third-party/playwright-1.56.0/playwright-core-1.56.1-NOTICE.txt",
+  "licenses/third-party/playwright-1.56.0/playwright-core-1.56.1-ThirdPartyNotices.txt",
+  "licenses/third-party/BSD-3-Clause.txt",
+]
+
+[[bundled.libraries]]
+name = "Node.js 22.20.0 (playwright/driver/node)"
+license = "MIT"
+copyright = "Node.js contributors; Joyent, Inc. and other Node contributors"
+source = "https://nodejs.org/download/release/v22.20.0/"
+notice = "Node.js bundles V8, ICU, OpenSSL, libuv, zlib, npm and other components under their own permissive licenses; all are listed with their full texts in nodejs-22.20.0-LICENSE.txt."
+
+[[bundled.libraries]]
+name = "playwright-core 1.56.1 (playwright/driver/package)"
+license = "Apache-2.0"
+copyright = "Microsoft Corporation"
+source = "https://github.com/microsoft/playwright/tree/v1.56.1"
+notice = "Playwright. Copyright (c) Microsoft Corporation. This software contains code derived from the Puppeteer project (https://github.com/puppeteer/puppeteer), available under the Apache 2.0 license. playwright-core incorporates the npm packages listed in playwright-core-1.56.1-ThirdPartyNotices.txt under their own licenses."
+
+[[bundled.libraries]]
+name = "Chromium headless shell 141.0.7390.37 (revision 1194, downloaded at image build time)"
+license = "BSD-3-Clause"
+copyright = "The Chromium Authors, plus third-party components under their own licenses (not enumerated)"
+source = "https://chromium.googlesource.com/chromium/src/+/refs/tags/141.0.7390.37/LICENSE"
+notice = "Chromium's third-party components and their licenses are listed in Chromium's credits (generated from the README.chromium files in its source tree at that tag); they are not enumerated in this file yet."

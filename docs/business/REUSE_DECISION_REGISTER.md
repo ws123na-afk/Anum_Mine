@@ -8,7 +8,7 @@ Part of Order 001: [gap register](ANUM_BUSINESS_GAP_REGISTER.md), [P0 remediatio
 
 On 18 October 2026, each repository's default branch was cloned without file contents (`git clone --depth 1 --filter=tree:0 --no-checkout`) and its license files read at that commit with `git show HEAD:<file>`. Harvey was cloned in full (depth 1) and its code read. Nothing was installed or run, and no code was copied into ANUM. The GitHub REST API was not usable for these repositories from this session (it is limited to the session's own repositories), so dates are commit dates from git.
 
-This is an engineering reading, **not legal advice**. Before shipping anything that embeds third party code in a product sold to customers, have the license reviewed (roadmap section 9) and add it to a `THIRD_PARTY_NOTICES.md` and the SBOM.
+This is an engineering reading, **not legal advice**. Before shipping anything that embeds third party code in a product sold to customers, have the license reviewed (roadmap section 9). Package dependencies are then checked, listed in the root `THIRD_PARTY_NOTICES.md` and recorded in the SBOMs automatically by the CI license scan ([Third-party licenses](../licenses.md)); code copied in by hand (not through a package manager) must be added to that policy review by hand.
 
 ## Decisions at a glance
 
