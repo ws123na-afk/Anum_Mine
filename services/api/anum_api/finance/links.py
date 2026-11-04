@@ -320,8 +320,10 @@ def carry_forward(store: Any, links: LinkStore, context: TenantContext, from_can
     """A statement copy was reconciled into a recorded payment: its links now point at the recorded one."""
     kept = links.live_links(context, to_canonical)
     for link in links.live_links(context, from_canonical):
-        twin = next((k for k in kept if (k.dimension, k.role, k.target_type, k.target_id, k.amount, k.currency)
-                     == (link.dimension, link.role, link.target_type, link.target_id, link.amount, link.currency)), None)
+        # A business allocation is never merged away: its row may carry another project, category or memo. It moves
+        # with its row, and sync puts the business dimension in review if the recorded payment is now over-allocated.
+        twin = None if link.dimension == "business" else next((k for k in kept if (k.dimension, k.role, k.target_type, k.target_id, k.amount, k.currency)
+                                                               == (link.dimension, link.role, link.target_type, link.target_id, link.amount, link.currency)), None)
         if twin is not None:
             _void(links, context, link, "merged_on_reconcile", now)  # the recorded payment already has exactly this link
             continue
@@ -330,6 +332,8 @@ def carry_forward(store: Any, links: LinkStore, context: TenantContext, from_can
         link.canonical_id = to_canonical
         link.idem_key = hashlib.sha256(f"moved\x1f{to_canonical}\x1f{link.idem_key}".encode()).hexdigest()
         _save(links, link, status=link.status, reason="moved_on_reconcile", now=now)
+        if link.dimension == "business" and link.target_workspace_id:
+            links.retarget_allocation(context, link.target_workspace_id, link.id, source_ref=to_canonical[-6:], now=now)
 
 
 def settle(finance: Any, store: Any, context: TenantContext, notes: list[tuple[str, str, str]]) -> None:

@@ -169,6 +169,12 @@ class SqlAlchemyLinkStore:
             self.session.execute(update(record).where(record.tenant_id == context.tenant_id, record.workspace_id == workspace_id,
                                                       record.source_link_id == link_id).values(status=status, posted_on=posted_on, updated_at=now))
 
+    def retarget_allocation(self, context: TenantContext, workspace_id: str, link_id: str, *, source_ref: str, now: datetime) -> None:
+        record = BusinessLedgerAllocationRecord
+        with self._in_workspace(context, workspace_id):
+            self.session.execute(update(record).where(record.tenant_id == context.tenant_id, record.workspace_id == workspace_id,
+                                                      record.source_link_id == link_id).values(source_ref=source_ref, updated_at=now))
+
     def delete_allocation(self, context: TenantContext, workspace_id: str, link_id: str) -> None:
         record = BusinessLedgerAllocationRecord
         with self._in_workspace(context, workspace_id):

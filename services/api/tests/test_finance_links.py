@@ -322,6 +322,39 @@ def test_reconciling_a_statement_copy_moves_its_links_to_the_recorded_payment() 
         assert moved.canonical_id == canonical and moved.status == LinkStatus.ACTIVE and moved.status_reason == "moved_on_reconcile"
 
 
+def test_reconciling_never_drops_a_business_allocation_with_other_details() -> None:
+    from anum_api.finance.links_store import BusinessAllocation, FinanceLink, LinkStatus
+
+    _s, canonical = fuel_payment()
+    assert allocate(canonical, "50", project_id="proj_a").status_code == 201
+    context = TenantContext(tenant_id=TENANT, workspace_id=WORKSPACE, user_id="owner_links")
+    now = utc_now()
+    # The statement copy had the same SAR 50 allocated to the same business, but to another project.
+    links_memory_store.add_link(FinanceLink(id="fin_link_stmt", tenant_id=TENANT, workspace_id=WORKSPACE, owner_user_id="owner_links",
+                                            canonical_id="fin_je_stmtcopy", dimension="business", role="payment", target_type="business_workspace",
+                                            target_id=BUSINESS, target_workspace_id=BUSINESS, amount=Decimal("50"), currency="SAR", idem_key="z" * 64,
+                                            created_by="owner_links", created_at=now, updated_at=now))
+    links_memory_store.put_allocation(context, BusinessAllocation(
+        id="biz_alloc_stmt", tenant_id=TENANT, workspace_id=BUSINESS, source_link_id="fin_link_stmt", source_workspace_id=WORKSPACE,
+        allocated_by="owner_links", source_ref="mtcopy", posted_on=now.date(), amount=Decimal("50"), currency="SAR", category="fuel",
+        project_id="proj_b", treatment="owner_contribution", created_at=now, updated_at=now))
+    K.settle(finance_store, sms_memory_store, context, [("move", "fin_je_stmtcopy", canonical), ("sync", canonical, canonical)])
+    moved = links_memory_store.links["fin_link_stmt"]
+    assert moved.status == LinkStatus.ACTIVE and moved.canonical_id == canonical
+    rows = client.get("/api/v1/business/ledger-allocations", headers=BUSINESS_MEMBER).json()["items"]
+    assert sorted((r["project_id"], r["source_ref"]) for r in rows) == [("proj_a", canonical[-6:]), ("proj_b", canonical[-6:])]
+    # Over the payment after the move: the business dimension waits for review instead of losing a row.
+    links_memory_store.add_link(moved.model_copy(update={"id": "fin_link_stmt2", "canonical_id": "fin_je_stmtcopy", "amount": Decimal("100"),
+                                                         "idem_key": "w" * 64}))
+    links_memory_store.put_allocation(context, BusinessAllocation(
+        id="biz_alloc_stmt2", tenant_id=TENANT, workspace_id=BUSINESS, source_link_id="fin_link_stmt2", source_workspace_id=WORKSPACE,
+        allocated_by="owner_links", source_ref="mtcopy", posted_on=now.date(), amount=Decimal("100"), currency="SAR", category="meals",
+        treatment="reimbursable", created_at=now, updated_at=now))
+    K.settle(finance_store, sms_memory_store, context, [("move", "fin_je_stmtcopy", canonical), ("sync", canonical, canonical)])
+    rows = client.get("/api/v1/business/ledger-allocations", headers=BUSINESS_MEMBER).json()["items"]
+    assert len(rows) == 3 and {r["status"] for r in rows} == {"needs_review"}
+
+
 def test_privacy_export_and_delete_cover_links_allocations_and_device_events() -> None:
     _s, canonical = fuel_payment()
     link(canonical, "50")
