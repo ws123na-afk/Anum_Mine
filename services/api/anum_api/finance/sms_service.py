@@ -322,7 +322,7 @@ def find_duplicate(store: SmsStore, context: TenantContext, fp: str, when: datet
 
 def _description(kind: P.Kind, merchant: str | None) -> str:
     label = kind.value.replace("_", " ")
-    text = f"{merchant} ({label}, SMS)" if merchant else f"{label.capitalize()} (SMS)"
+    text = f"{merchant} ({label})" if merchant else label.capitalize()
     return text[:500]
 
 

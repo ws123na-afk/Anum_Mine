@@ -1,6 +1,6 @@
 # iPhone SMS banking and the double-entry ledger
 
-Bank and card messages forwarded from the owner's iPhone by an Apple Shortcut are read, checked, de-duplicated and recorded in a double-entry journal inside the person's own Finance ledger ([Finance](finance.md)). Messages ANUM cannot read with confidence wait in a review queue, where the person corrects them and can teach ANUM the format. A ledger dashboard shows income, spending, balances, cards, loans, net worth and sync status from the journal.
+Bank and card messages and Apple Pay payments forwarded from the owner's iPhone by an Apple Shortcut are read, checked, de-duplicated and recorded in a double-entry journal inside the person's own Finance ledger ([Finance](finance.md)). Messages ANUM cannot read with confidence wait in a review queue, where the person corrects them and can teach ANUM the format. A ledger dashboard shows income, spending, balances, cards, loans, net worth and sync status from the journal.
 
 **Off by default.** Nothing is accepted until the person runs the safety check and turns SMS forwarding on for their own ledger in that workspace. No bank format is claimed as supported: see [Banks](#banks).
 
@@ -34,6 +34,17 @@ Still not built (stated plainly): PDF statement import, bank APIs (Open Finance 
 8. **Posting** only when the reading is confident, the format is confirmed by this person (or comes from a rule they taught) and auto-post is on. Everything else goes to the review queue with a reason code: `unknown_sender`, `format_unverified`, `missing_amount`, `unknown_kind`, `ambiguous_kind`, `account_unknown`, `loan_account_unknown`, `needs_converted_amount`, `currency_mismatch`, `auto_post_off`.
 
 The answer is JSON the Shortcut can show: `status` (`posted`, `review`, `duplicate`, `rejected`, `test_ok`), `reason`, `message_id`, `replayed`, `text`.
+
+## Apple Wallet
+
+Apple Pay (the Wallet "Transaction" automation) and a bank SMS often report the **same** payment. They are two **sources** of one canonical transaction (one journal entry), never two transactions (owner decision, 4 November 2026; `finance/wallet.py`).
+
+- **Endpoint:** `POST /api/v1/finance/wallet/ingest` with the same device token. Body: `{"source": "apple_wallet", "amount": ..., "merchant": ..., "card": ..., "name": ...}`; nothing else is accepted, and there is no event time: ANUM stamps the server's reception time.
+- **Amounts** may arrive as text with a currency symbol or code and either decimal mark (`SAR 125.00`, `125,00 ر.س`, `$1,234.56`, `1.234,56 €`, Arabic-Indic digits) or as a number. A negative amount is a refund. With no currency in the text, the mapped account's currency is used and the event is marked `currency_inferred` (shown in Review); a currency that differs from the account's waits for review (`needs_converted_amount`).
+- **Card mapping:** Apple Pay uses a virtual card number (the Device Account Number), so its last four digits differ from the physical card a bank SMS names. The owner maps each Wallet card or pass (its name as Wallet shows it, and optionally its Wallet last four) to the account its payments hit (Settings, Apple Wallet cards), and maps the physical card's last four to the same account (Card and account numbers). An unmapped card waits for review (`wallet_card_unknown`); ANUM never guesses.
+- **Matching** (`wallet.same_payment`), never on the amount alone: the same account, direction, amount and currency; within 30 minutes when both carry a time, else within 2 days and the merchants must share a word; merchants that do not disagree; no conflicting reference; and the existing transaction has no source of the same kind (a second Wallet event is a second purchase). One candidate attaches (status `attached`, reason `attached_to_existing`); more than one waits for review (`ambiguous_match`); none posts a new entry. Either source may arrive first, and a delayed SMS still attaches within the window.
+- **Atomic:** ingestion for one person runs under a per-owner lock in the process and a PostgreSQL transaction-level advisory lock (`pg_advisory_xact_lock`), held only for the short unit of work that matches and writes (no model or provider call inside), so two reports arriving together cannot both post. A unique index allows at most one recorded or attached source of each kind per entry (`uq_finance_sms_messages_entry_source`), and the idempotency key makes a retried delivery a no-op.
+- **Dashboard:** one expense; the journal lists the entry's sources (Apple Pay, bank message).
 
 ## Parsing
 
@@ -111,6 +122,8 @@ On the iPhone, after the safety check passed and a device token was created in A
 4. Inside the If, add **Get Contents of URL**: the URL shown in ANUM; Method **POST**; Headers: `Authorization` = `Bearer ` followed by the token, `Content-Type` = `application/json`; Request Body **JSON**: `message` = Shortcut Input, Content; `sender` = Shortcut Input, Sender.
 5. Test without real data: make a separate shortcut with the same Get Contents of URL and the JSON `message` = `ANUM TEST`, `sender` = `ANUM TEST`, and run it. ANUM answers "Connected" and records nothing; the device shows the time under Last success.
 
+For Apple Pay: Shortcuts, Automation, New Automation, **Wallet** (Transaction), pick the cards, **Run Immediately**; add **Get Contents of URL** with the Apple Wallet address from ANUM (`.../api/v1/finance/wallet/ingest`), Method **POST**, the same two headers, Request Body **JSON**: `source` = the text `apple_wallet`, `amount` = Shortcut Input, Amount; `merchant` = Shortcut Input, Merchant; `card` = Shortcut Input, Card or Pass; `name` = Shortcut Input, Name. Then map the Wallet card to its account in ANUM. Check the first real payment in Review: Shortcuts may send the amount as text with a symbol or local separators, and ANUM shows when it took the currency from the mapped account.
+
 Limits to know: the token is stored inside the Shortcut (anyone with the unlocked phone can read it: rotate it in ANUM if the phone is lost, or disconnect the device); iOS may delay or skip an automation when the phone is locked or in Low Power Mode; a bank's sender name can differ between short codes, so check Last received after a real transaction; Shortcuts cannot sign requests, which is why duplicates are caught on the server.
 
 ## API
@@ -124,7 +137,7 @@ All under `/api/v1/finance`; `finance:read` reads, `finance:manage` changes; eve
 | `POST /sms/devices` (token shown once), `POST /sms/devices/{id}/rotate`, `/pause`, `/resume`, `/revoke` | manage |
 | `POST /sms/paste`, `POST /sms/messages/{id}/post`, `/dismiss`, `/reverse`, `/suggest` | manage |
 | `POST /sms/rules/{id}/activate`, `/disable`, `DELETE /sms/rules/{id}`, `POST /sms/reconcile/{import_id}` | manage |
-| `POST /sms/ingest` | device token only ([How a message travels](#how-a-message-travels)) |
+| `POST /sms/ingest`, `POST /wallet/ingest` | device token only ([How a message travels](#how-a-message-travels), [Apple Wallet](#apple-wallet)) |
 
 ## Privacy and deletion
 
@@ -135,4 +148,5 @@ Every new table has forced RLS, the tenant policy, the restrictive owner policy 
 1. Deploy as usual (migration `0131_finance_sms_ledger` runs with the release).
 2. In ANUM: Finance, iPhone SMS: run the **safety check**, add your accounts and their last four digits, then turn SMS forwarding on.
 3. Create a device token, set up the Shortcut ([The Shortcut](#the-shortcut)) and run the `ANUM TEST` shortcut.
-4. Let one real message per bank arrive, check it in Review and record it with "This reading is right" (or teach the format). Until then nothing from that bank posts on its own.
+4. For Apple Pay, add the Wallet automation and map each Wallet card (name and Wallet last four) and each physical card's last four to the same account.
+5. Let one real message per bank arrive, check it in Review and record it with "This reading is right" (or teach the format). Until then nothing from that bank posts on its own.

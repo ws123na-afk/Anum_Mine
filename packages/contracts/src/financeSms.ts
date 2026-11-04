@@ -4,12 +4,13 @@ import type { FinanceCurrencyAmount } from './finance.js';
 export type FinanceSmsKind =
   | 'salary' | 'deposit' | 'transfer_in' | 'transfer_out' | 'own_transfer' | 'card_purchase' | 'atm_withdrawal' | 'card_repayment'
   | 'loan_disbursement' | 'loan_repayment' | 'bank_fee' | 'refund' | 'reversal' | 'unknown';
-export type FinanceSmsStatus = 'posted' | 'review' | 'duplicate' | 'rejected' | 'dismissed' | 'failed';
+export type FinanceSmsStatus = 'posted' | 'review' | 'duplicate' | 'attached' | 'rejected' | 'dismissed' | 'failed';
 export type FinanceSmsDeviceStatus = 'active' | 'paused' | 'revoked';
 export type FinanceLedgerKind = 'personal' | 'business';
 
 export interface FinanceSmsAccountMapping { last4: string; account_id: string; credit_limit?: string | null }
 export interface FinanceSmsSenderMapping { sender: string; bank: string }
+export interface FinanceWalletCard { card: string; last4?: string | null; account_id: string }
 
 export interface FinanceSmsSettings {
   enabled: boolean;
@@ -19,6 +20,7 @@ export interface FinanceSmsSettings {
   verified_senders: string[];
   extra_senders: FinanceSmsSenderMapping[];
   account_map: FinanceSmsAccountMapping[];
+  wallet_cards: FinanceWalletCard[];
   default_account_id: string | null;
   cash_account_id: string | null;
   ai: { enabled: boolean; opted_in_at: string | null; daily_cap: number; used_on: string | null; used: number };
@@ -36,6 +38,7 @@ export interface FinanceSmsSettingsInput {
   verified_senders?: string[];
   extra_senders?: FinanceSmsSenderMapping[];
   account_map?: FinanceSmsAccountMapping[];
+  wallet_cards?: FinanceWalletCard[];
   default_account_id?: string | null;
   cash_account_id?: string | null;
   ai_enabled?: boolean;
@@ -232,5 +235,6 @@ export interface FinanceJournalEntry {
   fx_rate: string | null;
   reconciled_at: string | null;
   postings: { ledger_account: string; account_id: string | null; amount: string; currency: string }[];
+  sources: { kind: 'sms' | 'wallet'; message_id: string; status: string; received_at: string }[];
 }
 export interface FinanceJournalPage { items: FinanceJournalEntry[]; total: number; limit: number; offset: number }

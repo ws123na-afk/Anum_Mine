@@ -2,11 +2,11 @@
 .finSms { display: grid; gap: var(--d-s3); min-width: 0; }
 .finSmsGrid { display: grid; gap: var(--d-s3); grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr)); min-width: 0; }
 .finSmsGrid > * { min-width: 0; }
-.finSmsFacts { display: grid; gap: var(--d-s2) var(--d-s3); grid-template-columns: repeat(auto-fill, minmax(min(100%, 12rem), 1fr)); margin: 0; }
+.finSmsFacts { display: grid; gap: var(--d-s2) var(--d-s3); grid-template-columns: repeat(auto-fill, minmax(min(100%, 8.5rem), 1fr)); margin: 0; }
 .finSmsFacts dt { color: var(--d-faint); font-size: var(--text-xs); }
 .finSmsFacts dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
 .finSmsFacts code { display: block; overflow-wrap: anywhere; }
-.finSmsFigures { display: grid; gap: var(--d-s2) var(--d-s3); grid-template-columns: repeat(auto-fill, minmax(min(100%, 10rem), 1fr)); margin: 0; }
+.finSmsFigures { display: grid; gap: var(--d-s2) var(--d-s3); grid-template-columns: repeat(auto-fill, minmax(min(100%, 8.5rem), 1fr)); margin: 0; }
 .finSmsFigures dt { color: var(--d-faint); font-size: var(--text-xs); }
 .finSmsFigures dd { font-size: var(--text-lg); font-variant-numeric: tabular-nums; font-weight: 600; margin: 0; overflow-wrap: anywhere; }
 .finSmsChecks { display: grid; gap: var(--d-s1); list-style: none; margin: 0; padding: 0; }

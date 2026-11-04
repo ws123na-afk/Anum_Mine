@@ -12,7 +12,7 @@ import type {
 import * as api from './lib/financeSmsApi';
 import { listAccounts, listImports } from './lib/financeApi';
 import { apiBaseUrl } from './lib/api';
-import { SMS_KINDS, SMS_STATUSES, correctionBody, correctionDefaults, ingestUrl, kindLabel, ledgerAccountLabel, reasonLabel, shortcutSteps } from './lib/financeSms';
+import { SMS_KINDS, SMS_STATUSES, correctionBody, correctionDefaults, ingestUrl, kindLabel, ledgerAccountLabel, reasonLabel, shortcutSteps, walletSteps, walletUrl } from './lib/financeSms';
 import { categoryLabel, formatAmounts, monthLabel, shiftMonth } from './lib/finance';
 import { describeError } from './lib/errors';
 import { formatDateTime, t, type MessageKey } from './lib/i18n';
@@ -131,7 +131,8 @@ function Devices({ status, onChanged }: { status: FinanceSmsStatusView; onChange
   };
   return <section className="surface cmPanel" aria-labelledby="fsms-devices">
     <h2 id="fsms-devices">{t('fsms.devices')}</h2>
-    {url ? <div className="finSmsEndpoint"><span className="muted">{t('fsms.endpoint')}</span><code dir="ltr">{url}</code></div>
+    {url ? <div className="finSmsEndpoint"><span className="muted">{t('fsms.endpoint')}</span><code dir="ltr">{url}</code>
+      <span className="muted">{t('fsms.walletEndpoint')}</span><code dir="ltr">{walletUrl(url)}</code></div>
       : <p className="muted">{t('fsms.endpointHidden')}</p>}
     {devices.kind === 'loading' && <Notice busy>{t('fsms.loading')}</Notice>}
     {devices.kind === 'error' && <LoadError message={devices.message} retry={reload} />}
@@ -179,6 +180,12 @@ function TokenDialog({ issued, url, onClose }: { issued: FinanceSmsDeviceToken; 
       <div><dt>{t('fsms.shortcut.json')}</dt><dd>{Object.entries(issued.json_fields).map(([k, v]) => <code key={k} dir="ltr">{k} = {v}</code>)}</dd></div>
     </dl>
     <ol className="finSmsSteps">{shortcutSteps(full).map((step, index) => <li key={index}>{step}</li>)}</ol>
+    <h3>{t('fsms.wallet.title')}</h3>
+    <dl className="finSmsFacts">
+      <div><dt>{t('fsms.endpoint')}</dt><dd><code dir="ltr">{walletUrl(full)}</code></dd></div>
+      <div><dt>{t('fsms.shortcut.json')}</dt><dd>{['source = apple_wallet', 'amount = Shortcut Input, Amount', 'merchant = Shortcut Input, Merchant', 'card = Shortcut Input, Card or Pass', 'name = Shortcut Input, Name'].map((line) => <code key={line} dir="ltr">{line}</code>)}</dd></div>
+    </dl>
+    <ol className="finSmsSteps">{walletSteps(walletUrl(full) ?? '').map((step, index) => <li key={index}>{step}</li>)}</ol>
     <p className="muted finHelp">{t('fsms.shortcut.limits')}</p>
     <div className="actions"><button type="button" onClick={onClose}>{t('fsms.token.done')}</button></div>
   </Modal>;
@@ -194,6 +201,7 @@ function SettingsForm({ settings, accounts, onSaved }: { settings: FinanceSmsSet
   const [cashAccount, setCashAccount] = useState(settings.cash_account_id ?? '');
   const [rows, setRows] = useState<MapRow[]>(settings.account_map.map((m) => ({ last4: m.last4, account_id: m.account_id, credit_limit: m.credit_limit ?? '' })));
   const [senders, setSenders] = useState(settings.extra_senders.map((s) => s.sender).join(', '));
+  const [cards, setCards] = useState<{ card: string; last4: string; account_id: string }[]>((settings.wallet_cards ?? []).map((c) => ({ card: c.card, last4: c.last4 ?? '', account_id: c.account_id })));
   const [ai, setAi] = useState(settings.ai.enabled);
   const [consent, setConsent] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -208,6 +216,7 @@ function SettingsForm({ settings, accounts, onSaved }: { settings: FinanceSmsSet
         version: settings.version, ledger_kind: kind, auto_post: autoPost, body_retention_days: Number(retention),
         default_account_id: defaultAccount || null, cash_account_id: cashAccount || null,
         account_map: rows.filter((r) => r.last4 && r.account_id).map((r) => ({ last4: r.last4, account_id: r.account_id, credit_limit: r.credit_limit || null })),
+        wallet_cards: cards.filter((c) => c.card.trim() && c.account_id).map((c) => ({ card: c.card.trim(), last4: c.last4 || null, account_id: c.account_id })),
         extra_senders: senders.split(',').map((s) => s.trim()).filter(Boolean).map((s) => ({ sender: s, bank: s.toLowerCase().slice(0, 40) })),
         ai_enabled: ai, ai_consent: ai && !settings.ai.enabled ? consent : undefined,
       });
@@ -240,6 +249,17 @@ function SettingsForm({ settings, accounts, onSaved }: { settings: FinanceSmsSet
           <button type="button" className="iconButton small" aria-label={t('fsms.map.remove')} onClick={() => setRows(rows.filter((_, i) => i !== index))}><Trash2 aria-hidden="true" /></button>
         </div>)}
         <button type="button" className="secondary" onClick={() => setRows([...rows, { last4: '', account_id: '', credit_limit: '' }])}><Plus aria-hidden="true" />{t('fsms.map.add')}</button>
+      </fieldset>
+      <fieldset className="finMapping"><legend>{t('fsms.wallet.cards')}</legend>
+        <p className="muted finHelp">{t('fsms.wallet.cardsHelp')}</p>
+        {cards.map((row, index) => <div key={index} className="cmFilters finLimitRow">
+          <label className="cmInline"><span>{t('fsms.wallet.card')}</span><input value={row.card} maxLength={80} dir="auto" onChange={(e) => setCards(cards.map((c, i) => (i === index ? { ...c, card: e.target.value } : c)))} /></label>
+          <label className="cmInline"><span>{t('fsms.wallet.last4')}</span><input value={row.last4} inputMode="numeric" maxLength={4} pattern="\d{4}" dir="ltr" onChange={(e) => setCards(cards.map((c, i) => (i === index ? { ...c, last4: e.target.value } : c)))} /></label>
+          <label className="cmInline"><span>{t('fsms.map.account')}</span><select value={row.account_id} onChange={(e) => setCards(cards.map((c, i) => (i === index ? { ...c, account_id: e.target.value } : c)))}>
+            <option value="">{t('fsms.pick')}</option>{accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</select></label>
+          <button type="button" className="iconButton small" aria-label={t('fsms.wallet.remove')} onClick={() => setCards(cards.filter((_, i) => i !== index))}><Trash2 aria-hidden="true" /></button>
+        </div>)}
+        <button type="button" className="secondary" onClick={() => setCards([...cards, { card: '', last4: '', account_id: '' }])}><Plus aria-hidden="true" />{t('fsms.wallet.add')}</button>
       </fieldset>
       <label className="field"><span>{t('fsms.senders')}</span><input value={senders} onChange={(e) => setSenders(e.target.value)} dir="ltr" placeholder="MyBank, MyCard" /></label>
       <p className="muted finHelp">{t('fsms.sendersHelp')}</p>
@@ -282,7 +302,7 @@ function Review({ accounts, aiOn, onChanged }: { accounts: FinanceAccount[]; aiO
               <small>{when(m.received_at)} · {t(`fsms.status.${m.status}` as MessageKey)} · {reasonLabel(m.reason)}</small>
               <small>{kindLabel(m.parsed.kind)}{m.parsed.amount ? ` · ${m.parsed.currency ?? ''} ${m.parsed.amount}` : ''}{m.parsed.merchant ? ` · ${m.parsed.merchant}` : ''}</small>
               {m.body_masked && <p className="finSmsBody" dir="auto">{m.body_masked}</p>}</div>
-            {m.status !== 'rejected' && m.status !== 'dismissed' && <button type="button" className="secondary" onClick={() => setOpen(m)}>{m.status === 'posted' ? t('fsms.correct') : t('fsms.check')}</button>}
+            {m.status !== 'rejected' && m.status !== 'dismissed' && m.status !== 'attached' && <button type="button" className="secondary" onClick={() => setOpen(m)}>{m.status === 'posted' ? t('fsms.correct') : t('fsms.check')}</button>}
           </li>)}</ul>
           <div className="cmPager"><button type="button" className="secondary" disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - PAGE))}>{t('fsms.prev')}</button>
             <span className="muted cmPagerText">{t('fsms.range', { from: offset + 1, to: Math.min(offset + PAGE, page.value.total), total: page.value.total })}</span>
@@ -590,6 +610,7 @@ function Journal({ names }: { names: Record<string, string> }) {
       <ul className="cmList">{page.value.items.map((e) => <li key={e.id} className="finSmsEntry">
         <div><strong dir="auto">{e.description}</strong>
           <small><bdi dir="ltr">{e.posted_on}</bdi> · {kindLabel(e.kind)} · {t(`fledger.source.${e.source}` as MessageKey)}{e.status === 'reversed' ? ` · ${t('fledger.reversed')}` : ''}{e.reconciled_at ? ` · ${t('fledger.reconciled')}` : ''}</small>
+          {e.sources.length > 0 && <small>{t('fledger.sources', { sources: e.sources.map((src) => t(`fledger.sourceKind.${src.kind}` as MessageKey)).join(', ') })}</small>}
           {e.original_amount && <small dir="ltr">{e.original_currency} {e.original_amount} @ {e.fx_rate}</small>}
           <ul className="finSmsPostings">{e.postings.map((p, i) => <li key={i}><span>{ledgerAccountLabel(p.ledger_account, names)}</span><span>{p.amount.startsWith('-') ? t('fledger.credit') : t('fledger.debit')} <Money value={p.amount.replace(/^-/, '')} currency={p.currency} /></span></li>)}</ul></div>
       </li>)}</ul>

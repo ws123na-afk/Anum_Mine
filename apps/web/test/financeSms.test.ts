@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { afterEach, describe, test } from 'node:test';
 import type { FinanceSmsMessage } from '@anum/contracts';
 import { FINANCE_TABS, hashForTab, tabFromHash } from '../src/lib/finance.ts';
-import { correctionBody, correctionDefaults, ingestUrl, kindLabel, ledgerAccountLabel, reasonLabel, shortcutSteps } from '../src/lib/financeSms.ts';
+import { correctionBody, correctionDefaults, ingestUrl, walletSteps, walletUrl, kindLabel, ledgerAccountLabel, reasonLabel, shortcutSteps } from '../src/lib/financeSms.ts';
 import { placeholdersOf, setLocale } from '../src/lib/i18n.ts';
 import { financeSmsAr } from '../src/lib/messages/financeSms.ar.ts';
 import { financeSmsEn } from '../src/lib/messages/financeSms.en.ts';
@@ -46,6 +46,12 @@ describe('iPhone SMS and ledger tabs', () => {
     assert.equal(form.kind, 'card_purchase');
     assert.deepEqual(correctionBody({ ...form, merchant: '  ', confirm_format: true }), { kind: 'card_purchase', amount: '45.50', currency: 'SAR', confirm_format: true });
     assert.equal(correctionDefaults(message({ kind: 'unknown' })).kind, undefined);
+  });
+
+  test('the Apple Wallet address and steps', () => {
+    assert.equal(walletUrl('https://api.example.test/api/v1/finance/sms/ingest'), 'https://api.example.test/api/v1/finance/wallet/ingest');
+    assert.equal(walletUrl(null), null);
+    assert.ok(walletSteps('https://x.test/w')[1].includes('https://x.test/w'));
   });
 
   test('the Shortcut steps include the address', () => {

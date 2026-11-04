@@ -13,7 +13,7 @@ async function mockApi(page: Page, options: SmsMock = {}) {
   const state = financeState({ denied: options.denied });
   const sent: { method: string; path: string; body: unknown }[] = [];
   let settings = {
-    enabled: false, ledger_kind: 'personal', auto_post: true, body_retention_days: 30, verified_senders: [], extra_senders: [], account_map: [],
+    enabled: false, ledger_kind: 'personal', auto_post: true, body_retention_days: 30, verified_senders: [], extra_senders: [], account_map: [], wallet_cards: [],
     default_account_id: null, cash_account_id: null, ai: { enabled: false, opted_in_at: null, daily_cap: 20, used_on: null, used: 0 },
     self_test_passed_at: options.ready ? '2026-11-04T08:00:00Z' : null, version: 1, updated_at: null,
   };
@@ -43,8 +43,9 @@ async function mockApi(page: Page, options: SmsMock = {}) {
     sync: { enabled: true, devices_active: 1, last_received_at: '2026-11-03T10:00:00Z', last_ok_at: '2026-11-03T10:00:00Z', last_error: null, last_error_at: null, review_count: 1 }, filters: {},
   };
   const entries = options.empty ? [] : [{
-    id: 'je1', posted_on: '2026-11-03', kind: 'card_purchase', category: 'groceries', merchant: 'TEST SHOP', description: 'TEST SHOP (card purchase, SMS)', source: 'sms',
+    id: 'je1', posted_on: '2026-11-03', kind: 'card_purchase', category: 'groceries', merchant: 'TEST SHOP', description: 'TEST SHOP (card purchase)', source: 'sms',
     source_ref: 'fin_sms_1', status: 'posted', reverses_id: null, reversed_by_id: null, original_amount: null, original_currency: null, fx_rate: null, reconciled_at: null,
+    sources: [{ kind: 'wallet', message_id: 'w1', status: 'posted', received_at: '2026-11-03T10:00:00Z' }, { kind: 'sms', message_id: 'fin_sms_1', status: 'attached', received_at: '2026-11-03T10:01:00Z' }],
     postings: [{ ledger_account: 'expense:groceries', account_id: null, amount: '45.50', currency: 'SAR' }, { ledger_account: 'liability:acc_card', account_id: 'acc_card', amount: '-45.50', currency: 'SAR' }],
   }];
   await page.route('http://localhost:8000/**', async (route) => {
@@ -109,6 +110,8 @@ test('safety check, switch on, connect a device: the token is shown once with th
   await expect(dialog.getByRole('textbox', { name: 'Token' })).toHaveValue(/^anum_sms\./);
   await expect(dialog.getByText(/Shortcuts, Automation, New Automation, Message/)).toBeVisible();
   await expect(dialog.getByText('Authorization: Bearer <token>')).toBeVisible();
+  await expect(dialog.getByText('source = apple_wallet', { exact: true })).toBeVisible();
+  await expect(dialog.getByText(/\/api\/v1\/finance\/wallet\/ingest/).first()).toBeVisible();
   await dialog.getByRole('button', { name: 'I saved it' }).click();
   await expect(page.getByText('My iPhone')).toBeVisible();
   expect(sent.some((s) => s.path.endsWith('/sms/settings') && (s.body as { enabled?: boolean } | null)?.enabled === true)).toBe(true);
@@ -140,6 +143,8 @@ test('the ledger dashboard shows the journal figures per currency and the entrie
   const journal = page.getByRole('region', { name: 'Journal' });
   await expect(journal.getByText('Expense: groceries')).toBeVisible();
   await expect(journal.locator('.finSmsPostings li')).toHaveCount(2);
+  // One payment reported by Apple Pay and the bank SMS: one entry, two sources.
+  await expect(journal.getByText('Sources: Apple Pay, bank message')).toBeVisible();
 });
 
 test('empty, error and permission-denied states', async ({ page }) => {

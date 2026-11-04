@@ -6,7 +6,7 @@ export const SMS_KINDS = [
   'card_purchase', 'salary', 'deposit', 'transfer_in', 'transfer_out', 'own_transfer', 'atm_withdrawal', 'card_repayment',
   'loan_disbursement', 'loan_repayment', 'bank_fee', 'refund', 'reversal',
 ] as const;
-export const SMS_STATUSES: readonly FinanceSmsStatus[] = ['review', 'failed', 'duplicate', 'posted', 'dismissed', 'rejected'];
+export const SMS_STATUSES: readonly FinanceSmsStatus[] = ['review', 'failed', 'duplicate', 'attached', 'posted', 'dismissed', 'rejected'];
 
 /** The full ingest address the Shortcut calls. Shown only once the safety check passed. */
 export function ingestUrl(apiBase: string, path: string | null): string | null {
@@ -62,6 +62,16 @@ export function correctionBody(form: FinanceSmsCorrection): FinanceSmsCorrection
     }
   }
   return out as FinanceSmsCorrection;
+}
+
+/** The Apple Wallet automation's steps (docs/finance-sms.md#apple-wallet). */
+export function walletSteps(url: string): string[] {
+  return [t('fsms.wstep.1'), t('fsms.wstep.2', { url }), t('fsms.wstep.3'), t('fsms.wstep.4')];
+}
+
+/** The ingest addresses: messages and Apple Wallet share the device token. */
+export function walletUrl(smsUrl: string | null): string | null {
+  return smsUrl ? smsUrl.replace(/\/sms\/ingest$/, '/wallet/ingest') : null;
 }
 
 /** The step list the settings page shows for the Shortcut (docs/finance-sms.md#the-shortcut). */
