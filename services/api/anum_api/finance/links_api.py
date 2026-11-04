@@ -266,7 +266,7 @@ def delete_allocation(link_id: str, context: TenantContext = Depends(tenant_cont
     _manage(context)
     with open_link_stores(context) as (_finance, _sms, links):
         found = links.get_link(context, link_id)
-    if found is None or found.dimension != "business":
+    if found is None or found.dimension != "business" or found.status == LinkStatus.VOID:
         raise K.LinkError(404, "Allocation not found. It may have been removed.", "link_not_found")
     link = K.void(context, link_id, expected_version=None)
     _audit(repository, context, "finance.allocation.delete", link_id, {"workspace": link.target_workspace_id})
@@ -281,10 +281,7 @@ def business_allocations(currency: str | None = Query(default=None, min_length=3
     require_permission(context, Permission.BUSINESS_READ)
     with open_workspace_allocations(context) as store:
         rows, total = store.list_allocations(context, currency=currency.upper() if currency else None, limit=limit, offset=offset)
-        everything, _ = store.list_allocations(context, currency=currency.upper() if currency else None, limit=10_000, offset=0)
-    totals: dict[str, Decimal] = {}
-    for row in everything:
-        totals[row.currency] = totals.get(row.currency, Decimal(0)) + row.amount
+        totals = store.allocation_totals(context, currency=currency.upper() if currency else None)
     return AllocationPage(items=[_allocation_view(r) for r in rows], total=total, limit=limit, offset=offset, totals=totals)
 
 
@@ -478,7 +475,10 @@ def change_device(device_id: str, change: Literal["rotate", "pause", "resume", "
             scopes = sorted(set((body or {}).get("scopes") or []))
             if not scopes or len(scopes) > 10 or any(not isinstance(s, str) or s not in D.DEVICE_SCOPES for s in scopes):
                 raise K.LinkError(422, "Choose integrations from the list.", "invalid_scope")
-            _require_scopes(context, [s for s in scopes if s not in device.scopes])  # adding needs the permission; removing never does
+            added = [s for s in scopes if s not in device.scopes]
+            _require_scopes(context, added)  # adding needs the permission; removing never does
+            if set(added) & D.FINANCE_SCOPES and svc.settings_for(store, context).self_test_passed_at is None:
+                raise K.LinkError(409, "Run the finance safety check first (Finance, iPhone SMS).", "safety_check")
             device.scopes = scopes
         store.save_device(device)
     _audit(repository, context, f"integrations.iphone.device.{change}", device_id, {"scopes": device.scopes} if change == "scopes" else None)

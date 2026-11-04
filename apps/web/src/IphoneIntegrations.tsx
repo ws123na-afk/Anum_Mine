@@ -87,7 +87,7 @@ function Devices({ overview, onChanged }: { overview: IphoneOverview; onChanged:
           {editing?.id === d.id
             ? <div className="iphEditScopes"><ScopeBoxes scopes={issuable} value={editing.scopes} legend={t('iph.device.scopes')} onChange={(next) => setEditing({ id: d.id, scopes: next })} />
               <div className="actions">
-                <button type="button" disabled={busy || editing.scopes.length === 0} onClick={() => void run(async () => { await api.setScopes(d.id, editing.scopes); setEditing(null); })}>{t('iph.device.saveScopes')}</button>
+                <button type="button" disabled={busy || editing.scopes.length === 0} onClick={() => void run(async () => { await api.setScopes(d.id, [...editing.scopes, ...d.scopes.filter((s) => !issuable.includes(s))]); setEditing(null); })}>{t('iph.device.saveScopes')}</button>
                 <button type="button" className="secondary" onClick={() => setEditing(null)}>{t('iph.device.cancel')}</button></div></div>
             : <ul className="iphChips" aria-label={t('iph.device.scopes')}>{d.scopes.map((s) => <li key={s}>{scopeLabel(s)}</li>)}</ul>}
         </div>

@@ -157,6 +157,13 @@ def record_event(context: TenantContext, device_id: str, integration_key: str, s
         logger.exception("finance_device_event_not_recorded")
 
 
+def report_failure(context: TenantContext, device_id: str | None, scope: str, code: str) -> None:
+    """A module refused or failed a request after the token was accepted: a ``failed`` event for the iPhone page."""
+    item = integration_for_scope(scope)
+    if item is not None and device_id:
+        record_event(context, device_id, item.key, scope, "failed", code[:40])
+
+
 def authorize_scope(authorization: str | None, scope: str, *, now: datetime | None = None, outcome: str = "ok") -> DevicePrincipal:
     """The device's owner for a token holding ``scope`` (docs/iphone-integrations.md#checks).
 
@@ -325,6 +332,7 @@ __all__ = [
     "plug_module_authorities",
     "record_event",
     "register_integration",
+    "report_failure",
     "require_https",
     "switch_on",
 ]

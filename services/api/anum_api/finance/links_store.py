@@ -119,6 +119,7 @@ class LinkStore(Protocol):
     def set_allocation(self, context: TenantContext, workspace_id: str, link_id: str, *, status: str, posted_on: date, now: datetime) -> None: ...
     def delete_allocation(self, context: TenantContext, workspace_id: str, link_id: str) -> None: ...
     def list_allocations(self, context: TenantContext, *, currency: str | None, limit: int, offset: int) -> tuple[list[BusinessAllocation], int]: ...
+    def allocation_totals(self, context: TenantContext, *, currency: str | None) -> dict[str, Decimal]: ...
     def add_event(self, event: DeviceEvent) -> None: ...
     def count_events(self, context: TenantContext, device_id: str, scope: str, since: datetime) -> int: ...
     def purge_events(self, context: TenantContext, before: datetime) -> int: ...
@@ -204,12 +205,21 @@ class InMemoryLinkStore:
         rows.sort(key=lambda a: (a.posted_on, a.created_at, a.id), reverse=True)
         return [a.model_copy(deep=True) for a in rows[offset:offset + limit]], len(rows)
 
+    def allocation_totals(self, context: TenantContext, *, currency: str | None) -> dict[str, Decimal]:
+        out: dict[str, Decimal] = {}
+        for a in list(self.allocations.values()):
+            if a.tenant_id == context.tenant_id and a.workspace_id == context.workspace_id and (currency is None or a.currency == currency):
+                out[a.currency] = out.get(a.currency, Decimal(0)) + a.amount
+        return out
+
     def add_event(self, event: DeviceEvent) -> None:
         with self.lock:
             self.events[event.id] = event.model_copy()
 
     def count_events(self, context: TenantContext, device_id: str, scope: str, since: datetime) -> int:
-        return sum(1 for e in list(self.events.values()) if _mine(e, context) and e.device_id == device_id and e.scope == scope and e.created_at >= since)
+        """Accepted requests only: a refusal never keeps a device locked out."""
+        return sum(1 for e in list(self.events.values()) if _mine(e, context) and e.device_id == device_id and e.scope == scope
+                   and e.outcome in ("ok", "test") and e.created_at >= since)
 
     def purge_events(self, context: TenantContext, before: datetime) -> int:
         with self.lock:

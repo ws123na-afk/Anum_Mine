@@ -163,8 +163,10 @@ def test_over_allocation_is_refused_per_dimension() -> None:
     assert link(canonical, "50", target_id="veh_car2").status_code == 201
     # Another dimension is its own view of the same 150.
     assert allocate(canonical, "150").status_code == 201
-    again = allocate(canonical, "1", workspace=BUSINESS)  # the same target again with another amount reuses the derived key
+    again = allocate(canonical, "1", workspace=BUSINESS)  # the same business, project and category: the derived key is reused
     assert again.status_code == 409 and again.json()["code"] == "idempotency_conflict"
+    over = allocate(canonical, "1", workspace=BUSINESS, category="meals")  # a separate allocation, but nothing is left
+    assert over.status_code == 409 and over.json()["code"] == "over_allocated"
     wrong_currency = link(canonical, "10", currency="USD", target_id="veh_car3")
     assert wrong_currency.status_code == 422 and wrong_currency.json()["code"] == "currency_mismatch"
 
@@ -219,6 +221,7 @@ def test_a_correction_keeps_links_and_a_smaller_amount_puts_them_in_review() -> 
     assert refused.status_code == 409 and refused.json()["code"] == "over_allocated"
     # The owner removes the business allocation and lowers the vehicle part: links and journal stay consistent.
     assert client.delete(f"{API}/allocations/{allocation['id']}", headers=OWNER).status_code == 200
+    assert client.delete(f"{API}/allocations/{allocation['id']}", headers=OWNER).status_code == 404  # already removed: no second audit
     assert client.get("/api/v1/business/ledger-allocations", headers=BUSINESS_MEMBER).json()["items"] == []
     assert client.post(f"{API}/links/{vehicle['id']}/void", headers=OWNER, json={}).status_code == 200
     assert link(canonical, "120", target_id="veh_car9").status_code == 201
@@ -308,9 +311,15 @@ def test_reconciling_a_statement_copy_moves_its_links_to_the_recorded_payment() 
                                             canonical_id="fin_je_copy", dimension="vehicle", role="payment", target_type="vehicle", target_id="veh_m",
                                             amount=Decimal("20"), currency="SAR", idem_key="x" * 64, created_by="owner_links", created_at=now,
                                             updated_at=now))
+    # A second link on the same target with its own key (a split by project or a client key) moves too.
+    links_memory_store.add_link(FinanceLink(id="fin_link_copy2", tenant_id=TENANT, workspace_id=WORKSPACE, owner_user_id="owner_links",
+                                            canonical_id="fin_je_copy", dimension="vehicle", role="payment", target_type="vehicle", target_id="veh_m",
+                                            amount=Decimal("30"), currency="SAR", idem_key="y" * 64, created_by="owner_links", created_at=now,
+                                            updated_at=now))
     K.settle(finance_store, sms_memory_store, context, [("move", "fin_je_copy", canonical), ("sync", canonical, canonical)])
-    moved = links_memory_store.links["fin_link_copy"]
-    assert moved.canonical_id == canonical and moved.status == LinkStatus.ACTIVE and moved.status_reason == "moved_on_reconcile"
+    for link_id in ("fin_link_copy", "fin_link_copy2"):
+        moved = links_memory_store.links[link_id]
+        assert moved.canonical_id == canonical and moved.status == LinkStatus.ACTIVE and moved.status_reason == "moved_on_reconcile"
 
 
 def test_privacy_export_and_delete_cover_links_allocations_and_device_events() -> None:
@@ -377,7 +386,8 @@ def test_scoped_token_checks_scope_switch_pause_revoke_rate_and_role(vehicle_int
     assert scoped.value.code == "scope_missing" and scoped.value.status_code == 403
     sms = client.post(f"{API}/sms/ingest", headers={"Authorization": f"Bearer {token}"}, json={"message": FUEL_SMS, "sender": SENDER})
     assert sms.status_code == 403 and sms.json()["code"] == "scope_missing"
-    # Rate limit per device and scope (3 a minute here, refusals included): the refused, the accepted and this one.
+    # Rate limit per device and scope (3 accepted a minute here; refusals never count): two more, then refused.
+    D.authorize_scope(f"Bearer {token}", "vehicle")
     D.authorize_scope(f"Bearer {token}", "vehicle")
     with pytest.raises(D.DeviceError) as limited:
         D.authorize_scope(f"Bearer {token}", "vehicle")
@@ -400,6 +410,16 @@ def test_scoped_token_checks_scope_switch_pause_revoke_rate_and_role(vehicle_int
     assert revoked.value.status_code == 401
     # A viewer cannot make tokens for an integration their role cannot use.
     assert new_device(["vehicle"], headers={**OWNER, "x-user-roles": "viewer"}).status_code == 403
+
+
+def test_adding_a_finance_scope_to_a_device_needs_the_safety_check() -> None:
+    attendance_only = new_device(["attendance"])
+    assert attendance_only.status_code == 201, attendance_only.text
+    device_id = attendance_only.json()["device"]["id"]
+    refused = client.post(f"{IPHONE}/devices/{device_id}/scopes", headers=OWNER, json={"scopes": ["attendance", "finance.sms"]})
+    assert refused.status_code == 409 and refused.json()["code"] == "safety_check"
+    assert client.post(f"{API}/sms/self-test", headers=OWNER).json()["passed"]
+    assert client.post(f"{IPHONE}/devices/{device_id}/scopes", headers=OWNER, json={"scopes": ["attendance", "finance.sms"]}).status_code == 200
 
 
 def test_iphone_overview_events_test_and_ping(vehicle_integration: D.Integration) -> None:
@@ -466,8 +486,13 @@ def test_an_attendance_shortcut_signs_in_with_a_scoped_device_token() -> None:
     finance_only = client.post("/api/v1/attendance/device/events", headers={"Authorization": f"Bearer {s['token']}"},
                                json={**body, "idempotency_key": "scoped-0002"})
     assert finance_only.status_code == 403
+    unknown_site = client.post("/api/v1/attendance/device/events", headers=bearer, json={**body, "site_id": None, "site": "Nowhere",
+                                                                                          "idempotency_key": "scoped-0003"})
+    assert unknown_site.status_code == 404
     attendance = next(i for i in client.get(IPHONE, headers=OWNER).json()["integrations"] if i["key"] == "attendance.location")
-    assert attendance["enabled"] is True and attendance["last_ok_at"] is not None and attendance["failed_7d"] == 2
+    assert attendance["enabled"] is True and attendance["last_ok_at"] is not None and attendance["failed_7d"] == 3
+    codes = [e["code"] for e in client.get(f"{IPHONE}/integrations/attendance.location/events", headers=OWNER).json()["items"]]
+    assert codes[0] == "http_404" and set(codes) == {"http_404", "disabled", "scope_missing"}
     attendance_store.clear()
 
 

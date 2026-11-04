@@ -470,6 +470,14 @@ def _device_seen(context: TenantContext, device_id: str, *, error: str | None, u
                 "last_seen_at": utc_now(), "last_error": error, "upload_count": record.upload_count + (1 if uploaded else 0)}))
 
 
+def _shared_failed(context: TenantContext, device: DeviceRecord, code: str) -> None:
+    """A Settings, Integrations, iPhone token's failed upload shows under the integration's failed events."""
+    if device.token_hash == "-":
+        from ..finance.devices import report_failure
+
+        report_failure(context, device.id, SCOPE, code)
+
+
 @router.post("/device/upload", response_model=DocumentView, status_code=status.HTTP_201_CREATED)
 async def device_upload(
     request: Request,
@@ -496,9 +504,11 @@ async def device_upload(
                           access_class="private", source="device", allow_duplicate=False)
     except HTTPException as exc:
         await asyncio.to_thread(_device_seen, context, device.id, error=f"{exc.status_code}", uploaded=False)
+        await asyncio.to_thread(_shared_failed, context, device, f"http_{exc.status_code}")
         raise
     except Exception as exc:
         await asyncio.to_thread(_device_seen, context, device.id, error=type(exc).__name__[:80], uploaded=False)
+        await asyncio.to_thread(_shared_failed, context, device, "processing_error")
         raise
     await asyncio.to_thread(_device_seen, context, device.id, error=None, uploaded=True)
     return view

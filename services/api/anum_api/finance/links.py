@@ -177,7 +177,8 @@ def create(context: TenantContext, request: LinkRequest, *, allocation: dict[str
         store.lock_owner(context)  # the same lock ingestion and corrections take: no race with a reversal
         existing = links.link_by_idem(context, key)
         if existing is not None:
-            same = (existing.canonical_id == request.canonical_id and existing.dimension == request.dimension and existing.target_id == request.target_id
+            same = (existing.canonical_id == request.canonical_id and existing.dimension == request.dimension and existing.role == request.role
+                    and existing.target_type == request.target_type and existing.target_id == request.target_id
                     and existing.amount == request.amount and existing.currency == request.currency)
             if not same:
                 raise LinkError(409, "This idempotency key was used for a different link.", "idempotency_conflict")
@@ -317,12 +318,17 @@ def sync(store: Any, links: LinkStore, context: TenantContext, canonical_id: str
 
 def carry_forward(store: Any, links: LinkStore, context: TenantContext, from_canonical: str, to_canonical: str, now: datetime) -> None:
     """A statement copy was reconciled into a recorded payment: its links now point at the recorded one."""
+    kept = links.live_links(context, to_canonical)
     for link in links.live_links(context, from_canonical):
-        key = idem_key(context, to_canonical, link.dimension, link.target_type, link.target_id, link.role, None)
-        if links.link_by_idem(context, key) is not None:
-            _void(links, context, link, "merged_on_reconcile", now)  # the recorded payment already has this link
+        twin = next((k for k in kept if (k.dimension, k.role, k.target_type, k.target_id, k.amount, k.currency)
+                     == (link.dimension, link.role, link.target_type, link.target_id, link.amount, link.currency)), None)
+        if twin is not None:
+            _void(links, context, link, "merged_on_reconcile", now)  # the recorded payment already has exactly this link
             continue
-        link.canonical_id, link.idem_key = to_canonical, key
+        # A key of its own (derived from the old one), so links split by project or client key all move; sync then
+        # puts any dimension that no longer fits the recorded payment in review.
+        link.canonical_id = to_canonical
+        link.idem_key = hashlib.sha256(f"moved\x1f{to_canonical}\x1f{link.idem_key}".encode()).hexdigest()
         _save(links, link, status=link.status, reason="moved_on_reconcile", now=now)
 
 
@@ -368,9 +374,9 @@ def allocate(context: TenantContext, *, canonical_id: str, workspace_id: str, am
     if not SAFE_ID.match(workspace_id) or not can_allocate_to(context, workspace_id):
         # The same answer whether the workspace does not exist, is in another tenant or the caller may not write there.
         raise LinkError(403, "You can allocate only to a business workspace where you can change business records.", "workspace_not_allowed")
-    if idempotency_key is None and project_id is not None:
-        # One payment split across projects of the same business: one allocation per project.
-        idempotency_key = f"allocation\x1f{canonical_id}\x1f{workspace_id}\x1f{project_id}"
+    if idempotency_key is None:
+        # One payment can be split inside one business by project and category: one allocation for each pair.
+        idempotency_key = f"allocation\x1f{canonical_id}\x1f{workspace_id}\x1f{project_id or '-'}\x1f{category or '-'}"
     request = LinkRequest(canonical_id=canonical_id, dimension="business", role="payment", target_type=BUSINESS_TARGET, target_id=workspace_id,
                           amount=amount, currency=currency, idempotency_key=idempotency_key)
     memo_text = " ".join((memo or "").split())[:200] or None

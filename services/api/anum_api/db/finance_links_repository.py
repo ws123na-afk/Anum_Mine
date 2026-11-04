@@ -185,6 +185,13 @@ class SqlAlchemyLinkStore:
                                     .offset(offset).limit(limit))
         return [_load(r, BusinessAllocation) for r in rows], total
 
+    def allocation_totals(self, context: TenantContext, *, currency: str | None) -> dict[str, Decimal]:
+        record = BusinessLedgerAllocationRecord
+        where = [record.tenant_id == context.tenant_id, record.workspace_id == context.workspace_id]
+        if currency is not None:
+            where.append(record.currency == currency)
+        return {str(c): Decimal(v) for c, v in self.session.execute(select(record.currency, func.sum(record.amount)).where(*where).group_by(record.currency))}
+
     # device events
     def add_event(self, event: DeviceEvent) -> None:
         self.session.execute(insert(FinanceDeviceEventRecord).values(**_values(event)))
@@ -192,7 +199,8 @@ class SqlAlchemyLinkStore:
     def count_events(self, context: TenantContext, device_id: str, scope: str, since: datetime) -> int:
         record = FinanceDeviceEventRecord
         return int(self.session.scalar(select(func.count()).select_from(record).where(
-            *_mine(record, context), record.device_id == device_id, record.scope == scope, record.created_at >= since)) or 0)
+            *_mine(record, context), record.device_id == device_id, record.scope == scope, record.outcome.in_(("ok", "test")),
+            record.created_at >= since)) or 0)
 
     def purge_events(self, context: TenantContext, before: datetime) -> int:
         record = FinanceDeviceEventRecord
@@ -244,7 +252,11 @@ class SqlAlchemyLinkStore:
         }
 
     def count_everything(self, context: TenantContext) -> int:
-        return sum(int(self.session.scalar(select(func.count()).select_from(r).where(*_mine(r, context))) or 0) for r in RECORDS)
+        made = 0
+        for workspace_id in self._allocation_workspaces(context):
+            with self._in_workspace(context, workspace_id):
+                made += int(self.session.scalar(select(func.count()).select_from(BusinessLedgerAllocationRecord).where(*self._made_by_me(context))) or 0)
+        return made + sum(int(self.session.scalar(select(func.count()).select_from(r).where(*_mine(r, context))) or 0) for r in RECORDS)
 
     def delete_everything(self, context: TenantContext) -> int:
         """The person's links and events, and the allocation rows they made in business workspaces."""
