@@ -145,6 +145,11 @@ class SqlAlchemyCommandStore:
         record = self._record(command_id)
         return _command(record) if record is not None else None
 
+    def find_by_task(self, task_id: str) -> StoredCommand | None:
+        """The caller's command that created ``task_id`` (JSONB containment on its steps)."""
+        record = self.session.scalar(self._commands().where(CommandRecord.steps.contains([{"task_id": task_id}])).limit(1))
+        return _command(record) if record is not None else None
+
     def list_commands(self, limit: int, after: str | None) -> list[StoredCommand]:
         query = self._commands()
         if after:

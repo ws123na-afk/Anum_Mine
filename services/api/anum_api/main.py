@@ -214,7 +214,7 @@ from . import delivery
 from .tyre.api import router as tyre_router
 from .tyre.tools import register_tyre_tools
 from .green_concrete_ops import register_green_concrete_tools
-from .commands import router as commands_router
+from .commands import prepare_step_run as prepare_command_step_run, router as commands_router
 from .favorites import router as favorites_router
 from .knowledge_base import router as knowledge_router
 from .reports import router as reports_router
@@ -1407,6 +1407,9 @@ def _check_runnable(task: Task, context: TenantContext, repository: AnumReposito
         task, repository, context
     ):
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Task cannot be run from current state")
+    # A command step that builds on earlier steps waits for them and receives their results
+    # (docs/command.md#steps-that-build-on-each-other).
+    prepare_command_step_run(task, repository, context)
 
 
 def _usable_agent(context: TenantContext, agent_id: str):  # type: ignore[no-untyped-def]

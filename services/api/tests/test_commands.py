@@ -56,8 +56,14 @@ def _preview(text: str, headers: dict[str, str] = owner, **extra: object) -> dic
     return response.json()
 
 
-def _create(text: str = MOCKUP, headers: dict[str, str] = owner, **extra: object) -> dict:
-    steps = [{"instruction": step["instruction"]} for step in _preview(text, headers)["steps"]]
+def _create(text: str = MOCKUP, headers: dict[str, str] = owner, *, independent: bool = False, **extra: object) -> dict:
+    """As the clients do: the confirmed steps with the dependencies the preview showed. With
+    ``independent`` every step is declared to wait for nothing (``depends_on: []``), so a test
+    about something else can run the MOCKUP's send step although its tyre step fails."""
+    steps = [
+        {"instruction": step["instruction"], "depends_on": [] if independent else step["depends_on"]}
+        for step in _preview(text, headers)["steps"]
+    ]
     response = client.post("/api/v1/commands", headers=headers, json={"text": text, "steps": steps, **extra})
     assert response.status_code == 201, response.text
     return response.json()
@@ -154,7 +160,7 @@ def test_preview_in_arabic_names_agents_in_arabic() -> None:
 
 
 def test_preview_and_runtime_agree_on_which_steps_pause_for_approval() -> None:
-    command = _create()
+    command = _create(independent=True)
     _run_all(command)
     view = _view(command["id"])
     for step in view["steps"]:
@@ -304,7 +310,7 @@ def test_delete_removes_history_only_after_the_command_stopped() -> None:
 
 
 def test_report_in_markdown_and_json_is_audited() -> None:
-    command = _create()
+    command = _create(independent=True)
     _run_all(command)
     markdown = client.get(f"/api/v1/commands/{command['id']}/report", headers=owner, params={"format": "markdown"})
     assert markdown.status_code == 200 and markdown.headers["content-type"].startswith("text/markdown")
@@ -330,7 +336,7 @@ def test_attachments_must_be_workspace_files() -> None:
 
 
 def test_next_steps_follow_the_results() -> None:
-    command = _create()
+    command = _create(independent=True)
     _run_all(command)
     steps = client.get(f"/api/v1/commands/{command['id']}/next-steps", headers=owner).json()
     kinds = [item["kind"] for item in steps]
@@ -490,3 +496,139 @@ def test_download_and_delete_my_data_cover_commands_and_quick_commands() -> None
     # The tasks stay with the workspace; other users keep their history.
     assert command["steps"][0]["task_id"] in store.tasks
     assert len(client.get("/api/v1/commands", headers=owner).json()) == 1
+
+
+# --- steps that build on each other ---------------------------------------------------------
+
+
+def test_then_and_earlier_results_become_dependencies() -> None:
+    assert [step["depends_on"] for step in _preview(MOCKUP)["steps"]] == [[], [], [], [1, 2, 3]]
+    assert [step["depends_on"] for step in _preview(NO_TYRE)["steps"]] == [[], [], [1, 2]]
+    # A clause that uses an earlier result waits for the step before it, in English and Arabic.
+    plan = _preview("Search the web for tyre prices in Dubai and send the results to the team")
+    assert [step["depends_on"] for step in plan["steps"]] == [[], [1]]
+    arabic = _preview("ابحث في الإنترنت عن أسعار الإطارات ثم أرسل النتائج إلى الفريق")
+    assert [step["depends_on"] for step in arabic["steps"]] == [[], [1]]
+    # Independent steps stay independent.
+    assert [step["depends_on"] for step in _preview("Check my emails and search the web for tyre prices")["steps"]] == [[], []]
+
+
+def test_create_keeps_declared_dependencies_or_derives_them() -> None:
+    derived = client.post("/api/v1/commands", headers=owner, json={"text": NO_TYRE, "steps": [
+        {"instruction": "Check my emails, prepare a summary"}, {"instruction": "send the summary to the team"},
+    ]})
+    assert derived.status_code == 201, derived.text
+    assert [step["depends_on"] for step in derived.json()["steps"]] == [[], [1]]
+    declared = client.post("/api/v1/commands", headers=owner, json={"text": NO_TYRE, "steps": [
+        {"instruction": "Check my emails, prepare a summary", "depends_on": []},
+        {"instruction": "schedule a meeting with the team tomorrow at 10 a.m", "depends_on": []},
+        {"instruction": "send the summary to the team", "depends_on": [1]},
+    ]})
+    assert [step["depends_on"] for step in declared.json()["steps"]] == [[], [], [1]]
+    forward = client.post("/api/v1/commands", headers=owner, json={"text": NO_TYRE, "steps": [
+        {"instruction": "Check my emails", "depends_on": [2]}, {"instruction": "send the summary to the team"},
+    ]})
+    assert forward.status_code == 422 and "only wait for steps that come before it" in forward.text
+
+
+def test_a_dependent_step_cannot_run_before_the_steps_it_waits_for() -> None:
+    command = _create(NO_TYRE)
+    last = command["steps"][2]
+    early = client.post(f"/api/v1/tasks/{last['task_id']}/run", headers=owner)
+    assert early.status_code == 409
+    assert early.json()["error"]["message"] == 'Step 3 waits for step 1 ("Check my emails, prepare a summary") to complete; it has not started yet.'
+    assert store.tasks[last["task_id"]].status == "created"
+    view = _view(command["id"])
+    assert view["steps"][2]["depends_on"] == [1, 2] and view["steps"][2]["waiting_for"] == [1, 2]
+    assert view["steps"][2]["blocked_by"] == []
+
+
+def test_start_runs_steps_in_dependency_order_and_passes_results_forward() -> None:
+    command = _create(NO_TYRE)
+    response = client.post(f"/api/v1/commands/{command['id']}/start", headers=owner)
+    assert response.status_code == 200, response.text
+    body = response.json()
+    ids = [step["task_id"] for step in command["steps"]]
+    assert body["refused"] == {} and sorted(body["started"]) == sorted(ids)
+    # The first two started together; the third only after both completed.
+    assert set(body["started"][:2]) == set(ids[:2]) and body["started"][2] == ids[2]
+    view = body["command"]
+    assert [step["status"] for step in view["steps"]] == ["completed", "completed", "waiting_approval"]
+    assert view["steps"][2]["waiting_for"] == []
+    first_done = max(store.runs[step["run_id"]].updated_at for step in view["steps"][:2])
+    assert store.runs[view["steps"][2]["run_id"]].created_at >= first_done
+    # The dependent step's run received the earlier results as labeled, untrusted context: its
+    # instruction is unchanged, so the confirmed plan (tool, approval) is what ran.
+    assert store.tasks[ids[2]].prompt == "send the summary to the team"
+    used = [step for step in store.runs[view["steps"][2]["run_id"]].steps if step.type == "command_input"]
+    assert len(used) == 1 and used[0].metadata == {"status": "used", "steps": [1, 2]}
+    from anum_api.commands import step_inputs
+    from anum_api.schemas import TenantContext
+
+    context = TenantContext(tenant_id="tenant_a", workspace_id="workspace_a", user_id="user_owner", roles=["owner", "member"])
+    blocks, positions = step_inputs(store.tasks[ids[2]], context)
+    assert positions == [1, 2] and "source=tool_output" in blocks[0] and "origin=command-step-1" in blocks[0]
+    assert "Result of step 1 (Check my emails, prepare a summary):" in blocks[0]
+    assert view["steps"][0]["result"].strip()[:40] in blocks[0]
+    # Another user's runs never read this user's command.
+    assert step_inputs(store.tasks[ids[2]], context.model_copy(update={"user_id": "user_member"})) == ([], [])
+    # Starting again starts nothing new: everything that could start has.
+    again = client.post(f"/api/v1/commands/{command['id']}/start", headers=owner).json()
+    assert again["started"] == [] and again["refused"] == {}
+
+
+def test_a_failed_earlier_step_blocks_the_steps_that_need_it() -> None:
+    command = _create("Send the weekly update to the team, then search the web for tyre prices")
+    assert [step["depends_on"] for step in command["steps"]] == [[], [1]]
+    started = client.post(f"/api/v1/commands/{command['id']}/start", headers=owner).json()
+    assert started["started"] == [command["steps"][0]["task_id"]]
+    (pending,) = started["command"]["pending"]
+    client.post(f"/api/v1/approvals/{pending['id']}/reject", headers=owner)
+    view = _view(command["id"])
+    assert view["steps"][1]["status"] == "created" and view["steps"][1]["blocked_by"] == [1]
+    # The blocked step cannot finish on its own, so the command no longer reads as running.
+    assert view["status"] == "failed"
+    again = client.post(f"/api/v1/commands/{command['id']}/start", headers=owner).json()
+    assert again["started"] == []
+    refused = client.post(f"/api/v1/tasks/{command['steps'][1]['task_id']}/run", headers=owner)
+    assert refused.status_code == 409 and "Run step 1 again first" in refused.json()["error"]["message"]
+
+
+def test_start_is_private_and_needs_task_run() -> None:
+    command = _create(NO_TYRE)
+    assert client.post(f"/api/v1/commands/{command['id']}/start", headers=member).status_code == 404
+    assert client.post(f"/api/v1/commands/{command['id']}/start", headers=viewer).status_code == 403
+
+
+# --- calendar steps follow the real calendar connection --------------------------------------
+
+
+def test_calendar_steps_say_what_the_connected_calendar_does() -> None:
+    from anum_api.calendar_providers import CalendarProvider
+    from anum_api.calendar_sync import CalendarConnection, ConnectionStatus, sync_backend
+    from anum_api.schemas import utc_now
+
+    meeting = "Schedule a meeting with the team tomorrow at 10 a.m"
+    (none,) = _preview(meeting)["steps"]
+    assert none["agent"]["id"] == "calendar" and none["connected"] is False
+    assert none["note"].startswith("No calendar is connected to ANUM yet")
+    now = utc_now()
+    connection = CalendarConnection(
+        id="calconn_1", tenant_id="tenant_a", workspace_id="workspace_a", provider=CalendarProvider.GOOGLE,
+        email="owner@example.com", connected_by="user_owner", created_at=now, updated_at=now,
+    )
+    sync_backend.connections[connection.id] = connection
+    try:
+        (live,) = _preview(meeting)["steps"]
+        assert live["connected"] is True and "No calendar" not in live["note"]
+        assert live["note"].startswith("Google Calendar is connected.") and "Ask to send invitations" in live["note"]
+        (arabic,) = _preview("رتب اجتماعا مع الفريق غدا", locale="ar")["steps"]
+        assert arabic["agent"]["id"] == "calendar" and "Google Calendar متصل" in arabic["note"]
+        # Another workspace's calendar is never this workspace's.
+        (other,) = _preview(meeting, headers=other_tenant)["steps"]
+        assert other["connected"] is False
+        sync_backend.connections[connection.id] = connection.model_copy(update={"status": ConnectionStatus.REAUTH_REQUIRED})
+        (reauth,) = _preview(meeting)["steps"]
+        assert reauth["connected"] is False and reauth["note"].startswith("Google Calendar needs to be connected again")
+    finally:
+        sync_backend.connections.pop(connection.id, None)

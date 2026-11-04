@@ -1,6 +1,6 @@
 # ANUM Command
 
-ANUM Command turns one spoken or typed request ("Check my emails, find today's urgent items, prepare a summary, check the PMV tyre report and schedule a meeting with the team tomorrow at 10 AM") into a plan of steps, shows which agents and tools each step will use and which steps will pause for approval, and, once the person confirms, runs the steps in parallel as ordinary tasks. The person can follow the work live, approve what needs approval, read the results and start a suggested next step.
+ANUM Command turns one spoken or typed request ("Check my emails, find today's urgent items, prepare a summary, check the PMV tyre report and schedule a meeting with the team tomorrow at 10 AM") into a plan of steps, shows which agents and tools each step will use and which steps will pause for approval, and, once the person confirms, runs the steps as ordinary tasks: steps that do not depend on each other run together, and a step that builds on earlier ones ("... then send the summary to the team") waits for them and receives their results. The person can follow the work live, approve what needs approval, read the results and start a suggested next step.
 
 The API is `anum_api/commands.py` (router `/api/v1`), the PostgreSQL store `anum_api/db/command_repository.py` and the migration `0044_commands`. The Flutter screens are in `apps/mobile/lib/features/command/` ([Flutter mobile](mobile.md)); the web Command Center (below) uses the same endpoints and the TypeScript types in `packages/contracts/src/command.ts`.
 
@@ -45,7 +45,8 @@ Response `CommandPlan`:
       "approval": "none",
       "approval_reason": "The tool is low risk and within the actor's scope.",
       "connected": true,
-      "note": null
+      "note": null,
+      "depends_on": []
     }
   ],
   "agents": [{"id": "email", "name": "Email agent"}],
@@ -57,7 +58,8 @@ Response `CommandPlan`:
 - `approval` is `none`, `required` (a run of this step will pause for approval) or `blocked` (policy refuses the tool; the step cannot be confirmed). It is the runtime's own decision: the tool policy, the workspace's approval policy, the organization's governance rules and the workspace's autonomy policy ([Approvals and risk](approvals-and-risk.md), [Autonomy](autonomy.md)).
 - `agent.id` is one of `email`, `whatsapp`, `commerce`, `research`, `action`, `calendar`, `tyre`, `writer` and `general`; `name` is in the request's language.
 - `connected: false` marks a step that cannot reach live data, and `note` says what happens instead:
-  - `calendar`: no calendar is connected to ANUM yet, so the step drafts the meeting for the person to send.
+  - `calendar`: the note follows the workspace's real calendar connections (Calendar > Sync, [Calendar](calendar.md)). With none, the step is `connected: false` and drafts the meeting for the person to send. With a connection that needs signing in again, it is `connected: false` and names the provider to reconnect. With a working Google or Microsoft 365 connection it is `connected: true` and the note says the step drafts the meeting and that invitations go out from Calendar's **Ask to send invitations**, which an owner approves for the exact event (`calendar.send_invitations`). A command step never sends invitations by itself.
+- `depends_on`: the positions of earlier steps this step waits for ([Steps that build on each other](#steps-that-build-on-each-other)).
   - `tyre`: the step uses the tyre planning tools (`tyre_fleet_summary`, `tyres_due`, `purchase_plan`, `tyre_alerts`, [Tyre planning](tyre-planning.md)). It is `connected: true` once the workspace has saved a TyrePulse connection; without one the note says "Connect TyrePulse under Tyre planning first" (the run would fail with "Connect your tyre data first"). On a server without the tyre tools, the step answers from the workspace's files and notes.
 
 ### `POST /api/v1/commands`
@@ -67,7 +69,7 @@ Creates the command and one task per confirmed step, in the confirmed order, in 
 ```json
 {
   "text": "the request as understood and confirmed",
-  "steps": [{"instruction": "..."}, {"instruction": "..."}],
+  "steps": [{"instruction": "...", "depends_on": []}, {"instruction": "...", "depends_on": [1]}],
   "source": "typed | voice | quick_command | suggestion | next_step",
   "locale": "en",
   "attachments": ["file_..."],
@@ -80,7 +82,11 @@ Creates the command and one task per confirmed step, in the confirmed order, in 
 - `quick_command_id`: the caller's quick command this request came from; its `use_count` and `last_used_at` are updated. `404` if it is not the caller's.
 - Each task gets a `task.created` event whose payload carries `command_id` and `position`.
 
-Then start every step: `POST /api/v1/tasks/{task_id}/run` for each `steps[].task_id`, in parallel (each needs `task:run`; with `ANUM_RUNTIME_BACKEND=temporal` they are queued for the worker). A step's run that needs approval stops at `waiting_approval` like any task run.
+- `depends_on` (optional per step): positions, in the confirmed order, of earlier steps this one waits for; a position that is not earlier is refused (`422`). Left out, the server decides from the instruction: a step that uses an earlier result ("send the summary", "the results", "based on", "النتائج", "الملخص") waits for the step before it. The web sends the preview's `depends_on`, adjusted when the person moved or removed steps.
+
+Then start it: `POST /api/v1/commands/{id}/start` (needs `task:run`; `404` for another user's command). It starts every step that can start, together, through the same body as `POST /api/v1/tasks/{task_id}/run`; when a run finishes inline (the default runtime), it starts the steps that were waiting for it, and so on. It answers `{"started": [task ids], "refused": {task id: reason}, "command": <live view>}`. A step whose earlier step waits for approval, runs on the durable worker (`ANUM_RUNTIME_BACKEND=temporal`) or failed is left for a later call; calling it again starts only what is ready, so repeating it is safe. The monthly model budget or an emergency stop answers as `POST /tasks/{id}/run` does.
+
+`POST /api/v1/tasks/{task_id}/run` on a command step still works, but a step that waits for earlier steps is refused with `409` until they all completed ("Step 3 waits for step 1 (...) to complete; it is running.", or "... which failed. Run step 1 again first."). A step's run that needs approval stops at `waiting_approval` like any task run.
 
 Stop: `POST /api/v1/tasks/bulk` with `{"action": "cancel", "task_ids": [...]}` (the command's task ids). Finished tasks answer `409` per item and are left as they are.
 
@@ -88,7 +94,7 @@ Stop: `POST /api/v1/tasks/bulk` with `{"action": "cancel", "task_ids": [...]}` (
 
 The live view (`CommandView`): the summary fields below plus
 
-- `steps[]`: `position`, `title`, `instruction`, `agent`, `tool`, `risk_level`, `approval` (as planned), `task_id`, `task` (the task, or null if it can no longer be read), `status` (the task's status), `progress` (0-1, from the run's checkpoint phase), `run_id`, `result` (the run's result text), `started_at`, `finished_at` and `approvals` (every approval of that task, with `payload_hash`).
+- `steps[]`: `position`, `title`, `instruction`, `agent`, `tool`, `risk_level`, `approval` (as planned), `task_id`, `task` (the task, or null if it can no longer be read), `status` (the task's status), `progress` (0-1, from the run's checkpoint phase), `run_id`, `result` (the run's result text), `started_at`, `finished_at` `approvals` (every approval of that task, with `payload_hash`), `depends_on`, `waiting_for` (the earlier steps it waits for that have not completed) and `blocked_by` (those that failed or were cancelled: the step does not start on its own).
 - `pending[]`: the command's pending approvals, ready for "Approve all".
 - `timeline[]`: the tasks' events oldest first (`id`, `at`, `type`, `task_id`, `position`, `agent`, `title`), at most 50 per step. `type` is a canonical event name ([Events](events.md)): `task.created`, `agent_run.started`, `approval.requested`, `agent_run.completed`, ...
 - `files[]`: `{"kind": "attachment" | "run_log", "name", "path", "file_id", "task_id", "content_type"}`. `path` is an API path to download with the caller's headers: `/api/v1/files/{id}/content` for attachments, `/api/v1/tasks/{id}/export?format=markdown` for each started step's run log.
@@ -109,6 +115,8 @@ Clients refresh the view when `GET /api/v1/events/stream` delivers an event whos
 | `waiting_approval` | Nothing is running and a step waits for approval |
 | `completed` | Every step completed |
 | `partial` | Every step finished and some failed or were cancelled |
+
+A step that never started because an earlier step it needs failed or was cancelled counts as failed here, so such a command is `partial` or `failed`, not `running` forever.
 | `failed` | Every step failed (or failed and was cancelled) |
 | `cancelled` | Every step was cancelled |
 
@@ -159,7 +167,7 @@ On the web, the ANUM Command Center (`#command`, "ANUM Command" in the sidebar) 
 | Header | "ANUM Command Center", the promise ("you see the plan first; nothing runs until you start it") and the Voice / Text / Files mode switch | none |
 | Orb and chips | The glowing ANUM orb ("Ready · Tap to speak"): push-to-talk in English or Arabic (the English/العربية toggle under it) that fills the composer for checking. Eight chips around it: Check my emails, WhatsApp messages, Create a task and Automate work open their pages; Prepare a report, Find information and Analyze data put the start of a request in the composer (Analyze data also switches to Files); Open anything opens the search palette | Browser speech recognition |
 | Composer | "Tell ANUM what you need...": microphone, attach (uploads to Documents), choose from Documents (Files mode: tick up to 5 recent documents), and the send button, which **shows the plan** (Enter does the same). An example line and chips for saved, recent and starter commands (each is planned, never run), with a refresh button | `POST /files`, `GET /files`, `GET /commands/suggestions` |
-| Here is what ANUM will do | The plan: each step's agent, tool, risk and whether it runs on its own, asks for approval or is blocked by policy, with the step's note (for example no calendar connected). Move up, move down, remove; Edit the request; **Start** (refused while a blocked step remains) | `POST /commands/preview`, then `POST /commands` and `POST /tasks/{id}/run` per step |
+| Here is what ANUM will do | The plan: each step's agent, tool, risk and whether it runs on its own, asks for approval or is blocked by policy, with the step's note (for example no calendar connected). Move up, move down, remove; Edit the request; **Start** (refused while a blocked step remains) | `POST /commands/preview`, then `POST /commands` and `POST /commands/{id}/start` (again whenever a waiting step is ready) |
 | Capability tiles | Email, Data analysis, Reports, Voice assistant, WhatsApp, Tasks, Web research, Automations: open the page or prefill the request; one row on wide screens, a sideways row with arrows below 1100 px | none |
 | Tracker ("ANUM is working...", "Waiting for your approval", "Last command") | The command ANUM is on (the newest, or the one picked in Recent commands): progress, a step timeline with each step's agent, tool, state and result, **Review the approval** and **Approve all** (one request per pending approval with the payload hash shown; a refusal does not stop the others), **Stop**, attached documents, next steps (a follow-up is planned, never run directly; "Save as a quick command"), Download report (Markdown) and Remove from history once nothing runs. It refreshes every 3 seconds while running and on workspace events | `GET /commands/{id}`, `POST /approvals/{id}/approve`, `GET /commands/{id}/next-steps`, `POST /tasks/bulk`, `GET /commands/{id}/report`, `DELETE /commands/{id}` |
 | Live agent activity | The caller's commands still running or waiting for approval, with their agents, steps done and progress; a row opens it in the tracker | `GET /commands` |
@@ -183,7 +191,15 @@ No model is involved, so a preview is instant, free and the same every time:
 3. **Steps.** A clause that names no agent of its own (or only asks for a summary) joins the step before it, as does a clause for the same agent, so "check my emails, find today's urgent items, prepare a summary" is one email step. At most 8 steps; the rest of a longer request stays in the last one.
 4. **Policy.** Each step's tool is evaluated with the runtime's tool policy and the workspace's autonomy policy (`runtime.with_workspace_autonomy`), so the preview says "needs approval" exactly when the run would pause.
 
-Steps run in parallel and independently: a later step does not see an earlier step's result. Steps that build on each other belong in one step (the grouping above does that for summaries).
+5. **Dependencies.** A clause introduced by "then", "after that" or "ثم" waits for every step before it; a clause that uses an earlier result ("send the summary", "the results", "them", "based on", "النتائج", "الملخص") waits for the step before it. Everything else runs together.
+
+### Steps that build on each other
+
+- **Order.** A step starts only when every step in its `depends_on` completed: `POST /commands/{id}/start` starts what is ready, and the gate in `POST /tasks/{id}/run` refuses an early start (`409`). The web Command Center calls start again whenever the live view shows a waiting step that is now ready (after an approval or a durable run), so the command finishes on its own while the page is open. The voice assistant's quick commands start the same way.
+- **Results passed forward.** When a waiting step runs, the results of the steps it waits for reach its model prompt as labeled, untrusted data blocks (source `tool_output`, origin `command-step-N`, at most 4,000 characters each), like retrieved workspace context. They never select a skill or a tool and are not part of an approval, and the step's instruction is not changed, so the agent, tool and approval the person confirmed are what runs. The run log records a `command_input` step with the positions used, never the text (`runtime._command_inputs`, `commands.step_inputs`).
+- **A failed step.** A step whose earlier step failed or was cancelled does not start; the live view lists it in `blocked_by` and the web says "Not started: step N did not complete". Running that earlier step again from its task lets it start.
+- **Event loop.** The start route is `async` and does every read in its own short unit of work in a worker thread (`run_in_unit`); no transaction is open while a step runs (docs/realtime.md#event-loop).
+- Tests: `services/api/tests/test_commands.py` (dependencies from "then" and earlier results, declared and derived on create, the `409` gate, start order, results as labeled blocks, a failed step blocking, privacy), `test_postgres_commands.py::test_steps_start_in_dependency_order_under_rls`, `apps/web/test/commands.test.ts`, `apps/web/e2e/command-center.spec.ts` (a waiting step continued, a moved step dropping its wait).
 
 ## Storage, privacy and audit
 
@@ -194,6 +210,6 @@ Steps run in parallel and independently: a later step does not see an earlier st
 
 ## Not done yet
 
-- **Calendar.** There is no calendar integration: calendar steps are planned as drafts (`connected: false` with a note), never as invites sent.
-- **Image understanding.** A photo attached from the Command screen is stored as a workspace file and listed in the command's Files, but the model gateway has no vision input, so its pixels are not read.
-- **Steps that depend on each other** run in parallel without each other's results (see "How the plan is made").
+- **Calendar invitations from a command.** A calendar step drafts the meeting even when a calendar is connected; it does not create the event or send invitations itself (the note says to use Calendar's Ask to send invitations, which an owner approves).
+- **Image understanding.** A photo attached from the Command screen is stored as a workspace file and listed in the command's Files, but a step's run reads attachments only as text through workspace retrieval and files have no OCR, so a photo's pixels are not read. The model gateway can read images, but only the voice call's camera frames use it ([Vision](model-gateway.md#vision-voice-calls)).
+- **Waiting steps continue only while someone has the command open** (or calls `POST /commands/{id}/start`): after an approval or a durable run finishes, no background job starts the steps that were waiting. The phone app starts every step itself, so a step that waits gets "Step N waits for step M" and starts from "Start the remaining steps" once step M completed.
