@@ -162,20 +162,28 @@ export function CampusView(props: CampusViewProps) {
     void import('./hq-logo-signs/campusSigns.ts').then((m) => { if (live) setSignKit(m); }).catch(() => undefined);
     return () => { live = false; };
   }, [signKit, anySign]);
+  // One logo read per building for the life of the view: a new pass (the selection moved) reuses a read still in flight.
+  const [logoFetcher, setLogoFetcher] = useState<import('./hq-logo-signs/campusSigns.ts').Fetcher | null>(null);
+  useEffect(() => {
+    if (!signKit) return undefined;
+    const life = new AbortController();
+    setLogoFetcher(() => signKit.sharingFetcher(life.signal));
+    return () => { life.abort(); setLogoFetcher(null); };
+  }, [signKit]);
   const [logos, setLogos] = useState<ReadonlyMap<string, SignLogo>>(NO_LOGOS);
   const logosRef = useRef(logos);
   logosRef.current = logos;
   const logoSig = facts.map((b) => (b.sign?.logoSha256 ? `${b.sign.workspaceId ?? ''}/${b.sign.buildingId}:${b.sign.logoSha256}` : '')).join('|');
   useEffect(() => {
-    if (!signKit) return undefined;
+    if (!signKit || !logoFetcher) return undefined;
     const controller = new AbortController();
     const where = new Map(placements.map((p) => [p.workspaceId, p]));
     const focus = cameraRef.current.target;
     const targets = signKit.pickLogoTargets(facts.flatMap((b) => (b.sign?.logoSha256 ? [{ id: b.workspace_id, buildingId: b.sign.buildingId, sha: b.sign.logoSha256, x: where.get(b.workspace_id)?.x ?? 0, z: where.get(b.workspace_id)?.z ?? 0, ...(b.sign.workspaceId ? { workspaceId: b.sign.workspaceId } : {}) }] : [])), { x: focus.x, z: focus.z });
-    void signKit.loadLogos(targets, logosRef.current, controller.signal).then((next) => { if (!controller.signal.aborted) setLogos(next); }).catch(() => undefined);
+    void signKit.loadLogos(targets, logosRef.current, controller.signal, logoFetcher).then((next) => { if (!controller.signal.aborted) setLogos(next); }).catch(() => undefined);
     return () => controller.abort();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [signKit, logoSig, selectedId]);
+  }, [signKit, logoFetcher, logoSig, selectedId]);
   useEffect(() => () => { for (const logo of logosRef.current.values()) logo.image.close(); }, []);
   const signStats = useMemo(() => (signKit ? signKit.signStats(facts, logos) : { branded: facts.filter((b) => b.sign).length, logos: 0 }), [signKit, facts, logos]);
   const atlasCache = useRef<GlassPlanData | null>(null);

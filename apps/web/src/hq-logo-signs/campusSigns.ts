@@ -48,6 +48,31 @@ export type Fetcher = (buildingId: string, signal?: AbortSignal, workspaceId?: s
 const defaultFetcher: Fetcher = async (buildingId, signal, workspaceId) => (await import('./logoClient.ts')).fetchLogo(buildingId, signal, workspaceId);
 
 /**
+ * A fetcher that shares one read per building while it is in flight. The campus starts a new logo pass when the selection moves (the
+ * nearest buildings change) and stops the old pass; without this, a logo read that pass had started was cancelled and read again.
+ * The shared read lives as long as `lifetime` (the view); a caller's own `signal` only stops that caller waiting (it then gets null).
+ */
+export function sharingFetcher(lifetime: AbortSignal, fetcher: Fetcher = defaultFetcher): Fetcher {
+  const inFlight = new Map<string, Promise<Blob | null>>();
+  return (buildingId, signal, workspaceId) => {
+    const key = `${workspaceId ?? ''}/${buildingId}`;
+    let shared = inFlight.get(key);
+    if (!shared) {
+      shared = fetcher(buildingId, lifetime, workspaceId).finally(() => { inFlight.delete(key); });
+      inFlight.set(key, shared);
+    }
+    if (!signal) return shared;
+    if (signal.aborted) return Promise.resolve(null);
+    const read = shared;
+    return new Promise<Blob | null>((resolve, reject) => {
+      const stop = () => resolve(null);
+      signal.addEventListener('abort', stop, { once: true });
+      read.then((blob) => { signal.removeEventListener('abort', stop); resolve(blob); }, (error: unknown) => { signal.removeEventListener('abort', stop); reject(error); });
+    });
+  };
+}
+
+/**
  * Loads the logos of `targets`, reusing the ones already decoded in `previous` (same building and hash). Returns the new map and closes
  * the bitmaps that are no longer wanted. A target that fails is simply missing from the result.
  */
