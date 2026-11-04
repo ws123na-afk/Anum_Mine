@@ -15,7 +15,7 @@
 
 Every table is under forced RLS with ``tenant_isolation_<table>``, a restrictive
 ``owner_only_<table>`` policy on ``owner_user_id = anum.user_id`` and the tenant purge policy
-(``lifecycle_purge_<table>``), like ``0122_finance_ibkr_live``.
+(``lifecycle_purge_<table>``) that the owner policy admits, like ``0122`` with ``0124``.
 
 Expand only: new tables. The previous release ignores them. Chained after ``0130_action_browser``.
 """
@@ -54,7 +54,10 @@ def _rls(table: str) -> None:
     op.execute(f"alter table {table} enable row level security")
     op.execute(f"alter table {table} force row level security")
     op.execute(f"create policy tenant_isolation_{table} on {table} using ({PREDICATE}) with check ({PREDICATE})")
-    op.execute(f"create policy owner_only_{table} on {table} as restrictive using ({OWNER_PREDICATE}) with check ({OWNER_PREDICATE})")
+    # The restrictive owner policy also admits the tenant purge role (like 0124), which reaches rows
+    # only through its own lifecycle_purge policy and can never write.
+    op.execute(f"create policy owner_only_{table} on {table} as restrictive "
+               f"using (({OWNER_PREDICATE}) or (current_user = 'anum_tenant_purger'::name)) with check ({OWNER_PREDICATE})")
     op.execute(f"grant select (tenant_id, ctid, workspace_id), delete on {table} to anum_tenant_purger")
     purge_policy = (f"create policy lifecycle_purge_{table} on {table} for all to anum_tenant_purger "  # nosec B608: fixed table name
         "using (tenant_id = nullif(current_setting('anum.tenant_id', true), '') "
@@ -221,7 +224,8 @@ def upgrade() -> None:
     op.create_index("ix_finance_postings_entry", "finance_postings", ["entry_id"])
     op.create_index("ix_finance_postings_owner", "finance_postings", ["tenant_id", "workspace_id", "owner_user_id", "ledger_account"])
 
-    # Every entry balances per currency, checked when the transaction commits.
+    # Every entry balances per currency, checked when the transaction commits. An entry whose postings
+    # are all gone (privacy deletion, tenant purge) is not checked; one left with a single posting is.
     op.execute("""
         create function finance_postings_balanced() returns trigger language plpgsql as $$
         declare
@@ -232,7 +236,7 @@ def upgrade() -> None:
                 raise exception 'finance journal entry % does not balance', target using errcode = '23514';
             end if;
             if exists (select 1 from finance_journal_entries e where e.id = target)
-               and (select count(*) from finance_postings p where p.entry_id = target) < 2 then
+               and (select count(*) from finance_postings p where p.entry_id = target) = 1 then
                 raise exception 'finance journal entry % needs at least two postings', target using errcode = '23514';
             end if;
             return null;

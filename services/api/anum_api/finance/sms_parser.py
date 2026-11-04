@@ -64,7 +64,7 @@ MONEY_IN = frozenset({Kind.SALARY, Kind.DEPOSIT, Kind.TRANSFER_IN, Kind.LOAN_DIS
 
 class Rejection(StrEnum):
     OTP = "otp"  # one-time, verification or activation code
-    PASSWORD = "password"  # password, PIN or login details
+    LOGIN_DETAILS = "password"  # password, PIN or login details
     PROMOTION = "promotion"  # an offer or advert
     NOT_FINANCIAL = "not_financial"  # no money in it at all
 
@@ -201,7 +201,7 @@ _FEE_AMOUNT = re.compile(rf"(?:fee|fees|charges|رسوم)\s*(?:of|:)?\s*(?:(?P<c
 
 # Long digit runs (account, card and IBAN numbers), with spaces or dashes between groups.
 _LONG_NUMBER = re.compile(r"(?<![\d.,])(?:[A-Z]{2}\d{2}[ -]?)?\d(?:[ -]?\d){5,}(?![\d]|[.,]\d)")
-_INVISIBLE = re.compile(r"[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f​-‏‪-‮⁦-⁩﻿]")
+_INVISIBLE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f\u200b-\u200f\u202a-\u202e\u2066-\u2069\ufeff]")
 _ARABIC_DIGITS = str.maketrans("٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹٫٬", "01234567890123456789.,")
 
 
@@ -286,7 +286,7 @@ def refusal(text: str) -> Rejection | None:
     if _OTP.search(lowered):
         return Rejection.OTP
     if _PASSWORD.search(lowered):
-        return Rejection.PASSWORD
+        return Rejection.LOGIN_DETAILS
     if _PROMO.search(lowered) and not _TXN_WORDS.search(lowered):
         return Rejection.PROMOTION
     return None

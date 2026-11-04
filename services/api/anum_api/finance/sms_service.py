@@ -78,7 +78,7 @@ from .summary import today_in, zone
 
 logger = logging.getLogger("anum_api.finance.sms")
 
-TOKEN_PREFIX = "anum_sms"
+DEVICE_PREFIX = "anum_sms"
 SAFE_ID = re.compile(r"^[A-Za-z0-9_-]{1,80}$")
 PER_MINUTE = 30  # messages a device may send per minute
 PER_DAY = 1_000
@@ -127,13 +127,13 @@ def mint(context: TenantContext, device_id: str) -> tuple[str, str, str]:
     if not SAFE_ID.match(device_id):
         raise ValueError("a device id that cannot be part of a token")
     secret = secrets.token_urlsafe(32)
-    token = ".".join((TOKEN_PREFIX, _b64(context.tenant_id), _b64(context.workspace_id), _b64(context.user_id), device_id, secret))
+    token = ".".join((DEVICE_PREFIX, _b64(context.tenant_id), _b64(context.workspace_id), _b64(context.user_id), device_id, secret))
     return token, secret_hash(secret), token[-4:]
 
 
 def parse_token(token: str) -> tuple[TenantContext, str, str] | None:
     parts = (token or "").strip().split(".")
-    if len(parts) != 6 or parts[0] != TOKEN_PREFIX or not SAFE_ID.match(parts[4]) or not (30 <= len(parts[5]) <= 100):
+    if len(parts) != 6 or parts[0] != DEVICE_PREFIX or not SAFE_ID.match(parts[4]) or not (30 <= len(parts[5]) <= 100):
         return None
     tenant, workspace, user = (_unb64(part) for part in parts[1:4])
     if not tenant or not workspace or not user or len(tenant) > 80 or len(workspace) > 80 or len(user) > 160:
