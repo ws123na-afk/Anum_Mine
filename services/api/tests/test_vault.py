@@ -220,6 +220,37 @@ def test_links_are_references_and_finance_links_go_through_the_ledger() -> None:
     assert client.get(f"/api/v1/documents/{created['id']}", headers=ALICE).json()["links"] == []
 
 
+def test_unlinking_a_finance_link_in_the_vault_voids_it_on_the_ledger() -> None:
+    from anum_api.finance.links_store import links_memory_store
+    from anum_api.finance.sms_store import sms_memory_store
+    from anum_api.finance.store import finance_store
+
+    finance_store.clear()
+    try:
+        account = client.post("/api/v1/finance/accounts", headers=ALICE, json={"name": "Card", "kind": "card", "currency": "SAR"}).json()
+        paid = client.post("/api/v1/finance/transactions", headers=ALICE, json={"account_id": account["id"], "posted_on": "2026-11-03",
+                                                                               "amount": "-150.00", "description": "Fuel", "category": "fuel"})
+        assert paid.status_code == 201, paid.text
+        canonical = next(e.canonical_id for e in sms_memory_store.entries.values())
+        created = add(category="receipt").json()
+        linked = client.post(f"/api/v1/documents/{created['id']}/links", headers=ALICE,
+                             json={"target_type": "finance_transaction", "target_id": canonical})
+        assert linked.status_code == 201 and linked.json()["status"] == "confirmed"
+        evidence = [l for l in links_memory_store.links.values() if l.target_id == created["id"]]
+        assert [(l.status, l.role, l.amount) for l in evidence] == [("active", "evidence", None)]
+        assert client.delete(f"/api/v1/documents/{created['id']}/links/{linked.json()['id']}", headers=ALICE).status_code == 204
+        assert [l.status for l in links_memory_store.links.values() if l.target_id == created["id"]] == ["void"]
+        from anum_api.schemas import TenantContext
+
+        history = memory_vault_store.events(TenantContext(tenant_id=TENANT, workspace_id=WORKSPACE, user_id="alice"), created["id"], 100)
+        assert [e.action for e in history].count("unlinked") == 1  # audited once
+        # Linking it again makes a new evidence link; the payment's journal never changed.
+        again = client.post(f"/api/v1/documents/{created['id']}/links", headers=ALICE, json={"target_type": "finance_transaction", "target_id": canonical})
+        assert again.status_code == 201
+    finally:
+        finance_store.clear()
+
+
 # --------------------------------------------------------------------------- versions, trash, links
 
 

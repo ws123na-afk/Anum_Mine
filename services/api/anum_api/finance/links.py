@@ -422,6 +422,21 @@ class VaultLinkAdapter:
             raise HTTPException(exc.status_code, exc.message) from None
         return "confirmed"
 
+    def withdraw(self, context: TenantContext, document_id: str, transaction_ref: str) -> None:
+        """Void the document's evidence link on that payment (or on the payment it moved to on reconciliation)."""
+        from fastapi import HTTPException
+
+        with open_link_stores(context) as (_finance, _store, links):
+            rows, _ = links.list_links(context, canonical_id=None, dimension="document", target_type="vault_document", target_id=document_id,
+                                       status=None, limit=200, offset=0)
+        live = [l for l in rows if l.status != LinkStatus.VOID and l.role == "evidence"]
+        doomed = [l for l in live if l.canonical_id == transaction_ref] or [l for l in live if l.status_reason == "moved_on_reconcile"]
+        try:
+            for link in doomed:
+                void(context, link.id, expected_version=None)
+        except LinkError as exc:
+            raise HTTPException(exc.status_code, exc.message) from None
+
 
 def plug_vault_links() -> bool:
     """Connect the vault's finance link point and its document targets, when the vault is installed."""
