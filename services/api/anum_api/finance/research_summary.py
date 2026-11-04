@@ -176,9 +176,12 @@ def unavailable_reason(context: TenantContext) -> str | None:
 
 def ask(context: TenantContext, text: str) -> tuple[str, str]:
     """One budgeted model call on its own event loop in its own thread. Never called with a DB session open."""
+    from ..current_time import language_of, time_line_for, with_time_line
     from ..model_gateway import ModelRoute, route_gateway
     from ..onboarding import budgeted_model_gateway
 
+    # The current date and time in the user's zone (current_time.py); blocking, like this call.
+    text = with_time_line(text, time_line_for(context, language_of(text)))
     gateway = route_gateway(budgeted_model_gateway(context, _base_gateway()), ModelRoute.FAST)
     timeout = _config.finance_config.research_timeout_seconds
     result: dict[str, Any] = {}
