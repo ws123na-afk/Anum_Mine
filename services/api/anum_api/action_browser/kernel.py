@@ -227,6 +227,7 @@ class ActionSession:
         # Finished downloads: {"id", "name", "size", "path"} (the path never leaves this process).
         self.downloads: list[dict[str, Any]] = []
         self.refused_downloads = 0
+        self._reported_downloads = 0
         self._pending_downloads: set[asyncio.Task[None]] = set()
 
     # ------------------------------------------------------------------ life cycle
@@ -244,7 +245,9 @@ class ActionSession:
             executable_path=executable_path or None,
             chromium_sandbox=sandbox,
             proxy={"server": f"http://127.0.0.1:{port}", "bypass": "<-loopback>"},
-            args=args,
+            # Tests only (a local site with a self-signed certificate; never set by the service): Chromium
+            # cancels downloads from a page whose certificate error was merely ignored.
+            args=args + (["--ignore-certificate-errors"] if self._ignore_https_errors else []),
             # No ANUM environment (and no proxy variables) reaches Chromium.
             env={"HOME": home, "TMPDIR": home, "LANG": "en_US.UTF-8", "TZ": "UTC"},
             downloads_path=home,
@@ -386,7 +389,14 @@ class ActionSession:
                         item["frame_host"] = _host(frame.url)
                     elements.append(_masked(item))
         page = await self._page_info(MAX_TEXT_CHARS)
-        return {**page, "elements": elements, "held": self.held}
+        snapshot = {**page, "elements": elements, "held": self.held}
+        # Downloads finished since the last snapshot (names and sizes only; the bytes stay here).
+        await self.wait_downloads()
+        fresh = self.downloads[self._reported_downloads:]
+        if fresh:
+            self._reported_downloads = len(self.downloads)
+            snapshot["downloads"] = [{key: item[key] for key in ("id", "name", "size")} for item in fresh]
+        return snapshot
 
     async def _page_info(self, text_limit: int) -> dict[str, Any]:
         url = self.page.url or ""
@@ -443,7 +453,11 @@ class ActionSession:
         self.touch()
         kind = str(action.get("type") or "")
         if expect:
-            fresh = await self.inspect(action)
+            try:
+                fresh = await self.inspect(action)
+            except ActionError:
+                # The element the owner approved is gone (the page was replaced): nothing is done.
+                return {"outcome": "page_changed"}
             if _without_fragment(str(expect.get("url") or "")) != fresh["page"]["url"] or expect.get("fingerprint") != fresh["fingerprint"]:
                 return {"outcome": "page_changed", "inspect": fresh}
         self.held = None
@@ -484,15 +498,12 @@ class ActionSession:
             raise
         except Exception as exc:
             raise ActionError("action_failed", f"The browser could not do that on the page ({type(exc).__name__}).") from None
-        before = len(self.downloads)
         await self._settle()
-        # A click that starts a download: wait for the file (bounded), then report it.
-        await asyncio.sleep(0)
-        await self.wait_downloads()
+        if kind == "click":
+            # A click that starts a download: give the browser a moment to begin it (the file is
+            # reported with this snapshot or the next one).
+            await asyncio.sleep(0.75)
         snapshot = await self.snapshot()
-        new_downloads = [{key: item[key] for key in ("id", "name", "size")} for item in self.downloads[before:]]
-        if new_downloads:
-            snapshot["downloads"] = new_downloads
         if self.held:
             return {"outcome": "held_navigation", "held": self.held, "snapshot": snapshot}
         return {"outcome": "done", "snapshot": snapshot}

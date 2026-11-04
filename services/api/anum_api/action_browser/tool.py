@@ -475,6 +475,9 @@ class _Segment:
                 if planned is None:
                     snapshot = await self.client.snapshot(browser_id)
                     self._observe(snapshot)
+                    for item in (snapshot.get("downloads") or [])[:10]:
+                        if isinstance(item, dict):
+                            await self._keep_download(item)
                     waiting = await self._page_needs_owner(snapshot)
                     if waiting is not None:
                         return waiting
