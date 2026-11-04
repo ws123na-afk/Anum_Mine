@@ -68,6 +68,8 @@ async function open(page: Page) {
   await page.clock.install({ time: new Date(now) });
   await page.goto('/#voice');
   await expect(page.getByRole('button', { name: 'Tap to talk' })).toBeVisible();
+  // An installed clock still runs at real speed: hold it, so only fastForward moves the wait (a slow machine made 2.6 s read 9 s).
+  await page.clock.pauseAt(await page.evaluate(() => Date.now() + 1000));
 }
 async function ask(page: Page, text: string) {
   await page.getByRole('textbox', { name: 'Your message' }).fill(text);
