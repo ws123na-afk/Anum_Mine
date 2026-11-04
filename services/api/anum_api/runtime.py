@@ -249,6 +249,10 @@ class AgentRuntime:
                 else self._agent_memory_blocks(run, context, agent)
             )
             blocks = memory_blocks + blocks
+        inputs = (
+            await asyncio.to_thread(self._command_inputs, task, run, context) if offload else self._command_inputs(task, run, context)
+        )
+        blocks = inputs + blocks
         learned = (
             await asyncio.to_thread(self._learned_block, task, context) if offload else self._learned_block(task, context)
         )
@@ -323,6 +327,30 @@ class AgentRuntime:
             _, approval = self._pause_for_approval(task, run, context, call, decision)
             return approval
         return None
+
+    def _command_inputs(self, task: Task, run: AgentRun, context: TenantContext) -> list[str]:
+        """For an ANUM Command step that builds on earlier steps: their results as labeled,
+        untrusted blocks (docs/command.md#steps-that-build-on-each-other). The run step
+        records which steps were used, never their text."""
+        from .commands import step_inputs
+
+        try:
+            blocks, positions = step_inputs(task, context)
+        except Exception:  # the run goes on without them; the step says so
+            blocks, positions = [], []
+            run.steps.append(AgentRunStep(
+                id=new_id("step"), type="command_input", created_at=utc_now(),
+                summary="The results of the earlier command steps could not be read; this step ran without them.",
+                metadata={"status": "failed"},
+            ))
+        if positions:
+            listed = ", ".join(str(position) for position in positions)
+            run.steps.append(AgentRunStep(
+                id=new_id("step"), type="command_input", created_at=utc_now(),
+                summary=f"Used the results of command step {listed} as labeled, untrusted context.",
+                metadata={"status": "used", "steps": positions},
+            ))
+        return blocks
 
     def _time_line(self, task: Task, context: TenantContext) -> str | None:
         """The current date and time in the user's zone for the planner (current_time.py).

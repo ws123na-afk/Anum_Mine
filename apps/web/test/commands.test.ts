@@ -4,6 +4,7 @@ import { describe, test } from 'node:test';
 import type { Approval, PlanStep, Task } from '@anum/contracts';
 import {
   canDelete, canStart, commandLocale, commandTone, isLive, mapPlan, mapQuick, mapSummary, mapView, moveStep, quickTitle, removeStep, stoppableTasks, unstartedTasks,
+  confirmedDependencies, readyToContinue,
 } from '../src/lib/commands.ts';
 
 const apiStep = (position: number, status: string, runId: string | null = null) => ({
@@ -73,5 +74,30 @@ describe('a running command', () => {
   test('a quick command title is the first line, capped', () => {
     assert.equal(quickTitle('Line one\nLine two'), 'Line one');
     assert.equal(quickTitle('x'.repeat(80)).length, 60);
+  });
+});
+
+describe('steps that build on each other', () => {
+  const planned = (position: number, dependsOn: number[]) => ({ position, dependsOn });
+  test('the preview and the live view carry the dependencies', () => {
+    const plan = mapPlan({ text: 'x', steps: [{ position: 2, depends_on: [1, 'x', 1.5] }, { position: 1 }] });
+    assert.deepEqual(plan.steps.map((s) => s.dependsOn), [[1], []]);
+    const view = mapView({ steps: [{ ...apiStep(2, 'created'), depends_on: [1], waiting_for: [1], blocked_by: [] }] }, (t) => t as Task, (a) => a as Approval);
+    assert.deepEqual([view.steps[0].dependsOn, view.steps[0].waitingFor, view.steps[0].blockedBy], [[1], [1], []]);
+  });
+  test('moving or removing steps keeps only waits for earlier steps still in the plan', () => {
+    assert.deepEqual(confirmedDependencies([planned(1, []), planned(2, [1]), planned(3, [1, 2])]), [[], [1], [1, 2]]);
+    // Step 3 moved first: it can no longer wait for what now comes after it.
+    assert.deepEqual(confirmedDependencies([planned(3, [1, 2]), planned(1, []), planned(2, [1])]), [[], [], [2]]);
+    // Step 1 removed: its wait disappears, the rest renumber.
+    assert.deepEqual(confirmedDependencies([planned(2, [1]), planned(3, [1, 2])]), [[], [1]]);
+  });
+  test('a waiting step is continued once nothing is left to wait for', () => {
+    const step = (status: string, dependsOn: number[], waitingFor: number[], runId: string | null = null) =>
+      ({ status, dependsOn, waitingFor, blockedBy: [], runId }) as never;
+    assert.equal(readyToContinue({ steps: [step('completed', [], [], 'r1'), step('created', [1], [])] }), true);
+    assert.equal(readyToContinue({ steps: [step('running', [], [], 'r1'), step('created', [1], [1])] }), false);
+    // A step with no dependency that never started is not this rule's business (Start already ran it).
+    assert.equal(readyToContinue({ steps: [step('created', [], [])] }), false);
   });
 });

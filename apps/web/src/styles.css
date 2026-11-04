@@ -439,6 +439,11 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .notice svg { color: var(--d-sky); margin-top: 2px; }
 .errorNotice { background: rgb(var(--c-stop) / .09); border-color: rgb(var(--c-stop) / .32); color: var(--d-error-text); margin-bottom: var(--d-s4); }
 .errorNotice svg { color: var(--d-stop); }
+.modelPlaceholderNotice { background: rgb(var(--c-warn) / .1); border-color: var(--d-warn); }
+.modelPlaceholderNotice svg { color: var(--d-warn); }
+.modelPlaceholderNotice p { margin: 0; }
+.modelPlaceholderActions { display: flex; flex-wrap: wrap; gap: var(--d-s2); margin-top: var(--d-s2) !important; }
+.modelPlaceholderActions button { margin: 0 !important; }
 
 /* ---------- Lists and records ---------- */
 .compactList { grid-template-columns: minmax(0, 1fr); display: grid; gap: var(--d-s1); margin-top: var(--d-s4); max-height: 340px; overflow: auto; }

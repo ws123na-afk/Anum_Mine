@@ -232,6 +232,7 @@
 .phaseText strong { font-size: var(--text-md); font-weight: 600; overflow-wrap: anywhere; }
 .phase.todo .phaseText strong { color: var(--d-muted); }
 .phaseText small { align-items: center; color: var(--d-faint); display: inline-flex; flex-wrap: wrap; font-size: var(--text-xs); gap: 4px; }
+.phaseText small.trackerDepends.blocked { color: var(--d-error-text); }
 .phaseText small svg { color: var(--d-accent-soft); height: 13px; width: 13px; }
 .phaseText small code { background: var(--d-glass-2); border-radius: 6px; font-size: var(--text-xs); padding: 0 5px; }
 .phase.active .phaseText small { color: var(--d-accent-soft); }
@@ -283,6 +284,7 @@
 .planBody strong { font-size: var(--text-md); overflow-wrap: anywhere; }
 .planBody small { color: var(--d-muted); font-size: var(--text-xs); }
 .planBody .planNote { color: var(--d-sky); }
+.planBody .planDepends { color: var(--d-muted); }
 .planTags { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s1) var(--d-s2); }
 .planTags code, .stepMeta code { background: var(--d-glass-2); border-radius: 6px; font-size: var(--text-xs); padding: 1px 6px; }
 .planAgent { align-items: center; color: var(--d-text); display: inline-flex; font-size: var(--text-sm); font-weight: 600; gap: var(--d-s1); }

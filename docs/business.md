@@ -416,10 +416,10 @@ Every state-changing route writes an audit record with ids and counts only (neve
 These are later roadmap phases, not missing pieces of P1:
 
 - Autonomous sending (P4 at the earliest): every outreach message waits for an owner's approval.
-- GitHub linkage, invoices and payment collection (P2); cash collected is what a person records on a milestone.
+- GitHub linkage (P2). Invoices and card payment links are built ([Invoices](#invoices), [Payment links](#payment-links)).
 - Sending outbound messages (P3: human-approved sends) and any automation of them.
-- GitHub linkage and payment collection: ANUM takes no payments; cash collected is what a person records on a milestone or on an invoice.
-- Invoices: recurring invoices, reminders that are planned by a scheduled job on their own (a person asks for each one today; each still needs an owner's approval), refunds from ANUM (a credit note never exceeds what is owed; Moyasar and Stripe refunds of Business invoice payments are made in the provider's dashboard and not synced back), credit notes for a paid invoice, and an email channel: invoice emails need a connected email integration that can send attachments ([Tools and integrations](tools-and-integrations.md#delivery)); until one exists the request answers what to do and the PDF is downloaded.
+- Payment collection outside card links: ANUM takes card payments only through a payment link on the owner's own Stripe (UAE) or Moyasar (Saudi) account, recorded on the invoice by the provider's webhook ([Payment links](#payment-links)). Bank transfers and cash are what a person records on a milestone or on an invoice; there is no bank connection.
+- Invoices: recurring invoices, reminders that are planned by a scheduled job on their own (a person asks for each one today; each still needs an owner's approval), refunds from ANUM (a credit note never exceeds what is owed; Moyasar and Stripe refunds of Business invoice payments are made in the provider's dashboard and not synced back), and credit notes for a paid invoice. Invoice emails need a connected email integration that can send attachments ([Tools and integrations](tools-and-integrations.md#delivery)); until one exists the request answers what to do and the PDF is downloaded.
 - AI usage from another workspace (for example a client's own ANUM workspace) is not linked yet: the import reads the workspace the owner works in.
 - Support: customers replying inside a request, a public status page and change log, automatic escalation or notifications on a breach, and attachments on tickets. Tickets link the inbox, which keeps any files.
 - E-signature (deferred in the roadmap's reuse register: manual signed PDFs first).
