@@ -95,6 +95,8 @@ export const iphoneEn = {
   'iph.int.finance.wallet.purpose': 'Sends each Apple Pay payment; matched with the bank message as one transaction.',
   'iph.int.attendance.location': 'Attendance arrive and leave',
   'iph.int.attendance.location.purpose': 'Records when your phone arrives at or leaves a work site. No coordinates are sent.',
+  'iph.int.vehicle.driving': 'Vehicle driving sessions',
+  'iph.int.vehicle.driving.purpose': 'Starts a trip when CarPlay or the car\'s Bluetooth connects and ends it when it disconnects. You type the odometer; the phone never reads it.',
   'iph.att.step.1': 'In ANUM, Attendance, Settings: add the site and turn on location check in.',
   'iph.att.step.2': 'Shortcuts, Automation, New Automation, Arrive. Choose the place, set the radius to the site\'s radius, choose Run Immediately.',
   'iph.att.step.3': 'Add Get Contents of URL: {url}, Method POST, the two headers above, Request Body JSON with the fields below.',

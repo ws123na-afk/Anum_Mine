@@ -209,6 +209,7 @@ def test_every_purged_table_is_covered_by_the_purge_migration() -> None:
                 "finance_sms_settings", "finance_sms_devices", "finance_sms_messages", "finance_sms_rules", "finance_journal_entries",
                 "finance_postings")},
             **{name: "0134_finance_links" for name in ("finance_links", "finance_device_events", "business_ledger_allocations")},
+            **{name: "0135_vehicles" for name in ("vehicles", "vehicle_odometer_readings", "vehicle_fuel_entries", "vehicle_trips", "vehicle_service_records", "vehicle_reminders", "vehicle_preferences")},
             **{name: "0130_action_browser" for name in (
                 "action_browser_credentials", "action_browser_sessions", "action_browser_steps")},
             **{name: "0132_work_attendance" for name in ("attendance_shares", "attendance_profiles", "attendance_sites", "attendance_events", "attendance_corrections", "attendance_day_totals", "attendance_daily_reports")},

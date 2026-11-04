@@ -35,8 +35,8 @@ describe('iPhone integrations page', () => {
       setLocale('en');
     }
     assert.deepEqual(['finance.sms', 'finance.wallet', 'attendance.location'].map((k) => guideFor(k)?.key), ['finance.sms', 'finance.wallet', 'attendance.location']);
-    assert.equal(guideFor('vehicle.driving'), null);
-    assert.equal(integrationTitle({ key: 'vehicle.driving' }), 'vehicle.driving');  // an API integration without a row still shows
+    assert.equal(guideFor('purchases.share'), null);
+    assert.equal(integrationTitle({ key: 'purchases.share' }), 'purchases.share');  // an API integration without a row still shows
   });
 
   test('Arabic has the same keys and placeholders as English, and no long dashes', () => {

@@ -19,6 +19,7 @@ import { COMMERCE_TABS } from '../../src/lib/commerce.ts';
 import { FINANCE_TABS } from '../../src/lib/finance.ts';
 import { MARKETING_TABS } from '../../src/lib/marketing.ts';
 import { ATTENDANCE_TABS } from '../../src/lib/attendance.ts';
+import { VEHICLE_TABS } from '../../src/lib/vehicles.ts';
 
 // Every page the web app can open, for the UI quality gates: e2e/page-layout.spec.ts (overflow and
 // clipped controls), e2e/accessibility.spec.ts (axe) and e2e/journey.spec.ts (no dead buttons).
@@ -133,6 +134,9 @@ export const GATE_PAGES: GatePage[] = [
   { hash: 'platformBilling', view: 'platformBilling', mock: billing, ready: '.blConsoleBar' },
   { hash: 'billing', view: 'settings', mock: billing, ready: '.blPlanNow' },
   { hash: 'attendance', view: 'attendance', mock: workspace, ready: '.attTimeline li, .attStatus h2' },
+  { hash: 'vehicles', view: 'vehicles', mock: workspace, ready: '.vehGrid .cmList li' },
+  { hash: 'vehicles-list', view: 'vehicles', mock: workspace, ready: '.vehList li' },
+  { hash: 'vehicles-settings', view: 'vehicles', mock: workspace, ready: '.vehForm select' },
   { hash: 'office', view: 'office', mock: headquarters, ready: '.hqLive .hqBuildingCard, .hqLive .hqListBuilding' },
 ];
 
@@ -150,6 +154,7 @@ export const DEEP_LINKS: readonly string[] = [
   ...tabLinks('finance', FINANCE_TABS),
   ...tabLinks('marketing', MARKETING_TABS),
   ...tabLinks('attendance', ATTENDANCE_TABS),
+  ...tabLinks('vehicles', VEHICLE_TABS),
   // Settings sections and the Integrations connection setup (shell.ts viewFromHash).
   'notifications', 'language', 'privacy', 'appearance', 'connections',
 ];
@@ -163,6 +168,7 @@ function familyOf(link: string): { view: string; mock: (page: Page) => Promise<u
   if (link.startsWith('commerce-')) return { view: 'commerce', mock: workspace };
   if (link.startsWith('finance-')) return { view: 'finance', mock: workspace };
   if (link.startsWith('attendance-')) return { view: 'attendance', mock: workspace };
+  if (link.startsWith('vehicles-')) return { view: 'vehicles', mock: workspace };
   if (link === 'connections') return { view: 'integrations', mock: workspace };
   if (['notifications', 'language', 'privacy', 'appearance'].includes(link)) return { view: 'settings', mock: workspace };
   return { view: link, mock: workspace };
