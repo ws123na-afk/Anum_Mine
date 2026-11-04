@@ -111,6 +111,8 @@ G3/G5).
 | tyres (`tyre`, `tread`, `إطارات`, `كفرات` …) | `tyre.tools.choose_call`: `tyre_fleet_summary`, `tyres_due`, `purchase_plan` or `tyre_alerts` | results: tyres due, alerts (critical ones marked urgent) or purchase-plan lines, links to Tyre planning; failed with how to connect when tyre data is not connected |
 | the web (`search`, `web`, `news`, `ابحث` …; only where SearXNG is configured) | `web_search` | results: links that open in a new tab |
 | files (`file`, `document`, `contract`, `pdf`, `ملف`, `مستند` …) | `anum.respond` with workspace retrieval | results: the answer, the files and notes used |
+| a page to read with its https address (`open`, `read`, `visit`, `افتح` …) | `web.browse_page` ([Browser research](browser-research.md)) | results: the page and its links; `unavailable` while Browser research is off |
+| an errand on a website with its https address (`book`, `buy`, `fill`, `download`, `احجز` …) | `web.act` ([Action browser](action-browser.md)), category `action` | approval of the scope, then the run's approvals; `unavailable` while the Action browser is off |
 
 Anything else is plain conversation and streams as before. How it runs:
 
@@ -132,7 +134,8 @@ Anything else is plain conversation and streams as before. How it runs:
    table's user-scoped forced RLS).
 
 **Card** `{state, category, task_id, run_id, tool, summary, items, total, approval, error_code}`:
-`state` is `running`, `results`, `approval`, `failed`, `cancelled` or `denied`; `category`
+`state` is `running`, `results`, `approval`, `failed`, `cancelled`, `denied`, `unavailable` or `needs_input`
+([What ANUM can do](#what-anum-can-do)); `category`
 is `email`, `whatsapp`, `commerce`, `tyre`, `web`, `files` or `action`. `items` (at most 10 of `total`) are
 `{kind: email|whatsapp|web|file|memory|order|listing|tyre, id, title, subtitle, detail, at, badges, url}`;
 `url` is set for http(s) web results only. `approval` is
@@ -172,6 +175,58 @@ is `email`, `whatsapp`, `commerce`, `tyre`, `web`, `files` or `action`. `items` 
   Approve with the hash, members, Arabic, five viewport sizes);
   `apps/mobile/test/chat/chat_cards_test.dart` (models, every state, Approve, 403, Arabic,
   320 px at 200 percent text to 1440 px, tap targets).
+
+## What ANUM can do
+
+The chat model writes text only, so without facts about the workspace it describes itself as
+a generic chatbot ("I can't browse or take actions"). `anum_api/capabilities.py` gives it the
+facts, and the routing makes sure a request ANUM can do never ends in a refusal.
+
+**The capability list.** `workspace_capabilities(context)` reads the real state of each
+capability: tasks and agents, approvals, email, WhatsApp, calendar, files and knowledge base,
+reports, web search, Browser research (`web.browse_page`), the Action browser (`web.act`),
+business invoices, finance, commerce, tyre planning, meetings, phone calls, automations and
+social media marketing. A capability is on only when its tool is registered in this runtime,
+the caller's role allows it and, where it needs one, an account is connected (mail,
+WhatsApp, a sales channel, as on Connection setup) or a workspace owner switched it on under
+Integrations (SearXNG web search, Browser research, Action browser; for email, an Email Center mailbox the caller owns or was shared counts first when `ANUM_MAILSERVER_ENABLED` is on, then the Gmail, Outlook and Zoho connections; the action browser also
+needs the operator's browser service and `ANUM_ACTION_BROWSER_ENABLED`). Each capability that
+is off has a one-line reason with where to turn it on, in English and Arabic: "not connected:
+connect a mailbox on the Email page", "off: a workspace owner turns it on under Integrations > Action
+browser", "not set up on this server: ...", or the role sentence (Settings > Members). Phone
+calls are on for the call log and add a note when no voice provider is connected for placing
+calls. A module whose state cannot be read is listed as "could not be read just now", never
+guessed. The state is read in the caller's tenant scope (RLS), each module in its own short
+store session, inside the ask's worker thread (never on the event loop), and cached for 30 s
+per tenant, workspace, user and roles, so an owner's switch shows within 30 s.
+
+**In the prompt.** The system prompt tells the model to speak as ANUM, that ANUM acts through
+governed tasks shown as cards, and never to say it cannot browse, book or act when ANUM can.
+A plain reply (not an agent thread) gets the list as its own trailing system part, starting
+with `ANUM in this workspace right now`: what is on, what is off with the reason, and the
+rules (answer "what can you do?" from it in ANUM's terms; for a request on the list say ANUM
+does it as a task under approvals and give the words that start it; for one that is off say
+how to turn it on). The Anthropic gateway sends that part after the system cache breakpoint,
+so the static prompt stays one shared cached prefix ([Model gateway](model-gateway.md)).
+
+**Routing.** Decided from the user's own words only (threat model G5), before any task:
+
+| The request | Answer |
+| --- | --- |
+| A tool the planner chose (`web.act`, `web.browse_page`, `web_search`) whose capability is off | an `unavailable` card (`error_code` `capability_off:<id>`): "Action browser is not available right now, off: a workspace owner turns it on under Integrations > Action browser. Once it is on, ANUM runs this request as a task under approvals." No task, no model call. |
+| An errand on a website without its address: the request leads with book, reserve, buy, order, fill, submit, register, renew, subscribe, download or apply (or the Arabic احجز, اشتر, اطلب, املأ, سجل, جدد, نزل, حمل …), or "go to example.com ..." with a site but no https:// | the Action browser on: a `needs_input` card asking for the site's https address (the address must be the user's own words); off: the `unavailable` card. Only the leading verb counts, so "a good book to read" stays conversation. |
+| `web.act` with an https address and the Action browser on | a task through the runtime, as any chat task: the scope approval card, then the run's approvals. |
+
+Card text is in Arabic when the question is Arabic or the request asks for Arabic
+(`Accept-Language`). Web and the API render both new states; the Flutter app shows their
+text as the reply until its card view learns them.
+
+**Tests.** `services/api/tests/test_capabilities.py`: the block from all on, all off and
+partial states, the real state of a fresh workspace, a viewer's role reason, the owner's
+switch, the cache, an unreadable module; "what can you do?" reaching the model with the list
+(English and Arabic); the cache placement; `web.act` routing to a task when on, the off card
+(English and Arabic), `needs_input` and the book question staying conversation; and the
+voice cases.
 
 ## Long-term memory
 

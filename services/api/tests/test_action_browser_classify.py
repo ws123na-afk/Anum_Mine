@@ -107,8 +107,20 @@ def test_saved_card_entry_is_gated_once_per_form() -> None:
     first = decide(s)
     assert first.kind == GATE and first.code == "card_entry" and first.amount is not None and first.extra["grant"]
     assert decide(s, grants={first.extra["grant"]}).kind == ALLOW
-    other_form = step({"type": "type", "ref": "e3", "value": "{{card:main.cvc}}"}, target={**field, "form": {"key": "1:other/text"}})
+    other_form = step({"type": "type", "ref": "e3", "value": "{{card:main.expiry}}"}, target={**field, "form": {"key": "1:other/text"}})
     assert decide(other_form, grants={first.extra["grant"]}).kind == GATE
+
+
+def test_the_card_security_code_always_asks_even_in_an_approved_form() -> None:
+    # Never saved, so never covered by an earlier card-entry approval: the owner types it on its own approval.
+    field = {"tag": "input", "type": "text", "name": "cvc", "autocomplete": "cc-csc", "form": {"key": "0:cardnumber/text"}}
+    s = step({"type": "type", "ref": "e4", "value": "{{card:main.cvc}}"}, target=field, text="Total AED 1,240")
+    grant = decide(step({"type": "type", "ref": "e3", "value": "{{card:main.number}}"}, target=field)).extra["grant"]
+    for grants in (set(), {grant}):
+        decision = decide(s, grants=grants)
+        assert decision.kind == GATE and decision.code == "card_security_code" and decision.extra["grant"] == grant
+        assert decision.amount is not None and decision.handle is not None and decision.handle.part == "cvc"
+    assert decide(step({"type": "type", "ref": "e4", "value": "{{card:other.cvc}}"}, target=field)).code == "handle_out_of_scope"
 
 
 def test_refusals() -> None:

@@ -194,6 +194,10 @@ async def _ask_model(context: TenantContext, prompt: str) -> tuple[str, str]:
     if reason:
         raise MailError(409, reason, "ai_unavailable")
     gateway = await asyncio.to_thread(_gateway_for, context)
+    # The current date and time in the user's zone (current_time.py), last in the prompt.
+    from ..current_time import language_of, time_line_async, with_time_line
+
+    prompt = with_time_line(prompt, await time_line_async(context, language_of(prompt)))
     try:
         response = await gateway.generate_text(prompt)
     except ModelBudgetExceededError:

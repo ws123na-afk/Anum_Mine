@@ -51,6 +51,7 @@ export const homeAr: Record<keyof typeof homeEn, Message> = {
   'home.approvals.title': 'بانتظار قرارك',
   'home.approvals.approve': 'موافقة',
   'home.approvals.deny': 'رفض',
+  'home.approvals.cardCode': 'تحتاج هذه الخطوة رمز أمان البطاقة: افتح صفحة الموافقات لكتابته والموافقة.',
   'home.approvals.openTask': 'فتح المهمة',
   'home.approvals.meta': 'طُلبت {when} · الموافقة ترسل هذا الاستدعاء بالضبط {hash}',
   'home.approvals.emptyTitle': 'لا موافقات بانتظارك',

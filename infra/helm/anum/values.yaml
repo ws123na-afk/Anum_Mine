@@ -179,6 +179,9 @@ config:
   ANUM_SPEECH_TTS_VOICE_EN: ""
   ANUM_SPEECH_TTS_VOICE_AR: ""
   ANUM_SPEECH_TTS_USD_PER_MILLION_CHARS: "0"
+  # Zone of the date line in model prompts when neither the user's profile nor an
+  # office building names one (docs/model-gateway.md#current-date-and-time).
+  ANUM_DEFAULT_TIME_ZONE: Asia/Dubai
   ANUM_MODEL_TIMEOUT_SECONDS: "60"
   ANUM_MODEL_MAX_ATTEMPTS: "3"
   ANUM_MODEL_RETRY_BASE_SECONDS: "0.5"

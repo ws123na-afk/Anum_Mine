@@ -23,7 +23,7 @@ from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import urlsplit
 
-from .handles import Handle, host_in_sites, looks_like_card_number, parse_handle, site_of
+from .handles import CODE_PART, Handle, host_in_sites, looks_like_card_number, parse_handle, site_of
 
 ARABIC_DIGITS = str.maketrans("٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹٬٫", "01234567890123456789,.")
 
@@ -327,6 +327,11 @@ def classify(step: dict[str, Any], *, sites: list[str], scope_logins: dict[str, 
         if not host_in_sites(host, sites) and not (payment_frame and str(target.get("frame_host") or "")):
             return Decision(REFUSE, "card_wrong_site", f"Saved cards are typed only on the approved sites, not {host}.", handle=handle, host=host)
         key = card_grant_key(handle.name, step)
+        if handle.part == CODE_PART:
+            # Never saved, so never covered by an earlier approval: the owner types it on this approval.
+            amount = pick_amount("", page_text, page.get("amounts"))
+            return Decision(GATE, "card_security_code", f"Enter the security code of the saved card {handle.name} on {host}.",
+                            amount=amount, handle=handle, host=host, extra={"grant": key})
         if card_grants and key in card_grants:
             return Decision(ALLOW, "type_card", f"Type the saved card {handle.name} ({handle.part}).", handle=handle, host=host, extra={"grant": key})
         amount = pick_amount("", page_text, page.get("amounts"))

@@ -5,7 +5,8 @@ import { mockWorkspaceApi, useSavedLocale } from './support/workspaceApi';
 
 // The action browser in the web app (docs/action-browser.md): saved logins and cards under
 // Integrations, the live view in the task detail (picture, steps, Stop, Needs you input) and the
-// approval card of a web.act step, against a mocked API. Desktop and mobile projects.
+// approval card of a web.act step (with the masked card security code field: the code is never
+// saved, the owner types it at approval), against a mocked API. Desktop and mobile projects.
 const now = new Date().toISOString();
 const later = new Date(Date.now() + 15 * 60_000).toISOString();
 const hash = '7c'.repeat(32);
@@ -41,12 +42,22 @@ const payApproval = {
   },
 };
 
-async function mockActionBrowser(page: Page, options: { waiting?: 'approval' | 'handoff'; member?: boolean; empty?: boolean } = {}) {
+// A step that types the card's security code: the call carries only the marker, never the digits.
+const codeApproval = {
+  ...payApproval, id: 'approval_pay',
+  reason: 'Waiting for your approval: enter the card security code in “Security code” (AED 1,240) on shop.example. Type the card\'s security code on the approval card.',
+  arguments: {
+    ...payApproval.arguments, kind: 'card_security_code', target: '“Security code”', cvc: 'entered at approval', grant: 'main:shop.example:0:/pay',
+    action: { type: 'type', ref: 'e3', value: '{{card:main.cvc}}' }, shown_action: { type: 'type', ref: 'e3', value: '{{card:main.cvc}} (Visa ending 4242, expires 08/29)' },
+  },
+};
+
+async function mockActionBrowser(page: Page, options: { waiting?: 'approval' | 'handoff'; member?: boolean; empty?: boolean; code?: boolean } = {}) {
   await mockWorkspaceApi(page);
   const calls: { method: string; path: string; body: unknown }[] = [];
   let session: Json = { ...sessionBase, status: 'waiting', waiting: options.waiting ?? 'approval', pending: { kind: 'binding_button', amount_text: 'AED 1,240' }, can_watch: !options.member };
   let credentials: Json[] = options.empty ? [] : [{ id: 'abcred_1', kind: 'login', handle: 'shop', site: 'shop.example', hint: 'o***@example.com on shop.example', created_by: 'user_local', created_at: now, updated_by: 'user_local', updated_at: now }];
-  let approval: Json = { ...payApproval };
+  let approval: Json = { ...(options.code ? codeApproval : payApproval) };
   const picture = logoPng(1280, 800, [40, 90, 160]);
   await page.route('http://localhost:8000/**', async (route: Route) => {
     const request = route.request();
@@ -93,6 +104,11 @@ async function mockActionBrowser(page: Page, options: { waiting?: 'approval' | '
       approval = { ...approval, status: 'approved', decided_by: 'user_local', decided_at: now };
       return json({ approval, task: { ...task, status: 'running' }, run: { ...run, status: 'running' } });
     }
+    if (path === '/api/v1/approvals/approval_pay/reject') {
+      calls.push({ method, path, body });
+      approval = { ...approval, status: 'rejected', decided_by: 'user_local', decided_at: now };
+      return json({ approval, task: { ...task, status: 'failed' }, run: { ...run, status: 'failed' } });
+    }
     return route.fallback();
   });
   return calls;
@@ -128,7 +144,9 @@ test('an owner adds, edits and deletes saved logins and cards; secrets never sho
   await form.getByLabel('Name on card').fill('Owner Name');
   await form.getByLabel('Card number').fill('4242 4242 4242 4241');
   await form.getByLabel('Expiry (MM/YY)').fill('08/29');
-  await form.getByLabel('Security code (CVC)').fill('123');
+  // No field for the security code: ANUM never saves it.
+  await expect(form.getByLabel(/Security code|CVC/)).toHaveCount(0);
+  await expect(form.getByText('The security code (CVC) is never saved.', { exact: false })).toBeVisible();
   await form.getByRole('button', { name: 'Save' }).click();
   await expect(form.getByRole('alert')).toHaveText('The card number is not valid.');
   await form.getByLabel('Card number').fill('4242 4242 4242 4242');
@@ -137,7 +155,7 @@ test('an owner adds, edits and deletes saved logins and cards; secrets never sho
   await expect(vault.getByText('Visa ending 4242, expires 08/29')).toBeVisible();
   expect(await page.content()).not.toContain('4242 4242 4242 4242');
   const posted = calls.find((c) => c.method === 'POST' && c.path === '/api/v1/action-browser/credentials');
-  expect(posted?.body).toEqual({ kind: 'card', handle: 'main', name: 'Owner Name', number: '4242 4242 4242 4242', expiry: '08/29', cvc: '123' });
+  expect(posted?.body).toEqual({ kind: 'card', handle: 'main', name: 'Owner Name', number: '4242 4242 4242 4242', expiry: '08/29' });
 
   await vault.getByRole('button', { name: 'Edit shop' }).click();
   const edit = vault.getByRole('form', { name: 'Edit shop' });
@@ -203,6 +221,63 @@ test('the approval card shows the amount and the picture, and the live view show
   await expect(live.getByText('No live picture: the browser session has ended.')).toBeVisible();
   expect(calls.some((c) => c.path === '/api/v1/action-browser/sessions/abs_1/stop')).toBe(true);
   if (demo) await live.screenshot({ path: `${demo}/6-live-view-stopped.png` });
+});
+
+test('the security code step asks for the code in a masked field and sends it only with the approve', async ({ page }, info) => {
+  const calls = await mockActionBrowser(page, { code: true });
+  const demo = DEMO && info.project.name === 'desktop' ? DEMO : null;
+  await page.goto('/#approvals');
+  const card = page.getByRole('article', { name: 'Approval for web.act' });
+  const extra = card.locator('[data-action-browser-approval]');
+  await expect(extra.getByText('Enter the card security code')).toBeVisible();
+  const field = extra.getByLabel('Card security code (CVC)');
+  await expect(field).toHaveAttribute('type', 'password');
+  await expect(field).toHaveAttribute('autocomplete', 'off');
+  await expect(field).toHaveAttribute('inputmode', 'numeric');
+  await expect(extra.getByText(/never saves it/)).toBeVisible();
+  const approve = card.getByRole('button', { name: 'Approve' });
+  await expect(approve).toBeDisabled();
+  await field.fill('7a3');
+  await expect(field).toHaveValue('73');
+  await field.blur();
+  await expect(extra.getByRole('alert')).toHaveText('The card security code is 3 or 4 digits.');
+  await expect(field).toHaveAttribute('aria-invalid', 'true');
+  await expect(approve).toBeDisabled();
+  await field.fill('739');
+  await expect(extra.getByRole('alert')).toHaveCount(0);
+  await expect(approve).toBeEnabled();
+  expect(await serious(page, '[data-action-browser-approval]')).toEqual([]);
+  expect(await noOverflow(page)).toBe(true);
+  if (demo) await card.screenshot({ path: `${demo}/5b-approval-card-security-code.png` });
+  await approve.click();
+  await expect.poll(() => calls.find((c) => c.path === '/api/v1/approvals/approval_pay/approve')?.body).toEqual({ payload_hash: hash, security_code: '739' });
+  // Kept nowhere in the page or the browser afterwards.
+  await expect(field).toHaveCount(0);
+  const kept = await page.evaluate(() => JSON.stringify({ local: { ...localStorage }, session: { ...sessionStorage } }) + document.body.innerHTML);
+  expect(kept).not.toContain('739');
+  expect(calls.filter((c) => JSON.stringify(c.body ?? '').includes('739'))).toHaveLength(1);
+});
+
+test('rejecting the security code step sends no code', async ({ page }) => {
+  const calls = await mockActionBrowser(page, { code: true });
+  await page.goto('/#approvals');
+  const card = page.getByRole('article', { name: 'Approval for web.act' });
+  await card.getByLabel('Card security code (CVC)').fill('739');
+  await card.getByRole('button', { name: 'Reject' }).click();
+  await expect.poll(() => calls.find((c) => c.path === '/api/v1/approvals/approval_pay/reject')?.body).toEqual({ payload_hash: hash });
+  expect(JSON.stringify(calls)).not.toContain('739');
+});
+
+test('in Arabic the security code field reads right to left around a left to right code', async ({ page }) => {
+  await useSavedLocale(page, 'ar');
+  await mockActionBrowser(page, { code: true });
+  await page.goto('/#approvals');
+  const extra = page.locator('[data-action-browser-approval]');
+  await expect(extra.getByText('إدخال رمز أمان البطاقة')).toBeVisible();
+  const field = extra.getByLabel('رمز أمان البطاقة (CVC)');
+  await expect(field).toHaveAttribute('dir', 'ltr');
+  expect(await serious(page, '[data-action-browser-approval]')).toEqual([]);
+  expect(await noOverflow(page)).toBe(true);
 });
 
 test('needs you: an owner clicks on the picture and types into the page', async ({ page }) => {

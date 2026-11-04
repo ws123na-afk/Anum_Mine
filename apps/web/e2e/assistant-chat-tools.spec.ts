@@ -37,6 +37,14 @@ function cardFor(question: string, canDecide: boolean): { card: Card; text: stri
       ] },
     };
   }
+  if (/book a table/i.test(question)) {
+    const summary = 'Action browser is not available right now, off: a workspace owner turns it on under Integrations > Action browser. Once it is on, ANUM runs this request as a task under approvals.';
+    return { text: summary, card: { state: 'unavailable', category: 'action', task_id: null, summary, items: [], total: 0, error_code: 'capability_off:act' } };
+  }
+  if (/book me a flight/i.test(question)) {
+    const summary = 'ANUM can do this with the action browser as a task under approvals; it needs the site to use. Ask again with the site\'s https address, for example: book a flight for Friday on https://www.example.com';
+    return { text: summary, card: { state: 'needs_input', category: 'action', task_id: null, summary, items: [], total: 0, error_code: 'needs_site' } };
+  }
   if (/send|delete/i.test(question)) {
     return {
       text: 'This needs approval before it runs: external.action (high risk). Nothing happens until it is approved.',
@@ -136,6 +144,29 @@ test('a member sees who can decide, and failures say how to continue', async ({ 
   await expect(page.getByRole('heading', { name: 'Approvals', level: 1 })).toBeVisible();
 });
 
+test('a request whose capability is off says what to turn on, and a missing site is asked for', async ({ page }) => {
+  await mock(page);
+  await page.goto('/#assistant');
+  await ask(page, 'go to https://www.example.com and book a table for two');
+  const off = page.locator('.chatCard.unavailable');
+  await expect(off.getByRole('heading', { name: 'Not turned on here yet' })).toBeVisible();
+  await expect(off.getByText('Integrations > Action browser', { exact: false })).toBeVisible();
+  await expect(off.getByRole('button', { name: 'Open task' })).toHaveCount(0);
+  await ask(page, 'book me a flight Friday');
+  const missing = page.locator('.chatCard.needs_input');
+  await expect(missing.getByRole('heading', { name: 'ANUM can do this: one detail missing' })).toBeVisible();
+  await expect(missing.getByText("the site's https address", { exact: false })).toBeVisible();
+});
+
+test('the off card title is in Arabic', async ({ page }) => {
+  await page.addInitScript(() => localStorage.setItem('anum.locale', 'ar'));
+  await mock(page);
+  await page.goto('/#assistant');
+  await ask(page, 'go to https://www.example.com and book a table');
+  await expect(page.locator('.chatCard.unavailable').getByRole('heading', { name: 'غير مفعل هنا بعد' })).toBeVisible();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+});
+
 test('cards are localized in Arabic', async ({ page }) => {
   await page.addInitScript(() => localStorage.setItem('anum.locale', 'ar'));
   await mock(page);
@@ -158,6 +189,10 @@ for (const [width, height] of [[1440, 900], [1366, 768], [1024, 768], [768, 1024
     await expect(page.locator('.chatCard.results')).toBeVisible();
     await ask(page, 'Send the report to the bank');
     await expect(page.locator('.chatCard.approval')).toBeVisible();
+    await ask(page, 'go to https://www.example.com and book a table');
+    await expect(page.locator('.chatCard.unavailable')).toBeVisible();
+    await ask(page, 'book me a flight Friday');
+    await expect(page.locator('.chatCard.needs_input')).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     for (const button of await page.locator('.chatCard button').all()) {
       const box = await button.boundingBox();

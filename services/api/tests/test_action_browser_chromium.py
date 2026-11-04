@@ -6,7 +6,8 @@ CONNECT proxy, with fake DNS answers mapped to the local server, so every connec
 real guarded path. The tool, the browser service routes and the kernel are the real ones; only
 the planner is scripted (it finds elements by their labels in the real snapshot).
 
-Proves: sign in with a saved login, fill a form, stop at pay with an approval, approve, finish;
+Proves: sign in with a saved login, fill a form, stop at card entry, at the security code (typed by
+the owner at approval, never saved) and at pay with an approval, approve, finish;
 the reject path; the page-changed path; a multi-step form submitted after approval; a statement
 downloaded into Files; two pages compared into a table; a private address refused by the proxy.
 """
@@ -30,6 +31,7 @@ import httpx
 import pytest
 
 from anum_api.action_browser import ACT_TOOL
+from anum_api.action_browser.card_code import CVC_MARKER, with_card_code
 from anum_api.action_browser.kernel import ActionSession, SessionLimits
 from anum_api.action_browser.planner import PlannedStep
 from anum_api.action_browser.service_routes import ActionSessions, action_routes
@@ -46,6 +48,8 @@ EXECUTABLE = os.environ.get("ANUM_TEST_CHROMIUM_PATH") or None
 CONTEXT = TenantContext(tenant_id="tenant_real", workspace_id="workspace_real", user_id="owner_r", roles=["owner"])
 PASSWORD = "plain-fake-pass"
 CARD = "4242424242424242"
+# The security code the owner types on the approval card (a sentinel looked for where it must not be).
+CODE = "739"
 TOKEN = "action-browser-token-for-tests-only-example"
 PUBLIC_IP = "93.184.215.14"
 DEMO = Path(os.environ.get("ANUM_ACTION_BROWSER_DEMO_DIR", "")) if os.environ.get("ANUM_ACTION_BROWSER_DEMO_DIR") else None
@@ -62,6 +66,7 @@ class Shop:
     def __init__(self) -> None:
         self.price = "AED 1,240"
         self.charged: list[str] = []
+        self.codes: list[str] = []
         self.visa: list[dict[str, str]] = []
         self.posts: list[str] = []
 
@@ -99,6 +104,7 @@ def handler_for(shop: Shop) -> type[BaseHTTPRequestHandler]:
             if path == "/pay":
                 return self._send(200, page("Payment", f"""<p>Fare to Riyadh</p><p>Total {shop.price}</p><form method="post" action="/pay/charge">
 <label for="cc">Card number</label><input id="cc" name="cardnumber" autocomplete="cc-number" inputmode="numeric">
+<label for="cvc">Security code</label><input id="cvc" name="cvc" autocomplete="cc-csc" inputmode="numeric">
 <button type="submit">Pay {shop.price}</button></form>"""))
             if path == "/done":
                 return self._send(200, page("Booked", "<p>Booking reference ABC123</p>"))
@@ -134,6 +140,7 @@ fetch('https://169.254.169.254/latest').catch(()=>{});</script>"""))
                 return self._send(303, headers={"location": "/pay"})
             if self.path == "/pay/charge":
                 shop.charged.append(form.get("cardnumber", ""))
+                shop.codes.append(form.get("cvc", ""))
                 return self._send(303, headers={"location": "/done"})
             if self.path == "/visa/submit":
                 shop.visa.append(form)
@@ -241,9 +248,12 @@ class Harness:
         (DEMO / f"{name}.jpg").write_bytes(await self.created[-1].screenshot())
 
 
-async def call(tool: ActionBrowserTool, arguments: dict[str, Any]) -> ToolResult:
-    with running_in("task_real", "run_real"):
-        return await tool(ToolCall(name=ACT_TOOL, arguments=arguments), CONTEXT)
+async def call(tool: ActionBrowserTool, arguments: dict[str, Any], *, code: str | None = None) -> ToolResult:
+    async def go() -> ToolResult:
+        with running_in("task_real", "run_real"):
+            return await tool(ToolCall(name=ACT_TOOL, arguments=arguments), CONTEXT)
+
+    return await (with_card_code(code, go()) if code is not None else go())
 
 
 SCOPE = {"goal": "Book one seat to Riyadh", "start_url": "https://shop.example/login", "allowed_domains": ["shop.example"],
@@ -254,14 +264,15 @@ SIGN_IN = [
     {"action": "click", "find": "Sign in"},
 ]
 BOOK = [*SIGN_IN, {"action": "type", "find": "Passenger name", "value": "Owner Name"}, {"action": "click", "find": "Continue"},
-        {"action": "type", "find": "Card number", "value": "{{card:main.number}}"}]
+        {"action": "type", "find": "Card number", "value": "{{card:main.number}}"},
+        {"action": "type", "find": "Security code", "value": "{{card:main.cvc}}"}]
 
 
 @pytest.fixture(autouse=True)
 def _vault() -> Iterator[None]:
     memory_action_store.clear()
     create_credential(CONTEXT, CredentialWrite(kind="login", handle="shop", site="shop.example", username="owner@example.com", password=PASSWORD))
-    create_credential(CONTEXT, CredentialWrite(kind="card", handle="main", name="Owner Name", number=CARD, expiry="08/29", cvc="123"))
+    create_credential(CONTEXT, CredentialWrite(kind="card", handle="main", name="Owner Name", number=CARD, expiry="08/29"))
     yield
     memory_action_store.clear()
 
@@ -284,22 +295,30 @@ def test_sign_in_fill_stop_at_pay_approve_and_complete(site: tuple[Shop, int]) -
         await h.shot("1-start-filled-passenger-then-card-approval")
         args = card_gate.continuation.arguments
         assert args["kind"] == "card_entry" and args["amount_text"] == "AED 1,240"
-        pay_gate = await call(tool, args)
+        code_gate = await call(tool, args)
+        assert code_gate.status == "paused", code_gate.summary
+        code_args = code_gate.continuation.arguments
+        assert code_args["kind"] == "card_security_code" and code_args["cvc"] == CVC_MARKER
+        await h.shot("2a-waiting-for-the-security-code")
+        pay_gate = await call(tool, code_args, code=CODE)
         assert pay_gate.status == "paused", pay_gate.summary
         await h.shot("2-waiting-for-approval-pay")
         pay = pay_gate.continuation.arguments
         assert pay["kind"] in {"binding_button", "payment_form"} and pay["amount"] == 1240.0 and pay["url"] == "https://shop.example/pay"
         assert shop.charged == []
-        # The card field shows the handle, never the number, to the model and in the snapshot.
+        # The card fields show the handle, never the number or the code, to the model and in the snapshot.
         assert CARD not in "".join(planner.seen) and PASSWORD not in "".join(planner.seen)
+        assert '"{{card:main.cvc}}"' in planner.seen[-1] and f'"{CODE}"' not in "".join(planner.seen)
         done = await call(tool, pay)
         assert done.status == "succeeded", done.summary
-        assert shop.charged == [CARD] and done.output["answer"] == "Booked, reference ABC123."
+        assert shop.charged == [CARD] and shop.codes == [CODE] and done.output["answer"] == "Booked, reference ABC123."
         assert h.created[-1].closed and len(h.sessions) == 0
         record = memory_action_store.get_session(CONTEXT, pay["session_id"])
         assert record.status == "completed" and record.current_url == "https://shop.example/done"
         log = json.dumps([s.model_dump(mode="json") for s in memory_action_store.steps(CONTEXT, record.id)])
         assert CARD not in log and PASSWORD not in log and "Typed the saved login shop (password)" in log
+        everything = log + record.model_dump_json() + json.dumps(done.output) + json.dumps(code_args) + json.dumps(pay)
+        assert f'"{CODE}"' not in everything and f" {CODE}" not in everything
 
     asyncio.run(go())
 
@@ -312,7 +331,8 @@ def test_reject_leaves_nothing_paid_and_page_changed_asks_again(site: tuple[Shop
         # After a page change the planner proposes Pay again, which is asked again with the new price.
         tool = h.tool(LabelPlanner([*BOOK, {"action": "click", "find": "Pay"}, {"action": "click", "find": "Pay"}]))
         args = (await call(tool, SCOPE)).continuation.arguments
-        pay = (await call(tool, args)).continuation.arguments
+        code_args = (await call(tool, args)).continuation.arguments
+        pay = (await call(tool, code_args, code=CODE)).continuation.arguments
         # The price changes while the owner looks: approving the old picture does nothing and asks again.
         shop.price = "AED 1,990"
         await h.created[-1].page.reload()

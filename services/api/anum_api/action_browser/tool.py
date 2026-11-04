@@ -32,8 +32,18 @@ from ..integration_tools import read_capped
 from ..model_egress import EgressPolicy, UnsafeModelEndpointError, check_endpoint
 from ..schemas import RiskLevel, TenantContext, new_id, utc_now
 from . import ACT_TOOL
+from .card_code import CVC_MARKER, NO_CODE_AT_RUN, take_card_code
 from .classify import ALLOW, GATE, HANDOFF, REFUSE, Decision, classify, handoff_reason
-from .handles import Handle, host_in_sites, masked_handle, normalize_site, parse_handle, site_of, valid_handle_name
+from .handles import (
+    CODE_PART,
+    Handle,
+    host_in_sites,
+    masked_handle,
+    normalize_site,
+    parse_handle,
+    site_of,
+    valid_handle_name,
+)
 from .planner import ActionPlanner, PlannedStep
 from .store import SessionRecord, StepRecord, open_action_store
 
@@ -589,7 +599,7 @@ class _Segment:
         label = _target_label(target, action)
         fields = _fields_shown(target, hints)
         amount = decision.amount.as_dict() if decision.amount is not None else {}
-        verb = {"card_entry": "enter", "payment_field": "type into", "off_site": "open", "binding_button": "press",
+        verb = {"card_entry": "enter", "card_security_code": "enter the card security code in", "payment_field": "type into", "off_site": "open", "binding_button": "press",
                 "payment_form": "send", "payment_frame": "press"}.get(decision.code, "do")
         what = f"{verb} {label}" if decision.code != "off_site" else f"open {site_of(decision.host)}"
         money = f" ({amount['amount_text']})" if amount.get("amount_text") and decision.code != "off_site" else ""
@@ -612,6 +622,10 @@ class _Segment:
             args["url"] = str(action.get("url") or target.get("href") or "")[:2048]
         if decision.extra.get("grant"):
             args["grant"] = decision.extra["grant"]
+        if decision.code == "card_security_code":
+            # Only this fixed marker is in the call and its payload hash; the digits come with the approve request.
+            args["cvc"] = CVC_MARKER
+            reason += " Type the card's security code on the approval card."
         pending = {"kind": decision.code, "label": label, "host": host, "url": args["url"], **amount}
         waiting = "off_site" if decision.code == "off_site" else "approval"
         return await self.pause(waiting, reason, pending, args, detail={"code": decision.code, "label": label, "host": host, **amount})
@@ -705,7 +719,13 @@ class _Segment:
         if handle is not None:
             if (handle.kind == "card" and handle.name not in self.record.cards) or (handle.kind == "login" and handle.name not in self.record.logins):
                 return await self.end("failed", "The approved step names a saved secret outside this task's scope.", "handle_out_of_scope")
-            secret = await self._secret(handle)
+            if handle.kind == "card" and handle.part == CODE_PART:
+                # Typed by the owner on this approval, taken once; never read from the vault, never stored.
+                secret = take_card_code() if approved.get("cvc") == CVC_MARKER else None
+                if secret is None:
+                    return await self.end("failed", NO_CODE_AT_RUN, "card_code_missing")
+            else:
+                secret = await self._secret(handle)
             if secret is None:
                 return await self.end("failed", f"The saved {handle.kind} {handle.name} is not saved any more.", "secret_missing")
         try:
@@ -730,7 +750,7 @@ class _Segment:
             if decision.kind == HANDOFF:
                 return await self._handoff(decision)
             return None
-        if approved.get("grant") and approved.get("kind") == "card_entry":
+        if approved.get("grant") and approved.get("kind") in {"card_entry", "card_security_code"}:
             self.record.grants = list(dict.fromkeys([*self.record.grants, str(approved["grant"])]))[:20]
         described = {"page": {"url": approved.get("url")}, "target": {"label": approved.get("target")}}
         return await self._after(action, result, described, PlannedStep(action="read", reason=str(approved.get("target") or "")), Decision(ALLOW, "approved", ""))
@@ -966,9 +986,12 @@ def default_planner_factory(gateway: Any) -> PlannerFactory:
     from .planner import ModelActionPlanner
 
     def factory(context: TenantContext) -> ActionPlanner:
+        from ..current_time import time_line_for
         from ..onboarding import budgeted_model_gateway
 
-        return ModelActionPlanner(lambda: budgeted_model_gateway(context, gateway))
+        return ModelActionPlanner(
+            lambda: budgeted_model_gateway(context, gateway), lambda language: time_line_for(context, language)
+        )
 
     return factory
 

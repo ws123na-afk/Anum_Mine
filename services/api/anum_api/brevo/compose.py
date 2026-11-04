@@ -31,6 +31,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, ValidationError
 
+from ..current_time import time_line_async, with_time_line
 from ..model_budget import ModelBudgetExceededError
 from ..model_gateway import ModelRoute, route_gateway
 from ..punctuation import PLAIN_PUNCTUATION_RULE, plain_dashes
@@ -175,6 +176,8 @@ async def _model_sections(context: TenantContext, *, subject: str, outline: list
         f"Brand voice: {voice}" if voice else "",
         f"Language: {'Arabic' if language == 'ar' else 'English'}",
     ) if line)
+    # The date line follows the request, outside the cached instructions (current_time.py).
+    request = with_time_line(request, await time_line_async(context, "ar" if language == "ar" else "en"))
     try:
         routed = route_gateway(gateway, ModelRoute.FAST)
         generate = getattr(routed, "generate_with_instructions", None)
