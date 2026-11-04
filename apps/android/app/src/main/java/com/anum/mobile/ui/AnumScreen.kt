@@ -78,8 +78,9 @@ fun AnumScreen(state: AnumUiState, onPrompt: (String) -> Unit, onSubmit: () -> U
                 Text(approval.action, fontWeight = FontWeight.SemiBold); Text("${approval.riskLevel} risk", color = Color(0xFFA03D2D))
             }
             Text(approval.reason)
+            if (approval.needsCardCodeOnWeb) Text("Approve on the web to enter the security code. ANUM never saves it; you type it there for this step only.")
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = { onDecision(approval, true) }, enabled = !loading, colors = ButtonDefaults.buttonColors(containerColor = AnumGreen)) {
+                Button(onClick = { onDecision(approval, true) }, enabled = !loading && !approval.needsCardCodeOnWeb, colors = ButtonDefaults.buttonColors(containerColor = AnumGreen)) {
                     Icon(Icons.Default.Check, null); Spacer(Modifier.width(4.dp)); Text("Approve")
                 }
                 OutlinedButton(onClick = { onDecision(approval, false) }, enabled = !loading) {

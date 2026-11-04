@@ -46,7 +46,8 @@ class FakeSite:
             "/passenger": {"title": "Passenger details", "text": "Who is travelling?", "action": "/passenger", "elements": [
                 field("e1", "passenger_name", "Passenger name"), button("e2", "Continue")]},
             "/pay": {"title": "Payment", "text": f"Fare\nTotal {self.price}", "action": "/pay/charge", "elements": [
-                field("e1", "cardnumber", "Card number", autocomplete="cc-number"), button("e2", f"Pay {self.price}")]},
+                field("e1", "cardnumber", "Card number", autocomplete="cc-number"), button("e2", f"Pay {self.price}"),
+                field("e3", "cvc", "Security code", autocomplete="cc-csc")]},
             "/done": {"title": "Booked", "text": "Booking reference ABC123", "action": None, "elements": []},
             "/visa": {"title": "Visa form, step 1", "text": "Applicant", "action": "/visa/2", "elements": [
                 field("e1", "full_name", "Full name"), button("e2", "Next")]},
@@ -156,6 +157,7 @@ class FakeActionService:
             session["path"] = "/pay"
         elif path == "/pay" and ref == "e2":
             session["paid_with"] = session["values"].get(("/pay", "e1"))
+            session["paid_code"] = session["values"].get(("/pay", "e3"))
             session["path"] = "/done"
         elif path == "/visa" and ref == "e2":
             session["path"] = "/visa/2"

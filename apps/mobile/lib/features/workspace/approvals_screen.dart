@@ -461,6 +461,21 @@ class _PendingCardState extends State<PendingApprovalCard> {
             ),
           ),
         ],
+        if (approval.needsCardCodeOnWeb)
+          Padding(
+            key: Key('approval-card-code-${approval.id}'),
+            padding: const EdgeInsets.only(top: 10),
+            child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Icon(Icons.credit_card, size: 16, color: p.muted),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                    'Approve on the web to enter the security code. '
+                    'ANUM never saves it; you type it there for this step only.',
+                    style: TextStyle(color: p.text, fontSize: AnumType.sm)),
+              ),
+            ]),
+          ),
         const SizedBox(height: 12),
         TextField(
           controller: _reason,
@@ -521,6 +536,7 @@ class _PendingCardState extends State<PendingApprovalCard> {
               FilledButton.icon(
                 onPressed: controller.mutating ||
                         !approval.canApprove() ||
+                        approval.needsCardCodeOnWeb ||
                         alreadyApproved
                     ? null
                     : () => _confirmApprove(context),

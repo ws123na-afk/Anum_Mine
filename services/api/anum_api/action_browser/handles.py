@@ -15,6 +15,9 @@ HANDLE_NAME = re.compile(r"^[a-z0-9][a-z0-9-]{0,39}$")
 HANDLE = re.compile(r"^\{\{(login|card):([a-z0-9][a-z0-9-]{0,39})\.([a-z_]{3,10})\}\}$")
 LOGIN_PARTS = ("username", "password")
 CARD_PARTS = ("number", "expiry", "exp_month", "exp_year", "cvc", "name")
+# The security code is a handle the model may write, but it is never saved: the owner types it on
+# the approval card for that one step (card_code.py, docs/action-browser.md#the-card-security-code).
+CODE_PART = "cvc"
 SITE = re.compile(r"^(?=.{3,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$")
 HTTPS_ADDRESS = re.compile(r"https://[^\s<>\"'\u200f\u200e)\]]+", re.IGNORECASE)
 
@@ -152,6 +155,6 @@ def masked_handle(handle: Handle, hints: dict[str, str] | None = None) -> str:
 
 
 __all__ = [
-    "CARD_PARTS", "Handle", "LOGIN_PARTS", "card_brand", "card_hint", "host_in_sites", "looks_like_card_number", "luhn_ok", "mask_username",
+    "CARD_PARTS", "CODE_PART", "Handle", "LOGIN_PARTS", "card_brand", "card_hint", "host_in_sites", "looks_like_card_number", "luhn_ok", "mask_username",
     "masked_handle", "normalize_site", "parse_handle", "prompt_addresses", "prompt_sites", "site_of", "valid_handle_name",
 ]
