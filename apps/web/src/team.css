@@ -258,22 +258,3 @@
 .mailAliasName input { flex: 1 1 auto; min-width: 0; }
 .mailAliasName span { overflow-wrap: anywhere; }
 @media (max-width: 560px) { .mailDnsChecks li { grid-template-columns: auto minmax(0, 1fr); } .mailDnsMessage { grid-column: 1 / -1; } }
-
-/* Second redesign pass (docs/web-design-system.md#pages). Ask ANUM is a command bar, like the Tasks
-   composer: a small title, the request and Check on one row. Work lists sit on hairlines that run to
-   the panel's edges, the selected item carries the jade bar. */
-.commandBox { padding: var(--d-s4) var(--d-s5); }
-.commandBox h2 { font-size: var(--text-base); font-weight: 600; }
-.commandBox .commandRow .field { margin-top: var(--d-s2); }
-.commandBox .commandRow .actions { margin-top: var(--d-s2); }
-.teamPanel > .workList { border-top: 1px solid var(--d-line); gap: 0; margin-inline: calc(var(--d-s5) * -1); }
-.teamPanel > .workList:last-child { margin-bottom: calc(var(--d-s5) * -1); }
-.teamPanel > .workList > li + li { border-top: 1px solid var(--d-line); }
-.teamPanel > .workList .workRow { border-radius: 0; padding: var(--d-s3) var(--d-s5); }
-.teamPanel > .workList > li:last-child .workRow { border-end-end-radius: var(--d-r-panel); border-end-start-radius: var(--d-r-panel); }
-@media (max-width: 480px) {
-  .commandBox { padding: var(--d-s4); }
-  .teamPanel > .workList { margin-inline: calc(var(--d-s4) * -1); }
-  .teamPanel > .workList:last-child { margin-bottom: calc(var(--d-s4) * -1); }
-  .teamPanel > .workList .workRow { padding-inline: var(--d-s4); }
-}

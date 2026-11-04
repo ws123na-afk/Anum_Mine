@@ -116,7 +116,7 @@ export function AuditLogView({ onOpenMembers }: { onOpenMembers?: () => void }) 
 
   return <>
     <section className="moduleIntro">
-      <div><p className="eyebrow">{t('audit.eyebrow')}</p><h2 className="visuallyHidden">{t('audit.title')}</h2><p>{t('audit.intro')}</p></div>
+      <div><p className="eyebrow">{t('audit.eyebrow')}</p><h2>{t('audit.title')}</h2><p>{t('audit.intro')}</p></div>
       <div className="actions">
         <button type="button" className="secondary" disabled={exporting !== null || load.kind !== 'ready'} onClick={() => void download('csv')}><Download aria-hidden="true" />{exporting === 'csv' ? t('audit.exporting') : t('audit.exportCsv')}</button>
         <button type="button" className="secondary" disabled={exporting !== null || load.kind !== 'ready'} onClick={() => void download('json')}><Download aria-hidden="true" />{exporting === 'json' ? t('audit.exporting') : t('audit.exportJson')}</button>

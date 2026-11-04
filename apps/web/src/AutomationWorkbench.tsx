@@ -63,8 +63,7 @@ export function AutomationWorkbench({ focus = null, onOpenTask, refreshSignal = 
 
   return <div className="autoPage">
     <section className="moduleIntro">
-      {/* The page title above already says Automations: the section title stays for screen readers only. */}
-      <div><p className="eyebrow">{t('auto.eyebrow')}</p><h2 className="visuallyHidden">{t('auto.title')}</h2><p>{t('auto.intro')}</p></div>
+      <div><p className="eyebrow">{t('auto.eyebrow')}</p><h2>{t('auto.title')}</h2><p>{t('auto.intro')}</p></div>
       <div className="actions">
         <button type="button" className="secondary" onClick={reload}><RefreshCw aria-hidden="true" />{t('auto.refresh')}</button>
         {manage && <button type="button" onClick={startCreate}><Plus aria-hidden="true" />{t('auto.new')}</button>}

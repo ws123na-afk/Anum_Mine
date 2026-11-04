@@ -94,7 +94,3 @@
 .calendarProviders li > div { display: grid; gap: var(--d-s1); justify-items: start; min-width: 0; }
 .calendarProviders p { font-size: var(--text-sm); margin: 0; overflow-wrap: anywhere; }
 .calendarRedirect { font-size: var(--text-sm); overflow-wrap: anywhere; }
-
-/* The sync note is one sentence: the icon sits inline before it, so a phone never leaves it alone on a line. */
-.calendarSyncNote { display: block; }
-.calendarSyncNote svg { display: inline-block; margin-inline-end: var(--d-s2); vertical-align: -3px; }

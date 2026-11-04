@@ -12,8 +12,7 @@
 .blSub { font-size: var(--text-lg); }
 .blInlineIcon { block-size: 16px; inline-size: 16px; margin-inline-end: var(--d-s1); vertical-align: -2px; }
 [dir="rtl"] .blFlip { transform: scaleX(-1); }
-.blDanger { color: var(--d-stop); }
-.blDanger:not(td) { display: block; }
+.blDanger { color: var(--d-stop); display: block; }
 .blProblem { align-items: flex-start; display: flex; gap: var(--d-s3); }
 .blBanner { margin: 0; }
 .blBanner.warn { border-color: rgb(var(--c-warn) / .4); color: var(--d-warn); }
@@ -209,23 +208,4 @@
   .blTable .optional, .blLines .optional { display: none; }
   .blRules li { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; }
   .blRuleName { display: none; }
-}
-
-/* Billing console (docs/web-design-system.md#pages): the page header carries the two billing actions;
-   the subscriptions list is one frame whose table runs to its edges on hairlines (no box inside a box). */
-.blConsole > .pageHeader { margin-bottom: 0; }
-.blConsole > .pageSummary { margin-bottom: 0; }
-.blConsoleBar .blTabs { flex: 1 1 auto; }
-.blSubs { padding-bottom: 0; }
-.blSubs .blToolbar { align-items: end; }
-.blSubs .blFlush { border-top: 1px solid var(--d-line); margin-inline: calc(var(--d-s5) * -1); }
-.blSubs .blFlush .dataTable thead th { background: var(--d-surface-1); }
-.blSubs .blFlush .dataTable :is(th, td):first-child { padding-inline-start: var(--d-s5); }
-.blSubs .blFlush .dataTable :is(th, td):last-child { padding-inline-end: var(--d-s5); }
-.blSubs > :last-child { margin-bottom: var(--d-s3); }
-.blSubs > .emptyState, .blSubs > .paneEmpty { padding-block: var(--d-s6); }
-@media (max-width: 760px) {
-  .blSubs .blFlush { margin-inline: calc(var(--d-s3) * -1); }
-  .blSubs .blFlush .dataTable :is(th, td):first-child { padding-inline-start: var(--d-s3); }
-  .blSubs .blFlush .dataTable :is(th, td):last-child { padding-inline-end: var(--d-s3); }
 }

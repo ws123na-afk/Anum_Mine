@@ -51,9 +51,9 @@ export function Breadcrumbs({ trail }: { trail: Crumb[] }) {
  * The page's one header row: the title and a one-line subtitle on the start side, the page's
  * actions on the end side. Used by views that draw their own header (lib/shell.ts OWN_HEADER).
  */
-export function PageHeader({ title, subtitle, subtitleId, actions, crumbs }: { title: string; subtitle?: string; subtitleId?: string; actions?: ReactNode; crumbs?: Crumb[] }) {
+export function PageHeader({ title, subtitle, actions, crumbs }: { title: string; subtitle?: string; actions?: ReactNode; crumbs?: Crumb[] }) {
   return <header className="pageHeader">
-    <div className="pageHeaderText">{crumbs && crumbs.length > 0 && <Breadcrumbs trail={crumbs} />}<h1 id="view-title">{title}</h1>{subtitle && <p id={subtitleId}>{subtitle}</p>}</div>
+    <div className="pageHeaderText">{crumbs && crumbs.length > 0 && <Breadcrumbs trail={crumbs} />}<h1 id="view-title">{title}</h1>{subtitle && <p>{subtitle}</p>}</div>
     {actions && <div className="pageHeaderActions">{actions}</div>}
   </header>;
 }

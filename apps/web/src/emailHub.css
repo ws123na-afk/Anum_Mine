@@ -13,12 +13,6 @@
 .emailHubRail { border: 1px solid var(--d-line); border-radius: var(--d-r-control); min-width: 0; padding: var(--d-s2); }
 .hubRailList { display: grid; gap: var(--d-s1); list-style: none; margin: 0; padding: 0; }
 @media (max-width: 1679px) {
-  /* The mailbox row sits under the page title (the title is drawn by the open pane, so the pane's
-     wrapper lets its children join this grid and the header moves above the row). */
-  .emailHubMain, .emailHubMain > :is(.mailLayout, .inboxLayout) { display: contents; }
-  .emailHub > .emailHubRail { order: 1; }
-  .emailHubMain > *, .emailHubMain > :is(.mailLayout, .inboxLayout) > * { order: 2; }
-  .emailHubMain > .pageHeader, .emailHubMain > :is(.mailLayout, .inboxLayout) > .pageHeader { margin-bottom: 0; order: 0; }
   .emailHubRail { background: var(--d-surface-1); border-radius: var(--d-r-panel); box-shadow: var(--d-elev-1); padding: var(--d-s1); }
   .hubRailList { display: flex; gap: var(--d-s1); overflow-x: auto; overscroll-behavior-x: contain; padding-bottom: var(--d-s1); }
   .hubRailList > li { flex: none; max-width: 280px; }
