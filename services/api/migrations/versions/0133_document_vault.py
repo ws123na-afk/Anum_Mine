@@ -28,16 +28,15 @@ and policy of ``0079_tenant_lifecycle`` and is listed in ``anum_api/tenant_lifec
 ``anum_maintenance`` reads scope columns only (the daily job's discovery and ``rotate_secrets``).
 
 Expand only: one nullable column, new tables and policies. The previous release ignores them and
-cannot see hidden vault files. Chained after ``0131_finance_sms_ledger``; renumbered to follow
-``0132_work_attendance`` (PR #370) if that lands first.
+cannot see hidden vault files. Numbered 0133 and chained after ``0132_work_attendance``.
 """
 
 import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects.postgresql import JSONB
 
-revision = "0132_document_vault"
-down_revision = "0131_finance_sms_ledger"
+revision = "0133_document_vault"
+down_revision = "0132_work_attendance"
 branch_labels = None
 depends_on = None
 

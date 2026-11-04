@@ -154,6 +154,9 @@ class Permission(StrEnum):
     # get neither.
     BILLING_READ = "billing:read"
     BILLING_MANAGE = "billing:manage"
+    # Work attendance and daily reports (docs/attendance.md#permissions): the person's own
+    # record (row policies on ``anum.user_id``); owners and members keep theirs, viewers none.
+    ATTENDANCE_USE = "attendance:use"
     # Document vault (docs/documents.md#who-can-do-what): identity papers, contracts and receipts
     # are personal data, so viewers get none of it. Owners and members read workspace documents
     # and add, change and delete their own; a private document is visible only to its owner and
@@ -259,6 +262,7 @@ ROLE_PERMISSIONS: Mapping[Role, frozenset[Permission]] = MappingProxyType(
             Permission.CALL_LOG,
             Permission.BUSINESS_READ,
             Permission.BUSINESS_WRITE,
+            Permission.ATTENDANCE_USE,
             Permission.DOCUMENT_READ,
             Permission.DOCUMENT_WRITE,
         },

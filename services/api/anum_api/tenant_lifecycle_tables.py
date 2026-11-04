@@ -80,6 +80,7 @@ _TENANT_WIDE = frozenset(
 )
 
 _DOMAINS = (
+    ("attendance_", "attendance"),
     ("app_call", "calls"),
     ("call_", "calls"),
     ("mail_", "mail"),
@@ -345,6 +346,7 @@ _ORDER = (
     "favorites",
     "user_notifications",
     "team_activity",
+    "attendance_daily_reports", "attendance_day_totals", "attendance_corrections", "attendance_events", "attendance_sites", "attendance_profiles", "attendance_shares",
     "vault_access_log",
     "vault_extractions",
     "vault_document_links",

@@ -1,4 +1,4 @@
-"""Storage of the document vault (migration ``0132_document_vault``).
+"""Storage of the document vault (migration ``0133_document_vault``).
 
 Eight workspace tables under forced RLS, plus the ``vault`` column of ``workspace_files``. With
 PostgreSQL one unit of work (``open_vault_unit``) holds one session for the vault tables and the

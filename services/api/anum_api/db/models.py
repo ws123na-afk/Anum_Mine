@@ -812,7 +812,7 @@ class WorkspaceFileRecord(Base, WorkspaceScopedMixin):
     # The current version number (migration 0090_file_versions); older versions live in
     # workspace_file_versions.
     version: Mapped[int] = mapped_column(Integer, nullable=False, server_default="1", default=1)
-    # Document vault (migration 0132_document_vault, docs/documents.md#storage-and-isolation): null for
+    # Document vault (migration 0133_document_vault, docs/documents.md#storage-and-isolation): null for
     # an ordinary file; `hidden` rows are invisible unless the unit of work set anum.vault (row policy).
     vault: Mapped[str | None] = mapped_column(String(10))
 

@@ -4,7 +4,7 @@ The Document vault keeps identity papers, contracts, insurance, statements, rece
 
 It is module 2 of the owner's five-module expansion (4 Nov 2026). Receipts never post money: the ANUM Finance ledger stays the only financial source of truth, and a document links to a finance transaction only through the finance links foundation (see [Links](#links)).
 
-Code: `services/api/anum_api/vault/` (`models.py`, `store.py`, `service.py`, `api.py`, `devices.py`, `links.py`, `jobs.py`, `privacy.py`, `ocr_parse.py`, `ocr_client.py`, `ocr_service.py`). Migration `0132_document_vault`. Web: `apps/web/src/VaultView.tsx`, `src/lib/vault.ts`, `src/lib/vaultApi.ts`, `src/vault.css`, `src/lib/messages/vault.{en,ar}.ts`. Contracts: `packages/contracts/src/documents.ts`. Help: [English](help/vault.md), [Arabic](help/vault.ar.md).
+Code: `services/api/anum_api/vault/` (`models.py`, `store.py`, `service.py`, `api.py`, `devices.py`, `links.py`, `jobs.py`, `privacy.py`, `ocr_parse.py`, `ocr_client.py`, `ocr_service.py`). Migration `0133_document_vault`. Web: `apps/web/src/VaultView.tsx`, `src/lib/vault.ts`, `src/lib/vaultApi.ts`, `src/vault.css`, `src/lib/messages/vault.{en,ar}.ts`. Contracts: `packages/contracts/src/documents.ts`. Help: [English](help/vault.md), [Arabic](help/vault.ar.md).
 
 ## Contents
 

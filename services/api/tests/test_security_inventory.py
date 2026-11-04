@@ -68,6 +68,7 @@ PUBLIC_ROUTES: dict[str, str] = {
     "GET /api/v1/public/legal": "The configured issuer's company details and legal facts for the public legal pages, through the narrow platform reader; no tenant id.",
     "GET /api/v1/whatsapp/webhook": "Meta's subscription check against the hashed verify token.",
     "POST /api/v1/whatsapp/webhook": "X-Hub-Signature-256 with the app secret, bad-signature limit per caller.",
+    "POST /api/v1/attendance/device/events": "iPhone Shortcut: a scoped device token through attendance/devices.py DeviceAuthority, else the ordinary sign-in (tenant_context called in device_principal); attendance:use checked; no coordinates accepted.",
     "POST /api/v1/calls/webhooks/twilio/{route_id}/voice": "Twilio signature with the account's auth token; unguessable route id.",
     "POST /api/v1/calls/webhooks/twilio/{route_id}/dial/{call_id}": "Twilio signature; unguessable route id.",
     "POST /api/v1/calls/webhooks/twilio/{route_id}/status": "Twilio signature; unguessable route id.",

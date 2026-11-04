@@ -172,7 +172,10 @@ class PrivateCounts(BaseModel):
     # call as "Deleted user" so the other participant's history stays readable.
     app_calls: int = 0
     app_call_signals: int = 0
-    # Document vault (migration 0132_document_vault, docs/documents.md#privacy): the caller's
+    # Work attendance (migration 0132_work_attendance, docs/attendance.md#privacy): the caller's
+    # profile, sites, events, corrections, day totals, daily reports and the shares they gave.
+    attendance_records: int = 0
+    # Document vault (migration 0133_document_vault, docs/documents.md#privacy): the caller's
     # private documents (with their files) and iPhone Shortcut devices.
     vault_private_documents: int = 0
     vault_devices: int = 0
@@ -484,6 +487,7 @@ class PrivacyStore(Protocol):
     def commands(self) -> CommandStore: ...
     def library(self) -> LibraryPrivacy: ...
     def finance(self) -> Any: ...
+    def attendance(self) -> Any: ...
     # Email, WhatsApp and autonomy rows the caller connected, wrote, sent or requested.
     def email_accounts_connected(self) -> list[EmailAccount]: ...
     def email_drafts_written(self) -> list[EmailDraft]: ...
@@ -653,6 +657,11 @@ class InMemoryPrivacyStore:
 
         return finance_store
 
+    def attendance(self) -> Any:
+        from .attendance.store import attendance_store
+
+        return attendance_store
+
     def team(self) -> Any:
         from .team_store import memory_team_store
 
@@ -808,6 +817,7 @@ class InMemoryPrivacyStore:
             **module_private,
             home_items=home_counts(self.home(), self.context),
             finance_records=self.finance().count_everything(self.context),
+            attendance_records=self.attendance().count_everything(self.context),
             **mail_privacy_counts(self.context),
             **calls_privacy_counts(self.context),
             **app_calls_privacy_counts(self.context),
@@ -869,6 +879,7 @@ class InMemoryPrivacyStore:
         self.commands().delete_all()
         self.library().delete_all()
         self.finance().delete_everything(self.context)
+        self.attendance().delete_everything(self.context)
         delete_mail_everything(self.context)
         delete_my_app_calls(self.context)
         self._delete_email()
@@ -1234,6 +1245,8 @@ def export_sections(store: PrivacyStore, context: TenantContext) -> Iterator[tup
     yield ("home", home_export(store.home(), context))
     # The caller's whole finance ledger (docs/finance.md#privacy).
     yield ("finance", finance_export(store.finance(), context))
+    # The caller's own attendance and daily reports (docs/attendance.md#privacy).
+    yield ("attendance", store.attendance().export(context))
     yield ("mail", mail_export(context))
     # The caller's document vault records (docs/documents.md#privacy); bytes stay downloadable in the vault.
     from .vault.privacy import export as vault_export

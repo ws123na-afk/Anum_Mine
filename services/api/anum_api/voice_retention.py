@@ -98,6 +98,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     from .record_retention import purge as purge_records
 
     report["record_retention"] = purge_records(dry_run=args.dry_run, batch_size=args.batch_size)
+    from .attendance.jobs import run as run_attendance  # docs/attendance.md#daily-job
+
+    report["attendance"] = run_attendance(dry_run=args.dry_run, batch_size=args.batch_size)
     # The document vault's expiry reminders, retention and trash (docs/documents.md#expiry-reminders-trash-and-retention).
     from .vault.jobs import run as run_vault
 

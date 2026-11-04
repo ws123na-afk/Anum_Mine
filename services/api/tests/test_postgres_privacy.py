@@ -226,6 +226,7 @@ def test_export_reads_only_my_rows_under_rls(client: TestClient, app_factory: se
         "mail_contacts": 0,
         "app_calls": 0,
         "app_call_signals": 0,
+        "attendance_records": 0,
         "vault_private_documents": 0,
         "vault_devices": 0,
     }

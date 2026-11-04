@@ -1,4 +1,4 @@
-"""The document vault in PostgreSQL (migration 0132_document_vault), as the non-owner app role.
+"""The document vault in PostgreSQL (migration 0133_document_vault), as the non-owner app role.
 
 Row policies, not only the API, keep vault files out of every other unit of work and a private
 document visible only to its owner and the people it is shared with; other workspaces see nothing.

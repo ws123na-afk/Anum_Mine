@@ -231,7 +231,7 @@ class FileRecord(BaseModel):
     scanned_at: datetime | None = None
     # The current version number (migration 0090_file_versions, docs/files.md#versions).
     version: int = 1
-    # Document vault (migration 0132_document_vault, docs/documents.md#storage-and-isolation): None
+    # Document vault (migration 0133_document_vault, docs/documents.md#storage-and-isolation): None
     # for an ordinary file. Vault files are never listed or served by the Files routes; `hidden`
     # ones are invisible to every unit of work that is not the vault's own.
     vault: Literal["hidden", "assistant"] | None = None
