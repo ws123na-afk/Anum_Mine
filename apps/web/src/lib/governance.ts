@@ -145,6 +145,11 @@ export function integrationToolNote(kind: string, status: string, id = ''): { te
     if (status === 'degraded') return { text: t('integrations.browse.degraded'), available: false };
     return { text: t('integrations.browse.unavailable'), available: false };
   }
+  if (id === 'action-browser') {
+    if (status === 'connected') return { text: t('integrations.act.available'), available: true };
+    if (status === 'degraded') return { text: t('integrations.act.degraded'), available: false };
+    return { text: t('integrations.act.unavailable'), available: false };
+  }
   if (kind !== 'search') return null;
   if (status === 'connected') return { text: t('integrations.tool.available'), available: true };
   if (status === 'degraded') return { text: t('integrations.tool.degraded'), available: false };

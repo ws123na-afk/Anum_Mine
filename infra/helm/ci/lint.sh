@@ -114,6 +114,12 @@ refuses "ANUM_FINANCE_LIVE_ENABLED must stay false" --set-string config.ANUM_FIN
 helm template anum "$CHART" -f "$CHART/values-staging.yaml" --set-string config.ANUM_FINANCE_LIVE_ENABLED=true \
   --set-string config.ANUM_FINANCE_LIVE_BROKER=ibkr >/dev/null || fail "the chart must accept live IBKR, as the API does"
 log "accepted as expected: ANUM_FINANCE_LIVE_ENABLED=true with ANUM_FINANCE_LIVE_BROKER=ibkr"
+# The action browser (docs/action-browser.md#setting-it-up): the API refuses it without the browser service.
+refuses "ANUM_ACTION_BROWSER_ENABLED=true needs the browser service" --set-string config.ANUM_ACTION_BROWSER_ENABLED=true
+refuses "ANUM_ACTION_BROWSER_ENABLED=true needs the browser service" --set-string extraEnv.ANUM_ACTION_BROWSER_ENABLED=1
+helm template anum "$CHART" -f "$CHART/values-staging.yaml" --set-string config.ANUM_ACTION_BROWSER_ENABLED=true \
+  --set-string extraEnv.ANUM_BROWSER_RESEARCH_URL=http://browser:8090 >/dev/null || fail "the chart must accept the action browser with the browser service, as the API does"
+log "accepted as expected: ANUM_ACTION_BROWSER_ENABLED=true with the browser service URL and its token in secrets.app.optional"
 refuses "ANUM_FCM_SERVICE_ACCOUNT_JSON carries" --set-string config.ANUM_FCM_SERVICE_ACCOUNT_JSON=example-service-account
 refuses "ANUM_FCM_SERVICE_ACCOUNT_JSON carries" --set-string extraEnv.ANUM_FCM_SERVICE_ACCOUNT_JSON=example
 

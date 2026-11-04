@@ -70,6 +70,8 @@ secrets:
       - ANUM_EXTERNAL_WEBHOOK_API_KEY
       - ANUM_SENTRY_DSN
       - ANUM_SEARXNG_URL
+      # The browser service's token (docs/browser-research.md, docs/action-browser.md).
+      - ANUM_BROWSER_RESEARCH_TOKEN
       - ANUM_FCM_SERVICE_ACCOUNT_JSON
       - ANUM_EMAIL_GOOGLE_CLIENT_SECRET
       - ANUM_EMAIL_MICROSOFT_CLIENT_SECRET

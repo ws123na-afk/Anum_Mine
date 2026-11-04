@@ -261,6 +261,7 @@ x-user-roles: owner,member
 - [In-app calls between teammates](docs/in-app-calls.md)
 - [Tools and integrations](docs/tools-and-integrations.md)
 - [Browser research: the read-only web.browse_page tool](docs/browser-research.md)
+- [Action browser: the web.act tool that does browser tasks and asks before anything binding](docs/action-browser.md)
 - [Connecting integrations: the owner's runbook](docs/integrations-setup.md)
 - [Email: the unified inbox](docs/email.md)
 - [Reports](docs/reports.md)

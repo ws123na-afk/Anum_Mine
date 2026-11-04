@@ -705,6 +705,17 @@ def test_configure_env_check_refuses_bad_hosts_and_allow_lists(overrides: dict[s
     assert any(fragment in problem for problem in problems), problems
 
 
+def test_configure_env_check_refuses_the_action_browser_without_the_browser_service() -> None:
+    """docs/action-browser.md#setting-it-up: the API would refuse to start, so update.sh stops first."""
+    module = _configure_env_module()
+    problems, _ = module.check_deployment({**HOSTS_OK, "ANUM_ACTION_BROWSER_ENABLED": "true"}, strict=False)
+    assert any("ANUM_ACTION_BROWSER_ENABLED=true needs the browser service" in problem for problem in problems)
+    ready = {**HOSTS_OK, "ANUM_ACTION_BROWSER_ENABLED": "true", "ANUM_BROWSER_RESEARCH_URL": "http://browser:8090"}
+    problems, warnings = module.check_deployment(ready, strict=False)
+    assert not problems and any("ANUM_BROWSER_ACTION_MODE" in warning for warning in warnings)
+    assert module.check_deployment({**ready, "ANUM_BROWSER_ACTION_MODE": "1"}, strict=True) == ([], [])
+
+
 def test_configure_env_check_accepts_good_values_and_flags_a_world_open_console(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -844,7 +855,12 @@ def test_the_browser_service_is_isolated_and_off_by_default() -> None:
     assert not browser.get("ports") and not browser.get("expose")
     assert "browser:8090" not in CADDYFILE.read_text(encoding="utf-8")
     # Only the token: no database URL, secrets key or provider key reaches Chromium's container.
-    assert set(_env(browser)) == {"ANUM_BROWSER_SERVICE_TOKEN", "ANUM_BROWSER_CONCURRENCY"}
+    assert set(_env(browser)) == {
+        "ANUM_BROWSER_SERVICE_TOKEN", "ANUM_BROWSER_CONCURRENCY",
+        # Action mode (docs/action-browser.md): switches and limits, no secrets.
+        "ANUM_BROWSER_ACTION_MODE", "ANUM_BROWSER_ACTION_SESSIONS", "ANUM_BROWSER_ACTION_IDLE_SECONDS", "ANUM_BROWSER_ACTION_MAX_SECONDS",
+    }
+    assert _env(browser)["ANUM_BROWSER_ACTION_MODE"] == "${ANUM_BROWSER_ACTION_MODE:-0}"
     assert _env(browser)["ANUM_BROWSER_SERVICE_TOKEN"].startswith("${ANUM_BROWSER_TOKEN:?")
     assert browser["read_only"] is True and browser["cap_drop"] == ["ALL"]
     assert "no-new-privileges:true" in browser["security_opt"]
@@ -858,6 +874,7 @@ def test_the_browser_service_is_isolated_and_off_by_default() -> None:
     api = _env(services["api"])
     assert api["ANUM_BROWSER_RESEARCH_URL"] == "${ANUM_BROWSER_RESEARCH_URL:-}"
     assert api["ANUM_BROWSER_RESEARCH_TOKEN"] == "${ANUM_BROWSER_TOKEN:-}"
+    assert api["ANUM_ACTION_BROWSER_ENABLED"] == "${ANUM_ACTION_BROWSER_ENABLED:-false}"
 
 
 def test_searxng_is_private_and_only_the_api_uses_it() -> None:

@@ -2,6 +2,8 @@
 
 `web.browse_page` lets an agent open **one public https page** in a real, throwaway Chromium and read its text and links, for pages that only show their content after their scripts run. It only reads: no logins, no forms, no downloads, no cookies kept, nothing typed or clicked. It is an ordinary registered tool, so every call takes the runtime's normal path (planner, `ToolPolicy`, governance rules, emergency stop, autonomy and approvals, run steps, events, audit). It replaces the draft in PR #239, which was never called by anything and checked DNS separately from the browser's own lookup (open to DNS rebinding).
 
+The same browser service, run in action mode, also serves the [Action browser](action-browser.md) (`web.act`), which signs in, fills forms and clicks through sites and stops for the owner's approval before anything binding; `web.browse_page` is unchanged by it.
+
 For pages that need no scripts, `web.fetch_page` ([Business](business.md#page-fetch)) is lighter and stays the first choice of the prospecting pipeline; `web_search` ([Tools and integrations](tools-and-integrations.md#web-search)) finds candidate pages.
 
 Code: `services/api/anum_api/browser_research/` (`guard.py`, `kernel.py`, `service.py`, `tool.py`). Tests: `services/api/tests/test_browser_research.py` (no browser needed) and `services/api/tests/test_browser_research_chromium.py` (a real Chromium, marker `browser`).

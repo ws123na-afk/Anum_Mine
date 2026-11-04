@@ -299,6 +299,10 @@ services:
       # profile, http://browser:8090. Empty: web.browse_page says "Not available on this server".
       ANUM_BROWSER_RESEARCH_URL: ${ANUM_BROWSER_RESEARCH_URL:-}
       ANUM_BROWSER_RESEARCH_TOKEN: ${ANUM_BROWSER_TOKEN:-}
+      # The action browser (docs/action-browser.md): web.act on the same browser service run in
+      # action mode (ANUM_BROWSER_ACTION_MODE=1 below). Off unless set; the API refuses to start
+      # with it on while the browser service URL or token is missing.
+      ANUM_ACTION_BROWSER_ENABLED: ${ANUM_ACTION_BROWSER_ENABLED:-false}
       # Upload malware scanning (docs/files.md#malware-scanning): every upload and email
       # attachment goes to the clamd service below; while clamd is down or still loading
       # its signatures, uploads fail with 503 and nothing is stored (fail closed).
@@ -639,12 +643,19 @@ services:
     environment:
       ANUM_BROWSER_SERVICE_TOKEN: ${ANUM_BROWSER_TOKEN:?set ANUM_BROWSER_TOKEN in infra/oracle/.env}
       ANUM_BROWSER_CONCURRENCY: "1"
+      # Action mode (docs/action-browser.md): the session routes of web.act. Off unless set to 1.
+      # One task's browser at a time, killed after 15 idle minutes or 30 minutes in all.
+      ANUM_BROWSER_ACTION_MODE: ${ANUM_BROWSER_ACTION_MODE:-0}
+      ANUM_BROWSER_ACTION_SESSIONS: "1"
+      ANUM_BROWSER_ACTION_IDLE_SECONDS: "900"
+      ANUM_BROWSER_ACTION_MAX_SECONDS: "1800"
     networks:
       - browser
       - browser-egress
     read_only: true
     tmpfs:
-      - /tmp:size=256m
+      # Chromium's profile and, in action mode, a task's downloads (at most 10 files of 20 MB).
+      - /tmp:size=512m
       - /app/.cache:size=16m
     cap_drop: ["ALL"]
     security_opt: ["no-new-privileges:true"]
@@ -656,7 +667,8 @@ services:
       timeout: 5s
       retries: 3
       start_period: 20s
-    mem_limit: 1g
+    # 1.5 GB: a real site in action mode (cookies, frames, payment forms) needs more than one page read.
+    mem_limit: 1536m
     logging: *logging
 
   # --- ClamAV clamd (upload malware scanning) ----------------------------------------

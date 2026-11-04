@@ -1,6 +1,6 @@
 // Approvals: the exact tool call, where it goes, why it stopped, when it lapses, and who decided
 // and why. See docs/approvals-and-risk.md. Approve sends back the payload hash shown here.
-import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { BellOff, CheckCircle2, Clock, Fingerprint, Globe, Route, Search, ShieldCheck, UserX, Users, XCircle } from 'lucide-react';
 import type { Approval } from '@anum/contracts';
 import * as api from './lib/api';
@@ -12,6 +12,9 @@ import { formatDateTime, formatNumber, t } from './lib/i18n';
 import { riskLabel, statusLabel } from './lib/labels';
 import { EmptyPanel, PanelDenied, PanelError, PanelLoading } from './Panels';
 import { rich } from './rich';
+
+// A web.act step's picture and facts (docs/action-browser.md): its own lazy chunk.
+const ActionBrowserApproval = lazy(() => import('./action-browser/ActionBrowserApproval'));
 
 /**
  * Resolves with the API's refusal when the decision is not allowed (403, for example the
@@ -250,6 +253,7 @@ export function PendingApproval({ approval, busy, decide, now, userId }: { appro
         {route?.explanation && !alreadyApproved && <p className="approvalReadOnly" role="note"><UserX aria-hidden size={14} />{route.explanation}</p>}
         {suppressed && <p className="approvalWarning approvalSuppressed" role="note"><BellOff aria-hidden size={14} />{suppressed}</p>}
         <TargetLine approval={approval} />
+        {approval.action === 'web.act' && <Suspense fallback={null}><ActionBrowserApproval approval={approval} /></Suspense>}
         <p className="approvalSubhead">{t('approvals.exactly')}</p>
         <ArgumentList approval={approval} />
         <HashLine approval={approval} />
