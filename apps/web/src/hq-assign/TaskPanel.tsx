@@ -1,7 +1,7 @@
 /** A task opened beside the office, never a full navigation. It shows the stored task and its latest run, follows the
  * workspace event stream (`live`), and offers the Tasks page's own actions (run, retry, resume, cancel) through the same
  * API calls and the same role rules; the server decides every one. A task waiting for a person opens its approvals here. */
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { Loader2, Play, RefreshCw, RotateCcw, ShieldCheck, Square } from 'lucide-react';
 import type { AgentRun, Task } from '@anum/contracts';
 import * as api from '../lib/api';
@@ -13,6 +13,10 @@ import { cancelTask, getTask, listTaskRuns, resumeRun, retryTask, runTask } from
 import { fullPageHash, openHqPanel } from '../lib/hqWorkPanels';
 import { ShowHistoryLink } from '../HqHistoryLauncher';
 import { WorkDrawer } from './WorkDrawer';
+
+// The action browser's live view (docs/action-browser.md#live-view): its own lazy chunk.
+const ActionBrowserLive = lazy(() => import('../action-browser/ActionBrowserLive'));
+const usedActionBrowser = (run: AgentRun | null) => Boolean(run?.steps.some((s) => s.metadata?.tool === 'web.act'));
 
 export interface TaskPanelProps {
   taskId?: string | null;
@@ -98,6 +102,7 @@ export function TaskPanel({ taskId, runId, agentName, live, onClose, onChanged }
       </div>}
       {can && ((can.run || can.retry || can.resume) && !allowRun || can.cancel && !allowCancel) && <p className="hqAsNote">{!allowRun && (can.run || can.retry || can.resume) ? permissionHint('run') : permissionHint('cancel')}</p>}
       {notice && <p className={notice.error ? 'hqAsBox hqAsFail' : 'hqWdOk'} role={notice.error ? 'alert' : 'status'}>{notice.text}</p>}
+      {usedActionBrowser(run) && <Suspense fallback={null}><ActionBrowserLive taskId={task.id} pulse={live} onChanged={() => { onChanged?.(); void load(true); }} /></Suspense>}
       <h3>{t('hqAssign.task.instructions')}</h3>
       <p className="hqAsPre" dir="auto">{task.prompt}</p>
       <h3>{t('hqAssign.task.runs')}</h3>

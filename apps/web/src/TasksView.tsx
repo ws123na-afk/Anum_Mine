@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   Archive, ArchiveRestore, ArrowLeft, CircleDot, Download, Pencil, Play, RefreshCw, RotateCcw, Search, ShieldCheck, Square, X,
 } from 'lucide-react';
@@ -21,6 +21,10 @@ import { figure } from './lib/pageSummary';
 import { viewLabel } from './lib/shell';
 import { PageHeader, PageSummary, SplitView } from './PageParts';
 import './tasks.css';
+
+// The action browser's live view (docs/action-browser.md#live-view): its own lazy chunk, loaded only for
+// a task whose run used web.act.
+const ActionBrowserLive = lazy(() => import('./action-browser/ActionBrowserLive'));
 
 export interface TasksViewProps {
   /** The workspace's newest tasks (`GET /api/v1/tasks`), reloaded by the shell on task events. */
@@ -377,6 +381,8 @@ function TaskDetail({ taskId, listed, recentRun, approvals: pendingForTask, puls
           <h3 className="taskSubheading">{t('tasks.detail.instructions')}</h3>
           <Expandable className="taskInstructions" text={task.prompt} limit={600} />
         </>}
+      {(historyRuns.some((r) => r.steps.some((s) => s.metadata?.tool === 'web.act')) || approvals.some((a) => a.action === 'web.act')) &&
+        <Suspense fallback={null}><ActionBrowserLive taskId={task.id} pulse={pulse} onChanged={onChanged} /></Suspense>}
       <div className="segmented taskTabs" role="tablist" aria-label={t('pages2.tasks.tabs')}>
         {DETAIL_TABS.map((id) => <button key={id} type="button" role="tab" id={`task-tab-${id}`} aria-selected={tab === id} aria-controls={`task-panel-${id}`} onClick={() => setTab(id)}>{t(`pages2.tasks.tab.${id}` as MessageKey)}{tabCount[id]}</button>)}
       </div>

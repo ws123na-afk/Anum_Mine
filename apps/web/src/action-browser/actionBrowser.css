@@ -1,0 +1,53 @@
+/* The action browser's lazy panels (docs/action-browser.md): spacing and colour from the shared tokens. */
+.abVault, .abLive, .abApproval { display: grid; gap: var(--d-s3); min-width: 0; }
+.abVault h3, .abLive h3 { margin: 0; display: flex; align-items: center; gap: var(--d-s2); font-size: 1rem; }
+.abLive h3 svg { inline-size: 1.1em; block-size: 1.1em; }
+.abLive { border: 1px solid var(--d-line); border-radius: var(--d-r-panel); padding: var(--d-s4); background: var(--d-surface-1); }
+.abMuted { color: var(--d-muted); margin: 0; }
+.abNote { margin: 0; padding: var(--d-s2) var(--d-s3); border-radius: var(--d-r-sm); background: var(--d-well); }
+.abError { color: var(--d-error-text); }
+.abEmpty p { margin: 0; }
+.abActions { display: flex; flex-wrap: wrap; gap: var(--d-s2); }
+.abActions button svg, .abCredActions button svg, .abStop svg { inline-size: 1em; block-size: 1em; }
+.abCredList { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--d-s2); }
+.abCred { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: var(--d-s3); align-items: center; padding: var(--d-s3); border: 1px solid var(--d-line); border-radius: var(--d-r-control); }
+.abCredIcon svg { inline-size: 1.25rem; block-size: 1.25rem; color: var(--d-muted); }
+.abCredMain { display: grid; gap: 2px; min-width: 0; }
+.abCredMain small { overflow-wrap: anywhere; }
+.abCredActions { display: flex; flex-wrap: wrap; gap: var(--d-s2); justify-content: flex-end; }
+.abForm { display: grid; gap: var(--d-s3); }
+.abForm input { inline-size: 100%; }
+.abLiveHead { display: flex; flex-wrap: wrap; align-items: center; gap: var(--d-s2) var(--d-s3); }
+.abLiveHead h3 { margin-inline-end: auto; }
+.abStopAsk { display: flex; flex-wrap: wrap; align-items: center; gap: var(--d-s2); }
+.abUrl { margin: 0; color: var(--d-muted); font-family: var(--d-mono); font-size: 0.85rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.abFrame { margin: 0; display: grid; gap: var(--d-s1); }
+.abFrame img { display: block; inline-size: min(100%, 40rem); block-size: auto; aspect-ratio: 1280 / 800; border: 1px solid var(--d-line); border-radius: var(--d-r-sm); background: var(--d-well); }
+.abFrameButton { padding: 0; border: 0; background: none; cursor: crosshair; inline-size: min(100%, 40rem); justify-self: start; }
+.abFrameButton img { inline-size: 100%; }
+.abFrameEmpty { inline-size: min(100%, 40rem); display: grid; place-items: center; aspect-ratio: 1280 / 800; border: 1px dashed var(--d-line); border-radius: var(--d-r-sm); color: var(--d-muted); }
+.abHandoff { display: grid; gap: var(--d-s2); padding: var(--d-s3); border-radius: var(--d-r-control); border: 1px solid var(--d-warn); }
+.abHandoff h4, .abSteps h4, .abResult h4 { margin: 0; display: flex; align-items: center; gap: var(--d-s2); font-size: 0.95rem; }
+.abHandoff p { margin: 0; }
+.abHandoffForm { display: flex; flex-wrap: wrap; align-items: end; gap: var(--d-s2); }
+.abHandoffForm .field { flex: 1 1 12rem; }
+.abKeys { display: flex; flex-wrap: wrap; gap: var(--d-s2); }
+.abScope, .abFacts { margin: 0; display: grid; gap: var(--d-s2); }
+.abScope > div, .abFacts > div { display: grid; grid-template-columns: minmax(7rem, max-content) minmax(0, 1fr); gap: var(--d-s2); align-items: baseline; }
+.abScope dt, .abFacts dt { color: var(--d-muted); }
+.abScope dd, .abFacts dd { margin: 0; display: flex; flex-wrap: wrap; gap: var(--d-s1); min-width: 0; }
+.abBreak { overflow-wrap: anywhere; }
+.abChip { padding: 1px var(--d-s2); border-radius: var(--d-r-pill); background: var(--d-chip); font-size: 0.85rem; }
+.abAmount strong { font-size: 1.1rem; }
+.abSteps ol { list-style: none; margin: 0; padding: 0; display: grid; gap: var(--d-s1); max-block-size: 18rem; overflow-y: auto; }
+.abSteps li { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: var(--d-s2); font-size: 0.9rem; }
+.abSteps li[data-kind="approval"], .abSteps li[data-kind="needs_you"], .abSteps li[data-kind="off_site"] { font-weight: 600; }
+.abSteps time { color: var(--d-faint); font-variant-numeric: tabular-nums; }
+.abPre { white-space: pre-wrap; margin: 0; overflow-wrap: anywhere; }
+.abApprovalKind { margin: 0; }
+.abFields ul { margin: var(--d-s1) 0 0; padding-inline-start: var(--d-s4); }
+@media (max-width: 640px) {
+  .abCred { grid-template-columns: auto minmax(0, 1fr); }
+  .abCredActions { grid-column: 1 / -1; justify-content: flex-start; }
+  .abScope > div, .abFacts > div { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+}
