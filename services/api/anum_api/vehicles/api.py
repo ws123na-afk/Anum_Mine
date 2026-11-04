@@ -515,7 +515,8 @@ def _build(store: VehicleStore, context: TenantContext, kind: RecordKind, vehicl
         places = S.preferences(store, context).trip_places
         for key in ("origin", "destination"):
             base[key] = S.clean(base.get(key), 120)
-            if key in data and base[key] and not places:  # places stored earlier stay; new ones need the switch
+            unchanged = existing is not None and base[key] == S.clean(getattr(existing, key), 120)
+            if key in data and base[key] and not places and not unchanged:  # stored places stay and may be resent; new ones need the switch
                 raise S.VehicleError(422, "Trip places are off. Turn on \"Store trip places\" in Vehicles settings to keep them.", "places_off")
         for key, limit in (("purpose_note", 200), ("notes", 500)):
             base[key] = S.clean(base.get(key), limit)

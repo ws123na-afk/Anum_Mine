@@ -497,3 +497,50 @@ def test_editing_litres_or_total_keeps_the_price_per_litre_in_step() -> None:
     assert edited["total"] == "100.00" and edited["price_per_litre"] == "2.000"
     edited = client.patch(f"{API}/fuel/{entry['id']}", headers=OWNER, json={"version": 2, "price_per_litre": "2.2"}).json()
     assert edited["total"] == "110.00"
+
+
+# -- automated review (PR #373) ---------------------------------------------------------------------
+
+
+def test_a_cash_payment_whose_link_is_refused_leaves_no_posted_expense(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Two tabs record cash on one record: the loser's link is refused, and its Finance expense must not stay posted."""
+    from anum_api.vehicles import service as S
+
+    cash = client.post(f"{FIN}/accounts", headers=OWNER, json={"name": "Wallet", "kind": "cash", "currency": "SAR"}).json()
+    car = vehicle()
+    entry = fuel(car["id"]).json()
+
+    def lost_race(*_args: Any, **_kwargs: Any) -> Any:
+        raise S.VehicleError(409, "This record was just linked to another payment. Reload to see it.", "already_linked")
+
+    monkeypatch.setattr(S, "link_payment", lost_race)
+    refused = client.post(f"{API}/costs/fuel_entry/{entry['id']}/cash", headers={**OWNER, "Idempotency-Key": "tab-2"},
+                          json={"account_id": cash["id"], "amount": "60", "posted_on": utc_now().date().isoformat()})
+    assert refused.status_code == 409 and refused.json()["code"] == "already_linked"
+    posted = [e for e in sms_memory_store.entries.values() if e.status.value == "posted" and e.source.value not in ("reversal", "clearing")]
+    assert posted == [], "the refused cash payment is still a posted expense"
+
+
+def test_the_generic_finance_link_route_keeps_one_live_payment_per_vehicle_record() -> None:
+    canonical, _card = fuel_payment()
+    cash = client.post(f"{FIN}/accounts", headers=OWNER, json={"name": "Wallet", "kind": "cash", "currency": "SAR"}).json()
+    other = client.post(f"{FIN}/transactions", headers=OWNER, json={"account_id": cash["id"], "posted_on": utc_now().date().isoformat(), "amount": "-20",
+                                                                  "description": "Car wash"}).json()
+    other_canonical = next(e.canonical_id or e.id for e in sms_memory_store.entries.values() if e.source_ref == other["id"])
+    car = vehicle()
+    entry = fuel(car["id"]).json()
+    body = {"dimension": "vehicle", "role": "payment", "target_type": "vehicle_fuel_entry", "target_id": entry["id"], "currency": "SAR"}
+    assert client.post(f"{FIN}/links", headers=OWNER, json={**body, "canonical_id": canonical, "amount": "150"}).status_code == 201
+    second = client.post(f"{FIN}/links", headers=OWNER, json={**body, "canonical_id": other_canonical, "amount": "20"})
+    assert second.status_code == 409 and second.json()["code"] == "target_linked"
+    assert client.get(f"{API}/{car['id']}/fuel", headers=OWNER).json()["items"][0]["payment"]["canonical_id"] == canonical
+
+
+def test_editing_a_trip_resends_unchanged_places_after_places_are_turned_off() -> None:
+    car = vehicle()
+    assert client.put(f"{API}/preferences", headers=OWNER, json={"version": 0, "trip_places": True}).status_code == 200
+    trip = client.post(f"{API}/{car['id']}/trips", headers=OWNER, json={"started_at": utc_now().isoformat(), "origin": "Home", "destination": "Site"}).json()
+    assert client.put(f"{API}/preferences", headers=OWNER, json={"version": 1, "trip_places": False}).status_code == 200
+    # The web editor sends the whole form, places included, unchanged.
+    edited = client.patch(f"{API}/trips/{trip['id']}", headers=OWNER, json={"version": 1, "purpose": "personal", "origin": "Home", "destination": "Site"})
+    assert edited.status_code == 200, edited.text

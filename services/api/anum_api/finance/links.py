@@ -65,15 +65,21 @@ TargetCheck = Callable[[TenantContext, str, str], bool]  # (owner context, targe
 LinkObserver = Callable[[Any, FinanceLink], None]
 _targets: dict[str, TargetCheck] = {}
 _observers: dict[str, LinkObserver] = {}
+_single_payment: set[str] = set()
 
 
-def register_target(dimension: str, check: TargetCheck, observer: LinkObserver | None = None) -> None:
+def register_target(dimension: str, check: TargetCheck, observer: LinkObserver | None = None, *, single_payment: bool = False) -> None:
     """A module (vehicles, purchases, the document vault, trips, projects) says which of its records a
     payment may link to. A dimension with no registered module refuses links (``target_unavailable``).
     An ``observer`` keeps the module's read copy of its links current (docs/vehicles.md#payments)."""
     if dimension not in DIMENSIONS or dimension == "business":
         raise ValueError(f"unknown link dimension {dimension}")
     _targets[dimension] = check
+    # A target that takes one payment (a fuel entry) refuses a second live payment link from any route (``target_linked``).
+    if single_payment:
+        _single_payment.add(dimension)
+    else:
+        _single_payment.discard(dimension)
     if observer is None:
         _observers.pop(dimension, None)
     else:
@@ -83,6 +89,7 @@ def register_target(dimension: str, check: TargetCheck, observer: LinkObserver |
 def unregister_target(dimension: str) -> None:
     _targets.pop(dimension, None)
     _observers.pop(dimension, None)
+    _single_payment.discard(dimension)
 
 
 def _observe(links: LinkStore, link: FinanceLink) -> None:
@@ -205,6 +212,11 @@ def create(context: TenantContext, request: LinkRequest, *, allocation: dict[str
         current = live_entry(chain)
         if current is None:
             raise LinkError(409, "This payment was undone, so nothing can be linked to it.", "transaction_undone")
+        if request.dimension in _single_payment and request.role == "payment":
+            taken, _ = links.list_links(context, canonical_id=None, dimension=request.dimension, target_type=request.target_type,
+                                        target_id=request.target_id, status=None, limit=50, offset=0)
+            if any(l.status != LinkStatus.VOID and l.role == "payment" and l.canonical_id != request.canonical_id for l in taken):
+                raise LinkError(409, f"This {request.dimension} record is already linked to another payment. Remove that link first.", "target_linked")
         current_links = links.live_links(context, request.canonical_id)
         if request.amount is not None and request.currency is not None:
             caps = capacity(chain)

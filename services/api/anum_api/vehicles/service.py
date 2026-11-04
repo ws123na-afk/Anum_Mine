@@ -365,23 +365,49 @@ def record_cash(context: TenantContext, kind: str, record_id: str, *, account_id
 
     # The id is derived from the record and the request, so a retry finds the transaction it made. An earlier cash
     # payment of this record with other figures (unlinked, then entered again) is never reused: the next id is tried.
-    canonical = None
+    canonical, created = None, None
     for attempt in range(8):
         transaction_id = "fin_txn_veh" + record_key(context, "cash", kind, record_id, seed, attempt)[:32]
+        existed = _transaction_exists(context, transaction_id)
         try:
             item, _decision, found = record_manual_transaction(context, body, transaction_id=transaction_id)
         except HTTPException as exc:
             raise VehicleError(exc.status_code, str(exc.detail), "finance_refused") from None
         if item.account_id == account_id and item.amount == -amount and item.posted_on == posted_on:
-            canonical = found
+            canonical, created = found, (None if existed else transaction_id)
             break
     if canonical is None:
         raise VehicleError(409, "This cash payment could not be recorded. Try again with a new request.", "cash_conflict")
-    payment, replayed = link_payment(context, kind, record_id, canonical_id=canonical, amount=None)
+    try:
+        payment, replayed = link_payment(context, kind, record_id, canonical_id=canonical, amount=None)
+    except VehicleError:
+        # Another tab linked a payment first: the expense this request recorded is undone, so it never stays posted.
+        if created is not None:
+            _undo_cash(context, created)
+        raise
     payment.recorded_as_cash = True
     with open_vehicle_store(context) as store:
         _set_payment(store, context, kind, record_id, payment)
     return payment, replayed
+
+
+def _transaction_exists(context: TenantContext, transaction_id: str) -> bool:
+    from ..finance.store import open_finance_store
+
+    with open_finance_store(context) as store:
+        return store.get_transaction(context, transaction_id) is not None
+
+
+def _undo_cash(context: TenantContext, transaction_id: str) -> None:
+    """Reverse a cash transaction this request recorded (the same path as deleting it in Finance)."""
+    from ..finance.sms_service import owner_lock, reverse
+    from ..finance.sms_store import open_sms_stores
+
+    with owner_lock(context), open_sms_stores(context) as (store, sms):
+        sms.lock_owner(context)
+        entry = sms.entry_for_transaction(context, transaction_id)
+        if entry is not None and entry.status.value == "posted":
+            reverse(store, sms, context, entry, now=utc_now(), why="cash payment not linked to the vehicle record")
 
 
 def unlink_payment(context: TenantContext, kind: str, record_id: str) -> None:
@@ -461,7 +487,7 @@ def plug_finance_links() -> None:
     """Register the ``vehicle`` link dimension with the finance links foundation."""
     from ..finance import links as K
 
-    K.register_target("vehicle", link_target_exists, observe)
+    K.register_target("vehicle", link_target_exists, observe, single_payment=True)
 
 
 # -- payment picker ----------------------------------------------------------------------------------
