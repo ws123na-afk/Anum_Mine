@@ -19,6 +19,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, ValidationError
 
+from ..current_time import language_of, time_line_async, with_time_line
 from ..model_budget import ModelBudgetExceededError
 from ..model_gateway import ModelGateway, ModelRoute, route_gateway
 from ..prompt_provenance import Provenance, label_untrusted, with_untrusted_rules
@@ -70,6 +71,8 @@ def _json_object(text: str) -> Any:
 async def _ask(context: TenantContext, instructions: str, prompt: str, blocks: Sequence[str]) -> str:
     gateway = route_gateway(workspace_gateway(context), ModelRoute.FAST)
     full = with_untrusted_rules(instructions, *blocks) if blocks else instructions
+    # The date line follows the request, outside the cached instructions (current_time.py).
+    prompt = with_time_line(prompt, await time_line_async(context, language_of(prompt)))
     generate = getattr(gateway, "generate_with_instructions", None)
     response = await generate(full, prompt) if callable(generate) else await gateway.generate_text(f"{full}\n\n{prompt}")
     return response.text

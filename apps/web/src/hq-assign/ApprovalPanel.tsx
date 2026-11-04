@@ -70,11 +70,11 @@ export function ApprovalPanel({ panel, live, onClose, onChanged }: {
 
   // The shell's own decision: a refusal the API gives (403: routing, the two person rule) is shown on the card; other
   // failures are said on the drawer. The list is read again either way, and the office reads its flow again.
-  const decide: Decide = async (approval, decision, reason) => {
+  const decide: Decide = async (approval, decision, reason, securityCode) => {
     setBusy(true); setDecided(null);
     let refusal: string | null = null;
     try {
-      const result = decision === 'approve' ? await api.approveTask(approval, reason) : await api.rejectTask(approval, reason);
+      const result = decision === 'approve' ? await api.approveTask(approval, reason, securityCode) : await api.rejectTask(approval, reason);
       setDecided(decision === 'approve' ? t('hqWork.appr.approved', { action: approval.action, status: statusLabel(result.task.status) }) : t('hqWork.appr.rejected', { action: approval.action }));
     } catch (error) {
       refusal = isPermissionDenied(error) || (error as { status?: number }).status === 409 ? describeError(error) : t('hqWork.appr.failed', { detail: describeError(error) });

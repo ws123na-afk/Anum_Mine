@@ -873,14 +873,16 @@ def summary_messages(
     *,
     target: str | None = None,
     learned_block: str | None = None,
+    time_line: str | None = None,
 ) -> list["ChatMessage"]:
     """The prompt for the short answer above a results card.
 
     The tool output is serialized and wrapped by ``tool_output_prompt_block`` (provenance
     label, random-nonce markers) after the untrusted-data rules; the question is the only
-    user message.
+    user message. ``time_line`` (the current date and time) ends the system text.
     """
     from .agent_tools import tool_output_prompt_block
+    from .current_time import with_time_line
     from .prompt_provenance import with_untrusted_rules
 
     instructions = SUMMARY_PROMPT.format(tool=call.name)
@@ -888,7 +890,7 @@ def summary_messages(
         instructions = f"{instructions}\n\n{learned_block}"
     block = tool_output_prompt_block(call, result, target=target, max_chars=8000)
     return [
-        {"role": "system", "content": with_untrusted_rules(instructions, block)},
+        {"role": "system", "content": with_time_line(with_untrusted_rules(instructions, block), time_line)},
         {"role": "user", "content": question},
     ]
 

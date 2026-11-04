@@ -289,6 +289,9 @@ services:
       ANUM_SPEECH_TTS_VOICE_EN: ${ANUM_SPEECH_TTS_VOICE_EN:-}
       ANUM_SPEECH_TTS_VOICE_AR: ${ANUM_SPEECH_TTS_VOICE_AR:-}
       ANUM_SPEECH_TTS_USD_PER_MILLION_CHARS: ${ANUM_SPEECH_TTS_USD_PER_MILLION_CHARS:-0}
+      # The zone of the date line in model prompts when neither the user's profile nor
+      # an office building names one (docs/model-gateway.md#current-date-and-time).
+      ANUM_DEFAULT_TIME_ZONE: ${ANUM_DEFAULT_TIME_ZONE:-Asia/Dubai}
       # Fires due automation schedules; anum_app is granted anum_maintenance by the
       # bootstrap (WITH INHERIT FALSE, SET TRUE).
       ANUM_AUTOMATION_SCHEDULER_ENABLED: "true"

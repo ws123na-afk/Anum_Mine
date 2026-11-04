@@ -2,15 +2,20 @@
 // the picture of the page (owners), the site, the address, the action, the form's fields and the
 // amount the page shows; for the first approval, the sites and saved items the task may use.
 // Lazy chunk. The decision itself stays the Approvals page's own (payload hash and all).
-import { useEffect, useState } from 'react';
+// A step that types a card's security code adds a masked field for it: ANUM never saves the
+// code, so the owner types it here; the card keeps it only in memory until the approve is sent
+// (docs/action-browser.md#the-card-security-code).
+import { useEffect, useId, useState } from 'react';
 import type { Approval } from '@anum/contracts';
 import { useLocale } from '../useLocale';
-import { kindText, say, stepFacts, type BrowserSession } from '../lib/actionBrowser';
+import { cardCodeProblem, kindText, say, stepFacts, type BrowserSession } from '../lib/actionBrowser';
 import { sessionsForTask } from './api';
 import { Picture } from './ActionBrowserLive';
 import './actionBrowser.css';
 
-export default function ActionBrowserApproval({ approval }: { approval: Approval }) {
+export interface CardCodeField { value: string; onChange(value: string): void }
+
+export default function ActionBrowserApproval({ approval, code }: { approval: Approval; code?: CardCodeField }) {
   const locale = useLocale();
   const facts = stepFacts(approval.arguments);
   const [session, setSession] = useState<BrowserSession | null>(null);
@@ -45,7 +50,27 @@ export default function ActionBrowserApproval({ approval }: { approval: Approval
         {facts.fields.length > 0 && <details className="abFields"><summary>{say('approvalFields')} ({facts.fields.length})</summary>
           <ul>{facts.fields.map((f, i) => <li key={`${f.label}-${i}`} dir="auto">{f.label} <small className="abMuted" dir="ltr">{f.type}</small></li>)}</ul></details>}
         {facts.resume === 'handoff' && <p className="abNote" role="note">{say('approvalHandoff')}</p>}
+        {code && <CardCode field={code} />}
         {pending && session && <Picture session={session} interval={2000} />}
       </>}
+  </div>;
+}
+
+/** The masked field for the card security code: digits only, never autofilled or saved by the browser. */
+function CardCode({ field }: { field: CardCodeField }) {
+  const id = useId();
+  const [touched, setTouched] = useState(false);
+  const problem = touched ? cardCodeProblem(field.value) : null;
+  return <div className="abCode">
+    <label className="field" htmlFor={`${id}-code`}>
+      <span>{say('codeLabel')}</span>
+      <input id={`${id}-code`} type="password" inputMode="numeric" pattern="[0-9]*" maxLength={4} size={6} dir="ltr"
+        autoComplete="off" spellCheck={false} data-1p-ignore="" data-lpignore="true" required
+        aria-invalid={problem ? true : undefined} aria-describedby={`${id}-help${problem ? ` ${id}-error` : ''}`}
+        value={field.value} onBlur={() => setTouched(true)}
+        onChange={(event) => field.onChange(event.target.value.replace(/\D/g, '').slice(0, 4))} />
+    </label>
+    <small id={`${id}-help`} className="abMuted">{say('codeHelp')}</small>
+    {problem && <small id={`${id}-error`} className="abError" role="alert">{problem}</small>}
   </div>;
 }

@@ -58,6 +58,7 @@ from .integration_tools import configured_external_handler
 from .web_search import SEARXNG_INTEGRATION_ID, configured_web_search_handler
 from .browser_research import BROWSER_INTEGRATION_ID
 from .action_browser import ACTION_INTEGRATION_ID
+from .action_browser.card_code import card_code_problem, needs_card_code, with_card_code
 from .action_browser.tool import default_planner_factory, register_action_tools
 from .browser_research.tool import register_browser_tools
 from .model_gateway import build_default_model_gateway
@@ -339,6 +340,9 @@ async def lifespan(application: FastAPI):
     lifecycle = build_lifecycle_runner(settings)
     if lifecycle is not None:
         lifecycle.start()
+    # Cards saved before ANUM stopped storing the security code lose it, once per start, in a
+    # worker thread (PostgreSQL only; docs/action-browser.md#the-card-security-code).
+    card_code_cleanup = _start_card_code_cleanup()
     # Last: build every route's state now instead of on the first request, then keep the
     # startup heap out of later garbage collections, whose full passes paused the event
     # loop for half a second or more (anum_api/serving.py, docs/realtime.md#garbage-collection).
@@ -346,6 +350,8 @@ async def lifespan(application: FastAPI):
     try:
         yield
     finally:
+        if card_code_cleanup is not None and not card_code_cleanup.done():
+            await asyncio.wait({card_code_cleanup}, timeout=30)
         if lifecycle is not None:
             await lifecycle.stop()
         if reminders is not None:
@@ -374,6 +380,21 @@ async def lifespan(application: FastAPI):
         await event_runtime.stop()
         shutdown_telemetry()
         shutdown_error_reporting()
+
+
+def _start_card_code_cleanup() -> asyncio.Task[object] | None:
+    if settings.repository_backend != "postgresql":
+        return None
+    from .action_browser.cleanup import strip_saved_card_codes
+
+    async def run() -> object:
+        try:
+            return await asyncio.to_thread(strip_saved_card_codes)
+        except Exception as exc:  # noqa: BLE001  # the next start tries again; nothing else depends on it
+            logging.getLogger("anum_api.action_browser").warning("card_code_cleanup_skipped error_class=%s", type(exc).__name__)
+            return None
+
+    return asyncio.ensure_future(run())
 
 
 enforce_startup_policy(settings)
@@ -1987,6 +2008,8 @@ async def approve(
     # and it stays pending; rejecting it still works (docs/agent-controls.md).
     if await asyncio.to_thread(agents_stopped, context):
         raise AgentsStoppedError()
+    # The card security code is taken off the request model at once: only the one execution holds it.
+    card_code, payload.security_code = payload.security_code, None
     return await _decide_approval(
         approval_id,
         ApprovalStatus.APPROVED,
@@ -1995,6 +2018,7 @@ async def approve(
         request,
         context,
         units,
+        card_code=card_code,
     )
 
 
@@ -2101,6 +2125,8 @@ async def _decide_approval(
     request: Request,
     context: TenantContext,
     units: UnitsOfWork,
+    *,
+    card_code: str | None = None,
 ) -> ApprovalDecisionResponse | JSONResponse:
     """Decide an approval with no transaction open while its tool runs (docs/realtime.md#event-loop).
 
@@ -2117,6 +2143,13 @@ async def _decide_approval(
     approval = await run_in_unit(units, context, lambda repository: repository.get_approval(approval_id, context))
     if not approval:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Approval not found")
+    if decision == ApprovalStatus.APPROVED and approval.status == ApprovalStatus.PENDING:
+        # An action browser step that types a card's security code needs the code the owner typed on the
+        # approval card (docs/action-browser.md#the-card-security-code); nothing else takes one.
+        problem = card_code_problem(needed=needs_card_code(approval.action, approval.arguments), code=card_code,
+                                    inline=run_dispatcher is None)
+        if problem is not None:
+            raise HTTPException(status_code=problem[0], detail=problem[1])
     async with _task_lock(context, approval.task_id):
         decided = await run_in_unit(
             units, context, _decide_in_unit, approval_id, decision, shown_hash, reason, request, context
@@ -2128,27 +2161,24 @@ async def _decide_approval(
             return decided.response
         task, run, call = decided.execute
         definition = tool_registry.definition(call.name)
+        work: Awaitable[tuple[Task, AgentRun]] = execute_committed(
+            context, task, run, call,
+            unit_of_work=units,
+            runtime_factory=decided.runtime_factory,
+            approval_id=approval_id,
+        )
+        if card_code:
+            # In memory for this one execution only; dropped when it ends, whatever the outcome.
+            work = with_card_code(card_code, work)
+            card_code = None
         if definition is not None and definition.long_running:
             # The action browser works for minutes between pauses (docs/action-browser.md): its
             # segment runs on the loop, awaiting only sockets, with the same claim checks, and the
             # approve request answers now with the run ``executing``.
-            _run_in_background(
-                execute_committed(
-                    context, task, run, call,
-                    unit_of_work=units,
-                    runtime_factory=decided.runtime_factory,
-                    approval_id=approval_id,
-                ),
-                name=f"long-running {call.name}",
-            )
+            _run_in_background(work, name=f"long-running {call.name}")
             return decided.response
         try:
-            task, run = await execute_committed(
-                context, task, run, call,
-                unit_of_work=units,
-                runtime_factory=decided.runtime_factory,
-                approval_id=approval_id,
-            )
+            task, run = await work
         except RunClaimLost as exc:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=exc.message) from exc
         response = decided.response

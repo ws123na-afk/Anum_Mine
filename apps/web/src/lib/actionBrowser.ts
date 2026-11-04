@@ -6,7 +6,7 @@ import { getLocale, type Locale } from './i18n.ts';
 
 export interface Credential { id: string; kind: 'login' | 'card'; handle: string; site: string | null; hint: string; created_by: string; created_at: string; updated_by: string; updated_at: string }
 export interface CredentialInput {
-  kind: 'login' | 'card'; handle: string; site?: string; username?: string; password?: string; name?: string; number?: string; expiry?: string; cvc?: string;
+  kind: 'login' | 'card'; handle: string; site?: string; username?: string; password?: string; name?: string; number?: string; expiry?: string;
 }
 export interface SessionStep { seq: number; kind: string; summary: string; url: string | null; detail: Record<string, unknown>; created_at: string }
 export interface BrowserSession {
@@ -42,6 +42,12 @@ export function toPagePoint(clientX: number, clientY: number, box: { left: numbe
   return { x, y };
 }
 
+/** The card security code (CVC) typed on the approval card: 3 or 4 digits, used once, never saved (docs/action-browser.md#the-card-security-code). */
+export function cardCodeProblem(code: string, locale: Locale = getLocale()): string | null {
+  if (!code) return words(locale).codeNeeded;
+  return /^\d{3,4}$/.test(code) ? null : words(locale).codeBad;
+}
+
 /** The structured facts of a web.act approval, for its card. */
 export interface StepFacts { kind: string; site: string; url: string; target: string; amount: string; fields: { label: string; type: string }[]; value: string; resume: string; check: string }
 export function stepFacts(args: Record<string, unknown> | undefined): StepFacts | null {
@@ -68,7 +74,6 @@ export function credentialProblem(input: CredentialInput, editing: boolean, loca
   const digits = (input.number ?? '').replace(/[\s-]/g, '');
   if ((!editing || digits) && !luhn(digits)) return w.cardNumberBad;
   if ((!editing || input.expiry) && !/^(0[1-9]|1[0-2])\/\d{2}$/.test((input.expiry ?? '').trim())) return w.expiryBad;
-  if ((!editing || input.cvc) && !/^\d{3,4}$/.test((input.cvc ?? '').trim())) return w.cvcBad;
   if (!editing && !(input.name ?? '').trim()) return w.nameNeeded;
   return null;
 }
@@ -87,7 +92,7 @@ export function luhn(digits: string): boolean {
 /** Only the parts the person filled in are sent: an edit keeps the saved secret parts. */
 export function credentialBody(input: CredentialInput): CredentialInput {
   const body: CredentialInput = { kind: input.kind, handle: input.handle.trim().toLowerCase() };
-  for (const key of ['site', 'username', 'password', 'name', 'number', 'expiry', 'cvc'] as const) {
+  for (const key of ['site', 'username', 'password', 'name', 'number', 'expiry'] as const) {
     const value = input[key];
     if (typeof value === 'string' && value.trim()) body[key] = key === 'password' ? value : value.trim();
   }
@@ -101,10 +106,13 @@ const EN = {
   ownerOnly: 'Only a workspace owner manages saved logins and cards.', loading: 'Loading saved logins and cards...', emptyTitle: 'Nothing saved yet', emptyText: 'Add a login for a site the agent may sign in to, or a card it may pay with after you approve.',
   addLogin: 'Add login', addCard: 'Add card', edit: 'Edit', remove: 'Delete', confirmRemove: 'Delete {handle}', cancel: 'Cancel', save: 'Save', saving: 'Saving...',
   login: 'Login', card: 'Card', handle: 'Handle', handleHelp: 'Lowercase letters, digits and dashes. The agent refers to it by this name.', site: 'Site', siteHelp: 'The site this login is for, for example emirates.com. It is typed only on that site.',
-  username: 'User name or email', password: 'Password', nameOnCard: 'Name on card', cardNumber: 'Card number', expiry: 'Expiry (MM/YY)', cvc: 'Security code (CVC)',
+  username: 'User name or email', password: 'Password', nameOnCard: 'Name on card', cardNumber: 'Card number', expiry: 'Expiry (MM/YY)',
+  cardNoCode: 'The security code (CVC) is never saved. When a payment needs it, you type it on the approval card for that one step.',
   keepHint: 'Leave a secret field empty to keep the saved one.', saved: 'Saved {handle}.', removed: 'Deleted {handle}.', loadFailed: 'Could not load saved logins and cards: {error}',
   handleRule: 'A handle is lowercase letters, digits and dashes (at most 40).', siteNeeded: 'Give the site this login is for.', loginNeeded: 'Give the user name and the password.',
-  cardNumberBad: 'The card number is not valid.', expiryBad: 'Give the expiry as MM/YY, for example 08/29.', cvcBad: 'The security code is 3 or 4 digits.', nameNeeded: 'Give the name on the card.',
+  cardNumberBad: 'The card number is not valid.', expiryBad: 'Give the expiry as MM/YY, for example 08/29.', nameNeeded: 'Give the name on the card.',
+  codeLabel: 'Card security code (CVC)', codeHelp: 'The 3 or 4 digits on the card. Typed once into this field on the page, then dropped: ANUM never saves it.',
+  codeNeeded: 'Type the card security code to approve this step.', codeBad: 'The card security code is 3 or 4 digits.',
   liveTitle: 'Browser', liveRegion: 'Action browser live view', status_running: 'Working', status_waiting_approval: 'Waiting for your approval', status_waiting_handoff: 'Needs you',
   status_waiting_off_site: 'Waiting for your approval', status_waiting_continue: 'Waiting for your approval', status_completed: 'Done', status_failed: 'Failed', status_stopped: 'Stopped',
   stop: 'Stop', stopping: 'Stopping...', stopAsk: 'Stop the browser and cancel this task?', stopYes: 'Stop and cancel', stopped: 'Stopped. The browser is closed.',
@@ -116,7 +124,7 @@ const EN = {
   approvalSite: 'Site', approvalAddress: 'Address', approvalAction: 'Action', approvalAmount: 'Amount on the page', approvalFields: 'Fields on the form', approvalValue: 'Value',
   approvalScope: 'The agent will open only these sites and use only these saved items. Nothing on a page can add to them.', approvalHandoff: 'Open the task to see the page and complete the check, then approve to continue.',
   approvalGone: 'The browser session has ended; there is no picture.', amountNote: 'This is what the page shows. Your bank statement is the final word.',
-  kind_card_entry: 'Enter a saved card', kind_binding_button: 'Press a button that commits', kind_payment_form: 'Send a payment or order form', kind_payment_frame: 'Press a button on a payment form',
+  kind_card_entry: 'Enter a saved card', kind_card_security_code: 'Enter the card security code', kind_binding_button: 'Press a button that commits', kind_payment_form: 'Send a payment or order form', kind_payment_frame: 'Press a button on a payment form',
   kind_payment_field: 'Type into a payment field', kind_off_site: 'Open a site outside the list', kind_scope: 'Start the browser task', kind_handoff: 'Needs you', kind_continue: 'Keep going',
 } as const;
 
@@ -127,10 +135,13 @@ const AR: Words = {
   ownerOnly: 'مالك مساحة العمل فقط يدير بيانات الدخول والبطاقات المحفوظة.', loading: 'جار تحميل بيانات الدخول والبطاقات...', emptyTitle: 'لا شيء محفوظ بعد', emptyText: 'أضف بيانات دخول لموقع يمكن للوكيل الدخول إليه، أو بطاقة يدفع بها بعد موافقتك.',
   addLogin: 'إضافة بيانات دخول', addCard: 'إضافة بطاقة', edit: 'تعديل', remove: 'حذف', confirmRemove: 'حذف {handle}', cancel: 'إلغاء', save: 'حفظ', saving: 'جار الحفظ...',
   login: 'بيانات دخول', card: 'بطاقة', handle: 'الاسم المختصر', handleHelp: 'أحرف إنجليزية صغيرة وأرقام وشرطات. يشير إليه الوكيل بهذا الاسم.', site: 'الموقع', siteHelp: 'الموقع الذي تخصه بيانات الدخول، مثل emirates.com. لا تكتب إلا في هذا الموقع.',
-  username: 'اسم المستخدم أو البريد', password: 'كلمة المرور', nameOnCard: 'الاسم على البطاقة', cardNumber: 'رقم البطاقة', expiry: 'تاريخ الانتهاء (MM/YY)', cvc: 'رمز الأمان (CVC)',
+  username: 'اسم المستخدم أو البريد', password: 'كلمة المرور', nameOnCard: 'الاسم على البطاقة', cardNumber: 'رقم البطاقة', expiry: 'تاريخ الانتهاء (MM/YY)',
+  cardNoCode: 'لا يحفظ رمز الأمان (CVC) أبدا. عندما يحتاجه الدفع، تكتبه في بطاقة الموافقة لتلك الخطوة فقط.',
   keepHint: 'اترك حقل السر فارغا للإبقاء على المحفوظ.', saved: 'تم حفظ {handle}.', removed: 'تم حذف {handle}.', loadFailed: 'تعذر تحميل بيانات الدخول والبطاقات: {error}',
   handleRule: 'الاسم المختصر أحرف إنجليزية صغيرة وأرقام وشرطات (40 على الأكثر).', siteNeeded: 'اكتب الموقع الذي تخصه بيانات الدخول.', loginNeeded: 'اكتب اسم المستخدم وكلمة المرور.',
-  cardNumberBad: 'رقم البطاقة غير صحيح.', expiryBad: 'اكتب تاريخ الانتهاء بالشكل MM/YY، مثل 08/29.', cvcBad: 'رمز الأمان 3 أو 4 أرقام.', nameNeeded: 'اكتب الاسم على البطاقة.',
+  cardNumberBad: 'رقم البطاقة غير صحيح.', expiryBad: 'اكتب تاريخ الانتهاء بالشكل MM/YY، مثل 08/29.', nameNeeded: 'اكتب الاسم على البطاقة.',
+  codeLabel: 'رمز أمان البطاقة (CVC)', codeHelp: 'الأرقام الثلاثة أو الأربعة على البطاقة. يكتب مرة واحدة في هذا الحقل في الصفحة ثم يحذف: لا يحفظه ANUM أبدا.',
+  codeNeeded: 'اكتب رمز أمان البطاقة للموافقة على هذه الخطوة.', codeBad: 'رمز أمان البطاقة 3 أو 4 أرقام.',
   liveTitle: 'المتصفح', liveRegion: 'العرض المباشر لمتصفح الإجراءات', status_running: 'يعمل', status_waiting_approval: 'بانتظار موافقتك', status_waiting_handoff: 'يحتاجك',
   status_waiting_off_site: 'بانتظار موافقتك', status_waiting_continue: 'بانتظار موافقتك', status_completed: 'تم', status_failed: 'فشل', status_stopped: 'متوقف',
   stop: 'إيقاف', stopping: 'جار الإيقاف...', stopAsk: 'هل تريد إيقاف المتصفح وإلغاء هذه المهمة؟', stopYes: 'إيقاف وإلغاء', stopped: 'تم الإيقاف. أغلق المتصفح.',
@@ -142,7 +153,7 @@ const AR: Words = {
   approvalSite: 'الموقع', approvalAddress: 'العنوان', approvalAction: 'الإجراء', approvalAmount: 'المبلغ الظاهر في الصفحة', approvalFields: 'حقول النموذج', approvalValue: 'القيمة',
   approvalScope: 'لن يفتح الوكيل إلا هذه المواقع ولن يستخدم إلا هذه العناصر المحفوظة. لا يمكن لأي صفحة أن تضيف إليها.', approvalHandoff: 'افتح المهمة لترى الصفحة وتكمل التحقق، ثم وافق للمتابعة.',
   approvalGone: 'انتهت جلسة المتصفح؛ لا توجد صورة.', amountNote: 'هذا ما تعرضه الصفحة. كشف حسابك البنكي هو المرجع النهائي.',
-  kind_card_entry: 'إدخال بطاقة محفوظة', kind_binding_button: 'الضغط على زر ملزم', kind_payment_form: 'إرسال نموذج دفع أو طلب', kind_payment_frame: 'الضغط على زر في نموذج دفع',
+  kind_card_entry: 'إدخال بطاقة محفوظة', kind_card_security_code: 'إدخال رمز أمان البطاقة', kind_binding_button: 'الضغط على زر ملزم', kind_payment_form: 'إرسال نموذج دفع أو طلب', kind_payment_frame: 'الضغط على زر في نموذج دفع',
   kind_payment_field: 'الكتابة في حقل دفع', kind_off_site: 'فتح موقع خارج القائمة', kind_scope: 'بدء مهمة المتصفح', kind_handoff: 'يحتاجك', kind_continue: 'المتابعة',
 };
 

@@ -153,6 +153,11 @@ class Settings(BaseSettings):
     # model with each question, and the character budget those turns may use.
     conversation_history_turns: int = Field(default=12, ge=0, le=50)
     conversation_history_chars: int = Field(default=24000, ge=1000, le=200000)
+    # The time zone of the date line every model prompt gets (current_time.py,
+    # docs/model-gateway.md#current-date-and-time) when neither the user's team profile
+    # nor the workspace's first office building names one. An unknown name falls back to
+    # Asia/Dubai with a warning; it never stops the API.
+    default_time_zone: str = Field(default="Asia/Dubai", min_length=1, max_length=80)
     # Conversation retention (docs/conversations.md#retention): the daily retention job
     # deletes conversations (and their turns) with no activity for this many days, the
     # same 30 days as voice transcripts by default; 0 keeps them until the user deletes

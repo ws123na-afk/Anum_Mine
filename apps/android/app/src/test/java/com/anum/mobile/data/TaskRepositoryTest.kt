@@ -26,6 +26,15 @@ class TaskRepositoryTest {
         assertEquals("ab".repeat(32), api.approvedWith?.payloadHash)
     }
 
+    @Test fun aCardSecurityCodeStepIsApprovedOnTheWebOnly() {
+        val json = kotlinx.serialization.json.Json { ignoreUnknownKeys = true; explicitNulls = false }
+        val step = json.decodeFromString(Approval.serializer(), """{"id":"a1","task_id":"task_1","action":"web.act","risk_level":"high","status":"pending",
+            "reason":"Enter the card security code","created_at":"2026-01-01T00:00:00Z","arguments":{"kind":"card_security_code","cvc":"entered at approval"}}""")
+        assertEquals(true, step.needsCardCodeOnWeb)
+        assertEquals(false, approval("a2", ApprovalStatus.PENDING).needsCardCodeOnWeb)
+        assertEquals(false, step.copy(action = "external.action").needsCardCodeOnWeb)
+    }
+
     private class FakeApi : AnumApi {
         var approvedWith: ApprovalDecisionRequest? = null
         var created: TaskCreate? = null
