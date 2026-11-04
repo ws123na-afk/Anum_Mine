@@ -64,6 +64,8 @@ export function viewFromHash(hash: string): View {
   if (id === 'privacy' || id === 'language' || id === 'appearance' || id === 'notifications') return 'settings';
   // Settings > Billing and its sections (#billing-plans, #billing-contact, docs/billing.md).
   if (id === 'billing' || id.startsWith('billing-')) return 'settings';
+  // Settings > Integrations > iPhone (docs/iphone-integrations.md).
+  if (id === 'iphone') return 'settings';
   // Connection setup lives at the top of Integrations (docs/integrations-setup.md).
   if (id === 'connections') return 'integrations';
   // The ANUM MINE headquarters: #office-preview is the original link and stays valid (docs/ANUM_MINE_HQ_EXTENSION_POINTS.md).
