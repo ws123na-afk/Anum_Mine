@@ -37,6 +37,8 @@ async function openBuilding(page: Page, name: string, ambient?: 'on' | 'off') {
 
 for (const [w, h] of SIZES) {
   test(`a starter campus floor draws lit interiors with scenery at ${w}x${h}`, async ({ page }) => {
+    // The campus, then the 8 building, 62 room starter floor, then three 60 s polls on the drawn scene: more than the default 30 s test budget.
+    test.setTimeout(150_000);
     await page.setViewportSize({ width: w, height: h });
     await openBuilding(page, 'ANUM 360 Commerce');
     await expect.poll(async () => Number(await canvas(page).getAttribute('data-triangles')), { timeout: 60_000 }).toBeGreaterThan(15_000);
