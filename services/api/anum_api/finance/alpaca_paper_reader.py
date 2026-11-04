@@ -9,12 +9,11 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from decimal import Decimal
-from enum import StrEnum
 from typing import Callable
 from urllib.error import HTTPError, URLError
 from urllib.request import HTTPRedirectHandler, Request, build_opener
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field
 
 PAPER_ORIGIN = "https://paper-api.alpaca.markets"
 MAX_BODY_BYTES = 256_000
