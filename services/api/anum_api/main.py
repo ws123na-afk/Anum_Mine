@@ -290,6 +290,7 @@ from .vehicles.api import router as vehicles_router  # docs/vehicles.md
 from .vehicles.devices import router as vehicles_device_router
 from .purchases.api import router as purchases_router  # docs/purchases.md
 from .purchases.devices import router as purchases_device_router
+from .business.api_books import router as business_books_router  # docs/business-books.md
 
 # Fail fast: header mode and anum_local_* sessions must never serve a non-local environment.
 validate_auth_configuration(settings)
@@ -606,6 +607,7 @@ app.include_router(vehicles_device_router)  # before /api/v1/vehicles/{vehicle_i
 app.include_router(vehicles_router)
 app.include_router(purchases_device_router)  # before /api/v1/purchases/{purchase_id}/...
 app.include_router(purchases_router)
+app.include_router(business_books_router)
 repository = memory_repository
 model_gateway = build_default_model_gateway()
 integration_registry = default_integration_registry(settings)

@@ -60,6 +60,7 @@ import { recordRetentionAr } from './recordRetention.ar.ts';
 import { attendanceAr } from './attendance.ar.ts';
 import { vehiclesAr } from './vehicles.ar.ts';
 import { purchasesAr } from './purchases.ar.ts';
+import { businessBooksAr } from './businessBooks.ar.ts';
 import { iphoneAr } from './iphone.ar.ts';
 import { vaultAr } from './vault.ar.ts';
 import { helpAr } from './help.ar.ts';
@@ -128,6 +129,7 @@ export const ar: Record<MessageKey, Message> = {
   ...attendanceAr,
   ...vehiclesAr,
   ...purchasesAr,
+  ...businessBooksAr,
   ...iphoneAr,
   ...vaultAr,
   ...helpAr,

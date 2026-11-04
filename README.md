@@ -214,6 +214,7 @@ x-user-roles: owner,member
 - [Document vault: private documents, expiry reminders, local OCR scanning and the iPhone Shortcut](docs/documents.md)
 - [Vehicles, fuel and mileage: vehicles, odometer that never goes down, fuel, trips, service, reminders and costs linked to Finance payments](docs/vehicles.md)
 - [Purchases, deliveries, returns and refunds: orders, an append-only lifecycle, shipments, returns, refunds linked to Finance (never income), reminders and the iPhone share](docs/purchases.md)
+- [Business books: vendors, bills and payables, allocations counted once, budgets, adjustments, intercompany entries and the P&L with tax apart and dated exchange rates](docs/business-books.md)
 - [In-app help: task-based articles per module, bundled for offline use](docs/help.md)
 - [Sales demo workspace: sample data, reset, sending off](docs/demo-workspace.md)
   - Help, Activity: [English](docs/help/activity.md), [Arabic](docs/help/activity.ar.md)

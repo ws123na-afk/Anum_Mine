@@ -59,6 +59,7 @@ import { recordRetentionEn } from './recordRetention.en.ts';
 import { attendanceEn } from './attendance.en.ts';
 import { vehiclesEn } from './vehicles.en.ts';
 import { purchasesEn } from './purchases.en.ts';
+import { businessBooksEn } from './businessBooks.en.ts';
 import { iphoneEn } from './iphone.en.ts';
 import { vaultEn } from './vault.en.ts';
 import { helpEn } from './help.en.ts';
@@ -127,6 +128,7 @@ export const en = {
   ...attendanceEn,
   ...vehiclesEn,
   ...purchasesEn,
+  ...businessBooksEn,
   ...iphoneEn,
   ...vaultEn,
   ...helpEn,

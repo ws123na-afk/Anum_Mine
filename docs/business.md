@@ -30,6 +30,7 @@ Business is roadmap P1 "Internal sales MVP" ([ANUM OS business and product roadm
 | Invoices | Invoices built from milestones (change order milestones included), the unbilled share of a contract, billable ledger entries, a catalog offer or lines you write; numbered and sent only after an owner approves; payments recorded by hand or from a customer's report; credit notes; void; a printable copy and a PDF file | See [invoices](#invoices) |
 | Customer portal | A link per customer contact: their offers, change orders, invoices and requests, with approving an offer or a change order | See [the customer portal](business-portal.md) |
 | KPI summary | The owner's funnel and money figures for a window of days | See [KPI summary](#kpi-summary) |
+| Books | Vendors, bills, budgets, adjustments, intercompany entries and the P&L | See [Business books](business-books.md) |
 | Support | Tickets opened by hand or from an inbound email or WhatsApp conversation, with severity, status, assignee, entitlement, escalation, notes, replies and a working-hours SLA | See [support tickets](#support-tickets) |
 
 ## Permissions
@@ -306,6 +307,10 @@ For Stripe, the `checkout.session.completed` event reaches `POST /api/v1/billing
 | `GET /payment-provider`, `POST /invoices/{id}/payment-link` | read, write | Whether card links can be made and through which provider; make the Moyasar page or Stripe Payment Link |
 
 Every invoice response carries `can` (what the caller may do now) and `issues` (why a draft cannot be sent yet), so web and phone show the same buttons and reasons. On the web the invoices are the Invoices tab of Business (`apps/web/src/BusinessInvoices.tsx`); on the phone, Invoices in the Business screen (`apps/mobile/lib/features/business/invoices.dart`). Deleting an account that has invoices is refused: its records are kept. The drawer has a **Download PDF** button next to Print (web and phone), credit notes and customer reports blocks, and the Accounts tab of Business lists the client accounts with their portal links.
+
+## Books: expenses, payables and the P&L
+
+The Books tab extends these records into the business's own books ([Business books](business-books.md)): vendors and vendor bills (payables) with payments, how allocation rows from members' own Finance are counted, budgets, journal adjustments, intercompany entries, and a profit and loss on an accrual or cash basis with tax kept apart, cash flow, receivables and payables. Revenue there is always the invoices, payments and credit notes above; nothing is invoiced or posted a second time.
 
 ## KPI summary
 

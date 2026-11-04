@@ -359,6 +359,8 @@ _ORDER = (
     "vehicles",
     "purchase_reminders", "purchase_events", "purchase_returns", "purchase_shipments", "purchase_items", "purchase_preferences",
     "purchases",
+    "business_book_bill_payments", "business_book_bills", "business_book_allocation_tags", "business_book_budgets", "business_book_adjustments",
+    "business_book_intercompany", "business_book_rates", "business_book_vendors", "business_book_cost_centres", "business_book_settings",
     "vault_access_log",
     "vault_extractions",
     "vault_document_links",

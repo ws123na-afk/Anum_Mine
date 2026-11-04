@@ -67,4 +67,4 @@ Unlinking a document from a payment in the Document vault voids its evidence lin
 
 ## Not built here
 
-Link screens inside the modules (each module PR adds its own), automatic matching (a fuel receipt to its payment), and the business books' P&L that reads the allocation rows (module 5).
+Link screens inside the modules (each module PR adds its own), automatic matching (a fuel receipt to its payment), and automatic matching. The business books' P&L reads the allocation rows ([Business books](business-books.md)).
