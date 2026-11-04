@@ -109,6 +109,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     from .vehicles.jobs import run as run_vehicles
 
     report["vehicles"] = run_vehicles(dry_run=args.dry_run)
+    # Purchase delivery, return, refund and warranty reminders (docs/purchases.md#reminders).
+    from .purchases.jobs import run as run_purchases
+
+    report["purchases"] = run_purchases(dry_run=args.dry_run)
     print(json.dumps(report, indent=2))
     return 0
 

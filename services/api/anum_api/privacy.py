@@ -178,6 +178,9 @@ class PrivateCounts(BaseModel):
     # Vehicles (migration 0135_vehicles, docs/vehicles.md#privacy): the caller's personal vehicles
     # with every record, their own records on business vehicles, their reminders and settings.
     vehicle_records: int = 0
+    # Purchases (migration 0136_purchases, docs/purchases.md#privacy): the caller's personal purchases
+    # with every row, their own status changes, shipments and returns on business purchases, their reminders and settings.
+    purchase_records: int = 0
     # Document vault (migration 0133_document_vault, docs/documents.md#privacy): the caller's
     # private documents (with their files) and iPhone Shortcut devices.
     vault_private_documents: int = 0
@@ -492,6 +495,7 @@ class PrivacyStore(Protocol):
     def finance(self) -> Any: ...
     def attendance(self) -> Any: ...
     def vehicles(self) -> Any: ...
+    def purchases(self) -> Any: ...
     # Email, WhatsApp and autonomy rows the caller connected, wrote, sent or requested.
     def email_accounts_connected(self) -> list[EmailAccount]: ...
     def email_drafts_written(self) -> list[EmailDraft]: ...
@@ -671,6 +675,11 @@ class InMemoryPrivacyStore:
 
         return vehicle_memory_store
 
+    def purchases(self) -> Any:
+        from .purchases.store import purchase_memory_store
+
+        return purchase_memory_store
+
     def team(self) -> Any:
         from .team_store import memory_team_store
 
@@ -828,6 +837,7 @@ class InMemoryPrivacyStore:
             finance_records=self.finance().count_everything(self.context),
             attendance_records=self.attendance().count_everything(self.context),
             vehicle_records=self.vehicles().count_everything(self.context),
+            purchase_records=self.purchases().count_everything(self.context),
             **mail_privacy_counts(self.context),
             **calls_privacy_counts(self.context),
             **app_calls_privacy_counts(self.context),
@@ -891,6 +901,7 @@ class InMemoryPrivacyStore:
         self.finance().delete_everything(self.context)
         self.attendance().delete_everything(self.context)
         self.vehicles().delete_everything(self.context)
+        self.purchases().delete_everything(self.context)
         delete_mail_everything(self.context)
         delete_my_app_calls(self.context)
         self._delete_email()
@@ -1272,6 +1283,8 @@ def export_sections(store: PrivacyStore, context: TenantContext) -> Iterator[tup
     yield ("attendance", store.attendance().export(context))
     # The caller's vehicles and vehicle records (docs/vehicles.md#privacy).
     yield ("vehicles", store.vehicles().export(context))
+    # The caller's purchases, deliveries and returns (docs/purchases.md#privacy).
+    yield ("purchases", store.purchases().export(context))
     yield ("mail", mail_export(context))
     # The caller's document vault records (docs/documents.md#privacy); bytes stay downloadable in the vault.
     from .vault.privacy import export as vault_export

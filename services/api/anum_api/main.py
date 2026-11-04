@@ -288,6 +288,8 @@ from .serving import prepare_for_serving
 from .attendance.api import router as attendance_router  # docs/attendance.md
 from .vehicles.api import router as vehicles_router  # docs/vehicles.md
 from .vehicles.devices import router as vehicles_device_router
+from .purchases.api import router as purchases_router  # docs/purchases.md
+from .purchases.devices import router as purchases_device_router
 
 # Fail fast: header mode and anum_local_* sessions must never serve a non-local environment.
 validate_auth_configuration(settings)
@@ -602,6 +604,8 @@ app.include_router(setup_plans_router)
 app.include_router(attendance_router)
 app.include_router(vehicles_device_router)  # before /api/v1/vehicles/{vehicle_id}/...
 app.include_router(vehicles_router)
+app.include_router(purchases_device_router)  # before /api/v1/purchases/{purchase_id}/...
+app.include_router(purchases_router)
 repository = memory_repository
 model_gateway = build_default_model_gateway()
 integration_registry = default_integration_registry(settings)
@@ -2925,4 +2929,10 @@ from .vehicles.service import plug_finance_links as _plug_vehicle_links  # noqa:
 
 _vehicle_devices.register()
 _plug_vehicle_links()
+# Purchases: the ``purchase`` finance link dimension and the iPhone shared order and delivery messages (docs/purchases.md).
+from .purchases import devices as _purchase_devices  # noqa: E402
+from .purchases.service import plug_finance_links as _plug_purchase_links  # noqa: E402
+
+_purchase_devices.register()
+_plug_purchase_links()
 plug_module_authorities()

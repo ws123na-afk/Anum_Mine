@@ -108,6 +108,8 @@ class PaymentRef(_Quantized):
     paid_by: str
     recorded_as_cash: bool = False
     linked_at: datetime
+    # A refund only: the purchase's own payment when the refund was linked (the original transaction).
+    original_canonical_id: str | None = None
 
 
 class _Scoped(_Quantized):
