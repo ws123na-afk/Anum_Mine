@@ -69,6 +69,7 @@ export interface PrivacyPrivateCounts {
   finance_records?: number;
   /** The caller's attendance and daily reports (docs/attendance.md#privacy). Absent from older servers. */
   attendance_records?: number;
+  vehicle_records?: number;
   // In-app calls (docs/in-app-calls.md#privacy).
   app_calls?: number;
   app_call_signals?: number;

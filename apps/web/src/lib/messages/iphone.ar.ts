@@ -94,6 +94,8 @@ export const iphoneAr = {
   'iph.int.finance.wallet.purpose': 'يرسل كل دفعة Apple Pay، وتُطابق مع رسالة البنك كمعاملة واحدة.',
   'iph.int.attendance.location': 'الوصول والمغادرة في الحضور',
   'iph.int.attendance.location.purpose': 'يسجل وصول هاتفك إلى موقع العمل أو مغادرته. لا تُرسل أي إحداثيات.',
+  'iph.int.vehicle.driving': 'جلسات قيادة المركبة',
+  'iph.int.vehicle.driving.purpose': 'يبدأ رحلة عند اتصال CarPlay أو بلوتوث السيارة وينهيها عند الانقطاع. أنت تكتب قراءة العداد، والهاتف لا يقرؤها أبدًا.',
   'iph.att.step.1': 'في ANUM، الحضور، الإعدادات: أضف الموقع وشغّل تسجيل الحضور بالموقع.',
   'iph.att.step.2': 'الاختصارات، الأتمتة، أتمتة جديدة، Arrive. اختر المكان واضبط النطاق على نطاق الموقع واختر Run Immediately.',
   'iph.att.step.3': 'أضف Get Contents of URL إلى {url} بالطريقة POST والترويستين أعلاه ونص طلب JSON بالحقول أدناه.',

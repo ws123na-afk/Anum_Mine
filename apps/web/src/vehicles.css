@@ -1,0 +1,55 @@
+/* Vehicles (VehiclesView.tsx, VehicleParts.tsx, docs/vehicles.md#web). Built on the commerce panel recipe and the shared
+   tokens; logical properties so the layout mirrors in Arabic; heights follow content. */
+.vehLayout > .pageSummary { margin: 0; }
+.vehNote { font-size: var(--text-sm); margin: 0; }
+.vehInlineIcon { height: 18px; margin-inline-end: var(--d-s2); vertical-align: -3px; width: 18px; }
+.vehGrid { align-items: start; display: grid; gap: var(--d-s4); min-width: 0; }
+@media (min-width: 1024px) { .vehGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+
+.vehBar { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2) var(--d-s3); justify-content: space-between; }
+.vehBar > h2 { flex: 1 1 auto; font-size: var(--text-lg); margin: 0; }
+.vehBar button, .vehRowButtons button, .vehPager button { align-items: center; display: inline-flex; gap: var(--d-s2); min-height: 44px; }
+.vehBar svg, .vehRowButtons svg, .vehPager svg, .pageHeaderActions svg, .cmTabs svg { flex: none; height: 16px; width: 16px; }
+.cmTabs button { align-items: center; display: inline-flex; gap: var(--d-s2); }
+[dir="rtl"] .vehFlip { transform: scaleX(-1); }
+
+.vehCheck { align-items: center; display: inline-flex; gap: var(--d-s2); min-height: 44px; }
+.vehCheck input { height: 18px; width: 18px; }
+.vehList li, .vehRecords li { align-items: flex-start; flex-wrap: wrap; }
+.vehRecords li > div:first-child { flex: 1 1 260px; }
+.vehRowButtons { display: flex; flex-wrap: wrap; gap: var(--d-s2); }
+.vehPager { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2) var(--d-s3); justify-content: flex-end; }
+.vehPager > span { flex: 1 1 auto; font-size: var(--text-sm); }
+
+.vehChip { border: 1px solid var(--d-line); border-radius: 999px; display: inline-block; font-size: var(--text-xs); font-weight: 600; margin-top: var(--d-s1); padding: 2px var(--d-s2); }
+.vehChip.active { border-color: rgb(var(--c-ok) / .5); color: var(--d-ok); }
+.vehChip.needs_review { border-color: rgb(var(--c-warn) / .6); color: var(--d-warn); }
+.vehChip.void, .vehChip.none { color: var(--d-muted); }
+
+.vehDetail { display: grid; gap: var(--d-s4); min-width: 0; }
+.vehDetailHead { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s3); }
+.vehDetailHead h2 { font-size: var(--text-xl); margin: 0; overflow-wrap: anywhere; }
+.vehDetailHead p { margin: var(--d-s1) 0 0; }
+.vehBack { min-height: 44px; }
+.vehDue { display: flex; flex-wrap: wrap; gap: var(--d-s2); list-style: none; margin: 0; padding: 0; }
+.vehDue li { background: var(--d-glass-1); border: 1px solid var(--d-line); border-radius: var(--d-r-control); font-size: var(--text-sm); padding: var(--d-s1) var(--d-s3); }
+.vehDue li.soon { border-color: rgb(var(--c-warn) / .6); }
+
+.vehFacts { display: grid; gap: var(--d-s1) var(--d-s4); grid-template-columns: minmax(0, max-content) minmax(0, 1fr); margin: 0; }
+.vehFacts dt { color: var(--d-muted); font-size: var(--text-sm); }
+.vehFacts dd { margin: 0; overflow-wrap: anywhere; }
+.vehTableWrap { max-width: 100%; overflow-x: auto; }
+.vehTable { min-width: 280px; width: 100%; }
+
+.vehDialog { max-width: min(720px, calc(100vw - 2 * var(--d-s4))); width: 100%; }
+.vehForm { display: grid; gap: var(--d-s3); min-width: 0; }
+.vehTwo { display: grid; gap: var(--d-s3); grid-template-columns: minmax(0, 1fr); }
+@media (min-width: 640px) { .vehTwo { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.vehFieldset { border: 1px solid var(--d-line); border-radius: var(--d-r-control); display: grid; gap: var(--d-s2); margin: 0; min-width: 0; padding: var(--d-s3); }
+.vehFieldset legend { font-weight: 600; padding: 0 var(--d-s1); }
+.vehOdoForm { align-items: end; }
+@media (min-width: 768px) { .vehOdoForm { grid-template-columns: minmax(0, 220px) auto minmax(0, 1fr) auto; } .vehOdoForm .actions { margin: 0; } }
+.vehPayNow { display: grid; gap: var(--d-s2); }
+.vehPayNow p { margin: 0; }
+.vehPayList { max-height: none; }
+.vehLinkButton { align-items: center; border: 1px solid var(--d-line); border-radius: var(--d-r-control); display: inline-flex; justify-self: start; min-height: 44px; padding: 0 var(--d-s3); }

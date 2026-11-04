@@ -36,6 +36,12 @@ export const IPHONE_GUIDES: IphoneGuide[] = [
     body: ['event = arrive (or leave)', 'site = the site name in ANUM', 'idempotency_key = Current Date (ISO 8601) + -arrive', 'occurred_at = Current Date (ISO 8601)'],
   },
   {
+    key: 'vehicle.driving', title: 'iph.int.vehicle.driving', purpose: 'iph.int.vehicle.driving.purpose', settingsHash: '#vehicles-settings',
+    steps: (url) => [t('iph.veh.step.1'), t('iph.veh.step.2'), t('iph.veh.step.3', { url }), t('iph.veh.step.4'), t('iph.veh.step.5'), t('iph.veh.step.6')],
+    body: ['action = start (or end)', 'vehicle = the registration in ANUM (empty: the default vehicle)', 'idempotency_key = Current Date (ISO 8601) + -start',
+      'occurred_at = Current Date (ISO 8601)', 'odometer_km = Provided Input (end only, what you typed)', 'fuel_litres, fuel_total, parking_total = optional, end only'],
+  },
+  {
     key: 'documents.scan', title: 'iph.int.documents.scan', purpose: 'iph.int.documents.scan.purpose', settingsHash: '#vault',
     steps: (url) => [t('iph.doc.step.1'), t('iph.doc.step.2', { url }), t('iph.doc.step.3'), t('iph.doc.step.4')],
     body: ['Request Body = File: the scan, photo or Shortcut Input', 'name = scan.jpg (in the address: ?name=scan.jpg&category=receipt)'],
