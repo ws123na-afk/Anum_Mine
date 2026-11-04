@@ -179,6 +179,7 @@ x-user-roles: owner,member
 - [Trading intelligence readiness report (loop 10, live stays off)](docs/finance-trading-readiness.md)
 - [Broker onboarding, statement reconciliation and custody safeguards (live off)](docs/finance-broker-onboarding.md)
 - [Live trading with Interactive Brokers: owner-approved ETF orders, paper first, every lock and the owner's steps](docs/finance-live-trading.md)
+- [iPhone SMS banking and the double-entry ledger: device tokens, review queue, taught formats, reconciliation and the dashboard (off by default)](docs/finance-sms.md)
 - [Fund research: real data with sources, an AI summary that can only cite the data, backtests and paper runs](docs/finance-research.md)
 - [All-market trading plan and release gates (live trading off)](docs/finance-all-markets-implementation.md)
 - [SAR 500 stocks and crypto paper simulation](docs/finance-sar500-paper-integration.md)
