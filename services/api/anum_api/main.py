@@ -150,6 +150,7 @@ from .meetings import router as meetings_router
 from .voice import router as voice_router
 from .voice_call import call_router as voice_call_router
 from . import chat_tools
+from .capabilities import configure as configure_capabilities
 from . import voice_actions
 from .agent_skills import default_skill_registry
 from .conversations import router as conversations_router
@@ -641,6 +642,8 @@ chat_tools.configure(
         ),
     )
 )
+# What ANUM can do in a workspace reads the owners' integration switches (docs/conversations.md#what-anum-can-do).
+configure_capabilities(integration_registry)
 # Home's insights read the last recorded integration checks (docs/home.md).
 app.state.integration_registry = integration_registry
 

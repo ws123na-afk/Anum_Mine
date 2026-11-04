@@ -35,6 +35,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from collections.abc import AsyncIterator, Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -90,14 +91,18 @@ TITLE_CHARS = 80
 Rating = Literal["up", "down"]
 
 SYSTEM_PROMPT = (
-    "You are Anum, a fast, friendly assistant inside ANUM, a governed agent workbench. "
-    "Answer conversationally and get to the point: lead with the answer, keep it short "
-    "unless the user asks for depth, and use Markdown lists or code blocks only when they help. "
-    "You have no tools in this reply: you cannot approve, delete, pay, send messages or change "
-    "permissions. Questions about the user's email, WhatsApp, files or the web, and requests "
-    "to act, are run by ANUM as governed tasks and shown as cards in this chat; if the user "
-    "wants something done that you cannot see, suggest asking for it directly (for example "
-    "\"any urgent customer emails?\") or creating a task, which runs under the workspace's approvals. "
+    "You are Anum, the assistant of ANUM, the governed agent workbench this business runs on. "
+    "Speak as ANUM, never as a general purpose chatbot. Answer conversationally and get to the "
+    "point: lead with the answer, keep it short unless the user asks for depth, and use Markdown "
+    "lists or code blocks only when they help. "
+    "You write text in this reply, but ANUM acts: reading mail or WhatsApp, searching or browsing "
+    "the web, doing an errand on a website, sending, booking, scheduling and creating or assigning "
+    "work run as governed tasks shown as cards in this chat, under the workspace's approvals. A "
+    "list of what ANUM can do in this workspace right now follows these rules when it is known; "
+    "answer from it. So never say you cannot browse, book or take actions when ANUM can: say ANUM "
+    "does it as a task and give the words that start it (for example \"any urgent customer "
+    "emails?\" or \"go to https://example.com and download my statement\"). Approving, paying "
+    "and permissions happen on screen, in Approvals, never in this reply. "
     + PLAIN_PUNCTUATION_RULE
     + "\n\n"
     + REPORT_BLOCK_INSTRUCTIONS
@@ -439,6 +444,7 @@ def build_messages(
     learned_block: str | None = None,
     data_blocks: Sequence[str] = (),
     persona: str | None = None,
+    capabilities: str | None = None,
     time_line: str | None = None,
 ) -> list[ChatMessage]:
     """The system prompt, the most recent earlier turns that fit, then the question.
@@ -449,6 +455,9 @@ def build_messages(
     Recalled memories (already labeled untrusted and bounded by the recall budget) follow
     the system prompt, after the untrusted-data rules. ``learned_block`` (the user's
     learned style and preferences, docs/learning.md) follows the system prompt itself.
+    ``capabilities`` (what ANUM can do in this workspace, capabilities.py) is its own
+    system part after the rest: it changes with the workspace, so it stays out of the
+    static prefix the Anthropic gateway caches.
     ``time_line`` (the current date and time, current_time.py) ends the system text.
     """
     max_turns = settings.conversation_history_turns if max_turns is None else max_turns
@@ -474,6 +483,8 @@ def build_messages(
 
         system = with_untrusted_rules(f"{system}\n\n{TYRE_PREFACE}", *data_blocks)
     messages: list[ChatMessage] = [{"role": "system", "content": with_time_line(system, time_line)}]
+    if capabilities:
+        messages.append({"role": "system", "content": capabilities})
     for role, content in [(turn.role.value, turn.content) for turn in kept] + [("user", question)]:
         if messages[-1]["role"] == role:
             messages[-1] = {"role": role, "content": f"{messages[-1]['content']}\n\n{content}"}
@@ -668,6 +679,18 @@ async def stream_tool_reply(
             yield sse("delta", {"text": text})
     assistant_turn = await asyncio.to_thread(_store_reply, context, conversation, "".join(parts), TurnStatus.COMPLETE, card)
     # Same shape as a plain reply; a tool turn never carries a report (docs/reports.md).
+    yield sse("done", {"assistant_turn": assistant_turn.model_dump(mode="json") if assistant_turn else None, "report": None})
+
+
+async def stream_card_reply(
+    *, context: TenantContext, conversation: Conversation, user_turn: ConversationTurn, card: ChatCard
+) -> AsyncIterator[str]:
+    """The ``ask`` body when the answer is a card alone: ``unavailable`` (what to turn on, and
+    where) or ``needs_input`` (the detail to add). Nothing runs; the turn is stored with the card."""
+    yield sse("turn", {"user_turn": user_turn.model_dump(mode="json"), "memories_used": []})
+    yield sse("tool", {"card": card.model_dump(mode="json")})
+    yield sse("delta", {"text": card.summary})
+    assistant_turn = await asyncio.to_thread(_store_reply, context, conversation, card.summary, TurnStatus.COMPLETE, card)
     yield sse("done", {"assistant_turn": assistant_turn.model_dump(mode="json") if assistant_turn else None, "report": None})
 
 
@@ -874,9 +897,15 @@ class _PreparedAsk:
     history: list[ConversationTurn]
     runtime_config: chat_tools.ChatTaskRuntime | None
     category: ChatCategory | None
+    # Answered without a task or the model: the capability is off, or a detail is missing.
+    fixed_card: ChatCard | None = None
+    # What ANUM can do here, for a plain reply's system prompt (capabilities.py).
+    capabilities: str | None = None
 
 
-def _prepare_conversation_ask(conversation_id: str, payload: ConversationAsk, context: TenantContext) -> _PreparedAsk:
+def _prepare_conversation_ask(
+    conversation_id: str, payload: ConversationAsk, context: TenantContext, language: Language = "en"
+) -> _PreparedAsk:
     """Checks, the stored question and the chat intent: blocking database work, so the
     route runs it in a worker thread (docs/realtime.md#event-loop)."""
     # Refused before anything is stored: 402 with the reset date (main.py's handler).
@@ -929,12 +958,53 @@ def _prepare_conversation_ask(conversation_id: str, payload: ConversationAsk, co
     runtime_config = chat_tools.configured()
     # A thread with an agent never runs chat tool cards: they would run without the
     # agent's narrowing. Work for an agent goes through a task as that agent (docs/agents.md#chat).
-    category = (
-        chat_tools.chat_intent(user_turn.content, runtime_config.skills, runtime_config.tools.names)
-        if runtime_config is not None and conversation.agent_id is None
-        else None
+    if runtime_config is None or conversation.agent_id is not None:
+        return _PreparedAsk(conversation, user_turn, history, runtime_config, None)
+    category = chat_tools.chat_intent(user_turn.content, runtime_config.skills, runtime_config.tools.names)
+    # Which browser or search tool a web or action request plans (its capability may be off).
+    tool = (
+        chat_tools.chat_route(user_turn.content, runtime_config.skills, runtime_config.tools.names)[1]
+        if category in {"web", "action"}
+        else ""
     )
-    return _PreparedAsk(conversation, user_turn, history, runtime_config, category)
+    fixed_card, block = _capability_route(context, user_turn.content, category, tool, language)
+    return _PreparedAsk(
+        conversation, user_turn, history, runtime_config, None if fixed_card else category, fixed_card, block
+    )
+
+
+def _capability_route(
+    context: TenantContext, question: str, category: ChatCategory | None, tool: str, language: Language
+) -> tuple[ChatCard | None, str | None]:
+    """What ANUM can do here decides the request's route (docs/conversations.md#what-anum-can-do).
+
+    A request for a browser that is off becomes an ``unavailable`` card (no task); an errand on a
+    website without its address becomes a ``needs_input`` card; a plain question gets the
+    capability block for its system prompt. Blocking reads (cached briefly): a worker thread only.
+    """
+    from . import capabilities as caps
+
+    try:
+        found = caps.workspace_capabilities(context)
+    except Exception as exc:  # the question is still answered, without the list
+        logger.warning("conversation_capabilities_failed error_class=%s", type(exc).__name__)
+        return None, None
+    arabic = language == "ar" or bool(_ARABIC_TEXT.search(question))
+    needed = caps.TOOL_CAPABILITY.get(tool) if category is not None else None
+    if category is None and caps.asks_web_errand(question):
+        needed = caps.errand_capability(question)
+        category = "action" if needed == "act" else "web"
+        capability = caps.by_id(found, needed)
+        if capability is not None and capability.available:
+            return chat_tools.needs_input_card(category, caps.needs_site_text(needed, arabic=arabic)), None
+    if needed is not None and category is not None:
+        capability = caps.by_id(found, needed)
+        if capability is not None and not capability.available:
+            return chat_tools.unavailable_card(category, needed, caps.unavailable_text(capability, arabic=arabic)), None
+    return None, caps.capability_block(found) if category is None else None
+
+
+_ARABIC_TEXT = re.compile(r"[\u0600-\u06FF]")
 
 
 @dataclass
@@ -1015,9 +1085,16 @@ async def ask_in_conversation(
         from .billing.enforce import require_capacity
 
         await asyncio.to_thread(require_capacity, context, "messages", 1)
-    prepared = await asyncio.to_thread(_prepare_conversation_ask, conversation_id, payload, context)
+    prepared = await asyncio.to_thread(_prepare_conversation_ask, conversation_id, payload, context, language)
     conversation, user_turn, history = prepared.conversation, prepared.user_turn, prepared.history
     runtime_config, category = prepared.runtime_config, prepared.category
+    if prepared.fixed_card is not None:
+        # The capability is off, or the request misses a detail: said on a card, no task, no model.
+        return StreamingResponse(
+            stream_card_reply(context=context, conversation=conversation, user_turn=user_turn, card=prepared.fixed_card),
+            media_type="text/event-stream",
+            headers=SSE_HEADERS,
+        )
     if conversation.agent_id is not None:
         # A thread with an agent counts against that agent's caps (docs/agent-controls.md).
         bind = getattr(gateway, "for_agent", None)
@@ -1053,6 +1130,7 @@ async def ask_in_conversation(
         learned_block=extra.learned_block,
         data_blocks=[grounding.block] if grounding else (),
         persona=extra.persona,
+        capabilities=prepared.capabilities,
         time_line=extra.time_line,
     )
     completed = CompletedReply()

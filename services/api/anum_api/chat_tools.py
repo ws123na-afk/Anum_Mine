@@ -47,7 +47,10 @@ if TYPE_CHECKING:
 logger = logging.getLogger("anum.chat_tools")
 
 ChatCategory = Literal["email", "whatsapp", "commerce", "tyre", "finance", "web", "files", "action"]
-CardState = Literal["running", "results", "approval", "failed", "cancelled", "denied"]
+# ``unavailable``: the capability the request needs is off or not connected here (the reason and
+# where to turn it on, docs/conversations.md#what-anum-can-do); ``needs_input``: ANUM can do it
+# but needs one more detail from the user's own words (a website task's https address).
+CardState = Literal["running", "results", "approval", "failed", "cancelled", "denied", "unavailable", "needs_input"]
 ItemKind = Literal["email", "whatsapp", "web", "file", "memory", "order", "listing", "tyre"]
 
 MAX_CARD_ITEMS = 10
@@ -133,11 +136,18 @@ _TOOL_CATEGORIES: dict[str, ChatCategory] = {
     "external.action": "action",
     "web_search": "web",
     "web.browse_page": "web",
+    # The action browser (docs/action-browser.md): an errand on a website, as a governed task.
+    "web.act": "action",
 }
 
 
 def chat_intent(question: str, skills: "SkillRegistry", tool_names: set[str]) -> ChatCategory | None:
-    """What the question needs, from the user's own words; ``None`` for plain conversation.
+    """What the question needs, from the user's own words; ``None`` for plain conversation."""
+    return chat_route(question, skills, tool_names)[0]
+
+
+def chat_route(question: str, skills: "SkillRegistry", tool_names: set[str]) -> tuple[ChatCategory | None, str]:
+    """``(category, tool)`` for the question, from the user's own words.
 
     The tool is the one a task with this prompt would plan
     (``agent_planning.choose_tool_call``), so chat, tasks and the command preview agree.
@@ -147,23 +157,23 @@ def chat_intent(question: str, skills: "SkillRegistry", tool_names: set[str]) ->
     selected = skills.select(question, tool_names)
     call = choose_tool_call(question, selected, "", tool_names)
     if call.name in _TOOL_CATEGORIES:
-        return _TOOL_CATEGORIES[call.name]
+        return _TOOL_CATEGORIES[call.name], call.name
     if call.name.startswith("commerce.") or (
         # A change request without channel, SKU or value: the commerce skill explains what to say.
         call.name == "anum.respond" and "text" in call.arguments and call.arguments["text"]
         and any(skill.id == "anum.commerce" for skill in selected)
     ):
-        return "commerce"
+        return "commerce", call.name
     if call.name in TYRE_READ_TOOLS:
-        return "tyre"
+        return "tyre", call.name
     if call.name in FINANCE_CHAT_TOOLS:
         # The caller's own ledger, read only, or a rule proposal (docs/finance.md#assistant).
-        return "finance"
+        return "finance", call.name
     if call.name == "anum.respond" and _words(question) & FILE_WORDS:
-        return "files"
+        return "files", call.name
     # Anything else (plain conversation, a team assignment handled by its own chat path)
     # stays a conversation.
-    return None
+    return None, call.name
 
 
 # -- configuration (set by main.py) ----------------------------------------------------------
@@ -920,7 +930,7 @@ def turn_text(card: ChatCard) -> str:
         )
     if card.state == "running":
         return "The task is running in the background; this card updates when it finishes."
-    if card.state == "denied":
+    if card.state in {"denied", "unavailable", "needs_input"}:
         return card.summary
     return card.summary or "Done."
 
@@ -935,6 +945,16 @@ def denied_card(category: ChatCategory) -> ChatCard:
         ),
         error_code="task_run_denied",
     )
+
+
+def unavailable_card(category: ChatCategory, capability: str, summary: str) -> ChatCard:
+    """The request needs a capability that is off here: no task is created (capabilities.py)."""
+    return ChatCard(state="unavailable", category=category, summary=summary, error_code=f"capability_off:{capability}")
+
+
+def needs_input_card(category: ChatCategory, summary: str) -> ChatCard:
+    """ANUM can do it, but the user's own words must name what is missing (a site's address)."""
+    return ChatCard(state="needs_input", category=category, summary=summary, error_code="needs_site")
 
 
 def failed_card(category: ChatCategory, task_id: str | None, summary: str, code: str) -> ChatCard:

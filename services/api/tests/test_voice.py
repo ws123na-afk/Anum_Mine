@@ -359,8 +359,10 @@ def test_streamed_ask_sends_recent_spoken_turns_to_the_model() -> None:
         app.dependency_overrides.clear()
     assert "".join(d["text"] for k, d in frames if k == "delta") == "It is Rayleigh scattering."
     roles = [m["role"] for m in seen[1]]
-    assert roles == ["system", "user", "assistant", "user"]
-    assert "Why is the sky blue?" in seen[1][1]["content"]
+    # The rules, then what ANUM can do in this workspace (its own part, docs/voice.md#what-anum-can-do).
+    assert roles == ["system", "system", "user", "assistant", "user"]
+    assert seen[1][1]["content"].startswith("ANUM in this workspace right now")
+    assert "Why is the sky blue?" in seen[1][2]["content"]
     assert "And at sunset?" in seen[1][-1]["content"]
 
 

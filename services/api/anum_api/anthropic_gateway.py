@@ -27,6 +27,7 @@ from typing import Any
 
 import httpx
 
+from .capabilities import CAPABILITY_HEADER
 from .current_time import split_time_line
 from .model_gateway import (
     LOCAL_EMBEDDING_MODEL,
@@ -106,11 +107,21 @@ def build_messages_request(
     The date line that ends the system text (current_time.py) changes every minute, so
     with ``cache`` it is sent after the last breakpoint instead: as a text block after the
     last user message's cached block, or else as a last, uncached system block. The
-    cached prefix stays the same from one minute and one turn to the next.
+    cached prefix stays the same from one minute and one turn to the next. A system part
+    that starts with ``CAPABILITY_HEADER`` (capabilities.py) is likewise sent after the
+    system breakpoint, uncached.
     """
     messages = validate_messages(messages)
     system = [m["content"] for m in messages if m["role"] == "system" and m["content"]]
     turns = [m for m in messages if m["role"] != "system"]
+    # A trailing live part (what ANUM can do in the workspace, capabilities.py) changes with
+    # the workspace: it is sent after the system breakpoint, uncached, so the static prompt
+    # stays one shared cached prefix. The date line ends the last static part.
+    stable = len(system)
+    while stable and system[stable - 1].startswith(CAPABILITY_HEADER):
+        stable -= 1
+    live = system[stable:]
+    system = system[:stable]
     time_line: str | None = None
     if cache and system:
         rest, time_line = split_time_line(system[-1])
@@ -124,12 +135,12 @@ def build_messages_request(
         if cache:
             body["tools"][-1]["cache_control"] = dict(_CACHE)
             breakpoints += 1
-    if system:
+    if system or live:
         body["system"] = [
-            _text_block(text, cache=cache and index == len(system) - 1)
-            for index, text in enumerate(system)
+            *(_text_block(text, cache=cache and index == len(system) - 1) for index, text in enumerate(system)),
+            *(_text_block(text) for text in live),
         ]
-        breakpoints += 1 if cache else 0
+        breakpoints += 1 if cache and system else 0
     body["messages"] = [{"role": m["role"], "content": m["content"]} for m in turns]
     last = body["messages"][-1]
     if cache and cache_messages and last["content"] and breakpoints < MAX_CACHE_BREAKPOINTS:
