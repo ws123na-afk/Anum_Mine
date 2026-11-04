@@ -48,6 +48,7 @@ ROOT = Path(__file__).resolve().parents[2]
 HERE = Path(__file__).resolve().parent
 POLICY_FILE = HERE / "policy.toml"
 EXCEPTIONS_FILE = HERE / "exceptions.toml"
+BUNDLED_FILE = HERE / "bundled.toml"
 NOTICES_FILE = ROOT / "THIRD_PARTY_NOTICES.md"
 
 ECOSYSTEMS = ("python", "npm", "cargo", "dart", "gradle")
@@ -757,10 +758,52 @@ def load_exceptions() -> tuple[list[dict], list[dict]]:
         if missing:
             raise SystemExit(f"exceptions.toml: override for {entry.get('package')} is missing {missing}")
     for entry in exceptions:
-        missing = [f for f in ("ecosystem", "package", "license", "reason", "reviewed_by", "reviewed_on") if not entry.get(f)]
+        missing = [f for f in ("ecosystem", "package", "versions", "license", "reason", "reviewed_by", "reviewed_on")
+                   if not entry.get(f)]
         if missing:
             raise SystemExit(f"exceptions.toml: exception for {entry.get('package')} is missing {missing}")
     return overrides, exceptions
+
+
+def version_matches(patterns: list[str] | None, version: str) -> bool:
+    """True when `version` is one of `patterns`: exact versions, or a prefix ending in ".*".
+
+    No patterns means any version (overrides only; exceptions and bundled entries need them,
+    so a new version of an approved package is reviewed again).
+    """
+    if not patterns:
+        return True
+    return any(version == p or (p.endswith(".*") and version.startswith(p[:-1])) for p in patterns)
+
+
+def load_bundled() -> list[dict]:
+    data = tomllib.loads(BUNDLED_FILE.read_text()) if BUNDLED_FILE.exists() else {}
+    entries = data.get("bundled", [])
+    for entry in entries:
+        missing = [f for f in ("ecosystem", "package", "versions", "reviewed_on", "libraries") if not entry.get(f)]
+        if missing:
+            raise SystemExit(f"bundled.toml: entry for {entry.get('package')} is missing {missing}")
+        for library in entry["libraries"]:
+            missing = [f for f in ("name", "license", "copyright", "source") if not library.get(f)]
+            if missing:
+                raise SystemExit(f"bundled.toml: {entry['package']} library {library.get('name')} is missing {missing}")
+    return entries
+
+
+def attach_bundled(results: list[dict], bundled: list[dict], scanned: set[str]) -> list[str]:
+    """Attach reviewed native-library lists to the packages that bundle them; report stale ones."""
+    used: set[int] = set()
+    for result in results:
+        result["bundled"] = None
+        for index, entry in enumerate(bundled):
+            if entry["ecosystem"] == result["ecosystem"] and entry["package"] == result["name"] \
+                    and version_matches(entry["versions"], result["version"]):
+                result["bundled"] = entry
+                used.add(index)
+                break
+    return [f"bundled {e['ecosystem']}:{e['package']} {e['versions']} matched nothing (review the libraries a new "
+            "version bundles, then update scripts/licenses/bundled.toml)"
+            for i, e in enumerate(bundled) if i not in used and e["ecosystem"] in scanned]
 
 
 def evaluate(packages: list[dict], policy: dict, overrides: list[dict], exceptions: list[dict], scanned: set[str]):
@@ -772,7 +815,8 @@ def evaluate(packages: list[dict], policy: dict, overrides: list[dict], exceptio
         note = ""
         for index, entry in enumerate(overrides):
             if entry["ecosystem"] == package["ecosystem"] and entry["package"] == package["name"] \
-                    and (entry["detected"] or None) == (package["license"] or None):
+                    and (entry["detected"] or None) == (package["license"] or None) \
+                    and version_matches(entry.get("versions"), package["version"]):
                 effective = entry["license"]
                 note = f"license corrected by review: {entry['reason']}"
                 used_overrides.add(index)
@@ -782,7 +826,7 @@ def evaluate(packages: list[dict], policy: dict, overrides: list[dict], exceptio
         if status != "allowed":
             for index, entry in enumerate(exceptions):
                 if entry["ecosystem"] == package["ecosystem"] and entry["package"] == package["name"] \
-                        and entry["license"] == effective:
+                        and entry["license"] == effective and version_matches(entry.get("versions"), package["version"]):
                     excepted = entry
                     used_exceptions.add(index)
                     break
@@ -790,7 +834,7 @@ def evaluate(packages: list[dict], policy: dict, overrides: list[dict], exceptio
                         "exception": excepted, "violation": status != "allowed" and excepted is None})
     stale = [f"override {e['ecosystem']}:{e['package']} (detected {e['detected']!r}) matched nothing"
              for i, e in enumerate(overrides) if i not in used_overrides and e["ecosystem"] in scanned]
-    stale += [f"exception {e['ecosystem']}:{e['package']} ({e['license']}) matched nothing"
+    stale += [f"exception {e['ecosystem']}:{e['package']} {e.get('versions') or ''} ({e['license']}) matched nothing"
               for i, e in enumerate(exceptions) if i not in used_exceptions and e["ecosystem"] in scanned]
     return results, stale
 
@@ -807,44 +851,70 @@ ECOSYSTEM_TITLES = {
 
 
 ACCEPTED_TITLE = "## Components used under a reviewed license exception"
+BUNDLED_TITLE = "## Native libraries bundled inside packages"
+BLOCK_SECTIONS = (ACCEPTED_TITLE, BUNDLED_TITLE)
 
 
-def kept_sections(previous: str, missing: set[str]) -> tuple[dict[str, list[str]], list[list[str]]]:
+def kept_sections(previous: str, missing: set[str]) -> tuple[dict[str, list[str]], dict[str, list[list[str]]]]:
     """Sections of a committed THIRD_PARTY_NOTICES.md for ecosystems this run did not scan.
 
-    Returns the "## <ecosystem>" sections (keyed by ecosystem) and the "### <name> (<ecosystem
-    title>)" entries of the accepted-exceptions section that belong to those ecosystems, each
-    as its lines without trailing blank lines. Used by a local scan that cannot run every
-    package manager (docs/licenses.md#run-it-locally): what it could not scan stays as CI last
-    wrote it.
+    Returns the "## <ecosystem>" sections (keyed by ecosystem) and, for the accepted-exception
+    and bundled-library sections, the "### ... (<ecosystem title>)" entries that belong to those
+    ecosystems, each as its lines without trailing blank lines. Used by a local scan that cannot
+    run every package manager (docs/licenses.md#run-it-locally): what it could not scan stays as
+    CI last wrote it.
     """
     titles = {f"## {ECOSYSTEM_TITLES[e]}": e for e in missing}
-    suffixes = {f"({ECOSYSTEM_TITLES[e]})" for e in missing}
+    suffixes = tuple(f"({ECOSYSTEM_TITLES[e]})" for e in missing)
     sections: dict[str, list[str]] = {}
-    accepted: list[list[str]] = []
+    blocks: dict[str, list[list[str]]] = {title: [] for title in BLOCK_SECTIONS}
     current: list[str] | None = None
-    in_accepted = False
+    block_section: str | None = None
     for line in previous.splitlines():
         if line.startswith("## "):
-            in_accepted = line == ACCEPTED_TITLE
+            block_section = line if line in BLOCK_SECTIONS else None
             ecosystem = titles.get(line)
             current = sections.setdefault(ecosystem, []) if ecosystem else None
-        elif in_accepted and line.startswith("### "):
-            current = [] if line.endswith(tuple(suffixes)) else None
+        elif block_section and line.startswith("### "):
+            current = [] if suffixes and line.endswith(suffixes) else None
             if current is not None:
-                accepted.append(current)
+                blocks[block_section].append(current)
         if current is not None:
             current.append(line)
+
     def trim(block: list[str]) -> list[str]:
         while block and not block[-1].strip():
             block = block[:-1]
         return block
 
-    return {k: trim(v) for k, v in sections.items()}, [trim(b) for b in accepted]
+    return ({k: trim(v) for k, v in sections.items()},
+            {title: [trim(b) for b in found] for title, found in blocks.items()})
+
+
+def bundled_lines(result: dict, apps: set[str]) -> list[str]:
+    entry = result["bundled"]
+    lines = [f"### {escape(result['name'])} {result['version']} ({ECOSYSTEM_TITLES[result['ecosystem']]})", "",
+             f"- Used in: {', '.join(sorted(apps))}",
+             f"- Reviewed: {entry['reviewed_on']}, for versions {', '.join(entry['versions'])}"]
+    if entry.get("note"):
+        lines.append(f"- {entry['note']}")
+    if entry.get("license_texts"):
+        lines.append("- Full license texts: " + ", ".join(f"[`{t}`]({t})" for t in entry["license_texts"]))
+    lines += ["", "| Library | License | Copyright | Source |", "|---|---|---|---|"]
+    for library in entry["libraries"]:
+        lines.append(f"| {escape(library['name'])} | {escape(library['license'])} | {escape(library['copyright'])} | "
+                     f"<{library['source']}> |")
+    required = [library for library in entry["libraries"] if library.get("notice")]
+    if required:
+        lines += ["", "Notices these licenses ask for:", ""]
+        lines += [f"- {library['name']}: {library['notice']}" for library in required]
+    return lines
 
 
 def notices(results: list[dict], previous: str | None = None, missing: set[str] | frozenset = frozenset()) -> str:
-    kept, kept_accepted = kept_sections(previous, set(missing)) if previous and missing else ({}, [])
+    kept, kept_blocks = kept_sections(previous, set(missing)) if previous and missing else ({}, {})
+    kept_accepted = kept_blocks.get(ACCEPTED_TITLE, [])
+    kept_bundled = kept_blocks.get(BUNDLED_TITLE, [])
     lines = [
         "# Third-party notices",
         "",
@@ -898,13 +968,33 @@ def notices(results: list[dict], previous: str | None = None, missing: set[str] 
             result, exception = entry["result"], entry["result"]["exception"]
             lines += [f"### {escape(name)} ({ECOSYSTEM_TITLES[ecosystem]})", "",
                       f"- License: {result['effective']}",
-                      f"- Used in: {', '.join(sorted(entry['apps']))}",
+                      (f"- Used in: {', '.join(sorted(entry['apps']))}" if exception.get("shipped", True) else
+                       f"- Used in: not shipped (build-time only; in the lockfile closure of {', '.join(sorted(entry['apps']))})"),
                       f"- Source: <{exception.get('source_url') or result['source']}>",
                       f"- Why it is accepted: {exception['reason']}"]
+            if exception.get("versions"):
+                lines.append(f"- Approved versions: {', '.join(exception['versions'])} (another version or license is reviewed again)")
             if exception.get("notice"):
                 lines.append(f"- Notice: {exception['notice']}")
             lines.append("")
         for block in kept_accepted:
+            lines += block + [""]
+    # Native libraries that a package carries inside it (for example the shared libraries in a
+    # manylinux wheel), reviewed in scripts/licenses/bundled.toml.
+    carriers: dict[tuple[str, str, str], dict] = {}
+    for result in results:
+        if result.get("bundled"):
+            entry = carriers.setdefault((result["ecosystem"], result["name"], result["version"]),
+                                        {"result": result, "apps": set()})
+            entry["apps"].update(result["apps"])
+    if carriers or kept_bundled:
+        lines += [BUNDLED_TITLE, "",
+                  "These packages ship compiled third-party libraries inside them. Each library is listed",
+                  "with its license, copyright holder and source, followed by the notices its license asks",
+                  "for (scripts/licenses/bundled.toml, docs/licenses.md).", ""]
+        for key in sorted(carriers, key=lambda k: (k[0], k[1].lower(), k[2])):
+            lines += bundled_lines(carriers[key]["result"], carriers[key]["apps"]) + [""]
+        for block in kept_bundled:
             lines += block + [""]
     return "\n".join(lines).rstrip() + "\n"
 
@@ -990,6 +1080,7 @@ def command_report(args: argparse.Namespace) -> int:
         scanned.append(data["ecosystem"])
         packages.extend(data["packages"])
     results, stale = evaluate(packages, policy, overrides, exceptions, set(scanned))
+    stale += attach_bundled(results, load_bundled(), set(scanned))
     text = summary(results, stale, scanned)
     print(text)
     if os.environ.get("GITHUB_STEP_SUMMARY"):

@@ -90,6 +90,72 @@ class EvaluateTest(unittest.TestCase):
         self.assertEqual(len(stale), 1)
 
 
+class VersionPinTest(unittest.TestCase):
+    def test_patterns(self):
+        self.assertTrue(scan.version_matches(["3.3.6"], "3.3.6"))
+        self.assertFalse(scan.version_matches(["3.3.6"], "3.3.7"))
+        self.assertTrue(scan.version_matches(["3.3.*"], "3.3.7"))
+        self.assertFalse(scan.version_matches(["3.3.*"], "3.4.0"))
+        self.assertFalse(scan.version_matches(["3.3.*"], "3.30.0"))
+        self.assertTrue(scan.version_matches(None, "9.9.9"))
+
+    def test_exception_outside_its_versions_is_reviewed_again(self):
+        exceptions = [{"ecosystem": "npm", "package": "lgpl", "versions": ["1.0.*"], "license": "LGPL-3.0-only",
+                       "reason": "x", "reviewed_by": "owner", "reviewed_on": "2026-11-04"}]
+        results, stale = scan.evaluate([package("lgpl", "LGPL-3.0-only")], POLICY, [], exceptions, {"npm"})
+        self.assertFalse(results[0]["violation"])
+        self.assertEqual(stale, [])
+        bumped = {**package("lgpl", "LGPL-3.0-only"), "version": "2.0.0"}
+        results, stale = scan.evaluate([bumped], POLICY, [], exceptions, {"npm"})
+        self.assertTrue(results[0]["violation"])
+        self.assertEqual(len(stale), 1)
+
+
+BUNDLED = [{"ecosystem": "python", "package": "wheel-with-libs", "versions": ["1.0.0"], "reviewed_on": "2026-11-04",
+            "license_texts": ["licenses/third-party/Zlib.txt"],
+            "libraries": [{"name": "zlib", "license": "Zlib", "copyright": "Jean-loup Gailly and Mark Adler",
+                           "source": "https://zlib.net", "notice": "credit zlib"}]}]
+
+
+class AcceptedNoticeTest(unittest.TestCase):
+    def test_build_only_exception_says_it_is_not_shipped(self):
+        exceptions = [{"ecosystem": "npm", "package": "lgpl", "versions": ["1.0.0"], "license": "LGPL-3.0-only",
+                       "reason": "build only", "reviewed_by": "owner", "reviewed_on": "2026-11-04", "shipped": False}]
+        results, _ = scan.evaluate([package("lgpl", "LGPL-3.0-only")], POLICY, [], exceptions, {"npm"})
+        text = scan.notices(results)
+        self.assertIn("- Used in: not shipped (build-time only; in the lockfile closure of web)", text)
+        self.assertIn("- Approved versions: 1.0.0", text)
+
+
+class BundledTest(unittest.TestCase):
+    def test_bundled_libraries_are_listed_with_their_notices(self):
+        results, _ = scan.evaluate([package("wheel-with-libs", "MIT", "python")], POLICY, [], [], {"python"})
+        self.assertEqual(scan.attach_bundled(results, BUNDLED, {"python"}), [])
+        text = scan.notices(results)
+        self.assertIn(scan.BUNDLED_TITLE, text)
+        self.assertIn("### wheel-with-libs 1.0.0 (Python packages (PyPI))", text)
+        self.assertIn("| zlib | Zlib | Jean-loup Gailly and Mark Adler | <https://zlib.net> |", text)
+        self.assertIn("- zlib: credit zlib", text)
+
+    def test_a_new_version_needs_a_new_review(self):
+        bumped = {**package("wheel-with-libs", "MIT", "python"), "version": "1.1.0"}
+        results, _ = scan.evaluate([bumped], POLICY, [], [], {"python"})
+        stale = scan.attach_bundled(results, BUNDLED, {"python"})
+        self.assertEqual(len(stale), 1)
+        self.assertNotIn(scan.BUNDLED_TITLE, scan.notices(results))
+        # Not judged when python was not scanned.
+        self.assertEqual(scan.attach_bundled(results, BUNDLED, {"npm"}), [])
+
+    def test_local_scan_keeps_bundled_entries_of_unscanned_ecosystems(self):
+        results, _ = scan.evaluate([package("wheel-with-libs", "MIT", "python"), package("left-pad", "MIT")],
+                                   POLICY, [], [], {"python", "npm"})
+        scan.attach_bundled(results, BUNDLED, {"python"})
+        committed = scan.notices(results)
+        npm_only, _ = scan.evaluate([package("left-pad", "MIT")], POLICY, [], [], {"npm"})
+        scan.attach_bundled(npm_only, BUNDLED, {"npm"})
+        self.assertEqual(scan.notices(npm_only, committed, {"python", "cargo", "dart", "gradle"}), committed)
+
+
 class DetectTextTest(unittest.TestCase):
     def test_common_texts(self):
         mit = "Permission is hereby granted, free of charge, to any person obtaining\na copy of this software"

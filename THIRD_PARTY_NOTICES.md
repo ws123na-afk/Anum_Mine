@@ -966,3 +966,209 @@ Apps: `api` services/api (FastAPI image), `web` apps/web (browser bundle and web
 | org.jetbrains.kotlinx:kotlinx-serialization-json | Apache-2.0 | android | <https://github.com/Kotlin/kotlinx.serialization> |
 | org.jetbrains.kotlinx:kotlinx-serialization-json-jvm | Apache-2.0 | android | <https://github.com/Kotlin/kotlinx.serialization> |
 | org.jetbrains:annotations | Apache-2.0 | android | <https://github.com/JetBrains/java-annotations> |
+
+## Components used under a reviewed license exception
+
+These components carry a weak copyleft license. Each was reviewed and accepted for
+the reason given (docs/licenses.md).
+
+### @img/sharp-libvips-darwin-arm64 (JavaScript packages (npm))
+
+- License: LGPL-3.0-or-later
+- Used in: not shipped (build-time only; in the lockfile closure of desktop, web)
+- Source: <https://github.com/lovell/sharp-libvips>
+- Why it is accepted: Build-time only: in the web and desktop lockfile closure through kokoro-js and @huggingface/transformers, but Node-only and never shipped. A production build of apps/web/dist has no sharp or libvips file or module reference, the Tauri bundle ships only that dist and the Rust binary, the web image copies only that dist, and the API and worker images contain no npm packages. scripts/licenses/assert_not_bundled.py fails the web and desktop CI jobs if that ever changes.
+- Approved versions: 1.3.4 (another version or license is reviewed again)
+
+### @img/sharp-libvips-darwin-x64 (JavaScript packages (npm))
+
+- License: LGPL-3.0-or-later
+- Used in: not shipped (build-time only; in the lockfile closure of desktop, web)
+- Source: <https://github.com/lovell/sharp-libvips>
+- Why it is accepted: Build-time only: in the web and desktop lockfile closure through kokoro-js and @huggingface/transformers, but Node-only and never shipped. A production build of apps/web/dist has no sharp or libvips file or module reference, the Tauri bundle ships only that dist and the Rust binary, the web image copies only that dist, and the API and worker images contain no npm packages. scripts/licenses/assert_not_bundled.py fails the web and desktop CI jobs if that ever changes.
+- Approved versions: 1.3.4 (another version or license is reviewed again)
+
+### @img/sharp-libvips-linux-arm (JavaScript packages (npm))
+
+- License: LGPL-3.0-or-later
+- Used in: not shipped (build-time only; in the lockfile closure of desktop, web)
+- Source: <https://github.com/lovell/sharp-libvips>
+- Why it is accepted: Build-time only: in the web and desktop lockfile closure through kokoro-js and @huggingface/transformers, but Node-only and never shipped. A production build of apps/web/dist has no sharp or libvips file or module reference, the Tauri bundle ships only that dist and the Rust binary, the web image copies only that dist, and the API and worker images contain no npm packages. scripts/licenses/assert_not_bundled.py fails the web and desktop CI jobs if that ever changes.
+- Approved versions: 1.3.4 (another version or license is reviewed again)
+
+### @img/sharp-libvips-linux-arm64 (JavaScript packages (npm))
+
+- License: LGPL-3.0-or-later
+- Used in: not shipped (build-time only; in the lockfile closure of desktop, web)
+- Source: <https://github.com/lovell/sharp-libvips>
+- Why it is accepted: Build-time only: in the web and desktop lockfile closure through kokoro-js and @huggingface/transformers, but Node-only and never shipped. A production build of apps/web/dist has no sharp or libvips file or module reference, the Tauri bundle ships only that dist and the Rust binary, the web image copies only that dist, and the API and worker images contain no npm packages. scripts/licenses/assert_not_bundled.py fails the web and desktop CI jobs if that ever changes.
+- Approved versions: 1.3.4 (another version or license is reviewed again)
+
+### @img/sharp-libvips-linux-ppc64 (JavaScript packages (npm))
+
+- License: LGPL-3.0-or-later
+- Used in: not shipped (build-time only; in the lockfile closure of desktop, web)
+- Source: <https://github.com/lovell/sharp-libvips>
+- Why it is accepted: Build-time only: in the web and desktop lockfile closure through kokoro-js and @huggingface/transformers, but Node-only and never shipped. A production build of apps/web/dist has no sharp or libvips file or module reference, the Tauri bundle ships only that dist and the Rust binary, the web image copies only that dist, and the API and worker images contain no npm packages. scripts/licenses/assert_not_bundled.py fails the web and desktop CI jobs if that ever changes.
+- Approved versions: 1.3.4 (another version or license is reviewed again)
+
+### @img/sharp-libvips-linux-riscv64 (JavaScript packages (npm))
+
+- License: LGPL-3.0-or-later
+- Used in: not shipped (build-time only; in the lockfile closure of desktop, web)
+- Source: <https://github.com/lovell/sharp-libvips>
+- Why it is accepted: Build-time only: in the web and desktop lockfile closure through kokoro-js and @huggingface/transformers, but Node-only and never shipped. A production build of apps/web/dist has no sharp or libvips file or module reference, the Tauri bundle ships only that dist and the Rust binary, the web image copies only that dist, and the API and worker images contain no npm packages. scripts/licenses/assert_not_bundled.py fails the web and desktop CI jobs if that ever changes.
+- Approved versions: 1.3.4 (another version or license is reviewed again)
+
+### @img/sharp-libvips-linux-s390x (JavaScript packages (npm))
+
+- License: LGPL-3.0-or-later
+- Used in: not shipped (build-time only; in the lockfile closure of desktop, web)
+- Source: <https://github.com/lovell/sharp-libvips>
+- Why it is accepted: Build-time only: in the web and desktop lockfile closure through kokoro-js and @huggingface/transformers, but Node-only and never shipped. A production build of apps/web/dist has no sharp or libvips file or module reference, the Tauri bundle ships only that dist and the Rust binary, the web image copies only that dist, and the API and worker images contain no npm packages. scripts/licenses/assert_not_bundled.py fails the web and desktop CI jobs if that ever changes.
+- Approved versions: 1.3.4 (another version or license is reviewed again)
+
+### @img/sharp-libvips-linux-x64 (JavaScript packages (npm))
+
+- License: LGPL-3.0-or-later
+- Used in: not shipped (build-time only; in the lockfile closure of desktop, web)
+- Source: <https://github.com/lovell/sharp-libvips>
+- Why it is accepted: Build-time only: in the web and desktop lockfile closure through kokoro-js and @huggingface/transformers, but Node-only and never shipped. A production build of apps/web/dist has no sharp or libvips file or module reference, the Tauri bundle ships only that dist and the Rust binary, the web image copies only that dist, and the API and worker images contain no npm packages. scripts/licenses/assert_not_bundled.py fails the web and desktop CI jobs if that ever changes.
+- Approved versions: 1.3.4 (another version or license is reviewed again)
+
+### @img/sharp-libvips-linuxmusl-arm64 (JavaScript packages (npm))
+
+- License: LGPL-3.0-or-later
+- Used in: not shipped (build-time only; in the lockfile closure of desktop, web)
+- Source: <https://github.com/lovell/sharp-libvips>
+- Why it is accepted: Build-time only: in the web and desktop lockfile closure through kokoro-js and @huggingface/transformers, but Node-only and never shipped. A production build of apps/web/dist has no sharp or libvips file or module reference, the Tauri bundle ships only that dist and the Rust binary, the web image copies only that dist, and the API and worker images contain no npm packages. scripts/licenses/assert_not_bundled.py fails the web and desktop CI jobs if that ever changes.
+- Approved versions: 1.3.4 (another version or license is reviewed again)
+
+### @img/sharp-libvips-linuxmusl-x64 (JavaScript packages (npm))
+
+- License: LGPL-3.0-or-later
+- Used in: not shipped (build-time only; in the lockfile closure of desktop, web)
+- Source: <https://github.com/lovell/sharp-libvips>
+- Why it is accepted: Build-time only: in the web and desktop lockfile closure through kokoro-js and @huggingface/transformers, but Node-only and never shipped. A production build of apps/web/dist has no sharp or libvips file or module reference, the Tauri bundle ships only that dist and the Rust binary, the web image copies only that dist, and the API and worker images contain no npm packages. scripts/licenses/assert_not_bundled.py fails the web and desktop CI jobs if that ever changes.
+- Approved versions: 1.3.4 (another version or license is reviewed again)
+
+### @img/sharp-wasm32 (JavaScript packages (npm))
+
+- License: Apache-2.0 AND LGPL-3.0-or-later AND MIT
+- Used in: not shipped (build-time only; in the lockfile closure of desktop, web)
+- Source: <https://github.com/lovell/sharp>
+- Why it is accepted: Build-time only: in the web and desktop lockfile closure through kokoro-js and @huggingface/transformers, but Node-only and never shipped. A production build of apps/web/dist has no sharp or libvips file or module reference, the Tauri bundle ships only that dist and the Rust binary, the web image copies only that dist, and the API and worker images contain no npm packages. scripts/licenses/assert_not_bundled.py fails the web and desktop CI jobs if that ever changes.
+- Approved versions: 0.35.5 (another version or license is reviewed again)
+
+### @img/sharp-win32-arm64 (JavaScript packages (npm))
+
+- License: Apache-2.0 AND LGPL-3.0-or-later
+- Used in: not shipped (build-time only; in the lockfile closure of desktop, web)
+- Source: <https://github.com/lovell/sharp>
+- Why it is accepted: Build-time only: in the web and desktop lockfile closure through kokoro-js and @huggingface/transformers, but Node-only and never shipped. A production build of apps/web/dist has no sharp or libvips file or module reference, the Tauri bundle ships only that dist and the Rust binary, the web image copies only that dist, and the API and worker images contain no npm packages. scripts/licenses/assert_not_bundled.py fails the web and desktop CI jobs if that ever changes.
+- Approved versions: 0.35.5 (another version or license is reviewed again)
+
+### @img/sharp-win32-ia32 (JavaScript packages (npm))
+
+- License: Apache-2.0 AND LGPL-3.0-or-later
+- Used in: not shipped (build-time only; in the lockfile closure of desktop, web)
+- Source: <https://github.com/lovell/sharp>
+- Why it is accepted: Build-time only: in the web and desktop lockfile closure through kokoro-js and @huggingface/transformers, but Node-only and never shipped. A production build of apps/web/dist has no sharp or libvips file or module reference, the Tauri bundle ships only that dist and the Rust binary, the web image copies only that dist, and the API and worker images contain no npm packages. scripts/licenses/assert_not_bundled.py fails the web and desktop CI jobs if that ever changes.
+- Approved versions: 0.35.5 (another version or license is reviewed again)
+
+### @img/sharp-win32-x64 (JavaScript packages (npm))
+
+- License: Apache-2.0 AND LGPL-3.0-or-later
+- Used in: not shipped (build-time only; in the lockfile closure of desktop, web)
+- Source: <https://github.com/lovell/sharp>
+- Why it is accepted: Build-time only: in the web and desktop lockfile closure through kokoro-js and @huggingface/transformers, but Node-only and never shipped. A production build of apps/web/dist has no sharp or libvips file or module reference, the Tauri bundle ships only that dist and the Rust binary, the web image copies only that dist, and the API and worker images contain no npm packages. scripts/licenses/assert_not_bundled.py fails the web and desktop CI jobs if that ever changes.
+- Approved versions: 0.35.5 (another version or license is reviewed again)
+
+### psycopg (Python packages (PyPI))
+
+- License: LGPL-3.0-only
+- Used in: api
+- Source: <https://github.com/psycopg/psycopg/tree/3.3.6>
+- Why it is accepted: PostgreSQL driver, used unmodified as a separate Python package that loads at run time and can be replaced; ANUM's code is not linked into it. Its LICENSE ships inside the package and in licenses/third-party/.
+- Approved versions: 3.3.6 (another version or license is reviewed again)
+- Notice: psycopg is licensed under the GNU Lesser General Public License version 3 (licenses/third-party/psycopg-3.3.6-LICENSE.txt with licenses/third-party/GPL-3.0-only.txt). Its source is at the URL above.
+
+### psycopg-binary (Python packages (PyPI))
+
+- License: LGPL-3.0-only
+- Used in: api
+- Source: <https://github.com/psycopg/psycopg/tree/3.3.6/psycopg_c>
+- Why it is accepted: Prebuilt C extension of psycopg, used unmodified as a separate shared library that can be replaced (for example by building psycopg[c]). It bundles libpq, OpenSSL and other native libraries, listed with their licenses and notices in scripts/licenses/bundled.toml.
+- Approved versions: 3.3.6 (another version or license is reviewed again)
+- Notice: psycopg-binary is licensed under the GNU Lesser General Public License version 3 (licenses/third-party/psycopg-3.3.6-LICENSE.txt with licenses/third-party/GPL-3.0-only.txt). Its source is at the URL above; the libraries it bundles are listed under Native libraries bundled inside packages.
+
+## Native libraries bundled inside packages
+
+These packages ship compiled third-party libraries inside them. Each library is listed
+with its license, copyright holder and source, followed by the notices its license asks
+for (scripts/licenses/bundled.toml, docs/licenses.md).
+
+### pillow 13.0.0 (Python packages (PyPI))
+
+- Used in: api
+- Reviewed: 2026-11-04, for versions 13.0.0
+- Read from the 13.0.0 wheels for CPython 3.13 on manylinux_2_28 x86_64 and aarch64 (`pillow.libs/` and the extension modules). Both wheels carry the same LICENSE file, copied verbatim; it holds the full text and copyright notice of every library below. Pillow itself is MIT-CMU. Used unmodified.
+- Full license texts: [`licenses/third-party/pillow-13.0.0-LICENSE.txt`](licenses/third-party/pillow-13.0.0-LICENSE.txt), [`licenses/third-party/FTL.txt`](licenses/third-party/FTL.txt)
+
+| Library | License | Copyright | Source |
+|---|---|---|---|
+| AOM (in libavif) | BSD-2-Clause | Alliance for Open Media | <https://aomedia.googlesource.com/aom> |
+| Brotli (libbrotlicommon, libbrotlidec) | MIT | The Brotli Authors | <https://github.com/google/brotli> |
+| bzip2 | bzip2-1.0.6 | Julian R Seward | <https://sourceware.org/bzip2/> |
+| dav1d (in libavif) | BSD-2-Clause | VideoLAN and dav1d authors | <https://code.videolan.org/videolan/dav1d> |
+| FreeType 2.14.3 (libfreetype.so.6) | FTL | The FreeType Project (David Turner, Robert Wilhelm, Werner Lemberg) | <https://freetype.org/download.html> |
+| HarfBuzz (libharfbuzz.so.0) | MIT-Modern-Variant | Google, Inc., Red Hat, Inc., Behdad Esfahbod and the other HarfBuzz authors | <https://github.com/harfbuzz/harfbuzz> |
+| Little CMS 2.19 (liblcms2.so.2) | MIT | Marti Maria Saguer | <https://www.littlecms.com/> |
+| libavif | BSD-2-Clause | Joe Drago and the libavif authors | <https://github.com/AOMediaCodec/libavif> |
+| libjpeg-turbo (libjpeg.so.62) | IJG | Thomas G. Lane, Guido Vollbeding and the libjpeg-turbo authors | <https://libjpeg-turbo.org/> |
+| liblzma (XZ Utils) | LicenseRef-public-domain | Lasse Collin and the XZ Utils contributors (public domain, as Pillow's LICENSE states) | <https://tukaani.org/xz/> |
+| libpng (libpng16.so.16) | libpng-2.0 | The PNG Reference Library Authors; Cosmin Truta; Glenn Randers-Pehrson; Andreas Dilger; Guy Eric Schalnat, Group 42, Inc. | <http://www.libpng.org/pub/png/libpng.html> |
+| LibTIFF 4.7.2 (libtiff.so.6) | libtiff | Sam Leffler; Silicon Graphics, Inc. | <https://libtiff.gitlab.io/libtiff/> |
+| libwebp 1.6.0 (libwebp, libwebpdemux, libwebpmux, libsharpyuv) | BSD-3-Clause | Google Inc. | <https://chromium.googlesource.com/webm/libwebp> |
+| libyuv | BSD-3-Clause | The LibYuv Project Authors | <https://chromium.googlesource.com/libyuv/libyuv> |
+| OpenJPEG (libopenjp2.so.7) | BSD-2-Clause | Universite catholique de Louvain (UCL), Belgium, and the OpenJPEG authors | <https://www.openjpeg.org/> |
+| raqm 0.11.0 | MIT | Information Technology Authority (ITA); Khaled Hosny | <https://github.com/HOST-Oman/libraqm> |
+| Tcl/Tk (stub headers in _imagingtk) | TCL | The Regents of the University of California, Sun Microsystems, Inc., Scriptics Corporation and other parties | <https://www.tcl-lang.org/> |
+| libXau, libXdmcp | MIT-open-group | The Open Group | <https://gitlab.freedesktop.org/xorg/lib> |
+| libxcb (libxcb.so.1) | X11 | Bart Massey, Jamey Sharp and Josh Triplett | <https://xcb.freedesktop.org/> |
+| zlib | Zlib | Jean-loup Gailly and Mark Adler | <https://zlib.net/> |
+| Zstandard (libzstd.so.1) | BSD-3-Clause | Meta Platforms, Inc. and affiliates | <https://github.com/facebook/zstd> |
+
+Notices these licenses ask for:
+
+- FreeType 2.14.3 (libfreetype.so.6): Used under the FreeType License (chosen from FTL OR GPL-2.0-or-later). Portions of this software are copyright © The FreeType Project (www.freetype.org), FreeType 2.14.3. All rights reserved.
+- libjpeg-turbo (libjpeg.so.62): This software is based in part on the work of the Independent JPEG Group.
+- Zstandard (libzstd.so.1): Used under BSD-3-Clause (chosen from BSD-3-Clause OR GPL-2.0-only).
+
+### psycopg-binary 3.3.6 (Python packages (PyPI))
+
+- Used in: api
+- Reviewed: 2026-11-04, for versions 3.3.6
+- Read from the 3.3.6 wheels for CPython 3.13 on manylinux2014 x86_64 and manylinux_2_28 aarch64 (`psycopg_binary.libs/`). The libraries come from the manylinux build images: CentOS 7 packages on x86_64 and AlmaLinux 8 packages on aarch64; their exact source is those distributions' source packages. psycopg itself is LGPL-3.0-only (accepted in scripts/licenses/exceptions.toml). Used unmodified.
+- Full license texts: [`licenses/third-party/psycopg-3.3.6-LICENSE.txt`](licenses/third-party/psycopg-3.3.6-LICENSE.txt), [`licenses/third-party/GPL-3.0-only.txt`](licenses/third-party/GPL-3.0-only.txt), [`licenses/third-party/LGPL-2.1-or-later.txt`](licenses/third-party/LGPL-2.1-or-later.txt), [`licenses/third-party/PostgreSQL.txt`](licenses/third-party/PostgreSQL.txt), [`licenses/third-party/Apache-2.0.txt`](licenses/third-party/Apache-2.0.txt), [`licenses/third-party/OpenSSL.txt`](licenses/third-party/OpenSSL.txt), [`licenses/third-party/OLDAP-2.8.txt`](licenses/third-party/OLDAP-2.8.txt), [`licenses/third-party/BSD-Attribution-HPND-disclaimer.txt`](licenses/third-party/BSD-Attribution-HPND-disclaimer.txt), [`licenses/third-party/MIT.txt`](licenses/third-party/MIT.txt), [`licenses/third-party/BSD-3-Clause.txt`](licenses/third-party/BSD-3-Clause.txt)
+
+| Library | License | Copyright | Source |
+|---|---|---|---|
+| libpq 18 (libpq.so.5.18) | PostgreSQL | PostgreSQL Global Development Group; The Regents of the University of California | <https://www.postgresql.org/ftp/source/> |
+| OpenSSL 3 (libssl.so.3, libcrypto.so.3) | Apache-2.0 | The OpenSSL Project Authors | <https://www.openssl.org/source/> |
+| OpenSSL 1.1.1k (libcrypto.so.1.1.1k, aarch64 wheel only) | OpenSSL | The OpenSSL Project; Eric Young | <https://www.openssl.org/source/old/1.1.1/> |
+| MIT Kerberos (libkrb5, libgssapi_krb5, libk5crypto, libkrb5support) | MIT | Massachusetts Institute of Technology and other contributors | <https://web.mit.edu/kerberos/> |
+| com_err (libcom_err.so.2) | MIT | Massachusetts Institute of Technology | <https://e2fsprogs.sourceforge.net/> |
+| libcrypt (glibc libcrypt.so.1 on x86_64, libxcrypt libcrypt.so.1.1.0 on aarch64) | LGPL-2.1-or-later | Free Software Foundation, Inc. and the libxcrypt contributors | <https://github.com/besser82/libxcrypt> |
+| keyutils (libkeyutils.so.1) | LGPL-2.1-or-later | Red Hat, Inc. | <https://people.redhat.com/~dhowells/keyutils/> |
+| OpenLDAP (libldap, liblber) | OLDAP-2.8 | The OpenLDAP Foundation | <https://www.openldap.org/software/download/> |
+| Cyrus SASL (libsasl2.so.3) | BSD-Attribution-HPND-disclaimer | Carnegie Mellon University | <https://www.cyrusimap.org/sasl/> |
+| PCRE (libpcre.so.1 on x86_64, libpcre2-8.so.0 on aarch64) | BSD-3-Clause | University of Cambridge | <https://www.pcre.org/> |
+| libselinux (libselinux.so.1) | LicenseRef-public-domain | National Security Agency (public domain) | <https://github.com/SELinuxProject/selinux> |
+
+Notices these licenses ask for:
+
+- OpenSSL 1.1.1k (libcrypto.so.1.1.1k, aarch64 wheel only): This product includes software developed by the OpenSSL Project for use in the OpenSSL Toolkit (http://www.openssl.org/). This product includes cryptographic software written by Eric Young (eay@cryptsoft.com).
+- libcrypt (glibc libcrypt.so.1 on x86_64, libxcrypt libcrypt.so.1.1.0 on aarch64): Weak copyleft (LGPL-2.1-or-later), used unmodified as a separate shared library that can be replaced. If the API image is ever distributed, ship this notice with the LGPL text and provide the library's corresponding source (or a written offer for it).
+- keyutils (libkeyutils.so.1): Weak copyleft (LGPL-2.1-or-later), used unmodified as a separate shared library that can be replaced. If the API image is ever distributed, ship this notice with the LGPL text and provide the library's corresponding source (or a written offer for it).
+- Cyrus SASL (libsasl2.so.3): This product includes software developed by Computing Services at Carnegie Mellon University (http://www.cmu.edu/computing/).

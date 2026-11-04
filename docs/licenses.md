@@ -37,9 +37,17 @@ A license id in none of the lists, or a package with no detectable license, is *
 [`scripts/licenses/exceptions.toml`](../scripts/licenses/exceptions.toml) holds two kinds of reviewed entry:
 
 - `[[override]]` corrects a license the scan detected wrongly or not at all, after someone read the package's real license. It needs the detected value, the corrected SPDX expression, a link to the license text at a fixed revision and a reason. The corrected license is still checked against the policy, so an override can never accept a copyleft license.
-- `[[exception]]` accepts a package whose license is in review, denied or unknown. Only the owner adds these, with a reason, `reviewed_by` and `reviewed_on`. The license must equal what the scan reports, so a license change upstream makes the exception stale.
+- `[[exception]]` accepts a package whose license is in review, denied or unknown. Only the owner adds these, with a reason, `reviewed_by`, `reviewed_on` and the approved `versions` (exact, or a `1.2.*` prefix). The license and version must match what the scan reports, so a new version or a license change upstream makes the package a violation again until it is reviewed. `source_url` and `notice` are printed in `THIRD_PARTY_NOTICES.md`; `shipped = false` marks a package that is in a lockfile closure but proven never to ship.
 
 Both are matched exactly. An entry that no longer matches anything fails the scan, so the file never accumulates forgotten approvals.
+
+## Native libraries inside packages
+
+Package metadata gives one license per package, but a prebuilt package can carry compiled libraries from other projects (a manylinux wheel's `<name>.libs/` folder, for example). [`scripts/licenses/bundled.toml`](../scripts/licenses/bundled.toml) lists them per package and exact version, after someone opened the package and read its license files: each library's name, license, copyright holder, source and any notice its license asks for. The scan prints them in `THIRD_PARTY_NOTICES.md` under "Native libraries bundled inside packages". A new version of the package makes its entry stale and fails the scan, so the libraries are reviewed again.
+
+Full license texts are in [`licenses/third-party/`](../licenses/third-party/): the package's own license files copied verbatim from the wheel (Pillow's LICENSE holds every bundled library's text and copyright notice; psycopg's is the LGPL-3.0 text) and the standard texts of the other licenses named, from the SPDX license list (npm `spdx-license-list` 6.12.0). Never edit them; never modify third-party source.
+
+Which packages carry native libraries is found by hand today (open the wheel and look for `.libs/` and license files); the scan does not detect it. Reviewed so far: `psycopg-binary` and `pillow`.
 
 ## Run it locally
 
@@ -80,36 +88,26 @@ The notices list component names, licenses, the apps that ship them and a source
 
 Scan of 4 November 2026 on `main` (`1e934b0`), run locally with `regenerate.sh --available` (pip 26.3, Flutter 3.47.9, cargo). Package counts include every locked version.
 
-| Ecosystem | Packages | Allowed | Violations | Scanned |
-|---|---|---|---|---|
-| Python (`api`) | 71 | 69 | 2 | 4 November |
-| npm (`web`, `desktop`) | 176 | 162 | 14 | 4 November |
-| Rust (`desktop`) | 532 | 532 | 0 | 4 November |
-| Dart (`mobile`) | 103 | 103 | 0 | 4 November |
-| Maven (`android`) | 98 | 98 | 0 | 18 October (Google Maven is not reachable from the machine that ran the 4 November scan; `apps/android` declares the same dependencies as on 18 October; CI's full scan re-checks it) |
+| Ecosystem | Packages | Allowed | Accepted by exception | Violations | Scanned |
+|---|---|---|---|---|---|
+| Python (`api`) | 71 | 69 | 2 | 0 | 4 November |
+| npm (`web`, `desktop`) | 176 | 162 | 14 | 0 | 4 November |
+| Rust (`desktop`) | 532 | 532 | 0 | 0 | 4 November |
+| Dart (`mobile`) | 103 | 103 | 0 | 0 | 4 November |
+| Maven (`android`) | 98 | 98 | 0 | 0 | 18 October (Google Maven is not reachable from the machine that ran the 4 November scan; `apps/android` declares the same dependencies as on 18 October; CI's full scan re-checks it) |
 
-No GPL, AGPL, SSPL, BUSL or unknown license is shipped. Both findings are weak copyleft (LGPL) and are **owner decisions**; none has been exempted, so `pnpm licenses:check` and the CI job fail until the owner decides:
+No GPL, AGPL, SSPL, BUSL or unknown license is shipped. `pnpm licenses:check` passes.
 
-1. **`psycopg` and `psycopg-binary` 3.3.6 (API), LGPL-3.0-only.** The PostgreSQL driver, used unmodified as a separately installed Python package. While ANUM is only offered as a hosted service nothing is distributed, so the LGPL's conditions do not apply; if the API image is ever given to a customer, the license text must ship with it (it does, inside the package) and the customer must be able to replace the library (pip packages can be). Options: accept with an exception, or move to a permissively licensed driver (asyncpg, Apache-2.0), a large change to the database layer.
-2. **`@img/sharp-libvips-*` 1.3.4 and `@img/sharp-win32-*`, `@img/sharp-wasm32` 0.35.5 (web, desktop), LGPL-3.0-or-later.** Prebuilt libvips binaries for the `sharp` image library, pulled in by `kokoro-js` (in-browser voice) through `@huggingface/transformers`. `sharp` is a Node.js library and the browser build of transformers.js does not use it. Checked again on 4 November 2026: a production build of `apps/web/dist` (311 files) contains no sharp or libvips file, native addon or module reference, and the Tauri bundle config ships only that build and the Rust binary (no `resources`, no `externalBin`); `scripts/licenses/assert_not_bundled.py` fails the "Web and contracts" and "Tauri desktop" jobs if either ever appears, and the web image copies the same `dist`. Options: accept with an exception that cites this assertion, or stop resolving `sharp` for the web app (for example a pnpm override), which needs a check that voice still works.
+### Owner decision, 4 November 2026
 
-Reviewed, not exceptions:
+The owner approved psycopg, sharp/libvips and Pillow for their installed versions and licenses. Each approval is pinned to the exact version and license id, so a change is reviewed again.
 
-- `python-dateutil` declares only "Dual License"; its `LICENSE` at the 2.9.0.post0 tag is Apache-2.0 for newer contributions and BSD-3-Clause for all code, recorded as an override (18 October).
-- `defusedxml` 0.7.1 (new since 18 October, API) declares "PSFL"; the `LICENSE` in its wheel is the Python Software Foundation License Version 2, recorded as an override to `PSF-2.0` (4 November).
-- `CDLA-Permissive-2.0` (the Mozilla CA root list in the `webpki-root-certs` crate) is in the allowed list as a permissive data license (18 October).
-- `MIT-CMU` was added to the allowed list on 4 November for `pillow` 13.0.0 (new since 18 October, API): an HPND-style permissive license that asks only that the copyright and permission notice stay in copies and that the authors' names are not used for endorsement. **Owner: please confirm this policy addition.** Pillow's manylinux wheel also bundles native libraries (libjpeg, libpng, libtiff, libwebp, FreeType, HarfBuzz, lcms2, OpenJPEG, libavif, dav1d, aom, brotli, zstd, liblzma, libxcb), each under its own permissive license listed in the wheel's `LICENSE`; FreeType is used under the FreeType License, which asks for a credit in the product's documentation if the API image is ever distributed. Native libraries inside Python wheels (also `psycopg-binary`'s bundled libpq and OpenSSL) are not scanned separately yet.
+1. **`psycopg` and `psycopg-binary` 3.3.6 (API), LGPL-3.0-only: kept.** The PostgreSQL driver, used unmodified as a separate Python package that can be replaced; ANUM's code is not linked into it. Recorded as exceptions with the LGPL text in `licenses/third-party/`. `psycopg-binary` bundles native libraries, read from its x86_64 and aarch64 wheels and listed in `bundled.toml`: libpq 18 (PostgreSQL), OpenSSL 3 (Apache-2.0), OpenSSL 1.1.1k on aarch64 only (OpenSSL license, which asks for the OpenSSL and Eric Young credits now in the notices), MIT Kerberos and com_err (MIT), OpenLDAP (OLDAP-2.8), Cyrus SASL (asks for the Carnegie Mellon credit, in the notices), PCRE (BSD-3-Clause), libselinux (public domain), and two more weak-copyleft libraries: **libcrypt** (glibc on x86_64, libxcrypt on aarch64) and **keyutils**, both LGPL-2.1-or-later. While ANUM is only hosted nothing is distributed; if the API image is ever given to a customer, ship `THIRD_PARTY_NOTICES.md` and `licenses/third-party/` with it and provide the corresponding source of the LGPL libraries (psycopg's is linked in the notices; libcrypt and keyutils come from the manylinux build images' distribution packages, CentOS 7 on x86_64 and AlmaLinux 8 on aarch64). Building `psycopg[c]` against the image's own libpq instead of the binary wheel would remove the bundled copies.
+2. **`@img/sharp-libvips-*` 1.3.4 and `@img/sharp-win32-*`, `@img/sharp-wasm32` 0.35.5, LGPL-3.0-or-later: build-time only, not shipped.** They are in the web and desktop lockfile closure through `kokoro-js` and `@huggingface/transformers`, and are Node-only. Checked on 4 November 2026: a production build of `apps/web/dist` (311 files) has no sharp or libvips file, native addon or module reference; the Tauri bundle config ships only that build and the Rust binary (no `resources`, no `externalBin`); the web image's runtime stage copies only that `dist` (dependencies are installed with `--ignore-scripts` in the build stage); the API and worker images (`services/api/Dockerfile`, also used for the worker and the browser variant) install Python packages only. `scripts/licenses/assert_not_bundled.py` fails the "Web and contracts" and "Tauri desktop" jobs if that ever changes. Recorded as exceptions with `shipped = false`; no LGPL notice or source offer is needed while they do not ship.
+3. **`pillow` 13.0.0 (API), MIT-CMU: kept, and `MIT-CMU` confirmed in the allowed list.** Its wheel bundles AOM, Brotli, bzip2, dav1d, FreeType 2.14.3, HarfBuzz, Little CMS, libavif, libjpeg-turbo, liblzma, libpng, LibTIFF, libwebp, libyuv, OpenJPEG, raqm, Tcl/Tk stub headers, libXau, libXdmcp, libxcb, zlib and Zstandard, all permissive; their copyright lines and licenses are in the notices and their full texts in Pillow's LICENSE (copied verbatim). FreeType is used under the FreeType License, whose credit line is in the notices; libjpeg-turbo carries the Independent JPEG Group credit.
+
+Other reviewed items: `python-dateutil` declares only "Dual License"; its `LICENSE` at the 2.9.0.post0 tag is Apache-2.0 for newer contributions and BSD-3-Clause for all code (override, 18 October). `defusedxml` 0.7.1 declares "PSFL"; its wheel's `LICENSE` is the Python Software Foundation License Version 2 (override to `PSF-2.0`, 4 November). `CDLA-Permissive-2.0` (the Mozilla CA root list in `webpki-root-certs`) is in the allowed list as a permissive data license (18 October).
 
 Other changes since 18 October, all permissive: Python `charset-normalizer`, `dnspython`, `pypdf`, `requests`; npm `three`, `web-vitals`; Rust `static_vcruntime`; Dart: `file_picker` 13 is split into `android_file_picker`, `file_picker_*` and `windows_file_picker` (MIT), plus `ffi_leak_tracker` (BSD-3-Clause).
 
-Exceptions may also carry `source_url` and `notice`; both are printed in a dedicated section of `THIRD_PARTY_NOTICES.md` (for LGPL: the license name and where the source is offered). To accept a finding, the owner adds entries like this to `scripts/licenses/exceptions.toml` (one per package name, so `psycopg-binary` and each `@img/sharp-*` package need their own) and the check turns green:
-
-```toml
-[[exception]]
-ecosystem = "python"
-package = "psycopg"
-license = "LGPL-3.0-only"
-reason = "PostgreSQL driver used unmodified as a separate, replaceable Python package; license text ships in the package."
-reviewed_by = "owner"
-reviewed_on = "2026-11-04"
-```
+Not covered by this scan: the backup image (`infra/backup/Dockerfile`) installs its own `psycopg[binary]` 3.2.3, which bundles the same kind of native libraries; native libraries inside other Python wheels are not detected automatically (see above).

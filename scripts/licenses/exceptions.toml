@@ -21,12 +21,15 @@
 #   [[exception]]
 #   ecosystem = "python"
 #   package = "example-package"
+#   versions = ["1.2.3"]            # approved versions: exact, or a "1.2.*" prefix; another
+#                                   # version is a violation again until reviewed
 #   license = "LGPL-3.0-only"       # must equal the license the scan reports for it
 #   reason = "Imported unmodified as a separate library; users can replace it; notice shipped."
 #   reviewed_by = "owner name"
 #   reviewed_on = "2026-10-18"
 #   source_url = "https://..."      # optional: where the source is offered (shown in the notices)
 #   notice = "Licensed under ..."   # optional: notice text the license asks for (shown in the notices)
+#   shipped = false                 # optional: in a lockfile closure but proven never to ship
 
 [[override]]
 ecosystem = "python"
@@ -43,3 +46,168 @@ detected = "PSFL"
 license = "PSF-2.0"
 evidence = "https://github.com/tiran/defusedxml/blob/v0.7.1/LICENSE"
 reason = "Metadata says 'PSFL' with the classifier 'Python Software Foundation License'; the LICENSE in the 0.7.1 wheel is the Python Software Foundation License Version 2."
+
+# Owner decision, 4 November 2026: psycopg is approved for its installed version and license.
+[[exception]]
+ecosystem = "python"
+package = "psycopg"
+versions = ["3.3.6"]
+license = "LGPL-3.0-only"
+reason = "PostgreSQL driver, used unmodified as a separate Python package that loads at run time and can be replaced; ANUM's code is not linked into it. Its LICENSE ships inside the package and in licenses/third-party/."
+reviewed_by = "owner"
+reviewed_on = "2026-11-04"
+source_url = "https://github.com/psycopg/psycopg/tree/3.3.6"
+notice = "psycopg is licensed under the GNU Lesser General Public License version 3 (licenses/third-party/psycopg-3.3.6-LICENSE.txt with licenses/third-party/GPL-3.0-only.txt). Its source is at the URL above."
+
+[[exception]]
+ecosystem = "python"
+package = "psycopg-binary"
+versions = ["3.3.6"]
+license = "LGPL-3.0-only"
+reason = "Prebuilt C extension of psycopg, used unmodified as a separate shared library that can be replaced (for example by building psycopg[c]). It bundles libpq, OpenSSL and other native libraries, listed with their licenses and notices in scripts/licenses/bundled.toml."
+reviewed_by = "owner"
+reviewed_on = "2026-11-04"
+source_url = "https://github.com/psycopg/psycopg/tree/3.3.6/psycopg_c"
+notice = "psycopg-binary is licensed under the GNU Lesser General Public License version 3 (licenses/third-party/psycopg-3.3.6-LICENSE.txt with licenses/third-party/GPL-3.0-only.txt). Its source is at the URL above; the libraries it bundles are listed under Native libraries bundled inside packages."
+
+# Owner decision, 4 November 2026: sharp and libvips are approved as build-time only (not shipped).
+
+[[exception]]
+ecosystem = "npm"
+package = "@img/sharp-libvips-darwin-arm64"
+versions = ["1.3.4"]
+license = "LGPL-3.0-or-later"
+reason = "Build-time only: in the web and desktop lockfile closure through kokoro-js and @huggingface/transformers, but Node-only and never shipped. A production build of apps/web/dist has no sharp or libvips file or module reference, the Tauri bundle ships only that dist and the Rust binary, the web image copies only that dist, and the API and worker images contain no npm packages. scripts/licenses/assert_not_bundled.py fails the web and desktop CI jobs if that ever changes."
+reviewed_by = "owner"
+reviewed_on = "2026-11-04"
+shipped = false
+
+[[exception]]
+ecosystem = "npm"
+package = "@img/sharp-libvips-darwin-x64"
+versions = ["1.3.4"]
+license = "LGPL-3.0-or-later"
+reason = "Build-time only: in the web and desktop lockfile closure through kokoro-js and @huggingface/transformers, but Node-only and never shipped. A production build of apps/web/dist has no sharp or libvips file or module reference, the Tauri bundle ships only that dist and the Rust binary, the web image copies only that dist, and the API and worker images contain no npm packages. scripts/licenses/assert_not_bundled.py fails the web and desktop CI jobs if that ever changes."
+reviewed_by = "owner"
+reviewed_on = "2026-11-04"
+shipped = false
+
+[[exception]]
+ecosystem = "npm"
+package = "@img/sharp-libvips-linux-arm"
+versions = ["1.3.4"]
+license = "LGPL-3.0-or-later"
+reason = "Build-time only: in the web and desktop lockfile closure through kokoro-js and @huggingface/transformers, but Node-only and never shipped. A production build of apps/web/dist has no sharp or libvips file or module reference, the Tauri bundle ships only that dist and the Rust binary, the web image copies only that dist, and the API and worker images contain no npm packages. scripts/licenses/assert_not_bundled.py fails the web and desktop CI jobs if that ever changes."
+reviewed_by = "owner"
+reviewed_on = "2026-11-04"
+shipped = false
+
+[[exception]]
+ecosystem = "npm"
+package = "@img/sharp-libvips-linux-arm64"
+versions = ["1.3.4"]
+license = "LGPL-3.0-or-later"
+reason = "Build-time only: in the web and desktop lockfile closure through kokoro-js and @huggingface/transformers, but Node-only and never shipped. A production build of apps/web/dist has no sharp or libvips file or module reference, the Tauri bundle ships only that dist and the Rust binary, the web image copies only that dist, and the API and worker images contain no npm packages. scripts/licenses/assert_not_bundled.py fails the web and desktop CI jobs if that ever changes."
+reviewed_by = "owner"
+reviewed_on = "2026-11-04"
+shipped = false
+
+[[exception]]
+ecosystem = "npm"
+package = "@img/sharp-libvips-linux-ppc64"
+versions = ["1.3.4"]
+license = "LGPL-3.0-or-later"
+reason = "Build-time only: in the web and desktop lockfile closure through kokoro-js and @huggingface/transformers, but Node-only and never shipped. A production build of apps/web/dist has no sharp or libvips file or module reference, the Tauri bundle ships only that dist and the Rust binary, the web image copies only that dist, and the API and worker images contain no npm packages. scripts/licenses/assert_not_bundled.py fails the web and desktop CI jobs if that ever changes."
+reviewed_by = "owner"
+reviewed_on = "2026-11-04"
+shipped = false
+
+[[exception]]
+ecosystem = "npm"
+package = "@img/sharp-libvips-linux-riscv64"
+versions = ["1.3.4"]
+license = "LGPL-3.0-or-later"
+reason = "Build-time only: in the web and desktop lockfile closure through kokoro-js and @huggingface/transformers, but Node-only and never shipped. A production build of apps/web/dist has no sharp or libvips file or module reference, the Tauri bundle ships only that dist and the Rust binary, the web image copies only that dist, and the API and worker images contain no npm packages. scripts/licenses/assert_not_bundled.py fails the web and desktop CI jobs if that ever changes."
+reviewed_by = "owner"
+reviewed_on = "2026-11-04"
+shipped = false
+
+[[exception]]
+ecosystem = "npm"
+package = "@img/sharp-libvips-linux-s390x"
+versions = ["1.3.4"]
+license = "LGPL-3.0-or-later"
+reason = "Build-time only: in the web and desktop lockfile closure through kokoro-js and @huggingface/transformers, but Node-only and never shipped. A production build of apps/web/dist has no sharp or libvips file or module reference, the Tauri bundle ships only that dist and the Rust binary, the web image copies only that dist, and the API and worker images contain no npm packages. scripts/licenses/assert_not_bundled.py fails the web and desktop CI jobs if that ever changes."
+reviewed_by = "owner"
+reviewed_on = "2026-11-04"
+shipped = false
+
+[[exception]]
+ecosystem = "npm"
+package = "@img/sharp-libvips-linux-x64"
+versions = ["1.3.4"]
+license = "LGPL-3.0-or-later"
+reason = "Build-time only: in the web and desktop lockfile closure through kokoro-js and @huggingface/transformers, but Node-only and never shipped. A production build of apps/web/dist has no sharp or libvips file or module reference, the Tauri bundle ships only that dist and the Rust binary, the web image copies only that dist, and the API and worker images contain no npm packages. scripts/licenses/assert_not_bundled.py fails the web and desktop CI jobs if that ever changes."
+reviewed_by = "owner"
+reviewed_on = "2026-11-04"
+shipped = false
+
+[[exception]]
+ecosystem = "npm"
+package = "@img/sharp-libvips-linuxmusl-arm64"
+versions = ["1.3.4"]
+license = "LGPL-3.0-or-later"
+reason = "Build-time only: in the web and desktop lockfile closure through kokoro-js and @huggingface/transformers, but Node-only and never shipped. A production build of apps/web/dist has no sharp or libvips file or module reference, the Tauri bundle ships only that dist and the Rust binary, the web image copies only that dist, and the API and worker images contain no npm packages. scripts/licenses/assert_not_bundled.py fails the web and desktop CI jobs if that ever changes."
+reviewed_by = "owner"
+reviewed_on = "2026-11-04"
+shipped = false
+
+[[exception]]
+ecosystem = "npm"
+package = "@img/sharp-libvips-linuxmusl-x64"
+versions = ["1.3.4"]
+license = "LGPL-3.0-or-later"
+reason = "Build-time only: in the web and desktop lockfile closure through kokoro-js and @huggingface/transformers, but Node-only and never shipped. A production build of apps/web/dist has no sharp or libvips file or module reference, the Tauri bundle ships only that dist and the Rust binary, the web image copies only that dist, and the API and worker images contain no npm packages. scripts/licenses/assert_not_bundled.py fails the web and desktop CI jobs if that ever changes."
+reviewed_by = "owner"
+reviewed_on = "2026-11-04"
+shipped = false
+
+[[exception]]
+ecosystem = "npm"
+package = "@img/sharp-wasm32"
+versions = ["0.35.5"]
+license = "Apache-2.0 AND LGPL-3.0-or-later AND MIT"
+reason = "Build-time only: in the web and desktop lockfile closure through kokoro-js and @huggingface/transformers, but Node-only and never shipped. A production build of apps/web/dist has no sharp or libvips file or module reference, the Tauri bundle ships only that dist and the Rust binary, the web image copies only that dist, and the API and worker images contain no npm packages. scripts/licenses/assert_not_bundled.py fails the web and desktop CI jobs if that ever changes."
+reviewed_by = "owner"
+reviewed_on = "2026-11-04"
+shipped = false
+
+[[exception]]
+ecosystem = "npm"
+package = "@img/sharp-win32-arm64"
+versions = ["0.35.5"]
+license = "Apache-2.0 AND LGPL-3.0-or-later"
+reason = "Build-time only: in the web and desktop lockfile closure through kokoro-js and @huggingface/transformers, but Node-only and never shipped. A production build of apps/web/dist has no sharp or libvips file or module reference, the Tauri bundle ships only that dist and the Rust binary, the web image copies only that dist, and the API and worker images contain no npm packages. scripts/licenses/assert_not_bundled.py fails the web and desktop CI jobs if that ever changes."
+reviewed_by = "owner"
+reviewed_on = "2026-11-04"
+shipped = false
+
+[[exception]]
+ecosystem = "npm"
+package = "@img/sharp-win32-ia32"
+versions = ["0.35.5"]
+license = "Apache-2.0 AND LGPL-3.0-or-later"
+reason = "Build-time only: in the web and desktop lockfile closure through kokoro-js and @huggingface/transformers, but Node-only and never shipped. A production build of apps/web/dist has no sharp or libvips file or module reference, the Tauri bundle ships only that dist and the Rust binary, the web image copies only that dist, and the API and worker images contain no npm packages. scripts/licenses/assert_not_bundled.py fails the web and desktop CI jobs if that ever changes."
+reviewed_by = "owner"
+reviewed_on = "2026-11-04"
+shipped = false
+
+[[exception]]
+ecosystem = "npm"
+package = "@img/sharp-win32-x64"
+versions = ["0.35.5"]
+license = "Apache-2.0 AND LGPL-3.0-or-later"
+reason = "Build-time only: in the web and desktop lockfile closure through kokoro-js and @huggingface/transformers, but Node-only and never shipped. A production build of apps/web/dist has no sharp or libvips file or module reference, the Tauri bundle ships only that dist and the Rust binary, the web image copies only that dist, and the API and worker images contain no npm packages. scripts/licenses/assert_not_bundled.py fails the web and desktop CI jobs if that ever changes."
+reviewed_by = "owner"
+reviewed_on = "2026-11-04"
+shipped = false
