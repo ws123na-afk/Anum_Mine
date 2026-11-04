@@ -215,3 +215,37 @@ def test_database_refuses_two_wallet_sources_on_one_transaction(client: TestClie
             session.execute(text(
                 "insert into finance_sms_messages (id, tenant_id, workspace_id, owner_user_id, source, idem_key, received_at, sender, status, entry_id) "
                 "values ('m_copy', :t, :w, 'user_test', 'wallet', 'k2', now(), 'applewallet', 'attached', :e)"), {"t": TENANT_A, "w": WORKSPACE_A, "e": entry})
+
+
+def test_a_hand_entered_transaction_edited_twice_then_deleted_under_rls(client: TestClient, app_session: Callable[..., Iterator[Session]]) -> None:
+    api = client
+    bank = api.post(f"{API}/accounts", headers=ME, json={"name": "Current", "kind": "bank", "currency": "SAR"}).json()["id"]
+    txn = api.post(f"{API}/transactions", headers=ME, json={"account_id": bank, "posted_on": "2026-11-04", "amount": "-20.00", "description": "CASH TAXI"}).json()
+    assert api.patch(f"{API}/transactions/{txn['id']}", headers=ME, json={"amount": "-25.00"}).status_code == 200
+    assert api.patch(f"{API}/transactions/{txn['id']}", headers=ME, json={"amount": "-30.00"}).status_code == 200
+    expenses = api.get(f"{API}/ledger/dashboard", headers=ME, params={"month": "2026-11"}).json()["expenses"]
+    assert expenses == [{"currency": "SAR", "amount": "30.00"}]
+    assert api.delete(f"{API}/transactions/{txn['id']}", headers=ME).status_code == 204
+    assert api.get(f"{API}/ledger/dashboard", headers=ME, params={"month": "2026-11"}).json()["expenses"] == []
+    with app_session(tenant_context()) as session:
+        session.execute(text("select set_config('anum.user_id', 'user_test', true)"))
+        assert session.execute(text("select count(*) from finance_journal_entries where status = 'posted' and source <> 'reversal'")).scalar_one() == 0
+        assert session.execute(text("select coalesce(sum(amount), 0) from finance_postings where ledger_account like 'expense:%'")).scalar_one() == 0
+
+
+def test_repeated_and_undone_repayments_under_rls(client: TestClient, app_session: Callable[..., Iterator[Session]]) -> None:
+    api = client
+    s = _setup(api)
+    version = api.get(f"{API}/sms/settings", headers=ME).json()["version"]
+    api.put(f"{API}/sms/settings", headers=ME, json={"version": version, "verified_senders": ["TestBank"]})
+    card_side = _send(api, s["token"], "SYNTHETIC. Card payment received SAR 500.00 on card ending 1234 on 05/11/2026")
+    bank_side = "SYNTHETIC. Credit card payment of SAR 500.00 from account ***5678 to card ***1234 on 05/11/2026"
+    assert _send(api, s["token"], bank_side)["status"] == "duplicate"
+    assert api.post(f"{API}/sms/paste", headers=ME, json={"sender": "TestBank", "message": bank_side}).json()["status"] == "duplicate"
+    balance = lambda: next(a for a in api.get(f"{API}/accounts", headers=ME).json() if a["id"] == s["bank"])["balance"]  # noqa: E731
+    assert balance() == "-500.00"
+    assert api.post(f"{API}/sms/messages/{card_side['message_id']}/reverse", headers=ME).status_code == 200
+    assert balance() == "0.00"
+    with app_session(tenant_context()) as session:
+        session.execute(text("select set_config('anum.user_id', 'user_test', true)"))
+        assert session.execute(text("select coalesce(sum(amount), 0) from finance_postings where ledger_account = 'suspense:own_transfer'")).scalar_one() == 0

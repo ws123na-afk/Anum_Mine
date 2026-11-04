@@ -348,12 +348,16 @@ class SqlAlchemySmsStore:
         return self._with_postings(rows)
 
     def entry_for_transaction(self, context: TenantContext, transaction_id: str) -> JournalEntry | None:
-        posting = FinancePostingRecord
-        entry_id = self.session.scalar(select(posting.entry_id).where(*_mine(posting, context), posting.transaction_id == transaction_id).limit(1))
+        posting, record = FinancePostingRecord, FinanceJournalEntryRecord
+        # The active entry behind the row: a corrected row also has reversed entries in its chain.
+        entry_id = self.session.scalar(
+            select(posting.entry_id).join(record, record.id == posting.entry_id)
+            .where(*_mine(posting, context), posting.transaction_id == transaction_id, record.status == EntryStatus.POSTED.value,
+                   record.source != "reversal")
+            .order_by(record.created_at.desc(), record.id.desc()).limit(1))
         if entry_id is None:
             return None
-        entry = self.get_entry(context, entry_id)
-        return entry if entry is not None and entry.status == EntryStatus.POSTED else None
+        return self.get_entry(context, entry_id)
 
     def linked_transaction_ids(self, context: TenantContext) -> set[str]:
         posting = FinancePostingRecord

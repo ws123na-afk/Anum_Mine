@@ -392,7 +392,7 @@ class InMemorySmsStore:
         return [e.model_copy(deep=True) for e in self.entries.values() if _mine(e, context) and e.fingerprint == fingerprint]
 
     def entry_for_transaction(self, context: TenantContext, transaction_id: str) -> JournalEntry | None:
-        for entry in self.entries.values():
+        for entry in sorted(self.entries.values(), key=lambda e: (e.created_at, e.id), reverse=True):
             if _mine(entry, context) and entry.status == EntryStatus.POSTED and entry.source != "reversal" and any(
                     p.transaction_id == transaction_id for p in entry.postings):
                 return entry.model_copy(deep=True)

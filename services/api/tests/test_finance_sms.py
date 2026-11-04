@@ -719,3 +719,76 @@ def test_privacy_export_includes_messages_and_the_journal_but_never_token_hashes
     finance = client.get("/api/v1/privacy/export", headers=OWNER).json()["finance"]
     assert len(finance["sms_messages"]) == 1 and len(finance["journal_entries"]) == 1 and len(finance["sms_devices"]) == 1
     assert "token_hash" not in finance["sms_devices"][0] and "idem_key" not in finance["sms_messages"][0]
+
+
+# -- review fixes (PR #364 review, 4 November 2026) -------------------------------------------------
+
+
+def _bank_balance(s: dict) -> Decimal:
+    return Decimal(next(a for a in client.get(f"{API}/accounts", headers=OWNER).json() if a["id"] == s["bank"]["id"])["balance"])
+
+
+def test_a_repeated_bank_side_repayment_clears_the_suspense_only_once() -> None:
+    s = setup()
+    send(s["token"], REPAYMENT_CARD)
+    assert send(s["token"], REPAYMENT_BANK).json()["status"] == "duplicate"
+    # The same bank message again, outside the one-minute idempotency bucket, and pasted by hand.
+    later = svc.ingest(svc.TenantContext(tenant_id=TENANT, workspace_id=WORKSPACE, user_id="owner_sms", roles=["owner"]),
+                       s["device"]["id"], s["token"].rsplit(".", 1)[1], SENDER, REPAYMENT_BANK, now=utc_now() + timedelta(minutes=5))
+    assert later.message.status == "duplicate"
+    assert client.post(f"{API}/sms/paste", headers=OWNER, json={"sender": SENDER, "message": REPAYMENT_BANK}).json()["status"] == "duplicate"
+    clearings = [e for e in sms_memory_store.entries.values() if e.source == "clearing"]
+    assert len(clearings) == 1 and _bank_balance(s) == Decimal("-500.00")
+    assert dashboard()["in_transit"] == []
+    balanced_journal()
+
+
+def test_undoing_a_repayment_also_reverses_its_clearing_entry() -> None:
+    s = setup()
+    card_side = send(s["token"], REPAYMENT_CARD).json()
+    send(s["token"], REPAYMENT_BANK)
+    assert _bank_balance(s) == Decimal("-500.00")
+    assert client.post(f"{API}/sms/messages/{card_side['message_id']}/reverse", headers=OWNER).status_code == 200
+    assert _bank_balance(s) == Decimal("0.00")
+    board = dashboard()
+    assert board["in_transit"] == [] and Decimal(next(c for c in board["cards"] if c["id"] == s["card"]["id"])["balance"]) == Decimal("0.00")
+    assert not [t for t in client.get(f"{API}/transactions", headers=OWNER).json()["items"]]
+    balanced_journal()
+
+
+def test_correcting_a_repayment_replaces_its_clearing_entry() -> None:
+    s = setup()
+    card_side = send(s["token"], REPAYMENT_CARD).json()
+    send(s["token"], REPAYMENT_BANK)
+    corrected = client.post(f"{API}/sms/messages/{card_side['message_id']}/post", headers=OWNER,
+                            json={"amount": "400.00", "account_id": s["bank"]["id"], "counter_account_id": s["card"]["id"]})
+    assert corrected.status_code == 200, corrected.text
+    assert _bank_balance(s) == Decimal("-400.00")
+    board = dashboard()
+    assert board["in_transit"] == [] and Decimal(next(c for c in board["cards"] if c["id"] == s["card"]["id"])["balance"]) == Decimal("400.00")
+    balanced_journal()
+
+
+def test_a_hand_entered_transaction_edited_twice_then_deleted_keeps_balances_right() -> None:
+    s = setup()
+    txn = client.post(f"{API}/transactions", headers=OWNER, json={"account_id": s["bank"]["id"], "posted_on": "2026-11-04",
+                                                                  "amount": "-20.00", "description": "CASH TAXI"}).json()
+    client.patch(f"{API}/transactions/{txn['id']}", headers=OWNER, json={"amount": "-25.00"})
+    client.patch(f"{API}/transactions/{txn['id']}", headers=OWNER, json={"amount": "-30.00"})
+    assert money(dashboard()["expenses"]) == Decimal("30.00")
+    assert client.delete(f"{API}/transactions/{txn['id']}", headers=OWNER).status_code == 204
+    assert money(dashboard()["expenses"]) == Decimal("0") and _bank_balance(s) == Decimal("0.00")
+    balanced_journal()
+
+
+@pytest.mark.parametrize("text", [
+    "SYNTHETIC. Service fee SAR 25.00 on account ***5678",
+    "SYNTHETIC. رسوم خدمة 25.00 ر.س على حسابك ***5678",
+    "SYNTHETIC. Annual fee: SAR 25.00 charged to account ***5678",
+])
+def test_a_standalone_bank_fee_is_read_and_posted(text: str) -> None:
+    parsed = P.parse(SENDER, text, extra_senders={"testbank": "x"}, verified_senders={"testbank"})
+    assert parsed.status == "ok" and parsed.kind == P.Kind.BANK_FEE and parsed.amount == Decimal("25.00") and parsed.currency == "SAR"
+    s = setup()
+    assert send(s["token"], text).json()["status"] == "posted"
+    assert [(c["category"], c["amount"]) for c in dashboard()["categories"]] == [("fees", "25.00")]

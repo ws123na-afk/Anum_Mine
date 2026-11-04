@@ -437,6 +437,12 @@ def reverse(finance: FinanceStore, store: SmsStore, context: TenantContext, entr
     )
     store.add_entry(reversal)
     store.mark_entry(context, entry.id, status=EntryStatus.REVERSED, reversed_by_id=reversal.id)
+    if entry.source not in (EntrySource.CLEARING, EntrySource.REVERSAL):
+        # Undoing or replacing the payment undoes the clearing entries that completed it (the other side's
+        # message), so no bank debit is left behind and nothing stays in suspense.
+        for other in store.chain(context, entry.canonical_id or entry.id):
+            if other.source == EntrySource.CLEARING and other.status == EntryStatus.POSTED:
+                reverse(finance, store, context, other, now=now, why=why)
     if delete_transactions:
         for posting in entry.postings:
             if posting.transaction_id:
@@ -446,9 +452,17 @@ def reverse(finance: FinanceStore, store: SmsStore, context: TenantContext, entr
 
 def clear_suspense(finance: FinanceStore, store: SmsStore, context: TenantContext, original: JournalEntry, resolved: Resolved, *, now: datetime,
                    source_ref: str) -> JournalEntry | None:
-    """A second message named the side of an own transfer or repayment the first left in suspense."""
+    """A second message named the side of an own transfer or repayment the first left in suspense.
+
+    Only once: a later repeat of that message (outside the idempotency minute, or pasted again) finds the
+    suspense already cleared in the canonical chain and posts nothing. The caller holds the owner's lock."""
     suspense = [p for p in original.postings if p.ledger_account == SUSPENSE]
     if len(suspense) != 1:
+        return None
+    chain = store.chain(context, original.canonical_id or original.id)
+    open_suspense = sum((p.amount for e in chain if e.status == EntryStatus.POSTED for p in e.postings if p.ledger_account == SUSPENSE),
+                        Decimal(0))
+    if open_suspense == 0 or any(e.source == EntrySource.CLEARING and e.status == EntryStatus.POSTED for e in chain):
         return None
     known = {p.account_id for p in original.postings if p.account_id}
     side = next((a for a in (resolved.account, resolved.counter) if a is not None and a.id not in known), None)

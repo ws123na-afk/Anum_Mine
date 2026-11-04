@@ -434,6 +434,7 @@ def _generic(body: str) -> Parsed:
             result.balance, result.balance_currency = read
             balance_span.append((balance.start(), balance.end()))
     skip = list(balance_span)
+    fee_read: tuple[Decimal, str] | None = None
     for pattern in (_INTEREST, _FEE_AMOUNT):
         match = pattern.search(body)
         if match is not None:
@@ -442,11 +443,14 @@ def _generic(body: str) -> Parsed:
                 if pattern is _INTEREST:
                     result.interest = read[0]
                 else:
-                    result.fee = read[0]
+                    result.fee, fee_read = read[0], read
                 skip.append((match.start(), match.end()))
     amounts = _amounts(body, skip)
     kind, specific = kind_of(body)
     result.kind = kind
+    if not amounts and kind == Kind.BANK_FEE and fee_read is not None:
+        # A standalone fee message: the fee is the transaction itself, not an extra on top of one.
+        amounts = [(fee_read[0], fee_read[1], 0)]
     if not amounts:
         if kind == Kind.UNKNOWN and not _TXN_WORDS.search(body):
             return Parsed(status="rejected", reason=Rejection.NOT_FINANCIAL.value, rule="none")

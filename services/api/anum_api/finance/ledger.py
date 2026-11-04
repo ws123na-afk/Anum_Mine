@@ -454,6 +454,9 @@ def dashboard(
             line.observed_balance, line.observed_at = seen
             line.difference = quantize(seen[0] - balance, account.currency) if account.kind in ASSET_KINDS else None
         lines.append(line)
+    # A month whose entries were all undone nets to zero: no figure rather than "0.00".
+    income = defaultdict(Decimal, {c: v for c, v in income.items() if v != 0})
+    expenses = defaultdict(Decimal, {c: v for c, v in expenses.items() if v != 0})
     currencies = sorted({*assets, *liabilities, *income, *expenses})
     worth = {c: assets.get(c, Decimal(0)) - liabilities.get(c, Decimal(0)) for c in currencies if c in assets or c in liabilities}
     surplus = {c: income.get(c, Decimal(0)) - expenses.get(c, Decimal(0)) for c in sorted({*income, *expenses})}
