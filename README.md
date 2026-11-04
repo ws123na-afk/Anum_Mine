@@ -157,6 +157,7 @@ x-user-roles: owner,member
 - [Sales kit: VoiceQuote](docs/business/products/voicequote.md)
 - [Sales kit: Anum360 Store](docs/business/products/anum360-store.md)
 - [Security](docs/security.md)
+- [Third-party licenses, notices and SBOMs](docs/licenses.md)
 - [Threat model: agent tool use and prompt injection](docs/threat-model.md)
 - [Email Center: external penetration test plan](docs/email-pentest-plan.md)
 - [Penetration test scope: what an external tester may test](docs/pentest-scope.md)
