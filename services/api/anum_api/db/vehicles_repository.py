@@ -60,7 +60,7 @@ class VehicleRecord(Base, _Scoped):
     purchase_price: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
     residual_value: Mapped[Decimal | None] = mapped_column(Numeric(14, 2), nullable=True)
     useful_life_months: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
-    purchase_payment: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    purchase_payment: Mapped[dict[str, Any] | None] = mapped_column(JSONB(none_as_null=True), nullable=True)
     insurance_expires_on: Mapped[date | None] = mapped_column(Date, nullable=True)
     registration_expires_on: Mapped[date | None] = mapped_column(Date, nullable=True)
     inspection_expires_on: Mapped[date | None] = mapped_column(Date, nullable=True)
@@ -96,7 +96,7 @@ class VehicleFuelRecord(Base, _Child):
     odometer_km: Mapped[Decimal | None] = mapped_column(Numeric(10, 1), nullable=True)
     full_tank: Mapped[bool] = mapped_column(Boolean)
     payment_method: Mapped[str | None] = mapped_column(String(14), nullable=True)
-    payment: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    payment: Mapped[dict[str, Any] | None] = mapped_column(JSONB(none_as_null=True), nullable=True)
     document_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
     notes: Mapped[str | None] = mapped_column(String(500), nullable=True)
     idem_key: Mapped[str] = mapped_column(String(64))
@@ -145,7 +145,7 @@ class VehicleServiceRecordRow(Base, _Child):
     receipt_total: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
     currency: Mapped[str] = mapped_column(String(3))
     payment_method: Mapped[str | None] = mapped_column(String(14), nullable=True)
-    payment: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    payment: Mapped[dict[str, Any] | None] = mapped_column(JSONB(none_as_null=True), nullable=True)
     document_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
     idem_key: Mapped[str] = mapped_column(String(64))
     version: Mapped[int] = mapped_column(Integer)
@@ -244,7 +244,9 @@ class SqlVehicleStore:
             with self.session.begin_nested():
                 self.session.execute(VehicleRecord.__table__.insert().values(**_values(vehicle)))
         except IntegrityError as exc:
-            raise DuplicateError("registration") from exc
+            if "uq_vehicles_registration" in str(exc.orig):
+                raise DuplicateError("registration") from exc
+            raise
 
     def save_vehicle(self, vehicle: Vehicle, expected_version: int) -> bool:
         values = _values(vehicle)
@@ -256,7 +258,9 @@ class SqlVehicleStore:
                 result = self.session.execute(update(VehicleRecord).where(self._visible_vehicle(self.context), VehicleRecord.id == vehicle.id,
                                                                           VehicleRecord.version == expected_version).values(**values))
         except IntegrityError as exc:
-            raise DuplicateError("registration") from exc
+            if "uq_vehicles_registration" in str(exc.orig):
+                raise DuplicateError("registration") from exc
+            raise
         return bool(result.rowcount)  # type: ignore[attr-defined]
 
     def delete_vehicle(self, context: TenantContext, vehicle_id: str) -> bool:
@@ -337,7 +341,11 @@ class SqlVehicleStore:
             with self.session.begin_nested():
                 self.session.execute(TABLES[kind].__table__.insert().values(**_values(record)))
         except IntegrityError as exc:
-            raise DuplicateError("open_trip" if "uq_vehicle_trips_open" in str(exc.orig) else "idem_key") from exc
+            if "uq_vehicle_trips_open" in str(exc.orig):
+                raise DuplicateError("open_trip") from exc
+            if "_idem" in str(exc.orig):
+                raise DuplicateError("idem_key") from exc
+            raise
 
     def save_record(self, kind: RecordKind, record: Any, expected_version: int) -> bool:
         table = TABLES[kind]
