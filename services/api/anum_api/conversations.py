@@ -955,7 +955,13 @@ def _prepare_conversation_ask(
     # agent's narrowing. Work for an agent goes through a task as that agent (docs/agents.md#chat).
     if runtime_config is None or conversation.agent_id is not None:
         return _PreparedAsk(conversation, user_turn, history, runtime_config, None)
-    category, tool = chat_tools.chat_route(user_turn.content, runtime_config.skills, runtime_config.tools.names)
+    category = chat_tools.chat_intent(user_turn.content, runtime_config.skills, runtime_config.tools.names)
+    # Which browser or search tool a web or action request plans (its capability may be off).
+    tool = (
+        chat_tools.chat_route(user_turn.content, runtime_config.skills, runtime_config.tools.names)[1]
+        if category in {"web", "action"}
+        else ""
+    )
     fixed_card, block = _capability_route(context, user_turn.content, category, tool, language)
     return _PreparedAsk(
         conversation, user_turn, history, runtime_config, None if fixed_card else category, fixed_card, block
