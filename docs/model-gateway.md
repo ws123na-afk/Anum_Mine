@@ -100,6 +100,16 @@ The setting is required whenever `ANUM_ENVIRONMENT` is not `local` or `test`: th
 
 **Gateway cache.** `workspace_model_gateway` reads the workspace's configuration (without the secret) on each task run or voice request and reuses a cached gateway while the saved configuration is unchanged. The comparison uses provider, model, base URL, routing, credential hint and `updated_at`, so a change saved by another API instance is picked up on the next request.
 
+## Placeholder answers
+
+The server's default provider is `mock` (`ANUM_MODEL_PROVIDER`, also the default in `infra/oracle/.env.example`). It writes placeholder text, never a real answer, and the API does not refuse to start with it outside `local` and `test`. So the app says so instead of passing placeholder text off as an answer:
+
+- `GET /api/v1/model-status` (any member with `task:read`; `services/api/anum_api/model_status.py`) answers `{"placeholder", "provider", "source"}` for the caller's workspace: a workspace that saved its own usable model in [Per-workspace model configuration](#per-workspace-model-configuration) is `source: "workspace"`, else the server default is `source: "server"`. `placeholder` is true only when that model is `mock`. It is a plain `def` route, so the model config store is read in the thread pool, never on the event loop.
+- The web app shows a banner on Home and at the top of the Assistant while `placeholder` is true: "AI answers are placeholders: the server has no AI model set up." (or "this workspace is set to the placeholder model"), with Open Settings and a help link, in English and Arabic (`apps/web/src/ModelPlaceholderBanner.tsx`, `apps/web/src/lib/modelStatus.ts`). When the status cannot be read nothing is shown, so an unknown state never claims the answers are fake.
+- Platform billing > Ready to sell has an **AI model** item ([Checklist](selling-readiness.md#checklist)): done only when the server provider is not `mock` and a hosted provider has its key.
+- The local and test default stays `mock`, so development and tests never call a paid model.
+- Tests: `services/api/tests/test_model_status.py`, `test_selling_readiness.py::test_readiness_lists_the_ai_model`, `apps/web/test/modelStatus.test.ts`, `apps/web/e2e/model-placeholder.spec.ts`.
+
 ## Outbound guard (SSRF)
 
 A workspace owner chooses the URL the API server calls, so outside `ANUM_ENVIRONMENT=local` and `test` every workspace-configured endpoint goes through `anum_api/model_egress.py` (threat model G1). The operator's own `ANUM_MODEL_BASE_URL` default is trusted configuration and is not guarded.

@@ -679,6 +679,20 @@ def _item(key: str, done: bool, fix: str, detail: dict[str, Any] | None = None, 
     return {"key": key, "state": state or ("done" if done else "missing"), "fix": fix, "detail": detail or {}}
 
 
+def _model_item() -> dict[str, Any]:
+    """The server's AI model (ANUM_MODEL_*): customers' workspaces answer with it until they save their own.
+
+    ``mock`` writes placeholder answers; a hosted provider without its key cannot answer at all.
+    """
+    from ..model_status import server_model_state
+
+    model = server_model_state()
+    real = not model["placeholder"] and not model["key_missing"]
+    return _item("ai_model", real, "env", {
+        "provider": model["provider"], "placeholder": model["placeholder"], "key_missing": model["key_missing"],
+    })
+
+
 @platform.get("/readiness")
 def readiness(context: TenantContext = Depends(tenant_context)) -> dict[str, Any]:
     """The Ready to sell checklist, read from real state (docs/selling-readiness.md#checklist)."""
@@ -729,6 +743,7 @@ def readiness(context: TenantContext = Depends(tenant_context)) -> dict[str, Any
         }, state="done" if all(not keys for keys in missing.values()) and len(published_docs) == len(co.DOC_IDS)
             else ("warning" if all(not keys for keys in missing.values()) else "missing")),
         _item("plans", bool(published_plans), "plans", {"active": len(plans), "published": len(published_plans)}),
+        _model_item(),
         _item("public_issuer", settings.billing_issuer_tenant_id == context.tenant_id, "env", {
             "configured": bool(settings.billing_issuer_tenant_id), "is_you": settings.billing_issuer_tenant_id == context.tenant_id,
             "web_app_url": bool(settings.web_app_url),
