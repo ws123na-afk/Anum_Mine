@@ -707,11 +707,12 @@ def grounded_messages(
     tools: bool,
     preface: str = "",
     extra_rules: str = "",
+    capabilities: str = "",
 ) -> list[ChatMessage]:
     from .voice_assistant import voice_messages
 
     rules = " ".join(part for part in (GROUNDING_RULES, TOOL_RULES if tools else "", preface, extra_rules) if part)
-    return voice_messages(question, facts, name, history, data_blocks=blocks, rules_extra=rules)
+    return voice_messages(question, facts, name, history, data_blocks=blocks, rules_extra=rules, capabilities=capabilities)
 
 
 async def grounded_answer(
@@ -729,6 +730,7 @@ async def grounded_answer(
     extra_rules: str = "",
     stream: bool = True,
     arabic: bool | None = None,
+    capabilities: str = "",
 ) -> AsyncIterator[str | Progress]:
     """The spoken answer, streamed: snapshot, then up to three rounds of read-only lookups
     when the provider has tool use, else one call with the snapshot and knowledge hits.
@@ -755,7 +757,8 @@ async def grounded_answer(
         guard.sourced = bool(timing.sources)
 
     raw = _grounded_raw(gateway, question, facts, name, history, context, timing, max_tokens=max_tokens,
-                        data_blocks=data_blocks, preface=preface, extra_rules=extra_rules, stream=stream)
+                        data_blocks=data_blocks, preface=preface, extra_rules=extra_rules, stream=stream,
+                        capabilities=capabilities)
     try:
         async with aclosing(raw) as items:
             async for item in items:
@@ -788,6 +791,7 @@ async def _grounded_raw(
     preface: str,
     extra_rules: str,
     stream: bool,
+    capabilities: str = "",
 ) -> AsyncIterator[str | Progress]:
     routed = route_gateway(gateway, ModelRoute.FAST)
     toolbox = VoiceToolbox.current()
@@ -801,7 +805,9 @@ async def _grounded_raw(
         yield Progress("checking" if needs_figures(question) else "thinking", "")
     blocks = [*data_blocks, *snapshot]
     timing.grounding = "tools" if with_tools else ("snapshot" if blocks else "none")
-    messages = grounded_messages(question, facts, name, history, blocks, tools=with_tools, preface=preface, extra_rules=extra_rules)
+    messages = grounded_messages(
+        question, facts, name, history, blocks, tools=with_tools, preface=preface, extra_rules=extra_rules, capabilities=capabilities
+    )
     complete = getattr(routed, "complete_chat", None)
     if not with_tools and not stream and callable(complete):
         response = await complete(messages, max_tokens=max_tokens)

@@ -244,11 +244,13 @@ def voice_messages(
     max_chars: int = 6000,
     data_blocks: Sequence[str] = (),
     rules_extra: str = "",
+    capabilities: str = "",
 ) -> list[ChatMessage]:
     """Chat messages for a streamed spoken answer: the rules, the recent spoken turns
     (``(role, text)``, newest last, bounded) and the question, each user turn labeled
     as untrusted speech. ``rules_extra`` (the grounding rules, voice_grounding.py)
-    replaces the tyre-only preface that plain data blocks get."""
+    replaces the tyre-only preface that plain data blocks get. ``capabilities`` (what ANUM
+    can do in the workspace, capabilities.py) is a trailing system part of its own."""
     kept: list[tuple[str, str]] = []
     used = 0
     for role, text in reversed((history or [])[-max_turns:]):
@@ -261,6 +263,8 @@ def voice_messages(
         kept.pop(0)
     rules = f"{voice_rules(name, facts)}\n{rules_extra}" if rules_extra else _rules(name, facts, data_blocks)
     messages: list[ChatMessage] = [{"role": "system", "content": with_untrusted_rules(rules, *data_blocks)}]
+    if capabilities:
+        messages.append({"role": "system", "content": capabilities})
     turns = kept + [("user", question)]
     for role, text in turns:
         content = label_untrusted(text, source=Provenance.USER_SPEECH, origin="voice") if role == "user" else text

@@ -27,6 +27,7 @@ from typing import Any
 
 import httpx
 
+from .capabilities import CAPABILITY_HEADER
 from .model_gateway import (
     LOCAL_EMBEDDING_MODEL,
     ChatMessage,
@@ -115,11 +116,17 @@ def build_messages_request(
             body["tools"][-1]["cache_control"] = dict(_CACHE)
             breakpoints += 1
     if system:
+        # A trailing live part (what ANUM can do in the workspace, capabilities.py) changes with
+        # the workspace: the system breakpoint goes on the part before it, so the static prompt
+        # stays one shared cached prefix and the live part is sent after it, uncached.
+        stable = len(system)
+        while stable and system[stable - 1].startswith(CAPABILITY_HEADER):
+            stable -= 1
         body["system"] = [
-            _text_block(text, cache=cache and index == len(system) - 1)
+            _text_block(text, cache=cache and index == stable - 1)
             for index, text in enumerate(system)
         ]
-        breakpoints += 1 if cache else 0
+        breakpoints += 1 if cache and stable else 0
     body["messages"] = [{"role": m["role"], "content": m["content"]} for m in turns]
     last = body["messages"][-1]
     if cache and cache_messages and last["content"] and breakpoints < MAX_CACHE_BREAKPOINTS:
