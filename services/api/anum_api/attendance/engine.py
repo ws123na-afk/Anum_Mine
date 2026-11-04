@@ -213,7 +213,33 @@ def replay(events: Iterable[Event], *, now: datetime, shifts: Sequence[Shift] = 
             close(brk, max(at, brk.start), event, how)
             brk = None
 
+    def expire(at: datetime) -> None:
+        """Finish an interval left open longer than MAX_OPEN before ``at`` as a missing checkout, so a
+        later shift never joins it (a forgotten checkout yesterday cannot swallow today)."""
+        nonlocal site, remote, brk
+        for name in ("site", "remote"):
+            segment = site if name == "site" else remote
+            if segment is None or at - segment.start <= MAX_OPEN:
+                continue
+            finish_missing(segment)
+            if name == "site":
+                site = None
+            else:
+                remote = None
+        if brk is not None and site is None and remote is None:
+            ends = [s.end for s in segments if s.kind != "break" and s.end is not None and s.start <= brk.start]
+            close_break(max(ends) if ends else brk.start, None, "missing")
+
+    def finish_missing(segment: Segment) -> None:
+        flags.append(Flag("missing_checkout", segment.start_event_id))
+        estimate = scheduled_end_after(segment.start, segment.zone, shifts)
+        if estimate is not None and estimate - segment.start <= MAX_OPEN:
+            close(segment, estimate, None, "estimated")
+        else:
+            close(segment, segment.start, None, "missing")
+
     for event in _order(events):
+        expire(event.at)
         if event.received_at is not None and event.received_at - event.at > LATE_AFTER:
             flags.append(Flag("late_event", event.id))
         if event.source == "manual":
@@ -280,12 +306,7 @@ def replay(events: Iterable[Event], *, now: datetime, shifts: Sequence[Shift] = 
         if now - segment.start <= MAX_OPEN:
             close(segment, max(now, segment.start), None, "open")
         else:
-            flags.append(Flag("missing_checkout", segment.start_event_id))
-            estimate = scheduled_end_after(segment.start, segment.zone, shifts)
-            if estimate is not None and estimate - segment.start <= MAX_OPEN:
-                close(segment, estimate, None, "estimated")
-            else:
-                close(segment, segment.start, None, "missing")
+            finish_missing(segment)
     if brk is not None:
         ends = [s.end for s in segments if s.kind != "break" and s.end is not None and s.start <= brk.start]
         close_break(max(ends) if ends else brk.start, None, "open" if now - brk.start <= MAX_OPEN else "missing")
@@ -408,9 +429,21 @@ def days(events: Iterable[Event], *, now: datetime, shifts: Sequence[Shift] = ()
     by_event = {e.id: e for e in events}
     grouped: dict[date, list[Segment]] = {}
     zones: dict[date, str] = {}
+    work = [s for s in played.segments if s.kind != "break"]
+
+    def shift_day(segment: Segment) -> date:
+        """A break belongs to the shift it falls in (a break after midnight on a night shift)."""
+        if segment.kind == "break":
+            for owner in work:
+                if owner.start <= segment.start and (owner.end is None or segment.start <= owner.end):
+                    return owner.day
+        return segment.day
+
     for segment in played.segments:
-        grouped.setdefault(segment.day, []).append(segment)
-        zones.setdefault(segment.day, segment.zone)
+        key = shift_day(segment)
+        grouped.setdefault(key, []).append(segment)
+        if segment.kind != "break":
+            zones.setdefault(key, segment.zone)
     day_flags: dict[date, list[Flag]] = {}
     for flag in played.flags:
         event = by_event.get(flag.event_id or "")

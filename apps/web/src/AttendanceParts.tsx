@@ -9,7 +9,7 @@ import type {
 import * as api from './lib/attendanceApi';
 import { uploadFile } from './lib/api';
 import {
-  ZONES, checkReason, checkShift, clock, draftFromReport, emptyReportDraft, isOvernight, kindLabel, localToIso, reportBody, shiftDay,
+  ZONES, checkReason, checkShift, clock, draftFromReport, localParts, emptyReportDraft, isOvernight, kindLabel, localToIso, reportBody, shiftDay,
   siteName, weekdayLabel, type ReportDraft,
 } from './lib/attendance';
 import { ApiError, describeError } from './lib/errors';
@@ -201,7 +201,7 @@ export function CorrectionsPanel({ sites, timeZone, today, onChanged }: { sites:
   }, [today]);
   useEffect(() => { void load(); }, [load]);
   const recent = events.kind === 'ready' ? [...events.value].reverse() : [];
-  const label = (e: AttendanceEvent) => t('att.fix.eventOption', { day: e.occurred_at.slice(0, 10), time: clock(e.occurred_at, e.time_zone), what: kindLabel(e.kind), site: e.site_id ? siteName(sites, e.site_id) : '-' });
+  const label = (e: AttendanceEvent) => t('att.fix.eventOption', { ...localParts(e.occurred_at, timeZone), what: kindLabel(e.kind), site: e.site_id ? siteName(sites, e.site_id) : '-' });
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
@@ -228,7 +228,7 @@ export function CorrectionsPanel({ sites, timeZone, today, onChanged }: { sites:
       {action !== 'add' && <label className="field"><span>{t('att.fix.event')}</span>
         <select value={form.eventId} onChange={(e) => {
           const picked = recent.find((x) => x.id === e.target.value);
-          setForm((f) => ({ ...f, eventId: e.target.value, ...(picked ? { kind: picked.kind, siteId: picked.site_id ?? '', day: picked.occurred_at.slice(0, 10), time: clock(picked.occurred_at, picked.time_zone) } : {}) }));
+          setForm((f) => ({ ...f, eventId: e.target.value, ...(picked ? { kind: picked.kind, siteId: picked.site_id ?? '', ...localParts(picked.occurred_at, timeZone) } : {}) }));
         }}>
           <option value="">{recent.length ? t('att.fix.choose') : t('att.fix.noEvents')}</option>
           {recent.map((e) => <option key={e.id} value={e.id}>{label(e)}</option>)}

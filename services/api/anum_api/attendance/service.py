@@ -333,8 +333,10 @@ def site_history(store: AttendanceStore, context: TenantContext, owner: str, sta
 def reduce_old_events(store: AttendanceStore, context: TenantContext, now: datetime, *, days_kept: int = RAW_RETENTION_DAYS) -> dict[str, int]:
     """Reduce this person's raw events older than the retention to day totals, then delete them.
 
-    A day is reduced only once every event of it is past the cutoff (the day before the cutoff's
-    local date, in the person's zone), so a day is never split between raw and reduced."""
+    Days before the cutoff's local date (in the person's zone) are reduced whole: the replay also
+    reads the events up to ``MAX_OPEN`` after the cutoff, so an overnight shift that began before it
+    keeps its after-midnight departure and breaks, and those closing events are deleted with the
+    day they belong to. A day is never split between raw events and a reduced total."""
     profile = profile_for(store, context, context.user_id)
     tz = profile.time_zone
     cutoff_day = E.local_day(now, tz) - timedelta(days=days_kept)
@@ -342,14 +344,21 @@ def reduce_old_events(store: AttendanceStore, context: TenantContext, now: datet
     old = store.list_events(context, context.user_id, datetime(1970, 1, 1, tzinfo=UTC), cutoff, active_only=False)
     if not old:
         return {"days": 0, "events": 0, "corrections": store.delete_corrections_before(context, cutoff)}
+    tail = store.list_events(context, context.user_id, cutoff, cutoff + E.MAX_OPEN, active_only=False)
     first_day = min(E.local_day(e.occurred_at, e.time_zone) for e in old)
-    active = [to_engine(e) for e in old if e.status == EventStatus.ACTIVE]
+    active = [to_engine(e) for e in (*old, *tail) if e.status == EventStatus.ACTIVE]
     computed = E.days(active, now=now, shifts=shifts_of(profile), default_zone=tz, start=first_day,
                       end=cutoff_day - timedelta(days=1), daily_overtime_minutes=profile.daily_overtime_minutes, include_scheduled=False)
+    # Every event of a reduced day: those before the cutoff and the closing events after it.
+    doomed = {e.id for e in old}
+    for d in computed:
+        for segment in d.segments:
+            doomed.add(segment.start_event_id)
+            if segment.end_event_id:
+                doomed.add(segment.end_event_id)
     counts: dict[date, int] = {}
-    for e in old:
-        local = E.local_day(e.occurred_at, e.time_zone)
-        counts[local] = counts.get(local, 0) + 1
+    for d in computed:
+        counts[d.day] = len({x for s in d.segments for x in (s.start_event_id, s.end_event_id) if x})
     existing = {t.day for t in store.list_day_totals(context, context.user_id, first_day, cutoff_day)}
     totals = [
         DayTotal(
@@ -362,7 +371,7 @@ def reduce_old_events(store: AttendanceStore, context: TenantContext, now: datet
         for d in computed if d.day not in existing
     ]
     store.save_day_totals(totals)
-    return {"days": len(totals), "events": store.delete_events_before(context, cutoff),
+    return {"days": len(totals), "events": store.delete_events(context, sorted(doomed)),
             "corrections": store.delete_corrections_before(context, cutoff)}
 
 

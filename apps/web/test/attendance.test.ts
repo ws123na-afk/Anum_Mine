@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import type { AttendanceEvent, AttendanceSite, AttendanceToday } from '@anum/contracts';
 import {
-  checkReason, checkShift, clock, dayIn, dayTotals, decimalHours, hashForTab, hours, isOvernight, localToIso, newKey, nextActions, reportBody,
+  checkReason, checkShift, clock, dayIn, dayTotals, decimalHours, hashForTab, hours, isOvernight, localParts, localToIso, newKey, nextActions, reportBody,
   emptyReportDraft, shiftDay, statusText, tabFromHash, timeline,
 } from '../src/lib/attendance.ts';
 import { setLocale } from '../src/lib/i18n.ts';
@@ -105,5 +105,14 @@ describe('attendance helpers', () => {
     setLocale('ar');
     assert.equal(hours(3600), '1 س');
     setLocale('en');
+  });
+});
+
+describe('correction form times', () => {
+  test('date and time of an event come from the same zone, so saving does not move it a day', () => {
+    // 02:00 on 3 November in Dubai is 22:00 on 2 November in UTC.
+    const parts = localParts('2026-11-02T22:00:00Z', 'Asia/Dubai');
+    assert.deepEqual(parts, { day: '2026-11-03', time: '02:00' });
+    assert.equal(localToIso(parts.day, parts.time, 'Asia/Dubai'), '2026-11-02T22:00:00.000Z');
   });
 });

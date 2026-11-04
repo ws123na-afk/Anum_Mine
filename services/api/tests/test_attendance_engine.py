@@ -211,3 +211,28 @@ def test_week_start_is_configurable() -> None:
     wednesday = date(2026, 11, 4)
     assert E.week_start(wednesday) == date(2026, 11, 2)
     assert E.week_start(wednesday, 6) == date(2026, 11, 1)
+
+
+def test_a_missed_checkout_never_swallows_the_next_days_shift() -> None:
+    z = "Asia/Dubai"
+    result = E.days([
+        ev(1, "arrive", at(z, 2026, 11, 2, 9, 0), site_id="office"),
+        ev(2, "arrive", at(z, 2026, 11, 3, 9, 0), site_id="office"),
+        ev(3, "leave", at(z, 2026, 11, 3, 17, 0), site_id="office"),
+    ], now=NOW)
+    by_day = {d.day: d for d in result}
+    assert "missing_checkout" in by_day[date(2026, 11, 2)].flag_codes
+    assert by_day[date(2026, 11, 2)].verified_seconds == 0
+    assert by_day[date(2026, 11, 3)].worked_seconds == by_day[date(2026, 11, 3)].verified_seconds == 8 * H
+    assert "duplicate" not in by_day[date(2026, 11, 3)].flag_codes
+
+
+def test_a_break_after_midnight_counts_on_the_overnight_shift_it_belongs_to() -> None:
+    z = "Asia/Dubai"
+    result = E.days([
+        ev(1, "arrive", at(z, 2026, 11, 3, 22, 0)),
+        ev(2, "break_start", at(z, 2026, 11, 4, 2, 0)),
+        ev(3, "break_end", at(z, 2026, 11, 4, 3, 0)),
+        ev(4, "leave", at(z, 2026, 11, 4, 6, 0)),
+    ], now=NOW)
+    assert [(d.day, d.worked_seconds, d.verified_seconds, d.break_seconds) for d in result] == [(date(2026, 11, 3), 7 * H, 7 * H, H)]

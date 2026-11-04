@@ -274,6 +274,14 @@ class SqlAttendanceStore:
             *self._scope(AttendanceEventRecord, context, context.user_id), AttendanceEventRecord.occurred_at < cutoff))
         return int(result.rowcount or 0)  # type: ignore[attr-defined]
 
+    def delete_events(self, context: TenantContext, event_ids: list[str]) -> int:
+        removed = 0
+        for start in range(0, len(event_ids), 500):
+            result = self.session.execute(delete(AttendanceEventRecord).where(
+                *self._scope(AttendanceEventRecord, context, context.user_id), AttendanceEventRecord.id.in_(event_ids[start:start + 500])))
+            removed += int(result.rowcount or 0)  # type: ignore[attr-defined]
+        return removed
+
     # corrections ---------------------------------------------------------------------------------
 
     def add_correction(self, correction: Correction) -> Correction:

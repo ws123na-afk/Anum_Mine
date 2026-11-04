@@ -375,3 +375,21 @@ def test_daily_job_alerts_a_missing_checkout_once_in_app_only() -> None:
     assert second.alerts == 0
     bodies = alerts()
     assert len(bodies) == 1 and "departure" in bodies[0] and "Head office" not in bodies[0]
+
+
+def test_retention_keeps_an_overnight_shift_whole_across_the_cutoff() -> None:
+    office = site()
+    ctx = TenantContext(tenant_id=TENANT, workspace_id=WORKSPACE, user_id=ME["x-user-id"])
+    now = datetime.now(UTC)
+    tz_offset = timedelta(hours=4)  # Asia/Dubai, no DST
+    cutoff_day = (now + tz_offset).date() - timedelta(days=S.RAW_RETENTION_DAYS)
+    # 22:00 on the last reduced day to 06:00 on the cutoff day (Dubai time): the departure is after the cutoff.
+    start = datetime(cutoff_day.year, cutoff_day.month, cutoff_day.day, 22, tzinfo=UTC) - timedelta(days=1) - tz_offset
+    for kind, when in (("arrive", start), ("leave", start + timedelta(hours=8))):
+        S.record_event(attendance_store, ctx, kind=S.EventKind(kind), source=S.EventSource.WEB, idempotency_key=f"night-{kind}-01",
+                       now=when + timedelta(minutes=1), site_id=office)
+    result = S.reduce_old_events(attendance_store, ctx, now)
+    assert result["days"] == 1 and result["events"] == 2
+    totals = attendance_store.list_day_totals(ctx, ctx.user_id, cutoff_day - timedelta(days=1), cutoff_day)
+    assert [(t.day, t.worked_seconds, t.verified_seconds) for t in totals] == [(cutoff_day - timedelta(days=1), 8 * 3600, 8 * 3600)]
+    assert not attendance_store.events  # no orphan departure is left behind

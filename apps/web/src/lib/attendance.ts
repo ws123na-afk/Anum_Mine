@@ -149,6 +149,11 @@ export function localToIso(day: string, time: string, timeZone: string): string 
   }
 }
 
+/** An instant's local date and clock time in one zone: the inverse of `localToIso` for the correction form. */
+export function localParts(iso: string, timeZone: string): { day: string; time: string } {
+  return { day: dayIn(timeZone, new Date(iso)), time: clock(iso, timeZone) };
+}
+
 export function lines(text: string): string[] {
   return text.split('\n').map((line) => line.trim()).filter(Boolean);
 }

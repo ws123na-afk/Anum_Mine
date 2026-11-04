@@ -49,6 +49,7 @@ class AttendanceStore(Protocol):
     def list_day_totals(self, context: TenantContext, owner: str, start: date, end: date) -> list[DayTotal]: ...
     def save_day_totals(self, totals: list[DayTotal]) -> int: ...
     def delete_events_before(self, context: TenantContext, cutoff: datetime) -> int: ...
+    def delete_events(self, context: TenantContext, event_ids: list[str]) -> int: ...
     def delete_corrections_before(self, context: TenantContext, cutoff: datetime) -> int: ...
     def list_reports(self, context: TenantContext, owner: str, start: date | None, end: date | None, query: str | None, *,
                      limit: int, offset: int) -> tuple[list[DailyReport], int]: ...
@@ -200,6 +201,13 @@ class InMemoryAttendanceStore:
     def delete_events_before(self, context: TenantContext, cutoff: datetime) -> int:
         with self._lock:
             gone = [k for k, e in self.events.items() if _mine(e, context) and e.occurred_at < cutoff]
+            for key in gone:
+                del self.events[key]
+            return len(gone)
+
+    def delete_events(self, context: TenantContext, event_ids: list[str]) -> int:
+        with self._lock:
+            gone = [k for k in event_ids if k in self.events and _mine(self.events[k], context)]
             for key in gone:
                 del self.events[key]
             return len(gone)
