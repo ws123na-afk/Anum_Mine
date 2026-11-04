@@ -48,6 +48,7 @@ test('documents: search, filter, open the detail, reveal the number, share and e
   await expect(detail.getByText('A1234567')).toBeVisible();
   await detail.locator('.vaultSub', { hasText: 'Shared with' }).getByLabel('Person').selectOption('user_amina');
   await detail.getByRole('button', { name: 'Share', exact: true }).click();
+  await expect(detail.getByRole('button', { name: 'Stop sharing with user_amina' })).toBeVisible();
   expect(mock.calls.some((c) => c.method === 'POST' && c.path === '/vdoc_passport/access')).toBe(true);
   await detail.getByRole('button', { name: 'Edit details' }).click();
   const form = detail.getByRole('form', { name: 'Edit document details' });
