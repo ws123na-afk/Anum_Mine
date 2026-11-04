@@ -152,6 +152,8 @@ def return_view(context: TenantContext, purchase: Purchase | None, item: Return)
     data["can_edit"] = purchase is not None and S.can_edit_row(context, purchase, item)
     data["can_refund"] = purchase is not None and purchase.owner_user_id == context.user_id and has_permission(context, Permission.FINANCE_MANAGE)
     data["refunded"] = S.money(S.refunded_total(item, item.currency))
+    # Every currency the refunds came in, never added together (a refund in the card's currency is not the return's).
+    data["refunded_all"] = _refunded_by_currency([item])
     data["allowed_moves"] = [s for s in RETURN_TRANSITIONS.get(item.status, ()) if s not in ("partially_refunded", "refunded")]
     if purchase is not None:
         data["merchant"] = purchase.merchant
@@ -986,7 +988,8 @@ def create_return(purchase_id: str, body: ReturnInput, context: TenantContext = 
         item = Return(id=new_id("purr"), tenant_id=context.tenant_id, workspace_id=context.workspace_id, owner_user_id=context.user_id,
                       purchase_id=purchase.id, visibility=purchase.ownership, purchase_owner_id=purchase.owner_user_id,
                       requested_on=data.pop("requested_on") or now.date(), deadline_on=data.pop("deadline_on") or purchase.return_window_until,
-                      items=lines, amount=amount, currency=purchase.payment.currency if purchase.payment and purchase.payment.status != "void" else purchase.currency,
+                      # The amount is inferred from the purchase's own figures or typed in its currency: never relabelled.
+                      items=lines, amount=amount, currency=purchase.currency,
                       idem_key=key, created_at=now, updated_at=now, **data)
         try:
             store.add_return(item)

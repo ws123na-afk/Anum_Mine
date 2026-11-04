@@ -644,12 +644,12 @@ def test_a_rejected_return_reopened_cannot_claim_items_another_return_took() -> 
 def test_a_refund_in_the_payments_currency_settles_a_return_opened_in_another() -> None:
     canonical, _card, bearer = apple_pay_and_sms()
     created = delivered(currency="AED", total="450", items=[])
-    ret = open_return(created["id"]).json()
+    ret = open_return(created["id"], amount="150").json()
     assert ret["currency"] == "AED"
-    assert pay(created["id"], canonical).status_code == 201  # the card was charged in SAR
+    assert pay(created["id"], canonical).status_code == 201  # the card was charged SAR 450 for AED 450
     refund = refund_sms(bearer)
     assert client.post(f"{API}/returns/{ret['id']}/refunds", headers=OWNER, json={"canonical_id": refund}).status_code == 201
-    assert detail(created["id"])["returns"][0]["status"] == "refunded"
+    assert detail(created["id"])["returns"][0]["status"] == "refunded"  # SAR 150 at the payment's own rate covers AED 150
 
 
 def test_delivered_before_the_order_date_is_refused() -> None:
@@ -677,3 +677,50 @@ def test_the_reader_needs_whole_words() -> None:
     found = parse("SYNTHETIC. Order details: placed 4 Nov 2026. Please record 12345 for metal parts.", today=day)
     assert found.expected_on is None
     assert parse("SYNTHETIC. Please record 12345678 for your files.", today=day).order_ref is None
+
+
+# -- automated review (PR #375) ---------------------------------------------------------------------
+
+
+def test_the_generic_link_route_refuses_income_as_a_refund_and_mismatched_roles() -> None:
+    cash = client.post(f"{FIN}/accounts", headers=OWNER, json={"name": "Wallet", "kind": "cash", "currency": "SAR"}).json()
+    created = delivered(items=[])
+    ret = open_return(created["id"], amount="100").json()
+    income_txn = client.post(f"{FIN}/transactions", headers=OWNER, json={"account_id": cash["id"], "posted_on": today(), "amount": "100",
+                                                                       "description": "Transfer from shop", "category": "income"}).json()
+    income_canonical = next(e.canonical_id or e.id for e in sms_memory_store.entries.values() if e.source_ref == income_txn["id"])
+    body = {"canonical_id": income_canonical, "dimension": "purchase", "amount": "100", "currency": "SAR"}
+    refused = client.post(f"{FIN}/links", headers=OWNER, json={**body, "role": "refund", "target_type": "purchase_return", "target_id": ret["id"]})
+    assert refused.status_code == 422 and refused.json()["code"] == "not_a_refund", refused.text
+    assert detail(created["id"])["returns"][0]["status"] == "requested"
+    as_payment = client.post(f"{FIN}/links", headers=OWNER, json={**body, "role": "payment", "target_type": "purchase", "target_id": created["id"]})
+    assert as_payment.status_code == 422 and as_payment.json()["code"] == "not_a_payment"
+    spent = client.post(f"{FIN}/transactions", headers=OWNER, json={"account_id": cash["id"], "posted_on": today(), "amount": "-40",
+                                                                  "description": "Shop"}).json()
+    spent_canonical = next(e.canonical_id or e.id for e in sms_memory_store.entries.values() if e.source_ref == spent["id"])
+    wrong_role = client.post(f"{FIN}/links", headers=OWNER, json={"canonical_id": spent_canonical, "dimension": "purchase", "amount": "40",
+                                                                "currency": "SAR", "role": "deposit", "target_type": "purchase", "target_id": created["id"]})
+    assert wrong_role.status_code == 422 and wrong_role.json()["code"] == "invalid_role"
+
+
+def test_a_shared_delivery_of_one_shipment_updates_it_and_leaves_the_order_partly_delivered() -> None:
+    created = purchase(order_ref="SPLIT-1")
+    for tracking in ("TRKA1234567", "TRKB7654321"):
+        assert client.post(f"{API}/{created['id']}/shipments", headers=OWNER, json={"carrier": "Aramex", "tracking_number": tracking}).status_code == 201
+    shared = client.post(PD.INGEST_PATH, headers=OWNER, json={"text": "SYNTHETIC. Your parcel with tracking number TRKA1234567 was delivered."})
+    assert shared.status_code == 200, shared.text
+    got = detail(created["id"])
+    assert {s["tracking_number"]: s["status"] for s in got["shipments"]} == {"TRKA1234567": "delivered", "TRKB7654321": "in_transit"}
+    assert got["status"] == "partially_delivered"
+
+
+def test_an_inferred_return_amount_keeps_the_purchase_currency() -> None:
+    canonical, _card, bearer = apple_pay_and_sms()
+    created = delivered(currency="USD", total="120", items=[])
+    assert pay(created["id"], canonical).status_code == 201  # USD 120 was charged as SAR 450
+    ret = open_return(created["id"]).json()
+    assert (ret["amount"], ret["currency"]) == ("120.00", "USD")  # never relabelled as SAR 120
+    refund = refund_sms(bearer)  # SAR 150 of the SAR 450 paid
+    assert client.post(f"{API}/returns/{ret['id']}/refunds", headers=OWNER, json={"canonical_id": refund}).status_code == 201
+    got = detail(created["id"])
+    assert got["returns"][0]["status"] == "partially_refunded" and got["status"] == "partially_refunded"

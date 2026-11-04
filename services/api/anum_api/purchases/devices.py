@@ -40,6 +40,8 @@ SCOPE = "purchases"
 INTEGRATION = "purchases.share"
 INGEST_PATH = "/api/v1/purchases/device/share"
 # How far a shared message may move a purchase forward: delivery progress only, never a cancellation or a refund.
+SHIPMENT_STATUS = {"shipped": "in_transit", "out_for_delivery": "out_for_delivery", "delivered": "delivered"}
+SHIPMENT_RANK = {"pending": 0, "in_transit": 1, "out_for_delivery": 2, "delivered": 3}
 FORWARD = {"ordered": 0, "confirmed": 1, "shipped": 2, "out_for_delivery": 3, "partially_delivered": 4, "delivered": 5}
 
 
@@ -118,6 +120,7 @@ def _forward(current: str, wanted: str | None) -> str | None:
 
 
 def handle(context: TenantContext, device_id: str | None, event: ShareEvent) -> dict[str, Any]:
+    from .api import _after_shipment as after_shipment
     from .api import add_shipment
 
     now = utc_now()
@@ -168,19 +171,28 @@ def handle(context: TenantContext, device_id: str | None, event: ShareEvent) -> 
                 if store.save_purchase(purchase, purchase.version):
                     purchase.version += 1
                     S.add_event(store, context, purchase, "share", note=f"Expected delivery {found.expected_on.isoformat()}", source="iphone", now=now)
+        ship_status = SHIPMENT_STATUS.get(found.status or "")
         if found.tracking_number or found.carrier:
             existing = store.shipments(context, [purchase.id])
-            known = {(s.tracking_number or "").upper() for s in existing}
+            same = next((s for s in existing if found.tracking_number and (s.tracking_number or "").upper() == found.tracking_number.upper()), None)
             carriers = {(s.carrier or "").casefold() for s in existing}
-            # A tracking number is added once; a message naming only the carrier adds a shipment only when there is none from it.
-            fresh = found.tracking_number.upper() not in known if found.tracking_number else (found.carrier or "").casefold() not in carriers
-            if fresh:
+            if same is not None:
+                # The message is about one shipment: that shipment moves on, and the purchase follows all of its shipments.
+                if ship_status is not None and SHIPMENT_RANK.get(ship_status, 0) > SHIPMENT_RANK.get(same.status, 0):
+                    moved = same.model_copy(update={"status": ship_status, "updated_at": now,
+                                                    "delivered_on": moment.date() if ship_status == "delivered" else same.delivered_on})
+                    if store.save_shipment(moved, same.version):
+                        S.add_event(store, context, purchase, "shipment", subject_id=same.id, note=f"Shipment {ship_status.replace('_', ' ')}",
+                                    source="iphone", now=now)
+                        after_shipment(store, context, purchase, moved, "iphone")
+            elif found.tracking_number or (found.carrier or "").casefold() not in carriers:
+                # A tracking number is added once; a message naming only the carrier adds a shipment only when there is none from it.
                 add_shipment(store, context, purchase, {"carrier": found.carrier, "tracking_number": found.tracking_number,
-                                                        "status": "out_for_delivery" if found.status == "out_for_delivery" else
-                                                        "delivered" if found.status == "delivered" else "in_transit",
-                                                        "expected_on": found.expected_on}, source="iphone")
-                purchase = store.get_purchase(context, purchase.id) or purchase
-        target = _forward(purchase.status, found.status)
+                                                        "status": ship_status or "in_transit", "expected_on": found.expected_on}, source="iphone")
+            purchase = store.get_purchase(context, purchase.id) or purchase
+        # With shipments, delivery progress comes from all of them (above); the message alone may only confirm the order.
+        has_shipments = bool(store.shipments(context, [purchase.id]))
+        target = _forward(purchase.status, found.status) if not has_shipments or found.status in ("ordered", "confirmed") else None
         if target is not None:
             purchase = S.move(store, context, purchase, target, expected_version=None, note="From a shared message", occurred_at=moment, source="iphone")
         for note in notes:

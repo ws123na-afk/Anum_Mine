@@ -649,7 +649,8 @@ def link_refund(context: TenantContext, return_id: str, *, canonical_id: str, am
         currency = purchase.payment.currency
     currency = _currency(caps, currency)
     room = refund_room(purchase, siblings, currency)
-    left_on_return = (item.amount - refunded_total(item, currency)) if item.amount is not None and item.currency == currency else None
+    expected = expected_refund(purchase, item, currency)
+    left_on_return = (expected - refunded_total(item, currency)) if expected is not None else None
     if amount is None:
         candidates = [caps[currency] - K.used(live, "purchase", currency)]
         candidates += [value for value in (room, left_on_return) if value is not None]
@@ -802,6 +803,21 @@ def _refuse_fresh_link(links_store: Any, link: Any) -> None:
             rows.pop(link.id, None)
 
 
+def expected_refund(purchase: Purchase, item: Return, currency: str) -> Decimal | None:
+    """What the return should give back in ``currency``: its own amount in its own currency, or, in the currency the purchase
+    was paid in, that amount at the rate of the purchase's own payment (paid amount over the shop's total). Nothing is
+    converted with a rate ANUM does not have."""
+    if item.amount is None:
+        return None
+    if currency == item.currency:
+        return item.amount
+    payment = purchase.payment
+    if (payment is not None and payment.status == "active" and payment.currency == currency and item.currency == purchase.currency
+            and purchase.total):
+        return (item.amount * payment.amount / purchase.total).quantize(CENT)
+    return None
+
+
 def settle_refunds(store: PurchaseStore, context: TenantContext, purchase: Purchase) -> None:
     """Return and purchase statuses follow the refunds linked from Finance: partly refunded, refunded, or back to waiting for
     the refund when a refund was undone. A dispute stays a dispute until the person moves it."""
@@ -809,15 +825,18 @@ def settle_refunds(store: PurchaseStore, context: TenantContext, purchase: Purch
     for item in returns:
         if item.status in ("rejected", "cancelled", "disputed", "requested", "approved", "pickup_scheduled") and not item.refunds:
             continue
-        total = refunded_total(item, item.currency)
-        # A refund in another currency than the return's (the card's, not the shop's) cannot be compared with the
-        # expected amount: currencies are never converted, so it settles the return.
-        elsewhere = refunded_total(item) - total
+        got: dict[str, Decimal] = {}
+        for ref in item.refunds:
+            if ref.status == "active":
+                got[ref.currency] = got.get(ref.currency, Decimal(0)) + ref.amount
         before = item.status
-        if (total > 0 or elsewhere > 0) and item.status not in ("disputed", "rejected", "cancelled"):
-            full = item.amount is None or total >= item.amount or (total == 0 and elsewhere > 0)
+        if got and item.status not in ("disputed", "rejected", "cancelled"):
+            # Complete only when a currency's refunds reach what is expected in that currency. A refund in the card's
+            # currency is compared at the rate the purchase's own payment was charged at; with no such basis it is partial.
+            full = item.amount is None or any(expected is not None and amount >= expected
+                                              for currency, amount in got.items() for expected in [expected_refund(purchase, item, currency)])
             move_return(item, "refunded" if full else "partially_refunded", system=True)
-        elif total == 0 and elsewhere == 0 and item.status in REFUND_DRIVEN:
+        elif not got and item.status in REFUND_DRIVEN:
             move_return(item, "refund_pending", system=True)
             item.refunded_on = None
         if item.status != before:
@@ -852,11 +871,29 @@ def link_target_exists(context: TenantContext, target_type: str, target_id: str)
         return False
 
 
+ROLE_OF_TARGET = {PAYMENT_TARGET: "payment", REFUND_TARGET: "refund"}
+
+
+def vet_link(context: TenantContext, request: Any, entry: Any) -> None:
+    """Every route that links to a purchase (this module's and the generic ``POST /finance/links``): a purchase takes a
+    payment that is money spent, a return takes a refund that gives money back to a spending category. Never income."""
+    from ..finance.links import LinkError
+
+    if ROLE_OF_TARGET.get(request.target_type) != request.role:
+        raise LinkError(422, "A purchase takes a payment and a return takes a refund.", "invalid_role")
+    if request.role == "payment" and not is_expense(entry):
+        raise LinkError(422, "This transaction is not money spent (it is income, a refund or a transfer). Pick the payment of the purchase.",
+                        "not_a_payment")
+    if request.role == "refund" and not is_refund(entry):
+        raise LinkError(422, ("This transaction is not a refund in Finance (it is income, a payment or a transfer). A refund is never income: "
+                              "correct it in Finance to a refund of the purchase's category, then link it."), "not_a_refund")
+
+
 def plug_finance_links() -> None:
     """Register the ``purchase`` link dimension with the finance links foundation."""
     from ..finance import links as K
 
-    K.register_target("purchase", link_target_exists, observe, single_payment=True)
+    K.register_target("purchase", link_target_exists, observe, single_payment=True, vet=vet_link)
 
 
 # -- the payment picker ----------------------------------------------------------------------------------

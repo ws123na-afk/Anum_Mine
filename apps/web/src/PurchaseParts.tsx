@@ -333,7 +333,7 @@ function ReturnsPanel({ purchase, onChanged }: { purchase: PurchaseDetail; onCha
         <dl className="purFacts">
           <dt>{t('pur.ret.items')}</dt><dd dir="auto">{r.items.length ? r.items.map((l) => `${itemName(l.item_id)} × ${Number(l.quantity)}`).join(', ') : t('pur.ret.wholeOrder')}</dd>
           <dt>{t('pur.ret.amount')}</dt><dd dir="ltr">{r.amount ? formatAmount(r.amount, r.currency) : '-'}</dd>
-          <dt>{t('pur.ret.refunded')}</dt><dd dir="ltr">{formatAmount(r.refunded, r.currency)}{refundLeft(r) && refundLeft(r) !== '0.00' ? ` (${t('pur.ret.left', { amount: formatAmount(refundLeft(r)!, r.currency) })})` : ''}</dd>
+          <dt>{t('pur.ret.refunded')}</dt><dd dir="ltr">{r.refunded_all.length ? moneyList(r.refunded_all) : formatAmount('0', r.currency)}{refundLeft(r) && refundLeft(r) !== '0.00' ? ` (${t('pur.ret.left', { amount: formatAmount(refundLeft(r)!, r.currency) })})` : ''}</dd>
           {r.deadline_on && <><dt>{t('pur.ret.deadline')}</dt><dd>{r.deadline_on}</dd></>}
           {(r.pickup_on || r.courier || r.tracking_number) && <><dt>{t('pur.ret.pickup')}</dt><dd dir="auto">{[r.pickup_on, r.courier, r.tracking_number].filter(Boolean).join(' · ')}</dd></>}
           {r.confirmation_ref && <><dt>{t('pur.ret.confirmation')}</dt><dd dir="ltr">{r.confirmation_ref}</dd></>}

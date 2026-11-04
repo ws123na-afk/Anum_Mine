@@ -112,7 +112,8 @@ function view(p: Row): Row {
   return {
     ...p, allowed_moves: MOVES[String(p.status)] ?? [], refunded: refunded ? [{ currency: 'SAR', amount: refunded.toFixed(2) }] : [],
     items_total: priced.length ? priced.reduce((s, i) => s + Number(i.unit_price) * Number(i.quantity), 0).toFixed(2) : null,
-    returns: returns.map((r) => ({ ...r, allowed_moves: RETURN_MOVES[String(r.status)] ?? [], refunded: refundedOf([r]).toFixed(2), merchant: p.merchant, order_ref: p.order_ref })),
+    returns: returns.map((r) => ({ ...r, allowed_moves: RETURN_MOVES[String(r.status)] ?? [], refunded: refundedOf([r]).toFixed(2),
+      refunded_all: refundedOf([r]) ? [{ currency: 'SAR', amount: refundedOf([r]).toFixed(2) }] : [], merchant: p.merchant, order_ref: p.order_ref })),
     events_total: (p.events as Row[]).length,
   };
 }

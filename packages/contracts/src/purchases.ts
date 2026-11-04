@@ -118,7 +118,10 @@ export interface PurchaseReturn {
   refunded_on: string | null;
   dispute_note: string | null;
   refunds: PurchaseMoneyLink[];
+  /** Refunded in the return's own currency. */
   refunded: string;
+  /** Refunded per currency, never added across currencies. */
+  refunded_all: PurchaseMoney[];
   version: number;
   can_edit: boolean;
   can_refund: boolean;

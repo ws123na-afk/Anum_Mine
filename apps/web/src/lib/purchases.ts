@@ -69,8 +69,10 @@ export function linkText(link: PurchaseMoneyLink | null | undefined): string {
 }
 
 /** What is still to be refunded on a return, in its currency, or null when the return has no amount. */
-export function refundLeft(item: Pick<PurchaseReturn, 'amount' | 'refunded'>): string | null {
+export function refundLeft(item: Pick<PurchaseReturn, 'amount' | 'refunded' | 'currency'> & { refunded_all?: PurchaseReturn['refunded_all'] }): string | null {
   if (item.amount === null) return null;
+  // A refund in another currency cannot be subtracted from the return's amount: currencies are never converted here.
+  if ((item.refunded_all ?? []).some((row) => row.currency !== item.currency)) return null;
   const left = Math.round((Number(item.amount) - Number(item.refunded)) * 100) / 100;
   return left > 0 ? left.toFixed(2) : '0.00';
 }

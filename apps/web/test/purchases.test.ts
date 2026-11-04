@@ -55,9 +55,10 @@ describe('purchase helpers', () => {
 
   test('what is still owed on a return, due dates and names', () => {
     setLocale('en');
-    assert.equal(refundLeft({ amount: '150.00', refunded: '100.00' }), '50.00');
-    assert.equal(refundLeft({ amount: '150.00', refunded: '150.00' }), '0.00');
-    assert.equal(refundLeft({ amount: null, refunded: '0.00' }), null);
+    assert.equal(refundLeft({ amount: '150.00', refunded: '100.00', currency: 'SAR' }), '50.00');
+    assert.equal(refundLeft({ amount: '150.00', refunded: '150.00', currency: 'SAR' }), '0.00');
+    assert.equal(refundLeft({ amount: null, refunded: '0.00', currency: 'SAR' }), null);
+    assert.equal(refundLeft({ amount: '120.00', refunded: '0.00', currency: 'USD', refunded_all: [{ currency: 'SAR', amount: '150.00' }] }), null);
     assert.equal(dueText(due({ days_left: 0 })), 'today');
     assert.equal(dueText(due({ days_left: 1 })), 'in 1 day');
     assert.equal(dueText(due({ days_left: -2 })), '2 days ago');
