@@ -232,6 +232,15 @@ How it works (`anum_api/voice_actions.py`):
 - **The action card** (web): `apps/web/src/VoiceActionCard.tsx` under the reply in the Voice view's conversation, with the kind ("Work handed over", "New task", ...), the state, the task title, the agent, the step and approval counts, the matches when the request was ambiguous, and **Open task** and **Open Approvals**. It has no approve button. Strings are in `src/lib/messages/en.voiceActions.ts` and `ar.voiceActions.ts`; the pure helpers are `src/lib/voiceActions.ts`.
 - **Tests:** `services/api/tests/test_voice_actions.py` (the rules, the prompt, agent tasks run through the runtime, another workspace's and a private agent not found, a paused agent, a refused role, the approval path and its hash, approval words refused, create, start, status and cancel by name, members refused cancel, "my last task" resolving to the newest task before its state is checked, a resubmitted segment acting once, ambiguous and missing names, quick commands as commands, Arabic, the non-streamed `/ask`, the teammate path through `team.assign_task`, and the TypeScript contract matching the card), `services/api/tests/test_postgres_voice.py` (a segment acts once across replicas and under concurrent claims), `apps/web/test/voiceActions.test.ts` and `apps/web/e2e/voice-actions.spec.ts` (the card, its links and its fit at 1440x900, 1366x768, 1024x768, 768x1024 and 390x844).
 
+## What ANUM can do
+
+Voice uses the same live capability list as the chat ([Conversations](conversations.md#what-anum-can-do), `anum_api/capabilities.py`), at spoken length:
+
+- **"What can you do?"** (Arabic "ماذا تستطيع"): a fixed answer from the live state, no model call: "Here ANUM can handle: Tasks and agents, Email, ... Anything that sends, pays or acts outside ANUM waits for your approval. Not on yet: Action browser, ...; Action browser is off: a workspace owner turns it on under Integrations > Action browser." At most seven names are said, then "and N more". Arabic sessions get it in Arabic.
+- **Model answers** carry the spoken list as their own trailing system part with the rule never to answer as a generic chatbot and never to say it cannot do what ANUM can.
+- **Website errands** follow the chat's routing: an errand whose browser is off is answered with the reason and where to turn it on; "book me a flight Friday" with the Action browser on asks for the site, typed in the Assistant chat (addresses are not spoken); "go to https://... and book ..." becomes a governed task like any other action. Nothing runs for the first two.
+- The list is read in the ask's worker thread, cached for 30 s; tests in `services/api/tests/test_capabilities.py`.
+
 ## Call Mode
 
 A voice (and photo or camera) call with the assistant: web **Call** in the navigation, Flutter **Call** button on the Voice tab. It is the owner mockup's screen 06: dark, the assistant's name, the status (Listening, Hearing you, Thinking, Speaking, Muted) and the call timer, the orb, the controls **Mute**, **Video**, **Speaker**, **Chat** and **More**, and a red **End call**.
