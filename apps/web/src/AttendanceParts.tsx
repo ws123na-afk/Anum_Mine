@@ -39,7 +39,7 @@ export function DailyPanel({ person, sites, today, readOnly }: { person: string 
     <ReportEditor key={`${day}:${person ?? ''}`} day={day} person={person} sites={sites} readOnly={readOnly} today={today} onDay={setDay} onSaved={() => void loadList()} />
     <section className="surface cmPanel" aria-labelledby="att-report-list">
       <h2 id="att-report-list">{t('att.daily.listTitle')}</h2>
-      <form className="cmFilters" role="search" onSubmit={(e) => { e.preventDefault(); setOffset(0); setSearch(q.trim()); }}>
+      <form className="cmFilters" role="search" onSubmit={(e) => { e.preventDefault(); const next = q.trim(); if (next === search && offset === 0) void loadList(); else { setOffset(0); setSearch(next); } }}>
         <label className="cmInline cmSearch"><span>{t('att.daily.search')}</span><input type="search" dir="auto" value={q} maxLength={120} onChange={(e) => setQ(e.target.value)} /></label>
         <button type="submit" className="secondary"><Search aria-hidden="true" />{t('att.daily.find')}</button>
       </form>
