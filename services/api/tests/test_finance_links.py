@@ -338,11 +338,11 @@ def switch(key: str, enabled: bool) -> None:
 
 def test_a_scope_without_a_registered_integration_is_refused() -> None:
     setup()
-    refused = new_device(["attendance"])
+    refused = new_device(["documents"])
     assert refused.status_code == 404 and refused.json()["code"] == "integration_unavailable"
     assert new_device(["not_a_scope"]).status_code == 422
     with pytest.raises(D.DeviceError) as caught:
-        D.authorize_scope("Bearer anything", "attendance")
+        D.authorize_scope("Bearer anything", "documents")
     assert caught.value.code == "integration_unavailable"
 
 
@@ -394,7 +394,7 @@ def test_iphone_overview_events_test_and_ping(vehicle_integration: D.Integration
     token = new_device(["vehicle"]).json()["token"]
     overview = client.get(IPHONE, headers=OWNER).json()
     keys = [i["key"] for i in overview["integrations"]]
-    assert keys == ["finance.sms", "finance.wallet", "vehicle.driving"]
+    assert keys == ["finance.sms", "finance.wallet", "attendance.location", "vehicle.driving"]
     vehicle = next(i for i in overview["integrations"] if i["key"] == "vehicle.driving")
     assert vehicle["enabled"] is False and vehicle["devices_with_scope"] == 1 and vehicle["last_connection_at"] is None
     assert overview["scopes"] == list(D.DEVICE_SCOPES) and all("token" not in d for d in overview["devices"])
@@ -430,6 +430,32 @@ def test_finance_ingest_reports_events_and_the_sms_switch_needs_the_safety_check
     assert [e["code"] for e in wallet_events["items"]] == ["disabled"]
     switch("finance.sms", False)
     assert client.get(f"{API}/sms/settings", headers=OWNER).json()["enabled"] is False
+
+
+def test_an_attendance_shortcut_signs_in_with_a_scoped_device_token() -> None:
+    from anum_api.attendance.store import attendance_store
+
+    attendance_store.clear()
+    assert "anum_api.attendance.devices" in D.plug_module_authorities()
+    s = setup()
+    office = client.post("/api/v1/attendance/sites", headers=OWNER, json={"name": "Head office", "kind": "workplace"}).json()["id"]
+    assert client.post("/api/v1/attendance/tracking", headers=OWNER, json={"action": "consent"}).status_code == 200
+    created = new_device(["attendance"])
+    assert created.status_code == 201, created.text
+    bearer = {"Authorization": f"Bearer {created.json()['token']}"}
+    body = {"event": "arrive", "site_id": office, "idempotency_key": "scoped-0001"}
+    off = client.post("/api/v1/attendance/device/events", headers=bearer, json=body)
+    assert off.status_code == 409  # the iPhone page switch is off until the owner turns it on
+    switch("attendance.location", True)
+    ok = client.post("/api/v1/attendance/device/events", headers=bearer, json=body)
+    assert ok.status_code == 201, ok.text
+    assert next(iter(attendance_store.events.values())).device_id == created.json()["device"]["id"]
+    finance_only = client.post("/api/v1/attendance/device/events", headers={"Authorization": f"Bearer {s['token']}"},
+                               json={**body, "idempotency_key": "scoped-0002"})
+    assert finance_only.status_code == 403
+    attendance = next(i for i in client.get(IPHONE, headers=OWNER).json()["integrations"] if i["key"] == "attendance.location")
+    assert attendance["enabled"] is True and attendance["last_ok_at"] is not None and attendance["failed_7d"] == 2
+    attendance_store.clear()
 
 
 def test_scoped_authority_plugs_into_a_module_seam() -> None:

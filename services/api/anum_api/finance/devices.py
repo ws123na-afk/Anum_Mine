@@ -295,6 +295,12 @@ register_integration(Integration(key="finance.wallet", scope="finance.wallet", p
                                  ingest_path="/api/v1/finance/wallet/ingest", per_minute=30, per_day=1_000, default_on=True,
                                  self_check=_wallet_check, order=20, body_fields=("source", "amount", "merchant", "card", "name")))
 
+# Work attendance (docs/attendance.md#iphone-shortcuts): arrive and leave automations. Its route reads the
+# token through ``anum_api.attendance.devices``, which ``plug_module_authorities`` connects.
+register_integration(Integration(key="attendance.location", scope="attendance", permission=Permission.ATTENDANCE_USE,
+                                 ingest_path="/api/v1/attendance/device/events", per_minute=10, per_day=200, default_on=False, order=30,
+                                 body_fields=("event", "site", "occurred_at", "idempotency_key")))
+
 
 __all__ = [
     "DEVICE_SCOPES",
