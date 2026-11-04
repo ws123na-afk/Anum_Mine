@@ -413,7 +413,10 @@ class FileMetadataStore(Protocol):
         ...
 
     def get(self, context: TenantContext, file_id: str) -> FileRecord | None: ...
-    def list_files(self, context: TenantContext, limit: int) -> list[FileRecord]: ...
+    def list_files(self, context: TenantContext, limit: int, *, include_assistant_vault: bool = False) -> list[FileRecord]:
+        """The oldest files first. ``include_assistant_vault``: also vault documents their owner let the
+        assistant read (the retrieval reindex), never shown in the Files list (docs/documents.md#the-assistant)."""
+        ...
     def list_page(self, context: TenantContext, query: FilePageQuery) -> list[FileRecord]: ...
     def usage(self, context: TenantContext) -> FileUsage: ...
     def rename(self, context: TenantContext, file_id: str, name: str) -> FileRecord | None: ...
@@ -504,9 +507,10 @@ class FileStore:
             return None
         return record
 
-    def list_files(self, context: TenantContext, limit: int) -> list[FileRecord]:
+    def list_files(self, context: TenantContext, limit: int, *, include_assistant_vault: bool = False) -> list[FileRecord]:
         with self._lock:
-            return sorted((r for r in self._scoped(context) if r.vault is None), key=lambda r: (r.created_at, r.id))[:limit]
+            rows = (r for r in self._scoped(context) if r.vault is None or (include_assistant_vault and r.vault == "assistant"))
+            return sorted(rows, key=lambda r: (r.created_at, r.id))[:limit]
 
     def list_page(self, context: TenantContext, query: FilePageQuery) -> list[FileRecord]:
         with self._lock:

@@ -613,6 +613,7 @@ async def _index_for_assistant(context: TenantContext, record: DocumentRecord) -
 
     with vault_files_visible():
         found, content = await asyncio.to_thread(load)
+        # Replaces the document's earlier index rows: they described the bytes before this version.
         await index_uploaded_file(context, found, content)
 
 
@@ -723,13 +724,19 @@ async def upload_version(document_id: str, request: Request, context: TenantCont
     digest = hashlib.sha256(content).hexdigest()
     scanned = await asyncio.to_thread(check_upload_content, name, allowed, content)
     record = await asyncio.to_thread(service.add_version, context, document_id, content, digest, allowed.content_type, scanned)
+    if record.assistant_may_read:
+        # The assistant reads the current version only (docs/documents.md#the-assistant).
+        await _index_for_assistant(context, record)
     return _view(context, record, service.today(), await asyncio.to_thread(_window, context))
 
 
 @router.post("/{document_id}/versions/{version_id}/restore", response_model=DocumentView)
-def restore_version(document_id: str, version_id: str, context: TenantContext = Depends(tenant_context)) -> DocumentView:
+async def restore_version(document_id: str, version_id: str, context: TenantContext = Depends(tenant_context)) -> DocumentView:
     _require(context, Permission.DOCUMENT_WRITE, WRITE_DENIED)
-    return _view(context, service.restore_version(context, document_id, version_id), service.today(), _window(context))
+    record = await asyncio.to_thread(service.restore_version, context, document_id, version_id)
+    if record.assistant_may_read:
+        await _index_for_assistant(context, record)
+    return _view(context, record, service.today(), await asyncio.to_thread(_window, context))
 
 
 @router.delete("/{document_id}/versions/{version_id}", status_code=status.HTTP_204_NO_CONTENT)

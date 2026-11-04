@@ -35,6 +35,8 @@ logger = logging.getLogger("anum_api.vault.jobs")
 JOB_USER = "system:vault"
 NOTICE_KIND = "document_expiry"
 FIXED_STEPS = (7, 1, 0)
+# Documents read per page while looking for due reminders.
+PAGE_SIZE = 500
 
 _DISCOVER = text(
     """
@@ -116,10 +118,19 @@ def run_workspace(tenant_id: str, workspace_id: str, *, now: datetime | None = N
     result = VaultJobResult(dry_run=dry_run, workspaces=1)
     with open_vault_unit(context, job=True) as unit:
         vault_settings = unit.store.get_settings(context)
-        expiring = unit.store.expiring(context, date.fromordinal(today.toordinal() + 366))
         retention = unit.store.retention_due(context, today)
         trash = unit.store.trash_due(context, moment)
-    due = [(record, step) for record in expiring if (step := due_step(record, vault_settings.reminder_days, today)) is not None]
+    due: list[tuple[DocumentRecord, int]] = []
+    after: tuple[date, str] | None = None
+    until = date.fromordinal(today.toordinal() + 366)
+    while True:
+        with open_vault_unit(context, job=True) as unit:
+            page = unit.store.expiring(context, today, until, after=after, limit=PAGE_SIZE)
+        due.extend((record, step) for record in page if (step := due_step(record, vault_settings.reminder_days, today)) is not None)
+        if len(page) < PAGE_SIZE:
+            break
+        last = page[-1]
+        after = (last.expiry_date, last.id)  # type: ignore[assignment]
     if dry_run:
         result.reminders, result.retention_trashed, result.purged = len(due), len(retention), len(trash)
         return result

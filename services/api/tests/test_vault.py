@@ -476,3 +476,65 @@ def test_people_lists_members_who_may_read_documents() -> None:
     people = client.get("/api/v1/documents/people", headers=ALICE)
     assert people.status_code == 200 and [p["user_id"] for p in people.json()] == ["bob", "owner_1"]
     assert client.get("/api/v1/documents/people", headers=VIEWER).status_code == 403
+
+
+# --------------------------------------------------------------------------- review findings (PR #371)
+
+
+def _file_source(file_id: str):  # type: ignore[no-untyped-def]
+    from anum_api.retrieval import SourceType
+    from anum_api.schemas import TenantContext
+
+    context = TenantContext(tenant_id=TENANT, workspace_id=WORKSPACE, user_id="alice")
+    return memory_retrieval_store.get_sources(context, SourceType.FILE, [file_id]).get(file_id)
+
+
+def _opted_in() -> tuple[dict, str]:
+    doc = add(b"Lease terms: rent is due on the first.", name="lease.txt", category="contract", access_class="workspace").json()
+    opened = client.patch(f"/api/v1/documents/{doc['id']}", headers=ALICE, json={"row_version": 1, "assistant_may_read": True})
+    assert opened.status_code == 200, opened.text
+    file_id = next(iter(file_store.records))
+    assert _file_source(file_id) is not None
+    return opened.json(), file_id
+
+
+def test_a_new_or_restored_version_of_an_assistant_readable_document_is_indexed_again() -> None:
+    doc, file_id = _opted_in()
+    newer = client.post(f"/api/v1/documents/{doc['id']}/versions", headers=ALICE, content=b"Lease terms: rent is due on the fifth.")
+    assert newer.status_code == 201, newer.text
+    assert _file_source(file_id).content_sha256 == file_store.records[file_id].sha256
+    old = client.get(f"/api/v1/documents/{doc['id']}/versions", headers=ALICE).json()["items"][0]
+    assert client.post(f"/api/v1/documents/{doc['id']}/versions/{old['id']}/restore", headers=ALICE).status_code == 200
+    assert _file_source(file_id).content_sha256 == file_store.records[file_id].sha256
+
+
+def test_retrieval_reindex_keeps_assistant_readable_vault_documents_and_files_still_hides_them() -> None:
+    _, file_id = _opted_in()
+    result = client.post("/api/v1/retrieval/index", headers=ALICE)
+    assert result.status_code == 200, result.text
+    assert _file_source(file_id) is not None
+    assert client.get("/api/v1/files", headers=OWNER).json() == []
+
+
+def test_a_scan_of_an_older_version_cannot_be_confirmed(monkeypatch: pytest.MonkeyPatch) -> None:
+    _ocr(monkeypatch, RECEIPT_LINES)
+    created = add(png(21), name="r.png", category="receipt").json()
+    read = client.post(f"/api/v1/documents/{created['id']}/extract", headers=ALICE).json()
+    assert read["status"] == "pending"
+    assert client.post(f"/api/v1/documents/{created['id']}/versions", headers=ALICE, content=png(22)).status_code == 201
+    stale = client.post(f"/api/v1/documents/extractions/{read['id']}/confirm", headers=ALICE, json={"fields": {"total": "150.00", "currency": "SAR"}})
+    assert stale.status_code == 409 and "older version" in message(stale)
+    assert client.get(f"/api/v1/documents/{created['id']}", headers=ALICE).json()["receipt"] is None
+    assert client.post(f"/api/v1/documents/extractions/{read['id']}/reject", headers=ALICE).status_code == 200
+
+
+def test_reminders_reach_every_due_document_past_expired_ones_and_across_pages(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(jobs, "PAGE_SIZE", 2)
+    for index in range(3):
+        old = add(PDF + f"%old{index}".encode(), category="visa", title=f"Old {index}").json()
+        client.patch(f"/api/v1/documents/{old['id']}", headers=ALICE, json={"row_version": 1, "expiry_date": (date.today() - timedelta(days=10 + index)).isoformat()})
+    for index in range(3):
+        soon = add(PDF + f"%soon{index}".encode(), category="visa", title=f"Soon {index}").json()
+        client.patch(f"/api/v1/documents/{soon['id']}", headers=ALICE, json={"row_version": 1, "expiry_date": (date.today() + timedelta(days=3 + index)).isoformat()})
+    assert jobs.run()["reminders"] == 3
+    assert jobs.run()["reminders"] == 0

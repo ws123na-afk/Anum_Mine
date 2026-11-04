@@ -795,6 +795,9 @@ def decide_extraction(context: TenantContext, extraction_id: str, accept: bool, 
         record = editable(unit, context, extraction.document_id)
         if extraction.status != "pending":
             raise HTTPException(409, "This scan result was already decided, or it is still being read.")
+        if accept and extraction.file_sha256 != record.content_sha256:
+            # The document got a new version after the scan: its values describe a file that is no longer current.
+            raise HTTPException(409, "This scan is of an older version of the document. Reject it and scan the current version.")
         now = utc_now()
         updated = record
         if accept:

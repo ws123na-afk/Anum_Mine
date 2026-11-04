@@ -108,23 +108,29 @@ def test_duplicates_versions_trash_and_deletion_in_postgres(client: TestClient, 
     assert not file_store.storage.objects  # type: ignore[attr-defined]
 
 
-def test_the_daily_job_reminds_once_and_purges_the_trash(client: TestClient, database_engine: Engine) -> None:  # noqa: F811
+def test_the_daily_job_reminds_once_and_purges_the_trash(client: TestClient, database_engine: Engine, monkeypatch: pytest.MonkeyPatch) -> None:  # noqa: F811
+    monkeypatch.setattr(jobs, "PAGE_SIZE", 1)
     with database_engine.connect() as connection, connection.begin():
         connection.execute(text("insert into workspace_memberships (tenant_id, workspace_id, user_id, role) values (:t, :w, 'alice', 'member')"),
                            {"t": TENANT_A, "w": WORKSPACE_A})
     created = add(client, category="visa", title="Visa")
     soon = (date.today() + timedelta(days=1)).isoformat()
     client.patch(f"/api/v1/documents/{created['id']}", headers=ALICE, json={"row_version": 1, "expiry_date": soon})
+    expired = add(client, PDF + b"%x", category="visa", title="Old visa")
+    client.patch(f"/api/v1/documents/{expired['id']}", headers=ALICE, json={"row_version": 1, "expiry_date": (date.today() - timedelta(days=5)).isoformat()})
+    later = add(client, PDF + b"%y", category="visa", title="Visa 2")
+    client.patch(f"/api/v1/documents/{later['id']}", headers=ALICE, json={"row_version": 1, "expiry_date": (date.today() + timedelta(days=2)).isoformat()})
     first = jobs.run()
-    assert first["reminders"] == 1 and first["failed"] == 0
+    # Pages of one document: the expired one is skipped before the limit, both due ones are reminded.
+    assert first["reminders"] == 2 and first["failed"] == 0
     assert jobs.run()["reminders"] == 0
-    assert count_as(database_engine, "select count(*) from user_notifications where kind = 'document_expiry'", user="alice") == 1
+    assert count_as(database_engine, "select count(*) from user_notifications where kind = 'document_expiry'", user="alice") == 2
     trashed = add(client, PDF + b"%t", category="other")
     client.delete(f"/api/v1/documents/{trashed['id']}", headers=ALICE)
     from anum_api.schemas import utc_now
 
     assert jobs.run(now=utc_now() + timedelta(days=31))["purged"] == 1
-    assert count_as(database_engine, "select count(*) from vault_documents", job=True, vault=True) == 1
+    assert count_as(database_engine, "select count(*) from vault_documents", job=True, vault=True) == 3
 
 
 def test_numbers_are_rotated_with_the_secrets_key(client: TestClient, database_engine: Engine) -> None:  # noqa: F811
@@ -149,3 +155,19 @@ def test_numbers_are_rotated_with_the_secrets_key(client: TestClient, database_e
     with database_engine.connect() as connection:
         token = connection.execute(text("select number_ciphertext from vault_documents")).scalar_one()
     assert SecretCipher([new_key]).decrypt(token) == "784199012345671"
+
+
+def test_assistant_readable_documents_survive_a_retrieval_reindex_and_follow_new_versions(client: TestClient, database_engine: Engine) -> None:  # noqa: F811
+    doc = client.post("/api/v1/documents", params={"name": "lease.txt", "category": "contract", "access_class": "workspace"}, headers=ALICE,
+                      content=b"Lease terms: rent is due on the first.").json()
+    opened = client.patch(f"/api/v1/documents/{doc['id']}", headers=ALICE, json={"row_version": 1, "assistant_may_read": True})
+    assert opened.status_code == 200, opened.text
+    sources = "select count(*) from retrieval_sources where source_type = 'file'"
+    assert count_as(database_engine, sources) == 1
+    assert client.post("/api/v1/retrieval/index", headers=ALICE).status_code == 200
+    assert count_as(database_engine, sources) == 1
+    assert client.get("/api/v1/files", headers=OWNER).json() == []
+    assert client.post(f"/api/v1/documents/{doc['id']}/versions", headers=ALICE, content=b"Lease terms: rent is due on the fifth.").status_code == 201
+    current = count_as(database_engine, "select count(*) from retrieval_sources s join workspace_files f on f.tenant_id = s.tenant_id "
+                       "and f.workspace_id = s.workspace_id and f.id = s.source_id where s.content_sha256 = f.sha256")
+    assert current == 1

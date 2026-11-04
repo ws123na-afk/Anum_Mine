@@ -5,7 +5,7 @@ Each store's session must already carry the tenant and workspace RLS context; qu
 also filter on the scope explicitly.
 """
 
-from sqlalchemy import delete, func, select, text, tuple_, update
+from sqlalchemy import delete, func, or_, select, text, tuple_, update
 from sqlalchemy.orm import Session
 
 from anum_api.audit import AuditRecord
@@ -206,10 +206,13 @@ class SqlAlchemyFileMetadataStore:
         row = self._row(context, file_id)
         return None if row is None else _file(row)
 
-    def list_files(self, context: TenantContext, limit: int) -> list[FileRecord]:
+    def list_files(self, context: TenantContext, limit: int, *, include_assistant_vault: bool = False) -> list[FileRecord]:
+        shown = WorkspaceFileRecord.vault.is_(None)
+        if include_assistant_vault:
+            shown = or_(shown, WorkspaceFileRecord.vault == "assistant")
         rows = self.session.scalars(
             select(WorkspaceFileRecord)
-            .where(*self._scope(context), WorkspaceFileRecord.vault.is_(None))
+            .where(*self._scope(context), shown)
             .order_by(WorkspaceFileRecord.created_at, WorkspaceFileRecord.id)
             .limit(limit)
         ).all()

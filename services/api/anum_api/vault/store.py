@@ -96,7 +96,7 @@ class VaultStore(Protocol):
     def devices(self, context: TenantContext, owner_user_id: str) -> list[DeviceRecord]: ...
     def device(self, context: TenantContext, device_id: str) -> DeviceRecord | None: ...
     def save_device(self, context: TenantContext, record: DeviceRecord) -> DeviceRecord: ...
-    def expiring(self, context: TenantContext, until: date) -> list[DocumentRecord]: ...
+    def expiring(self, context: TenantContext, today: date, until: date, *, after: tuple[date, str] | None = None, limit: int = 500) -> list[DocumentRecord]: ...
     def trash_due(self, context: TenantContext, now: datetime) -> list[DocumentRecord]: ...
     def retention_due(self, context: TenantContext, today: date) -> list[DocumentRecord]: ...
     def owned_by(self, context: TenantContext, user_id: str) -> list[DocumentRecord]: ...
@@ -339,10 +339,13 @@ class InMemoryVaultStore:
             self._devices[(*self._ws(context), record.id)] = record.model_copy(deep=True)
             return record
 
-    def expiring(self, context: TenantContext, until: date) -> list[DocumentRecord]:
+    def expiring(self, context: TenantContext, today: date, until: date, *, after: tuple[date, str] | None = None, limit: int = 500) -> list[DocumentRecord]:
         with self._lock:
-            return [d.model_copy(deep=True) for d in self._scoped_docs(context)
-                    if d.status == "active" and d.expiry_date is not None and d.expiry_date <= until]
+            rows = [d for d in self._scoped_docs(context)
+                    if d.status == "active" and d.expiry_date is not None and today <= d.expiry_date <= until
+                    and (after is None or (d.expiry_date, d.id) > after)]
+        rows.sort(key=lambda d: (d.expiry_date, d.id))
+        return [d.model_copy(deep=True) for d in rows[:limit]]
 
     def trash_due(self, context: TenantContext, now: datetime) -> list[DocumentRecord]:
         with self._lock:
@@ -734,10 +737,14 @@ class SqlVaultStore:
 
     # -- the daily job (anum.vault_job is set, so private documents are included)
 
-    def expiring(self, context: TenantContext, until: date) -> list[DocumentRecord]:
+    def expiring(self, context: TenantContext, today: date, until: date, *, after: tuple[date, str] | None = None, limit: int = 500) -> list[DocumentRecord]:
+        # Already expired documents get no reminder, so they are left out before the limit; pages follow (expiry_date, id).
+        params = self._p(context, today=today, until=until, limit=limit, after_date=after[0] if after else None, after_id=after[1] if after else "")
         rows = self.session.execute(text(
             f"select {_DOC_COLUMNS} from vault_documents where tenant_id = :t and workspace_id = :w and status = 'active' "  # nosec B608
-            "and expiry_date is not null and expiry_date <= :until order by expiry_date, id limit 500"), self._p(context, until=until)).all()
+            "and expiry_date between :today and :until "
+            "and (cast(:after_date as date) is null or (expiry_date, id) > (cast(:after_date as date), :after_id)) "
+            "order by expiry_date, id limit :limit"), params).all()
         return [self._doc(row) for row in rows]
 
     def trash_due(self, context: TenantContext, now: datetime) -> list[DocumentRecord]:
