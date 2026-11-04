@@ -42,7 +42,7 @@
 .orgKpi { align-content: start; background: var(--d-glass-1); border: 1px solid var(--d-line); border-radius: var(--d-r-control); display: grid; gap: 2px; padding: var(--d-s2) var(--d-s3); }
 .orgKpi dt { color: var(--d-muted); font-size: var(--text-xs); font-weight: 600; }
 .orgKpi dd { font-size: var(--text-3xl); font-variant-numeric: tabular-nums; font-weight: 700; line-height: 1.2; margin: 0; }
-.orgKpi dd.orgKpiNote { font-size: var(--text-xs); font-weight: 400; line-height: 1.35; }
+.orgKpi dd.orgKpiNote { font-size: var(--text-2xs); font-weight: 400; line-height: 1.35; }
 .orgKpi.tone-sky dd { color: var(--d-sky); }
 .orgKpi.tone-warn dd, .orgKpi.tone-warn .orgKpiLink { color: var(--d-warn); }
 .orgKpi.tone-stop dd { color: var(--d-stop); }
@@ -120,7 +120,7 @@
 .orgWarn svg { flex: none; height: 14px; width: 14px; }
 .orgChips { display: flex; flex-wrap: wrap; gap: 4px; min-height: 26px; }
 .orgNone { font-size: var(--text-xs); }
-.orgSkill { align-items: center; background: var(--d-glass-2); border-radius: 999px; color: var(--d-text); display: inline-flex; font-size: var(--text-xs); min-height: 26px; padding: 0 8px; }
+.orgSkill { align-items: center; background: var(--d-glass-2); border-radius: 999px; color: var(--d-text); display: inline-flex; font-size: var(--text-2xs); min-height: 26px; padding: 0 8px; }
 .orgSkill.isMore { color: var(--d-muted); }
 
 /* Assistants and people: compact rows under the agents. */
@@ -152,7 +152,7 @@
 .orgTools { display: flex; flex-wrap: wrap; gap: 4px; list-style: none; margin: 0; padding: 0; }
 .orgTool {
   align-items: center; background: var(--d-chip); border: 1px solid var(--d-line); border-radius: 999px; color: var(--d-text); cursor: pointer;
-  display: inline-flex; font-size: var(--text-xs); font-weight: 600; gap: 5px; min-height: 26px; padding: 0 8px; position: relative; z-index: 1;
+  display: inline-flex; font-size: var(--text-2xs); font-weight: 600; gap: 5px; min-height: 26px; padding: 0 8px; position: relative; z-index: 1;
 }
 .orgTool:hover { border-color: var(--d-line-hover); }
 .orgTool.tool-connected .orgDot { background: var(--d-ok); }

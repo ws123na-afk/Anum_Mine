@@ -88,7 +88,7 @@ export function ReportsView({ initialReportId, onOpenConversation, onOpenAutomat
 
   return <>
     <section className="moduleIntro">
-      <div><p className="eyebrow">{t('reports.eyebrow')}</p><h2 className="visuallyHidden">{t('reports.title')}</h2><p>{t('reports.intro')}</p></div>
+      <div><p className="eyebrow">{t('reports.eyebrow')}</p><h2>{t('reports.title')}</h2><p>{t('reports.intro')}</p></div>
     </section>
     <Notice flash={flash} />
     {generators.length > 0 && <GeneratePanel generators={generators} onGenerated={(report) => { setFlash({ text: t('reports.generated', { title: report.title }) }); void fetchFirst(filters); open(report.id); }} onScheduled={(name) => setFlash({ text: t('reports.schedule.done', { name }) })} onOpenAutomation={onOpenAutomation} />}

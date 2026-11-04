@@ -166,8 +166,8 @@
 .finItems strong .statusBadge { margin-inline-start: var(--d-s2); }
 /* Eleven sections: on a phone they scroll sideways in one row instead of wrapping to four. */
 @media (max-width: 760px) {
-  .finBody > .cmTabs { flex-wrap: nowrap; overflow-x: auto; overscroll-behavior-x: contain; padding-bottom: var(--d-s1); scrollbar-width: thin; }
-  .finBody > .cmTabs > button { flex: none; }
+  .finLayout > .cmTabs { flex-wrap: nowrap; overflow-x: auto; overscroll-behavior-x: contain; padding-bottom: var(--d-s1); scrollbar-width: thin; }
+  .finLayout > .cmTabs > button { flex: none; }
 }
 .finMapping > button.secondary { justify-self: start; }
 
@@ -313,18 +313,3 @@
 .finPreflightGroups { display: grid; gap: var(--d-s3); grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr)); }
 .finPreflightGroups > div { display: grid; gap: var(--d-s2); align-content: start; min-width: 0; }
 .finPreflightAnswer a { align-items: center; display: inline-flex; gap: var(--d-s1); }
-
-/* Sixteen sections (docs/web-design-system.md#pages): from 1280 px they are a vertical list beside the
-   open section, like Settings, so every section shows at once instead of a row that scrolls out of
-   sight; narrower screens keep the underlined row above the section. */
-.finBody, .finSection { align-content: start; display: grid; gap: var(--d-s4); min-width: 0; }
-.finBody > .cmTabs { margin: 0; }
-@media (min-width: 1280px) {
-  .finBody { align-items: start; grid-template-columns: 184px minmax(0, 1fr); }
-  .finBody > .cmTabs { border-bottom: 0; display: grid; gap: 2px; overflow: visible; position: sticky; top: var(--d-s4); }
-  .finBody > .cmTabs button {
-    border-radius: var(--d-r-control); box-shadow: none; justify-content: flex-start; min-height: var(--d-control-h-sm); padding: 0 var(--d-s3); text-align: start; white-space: normal;
-  }
-  .finBody > .cmTabs button[aria-current="page"] { background: var(--d-glass-2); box-shadow: inset 3px 0 0 var(--d-accent); }
-  [dir="rtl"] .finBody > .cmTabs button[aria-current="page"] { box-shadow: inset -3px 0 0 var(--d-accent); }
-}

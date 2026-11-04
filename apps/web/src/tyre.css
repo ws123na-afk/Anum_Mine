@@ -157,21 +157,3 @@ button.iconOnly { align-items: center; display: inline-flex; justify-content: ce
   .tyreSteps { grid-template-columns: minmax(0, 1fr); }
   .tyreBars li { grid-template-columns: minmax(70px, 90px) minmax(0, 1fr) auto; }
 }
-
-/* Second redesign pass (docs/web-design-system.md#pages): the figures are one strip with hairlines
-   (the grid's background is the line colour), not a wall of cards. A figure that needs attention keeps
-   its number in the text colour and marks its label with a status dot; the hint says why. */
-.tyreMetrics { background: var(--d-line); border: 1px solid var(--d-line); border-radius: var(--d-r-panel); box-shadow: var(--d-elev-1); gap: 1px; overflow: hidden; }
-.tyreMetrics > .tyreMetric { border: 0; border-radius: 0; box-shadow: none; padding: var(--d-s4) var(--d-s5); }
-.tyreMetrics > .tyreMetric > strong { color: var(--d-text); font-size: var(--text-4xl); letter-spacing: -.02em; }
-.tyreMetric:is(.danger, .warn) .metricTop::before { border-radius: 50%; content: ""; display: inline-block; height: 8px; margin-inline-end: var(--d-s2); vertical-align: 1px; width: 8px; }
-.tyreMetric.danger .metricTop::before { background: var(--d-stop); }
-.tyreMetric.warn .metricTop::before { background: var(--d-warn); }
-@media (max-width: 760px) {
-  .tyreMetrics, .tyreMetrics.three { gap: 1px; }
-  .tyreMetrics.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
-  .tyreMetrics > .tyreMetric { padding: var(--d-s3); }
-  .tyreMetrics > .tyreMetric > strong { font-size: var(--text-2xl); }
-}
-@media (max-width: 1100px) { .tyreMetrics.three { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
-.tyreMetrics .metricTop { justify-content: flex-start; }

@@ -116,8 +116,7 @@ button.secondary.dangerText { color: var(--d-stop); }
 .kbCollectionButton small { align-items: center; color: var(--d-muted); display: flex; font-size: var(--text-sm); gap: var(--d-s1); }
 .kbCollectionButton small svg { height: 13px; width: 13px; }
 .kbCollectionButton:hover { background: var(--d-glass-1); }
-.kbCollectionButton.active { background: var(--d-glass-2); border-color: transparent; box-shadow: inset 3px 0 0 var(--d-accent); }
-[dir="rtl"] .kbCollectionButton.active { box-shadow: inset -3px 0 0 var(--d-accent); }
+.kbCollectionButton.active { background: rgb(var(--c-violet) / .14); border-color: rgb(var(--c-violet) / .4); }
 .kbCreate, .kbEdit, .kbAddForm { display: grid; gap: var(--d-s3); }
 .kbCreate .field, .kbEdit .field, .kbAddForm .field { margin-top: 0; }
 .kbVisibility { border: 0; display: grid; gap: var(--d-s1); margin: 0; padding: 0; }
@@ -160,13 +159,3 @@ button.secondary.dangerText { color: var(--d-stop); }
   #report-print .reportTableWrap { max-height: none; overflow: visible; }
   #report-print .reportMetrics > div, #report-print .reportTable th { background: #fff; color: #000; }
 }
-
-/* Second redesign pass (docs/web-design-system.md#pages): a report's key figures read inline beside
-   each other with hairlines between them, not as small boxes inside a row; the star keeps the
-   control's hairline and only its glyph turns amber. */
-.reportRow .reportMetrics { display: flex; flex-wrap: wrap; gap: var(--d-s2) 0; }
-.reportRow .reportMetrics > div { background: none; border: 0; border-inline-start: 1px solid var(--d-line); border-radius: 0; padding: 0 var(--d-s4); }
-.reportRow .reportMetrics > div:first-child { border-inline-start: 0; padding-inline-start: 0; }
-.reportRow .reportMetrics dt { font-weight: 500; }
-.reportRow .reportMetrics strong { font-variant-numeric: tabular-nums; font-weight: 600; }
-.starButton.starred { border-color: var(--d-line-strong); }
