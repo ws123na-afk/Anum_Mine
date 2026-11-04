@@ -902,9 +902,31 @@ def _states(command: StoredCommand, repository: AnumRepository, context: TenantC
 _STOPPED = {TaskStatus.FAILED, TaskStatus.CANCELLED}
 
 
-def _dependencies(step: StoredStep, states: list[_StepState]) -> tuple[list[int], list[int]]:
+def _stopped_positions(states: list[_StepState]) -> set[int]:
+    """Steps that cannot finish on their own: their task failed, was cancelled or can no longer
+    be read, or it never started and a step it waits for is itself stopped (transitively, so
+    a failure blocks the whole chain and every branch of a diamond below it)."""
+    by_position = {state.step.position: state for state in states}
+    stopped: set[int] = set()
+    # Dependencies always point to earlier positions, so one pass in position order settles it.
+    for position in sorted(by_position):
+        state = by_position[position]
+        task = state.task
+        if task is None or task.status in _STOPPED:
+            stopped.add(position)
+        elif task.status == TaskStatus.CREATED and any(
+            dep in stopped or dep not in by_position for dep in state.step.depends_on
+        ):
+            stopped.add(position)
+    return stopped
+
+
+def _dependencies(
+    step: StoredStep, states: list[_StepState], stopped: set[int] | None = None
+) -> tuple[list[int], list[int]]:
     """(waiting_for, blocked_by): the step's dependencies not completed yet, and those that
-    failed, were cancelled or can no longer be read."""
+    cannot complete on their own (failed, cancelled, unreadable, or blocked further up)."""
+    stopped = _stopped_positions(states) if stopped is None else stopped
     by_position = {state.step.position: state for state in states}
     waiting: list[int] = []
     blocked: list[int] = []
@@ -914,23 +936,24 @@ def _dependencies(step: StoredStep, states: list[_StepState]) -> tuple[list[int]
         if task is not None and task.status == TaskStatus.COMPLETED:
             continue
         waiting.append(position)
-        if task is None or task.status in _STOPPED:
+        if state is None or position in stopped:
             blocked.append(position)
     return waiting, blocked
 
 
-def _effective_status(state: _StepState, states: list[_StepState]) -> str:
-    """The task's status, except that a step that never started because an earlier step it
-    needs failed counts as failed for the command's status (it cannot finish on its own)."""
+def _effective_status(state: _StepState, stopped: set[int]) -> str:
+    """The task's status, except that a step that never started because a step it needs
+    (directly or further up) cannot finish counts as failed for the command's status."""
     if state.task is None:
         return TaskStatus.FAILED.value
-    if state.task.status == TaskStatus.CREATED and _dependencies(state.step, states)[1]:
+    if state.task.status == TaskStatus.CREATED and state.step.position in stopped:
         return TaskStatus.FAILED.value
     return state.task.status.value
 
 
 def _summary(command: StoredCommand, states: list[_StepState]) -> CommandSummary:
-    statuses = [_effective_status(state, states) for state in states]
+    stopped = _stopped_positions(states)
+    statuses = [_effective_status(state, stopped) for state in states]
     progress = [_step_progress(state.task, state.run) for state in states]
     agents: dict[AgentId, CommandAgent] = {}
     for step in command.steps:
@@ -956,6 +979,7 @@ def _summary(command: StoredCommand, states: list[_StepState]) -> CommandSummary
 def build_view(command: StoredCommand, repository: AnumRepository, context: TenantContext) -> CommandView:
     states = _states(command, repository, context)
     summary = _summary(command, states)
+    stopped = _stopped_positions(states)
     steps: list[CommandStepView] = []
     timeline: list[TimelineEntry] = []
     files = [
@@ -973,7 +997,7 @@ def build_view(command: StoredCommand, repository: AnumRepository, context: Tena
     for state in states:
         step, task, run = state.step, state.task, state.run
         agent = agent_view(step.agent, command.locale)
-        waiting_for, blocked_by = _dependencies(step, states)
+        waiting_for, blocked_by = _dependencies(step, states, stopped)
         done = task is not None and task.status in _TERMINAL
         if run is not None:
             started.append(run.created_at)

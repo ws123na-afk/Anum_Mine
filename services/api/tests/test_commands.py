@@ -632,3 +632,60 @@ def test_calendar_steps_say_what_the_connected_calendar_does() -> None:
         assert reauth["connected"] is False and reauth["note"].startswith("Google Calendar needs to be connected again")
     finally:
         sync_backend.connections.pop(connection.id, None)
+
+
+def _declared(steps: list[tuple[str, list[int]]]) -> dict:
+    text = ", ".join(instruction for instruction, _ in steps)
+    response = client.post("/api/v1/commands", headers=owner, json={
+        "text": text, "steps": [{"instruction": instruction, "depends_on": deps} for instruction, deps in steps],
+    })
+    assert response.status_code == 201, response.text
+    return response.json()
+
+
+def _reject_first_step(command: dict) -> None:
+    started = client.post(f"/api/v1/commands/{command['id']}/start", headers=owner).json()
+    assert started["started"] == [command["steps"][0]["task_id"]]
+    (pending,) = started["command"]["pending"]
+    assert client.post(f"/api/v1/approvals/{pending['id']}/reject", headers=owner).status_code == 200
+
+
+def test_a_failure_blocks_the_whole_chain_below_it() -> None:
+    command = _declared([
+        ("Send the weekly update to the team", []),
+        ("Search the web for tyre prices", [1]),
+        ("Check my emails", [2]),
+    ])
+    _reject_first_step(command)
+    view = _view(command["id"])
+    assert [step["status"] for step in view["steps"][1:]] == ["created", "created"]
+    assert [step["blocked_by"] for step in view["steps"]] == [[], [1], [2]]
+    # Nothing can finish on its own, so the command is no longer running (the page stops polling).
+    assert view["status"] == "failed"
+    assert client.post(f"/api/v1/commands/{command['id']}/start", headers=owner).json()["started"] == []
+
+
+def test_a_failure_blocks_both_branches_and_the_join_of_a_diamond() -> None:
+    command = _declared([
+        ("Send the weekly update to the team", []),
+        ("Search the web for tyre prices", [1]),
+        ("Check my emails", [1]),
+        ("Check my WhatsApp chats", [2, 3]),
+    ])
+    _reject_first_step(command)
+    view = _view(command["id"])
+    assert [step["blocked_by"] for step in view["steps"]] == [[], [1], [1], [2, 3]]
+    assert view["status"] == "failed"
+
+
+def test_a_chain_still_waiting_is_not_blocked() -> None:
+    command = _declared([
+        ("Send the weekly update to the team", []),
+        ("Search the web for tyre prices", [1]),
+        ("Check my emails", [2]),
+    ])
+    client.post(f"/api/v1/commands/{command['id']}/start", headers=owner)
+    view = _view(command["id"])
+    assert [step["blocked_by"] for step in view["steps"]] == [[], [], []]
+    assert [step["waiting_for"] for step in view["steps"]] == [[], [1], [2]]
+    assert view["status"] == "waiting_approval"
