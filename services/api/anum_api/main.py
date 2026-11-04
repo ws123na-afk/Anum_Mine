@@ -283,6 +283,7 @@ from .identity import validate_auth_configuration
 from .telemetry import HttpMetricsMiddleware, setup_telemetry, shutdown_telemetry, sqlalchemy_engines
 from .error_reporting import setup_error_reporting, shutdown_error_reporting
 from .serving import prepare_for_serving
+from .attendance.api import router as attendance_router  # docs/attendance.md
 
 # Fail fast: header mode and anum_local_* sessions must never serve a non-local environment.
 validate_auth_configuration(settings)
@@ -590,6 +591,7 @@ app.include_router(public_logos_router)
 app.include_router(agents_router)
 app.include_router(home_router)
 app.include_router(setup_plans_router)
+app.include_router(attendance_router)
 repository = memory_repository
 model_gateway = build_default_model_gateway()
 integration_registry = default_integration_registry(settings)
