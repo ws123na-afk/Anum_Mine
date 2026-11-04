@@ -1,0 +1,27 @@
+/* iPhone SMS and the Ledger tabs (docs/finance-sms.md). Shared tokens only; content-driven heights. */
+.finSms { display: grid; gap: var(--d-s3); min-width: 0; }
+.finSmsGrid { display: grid; gap: var(--d-s3); grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr)); min-width: 0; }
+.finSmsGrid > * { min-width: 0; }
+.finSmsFacts { display: grid; gap: var(--d-s2) var(--d-s3); grid-template-columns: repeat(auto-fill, minmax(min(100%, 12rem), 1fr)); margin: 0; }
+.finSmsFacts dt { color: var(--d-faint); font-size: var(--text-xs); }
+.finSmsFacts dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.finSmsFacts code { display: block; overflow-wrap: anywhere; }
+.finSmsFigures { display: grid; gap: var(--d-s2) var(--d-s3); grid-template-columns: repeat(auto-fill, minmax(min(100%, 10rem), 1fr)); margin: 0; }
+.finSmsFigures dt { color: var(--d-faint); font-size: var(--text-xs); }
+.finSmsFigures dd { font-size: var(--text-lg); font-variant-numeric: tabular-nums; font-weight: 600; margin: 0; overflow-wrap: anywhere; }
+.finSmsChecks { display: grid; gap: var(--d-s1); list-style: none; margin: 0; padding: 0; }
+.finSmsChecks li { align-items: center; display: flex; gap: var(--d-s2); }
+.finSmsEndpoint { display: grid; gap: var(--d-s1); min-width: 0; }
+.finSmsEndpoint code, .finSmsPattern { overflow-wrap: anywhere; }
+.finSmsPattern { color: var(--d-muted); display: block; font-size: var(--text-xs); }
+.finSmsAdd { align-items: center; }
+.finSmsAdd input { flex: 1 1 12rem; min-width: 0; }
+.finSmsDevice, .finSmsMessage { flex-wrap: wrap; }
+.finSmsDevice > div:first-child, .finSmsMessage > div:first-child, .finSmsEntry > div { display: grid; gap: var(--d-s1); min-width: 0; }
+.finSmsBody { background: var(--d-glass-2); border-radius: var(--d-r-control); font-size: var(--text-sm); margin: 0; overflow-wrap: anywhere; padding: var(--d-s2); }
+.finSmsSteps { display: grid; gap: var(--d-s1); margin: 0; padding-inline-start: var(--d-s4); }
+.finSmsPostings { display: grid; gap: 2px; list-style: none; margin: 0; padding: 0; }
+.finSmsPostings li { display: flex; gap: var(--d-s2); justify-content: space-between; min-width: 0; }
+.finSmsToken textarea { font-family: ui-monospace, monospace; font-size: var(--text-xs); width: 100%; }
+.finSmsFilters { align-items: center; }
+.finSmsTabs { flex-wrap: wrap; }
