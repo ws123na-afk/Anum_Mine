@@ -182,25 +182,30 @@ def authorize_scope(authorization: str | None, scope: str, *, now: datetime | No
         try:
             device = svc.check_device(store.get_device(context, device_id), secret, scope)
         except svc.IngestError as exc:
-            raise DeviceError(exc.status_code, exc.message, exc.code, exc.retry_after) from None
-        settings = svc.settings_for(store, context)
-        device.last_seen_at = now
-        if not switch_on(settings, item):
-            refusal = DeviceError(409, "This iPhone integration is off. Turn it on in ANUM under Settings, Integrations, iPhone.", "disabled")
-        if refusal is None:
-            from .links_store import links_store_for
+            if exc.code not in ("paused", "scope_missing"):
+                raise DeviceError(exc.status_code, exc.message, exc.code, exc.retry_after) from None  # unknown token or secret: nothing recorded
+            # The secret matched but the device is paused or lacks the scope: shown under the integration's failed events.
+            refusal = DeviceError(exc.status_code, exc.message, exc.code, exc.retry_after)
+            device = None
+        if device is not None:
+            settings = svc.settings_for(store, context)
+            device.last_seen_at = now
+            if not switch_on(settings, item):
+                refusal = DeviceError(409, "This iPhone integration is off. Turn it on in ANUM under Settings, Integrations, iPhone.", "disabled")
+            if refusal is None:
+                from .links_store import links_store_for
 
-            links = links_store_for(store)
-            if links.count_events(context, device.id, scope, now - timedelta(minutes=1)) >= item.per_minute:
-                refusal = DeviceError(429, "Too many requests from this device. Try again in a minute.", "rate_limited", retry_after=60)
-            elif links.count_events(context, device.id, scope, now - timedelta(days=1)) >= item.per_day:
-                refusal = DeviceError(429, "This device reached its daily limit for this integration.", "rate_limited", retry_after=3600)
-        if refusal is not None:
-            device.last_error, device.last_error_at = refusal.code, now
-        else:
-            device.last_ok_at, device.last_error, device.last_error_at = now, None, None
-        if device.status == DeviceStatus.ACTIVE:
-            store.save_device(device)
+                links = links_store_for(store)
+                if links.count_events(context, device.id, scope, now - timedelta(minutes=1)) >= item.per_minute:
+                    refusal = DeviceError(429, "Too many requests from this device. Try again in a minute.", "rate_limited", retry_after=60)
+                elif links.count_events(context, device.id, scope, now - timedelta(days=1)) >= item.per_day:
+                    refusal = DeviceError(429, "This device reached its daily limit for this integration.", "rate_limited", retry_after=3600)
+            if refusal is not None:
+                device.last_error, device.last_error_at = refusal.code, now
+            else:
+                device.last_ok_at, device.last_error, device.last_error_at = now, None, None
+            if device.status == DeviceStatus.ACTIVE:
+                store.save_device(device)
     record_event(context, device_id, item.key, scope, "denied" if refusal else outcome, refusal.code if refusal else None, now=now)
     if refusal is not None:
         raise refusal
