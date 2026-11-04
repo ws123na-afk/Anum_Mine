@@ -58,6 +58,7 @@ import { billingAr } from './billing.ar.ts';
 import { lifecycleAr } from './lifecycle.ar.ts';
 import { recordRetentionAr } from './recordRetention.ar.ts';
 import { attendanceAr } from './attendance.ar.ts';
+import { vaultAr } from './vault.ar.ts';
 import { helpAr } from './help.ar.ts';
 import { publicSiteAr } from './publicSite.ar.ts';
 import { ownerAr } from './ar.owner.ts';
@@ -122,6 +123,7 @@ export const ar: Record<MessageKey, Message> = {
   ...lifecycleAr,
   ...recordRetentionAr,
   ...attendanceAr,
+  ...vaultAr,
   ...helpAr,
   ...publicSiteAr,
   ...agentSkillsAr,

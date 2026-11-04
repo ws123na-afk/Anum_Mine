@@ -7,6 +7,9 @@ ARG PYTHON_IMAGE=python:3.13-slim
 # Playwright and Chromium's headless shell, about 650 MB more (estimate). 0 (the default) leaves both out,
 # so the API image never carries a browser.
 ARG ANUM_BROWSER=0
+# 1 builds the OCR image (docs/documents.md#the-ocr-service): the same code plus Debian's Tesseract with
+# English and Arabic data (Apache-2.0). 0 (the default) leaves it out, so the API image never carries OCR.
+ARG ANUM_OCR=0
 
 FROM ${PYTHON_IMAGE} AS build
 ARG ANUM_BROWSER
@@ -27,6 +30,7 @@ RUN python -m pip install "pip==24.3.1" \
 
 FROM ${PYTHON_IMAGE} AS runtime
 ARG ANUM_BROWSER
+ARG ANUM_OCR
 # The image defaults to production so it refuses development defaults (see
 # anum_api/hardening.py). FORWARDED_ALLOW_IPS is read by uvicorn: only these peers may
 # set X-Forwarded-For/Proto. Set it to the load balancer range in each environment.
@@ -52,6 +56,12 @@ RUN if [ "$ANUM_BROWSER" = "1" ]; then \
         python -m playwright install --with-deps --only-shell chromium \
         && rm -rf /var/lib/apt/lists/* \
         && chmod -R a+rX /opt/ms-playwright; \
+    fi
+# The OCR image only: Tesseract 5 and its English and Arabic language data from Debian.
+RUN if [ "$ANUM_OCR" = "1" ]; then \
+        apt-get update \
+        && apt-get install --yes --no-install-recommends tesseract-ocr tesseract-ocr-eng tesseract-ocr-ara \
+        && rm -rf /var/lib/apt/lists/*; \
     fi
 # Alembic files let the same image run `python -m alembic upgrade head` as a migration job.
 COPY alembic.ini ./

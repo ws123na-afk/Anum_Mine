@@ -175,6 +175,10 @@ class PrivateCounts(BaseModel):
     # Work attendance (migration 0132_work_attendance, docs/attendance.md#privacy): the caller's
     # profile, sites, events, corrections, day totals, daily reports and the shares they gave.
     attendance_records: int = 0
+    # Document vault (migration 0133_document_vault, docs/documents.md#privacy): the caller's
+    # private documents (with their files) and iPhone Shortcut devices.
+    vault_private_documents: int = 0
+    vault_devices: int = 0
 
     @property
     def total(self) -> int:
@@ -213,6 +217,8 @@ class SharedCounts(BaseModel):
     # Agents the caller owns and shared with the workspace, with their memories.
     shared_agents_owned: int = 0
     shared_agent_memories: int = 0
+    # Document vault documents the caller added for the whole workspace (docs/documents.md#privacy).
+    vault_workspace_documents: int = 0
 
 
 class EmailCounts(BaseModel):
@@ -1242,6 +1248,10 @@ def export_sections(store: PrivacyStore, context: TenantContext) -> Iterator[tup
     # The caller's own attendance and daily reports (docs/attendance.md#privacy).
     yield ("attendance", store.attendance().export(context))
     yield ("mail", mail_export(context))
+    # The caller's document vault records (docs/documents.md#privacy); bytes stay downloadable in the vault.
+    from .vault.privacy import export as vault_export
+
+    yield ("documents", vault_export(context))
     # The caller's calls with teammates, as they see them (no device ids, no peer id).
     yield ("app_calls", app_calls_privacy_export(context))
     yield ("calls", calls_export(context))
@@ -1440,6 +1450,11 @@ def privacy_summary(
         membership = store.membership()
         private, shared = store.counts()
         preferences = store.user_preferences() or UserPreferences()
+    from .vault.privacy import counts as vault_counts
+
+    vault_private, vault_devices, vault_workspace = vault_counts(context)
+    private = private.model_copy(update={"vault_private_documents": vault_private, "vault_devices": vault_devices})
+    shared = shared.model_copy(update={"vault_workspace_documents": vault_workspace})
     # Outside the privacy transaction: the governance read opens its own unit of work.
     memory = conversation_memory_state(context, preferences)
     return PrivacySummary(
@@ -1529,10 +1544,16 @@ def _private_mailboxes(context: TenantContext) -> list[EmailAccount]:
 def _delete_private(context: TenantContext, revoked: int) -> tuple[Any, Any]:
     # Calls (and their recording files) go first, in their own units of work.
     calls_deleted = delete_my_calls(context)
+    from .vault.privacy import counts as vault_counts
+    from .vault.privacy import delete_private as delete_vault_private
+
+    vault_documents, vault_devices = delete_vault_private(context)
     with open_privacy_store(context) as store:
         recording_keys = [record.storage_key for record in store.meeting_recordings()]
-        deleted = store.delete_private().model_copy(update={"calls_logged": calls_deleted})
+        deleted = store.delete_private().model_copy(update={
+            "calls_logged": calls_deleted, "vault_private_documents": vault_documents, "vault_devices": vault_devices})
         _, kept = store.counts()
+        kept = kept.model_copy(update={"vault_workspace_documents": vault_counts(context)[2]})
         _audit(
             store, context, "privacy.delete", "success",
             {"deleted": deleted.model_dump(), "kept": kept.model_dump(), "mailboxes_revoked_at_provider": revoked},

@@ -276,6 +276,14 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
             config.hook.pytest_deselected(items=driven)
             items[:] = [item for item in items if "browser" not in item.keywords]
 
+    # The document vault's OCR tests need the tesseract binary with eng and ara data: they run
+    # only when the -m expression names them (the "Document OCR" CI job), deselected otherwise.
+    if "ocr" not in (config.getoption("markexpr", "") or ""):
+        scanned = [item for item in items if "ocr" in item.keywords]
+        if scanned:
+            config.hook.pytest_deselected(items=scanned)
+            items[:] = [item for item in items if "ocr" not in item.keywords]
+
     if os.getenv("ANUM_TEST_DATABASE_URL"):
         return
 

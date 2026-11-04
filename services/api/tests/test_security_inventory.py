@@ -79,6 +79,8 @@ PUBLIC_ROUTES: dict[str, str] = {
     "GET /api/v1/email/oauth/callback": "OAuth redirect; the single-use, expiring, hash-stored state names the caller.",
     "GET /api/v1/calendar/sync/oauth/callback": "OAuth redirect; the single-use, expiring, hash-stored state names the caller.",
     "GET /api/v1/files/links/{token}": "Signed, short-lived HMAC link to one file (docs/files.md#downloads-and-previews).",
+    "GET /api/v1/documents/links/{token}": "Signed, short-lived HMAC link to one vault document; the claimed person must still see it (docs/documents.md#downloads-and-links).",
+    "POST /api/v1/documents/device/upload": "iPhone Shortcut upload: a hashed device token with the documents scope; the owner's membership and role are re-checked (docs/documents.md#scanning-from-an-iphone).",
     "GET /api/v1/marketing/media/{link}": "Encrypted, expiring link to one image or video for social platforms.",
     "GET /api/v1/organization/lifecycle/exports/download/{token}": "Signed, expiring link to one organisation export.",
     "GET /api/v1/public/logos/{public_id}/{name}": "Public brand logo by its random public id; nothing else is served.",

@@ -211,6 +211,9 @@ def test_every_purged_table_is_covered_by_the_purge_migration() -> None:
             **{name: "0130_action_browser" for name in (
                 "action_browser_credentials", "action_browser_sessions", "action_browser_steps")},
             **{name: "0132_work_attendance" for name in ("attendance_shares", "attendance_profiles", "attendance_sites", "attendance_events", "attendance_corrections", "attendance_day_totals", "attendance_daily_reports")},
+            **{name: "0133_document_vault" for name in (
+                "vault_settings", "vault_categories", "vault_documents", "vault_document_access", "vault_document_links",
+                "vault_extractions", "vault_access_log", "vault_devices")},
             "billing_company_profiles": "0123_selling_readiness",
             "workspace_record_retention": "0120_record_retention",
             "office_visitors": "0118_career_visitor_register",
