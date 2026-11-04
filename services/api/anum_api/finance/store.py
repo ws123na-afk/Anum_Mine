@@ -176,6 +176,13 @@ def _ibkr_memory():  # type: ignore[no-untyped-def]
     return ibkr_memory_store
 
 
+def _links_memory():  # type: ignore[no-untyped-def]
+    """Finance links, the allocations the person made and their device events (``links_store``)."""
+    from .links_store import links_memory_store
+
+    return links_memory_store
+
+
 def _sms_memory():  # type: ignore[no-untyped-def]
     """The in-memory SMS and journal store (``sms_store``), deleted and counted with the rest of finance."""
     from .sms_store import sms_memory_store
@@ -229,6 +236,9 @@ class InMemoryFinanceStore:
         sms = sys.modules.get("anum_api.finance.sms_store")
         if sms is not None and hasattr(sms, "sms_memory_store"):
             sms.sms_memory_store.clear()
+        links = sys.modules.get("anum_api.finance.links_store")
+        if links is not None and hasattr(links, "links_memory_store"):
+            links.links_memory_store.clear()
         self.settings: dict[tuple[str, str, str], FinanceSettings] = {}
         self.accounts: dict[str, Account] = {}
         self.transactions: dict[str, Transaction] = {}
@@ -827,7 +837,7 @@ class InMemoryFinanceStore:
             rows = sum(1 for table in self._tables() for v in table.values() if mine(v, context))
             keyed = (self.settings, self.plans, self.exec_settings)
             return (rows + sum(int(self._key(context) in table) for table in keyed) + _ibkr_memory().count_everything(context)
-                    + _sms_memory().count_everything(context))
+                    + _sms_memory().count_everything(context) + _links_memory().count_everything(context))
 
     def delete_everything(self, context: TenantContext) -> int:
         with self._lock:
@@ -839,7 +849,8 @@ class InMemoryFinanceStore:
             for keyed in (self.settings, self.plans, self.exec_settings):
                 if keyed.pop(self._key(context), None) is not None:
                     removed += 1
-            return removed + _ibkr_memory().delete_everything(context) + _sms_memory().delete_everything(context)
+            return (removed + _ibkr_memory().delete_everything(context) + _sms_memory().delete_everything(context)
+                    + _links_memory().delete_everything(context))
 
 
 finance_store = InMemoryFinanceStore()

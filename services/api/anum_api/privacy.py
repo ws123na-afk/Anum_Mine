@@ -1155,7 +1155,19 @@ def _sms_export(finance: Any, context: TenantContext, hidden: set[str]) -> dict[
         "sms_messages": [m.model_dump(mode="json", exclude=hidden | {"idem_key"}) for m in messages],
         "sms_rules": [r.model_dump(mode="json", exclude=hidden) for r in sms.list_rules(context)],
         "journal_entries": [e.model_dump(mode="json", exclude=hidden) for e in sms.list_entries(context, limit=100_000)],
+        # Finance links, the allocations this person made and their iPhone device events (docs/finance-links.md#privacy).
+        **_links_export(session, context),
     }
+
+
+def _links_export(session: Any, context: TenantContext) -> dict[str, Any]:
+    if session is not None:
+        from .db.finance_links_repository import SqlAlchemyLinkStore
+
+        return SqlAlchemyLinkStore(session).export_everything(context)
+    from .finance.links_store import links_memory_store
+
+    return links_memory_store.export_everything(context)
 
 
 def export_sections(store: PrivacyStore, context: TenantContext) -> Iterator[tuple[str, Any]]:

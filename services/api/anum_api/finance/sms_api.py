@@ -32,6 +32,7 @@ from ..schemas import TenantContext, new_id, utc_now
 from ..settings import settings as app_settings
 from . import ledger as L
 from . import sms_parser as P
+from . import link_hooks
 from . import sms_service as svc
 from .api import _audit, _manage, _read
 from .ledger import EntrySource, EntryStatus, PlanError
@@ -518,6 +519,17 @@ def _ingest_audit(context: TenantContext, target: str, outcome: str, meta: dict[
         logger.exception("finance_sms_ingest_audit_failed")
 
 
+# Refusals after the device's secret matched: shown as failed events on Settings, Integrations, iPhone.
+_DEVICE_EVENT_CODES = frozenset({"rate_limited", "disabled", "paused", "scope_missing"})
+
+
+def _device_event(context: TenantContext | None, device_id: str | None, key: str, outcome: str, code: str | None = None) -> None:
+    from .devices import record_event
+
+    if context is not None and device_id and (outcome != "denied" or code in _DEVICE_EVENT_CODES):
+        record_event(context, device_id, key, key, outcome, code)
+
+
 @router.post("/sms/ingest", response_model=IngestResult)
 def sms_ingest(request: Request, body: IngestBody, authorization: str | None = Header(default=None)) -> Any:
     """One forwarded message from an iPhone Shortcut (docs/finance-sms.md#the-shortcut)."""
@@ -534,15 +546,18 @@ def sms_ingest(request: Request, body: IngestBody, authorization: str | None = H
         if context is not None and device_id and exc.code in ("rate_limited", "disabled"):
             svc.record_device_error(context, device_id, exc.code, now)
             _ingest_audit(context, device_id, "denied", {"code": exc.code})
+        _device_event(context, device_id, "finance.sms", "denied", exc.code)
         return JSONResponse(status_code=exc.status_code, content={"detail": exc.message, "code": exc.code}, headers=headers)
     except svc._Failed as failed:
         assert context is not None  # nosec B101: _Failed is raised only after authorize returned
         message = svc.record_failure(context, failed, now)
         svc.notify(context, "failed", now)
         _ingest_audit(context, message.id, "failure", {"status": "failed"})
+        _device_event(context, device_id, "finance.sms", "failed", "processing_error")
         return JSONResponse(status_code=503, content={"detail": "ANUM could not process this message. Your iPhone can send it again; it will not be recorded twice.",
                                                       "code": "processing_error", "message_id": message.id}, headers={"Retry-After": "60"})
     message = outcome.message
+    _device_event(context, device_id, "finance.sms", "test" if message.reason == "test_ok" else "ok")
     if message.reason == "test_ok":
         _ingest_audit(context, device_id or "-", "success", {"status": "test_ok"})
         return IngestResult(status="test_ok", text=RESULT_TEXT["test_ok"])
@@ -593,15 +608,18 @@ def wallet_ingest(request: Request, body: WalletBody, authorization: str | None 
         if context is not None and device_id and exc.code in ("rate_limited", "disabled"):
             svc.record_device_error(context, device_id, exc.code, now)
             _ingest_audit(context, device_id, "denied", {"code": exc.code, "source": "wallet"})
+        _device_event(context, device_id, "finance.wallet", "denied", exc.code)
         return JSONResponse(status_code=exc.status_code, content={"detail": exc.message, "code": exc.code}, headers=headers)
     except svc._Failed as failed:
         assert context is not None  # nosec B101: _Failed is raised only after authorize returned
         message = svc.record_failure(context, failed, now)
         svc.notify(context, "failed", now)
         _ingest_audit(context, message.id, "failure", {"status": "failed", "source": "wallet"})
+        _device_event(context, device_id, "finance.wallet", "failed", "processing_error")
         return JSONResponse(status_code=503, content={"detail": "ANUM could not process this payment. Your iPhone can send it again; it will not be recorded twice.",
                                                       "code": "processing_error", "message_id": message.id}, headers={"Retry-After": "60"})
     message = outcome.message
+    _device_event(context, device_id, "finance.wallet", "ok")
     if not outcome.replayed:
         _ingest_audit(context, message.id, "success", {"status": message.status.value, "reason": message.reason, "source": "wallet"})
         if outcome.notify:
@@ -975,6 +993,8 @@ def reconcile_confirm(import_id: str, body: ReconcileInput, context: TenantConte
             copy = store.entry_for_transaction(context, pair.statement_transaction_id)
             if copy is not None:
                 svc.reverse(finance, store, context, copy, now=now, why="reconciled with a recorded message")
+                kept = store.get_entry(context, pair.entry_id)
+                link_hooks.note_moved(copy.canonical_id or copy.id, (kept.canonical_id or kept.id) if kept else None)  # links move to the kept one
             else:
                 finance.delete_transaction(context, pair.statement_transaction_id)
             store.mark_entry(context, pair.entry_id, reconciled_at=now, reconciled_ref=f"{import_id}:{pair.statement_transaction_id}")
