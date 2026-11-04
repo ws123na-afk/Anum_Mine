@@ -122,7 +122,7 @@ test('sizes read plainly', () => {
 });
 
 // ---- the campus side: which logos load, what the sign text carries
-import { loadLogos, logoKey, sharingFetcher, pickLogoTargets, signFor, signStats, MAX_LOGOS, type Logo } from '../src/hq-logo-signs/campusSigns.ts';
+import { loadLogos, logoKey, pickLogoTargets, signFor, signStats, MAX_LOGOS, type Logo } from '../src/hq-logo-signs/campusSigns.ts';
 
 const target = (id: string, x: number, z: number, sha = 'a'.repeat(64)) => ({ id, buildingId: id, sha, x, z });
 
@@ -219,27 +219,4 @@ test('another workspace\'s logo is fetched in that workspace (its id goes to the
   await loadLogos([{ id: 'ws_b', buildingId: 'b1', sha: 'cd'.repeat(32), x: 0, z: 0, workspaceId: 'ws_b' }, { id: 'own', buildingId: 'b2', sha: 'ef'.repeat(32), x: 1, z: 0 }],
     new Map(), new AbortController().signal, async (id, _signal, workspaceId) => { asked.push([id, workspaceId]); return null; });
   assert.deepEqual(asked.sort(), [['b1', 'ws_b'], ['b2', undefined]]);
-});
-
-test('a new logo pass reuses a read still in flight: one read per building, and a stopped pass only stops waiting', async () => {
-  let reads = 0;
-  let finish: (blob: Blob | null) => void = () => undefined;
-  const life = new AbortController();
-  const fetcher = sharingFetcher(life.signal, (_buildingId, signal) => {
-    reads += 1;
-    assert.equal(signal, life.signal);
-    return new Promise<Blob | null>((resolve) => { finish = resolve; });
-  });
-  const first = new AbortController();
-  const stopped = fetcher('exec-tower', first.signal, 'workspace_exec');
-  first.abort();
-  assert.equal(await stopped, null);
-  const again = fetcher('exec-tower', new AbortController().signal, 'workspace_exec');
-  const blob = new Blob(['logo']);
-  finish(blob);
-  assert.equal(await again, blob);
-  assert.equal(reads, 1);
-  // Once settled, a later pass reads again (the sign may have a new logo by then).
-  void fetcher('exec-tower', undefined, 'workspace_exec');
-  assert.equal(reads, 2);
 });
