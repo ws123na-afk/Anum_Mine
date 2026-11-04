@@ -104,7 +104,8 @@ test('read-only questions answer inline with a results card; mail text stays dat
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
 
   await card.getByRole('button', { name: 'Open in Inbox: Question about tyres' }).click();
-  await expect(page.getByRole('heading', { name: 'Inbox', level: 1 })).toBeVisible();
+  // The Inbox route is the Email page (its heading is "Email", as in inbox.spec and email-hub.spec).
+  await expect(page.getByRole('heading', { name: 'Email', level: 1 })).toBeVisible();
 });
 
 test('an action waits for approval; Approve sends the payload hash the card shows', async ({ page }) => {
