@@ -204,16 +204,19 @@ Elsewhere: run the browser image as for browser research plus `ANUM_BROWSER_ACTI
 
 ## Tests
 
-- `services/api/tests/test_action_browser_classify.py`: buttons EN and AR, card fields, payment frames, checkout posts, amounts, handoffs, refusals.
-- `test_action_browser_handles.py`: handle parsing, scope, substitution never reaching the model, logs or approvals.
-- `test_action_browser.py`: the tool against a fake browser service: scope approval, gates and the payload hash, page-changed re-check, reject, domain list, handoff states, caps, stop, credentials API and permissions.
-- `test_action_browser_chromium.py` (marker `browser`): a real Chromium against a local test shop served over TLS behind the proxy: log in with a saved login, fill a form, stop at pay, approve, finish; the reject path; the page-changed path.
-- `test_postgres_action_browser.py` (marker `database`): the tables under forced RLS as the app role, tenant isolation, the purge policy, the rotation discovery grant.
-- Web: `apps/web/test/actionBrowser.test.ts` and `apps/web/e2e/action-browser.spec.ts` (Integrations, live view, approval card; desktop and mobile; axe).
+- `services/api/tests/test_action_browser_classify.py`: buttons EN and AR, card fields, payment frames, checkout posts, amounts, handoffs, refusals, downloads.
+- `test_action_browser_handles.py`: handle parsing, sites from the prompt, the planner prompt holding handles only with the page in a labelled untrusted block.
+- `test_action_browser.py`: the tool against a fake browser service (`tests/action_browser_fakes.py`): a booking that stops at card entry and at pay, a two-step form submitted after approval, a statement downloaded into Files, two pages compared into a table saved as CSV, the page-changed re-check, a stale approval refused, leaving the sites, a captcha handed over, refusals, the step, time and daily caps, availability and scope checks, another workspace's session, the definition and policy; through the API: the scope approval and each step approval with the payload hash, the live picture (owner only), Needs you input, Stop (cancels the task and expires its approval), reject (closes the browser), the vault and its audit records. Secrets are checked to travel only in the one `act` request that types them.
+- `test_action_browser_chromium.py` (marker `browser`): a real Chromium against a local test site served over TLS behind the session's proxy: sign in with a saved login, fill the passenger form, stop at card entry and at pay, approve, complete; the page-changed path (nothing paid, asked again with the new price); reject leaves nothing paid; a two-step visa form submitted after approval; a statement downloaded into Files; two price pages compared into a table; a private address and the metadata address refused by the proxy and an off-list site held for approval.
+- `test_postgres_action_browser.py` (marker `database`): forced RLS and the purge policy on the three tables, tenant and workspace isolation as the app role, the scope-only discovery grant and key rotation of saved credentials.
+- `test_oracle_compose.py`: the browser service's action-mode settings carry no secrets; `configure_env.py --check` refuses the action browser without the browser service. `infra/helm/ci/lint.sh`: the chart refuses the same.
+- Web: `apps/web/test/actionBrowser.test.ts` (words EN and AR, status, step text, picture clicks, approval facts, the vault form) and `apps/web/e2e/action-browser.spec.ts` (saved logins and cards, the live view with Stop and Needs you input, the approval card, Arabic, a member; desktop and mobile; axe).
 
 ## Not done yet
 
 - File uploads from Files to a site (refused; a later change could add them behind an approval).
 - The Flutter and Android apps do not show the live view or the picture on the approval card yet; they list the approval with its arguments and decide it with the hash as for any tool.
+- Chat and voice reach the tool through the same task path (the planner picks `web.act` from the words and the https address); the chat card shows the approval like any other, but no chat or voice specific test covers the action browser yet.
+- A confirm dialog a site opens with `window.confirm` after an approved click is dismissed (never accepted for the owner), so on such a site the approved step does not complete and the owner finishes it on the site themselves.
 - One browser session at a time on the VM by default; a second task waits ("The browser is busy with another task").
 - The amount is what the page shows; ANUM does not read the bank's charge.

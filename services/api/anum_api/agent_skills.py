@@ -74,6 +74,9 @@ class SkillManifest(BaseModel):
     # Reviewed instructions a first-party role skill loads into every run and chat of an agent
     # that allows it (docs/agents.md#skills). Empty for the classic built-in skills.
     instructions: str = ""
+    # Selected only when the prompt itself names an https address (the action browser: a word
+    # such as "check" or "update" alone never means a website task).
+    needs_https_address: bool = False
     name_ar: str = ""
     description_ar: str = ""
     # Selected only for an agent that allows it, never for the plain Assistant (role skills).
@@ -101,6 +104,7 @@ class SkillRegistry:
             for manifest in self._manifests.values()
             if (include_agent_only or not manifest.agent_only)
             and (not manifest.triggers or bool(words & manifest.triggers))
+            and (not manifest.needs_https_address or "https://" in prompt.lower())
             and manifest.required_tools <= available_tools
         ]
 
@@ -187,6 +191,7 @@ def default_skill_registry() -> SkillRegistry:
                 ),
                 # The planner also needs an https address in the user's own words.
                 triggers=ACT_TRIGGERS,
+                needs_https_address=True,
                 required_tools=frozenset({"web.act"}),
             ),
             SkillManifest(
