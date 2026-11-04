@@ -81,6 +81,7 @@
 
 .chatJump { bottom: 96px; justify-self: center; position: absolute; z-index: 1; }
 .chatPanel .notice { align-items: center; flex-wrap: wrap; margin: 0 var(--d-s4) var(--d-s3); }
+.chatPanel .modelPlaceholderNotice { align-items: flex-start; flex-wrap: nowrap; margin-top: var(--d-s3); }
 .chatPanel .notice button { margin-inline-start: auto; }
 
 .chatComposer { align-items: start; border-top: 1px solid var(--d-line); display: flex; gap: var(--d-s3); padding: var(--d-s3) var(--d-s4); }

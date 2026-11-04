@@ -417,6 +417,11 @@ export const en = {
 
   // ---- Model gateway (Settings) ----
   'model.ownerOnly': 'Choosing the model, saving its API key and testing the connection need the owner role for this organization. Ask an owner to change the model, or to change your role.',
+  'model.placeholder.server': 'AI answers are placeholders: the server has no AI model set up.',
+  'model.placeholder.workspace': 'AI answers are placeholders: this workspace is set to the placeholder model.',
+  'model.placeholder.fix': 'An owner chooses a real model in Settings, under Model gateway. The server operator can also set ANUM_MODEL_PROVIDER for every workspace.',
+  'model.placeholder.openSettings': 'Open Settings',
+  'model.placeholder.help': 'How to set it up',
   'model.ownerRequired': 'Owner access required',
   'model.apiAnswered': 'The API answered: {detail}',
   'model.saveConflict': '{reason} Finish "Workspace onboarding" above, then save again.',

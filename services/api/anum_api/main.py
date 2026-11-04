@@ -245,6 +245,7 @@ from .skills_api import configure_tool_catalog, router as skills_router
 from .model_budget import ModelBudgetExceededError, check_model_budget, router as model_budget_router
 from .agent_controls import AgentsStoppedError, agents_stopped, configure_cancel_notifier, router as agent_controls_router
 from .onboarding import budgeted_model_gateway, router as onboarding_router
+from .model_status import router as model_status_router
 from .workspace_members import router as workspace_members_router
 from .membership_directory import router as membership_directory_router
 from .audit_log import router as audit_log_router
@@ -459,6 +460,7 @@ app.include_router(files_router)
 app.include_router(retrieval_router)
 app.include_router(skills_router)
 app.include_router(onboarding_router)
+app.include_router(model_status_router)
 app.include_router(workspace_members_router)
 app.include_router(membership_directory_router)
 app.include_router(audit_log_router)

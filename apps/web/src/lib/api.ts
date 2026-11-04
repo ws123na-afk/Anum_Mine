@@ -11,6 +11,7 @@ import type { SkillVerification } from './skillSigning';
 import * as workspaces from './workspaces';
 import * as capabilities from './capabilities';
 import type { ModelConfig, ModelConfigBody, ModelConnectionTest } from './modelConfig';
+import type { ModelStatus } from './modelStatus';
 import * as chatMemory from './chatMemory';
 import * as push from './push';
 import { parseSourceNames, type SourceName } from './retrieval';
@@ -190,6 +191,7 @@ export async function getSignInOptions(): Promise<SignInOptions> {
 export async function getOnboarding(): Promise<OnboardingStatus> { return request('/api/v1/onboarding', { method: 'GET' }); }
 export async function completeOnboarding(organizationName: string, workspaceName: string): Promise<OnboardingStatus> { return request('/api/v1/onboarding', { method: 'PUT', body: JSON.stringify({ organization_name: organizationName, workspace_name: workspaceName }) }); }
 export async function getModelConfig(): Promise<ModelConfig> { return request('/api/v1/model-config', { method: 'GET' }); }
+export async function getModelStatus(): Promise<ModelStatus> { return request('/api/v1/model-status', { method: 'GET' }); }
 /** PUT /api/v1/model-config with a full body (Claude's routing fields included; src/lib/modelConfig.ts). */
 export async function saveModelConfigBody(body: ModelConfigBody): Promise<ModelConfig> { return request('/api/v1/model-config', { method: 'PUT', body: JSON.stringify(body) }); }
 export async function testModelConfig(): Promise<ModelConnectionTest> { return request('/api/v1/model-config/test', { method: 'POST' }); }

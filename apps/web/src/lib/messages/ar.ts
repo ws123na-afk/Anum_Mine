@@ -418,6 +418,11 @@ export const ar: Record<MessageKey, Message> = {
 
   // ---- Model gateway ----
   'model.ownerOnly': 'يتطلب اختيار النموذج وحفظ مفتاح واجهته البرمجية واختبار الاتصال دور المالك في هذه المؤسسة. اطلب من المالك تغيير النموذج أو تغيير دورك.',
+  'model.placeholder.server': 'إجابات الذكاء الاصطناعي نصوص مؤقتة: لم يُضبط نموذج ذكاء اصطناعي على الخادم.',
+  'model.placeholder.workspace': 'إجابات الذكاء الاصطناعي نصوص مؤقتة: مساحة العمل هذه مضبوطة على النموذج المؤقت.',
+  'model.placeholder.fix': 'يختار المالك نموذجا حقيقيا من الإعدادات، في قسم بوابة النماذج. ويمكن لمشغل الخادم أيضا ضبط ANUM_MODEL_PROVIDER لكل مساحات العمل.',
+  'model.placeholder.openSettings': 'فتح الإعدادات',
+  'model.placeholder.help': 'طريقة الإعداد',
   'model.ownerRequired': 'يلزم وصول المالك',
   'model.apiAnswered': 'ردّت واجهة البرمجة: {detail}',
   'model.saveConflict': '{reason} أكمل "تهيئة مساحة العمل" أعلاه، ثم احفظ مرة أخرى.',

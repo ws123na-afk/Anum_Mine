@@ -9,6 +9,7 @@ import {
   Mail, MessageCircle, MessageSquare, Mic, Pin as PinIcon, Plus, RefreshCw, ShieldCheck, Sparkles, Trash2, Wallet, Workflow, X, XCircle,
 } from 'lucide-react';
 import type { Approval, ModelBudgetOverview, Task } from '@anum/contracts';
+import { ModelPlaceholderBanner } from './ModelPlaceholderBanner';
 import type { AutomationAlert } from './lib/automation';
 import { describeError, isPermissionDenied } from './lib/errors';
 import { formatDateTime, formatNumber, t, type MessageKey } from './lib/i18n';
@@ -156,6 +157,9 @@ export function HomeView({ tasks, approvals, loading, userName, owner, alerts, b
 
     {/* The first-run billing checklist for billing admins (docs/billing.md); hidden for everyone else. */}
     <OnboardingChecklist />
+
+    {/* Placeholder answers: shown only while this workspace's model is the built-in mock (docs/model-gateway.md#placeholder-answers). */}
+    <ModelPlaceholderBanner />
 
     {layout?.customized
       ? <div className="homeFlow">{layout.sections.map((key) => <div key={key} className={`homeFlowItem ${WIDE_SECTIONS.has(key) ? 'wide' : ''}`}>{parts[key]}</div>)}</div>
