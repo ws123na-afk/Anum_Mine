@@ -105,6 +105,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     from .vault.jobs import run as run_vault
 
     report["documents"] = run_vault(dry_run=args.dry_run)
+    # Vehicle expiry and service reminders (docs/vehicles.md#reminders).
+    from .vehicles.jobs import run as run_vehicles
+
+    report["vehicles"] = run_vehicles(dry_run=args.dry_run)
     print(json.dumps(report, indent=2))
     return 0
 

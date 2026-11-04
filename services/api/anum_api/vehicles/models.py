@@ -157,6 +157,8 @@ class ServiceRecord(_Child):
     next_due_km: Decimal | None = None
     warranty_until: date | None = None
     trip_id: str | None = None
+    receipt_total: Decimal | None = None  # the receipt's figure, a detail: money is the linked payment
+    currency: str
     payment_method: str | None = None
     payment: PaymentRef | None = None
     document_id: str | None = None

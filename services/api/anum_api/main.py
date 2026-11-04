@@ -286,6 +286,8 @@ from .telemetry import HttpMetricsMiddleware, setup_telemetry, shutdown_telemetr
 from .error_reporting import setup_error_reporting, shutdown_error_reporting
 from .serving import prepare_for_serving
 from .attendance.api import router as attendance_router  # docs/attendance.md
+from .vehicles.api import router as vehicles_router  # docs/vehicles.md
+from .vehicles.devices import router as vehicles_device_router
 
 # Fail fast: header mode and anum_local_* sessions must never serve a non-local environment.
 validate_auth_configuration(settings)
@@ -598,6 +600,8 @@ app.include_router(agents_router)
 app.include_router(home_router)
 app.include_router(setup_plans_router)
 app.include_router(attendance_router)
+app.include_router(vehicles_device_router)  # before /api/v1/vehicles/{vehicle_id}/...
+app.include_router(vehicles_router)
 repository = memory_repository
 model_gateway = build_default_model_gateway()
 integration_registry = default_integration_registry(settings)
@@ -2915,4 +2919,10 @@ def _record_partial_approval(
 # Plug the shared iPhone device tokens into every installed module seam (docs/iphone-integrations.md).
 from .finance.devices import plug_module_authorities  # noqa: E402
 
+# Vehicles: the ``vehicle`` finance link dimension and the iPhone driving sessions (docs/vehicles.md).
+from .vehicles import devices as _vehicle_devices  # noqa: E402
+from .vehicles.service import plug_finance_links as _plug_vehicle_links  # noqa: E402
+
+_vehicle_devices.register()
+_plug_vehicle_links()
 plug_module_authorities()

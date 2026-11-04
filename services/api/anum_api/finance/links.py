@@ -60,19 +60,35 @@ class LinkError(Exception):
 # -- targets: modules register what they link -----------------------------------------------------
 
 TargetCheck = Callable[[TenantContext, str, str], bool]  # (owner context, target_type, target_id) -> exists and is theirs
+# Called after a link of the dimension is made or changes (status, canonical id), on the link's own unit of work
+# (``links.session`` in PostgreSQL), so a module's read copy of the link commits or rolls back with it.
+LinkObserver = Callable[[Any, FinanceLink], None]
 _targets: dict[str, TargetCheck] = {}
+_observers: dict[str, LinkObserver] = {}
 
 
-def register_target(dimension: str, check: TargetCheck) -> None:
+def register_target(dimension: str, check: TargetCheck, observer: LinkObserver | None = None) -> None:
     """A module (vehicles, purchases, the document vault, trips, projects) says which of its records a
-    payment may link to. A dimension with no registered module refuses links (``target_unavailable``)."""
+    payment may link to. A dimension with no registered module refuses links (``target_unavailable``).
+    An ``observer`` keeps the module's read copy of its links current (docs/vehicles.md#payments)."""
     if dimension not in DIMENSIONS or dimension == "business":
         raise ValueError(f"unknown link dimension {dimension}")
     _targets[dimension] = check
+    if observer is None:
+        _observers.pop(dimension, None)
+    else:
+        _observers[dimension] = observer
 
 
 def unregister_target(dimension: str) -> None:
     _targets.pop(dimension, None)
+    _observers.pop(dimension, None)
+
+
+def _observe(links: LinkStore, link: FinanceLink) -> None:
+    observer = _observers.get(link.dimension)
+    if observer is not None:
+        observer(links, link)
 
 
 def available_dimensions() -> list[str]:
@@ -209,6 +225,7 @@ def create(context: TenantContext, request: LinkRequest, *, allocation: dict[str
             created_at=now, updated_at=now,
         )
         links.add_link(link)
+        _observe(links, link)
         if request.dimension == "business" and allocation is not None:
             links.put_allocation(context, BusinessAllocation(
                 id=new_id("biz_alloc"), tenant_id=context.tenant_id, workspace_id=request.target_id, source_link_id=link.id,
@@ -274,6 +291,7 @@ def _save(links: LinkStore, link: FinanceLink, *, status: LinkStatus, reason: st
         link.voided_at = now
     if not links.save_link(link, expected_version=expected):
         raise LinkError(409, "This link changed at the same time. Reload and try again.", "stale")
+    _observe(links, link)
 
 
 def _void(links: LinkStore, context: TenantContext, link: FinanceLink, reason: str, now: datetime) -> None:

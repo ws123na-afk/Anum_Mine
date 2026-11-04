@@ -282,6 +282,8 @@ def upgrade() -> None:
         sa.Column("next_due_km", sa.Numeric(10, 1), nullable=True),
         sa.Column("warranty_until", sa.Date(), nullable=True),
         sa.Column("trip_id", sa.String(80), nullable=True),
+        sa.Column("receipt_total", sa.Numeric(12, 2), nullable=True),
+        sa.Column("currency", sa.String(3), nullable=False),
         sa.Column("payment_method", sa.String(14), nullable=True),
         sa.Column("payment", postgresql.JSONB(), nullable=True),
         sa.Column("document_id", sa.String(80), nullable=True),
@@ -293,6 +295,8 @@ def upgrade() -> None:
         sa.CheckConstraint(_in("kind", SERVICE_KINDS), name="ck_vehicle_service_records_kind"),
         sa.CheckConstraint("payment_method is null or " + _in("payment_method", PAYMENT_METHODS), name="ck_vehicle_service_records_method"),
         sa.CheckConstraint("next_due_km is null or next_due_km > 0", name="ck_vehicle_service_records_due_km"),
+        sa.CheckConstraint("receipt_total is null or receipt_total > 0", name="ck_vehicle_service_records_receipt"),
+        sa.CheckConstraint("currency ~ '^[A-Z]{3}$'", name="ck_vehicle_service_records_currency"),
         _payment_check("vehicle_service_records"),
         sa.UniqueConstraint("tenant_id", "workspace_id", "owner_user_id", "idem_key", name="uq_vehicle_service_records_idem"),
     )

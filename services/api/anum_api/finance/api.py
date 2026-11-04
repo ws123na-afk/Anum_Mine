@@ -503,19 +503,24 @@ def _own_transaction(store: FinanceStore, context: TenantContext, transaction_id
     return found
 
 
-@router.post("/transactions", response_model=TransactionView, status_code=status.HTTP_201_CREATED)
-def create_transaction(
-    body: TransactionInput,
-    context: TenantContext = Depends(tenant_context),
-    repository: AnumRepository = Depends(repository_context),
-) -> TransactionView:
-    _manage(context)
+def record_manual_transaction(context: TenantContext, body: TransactionInput, *, transaction_id: str | None = None) -> tuple[Transaction, Any, str]:
+    """A hand-entered transaction and its journal entry, in one unit of work under the owner's lock.
+
+    Returns ``(transaction, guardian decision, canonical id)``. Used by ``POST /transactions`` and by modules that
+    record a cash payment once and then link it (docs/vehicles.md#payments). With ``transaction_id`` it is
+    idempotent: when the owner already has that transaction, it is returned unchanged. The caller checks
+    ``finance:manage`` first."""
     from .ledger import EntrySource
     from .sms_service import owner_lock, record_plain
     from .sms_store import open_sms_stores
 
     with owner_lock(context), open_sms_stores(context) as (store, sms):
         sms.lock_owner(context)
+        if transaction_id is not None:
+            existing = store.get_transaction(context, transaction_id)
+            if existing is not None:
+                entry = sms.entry_for_transaction(context, existing.id)
+                return existing, None, (entry.canonical_id or entry.id) if entry is not None else existing.id
         account = _own_account(store, context, body.account_id)
         amount = _money(body.amount, account.currency, field="Amount")
         description = _clean(body.description, 500)
@@ -527,7 +532,7 @@ def create_transaction(
             category, source = categorize(description, amount, settings_for(store, context).category_rules)
         now = utc_now()
         item = Transaction(
-            id=new_id("fin_txn"), tenant_id=context.tenant_id, workspace_id=context.workspace_id, owner_user_id=context.user_id,
+            id=transaction_id or new_id("fin_txn"), tenant_id=context.tenant_id, workspace_id=context.workspace_id, owner_user_id=context.user_id,
             account_id=account.id, posted_on=body.posted_on, amount=amount, currency=account.currency, description=description,
             category=category, category_source=source, notes=_clean(body.notes, 1000), import_id=None,
             # A hand-entered row is never a duplicate of another.
@@ -536,8 +541,19 @@ def create_transaction(
         )
         store.save_transaction(item)
         # The canonical transaction: hand-entered money has its journal entry like every other source.
-        record_plain(sms, context, item, account, EntrySource.MANUAL, now=now)
+        entry = record_plain(sms, context, item, account, EntrySource.MANUAL, now=now)
         decision = check_record(store, context, item, utc_now())
+    return item, decision, (entry.canonical_id or entry.id) if entry is not None else item.id
+
+
+@router.post("/transactions", response_model=TransactionView, status_code=status.HTTP_201_CREATED)
+def create_transaction(
+    body: TransactionInput,
+    context: TenantContext = Depends(tenant_context),
+    repository: AnumRepository = Depends(repository_context),
+) -> TransactionView:
+    _manage(context)
+    item, decision, _canonical = record_manual_transaction(context, body)
     _audit(repository, context, "finance.transaction.create", item.id, _guardian_meta(decision))
     return TransactionView(**_view(item), guardian=decision)
 

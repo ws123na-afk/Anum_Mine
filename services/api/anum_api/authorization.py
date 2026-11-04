@@ -165,6 +165,13 @@ class Permission(StrEnum):
     DOCUMENT_READ = "document:read"
     DOCUMENT_WRITE = "document:write"
     DOCUMENT_MANAGE = "document:manage"
+    # Vehicles, fuel and mileage (docs/vehicles.md#who-can-do-what): owners and members keep
+    # vehicles; a personal vehicle is visible only to its owner (row policies), a business one to
+    # every member. Owners also change and delete anyone's business vehicles and records. Viewers
+    # get none of it (registrations, VINs and costs are personal or business data).
+    VEHICLE_READ = "vehicle:read"
+    VEHICLE_WRITE = "vehicle:write"
+    VEHICLE_MANAGE = "vehicle:manage"
 
 
 class OrganizationRole(StrEnum):
@@ -265,6 +272,8 @@ ROLE_PERMISSIONS: Mapping[Role, frozenset[Permission]] = MappingProxyType(
             Permission.ATTENDANCE_USE,
             Permission.DOCUMENT_READ,
             Permission.DOCUMENT_WRITE,
+            Permission.VEHICLE_READ,
+            Permission.VEHICLE_WRITE,
         },
         Role.VIEWER: _READ_PERMISSIONS,
     }

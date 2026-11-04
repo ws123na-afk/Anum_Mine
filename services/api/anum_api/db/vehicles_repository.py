@@ -142,6 +142,8 @@ class VehicleServiceRecordRow(Base, _Child):
     next_due_km: Mapped[Decimal | None] = mapped_column(Numeric(10, 1), nullable=True)
     warranty_until: Mapped[date | None] = mapped_column(Date, nullable=True)
     trip_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    receipt_total: Mapped[Decimal | None] = mapped_column(Numeric(12, 2), nullable=True)
+    currency: Mapped[str] = mapped_column(String(3))
     payment_method: Mapped[str | None] = mapped_column(String(14), nullable=True)
     payment: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
     document_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
