@@ -173,6 +173,7 @@ from .finance.wider_api import router as finance_wider_router
 from .finance.intel_api import router as finance_intel_router
 from .finance.broker_api import router as finance_broker_router
 from .finance.sms_api import router as finance_sms_router
+from .finance.links_api import router as finance_links_router
 from .finance.ibkr_api import router as finance_ibkr_router
 from .finance.research_api import router as finance_research_router
 from .finance.sync import build_finance_scheduler
@@ -563,6 +564,7 @@ app.include_router(finance_wider_router)
 app.include_router(finance_intel_router)
 app.include_router(finance_broker_router)
 app.include_router(finance_sms_router)
+app.include_router(finance_links_router)
 app.include_router(finance_ibkr_router)
 app.include_router(finance_research_router)
 app.include_router(finance_intel_control_router)
@@ -2909,3 +2911,8 @@ def _record_partial_approval(
     )
     (shown,) = _with_progress([approval], context, repository)
     return ApprovalDecisionResponse(approval=shown, task=task, run=run)
+
+# Plug the shared iPhone device tokens into every installed module seam (docs/iphone-integrations.md).
+from .finance.devices import plug_module_authorities  # noqa: E402
+
+plug_module_authorities()

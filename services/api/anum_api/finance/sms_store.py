@@ -83,6 +83,9 @@ class SmsSettings(BaseModel):
     cash_account_id: str | None = None  # where an ATM withdrawal goes (else it is cash spending)
     ai: AiSettings = Field(default_factory=AiSettings)
     self_test_passed_at: datetime | None = None
+    # Per-integration switches on Settings, Integrations, iPhone (docs/iphone-integrations.md); a missing key
+    # takes the integration's default. SMS forwarding itself is ``enabled``.
+    integration_switches: dict[str, bool] = Field(default_factory=dict, max_length=20)
     version: int = 0
     updated_at: datetime | None = None
 
@@ -125,8 +128,8 @@ class MessageStatus(StrEnum):
 
 MessageSource = Literal["device", "paste", "test", "wallet", "statement"]
 
-# What a device token may send. Later iPhone automations (vehicle, attendance, documents,
-# purchases) add their own scope here; a route accepts only a token that carries its scope.
+# The scopes a device made on Finance, iPhone SMS gets. Every scope a token may hold, and the
+# integrations behind them, are in ``finance.devices`` (Settings, Integrations, iPhone).
 DEVICE_SCOPES = ("finance.sms", "finance.wallet")
 
 
@@ -452,8 +455,20 @@ def open_sms_stores(context: TenantContext) -> Iterator[tuple[FinanceStore, SmsS
 
         return (SqlAlchemyFinanceStore(session, context), SqlAlchemySmsStore(session))
 
+    from . import link_hooks
+
     with open_scoped_store(context, (finance_store, sms_memory_store), sql_store, user_scoped=True) as pair:
-        yield pair
+        token = link_hooks.begin()
+        try:
+            yield pair
+            notes = link_hooks.take()
+            if notes:
+                # Reversals and reconciliations in this unit: links follow before it commits (docs/finance-links.md).
+                from .links import settle
+
+                settle(pair[0], pair[1], context, notes)
+        finally:
+            link_hooks.end(token)
 
 
 __all__ = [

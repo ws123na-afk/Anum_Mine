@@ -88,6 +88,7 @@ PUBLIC_ROUTES: dict[str, str] = {
     "GET /api/v1/signup/status": "Self-serve sign-up: a valid Keycloak token of a pending account (signup_identity).",
     "POST /api/v1/signup/organization": "Self-serve sign-up: a valid Keycloak token of a pending account (signup_identity).",
     "POST /api/v1/finance/wallet/ingest": "iPhone Shortcut device token, the same credential and checks as the SMS ingest (Apple Wallet events).",
+    "POST /api/v1/integrations/iphone/ping": "iPhone Shortcut device token (Authorization: Bearer), the shared credential of docs/iphone-integrations.md: scope, permission, switch and per-scope rate limit checked; https only; records only the test.",
     "POST /api/v1/finance/sms/ingest": "iPhone Shortcut device token (Authorization: Bearer): hashed 256-bit secret checked in constant time in its owner's RLS scope, revocable, rate limited per device, https only.",
     "GET /api/v1/portal/me": "Customer portal: the hashed 256-bit link token (portal_session), one client account.",
     "GET /api/v1/portal/offers": "Customer portal link token.",

@@ -712,6 +712,14 @@ def add_link(context: TenantContext, document_id: str, target_type: str, target_
 def remove_link(context: TenantContext, document_id: str, link_id: str) -> None:
     with open_vault_unit(context) as unit:
         editable(unit, context, document_id)
+        found = next((link for link in unit.store.links(context, document_id) if link.id == link_id), None)
+    if found is not None and found.target_type == "finance_transaction":
+        from .links import finance_links
+
+        # The ledger's evidence link goes first (its own short unit, never inside the vault's), so both sides agree.
+        finance_links().withdraw(context, document_id, found.target_id)
+    with open_vault_unit(context) as unit:
+        editable(unit, context, document_id)
         if not unit.store.delete_link(context, document_id, link_id):
             raise HTTPException(404, "Link not found.")
         log_event(unit, context, document_id, "unlinked")

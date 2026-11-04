@@ -120,4 +120,20 @@ class HourlyCap:
 upload_cap = HourlyCap()
 
 
-__all__ = ["PREFIX", "SCOPE", "DeviceRefused", "DeviceTokens", "HourlyCap", "check_device", "mint", "parse_token", "secret_hash", "upload_cap"]
+# The shared iPhone device tokens (docs/iphone-integrations.md): ``finance.devices.plug_module_authorities``
+# registers an authority that resolves a shared token holding the ``documents`` scope to its owner
+# and device id, or answers ``None`` for any other header (then the vault's own tokens apply).
+_authority = None
+
+
+def register_device_authority(authority) -> None:  # type: ignore[no-untyped-def]
+    global _authority
+    _authority = authority
+
+
+def shared_device(authorization: str | None):  # type: ignore[no-untyped-def]
+    return _authority.authorize(authorization, SCOPE) if _authority is not None else None
+
+
+__all__ = ["PREFIX", "SCOPE", "DeviceRefused", "DeviceTokens", "HourlyCap", "check_device", "mint", "parse_token", "register_device_authority", "secret_hash",
+           "shared_device", "upload_cap"]

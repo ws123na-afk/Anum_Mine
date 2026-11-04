@@ -26,6 +26,7 @@ export interface FinanceSmsSettings {
   cash_account_id: string | null;
   ai: { enabled: boolean; opted_in_at: string | null; daily_cap: number; used_on: string | null; used: number };
   self_test_passed_at: string | null;
+  integration_switches?: Record<string, boolean>;
   version: number;
   updated_at: string | null;
 }

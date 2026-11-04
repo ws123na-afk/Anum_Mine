@@ -72,6 +72,7 @@ from .sms_store import (
     open_sms_stores,
     source_kind,
 )
+from . import link_hooks
 from . import wallet as W
 from .store import FinanceStore
 from .summary import today_in, zone
@@ -437,6 +438,7 @@ def reverse(finance: FinanceStore, store: SmsStore, context: TenantContext, entr
     )
     store.add_entry(reversal)
     store.mark_entry(context, entry.id, status=EntryStatus.REVERSED, reversed_by_id=reversal.id)
+    link_hooks.note_reversed(entry.canonical_id or entry.id)  # links on this transaction follow (finance/links.py settle)
     if entry.source not in (EntrySource.CLEARING, EntrySource.REVERSAL):
         # Undoing or replacing the payment undoes the clearing entries that completed it (the other side's
         # message), so no bank debit is left behind and nothing stays in suspense.
@@ -743,6 +745,8 @@ def _ingest(context: TenantContext, device_id: str | None, secret: str | None, s
                 return Outcome(test)
         if not settings.enabled:
             raise IngestError(409, "SMS forwarding is off. Turn it on in ANUM under Finance, iPhone SMS.", "disabled")
+        if wallet is not None and settings.integration_switches.get("finance.wallet") is False:
+            raise IngestError(409, "Apple Wallet payments are off. Turn them on in ANUM under Settings, Integrations, iPhone.", "disabled")
         if device is not None:
             if store.count_since(context, device.id, now - timedelta(minutes=1)) >= PER_MINUTE:
                 raise IngestError(429, "Too many messages from this device. Try again in a minute.", "rate_limited", retry_after=60)

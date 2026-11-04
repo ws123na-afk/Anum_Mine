@@ -434,6 +434,15 @@ def _device_context(authorization: str | None) -> tuple[TenantContext, DeviceRec
 
     if not authorization or not authorization.lower().startswith("bearer "):
         raise DeviceRefused(401, "Send the device token as Authorization: Bearer <token>.", "missing_token")
+    from .devices import shared_device
+
+    try:
+        principal = shared_device(authorization)  # a Settings, Integrations, iPhone token with the documents scope
+    except HTTPException as exc:
+        raise DeviceRefused(exc.status_code, str(exc.detail), getattr(exc, "code", "refused"), getattr(exc, "retry_after", None)) from None
+    if principal is not None:
+        return principal.context, DeviceRecord(id=principal.device_id or "shared", owner_user_id=principal.context.user_id, name="iPhone",
+                                               token_hash="-", hint="-", created_at=utc_now())
     parsed = parse_token(authorization.split(" ", 1)[1])
     if parsed is None:
         raise DeviceRefused(401, "This device token is not valid.", "invalid_token")
@@ -459,6 +468,14 @@ def _device_seen(context: TenantContext, device_id: str, *, error: str | None, u
         if record is not None:
             unit.store.save_device(context, record.model_copy(update={
                 "last_seen_at": utc_now(), "last_error": error, "upload_count": record.upload_count + (1 if uploaded else 0)}))
+
+
+def _shared_failed(context: TenantContext, device: DeviceRecord, code: str) -> None:
+    """A Settings, Integrations, iPhone token's failed upload shows under the integration's failed events."""
+    if device.token_hash == "-":
+        from ..finance.devices import report_failure
+
+        report_failure(context, device.id, SCOPE, code)
 
 
 @router.post("/device/upload", response_model=DocumentView, status_code=status.HTTP_201_CREATED)
@@ -487,9 +504,11 @@ async def device_upload(
                           access_class="private", source="device", allow_duplicate=False)
     except HTTPException as exc:
         await asyncio.to_thread(_device_seen, context, device.id, error=f"{exc.status_code}", uploaded=False)
+        await asyncio.to_thread(_shared_failed, context, device, f"http_{exc.status_code}")
         raise
     except Exception as exc:
         await asyncio.to_thread(_device_seen, context, device.id, error=type(exc).__name__[:80], uploaded=False)
+        await asyncio.to_thread(_shared_failed, context, device, "processing_error")
         raise
     await asyncio.to_thread(_device_seen, context, device.id, error=None, uploaded=True)
     return view

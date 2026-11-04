@@ -380,7 +380,15 @@ async def device_event(body: DeviceEventInput, response: Response,
     Safe to retry: the same idempotency key records the event once and answers 200 with
     ``duplicate: true``. The server stamps when it was received; ``occurred_at`` (optional) is
     when the phone saw it, so a late delivery still lands at the right time."""
-    return await asyncio.to_thread(_device_record, principal, body, response)
+    try:
+        return await asyncio.to_thread(_device_record, principal, body, response)
+    except HTTPException as exc:
+        if principal.via == "device_token":
+            # A shared iPhone token's refused event shows on Settings, Integrations, iPhone (docs/iphone-integrations.md).
+            from ..finance.devices import report_failure
+
+            await asyncio.to_thread(report_failure, principal.context, principal.device_id, "attendance", f"http_{exc.status_code}")
+        raise
 
 
 @router.get("/events", response_model=list[EventView])

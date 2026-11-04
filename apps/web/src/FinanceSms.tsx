@@ -12,6 +12,7 @@ import type {
 import * as api from './lib/financeSmsApi';
 import { listAccounts, listImports } from './lib/financeApi';
 import { apiBaseUrl } from './lib/api';
+import { scopeLabel } from './lib/iphoneIntegrations';
 import { SMS_KINDS, SMS_STATUSES, correctionBody, correctionDefaults, ingestUrl, kindLabel, ledgerAccountLabel, reasonLabel, shortcutSteps, walletSteps, walletUrl } from './lib/financeSms';
 import { categoryLabel, formatAmounts, monthLabel, shiftMonth } from './lib/finance';
 import { describeError } from './lib/errors';
@@ -142,7 +143,7 @@ function Devices({ status, onChanged }: { status: FinanceSmsStatusView; onChange
       : <ul className="cmList">{devices.value.map((d) => <li key={d.id} className="finSmsDevice">
         <div><strong dir="auto">{d.name}</strong>
           <small>{t(`fsms.device.${d.status}` as MessageKey)} · {t('fsms.device.token', { hint: d.token_hint })} · {t('fsms.device.messages', { count: d.message_count })}</small>
-          <small>{(d.scopes ?? []).map((scope) => t(`fsms.scope.${scope === 'finance.sms' ? 'sms' : 'wallet'}` as MessageKey)).join(', ')}</small>
+          <small>{(d.scopes ?? []).map((scope) => scopeLabel(scope)).join(', ')}</small>
           <small>{t('fsms.lastOk')}: {when(d.last_ok_at)} · {t('fsms.lastError')}: {d.last_error ? `${reasonLabel(d.last_error)} (${when(d.last_error_at)})` : '-'}</small></div>
         {d.status !== 'revoked' && <div className="actions">
           {d.status === 'active'

@@ -722,7 +722,8 @@ class MemoryTenantData:
             if table.name == "workspaces" and workspace == keep_workspace:
                 return False
             if job.kind == JobKind.WORKSPACE_DELETION:
-                return table.workspace_column is not None and workspace == job.workspace_id
+                origin = getattr(item, table.origin_workspace_column, None) if table.origin_workspace_column else None
+                return table.workspace_column is not None and job.workspace_id in (workspace, origin)
             return True
 
         files = 0

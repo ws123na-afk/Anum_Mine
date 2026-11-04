@@ -30,10 +30,17 @@ class FinanceLinkPort(Protocol):
         """Ask the ledger to attach a document as evidence of a transaction. Never posts money."""
         ...
 
+    def withdraw(self, context: TenantContext, document_id: str, transaction_ref: str) -> None:
+        """The document's link was removed in the vault: the ledger's evidence link is voided too."""
+        ...
+
 
 class NotConnected:
     def propose(self, context: TenantContext, document_id: str, transaction_ref: str) -> Literal["proposed", "confirmed"]:
         raise HTTPException(409, NOT_CONNECTED)
+
+    def withdraw(self, context: TenantContext, document_id: str, transaction_ref: str) -> None:
+        return None  # nothing was ever linked on the ledger side
 
 
 _port: FinanceLinkPort = NotConnected()
