@@ -107,7 +107,7 @@ Shared tokens: a token made on Settings, Integrations, iPhone with the **Documen
 
 ## Links
 
-`vault_document_links` points a document at a vehicle, person, business or purchase (a reference the person types, resolved when those modules exist) or at a finance transaction. A finance link goes through `vault/links.py FinanceLinkPort`, which the finance links foundation connects at start (`finance/links.py VaultLinkAdapter`): the target is the payment's `canonical_id`, the caller needs `finance:manage`, and the document becomes an `evidence` link on that payment with no amount; it never posts money ([Finance links](finance-links.md)). An unknown payment answers 404. The web page does not offer the finance target yet (it needs a payment picker).
+`vault_document_links` points a document at a vehicle, person, business or purchase (a reference the person types, resolved when those modules exist) or at a finance transaction. A finance link goes through `vault/links.py FinanceLinkPort`, which the finance links foundation connects at start (`finance/links.py VaultLinkAdapter`): the target is the payment's `canonical_id`, the caller needs `finance:manage`, and the document becomes an `evidence` link on that payment with no amount; it never posts money ([Finance links](finance-links.md)). An unknown payment answers 404. Removing that link in the vault voids the evidence link on the ledger first (`withdraw`), so both sides agree. The web page does not offer the finance target yet (it needs a payment picker).
 
 ## The assistant
 

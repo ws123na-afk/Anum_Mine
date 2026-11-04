@@ -26,6 +26,9 @@ class TenantTable:
     domain: str
     workspace_column: str | None = "workspace_id"
     storage_key_column: str | None = None
+    # A second column naming a workspace whose deletion also removes the row (rows one workspace made in
+    # another, such as an owner's business allocations: docs/finance-links.md#storage-privacy-and-deletion).
+    origin_workspace_column: str | None = None
 
 
 # The job table of this feature: never exported, never purged by the purge role (the
@@ -453,6 +456,11 @@ _STORAGE_KEYS = {
 }
 
 
+_ORIGIN_COLUMNS = {
+    "business_ledger_allocations": "source_workspace_id",
+}
+
+
 def _entry(name: str) -> TenantTable:
     if name == "workspaces":
         workspace_column: str | None = "id"
@@ -460,7 +468,7 @@ def _entry(name: str) -> TenantTable:
         workspace_column = None
     else:
         workspace_column = "workspace_id"
-    return TenantTable(name, domain_of(name), workspace_column, _STORAGE_KEYS.get(name))
+    return TenantTable(name, domain_of(name), workspace_column, _STORAGE_KEYS.get(name), _ORIGIN_COLUMNS.get(name))
 
 
 TENANT_TABLES: tuple[TenantTable, ...] = tuple(_entry(name) for name in _ORDER)

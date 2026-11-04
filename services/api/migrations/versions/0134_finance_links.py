@@ -54,20 +54,22 @@ def _workspace_fk(table: str) -> sa.ForeignKeyConstraint:
     return sa.ForeignKeyConstraint(["tenant_id", "workspace_id"], ["workspaces.tenant_id", "workspaces.id"], name=f"fk_{table}_workspace")
 
 
-def _rls(table: str, *, owner: bool) -> None:
+def _rls(table: str, *, owner: bool, origin_column: str | None = None) -> None:
     op.execute(f"alter table {table} enable row level security")
     op.execute(f"alter table {table} force row level security")
     op.execute(f"create policy tenant_isolation_{table} on {table} using ({PREDICATE}) with check ({PREDICATE})")
     if owner:
         op.execute(f"create policy owner_only_{table} on {table} as restrictive "
                    f"using (({OWNER_PREDICATE}) or (current_user = 'anum_tenant_purger'::name)) with check ({OWNER_PREDICATE})")
-    op.execute(f"grant select (tenant_id, ctid, workspace_id), delete on {table} to anum_tenant_purger")
+    op.execute(f"grant select (tenant_id, ctid, workspace_id{', ' + origin_column if origin_column else ''}), delete on {table} to anum_tenant_purger")
+    # A workspace deletion job removes the rows of that workspace and, with ``origin_column``, the rows it made elsewhere.
+    workspaces = f"(j.workspace_id = {table}.workspace_id or j.workspace_id = {table}.{origin_column})" if origin_column else f"j.workspace_id = {table}.workspace_id"
     purge_policy = (f"create policy lifecycle_purge_{table} on {table} for all to anum_tenant_purger "  # nosec B608: fixed table name
         "using (tenant_id = nullif(current_setting('anum.tenant_id', true), '') "
         "and exists (select 1 from tenant_lifecycle_jobs j where j.tenant_id = "
         f"{table}.tenant_id and j.status = 'purging' "
         "and (j.kind = 'organisation_deletion' or "
-        f"(j.kind = 'workspace_deletion' and j.workspace_id = {table}.workspace_id)))) "
+        f"(j.kind = 'workspace_deletion' and {workspaces})))) "
         "with check (false)")
     op.execute(purge_policy)
 
@@ -194,7 +196,8 @@ def upgrade() -> None:
 
     for table in OWNER_TABLES:
         _rls(table, owner=True)
-    _rls("business_ledger_allocations", owner=False)
+    # Deleting the owner's personal workspace also removes the allocation rows they made in business workspaces.
+    _rls("business_ledger_allocations", owner=False, origin_column="source_workspace_id")
 
 
 def downgrade() -> None:

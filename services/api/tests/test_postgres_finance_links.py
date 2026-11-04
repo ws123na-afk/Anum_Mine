@@ -192,3 +192,31 @@ def test_scoped_device_token_under_rls(client: TestClient, app_session: Callable
         assert all(token.split(".")[-1] not in h[0] for h in hashes)
     finally:
         D._integrations.pop(item.key, None)
+
+
+def test_deleting_the_owners_personal_workspace_removes_the_allocation_rows_they_made(
+        client: TestClient, database_engine: Engine, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A workspace deletion job purges, through the purge role and its policy only (no BYPASSRLS), the rows
+    of that workspace and the allocation rows it made in other workspaces; other workspaces' rows stay."""
+    from anum_api import tenant_lifecycle as lifecycle
+
+    monkeypatch.setattr(settings, "auth_mode", "headers")
+    with database_engine.begin() as connection:
+        connection.execute(text("insert into workspace_memberships (user_id, tenant_id, workspace_id, role, active) values ('admin', :t, :w, 'owner', true)"),
+                           {"t": TENANT_A, "w": WORKSPACE_A})
+        # WORKSPACE_A2 is the owner's personal workspace; WORKSPACE_A is the business.
+        for row_id, source in (("alloc_from_personal", WORKSPACE_A2), ("alloc_from_elsewhere", "workspace_other_source")):
+            connection.execute(text(
+                "insert into business_ledger_allocations (id, tenant_id, workspace_id, source_link_id, source_workspace_id, allocated_by, source_ref, "
+                "posted_on, amount, currency, category, treatment, status) values (:id, :t, :w, :link, :src, 'admin', 'abc123', current_date, 10, "
+                "'SAR', 'fuel', 'owner_contribution', 'active')"), {"id": row_id, "t": TENANT_A, "w": WORKSPACE_A, "link": f"link_{row_id}", "src": source})
+    owner = {"x-tenant-id": TENANT_A, "x-workspace-id": WORKSPACE_A2, "x-user-id": "user_test", "x-user-roles": "owner,org_admin"}
+    asked = client.post("/api/v1/workspaces/current/deletion", headers=owner, json={"confirm_name": "Workspace A2"})
+    assert asked.status_code == 202, asked.text
+    with database_engine.begin() as connection:
+        connection.execute(text("update tenant_lifecycle_jobs set purge_after = now() - interval '1 second' where status = 'scheduled'"))
+    assert lifecycle.run_lifecycle_pass() == {"purged": 1}
+    with database_engine.begin() as connection:
+        left = connection.execute(text("select id from business_ledger_allocations where tenant_id = :t order by id"), {"t": TENANT_A}).scalars().all()
+        bypass = connection.execute(text("select rolbypassrls from pg_roles where rolname = 'anum_tenant_purger'")).scalar_one()
+    assert left == ["alloc_from_elsewhere"] and bypass is False
