@@ -312,6 +312,23 @@ def _tool_and_role(cap_id: str, tool: str, permission: Permission | None) -> Cal
     return check
 
 
+def _finance(context: TenantContext, tools: Collection[str]) -> Capability:
+    """The ledger, and whether this person's iPhone SMS forwarding records bank messages (docs/finance-sms.md)."""
+    base = _tool_and_role("finance", "finance.summary", Permission.FINANCE_READ)(context, tools)
+    if not base.available:
+        return base
+    from .finance.sms_store import open_sms_stores
+
+    with open_sms_stores(context) as (_finance, store):
+        sms = store.get_settings(context)
+        waiting = store.status_counts(context).get("review", 0) if sms is not None and sms.enabled else 0
+    if sms is None or not sms.enabled:
+        return _on("finance", note="iPhone SMS forwarding is off: the person turns it on under Finance, iPhone SMS",
+                   note_ar="تحويل رسائل الآيفون متوقف: يشغله الشخص من المالية > رسائل الآيفون")
+    return _on("finance", note=f"bank messages forwarded from the iPhone are recorded in the ledger; {waiting} waiting for review",
+               note_ar=f"رسائل البنك المحولة من الآيفون تسجل في السجل؛ {waiting} بانتظار المراجعة")
+
+
 def _tasks(context: TenantContext, tools: Collection[str]) -> Capability:
     if not tools:
         return _off("tasks", "not available on this server: the task runtime is not running here",
@@ -333,7 +350,7 @@ CHECKS: list[tuple[str, Callable[[TenantContext, Collection[str]], Capability]]]
     ("browse", _browse),
     ("act", _act),
     ("business", _tool_and_role("business", "business.send_invoice", Permission.BUSINESS_READ)),
-    ("finance", _tool_and_role("finance", "finance.summary", Permission.FINANCE_READ)),
+    ("finance", _finance),
     ("commerce", _commerce),
     ("tyre", _tool_and_role("tyre", "tyres_due", Permission.TYRE_READ)),
     ("meetings", _tool_and_role("meetings", "", Permission.MEETING_READ)),

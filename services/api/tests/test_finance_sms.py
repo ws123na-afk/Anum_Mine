@@ -537,3 +537,16 @@ def test_transactions_tab_cannot_silently_edit_the_journal() -> None:
     assert client.delete(f"{API}/transactions/{txn['id']}", headers=OWNER).status_code == 204
     assert len(sms_memory_store.entries) == 2 and money(dashboard()["expenses"]) == Decimal("0")
     balanced_journal()
+
+
+def test_the_assistant_capability_says_whether_sms_forwarding_is_on() -> None:
+    from anum_api.capabilities import _finance
+    from anum_api.schemas import TenantContext
+
+    ctx = TenantContext(tenant_id=TENANT, workspace_id=WORKSPACE, user_id="owner_sms", roles=["owner"])
+    off = _finance(ctx, {"finance.summary"})
+    assert off.available and "off" in (off.note or "")
+    s = setup()
+    send(s["token"], NO_AMOUNT)
+    on = _finance(ctx, {"finance.summary"})
+    assert on.available and "1 waiting for review" in (on.note or "")
