@@ -8,7 +8,7 @@ Who can do what (checked here, on the server, for every route):
   (``?person=<user id>``); a share never allows a change. Without one the answer is 404, the
   same as for a person with no records, so nobody can probe who keeps attendance.
 * Viewers have no Attendance. The database enforces the same rules (forced RLS, migration
-  ``0133_work_attendance``).
+  ``0132_work_attendance``).
 
 This is a personal log kept by the person, never an employer-certified timesheet, and the
 exports say so. Exact coordinates are never accepted or stored.

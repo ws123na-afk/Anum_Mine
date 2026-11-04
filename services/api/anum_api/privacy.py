@@ -172,7 +172,7 @@ class PrivateCounts(BaseModel):
     # call as "Deleted user" so the other participant's history stays readable.
     app_calls: int = 0
     app_call_signals: int = 0
-    # Work attendance (migration 0133_work_attendance, docs/attendance.md#privacy): the caller's
+    # Work attendance (migration 0132_work_attendance, docs/attendance.md#privacy): the caller's
     # profile, sites, events, corrections, day totals, daily reports and the shares they gave.
     attendance_records: int = 0
 

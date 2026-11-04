@@ -31,17 +31,16 @@ Row level security (forced on every table):
   events older than 90 days and of profiles with missed check alerts on, nothing else, no write.
   It also reads the scope columns of ``attendance_shares`` because the policies above refer to it.
 
-Expand only: new tables, policies and grants. The previous release ignores them. Numbered 0133
-(0131 and 0132 are reserved by open PRs) and chained after ``0130_action_browser``; renumber at
-merge onto the head of the day.
+Expand only: new tables, policies and grants. The previous release ignores them. Numbered 0132 and
+chained after ``0131_finance_sms_ledger``.
 """
 
 import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
-revision = "0133_work_attendance"
-down_revision = "0130_action_browser"
+revision = "0132_work_attendance"
+down_revision = "0131_finance_sms_ledger"
 branch_labels = None
 depends_on = None
 

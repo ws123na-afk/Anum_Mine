@@ -1,4 +1,4 @@
-"""PostgreSQL attendance store (migration ``0133_work_attendance``, docs/attendance.md).
+"""PostgreSQL attendance store (migration ``0132_work_attendance``, docs/attendance.md).
 
 The session carries the tenant, workspace and user RLS context (``open_attendance_store`` opens
 it with ``user_scoped=True``). The restrictive policies admit a row to its owner, and for

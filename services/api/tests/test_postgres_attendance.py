@@ -1,4 +1,4 @@
-"""Work attendance in PostgreSQL (migration 0133_work_attendance, docs/attendance.md, pytest -m database).
+"""Work attendance in PostgreSQL (migration 0132_work_attendance, docs/attendance.md, pytest -m database).
 
 The API runs as the non-owner ``anum_test_app`` role. Every attendance row is readable by its
 owner and, while an active share names them, by one viewer; writable by its owner only; never

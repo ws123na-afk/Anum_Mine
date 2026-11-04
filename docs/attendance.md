@@ -7,7 +7,7 @@ and departures. It is a **personal log kept by the person, never an employer-cer
 says so.
 
 Code: `services/api/anum_api/attendance/` (engine, store, service, API, device seam, AI drafts, daily job),
-`services/api/anum_api/db/attendance_repository.py`, migration `0133_work_attendance`, contracts
+`services/api/anum_api/db/attendance_repository.py`, migration `0132_work_attendance`, contracts
 `packages/contracts/src/attendance.ts`, web `apps/web/src/AttendanceView.tsx`, `AttendanceParts.tsx`,
 `lib/attendance*.ts`, `lib/messages/attendance.{en,ar}.ts`, `attendance.css`.
 
@@ -108,10 +108,11 @@ the event `poor` (counted, not verified). Consent must be on and tracking not pa
 is stored.
 
 **Token.** The owner's plan is one device enrollment for every iPhone integration (Settings, Integrations, iPhone),
-generalising the finance device tokens of PR #364 with per-integration scopes. That foundation is not on `main` yet, so
-`attendance/devices.py` is the seam: `register_device_authority()` takes a `DeviceAuthority` that resolves a scoped
+reusing the finance device tokens of PR #364 (merged; tokens carry per-integration scopes). The shared-foundation PR
+(`claude/finance-links`) adds the `attendance` scope and registers a `DeviceAuthority` here; that is the remaining
+step. `attendance/devices.py` is the seam: `register_device_authority()` takes a `DeviceAuthority` that resolves a scoped
 device token (scope `attendance`) to its owner. Until it is registered, the endpoint accepts the ordinary ANUM sign-in
-token, which expires, so an unattended Shortcut works only for testing. **Device testing is blocked on the foundation
+token, which expires, so an unattended Shortcut works only for testing. **Device testing waits for the foundation
 PR.** `X-Anum-Device` may carry a short device label; it never grants access.
 
 Steps on the iPhone (one automation per site for arriving and one for leaving):
@@ -142,7 +143,7 @@ is open during the model call.
 
 ## Storage, isolation and retention
 
-Migration `0133_work_attendance` (expand only; chained after `0130_action_browser`, renumber at merge):
+Migration `0132_work_attendance` (expand only; chained after `0131_finance_sms_ledger`):
 `attendance_profiles`, `attendance_sites`, `attendance_events`, `attendance_corrections`, `attendance_day_totals`,
 `attendance_daily_reports`, `attendance_shares`. Every table has forced RLS: the tenant and workspace policy, and
 restrictive per-command owner policies. SELECT admits the owner, a viewer named in the owner's active share (reports

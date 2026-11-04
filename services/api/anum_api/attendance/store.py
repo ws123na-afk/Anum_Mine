@@ -3,7 +3,7 @@
 With ``ANUM_REPOSITORY_BACKEND=postgresql`` the store is
 ``anum_api.db.attendance_repository.SqlAttendanceStore`` in a session whose tenant, workspace
 **and user** RLS context is set. Every attendance table is under forced RLS: the tenant policy
-plus restrictive owner policies (migration ``0133_work_attendance``). A person reads and writes
+plus restrictive owner policies (migration ``0132_work_attendance``). A person reads and writes
 only their own rows; another member may *read* them only while an active share names them
 (``attendance_shares``), and never writes them. The in-memory store applies the same rules for
 local development and tests.

@@ -1,9 +1,9 @@
 """Who sent an iPhone Shortcut event (docs/attendance.md#iphone-shortcuts).
 
 The owner's plan is one device enrollment for every iPhone integration: the finance device
-tokens of PR #364 widened with per-integration scopes (scope ``attendance`` here), managed on
-Settings, Integrations, iPhone. That foundation is not on ``main`` yet, so this module is the
-seam it plugs into:
+tokens of PR #364 (merged, with per-integration scopes), managed on Settings, Integrations, iPhone.
+The shared-foundation PR (``claude/finance-links``) adds the ``attendance`` scope and registers its
+authority here; this module is the seam it plugs into:
 
 * :class:`DeviceAuthority` resolves ``Authorization: Bearer <device token>`` to the device's
   owner (tenant, workspace, person, current role) and device id, and answers ``None`` for a
