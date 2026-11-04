@@ -7,10 +7,10 @@
 .vaultPanel { margin-top: var(--d-s4); min-width: 0; }
 .vaultBadge { align-items: center; background: var(--d-well); border: 1px solid var(--d-line); border-radius: 999px; color: var(--d-text); display: inline-flex; font-size: var(--text-xs); gap: 4px; line-height: 1.5; padding: 1px 8px; white-space: nowrap; }
 .vaultBadge svg { height: 12px; width: 12px; }
-.vaultBadge.warn { border-color: color-mix(in srgb, var(--d-warn, #b7791f) 55%, var(--d-line)); color: var(--d-warn, #b7791f); }
-.vaultBadge.danger { border-color: color-mix(in srgb, var(--d-danger, #c53030) 55%, var(--d-line)); color: var(--d-danger, #c53030); }
-.vaultBadge.ok { border-color: color-mix(in srgb, var(--d-ok, #2f855a) 55%, var(--d-line)); color: var(--d-ok, #2f855a); }
-.vaultBadge.accent { border-color: color-mix(in srgb, var(--d-violet) 55%, var(--d-line)); color: var(--d-violet); }
+.vaultBadge.warn { background: color-mix(in srgb, var(--d-warn, #b7791f) 14%, var(--d-well)); border-color: color-mix(in srgb, var(--d-warn, #b7791f) 60%, var(--d-line)); }
+.vaultBadge.danger { background: color-mix(in srgb, var(--d-danger, #c53030) 14%, var(--d-well)); border-color: color-mix(in srgb, var(--d-danger, #c53030) 60%, var(--d-line)); }
+.vaultBadge.ok { background: color-mix(in srgb, var(--d-ok, #2f855a) 14%, var(--d-well)); border-color: color-mix(in srgb, var(--d-ok, #2f855a) 60%, var(--d-line)); }
+.vaultBadge.accent { background: color-mix(in srgb, var(--d-violet) 14%, var(--d-well)); border-color: color-mix(in srgb, var(--d-violet) 60%, var(--d-line)); }
 .vaultEmpty { margin-top: var(--d-s2); }
 .vaultEmpty .actions { justify-content: center; }
 .vaultPanel .linkButton { background: none; border: 0; color: var(--d-sky); cursor: pointer; font-size: var(--text-sm); font-weight: 600; min-height: 32px; padding: 0; text-align: start; text-decoration: underline; }
@@ -89,7 +89,7 @@
 
 .vaultSettings { align-items: start; display: grid; gap: var(--d-s4); grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .vaultSettings .vaultDevices { grid-column: 1 / -1; }
-.vaultSettings .field input { max-width: 200px; width: 100%; }
+.vaultSettings .field input[inputmode="numeric"] { max-width: 200px; width: 100%; }
 .vaultToken { display: grid; gap: var(--d-s2); }
 .vaultToken code { background: var(--d-well); border: 1px solid var(--d-line); border-radius: 6px; display: block; font-size: var(--text-xs); overflow-wrap: anywhere; padding: var(--d-s2); user-select: all; }
 .vaultSteps { display: grid; gap: var(--d-s1); margin: 0; padding-inline-start: var(--d-s5); }
