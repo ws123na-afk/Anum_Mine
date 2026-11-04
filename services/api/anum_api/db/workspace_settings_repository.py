@@ -191,6 +191,7 @@ class SqlAlchemyFileMetadataStore:
                 scan_status=record.scan_status,
                 scan_signature=record.scan_signature,
                 scanned_at=record.scanned_at,
+                vault=record.vault,
             )
         )
         self.session.flush()
@@ -208,7 +209,7 @@ class SqlAlchemyFileMetadataStore:
     def list_files(self, context: TenantContext, limit: int) -> list[FileRecord]:
         rows = self.session.scalars(
             select(WorkspaceFileRecord)
-            .where(*self._scope(context))
+            .where(*self._scope(context), WorkspaceFileRecord.vault.is_(None))
             .order_by(WorkspaceFileRecord.created_at, WorkspaceFileRecord.id)
             .limit(limit)
         ).all()
@@ -219,7 +220,8 @@ class SqlAlchemyFileMetadataStore:
             FileSort.NAME: func.lower(WorkspaceFileRecord.name).collate("C"),
             FileSort.SIZE: WorkspaceFileRecord.size_bytes,
         }.get(query.sort, WorkspaceFileRecord.created_at)
-        statement = select(WorkspaceFileRecord).where(*self._scope(context))
+        # Vault documents are listed by the vault only (docs/documents.md#storage-and-isolation).
+        statement = select(WorkspaceFileRecord).where(*self._scope(context), WorkspaceFileRecord.vault.is_(None))
         if query.search:
             escaped = query.search.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
             statement = statement.where(WorkspaceFileRecord.name.ilike(f"%{escaped}%", escape="\\"))
@@ -418,7 +420,7 @@ class SqlAlchemyFileMetadataStore:
             {"t": context.tenant_id, "w": context.workspace_id},
         ).all()
         extras = {file_id: (int(count), int(size)) for file_id, count, size in extra}
-        rows = self.session.scalars(select(WorkspaceFileRecord).where(*self._scope(context))).all()
+        rows = self.session.scalars(select(WorkspaceFileRecord).where(*self._scope(context), WorkspaceFileRecord.vault.is_(None))).all()
         files = []
         for row in rows:
             count, size = extras.get(row.id, (0, 0))
@@ -532,6 +534,7 @@ def _file(row: WorkspaceFileRecord) -> FileRecord:
         scan_signature=row.scan_signature,
         scanned_at=row.scanned_at,
         version=row.version,
+        vault=row.vault,  # type: ignore[arg-type]
     )
 
 

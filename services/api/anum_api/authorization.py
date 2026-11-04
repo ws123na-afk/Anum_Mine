@@ -154,6 +154,14 @@ class Permission(StrEnum):
     # get neither.
     BILLING_READ = "billing:read"
     BILLING_MANAGE = "billing:manage"
+    # Document vault (docs/documents.md#who-can-do-what): identity papers, contracts and receipts
+    # are personal data, so viewers get none of it. Owners and members read workspace documents
+    # and add, change and delete their own; a private document is visible only to its owner and
+    # the people it is shared with, whatever the role. Owners also manage the vault's settings and
+    # categories and change or delete anyone's workspace documents.
+    DOCUMENT_READ = "document:read"
+    DOCUMENT_WRITE = "document:write"
+    DOCUMENT_MANAGE = "document:manage"
 
 
 class OrganizationRole(StrEnum):
@@ -251,6 +259,8 @@ ROLE_PERMISSIONS: Mapping[Role, frozenset[Permission]] = MappingProxyType(
             Permission.CALL_LOG,
             Permission.BUSINESS_READ,
             Permission.BUSINESS_WRITE,
+            Permission.DOCUMENT_READ,
+            Permission.DOCUMENT_WRITE,
         },
         Role.VIEWER: _READ_PERMISSIONS,
     }
