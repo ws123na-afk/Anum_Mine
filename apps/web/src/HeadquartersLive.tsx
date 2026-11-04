@@ -712,7 +712,7 @@ export function HeadquartersLive(props: HeadquartersProps) {
           presenceLink={livePresence.link} presenceAsOf={livePresence.asOf} flowState={flowState}
           scene={<div className="hqSceneHost">
           {showFirstRun && <Suspense fallback={null}><FirstRunPanel onCreated={onCampusCreated} onKeep={setFirstRunKeep} onClose={() => setFirstRunKeep(false)} onManageSpaces={() => setOverlay('spaces')} /></Suspense>}
-          {loading && <div className="hqLoading" role="status" aria-busy="true"><span className="hqSpinner" aria-hidden="true" />{t('hq.loading')}</div>}
+          {loading && <div className={webglOk && effectiveView !== 'list' ? 'hqLoading hqLoadingStage' : 'hqLoading'} role="status" aria-busy="true"><span className="hqSpinner" aria-hidden="true" />{t('hq.loading')}</div>}
           {campus && effectiveView === 'list' && (
             <CampusListView
               campus={campus} currentWorkspaceId={scope.workspaceId} detail={projection?.buildings ?? []}

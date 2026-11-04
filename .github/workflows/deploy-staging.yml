@@ -47,9 +47,11 @@ jobs:
         id: names
         run: |
           owner="${GITHUB_REPOSITORY_OWNER,,}"
-          echo "api_image=ghcr.io/${owner}/anum-api:${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
-          echo "web_image=ghcr.io/${owner}/anum-web:${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
-          echo "backup_image=ghcr.io/${owner}/anum-backup:${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+          {
+            echo "api_image=ghcr.io/${owner}/anum-api:${GITHUB_SHA}"
+            echo "web_image=ghcr.io/${owner}/anum-web:${GITHUB_SHA}"
+            echo "backup_image=ghcr.io/${owner}/anum-backup:${GITHUB_SHA}"
+          } >> "$GITHUB_OUTPUT"
       - name: Log in to GHCR
         env:
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}

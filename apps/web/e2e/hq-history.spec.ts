@@ -202,7 +202,8 @@ test('empty history says nothing was recorded and what to do', async ({ page }) 
   const panel = await openPanel(page);
   await expect(panel.getByRole('heading', { name: 'No records match' })).toBeVisible();
   await expect(panel.getByText('Nothing has been recorded yet.')).toBeVisible();
-  await expect(panel.getByRole('button', { name: 'Open tasks' })).toBeVisible();
+  // Since #348 the next step gives work inside the office (the assign drawer) instead of leaving for Tasks.
+  await expect(panel.getByRole('button', { name: 'Assign work' })).toBeVisible();
 });
 
 test('a filter with no match offers to clear it', async ({ page }) => {

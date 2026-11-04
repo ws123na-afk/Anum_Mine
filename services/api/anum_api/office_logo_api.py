@@ -28,7 +28,7 @@ from .authorization import Permission
 from .dependencies import require_permission, tenant_context
 from .files import check_upload_content, read_upload_body
 from .office_scope import require_postgres, workspace_session
-from .office_space_api import Identifier, _audit, _error, _snap, _store
+from .office_space_api import _audit, _error, _snap, _store
 from .office_space_store import SpaceStoreError
 from .schemas import TenantContext
 

@@ -6,6 +6,7 @@ deterministic fake; nothing here calls a provider.
 from __future__ import annotations
 
 import asyncio
+import functools
 import json
 import threading
 from collections.abc import Iterator
@@ -21,6 +22,7 @@ from sqlalchemy.orm import sessionmaker
 from anum_api import live_agent_meeting_api as meeting_api
 from anum_api import live_agent_meeting_budget as budget
 from anum_api import live_agent_meeting_room as room
+from anum_api import live_agent_meeting_room_api as room_api
 from anum_api.db import session as db_session
 from anum_api.live_agent_meeting_store import LiveMeetingStoreError, SqlLiveMeetingStore
 from anum_api.main import app
@@ -365,8 +367,12 @@ def test_a_workspace_owner_reads_every_path(factory, seeded):
     assert full["viewer"]["can_read_transcript"] is True and full["outputs"][0]["body"] == "Approve the acquisition"
 
 
-def test_the_event_stream_is_open_for_an_owner(factory, seeded):
+def test_the_event_stream_is_open_for_an_owner(factory, seeded, monkeypatch):
     c, mid = seeded
+    # TestClient runs the app to the end before it hands back the response, so a live stream
+    # held this test for the full STREAM_MAX_SECONDS (240 s). Bound it: one poll, then the
+    # stream's own "reconnect" frame ends it, as it does for a browser after 240 s.
+    monkeypatch.setattr(room_api, "event_source", functools.partial(room_api.event_source, max_seconds=0))
     http = TestClient(app)
     with http.stream("GET", f"/api/v1/agent-meetings/{mid}/events/stream?after=0", headers=headers(c, "owner")) as response:
         assert response.status_code == 200

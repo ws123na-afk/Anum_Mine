@@ -126,7 +126,7 @@ from .schemas import (
     utc_now,
 )
 from .settings import settings
-from .store import store
+from .store import store as store  # re-exported: tests import store from anum_api.main
 from .tasks import (
     ACTIVE_STATUSES,
     EVENT_PAGE_DEFAULT,

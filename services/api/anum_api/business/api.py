@@ -25,7 +25,7 @@ from ..repository import AnumRepository
 from ..schemas import TenantContext, new_id, utc_now
 from .. import suppression
 from . import assist, research
-from .common import Page, Reason, clean_list, get_or_404, manage, page_bounds, read, write
+from .common import Page, clean_list, get_or_404, manage, page_bounds, read, write
 from .models import (
     CONTACTABLE_BASES,
     LEAD_TRANSITIONS,
