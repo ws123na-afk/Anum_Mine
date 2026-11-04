@@ -2909,4 +2909,6 @@ def _record_partial_approval(
     return ApprovalDecisionResponse(approval=shown, task=task, run=run)
 
 # Plug the shared iPhone device tokens into every installed module seam (docs/iphone-integrations.md).
-__import__("anum_api.finance.devices", fromlist=["plug_module_authorities"]).plug_module_authorities()
+from .finance.devices import plug_module_authorities  # noqa: E402
+
+plug_module_authorities()
