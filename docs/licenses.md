@@ -41,48 +41,68 @@ A license id in none of the lists, or a package with no detectable license, is *
 
 Both are matched exactly. An entry that no longer matches anything fails the scan, so the file never accumulates forgotten approvals.
 
+## Run it locally
+
+GitHub Actions does not run on most merges at the moment (pull requests merge with `[skip ci]`), so the scan is also one local command:
+
+```bash
+python3 -m pip install --upgrade 'pip>=25.0' 'PyYAML==6.0.3'   # once; or set PYTHON to a venv's python
+pnpm licenses:check     # policy check; THIRD_PARTY_NOTICES.md must match
+pnpm licenses:update    # rewrite THIRD_PARTY_NOTICES.md after a dependency change
+```
+
+Both run `scripts/licenses/regenerate.sh --available`: every ecosystem whose tool is installed is scanned (Python and npm need only Python; Rust needs `cargo`; Dart needs `flutter`; Android needs Gradle with Google Maven reachable). An ecosystem whose tool is missing is skipped, its section of `THIRD_PARTY_NOTICES.md` is kept exactly as committed, and the command ends with a `NOT scanned here: ...` line naming it, so a partial run never claims more than it checked. `--skip gradle` (or any ecosystem) skips one on purpose, for example when its registry is unreachable. Without `--available` the script needs every tool, as CI does.
+
+`pip` must be 25.0 or newer: older versions leave `License-Expression` (Core Metadata 2.4) out of their install report, and most current packages (FastAPI, psycopg, cryptography and others) then look unlicensed. The Python collector refuses an older pip instead of reporting false unknowns.
+
+Results go to `LICENSE_SCAN_DIR` (a temporary directory by default): `results.json` lists every package, its license and its class. `--sbom-dir DIR` also writes the SBOMs of the apps whose ecosystems were scanned.
+
 ## CI
 
-The **Licenses and SBOMs** job in [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) runs on every pull request and every push to `main`:
+The **Licenses and SBOMs** job in [`.github/workflows/ci.yml`](../.github/workflows/ci.yml) runs on every pull request and every push to `main` that runs CI:
 
 1. Unit tests of the scanner (`python -m unittest discover -s scripts/licenses`).
 2. `scripts/licenses/regenerate.sh --check --sbom-dir ...`: collects all five ecosystems, prints a summary table (also in the job summary) and fails on any policy violation or stale exception.
 3. Fails if the committed `THIRD_PARTY_NOTICES.md` differs from what the scan generates. The regenerated file is uploaded as the `third-party-notices` artifact when the job fails, together with `results.json` (every package, its license and its class).
 4. Uploads the `sbom` artifact: `sbom-api.cdx.json`, `sbom-web.cdx.json`, `sbom-desktop.cdx.json` (Rust crates plus the web bundle), `sbom-mobile.cdx.json` and `sbom-android.cdx.json`, CycloneDX 1.6 JSON with package URLs, exact versions and license expressions. File names follow the image SBOMs the deploy workflows attach to each signed image (`sbom-api.cdx.json`, `sbom-web.cdx.json`).
 
-Tool versions: Python 3.13, PyYAML 6.0.3, the stable Rust toolchain from the commit-pinned `dtolnay/rust-toolchain`, Flutter stable from the commit-pinned `subosito/flutter-action`, Temurin JDK 17 and Gradle 8.10.2 (the same as the Android job).
+The "Web and contracts" and "Tauri desktop" jobs also run `scripts/licenses/assert_not_bundled.py`, which fails if `sharp` or libvips ever appears in `apps/web/dist` or the Tauri bundle configuration (see the current result below).
+
+Tool versions: Python 3.13 with pip 25.0 or newer, PyYAML 6.0.3, the stable Rust toolchain from the commit-pinned `dtolnay/rust-toolchain`, Flutter stable from the commit-pinned `subosito/flutter-action`, Temurin JDK 17 and Gradle 8.10.2 (the same as the Android job).
 
 ## Regenerating THIRD_PARTY_NOTICES.md
 
-After adding, removing or bumping a dependency:
-
-```bash
-python3 -m pip install 'PyYAML==6.0.3'
-scripts/licenses/regenerate.sh
-```
-
-It needs `cargo`, `flutter` and Gradle 8.10.2 on JDK 17 (`GRADLE=/path/to/gradle` if it is not on `PATH`; an Android SDK is not needed to resolve the classpath). It rewrites the file even when the policy check fails, and exits non-zero in that case. If a tool is missing locally, take the file from the failed CI run's `third-party-notices` artifact instead.
+After adding, removing or bumping a dependency run `pnpm licenses:update` (above). With every tool installed, `scripts/licenses/regenerate.sh` without flags scans all five ecosystems; it needs `cargo`, `flutter` and Gradle 8.10.2 on JDK 17 (`GRADLE=/path/to/gradle` if it is not on `PATH`; an Android SDK is not needed to resolve the classpath). It rewrites the file even when the policy check fails, and exits non-zero in that case. If a tool is missing locally, the sections it covers stay as committed; take them from a CI run's `third-party-notices` artifact when CI runs.
 
 The notices list component names, licenses, the apps that ship them and a source link, but not versions, so a routine version bump only changes the file when it adds, removes or relicenses a package; exact versions are in the SBOMs. The full license texts and copyright lines ship inside each package; bundling them into the installers and an in-app licenses screen is listed in [pending work](pending-work.md).
 
-## Current result (scan of 18 October 2026)
+## Current result
 
-| Ecosystem | Packages | Allowed | Violations |
-|---|---|---|---|
-| Python (`api`) | 65 | 63 | 2 |
-| npm (`web`, `desktop`) | 174 | 160 | 14 |
-| Rust (`desktop`) | 534 | 534 | 0 |
-| Dart (`mobile`) | 97 | 97 | 0 |
-| Maven (`android`) | 98 | 98 | 0 |
+Scan of 4 November 2026 on `main` (`1e934b0`), run locally with `regenerate.sh --available` (pip 26.3, Flutter 3.47.9, cargo). Package counts include every locked version.
 
-No GPL, AGPL, SSPL, BUSL or unknown license is shipped. Both findings are weak copyleft (LGPL) and are **owner decisions**; none has been exempted, so the CI job fails until the owner decides:
+| Ecosystem | Packages | Allowed | Violations | Scanned |
+|---|---|---|---|---|
+| Python (`api`) | 71 | 69 | 2 | 4 November |
+| npm (`web`, `desktop`) | 176 | 162 | 14 | 4 November |
+| Rust (`desktop`) | 532 | 532 | 0 | 4 November |
+| Dart (`mobile`) | 103 | 103 | 0 | 4 November |
+| Maven (`android`) | 98 | 98 | 0 | 18 October (Google Maven is not reachable from the machine that ran the 4 November scan; `apps/android` declares the same dependencies as on 18 October; CI's full scan re-checks it) |
+
+No GPL, AGPL, SSPL, BUSL or unknown license is shipped. Both findings are weak copyleft (LGPL) and are **owner decisions**; none has been exempted, so `pnpm licenses:check` and the CI job fail until the owner decides:
 
 1. **`psycopg` and `psycopg-binary` 3.3.6 (API), LGPL-3.0-only.** The PostgreSQL driver, used unmodified as a separately installed Python package. While ANUM is only offered as a hosted service nothing is distributed, so the LGPL's conditions do not apply; if the API image is ever given to a customer, the license text must ship with it (it does, inside the package) and the customer must be able to replace the library (pip packages can be). Options: accept with an exception, or move to a permissively licensed driver (asyncpg, Apache-2.0), a large change to the database layer.
-2. **`@img/sharp-libvips-*` 1.3.4 and `@img/sharp-win32-*`, `@img/sharp-wasm32` 0.35.5 (web, desktop), LGPL-3.0-or-later.** Prebuilt libvips binaries for the `sharp` image library, pulled in by `kokoro-js` (in-browser voice) through `@huggingface/transformers`. `sharp` is a Node.js library; the browser build of transformers.js does not use it, Checked on 18 October 2026: a production build of `apps/web/dist` (130 files) contains no sharp or libvips file, native addon or module reference, and the Tauri bundle config ships only that build and the Rust binary (no `resources`, no `externalBin`). `scripts/licenses/assert_not_bundled.py` now fails the "Web and contracts" and "Tauri desktop" jobs if either ever appears; the web image copies the same `dist`. Options: accept with an exception that cites this assertion, or stop resolving `sharp` for the web app (for example a pnpm override), which needs a check that voice still works.
+2. **`@img/sharp-libvips-*` 1.3.4 and `@img/sharp-win32-*`, `@img/sharp-wasm32` 0.35.5 (web, desktop), LGPL-3.0-or-later.** Prebuilt libvips binaries for the `sharp` image library, pulled in by `kokoro-js` (in-browser voice) through `@huggingface/transformers`. `sharp` is a Node.js library and the browser build of transformers.js does not use it. Checked again on 4 November 2026: a production build of `apps/web/dist` (311 files) contains no sharp or libvips file, native addon or module reference, and the Tauri bundle config ships only that build and the Rust binary (no `resources`, no `externalBin`); `scripts/licenses/assert_not_bundled.py` fails the "Web and contracts" and "Tauri desktop" jobs if either ever appears, and the web image copies the same `dist`. Options: accept with an exception that cites this assertion, or stop resolving `sharp` for the web app (for example a pnpm override), which needs a check that voice still works.
 
-Reviewed in this change, not exceptions: `python-dateutil` declares only "Dual License"; its `LICENSE` at the 2.9.0.post0 tag is Apache-2.0 for newer contributions and BSD-3-Clause for all code, recorded as an override. `CDLA-Permissive-2.0` (the Mozilla CA root list in the `webpki-root-certs` crate) was added to the allowed list as a permissive data license (accepted, 18 October 2026).
+Reviewed, not exceptions:
 
-Exceptions may also carry `source_url` and `notice`; both are printed in a dedicated section of `THIRD_PARTY_NOTICES.md` (for LGPL: the license name and where the source is offered). To accept a finding, the owner adds entries like this to `scripts/licenses/exceptions.toml` (one per package name) and the job turns green:
+- `python-dateutil` declares only "Dual License"; its `LICENSE` at the 2.9.0.post0 tag is Apache-2.0 for newer contributions and BSD-3-Clause for all code, recorded as an override (18 October).
+- `defusedxml` 0.7.1 (new since 18 October, API) declares "PSFL"; the `LICENSE` in its wheel is the Python Software Foundation License Version 2, recorded as an override to `PSF-2.0` (4 November).
+- `CDLA-Permissive-2.0` (the Mozilla CA root list in the `webpki-root-certs` crate) is in the allowed list as a permissive data license (18 October).
+- `MIT-CMU` was added to the allowed list on 4 November for `pillow` 13.0.0 (new since 18 October, API): an HPND-style permissive license that asks only that the copyright and permission notice stay in copies and that the authors' names are not used for endorsement. **Owner: please confirm this policy addition.** Pillow's manylinux wheel also bundles native libraries (libjpeg, libpng, libtiff, libwebp, FreeType, HarfBuzz, lcms2, OpenJPEG, libavif, dav1d, aom, brotli, zstd, liblzma, libxcb), each under its own permissive license listed in the wheel's `LICENSE`; FreeType is used under the FreeType License, which asks for a credit in the product's documentation if the API image is ever distributed. Native libraries inside Python wheels (also `psycopg-binary`'s bundled libpq and OpenSSL) are not scanned separately yet.
+
+Other changes since 18 October, all permissive: Python `charset-normalizer`, `dnspython`, `pypdf`, `requests`; npm `three`, `web-vitals`; Rust `static_vcruntime`; Dart: `file_picker` 13 is split into `android_file_picker`, `file_picker_*` and `windows_file_picker` (MIT), plus `ffi_leak_tracker` (BSD-3-Clause).
+
+Exceptions may also carry `source_url` and `notice`; both are printed in a dedicated section of `THIRD_PARTY_NOTICES.md` (for LGPL: the license name and where the source is offered). To accept a finding, the owner adds entries like this to `scripts/licenses/exceptions.toml` (one per package name, so `psycopg-binary` and each `@img/sharp-*` package need their own) and the check turns green:
 
 ```toml
 [[exception]]
@@ -91,5 +111,5 @@ package = "psycopg"
 license = "LGPL-3.0-only"
 reason = "PostgreSQL driver used unmodified as a separate, replaceable Python package; license text ships in the package."
 reviewed_by = "owner"
-reviewed_on = "2026-10-18"
+reviewed_on = "2026-11-04"
 ```

@@ -13,7 +13,7 @@ Apps: `api` services/api (FastAPI image), `web` apps/web (browser bundle and web
 
 ## Python packages (PyPI)
 
-65 components.
+71 components.
 
 | Component | License | Used in | Source |
 |---|---|---|---|
@@ -26,8 +26,11 @@ Apps: `api` services/api (FastAPI image), `web` apps/web (browser bundle and web
 | botocore | Apache-2.0 | api | <https://github.com/boto/botocore> |
 | certifi | MPL-2.0 | api | <https://github.com/certifi/python-certifi> |
 | cffi | MIT-0 | api | <https://github.com/python-cffi/cffi> |
+| charset-normalizer | MIT | api | <https://github.com/jawah/charset_normalizer> |
 | click | BSD-3-Clause | api | <https://github.com/pallets/click> |
 | cryptography | Apache-2.0 OR BSD-3-Clause | api | <https://github.com/pyca/cryptography> |
+| defusedxml | PSF-2.0 | api | <https://github.com/tiran/defusedxml> |
+| dnspython | ISC | api | <https://github.com/rthalley/dnspython> |
 | fastapi | MIT | api | <https://github.com/fastapi/fastapi> |
 | googleapis-common-protos | Apache-2.0 | api | <https://github.com/googleapis/google-cloud-python/tree/main/packages/googleapis-common-protos> |
 | h11 | MIT | api | <https://github.com/python-hyper/h11> |
@@ -55,6 +58,7 @@ Apps: `api` services/api (FastAPI image), `web` apps/web (browser bundle and web
 | opentelemetry-semantic-conventions | Apache-2.0 | api | <https://github.com/open-telemetry/opentelemetry-python> |
 | opentelemetry-util-http | Apache-2.0 | api | <https://github.com/open-telemetry/opentelemetry-python-contrib> |
 | packaging | Apache-2.0 OR BSD-2-Clause | api | <https://github.com/pypa/packaging> |
+| pillow | MIT-CMU | api | <https://github.com/python-pillow/Pillow> |
 | protobuf | BSD-3-Clause | api | <https://developers.google.com/protocol-buffers> |
 | psycopg | LGPL-3.0-only | api | <https://github.com/psycopg/psycopg> |
 | psycopg-binary | LGPL-3.0-only | api | <https://github.com/psycopg/psycopg> |
@@ -63,10 +67,12 @@ Apps: `api` services/api (FastAPI image), `web` apps/web (browser bundle and web
 | pydantic-core | MIT | api | <https://github.com/pydantic/pydantic/tree/main/pydantic-core> |
 | pydantic-settings | MIT | api | <https://github.com/pydantic/pydantic-settings> |
 | pyjwt | MIT | api | <https://github.com/jpadilla/pyjwt> |
+| pypdf | BSD-3-Clause | api | <https://github.com/py-pdf/pypdf> |
 | python-dateutil | Apache-2.0 AND BSD-3-Clause | api | <https://github.com/dateutil/dateutil> |
 | python-dotenv | BSD-3-Clause | api | <https://github.com/theskumar/python-dotenv> |
 | pyyaml | MIT | api | <https://github.com/yaml/pyyaml> |
 | redis | MIT | api | <https://github.com/redis/redis-py> |
+| requests | Apache-2.0 | api | <https://github.com/psf/requests> |
 | s3transfer | Apache-2.0 | api | <https://github.com/boto/s3transfer> |
 | sentry-sdk | MIT | api | <https://github.com/getsentry/sentry-python> |
 | six | MIT | api | <https://github.com/benjaminp/six> |
@@ -85,7 +91,7 @@ Apps: `api` services/api (FastAPI image), `web` apps/web (browser bundle and web
 
 ## JavaScript packages (npm)
 
-173 components.
+175 components.
 
 | Component | License | Used in | Source |
 |---|---|---|---|
@@ -255,17 +261,19 @@ Apps: `api` services/api (FastAPI image), `web` apps/web (browser bundle and web
 | source-map-js | BSD-3-Clause | desktop, web | <https://github.com/7rulnik/source-map-js> |
 | sprintf-js | BSD-3-Clause | desktop, web | <https://github.com/alexei/sprintf.js> |
 | tar | BlueOak-1.0.0 | desktop, web | <https://github.com/isaacs/node-tar> |
+| three | MIT | desktop, web | <https://github.com/mrdoob/three.js> |
 | tinyglobby | MIT | desktop, web | <https://github.com/SuperchupuDev/tinyglobby> |
 | tslib | 0BSD | desktop, web | <https://github.com/Microsoft/tslib> |
 | type-fest | MIT OR CC0-1.0 | desktop, web | <https://github.com/sindresorhus/type-fest> |
 | typescript | Apache-2.0 | desktop, web | <https://github.com/microsoft/TypeScript> |
 | undici-types | MIT | desktop, web | <https://github.com/nodejs/undici> |
 | vite | MIT | desktop, web | <https://github.com/vitejs/vite> |
+| web-vitals | Apache-2.0 | desktop, web | <https://github.com/GoogleChrome/web-vitals> |
 | yallist | BlueOak-1.0.0 | desktop, web | <https://github.com/isaacs/yallist> |
 
 ## Rust crates (crates.io)
 
-473 components.
+474 components.
 
 | Component | License | Used in | Source |
 |---|---|---|---|
@@ -341,7 +349,7 @@ Apps: `api` services/api (FastAPI image), `web` apps/web (browser bundle and web
 | derive_more | MIT | desktop | <https://github.com/JelteF/derive_more> |
 | derive_more-impl | MIT | desktop | <https://github.com/JelteF/derive_more> |
 | digest | MIT OR Apache-2.0 | desktop | <https://github.com/RustCrypto/traits> |
-| dirs | MIT OR Apache-2.0 | desktop | <https://github.com/soc/dirs-rs> |
+| dirs | MIT OR Apache-2.0 | desktop | <https://codeberg.org/dirs/dirs-rs> |
 | dirs-sys | MIT OR Apache-2.0 | desktop | <https://github.com/dirs-dev/dirs-sys-rs> |
 | dispatch2 | Zlib OR Apache-2.0 OR MIT | desktop | <https://github.com/madsmtm/objc2> |
 | displaydoc | MIT OR Apache-2.0 | desktop | <https://github.com/yaahc/displaydoc> |
@@ -593,6 +601,7 @@ Apps: `api` services/api (FastAPI image), `web` apps/web (browser bundle and web
 | soup3 | MIT | desktop | <https://gitlab.gnome.org/World/Rust/soup3-rs> |
 | soup3-sys | MIT | desktop | <https://gitlab.gnome.org/World/Rust/soup3-rs> |
 | stable_deref_trait | MIT OR Apache-2.0 | desktop | <https://github.com/storyyeller/stable_deref_trait> |
+| static_vcruntime | MIT OR Apache-2.0 OR Zlib | desktop | <https://github.com/ChrisDenton/static_vcruntime> |
 | string_cache | MIT OR Apache-2.0 | desktop | <https://github.com/servo/string-cache> |
 | string_cache_codegen | MIT OR Apache-2.0 | desktop | <https://github.com/servo/string-cache> |
 | strsim | MIT | desktop | <https://github.com/rapidfuzz/strsim-rs> |
@@ -745,11 +754,12 @@ Apps: `api` services/api (FastAPI image), `web` apps/web (browser bundle and web
 
 ## Dart and Flutter packages (pub.dev)
 
-97 components.
+103 components.
 
 | Component | License | Used in | Source |
 |---|---|---|---|
 | _flutterfire_internals | BSD-3-Clause | mobile | <https://github.com/firebase/flutterfire/tree/main/packages/_flutterfire_internals> |
+| android_file_picker | MIT | mobile | <https://github.com/vicajilau/flutter_file_picker/tree/main/packages/file_picker_android> |
 | args | BSD-3-Clause | mobile | <https://github.com/dart-lang/core/tree/main/pkgs/args> |
 | async | BSD-3-Clause | mobile | <https://github.com/dart-lang/core/tree/main/pkgs/async> |
 | characters | BSD-3-Clause | mobile | <https://github.com/dart-lang/core/tree/main/pkgs/characters> |
@@ -761,8 +771,13 @@ Apps: `api` services/api (FastAPI image), `web` apps/web (browser bundle and web
 | dart_webrtc | MIT | mobile | <https://github.com/flutter-webrtc/dart-webrtc> |
 | dbus | MPL-2.0 | mobile | <https://github.com/canonical/dbus.dart> |
 | ffi | BSD-3-Clause | mobile | <https://github.com/dart-lang/native/tree/main/pkgs/ffi> |
+| ffi_leak_tracker | BSD-3-Clause | mobile | <https://github.com/halildurmus/win32/tree/main/packages/ffi_leak_tracker> |
 | file | BSD-3-Clause | mobile | <https://github.com/dart-lang/tools/tree/main/pkgs/file> |
-| file_picker | MIT | mobile | <https://github.com/miguelpruivo/flutter_file_picker> |
+| file_picker | MIT | mobile | <https://github.com/vicajilau/flutter_file_picker/tree/main/packages/file_picker> |
+| file_picker_darwin | MIT | mobile | <https://github.com/vicajilau/flutter_file_picker/tree/main/packages/file_picker_darwin> |
+| file_picker_linux | MIT | mobile | <https://github.com/vicajilau/flutter_file_picker/tree/main/packages/file_picker_linux> |
+| file_picker_platform_interface | MIT | mobile | <https://github.com/vicajilau/flutter_file_picker/tree/main/packages/file_picker_platform_interface> |
+| file_picker_web | MIT | mobile | <https://github.com/vicajilau/flutter_file_picker/tree/main/packages/file_picker_web> |
 | firebase_core | BSD-3-Clause | mobile | <https://github.com/firebase/flutterfire/tree/main/packages/firebase_core/firebase_core> |
 | firebase_core_platform_interface | BSD-3-Clause | mobile | <https://github.com/firebase/flutterfire/tree/main/packages/firebase_core/firebase_core_platform_interface> |
 | firebase_core_web | BSD-3-Clause | mobile | <https://github.com/firebase/flutterfire/tree/main/packages/firebase_core/firebase_core_web> |
@@ -773,7 +788,6 @@ Apps: `api` services/api (FastAPI image), `web` apps/web (browser bundle and web
 | flutter_appauth | BSD-3-Clause | mobile | <https://github.com/MaikuB/flutter_appauth/tree/master/flutter_appauth> |
 | flutter_appauth_platform_interface | BSD-3-Clause | mobile | <https://github.com/MaikuB/flutter_appauth/tree/master/flutter_appauth_platform_interface> |
 | flutter_localizations | BSD-3-Clause | mobile | <https://github.com/flutter/flutter> |
-| flutter_plugin_android_lifecycle | BSD-3-Clause | mobile | <https://github.com/flutter/packages/tree/main/packages/flutter_plugin_android_lifecycle> |
 | flutter_secure_storage | BSD-3-Clause | mobile | <https://github.com/mogol/flutter_secure_storage/tree/develop/flutter_secure_storage> |
 | flutter_secure_storage_darwin | BSD-3-Clause | mobile | <https://github.com/juliansteenbakker/flutter_secure_storage> |
 | flutter_secure_storage_linux | BSD-3-Clause | mobile | <https://github.com/mogol/flutter_secure_storage> |
@@ -843,6 +857,7 @@ Apps: `api` services/api (FastAPI image), `web` apps/web (browser bundle and web
 | web | BSD-3-Clause | mobile | <https://github.com/dart-lang/web> |
 | webrtc_interface | MIT | mobile | <https://flutter-webrtc.org> |
 | win32 | BSD-3-Clause | mobile | <https://github.com/halildurmus/win32> |
+| windows_file_picker | MIT | mobile | <https://github.com/vicajilau/flutter_file_picker/tree/main/packages/file_picker_windows> |
 | xdg_directories | BSD-3-Clause | mobile | <https://github.com/flutter/packages/tree/main/packages/xdg_directories> |
 | xml | MIT | mobile | <https://github.com/renggli/dart-xml> |
 | yaml | MIT | mobile | <https://github.com/dart-lang/tools/tree/main/pkgs/yaml> |
