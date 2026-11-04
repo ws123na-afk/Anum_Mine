@@ -61,7 +61,9 @@ Refusals answer `{"detail": "<plain words>", "code": "<code>"}` plus figures whe
 
 `finance_links` has forced RLS with the tenant policy, the restrictive `owner_only_finance_links` policy (which admits the tenant purge role) and `lifecycle_purge_finance_links`. `business_ledger_allocations` has the tenant policy and the purge policy (it belongs to the business workspace). Both are listed in `tenant_lifecycle_tables.py`. The privacy export includes the person's links (without the idempotency hash) and the allocation rows they made; "Delete my data" removes both.
 
-Deleting the owner's **personal workspace** (a workspace deletion job) also removes the allocation rows they made in business workspaces: the registry marks `source_workspace_id` as the table's origin column (`tenant_lifecycle_tables.py`), the purge reads it, and the purge policy admits a workspace deletion job of either workspace. It runs as the narrow `anum_tenant_purger` role (no BYPASSRLS); rows other workspaces made stay. Removing an allocation in the vault-style unlink path is not applicable here; unlinking a document from a payment in the Document vault voids the evidence link through `FinanceLinkPort.withdraw`.
+Deleting the owner's **personal workspace** (a workspace deletion job) also removes the allocation rows they made in business workspaces: the registry marks `source_workspace_id` as the table's origin column (`tenant_lifecycle_tables.py`), the purge reads it, and the purge policy admits a workspace deletion job of either workspace. It runs as the narrow `anum_tenant_purger` role (no BYPASSRLS); rows other workspaces made stay.
+
+Unlinking a document from a payment in the Document vault voids its evidence link here first (`FinanceLinkPort.withdraw`), so the vault and the ledger always agree.
 
 ## Not built here
 
