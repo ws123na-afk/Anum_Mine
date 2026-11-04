@@ -48,7 +48,8 @@ export const voidBill = (billId: string, reason: string) => send<BooksBill>('POS
 export const payBill = (billId: string, body: BooksPaymentInput, key: string) => send<BooksBill>('POST', `/bills/${id(billId)}/payments`, body, key);
 export const voidPayment = (billId: string, paymentId: string, reason: string) => send<BooksBill>('POST', `/bills/${id(billId)}/payments/${id(paymentId)}/void`, { reason });
 
-export const listAllocations = (status: BooksAllocationFilter | '', q: string, offset: number, limit = 25) => get<BooksPage<BooksAllocation>>(`/allocations${query({ status, q, offset, limit })}`);
+export const listAllocations = (status: BooksAllocationFilter | '', q: string, offset: number, limit = 25, currency = '') =>
+  get<BooksPage<BooksAllocation>>(`/allocations${query({ status, q, currency, offset, limit })}`);
 export const tagAllocation = (allocationId: string, body: { cost_centre_id: string | null; section: BooksTagSection | null; note: string; version: number | null }) =>
   send<BooksAllocationTag>('PUT', `/allocations/${id(allocationId)}/tag`, body);
 

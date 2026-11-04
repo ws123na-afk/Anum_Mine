@@ -151,7 +151,7 @@ export function statementRows(report: BooksReport): StatementRow[] {
   result('operating_profit');
   if (pnl.other_income.lines.length) group('other_income');
   if (pnl.finance_costs.lines.length) group('finance_costs');
-  if (pnl.fx_differences !== '0.00' && pnl.fx_differences !== '0') result('fx_differences');
+  if (Number(pnl.fx_differences) !== 0) result('fx_differences');
   result('net_profit');
   return rows;
 }

@@ -83,6 +83,8 @@ def refusals(route: Callable[..., Any]) -> Callable[..., Any]:
 
 
 def _duplicate(text: str) -> str:
+    if "tags" in text:
+        return "This allocation was classified in another tab at the same time. Reload and try again."
     if "allocation" in text:
         return "That allocation already pays another bill."
     if "name" in text:
@@ -373,8 +375,11 @@ class VoidInput(BaseModel):
 
 
 def bill_view(context: TenantContext, bill: Bill, payments: list[Any], live: set[str], vendors: dict[str, str], today: date,
-              *, detail: bool = False) -> dict[str, Any]:
+              *, detail: bool = False, holding: set[str] | None = None) -> dict[str, Any]:
+    """``live``: active allocation rows (what counts as paid); ``holding``: every allocation row that still exists (an
+    allocation in review still holds the bill's money and keeps it from being voided)."""
     counted = [p for p in payments if p.voided_at is None and (p.kind != PaymentKind.ALLOCATION or p.allocation_id in live)]
+    held = [p for p in payments if p.voided_at is None and (p.kind != PaymentKind.ALLOCATION or p.allocation_id in (holding if holding is not None else live))]
     paid = S.paid_amount(counted)
     balance = bill.total - paid if bill.status == BillStatus.OPEN else Decimal(0)
     state = S.payment_state(bill, paid)
@@ -383,9 +388,9 @@ def bill_view(context: TenantContext, bill: Bill, payments: list[Any], live: set
         "vendor_name": vendors.get(bill.vendor_id, ""), "amount_paid": str(paid), "balance": str(balance), "payment_state": state,
         "overdue": state in ("unpaid", "partly_paid") and bill.due_date < today, "days_overdue": max(0, (today - bill.due_date).days) if state in ("unpaid", "partly_paid") else 0,
         "can": {"edit": has_permission(context, Permission.BUSINESS_WRITE) and bill.status == BillStatus.OPEN,
-                "edit_money": not counted and bill.status == BillStatus.OPEN,
+                "edit_money": not held and bill.status == BillStatus.OPEN,
                 "pay": has_permission(context, Permission.BUSINESS_WRITE) and state in ("unpaid", "partly_paid"),
-                "void": has_permission(context, Permission.BUSINESS_MANAGE) and bill.status == BillStatus.OPEN and not counted},
+                "void": has_permission(context, Permission.BUSINESS_MANAGE) and bill.status == BillStatus.OPEN and not [p for p in payments if p.voided_at is None]},
     })
     if detail:
         data["payments"] = [{**dump(p), "counts": p in counted, "allocation_removed": p.kind == PaymentKind.ALLOCATION and p.allocation_id not in live
@@ -422,9 +427,10 @@ def _bills_filtered(context: TenantContext, q: str | None, status_filter: str | 
     if project_id:
         where["project_id"] = project_id
     today = _today()
-    live = {key for key, row in S.allocations_by_id(context).items() if row.status == "active"}
+    allocations = S.allocations_by_id(context)
+    live = {key for key, row in allocations.items() if row.status == "active"}
     with open_books_store(context) as store:
-        bills, _ = store.find("bills", where=where, text=(q or "").strip() or None, text_fields=("reference", "description", "category"),
+        bills, found_total = store.find("bills", where=where, text=(q or "").strip() or None, text_fields=("reference", "description", "category"),
                               order_by="bill_date", limit=MAX_SCAN)
         ids = [bill.id for bill in bills]
         payments, _ = store.find("bill_payments", where={"bill_id": ids}, limit=MAX_SCAN * 2) if ids else ([], 0)
@@ -432,7 +438,7 @@ def _bills_filtered(context: TenantContext, q: str | None, status_filter: str | 
     by_bill: dict[str, list[Any]] = {}
     for payment in payments:
         by_bill.setdefault(payment.bill_id, []).append(payment)
-    views = [bill_view(context, bill, by_bill.get(bill.id, []), live, vendors, today) for bill in bills]
+    views = [bill_view(context, bill, by_bill.get(bill.id, []), live, vendors, today, holding=set(allocations)) for bill in bills]
     open_balance: dict[str, Decimal] = {}
     overdue: dict[str, Decimal] = {}
     for view in views:
@@ -449,7 +455,7 @@ def _bills_filtered(context: TenantContext, q: str | None, status_filter: str | 
     elif status_filter is not None:
         views = [v for v in views if v["payment_state"] == status_filter]
     summary = {"open": [{"currency": c, "amount": str(a)} for c, a in sorted(open_balance.items())],
-               "overdue": [{"currency": c, "amount": str(a)} for c, a in sorted(overdue.items())]}
+               "overdue": [{"currency": c, "amount": str(a)} for c, a in sorted(overdue.items())], "truncated": found_total > MAX_SCAN}
     return views, summary
 
 
@@ -475,12 +481,13 @@ def create_bill(payload: BillInput, response: Response, context: TenantContext =
 
 
 def _bill_detail(context: TenantContext, bill_id: str) -> dict[str, Any]:
-    live = {key for key, row in S.allocations_by_id(context).items() if row.status == "active"}
+    allocations = S.allocations_by_id(context)
+    live = {key for key, row in allocations.items() if row.status == "active"}
     with open_books_store(context) as store:
         bill = _found(store, "bills", bill_id, "Bill")
         payments, _ = store.find("bill_payments", where={"bill_id": bill.id}, order_by="paid_on", descending=False, limit=200)
         vendors = _vendor_names(store)
-    return bill_view(context, bill, payments, live, vendors, _today(), detail=True)
+    return bill_view(context, bill, payments, live, vendors, _today(), detail=True, holding=set(allocations))
 
 
 @router.get("/bills/{bill_id}")
@@ -495,7 +502,7 @@ def get_bill(bill_id: str, context: TenantContext = Depends(tenant_context)) -> 
 def update_bill(bill_id: str, payload: BillUpdate, context: TenantContext = Depends(tenant_context),
                 repository: AnumRepository = Depends(repository_context)) -> Any:
     _write(context)
-    live = {key for key, row in S.allocations_by_id(context).items() if row.status == "active"}
+    holding = set(S.allocations_by_id(context))  # an allocation in review still holds the bill's money
     with open_books_store(context) as store:
         current = _found(store, "bills", bill_id, "Bill", for_update=True)
         if current.version != payload.version:
@@ -504,7 +511,7 @@ def update_bill(bill_id: str, payload: BillUpdate, context: TenantContext = Depe
             raise S.BooksError(409, "A void bill does not change.", "bill_void")
         updated = S.bill_from(context, store, payload.model_dump(exclude={"version"}), now=utc_now(), idem_key=current.idem_key, existing=current)
         money_changed = (updated.currency, updated.subtotal, updated.tax) != (current.currency, current.subtotal, current.tax)
-        if money_changed and S.live_payments(store, current.id, live):
+        if money_changed and S.live_payments(store, current.id, holding):
             raise S.BooksError(409, "This bill has payments: its amounts and currency stay as paid. Void the payments first.", "has_payments")
         if not store.save("bills", updated, expected_version=current.version):
             raise _stale()
@@ -517,12 +524,11 @@ def update_bill(bill_id: str, payload: BillUpdate, context: TenantContext = Depe
 def void_bill(bill_id: str, payload: VoidInput, context: TenantContext = Depends(tenant_context),
               repository: AnumRepository = Depends(repository_context)) -> Any:
     _manage(context)
-    live = {key for key, row in S.allocations_by_id(context).items() if row.status == "active"}
     with open_books_store(context) as store:
         current = _found(store, "bills", bill_id, "Bill", for_update=True)
         if current.status == BillStatus.VOID:
             raise S.BooksError(409, "This bill is already void.", "bill_void")
-        if S.live_payments(store, current.id, live):
+        if S.live_payments(store, current.id, None):  # every payment not voided, an allocation in review included
             raise S.BooksError(409, "Void this bill's payments first.", "has_payments")
         now = utc_now()
         item = current.model_copy(update={"status": BillStatus.VOID, "voided_by": context.user_id, "voided_at": now,
@@ -599,7 +605,8 @@ class TagInput(BaseModel):
 @router.get("/allocations")
 @refusals
 def list_allocations(status_filter: str | None = Query(default=None, alias="status", pattern=r"^(active|needs_review|unpaid_bill|untagged)$"),
-                     q: str | None = Query(default=None, max_length=60), limit: int = Query(default=25, ge=1, le=MAX_PAGE),
+                     q: str | None = Query(default=None, max_length=60), currency: str | None = Query(default=None, pattern=r"^[A-Z]{3}$"),
+                     limit: int = Query(default=25, ge=1, le=MAX_PAGE),
                      offset: int = Query(default=0, ge=0), context: TenantContext = Depends(tenant_context)) -> Any:
     """The allocation rows of this business with how the books count them (never the member's ledger)."""
     _read(context)
@@ -612,6 +619,8 @@ def list_allocations(status_filter: str | None = Query(default=None, alias="stat
     needle = (q or "").strip().casefold()
     if needle:
         rows = [a for a in rows if needle in a.category or needle in (a.memo or "").casefold() or needle in a.source_ref.casefold()]
+    if currency:
+        rows = [a for a in rows if a.currency == currency]
     if status_filter in ("active", "needs_review"):
         rows = [a for a in rows if a.status == status_filter]
     elif status_filter == "unpaid_bill":
@@ -641,7 +650,7 @@ def tag_allocation(allocation_id: str, payload: TagInput, context: TenantContext
     now = utc_now()
     with open_books_store(context) as store:
         current = store.first("allocation_tags", allocation_id=allocation_id)
-        centre = S.require_cost_centre(store, payload.cost_centre_id)
+        centre = S.require_cost_centre(store, payload.cost_centre_id, keep=current.cost_centre_id if current else None)
         if current is None:
             if payload.version is not None:
                 raise _stale()
@@ -678,14 +687,14 @@ class BudgetUpdate(BudgetInput):
     version: int
 
 
-def _budget_fields(context: TenantContext, store: BooksStore, payload: BudgetInput) -> dict[str, Any]:
+def _budget_fields(context: TenantContext, store: BooksStore, payload: BudgetInput, keep: str | None = None) -> dict[str, Any]:
     settings = S.settings_or_409(store)
     if payload.section == Section.CAPITAL:
         raise S.BooksError(422, "Budgets cover costs: cost of sales or operating expenses.", "invalid_section")
     return {"name": S.clean(payload.name, 120), "period_start": payload.period_start.replace(day=1), "months": payload.months,
             "currency": settings.base_currency, "amount": S.amount_of(payload.amount, settings.base_currency), "section": payload.section,
             "category": S.category_of(payload.category, required=False), "project_id": S.require_project(context, payload.project_id),
-            "cost_centre_id": S.require_cost_centre(store, payload.cost_centre_id)}
+            "cost_centre_id": S.require_cost_centre(store, payload.cost_centre_id, keep=keep)}
 
 
 @router.get("/budgets")
@@ -718,7 +727,7 @@ def update_budget(budget_id: str, payload: BudgetUpdate, context: TenantContext 
     _write(context)
     with open_books_store(context) as store:
         current = _found(store, "budgets", budget_id, "Budget")
-        item = current.model_copy(update={**_budget_fields(context, store, payload), "version": current.version + 1, "updated_at": utc_now()})
+        item = current.model_copy(update={**_budget_fields(context, store, payload, current.cost_centre_id), "version": current.version + 1, "updated_at": utc_now()})
         if not store.save("budgets", item, expected_version=payload.version):
             raise _stale()
     _audit(repository, context, "budget_updated", budget_id)
@@ -951,7 +960,7 @@ def _period(store_settings: BookSettings, start: date | None, end: date | None) 
 def _report(context: TenantContext, start: date | None, end: date | None, basis: Basis | None) -> dict[str, Any]:
     inputs = S.gather(context)
     first, last = _period(inputs.settings, start, end)
-    return R.report(inputs, first, last, basis or inputs.settings.basis, S.cost_centre_names(context), _today())
+    return R.report(inputs, first, last, basis or inputs.settings.basis, inputs.cost_centres, _today())
 
 
 @router.get("/report")

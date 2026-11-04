@@ -218,6 +218,7 @@ export const businessBooksEn = {
   'books.bills.emptyTitle': 'No bills yet',
   'books.bills.emptyText': 'A bill is what a supplier asks you to pay: rent, hosting, a contractor. Add one and record its payment when it is paid.',
   'books.bills.noVendors': 'Add a vendor first under Vendors.',
+  'books.bills.findVendor': 'Find a vendor',
   'books.bills.pickVendor': 'Choose a vendor',
   'books.bills.reference': 'Supplier\'s reference',
   'books.bills.description': 'What it is for',

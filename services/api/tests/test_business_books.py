@@ -527,3 +527,80 @@ def test_report_period_rules() -> None:
     assert data["balances"]["aged_on"] == today().isoformat()
     assert client.get(f"{API}/report", headers=OWNER, params={"from": "2026-05-01", "to": "2026-04-01"}).json()["code"] == "invalid_period"
     assert client.get(f"{API}/report", headers=OWNER, params={"from": "2020-01-01", "to": "2026-04-01"}).json()["code"] == "period_too_long"
+
+
+# -- review fixes: an allocation waiting for review still holds its bill -------------------------------------
+
+
+def _set_allocation_status(status: str) -> None:
+    for row in links_memory_store.allocations.values():
+        row.status = status
+
+
+def test_an_allocation_in_review_still_holds_its_bill_against_void_overpayment_and_money_edits() -> None:
+    setup_books()
+    canonical, _card = fuel_payment()
+    allocate(canonical)
+    station = vendor("Petromin", default_category="fuel")
+    fuel_bill = bill(station["id"], subtotal="150", tax="0").json()
+    assert client.post(f"{API}/bills/{fuel_bill['id']}/payments", headers=MEMBER, json={"kind": "allocation", "allocation_id": allocation_id()}).status_code == 201
+    _set_allocation_status("needs_review")
+    assert client.post(f"{API}/bills/{fuel_bill['id']}/void", headers=OWNER, json={"reason": "duplicate"}).json()["code"] == "has_payments"
+    over = client.post(f"{API}/bills/{fuel_bill['id']}/payments", headers=MEMBER, json={"amount": "150", "method": "cash"})
+    assert over.status_code == 409 and over.json()["code"] in ("bill_paid", "over_balance")
+    current = client.get(f"{API}/bills/{fuel_bill['id']}", headers=MEMBER).json()
+    edit = {"vendor_id": station["id"], "description": "Fuel", "bill_date": current["bill_date"], "currency": "SAR", "subtotal": "100", "tax": "0",
+            "category": "fuel", "version": current["version"]}
+    assert client.patch(f"{API}/bills/{fuel_bill['id']}", headers=MEMBER, json=edit).json()["code"] == "has_payments"
+    _set_allocation_status("active")
+    assert report()["pnl"]["operating_expenses"]["total"] == "150.00"
+
+
+def test_a_record_keeps_its_archived_cost_centre_and_a_tag_race_names_the_tag() -> None:
+    setup_books()
+    centre = client.post(f"{API}/cost-centres", headers=MEMBER, json={"code": "OLD", "name": "Old site"}).json()
+    created = bill(vendor()["id"], cost_centre_id=centre["id"]).json()
+    assert client.patch(f"{API}/cost-centres/{centre['id']}", headers=MEMBER, json={"archived": True, "version": 1}).status_code == 200
+    edit = {"vendor_id": created["vendor_id"], "description": "Renamed", "bill_date": created["bill_date"], "currency": "SAR", "subtotal": "1000",
+            "tax": "150", "category": "rent", "cost_centre_id": centre["id"], "version": created["version"]}
+    assert client.patch(f"{API}/bills/{created['id']}", headers=MEMBER, json=edit).status_code == 200
+    assert bill(created["vendor_id"], cost_centre_id=centre["id"]).json()["code"] == "cost_centre_archived"
+    from anum_api.business.api_books import _duplicate
+
+    assert "classified" in _duplicate("allocation_tags: allocation")
+    assert "pays another bill" in _duplicate("uq_business_book_bill_payments_allocation")
+
+
+def test_every_state_changing_books_route_is_audited_without_amounts_or_text() -> None:
+    from audit_probe import AuditProbe
+
+    setup_books(OTHER_OWNER)
+    probe = AuditProbe(client, "business_books")
+    secret = "Synthetic secret memo 9931"
+    call = lambda method, path, headers=OWNER, **kwargs: probe.call(method, f"{API}{path}", headers, sent=[secret], **kwargs)  # noqa: E731
+    call("PUT", "/settings", json={"base_currency": "SAR", "version": None, "tax_label": "VAT"})
+    centre = call("POST", "/cost-centres", json={"code": "OPS", "name": "Operations"}).json()
+    call("PATCH", f"/cost-centres/{centre['id']}", json={"name": "Operations team", "version": 1})
+    seller = call("POST", "/vendors", json={"name": "Synthetic Supplier", "notes": secret}).json()
+    call("PATCH", f"/vendors/{seller['id']}", json={"name": "Synthetic Supplier", "notes": secret, "version": 1})
+    made = call("POST", "/bills", json={"vendor_id": seller["id"], "description": secret, "bill_date": today().isoformat(), "currency": "SAR",
+                                        "subtotal": "100", "tax": "15", "category": "rent"}).json()
+    call("PATCH", f"/bills/{made['id']}", json={"vendor_id": seller["id"], "description": secret, "bill_date": today().isoformat(), "currency": "SAR",
+                                                "subtotal": "100", "tax": "15", "category": "rent", "version": made["version"]})
+    paid = call("POST", f"/bills/{made['id']}/payments", json={"amount": "50", "method": "cash", "note": secret}).json()
+    call("POST", f"/bills/{made['id']}/payments/{paid['payment_id']}/void", json={"reason": secret})
+    call("POST", f"/bills/{made['id']}/void", json={"reason": secret})
+    canonical, _card = fuel_payment()
+    allocate(canonical)
+    call("PUT", f"/allocations/{allocation_id()}/tag", json={"section": "excluded", "note": secret})
+    budget = call("POST", "/budgets", json={"name": "Rent", "period_start": today().replace(day=1).isoformat(), "amount": "500"}).json()
+    call("PATCH", f"/budgets/{budget['id']}", json={"name": "Rent", "period_start": today().replace(day=1).isoformat(), "amount": "600", "version": 1})
+    call("DELETE", f"/budgets/{budget['id']}")
+    rate = call("POST", "/rates", json={"base": "USD", "quote": "SAR", "rate": "3.75", "as_of": today().isoformat(), "source": "Synthetic source"}).json()
+    call("DELETE", f"/rates/{rate['id']}")
+    adjustment = call("POST", "/adjustments", json={"kind": "accrual", "entry_date": today().isoformat(), "currency": "SAR", "amount": "10", "description": secret}).json()
+    call("POST", f"/adjustments/{adjustment['id']}/void", json={"reason": secret})
+    entry = call("POST", "/intercompany", json={"workspace_id": OTHER, "kind": "loan", "direction": "receivable", "entry_date": today().isoformat(),
+                                                "currency": "SAR", "amount": "10", "description": secret}).json()
+    call("POST", f"/intercompany/{entry['id']}/void", json={"reason": secret})
+    probe.assert_covered()

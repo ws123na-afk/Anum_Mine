@@ -218,6 +218,7 @@ export const businessBooksAr = {
   'books.bills.emptyTitle': 'لا فواتير موردين بعد',
   'books.bills.emptyText': 'فاتورة المورد ما يطلب منك المورد دفعه: إيجار أو استضافة أو مقاول. أضفها وسجّل دفعها عند الدفع.',
   'books.bills.noVendors': 'أضف مورداً أولاً في قسم الموردين.',
+  'books.bills.findVendor': 'ابحث عن مورد',
   'books.bills.pickVendor': 'اختر المورد',
   'books.bills.reference': 'مرجع المورد',
   'books.bills.description': 'الغرض',

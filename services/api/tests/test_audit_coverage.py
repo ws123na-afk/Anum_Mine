@@ -28,6 +28,7 @@ WALKS = {
     "business_support": "test_business_support.py",
     "business_invoices": "test_business_invoices.py",
     "business_portal": "test_business_portal.py",
+    "business_books": "test_business_books.py",
     "portal": "test_business_portal.py",
     "autonomy": "test_autonomy.py",
     "developer": "test_developer.py",

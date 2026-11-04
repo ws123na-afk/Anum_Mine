@@ -132,13 +132,14 @@ def section_map(values: dict[str, str]) -> dict[str, str]:
 # -- references -------------------------------------------------------------------------------------
 
 
-def require_cost_centre(store: BooksStore, cost_centre_id: str | None) -> str | None:
+def require_cost_centre(store: BooksStore, cost_centre_id: str | None, *, keep: str | None = None) -> str | None:
+    """A cost centre of this business; an archived one only when the record already uses it (``keep``)."""
     if not cost_centre_id:
         return None
     found = store.get("cost_centres", cost_centre_id)
     if found is None:
         raise BooksError(404, "Cost centre not found.", "cost_centre_not_found")
-    if found.archived:
+    if found.archived and found.id != keep:
         raise BooksError(409, "That cost centre is archived. Restore it or choose another.", "cost_centre_archived")
     return found.id
 
@@ -160,7 +161,10 @@ def require_project(context: TenantContext, project_id: str | None) -> str | Non
 
 
 def live_payments(store: BooksStore, bill_id: str, live_allocations: set[str] | None) -> list[BillPayment]:
-    """Payments that count: not voided and, for an allocation, still active (``None`` skips that check)."""
+    """Payments not voided whose allocation, for an allocation payment, is in ``live_allocations`` (``None`` skips that check).
+
+    Rules that protect a bill (its balance, its money, voiding it) pass every allocation that still exists, so one
+    waiting for review in Finance keeps holding its bill; the figures pass only the active ones."""
     rows, _ = store.find("bill_payments", where={"bill_id": bill_id}, order_by="paid_on", descending=False, limit=200)
     return [p for p in rows if p.voided_at is None and (p.kind != PaymentKind.ALLOCATION or live_allocations is None or p.allocation_id in live_allocations)]
 
@@ -210,8 +214,8 @@ def bill_from(context: TenantContext, store: BooksStore, payload: dict[str, Any]
     fields = dict(
         vendor_id=vendor.id, reference=clean(payload.get("reference"), 80), description=clean(payload["description"], 300), bill_date=bill_date,
         due_date=due_date, currency=currency, subtotal=subtotal, tax=tax, total=subtotal + tax, category=category, section=section,
-        cost_centre_id=require_cost_centre(store, payload.get("cost_centre_id")), project_id=require_project(context, payload.get("project_id")),
-        recurrence=payload.get("recurrence"), useful_life_months=life, updated_at=now,
+        cost_centre_id=require_cost_centre(store, payload.get("cost_centre_id"), keep=existing.cost_centre_id if existing else None),
+        project_id=require_project(context, payload.get("project_id")), recurrence=payload.get("recurrence"), useful_life_months=life, updated_at=now,
     )
     if len(fields["description"]) < 2:
         raise BooksError(422, "Describe what the bill is for.", "invalid_description")
@@ -244,8 +248,7 @@ def pay_bill(context: TenantContext, store: BooksStore, bill_id: str, *, kind: P
     if bill.status == BillStatus.VOID:
         raise BooksError(409, "This bill is void.", "bill_void")
     allocations = allocations_by_id(context)
-    live = {key for key, row in allocations.items() if row.status == "active"}
-    balance = bill.total - paid_amount(live_payments(store, bill.id, live))
+    balance = bill.total - paid_amount(live_payments(store, bill.id, set(allocations)))
     if balance <= 0:
         raise BooksError(409, "This bill is already paid.", "bill_paid")
     if kind == PaymentKind.ALLOCATION:
@@ -424,14 +427,8 @@ def gather(context: TenantContext) -> Inputs:
         tags={tag.allocation_id: tag for tag in found["allocation_tags"]}, bills=found["bills"], bill_payments=found["bill_payments"],
         adjustments=found["adjustments"], intercompany=found["intercompany"], budgets=found["budgets"], rates=found["rates"],
         projects={p.id: (p.name, p.account_id) for p in projects}, accounts={a.id: a.name for a in accounts},
-        vendors={v.id: v.name for v in found["vendors"]}, truncated=truncated,
+        vendors={v.id: v.name for v in found["vendors"]}, cost_centres={c.id: f"{c.code} {c.name}" for c in found["cost_centres"]}, truncated=truncated,
     )
-
-
-def cost_centre_names(context: TenantContext) -> dict[str, str]:
-    with open_books_store(context) as store:
-        rows, _ = store.find("cost_centres", limit=MAX_SCAN)
-    return {row.id: f"{row.code} {row.name}" for row in rows}
 
 
 __all__ = ["BooksError", "gather", "pay_bill"]

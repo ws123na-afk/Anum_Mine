@@ -81,6 +81,7 @@ class Inputs:
     projects: dict[str, tuple[str, str]] = field(default_factory=dict)  # id -> (name, account id)
     accounts: dict[str, str] = field(default_factory=dict)  # id -> name
     vendors: dict[str, str] = field(default_factory=dict)  # id -> name
+    cost_centres: dict[str, str] = field(default_factory=dict)  # id -> "code name"
     truncated: bool = False
 
 
@@ -673,10 +674,11 @@ def budget_vs_actual(book: Book, basis: Basis, start: date, end: date, converter
     """Each budget whose period overlaps the report, against the costs of its own period (base currency only)."""
     out = []
     base = converter.base
-    for budget in book.inputs.budgets:
-        last = add_months(budget.period_start, budget.months) - timedelta(days=1)
-        if last < start or budget.period_start > end:
-            continue
+    spans = [(budget, add_months(budget.period_start, budget.months) - timedelta(days=1)) for budget in book.inputs.budgets]
+    spans = [(budget, last) for budget, last in spans if last >= start and budget.period_start <= end]
+    # One pass over the records for every budget's own period, filtered per budget below.
+    pool = entries(book, basis, min(b.period_start for b, _ in spans), max(last for _, last in spans), converter, set()) if spans else []
+    for budget, last in spans:
         row: dict[str, Any] = {"id": budget.id, "name": budget.name, "period_start": budget.period_start.isoformat(), "period_end": last.isoformat(),
                                "currency": budget.currency, "budget": _s(budget.amount, budget.currency)}
         if budget.currency != base:
@@ -684,8 +686,8 @@ def budget_vs_actual(book: Book, basis: Basis, start: date, end: date, converter
             continue
         actual = ZERO
         missing = False
-        for entry in entries(book, basis, budget.period_start, last, converter, set()):
-            if entry.group not in (COST_OF_SALES, OPERATING, FINANCE_COSTS):
+        for entry in pool:
+            if not (budget.period_start <= entry.on <= last) or entry.group not in (COST_OF_SALES, OPERATING, FINANCE_COSTS):
                 continue
             if budget.section and _expense(budget.section.value) != entry.group:
                 continue
@@ -765,7 +767,7 @@ def report(inputs: Inputs, start: date, end: date, basis: Basis, cost_centres: d
         "trend": trend(book, basis, min(end, today) if today else end, quiet),
         "customers": breakdown(items, quiet, "account_id", inputs.accounts),
         "projects": breakdown(items, quiet, "project_id", project_names),
-        "cost_centres": breakdown(items, quiet, "cost_centre_id", cost_centres or {}),
+        "cost_centres": breakdown(items, quiet, "cost_centre_id", cost_centres if cost_centres is not None else inputs.cost_centres),
         "budgets": budget_vs_actual(book, basis, start, end, quiet),
         "recurring": {"items": recurring, "per_month": recurring_totals(recurring)},
         "allocations_in_review": len(review),

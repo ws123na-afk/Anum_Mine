@@ -17,6 +17,7 @@ import {
   validCategory, validRate, type BillDraft,
 } from './lib/businessBooks';
 import { describeError } from './lib/errors';
+import { minorDigits } from './lib/finance';
 import { t, type MessageKey } from './lib/i18n';
 import { ConfirmDialog, Drawer, Modal } from './Dialog';
 import { Badge, Note, ReasonDialog, day, failure } from './BusinessParts';
@@ -230,7 +231,18 @@ export function BillDialog({ setup, bill, onClose, onSaved }: { setup: BooksSetu
   const projects = useProjects();
   const ids = { vendor: useId(), ref: useId(), description: useId(), date: useId(), due: useId(), currency: useId(), net: useId(), tax: useId(), category: useId(),
     section: useId(), centre: useId(), project: useId(), recurrence: useId(), life: useId() };
-  useEffect(() => { api.listVendors('', false, 0, 200).then((page) => setVendors(page.items), (error) => { setVendors([]); setProblem(describeError(error)); }); }, []);
+  const [vendorQuery, setVendorQuery] = useState(''), [vendorTotal, setVendorTotal] = useState(0);
+  const findId = useId();
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      api.listVendors(vendorQuery.trim(), false, 0, 200).then((page) => {
+        // Keep the bill's own vendor in the list while searching, so the select never loses its value.
+        const own = bill && !page.items.some((item) => item.id === bill.vendor_id) ? [{ id: bill.vendor_id, name: bill.vendor_name } as BooksVendor] : [];
+        setVendors([...own, ...page.items]); setVendorTotal(page.total);
+      }, (error) => { setVendors([]); setProblem(describeError(error)); });
+    }, vendorQuery ? 250 : 0);
+    return () => clearTimeout(timer);
+  }, [vendorQuery]);
   const set = (patch: Partial<BillDraft>) => setDraft((current) => ({ ...current, ...patch }));
   const pickVendor = (id: string) => {
     const vendor = vendors?.find((item) => item.id === id);
@@ -246,10 +258,12 @@ export function BillDialog({ setup, bill, onClose, onSaved }: { setup: BooksSetu
     try { onSaved(bill ? await api.updateBill(bill.id, { ...billBody(draft), version: bill.version }) : await api.createBill(billBody(draft), key)); }
     catch (error) { setProblem(failure(error, t('books.bills.title'))); setBusy(false); }
   }
-  const total = validAmount(draft.subtotal, true) && validAmount(draft.tax || '0', true) ? (Number(draft.subtotal) + Number(draft.tax || '0')).toFixed(2) : null;
+  const total = validAmount(draft.subtotal, true) && validAmount(draft.tax || '0', true) ? (Number(draft.subtotal) + Number(draft.tax || '0')).toFixed(minorDigits(draft.currency)) : null;
   return <Modal title={bill ? t('books.bills.edit') : t('books.bills.new')} className="formDialog bkWideDialog" onClose={onClose}>
     <form onSubmit={(event) => void submit(event)} aria-label={bill ? t('books.bills.edit') : t('books.bills.new')}>
-      {vendors !== null && vendors.length === 0 && <Note>{t('books.bills.noVendors')}</Note>}
+      {vendors !== null && vendors.length === 0 && !vendorQuery && <Note>{t('books.bills.noVendors')}</Note>}
+      {(vendorTotal > 200 || vendorQuery) && <label className="field" htmlFor={findId}><span>{t('books.bills.findVendor')}</span>
+        <input id={findId} type="search" value={vendorQuery} onChange={(event) => setVendorQuery(event.target.value)} /></label>}
       <div className="bzGrid2">
         <label className="field" htmlFor={ids.vendor}><span>{t('books.col.vendor')}</span><select id={ids.vendor} value={draft.vendor_id} onChange={(event) => pickVendor(event.target.value)} data-autofocus>
           <option value="">{vendors === null ? t('books.reading') : t('books.bills.pickVendor')}</option>{(vendors ?? []).map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
@@ -342,7 +356,7 @@ function PayDialog({ bill, onClose, onPaid }: { bill: BooksBill; onClose: () => 
   const ids = { amount: useId(), day: useId(), method: useId(), ref: useId(), allocation: useId(), note: useId() };
   useEffect(() => {
     if (kind !== 'allocation' || allocations !== null) return;
-    api.listAllocations('unpaid_bill', '', 0, 100).then((page) => setAllocations(page.items.filter((row) => row.currency === bill.currency && Number(row.amount) <= Number(bill.balance))),
+    api.listAllocations('unpaid_bill', '', 0, 200, bill.currency).then((page) => setAllocations(page.items.filter((row) => Number(row.amount) <= Number(bill.balance))),
       (error) => { setAllocations([]); setProblem(describeError(error)); });
   }, [kind, allocations, bill.currency, bill.balance]);
   async function submit(event: FormEvent) {

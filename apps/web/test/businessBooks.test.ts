@@ -130,3 +130,12 @@ describe('business books helpers', () => {
     setLocale('en');
   });
 });
+
+describe('business books review fixes', () => {
+  test('a zero exchange difference in a three-decimal currency is not shown', () => {
+    setLocale('en');
+    const base = report();
+    const rows = statementRows({ ...base, base_currency: 'KWD', pnl: { ...base.pnl, currency: 'KWD', fx_differences: '0.000' } });
+    assert.ok(!rows.some((row) => row.key === 'fx_differences'));
+  });
+});
