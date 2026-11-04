@@ -761,6 +761,10 @@ CALENDAR_CONNECTIONS = _multi_store(
 BREVO_CONNECTIONS = _multi_store(
     "brevo_connections", "brevo_connection", ("api_key_ciphertext",), ("tenant_id", "workspace_id")
 )
+# The action browser (migration 0130): each saved site login and payment card.
+ACTION_BROWSER_CREDENTIALS = _multi_store(
+    "action_browser_credentials", "action_browser_credential", ("secret_ciphertext",), ("tenant_id", "workspace_id", "id")
+)
 COMMERCE_CUSTOMERS = _multi_store(
     "commerce_customers", "commerce_customer",
     ("name_ciphertext", "email_ciphertext", "phone_ciphertext", "address_ciphertext"),
@@ -1004,6 +1008,23 @@ def rotate_calendar_tokens(
     )
 
 
+def rotate_action_browser_credentials(
+    cipher: SecretCipher,
+    *,
+    session_factory: SessionFactory = default_session_factory,
+    maintenance_session_factory: SessionFactory | None = None,
+    dry_run: bool = False,
+    batch_size: int = 200,
+    correlation_id: str | None = None,
+) -> RotationReport:
+    """Re-encrypt every saved login and card of the action browser (docs/action-browser.md)."""
+    return _rotate_store(
+        ACTION_BROWSER_CREDENTIALS, cipher, session_factory=session_factory,
+        maintenance_session_factory=maintenance_session_factory, dry_run=dry_run, batch_size=batch_size,
+        correlation_id=correlation_id,
+    )
+
+
 _BILLING_ISSUERS = text("select tenant_id from billing_settings where tenant_id > :after order by tenant_id limit :limit")
 
 
@@ -1113,6 +1134,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             ("brevo_connections", rotate_brevo_keys),
             ("billing_settings", rotate_billing_stripe_keys),
             ("calendar_connections", rotate_calendar_tokens),
+            ("action_browser_credentials", rotate_action_browser_credentials),
         )
     }
     # Provider keys, integration and tyre credentials at the top level (as before); the rest nested.

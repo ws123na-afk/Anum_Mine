@@ -1,8 +1,9 @@
 import asyncio
 from dataclasses import dataclass, replace
 import json
+import logging
 from datetime import datetime, timezone
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from typing import Any
 
@@ -56,6 +57,8 @@ from .integrations import (
 from .integration_tools import configured_external_handler
 from .web_search import SEARXNG_INTEGRATION_ID, configured_web_search_handler
 from .browser_research import BROWSER_INTEGRATION_ID
+from .action_browser import ACTION_INTEGRATION_ID
+from .action_browser.tool import default_planner_factory, register_action_tools
 from .browser_research.tool import register_browser_tools
 from .model_gateway import build_default_model_gateway
 from .memory import (
@@ -225,6 +228,7 @@ from .suppression import router as suppression_router
 from .contact_consent import router as contact_consent_router
 from .approval_reminders import router as approval_reminders_router
 from .agent_loop_limits import router as agent_loop_limits_router
+from .action_browser.api import router as action_browser_router
 from .automation import build_automation_scheduler, register_scheduler_pass, router as automation_router
 from .assistants import router as assistants_router
 from .notifications import router as notifications_router
@@ -486,6 +490,7 @@ app.include_router(tenant_lifecycle_router)
 app.include_router(model_budget_router)
 app.include_router(agent_controls_router)
 app.include_router(agent_loop_limits_router)
+app.include_router(action_browser_router)
 app.include_router(developer_router)
 app.include_router(whatsapp_router)
 app.include_router(sales_router)
@@ -569,6 +574,10 @@ tool_registry = register_green_concrete_tools(register_calendar_tools(register_b
 )))))))
 # Browser research (docs/browser-research.md): always registered, off per workspace until an owner turns it on.
 register_browser_tools(tool_registry, settings, integration_registry.workspace_enabled(BROWSER_INTEGRATION_ID))
+# The action browser (docs/action-browser.md): registered everywhere, "Not available" until set up.
+register_action_tools(
+    tool_registry, settings, integration_registry.workspace_enabled(ACTION_INTEGRATION_ID), default_planner_factory(model_gateway),
+)
 # Reports and other features send through whichever delivery tools are registered.
 delivery.configure(tool_registry)
 # Skill details describe required tools as this runtime would treat them (docs/skills.md).
@@ -2116,6 +2125,21 @@ async def _decide_approval(
         if decided.execute is None or decided.runtime_factory is None:
             return decided.response
         task, run, call = decided.execute
+        definition = tool_registry.definition(call.name)
+        if definition is not None and definition.long_running:
+            # The action browser works for minutes between pauses (docs/action-browser.md): its
+            # segment runs on the loop, awaiting only sockets, with the same claim checks, and the
+            # approve request answers now with the run ``executing``.
+            _run_in_background(
+                execute_committed(
+                    context, task, run, call,
+                    unit_of_work=units,
+                    runtime_factory=decided.runtime_factory,
+                    approval_id=approval_id,
+                ),
+                name=f"long-running {call.name}",
+            )
+            return decided.response
         try:
             task, run = await execute_committed(
                 context, task, run, call,
@@ -2129,6 +2153,26 @@ async def _decide_approval(
         if not isinstance(response, ApprovalDecisionResponse):  # pragma: no cover - set with execute
             return response
         return response.model_copy(update={"task": task, "run": run})
+
+
+_BACKGROUND_RUNS: set[asyncio.Task[object]] = set()
+
+
+def _run_in_background(work: Awaitable[object], *, name: str) -> None:
+    """Keep a reference until it ends; a failure is logged (the run itself records it)."""
+
+    async def guarded() -> object:
+        try:
+            return await work
+        except RunClaimLost:
+            return None
+        except Exception as exc:  # pragma: no cover - the run is failed by execute_committed
+            logging.getLogger("anum_api.runs").warning("background_run_failed name=%s error_class=%s", name, type(exc).__name__)
+            return None
+
+    job: asyncio.Task[object] = asyncio.ensure_future(guarded())
+    _BACKGROUND_RUNS.add(job)
+    job.add_done_callback(_BACKGROUND_RUNS.discard)
 
 
 @dataclass

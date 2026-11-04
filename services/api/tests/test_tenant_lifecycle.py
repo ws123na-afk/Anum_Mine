@@ -205,6 +205,8 @@ def test_every_purged_table_is_covered_by_the_purge_migration() -> None:
             "business_invoice_payment_links": "0126_business_invoice_send",
             **{name: "0129_setup_plan_gaps" for name in (
                 "contact_consents", "contact_consent_settings", "agent_loop_limits", "approval_reminder_settings", "approval_reminders")},
+            **{name: "0130_action_browser" for name in (
+                "action_browser_credentials", "action_browser_sessions", "action_browser_steps")},
             "billing_company_profiles": "0123_selling_readiness",
             "workspace_record_retention": "0120_record_retention",
             "office_visitors": "0118_career_visitor_register",

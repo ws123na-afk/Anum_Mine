@@ -46,6 +46,18 @@ BROWSE_TRIGGERS = frozenset(
 )
 
 
+# Words that select the action browser (docs/action-browser.md); the planner also needs an https
+# address in the prompt. Never the read-only words (open, read, page): those stay with browse_page.
+ACT_TRIGGERS = frozenset(
+    {
+        "book", "booking", "buy", "purchase", "order", "pay", "checkout", "fill", "signup", "sign-up", "register", "login",
+        "log-in", "apply", "reserve", "subscribe", "submit",
+        # Arabic: book, buy, order, pay, fill, register, apply, reserve, subscribe.
+        "احجز", "حجز", "اشتر", "اشتري", "اطلب", "ادفع", "املأ", "املا", "سجل", "قدم", "اشترك",
+    }
+)
+
+
 class SkillManifest(BaseModel):
     id: str = Field(pattern=r"^[a-z0-9][a-z0-9_.-]+$")
     version: str = Field(pattern=r"^\d+\.\d+\.\d+$")
@@ -157,6 +169,19 @@ def default_skill_registry() -> SkillRegistry:
                 # The planner also needs an https address in the user's own words.
                 triggers=BROWSE_TRIGGERS,
                 required_tools=frozenset({"web.browse_page"}),
+            ),
+            SkillManifest(
+                id="anum.action-browser",
+                version="1.0.0",
+                name="Action browser",
+                description=(
+                    "Works through a website the user names for them in a sandboxed browser (signs in with a saved login, "
+                    "fills forms, clicks through pages) and stops for the owner's approval before paying, booking, "
+                    "sending, signing or deleting (docs/action-browser.md)."
+                ),
+                # The planner also needs an https address in the user's own words.
+                triggers=ACT_TRIGGERS,
+                required_tools=frozenset({"web.act"}),
             ),
             SkillManifest(
                 id="anum.whatsapp-inbox",
