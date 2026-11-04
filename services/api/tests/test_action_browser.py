@@ -4,15 +4,18 @@ Covers the kinds of task the action browser is for (sign in and fill a multi-ste
 with approval; sign in and download a statement into Files; compare data across two pages into
 a table; a purchase that stops at payment), and its safety rules: the scope approval, gates
 bound to the payload hash, the page-changed re-check, the domain list, handoffs, caps, Stop,
-and secrets that never reach the model, the logs or an approval.
+and secrets that never reach the model, the logs or an approval. The card security code is never
+saved: the owner types it on the approval card and it is typed once, then dropped.
 """
 
 from __future__ import annotations
 
 import asyncio
 import json
+import logging
+import re
 import time
-from collections.abc import Iterator
+from collections.abc import Iterator, Mapping
 from typing import Any
 
 import httpx
@@ -23,9 +26,10 @@ from action_browser_fakes import CARD, PASSWORD, FakeActionService, ScriptedPlan
 from anum_api import main
 from anum_api.action_browser import ACT_TOOL, ACTION_INTEGRATION_ID
 from anum_api.action_browser import api as action_api
+from anum_api.action_browser.card_code import CVC_MARKER, with_card_code
 from anum_api.action_browser.store import memory_action_store
 from anum_api.action_browser.tool import ActionBrowserTool, ActionServiceClient, act_definition, merge_result, register_action_tools, table_csv
-from anum_api.action_browser.vault import CredentialWrite, create_credential
+from anum_api.action_browser.vault import CredentialWrite, create_credential, update_credential
 from anum_api.agent_planning import choose_tool_call
 from anum_api.agent_skills import default_skill_registry
 from anum_api.agent_tools import ToolCall, ToolPolicy, ToolPolicyOutcome, ToolResult, default_tool_registry, running_in
@@ -41,6 +45,9 @@ CONTEXT = TenantContext(tenant_id=TENANT, workspace_id=WORKSPACE, user_id="owner
 OWNER = {"x-tenant-id": TENANT, "x-workspace-id": WORKSPACE, "x-user-id": "owner_a", "x-user-roles": "owner"}
 MEMBER = {**OWNER, "x-user-id": "member_a", "x-user-roles": "member"}
 TOKEN = "action-browser-token-for-tests-only-example"
+# The security code the owner types on the approval card: a sentinel the tests look for everywhere it must not be.
+CODE = "739"
+CODE_TOKEN = re.compile(r"(?<![\w.])739(?![\w.])")
 SCOPE = {"goal": "Book one seat to Riyadh", "start_url": "https://shop.example/login", "allowed_domains": ["shop.example"],
          "logins": {"shop": "shop.example"}, "cards": ["main"]}
 
@@ -54,7 +61,7 @@ def _clean() -> Iterator[None]:
 
 def save_secrets() -> None:
     create_credential(CONTEXT, CredentialWrite(kind="login", handle="shop", site="https://www.shop.example/login", username="owner@example.com", password=PASSWORD))
-    create_credential(CONTEXT, CredentialWrite(kind="card", handle="main", name="Owner Name", number=CARD, expiry="08/29", cvc="123"))
+    create_credential(CONTEXT, CredentialWrite(kind="card", handle="main", name="Owner Name", number=CARD, expiry="08/29"))
 
 
 def make_tool(service: FakeActionService, planner: ScriptedPlanner, **options: Any) -> ActionBrowserTool:
@@ -62,12 +69,15 @@ def make_tool(service: FakeActionService, planner: ScriptedPlanner, **options: A
     return ActionBrowserTool(problem=None, client=client, planner_factory=lambda _context: planner, **options)
 
 
-def call(tool: ActionBrowserTool, arguments: dict[str, Any], context: TenantContext = CONTEXT) -> ToolResult:
+def call(tool: ActionBrowserTool, arguments: dict[str, Any], context: TenantContext = CONTEXT, *, code: str | None = None) -> ToolResult:
     async def go() -> ToolResult:
         with running_in("task_1", "run_1"):
             return await tool(ToolCall(name=ACT_TOOL, arguments=arguments), context)
 
-    return asyncio.run(go())
+    async def with_code() -> ToolResult:
+        return await with_card_code(code, go()) if code is not None else await go()
+
+    return asyncio.run(with_code())
 
 
 def steps_of(session_id: str) -> list[Any]:
@@ -82,10 +92,11 @@ def booking_steps() -> list[dict[str, Any]]:
         {"action": "type", "ref": "e1", "value": "Owner Name"},
         {"action": "click", "ref": "e2"},
         {"action": "type", "ref": "e1", "value": "{{card:main.number}}"},
+        {"action": "type", "ref": "e3", "value": "{{card:main.cvc}}"},
     ]
 
 
-def test_a_booking_signs_in_fills_the_form_and_stops_at_card_entry_then_at_pay() -> None:
+def test_a_booking_signs_in_fills_the_form_and_stops_at_card_entry_then_at_the_code_then_at_pay() -> None:
     save_secrets()
     service = FakeActionService()
     planner = ScriptedPlanner([*booking_steps(), {"action": "click", "ref": "e2"}, {"action": "done", "answer": "Booked, reference ABC123."}])
@@ -94,17 +105,24 @@ def test_a_booking_signs_in_fills_the_form_and_stops_at_card_entry_then_at_pay()
     first = call(tool, SCOPE)
     assert first.status == "paused" and first.continuation is not None
     card = first.continuation.arguments
-    assert card["kind"] == "card_entry" and card["resume"] == "step" and card["site"] == "shop.example"
+    assert card["kind"] == "card_entry" and card["resume"] == "step" and card["site"] == "shop.example" and "cvc" not in card
     assert card["shown_action"]["value"].startswith("{{card:main.number}} (Visa ending 4242")
     assert card["amount"] == 1240.0 and card["currency"] == "AED"
     assert first.continuation_reason.startswith("Waiting for your approval: enter")
     session_id = card["session_id"]
 
+    # The security code is never saved, so it always asks, even inside the card form already approved.
     second = call(tool, card)
     assert second.status == "paused"
-    pay = second.continuation.arguments
+    code_step = second.continuation.arguments
+    assert code_step["kind"] == "card_security_code" and code_step["cvc"] == CVC_MARKER and code_step["grant"] == card["grant"]
+    assert code_step["action"]["value"] == "{{card:main.cvc}}" and "Type the card's security code" in second.continuation_reason
+
+    third = call(tool, code_step, code=CODE)
+    assert third.status == "paused"
+    pay = third.continuation.arguments
     assert pay["kind"] == "binding_button" and pay["target"] == "“Pay AED 1,240”" and pay["amount_text"] == "AED 1,240"
-    assert pay["url"] == "https://shop.example/pay" and len(pay["fingerprint"]) == 64
+    assert pay["url"] == "https://shop.example/pay" and len(pay["fingerprint"]) == 64 and "cvc" not in pay
 
     done = call(tool, pay)
     assert done.status == "succeeded" and done.output["answer"] == "Booked, reference ABC123."
@@ -117,9 +135,45 @@ def test_a_booking_signs_in_fills_the_form_and_stops_at_card_entry_then_at_pay()
     # The secrets travelled only in the act request that typed them: never to the model, the log or an approval.
     secret_bodies = [body for _, path, body in service.requests if json.dumps(body).count(PASSWORD) or json.dumps(body).count(CARD)]
     assert len(secret_bodies) == 2 and all(set(body) == {"action", "expect", "secret"} for body in secret_bodies)
+    code_bodies = [body for _, _, body in service.requests if CODE_TOKEN.search(json.dumps(body))]
+    assert code_bodies == [{"action": code_step["action"], "expect": {"url": code_step["url"], "fingerprint": code_step["fingerprint"]}, "secret": CODE}]
     everything_else = "".join(planner.seen) + json.dumps([s.model_dump(mode="json") for s in steps_of(session_id)])
-    everything_else += json.dumps(card) + json.dumps(pay) + json.dumps(first.audit_metadata) + json.dumps(done.output) + record.model_dump_json()
+    everything_else += json.dumps(card) + json.dumps(code_step) + json.dumps(pay) + json.dumps(first.audit_metadata) + json.dumps(third.audit_metadata)
+    everything_else += json.dumps(done.output) + record.model_dump_json() + done.summary
     assert PASSWORD not in everything_else and CARD not in everything_else and "4242 4242" not in everything_else
+    assert not CODE_TOKEN.search(everything_else)
+
+
+def test_the_code_is_never_read_from_the_vault_and_is_needed_at_approval() -> None:
+    save_secrets()
+    service = FakeActionService()
+    tool = make_tool(service, ScriptedPlanner([*booking_steps(), {"action": "click", "ref": "e2"}]))
+    card = call(tool, SCOPE).continuation.arguments
+    code_step = call(tool, card).continuation.arguments
+    # Approved without a code (for example from a client that cannot ask for it): nothing is typed, the task ends.
+    without = call(tool, code_step)
+    assert without.status == "failed" and "security code was not entered" in without.summary
+    assert not [body for _, path, body in service.requests if path.endswith("/act") and body["action"].get("value") == "{{card:main.cvc}}"]
+
+
+def test_the_page_changed_after_the_code_was_entered_drops_it_and_asks_again() -> None:
+    save_secrets()
+    service = FakeActionService()
+    tool = make_tool(service, ScriptedPlanner([*booking_steps(), {"action": "click", "ref": "e2"}]))
+    card = call(tool, SCOPE).continuation.arguments
+    code_step = call(tool, card).continuation.arguments
+    service.change_before_act = True
+    again = call(tool, code_step, code=CODE)
+    assert again.status == "paused"
+    fresh = again.continuation.arguments
+    assert fresh["kind"] == "card_security_code" and fresh["cvc"] == CVC_MARKER and fresh["pending_id"] != code_step["pending_id"]
+    # The code went to the browser only in the act request the page refused; nothing was typed and it is not kept.
+    assert service.sessions["browser1"]["values"].get(("/pay", "e3")) is None
+    assert len([b for _, _, b in service.requests if CODE_TOKEN.search(json.dumps(b))]) == 1
+    assert not CODE_TOKEN.search(json.dumps(fresh) + json.dumps([s.model_dump(mode="json") for s in steps_of(code_step["session_id"])]))
+    # Approving the fresh step without typing the code again types nothing.
+    assert call(tool, fresh).status == "failed"
+    assert service.sessions == {}
 
 
 def test_the_page_changed_after_approval_asks_again_and_does_nothing() -> None:
@@ -127,7 +181,8 @@ def test_the_page_changed_after_approval_asks_again_and_does_nothing() -> None:
     service = FakeActionService()
     tool = make_tool(service, ScriptedPlanner([*booking_steps(), {"action": "click", "ref": "e2"}]))
     card = call(tool, SCOPE).continuation.arguments
-    pay = call(tool, card).continuation.arguments
+    code_step = call(tool, card).continuation.arguments
+    pay = call(tool, code_step, code=CODE).continuation.arguments
     service.change_before_act = True
     again = call(tool, pay)
     assert again.status == "paused"
@@ -138,6 +193,53 @@ def test_the_page_changed_after_approval_asks_again_and_does_nothing() -> None:
     # The old approval cannot be replayed: it is not the pending step any more.
     stale = call(tool, pay)
     assert stale.status == "failed" and "not the one" in stale.summary
+
+
+def test_a_saved_card_never_holds_a_security_code() -> None:
+    from anum_api.action_browser.handles import Handle
+    from anum_api.action_browser.vault import resolve_secret
+    from anum_api.secret_box import secret_cipher
+
+    with pytest.raises(ValueError, match="never stores a card's security code") as refused:
+        CredentialWrite(kind="card", handle="main", name="Owner Name", number=CARD, expiry="08/29", cvc=CODE)  # type: ignore[call-arg]
+    assert not CODE_TOKEN.search(str(refused.value))
+    for key in ("CVV", "csc", "security_code"):
+        with pytest.raises(ValueError):
+            CredentialWrite.model_validate({"kind": "card", "handle": "main", "number": CARD, "expiry": "08/29", key: CODE})
+    created = create_credential(CONTEXT, CredentialWrite(kind="card", handle="main", name="Owner Name", number=CARD, expiry="08/29"))
+    stored = memory_action_store.credential(CONTEXT, created.id)
+    assert json.loads(secret_cipher().decrypt(stored.secret_ciphertext)) == {"number": CARD, "expiry": "08/29", "name": "Owner Name"}
+    update_credential(CONTEXT, created.id, CredentialWrite(kind="card", handle="main", expiry="09/30"))
+    stored = memory_action_store.credential(CONTEXT, created.id)
+    assert json.loads(secret_cipher().decrypt(stored.secret_ciphertext)) == {"number": CARD, "expiry": "09/30", "name": "Owner Name"}
+    assert resolve_secret(CONTEXT, Handle("card", "main", "cvc")) is None and resolve_secret(CONTEXT, Handle("card", "main", "number")) == CARD
+
+
+def test_a_card_saved_with_a_code_before_loses_it(caplog: pytest.LogCaptureFixture) -> None:
+    from anum_api.action_browser.cleanup import strip_saved_card_codes
+    from anum_api.action_browser.handles import Handle
+    from anum_api.action_browser.vault import resolve_secret
+    from anum_api.secret_box import secret_cipher
+
+    created = create_credential(CONTEXT, CredentialWrite(kind="card", handle="main", name="Owner Name", number=CARD, expiry="08/29"))
+    login = create_credential(CONTEXT, CredentialWrite(kind="login", handle="shop", site="shop.example", username="o@example.com", password=PASSWORD))
+    # A row as the first version of the vault wrote it.
+    old = memory_action_store.credential(CONTEXT, created.id)
+    legacy = {"number": CARD, "expiry": "08/29", "cvc": CODE, "name": "Owner Name"}
+    memory_action_store.save_credential(CONTEXT, old.model_copy(update={"secret_ciphertext": secret_cipher().encrypt(json.dumps(legacy))}))
+    # Even before the cleanup runs, the code is never handed out.
+    assert resolve_secret(CONTEXT, Handle("card", "main", "cvc")) is None
+    store.audit_records.clear()
+    with caplog.at_level(logging.DEBUG):
+        report = strip_saved_card_codes()
+        again = strip_saved_card_codes()
+    assert (report.scanned, report.removed, report.failed) == (2, 1, 0) and again.removed == 0
+    after = memory_action_store.credential(CONTEXT, created.id)
+    assert json.loads(secret_cipher().decrypt(after.secret_ciphertext)) == {"number": CARD, "expiry": "08/29", "name": "Owner Name"}
+    assert after.updated_at == old.updated_at and memory_action_store.credential(CONTEXT, login.id).secret_ciphertext
+    (audit,) = [r for r in store.audit_records if r.action == "action_browser.card_code_removed"]
+    assert dict(audit.metadata) == {"kind": "card", "handle": "main", "site": None} and audit.target == f"action_browser_credential:{created.id}"
+    assert not CODE_TOKEN.search(caplog.text + json.dumps(dict(audit.metadata)))
 
 
 def test_a_multi_step_form_is_submitted_only_after_approval() -> None:
@@ -362,8 +464,25 @@ def api(monkeypatch: pytest.MonkeyPatch) -> Iterator[tuple[FakeActionService, di
     monkeypatch.setattr(action_api, "service_client", None)
 
 
-def _approve(client: TestClient, approval: dict[str, Any], headers: dict[str, str] = OWNER) -> httpx.Response:
-    return client.post(f"/api/v1/approvals/{approval['id']}/approve", headers=headers, json={"payload_hash": approval["payload_hash"]})
+def _approve(client: TestClient, approval: dict[str, Any], headers: dict[str, str] = OWNER, *, code: str | None = None) -> httpx.Response:
+    body = {"payload_hash": approval["payload_hash"], **({"security_code": code} if code is not None else {})}
+    return client.post(f"/api/v1/approvals/{approval['id']}/approve", headers=headers, json=body)
+
+
+def _everything_stored() -> str:
+    """Every row the in-memory backend keeps (tasks, runs, approvals, events, audit, sessions, steps, saved items)."""
+    import dataclasses
+
+    rows: list[Any] = [*store.tasks.values(), *store.runs.values(), *store.approvals.values(), *store.events, *store.audit_records]
+    dumped = [row.model_dump(mode="json") if hasattr(row, "model_dump")
+              else {f.name: (dict(v) if isinstance(v := getattr(row, f.name), Mapping) else v) for f in dataclasses.fields(row)} for row in rows]
+    sessions = [r for (t, w, _), r in memory_action_store._sessions.items() if (t, w) == (TENANT, WORKSPACE)]
+    dumped += [r.model_dump(mode="json") for r in sessions]
+    dumped += [step.model_dump(mode="json") for r in sessions for step in memory_action_store.steps(CONTEXT, r.id)]
+    from anum_api.secret_box import secret_cipher
+
+    dumped += [secret_cipher().decrypt(r.secret_ciphertext) for r in memory_action_store.credentials(CONTEXT)]
+    return json.dumps(dumped, default=str)
 
 
 def _wait_pending(client: TestClient, task_id: str, count: int, timeout: float = 15.0) -> list[dict[str, Any]]:
@@ -407,10 +526,15 @@ def test_the_api_path_scope_approval_pay_approval_live_view_and_completion(api: 
         login = client.post("/api/v1/action-browser/credentials", headers=OWNER, json={
             "kind": "login", "handle": "shop", "site": "shop.example", "username": "owner@example.com", "password": PASSWORD})
         assert login.status_code == 201 and login.json()["hint"] == "o***@example.com on shop.example" and PASSWORD not in login.text
+        with_code = client.post("/api/v1/action-browser/credentials", headers=OWNER, json={
+            "kind": "card", "handle": "main", "name": "Owner Name", "number": CARD, "expiry": "08/29", "cvc": CODE})
+        assert with_code.status_code == 422 and "never stores a card's security code" in with_code.text and not CODE_TOKEN.search(with_code.text)
         card = client.post("/api/v1/action-browser/credentials", headers=OWNER, json={
-            "kind": "card", "handle": "main", "name": "Owner Name", "number": CARD, "expiry": "08/29", "cvc": "123"})
+            "kind": "card", "handle": "main", "name": "Owner Name", "number": CARD, "expiry": "08/29"})
         assert card.status_code == 201 and card.json()["hint"] == "Visa ending 4242, expires 08/29"
-        bad = client.post("/api/v1/action-browser/credentials", headers=OWNER, json={"kind": "card", "handle": "x", "name": "a", "number": "4242424242424241", "expiry": "08/29", "cvc": "1"})
+        edit_code = client.put(f"/api/v1/action-browser/credentials/{card.json()['id']}", headers=OWNER, json={"kind": "card", "handle": "main", "cvc": CODE})
+        assert edit_code.status_code == 422 and "never stores" in edit_code.text
+        bad = client.post("/api/v1/action-browser/credentials", headers=OWNER, json={"kind": "card", "handle": "x", "name": "a", "number": "4242424242424241", "expiry": "08/29"})
         assert bad.status_code == 422
         listed = client.get("/api/v1/action-browser/credentials", headers=OWNER)
         assert CARD not in listed.text and PASSWORD not in listed.text and len(listed.json()) == 2
@@ -436,9 +560,19 @@ def test_the_api_path_scope_approval_pay_approval_live_view_and_completion(api: 
         # Input only while the browser needs a person.
         assert client.post(f"/api/v1/action-browser/sessions/{session['id']}/input", headers=OWNER, json={"kind": "click", "x": 10, "y": 10}).status_code == 409
 
+        # A step that does not type the code takes none.
+        assert _approve(client, card_step, code=CODE).status_code == 422
         assert _approve(client, card_step).status_code == 200
-        pending = _wait_pending(client, task_id, 1)
-        pay = next(a for a in pending if a["id"] != card_step["id"])
+        (code_step,) = [a for a in _wait_pending(client, task_id, 1) if a["id"] != card_step["id"]]
+        assert code_step["arguments"]["kind"] == "card_security_code" and code_step["arguments"]["cvc"] == CVC_MARKER
+        # The code must come with the approve, as 3 or 4 digits; a refusal leaves the approval waiting.
+        missing = _approve(client, code_step)
+        assert missing.status_code == 422 and "security code" in missing.json()["error"]["message"]
+        assert _approve(client, code_step, code="12a").status_code == 422
+        assert _approve(client, code_step, code="12345").status_code == 422
+        assert next(a for a in client.get("/api/v1/approvals", headers=OWNER).json() if a["id"] == code_step["id"])["status"] == "pending"
+        assert _approve(client, code_step, code=CODE).status_code == 200
+        (pay,) = [a for a in _wait_pending(client, task_id, 1) if a["id"] not in {card_step["id"], code_step["id"]}]
         assert pay["arguments"]["amount"] == 1240.0 and pay["arguments"]["currency"] == "AED"
         assert _approve(client, pay).status_code == 200
         task = _wait_task(client, task_id, "completed")
@@ -448,6 +582,10 @@ def test_the_api_path_scope_approval_pay_approval_live_view_and_completion(api: 
         audits = [r for r in store.audit_records if r.action == "tool.call"]
         assert audits and PASSWORD not in json.dumps([dict(r.metadata) for r in audits], default=str) and CARD not in json.dumps([dict(r.metadata) for r in audits], default=str)
         assert service.closed == ["browser1"]
+        # The code was typed once, in the act request for the approved field, and is nowhere else.
+        code_bodies = [body for _, path, body in service.requests if CODE_TOKEN.search(json.dumps(body))]
+        assert len(code_bodies) == 1 and code_bodies[0]["secret"] == CODE and code_bodies[0]["action"]["value"] == "{{card:main.cvc}}"
+        assert not CODE_TOKEN.search(_everything_stored() + json.dumps(task, default=str))
 
 
 def test_the_api_path_reject_ends_the_task_and_closes_the_browser(api: Any) -> None:
@@ -463,6 +601,43 @@ def test_the_api_path_reject_ends_the_task_and_closes_the_browser(api: Any) -> N
         (session,) = client.get(f"/api/v1/action-browser/sessions?task_id={task_id}", headers=OWNER).json()
         assert session["status"] == "failed" and not session["live"] and service.closed == ["browser1"]
         assert "paid_with" not in json.dumps(list(service.sessions.values()))
+
+
+def test_the_api_path_card_code_reaches_the_browser_once_and_is_kept_nowhere(api: Any, caplog: pytest.LogCaptureFixture) -> None:
+    service, holder = api
+    save_secrets()
+    with TestClient(main.app) as client, caplog.at_level(logging.DEBUG):
+        _turn_on(client)
+        holder["planner"] = ScriptedPlanner([{"action": "navigate", "url": "https://shop.example/pay"},
+                                             {"action": "type", "ref": "e3", "value": "{{card:main.cvc}}"},
+                                             {"action": "done", "answer": "Code entered."}])
+        task_id, scope = _start(client, "Pay my bill on https://shop.example/login with my main card")
+        assert _approve(client, scope).status_code == 200
+        (code_step,) = _wait_pending(client, task_id, 1)
+        assert code_step["arguments"]["cvc"] == CVC_MARKER and "Type the card's security code" in code_step["reason"]
+        assert _approve(client, code_step, code=CODE).status_code == 200
+        task = _wait_task(client, task_id, "completed")
+        events = client.get(f"/api/v1/tasks/{task_id}/events", headers=OWNER)
+        acts = [body for _, path, body in service.requests if path.endswith("/act") and body.get("secret") == CODE]
+        assert len(acts) == 1 and acts[0]["action"] == code_step["arguments"]["action"]
+        assert not CODE_TOKEN.search(_everything_stored() + json.dumps(task, default=str) + events.text + caplog.text)
+
+
+def test_the_api_path_reject_drops_the_code_step(api: Any) -> None:
+    service, holder = api
+    save_secrets()
+    with TestClient(main.app) as client:
+        _turn_on(client)
+        holder["planner"] = ScriptedPlanner([{"action": "navigate", "url": "https://shop.example/pay"},
+                                             {"action": "type", "ref": "e3", "value": "{{card:main.cvc}}"}])
+        task_id, scope = _start(client, "Pay my bill on https://shop.example/login with my main card")
+        assert _approve(client, scope).status_code == 200
+        (code_step,) = _wait_pending(client, task_id, 1)
+        assert client.post(f"/api/v1/approvals/{code_step['id']}/reject", headers=OWNER, json={"payload_hash": code_step["payload_hash"]}).status_code == 200
+        _wait_task(client, task_id, "failed")
+        (session,) = client.get(f"/api/v1/action-browser/sessions?task_id={task_id}", headers=OWNER).json()
+        assert session["status"] == "failed" and not session["live"] and service.closed == ["browser1"]
+        assert not [b for _, path, b in service.requests if path.endswith("/act") and b["action"].get("value") == "{{card:main.cvc}}"]
 
 
 def test_the_api_path_stop_and_handoff_input(api: Any) -> None:

@@ -127,7 +127,7 @@ function App({onSwitchWorkspace,onSwitchOrganisation}:{onSwitchWorkspace:(worksp
  // A 402 from a run is not a failure to retry: show the budget message (it names the reset date) with a way to the budgets.
  async function doIt(fn:()=>Promise<void>){setBusy(true);setError(null);setBudgetStop(null);try{await fn()}catch(e){if(isBudgetExceeded(e)){setBudgetStop(budgetMessage(e));void load()}else setError(err(e))}finally{setBusy(false)}}
  // A 403 on a decision (e.g. the two-person rule refusing self-approval) belongs on the approval card, not the page.
- async function decide(a:Approval,d:'approve'|'reject',reason?:string):Promise<string|null>{let refusal:string|null=null;await doIt(async()=>{try{const r=d==='approve'?await api.approveTask(a,reason):await api.rejectTask(a,reason);setTask(r.task);setRun(r.run)}catch(e){if(!isPermissionDenied(e))throw e;refusal=describeError(e)}await load()});return refusal}
+ async function decide(a:Approval,d:'approve'|'reject',reason?:string,securityCode?:string):Promise<string|null>{let refusal:string|null=null;await doIt(async()=>{try{const r=d==='approve'?await api.approveTask(a,reason,securityCode):await api.rejectTask(a,reason);setTask(r.task);setRun(r.run)}catch(e){if(!isPermissionDenied(e))throw e;refusal=describeError(e)}await load()});return refusal}
  // Each view change is a history entry, so the browser's back and forward buttons move between views
  // (docs/module-checklist.md#navigation); a link to a hash (a breadcrumb) opens its view the same way.
  const go=(next:View)=>{setView(next);if(hashView(location.hash)!==next||location.hash==='')history.pushState(null,'',`#${next}`)};

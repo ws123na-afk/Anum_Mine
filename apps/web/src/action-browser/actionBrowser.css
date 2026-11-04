@@ -51,3 +51,7 @@
   .abCredActions { grid-column: 1 / -1; justify-content: flex-start; }
   .abScope > div, .abFacts > div { grid-template-columns: minmax(0, 1fr); gap: 2px; }
 }
+.abCode { display: grid; gap: var(--d-s1); padding: var(--d-s3); border: 1px solid var(--d-line); border-radius: var(--d-r-control); background: var(--d-surface-1); }
+.abCode .field { display: grid; gap: var(--d-s1); }
+.abCode input { inline-size: min(100%, 8rem); font-variant-numeric: tabular-nums; letter-spacing: 0.2em; }
+.abCode small { margin: 0; }

@@ -4,7 +4,7 @@ from enum import StrEnum
 from typing import Any, Literal
 from uuid import uuid4
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class TaskStatus(StrEnum):
@@ -434,8 +434,14 @@ class ApprovalDecisionRequest(BaseModel):
     """The approval's ``payload_hash`` exactly as the client displayed it, and an
     optional reason for the decision (docs/approvals-and-risk.md, A4)."""
 
+    # Errors never echo what was sent (an action browser step's card security code).
+    model_config = ConfigDict(hide_input_in_errors=True)
+
     payload_hash: str = Field(pattern=r"^[0-9a-f]{64}$")
     reason: str | None = Field(default=None, max_length=DECISION_REASON_MAX_CHARS)
+    # Only for an action browser step that types a card's security code (docs/action-browser.md#the-card-security-code):
+    # the code the owner typed on the approval card. Held in memory for that one execution, never stored or logged.
+    security_code: str | None = Field(default=None, max_length=8, repr=False)
 
     @field_validator("reason")
     @classmethod
