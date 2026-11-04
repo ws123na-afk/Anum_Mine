@@ -182,15 +182,18 @@ def site() -> Iterator[tuple[Shop, int]]:
 class LabelPlanner:
     """Scripted steps that name elements by label or text; refs come from the real snapshot."""
 
-    def __init__(self, steps: list[dict[str, Any]], shots: list[tuple[str, Any]] | None = None) -> None:
+    def __init__(self, steps: list[dict[str, Any]], before_done: Any = None) -> None:
         self.steps = list(steps)
         self.seen: list[str] = []
+        self.before_done = before_done
 
     async def next_step(self, *, goal: str, scope: dict[str, Any], history: list[str], snapshot: dict[str, Any]) -> PlannedStep:
         self.seen.append(json.dumps(snapshot, ensure_ascii=False))
         if not self.steps:
             return PlannedStep(action="fail", answer="Script ran out of steps.")
         step = dict(self.steps.pop(0))
+        if step.get("action") == "done" and self.before_done is not None:
+            await self.before_done()
         label = step.pop("find", None)
         if label is not None:
             for element in snapshot.get("elements") or []:
@@ -273,7 +276,8 @@ def test_sign_in_fill_stop_at_pay_approve_and_complete(site: tuple[Shop, int]) -
 
     async def go() -> None:
         h = Harness(port)
-        planner = LabelPlanner([*BOOK, {"action": "click", "find": "Pay"}, {"action": "done", "answer": "Booked, reference ABC123."}])
+        planner = LabelPlanner([*BOOK, {"action": "click", "find": "Pay"}, {"action": "done", "answer": "Booked, reference ABC123."}],
+                               before_done=lambda: h.shot("7-done-booking-reference"))
         tool = h.tool(planner)
         card_gate = await call(tool, SCOPE)
         assert card_gate.status == "paused", card_gate.summary
