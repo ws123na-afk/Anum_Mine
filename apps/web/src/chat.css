@@ -122,6 +122,7 @@
 }
 .chatCard.approval { border-color: rgb(var(--c-warn) / .35); box-shadow: inset 3px 0 0 var(--d-warn); }
 .chatCard.failed, .chatCard.denied { border-color: rgb(var(--c-stop) / .35); }
+.chatCard.unavailable, .chatCard.needs_input { border-color: rgb(var(--c-warn) / .35); }
 .chatCardHead { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); min-width: 0; }
 .chatCardHead > svg { color: var(--d-violet); flex: none; height: 18px; width: 18px; }
 .chatCardHead h3 { flex: 1 1 auto; font-size: var(--text-md); margin: 0; min-width: 0; }

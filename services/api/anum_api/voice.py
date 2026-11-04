@@ -32,6 +32,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from .authorization import Permission
+from .capabilities import asks_what_anum_can_do, spoken_capabilities, voice_block, workspace_capabilities
 from .current_time import time_line_for, with_time_line
 from .dependencies import repository_context, require_permission, tenant_context
 from .model_gateway import ModelGateway, build_default_model_gateway
@@ -614,6 +615,7 @@ async def ask_voice_assistant(
                 preface=f"{TYRE_PREFACE} Say the key numbers aloud; keep it short." if grounding else "",
                 stream=False,
                 arabic=asked.arabic,
+                capabilities=asked.capabilities,
                 time_line=asked.time_line,
             )) as answer:
                 async for chunk in answer:
@@ -672,6 +674,8 @@ class _PreparedAsk:
     reply: str | None
     # A request for work, carried out while the reply streams (voice_actions.py).
     action: ParsedAction | None = None
+    # What ANUM can do in this workspace, for a model answer (capabilities.py).
+    capabilities: str = ""
     # The current date and time in the user's zone, for a model answer (current_time.py).
     time_line: str = ""
 
@@ -741,19 +745,27 @@ def _prepare_ask(
         reply = _marketing_reply(context, text, arabic)
     elif intent in SMALL_TALK:
         reply = small_talk_reply(intent, name, facts, arabic)
+    elif intent == VoiceIntent.QUESTION and asks_what_anum_can_do(text):
+        # "What can you do?": what ANUM can do in this workspace now, from the live state.
+        reply = spoken_capabilities(workspace_capabilities(context), arabic=arabic)[:MAX_REPLY_CHARS]
     elif intent == VoiceIntent.QUESTION:
         # "How were Amazon sales today?" is answered from the synced data (docs/commerce.md).
         from .commerce.voice import commerce_voice_reply
 
         commerce = commerce_voice_reply(context, text, arabic)
+        route = _voice_route(text) if commerce is None else None
+        spoken = _capability_reply(context, text, route, arabic) if route is not None else None
         if commerce is not None:
             tier_value, reply, proposal = commerce
             tier = VoiceRiskTier(tier_value)
             if proposal is not None:
                 intent = VoiceIntent.CREATE_TASK
-        elif _is_tool_request(text):
-            # "Send the quarterly report to the bank": a task through the runtime, like the
-            # Assistant chat's action card; its tool call waits for an approval by policy.
+        elif spoken is not None:
+            # The browser this needs is off, or the site is missing: said aloud, nothing runs.
+            reply = spoken
+        elif route is not None and route[0] == "action":
+            # "Send the quarterly report to the bank", "go to https://... and book": a task through
+            # the runtime, like the Assistant chat's action card; it waits for an approval by policy.
             action = ParsedAction(ActionKind.CREATE_TASK, work=" ".join(text.split()))
             intent, tier = VoiceIntent.ACTION, VoiceRiskTier.ACTION
     if action is not None and action.kind != ActionKind.TASK_STATUS and not _claim_segment(context, segment.id):
@@ -817,16 +829,42 @@ def _action_for(
 def _is_tool_request(text: str) -> bool:
     """Whether the question asks for an outward action the runtime would plan as a tool call
     (the Assistant chat's ``action`` category, chosen from the user's own words)."""
+    route = _voice_route(text)
+    return route is not None and route[0] == "action"
+
+
+def _voice_route(text: str) -> tuple[str | None, str] | None:
+    """``(category, tool)`` as the Assistant chat routes it; None without the task runtime."""
     from . import chat_tools
 
     runtime = chat_tools.configured()
     if runtime is None or voice_actions.configured() is None:
-        return False
+        return None
     try:
-        return chat_tools.chat_intent(text, runtime.skills, runtime.tools.names) == "action"
+        return chat_tools.chat_route(text, runtime.skills, runtime.tools.names)
     except Exception:  # routing is best effort: the question is still answered
         logger.warning("voice_tool_routing_failed")
-        return False
+        return None
+
+
+def _capability_reply(context: TenantContext, text: str, route: tuple[str | None, str], arabic: bool) -> str | None:
+    """The spoken answer when the browser a request needs is off, or its site is missing
+    (docs/voice.md#what-anum-can-do); None when the request can run or is not one."""
+    from . import capabilities as caps
+
+    category, tool = route
+    needed = caps.TOOL_CAPABILITY.get(tool) if category is not None else None
+    errand = category is None and caps.asks_web_errand(text)
+    if errand:
+        needed = caps.errand_capability(text)
+    if needed is None:
+        return None
+    capability = caps.by_id(workspace_capabilities(context), needed)
+    if capability is None:
+        return None
+    if not capability.available:
+        return caps.unavailable_text(capability, arabic=arabic)[:MAX_REPLY_CHARS]
+    return caps.needs_site_spoken(arabic=arabic)[:MAX_REPLY_CHARS] if errand else None
 
 
 def prepare_ask_in_own_session(session_id: str, payload: VoiceAskCreate, context: TenantContext) -> _PreparedAsk:
@@ -838,8 +876,13 @@ def prepare_ask_in_own_session(session_id: str, payload: VoiceAskCreate, context
     with _unit_of_work(context, require_membership=True) as repository:
         prepared = _prepare_ask(session_id, payload, context, repository)
     if prepared.reply is None and prepared.action is None:
-        # Only a model answer needs it; read after the unit of work above has closed.
+        # Only a model answer needs them; read after the unit of work above has closed.
         prepared.time_line = time_line_for(context, "ar" if prepared.arabic else "en")
+        try:
+            # What ANUM can do here (cached briefly, capabilities.py).
+            prepared.capabilities = voice_block(workspace_capabilities(context))
+        except Exception as exc:  # the question is still answered, without the list
+            logger.warning("voice_capabilities_failed error_class=%s", type(exc).__name__)
     return prepared
 
 
@@ -979,6 +1022,7 @@ def stream_prepared_answer(
                     messages = voice_messages(
                         asked.text, asked.facts, asked.name, asked.history,
                         data_blocks=[grounding.block] if grounding else (),
+                        capabilities=asked.capabilities,
                     )
                     system = f"{messages[0]['content']}\n{extra_rules}" if extra_rules else messages[0]["content"]
                     messages[0] = {"role": "system", "content": with_time_line(system, asked.time_line)}
@@ -991,6 +1035,7 @@ def stream_prepared_answer(
                         preface=f"{TYRE_PREFACE} Say the key numbers aloud; keep it short." if grounding else "",
                         extra_rules=extra_rules,
                         arabic=asked.arabic,
+                        capabilities=asked.capabilities,
                         time_line=asked.time_line,
                     )
                 async with aclosing(source) as chunks:  # type: ignore[type-var]

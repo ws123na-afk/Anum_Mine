@@ -692,6 +692,8 @@ export const en = {
   'chatCard.failed.title': 'The task did not finish',
   'chatCard.cancelled': 'Stopped before the task finished. Nothing was changed.',
   'chatCard.denied.title': 'Your role cannot run tasks',
+  'chatCard.unavailable.title': 'Not turned on here yet',
+  'chatCard.needsInput.title': 'ANUM can do this: one detail missing',
   'chatCard.stillRunning': 'Still running in the background. Open the task to follow it; this card updates when you reopen the chat.',
   'chatCard.running.commerce': 'Reading your store data…',
   'chatCard.running.tyre': 'Reading your tyre data…',

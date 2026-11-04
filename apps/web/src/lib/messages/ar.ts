@@ -693,6 +693,8 @@ export const ar: Record<MessageKey, Message> = {
   'chatCard.failed.title': 'لم تكتمل المهمة',
   'chatCard.cancelled': 'توقّف قبل اكتمال المهمة. لم يتغير شيء.',
   'chatCard.denied.title': 'دورك لا يسمح بتشغيل المهام',
+  'chatCard.unavailable.title': 'غير مفعل هنا بعد',
+  'chatCard.needsInput.title': 'يستطيع ANUM تنفيذ هذا: تنقص معلومة واحدة',
   'chatCard.stillRunning': 'لا تزال تعمل في الخلفية. افتح المهمة لمتابعتها؛ تتحدث هذه البطاقة عند فتح المحادثة مجددًا.',
   'chatCard.running.commerce': 'أقرأ بيانات متجرك…',
   'chatCard.running.tyre': 'أقرأ بيانات الإطارات…',

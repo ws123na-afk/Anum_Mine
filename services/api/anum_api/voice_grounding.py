@@ -707,12 +707,15 @@ def grounded_messages(
     tools: bool,
     preface: str = "",
     extra_rules: str = "",
+    capabilities: str = "",
     time_line: str = "",
 ) -> list[ChatMessage]:
     from .voice_assistant import voice_messages
 
     rules = " ".join(part for part in (GROUNDING_RULES, TOOL_RULES if tools else "", preface, extra_rules) if part)
-    return voice_messages(question, facts, name, history, data_blocks=blocks, rules_extra=rules, time_line=time_line)
+    return voice_messages(
+        question, facts, name, history, data_blocks=blocks, rules_extra=rules, time_line=time_line, capabilities=capabilities
+    )
 
 
 async def grounded_answer(
@@ -730,6 +733,7 @@ async def grounded_answer(
     extra_rules: str = "",
     stream: bool = True,
     arabic: bool | None = None,
+    capabilities: str = "",
     time_line: str = "",
 ) -> AsyncIterator[str | Progress]:
     """The spoken answer, streamed: snapshot, then up to three rounds of read-only lookups
@@ -759,7 +763,7 @@ async def grounded_answer(
 
     raw = _grounded_raw(gateway, question, facts, name, history, context, timing, max_tokens=max_tokens,
                         data_blocks=data_blocks, preface=preface, extra_rules=extra_rules, stream=stream,
-                        time_line=time_line)
+                        capabilities=capabilities, time_line=time_line)
     try:
         async with aclosing(raw) as items:
             async for item in items:
@@ -792,6 +796,7 @@ async def _grounded_raw(
     preface: str,
     extra_rules: str,
     stream: bool,
+    capabilities: str = "",
     time_line: str = "",
 ) -> AsyncIterator[str | Progress]:
     routed = route_gateway(gateway, ModelRoute.FAST)
@@ -807,7 +812,7 @@ async def _grounded_raw(
     blocks = [*data_blocks, *snapshot]
     timing.grounding = "tools" if with_tools else ("snapshot" if blocks else "none")
     messages = grounded_messages(question, facts, name, history, blocks, tools=with_tools, preface=preface,
-                                 extra_rules=extra_rules, time_line=time_line)
+                                 extra_rules=extra_rules, time_line=time_line, capabilities=capabilities)
     complete = getattr(routed, "complete_chat", None)
     if not with_tools and not stream and callable(complete):
         response = await complete(messages, max_tokens=max_tokens)
