@@ -226,3 +226,14 @@ def test_shared_messages_never_reach_finance_and_reminders_and_privacy(client: T
     assert client.post("/api/v1/privacy/delete", headers=ME, json={"confirm": "DELETE MY DATA"}).status_code == 200
     assert {r[0] for r in _rows(app_session, "colleague", "select id from purchases")} == {business["id"]}
     assert _rows(app_session, "user_test", "select count(*) from purchases where owner_user_id = 'user_test'") == [(0,)]
+
+
+def test_a_workspace_owner_edits_the_items_of_a_members_business_purchase(client: TestClient,
+                                                                         app_session: Callable[..., Iterator[Session]]) -> None:
+    shared = _purchase(client, COLLEAGUE, ownership="business", order_ref="BIZ-2")
+    kept = shared["items"][0]
+    edited = client.patch(f"{API}/{shared['id']}", headers=ME, json={"version": shared["version"], "items": [
+        {"id": kept["id"], "description": "Headphones, black", "quantity": "1", "unit_price": "300"}]})
+    assert edited.status_code == 200, edited.text
+    assert [i["id"] for i in edited.json()["items"]] == [kept["id"]]
+    assert _rows(app_session, "colleague", "select description from purchase_items where purchase_id = :p", {"p": shared["id"]}) == [("Headphones, black",)]

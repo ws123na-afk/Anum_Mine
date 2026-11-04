@@ -37,7 +37,6 @@ from .models import (
     REFUND_DRIVEN,
     REFUND_TARGET,
     REFUND_WAITING,
-    RETURN_TO_PURCHASE,
     RETURN_TRANSITIONS,
     TARGET_TYPES,
     TRANSITIONS,
@@ -234,8 +233,10 @@ def build_items(context: TenantContext, purchase: Purchase, rows: list[dict[str,
         if item_id is not None and item_id not in known:
             raise PurchaseError(422, f"Line {position + 1} is not on this purchase.", "invalid_item")
         base = known.get(item_id) if item_id else None
+        # Lines are rewritten by whoever edits the purchase (the insert policy names the writer); privacy keeps or removes them
+        # with their purchase, never by this id.
         out.append(Item(id=item_id or new_id("puri"), tenant_id=context.tenant_id, workspace_id=context.workspace_id,
-                        owner_user_id=base.owner_user_id if base else context.user_id, purchase_id=purchase.id, visibility=purchase.ownership,
+                        owner_user_id=context.user_id, purchase_id=purchase.id, visibility=purchase.ownership,
                         purchase_owner_id=purchase.owner_user_id, position=position, description=description, sku=clean(row.get("sku"), 60),
                         quantity=row.get("quantity") or Decimal(1), unit_price=row.get("unit_price"), warranty_until=row.get("warranty_until"),
                         created_at=base.created_at if base else now))
@@ -308,6 +309,8 @@ def move(store: PurchaseStore, context: TenantContext, purchase: Purchase, to: s
             raise PurchaseError(409, f"A purchase that is {purchase.status.replace('_', ' ')} cannot become {to.replace('_', ' ')}.",
                                 "invalid_transition", {"allowed": allowed_moves(purchase.status)})
     moment = not_future(occurred_at, "Time") if occurred_at is not None else now
+    if to == "delivered" and purchase.delivered_on is None and moment.date() < purchase.ordered_on:
+        raise PurchaseError(422, "The delivery date is before the order date. Check the time, or correct the order date first.", "invalid_dates")
     before = purchase.status
     purchase.status = to
     if to == "delivered" and purchase.delivered_on is None:
@@ -554,7 +557,7 @@ def record_cash(context: TenantContext, purchase_id: str, *, account_id: str, am
     purchase = payment_target(context, purchase_id)
     current = purchase.payment
     if current is not None and current.status != "void":
-        if current.recorded_as_cash:
+        if current.recorded_as_cash and current.amount == amount:
             return current, True
         raise PurchaseError(409, "This purchase is already linked to a payment. Remove that link first.", "already_linked")
     seed = idempotency_key or f"v{purchase.version}"
@@ -682,7 +685,7 @@ def record_cash_refund(context: TenantContext, return_id: str, *, account_id: st
         if ref.canonical_id == canonical and ref.status != "void":
             return ref, True  # a retry of this same refund
     try:
-        refund, replayed = link_refund(context, return_id, canonical_id=canonical, amount=None)
+        refund, replayed = link_refund(context, return_id, canonical_id=canonical, amount=amount)
     except PurchaseError:
         if created is not None:
             _undo_manual(context, created, "refund not linked to the return")
@@ -807,11 +810,14 @@ def settle_refunds(store: PurchaseStore, context: TenantContext, purchase: Purch
         if item.status in ("rejected", "cancelled", "disputed", "requested", "approved", "pickup_scheduled") and not item.refunds:
             continue
         total = refunded_total(item, item.currency)
+        # A refund in another currency than the return's (the card's, not the shop's) cannot be compared with the
+        # expected amount: currencies are never converted, so it settles the return.
+        elsewhere = refunded_total(item) - total
         before = item.status
-        if total > 0 and item.status not in ("disputed", "rejected", "cancelled"):
-            full = item.amount is None or total >= item.amount
+        if (total > 0 or elsewhere > 0) and item.status not in ("disputed", "rejected", "cancelled"):
+            full = item.amount is None or total >= item.amount or (total == 0 and elsewhere > 0)
             move_return(item, "refunded" if full else "partially_refunded", system=True)
-        elif total == 0 and item.status in REFUND_DRIVEN:
+        elif total == 0 and elsewhere == 0 and item.status in REFUND_DRIVEN:
             move_return(item, "refund_pending", system=True)
             item.refunded_on = None
         if item.status != before:

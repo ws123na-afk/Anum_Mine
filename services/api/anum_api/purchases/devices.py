@@ -140,14 +140,17 @@ def handle(context: TenantContext, device_id: str | None, event: ShareEvent) -> 
         notes.append("The message mentions a cancellation: check it and cancel the order yourself if it is right.")
     if found.mentions_refund:
         notes.append("The message mentions a refund: link the refund from Finance on the return when it arrives.")
+    marker = "shr_" + key[:40]  # the share event of an update path: the same message twice changes nothing more
     with open_purchase_store(context) as store:
         replay = store.purchase_by_idem(context, key)
-        purchase = replay if replay is not None else _match(store, context, found)
-        if replay is not None:
-            return {"status": "replayed", "purchase_id": replay.id, "message": "Already saved."}
+        seen = store.share_seen(context, marker) if replay is None else None
+        if replay is not None or seen is not None:
+            return {"status": "replayed", "purchase_id": replay.id if replay is not None else seen, "message": "Already saved."}
+        purchase = _match(store, context, found)
         if purchase is None:
             purchase = S.new_purchase(context, {"merchant": found.merchant or "Shared order", "order_ref": found.order_ref, "ordered_on": moment.date(),
-                                                "currency": found.currency, "total": found.amount, "expected_delivery_on": found.expected_on,
+                                                "currency": found.currency, "total": found.amount,
+                                                "expected_delivery_on": found.expected_on if found.expected_on and found.expected_on >= moment.date() else None,
                                                 "ownership": event.ownership},
                                       now=now, idem_key=key, currency=S.preferences(store, context).default_currency, source="iphone", needs_review=True)
             try:
@@ -159,14 +162,19 @@ def handle(context: TenantContext, device_id: str | None, event: ShareEvent) -> 
         else:
             purchase = S.get_purchase(store, context, purchase.id, lock=True)
             created = False
-            if found.expected_on is not None and purchase.status in AWAITING_DELIVERY and purchase.expected_delivery_on != found.expected_on:
+            if (found.expected_on is not None and purchase.status in AWAITING_DELIVERY and purchase.expected_delivery_on != found.expected_on
+                    and found.expected_on >= purchase.ordered_on):
                 purchase = S.apply_changes(purchase, {"expected_delivery_on": found.expected_on}, now)
                 if store.save_purchase(purchase, purchase.version):
                     purchase.version += 1
-                S.add_event(store, context, purchase, "share", note=f"Expected delivery {found.expected_on.isoformat()}", source="iphone", now=now)
+                    S.add_event(store, context, purchase, "share", note=f"Expected delivery {found.expected_on.isoformat()}", source="iphone", now=now)
         if found.tracking_number or found.carrier:
-            known = {(s.tracking_number or "").upper() for s in store.shipments(context, [purchase.id])}
-            if not found.tracking_number or found.tracking_number.upper() not in known:
+            existing = store.shipments(context, [purchase.id])
+            known = {(s.tracking_number or "").upper() for s in existing}
+            carriers = {(s.carrier or "").casefold() for s in existing}
+            # A tracking number is added once; a message naming only the carrier adds a shipment only when there is none from it.
+            fresh = found.tracking_number.upper() not in known if found.tracking_number else (found.carrier or "").casefold() not in carriers
+            if fresh:
                 add_shipment(store, context, purchase, {"carrier": found.carrier, "tracking_number": found.tracking_number,
                                                         "status": "out_for_delivery" if found.status == "out_for_delivery" else
                                                         "delivered" if found.status == "delivered" else "in_transit",
@@ -177,6 +185,8 @@ def handle(context: TenantContext, device_id: str | None, event: ShareEvent) -> 
             purchase = S.move(store, context, purchase, target, expected_version=None, note="From a shared message", occurred_at=moment, source="iphone")
         for note in notes:
             S.add_event(store, context, purchase, "share", note=note, source="iphone", now=now)
+        if not created:
+            S.add_event(store, context, purchase, "share", note="Updated from a shared message", subject_id=marker, source="iphone", now=now)
         status = purchase.status
     label = purchase.merchant + (f" {purchase.order_ref}" if purchase.order_ref else "")
     message = (f"Saved {label} under Purchases. Check it in ANUM." if created else f"Updated {label}: {status.replace('_', ' ')}.")

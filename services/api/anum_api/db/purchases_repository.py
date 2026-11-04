@@ -301,6 +301,11 @@ class SqlPurchaseStore:
     def add_event(self, event: Event) -> None:
         self.session.execute(PurchaseEventRecord.__table__.insert().values(**_values(event)))
 
+    def share_seen(self, context: TenantContext, marker: str) -> str | None:
+        table = PurchaseEventRecord
+        return self.session.scalar(select(table.purchase_id).where(self._scope(table, context), table.owner_user_id == context.user_id,
+                                                                   table.kind == "share", table.subject_id == marker).limit(1))
+
     # shipments ---------------------------------------------------------------------------------
 
     def shipments(self, context: TenantContext, purchase_ids: list[str]) -> list[Shipment]:
@@ -456,20 +461,23 @@ class SqlPurchaseStore:
                     ("returns", PurchaseReturnRecord, Return), ("reminders", PurchaseReminderRecord, ReminderSent))
 
     @staticmethod
-    def _theirs(table: Any, context: TenantContext, personal: list[str], name: str) -> Any:
+    def _theirs(table: Any, context: TenantContext, personal: list[str], name: str, deleting: bool = False) -> Any:
         """Rows of the person's personal purchases, and the rows they wrote on business purchases. Items are part of a purchase:
         a business purchase keeps them."""
         if name == "items":
             return table.purchase_id.in_(personal)
+        if name == "returns" and deleting:
+            # A return carrying refunds is part of the purchase owner's money record: it stays with the business purchase.
+            return or_(table.purchase_id.in_(personal), and_(table.owner_user_id == context.user_id, func.jsonb_array_length(table.refunds) == 0))
         return or_(table.owner_user_id == context.user_id, table.purchase_id.in_(personal))
 
-    def _mine(self, context: TenantContext) -> dict[str, list[Any]]:
+    def _mine(self, context: TenantContext, *, deleting: bool = False) -> dict[str, list[Any]]:
         purchases = [Purchase.model_validate(_row(r)) for r in self.session.scalars(
             select(PurchaseRecord).where(self._scope(PurchaseRecord, context), PurchaseRecord.owner_user_id == context.user_id)).all()]
         personal = [p.id for p in purchases if p.ownership == Ownership.PERSONAL]
         out: dict[str, list[Any]] = {"purchases": purchases}
         for name, table, model in self.CHILD_TABLES:
-            rows = self.session.scalars(select(table).where(self._scope(table, context), self._theirs(table, context, personal, name))).all()
+            rows = self.session.scalars(select(table).where(self._scope(table, context), self._theirs(table, context, personal, name, deleting))).all()
             out[name] = [model.model_validate(_row(r)) for r in rows]
         preferences = self.get_preferences(context)
         out["preferences"] = [preferences] if preferences else []
@@ -479,11 +487,11 @@ class SqlPurchaseStore:
         return sum(len(rows) for rows in self._mine(context).values())
 
     def delete_everything(self, context: TenantContext) -> int:
-        mine = self._mine(context)
+        mine = self._mine(context, deleting=True)
         removed = sum(len(rows) for name, rows in mine.items() if name != "purchases")
         personal = [p.id for p in mine["purchases"] if p.ownership == Ownership.PERSONAL]
         for name, table, _model in reversed(self.CHILD_TABLES):
-            self.session.execute(delete(table).where(self._scope(table, context), self._theirs(table, context, personal, name)))
+            self.session.execute(delete(table).where(self._scope(table, context), self._theirs(table, context, personal, name, deleting=True)))
         self.session.execute(delete(PurchasePreferencesRecord).where(self._scope(PurchasePreferencesRecord, context),
                                                                      PurchasePreferencesRecord.owner_user_id == context.user_id))
         if personal:

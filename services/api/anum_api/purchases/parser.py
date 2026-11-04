@@ -41,8 +41,8 @@ CURRENCY_WORDS = (("SAR", r"sar|ر\.?\s?س|ريال"), ("AED", r"aed|د\.?\s?إ|
 
 _DIGITS = str.maketrans("٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹", "01234567890123456789")
 _REF = r"[:#\s.\-]*\(?([A-Z0-9][A-Z0-9\-]{3,39})"
-ORDER_RE = re.compile(r"(?:order|ord\.?|طلب|الطلب|رقم الطلب)\s*(?:number|num|no\.?|id|ref(?:erence)?|رقم)?" + _REF, re.IGNORECASE)
-TRACKING_RE = re.compile(r"(?:tracking|track|awb|waybill|رقم التتبع|التتبع|بوليصة|رقم الشحنة)\s*(?:number|num|no\.?|id|code|رقم)?" + _REF, re.IGNORECASE)
+ORDER_RE = re.compile(r"(?:\border\b|\bord\b\.?|طلب|الطلب|رقم الطلب)\s*(?:number|num|no\.?|id|ref(?:erence)?|رقم)?" + _REF, re.IGNORECASE)
+TRACKING_RE = re.compile(r"(?:\btracking\b|\btrack\b|\bawb\b|\bwaybill\b|رقم التتبع|التتبع|بوليصة|رقم الشحنة)\s*(?:number|num|no\.?|id|code|رقم)?" + _REF, re.IGNORECASE)
 CANCELLED_RE = re.compile(r"\bcancel+ed\b|\bcancellation\b|تم إلغاء|تم الغاء|ملغي", re.IGNORECASE)
 REFUND_RE = re.compile(r"\brefund(?:ed)?\b|استرداد|مسترد", re.IGNORECASE)
 STATUS_PATTERNS = (
@@ -54,7 +54,7 @@ STATUS_PATTERNS = (
     ("ordered", re.compile(r"thank you for (?:your )?(?:order|shopping)|order (?:placed|received)|we(?:'ve| have) received your order|تم استلام طلبك|شكرا لطلبك|شكراً لطلبك",
                            re.IGNORECASE)),
 )
-EXPECTED_RE = re.compile(r"(?:arriv\w*|expected|estimated|eta|deliver(?:y|ed)? (?:by|on|date)|يصل|متوقع|موعد التوصيل)[^\n]{0,40}", re.IGNORECASE)
+EXPECTED_RE = re.compile(r"(?:\barriv\w*|\bexpected\b|\bestimated\b|\beta\b|\bdeliver(?:y|ed)? (?:by|on|date)\b|يصل|متوقع|موعد التوصيل)[^\n]{0,40}", re.IGNORECASE)
 MONTHS = {name: number for number, names in enumerate((
     ("jan", "january", "يناير"), ("feb", "february", "فبراير"), ("mar", "march", "مارس"), ("apr", "april", "أبريل", "ابريل"), ("may", "مايو"),
     ("jun", "june", "يونيو"), ("jul", "july", "يوليو"), ("aug", "august", "أغسطس", "اغسطس"), ("sep", "sept", "september", "سبتمبر"),

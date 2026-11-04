@@ -349,7 +349,7 @@ function ReturnsPanel({ purchase, onChanged }: { purchase: PurchaseDetail; onCha
         </li>)}</ul>}
         {!purchase.archived_at && r.can_edit && <MoveForm id={`ret-${r.id}`} allowed={r.allowed_moves} labelOf={returnStatusLabel} onMove={move(r)} />}
         <div className="purRowButtons">
-          {r.can_refund && !['rejected', 'cancelled'].includes(r.status) && <button type="button" className="secondary" onClick={() => setRefunding(r)}><Link2 aria-hidden="true" />{t('pur.refund.link')}</button>}
+          {r.can_refund && !['rejected', 'cancelled', 'refunded'].includes(r.status) && <button type="button" className="secondary" onClick={() => setRefunding(r)}><Link2 aria-hidden="true" />{t('pur.refund.link')}</button>}
           {r.can_edit && <button type="button" className="secondary" onClick={() => setEditing(r)} aria-label={t('pur.editLabel', { what: reasonLabel(r.reason) })}><Pencil aria-hidden="true" />{t('pur.edit')}</button>}
           {r.can_edit && <button type="button" className="secondary danger" onClick={() => setRemoving(r)} aria-label={t('pur.deleteLabel', { what: reasonLabel(r.reason) })}><Trash2 aria-hidden="true" />{t('pur.delete')}</button>}
         </div>
@@ -437,7 +437,9 @@ export function MoneyDialog({ mode, targetId, current, hint, onClose, onDone }: 
   const [key] = useState(() => newKey(mode));
   const search = useCallback(async (text: string) => {
     setList({ kind: 'loading' });
-    try { setList({ kind: 'ready', value: (await api.candidates(mode, text, hint.day, hint.amount)).items }); } catch (e) { setList(failed(e)); }
+    // A ranking hint only: nothing left (0.00) or no figure is not sent, the server takes only amounts above zero.
+    const amount = hint.amount && Number(hint.amount) > 0 ? hint.amount : null;
+    try { setList({ kind: 'ready', value: (await api.candidates(mode, text, hint.day, amount)).items }); } catch (e) { setList(failed(e)); }
   }, [mode, hint.day, hint.amount]);
   const linked = current && current.status !== 'void';
   useEffect(() => { if (!linked) void search(''); }, [search, linked]);

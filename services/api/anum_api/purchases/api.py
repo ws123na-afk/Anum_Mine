@@ -51,7 +51,7 @@ from .models import (
     ShipmentStatus,
     Status,
 )
-from .store import GROUPS, MAX_RETURNS, MAX_SHIPMENTS, DuplicateError, PurchaseStore, open_purchase_store
+from .store import MAX_RETURNS, MAX_SHIPMENTS, DuplicateError, PurchaseStore, open_purchase_store
 
 router = APIRouter(prefix="/api/v1/purchases", tags=["purchases"])
 
@@ -711,6 +711,10 @@ def move_return(return_id: str, body: MoveInput, context: TenantContext = Depend
         S.require_row_edit(context, purchase, item)
         before = item.status
         S.move_return(item, body.to)
+        if before in ("rejected", "cancelled") and body.to not in ("rejected", "cancelled") and item.items:
+            # Its items stopped counting while it was rejected: another return may have taken them since.
+            others = [r for r in store.returns(context, [purchase.id]) if r.id != item.id]
+            S.return_lines(store.items(context, [purchase.id]), others, [line.model_dump() for line in item.items])
         item.updated_at = utc_now()
         if body.to == "disputed" and body.note:
             item.dispute_note = S.clean(body.note, 500)

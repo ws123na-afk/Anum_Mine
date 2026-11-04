@@ -67,6 +67,7 @@ class PurchaseStore(Protocol):
 
     def events(self, context: TenantContext, purchase_id: str, *, limit: int, offset: int) -> tuple[list[Event], int]: ...
     def add_event(self, event: Event) -> None: ...
+    def share_seen(self, context: TenantContext, marker: str) -> str | None: ...
 
     def shipments(self, context: TenantContext, purchase_ids: list[str]) -> list[Shipment]: ...
     def get_shipment(self, context: TenantContext, shipment_id: str) -> Shipment | None: ...
@@ -238,6 +239,12 @@ class InMemoryPurchaseStore:
                 raise ValueError("purchase history is append-only")
             self.event_rows[event.id] = event.model_copy()
 
+    def share_seen(self, context: TenantContext, marker: str) -> str | None:
+        """The purchase a shared message with this marker already updated (the person's own ``share`` events)."""
+        found = next((r for r in list(self.event_rows.values()) if _scope(r, context) and r.owner_user_id == context.user_id and r.kind == "share"
+                      and r.subject_id == marker), None)
+        return found.purchase_id if found is not None else None
+
     # shipments ---------------------------------------------------------------------------------
 
     def shipments(self, context: TenantContext, purchase_ids: list[str]) -> list[Shipment]:
@@ -367,15 +374,21 @@ class InMemoryPurchaseStore:
 
     # privacy -----------------------------------------------------------------------------------
 
-    def _mine(self, context: TenantContext) -> dict[str, list[Any]]:
-        """The person's own data: their personal purchases (with every row), their rows on business purchases, their settings."""
+    def _mine(self, context: TenantContext, *, deleting: bool = False) -> dict[str, list[Any]]:
+        """The person's own data: their personal purchases (with every row), their rows on business purchases, their settings.
+        When deleting, a return carrying refunds stays with its business purchase (the owner's money record)."""
         mine = [p for p in self.purchases.values() if _scope(p, context) and p.owner_user_id == context.user_id]
         personal = {p.id for p in mine if p.ownership == Ownership.PERSONAL}
         out: dict[str, list[Any]] = {"purchases": mine}
         for name, table in (("items", self.item_rows), ("events", self.event_rows), ("shipments", self.shipment_rows),
                             ("returns", self.return_rows), ("reminders", self.reminders)):
             # Items are part of a purchase: a business purchase keeps them.
-            theirs = (lambda r: r.purchase_id in personal) if name == "items" else (lambda r: r.owner_user_id == context.user_id or r.purchase_id in personal)
+            if name == "items":
+                theirs = lambda r: r.purchase_id in personal  # noqa: E731
+            elif name == "returns" and deleting:
+                theirs = lambda r: r.purchase_id in personal or (r.owner_user_id == context.user_id and not r.refunds)  # noqa: E731
+            else:
+                theirs = lambda r: r.owner_user_id == context.user_id or r.purchase_id in personal  # noqa: E731
             out[name] = [r for r in table.values() if _scope(r, context) and theirs(r)]
         out["preferences"] = [p for p in self.preferences.values() if _scope(p, context) and p.owner_user_id == context.user_id]
         return out
@@ -387,7 +400,7 @@ class InMemoryPurchaseStore:
     def delete_everything(self, context: TenantContext) -> int:
         """Personal purchases go with every row; on business purchases the person's own rows go and the purchase stays."""
         with self._lock:
-            mine = self._mine(context)
+            mine = self._mine(context, deleting=True)
             removed = sum(len(rows) for name, rows in mine.items() if name != "purchases")
             removed += sum(1 for p in mine["purchases"] if p.ownership == Ownership.PERSONAL)
             ids = {id(r) for rows in mine.values() for r in rows}

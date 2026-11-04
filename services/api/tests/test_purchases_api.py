@@ -552,8 +552,8 @@ def test_shared_messages_with_a_scoped_device_token() -> None:
     events = client.get("/api/v1/integrations/iphone/integrations/purchases.share/events", headers=OWNER).json()
     assert any(e["code"] == "nothing_found" for e in events["items"])
     assert D.integration("purchases.share") is not None
-    finance_only = client.post("/api/v1/integrations/iphone/devices", headers=OWNER, json={"name": "Car phone", "scopes": ["vehicle"]}).json()
-    wrong_scope = client.post(PD.INGEST_PATH, headers={"Authorization": f"Bearer {finance_only['token']}"}, json={"text": SHARED_ORDER})
+    other_scope = client.post("/api/v1/integrations/iphone/devices", headers=OWNER, json={"name": "Work phone", "scopes": ["attendance"]}).json()
+    wrong_scope = client.post(PD.INGEST_PATH, headers={"Authorization": f"Bearer {other_scope['token']}"}, json={"text": SHARED_ORDER})
     assert wrong_scope.status_code == 403
 
 
@@ -585,3 +585,95 @@ def test_export_csv_and_privacy() -> None:
     assert mine["id"] not in purchase_memory_store.purchases
     events = client.get(f"{API}/{shared['id']}/events", headers=MEMBER).json()["items"]
     assert all(e["owner_user_id"] != "owner_pur" for e in events)
+
+
+# -- review findings ---------------------------------------------------------------------------------
+
+
+def test_a_cash_refund_beyond_what_was_paid_is_refused_and_undone() -> None:
+    cash = client.post(f"{FIN}/accounts", headers=OWNER, json={"name": "Wallet", "kind": "cash", "currency": "SAR"}).json()
+    created = delivered(merchant="Corner shop", order_ref=None, total="100", items=[])
+    assert client.post(f"{API}/{created['id']}/payment/cash", headers=OWNER, json={"account_id": cash["id"], "amount": "100", "posted_on": today()}).status_code == 201
+    ret = open_return(created["id"], amount="100").json()
+    first = client.post(f"{API}/returns/{ret['id']}/refunds/cash", headers={**OWNER, "Idempotency-Key": "r1"},
+                        json={"account_id": cash["id"], "amount": "80", "posted_on": today()})
+    assert first.status_code == 201, first.text
+    over = client.post(f"{API}/returns/{ret['id']}/refunds/cash", headers={**OWNER, "Idempotency-Key": "r2"},
+                       json={"account_id": cash["id"], "amount": "50", "posted_on": today()})
+    assert over.status_code == 409 and over.json()["code"] == "refund_over_paid", over.text
+    posted_back = [e for e in sms_memory_store.entries.values() if e.status.value == "posted" and e.source.value == "manual"
+                   and any(p.amount < 0 and p.ledger_account.startswith("expense:") for p in e.postings)]
+    assert len(posted_back) == 1, "the refused 50 is still posted as money back"
+
+
+def test_a_second_cash_payment_with_other_figures_is_not_a_replay() -> None:
+    cash = client.post(f"{FIN}/accounts", headers=OWNER, json={"name": "Wallet", "kind": "cash", "currency": "SAR"}).json()
+    created = purchase(total="250", items=[])
+    assert client.post(f"{API}/{created['id']}/payment/cash", headers={**OWNER, "Idempotency-Key": "a"},
+                       json={"account_id": cash["id"], "amount": "100", "posted_on": today()}).status_code == 201
+    other = client.post(f"{API}/{created['id']}/payment/cash", headers={**OWNER, "Idempotency-Key": "b"},
+                        json={"account_id": cash["id"], "amount": "250", "posted_on": today()})
+    assert other.status_code == 409 and other.json()["code"] == "already_linked"
+
+
+def test_resharing_a_message_that_updates_a_purchase_adds_nothing_twice() -> None:
+    created = purchase(order_ref="123-ABCD")
+    message = "SYNTHETIC. Your Aramex parcel for order 123-ABCD is out for delivery."
+    first = client.post(PD.INGEST_PATH, headers=OWNER, json={"text": message})
+    assert first.status_code == 200 and first.json()["status"] == "updated", first.text
+    events = client.get(f"{API}/{created['id']}/events", headers=OWNER, params={"limit": 100}).json()["total"]
+    for key in (None, "retry-1", None):
+        again = client.post(PD.INGEST_PATH, headers=OWNER, json={"text": message, **({"idempotency_key": key} if key else {})})
+        assert again.status_code == 200, again.text
+    got = detail(created["id"])
+    assert len(got["shipments"]) == 1 and got["status"] == "out_for_delivery"
+    # A new key is a new share of the same message: still no second shipment, and only its own share note.
+    assert client.get(f"{API}/{created['id']}/events", headers=OWNER, params={"limit": 100}).json()["total"] <= events + 1
+
+
+def test_a_rejected_return_reopened_cannot_claim_items_another_return_took() -> None:
+    created = delivered(items=[{"description": "Lamp", "quantity": "1", "unit_price": "50"}])
+    lamp = created["items"][0]["id"]
+    first = open_return(created["id"], items=[{"item_id": lamp, "quantity": "1"}]).json()
+    assert client.post(f"{API}/returns/{first['id']}/status", headers=OWNER, json={"to": "rejected", "version": 1}).status_code == 200
+    assert open_return(created["id"], items=[{"item_id": lamp, "quantity": "1"}]).status_code == 201
+    reopened = client.post(f"{API}/returns/{first['id']}/status", headers=OWNER, json={"to": "requested", "version": 2})
+    assert reopened.status_code == 409 and reopened.json()["code"] == "quantity_exceeded"
+
+
+def test_a_refund_in_the_payments_currency_settles_a_return_opened_in_another() -> None:
+    canonical, _card, bearer = apple_pay_and_sms()
+    created = delivered(currency="AED", total="450", items=[])
+    ret = open_return(created["id"]).json()
+    assert ret["currency"] == "AED"
+    assert pay(created["id"], canonical).status_code == 201  # the card was charged in SAR
+    refund = refund_sms(bearer)
+    assert client.post(f"{API}/returns/{ret['id']}/refunds", headers=OWNER, json={"canonical_id": refund}).status_code == 201
+    assert detail(created["id"])["returns"][0]["status"] == "refunded"
+
+
+def test_delivered_before_the_order_date_is_refused() -> None:
+    created = purchase(ordered_on=(utc_now().date() - timedelta(days=2)).isoformat())
+    early = (utc_now() - timedelta(days=5)).isoformat()
+    refused = move(created["id"], "delivered", created["version"], occurred_at=early)
+    assert refused.status_code == 422 and refused.json()["code"] == "invalid_dates"
+
+
+def test_privacy_delete_keeps_returns_that_carry_another_persons_refund() -> None:
+    canonical, _card, bearer = apple_pay_and_sms()
+    shared = delivered(OWNER, ownership="business", items=[])
+    assert pay(shared["id"], canonical).status_code == 201
+    ret = open_return(shared["id"], MEMBER, amount="150").json()
+    refund = refund_sms(bearer)
+    assert client.post(f"{API}/returns/{ret['id']}/refunds", headers=OWNER, json={"canonical_id": refund}).status_code == 201
+    member = {**MEMBER}
+    assert client.post("/api/v1/privacy/delete", headers=member, json={"confirm": "DELETE MY DATA"}).status_code == 200
+    got = detail(shared["id"])
+    assert len(got["returns"]) == 1 and got["refunded"] == [{"currency": "SAR", "amount": "150.00"}]
+
+
+def test_the_reader_needs_whole_words() -> None:
+    day = utc_now().date()
+    found = parse("SYNTHETIC. Order details: placed 4 Nov 2026. Please record 12345 for metal parts.", today=day)
+    assert found.expected_on is None
+    assert parse("SYNTHETIC. Please record 12345678 for your files.", today=day).order_ref is None
