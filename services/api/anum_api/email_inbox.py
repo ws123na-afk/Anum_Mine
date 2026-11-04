@@ -42,6 +42,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from .agent_tools import ToolCall, ToolDefinition, ToolRegistry, ToolResult
 from .autonomy import AutonomyFacts, normalize_recipient
+from .current_time import language_of, time_line_async, with_time_line
 from .email_providers import (
     EmailProvider,
     GmailClient,
@@ -1244,6 +1245,8 @@ async def triage_with_model(context: TenantContext, message: EmailMessage, body:
     """One budgeted model call; a malformed answer falls back to the rules triage."""
     gateway = _gateway_for(context)
     prompt = with_untrusted_rules(TRIAGE_INSTRUCTIONS, email_block(message, body.text, body.truncated))
+    # "Reply by Friday" in the email is read against the user's real today (current_time.py).
+    prompt = with_time_line(prompt, await time_line_async(context, language_of(body.text)))
     response = await gateway.generate_text(prompt)
     parsed = _parse_json_object(response.text) or {}
     rules_category, rules_priority = rules_triage(message)
@@ -1295,7 +1298,10 @@ async def model_reply(context: TenantContext, message: EmailMessage, body: BodyV
     guidance = DRAFT_INSTRUCTIONS
     if instructions:
         guidance += f"\nThe owner's instructions for this reply: {instructions.strip()[:MAX_INSTRUCTIONS]}"
-    response = await gateway.generate_text(with_untrusted_rules(guidance, email_block(message, body.text, body.truncated)))
+    prompt = with_untrusted_rules(guidance, email_block(message, body.text, body.truncated))
+    # "Say we will deliver next Tuesday": the date line lets the draft name the real day.
+    prompt = with_time_line(prompt, await time_line_async(context, language_of(instructions or body.text)))
+    response = await gateway.generate_text(prompt)
     text = response.text.strip()
     parsed = _parse_json_object(text)
     if parsed and isinstance(parsed.get("reply"), str):

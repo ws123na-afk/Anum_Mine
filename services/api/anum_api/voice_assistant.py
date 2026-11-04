@@ -17,6 +17,7 @@ from enum import StrEnum
 
 from pydantic import BaseModel
 
+from .current_time import with_time_line
 from .model_gateway import ChatMessage, ModelGateway, ModelRoute, route_gateway
 from .prompt_provenance import Provenance, label_untrusted, with_untrusted_rules
 from .schemas import ApprovalStatus, Task, TaskStatus
@@ -245,12 +246,14 @@ def voice_messages(
     data_blocks: Sequence[str] = (),
     rules_extra: str = "",
     capabilities: str = "",
+    time_line: str = "",
 ) -> list[ChatMessage]:
     """Chat messages for a streamed spoken answer: the rules, the recent spoken turns
     (``(role, text)``, newest last, bounded) and the question, each user turn labeled
     as untrusted speech. ``rules_extra`` (the grounding rules, voice_grounding.py)
-    replaces the tyre-only preface that plain data blocks get. ``capabilities`` (what ANUM
-    can do in the workspace, capabilities.py) is a trailing system part of its own."""
+    replaces the tyre-only preface that plain data blocks get. ``time_line`` (the current
+    date and time, current_time.py) ends the system text. ``capabilities`` (what ANUM can
+    do in the workspace, capabilities.py) is a trailing system part of its own."""
     kept: list[tuple[str, str]] = []
     used = 0
     for role, text in reversed((history or [])[-max_turns:]):
@@ -262,7 +265,9 @@ def voice_messages(
     while kept and kept[0][0] != "user":
         kept.pop(0)
     rules = f"{voice_rules(name, facts)}\n{rules_extra}" if rules_extra else _rules(name, facts, data_blocks)
-    messages: list[ChatMessage] = [{"role": "system", "content": with_untrusted_rules(rules, *data_blocks)}]
+    messages: list[ChatMessage] = [
+        {"role": "system", "content": with_time_line(with_untrusted_rules(rules, *data_blocks), time_line)}
+    ]
     if capabilities:
         messages.append({"role": "system", "content": capabilities})
     turns = kept + [("user", question)]
@@ -290,13 +295,17 @@ async def answer_question(
     name: str,
     arabic: bool,
     data_blocks: Sequence[str] = (),
+    time_line: str = "",
 ) -> str:
     if getattr(gateway, "provider", "") == "mock":
         return mock_answer(facts, arabic)
-    prompt = with_untrusted_rules(
-        _rules(name, facts, data_blocks),
-        *data_blocks,
-        label_untrusted(question, source=Provenance.USER_SPEECH, origin="voice"),
+    prompt = with_time_line(
+        with_untrusted_rules(
+            _rules(name, facts, data_blocks),
+            *data_blocks,
+            label_untrusted(question, source=Provenance.USER_SPEECH, origin="voice"),
+        ),
+        time_line,
     )
     response = await route_gateway(gateway, ModelRoute.FAST).generate_text(prompt)
     return response.text.strip()[:MAX_REPLY_CHARS]

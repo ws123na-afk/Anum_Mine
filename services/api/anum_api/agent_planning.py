@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 
 from .agent_skills import SkillManifest, SkillRegistry
 from .agent_tools import ToolCall, ToolRegistry
+from .current_time import with_time_line
 from .model_gateway import ModelGateway, ModelResponse, ModelRoute, route_gateway
 from .retrieval import build_cache_layout_prompt, build_task_prompt
 from .schemas import Task
@@ -44,6 +45,7 @@ class AgentPlanner:
         context_blocks: Sequence[str] = (),
         learned_block: str | None = None,
         agent: "AgentRunProfile | None" = None,
+        time_line: str | None = None,
     ) -> PlanResult:
         """Plan ``task``; ``context_blocks`` are provenance-labeled retrieved data.
 
@@ -56,6 +58,7 @@ class AgentPlanner:
         As an ``agent`` (docs/agents.md): only the agent's skills and tools can be
         selected, its persona and instructions come before the task in the model
         prompt (they never select anything), and its model route is used.
+        ``time_line`` (the current date and time in the user's zone) follows the task.
         """
         tools = self.tools.names
         if agent is not None:
@@ -76,6 +79,9 @@ class AgentPlanner:
         # the model only, never what selects a skill or tool.
         preface = [part for part in (agent.persona() if agent is not None else None, learned_block) if part]
         prompt = "\n\n".join([*preface, f"Task:\n{task.prompt}"]) if preface else task.prompt
+        # The current date and time (current_time.py) follows the task, outside the cached
+        # instructions, so "by Friday" and "tomorrow" resolve against the user's real today.
+        prompt = with_time_line(prompt, time_line)
         response = await self._generate(planner, prompt, context_blocks)
         # As an agent, only its tools can be chosen (team work's ``team.assign_task`` too).
         call = _brevo_call(task.prompt, selected) or _marketing_call(task, selected) or (

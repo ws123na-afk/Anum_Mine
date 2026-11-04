@@ -59,6 +59,7 @@ from .conversation_memory import (
     recall_memories,
     remember_after_reply,
 )
+from .current_time import time_line_for, with_time_line
 from .dependencies import has_permission, repository_context, require_permission, tenant_context
 from .localization import Language, localize_message, request_language
 from .learning import SignalKind, Surface
@@ -444,6 +445,7 @@ def build_messages(
     data_blocks: Sequence[str] = (),
     persona: str | None = None,
     capabilities: str | None = None,
+    time_line: str | None = None,
 ) -> list[ChatMessage]:
     """The system prompt, the most recent earlier turns that fit, then the question.
 
@@ -456,6 +458,7 @@ def build_messages(
     ``capabilities`` (what ANUM can do in this workspace, capabilities.py) is its own
     system part after the rest: it changes with the workspace, so it stays out of the
     static prefix the Anthropic gateway caches.
+    ``time_line`` (the current date and time, current_time.py) ends the system text.
     """
     max_turns = settings.conversation_history_turns if max_turns is None else max_turns
     max_chars = settings.conversation_history_chars if max_chars is None else max_chars
@@ -479,7 +482,7 @@ def build_messages(
         from .tyre.tools import TYRE_PREFACE
 
         system = with_untrusted_rules(f"{system}\n\n{TYRE_PREFACE}", *data_blocks)
-    messages: list[ChatMessage] = [{"role": "system", "content": system}]
+    messages: list[ChatMessage] = [{"role": "system", "content": with_time_line(system, time_line)}]
     if capabilities:
         messages.append({"role": "system", "content": capabilities})
     for role, content in [(turn.role.value, turn.content) for turn in kept] + [("user", question)]:
@@ -601,6 +604,7 @@ async def stream_tool_reply(
     gateway: ModelGateway,
     runtime_config: chat_tools.ChatTaskRuntime,
     learned_block: str | None = None,
+    time_line: str | None = None,
 ) -> AsyncIterator[str]:
     """The ``ask`` body for a question that needs data or an action (docs/conversations.md#tools-in-chat).
 
@@ -648,6 +652,7 @@ async def stream_tool_reply(
                 outcome.result,  # type: ignore[arg-type]
                 target=outcome.target,
                 learned_block=learned_block,
+                time_line=time_line,
             )
             try:
                 async for chunk in route_gateway(gateway, ModelRoute.FAST).stream_chat(messages):
@@ -1010,10 +1015,14 @@ class _ReplyContext:
     learned_block: str | None
     marketing: list[str]
     remember: bool
+    time_line: str | None = None
 
 
-def _reply_context(context: TenantContext, conversation: Conversation, question: str) -> _ReplyContext:
-    """The agent persona and memories, learned style and marketing numbers (blocking reads)."""
+def _reply_context(
+    context: TenantContext, conversation: Conversation, question: str, language: Language = "en"
+) -> _ReplyContext:
+    """The agent persona and memories, learned style, marketing numbers and the current
+    date and time in the user's zone (blocking reads)."""
     blocks: list[str] = []
     persona: str | None = None
     route = ModelRoute.FAST
@@ -1037,7 +1046,13 @@ def _reply_context(context: TenantContext, conversation: Conversation, question:
         learned_block=learned_instructions(context, surface=Surface.CHAT.value),
         marketing=marketing_blocks(context, question),
         remember=extraction_enabled(context),
+        time_line=time_line_for(context, language),
     )
+
+
+def _tool_reply_context(context: TenantContext, language: Language) -> tuple[str | None, str]:
+    """The learned style and the date line for the answer above a tool card (blocking reads)."""
+    return learned_instructions(context, surface=Surface.CHAT.value), time_line_for(context, language)
 
 
 @router.post("/{conversation_id}/ask")
@@ -1088,7 +1103,7 @@ async def ask_in_conversation(
     if runtime_config is not None and category is not None:
         # Data or an action: a governed task, never a tool call from the chat model. No
         # memory pass: the reply quotes mailbox, WhatsApp or web data, not the user.
-        learned_block = await asyncio.to_thread(learned_instructions, context, surface=Surface.CHAT.value)
+        learned_block, time_line = await asyncio.to_thread(_tool_reply_context, context, language)
         return StreamingResponse(
             stream_tool_reply(
                 context=context,
@@ -1098,6 +1113,7 @@ async def ask_in_conversation(
                 gateway=gateway,
                 runtime_config=runtime_config,
                 learned_block=learned_block,
+                time_line=time_line,
             ),
             media_type="text/event-stream",
             headers=SSE_HEADERS,
@@ -1106,7 +1122,7 @@ async def ask_in_conversation(
     # A tyre question is grounded in the workspace's tyre data through a read-only tool,
     # decided by tool policy (anum_api/tyre/tools.py); the model never calls tools here.
     grounding = await tyre_grounding(context, user_turn.content)
-    extra = await asyncio.to_thread(_reply_context, context, conversation, user_turn.content)
+    extra = await asyncio.to_thread(_reply_context, context, conversation, user_turn.content, language)
     messages = build_messages(
         history,
         user_turn.content,
@@ -1115,6 +1131,7 @@ async def ask_in_conversation(
         data_blocks=[grounding.block] if grounding else (),
         persona=extra.persona,
         capabilities=prepared.capabilities,
+        time_line=extra.time_line,
     )
     completed = CompletedReply()
     # Runs after the whole body has been sent: it never delays or fails the stream.

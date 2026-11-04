@@ -708,11 +708,14 @@ def grounded_messages(
     preface: str = "",
     extra_rules: str = "",
     capabilities: str = "",
+    time_line: str = "",
 ) -> list[ChatMessage]:
     from .voice_assistant import voice_messages
 
     rules = " ".join(part for part in (GROUNDING_RULES, TOOL_RULES if tools else "", preface, extra_rules) if part)
-    return voice_messages(question, facts, name, history, data_blocks=blocks, rules_extra=rules, capabilities=capabilities)
+    return voice_messages(
+        question, facts, name, history, data_blocks=blocks, rules_extra=rules, time_line=time_line, capabilities=capabilities
+    )
 
 
 async def grounded_answer(
@@ -731,6 +734,7 @@ async def grounded_answer(
     stream: bool = True,
     arabic: bool | None = None,
     capabilities: str = "",
+    time_line: str = "",
 ) -> AsyncIterator[str | Progress]:
     """The spoken answer, streamed: snapshot, then up to three rounds of read-only lookups
     when the provider has tool use, else one call with the snapshot and knowledge hits.
@@ -739,11 +743,12 @@ async def grounded_answer(
 
     Yields the text that passed the figure check (voice_figures.py) and, between, ``Progress``
     markers. The text is at most three sentences; a figure the turn's data does not hold is
-    withheld, and a failed lookup is named."""
+    withheld, and a failed lookup is named. ``time_line`` (the current date and time) is
+    in the prompt and counts as evidence, so "today is 4 November" is never withheld."""
     guard = FigureGuard(
         question,
         arabic=is_arabic(question) if arabic is None else arabic,
-        evidence=[getattr(facts, "model_dump_json", lambda: "")(), *data_blocks],
+        evidence=[getattr(facts, "model_dump_json", lambda: "")(), *data_blocks, time_line],
     )
     seen = 0
 
@@ -758,7 +763,7 @@ async def grounded_answer(
 
     raw = _grounded_raw(gateway, question, facts, name, history, context, timing, max_tokens=max_tokens,
                         data_blocks=data_blocks, preface=preface, extra_rules=extra_rules, stream=stream,
-                        capabilities=capabilities)
+                        capabilities=capabilities, time_line=time_line)
     try:
         async with aclosing(raw) as items:
             async for item in items:
@@ -792,6 +797,7 @@ async def _grounded_raw(
     extra_rules: str,
     stream: bool,
     capabilities: str = "",
+    time_line: str = "",
 ) -> AsyncIterator[str | Progress]:
     routed = route_gateway(gateway, ModelRoute.FAST)
     toolbox = VoiceToolbox.current()
@@ -805,9 +811,8 @@ async def _grounded_raw(
         yield Progress("checking" if needs_figures(question) else "thinking", "")
     blocks = [*data_blocks, *snapshot]
     timing.grounding = "tools" if with_tools else ("snapshot" if blocks else "none")
-    messages = grounded_messages(
-        question, facts, name, history, blocks, tools=with_tools, preface=preface, extra_rules=extra_rules, capabilities=capabilities
-    )
+    messages = grounded_messages(question, facts, name, history, blocks, tools=with_tools, preface=preface,
+                                 extra_rules=extra_rules, time_line=time_line, capabilities=capabilities)
     complete = getattr(routed, "complete_chat", None)
     if not with_tools and not stream and callable(complete):
         response = await complete(messages, max_tokens=max_tokens)

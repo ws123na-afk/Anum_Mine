@@ -227,7 +227,9 @@ def test_what_can_you_do_reaches_the_model_with_the_live_list() -> None:
     stream = ask("What can you do?")
     assert cards(stream) == [] and store.tasks == {}
     system = [message for message in gateway.chats[0] if message["role"] == "system"]
-    assert system[0]["content"] == SYSTEM_PROMPT
+    # The static prompt, ended by the date line (current_time.py), then the live list.
+    assert system[0]["content"].startswith(SYSTEM_PROMPT) and "Current date and time:" in system[0]["content"]
+    assert caps.CAPABILITY_HEADER not in system[0]["content"]
     assert system[1]["content"].startswith(caps.CAPABILITY_HEADER)
     assert "- Tasks and agents:" in system[1]["content"] and "Action browser" in system[1]["content"]
 
@@ -248,6 +250,19 @@ def test_the_capability_part_stays_out_of_the_cached_system_prefix() -> None:
     # Without it the request is exactly as before.
     plain = build_messages_request(build_messages([], "Hi"), model="claude-test", max_tokens=100)
     assert [("cache_control" in block) for block in plain["system"]] == [True]
+
+
+def test_the_date_line_and_the_capability_part_both_stay_out_of_the_cached_prefix() -> None:
+    from anum_api.current_time import with_time_line
+
+    line = "Current date and time: Wednesday 4 November 2026, 16:28 (Asia/Dubai, UTC+04:00). Use this for today, tomorrow, deadlines and relative dates."
+    messages = build_messages([], "What can you do?", time_line=line, capabilities=caps.capability_block(all_on()))
+    assert messages[0]["content"] == with_time_line(SYSTEM_PROMPT, line)
+    body = build_messages_request(messages, model="claude-test", max_tokens=100)
+    assert body["system"][0]["text"] == SYSTEM_PROMPT and "cache_control" in body["system"][0]
+    assert body["system"][1]["text"].startswith(caps.CAPABILITY_HEADER) and "cache_control" not in body["system"][1]
+    last = body["messages"][-1]["content"]
+    assert last[-1]["text"] == line and "cache_control" not in last[-1]
 
 
 def test_voice_messages_carry_the_spoken_list_as_a_trailing_part() -> None:

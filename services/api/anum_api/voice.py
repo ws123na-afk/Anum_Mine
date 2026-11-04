@@ -33,6 +33,7 @@ from pydantic import BaseModel, Field
 
 from .authorization import Permission
 from .capabilities import asks_what_anum_can_do, spoken_capabilities, voice_block, workspace_capabilities
+from .current_time import time_line_for, with_time_line
 from .dependencies import repository_context, require_permission, tenant_context
 from .model_gateway import ModelGateway, build_default_model_gateway
 from .model_budget import ModelBudgetExceededError
@@ -615,6 +616,7 @@ async def ask_voice_assistant(
                 stream=False,
                 arabic=asked.arabic,
                 capabilities=asked.capabilities,
+                time_line=asked.time_line,
             )) as answer:
                 async for chunk in answer:
                     if isinstance(chunk, Progress):
@@ -674,6 +676,8 @@ class _PreparedAsk:
     action: ParsedAction | None = None
     # What ANUM can do in this workspace, for a model answer (capabilities.py).
     capabilities: str = ""
+    # The current date and time in the user's zone, for a model answer (current_time.py).
+    time_line: str = ""
 
 
 def _marketing_reply(context: TenantContext, text: str, arabic: bool) -> str:
@@ -872,8 +876,10 @@ def prepare_ask_in_own_session(session_id: str, payload: VoiceAskCreate, context
     with _unit_of_work(context, require_membership=True) as repository:
         prepared = _prepare_ask(session_id, payload, context, repository)
     if prepared.reply is None and prepared.action is None:
-        # Only a model answer needs it; read after the unit of work above has closed (cached briefly).
+        # Only a model answer needs them; read after the unit of work above has closed.
+        prepared.time_line = time_line_for(context, "ar" if prepared.arabic else "en")
         try:
+            # What ANUM can do here (cached briefly, capabilities.py).
             prepared.capabilities = voice_block(workspace_capabilities(context))
         except Exception as exc:  # the question is still answered, without the list
             logger.warning("voice_capabilities_failed error_class=%s", type(exc).__name__)
@@ -1018,8 +1024,8 @@ def stream_prepared_answer(
                         data_blocks=[grounding.block] if grounding else (),
                         capabilities=asked.capabilities,
                     )
-                    if extra_rules:
-                        messages[0] = {"role": "system", "content": f"{messages[0]['content']}\n{extra_rules}"}
+                    system = f"{messages[0]['content']}\n{extra_rules}" if extra_rules else messages[0]["content"]
+                    messages[0] = {"role": "system", "content": with_time_line(system, asked.time_line)}
                     source = vision.stream_chat(messages, max_tokens=VOICE_MAX_TOKENS)
                 else:
                     source = grounded_answer(
@@ -1030,6 +1036,7 @@ def stream_prepared_answer(
                         extra_rules=extra_rules,
                         arabic=asked.arabic,
                         capabilities=asked.capabilities,
+                        time_line=asked.time_line,
                     )
                 async with aclosing(source) as chunks:  # type: ignore[type-var]
                     async for chunk in chunks:
