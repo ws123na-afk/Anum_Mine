@@ -159,9 +159,9 @@ function TodayPanel({ today, sites, readOnly, onChanged, onSettings, onCorrect }
         </div>
         {message && <Notice error={message.error}>{message.text}</Notice>}
         {today.location_consent
-          ? (today.tracking_paused ? <p className="muted attTrack"><MapPin aria-hidden="true" />{t('att.today.paused')} <button type="button" className="cmLinkButton" onClick={onSettings}>{t('att.today.manage')}</button></p>
-            : <p className="muted attTrack"><Wifi aria-hidden="true" />{t('att.today.tracking')}</p>)
-          : <p className="muted attTrack"><MapPin aria-hidden="true" />{t('att.today.noTracking')} <button type="button" className="cmLinkButton" onClick={onSettings}>{t('att.today.setUp')}</button></p>}
+          ? (today.tracking_paused ? <p className="muted attTrack"><MapPin aria-hidden="true" /><span>{t('att.today.paused')}</span><button type="button" className="cmLinkButton" onClick={onSettings}>{t('att.today.manage')}</button></p>
+            : <p className="muted attTrack"><Wifi aria-hidden="true" /><span>{t('att.today.tracking')}</span></p>)
+          : <p className="muted attTrack"><MapPin aria-hidden="true" /><span>{t('att.today.noTracking')}</span><button type="button" className="cmLinkButton" onClick={onSettings}>{t('att.today.setUp')}</button></p>}
       </>}
     </section>
 
@@ -250,7 +250,7 @@ function ReportsPanel({ person, sites, timeZone }: { person: string | null; site
         </table></div>}
       <h3 className="attSub">{t('att.reports.siteHistory')}</h3>
       {visits.length === 0 ? <p className="muted">{t('att.reports.noVisits')}</p>
-        : <ul className="cmList attVisits">{visits.map((v) => <li key={`${v.day}-${v.start}`}><div><strong>{siteName(sites, v.site_id)}</strong><small>{t('att.visitTime', { day: v.day, start: clock(v.start, v.zone), end: clock(v.end, v.zone) })}</small></div><span className="num">{hours(v.seconds)}</span></li>)}</ul>}
+        : <ul className="cmList attVisits">{visits.map((v) => <li key={`${v.day}-${v.start}`}><div><strong>{siteName(sites, v.site_id)}</strong><small>{v.end_kind === 'missing' ? t('att.visitMissing', { day: v.day, start: clock(v.start, v.zone) }) : t('att.visitTime', { day: v.day, start: clock(v.start, v.zone), end: clock(v.end, v.zone) })}</small></div><span className="num">{hours(v.seconds)}</span></li>)}</ul>}
       <p className="muted attNote"><RefreshCw aria-hidden="true" className="cmInlineIcon" />{t('att.reports.explain')}</p>
     </>}
   </section>;

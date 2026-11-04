@@ -24,6 +24,7 @@ export const attendanceAr = {
   'att.person.viewing': 'أنت تعرض الحضور الذي شاركه معك {person}. للقراءة فقط.',
   'att.range': 'من {start} إلى {end}',
   'att.visitTime': '{day}، من {start} إلى {end}',
+  'att.visitMissing': '{day}، من {start}، تسجيل الخروج مفقود',
   'att.hours': '{h} س',
   'att.hoursMinutes': '{h} س {m} د',
   'att.minutes': '{m} د',

@@ -25,6 +25,7 @@ export const attendanceEn = {
   'att.person.viewing': 'You are viewing the attendance {person} shared with you. It is read only.',
   'att.range': '{start} to {end}',
   'att.visitTime': '{day}, {start} to {end}',
+  'att.visitMissing': '{day}, from {start}, check out missing',
   'att.hours': '{h} h',
   'att.hoursMinutes': '{h} h {m} min',
   'att.minutes': '{m} min',
