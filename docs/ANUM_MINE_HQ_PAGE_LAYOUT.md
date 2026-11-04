@@ -4,7 +4,7 @@ The owner's request (27 October 2026): make the headquarters page clear, with th
 
 ## The rule
 
-Nothing but the scene's own controls sits on the scene. Panels live in their own column, under the scene, or in a drawer the person opened. The stage takes the height the viewport leaves after the page header above it and the quick views and status row below it.
+Nothing but the scene's own controls sits on the scene. Panels live in their own column, under the scene, or in a drawer the person opened. The stage takes the height the viewport leaves after the page header above it and the quick views and status row below it. While the campus loads, the loading box holds the stage's height (`.hqLoadingStage`), so the rows under the scene, the Live flow bar among them, do not jump down when the scene arrives.
 
 ```
 header: title (and the tagline from 1500 px), then one tool row: the status chip | refresh, view switch, Floors, Plan and people, Office tools
