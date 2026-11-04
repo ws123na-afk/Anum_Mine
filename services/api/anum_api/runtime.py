@@ -256,7 +256,12 @@ class AgentRuntime:
         learned = (
             await asyncio.to_thread(self._learned_block, task, context) if offload else self._learned_block(task, context)
         )
-        planned = await self.planner.plan(task, context_blocks=blocks, learned_block=learned, agent=agent)
+        time_line = (
+            await asyncio.to_thread(self._time_line, task, context) if offload else self._time_line(task, context)
+        )
+        planned = await self.planner.plan(
+            task, context_blocks=blocks, learned_block=learned, agent=agent, time_line=time_line
+        )
         return planned, learned
 
     def apply_plan(
@@ -346,6 +351,19 @@ class AgentRuntime:
                 metadata={"status": "used", "steps": positions},
             ))
         return blocks
+
+    def _time_line(self, task: Task, context: TenantContext) -> str | None:
+        """The current date and time in the user's zone for the planner (current_time.py).
+
+        None for the mock provider: it repeats the start of its prompt as the plan, and
+        it has no use for a date.
+        """
+        if getattr(getattr(self.planner, "model_gateway", None), "provider", "") == "mock":
+            return None
+        from .current_time import time_line_for
+        from .voice_figures import is_arabic
+
+        return time_line_for(context, "ar" if is_arabic(task.prompt) else "en")
 
     def _learned_block(self, task: Task, context: TenantContext) -> str | None:
         """The user's learned style and preferences, for drafting tasks only (docs/learning.md)."""

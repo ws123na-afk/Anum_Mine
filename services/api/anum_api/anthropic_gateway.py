@@ -27,6 +27,7 @@ from typing import Any
 
 import httpx
 
+from .current_time import split_time_line
 from .model_gateway import (
     LOCAL_EMBEDDING_MODEL,
     ChatMessage,
@@ -101,10 +102,19 @@ def build_messages_request(
     length is simply not cached (no error, no write charge). ``cache_messages=False``
     keeps the tools and system breakpoints only: a one-off message after a stable
     system prompt (planning) would be written to the cache and never read.
+
+    The date line that ends the system text (current_time.py) changes every minute, so
+    with ``cache`` it is sent after the last breakpoint instead: as a text block after the
+    last user message's cached block, or else as a last, uncached system block. The
+    cached prefix stays the same from one minute and one turn to the next.
     """
     messages = validate_messages(messages)
     system = [m["content"] for m in messages if m["role"] == "system" and m["content"]]
     turns = [m for m in messages if m["role"] != "system"]
+    time_line: str | None = None
+    if cache and system:
+        rest, time_line = split_time_line(system[-1])
+        system = [*system[:-1], rest] if rest else system[:-1]
     if not turns:
         raise ValueError("a chat needs at least one user or assistant message")
     body: dict[str, Any] = {"model": model, "max_tokens": max_tokens}
@@ -124,6 +134,13 @@ def build_messages_request(
     last = body["messages"][-1]
     if cache and cache_messages and last["content"] and breakpoints < MAX_CACHE_BREAKPOINTS:
         last["content"] = [_text_block(last["content"], cache=True)]
+    if time_line:
+        if cache_messages and last["role"] == "user":
+            content = last["content"]
+            blocks = content if isinstance(content, list) else ([_text_block(content)] if content else [])
+            last["content"] = [*blocks, _text_block(time_line)]
+        else:
+            body.setdefault("system", []).append(_text_block(time_line))
     if effort:
         if effort not in EFFORTS:
             raise ValueError(f"unsupported effort: {effort}")

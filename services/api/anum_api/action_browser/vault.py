@@ -4,6 +4,10 @@ Owner only. Each record's secret parts are one Fernet value (``ANUM_SECRETS_KEY`
 ``secret_box``) in ``action_browser_credentials.secret_ciphertext``; lists show the handle, the
 site and a masked hint and never decrypt. :func:`resolve_secret` is the one place a value is
 decrypted: by the tool, at the moment of typing, in its own short unit of work.
+
+A card's security code (CVC) is never stored (PCI DSS): a write that carries one is refused, and
+the owner types the code on the approval card each time a payment needs it (``card_code``).
+:func:`drop_card_code` removes one a card saved before this rule still holds.
 """
 
 from __future__ import annotations
@@ -12,12 +16,22 @@ import json
 import re
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic_core import PydanticCustomError
 
 from ..audit import AuditRecord
 from ..schemas import TenantContext, new_id, utc_now
 from ..secret_box import secret_cipher
-from .handles import Handle, card_hint, luhn_ok, mask_username, normalize_site, valid_handle_name
+from .card_code import CVC_NOT_STORED
+from .handles import (
+    CODE_PART,
+    Handle,
+    card_hint,
+    luhn_ok,
+    mask_username,
+    normalize_site,
+    valid_handle_name,
+)
 from .store import CredentialRecord, open_action_store
 
 EXPIRY = re.compile(r"^(0[1-9]|1[0-2])/(\d{2})$")
@@ -30,7 +44,8 @@ class CredentialProblem(ValueError):
 class CredentialWrite(BaseModel):
     """A new login or card, or changes to one. Secret parts left empty keep the saved ones."""
 
-    model_config = ConfigDict(extra="forbid")
+    # Errors never echo what was sent (passwords, card numbers, a refused security code).
+    model_config = ConfigDict(extra="forbid", hide_input_in_errors=True)
 
     kind: Literal["login", "card"]
     handle: str = Field(min_length=1, max_length=40)
@@ -40,7 +55,14 @@ class CredentialWrite(BaseModel):
     name: str | None = Field(default=None, max_length=100)
     number: str | None = Field(default=None, max_length=30, repr=False)
     expiry: str | None = Field(default=None, max_length=5)
-    cvc: str | None = Field(default=None, max_length=4, repr=False)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _no_security_code(cls, data: object) -> object:
+        # Refused with a plain reason before anything else, and the value is never echoed back.
+        if isinstance(data, dict) and any(str(key).lower() in {"cvc", "cvv", "csc", "security_code"} for key in data):
+            raise PydanticCustomError("cvc_not_stored", CVC_NOT_STORED)
+        return data
 
 
 class CredentialView(BaseModel):
@@ -84,17 +106,15 @@ def _secret_parts(write: CredentialWrite, current: dict[str, str] | None) -> tup
         return {"username": username, "password": password}, f"{mask_username(username)} on {site}", site
     number = re.sub(r"[\s-]", "", write.number or "") or saved.get("number", "")
     expiry = _clean(write.expiry) or saved.get("expiry", "")
-    cvc = _clean(write.cvc) or saved.get("cvc", "")
     name = _clean(write.name) or saved.get("name", "")
     if not luhn_ok(number):
         raise CredentialProblem("The card number is not valid (13 to 19 digits that pass the card check).")
     if not EXPIRY.match(expiry):
         raise CredentialProblem("Give the expiry as MM/YY, for example 08/29.")
-    if not re.fullmatch(r"\d{3,4}", cvc):
-        raise CredentialProblem("The security code (CVC) is 3 or 4 digits.")
     if not name or any(ord(ch) < 32 for ch in name):
         raise CredentialProblem("Give the name on the card.")
-    return {"number": number, "expiry": expiry, "cvc": cvc, "name": name}, card_hint(number, expiry), None
+    # Never a security code: a card saved before that rule loses its code on the first edit.
+    return {"number": number, "expiry": expiry, "name": name}, card_hint(number, expiry), None
 
 
 def _audit(store: Any, context: TenantContext, action: str, record: CredentialRecord) -> None:
@@ -132,7 +152,7 @@ def create_credential(context: TenantContext, write: CredentialWrite) -> Credent
 
 def update_credential(context: TenantContext, credential_id: str, write: CredentialWrite) -> CredentialView | None:
     with open_action_store(context) as store:
-        current = store.credential(context, credential_id)
+        current = store.credential(context, credential_id, for_update=True)
         if current is None:
             return None
         if current.kind != write.kind:
@@ -190,7 +210,8 @@ def resolve_secret(context: TenantContext, handle: Handle) -> str | None:
     """The value ``handle`` stands for, decrypted now, or None when it is not saved any more."""
     with open_action_store(context) as store:
         record = store.credential_by_handle(context, handle.kind, handle.name)
-    if record is None:
+    if record is None or (handle.kind == "card" and handle.part == CODE_PART):
+        # The security code is never saved; it comes only from the approval card (card_code).
         return None
     parts = json.loads(secret_cipher().decrypt(record.secret_ciphertext))
     if handle.kind == "login":
@@ -202,7 +223,31 @@ def resolve_secret(context: TenantContext, handle: Handle) -> str | None:
     return str(value) if value else None
 
 
+def drop_card_code_in(store: Any, context: TenantContext, credential_id: str, cipher: Any) -> bool:
+    """Re-encrypt one saved card without the security code it was saved with, in ``store``'s unit of work.
+
+    The row is locked while it changes; True when a code was removed. The audit record names the
+    card's handle only.
+    """
+    current = store.credential(context, credential_id, for_update=True)
+    if current is None or current.kind != "card":
+        return False
+    parts = json.loads(cipher.decrypt(current.secret_ciphertext))
+    if not isinstance(parts, dict) or "cvc" not in parts:
+        return False
+    kept = {key: value for key, value in parts.items() if key != "cvc"}
+    store.save_credential(context, current.model_copy(update={"secret_ciphertext": cipher.encrypt(json.dumps(kept))}))
+    _audit(store, context, "action_browser.card_code_removed", current)
+    return True
+
+
+def drop_card_code(context: TenantContext, credential_id: str) -> bool:
+    """:func:`drop_card_code_in` in its own unit of work under the workspace's RLS context."""
+    with open_action_store(context) as store:
+        return drop_card_code_in(store, context, credential_id, secret_cipher())
+
+
 __all__ = [
-    "CredentialProblem", "CredentialView", "CredentialWrite", "create_credential", "delete_credential", "hints_for", "list_credentials",
+    "CredentialProblem", "CredentialView", "CredentialWrite", "create_credential", "delete_credential", "drop_card_code", "drop_card_code_in", "hints_for", "list_credentials",
     "resolve_secret", "scope_for", "update_credential",
 ]

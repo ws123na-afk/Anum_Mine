@@ -52,6 +52,7 @@ export const homeEn = {
   'home.approvals.title': 'Waiting for your decision',
   'home.approvals.approve': 'Approve',
   'home.approvals.deny': 'Deny',
+  'home.approvals.cardCode': 'This step needs the card security code: open the Approvals page to type it and approve.',
   'home.approvals.openTask': 'Open the task',
   'home.approvals.meta': 'Asked {when} · approving sends exactly the call {hash}',
   'home.approvals.emptyTitle': 'No approvals waiting',

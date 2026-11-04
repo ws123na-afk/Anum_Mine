@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import {
-  WORDS, credentialBody, credentialProblem, isActive, kindText, luhn, say, statusText, stepFacts, stepText, toPagePoint, usesActionBrowser,
+  WORDS, cardCodeProblem, credentialBody, credentialProblem, isActive, kindText, luhn, say, statusText, stepFacts, stepText, toPagePoint, usesActionBrowser,
   type BrowserSession, type SessionStep,
 } from '../src/lib/actionBrowser.ts';
 
@@ -84,15 +84,33 @@ describe('saved logins and cards', () => {
     assert.equal(credentialProblem({ kind: 'login', handle: 'shop' }, false, 'en'), WORDS.en.siteNeeded);
     assert.equal(credentialProblem({ kind: 'login', handle: 'shop', site: 'shop.example', username: 'a', password: 'b' }, false, 'en'), null);
     assert.equal(credentialProblem({ kind: 'login', handle: 'shop' }, true, 'en'), null);
-    assert.equal(credentialProblem({ kind: 'card', handle: 'main', number: '4242424242424241', expiry: '08/29', cvc: '123', name: 'A' }, false, 'en'), WORDS.en.cardNumberBad);
-    assert.equal(credentialProblem({ kind: 'card', handle: 'main', number: '4242 4242 4242 4242', expiry: '8/29', cvc: '123', name: 'A' }, false, 'en'), WORDS.en.expiryBad);
-    assert.equal(credentialProblem({ kind: 'card', handle: 'main', number: '4242424242424242', expiry: '08/29', cvc: '12', name: 'A' }, false, 'en'), WORDS.en.cvcBad);
-    assert.equal(credentialProblem({ kind: 'card', handle: 'main', number: '4242424242424242', expiry: '08/29', cvc: '123', name: 'A' }, false, 'en'), null);
+    assert.equal(credentialProblem({ kind: 'card', handle: 'main', number: '4242424242424241', expiry: '08/29', name: 'A' }, false, 'en'), WORDS.en.cardNumberBad);
+    assert.equal(credentialProblem({ kind: 'card', handle: 'main', number: '4242 4242 4242 4242', expiry: '8/29', name: 'A' }, false, 'en'), WORDS.en.expiryBad);
+    // A card is saved without a security code: ANUM never stores one.
+    assert.equal(credentialProblem({ kind: 'card', handle: 'main', number: '4242424242424242', expiry: '08/29', name: 'A' }, false, 'en'), null);
     assert.equal(credentialProblem({ kind: 'card', handle: 'main' }, true, 'en'), null);
     assert.ok(luhn('4242424242424242') && !luhn('42'));
   });
   test('an edit sends only what was filled in', () => {
     assert.deepEqual(credentialBody({ kind: 'login', handle: ' Shop ', site: '', username: '', password: '' }), { kind: 'login', handle: 'shop' });
-    assert.deepEqual(credentialBody({ kind: 'card', handle: 'main', cvc: ' 123 ' }), { kind: 'card', handle: 'main', cvc: '123' });
+    assert.deepEqual(credentialBody({ kind: 'card', handle: 'main', expiry: ' 09/30 ' }), { kind: 'card', handle: 'main', expiry: '09/30' });
+    // Even a stray code on the input object is never sent.
+    const stray = { kind: 'card', handle: 'main', number: '4242424242424242', cvc: '739' } as unknown as Parameters<typeof credentialBody>[0];
+    assert.ok(!('cvc' in credentialBody(stray)) && !JSON.stringify(credentialBody(stray)).includes('739'));
+  });
+});
+
+describe('the card security code on the approval card', () => {
+  test('3 or 4 digits, in English and Arabic', () => {
+    assert.equal(cardCodeProblem('', 'en'), WORDS.en.codeNeeded);
+    assert.equal(cardCodeProblem('12', 'en'), WORDS.en.codeBad);
+    assert.equal(cardCodeProblem('12a', 'ar'), WORDS.ar.codeBad);
+    assert.equal(cardCodeProblem('739', 'en'), null);
+    assert.equal(cardCodeProblem('7391', 'ar'), null);
+  });
+  test('the step has its own heading', () => {
+    const facts = stepFacts({ resume: 'step', kind: 'card_security_code', cvc: 'entered at approval', site: 'shop.example' })!;
+    assert.equal(kindText(facts, 'en'), 'Enter the card security code');
+    assert.equal(kindText(facts, 'ar'), WORDS.ar.kind_card_security_code);
   });
 });
