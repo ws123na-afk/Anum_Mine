@@ -349,3 +349,29 @@ def test_the_attendance_router_is_registered_and_every_route_needs_sign_in() -> 
     for path in (f"{API}/today", f"{API}/limits", f"{API}/shares"):
         assert client.get(path).status_code == 401
     assert attendance_api.router.prefix == API
+
+
+def test_daily_job_alerts_a_missing_checkout_once_in_app_only() -> None:
+    from anum_api import push
+    from anum_api.attendance import jobs
+    from anum_api.team_store import memory_team_store
+
+    assert jobs.ALERT_KIND in push.IN_APP_ONLY_KINDS
+    office = site()
+    client.put(f"{API}/profile", json={"expected_version": 0}, headers=ME)
+    yesterday = datetime.now(UTC) - timedelta(days=1)
+    arrive = yesterday.replace(hour=5, minute=0, second=0, microsecond=0)  # 09:00 in Dubai
+    client.post(f"{API}/corrections", json={"action": "add", "kind": "arrive", "occurred_at": iso(arrive), "site_id": office,
+                                            "reason": "Forgot to check in"}, headers=ME)
+    ctx = TenantContext(tenant_id=TENANT, workspace_id=WORKSPACE, user_id=ME["x-user-id"])
+
+    def alerts() -> list[str]:
+        items = memory_team_store.list_notifications(ctx, limit=50, before=None, unread_only=False)
+        return [n.body for n in items if n.kind == jobs.ALERT_KIND]
+
+    first = jobs.run_memory(arrive + timedelta(hours=30))
+    assert first.alerts == 1
+    second = jobs.run_memory(arrive + timedelta(hours=31))
+    assert second.alerts == 0
+    bodies = alerts()
+    assert len(bodies) == 1 and "departure" in bodies[0] and "Head office" not in bodies[0]

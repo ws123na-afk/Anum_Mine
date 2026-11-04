@@ -232,7 +232,7 @@ def create_site(body: SiteInput, context: TenantContext = Depends(tenant_context
     now = utc_now()
     name = _clean(body.name, 120)
     if not name:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Give the site a name.")
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Give the site a name.")
     with open_attendance_store(context) as store:
         if len(store.list_sites(context, context.user_id)) >= MAX_SITES:
             raise HTTPException(status.HTTP_409_CONFLICT, f"You can keep up to {MAX_SITES} sites. Archive one you no longer use.")
@@ -636,7 +636,7 @@ def save_report(day: date, body: ReportInput, response: Response, context: Tenan
     _check_files(context, body.file_ids)
     with open_attendance_store(context) as store:
         if day > _today(store, context, context.user_id) + timedelta(days=1):
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "A daily report is for today or a past day.")
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "A daily report is for today or a past day.")
         current = store.get_report(context, context.user_id, day)
         if current is not None and body.expected_version is None:
             raise HTTPException(status.HTTP_409_CONFLICT, "There is already a report for that day. Open it to change it.")
@@ -750,7 +750,7 @@ def create_share(body: ShareInput, context: TenantContext = Depends(tenant_conte
                  repository: AnumRepository = Depends(repository_context)) -> Share:
     _use(context)
     if body.viewer_user_id == context.user_id:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, "Choose someone else. You always see your own attendance.")
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Choose someone else. You always see your own attendance.")
     if not _active_member(context, body.viewer_user_id):
         raise HTTPException(status.HTTP_404_NOT_FOUND, "That person is not an active owner or member of this workspace.")
     with open_attendance_store(context) as store:

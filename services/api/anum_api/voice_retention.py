@@ -96,6 +96,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     from .record_retention import purge as purge_records
 
     report["record_retention"] = purge_records(dry_run=args.dry_run, batch_size=args.batch_size)
+    from .attendance.jobs import run as run_attendance  # docs/attendance.md#daily-job
+
+    report["attendance"] = run_attendance(dry_run=args.dry_run, batch_size=args.batch_size)
     print(json.dumps(report, indent=2))
     return 0
 
