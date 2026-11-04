@@ -169,6 +169,16 @@ def test_over_allocation_is_refused_per_dimension() -> None:
     assert wrong_currency.status_code == 422 and wrong_currency.json()["code"] == "currency_mismatch"
 
 
+def test_one_payment_split_across_two_projects_of_a_business() -> None:
+    _s, canonical = fuel_payment()
+    assert allocate(canonical, "100", project_id="proj_a").status_code == 201
+    assert allocate(canonical, "50", project_id="proj_b").status_code == 201
+    over = allocate(canonical, "1", project_id="proj_c")
+    assert over.status_code == 409 and over.json()["code"] == "over_allocated"
+    rows = client.get("/api/v1/business/ledger-allocations", headers=BUSINESS_MEMBER).json()
+    assert sorted(r["project_id"] for r in rows["items"]) == ["proj_a", "proj_b"] and Decimal(rows["totals"]["SAR"]) == 150
+
+
 def test_concurrent_link_attempts_cannot_exceed_the_amount() -> None:
     _s, canonical = fuel_payment()
     with ThreadPoolExecutor(max_workers=6) as pool:

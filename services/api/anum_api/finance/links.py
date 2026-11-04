@@ -368,6 +368,9 @@ def allocate(context: TenantContext, *, canonical_id: str, workspace_id: str, am
     if not SAFE_ID.match(workspace_id) or not can_allocate_to(context, workspace_id):
         # The same answer whether the workspace does not exist, is in another tenant or the caller may not write there.
         raise LinkError(403, "You can allocate only to a business workspace where you can change business records.", "workspace_not_allowed")
+    if idempotency_key is None and project_id is not None:
+        # One payment split across projects of the same business: one allocation per project.
+        idempotency_key = f"allocation\x1f{canonical_id}\x1f{workspace_id}\x1f{project_id}"
     request = LinkRequest(canonical_id=canonical_id, dimension="business", role="payment", target_type=BUSINESS_TARGET, target_id=workspace_id,
                           amount=amount, currency=currency, idempotency_key=idempotency_key)
     memo_text = " ".join((memo or "").split())[:200] or None

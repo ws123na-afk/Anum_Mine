@@ -40,6 +40,8 @@ Owner decision 1 (4 November 2026): the personal ledger stays private, and a bus
 
 The owner allocates a personal transaction, or part of it, to a business workspace where they hold `business:write` (an active membership in the same tenant, the workspace not archived). In one transaction ANUM writes the link (`business` dimension, in the owner's personal scope) and a row in the business workspace, `business_ledger_allocations`: date, amount, currency, category, project, memo, treatment (`owner_contribution` or `reimbursable`), who allocated it and a six character source reference. Never the bank, the account, the card, the merchant text or the message.
 
+One payment can be split across a business's projects (one allocation per project; the total stays within the payment). A repeated request for the same business and project returns the first allocation.
+
 Members of the business workspace with `business:read` read the rows (`GET /api/v1/business/ledger-allocations`, with totals per currency, never added across currencies). They cannot read the owner's journal, links or messages: those tables keep their restrictive owner policy. Removing the allocation, undoing the payment or the owner's privacy deletion removes the row. The same refusal (`403 workspace_not_allowed`) answers a workspace that does not exist, is in another tenant or where the owner cannot write.
 
 ## API
