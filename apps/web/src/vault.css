@@ -114,3 +114,6 @@
   .vaultTrashRow { grid-template-columns: minmax(0, 1fr); }
   .vaultCard, .vaultDetail, .vaultReviewCard { padding: var(--d-s4); }
 }
+.vaultReviewForm .field > label { color: var(--d-muted); font-size: var(--text-sm); font-weight: 500; }
+.vaultReviewForm .field { margin-top: 0; }
+.vaultEdit .field, .vaultInline .field, .vaultFilters .field { margin-top: 0; }

@@ -11,6 +11,7 @@ import { mockMailApi } from './mailApi';
 import { mockDeveloper } from './developerApi';
 import { mockBrevo } from './brevoApi';
 import { mockBilling } from './billingApi';
+import { mockVault } from './vaultApi';
 import { VIEWS } from '../../src/lib/shell.ts';
 import { TABS as BUSINESS_TABS } from '../../src/lib/business.ts';
 import { TABS as CALLS_TABS } from '../../src/lib/calls.ts';
@@ -42,6 +43,7 @@ const mail = async (page: Page) => { await mockWorkspaceApi(page); await mockMai
 const callsWithProvider = (page: Page) => mockCallsApi(page, { provider: true });
 const headquarters = async (page: Page) => { await mockHq(page, { commerce: 'connected', tyre: 'none', meetings: 'live' }); };
 const billing = async (page: Page) => { await mockWorkspaceApi(page); await mockBilling(page); };
+const vault = async (page: Page) => { await mockWorkspaceApi(page); await mockVault(page); };
 
 /** Invoices with every state in the list: sent and overdue, sent on time, a draft and one waiting for approval. */
 async function mockInvoicesWithData(page: Page) {
@@ -96,6 +98,11 @@ export const GATE_PAGES: GatePage[] = [
   { hash: 'business-invoices', view: 'business', mock: mockInvoicesWithData, ready: '.bzTabs [aria-current="page"]' },
   { hash: 'business-settings', view: 'business', mock: mockInvoices, ready: '.bzTabs [aria-current="page"]' },
   { hash: 'files', view: 'files', mock: workspace, ready: '.filesTable tbody tr' },
+  { hash: 'vault', view: 'vault', mock: vault, ready: '.vaultMiniList li' },
+  { hash: 'vault-documents', view: 'vault', mock: vault, ready: '.vaultRow' },
+  { hash: 'vault-review', view: 'vault', mock: vault, ready: '.vaultReviewCard input' },
+  { hash: 'vault-trash', view: 'vault', mock: vault, ready: '.vaultTrashRow' },
+  { hash: 'vault-settings', view: 'vault', mock: vault, ready: '.vaultDevices form' },
   { hash: 'memory', view: 'memory', mock: workspace, ready: '.memoryRow' },
   { hash: 'knowledge', view: 'knowledge', mock: workspace, ready: '.kbCollectionButton' },
   { hash: 'reports', view: 'reports', mock: workspace, ready: '.reportRow' },

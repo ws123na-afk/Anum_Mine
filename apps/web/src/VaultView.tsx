@@ -562,13 +562,13 @@ function ReviewCard({ item, categories, onOpen, onDone }: { item: VaultReviewIte
         const proposed = extraction.fields[key];
         const fid = `${base}-${key}`;
         const hint = proposed ? `${confidenceText(proposed.confidence)}${proposed.source ? ` · ${t('vault.review.from', { line: proposed.source })}` : ''}` : t('vault.review.notRead');
-        return <label key={key} className="field" htmlFor={fid}><span>{t(`vault.rf.${key}` as MessageKey)}</span>
+        return <div key={key} className="field"><label htmlFor={fid}>{t(`vault.rf.${key}` as MessageKey)}</label>
           {key === 'currency'
-            ? <select id={fid} value={draft[key] ?? ''} disabled={!document.can_edit} aria-invalid={Boolean(problems[key]) || undefined} onChange={(e) => setDraft({ ...draft, [key]: e.target.value })}>
+            ? <select id={fid} value={draft[key] ?? ''} disabled={!document.can_edit} aria-describedby={`${fid}-hint`} aria-invalid={Boolean(problems[key]) || undefined} onChange={(e) => setDraft({ ...draft, [key]: e.target.value })}>
               <option value="">-</option>{CURRENCIES.map((c) => <option key={c} value={c}>{c}</option>)}</select>
             : <input id={fid} type={key.endsWith('date') ? 'date' : 'text'} dir={key === 'merchant' ? 'auto' : 'ltr'} inputMode={key === 'total' || key === 'tax' ? 'decimal' : undefined}
-              value={draft[key] ?? ''} disabled={!document.can_edit} aria-invalid={Boolean(problems[key]) || undefined} onChange={(e) => setDraft({ ...draft, [key]: e.target.value })} />}
-          <small className={problems[key] ? 'fieldError' : 'muted'} dir="auto">{problems[key] ?? hint}</small></label>;
+              aria-describedby={`${fid}-hint`} value={draft[key] ?? ''} disabled={!document.can_edit} aria-invalid={Boolean(problems[key]) || undefined} onChange={(e) => setDraft({ ...draft, [key]: e.target.value })} />}
+          <small id={`${fid}-hint`} className={problems[key] ? 'fieldError' : 'muted'} dir="auto">{problems[key] ?? hint}</small></div>;
       })}
       {extraction.items.length > 0 && <div className="wide"><h4>{t('vault.review.items')}</h4><ul className="vaultItems">{extraction.items.map((line, index) => <li key={index}><span dir="auto">{line.description}</span><span>{line.quantity} × <bdi dir="ltr">{line.amount}</bdi></span></li>)}</ul></div>}
       {error && <Notice error>{error}</Notice>}

@@ -306,6 +306,10 @@ services:
       # action mode (ANUM_BROWSER_ACTION_MODE=1 below). Off unless set; the API refuses to start
       # with it on while the browser service URL or token is missing.
       ANUM_ACTION_BROWSER_ENABLED: ${ANUM_ACTION_BROWSER_ENABLED:-false}
+      # Document vault scanning (docs/documents.md#the-ocr-service): the OCR service of the `ocr`
+      # profile, http://ocr:8091. Empty: scanning reads PDF text layers only.
+      ANUM_OCR_SERVICE_URL: ${ANUM_OCR_SERVICE_URL:-}
+      ANUM_OCR_SERVICE_TOKEN: ${ANUM_OCR_TOKEN:-}
       # Upload malware scanning (docs/files.md#malware-scanning): every upload and email
       # attachment goes to the clamd service below; while clamd is down or still loading
       # its signatures, uploads fail with 503 and nothing is stored (fail closed).
@@ -445,6 +449,7 @@ services:
       - backend
       - egress
       - browser
+      - ocr
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -672,6 +677,41 @@ services:
       start_period: 20s
     # 1.5 GB: a real site in action mode (cookies, frames, payment forms) needs more than one page read.
     mem_limit: 1536m
+    logging: *logging
+
+  # --- Document vault OCR (profile `ocr`; docs/documents.md#the-ocr-service) ----------
+  # Local Tesseract (English and Arabic) for scanned receipts and document dates, in its own
+  # container with no ANUM secrets (only the token the API sends). No published port, no Caddy
+  # route and no internet: the API calls http://ocr:8091 on the internal `ocr` network, which
+  # nothing else joins. Read-only, no capabilities; the image goes to Tesseract on stdin.
+  ocr:
+    profiles: ["ocr"]
+    build:
+      <<: *api-build
+      args:
+        ANUM_OCR: "1"
+    image: anum/ocr:local
+    restart: unless-stopped
+    command: ["python", "-m", "anum_api.vault.ocr_service"]
+    environment:
+      ANUM_OCR_SERVICE_TOKEN: ${ANUM_OCR_TOKEN:?set ANUM_OCR_TOKEN in infra/oracle/.env}
+      ANUM_OCR_CONCURRENCY: "1"
+    networks:
+      - ocr
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m
+    cap_drop: ["ALL"]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 128
+    cpus: 1.0
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8091/healthz', timeout=4)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    mem_limit: 512m
     logging: *logging
 
   # --- ClamAV clamd (upload malware scanning) ----------------------------------------
@@ -1114,6 +1154,13 @@ networks:
     ipam:
       config:
         - subnet: 172.30.60.0/24
+  # The API and the OCR service (profile `ocr`). Internal: the OCR container reaches nothing,
+  # not even the internet.
+  ocr:
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.30.80.0/24
   # The browser service's own route to the internet, shared with no other container.
   browser-egress:
     ipam:
