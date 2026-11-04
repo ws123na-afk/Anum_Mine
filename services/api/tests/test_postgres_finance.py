@@ -149,7 +149,8 @@ def test_rows_cannot_be_written_for_someone_else(app_session: Callable[..., Iter
 def test_privacy_counts_exports_and_deletes_the_ledger(client: TestClient, app_session: Callable[..., Iterator[Session]]) -> None:
     account_id = client.post(f"{API}/accounts", headers=ME, json={"name": "Cash", "kind": "cash"}).json()["id"]
     client.post(f"{API}/transactions", headers=ME, json={"account_id": account_id, "posted_on": "2026-10-01", "amount": "-5", "description": "KIOSK"})
-    assert client.get("/api/v1/privacy", headers=ME).json()["private"]["finance_records"] == 2
+    # The account and the transaction, plus its journal entry and two postings (docs/finance-sms.md).
+    assert client.get("/api/v1/privacy", headers=ME).json()["private"]["finance_records"] == 5
     exported = client.get("/api/v1/privacy/export", headers=ME).json()["finance"]
     assert [t["description"] for t in exported["transactions"]] == ["KIOSK"]
     client.post(f"{API}/accounts", headers=OWNER, json={"name": "Owner's", "kind": "cash"})

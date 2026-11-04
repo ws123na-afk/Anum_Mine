@@ -1138,6 +1138,34 @@ def finance_export(finance: Any, context: TenantContext) -> dict[str, Any]:
             for s in strategies for r in finance.list_strategy_runs(context, s.id, limit=2_000, offset=0)[0]
         ],
         "agent_decisions": [d.model_dump(mode="json", exclude=hidden) for d in finance.list_agent_decisions(context, limit=20_000, offset=0)[0]],
+        # iPhone SMS, Apple Wallet and the journal (docs/finance-sms.md#privacy-and-deletion): device token hashes are never exported.
+        **_sms_export(finance, context, hidden),
+    }
+
+
+def _sms_export(finance: Any, context: TenantContext, hidden: set[str]) -> dict[str, Any]:
+    session = getattr(finance, "session", None)
+    if session is not None:
+        from .db.sms_repository import SqlAlchemySmsStore
+
+        sms: Any = SqlAlchemySmsStore(session)
+    else:
+        from .finance.sms_store import sms_memory_store
+
+        sms = sms_memory_store
+    settings = sms.get_settings(context)
+    messages: list[Any] = []
+    while True:
+        page, total = sms.list_messages(context, status=None, limit=200, offset=len(messages))
+        messages.extend(page)
+        if not page or len(messages) >= total:
+            break
+    return {
+        "sms_settings": settings.model_dump(mode="json") if settings is not None else None,
+        "sms_devices": [d.model_dump(mode="json", exclude=hidden | {"token_hash"}) for d in sms.list_devices(context)],
+        "sms_messages": [m.model_dump(mode="json", exclude=hidden | {"idem_key"}) for m in messages],
+        "sms_rules": [r.model_dump(mode="json", exclude=hidden) for r in sms.list_rules(context)],
+        "journal_entries": [e.model_dump(mode="json", exclude=hidden) for e in sms.list_entries(context, limit=100_000)],
     }
 
 
