@@ -389,7 +389,7 @@ def _set_payment(store: VehicleStore, context: TenantContext, kind: str, record_
 
 def payment_from_link(link: Any) -> PaymentRef:
     return PaymentRef(link_id=link.id, canonical_id=link.canonical_id, status=link.status.value if hasattr(link.status, "value") else link.status,
-                      status_reason=link.status_reason, amount=link.amount, currency=link.currency, paid_by=link.owner_user_id,
+                      status_reason=link.status_reason, amount=Decimal(link.amount).quantize(Decimal("0.01")), currency=link.currency, paid_by=link.owner_user_id,
                       linked_at=link.created_at)
 
 

@@ -12,7 +12,7 @@ from decimal import Decimal
 from enum import StrEnum
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 FUEL_TYPES = ("petrol_91", "petrol_95", "petrol_98", "diesel", "electric", "hybrid", "lpg", "other")
 VEHICLE_TYPES = ("car", "suv", "pickup", "van", "truck", "motorcycle", "bus", "other")
@@ -38,7 +38,23 @@ class Ownership(StrEnum):
     BUSINESS = "business"  # every workspace member allowed to use vehicles sees it
 
 
-class PaymentRef(BaseModel):
+# Decimal places per field, the same as the database columns, so both stores answer the same figures.
+PLACES = {"reading_km": 1, "odometer_km": 1, "start_odometer_km": 1, "end_odometer_km": 1, "distance_km": 1, "next_due_km": 1,
+          "litres": 3, "price_per_litre": 3, "total": 2, "receipt_total": 2, "tank_litres": 2, "purchase_price": 2, "residual_value": 2,
+          "amount": 2}
+
+
+class _Quantized(BaseModel):
+    @model_validator(mode="after")
+    def _places(self):  # type: ignore[no-untyped-def]
+        for name, places in PLACES.items():
+            value = getattr(self, name, None)
+            if isinstance(value, Decimal):
+                object.__setattr__(self, name, value.quantize(Decimal(1).scaleb(-places)))
+        return self
+
+
+class PaymentRef(_Quantized):
     """A read copy of the finance link behind a cost (kept current by the link itself)."""
 
     link_id: str
@@ -52,7 +68,7 @@ class PaymentRef(BaseModel):
     linked_at: datetime
 
 
-class _Scoped(BaseModel):
+class _Scoped(_Quantized):
     tenant_id: str
     workspace_id: str
     owner_user_id: str

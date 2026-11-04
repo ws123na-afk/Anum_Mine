@@ -203,10 +203,11 @@ def create_vehicle(body: VehicleInput, context: TenantContext = Depends(tenant_c
             store.add_vehicle(vehicle)
         except DuplicateError:
             raise S.VehicleError(409, "A vehicle with this registration is already in this workspace.", "duplicate_registration") from None
+        odometer = None
         if body.odometer_km is not None:
-            S.add_reading(store, context, vehicle, km=body.odometer_km, read_at=now, source="manual", source_id=None)
+            odometer = S.add_reading(store, context, vehicle, km=body.odometer_km, read_at=now, source="manual", source_id=None).reading_km
     _audit(repository, context, "vehicle.create", vehicle.id, {"ownership": vehicle.ownership.value})
-    return JSONResponse(status_code=201, content=vehicle_view(context, vehicle, odometer=body.odometer_km, full_vin=True))
+    return JSONResponse(status_code=201, content=vehicle_view(context, vehicle, odometer=odometer, full_vin=True))
 
 
 @router.get("/overview", response_model=None)
@@ -528,18 +529,45 @@ def _build(store: VehicleStore, context: TenantContext, kind: RecordKind, vehicl
     return record
 
 
+def _planned_readings(kind: RecordKind, record: Any) -> list[tuple[Decimal, datetime, str]]:
+    """The odometer readings a record carries: (km, time, source)."""
+    if kind == "fuel" and record.odometer_km is not None:
+        return [(record.odometer_km, record.filled_at, "fuel")]
+    if kind == "service" and record.odometer_km is not None:
+        return [(record.odometer_km, S.at_noon(record.service_on), "service")]
+    out = []
+    if kind == "trips":
+        if record.start_odometer_km is not None:
+            out.append((record.start_odometer_km, record.started_at, "trip_start"))
+        if record.end_odometer_km is not None and record.ended_at is not None:
+            out.append((record.end_odometer_km, record.ended_at, "trip_end"))
+    return out
+
+
+def _check_readings(store: VehicleStore, context: TenantContext, kind: RecordKind, vehicle: Vehicle, record: Any) -> None:
+    """Refuse before anything is written: the record's readings must fit the vehicle's other readings."""
+    from .models import OdometerReading
+    from .store import check_odometer
+
+    others = [r for r in store.readings(context, vehicle.id) if r.source_id != record.id]
+    now = utc_now()
+    for km, moment, source in _planned_readings(kind, record):
+        probe = OdometerReading(id="~probe", tenant_id=context.tenant_id, workspace_id=context.workspace_id, owner_user_id=context.user_id,
+                                vehicle_id=vehicle.id, visibility=vehicle.ownership, vehicle_owner_id=vehicle.owner_user_id, reading_km=km,
+                                read_at=moment, source=source, created_at=now)
+        before, after = check_odometer(others, probe)
+        if before is not None or after is not None:
+            other = before or after
+            raise S.VehicleError(409, (f"The odometer cannot go down: {other.reading_km} km was recorded on {other.read_at.date().isoformat()}. "  # type: ignore[union-attr]
+                                       "If the odometer was replaced or a reading was wrong, add a correction with a reason."), "odometer_decrease",
+                                 {"reading_km": str(other.reading_km), "read_at": other.read_at.isoformat()})  # type: ignore[union-attr]
+
+
 def _readings_for(store: VehicleStore, context: TenantContext, kind: RecordKind, vehicle: Vehicle, record: Any) -> None:
     """Write the record's odometer readings (the old ones of an edited record go first)."""
     store.delete_readings(context, vehicle.id, record.id)
-    if kind == "fuel" and record.odometer_km is not None:
-        S.add_reading(store, context, vehicle, km=record.odometer_km, read_at=record.filled_at, source="fuel", source_id=record.id)
-    elif kind == "service" and record.odometer_km is not None:
-        S.add_reading(store, context, vehicle, km=record.odometer_km, read_at=S.at_noon(record.service_on), source="service", source_id=record.id)
-    elif kind == "trips":
-        if record.start_odometer_km is not None:
-            S.add_reading(store, context, vehicle, km=record.start_odometer_km, read_at=record.started_at, source="trip_start", source_id=record.id)
-        if record.end_odometer_km is not None and record.ended_at is not None:
-            S.add_reading(store, context, vehicle, km=record.end_odometer_km, read_at=record.ended_at, source="trip_end", source_id=record.id)
+    for km, moment, source in _planned_readings(kind, record):
+        S.add_reading(store, context, vehicle, km=km, read_at=moment, source=source, source_id=record.id)
 
 
 def create_record(context: TenantContext, kind: RecordKind, vehicle_id: str, data: dict[str, Any], idempotency_key: str | None) -> tuple[Any, bool]:
@@ -553,6 +581,7 @@ def create_record(context: TenantContext, kind: RecordKind, vehicle_id: str, dat
         if replay is not None:
             return replay, True
         record = _build(store, context, kind, vehicle, data, None, now, key)
+        _check_readings(store, context, kind, vehicle, record)
         try:
             store.add_record(kind, record)
         except DuplicateError as exc:
@@ -624,6 +653,7 @@ def _record_routes(kind: RecordKind) -> None:
             S.require_record_edit(context, record)
             vehicle = S.get_vehicle(store, context, record.vehicle_id)
             updated = _build(store, context, kind, vehicle, changes, record, utc_now(), record.idem_key)
+            _check_readings(store, context, kind, vehicle, updated)
             if not store.save_record(kind, updated, body.version):  # type: ignore[attr-defined]
                 raise S.VehicleError(409, f"This {label.lower()} changed since you opened it. Reload and try again.", "stale")
             _readings_for(store, context, kind, vehicle, updated)
