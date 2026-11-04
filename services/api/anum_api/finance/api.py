@@ -544,6 +544,8 @@ def update_transaction(
 ) -> TransactionView:
     _manage(context)
     changes = body.model_dump(exclude_unset=True)
+    if {"amount", "posted_on", "category"} & set(changes):
+        _refuse_ledger_managed(context, transaction_id)
     with open_finance_store(context) as store:
         item = _own_transaction(store, context, transaction_id)
         if body.posted_on is not None:
@@ -565,6 +567,16 @@ def update_transaction(
     return TransactionView(**_view(item), guardian=decision)
 
 
+def _refuse_ledger_managed(context: TenantContext, transaction_id: str) -> None:
+    from .sms_store import open_sms_stores
+
+    with open_sms_stores(context) as (_store, sms):
+        if sms.entry_for_transaction(context, transaction_id) is not None:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=(
+                "An iPhone SMS recorded this transaction. Correct its amount, date or category under Finance, iPhone SMS, Review, "
+                "so the ledger records the change as a correction."))
+
+
 @router.delete("/transactions/{transaction_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_transaction(
     transaction_id: str,
@@ -572,10 +584,18 @@ def delete_transaction(
     repository: AnumRepository = Depends(repository_context),
 ) -> Response:
     _manage(context)
-    with open_finance_store(context) as store:
-        if not store.delete_transaction(context, transaction_id):
+    from .sms_service import reverse
+    from .sms_store import open_sms_stores
+
+    # A transaction an SMS recorded is part of a journal entry: deleting it reverses the whole
+    # entry (docs/finance-sms.md#ledger), so the journal keeps the record and stays balanced.
+    with open_sms_stores(context) as (store, sms):
+        entry = sms.entry_for_transaction(context, transaction_id)
+        if entry is not None:
+            reverse(store, sms, context, entry, now=utc_now(), why="transaction deleted by the owner")
+        elif not store.delete_transaction(context, transaction_id):
             raise _not_found("Transaction")
-    _audit(repository, context, "finance.transaction.delete", transaction_id)
+    _audit(repository, context, "finance.transaction.delete", transaction_id, {"reversed_entry": entry.id} if entry else None)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 

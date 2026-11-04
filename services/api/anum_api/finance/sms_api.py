@@ -951,20 +951,21 @@ def ledger_dashboard(
     with open_sms_stores(context) as (finance, store):
         fsettings = settings_for(finance, context)
         today = today_in(fsettings)
-        chosen, _start, _end = month_range(month, today)
+        chosen, _start, month_end = month_range(month, today)
+        window_end = max(today, month_end)
         first = date(int(chosen[:4]) - 1, int(chosen[5:7]), 1)
         year_start = date(today.year, 1, 1)
         window_start = min(first, year_start)
         accounts = finance.list_accounts(context)
         by_id = {a.id: a for a in accounts}
-        entries = store.list_entries(context, start=window_start, end=today + timedelta(days=1))
+        entries = store.list_entries(context, start=window_start, end=window_end)
         linked = store.linked_transaction_ids(context)
         rows: list[L.Row] = []
         for entry in entries:
             for p in entry.postings:
                 rows.append(L.Row(day=entry.posted_on, ledger_account=p.ledger_account, account_id=p.account_id, amount=p.amount, currency=p.currency,
                                   kind=entry.kind, category=entry.category, merchant=entry.merchant, entry_id=entry.id))
-        for txn in finance.transactions_between(context, window_start, today):
+        for txn in finance.transactions_between(context, window_start, window_end):
             account = by_id.get(txn.account_id)
             if txn.id in linked or account is None:
                 continue

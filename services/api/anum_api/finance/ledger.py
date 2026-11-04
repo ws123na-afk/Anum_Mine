@@ -470,11 +470,11 @@ def dashboard(
         cards=[line for line in lines if line.kind == AccountKind.CARD],
         loans=[line for line in lines if line.kind == AccountKind.LOAN],
         categories=sorted(
-            (CategoryLine(category=name, currency=cur, amount=quantize(sum(v, Decimal(0)), cur), count=len(v)) for (name, cur), v in categories.items()),
+            (CategoryLine(category=name, currency=cur, amount=quantize(sum(v, Decimal(0)), cur), count=len(v)) for (name, cur), v in categories.items() if sum(v, Decimal(0)) != 0),
             key=lambda line: (line.currency, -line.amount),
         ),
         merchants=sorted(
-            (MerchantLine(merchant=name, currency=cur, amount=quantize(sum(v, Decimal(0)), cur), count=len(v)) for (name, cur), v in merchants.items()),
+            (MerchantLine(merchant=name, currency=cur, amount=quantize(sum(v, Decimal(0)), cur), count=len(v)) for (name, cur), v in merchants.items() if sum(v, Decimal(0)) != 0),
             key=lambda line: (line.currency, -line.amount),
         )[:20],
         trend=trend,
