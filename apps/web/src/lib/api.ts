@@ -158,8 +158,8 @@ export async function cancelTask(taskId: string): Promise<Task> {
 }
 
 /** Approve exactly what was displayed: the request carries the approval's payload hash. */
-export async function approveTask(approval: Approval, reason?: string): Promise<ApprovalDecisionResult> {
-  return decideApproval(approval, 'approve', reason);
+export async function approveTask(approval: Approval, reason?: string, securityCode?: string): Promise<ApprovalDecisionResult> {
+  return decideApproval(approval, 'approve', reason, securityCode);
 }
 
 // task_id is null for a memory remembered from a chat; owner_user_id marks it private to its owner.
@@ -402,8 +402,10 @@ async function decideApproval(
   approval: Approval,
   decision: 'approve' | 'reject',
   reason?: string,
+  securityCode?: string,
 ): Promise<ApprovalDecisionResult> {
-  const body = decisionBody(approval, reason);
+  // The security code goes only with an approve, only when the step asks for it, and is never kept.
+  const body = decisionBody(approval, reason, decision === 'approve' ? securityCode : undefined);
   const result = await request<ApiApprovalDecisionResponse>(`/api/v1/approvals/${encodeURIComponent(approval.id)}/${decision}`, {
     method: 'POST',
     ...(body ? { body: JSON.stringify(body) } : {}),

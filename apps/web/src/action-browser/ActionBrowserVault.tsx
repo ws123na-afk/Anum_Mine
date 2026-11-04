@@ -98,7 +98,7 @@ function CredentialForm({ editing, onCancel, onSaved }: { editing: NonNullable<E
       {field('name', say('nameOnCard'), { maxLength: 100, placeholder: existing ? '••••' : '' })}
       {field('number', say('cardNumber'), { type: 'password', inputMode: 'numeric', maxLength: 30, autoComplete: 'off', placeholder: existing ? '••••' : '' })}
       {field('expiry', say('expiry'), { maxLength: 5, placeholder: 'MM/YY' })}
-      {field('cvc', say('cvc'), { type: 'password', inputMode: 'numeric', maxLength: 4, autoComplete: 'off', placeholder: existing ? '••••' : '' })}
+      <p className="abMuted">{say('cardNoCode')}</p>
     </>}
     {existing && <p className="abMuted">{say('keepHint')}</p>}
     {error && <p className="abNote abError" role="alert">{error}</p>}

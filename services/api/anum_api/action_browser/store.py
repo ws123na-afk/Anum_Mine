@@ -91,7 +91,7 @@ class ActionStore(Protocol):
     def add_step(self, context: TenantContext, step: StepRecord) -> StepRecord: ...
     def steps(self, context: TenantContext, session_id: str, *, after: int = 0, limit: int = 200) -> list[StepRecord]: ...
     def credentials(self, context: TenantContext) -> list[CredentialRecord]: ...
-    def credential(self, context: TenantContext, credential_id: str) -> CredentialRecord | None: ...
+    def credential(self, context: TenantContext, credential_id: str, *, for_update: bool = False) -> CredentialRecord | None: ...
     def credential_by_handle(self, context: TenantContext, kind: str, handle: str) -> CredentialRecord | None: ...
     def save_credential(self, context: TenantContext, record: CredentialRecord) -> CredentialRecord: ...
     def delete_credential(self, context: TenantContext, credential_id: str) -> bool: ...
@@ -157,10 +157,15 @@ class InMemoryActionStore:
             rows = [row for (t, w, _), row in self._credentials.items() if (t, w) == (context.tenant_id, context.workspace_id)]
             return [row.model_copy() for row in sorted(rows, key=lambda r: (r.kind, r.handle))]
 
-    def credential(self, context: TenantContext, credential_id: str) -> CredentialRecord | None:
+    def credential(self, context: TenantContext, credential_id: str, *, for_update: bool = False) -> CredentialRecord | None:
         with self._lock:
             row = self._credentials.get(self._key(context, credential_id))
             return row.model_copy() if row else None
+
+    def credential_scopes(self) -> list[tuple[str, str, str]]:
+        """(tenant, workspace, id) of every saved credential, for the card-code cleanup in local runs."""
+        with self._lock:
+            return sorted(self._credentials)
 
     def credential_by_handle(self, context: TenantContext, kind: str, handle: str) -> CredentialRecord | None:
         with self._lock:
@@ -300,9 +305,10 @@ class SqlActionStore:
             self._params(context)).all()
         return [CredentialRecord.model_validate(dict(row._mapping)) for row in rows]
 
-    def credential(self, context: TenantContext, credential_id: str) -> CredentialRecord | None:
+    def credential(self, context: TenantContext, credential_id: str, *, for_update: bool = False) -> CredentialRecord | None:
+        lock = " for update" if for_update else ""
         row = self.session.execute(text(
-            f"select {_CREDENTIAL_COLUMNS} from action_browser_credentials where tenant_id = :t and workspace_id = :w and id = :id"),  # nosec B608
+            f"select {_CREDENTIAL_COLUMNS} from action_browser_credentials where tenant_id = :t and workspace_id = :w and id = :id{lock}"),  # nosec B608
             {**self._params(context), "id": credential_id}).one_or_none()
         return CredentialRecord.model_validate(dict(row._mapping)) if row is not None else None
 

@@ -13,7 +13,7 @@ import type { AutomationAlert } from './lib/automation';
 import { describeError, isPermissionDenied } from './lib/errors';
 import { formatDateTime, formatNumber, t, type MessageKey } from './lib/i18n';
 import { riskLabel, statusLabel } from './lib/labels';
-import { canApprove, shortHash } from './lib/approvals';
+import { canApprove, needsCardCode, shortHash } from './lib/approvals';
 import { relativeTime } from './lib/commandCenter';
 import { commandTone } from './lib/commands';
 import { listEmailAccounts } from './lib/emailApi';
@@ -218,13 +218,16 @@ function ApprovalsPanel({ waiting, busy, decide, loading, onOpenAll, onOpenTask 
     {loading ? <PanelLoading /> : waiting.length === 0
       ? <EmptyPanel icon={<CheckCircle2 />} title={t('home.approvals.emptyTitle')} text={t('home.approvals.emptyText')} action={t('home.approvals.emptyAction')} onAction={onOpenAll} />
       : <ul className="approvalCards">{visible.items.map((approval) => {
-        const approvable = canApprove(approval);
+        // A step that types a card's security code is approved where the code can be typed (the Approvals page).
+        const codeNeeded = needsCardCode(approval);
+        const approvable = canApprove(approval) && !codeNeeded;
         return <li key={approval.id} className="approvalCard">
           <div className="approvalCardTop"><code dir="ltr">{approval.action}</code><span className={`riskBadge risk-${approval.riskLevel}`}>{riskLabel(approval.riskLevel)}</span></div>
           <p dir="auto">{approval.reason}</p>
           <small className="approvalCardMeta">{t('home.approvals.meta', { when: relativeTime(approval.createdAt), hash: shortHash(approval.payloadHash) })}</small>
           {!approval.payloadHash && <p className="approvalWarning">{t('approvals.notBoundWarning')}</p>}
           {refusals[approval.id] && <p className="approvalRefusalLine" role="alert">{refusals[approval.id]}</p>}
+          {codeNeeded && <p className="approvalCardMeta" role="note">{t('home.approvals.cardCode')}</p>}
           <div className="approvalCardActions">
             <button type="button" className="primaryButton smallButton" disabled={busy || !approvable} onClick={() => act(approval, 'approve')}><CheckCircle2 aria-hidden="true" />{t('home.approvals.approve')}</button>
             <button type="button" className="secondary smallButton" disabled={busy} onClick={() => act(approval, 'reject')}><XCircle aria-hidden="true" />{t('home.approvals.deny')}</button>
