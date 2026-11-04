@@ -158,6 +158,7 @@ function RecordsPanel({ kind, vehicle, onChanged }: { kind: VehicleRecordKind; v
   const [q, setQ] = useState('');
   const [search, setSearch] = useState('');
   const [offset, setOffset] = useState(0);
+  const [run, setRun] = useState(0);
   const [page, setPage] = useState<Load<VehiclePage<AnyRecord>>>({ kind: 'loading' });
   const [editing, setEditing] = useState<AnyRecord | 'new' | null>(null);
   const [paying, setPaying] = useState<AnyRecord | null>(null);
@@ -167,7 +168,7 @@ function RecordsPanel({ kind, vehicle, onChanged }: { kind: VehicleRecordKind; v
   const load = useCallback(async () => {
     setPage((current) => current.kind === 'ready' ? current : { kind: 'loading' });
     try { setPage({ kind: 'ready', value: await api.listRecords(kind, vehicle.id, search, offset, PAGE_SIZE) as VehiclePage<AnyRecord> }); } catch (e) { setPage(failed(e)); }
-  }, [kind, vehicle.id, search, offset]);
+  }, [kind, vehicle.id, search, offset, run]);
   useEffect(() => { void load(); }, [load]);
   const done = (text: string) => { setMessage({ text }); setEditing(null); setPaying(null); void load(); onChanged(); };
   const remove = async () => {
@@ -182,7 +183,7 @@ function RecordsPanel({ kind, vehicle, onChanged }: { kind: VehicleRecordKind; v
     <div className="vehBar"><h2 id={`veh-${kind}-title`}>{title}</h2>
       {canAdd && <button type="button" onClick={() => setEditing('new')}><Plus aria-hidden="true" />{t(`veh.rec.${kind}.add` as MessageKey)}</button>}</div>
     {kind !== 'trips' && <p className="muted vehNote">{t('veh.rec.moneyNote')}</p>}
-    <form className="cmFilters" role="search" onSubmit={(e) => { e.preventDefault(); setOffset(0); setSearch(q.trim()); }}>
+    <form className="cmFilters" role="search" onSubmit={(e) => { e.preventDefault(); setOffset(0); setSearch(q.trim()); setRun((n) => n + 1); }}>
       <label className="cmInline cmSearch"><span>{t('veh.rec.search')}</span><input type="search" dir="auto" value={q} maxLength={80} onChange={(e) => setQ(e.target.value)} /></label>
       <button type="submit" className="secondary">{t('veh.list.find')}</button>
     </form>

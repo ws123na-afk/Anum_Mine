@@ -125,16 +125,17 @@ function ListPanel({ onOpen, onAdd, onDenied }: { onOpen: (id: string) => void; 
   const [search, setSearch] = useState('');
   const [archived, setArchived] = useState(false);
   const [offset, setOffset] = useState(0);
+  const [run, setRun] = useState(0);
   const [page, setPage] = useState<Load<VehiclePage<Vehicle>>>({ kind: 'loading' });
   const load = useCallback(async () => {
     setPage({ kind: 'loading' });
     try { setPage({ kind: 'ready', value: await api.listVehicles(search, archived, offset, PAGE_SIZE) }); } catch (e) { setPage(failed(e)); }
-  }, [search, archived, offset]);
+  }, [search, archived, offset, run]);
   useEffect(() => { void load(); }, [load]);
   useEffect(() => { if (page.kind === 'denied') onDenied(); }, [page.kind, onDenied]);
   return <section className="surface cmPanel" aria-labelledby="veh-list-title">
     <h2 id="veh-list-title">{archived ? t('veh.list.archivedTitle') : t('veh.list.title')}</h2>
-    <form className="cmFilters" role="search" onSubmit={(e) => { e.preventDefault(); setOffset(0); setSearch(q.trim()); }}>
+    <form className="cmFilters" role="search" onSubmit={(e) => { e.preventDefault(); setOffset(0); setSearch(q.trim()); setRun((n) => n + 1); }}>
       <label className="cmInline cmSearch"><span>{t('veh.list.search')}</span><input type="search" dir="auto" value={q} maxLength={80} onChange={(e) => setQ(e.target.value)} /></label>
       <button type="submit" className="secondary">{t('veh.list.find')}</button>
       <label className="vehCheck"><input type="checkbox" checked={archived} onChange={(e) => { setOffset(0); setArchived(e.target.checked); }} />{t('veh.list.showArchived')}</label>

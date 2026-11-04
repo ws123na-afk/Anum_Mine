@@ -53,3 +53,5 @@
 .vehPayNow p { margin: 0; }
 .vehPayList { max-height: none; }
 .vehLinkButton { align-items: center; border: 1px solid var(--d-line); border-radius: var(--d-r-control); display: inline-flex; justify-self: start; min-height: 44px; padding: 0 var(--d-s3); }
+/* Six vehicle sections wrap onto a second row on narrow screens instead of hiding one past the edge. */
+.vehDetail > .settingsTabs { flex-wrap: wrap; margin: 0; overflow: visible; }
