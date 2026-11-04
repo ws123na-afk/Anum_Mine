@@ -1,0 +1,36 @@
+/* Business books (docs/business-books.md#web): the section pills, the P&L statement, ages, the trend bars and the small lists. Shared tokens only. */
+.bkBooks { gap: var(--d-s3); }
+.bkNav { display: flex; flex-wrap: wrap; gap: var(--d-s2); min-width: 0; }
+.bkNav button { font-size: var(--text-sm); }
+.bkNav button[aria-current="page"] { background: var(--d-violet); border-color: var(--d-violet); color: #fff; }
+.bkPeriod input[type="date"] { min-width: 0; }
+.bkGrid { grid-template-columns: minmax(0, 1fr); }
+@media (min-width: 1100px) {
+  .bkGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .bkWide { grid-column: 1 / -1; }
+}
+.bkStatement th[scope="row"] { font-weight: 400; }
+.bkStatement .bk-line th[scope="row"] { padding-inline-start: var(--d-s5); }
+.bkStatement .bk-total th, .bkStatement .bk-total td { font-weight: 600; }
+.bkStatement .bk-result th, .bkStatement .bk-result td { border-top: 2px solid var(--d-line); font-weight: 700; }
+.bkNeg { color: var(--d-stop); }
+.bkSub { font-size: var(--text-base); margin: 0; }
+.bkList { display: grid; gap: var(--d-s2); list-style: none; margin: 0; padding: 0; }
+.bkList > li { align-items: center; border-bottom: 1px solid var(--d-line); display: flex; flex-wrap: wrap; gap: var(--d-s1) var(--d-s3); justify-content: space-between; min-width: 0; padding-block: var(--d-s1); }
+.bkList > li > span { display: grid; gap: 2px; min-width: 0; overflow-wrap: anywhere; }
+.bkList small, .bzTable small { color: var(--d-muted); display: block; font-size: var(--text-xs); }
+.bkNotes { color: var(--d-muted); display: grid; font-size: var(--text-sm); gap: var(--d-s1); margin: 0; padding-inline-start: var(--d-s5); }
+.bkAging caption { color: var(--d-muted); font-size: var(--text-sm); font-weight: 600; padding-block-end: var(--d-s1); text-align: start; }
+.bkTrend th small { display: block; }
+.bkBars { display: grid; gap: 2px; min-inline-size: 96px; }
+.bkBar { block-size: 6px; border-radius: 3px; display: block; max-inline-size: 100%; }
+.bkBar.in { background: var(--d-violet); }
+.bkBar.out { background: var(--d-muted); }
+.bkRow { align-items: end; display: grid; gap: var(--d-s2); grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; }
+.bkRow .field { margin: 0; min-width: 0; }
+.bkFieldset { border: 0; display: grid; gap: var(--d-s3); margin: 0; min-width: 0; padding: 0; }
+.bkChoice { border: 0; display: flex; flex-wrap: wrap; gap: var(--d-s3); margin: 0 0 var(--d-s2); padding: 0; }
+.bkChoice legend { font-size: var(--text-sm); font-weight: 600; margin-bottom: var(--d-s1); }
+.bkTotal { align-self: end; font-weight: 600; margin: 0; }
+@media (min-width: 900px) { .bkWideDialog { max-inline-size: 760px; } }
+@media (max-width: 560px) { .bkRow { grid-template-columns: minmax(0, 1fr); } }
