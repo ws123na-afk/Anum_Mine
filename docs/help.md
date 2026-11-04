@@ -20,7 +20,7 @@ The full list is in the [README documentation index](../README.md#documentation-
 ## How it is bundled
 
 - **Web**: `apps/web/src/helpArticles.ts` imports `docs/help/*.md` with `import.meta.glob(..., { query: '?raw', eager: true })`, so the articles are part of the build. The help panel chunk loads only when someone opens help. Parsing, locale fallback (English when an Arabic file is missing), search and the page-to-article map are in `apps/web/src/lib/help.ts`.
-- **Flutter**: the files are copied to `apps/mobile/assets/help/` by `node scripts/sync-help.mjs` and declared as assets. `apps/mobile/test/help/help_assets_test.dart` fails when the copies differ from `docs/help`, so run the script after editing an article.
+- **Flutter**: the files are copied to `apps/mobile/assets/help/` by `node scripts/sync-help.mjs` and declared as assets. `apps/mobile/test/help/help_assets_test.dart` fails when the copies differ from `docs/help`, and `pnpm docs:check` fails on the same difference (it also runs where Flutter is not installed), so run the script after editing an article.
 
 ## Search
 
