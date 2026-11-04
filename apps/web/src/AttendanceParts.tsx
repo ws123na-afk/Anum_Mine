@@ -463,7 +463,7 @@ function ShortcutCard({ sites }: { sites: AttendanceSite[] }) {
     <ol className="attSteps">
       {(['1', '2', '3', '4', '5', '6'] as const).map((n) => <li key={n}>{t(`att.shortcut.step${n}` as MessageKey, { site })}</li>)}
     </ol>
-    <pre className="attCode" dir="ltr">{`POST /api/v1/attendance/device/events\nAuthorization: Bearer <token>\nContent-Type: application/json\n\n{"event": "arrive", "site": "${site}", "idempotency_key": "<date>-arrive"}`}</pre>
+    <pre className="attCode" dir="ltr" tabIndex={0} aria-label={t('att.shortcut.request')}>{`POST /api/v1/attendance/device/events\nAuthorization: Bearer <token>\nContent-Type: application/json\n\n{"event": "arrive", "site": "${site}", "idempotency_key": "<date>-arrive"}`}</pre>
     <p className="muted">{t('att.shortcut.token')}</p>
   </section>;
 }

@@ -304,5 +304,6 @@ export const attendanceEn = {
   'att.shortcut.step4': 'Make the idempotency key from Current Date (ISO 8601) plus the word arrive, so a retry is never counted twice.',
   'att.shortcut.step5': 'Repeat with Leave and the event leave.',
   'att.shortcut.step6': 'Test it once by running the shortcut by hand, then check the Today tab.',
+  'att.shortcut.request': 'The request the Shortcut sends',
   'att.shortcut.token': 'The token: a long-lived iPhone token with the attendance permission comes with Settings, Integrations, iPhone. Until it is available, use your ANUM sign-in token, which expires; see docs/attendance.md.',
 } satisfies Record<string, Message>;

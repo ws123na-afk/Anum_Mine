@@ -238,7 +238,7 @@ function ReportsPanel({ person, sites, timeZone }: { person: string | null; site
       </dl>
       {p.days.length === 0
         ? <Empty icon={<Clock3 aria-hidden="true" />} title={t('att.reports.emptyTitle')} text={t('att.reports.emptyText')} />
-        : <div className="cmTableWrap"><table className="cmTable attTable">
+        : <div className="cmTableWrap" tabIndex={0} role="region" aria-label={t('att.reports.tableCaption')}><table className="cmTable attTable">
           <caption className="visuallyHidden">{t('att.reports.tableCaption')}</caption>
           <thead><tr><th scope="col">{t('att.col.date')}</th><th scope="col">{t('att.col.in')}</th><th scope="col">{t('att.col.out')}</th><th scope="col" className="num">{t('att.col.worked')}</th><th scope="col" className="num">{t('att.col.verified')}</th><th scope="col">{t('att.col.sites')}</th><th scope="col">{t('att.col.notes')}</th></tr></thead>
           <tbody>{p.days.map((d) => <tr key={d.day}>

@@ -303,5 +303,6 @@ export const attendanceAr = {
   'att.shortcut.step4': 'كوّن مفتاح عدم التكرار من التاريخ الحالي (ISO 8601) مع كلمة arrive، حتى لا تُحتسب إعادة المحاولة مرتين.',
   'att.shortcut.step5': 'كرر ذلك مع المغادرة والحدث leave.',
   'att.shortcut.step6': 'جرّبه مرة بتشغيل الاختصار يدويًا، ثم راجع تبويب اليوم.',
+  'att.shortcut.request': 'الطلب الذي يرسله الاختصار',
   'att.shortcut.token': 'الرمز: يأتي رمز آيفون طويل الأمد بصلاحية الحضور مع الإعدادات، التكاملات، آيفون. وحتى يتوفر، استخدم رمز تسجيل دخولك إلى أنوم، وهو ينتهي؛ راجع docs/attendance.md.',
 } satisfies Record<string, Message>;
