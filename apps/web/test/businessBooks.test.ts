@@ -139,3 +139,15 @@ describe('business books review fixes', () => {
     assert.ok(!rows.some((row) => row.key === 'fx_differences'));
   });
 });
+
+describe('a quiet period still shows what is carried', () => {
+  test('loans, money owed to members and intercompany balances keep the report from being empty', () => {
+    const base = report();
+    const zero = { ...base, pnl: { ...base.pnl, revenue: group([], '0.00'), cost_of_sales: group([], '0.00'), operating_expenses: group([], '0.00') } };
+    assert.ok(reportIsEmpty(zero));
+    assert.ok(!reportIsEmpty({ ...zero, balances: { ...zero.balances, debt: [{ currency: 'SAR', amount: '10000.00' }] } }));
+    assert.ok(!reportIsEmpty({ ...zero, balances: { ...zero.balances, owed_to_members: [{ currency: 'SAR', amount: '80.00' }] } }));
+    assert.ok(!reportIsEmpty({ ...zero, balances: { ...zero.balances, intercompany: [{ workspace_id: 'w', name: 'Other', currency: 'SAR', amount: '-50.00' }] } }));
+    assert.ok(!reportIsEmpty({ ...zero, equity: { contributions: [], drawings: [{ currency: 'SAR', amount: '5.00' }] } }));
+  });
+});

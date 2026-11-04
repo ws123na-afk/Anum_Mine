@@ -162,7 +162,10 @@ export function reportIsEmpty(report: BooksReport): boolean {
   const pnl = report.pnl;
   return zero(pnl.revenue.total) && zero(pnl.cost_of_sales.total) && zero(pnl.operating_expenses.total) && zero(pnl.other_income.total)
     && zero(pnl.finance_costs.total) && pnl.not_converted.length === 0 && Object.keys(report.cash_flow.lines).length === 0
-    && Object.keys(report.cash_flow.paid_by_members).length === 0 && report.balances.receivables.length === 0 && report.balances.payables.length === 0;
+    && Object.keys(report.cash_flow.paid_by_members).length === 0 && report.balances.receivables.length === 0 && report.balances.payables.length === 0
+    // Balances carried from earlier periods (loans, money owed to members, related businesses) and owner money in or out.
+    && report.balances.debt.length === 0 && report.balances.owed_to_members.length === 0 && report.balances.intercompany.length === 0
+    && report.equity.contributions.length === 0 && report.equity.drawings.length === 0;
 }
 
 const iso = (value: Date) => `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`;

@@ -201,7 +201,9 @@ class Book:
         self.allocations = {item.id: item for item in inputs.allocations}
         self.live_allocations = {item.id: item for item in inputs.allocations if item.status == "active"}
         # A bill payment counts while it is not voided and, for an allocation, while the allocation is still active.
-        self.bill_payments = [item for item in inputs.bill_payments if item.voided_at is None and item.bill_id in self.bills
+        # An allocation payment is dated by the allocation as it is now: a date corrected in Finance moves it.
+        self.bill_payments = [item if item.kind != PaymentKind.ALLOCATION else item.model_copy(update={"paid_on": self.live_allocations[item.allocation_id].posted_on})
+                              for item in inputs.bill_payments if item.voided_at is None and item.bill_id in self.bills
                               and (item.kind != PaymentKind.ALLOCATION or item.allocation_id in self.live_allocations)]
         self.paying = {item.allocation_id for item in inputs.bill_payments if item.voided_at is None and item.allocation_id}
         self.credit_notes = [item for item in inputs.credit_notes if _status(item) == "issued" and item.invoice_id in self.invoices]

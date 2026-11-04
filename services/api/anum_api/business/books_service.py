@@ -37,6 +37,7 @@ CATEGORY = re.compile(r"^[a-z][a-z0-9_]{0,39}$")
 SAFE_ID = re.compile(r"^[A-Za-z0-9_.:-]{1,80}$")
 COUNTRY = re.compile(r"^[A-Z]{2}$")
 MAX_AMOUNT = Decimal(1000000000)
+MAX_LIVE_PAYMENTS = 500  # payments in force on one bill
 
 
 class BooksError(Exception):
@@ -165,8 +166,9 @@ def live_payments(store: BooksStore, bill_id: str, live_allocations: set[str] | 
 
     Rules that protect a bill (its balance, its money, voiding it) pass every allocation that still exists, so one
     waiting for review in Finance keeps holding its bill; the figures pass only the active ones."""
-    rows, _ = store.find("bill_payments", where={"bill_id": bill_id}, order_by="paid_on", descending=False, limit=200)
-    return [p for p in rows if p.voided_at is None and (p.kind != PaymentKind.ALLOCATION or live_allocations is None or p.allocation_id in live_allocations)]
+    # Only payments not voided are read (voided ones never crowd them out), and a bill takes at most MAX_LIVE_PAYMENTS of them.
+    rows, _ = store.find("bill_payments", where={"bill_id": bill_id, "voided_at": None}, order_by="paid_on", descending=False, limit=MAX_LIVE_PAYMENTS + 1)
+    return [p for p in rows if p.kind != PaymentKind.ALLOCATION or live_allocations is None or p.allocation_id in live_allocations]
 
 
 def paid_amount(payments: list[BillPayment]) -> Decimal:
@@ -248,7 +250,10 @@ def pay_bill(context: TenantContext, store: BooksStore, bill_id: str, *, kind: P
     if bill.status == BillStatus.VOID:
         raise BooksError(409, "This bill is void.", "bill_void")
     allocations = allocations_by_id(context)
-    balance = bill.total - paid_amount(live_payments(store, bill.id, set(allocations)))
+    holding = live_payments(store, bill.id, set(allocations))
+    if len(holding) >= MAX_LIVE_PAYMENTS:
+        raise BooksError(409, "This bill already has the most payments one bill can take.", "too_many_payments")
+    balance = bill.total - paid_amount(holding)
     if balance <= 0:
         raise BooksError(409, "This bill is already paid.", "bill_paid")
     if kind == PaymentKind.ALLOCATION:
@@ -408,7 +413,8 @@ def gather(context: TenantContext) -> Inputs:
         settings = settings_or_409(store)
         found: dict[str, list[Any]] = {}
         for kind in ("bills", "bill_payments", "adjustments", "intercompany", "budgets", "rates", "allocation_tags", "vendors", "cost_centres"):
-            rows, total = store.find(kind, limit=MAX_SCAN)
+            # Voided bill payments never count, so they are not read (and never crowd out the ones that do).
+            rows, total = store.find(kind, where={"voided_at": None} if kind == "bill_payments" else None, limit=MAX_SCAN)
             truncated = truncated or total > MAX_SCAN
             found[kind] = rows
     with open_business_store(context) as business:

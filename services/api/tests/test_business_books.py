@@ -604,3 +604,36 @@ def test_every_state_changing_books_route_is_audited_without_amounts_or_text() -
                                                 "currency": "SAR", "amount": "10", "description": secret}).json()
     call("POST", f"/intercompany/{entry['id']}/void", json={"reason": secret})
     probe.assert_covered()
+
+
+def test_a_paid_bill_stays_paid_however_many_voided_payments_came_before() -> None:
+    setup_books()
+    made = bill(vendor()["id"], subtotal="100", tax="0").json()
+    path = f"{API}/bills/{made['id']}/payments"
+    from anum_api.business.books_models import BillPayment
+
+    scoped = books_memory_store.scoped(ctx())
+    for index in range(201):  # earlier payments typed by mistake and voided (seeded: the API limits writes per minute)
+        scoped.add("bill_payments", BillPayment(id=f"bpay_void_{index:03d}", tenant_id=TENANT, workspace_id=BUSINESS, created_at=utc_now(), bill_id=made["id"],
+                                                kind="recorded", amount=Decimal("1"), currency="SAR", paid_on=today(), method="cash", recorded_by="owner_books",
+                                                voided_at=utc_now(), voided_by="owner_books", void_reason="typed twice"))
+    assert client.post(path, headers=MEMBER, json={"amount": "100", "method": "cash"}).json()["payment_state"] == "paid"
+    again = client.post(path, headers=MEMBER, json={"amount": "100", "method": "cash"})
+    assert again.status_code == 409 and again.json()["code"] == "bill_paid"
+    assert client.post(f"{API}/bills/{made['id']}/void", headers=OWNER, json={"reason": "duplicate"}).json()["code"] == "has_payments"
+
+
+def test_an_allocation_paying_a_bill_counts_on_its_current_date() -> None:
+    setup_books()
+    canonical, _card = fuel_payment()
+    allocate(canonical)
+    station = vendor("Petromin", default_category="fuel")
+    fuel_bill = bill(station["id"], subtotal="150", tax="0").json()
+    assert client.post(f"{API}/bills/{fuel_bill['id']}/payments", headers=MEMBER, json={"kind": "allocation", "allocation_id": allocation_id()}).status_code == 201
+    moved = date(today().year - 1, 6, 15)
+    for row in links_memory_store.allocations.values():
+        row.posted_on = moved  # the payment's date was corrected in Finance
+    this_year = report(basis="cash")
+    assert this_year["pnl"]["operating_expenses"]["total"] == "0.00"
+    last_year = report(basis="cash", **{"from": moved.replace(day=1).isoformat(), "to": moved.replace(day=28).isoformat()})
+    assert last_year["pnl"]["operating_expenses"]["total"] == "150.00"

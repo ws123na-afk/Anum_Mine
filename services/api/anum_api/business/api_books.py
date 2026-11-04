@@ -433,7 +433,7 @@ def _bills_filtered(context: TenantContext, q: str | None, status_filter: str | 
         bills, found_total = store.find("bills", where=where, text=(q or "").strip() or None, text_fields=("reference", "description", "category"),
                               order_by="bill_date", limit=MAX_SCAN)
         ids = [bill.id for bill in bills]
-        payments, _ = store.find("bill_payments", where={"bill_id": ids}, limit=MAX_SCAN * 2) if ids else ([], 0)
+        payments, _ = store.find("bill_payments", where={"bill_id": ids, "voided_at": None}, limit=MAX_SCAN * 10) if ids else ([], 0)
         vendors = _vendor_names(store)
     by_bill: dict[str, list[Any]] = {}
     for payment in payments:
@@ -485,7 +485,10 @@ def _bill_detail(context: TenantContext, bill_id: str) -> dict[str, Any]:
     live = {key for key, row in allocations.items() if row.status == "active"}
     with open_books_store(context) as store:
         bill = _found(store, "bills", bill_id, "Bill")
-        payments, _ = store.find("bill_payments", where={"bill_id": bill.id}, order_by="paid_on", descending=False, limit=200)
+        payments = S.live_payments(store, bill.id, None)
+        voided, _ = store.find("bill_payments", where={"bill_id": bill.id}, order_by="created_at", limit=50 + len(payments))
+        payments += [p for p in voided if p.voided_at is not None][:50]  # the newest voided ones, for the trail
+        payments.sort(key=lambda p: (p.paid_on, p.created_at, p.id))
         vendors = _vendor_names(store)
     return bill_view(context, bill, payments, live, vendors, _today(), detail=True, holding=set(allocations))
 
@@ -613,7 +616,7 @@ def list_allocations(status_filter: str | None = Query(default=None, alias="stat
     rows = sorted(S.allocations_by_id(context).values(), key=lambda a: (a.posted_on, a.created_at, a.id), reverse=True)
     with open_books_store(context) as store:
         tags = {t.allocation_id: t for t in store.find("allocation_tags", limit=MAX_SCAN)[0]}
-        payments = [p for p in store.find("bill_payments", where={"kind": PaymentKind.ALLOCATION.value}, limit=MAX_SCAN)[0] if p.voided_at is None]
+        payments = store.find("bill_payments", where={"kind": PaymentKind.ALLOCATION.value, "voided_at": None}, limit=MAX_SCAN)[0]
         settings = store.get_settings()
     paying = {p.allocation_id: p.bill_id for p in payments}
     needle = (q or "").strip().casefold()
