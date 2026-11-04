@@ -7,6 +7,7 @@ export type FinanceSmsKind =
 export type FinanceSmsStatus = 'posted' | 'review' | 'duplicate' | 'attached' | 'rejected' | 'dismissed' | 'failed';
 export type FinanceSmsDeviceStatus = 'active' | 'paused' | 'revoked';
 export type FinanceLedgerKind = 'personal' | 'business';
+export type FinanceDeviceScope = 'finance.sms' | 'finance.wallet';
 
 export interface FinanceSmsAccountMapping { last4: string; account_id: string; credit_limit?: string | null }
 export interface FinanceSmsSenderMapping { sender: string; bank: string }
@@ -68,6 +69,7 @@ export interface FinanceSmsDevice {
   name: string;
   status: FinanceSmsDeviceStatus;
   token_hint: string;
+  scopes: FinanceDeviceScope[];
   created_at: string;
   rotated_at: string | null;
   revoked_at: string | null;
@@ -155,6 +157,7 @@ export interface FinanceSmsRule {
 export interface FinanceSmsCorrectionResult {
   message: FinanceSmsMessage;
   entry_id: string;
+  canonical_id: string;
   reversed_entry_id: string | null;
   proposed_rule: FinanceSmsRule | null;
   rule_error: string | null;
@@ -220,6 +223,8 @@ export interface FinanceLedgerDashboard {
 
 export interface FinanceJournalEntry {
   id: string;
+  /** The canonical transaction id: stable across corrections; other modules link to it. */
+  canonical_id: string | null;
   posted_on: string;
   kind: string;
   category: string | null;
@@ -235,6 +240,6 @@ export interface FinanceJournalEntry {
   fx_rate: string | null;
   reconciled_at: string | null;
   postings: { ledger_account: string; account_id: string | null; amount: string; currency: string }[];
-  sources: { kind: 'sms' | 'wallet'; message_id: string; status: string; received_at: string }[];
+  sources: { kind: 'sms' | 'wallet' | 'statement'; message_id: string; status: string; received_at: string }[];
 }
 export interface FinanceJournalPage { items: FinanceJournalEntry[]; total: number; limit: number; offset: number }

@@ -5,7 +5,7 @@
 import { useCallback, useEffect, useId, useMemo, useState, type FormEvent } from 'react';
 import { CheckCircle2, ClipboardCopy, MessageSquareText, Pause, Play, Plus, RefreshCw, ShieldCheck, Smartphone, Trash2, Undo2, XCircle } from 'lucide-react';
 import type {
-  FinanceAccount, FinanceCategory, FinanceImport, FinanceJournalPage, FinanceLedgerDashboard, FinanceReconcileView, FinanceSmsBank,
+  FinanceAccount, FinanceCategory, FinanceDeviceScope, FinanceImport, FinanceJournalPage, FinanceLedgerDashboard, FinanceReconcileView, FinanceSmsBank,
   FinanceSmsCorrection, FinanceSmsDevice, FinanceSmsDeviceToken, FinanceSmsMessage, FinanceSmsMessagePage, FinanceSmsRule, FinanceSmsSettings,
   FinanceSmsStatus, FinanceSmsStatusView,
 } from '@anum/contracts';
@@ -114,12 +114,13 @@ function Devices({ status, onChanged }: { status: FinanceSmsStatusView; onChange
   const [error, setError] = useState<string | null>(null);
   const [issued, setIssued] = useState<FinanceSmsDeviceToken | null>(null);
   const [revoking, setRevoking] = useState<FinanceSmsDevice | null>(null);
+  const [scopes, setScopes] = useState<FinanceDeviceScope[]>(['finance.sms', 'finance.wallet']);
   const nameId = useId();
   const url = ingestUrl(apiBaseUrl, status.ingest_path);
   const add = async (event: FormEvent) => {
     event.preventDefault();
     setBusy(true); setError(null);
-    try { setIssued(await api.createDevice(name.trim() || 'iPhone')); setName(''); reload(); onChanged(); }
+    try { setIssued(await api.createDevice(name.trim() || 'iPhone', scopes)); setName(''); reload(); onChanged(); }
     catch (e) { setError(describeError(e)); } finally { setBusy(false); }
   };
   const change = async (device: FinanceSmsDevice, what: 'pause' | 'resume' | 'revoke' | 'rotate') => {
@@ -141,6 +142,7 @@ function Devices({ status, onChanged }: { status: FinanceSmsStatusView; onChange
       : <ul className="cmList">{devices.value.map((d) => <li key={d.id} className="finSmsDevice">
         <div><strong dir="auto">{d.name}</strong>
           <small>{t(`fsms.device.${d.status}` as MessageKey)} · {t('fsms.device.token', { hint: d.token_hint })} · {t('fsms.device.messages', { count: d.message_count })}</small>
+          <small>{(d.scopes ?? []).map((scope) => t(`fsms.scope.${scope === 'finance.sms' ? 'sms' : 'wallet'}` as MessageKey)).join(', ')}</small>
           <small>{t('fsms.lastOk')}: {when(d.last_ok_at)} · {t('fsms.lastError')}: {d.last_error ? `${reasonLabel(d.last_error)} (${when(d.last_error_at)})` : '-'}</small></div>
         {d.status !== 'revoked' && <div className="actions">
           {d.status === 'active'
@@ -153,7 +155,11 @@ function Devices({ status, onChanged }: { status: FinanceSmsStatusView; onChange
     <form className="finSmsAdd" onSubmit={(e) => void add(e)}>
       <label className="cmInline" htmlFor={nameId}><span>{t('fsms.device.name')}</span></label>
       <input id={nameId} value={name} maxLength={60} placeholder="iPhone" onChange={(e) => setName(e.target.value)} disabled={!status.ready} />
-      <button type="submit" disabled={busy || !status.ready}><Plus aria-hidden="true" />{t('fsms.device.add')}</button>
+      <button type="submit" disabled={busy || !status.ready || scopes.length === 0}><Plus aria-hidden="true" />{t('fsms.device.add')}</button>
+      <fieldset className="finSmsScopes"><legend>{t('fsms.device.scopes')}</legend>
+        {(['finance.sms', 'finance.wallet'] as FinanceDeviceScope[]).map((scope) => <label key={scope} className="finCheck"><input type="checkbox" checked={scopes.includes(scope)}
+          onChange={(e) => setScopes(e.target.checked ? [...scopes, scope] : scopes.filter((s) => s !== scope))} />{t(`fsms.scope.${scope === 'finance.sms' ? 'sms' : 'wallet'}` as MessageKey)}</label>)}
+      </fieldset>
     </form>
     <FormError id="fsms-device-error" text={error} />
     {issued && <TokenDialog issued={issued} url={url} onClose={() => setIssued(null)} />}

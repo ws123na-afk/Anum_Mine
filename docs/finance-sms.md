@@ -25,7 +25,7 @@ Still not built (stated plainly): PDF statement import, bank APIs (Open Finance 
 ## How a message travels
 
 1. The Shortcut posts `{"message": ..., "sender": ...}` to `POST /api/v1/finance/sms/ingest` with `Authorization: Bearer <device token>`, over HTTPS only.
-2. **Who:** the token is resolved in its owner's own tenant, workspace and user scope; the secret is compared in constant time with the stored hash. The owner must still be an active member with `finance:manage` (a viewer's or a former member's devices stop working), and the workspace must not be archived. Nothing in the body can name a user, workspace or account: other fields are refused (422).
+2. **Who:** the token carries its **scopes** (`finance.sms`, `finance.wallet`, chosen when the device is connected; later iPhone automations add their own), and each ingest route accepts only a token with its scope (403 `scope_missing`). The token is resolved in its owner's own tenant, workspace and user scope; the secret is compared in constant time with the stored hash. The owner must still be an active member with `finance:manage` (a viewer's or a former member's devices stop working), and the workspace must not be archived. Nothing in the body can name a user, workspace or account: other fields are refused (422).
 3. **Limits:** 30 messages a minute and 1,000 a day per device (429 with `Retry-After`).
 4. **Refused without storing text:** one-time codes, verification and activation codes, passwords and PINs, promotions, and anything without money in it. Only a row with the status `rejected` and the reason code is kept, so the person can see that ANUM ignored something.
 5. **Retries are safe:** the same device, sender, normalized text and minute make an idempotency key (SHA-256); a retried delivery gets the first answer and changes nothing. A processing failure keeps the masked message as `failed` and answers 503 with `Retry-After`; the retry processes it again.
@@ -45,6 +45,17 @@ Apple Pay (the Wallet "Transaction" automation) and a bank SMS often report the 
 - **Matching** (`wallet.same_payment`), never on the amount alone: the same account, direction, amount and currency; within 30 minutes when both carry a time, else within 2 days and the merchants must share a word; merchants that do not disagree; no conflicting reference; and the existing transaction has no source of the same kind (a second Wallet event is a second purchase). One candidate attaches (status `attached`, reason `attached_to_existing`); more than one waits for review (`ambiguous_match`); none posts a new entry. Either source may arrive first, and a delayed SMS still attaches within the window.
 - **Atomic:** ingestion for one person runs under a per-owner lock in the process and a PostgreSQL transaction-level advisory lock (`pg_advisory_xact_lock`), held only for the short unit of work that matches and writes (no model or provider call inside), so two reports arriving together cannot both post. A unique index allows at most one recorded or attached source of each kind per entry (`uq_finance_sms_messages_entry_source`), and the idempotency key makes a retried delivery a no-op.
 - **Dashboard:** one expense; the journal lists the entry's sources (Apple Pay, bank message).
+
+## Canonical transactions
+
+Every payment is **one canonical transaction**, whatever reported it: an SMS, Apple Pay, a statement line or the person's own entry. Its id is `canonical_id` on the journal entry: the id of the first entry, kept by every reversal, correction and clearing entry of the same payment, so links from other modules (vehicles, purchases, documents, business P&L) point at `canonical_id` and survive corrections. `GET /api/v1/finance/ledger/transactions/{canonical_id}` returns the current entry, the whole chain and every source behind it.
+
+- **Statement and hand-entered transactions are journalled too** (entry sources `statement` and `manual`, each linked to its stage 2 row). Editing such a row's amount, date or category reverses its entry and posts the new figures in the same chain; the row keeps its id. Deleting it, undoing its import or deleting its account reverses the entries. Rows recorded before this release have no stored entry and are counted from their category on the fly until they are edited.
+- **Sources** are rows of `finance_sms_messages` with `source` `device` or `paste` (SMS), `wallet` (Apple Pay) or `statement`, linked by `entry_id`; at most one recorded or attached source of each kind per entry (unique index).
+
+## Reconciliation on import
+
+Importing a CSV statement **reconciles instead of creating** (`sms_service.reconcile_rows`, under the owner's lock): each new row is compared with the recorded transactions on that account (same direction, amount and currency, within 2 days). When exactly one matches with an agreeing merchant (or the entry's own words, such as "Salary") or reference, the row is attached to it as a `statement` source and the entry is marked reconciled; nothing is added. When it could be more than one, or only the amount, account and dates agree, the row waits in Review (`ambiguous_match`) and is not added: the person records it there or dismisses it. Everything else is imported as before. The import answers `reconciled` and `held_for_review`. An SMS or Apple Pay report that arrives after the statement attaches to the statement's transaction the same way.
 
 ## Parsing
 
@@ -100,9 +111,9 @@ Statement and hand-entered transactions have no stored entry; the dashboard buil
 
 Off by default. It works only after the person turns it on with an explicit consent ("the masked text is sent to my workspace's own model"), only when they ask on one message, only with the workspace's own model and budget, and at most `ai.daily_cap` times a day (default 20). The model sees the masked text inside an untrusted-data block, and its answer only fills the correction form: it never records, confirms or teaches anything.
 
-## Reconciliation
+## Manual reconciliation
 
-After a CSV statement import, `GET /sms/reconcile/{import_id}` matches each statement row with an SMS-recorded transaction on the same account with the same amount within 3 days. Confirming (`POST`) removes the statement's copy (the SMS entry stays) and marks the entry reconciled; statement rows no message reported stay as imported, and recorded messages missing from the statement are listed for checking.
+For an import whose rows were added anyway, `GET /sms/reconcile/{import_id}` matches each statement row with an SMS-recorded transaction on the same account with the same amount within 3 days. Confirming (`POST`) reverses the statement copy's entry, attaches the line as a `statement` source of the recorded transaction and marks it reconciled; statement rows no message reported stay as imported, and recorded messages missing from the statement are listed for checking.
 
 ## Dashboard
 
@@ -132,9 +143,9 @@ All under `/api/v1/finance`; `finance:read` reads, `finance:manage` changes; eve
 
 | Route | |
 |---|---|
-| `GET /sms/status`, `GET /sms/settings`, `GET /sms/banks`, `GET /sms/devices`, `GET /sms/messages`, `GET /sms/messages/{id}`, `GET /sms/rules`, `GET /sms/reconcile/{import_id}`, `GET /ledger/dashboard`, `GET /ledger/entries` | read |
+| `GET /sms/status`, `GET /sms/settings`, `GET /sms/banks`, `GET /sms/devices`, `GET /sms/messages`, `GET /sms/messages/{id}`, `GET /sms/rules`, `GET /sms/reconcile/{import_id}`, `GET /ledger/dashboard`, `GET /ledger/entries`, `GET /ledger/transactions/{canonical_id}` | read |
 | `PUT /sms/settings` (with `version`; turning on needs the safety check; AI help needs `ai_consent`), `POST /sms/self-test` | manage |
-| `POST /sms/devices` (token shown once), `POST /sms/devices/{id}/rotate`, `/pause`, `/resume`, `/revoke` | manage |
+| `POST /sms/devices` (`{name, scopes}`, token shown once), `POST /sms/devices/{id}/rotate`, `/pause`, `/resume`, `/revoke` | manage |
 | `POST /sms/paste`, `POST /sms/messages/{id}/post`, `/dismiss`, `/reverse`, `/suggest` | manage |
 | `POST /sms/rules/{id}/activate`, `/disable`, `DELETE /sms/rules/{id}`, `POST /sms/reconcile/{import_id}` | manage |
 | `POST /sms/ingest`, `POST /wallet/ingest` | device token only ([How a message travels](#how-a-message-travels), [Apple Wallet](#apple-wallet)) |

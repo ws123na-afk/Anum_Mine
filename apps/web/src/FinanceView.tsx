@@ -496,7 +496,9 @@ function Import({ accounts, onChanged, onAddAccount, onDone }: { accounts: Finan
     setBusy(true); setError(null);
     try {
       const result = await api.confirmImport(body());
-      setNotice(t('finance.import.done', { imported: result.imported_count, duplicates: result.duplicate_count, errors: result.error_count }));
+      const matched = (result.reconciled ?? 0) || (result.held_for_review ?? 0)
+        ? ` ${t('fsms.import.reconciled', { reconciled: result.reconciled ?? 0, review: result.held_for_review ?? 0 })}` : '';
+      setNotice(t('finance.import.done', { imported: result.imported_count, duplicates: result.duplicate_count, errors: result.error_count }) + matched);
       setPreview(null); setFile(null); setMapping(null); onChanged(); void loadHistory();
     } catch (e) { setError(describeError(e)); } finally { setBusy(false); }
   }

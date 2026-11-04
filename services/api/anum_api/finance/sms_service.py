@@ -176,7 +176,7 @@ def authorize(authorization: str | None) -> tuple[TenantContext, str, str]:
     return context, device_id, secret
 
 
-def check_device(device: SmsDevice | None, secret: str) -> SmsDevice:
+def check_device(device: SmsDevice | None, secret: str, scope: str = "finance.sms") -> SmsDevice:
     # The same answer for an unknown device and a wrong secret.
     if device is None or not hmac.compare_digest(device.token_hash, secret_hash(secret)):
         raise IngestError(401, UNKNOWN, "invalid_token")
@@ -184,6 +184,9 @@ def check_device(device: SmsDevice | None, secret: str) -> SmsDevice:
         raise IngestError(401, "This device was disconnected. Create a new device token in ANUM to connect it again.", "revoked")
     if device.status == DeviceStatus.PAUSED:
         raise IngestError(409, "This device is paused. Resume it in ANUM under Finance, iPhone SMS.", "paused")
+    if scope not in device.scopes:
+        raise IngestError(403, f"This device token may not send to this address (it lacks the {scope} permission). Make a new token with it in ANUM.",
+                          "scope_missing")
     return device
 
 
@@ -358,7 +361,7 @@ class Draft:
 
 
 def post(finance: FinanceStore, store: SmsStore, context: TenantContext, settings: SmsSettings, draft: Draft,
-         *, source: EntrySource, source_ref: str | None, now: datetime) -> tuple[JournalEntry, list[Transaction]]:
+         *, source: EntrySource, source_ref: str | None, now: datetime, canonical_id: str | None = None) -> tuple[JournalEntry, list[Transaction]]:
     """Write one balanced entry and the stage 2 transactions of its account legs."""
     from .summary import settings_for as finance_settings
 
@@ -405,7 +408,7 @@ def post(finance: FinanceStore, store: SmsStore, context: TenantContext, setting
         finance.add_transactions(transactions)
     entry = JournalEntry(
         id=entry_id, tenant_id=context.tenant_id, workspace_id=context.workspace_id, owner_user_id=context.user_id,
-        posted_on=draft.occurred_at.date(), occurred_at=draft.occurred_at if draft.has_time else None, kind=draft.kind.value,
+        canonical_id=canonical_id or entry_id, posted_on=draft.occurred_at.date(), occurred_at=draft.occurred_at if draft.has_time else None, kind=draft.kind.value,
         category=category, merchant=draft.merchant, description=description, source=source, source_ref=source_ref,
         reverses_id=reverses, original_amount=resolved.original_amount, original_currency=resolved.original_currency,
         fx_rate=resolved.fx_rate, fx_fee=draft.fee if resolved.fx_rate is not None else None,
@@ -416,8 +419,10 @@ def post(finance: FinanceStore, store: SmsStore, context: TenantContext, setting
     return entry, transactions
 
 
-def reverse(finance: FinanceStore, store: SmsStore, context: TenantContext, entry: JournalEntry, *, now: datetime, why: str) -> JournalEntry:
-    """Undo ``entry`` with a mirror entry; its stage 2 transactions leave the account lists."""
+def reverse(finance: FinanceStore, store: SmsStore, context: TenantContext, entry: JournalEntry, *, now: datetime, why: str,
+            delete_transactions: bool = True) -> JournalEntry:
+    """Undo ``entry`` with a mirror entry in the same canonical chain; its stage 2 transactions leave the
+    account lists unless the caller keeps the row to repost it (a corrected hand-entered transaction)."""
     reversal_id = new_id("fin_je")
     legs = reversal_legs(entry)
     postings = [Posting(
@@ -426,15 +431,16 @@ def reverse(finance: FinanceStore, store: SmsStore, context: TenantContext, entr
     ) for leg in legs]
     reversal = JournalEntry(
         id=reversal_id, tenant_id=context.tenant_id, workspace_id=context.workspace_id, owner_user_id=context.user_id,
-        posted_on=entry.posted_on, occurred_at=entry.occurred_at, kind=entry.kind, category=entry.category, merchant=entry.merchant,
+        canonical_id=entry.canonical_id or entry.id, posted_on=entry.posted_on, occurred_at=entry.occurred_at, kind=entry.kind, category=entry.category, merchant=entry.merchant,
         description=f"Reversal: {why}"[:500], source=EntrySource.REVERSAL, source_ref=entry.source_ref, status=EntryStatus.POSTED,
         reverses_id=entry.id, created_at=now, postings=postings,
     )
     store.add_entry(reversal)
     store.mark_entry(context, entry.id, status=EntryStatus.REVERSED, reversed_by_id=reversal.id)
-    for posting in entry.postings:
-        if posting.transaction_id:
-            finance.delete_transaction(context, posting.transaction_id)
+    if delete_transactions:
+        for posting in entry.postings:
+            if posting.transaction_id:
+                finance.delete_transaction(context, posting.transaction_id)
     return reversal
 
 
@@ -459,7 +465,8 @@ def clear_suspense(finance: FinanceStore, store: SmsStore, context: TenantContex
     )
     finance.add_transactions([transaction])
     entry = JournalEntry(
-        id=entry_id, tenant_id=context.tenant_id, workspace_id=context.workspace_id, owner_user_id=context.user_id, posted_on=original.posted_on,
+        id=entry_id, tenant_id=context.tenant_id, workspace_id=context.workspace_id, owner_user_id=context.user_id,
+        canonical_id=original.canonical_id or original.id, posted_on=original.posted_on,
         occurred_at=original.occurred_at, kind=original.kind, category=None, merchant=original.merchant, description=original.description,
         source=EntrySource.CLEARING, source_ref=source_ref, reverses_id=None, created_at=now,
         postings=[Posting(id=new_id("fin_post"), entry_id=entry_id, tenant_id=context.tenant_id, workspace_id=context.workspace_id,
@@ -493,9 +500,11 @@ def candidates(store: SmsStore, context: TenantContext, fp: str) -> list[W.Candi
     sources = store.entry_sources(context, [e.id for e in entries])
     out = []
     for e in entries:
-        kinds = frozenset(source_kind(m.source) for m in sources.get(e.id, []) if m.status in (MessageStatus.POSTED, MessageStatus.ATTACHED))
+        kinds = frozenset({source_kind(m.source) for m in sources.get(e.id, []) if m.status in (MessageStatus.POSTED, MessageStatus.ATTACHED)}
+                          | ({e.source.value} if e.source in (EntrySource.MANUAL, EntrySource.STATEMENT) else set()))
         day = datetime.combine(e.posted_on, datetime.min.time()).replace(hour=12, tzinfo=(e.occurred_at.tzinfo if e.occurred_at else None))
-        out.append(W.Candidate(entry_id=e.id, when=e.occurred_at, day=day, merchant=e.merchant, reference=e.reference, sources=kinds))
+        # Without a merchant (a salary, a transfer) the entry's own words ("Salary") are compared instead.
+        out.append(W.Candidate(entry_id=e.id, when=e.occurred_at, day=day, merchant=e.merchant or e.description, reference=e.reference, sources=kinds))
     return out
 
 
@@ -707,7 +716,7 @@ def _ingest(context: TenantContext, device_id: str | None, secret: str | None, s
         settings = settings_for(store, context)
         device = None
         if source == "device":
-            device = check_device(store.get_device(context, device_id or ""), secret or "")
+            device = check_device(store.get_device(context, device_id or ""), secret or "", "finance.wallet" if wallet is not None else "finance.sms")
             device.last_seen_at = now
             store.save_device(device)
             if wallet is None and sender_key == TEST_SENDER and body.lower() == TEST_TEXT:
@@ -924,6 +933,104 @@ def today_for(finance: FinanceStore, context: TenantContext) -> date:
     from .summary import settings_for as finance_settings
 
     return today_in(finance_settings(finance, context))
+
+
+# -- statement and hand-entered transactions --------------------------------------------------
+
+
+def plain_fingerprint(amount: Decimal, currency: str, account_id: str) -> str:
+    """The fingerprint an SMS or Wallet report of the same money would carry (direction, amount, account)."""
+    kind = P.Kind.DEPOSIT if amount > 0 else P.Kind.CARD_PURCHASE
+    return fingerprint(kind, abs(amount), currency, account_id)
+
+
+def record_plain(store: SmsStore, context: TenantContext, transaction: Transaction, account: Account, source: EntrySource, *,
+                 now: datetime, canonical_id: str | None = None) -> JournalEntry | None:
+    """The journal entry of a statement row or a hand-entered transaction (the row stays the stage 2 record)."""
+    from .ledger import derived_legs
+
+    if transaction.amount == 0:
+        return None
+    entry_id = new_id("fin_je")
+    legs = derived_legs(transaction, account)
+    entry = JournalEntry(
+        id=entry_id, tenant_id=context.tenant_id, workspace_id=context.workspace_id, owner_user_id=context.user_id,
+        canonical_id=canonical_id or entry_id, posted_on=transaction.posted_on, occurred_at=None, kind=source.value,
+        category=transaction.category.value, merchant=transaction.description[:60], description=transaction.description[:500], source=source,
+        source_ref=transaction.id, fingerprint=plain_fingerprint(transaction.amount, transaction.currency, account.id), created_at=now,
+        postings=[Posting(id=new_id("fin_post"), entry_id=entry_id, tenant_id=context.tenant_id, workspace_id=context.workspace_id,
+                          owner_user_id=context.user_id, ledger_account=leg.ledger_account, account_id=leg.account_id,
+                          transaction_id=transaction.id if leg.account_id else None, amount=leg.amount, currency=leg.currency, created_at=now)
+                  for leg in legs],
+    )
+    store.add_entry(entry)
+    return entry
+
+
+def repost_plain(finance: FinanceStore, store: SmsStore, context: TenantContext, entry: JournalEntry, transaction: Transaction, *,
+                 now: datetime) -> JournalEntry | None:
+    """A corrected statement or hand-entered transaction: reverse its entry and post the new figures in the
+    same canonical chain. The transaction row (and its id) stays."""
+    account = finance.get_account(context, transaction.account_id)
+    reverse(finance, store, context, entry, now=now, why="corrected by the owner", delete_transactions=False)
+    if account is None:
+        return None
+    return record_plain(store, context, transaction, account, EntrySource(entry.source), now=now, canonical_id=entry.canonical_id or entry.id)
+
+
+def reverse_for_transactions(finance: FinanceStore, store: SmsStore, context: TenantContext, transaction_ids: list[str], *, now: datetime, why: str) -> int:
+    """Reverse every posted entry behind these transactions (import undone, account deleted)."""
+    done = 0
+    seen: set[str] = set()
+    for transaction_id in transaction_ids:
+        entry = store.entry_for_transaction(context, transaction_id)
+        if entry is not None and entry.id not in seen:
+            seen.add(entry.id)
+            reverse(finance, store, context, entry, now=now, why=why)
+            done += 1
+    return done
+
+
+@dataclass
+class StatementOutcome:
+    attached: int = 0
+    review: int = 0
+
+
+def reconcile_rows(finance: FinanceStore, store: SmsStore, context: TenantContext, account: Account, rows: list[Transaction],
+                   import_id: str, *, now: datetime) -> tuple[list[Transaction], StatementOutcome]:
+    """Statement rows that report a payment already recorded from an SMS, Apple Pay or by hand are attached
+    to that transaction instead of creating another; a row that could be more than one waits for review.
+    Returns the rows to import as new transactions. The caller holds the owner's lock."""
+    outcome = StatementOutcome()
+    fresh: list[Transaction] = []
+    for row in rows:
+        fp = plain_fingerprint(row.amount, row.currency, account.id)
+        day = datetime.combine(row.posted_on, datetime.min.time()).replace(hour=12, tzinfo=now.tzinfo)
+        report = W.Report(source="statement", when=day, precise=False, merchant=row.description, reference=None)
+        found = [c for c in candidates(store, context, fp)]
+        decision, picked = W.choose(report, found)
+        if decision == "new" or (decision == "attach" and picked is None):
+            fresh.append(row)
+            continue
+        key = hashlib.sha256(f"statement\x1f{import_id}\x1f{row.dedupe_hash}".encode()).hexdigest()
+        parsed: dict[str, object] = {"kind": (P.Kind.DEPOSIT if row.amount > 0 else P.Kind.CARD_PURCHASE).value, "amount": str(abs(row.amount)),
+                                     "currency": row.currency, "occurred_on": row.posted_on.isoformat(), "merchant": row.description[:60],
+                                     "account_id": account.id, "import_id": import_id, "dedupe_hash": row.dedupe_hash}
+        message = SmsMessage(
+            id=new_id("fin_sms"), tenant_id=context.tenant_id, workspace_id=context.workspace_id, owner_user_id=context.user_id,
+            device_id=None, source="statement", idem_key=key, received_at=now, sender="statement", body_masked="", status=MessageStatus.REVIEW,
+            parsed=parsed, rule="statement", fingerprint=fp, created_at=now, updated_at=now,
+        )
+        if decision == "attach" and picked is not None:
+            message.status, message.reason, message.entry_id = MessageStatus.ATTACHED, "attached_to_existing", picked.entry_id
+            store.mark_entry(context, picked.entry_id, reconciled_at=now, reconciled_ref=f"{import_id}:{row.dedupe_hash[:16]}")
+            outcome.attached += 1
+        else:
+            message.reason = "ambiguous_match"
+            outcome.review += 1
+        store.add_message(message)
+    return fresh, outcome
 
 
 __all__ = [

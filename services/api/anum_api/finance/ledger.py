@@ -54,6 +54,8 @@ class EntrySource(StrEnum):
     CORRECTION = "correction"  # the person corrected a posted message
     REVERSAL = "reversal"  # undoes another entry
     CLEARING = "clearing"  # a later message named the other side of an own transfer
+    MANUAL = "manual"  # typed by the person (stage 2 transaction)
+    STATEMENT = "statement"  # a CSV statement row
 
 
 class Posting(BaseModel):
@@ -75,6 +77,9 @@ class JournalEntry(BaseModel):
     tenant_id: str
     workspace_id: str
     owner_user_id: str
+    # The canonical transaction id: the first entry's id, kept by every correction, reversal and
+    # clearing entry of the same payment. Links from other modules point here, never at one entry.
+    canonical_id: str | None = None
     posted_on: date
     occurred_at: datetime | None = None
     kind: str

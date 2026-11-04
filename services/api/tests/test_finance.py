@@ -369,7 +369,7 @@ def test_privacy_export_and_delete_include_the_ledger() -> None:
     acct = account()
     do_import(acct["id"])
     summary = client.get("/api/v1/privacy", headers=OWNER).json()
-    assert summary["private"]["finance_records"] == 8  # account + import + 6 transactions
+    assert summary["private"]["finance_records"] == 26  # account + import + 6 transactions, and their 6 journal entries with 12 postings (docs/finance-sms.md)
     export = client.get("/api/v1/privacy/export", headers=OWNER)
     assert export.status_code == 200 and len(export.json()["finance"]["transactions"]) == 6
     assert client.get("/api/v1/privacy", headers=MEMBER).json()["private"]["finance_records"] == 0

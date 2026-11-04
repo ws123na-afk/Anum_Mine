@@ -223,6 +223,12 @@ class InMemoryFinanceStore:
         self.clear()
 
     def clear(self) -> None:
+        # The journal and SMS rows belong to the same ledger (docs/finance-sms.md): cleared with it once loaded.
+        import sys
+
+        sms = sys.modules.get("anum_api.finance.sms_store")
+        if sms is not None and hasattr(sms, "sms_memory_store"):
+            sms.sms_memory_store.clear()
         self.settings: dict[tuple[str, str, str], FinanceSettings] = {}
         self.accounts: dict[str, Account] = {}
         self.transactions: dict[str, Transaction] = {}

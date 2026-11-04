@@ -81,6 +81,7 @@ class DeviceView(BaseModel):
     name: str
     status: DeviceStatus
     token_hint: str
+    scopes: list[str]
     created_at: Any
     rotated_at: Any = None
     revoked_at: Any = None
@@ -390,6 +391,8 @@ class DeviceInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: str = Field(min_length=1, max_length=60)
+    # Which iPhone automations this token serves; each ingest route accepts only its own scope.
+    scopes: list[Literal["finance.sms", "finance.wallet"]] = Field(default_factory=lambda: ["finance.sms", "finance.wallet"], min_length=1, max_length=10)
 
 
 def _token_view(device: SmsDevice, token: str) -> DeviceToken:
@@ -418,9 +421,10 @@ def create_device(body: DeviceInput, context: TenantContext = Depends(tenant_con
         device_id = new_id("fin_smsdev")
         token, digest, hint = svc.mint(context, device_id)
         device = SmsDevice(id=device_id, tenant_id=context.tenant_id, workspace_id=context.workspace_id, owner_user_id=context.user_id,
-                           name=P.normalize(body.name)[:60] or "iPhone", status=DeviceStatus.ACTIVE, token_hash=digest, token_hint=hint, created_at=now)
+                           name=P.normalize(body.name)[:60] or "iPhone", status=DeviceStatus.ACTIVE, token_hash=digest, token_hint=hint,
+                           scopes=sorted(set(body.scopes)), created_at=now)
         store.save_device(device)
-    _audit(repository, context, "finance.sms.device.create", device_id)
+    _audit(repository, context, "finance.sms.device.create", device_id, {"scopes": device.scopes})
     return _token_view(device, token)
 
 
@@ -679,6 +683,7 @@ class CorrectionInput(BaseModel):
 class CorrectionResult(BaseModel):
     message: MessageView
     entry_id: str
+    canonical_id: str
     reversed_entry_id: str | None = None
     proposed_rule: RuleView | None = None
     rule_error: str | None = None
@@ -705,19 +710,23 @@ def post_message(message_id: str, body: CorrectionInput, context: TenantContext 
             raise _conflict("ANUM found this transaction already recorded. Confirm that it is a separate transaction to record it.")
         settings = svc.settings_for(store, context)
         fsettings = settings_for(finance, context)
-        if not body.account_id and not body.counter_account_id:
+        if not body.account_id and not body.counter_account_id and message.parsed.get("account_id"):
+            corrected.setdefault("account_id", str(message.parsed["account_id"]))  # a statement line names its account
+        if not corrected.get("account_id") and not body.counter_account_id:
             # Keep what ANUM read when the person changed other fields only.
             resolved = svc.resolve(_parsed_from(message), settings, finance.list_accounts(context))
             corrected.setdefault("account_id", resolved.account.id if resolved.account else None)
             corrected.setdefault("counter_account_id", resolved.counter.id if resolved.counter else None)
         try:
             draft = svc.correction_draft(finance, context, message, corrected, fsettings.timezone)
+            canonical = None
             if message.status == MessageStatus.POSTED and message.entry_id:
                 old = store.get_entry(context, message.entry_id)
                 if old is not None and old.status == EntryStatus.POSTED:
                     reversed_id = svc.reverse(finance, store, context, old, now=now, why="corrected by the owner").id
+                    canonical = old.canonical_id or old.id  # the canonical transaction id survives the correction
             entry, _ = svc.post(finance, store, context, settings, draft, source=EntrySource.CORRECTION if reversed_id else EntrySource.SMS,
-                                source_ref=message.id, now=now)
+                                source_ref=message.id, now=now, canonical_id=canonical)
         except PlanError as exc:
             raise _unprocessable(str(exc)) from None
         message.status, message.reason, message.entry_id, message.updated_at = MessageStatus.POSTED, None, entry.id, now
@@ -739,7 +748,7 @@ def post_message(message_id: str, body: CorrectionInput, context: TenantContext 
     _audit(repository, context, "finance.sms.message.post", message_id,
            {"entry": entry.id, "reversed": reversed_id, "fields": sorted(set(corrected) - {"allow_duplicate", "confirm_format", "teach"}),
             "confirmed_format": body.confirm_format, "rule": rule_view.id if rule_view else None})
-    return CorrectionResult(message=view, entry_id=entry.id, reversed_entry_id=reversed_id, proposed_rule=rule_view, rule_error=rule_error)
+    return CorrectionResult(message=view, entry_id=entry.id, canonical_id=entry.canonical_id or entry.id, reversed_entry_id=reversed_id, proposed_rule=rule_view, rule_error=rule_error)
 
 
 def _parsed_from(message: SmsMessage) -> P.Parsed:
@@ -908,7 +917,8 @@ def _reconcile(finance: Any, store: Any, context: TenantContext, import_id: str)
     start, end = min(t.posted_on for t in statement), max(t.posted_on for t in statement)
     candidates = []
     for entry in store.list_entries(context, start=start - timedelta(days=3), end=end + timedelta(days=3)):
-        if entry.status != EntryStatus.POSTED or entry.reconciled_at is not None or entry.source == EntrySource.REVERSAL:
+        if entry.status != EntryStatus.POSTED or entry.reconciled_at is not None or entry.source in (
+                EntrySource.REVERSAL, EntrySource.MANUAL, EntrySource.STATEMENT):
             continue
         for posting in entry.postings:
             if posting.account_id == record.account_id:
@@ -961,8 +971,19 @@ def reconcile_confirm(import_id: str, body: ReconcileInput, context: TenantConte
         if len(pairs) != len(wanted):
             raise _conflict("Some rows no longer match a recorded message. Reload the comparison and try again.")
         for pair in pairs:
-            finance.delete_transaction(context, pair.statement_transaction_id)
+            # The statement copy is undone (its own entry reversed) and becomes a source of the recorded payment.
+            copy = store.entry_for_transaction(context, pair.statement_transaction_id)
+            if copy is not None:
+                svc.reverse(finance, store, context, copy, now=now, why="reconciled with a recorded message")
+            else:
+                finance.delete_transaction(context, pair.statement_transaction_id)
             store.mark_entry(context, pair.entry_id, reconciled_at=now, reconciled_ref=f"{import_id}:{pair.statement_transaction_id}")
+            store.add_message(SmsMessage(
+                id=new_id("fin_sms"), tenant_id=context.tenant_id, workspace_id=context.workspace_id, owner_user_id=context.user_id,
+                device_id=None, source="statement", idem_key=svc.secret_hash(f"reconcile:{import_id}:{pair.statement_transaction_id}"), received_at=now,
+                sender="statement", status=MessageStatus.ATTACHED, reason="attached_to_existing", entry_id=pair.entry_id, rule="statement",
+                parsed={"amount": str(abs(pair.amount)), "currency": pair.currency, "occurred_on": pair.posted_on.isoformat(),
+                        "merchant": pair.description[:60], "account_id": pair.account_id, "import_id": import_id}, created_at=now, updated_at=now))
     _audit(repository, context, "finance.sms.reconcile", import_id, {"count": len(pairs)})
     return ReconcileResult(reconciled=len(pairs), removed_statement_rows=len(pairs))
 
@@ -1081,6 +1102,7 @@ def ledger_dashboard(
 
 class EntryView(BaseModel):
     id: str
+    canonical_id: str | None
     posted_on: date
     kind: str
     category: str | None
@@ -1106,6 +1128,38 @@ class EntryPage(BaseModel):
     offset: int
 
 
+class CanonicalView(BaseModel):
+    """One canonical transaction: its current entry, every entry of its chain and every source behind it."""
+
+    canonical_id: str
+    current: EntryView | None  # None once the whole chain was undone
+    chain: list[EntryView]
+    transaction_ids: list[str]  # the stage 2 rows of the current entry
+
+
+def _entry_view(e: Any, sources: dict[str, list[SmsMessage]]) -> EntryView:
+    return EntryView(**e.model_dump(exclude={"postings", "tenant_id", "workspace_id", "owner_user_id"}),
+                     postings=[{"ledger_account": p.ledger_account, "account_id": p.account_id, "amount": str(p.amount), "currency": p.currency}
+                               for p in e.postings],
+                     sources=[{"kind": source_kind(m.source), "message_id": m.id, "status": m.status.value, "received_at": m.received_at.isoformat()}
+                              for m in sources.get(e.id, [])])
+
+
+@router.get("/ledger/transactions/{canonical_id}", response_model=CanonicalView)
+def canonical_transaction(canonical_id: str, context: TenantContext = Depends(tenant_context)) -> CanonicalView:
+    """The stable id other modules link to (docs/finance-sms.md#canonical-transactions)."""
+    _read(context)
+    with open_sms_stores(context) as (_finance, store):
+        chain = store.chain(context, canonical_id)
+        if not chain:
+            raise _not_found("Transaction")
+        sources = store.entry_sources(context, [e.id for e in chain])
+    current = next((e for e in reversed(chain) if e.status == EntryStatus.POSTED and e.source != EntrySource.REVERSAL), None)
+    return CanonicalView(canonical_id=canonical_id, current=_entry_view(current, sources) if current else None,
+                         chain=[_entry_view(e, sources) for e in chain],
+                         transaction_ids=[p.transaction_id for p in (current.postings if current else []) if p.transaction_id])
+
+
 @router.get("/ledger/entries", response_model=EntryPage)
 def ledger_entries(limit: int = Query(default=25, ge=1, le=200), offset: int = Query(default=0, ge=0),
                    context: TenantContext = Depends(tenant_context)) -> EntryPage:
@@ -1115,9 +1169,5 @@ def ledger_entries(limit: int = Query(default=25, ge=1, le=200), offset: int = Q
         entries = store.list_entries(context, limit=offset + limit)
         page = entries[offset:offset + limit]
         sources = store.entry_sources(context, [e.id for e in page])
-    items = [EntryView(**e.model_dump(exclude={"postings", "tenant_id", "workspace_id", "owner_user_id"}),
-                       postings=[{"ledger_account": p.ledger_account, "account_id": p.account_id, "amount": str(p.amount), "currency": p.currency}
-                                 for p in e.postings],
-                       sources=[{"kind": source_kind(m.source), "message_id": m.id, "status": m.status.value, "received_at": m.received_at.isoformat()}
-                                for m in sources.get(e.id, [])]) for e in page]
+    items = [_entry_view(e, sources) for e in page]
     return EntryPage(items=items, total=len(entries) if len(entries) < offset + limit else offset + limit + 1, limit=limit, offset=offset)

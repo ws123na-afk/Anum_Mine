@@ -89,6 +89,7 @@ def upgrade() -> None:
         sa.Column("status", sa.String(10), nullable=False),
         sa.Column("token_hash", sa.String(64), nullable=False),
         sa.Column("token_hint", sa.String(8), nullable=False),
+        sa.Column("scopes", postgresql.JSONB(), nullable=False, server_default=sa.text("'[\"finance.sms\", \"finance.wallet\"]'::jsonb")),
         sa.Column("created_at", TS, nullable=False, server_default=sa.func.now()),
         sa.Column("rotated_at", TS, nullable=True),
         sa.Column("revoked_at", TS, nullable=True),
@@ -100,6 +101,7 @@ def upgrade() -> None:
         _workspace_fk("finance_sms_devices"),
         sa.CheckConstraint("status in ('active', 'paused', 'revoked')", name="ck_finance_sms_devices_status"),
         sa.CheckConstraint("char_length(token_hash) = 64", name="ck_finance_sms_devices_hash"),
+        sa.CheckConstraint("jsonb_typeof(scopes) = 'array' and jsonb_array_length(scopes) between 1 and 20", name="ck_finance_sms_devices_scopes"),
         sa.CheckConstraint("(status = 'revoked') = (revoked_at is not null)", name="ck_finance_sms_devices_revoked"),
     )
     op.create_index("ix_finance_sms_devices_owner", "finance_sms_devices", ["tenant_id", "workspace_id", "owner_user_id"])
@@ -130,7 +132,7 @@ def upgrade() -> None:
         sa.Column("created_at", TS, nullable=False, server_default=sa.func.now()),
         sa.Column("updated_at", TS, nullable=False, server_default=sa.func.now()),
         _workspace_fk("finance_sms_messages"),
-        sa.CheckConstraint("source in ('device', 'paste', 'test', 'wallet')", name="ck_finance_sms_messages_source"),
+        sa.CheckConstraint("source in ('device', 'paste', 'test', 'wallet', 'statement')", name="ck_finance_sms_messages_source"),
         sa.CheckConstraint("status in ('posted', 'review', 'duplicate', 'attached', 'rejected', 'dismissed', 'failed')", name="ck_finance_sms_messages_status"),
         # A refused message (one-time code, password, promotion) never keeps its text.
         sa.CheckConstraint("status <> 'rejected' or body_masked = ''", name="ck_finance_sms_messages_rejected"),
@@ -143,7 +145,7 @@ def upgrade() -> None:
     # are two sources of one payment, and a second Wallet event can never be glued to the same entry.
     op.execute(
         "create unique index uq_finance_sms_messages_entry_source on finance_sms_messages "
-        "(tenant_id, workspace_id, owner_user_id, entry_id, (case when source = 'wallet' then 'wallet' else 'sms' end)) "
+        "(tenant_id, workspace_id, owner_user_id, entry_id, (case when source in ('wallet', 'statement') then source else 'sms' end)) "
         "where entry_id is not null and status in ('posted', 'attached')"
     )
     op.create_index("ix_finance_sms_messages_device", "finance_sms_messages", ["tenant_id", "workspace_id", "owner_user_id", "device_id", "created_at"])
@@ -174,6 +176,7 @@ def upgrade() -> None:
         "finance_journal_entries",
         sa.Column("id", sa.String(80), primary_key=True),
         *_owned(),
+        sa.Column("canonical_id", sa.String(80), nullable=True),
         sa.Column("posted_on", sa.Date(), nullable=False),
         sa.Column("occurred_at", TS, nullable=True),
         sa.Column("kind", sa.String(30), nullable=False),
@@ -195,12 +198,13 @@ def upgrade() -> None:
         sa.Column("reconciled_ref", sa.String(200), nullable=True),
         sa.Column("created_at", TS, nullable=False, server_default=sa.func.now()),
         _workspace_fk("finance_journal_entries"),
-        sa.CheckConstraint("source in ('sms', 'correction', 'reversal', 'clearing')", name="ck_finance_journal_entries_source"),
+        sa.CheckConstraint("source in ('sms', 'correction', 'reversal', 'clearing', 'manual', 'statement')", name="ck_finance_journal_entries_source"),
         sa.CheckConstraint("status in ('posted', 'reversed')", name="ck_finance_journal_entries_status"),
         sa.CheckConstraint("(status = 'reversed') = (reversed_by_id is not null)", name="ck_finance_journal_entries_reversed"),
         sa.CheckConstraint("(original_amount is null) = (original_currency is null)", name="ck_finance_journal_entries_fx"),
     )
     op.create_index("ix_finance_journal_entries_owner", "finance_journal_entries", ["tenant_id", "workspace_id", "owner_user_id", "posted_on"])
+    op.create_index("ix_finance_journal_entries_canonical", "finance_journal_entries", ["tenant_id", "workspace_id", "owner_user_id", "canonical_id"])
     op.create_index("ix_finance_journal_entries_fp", "finance_journal_entries", ["tenant_id", "workspace_id", "owner_user_id", "fingerprint"])
 
     op.create_table(

@@ -157,31 +157,40 @@ class Candidate:
     sources: frozenset[str]  # "sms", "wallet"
 
 
-def same_payment(report: Report, candidate: Candidate) -> bool:
+def same_payment(report: Report, candidate: Candidate) -> str:
+    """``"match"``, ``"weak"`` (same account, amount and day, but nothing else agrees: the person decides)
+    or ``"no"``."""
     if report.source == "wallet" and "wallet" in candidate.sources:
-        return False  # a second Wallet event is a second purchase
+        return "no"  # a second Wallet event is a second purchase
+    if report.source in candidate.sources and report.source == "statement":
+        return "no"  # statement rows are deduplicated by the import itself
     if report.reference and candidate.reference and report.reference != candidate.reference:
-        return False
+        return "no"
+    statement = report.source == "statement" or bool(candidate.sources & {"statement", "manual"})
     merchants = merchants_agree(report.merchant, candidate.merchant)
-    if merchants is False:
-        return False
+    if merchants is False and not statement:
+        return "no"  # Apple Pay and SMS naming different merchants are two purchases
     if report.precise and candidate.when is not None:
-        return abs(candidate.when - report.when) <= PRECISE_WINDOW
+        return "match" if abs(candidate.when - report.when) <= PRECISE_WINDOW and merchants is not False else "no"
     if abs((candidate.day.date() - report.when.date()).days) > LOOSE_DAYS:
-        return False
-    cross_source = report.source not in candidate.sources
-    # Without times on both sides, a Wallet event and a message must also agree on the merchant.
-    return merchants is True or not cross_source or bool(report.reference and report.reference == candidate.reference)
+        return "no"
+    if merchants is True or (report.reference and report.reference == candidate.reference):
+        return "match"
+    if report.source in candidate.sources and merchants is not False:
+        return "match"  # the same bank sent the same message twice
+    return "weak"
 
 
 def choose(report: Report, candidates: list[Candidate]) -> tuple[str, Candidate | None]:
-    """``("new", None)``, ``("attach", candidate)`` or ``("ambiguous", None)``."""
-    found = [c for c in candidates if same_payment(report, c)]
-    if not found:
-        return "new", None
+    """``("new", None)``, ``("attach", candidate)`` or ``("ambiguous", None)``: more than one match, or
+    only weak candidates (same account, amount and dates but no merchant or reference agreement)."""
+    verdicts = [(same_payment(report, c), c) for c in candidates]
+    found = [c for v, c in verdicts if v == "match"]
     if len(found) == 1:
         return "attach", found[0]
-    return "ambiguous", None
+    if found or any(v == "weak" for v, _ in verdicts):
+        return "ambiguous", None
+    return "new", None
 
 
 __all__ = [

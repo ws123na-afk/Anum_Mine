@@ -102,6 +102,7 @@ class SmsDevice(BaseModel):
     status: DeviceStatus
     token_hash: str  # SHA-256 of the secret part; the token is shown once and never stored
     token_hint: str  # the token's last four characters
+    scopes: list[str] = Field(default_factory=lambda: list(DEVICE_SCOPES))  # the integrations this token may send to
     created_at: datetime
     rotated_at: datetime | None = None
     revoked_at: datetime | None = None
@@ -122,12 +123,18 @@ class MessageStatus(StrEnum):
     FAILED = "failed"
 
 
-MessageSource = Literal["device", "paste", "test", "wallet"]
+MessageSource = Literal["device", "paste", "test", "wallet", "statement"]
+
+# What a device token may send. Later iPhone automations (vehicle, attendance, documents,
+# purchases) add their own scope here; a route accepts only a token that carries its scope.
+DEVICE_SCOPES = ("finance.sms", "finance.wallet")
 
 
 def source_kind(source: str) -> str:
-    """``wallet`` for Apple Wallet events, ``sms`` for messages (forwarded or pasted)."""
-    return "wallet" if source == "wallet" else "sms"
+    """``wallet`` for Apple Wallet events, ``statement`` for statement lines, ``sms`` for messages (forwarded or pasted)."""
+    if source in ("wallet", "statement"):
+        return source
+    return "sms"
 
 
 class SmsMessage(BaseModel):
@@ -212,6 +219,7 @@ class SmsStore(Protocol):
                    reconciled_at: datetime | None = None, reconciled_ref: str | None = None) -> None: ...
     def list_entries(self, context: TenantContext, *, start: date | None = None, end: date | None = None, limit: int = 50_000) -> list[JournalEntry]: ...
     def entries_with_fingerprint(self, context: TenantContext, fingerprint: str) -> list[JournalEntry]: ...
+    def chain(self, context: TenantContext, canonical_id: str) -> list[JournalEntry]: ...
     def entry_for_transaction(self, context: TenantContext, transaction_id: str) -> JournalEntry | None: ...
     def linked_transaction_ids(self, context: TenantContext) -> set[str]: ...
     def suspense_totals(self, context: TenantContext) -> dict[str, Decimal]: ...
@@ -376,6 +384,10 @@ class InMemorySmsStore:
         rows.sort(key=lambda e: (e.posted_on, e.created_at, e.id), reverse=True)
         return [e.model_copy(deep=True) for e in rows[:limit]]
 
+    def chain(self, context: TenantContext, canonical_id: str) -> list[JournalEntry]:
+        rows = [e for e in self.entries.values() if _mine(e, context) and e.canonical_id == canonical_id]
+        return [e.model_copy(deep=True) for e in sorted(rows, key=lambda e: (e.created_at, e.id))]
+
     def entries_with_fingerprint(self, context: TenantContext, fingerprint: str) -> list[JournalEntry]:
         return [e.model_copy(deep=True) for e in self.entries.values() if _mine(e, context) and e.fingerprint == fingerprint]
 
@@ -458,6 +470,7 @@ __all__ = [
     "SmsRule",
     "SmsSettings",
     "SmsStore",
+    "DEVICE_SCOPES",
     "WalletCard",
     "source_kind",
     "open_sms_stores",

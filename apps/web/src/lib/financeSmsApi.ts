@@ -1,7 +1,7 @@
 // iPhone SMS banking and the ledger over the live API (docs/finance-sms.md#api). Every record is the
 // caller's own; the server checks finance:read / finance:manage on every route.
 import type {
-  FinanceJournalPage, FinanceLedgerDashboard, FinanceReconcileView, FinanceSmsBank, FinanceSmsCorrection, FinanceSmsCorrectionResult,
+  FinanceDeviceScope, FinanceJournalPage, FinanceLedgerDashboard, FinanceReconcileView, FinanceSmsBank, FinanceSmsCorrection, FinanceSmsCorrectionResult,
   FinanceSmsDevice, FinanceSmsDeviceToken, FinanceSmsIngestResult, FinanceSmsMessage, FinanceSmsMessagePage, FinanceSmsRule, FinanceSmsSelfTest,
   FinanceSmsSettings, FinanceSmsSettingsInput, FinanceSmsStatus, FinanceSmsStatusView, FinanceSmsSuggestion,
 } from '@anum/contracts';
@@ -25,7 +25,7 @@ export const saveSmsSettings = (body: FinanceSmsSettingsInput) => send<FinanceSm
 export const runSelfTest = () => send<FinanceSmsSelfTest>('POST', '/sms/self-test');
 export const smsBanks = () => get<FinanceSmsBank[]>('/sms/banks');
 export const smsDevices = () => get<FinanceSmsDevice[]>('/sms/devices');
-export const createDevice = (name: string) => send<FinanceSmsDeviceToken>('POST', '/sms/devices', { name });
+export const createDevice = (name: string, scopes: FinanceDeviceScope[]) => send<FinanceSmsDeviceToken>('POST', '/sms/devices', { name, scopes });
 export const rotateDevice = (deviceId: string) => send<FinanceSmsDeviceToken>('POST', `/sms/devices/${id(deviceId)}/rotate`);
 export const changeDevice = (deviceId: string, change: 'pause' | 'resume' | 'revoke') => send<FinanceSmsDevice>('POST', `/sms/devices/${id(deviceId)}/${change}`);
 export const smsMessages = (status: FinanceSmsStatus | '', limit: number, offset: number) =>

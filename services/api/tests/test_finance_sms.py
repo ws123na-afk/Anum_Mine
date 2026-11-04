@@ -323,21 +323,80 @@ def test_multi_currency_keeps_the_original_amount_and_rate() -> None:
     assert {r["currency"] for r in board["income"]} == {"USD"} and board["currencies"] == ["SAR", "USD"]
 
 
-def test_statement_reconciliation_removes_the_statement_copy_once() -> None:
+def _import(account_id: str, content: str) -> dict:
+    response = client.post(f"{API}/imports", headers=OWNER, json={"account_id": account_id, "content": content, "filename": "nov.csv"})
+    assert response.status_code == 201, response.text
+    return response.json()
+
+
+def test_statement_after_sms_reconciles_instead_of_creating() -> None:
     s = setup()
     send(s["token"], SALARY_EN)
-    statement = "Date,Description,Amount\n2026-11-01,SALARY NOV,12000.00\n2026-11-02,SHOP NOT ON SMS,-10.00\n"
-    imported = client.post(f"{API}/imports", headers=OWNER, json={"account_id": s["bank"]["id"], "content": statement, "filename": "nov.csv"}).json()
-    preview = client.get(f"{API}/sms/reconcile/{imported['id']}", headers=OWNER).json()
-    assert len(preview["matched"]) == 1 and preview["statement_only"] == 1
-    pair = preview["matched"][0]
-    done = client.post(f"{API}/sms/reconcile/{imported['id']}", headers=OWNER, json={"statement_transaction_ids": [pair["statement_transaction_id"]]})
-    assert done.json() == {"reconciled": 1, "removed_statement_rows": 1}
+    imported = _import(s["bank"]["id"], "Date,Description,Amount\n2026-11-01,SALARY NOV,12000.00\n2026-11-02,SHOP NOT ON SMS,-10.00\n")
+    assert imported["reconciled"] == 1 and imported["imported_count"] == 1 and imported["held_for_review"] == 0
     board = dashboard()
     assert money(board["income"]) == Decimal("12000.00") and money(board["expenses"]) == Decimal("10.00")
-    assert next(iter(e for e in sms_memory_store.entries.values())).reconciled_at is not None
-    assert client.post(f"{API}/sms/reconcile/{imported['id']}", headers=OWNER,
-                       json={"statement_transaction_ids": [pair["statement_transaction_id"]]}).status_code == 409
+    salary = next(e for e in sms_memory_store.entries.values() if e.kind == "salary")
+    assert salary.reconciled_at is not None
+    canonical = client.get(f"{API}/ledger/transactions/{salary.canonical_id}", headers=OWNER).json()
+    assert sorted(src["kind"] for src in canonical["current"]["sources"]) == ["sms", "statement"]
+    # Nothing is left for the manual comparison, and importing the same file again adds nothing.
+    assert client.get(f"{API}/sms/reconcile/{imported['id']}", headers=OWNER).json()["matched"] == []
+    assert _import(s["bank"]["id"], "Date,Description,Amount\n2026-11-02,SHOP NOT ON SMS,-10.00\n")["imported_count"] == 0
+
+
+def test_sms_after_statement_attaches_to_the_statement_transaction() -> None:
+    s = setup()
+    _import(s["card"]["id"], "Date,Description,Amount\n2026-11-03,POS CARREFOUR RIYADH,-45.50\n")
+    result = send(s["token"], PURCHASE_EN).json()
+    assert result["status"] == "attached"
+    assert money(dashboard()["expenses"]) == Decimal("45.50")
+    assert len(client.get(f"{API}/transactions", headers=OWNER).json()["items"]) == 1
+
+
+def test_an_ambiguous_statement_row_waits_for_review_and_counts_once() -> None:
+    s = setup()
+    send(s["token"], PURCHASE_EN)  # SAR 45.50 at CARREFOUR on the card
+    imported = _import(s["card"]["id"], "Date,Description,Amount\n2026-11-03,CARD TXN 9912,-45.50\n")
+    assert imported["held_for_review"] == 1 and imported["imported_count"] == 0 and imported["reconciled"] == 0
+    waiting = client.get(f"{API}/sms/messages", headers=OWNER, params={"status": "review"}).json()["items"]
+    assert waiting[0]["source"] == "statement" and waiting[0]["reason"] == "ambiguous_match"
+    assert money(dashboard()["expenses"]) == Decimal("45.50")
+    # The person decides it was a separate purchase: it is recorded on the statement's account.
+    posted = client.post(f"{API}/sms/messages/{waiting[0]['id']}/post", headers=OWNER, json={"merchant": "OTHER SHOP", "category": "shopping"})
+    assert posted.status_code == 200, posted.text
+    assert money(dashboard()["expenses"]) == Decimal("91.00")
+
+
+def test_canonical_id_survives_corrections_and_hand_entries_are_journalled() -> None:
+    s = setup()
+    posted = send(s["token"], PURCHASE_EN).json()
+    first = sms_memory_store.entries[next(m.entry_id for m in sms_memory_store.messages.values() if m.id == posted["message_id"])]
+    corrected = client.post(f"{API}/sms/messages/{posted['message_id']}/post", headers=OWNER, json={"amount": "40.00"}).json()
+    assert corrected["canonical_id"] == first.canonical_id == first.id
+    view = client.get(f"{API}/ledger/transactions/{first.canonical_id}", headers=OWNER).json()
+    assert len(view["chain"]) == 3 and view["current"]["id"] == corrected["entry_id"]  # original, reversal, correction
+    # A hand-entered transaction is journalled; editing it reposts in the same chain and keeps the row id.
+    txn = client.post(f"{API}/transactions", headers=OWNER, json={"account_id": s["bank"]["id"], "posted_on": "2026-11-04",
+                                                                  "amount": "-20.00", "description": "CASH TAXI"}).json()
+    manual = next(e for e in sms_memory_store.entries.values() if e.kind == "manual")
+    client.patch(f"{API}/transactions/{txn['id']}", headers=OWNER, json={"amount": "-25.00"})
+    chain = client.get(f"{API}/ledger/transactions/{manual.canonical_id}", headers=OWNER).json()
+    assert len(chain["chain"]) == 3 and chain["transaction_ids"] == [txn["id"]]
+    assert money(dashboard()["expenses"]) == Decimal("65.00")
+    balanced_journal()
+
+
+def test_device_scopes_limit_what_a_token_may_send() -> None:
+    s = setup()
+    only_sms = client.post(f"{API}/sms/devices", headers=OWNER, json={"name": "SMS only", "scopes": ["finance.sms"]}).json()
+    assert only_sms["device"]["scopes"] == ["finance.sms"]
+    put_settings(wallet_cards=[{"card": "My Visa", "account_id": s["card"]["id"]}])
+    refused = client.post(f"{API}/wallet/ingest", headers={"Authorization": f"Bearer {only_sms['token']}"},
+                          json={"source": "apple_wallet", "amount": "SAR 1.00", "merchant": "X", "card": "My Visa", "name": "n"})
+    assert refused.status_code == 403 and refused.json()["code"] == "scope_missing"
+    assert send(only_sms["token"], PURCHASE_EN).status_code == 200
+    assert client.post(f"{API}/sms/devices", headers=OWNER, json={"name": "x", "scopes": ["vehicle.trips"]}).status_code == 422
 
 
 def test_network_failure_and_retry_records_once(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -652,3 +711,11 @@ def test_wallet_retry_is_recorded_once() -> None:
     first = wallet(s["token"]).json()
     again = wallet(s["token"]).json()
     assert again["replayed"] and again["message_id"] == first["message_id"] and len(sms_memory_store.entries) == 1
+
+
+def test_privacy_export_includes_messages_and_the_journal_but_never_token_hashes() -> None:
+    s = setup()
+    send(s["token"], PURCHASE_EN)
+    finance = client.get("/api/v1/privacy/export", headers=OWNER).json()["finance"]
+    assert len(finance["sms_messages"]) == 1 and len(finance["journal_entries"]) == 1 and len(finance["sms_devices"]) == 1
+    assert "token_hash" not in finance["sms_devices"][0] and "idem_key" not in finance["sms_messages"][0]

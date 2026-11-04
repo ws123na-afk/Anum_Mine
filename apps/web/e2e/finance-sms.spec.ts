@@ -43,7 +43,7 @@ async function mockApi(page: Page, options: SmsMock = {}) {
     sync: { enabled: true, devices_active: 1, last_received_at: '2026-11-03T10:00:00Z', last_ok_at: '2026-11-03T10:00:00Z', last_error: null, last_error_at: null, review_count: 1 }, filters: {},
   };
   const entries = options.empty ? [] : [{
-    id: 'je1', posted_on: '2026-11-03', kind: 'card_purchase', category: 'groceries', merchant: 'TEST SHOP', description: 'TEST SHOP (card purchase)', source: 'sms',
+    id: 'je1', canonical_id: 'je1', posted_on: '2026-11-03', kind: 'card_purchase', category: 'groceries', merchant: 'TEST SHOP', description: 'TEST SHOP (card purchase)', source: 'sms',
     source_ref: 'fin_sms_1', status: 'posted', reverses_id: null, reversed_by_id: null, original_amount: null, original_currency: null, fx_rate: null, reconciled_at: null,
     sources: [{ kind: 'wallet', message_id: 'w1', status: 'posted', received_at: '2026-11-03T10:00:00Z' }, { kind: 'sms', message_id: 'fin_sms_1', status: 'attached', received_at: '2026-11-03T10:01:00Z' }],
     postings: [{ ledger_account: 'expense:groceries', account_id: null, amount: '45.50', currency: 'SAR' }, { ledger_account: 'liability:acc_card', account_id: 'acc_card', amount: '-45.50', currency: 'SAR' }],
@@ -72,7 +72,7 @@ async function mockApi(page: Page, options: SmsMock = {}) {
     }
     if (sms === '/sms/devices' && request.method() === 'GET') return json(devices);
     if (sms === '/sms/devices') {
-      const device = { id: 'dev1', name: (body as { name: string }).name, status: 'active', token_hint: 'wxyz', created_at: '2026-11-04T09:00:00Z', rotated_at: null, revoked_at: null, last_seen_at: null, last_ok_at: null, last_error: null, last_error_at: null, message_count: 0 };
+      const device = { id: 'dev1', name: (body as { name: string }).name, status: 'active', token_hint: 'wxyz', scopes: (body as { scopes: string[] }).scopes, created_at: '2026-11-04T09:00:00Z', rotated_at: null, revoked_at: null, last_seen_at: null, last_ok_at: null, last_error: null, last_error_at: null, message_count: 0 };
       devices.push(device);
       return json({ device, token: 'anum_sms.example.example.example.dev1.exampleexampleexampleexample', ingest_path: '/api/v1/finance/sms/ingest', headers: { Authorization: 'Bearer <token>', 'Content-Type': 'application/json' }, json_fields: { message: 'Shortcut Input, Content', sender: 'Shortcut Input, Sender' } }, 201);
     }
@@ -114,6 +114,7 @@ test('safety check, switch on, connect a device: the token is shown once with th
   await expect(dialog.getByText(/\/api\/v1\/finance\/wallet\/ingest/).first()).toBeVisible();
   await dialog.getByRole('button', { name: 'I saved it' }).click();
   await expect(page.getByText('My iPhone')).toBeVisible();
+  expect(sent.find((s) => s.path.endsWith('/sms/devices') && s.method === 'POST')?.body).toMatchObject({ scopes: ['finance.sms', 'finance.wallet'] });
   expect(sent.some((s) => s.path.endsWith('/sms/settings') && (s.body as { enabled?: boolean } | null)?.enabled === true)).toBe(true);
 });
 

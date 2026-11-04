@@ -51,6 +51,7 @@ class FinanceSmsDeviceRecord(Base, _Owned):
     status: Mapped[str] = mapped_column(String(10))
     token_hash: Mapped[str] = mapped_column(String(64))
     token_hint: Mapped[str] = mapped_column(String(8))
+    scopes: Mapped[list[str]] = mapped_column(JSONB)
     created_at: Mapped[datetime] = mapped_column(TS)
     rotated_at: Mapped[datetime | None] = mapped_column(TS, nullable=True)
     revoked_at: Mapped[datetime | None] = mapped_column(TS, nullable=True)
@@ -110,6 +111,7 @@ class FinanceJournalEntryRecord(Base, _Owned):
     __tablename__ = "finance_journal_entries"
 
     id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    canonical_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
     posted_on: Mapped[date] = mapped_column(Date)
     occurred_at: Mapped[datetime | None] = mapped_column(TS, nullable=True)
     kind: Mapped[str] = mapped_column(String(30))
@@ -332,6 +334,12 @@ class SqlAlchemySmsStore:
         if end is not None:
             where.append(record.posted_on <= end)
         rows = list(self.session.scalars(select(record).where(*where).order_by(record.posted_on.desc(), record.created_at.desc(), record.id.desc()).limit(limit)))
+        return self._with_postings(rows)
+
+    def chain(self, context: TenantContext, canonical_id: str) -> list[JournalEntry]:
+        record = FinanceJournalEntryRecord
+        rows = list(self.session.scalars(select(record).where(*_mine(record, context), record.canonical_id == canonical_id)
+                                        .order_by(record.created_at, record.id).limit(500)))
         return self._with_postings(rows)
 
     def entries_with_fingerprint(self, context: TenantContext, fingerprint: str) -> list[JournalEntry]:
