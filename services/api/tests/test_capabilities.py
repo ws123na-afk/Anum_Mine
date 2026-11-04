@@ -440,3 +440,86 @@ def test_a_voice_model_answer_carries_the_spoken_list() -> None:
     prepared = prepare_ask_in_own_session(session["id"], VoiceAskCreate(transcript_segment_id=segment["id"]), CONTEXT)
     assert prepared.reply is None and prepared.capabilities.startswith(caps.CAPABILITY_HEADER)
     assert "Here ANUM can handle" in prepared.capabilities
+
+
+# -- email: the Email Center first, then the legacy providers ------------------------------------
+
+
+@pytest.fixture
+def mail_center(monkeypatch: pytest.MonkeyPatch) -> Any:
+    from anum_api.mailbox.config import mail_settings
+    from anum_api.mailbox.store import mail_backend
+
+    monkeypatch.setattr(mail_settings, "enabled", True)
+    mail_backend.clear()
+    yield mail_backend
+    mail_backend.clear()
+
+
+def legacy(monkeypatch: pytest.MonkeyPatch, status: str) -> None:
+    """The Gmail, Outlook and Zoho entries of Connection setup, as ``status`` (``not_configured``: none)."""
+    real = caps._setup_status
+
+    def fake(item_id: str, context: TenantContext) -> tuple[str, int | None, int]:
+        if item_id.startswith("email_"):
+            return (status, 1 if status == "connected" else 0, 0) if item_id == "email_gmail" else ("not_configured", None, 0)
+        return real(item_id, context)
+
+    monkeypatch.setattr(caps, "_setup_status", fake)
+
+
+def seed_mailbox(backend: Any, *, owner: str = "owner_caps", status: str = "connected") -> None:
+    from anum_api.mailbox.store import MailAccount
+
+    account = MailAccount(id=f"mbx_{owner}", tenant_id=TENANT, workspace_id=WORKSPACE, owner_user_id=owner,
+                          address=f"{owner}@example.com", password_enc="example", status=status)
+    backend.accounts[account.id] = account
+
+
+def email_state(context: TenantContext = CONTEXT) -> caps.Capability:
+    found = caps.by_id(caps.read_capabilities(context, main.tool_registry.names), "email")
+    assert found is not None
+    return found
+
+
+def test_an_email_center_mailbox_alone_makes_email_available(mail_center: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    legacy(monkeypatch, "not_configured")
+    seed_mailbox(mail_center)
+    assert email_state().available
+    # Another person's mailbox, not shared with the caller, does not count.
+    mail_center.clear()
+    seed_mailbox(mail_center, owner="someone_else")
+    email = email_state()
+    assert not email.available and email.reason == "not connected: connect a mailbox on the Email page"
+
+
+def test_a_failing_email_center_mailbox_says_so(mail_center: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    legacy(monkeypatch, "not_configured")
+    seed_mailbox(mail_center, status="auth_failed")
+    email = email_state()
+    assert not email.available and "Email Center cannot be reached" in (email.reason or "")
+
+
+def test_a_legacy_connection_alone_makes_email_available(monkeypatch: pytest.MonkeyPatch) -> None:
+    from anum_api.mailbox.config import mail_settings
+
+    monkeypatch.setattr(mail_settings, "enabled", False)
+    legacy(monkeypatch, "connected")
+    assert email_state().available
+
+
+def test_neither_kind_of_mailbox_leaves_email_off(mail_center: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    legacy(monkeypatch, "ready")
+    email = email_state()
+    assert not email.available and email.reason == "not connected: connect a mailbox on the Email page"
+    assert email.reason_ar == "غير مربوط: اربط صندوق بريد من صفحة البريد"
+
+
+def test_with_the_email_center_off_its_mailboxes_are_not_read(mail_center: Any, monkeypatch: pytest.MonkeyPatch) -> None:
+    from anum_api.mailbox.config import mail_settings
+
+    seed_mailbox(mail_center)
+    monkeypatch.setattr(mail_settings, "enabled", False)
+    legacy(monkeypatch, "not_configured")
+    email = email_state()
+    assert not email.available and email.reason == "not set up on this server: the operator adds a mail provider"

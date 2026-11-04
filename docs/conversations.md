@@ -189,10 +189,10 @@ business invoices, finance, commerce, tyre planning, meetings, phone calls, auto
 social media marketing. A capability is on only when its tool is registered in this runtime,
 the caller's role allows it and, where it needs one, an account is connected (mail,
 WhatsApp, a sales channel, as on Connection setup) or a workspace owner switched it on under
-Integrations (SearXNG web search, Browser research, Action browser; the action browser also
+Integrations (SearXNG web search, Browser research, Action browser; for email, an Email Center mailbox the caller owns or was shared counts first when `ANUM_MAILSERVER_ENABLED` is on, then the Gmail, Outlook and Zoho connections; the action browser also
 needs the operator's browser service and `ANUM_ACTION_BROWSER_ENABLED`). Each capability that
 is off has a one-line reason with where to turn it on, in English and Arabic: "not connected:
-connect a mailbox in Inbox", "off: a workspace owner turns it on under Integrations > Action
+connect a mailbox on the Email page", "off: a workspace owner turns it on under Integrations > Action
 browser", "not set up on this server: ...", or the role sentence (Settings > Members). Phone
 calls are on for the call log and add a note when no voice provider is connected for placing
 calls. A module whose state cannot be read is listed as "could not be read just now", never

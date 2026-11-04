@@ -168,17 +168,48 @@ def _email(context: TenantContext, tools: Collection[str]) -> Capability:
         return _off("email", _SERVER_EN, _SERVER_AR)
     if not _allowed(context, Permission.EMAIL_READ):
         return _off("email", _ROLE_EN, _ROLE_AR)
+    # The Email Center first (ANUM_MAILSERVER_ENABLED, docs/email.md): the planner routes mail
+    # requests to its tools when it is on, so a mailbox the caller owns or was shared counts.
+    center = _email_center(context)
+    if center == "connected":
+        return _on("email")
     states = [_setup_status(item, context) for item in ("email_gmail", "email_outlook", "email_zoho")]
     if any(state == "connected" for state, _, _ in states):
         return _on("email")
+    if center == "failing":
+        return _off("email", "your mailbox in the Email Center cannot be reached: open Email and check it",
+                    "تعذر الوصول إلى صندوق بريدك في مركز البريد: افتح البريد وتحقق منه")
     if any(state == "error" and (connections or 0) > 0 for state, connections, _ in states):
-        return _off("email", "a connected mailbox needs signing in again: open Inbox and reconnect it",
+        return _off("email", "a connected mailbox needs signing in again: open Email and reconnect it",
                     "صندوق بريد مربوط يحتاج تسجيل الدخول من جديد: افتح البريد وأعد ربطه")
     if any(state in {"ready", "error"} for state, _, _ in states):
-        return _off("email", "not connected: connect a mailbox in Inbox (Integrations > Email)",
-                    "غير مربوط: اربط صندوق بريد من صفحة البريد (التكاملات > البريد)")
+        return _off("email", "not connected: connect a mailbox on the Email page",
+                    "غير مربوط: اربط صندوق بريد من صفحة البريد")
+    if _email_center_enabled():
+        return _off("email", "not connected: connect a mailbox on the Email page",
+                    "غير مربوط: اربط صندوق بريد من صفحة البريد")
     return _off("email", "not set up on this server: the operator adds a mail provider",
                 "غير مجهز على هذا الخادم: يضيف المشغل مزود بريد")
+
+
+def _email_center_enabled() -> bool:
+    from .mailbox.config import mail_settings
+
+    return bool(mail_settings.enabled)
+
+
+def _email_center(context: TenantContext) -> str | None:
+    """``connected`` or ``failing`` for the caller's Email Center mailboxes (own and shared
+    with them), or None when the Email Center is off or the caller has none."""
+    if not _email_center_enabled():
+        return None
+    from .mailbox.store import AccountStatus, open_mail_store
+
+    with open_mail_store(context) as store:
+        accounts = [*store.list_accounts(), *(account for account, _grant in store.list_shared_accounts())]
+    if not accounts:
+        return None
+    return "connected" if any(account.status == AccountStatus.CONNECTED for account in accounts) else "failing"
 
 
 def _whatsapp(context: TenantContext, tools: Collection[str]) -> Capability:
