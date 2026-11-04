@@ -17,6 +17,8 @@
     "build:mobile:android": "cd apps/mobile && flutter build apk --debug",
     "test:e2e": "pnpm --filter @anum/web test:e2e",
     "docs:check": "node scripts/check-docs.mjs",
+    "licenses:check": "bash scripts/licenses/regenerate.sh --check --available",
+    "licenses:update": "bash scripts/licenses/regenerate.sh --available",
     "lint": "pnpm --filter @anum/web lint"
   },
   "devDependencies": {
