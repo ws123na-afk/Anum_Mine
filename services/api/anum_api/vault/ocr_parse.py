@@ -199,6 +199,8 @@ _REFERENCE = re.compile(
     r"\s*(?:no\.?|number|#|id|رقم)?\s*[:#.\-]?\s*([A-Za-z0-9][A-Za-z0-9\-/]{2,39})",
     re.IGNORECASE,
 )
+_REFERENCE_WORD = re.compile(r"^(invoice|receipt|bill|order)\s*(no\.?|number|#)?\s*:?$|^(رقم\s*الفاتورة|رقم\s*الإيصال|رقم\s*الايصال|رقم\s*المرجع|رقم\s*الطلب)\s*:?$", re.IGNORECASE)
+_REFERENCE_TOKEN = re.compile(r"\b[A-Za-z]{1,6}[-/]?\d{2,20}\b|\b\d{4,20}\b")
 _HEADER = _words(r"tax\s*invoice", r"simplified", r"\binvoice\b", r"\breceipt\b", r"فاتورة", r"ضريبية", r"مبسطة", r"إيصال", r"ايصال",
                  r"welcome", r"thank\s*you", r"مرحبا", r"شكرا")
 _EXPIRY = _words(r"expir", r"\bexp\b", r"valid\s*(until|till|thru|through|to)", r"date\s*of\s*expiry", r"تاريخ\s*الانتهاء", r"تاريخ\s*الإنتهاء",
@@ -323,17 +325,28 @@ def read_receipt(lines: list[OcrLine]) -> Extraction:
     if receipt_date:
         fields["date"] = _field(receipt_date[0].value.isoformat(), receipt_date[0].confidence, receipt_date[1])
 
-    for line in rows:
+    for index, line in enumerate(rows):
         if _TAX_NUMBER.search(line.text):
             continue
         match = _REFERENCE.search(line.text)
         if match and any(ch.isdigit() for ch in match.group(2)):
             fields["reference"] = _field(safe_value(match.group(2), 40), 0.7, line)
             break
+        if _REFERENCE_WORD.search(line.text):
+            # Right-to-left layouts often put the number on its own line next to the label.
+            for near in (rows[index - 1] if index else None, rows[index + 1] if index + 1 < len(rows) else None):
+                token = _REFERENCE_TOKEN.search(near.text) if near is not None else None
+                if token and near is not None and not _TAX_NUMBER.search(near.text):
+                    fields["reference"] = _field(safe_value(token.group(0), 40), 0.5, near)
+                    break
+            if "reference" in fields:
+                break
 
     for line in rows[:4]:
         text = line.text
         letters = sum(ch.isalpha() for ch in text)
+        if currency_in(text) and len(text.split()) == 1:
+            continue  # a lone currency mark ("ر.س") is not a shop name
         if letters < 3 or letters < len(text) * 0.5 or dates_in(text) or _TOTAL.search(text) or _HEADER.search(text) or _TAX_NUMBER.search(text):
             continue
         fields["merchant"] = _field(safe_value(text, 120), 0.6, line)
