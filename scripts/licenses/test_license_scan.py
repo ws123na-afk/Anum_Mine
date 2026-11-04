@@ -112,6 +112,35 @@ class OutputTest(unittest.TestCase):
         self.assertIn("| left-pad | MIT | desktop, web |", text)
         self.assertNotIn("1.0.0", text)
 
+    def test_local_scan_keeps_committed_sections_it_could_not_scan(self):
+        full, _ = scan.evaluate([package("left-pad", "MIT"), package("http", "BSD-3-Clause", "dart"),
+                                 package("okio", "Apache-2.0", "gradle")], POLICY, [], [], {"npm", "dart", "gradle"})
+        committed = scan.notices(full)
+        # A machine without flutter and Gradle scans npm only; npm changed since the commit.
+        partial, _ = scan.evaluate([package("left-pad", "MIT"), package("is-even", "MIT")], POLICY, [], [], {"npm"})
+        text = scan.notices(partial, committed, {"dart", "gradle", "python", "cargo"})
+        self.assertIn("| is-even | MIT | web |", text)
+        self.assertIn("| http | BSD-3-Clause | web |", text)
+        self.assertIn("| okio | Apache-2.0 | web |", text)
+        self.assertIn("## Dart and Flutter packages (pub.dev)", text)
+        self.assertIn("## Android libraries (Maven)", text)
+        self.assertLess(text.index("## Dart"), text.index("## Android"))
+        # With nothing missing the result is the same as a plain generation.
+        self.assertEqual(scan.notices(full, committed, set()), committed)
+        # Keeping every section of an unchanged scan reproduces the committed file exactly.
+        npm_only, _ = scan.evaluate([package("left-pad", "MIT")], POLICY, [], [], {"npm"})
+        self.assertEqual(scan.notices(npm_only, committed, {"dart", "gradle", "python", "cargo"}), committed)
+
+    def test_local_scan_keeps_accepted_exceptions_of_unscanned_ecosystems(self):
+        exception = {"ecosystem": "python", "package": "psycopg", "license": "LGPL-3.0-only",
+                     "reason": "replaceable driver", "reviewed_by": "owner", "reviewed_on": "2026-11-04"}
+        full, _ = scan.evaluate([package("psycopg", "LGPL-3.0-only", "python"), package("left-pad", "MIT")],
+                                POLICY, [], [exception], {"python", "npm"})
+        committed = scan.notices(full)
+        self.assertIn("### psycopg (Python packages (PyPI))", committed)
+        npm_only, _ = scan.evaluate([package("left-pad", "MIT")], POLICY, [], [], {"npm"})
+        self.assertEqual(scan.notices(npm_only, committed, {"python", "cargo", "dart", "gradle"}), committed)
+
     def test_sbom_lists_versions_and_purls(self):
         results, _ = scan.evaluate([package("@scope/pkg", "MIT")], POLICY, [], [], {"npm"})
         document = scan.sbom("web", results, "abc")

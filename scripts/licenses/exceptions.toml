@@ -35,3 +35,11 @@ detected = ""
 license = "Apache-2.0 AND BSD-3-Clause"
 evidence = "https://github.com/dateutil/dateutil/blob/2.9.0.post0/LICENSE"
 reason = "Metadata says only 'Dual License'. LICENSE at the tag: Apache-2.0 for contributions after 2017-12-01, and the BSD-3-Clause text applies to all code."
+
+[[override]]
+ecosystem = "python"
+package = "defusedxml"
+detected = "PSFL"
+license = "PSF-2.0"
+evidence = "https://github.com/tiran/defusedxml/blob/v0.7.1/LICENSE"
+reason = "Metadata says 'PSFL' with the classifier 'Python Software Foundation License'; the LICENSE in the 0.7.1 wheel is the Python Software Foundation License Version 2."

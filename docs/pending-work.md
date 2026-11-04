@@ -32,7 +32,7 @@ State: `main` is at `6643fc1` (#359, the action browser) plus the audit fixes in
 
 12. **Browser research** (`docs/browser-research.md#setting-it-up`, optional): add `browser` to `COMPOSE_PROFILES` and set `ANUM_BROWSER_RESEARCH_URL=http://browser:8090` in `infra/oracle/.env`, run `update.sh` (about 650 MB more disk), add the metadata drop rule, then turn it on per workspace under Integrations, Browser research. Until then `web.browse_page` says "Not available on this server".
 13. **Action browser** (`docs/action-browser.md#setting-it-up`, optional, after item 12; better after the saved card CVC is no longer stored, see below): set `ANUM_BROWSER_ACTION_MODE=1` and `ANUM_ACTION_BROWSER_ENABLED=true` in `infra/oracle/.env`, run `update.sh`, then turn it on per workspace under Integrations, Action browser and add the logins and cards it may use.
-14. **License decisions** (`docs/licenses.md#current-result`): the scan reports the weak-copyleft packages listed there (for example `psycopg`/`psycopg-binary` in the API and the `sharp` libvips binaries in web and desktop); decide for each one whether to accept it with a reviewed exception in `scripts/licenses/exceptions.toml` or replace it. Run `bash scripts/licenses/check.sh` to see the current result.
+14. **License decisions** (`docs/licenses.md#current-result`): the scan reports the weak-copyleft packages listed there (for example `psycopg`/`psycopg-binary` in the API and the `sharp` libvips binaries in web and desktop); decide for each one whether to accept it with a reviewed exception in `scripts/licenses/exceptions.toml` or replace it. Run `pnpm licenses:check` to see the current result.
 
 ## Build work still open (with reasons)
 

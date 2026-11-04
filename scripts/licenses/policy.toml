@@ -28,6 +28,8 @@ allowed = [
   "ISC",
   "MIT",
   "MIT-0",
+  # HPND-style permissive license (notice kept in copies, no endorsement); Pillow's license.
+  "MIT-CMU",
   # Weak, file-level copyleft: fine for unmodified runtime use. Changes to MPL files
   # themselves must be published under the MPL.
   "MPL-2.0",

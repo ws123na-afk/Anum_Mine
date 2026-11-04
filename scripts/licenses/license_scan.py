@@ -392,7 +392,16 @@ def find_license_file(directory: Path) -> Path | None:
 # --------------------------------------------------------------------------- collectors
 
 
+# pip writes Core Metadata 2.4's License-Expression into its install report only from 25.0 on;
+# an older pip reports most current packages (fastapi, psycopg, ...) as having no license.
+MIN_PIP = (25, 0)
+
+
 def collect_python(_: argparse.Namespace) -> list[dict]:
+    pip_version = re.match(r"pip (\d+)\.(\d+)", run([sys.executable, "-m", "pip", "--version"]))
+    if not pip_version or tuple(map(int, pip_version.groups())) < MIN_PIP:
+        raise SystemExit(f"pip {'.'.join(map(str, MIN_PIP))} or newer is needed to read License-Expression "
+                         f"metadata: {sys.executable} -m pip install --upgrade pip (or set PYTHON to a venv's python)")
     with tempfile.TemporaryDirectory() as tmp:
         report_path = Path(tmp) / "report.json"
         run([
@@ -797,7 +806,45 @@ ECOSYSTEM_TITLES = {
 }
 
 
-def notices(results: list[dict]) -> str:
+ACCEPTED_TITLE = "## Components used under a reviewed license exception"
+
+
+def kept_sections(previous: str, missing: set[str]) -> tuple[dict[str, list[str]], list[list[str]]]:
+    """Sections of a committed THIRD_PARTY_NOTICES.md for ecosystems this run did not scan.
+
+    Returns the "## <ecosystem>" sections (keyed by ecosystem) and the "### <name> (<ecosystem
+    title>)" entries of the accepted-exceptions section that belong to those ecosystems, each
+    as its lines without trailing blank lines. Used by a local scan that cannot run every
+    package manager (docs/licenses.md#run-it-locally): what it could not scan stays as CI last
+    wrote it.
+    """
+    titles = {f"## {ECOSYSTEM_TITLES[e]}": e for e in missing}
+    suffixes = {f"({ECOSYSTEM_TITLES[e]})" for e in missing}
+    sections: dict[str, list[str]] = {}
+    accepted: list[list[str]] = []
+    current: list[str] | None = None
+    in_accepted = False
+    for line in previous.splitlines():
+        if line.startswith("## "):
+            in_accepted = line == ACCEPTED_TITLE
+            ecosystem = titles.get(line)
+            current = sections.setdefault(ecosystem, []) if ecosystem else None
+        elif in_accepted and line.startswith("### "):
+            current = [] if line.endswith(tuple(suffixes)) else None
+            if current is not None:
+                accepted.append(current)
+        if current is not None:
+            current.append(line)
+    def trim(block: list[str]) -> list[str]:
+        while block and not block[-1].strip():
+            block = block[:-1]
+        return block
+
+    return {k: trim(v) for k, v in sections.items()}, [trim(b) for b in accepted]
+
+
+def notices(results: list[dict], previous: str | None = None, missing: set[str] | frozenset = frozenset()) -> str:
+    kept, kept_accepted = kept_sections(previous, set(missing)) if previous and missing else ({}, [])
     lines = [
         "# Third-party notices",
         "",
@@ -823,6 +870,9 @@ def notices(results: list[dict]) -> str:
             entry["apps"].update(result["apps"])
             if not entry["source"]:
                 entry["source"] = result["source"]
+        if ecosystem in kept:
+            lines += kept[ecosystem] + [""]
+            continue
         if not rows:
             continue
         names = {name for name, _ in rows}
@@ -840,8 +890,8 @@ def notices(results: list[dict]) -> str:
             entry = accepted.setdefault((result["ecosystem"], result["name"]),
                                         {"result": result, "apps": set()})
             entry["apps"].update(result["apps"])
-    if accepted:
-        lines += ["## Components used under a reviewed license exception", "",
+    if accepted or kept_accepted:
+        lines += [ACCEPTED_TITLE, "",
                   "These components carry a weak copyleft license. Each was reviewed and accepted for",
                   "the reason given (docs/licenses.md).", ""]
         for (ecosystem, name), entry in sorted(accepted.items(), key=lambda item: (item[0][0], item[0][1].lower())):
@@ -854,6 +904,8 @@ def notices(results: list[dict]) -> str:
             if exception.get("notice"):
                 lines.append(f"- Notice: {exception['notice']}")
             lines.append("")
+        for block in kept_accepted:
+            lines += block + [""]
     return "\n".join(lines).rstrip() + "\n"
 
 
@@ -947,16 +999,20 @@ def command_report(args: argparse.Namespace) -> int:
         Path(args.results).write_text(json.dumps(results, indent=2) + "\n")
     failed = bool(stale) or any(r["violation"] for r in results)
 
-    complete = sorted(scanned) == sorted(ECOSYSTEMS)
+    missing = set(ECOSYSTEMS) - set(scanned)
     if args.write_notices or args.check_notices:
-        if not complete:
+        previous = NOTICES_FILE.read_text() if NOTICES_FILE.exists() else ""
+        if missing and not args.keep_unscanned:
             raise SystemExit(f"THIRD_PARTY_NOTICES.md needs every ecosystem ({', '.join(ECOSYSTEMS)}); got {', '.join(scanned)}")
-        generated = notices(results)
+        if missing:
+            print(f"::warning::Not scanned here: {', '.join(sorted(missing))}. Their sections of "
+                  "THIRD_PARTY_NOTICES.md are kept as committed; CI's full scan checks them.")
+        generated = notices(results, previous, missing)
         if args.write_notices:
             Path(args.write_notices).write_text(generated)
             log(f"wrote {args.write_notices}")
         if args.check_notices:
-            current = NOTICES_FILE.read_text() if NOTICES_FILE.exists() else ""
+            current = previous
             if current != generated:
                 diff = list(difflib.unified_diff(current.splitlines(), generated.splitlines(),
                                                  "THIRD_PARTY_NOTICES.md (committed)", "THIRD_PARTY_NOTICES.md (scan)", lineterm=""))
@@ -995,6 +1051,8 @@ def main() -> int:
     report.add_argument("--write-notices", metavar="FILE")
     report.add_argument("--check-notices", action="store_true")
     report.add_argument("--sbom-dir")
+    report.add_argument("--keep-unscanned", action="store_true",
+                        help="local runs: keep the committed notices sections of ecosystems not in --inputs")
     args = parser.parse_args()
     return command_collect(args) if args.command == "collect" else command_report(args)
 
