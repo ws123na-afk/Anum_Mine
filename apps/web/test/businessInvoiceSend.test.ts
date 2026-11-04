@@ -41,8 +41,8 @@ describe('invoice emails and reminders', () => {
 
 describe('idempotent payments', () => {
   test('each payment form gets its own key the API accepts', () => {
-    const key = newPaymentKey(() => '1b2c-3d4e');
-    assert.equal(key, 'pay-1b2c-3d4e');
+    const key = newPaymentKey(() => 'example');
+    assert.equal(key, 'pay-example');
     assert.match(newPaymentKey(), /^pay-[A-Za-z0-9_-]{8,76}$/);
     assert.notEqual(newPaymentKey(), newPaymentKey());
     assert.equal(newPaymentKey(() => 'a/b c+d'), 'pay-abcd');
