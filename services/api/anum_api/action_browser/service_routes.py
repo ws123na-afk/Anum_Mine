@@ -223,6 +223,16 @@ def action_routes(authorised: Callable[[Request], bool], sessions: ActionSession
         session.add_sites(sites)
         return JSONResponse({"sites": session.sites})
 
+    async def download(request: Request) -> Response:
+        session = await session_of(request)
+        if isinstance(session, Response):
+            return session
+        found = session.download_bytes(request.path_params["download_id"])
+        if found is None:
+            return JSONResponse({"outcome": "no_download", "message": "That download is not in this session."}, status_code=404)
+        name, content = found
+        return Response(content, media_type="application/octet-stream", headers={"x-download-name": name.encode("ascii", "replace").decode(), "cache-control": "no-store"})
+
     async def close(request: Request) -> Response:
         if not authorised(request):
             return JSONResponse({"detail": "Not authorised."}, status_code=401)
@@ -237,6 +247,7 @@ def action_routes(authorised: Callable[[Request], bool], sessions: ActionSession
         Route("/v1/sessions/{session_id}/screenshot", screenshot, methods=["GET"]),
         Route("/v1/sessions/{session_id}/input", owner_input, methods=["POST"]),
         Route("/v1/sessions/{session_id}/domains", add_domains, methods=["POST"]),
+        Route("/v1/sessions/{session_id}/downloads/{download_id}", download, methods=["GET"]),
         Route("/v1/sessions/{session_id}", close, methods=["DELETE"]),
     ]
 

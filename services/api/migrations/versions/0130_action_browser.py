@@ -9,7 +9,8 @@ New workspace tables, each under forced RLS with the tenant and workspace isolat
   read the scope columns of rows with a ciphertext so ``rotate_secrets`` can find them
   (granted ``WITH INHERIT FALSE, SET TRUE`` by ``0009``, so it never widens the app role).
 * ``action_browser_sessions``: one row per task's browser session: the task and run, the goal,
-  the approved sites and handles, status, step count, the address and what it waits for.
+  the approved sites and handles, status, step count, the address, what it waits for and the
+  result it brings back (extracted fields, a table, the files it saved, the answer).
 * ``action_browser_steps``: the step log, short plain sentences with handles and masked values
   only. Pictures of pages are never stored.
 
@@ -131,6 +132,8 @@ def upgrade() -> None:
         sa.Column("pending", JSONB(), nullable=True),
         sa.Column("outcome", sa.String(40), nullable=True),
         sa.Column("message", sa.String(500), nullable=False, server_default=""),
+        # What the task brings back: extracted fields, a table, the files it saved to Files, the answer.
+        sa.Column("result", JSONB(), nullable=False, server_default=sa.text("'{}'::jsonb")),
         sa.Column("created_at", TS, nullable=False, server_default=sa.func.now()),
         sa.Column("updated_at", TS, nullable=False, server_default=sa.func.now()),
         sa.Column("ended_at", TS, nullable=True),

@@ -3,7 +3,7 @@
 Pure: the browser service describes the page and the target of a proposed step
 (``kernel.inspect``), and :func:`classify` decides, outside the model:
 
-* ``refuse``: never done (uploads, downloads, non-https, a card-like number or an
+* ``refuse``: never done (file uploads, non-https, a card-like number or an
   out-of-scope handle typed as text, a login typed on another site);
 * ``handoff``: the page needs the owner's own hands (a captcha, a one-time code, a bank
   check);
@@ -286,8 +286,6 @@ def classify(step: dict[str, Any], *, sites: list[str], scope_logins: dict[str, 
         return Decision(REFUSE, "no_target", "That element is not on the page any more.")
     if input_type == "file":
         return Decision(REFUSE, "upload", "File uploads are not done by the action browser.")
-    if target.get("download"):
-        return Decision(REFUSE, "download", "Downloads are not done by the action browser.")
     if target.get("disabled"):
         return Decision(REFUSE, "disabled", "That control is disabled on the page.")
 

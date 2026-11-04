@@ -48,6 +48,8 @@ class SessionRecord(BaseModel):
     pending: dict[str, Any] | None = None
     outcome: str | None = None
     message: str = ""
+    # {"answer", "fields": {...}, "columns": [...], "rows": [[...]], "files": [{"id", "name", "size"}]}
+    result: dict[str, Any] = Field(default_factory=dict)
     created_at: datetime
     updated_at: datetime
     ended_at: datetime | None = None
@@ -189,7 +191,7 @@ memory_action_store = InMemoryActionStore()
 
 _SESSION_COLUMNS = (
     "id, task_id, run_id, created_by, status, goal, start_url, sites, logins, cards, grants, browser_id, step_count, work_seconds, "
-    "current_url, current_title, waiting, pending, outcome, message, created_at, updated_at, ended_at"
+    "current_url, current_title, waiting, pending, outcome, message, result, created_at, updated_at, ended_at"
 )
 _CREDENTIAL_COLUMNS = "id, kind, handle, site, hint, secret_ciphertext, created_by, created_at, updated_by, updated_at"
 
@@ -214,10 +216,12 @@ class SqlActionStore:
     @staticmethod
     def _session(row: Any) -> SessionRecord:
         data = dict(row._mapping)
-        for key in ("sites", "logins", "cards", "grants", "pending"):
+        for key in ("sites", "logins", "cards", "grants", "pending", "result"):
             data[key] = _json(data.get(key))
         if data.get("grants") is None:
             data["grants"] = []
+        if data.get("result") is None:
+            data["result"] = {}
         return SessionRecord.model_validate(data)
 
     def _session_values(self, context: TenantContext, record: SessionRecord) -> dict[str, Any]:
@@ -228,7 +232,7 @@ class SqlActionStore:
             "browser_id": record.browser_id, "step_count": record.step_count, "work_seconds": record.work_seconds,
             "current_url": record.current_url, "current_title": record.current_title, "waiting": record.waiting,
             "pending": json.dumps(record.pending) if record.pending is not None else None, "outcome": record.outcome,
-            "message": record.message[:500], "created_at": record.created_at, "updated_at": record.updated_at, "ended_at": record.ended_at,
+            "message": record.message[:500], "result": json.dumps(record.result, ensure_ascii=False), "created_at": record.created_at, "updated_at": record.updated_at, "ended_at": record.ended_at,
         }
 
     def create_session(self, context: TenantContext, record: SessionRecord) -> SessionRecord:
@@ -239,7 +243,7 @@ class SqlActionStore:
             "insert into action_browser_sessions (tenant_id, workspace_id, " + _SESSION_COLUMNS + ") values (:t, :w, :id, :task_id, :run_id, "
             ":created_by, :status, :goal, :start_url, cast(:sites as jsonb), cast(:logins as jsonb), cast(:cards as jsonb), cast(:grants as jsonb), "
             ":browser_id, :step_count, :work_seconds, :current_url, :current_title, :waiting, cast(:pending as jsonb), :outcome, :message, "
-            ":created_at, :updated_at, :ended_at)"), self._session_values(context, record))
+            "cast(:result as jsonb), :created_at, :updated_at, :ended_at)"), self._session_values(context, record))
         return record
 
     def get_session(self, context: TenantContext, session_id: str) -> SessionRecord | None:
@@ -252,7 +256,7 @@ class SqlActionStore:
         result = self.session.execute(text(
             "update action_browser_sessions set status = :status, grants = cast(:grants as jsonb), sites = cast(:sites as jsonb), "
             "browser_id = :browser_id, step_count = :step_count, work_seconds = :work_seconds, current_url = :current_url, "
-            "current_title = :current_title, waiting = :waiting, pending = cast(:pending as jsonb), outcome = :outcome, message = :message, "
+            "current_title = :current_title, waiting = :waiting, pending = cast(:pending as jsonb), outcome = :outcome, message = :message, result = cast(:result as jsonb), "
             "run_id = :run_id, updated_at = :updated_at, ended_at = :ended_at where tenant_id = :t and workspace_id = :w and id = :id"),
             self._session_values(context, record))
         if result.rowcount != 1:

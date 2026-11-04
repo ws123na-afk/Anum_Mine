@@ -33,6 +33,10 @@ MAX_ELEMENTS = 150
 MAX_FRAME_ELEMENTS = 40
 MAX_TEXT_CHARS = 6000
 MAX_INSPECT_TEXT = 8000
+# Files a task may download into the workspace's Files (docs/action-browser.md#downloads). Never opened here.
+DOWNLOAD_EXTENSIONS = frozenset({".pdf", ".csv", ".xlsx", ".docx", ".png", ".jpg", ".jpeg", ".txt", ".json"})
+MAX_DOWNLOAD_BYTES = 20_000_000
+MAX_DOWNLOADS = 10
 OWNER_KEYS = frozenset({"Enter", "Tab", "Backspace", "Delete", "Escape", "ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight", "Home", "End", "Space"})
 PAYMENT_FRAME_HOSTS = (
     "stripe.com", "stripe.network", "adyen.com", "checkout.com", "paypal.com", "braintreegateway.com", "squareup.com", "paytabs.com", "telr.com",
@@ -220,6 +224,10 @@ class ActionSession:
         self._context: Any = None
         self.page: Any = None
         self.closed = False
+        # Finished downloads: {"id", "name", "size", "path"} (the path never leaves this process).
+        self.downloads: list[dict[str, Any]] = []
+        self.refused_downloads = 0
+        self._pending_downloads: set[asyncio.Task[None]] = set()
 
     # ------------------------------------------------------------------ life cycle
 
@@ -242,7 +250,9 @@ class ActionSession:
             downloads_path=home,
         )
         self._context = await self._browser.new_context(
-            accept_downloads=False,
+            # Downloads land in this session's temporary folder only and are never opened here;
+            # the API checks the type and size again and stores them in Files.
+            accept_downloads=True,
             service_workers="block",
             permissions=[],
             locale="en-US",
@@ -252,6 +262,8 @@ class ActionSession:
         await self._context.route("**/*", self._route)
         self.page = await self._context.new_page()
         self.page.on("dialog", lambda dialog: asyncio.ensure_future(dialog.dismiss()))
+        self.page.on("download", self._on_download)
+        # File uploads are not part of this change: a file chooser is never answered.
         self._context.on("page", lambda extra: asyncio.ensure_future(extra.close()) if extra != self.page else None)
 
     async def close(self) -> None:
@@ -268,6 +280,48 @@ class ActionSession:
         if self._home is not None:
             with contextlib.suppress(Exception):
                 self._home.cleanup()
+
+    def _on_download(self, download: Any) -> None:
+        task = asyncio.ensure_future(self._keep_download(download))
+        self._pending_downloads.add(task)
+        task.add_done_callback(self._pending_downloads.discard)
+
+    async def _keep_download(self, download: Any) -> None:
+        import os
+        from pathlib import PurePosixPath
+
+        name = "".join(ch for ch in str(download.suggested_filename or "download")[:120] if ch.isalnum() or ch in "._- ").strip() or "download"
+        extension = PurePosixPath(name.lower()).suffix
+        if extension not in DOWNLOAD_EXTENSIONS or len(self.downloads) >= MAX_DOWNLOADS or self._home is None:
+            self.refused_downloads += 1
+            with contextlib.suppress(Exception):
+                await download.cancel()
+            return
+        target = os.path.join(self._home.name, f"dl-{len(self.downloads) + self.refused_downloads}-{secrets.token_hex(4)}{extension}")
+        try:
+            await download.save_as(target)
+            size = os.path.getsize(target)
+        except Exception:
+            self.refused_downloads += 1
+            return
+        if size <= 0 or size > MAX_DOWNLOAD_BYTES:
+            self.refused_downloads += 1
+            with contextlib.suppress(OSError):
+                os.remove(target)
+            return
+        self.downloads.append({"id": f"d{len(self.downloads) + 1}", "name": name, "size": size, "path": target})
+
+    async def wait_downloads(self, timeout: float = 30.0) -> None:
+        if self._pending_downloads:
+            with contextlib.suppress(Exception):
+                await asyncio.wait_for(asyncio.gather(*list(self._pending_downloads), return_exceptions=True), timeout=timeout)
+
+    def download_bytes(self, download_id: str) -> tuple[str, bytes] | None:
+        for item in self.downloads:
+            if item["id"] == download_id:
+                with open(item["path"], "rb") as handle:
+                    return item["name"], handle.read(MAX_DOWNLOAD_BYTES + 1)
+        return None
 
     def expired(self, now: float | None = None) -> bool:
         now = time.monotonic() if now is None else now
@@ -430,8 +484,15 @@ class ActionSession:
             raise
         except Exception as exc:
             raise ActionError("action_failed", f"The browser could not do that on the page ({type(exc).__name__}).") from None
+        before = len(self.downloads)
         await self._settle()
+        # A click that starts a download: wait for the file (bounded), then report it.
+        await asyncio.sleep(0)
+        await self.wait_downloads()
         snapshot = await self.snapshot()
+        new_downloads = [{key: item[key] for key in ("id", "name", "size")} for item in self.downloads[before:]]
+        if new_downloads:
+            snapshot["downloads"] = new_downloads
         if self.held:
             return {"outcome": "held_navigation", "held": self.held, "snapshot": snapshot}
         return {"outcome": "done", "snapshot": snapshot}

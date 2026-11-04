@@ -41,6 +41,10 @@ EnabledCheck = Callable[[TenantContext], bool]
 PlannerFactory = Callable[[TenantContext], ActionPlanner]
 MAX_JSON_BYTES = 512 * 1024
 MAX_PICTURE_BYTES = 3 * 1024 * 1024
+MAX_DOWNLOAD_BYTES = 20_000_000
+# What a task may save into Files from a site: never executed, checked again by Files.
+DOWNLOAD_EXTENSIONS = frozenset({".pdf", ".csv", ".xlsx", ".docx", ".png", ".jpg", ".jpeg", ".txt", ".json"})
+MAX_COLUMNS, MAX_ROWS, MAX_FIELDS, MAX_CELL = 20, 200, 40, 300
 URL_POLICY = EgressPolicy(enforce=True)
 UNAVAILABLE_SERVICE = (
     "Not available on this server: the browser service is not set up (the operator sets ANUM_BROWSER_RESEARCH_URL and "
@@ -134,6 +138,21 @@ class ActionServiceClient:
     async def screenshot(self, browser_id: str) -> bytes | None:
         status, value = await self._request("GET", f"/v1/sessions/{browser_id}/screenshot", picture=True)
         return value if status == 200 and isinstance(value, bytes) else None
+
+    async def download(self, browser_id: str, download_id: str) -> tuple[str, bytes] | None:
+        client = self._client or httpx.AsyncClient(timeout=self.timeout_seconds, follow_redirects=False, trust_env=False)
+        owns = self._client is None
+        try:
+            async with asyncio.timeout(self.timeout_seconds):
+                async with client.stream("GET", f"{self.base_url}/v1/sessions/{browser_id}/downloads/{download_id}",
+                                         headers={"authorization": f"Bearer {self._token}", "accept-encoding": "identity"}) as response:
+                    raw, truncated = await read_capped(response, MAX_DOWNLOAD_BYTES)
+                    if response.status_code != 200 or truncated:
+                        return None
+                    return response.headers.get("x-download-name", "download"), raw
+        finally:
+            if owns:
+                await client.aclose()
 
     async def owner_input(self, browser_id: str, event: dict[str, Any]) -> dict[str, Any]:
         return await self._json("POST", f"/v1/sessions/{browser_id}/input", event)
@@ -401,7 +420,8 @@ class _Segment:
             await self.save()
         if stopped:
             return _done("failed", "Stopped by the owner.", self._audit("stopped"))
-        output = {"session_id": self.record.id, "final_url": self.record.current_url, "steps": self.record.step_count}
+        output = {"session_id": self.record.id, "final_url": self.record.current_url, "steps": self.record.step_count,
+                  **{key: self.record.result[key] for key in ("fields", "columns", "rows", "files") if self.record.result.get(key)}}
         if final is not None:
             output["answer"] = final
         return _done(status, message, self._audit(outcome), output)
@@ -500,9 +520,24 @@ class _Segment:
         """One planned step: validate, classify, then act or pause. None continues the loop."""
         record = self.record
         if step.action == "done":
-            return await self.end("succeeded", step.answer or f"Done on {record.current_url or record.start_url}.", "succeeded", final=step.answer)
+            answer = step.answer or f"Done on {record.current_url or record.start_url}."
+            if step.save_as == "csv" and record.result.get("rows"):
+                await self._save_table()
+            record.result["answer"] = answer[:1500]
+            return await self.end("succeeded", result_summary(answer, record.result), "succeeded", final=answer)
         if step.action == "fail":
             return await self.end("failed", step.answer or "The goal could not be reached.", "planner_failed")
+        if step.action == "extract":
+            added = merge_result(record.result, step.data or {})
+            record.step_count += 1
+            if not added:
+                self.refusals += 1
+                await self.note("refused", "The model sent nothing to note; reading the page again.")
+                return await self._too_many_refusals()
+            await self.note("extracted", f"Noted {added} from {site_of(urlsplit(record.current_url or '').hostname or '') or 'the page'}",
+                            url=record.current_url, detail={"count": added})
+            await self.save()
+            return None
         action = _action_of(step)
         if action is None:
             self.refusals += 1
@@ -556,7 +591,8 @@ class _Segment:
         what = f"{verb} {label}" if decision.code != "off_site" else f"open {site_of(decision.host)}"
         money = f" ({amount['amount_text']})" if amount.get("amount_text") and decision.code != "off_site" else ""
         host = str(page.get("host") or decision.host)
-        reason = f"Waiting for your approval: {what}{money} on {site_of(host)}."
+        reason = (f"Waiting for your approval: open {site_of(decision.host)}, a site outside the approved list." if decision.code == "off_site"
+                  else f"Waiting for your approval: {what}{money} on {site_of(host)}.")
         args: dict[str, Any] = {
             "resume": "step" if decision.code != "off_site" else "off_site",
             "kind": decision.code,
@@ -616,10 +652,46 @@ class _Segment:
         self._observe(snapshot)
         await self.note(_log_kind(action), _log_line(action, described, step), url=self.record.current_url,
                         detail=_log_detail(action, described))
+        for item in (snapshot.get("downloads") or [])[:10]:
+            if isinstance(item, dict):
+                await self._keep_download(item)
         await self.save()
         if outcome == "held_navigation" or snapshot.get("held"):
             return await self._page_needs_owner({**snapshot, "held": result.get("held") or snapshot.get("held")})
         return None
+
+    async def _keep_download(self, item: dict[str, Any]) -> None:
+        """A file the page downloaded: checked again and stored in the workspace's Files (never opened)."""
+        from pathlib import PurePosixPath
+
+        name = str(item.get("name") or "download")[:120]
+        if PurePosixPath(name.lower()).suffix not in DOWNLOAD_EXTENSIONS:
+            await self.note("refused", f"Did not keep {name}: only PDF, CSV, Excel, Word, PNG, JPEG, text and JSON files are saved.")
+            return
+        fetched = await self.client.download(self.record.browser_id or "", str(item.get("id") or ""))
+        if fetched is None:
+            await self.note("error", f"Could not fetch {name} from the browser.")
+            return
+        stored = await store_in_files(self.context, name, fetched[1])
+        if isinstance(stored, str):
+            await self.note("refused", f"Did not keep {name}: {stored}"[:300])
+            return
+        files = list(self.record.result.get("files") or [])
+        files.append({"id": stored["id"], "name": stored["name"], "size": stored["size"]})
+        self.record.result["files"] = files[:20]
+        await self.note("downloaded", f"Saved {stored['name']} to Files", url=self.record.current_url, detail={"file_id": stored["id"], "name": stored["name"]})
+
+    async def _save_table(self) -> None:
+        content = table_csv(self.record.result)
+        slug = "".join(ch if ch.isalnum() else "-" for ch in self.record.goal.lower()[:40]).strip("-") or "results"
+        stored = await store_in_files(self.context, f"browser-{slug}-{utc_now().strftime('%Y%m%d-%H%M')}.csv", content.encode("utf-8"))
+        if isinstance(stored, str):
+            await self.note("refused", f"Did not save the table: {stored}"[:300])
+            return
+        files = list(self.record.result.get("files") or [])
+        files.append({"id": stored["id"], "name": stored["name"], "size": stored["size"]})
+        self.record.result["files"] = files[:20]
+        await self.note("downloaded", f"Saved the table as {stored['name']} in Files", detail={"file_id": stored["id"], "name": stored["name"]})
 
     async def _approved_step(self, approved: dict[str, Any]) -> ToolResult | None:
         """Run the step the owner approved, only if the page is still the one they saw; otherwise ask again."""
@@ -661,6 +733,91 @@ class _Segment:
         return await self._after(action, result, described, PlannedStep(action="read", reason=str(approved.get("target") or "")), Decision(ALLOW, "approved", ""))
 
 
+def merge_result(result: dict[str, Any], data: dict[str, Any]) -> int:
+    """Add extracted fields and table rows to the task's result, capped. Returns how many were added."""
+    added = 0
+    fields = data.get("fields") if isinstance(data.get("fields"), dict) else {}
+    kept = dict(result.get("fields") or {})
+    for key, value in list(fields.items())[:MAX_FIELDS]:
+        if len(kept) >= MAX_FIELDS and str(key) not in kept:
+            break
+        kept[" ".join(str(key).split())[:80]] = " ".join(str(value).split())[:MAX_CELL]
+        added += 1
+    if kept:
+        result["fields"] = kept
+    columns = data.get("columns") if isinstance(data.get("columns"), list) else None
+    rows = data.get("rows") if isinstance(data.get("rows"), list) else []
+    if columns and not result.get("columns"):
+        result["columns"] = [" ".join(str(c).split())[:80] for c in columns[:MAX_COLUMNS]]
+    width = len(result.get("columns") or []) or MAX_COLUMNS
+    table = list(result.get("rows") or [])
+    for row in rows:
+        if len(table) >= MAX_ROWS:
+            break
+        if isinstance(row, list):
+            table.append([" ".join(str(cell).split())[:MAX_CELL] for cell in row[:width]])
+            added += 1
+    if table:
+        result["rows"] = table
+    return added
+
+
+def table_csv(result: dict[str, Any]) -> str:
+    import csv
+    import io
+
+    def cell(value: str) -> str:
+        # No formula injection when the file is opened in a spreadsheet.
+        return f"'{value}" if value[:1] in {"=", "+", "-", "@"} else value
+
+    out = io.StringIO()
+    writer = csv.writer(out)
+    if result.get("columns"):
+        writer.writerow([cell(c) for c in result["columns"]])
+    for row in result.get("rows") or []:
+        writer.writerow([cell(str(c)) for c in row])
+    return out.getvalue()
+
+
+def result_summary(answer: str, result: dict[str, Any]) -> str:
+    """The answer with what was collected, as plain text and a small Markdown table."""
+    parts = [answer.strip()]
+    if result.get("fields"):
+        parts.append("\n".join(f"- {k}: {v}" for k, v in list(result["fields"].items())[:20]))
+    if result.get("rows"):
+        columns = result.get("columns") or [f"Column {i + 1}" for i in range(len(result["rows"][0]))]
+        lines = ["| " + " | ".join(c.replace("|", "/") for c in columns) + " |", "|" + "---|" * len(columns)]
+        for row in result["rows"][:20]:
+            lines.append("| " + " | ".join(str(c).replace("|", "/") for c in row) + " |")
+        if len(result["rows"]) > 20:
+            lines.append(f"({len(result['rows']) - 20} more rows in the saved table)")
+        parts.append("\n".join(lines))
+    if result.get("files"):
+        parts.append("Saved to Files: " + ", ".join(f["name"] for f in result["files"]))
+    return "\n\n".join(part for part in parts if part)[:6000]
+
+
+async def store_in_files(context: TenantContext, name: str, content: bytes) -> dict[str, Any] | str:
+    """Store bytes in the workspace's Files with the upload checks (type signature, malware scan,
+    quota, tenant-scoped key). Returns the file, or the reason it was not stored."""
+    from fastapi import HTTPException
+
+    from .. import file_policy
+    from ..files import check_upload_content, save_generated_file
+
+    if len(content) > MAX_DOWNLOAD_BYTES:
+        return "it is larger than 20 MB."
+    try:
+        allowed = file_policy.resolve_content_type(name, None)
+        await asyncio.to_thread(check_upload_content, name, allowed, content)
+        saved = await save_generated_file(context, name, content)
+    except file_policy.UnsupportedFileType as exc:
+        return str(exc)[:200]
+    except HTTPException as exc:
+        return str(exc.detail)[:200]
+    return {"id": saved.id, "name": saved.name, "size": saved.size_bytes}
+
+
 def _recent_steps(context: TenantContext, session_id: str) -> list[str]:
     with open_action_store(context) as store:
         rows = store.steps(context, session_id, limit=500)
@@ -686,7 +843,7 @@ def _action_of(step: PlannedStep) -> dict[str, Any] | None:
         return {"type": "wait", "seconds": 2}
     if kind == "read":
         return {"type": "read"}
-    return None
+    return None  # extract, done and fail are handled before
 
 
 def _target_label(target: dict[str, Any], action: dict[str, Any]) -> str:
@@ -748,9 +905,10 @@ def act_definition() -> ToolDefinition:
     return ToolDefinition(
         name=ACT_TOOL,
         description=(
-            "Work through a website for the owner in a sandboxed browser: open it, sign in with a saved login, fill forms and "
-            "click through pages. Stops for the owner's approval before paying, buying, booking, sending, signing, submitting an "
-            "order or deleting, and hands captchas and codes to the owner. Arguments: goal, start_url, allowed_domains, logins, cards."
+            "Do a browser task for the owner in a sandboxed browser: sign in with a saved login, fill and submit forms, download "
+            "files into Files, collect data from pages into a table, check statuses, update settings, buy or book. Stops for the "
+            "owner's approval before paying, buying, booking, sending, submitting, signing, posting or deleting, and hands "
+            "captchas and codes to the owner. Arguments: goal, start_url, allowed_domains, logins, cards."
         ),
         risk_level=RiskLevel.HIGH,
         required_roles=frozenset({"owner"}),
