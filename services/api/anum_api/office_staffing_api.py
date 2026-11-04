@@ -24,7 +24,8 @@ from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, status
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import text
+from sqlalchemy import column, literal, select, table, text
+from sqlalchemy.sql import Select
 
 from . import agent_profiles as ap
 from . import dependencies as deps
@@ -93,6 +94,17 @@ def _tool_risk(names: set[str]) -> dict[str, str | None]:
     return out
 
 
+def _row_probe(table_name: str, p: dict[str, str]) -> Select[Any]:
+    """`select 1 from <table> where tenant_id = :t and workspace_id = :w limit 1`, built by SQLAlchemy.
+
+    The table name comes from the fixed `bp.SOURCES` list; SQLAlchemy quotes it as an identifier and
+    binds the tenant and workspace as parameters, so no string is ever formatted into the SQL.
+    """
+    probe = table(table_name, column("tenant_id"), column("workspace_id"))
+    return (select(literal(1)).select_from(probe)
+            .where(probe.c.tenant_id == p["t"], probe.c.workspace_id == p["w"]).limit(1))
+
+
 def _source_states(session: Any, context: TenantContext, p: dict[str, str]) -> dict[str, str]:
     states: dict[str, str] = {}
     for source in bp.SOURCES:
@@ -104,11 +116,10 @@ def _source_states(session: Any, context: TenantContext, p: dict[str, str]) -> d
             states[source.id] = "connected" if str(getattr(settings, source.setting or "", "") or "").strip() else "not_connected"
         else:
             found = False
-            for table in source.tables:
+            for name in source.tables:
                 try:
                     with session.begin_nested():
-                        found = session.execute(text(
-                            f"select 1 from {table} where tenant_id = :t and workspace_id = :w limit 1"), p).first() is not None  # noqa: S608 (fixed names)
+                        found = session.execute(_row_probe(name, p)).first() is not None
                 except Exception:  # noqa: BLE001 - an unreadable optional source is Not connected, never an error
                     found = False
                 if found:

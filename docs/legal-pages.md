@@ -88,6 +88,6 @@ They are plain HTML with inline CSS only (no scripts, nothing from another origi
 
 ## Not done yet
 
-- The legal text is English only.
+- No document is lawyer-reviewed or published yet: every page is still a DRAFT until the owner marks it published in Platform billing > Company and legal after a UAE lawyer reviewed the English and the Arabic text ([Ready to sell](selling-readiness.md#company-and-legal)).
+- The Arabic texts in `docs/legal/ar/` are translations: the English text applies until the lawyer approves them.
 - The status page has no incident history or subscriptions.
-- Deleting a whole organization is an operator task without a documented procedure; the DPA leaves `{{TENANT_DELETION_PROCEDURE}}` for it.

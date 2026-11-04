@@ -39,7 +39,7 @@ export interface PublicLegal {
 export interface MoyasarSettings { enabled: boolean; has_secret_key: boolean; has_webhook_secret: boolean; test_mode: boolean | null; webhook_url: string; events: string[] }
 export interface MoyasarBody { enabled: boolean; secret_key: string | null; webhook_secret: string | null }
 
-export type ReadinessKey = 'payment_provider' | 'company_details' | 'mail_sending' | 'backups_local' | 'backups_offsite' | 'legal_pages' | 'plans' | 'public_issuer';
+export type ReadinessKey = 'payment_provider' | 'company_details' | 'mail_sending' | 'backups_local' | 'backups_offsite' | 'legal_pages' | 'plans' | 'ai_model' | 'public_issuer';
 export type ReadinessState = 'done' | 'warning' | 'missing' | 'unknown';
 export type FixTarget = 'payments' | 'company' | 'mail' | 'backups' | 'legal' | 'plans' | 'env';
 export interface ReadinessItem { key: ReadinessKey; state: ReadinessState; fix: FixTarget; detail: Record<string, unknown> }

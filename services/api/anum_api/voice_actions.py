@@ -890,7 +890,7 @@ def _create_quick_command(runtime: VoiceTaskRuntime, context: TenantContext, nam
         plan = Planner(runtime.tools, repository, context, locale).plan(chosen.text)
         payload = CommandCreate(
             text=chosen.text,
-            steps=[{"instruction": step.instruction} for step in plan.steps],  # type: ignore[misc]
+            steps=[{"instruction": step.instruction, "depends_on": step.depends_on} for step in plan.steps],  # type: ignore[misc]
             source=CommandSource.VOICE,
             locale=locale,
             quick_command_id=chosen.id,
@@ -924,14 +924,19 @@ async def _quick_command(runtime: VoiceTaskRuntime, action: ParsedAction, contex
     async def start(task_id: str):  # type: ignore[no-untyped-def]
         return await runtime.run(context, task_id)
 
-    # Every step starts in parallel, as the Command Center does after "Start execution".
-    results = await asyncio.gather(*(start(task_id) for task_id in task_ids), return_exceptions=True)
+    # As the Command Center's Start: steps with nothing to wait for start together, a step
+    # that builds on others starts once they completed (commands.run_ready_steps).
+    from .commands import run_ready_steps
+
+    outcomes = await run_ready_steps(view.id, context, _units, start)
+    results = list(outcomes.values())
     done = sum(1 for r in results if not isinstance(r, BaseException) and r.task.status == TaskStatus.COMPLETED)
     waiting = sum(1 for r in results if not isinstance(r, BaseException) and r.task.status == TaskStatus.WAITING_APPROVAL)
     failed = sum(1 for r in results if isinstance(r, BaseException) or r.task.status == TaskStatus.FAILED)
+    later = len(task_ids) - len(results)
     running = len(results) - done - waiting - failed
-    parts_en = [f"{n} {word}" for n, word in ((done, "done"), (running, "running"), (waiting, "waiting for approval"), (failed, "failed")) if n]
-    parts_ar = [f"{n} {word}" for n, word in ((done, "مكتملة"), (running, "قيد التشغيل"), (waiting, "بانتظار الموافقة"), (failed, "فشلت")) if n]
+    parts_en = [f"{n} {word}" for n, word in ((done, "done"), (running, "running"), (waiting, "waiting for approval"), (later, "waiting for an earlier step"), (failed, "failed")) if n]
+    parts_ar = [f"{n} {word}" for n, word in ((done, "مكتملة"), (running, "قيد التشغيل"), (waiting, "بانتظار الموافقة"), (later, "بانتظار خطوة سابقة"), (failed, "فشلت")) if n]
     steps_word = "step" if len(task_ids) == 1 else "steps"
     reply = _say(
         arabic,
@@ -940,7 +945,7 @@ async def _quick_command(runtime: VoiceTaskRuntime, action: ParsedAction, contex
         f"بدأت أمرك السريع {_q(quick.title, True)} بعدد {len(task_ids)} من الخطوات: {'، '.join(parts_ar)}."
         + (" أرسلت الموافقات إلى الموافقات." if waiting else ""),
     )
-    state_now: CardState = "approval" if waiting else "failed" if failed == len(results) else "completed" if done == len(results) else "running"
+    state_now: CardState = "approval" if waiting else "failed" if failed == len(task_ids) else "completed" if done == len(task_ids) else "running"
     yield ActionStep(card.model_copy(update={"state": state_now, "task_status": None, "approvals_pending": waiting, "summary": reply}), reply)
 
 

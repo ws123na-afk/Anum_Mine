@@ -243,3 +243,4 @@
   .glanceIcon { display: none; }
   .glanceLabel { grid-column: 1 / -1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 }
+.homePage > .modelPlaceholderNotice { margin: 0; }
