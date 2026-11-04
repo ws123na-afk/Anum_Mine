@@ -154,6 +154,9 @@ class Permission(StrEnum):
     # get neither.
     BILLING_READ = "billing:read"
     BILLING_MANAGE = "billing:manage"
+    # Work attendance and daily reports (docs/attendance.md#permissions): the person's own
+    # record (row policies on ``anum.user_id``); owners and members keep theirs, viewers none.
+    ATTENDANCE_USE = "attendance:use"
 
 
 class OrganizationRole(StrEnum):
@@ -251,6 +254,7 @@ ROLE_PERMISSIONS: Mapping[Role, frozenset[Permission]] = MappingProxyType(
             Permission.CALL_LOG,
             Permission.BUSINESS_READ,
             Permission.BUSINESS_WRITE,
+            Permission.ATTENDANCE_USE,
         },
         Role.VIEWER: _READ_PERMISSIONS,
     }

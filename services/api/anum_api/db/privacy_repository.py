@@ -259,6 +259,12 @@ class SqlAlchemyPrivacyStore:
 
         return SqlAlchemyFinanceStore(self.session, self.context)
 
+    def attendance(self) -> Any:
+        """The caller's attendance (owner RLS), in this same transaction."""
+        from .attendance_repository import SqlAttendanceStore
+
+        return SqlAttendanceStore(self.session, self.context)
+
     # -- email, WhatsApp, autonomy (migrations 0033 to 0035) ----------------------------
 
     def _mailbox_filter(self):  # type: ignore[no-untyped-def]
@@ -470,6 +476,7 @@ class SqlAlchemyPrivacyStore:
             **module_private,
             home_items=home_counts(self.home(), self.context),
             finance_records=self.finance().count_everything(self.context),
+            attendance_records=self.attendance().count_everything(self.context),
             mail_mailboxes=len(self.mail().list_accounts()),
             mail_messages_written=len(self.mail().list_drafts(None, 100_000)),
             **calls_privacy_counts(self.context),
@@ -517,6 +524,7 @@ class SqlAlchemyPrivacyStore:
         # Before the private memories go: a private collection's notes are among them.
         self.library().delete_all()
         self.finance().delete_everything(self.context)
+        self.attendance().delete_everything(self.context)
         from ..privacy import delete_mail_store
 
         delete_mail_store(self.mail())

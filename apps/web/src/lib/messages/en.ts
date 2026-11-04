@@ -56,6 +56,7 @@ import { agentControlsEn } from './agentControls.en.ts';
 import { billingEn } from './billing.en.ts';
 import { lifecycleEn } from './lifecycle.en.ts';
 import { recordRetentionEn } from './recordRetention.en.ts';
+import { attendanceEn } from './attendance.en.ts';
 import { helpEn } from './help.en.ts';
 import { publicSiteEn } from './publicSite.en.ts';
 import { ownerEn } from './en.owner.ts';
@@ -119,6 +120,7 @@ export const en = {
   ...billingEn,
   ...lifecycleEn,
   ...recordRetentionEn,
+  ...attendanceEn,
   ...helpEn,
   ...publicSiteEn,
   ...agentSkillsEn,

@@ -3,6 +3,7 @@ import { approvalPagesResponse } from './approvalPages';
 import type { Page } from '@playwright/test';
 import { commerceReply, commerceState } from './commerceApi';
 import { financeReply, financeState } from './financeApi';
+import { attendanceReply, attendanceState } from './attendanceApi';
 import { handleMeetings } from './meetingsApi';
 import { createTeamMock, type TeamMockOptions } from './teamApi';
 import { createHomeMock, type HomeMockState } from './homeApi';
@@ -185,6 +186,7 @@ const signal = { id: 'signal_1', kind: 'draft_edited', surface: 'email', subject
 
 const commerceFixture = commerceState('owner');
 const financeFixture = financeState();
+const attendanceFixture = attendanceState();
 
 // Favorites, knowledge base and reports (docs/knowledge-base.md, docs/reports.md).
 const libraryReport = {
@@ -347,6 +349,9 @@ export async function mockWorkspaceApi(page: Page, teamOptions: TeamMockOptions 
     // Finance (docs/finance.md): two accounts, a month of transactions, bills, a debt and a goal.
     const finance = financeReply(financeFixture, method, url, request.postData() ? request.postDataJSON() : null);
     if (finance) return json(finance.body, finance.status);
+    // Work attendance (docs/attendance.md): two sites, yesterday's visits, a correction and a daily report.
+    const attendance = attendanceReply(attendanceFixture, method, url, request.postData() ? request.postDataJSON() : null);
+    if (attendance) return attendance.status === 204 ? route.fulfill({ status: 204 }) : json(attendance.body, attendance.status);
     // Calls & Meetings (docs/meetings.md).
     if ((path.startsWith('/api/v1/meetings') || path === '/api/v1/agent-meetings') && await handleMeetings(route)) return;
     // Agents (docs/agents.md): one shared agent and the catalog the wizard reads.
