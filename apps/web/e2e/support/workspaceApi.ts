@@ -5,6 +5,7 @@ import { commerceReply, commerceState } from './commerceApi';
 import { financeReply, financeState } from './financeApi';
 import { attendanceReply, attendanceState } from './attendanceApi';
 import { vehiclesReply, vehiclesState } from './vehiclesApi';
+import { purchasesReply, purchasesState } from './purchasesApi';
 import { handleMeetings } from './meetingsApi';
 import { createTeamMock, type TeamMockOptions } from './teamApi';
 import { createHomeMock, type HomeMockState } from './homeApi';
@@ -189,6 +190,7 @@ const commerceFixture = commerceState('owner');
 const financeFixture = financeState();
 const attendanceFixture = attendanceState();
 const vehiclesFixture = vehiclesState();
+const purchasesFixture = purchasesState();
 
 // Favorites, knowledge base and reports (docs/knowledge-base.md, docs/reports.md).
 const libraryReport = {
@@ -357,6 +359,9 @@ export async function mockWorkspaceApi(page: Page, teamOptions: TeamMockOptions 
     // Vehicles (docs/vehicles.md): a personal car with fuel, a trip, a service and readings, and a business van.
     const vehicles = vehiclesReply(vehiclesFixture, method, url, request.postData() ? request.postDataJSON() : null);
     if (vehicles) return vehicles.status === 204 ? route.fulfill({ status: 204 }) : json(vehicles.body, vehicles.status);
+    // Purchases (docs/purchases.md): a delivered order with two items and a business order on its way.
+    const purchases = purchasesReply(purchasesFixture, method, url, request.postData() ? request.postDataJSON() : null);
+    if (purchases) return purchases.status === 204 ? route.fulfill({ status: 204 }) : json(purchases.body, purchases.status);
     // Calls & Meetings (docs/meetings.md).
     if ((path.startsWith('/api/v1/meetings') || path === '/api/v1/agent-meetings') && await handleMeetings(route)) return;
     // Agents (docs/agents.md): one shared agent and the catalog the wizard reads.

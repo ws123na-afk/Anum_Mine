@@ -63,12 +63,18 @@ TargetCheck = Callable[[TenantContext, str, str], bool]  # (owner context, targe
 # Called after a link of the dimension is made or changes (status, canonical id), on the link's own unit of work
 # (``links.session`` in PostgreSQL), so a module's read copy of the link commits or rolls back with it.
 LinkObserver = Callable[[Any, FinanceLink], None]
+# Called on every new link of the dimension, from any route, with the request and the transaction's live entry, under the
+# owner's lock: a module refuses a role or a kind of transaction its targets do not take by raising ``LinkError``
+# (docs/purchases.md#payments-and-refunds: a refund must give money back to a spending category, never be income).
+LinkVet = Callable[[TenantContext, "LinkRequest", JournalEntry], None]
 _targets: dict[str, TargetCheck] = {}
 _observers: dict[str, LinkObserver] = {}
+_vets: dict[str, LinkVet] = {}
 _single_payment: set[str] = set()
 
 
-def register_target(dimension: str, check: TargetCheck, observer: LinkObserver | None = None, *, single_payment: bool = False) -> None:
+def register_target(dimension: str, check: TargetCheck, observer: LinkObserver | None = None, *, single_payment: bool = False,
+                    vet: LinkVet | None = None) -> None:
     """A module (vehicles, purchases, the document vault, trips, projects) says which of its records a
     payment may link to. A dimension with no registered module refuses links (``target_unavailable``).
     An ``observer`` keeps the module's read copy of its links current (docs/vehicles.md#payments)."""
@@ -84,11 +90,16 @@ def register_target(dimension: str, check: TargetCheck, observer: LinkObserver |
         _observers.pop(dimension, None)
     else:
         _observers[dimension] = observer
+    if vet is None:
+        _vets.pop(dimension, None)
+    else:
+        _vets[dimension] = vet
 
 
 def unregister_target(dimension: str) -> None:
     _targets.pop(dimension, None)
     _observers.pop(dimension, None)
+    _vets.pop(dimension, None)
     _single_payment.discard(dimension)
 
 
@@ -212,6 +223,9 @@ def create(context: TenantContext, request: LinkRequest, *, allocation: dict[str
         current = live_entry(chain)
         if current is None:
             raise LinkError(409, "This payment was undone, so nothing can be linked to it.", "transaction_undone")
+        vet = _vets.get(request.dimension)
+        if vet is not None:
+            vet(context, request, current)
         if request.dimension in _single_payment and request.role == "payment":
             taken, _ = links.list_links(context, canonical_id=None, dimension=request.dimension, target_type=request.target_type,
                                         target_id=request.target_id, status=None, limit=50, offset=0)

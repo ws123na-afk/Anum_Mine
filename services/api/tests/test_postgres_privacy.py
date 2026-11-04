@@ -228,6 +228,7 @@ def test_export_reads_only_my_rows_under_rls(client: TestClient, app_factory: se
         "app_call_signals": 0,
         "attendance_records": 0,
         "vehicle_records": 0,
+        "purchase_records": 0,
         "vault_private_documents": 0,
         "vault_devices": 0,
     }

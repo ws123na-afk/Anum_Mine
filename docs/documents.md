@@ -150,7 +150,7 @@ Sidebar **Document vault** (`#vault`, tabs `#vault-documents`, `#vault-review`, 
 
 ## Not in this release
 
-- Linking a receipt to a finance transaction, fuel receipt to vehicle and transaction, receipt to purchase, insurance to a vehicle reminder: waits for the finance links foundation and the vehicle and purchases modules.
+- Automatic matching of a fuel receipt to its vehicle and transaction, a receipt to its purchase, or insurance to a vehicle reminder. A purchase or return that names a vault document as its receipt or proof adds a `purchase` link on that document when its owner may edit it ([Purchases](purchases.md#records)).
 - The shared iPhone integrations page and generalised device tokens (after #364).
 - Native iPhone camera, VisionKit scanner and Share Sheet extension (Shortcuts only), and the Flutter vault screens.
 - OCR of scanned PDFs (send them as images), Hijri date conversion, and the OCR service in the Helm chart (compose profile only, like the browser service).

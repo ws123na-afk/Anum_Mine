@@ -279,8 +279,9 @@ def test_allocations_only_to_business_workspaces_the_owner_can_write_to() -> Non
 
 def test_links_need_a_registered_module_and_evidence_carries_no_amount() -> None:
     _s, canonical = fuel_payment()
-    missing = client.post(f"{API}/links", headers=OWNER, json={"canonical_id": canonical, "dimension": "purchase", "role": "payment",
-                                                               "target_type": "purchase", "target_id": "pur_1", "amount": "5", "currency": "SAR"})
+    # Trips have no module of their own yet (purchases and vehicles register theirs).
+    missing = client.post(f"{API}/links", headers=OWNER, json={"canonical_id": canonical, "dimension": "trip", "role": "payment",
+                                                               "target_type": "trip", "target_id": "trip_1", "amount": "5", "currency": "SAR"})
     assert missing.status_code == 409 and missing.json()["code"] == "target_unavailable"
     assert link(canonical, "5", target_id="not_a_vehicle").status_code == 404
     saved = K._targets.get("document")
@@ -393,12 +394,18 @@ def switch(key: str, enabled: bool) -> None:
 
 def test_a_scope_without_a_registered_integration_is_refused() -> None:
     setup()
-    refused = new_device(["purchases"])
-    assert refused.status_code == 404 and refused.json()["code"] == "integration_unavailable"
-    assert new_device(["not_a_scope"]).status_code == 422
-    with pytest.raises(D.DeviceError) as caught:
-        D.authorize_scope("Bearer anything", "purchases")
-    assert caught.value.code == "integration_unavailable"
+    # Every known scope has its module now: take the purchases integration away for this test.
+    saved = D._integrations.pop("purchases.share", None)
+    try:
+        refused = new_device(["purchases"])
+        assert refused.status_code == 404 and refused.json()["code"] == "integration_unavailable"
+        assert new_device(["not_a_scope"]).status_code == 422
+        with pytest.raises(D.DeviceError) as caught:
+            D.authorize_scope("Bearer anything", "purchases")
+        assert caught.value.code == "integration_unavailable"
+    finally:
+        if saved is not None:
+            D.register_integration(saved)
 
 
 def test_scoped_token_checks_scope_switch_pause_revoke_rate_and_role(vehicle_integration: D.Integration) -> None:
@@ -460,7 +467,7 @@ def test_iphone_overview_events_test_and_ping(vehicle_integration: D.Integration
     token = new_device(["vehicle"]).json()["token"]
     overview = client.get(IPHONE, headers=OWNER).json()
     keys = [i["key"] for i in overview["integrations"]]
-    assert keys == ["finance.sms", "finance.wallet", "attendance.location", "vehicle.driving", "documents.scan"]
+    assert keys == ["finance.sms", "finance.wallet", "attendance.location", "vehicle.driving", "documents.scan", "purchases.share"]
     vehicle = next(i for i in overview["integrations"] if i["key"] == "vehicle.driving")
     assert vehicle["enabled"] is False and vehicle["devices_with_scope"] == 1 and vehicle["last_connection_at"] is None
     assert overview["scopes"] == list(D.DEVICE_SCOPES) and all("token" not in d for d in overview["devices"])

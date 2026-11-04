@@ -46,6 +46,12 @@ export const IPHONE_GUIDES: IphoneGuide[] = [
     steps: (url) => [t('iph.doc.step.1'), t('iph.doc.step.2', { url }), t('iph.doc.step.3'), t('iph.doc.step.4')],
     body: ['Request Body = File: the scan, photo or Shortcut Input', 'name = scan.jpg (in the address: ?name=scan.jpg&category=receipt)'],
   },
+  {
+    key: 'purchases.share', title: 'iph.int.purchases.share', purpose: 'iph.int.purchases.share.purpose', settingsHash: '#purchases-settings',
+    steps: (url) => [t('iph.pur.step.1'), t('iph.pur.step.2', { url }), t('iph.pur.step.3'), t('iph.pur.step.4'), t('iph.pur.step.5')],
+    body: ['text = Text (the shared order or delivery message)', 'idempotency_key = optional: the order number', 'ownership = personal (or business)',
+      'action = save (test: checks the connection, saves nothing)'],
+  },
 ];
 
 export const SCOPES: IphoneScope[] = ['finance.sms', 'finance.wallet', 'vehicle', 'attendance', 'documents', 'purchases'];

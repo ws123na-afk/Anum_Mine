@@ -271,6 +271,12 @@ class SqlAlchemyPrivacyStore:
 
         return SqlVehicleStore(self.session, self.context)
 
+    def purchases(self) -> Any:
+        """The caller's purchases and their rows (visibility RLS), in this same transaction."""
+        from .purchases_repository import SqlPurchaseStore
+
+        return SqlPurchaseStore(self.session, self.context)
+
     # -- email, WhatsApp, autonomy (migrations 0033 to 0035) ----------------------------
 
     def _mailbox_filter(self):  # type: ignore[no-untyped-def]
@@ -484,6 +490,7 @@ class SqlAlchemyPrivacyStore:
             finance_records=self.finance().count_everything(self.context),
             attendance_records=self.attendance().count_everything(self.context),
             vehicle_records=self.vehicles().count_everything(self.context),
+            purchase_records=self.purchases().count_everything(self.context),
             mail_mailboxes=len(self.mail().list_accounts()),
             mail_messages_written=len(self.mail().list_drafts(None, 100_000)),
             **calls_privacy_counts(self.context),
@@ -533,6 +540,7 @@ class SqlAlchemyPrivacyStore:
         self.finance().delete_everything(self.context)
         self.attendance().delete_everything(self.context)
         self.vehicles().delete_everything(self.context)
+        self.purchases().delete_everything(self.context)
         from ..privacy import delete_mail_store
 
         delete_mail_store(self.mail())

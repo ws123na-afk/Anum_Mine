@@ -172,6 +172,13 @@ class Permission(StrEnum):
     VEHICLE_READ = "vehicle:read"
     VEHICLE_WRITE = "vehicle:write"
     VEHICLE_MANAGE = "vehicle:manage"
+    # Purchases, deliveries, returns and refunds (docs/purchases.md#who-can-do-what): owners and
+    # members keep purchases; a personal purchase is visible only to its owner (row policies), a
+    # business one to every member. Owners also change and delete anyone's business purchases.
+    # Viewers get none of it (orders, addresses and refunds are personal or business data).
+    PURCHASE_READ = "purchase:read"
+    PURCHASE_WRITE = "purchase:write"
+    PURCHASE_MANAGE = "purchase:manage"
 
 
 class OrganizationRole(StrEnum):
@@ -274,6 +281,8 @@ ROLE_PERMISSIONS: Mapping[Role, frozenset[Permission]] = MappingProxyType(
             Permission.DOCUMENT_WRITE,
             Permission.VEHICLE_READ,
             Permission.VEHICLE_WRITE,
+            Permission.PURCHASE_READ,
+            Permission.PURCHASE_WRITE,
         },
         Role.VIEWER: _READ_PERMISSIONS,
     }
