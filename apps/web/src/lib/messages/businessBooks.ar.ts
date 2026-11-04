@@ -3,6 +3,7 @@ import type { Message } from './types.ts';
 
 export const businessBooksAr = {
   'biz.tab.books': 'الدفاتر',
+  'books.table': 'جدول، يتحرك أفقياً إذا لم يتسع',
   'books.sections': 'أقسام الدفاتر',
   'books.tab.overview': 'الأرباح والخسائر',
   'books.tab.bills': 'فواتير الموردين',

@@ -5,6 +5,7 @@ import { mockWhatsApp } from './whatsappApi';
 import { mockCallsApi } from './callsApi';
 import { mockBusiness } from './businessApi';
 import { mockInvoices } from './businessInvoicesApi';
+import { mockBooks } from './businessBooksApi';
 import { mockTyre } from './tyreApi';
 import { mockHq } from './hqCampusApi';
 import { mockMailApi } from './mailApi';
@@ -100,6 +101,9 @@ export const GATE_PAGES: GatePage[] = [
   { hash: 'business-catalog', view: 'business', mock: mockBusiness, ready: '.bzTabs [aria-current="page"]' },
   { hash: 'business-invoices', view: 'business', mock: mockInvoicesWithData, ready: '.bzTabs [aria-current="page"]' },
   { hash: 'business-settings', view: 'business', mock: mockInvoices, ready: '.bzTabs [aria-current="page"]' },
+  { hash: 'business-books', view: 'business', mock: (page) => mockBooks(page), ready: '.bkStatement' },
+  { hash: 'business-books/bills', view: 'business', mock: (page) => mockBooks(page), ready: '.bzTable tbody tr' },
+  { hash: 'business-books/settings', view: 'business', mock: (page) => mockBooks(page), ready: '#bk-rates-set' },
   { hash: 'files', view: 'files', mock: workspace, ready: '.filesTable tbody tr' },
   { hash: 'vault', view: 'vault', mock: vault, ready: '.vaultMiniList li' },
   { hash: 'vault-documents', view: 'vault', mock: vault, ready: '.vaultRow' },

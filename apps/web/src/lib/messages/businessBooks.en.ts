@@ -3,6 +3,7 @@ import type { Message } from './types.ts';
 
 export const businessBooksEn = {
   'biz.tab.books': 'Books',
+  'books.table': 'Table, scrolls sideways when it does not fit',
   'books.sections': 'Books sections',
   'books.tab.overview': 'Profit and loss',
   'books.tab.bills': 'Bills',

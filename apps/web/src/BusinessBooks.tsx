@@ -130,7 +130,7 @@ function ReportBody({ report, setup, period }: { report: BooksReport; setup: Boo
   return <div className="bzOverview bkGrid">
     <section className="surface bzCard bkWide" aria-labelledby="bk-pnl"><h2 id="bk-pnl">{t('books.pnl.title', { basis: basisLabel(report.period.basis) })}</h2>
       <p className="muted bzHint">{t(report.period.basis === 'accrual' ? 'books.pnl.accrualHelp' : 'books.pnl.cashHelp', { from: dayText(report.period.from), to: dayText(report.period.to) })}</p>
-      <div className="dataTableWrap"><table className="dataTable bkStatement"><caption className="visuallyHidden">{t('books.pnl.caption')}</caption>
+      <div className="dataTableWrap" tabIndex={0} role="region" aria-label={t('books.table')}><table className="dataTable bkStatement"><caption className="visuallyHidden">{t('books.pnl.caption')}</caption>
         <thead><tr><th scope="col">{t('books.col.line')}</th><th scope="col" className="num">{t('books.col.amount', { currency: base })}</th></tr></thead>
         <tbody>{rows.map((row) => <tr key={row.key} className={`bk-${row.kind}`}><th scope="row">{row.label}</th>
           <td className={`num ${row.negative ? 'bkNeg' : ''}`}>{money(row.amount, base)}</td></tr>)}</tbody></table></div>
@@ -142,7 +142,7 @@ function ReportBody({ report, setup, period }: { report: BooksReport; setup: Boo
     </section>
 
     <section className="surface bzCard" aria-labelledby="bk-tax"><h2 id="bk-tax">{report.tax.label ? t('books.tax.titleNamed', { label: report.tax.label }) : t('books.tax.title')}</h2>
-      {report.tax.by_currency.length === 0 ? <p className="muted">{t('books.tax.none')}</p> : <div className="dataTableWrap"><table className="dataTable">
+      {report.tax.by_currency.length === 0 ? <p className="muted">{t('books.tax.none')}</p> : <div className="dataTableWrap" tabIndex={0} role="region" aria-label={t('books.table')}><table className="dataTable">
         <thead><tr><th scope="col">{t('books.col.currency')}</th><th scope="col" className="num">{t('books.tax.output')}</th><th scope="col" className="num">{t('books.tax.input')}</th><th scope="col" className="num">{t('books.tax.net')}</th></tr></thead>
         <tbody>{report.tax.by_currency.map((row) => <tr key={row.currency}><th scope="row">{row.currency}</th><td className="num">{money(row.output, row.currency)}</td>
           <td className="num">{money(row.input, row.currency)}</td><td className="num">{money(row.net, row.currency)}</td></tr>)}</tbody></table></div>}
@@ -190,7 +190,7 @@ function ReportBody({ report, setup, period }: { report: BooksReport; setup: Boo
     <Breakdown id="bk-centres" title={t('books.centres.title')} empty={t('books.centres.none')} rows={report.cost_centres} base={base} />
 
     <section className="surface bzCard" aria-labelledby="bk-budgets"><h2 id="bk-budgets">{t('books.budgets.title')}</h2>
-      {report.budgets.length === 0 ? <p className="muted">{t('books.budgets.none')}</p> : <div className="dataTableWrap"><table className="dataTable">
+      {report.budgets.length === 0 ? <p className="muted">{t('books.budgets.none')}</p> : <div className="dataTableWrap" tabIndex={0} role="region" aria-label={t('books.table')}><table className="dataTable">
         <thead><tr><th scope="col">{t('books.col.budget')}</th><th scope="col" className="num">{t('books.col.planned')}</th><th scope="col" className="num">{t('books.col.actual')}</th><th scope="col" className="num">{t('books.col.used')}</th></tr></thead>
         <tbody>{report.budgets.map((row) => <tr key={row.id}><th scope="row"><span dir="auto">{row.name}</span><small>{t('books.budgets.period', { from: dayText(row.period_start), to: dayText(row.period_end) })}</small></th>
           <td className="num">{money(row.budget, row.currency)}</td><td className="num">{row.comparable ? money(row.actual, row.currency) : t('books.budgets.otherCurrency')}</td>
@@ -216,7 +216,7 @@ function ReportBody({ report, setup, period }: { report: BooksReport; setup: Boo
 function Aging({ title, rows }: { title: string; rows: BooksReport['balances']['receivables'] }) {
   if (rows.length === 0) return null;
   const buckets = ['current', 'days_1_30', 'days_31_60', 'days_61_90', 'days_over_90'] as const;
-  return <div className="dataTableWrap"><table className="dataTable bkAging"><caption>{title}</caption>
+  return <div className="dataTableWrap" tabIndex={0} role="region" aria-label={t('books.table')}><table className="dataTable bkAging"><caption>{title}</caption>
     <thead><tr><th scope="col">{t('books.col.currency')}</th>{buckets.map((bucket) => <th key={bucket} scope="col" className="num">{label(`books.age.${bucket}`)}</th>)}</tr></thead>
     <tbody>{rows.map((row) => <tr key={row.currency}><th scope="row">{row.currency}</th>{buckets.map((bucket) => <td key={bucket} className="num">{row[bucket] ? money(row[bucket]!, row.currency) : '-'}</td>)}</tr>)}</tbody></table></div>;
 }
@@ -224,7 +224,7 @@ function Aging({ title, rows }: { title: string; rows: BooksReport['balances']['
 function Trend({ report }: { report: BooksReport }) {
   const base = report.base_currency;
   const peak = Math.max(1, ...report.trend.map((row) => Math.max(Math.abs(Number(row.revenue)), Math.abs(Number(row.costs)))));
-  return <div className="dataTableWrap"><table className="dataTable bkTrend"><caption className="visuallyHidden">{t('books.trend.caption')}</caption>
+  return <div className="dataTableWrap" tabIndex={0} role="region" aria-label={t('books.table')}><table className="dataTable bkTrend"><caption className="visuallyHidden">{t('books.trend.caption')}</caption>
     <thead><tr><th scope="col">{t('books.col.month')}</th><th scope="col" className="num">{t('books.col.revenue')}</th><th scope="col" className="num">{t('books.col.costs')}</th><th scope="col" className="num">{t('books.col.profit')}</th><th scope="col" className="bzHideSm" aria-hidden="true" /></tr></thead>
     <tbody>{report.trend.map((row) => <tr key={row.month}><th scope="row">{row.month}{row.unconverted && <small>{t('books.trend.partial')}</small>}</th>
       <td className="num">{money(row.revenue, base)}</td><td className="num">{money(row.costs, base)}</td><td className={`num ${isNegative(row.profit) ? 'bkNeg' : ''}`}>{money(row.profit, base)}</td>
@@ -234,7 +234,7 @@ function Trend({ report }: { report: BooksReport }) {
 
 function Breakdown({ id, title, empty, rows, base }: { id: string; title: string; empty: string; rows: BooksReport['customers']; base: string }) {
   return <section className="surface bzCard" aria-labelledby={id}><h2 id={id}>{title}</h2>
-    {rows.length === 0 ? <p className="muted">{empty}</p> : <div className="dataTableWrap"><table className="dataTable">
+    {rows.length === 0 ? <p className="muted">{empty}</p> : <div className="dataTableWrap" tabIndex={0} role="region" aria-label={t('books.table')}><table className="dataTable">
       <thead><tr><th scope="col">{t('books.col.name')}</th><th scope="col" className="num">{t('books.col.revenue')}</th><th scope="col" className="num">{t('books.col.costs')}</th><th scope="col" className="num">{t('books.col.margin')}</th></tr></thead>
       <tbody>{rows.slice(0, 10).map((row) => <tr key={row.id}><th scope="row"><span dir="auto">{row.name || row.id}</span></th><td className="num">{money(row.revenue, base)}</td>
         <td className="num">{money(row.costs, base)}</td><td className={`num ${isNegative(row.margin) ? 'bkNeg' : ''}`}>{money(row.margin, base)} <small>{pct(row.margin_pct)}</small></td></tr>)}</tbody></table></div>}
@@ -249,12 +249,12 @@ function ProjectsBlock({ period, base }: { period: api.Period; base: string }) {
     try { setPage({ state: 'ready', value: await api.listProjects(period, offset, 10) }); } catch (error) { setPage({ state: 'error', message: describeError(error) }); }
   }, [period.from, period.to, offset]);
   useEffect(() => { void load(); }, [load]);
-  return <section className="surface bzCard" aria-labelledby="bk-projects"><h2 id="bk-projects">{t('books.projects.title')}</h2>
+  return <section className="surface bzCard bkWide" aria-labelledby="bk-projects"><h2 id="bk-projects">{t('books.projects.title')}</h2>
     <p className="muted bzHint">{t('books.projects.help')}</p>
     {page.state === 'loading' && <Note>{t('books.reading')}</Note>}
     {page.state === 'error' && <Note error>{page.message} <button type="button" className="secondary" onClick={() => void load()}>{t('common.tryAgain')}</button></Note>}
     {page.state === 'ready' && page.value.items.length === 0 && <p className="muted">{t('books.projects.none')}</p>}
-    {page.state === 'ready' && page.value.items.length > 0 && <><div className="dataTableWrap"><table className="dataTable">
+    {page.state === 'ready' && page.value.items.length > 0 && <><div className="dataTableWrap" tabIndex={0} role="region" aria-label={t('books.table')}><table className="dataTable">
       <thead><tr><th scope="col">{t('books.col.project')}</th><th scope="col" className="num">{t('books.projects.books', { currency: base })}</th><th scope="col" className="num bzHideSm">{t('books.projects.contract')}</th></tr></thead>
       <tbody>{page.value.items.map((row) => <tr key={row.id}><th scope="row"><a href={`#business-projects/${encodeURIComponent(row.id)}`} dir="auto">{row.name}</a></th>
         <td className="num">{t('books.projects.booksValue', { revenue: money(row.books.revenue, base), margin: money(row.books.margin, base) })}</td>
@@ -303,7 +303,7 @@ function Bills({ setup }: { setup: BooksSetup }) {
       action={write ? <button type="button" onClick={() => setCreating(true)}><Plus aria-hidden="true" />{t('books.bills.new')}</button> : undefined} />}
     {list.load.kind === 'ready' && list.items.length > 0 && <>
       <p className="bzCount" aria-live="polite">{t('books.bills.count', { count: list.total })}</p>
-      <div className="pane dataTableWrap"><table className="dataTable bzTable"><caption className="visuallyHidden">{t('books.tab.bills')}</caption>
+      <div className="pane dataTableWrap" tabIndex={0} role="region" aria-label={t('books.table')}><table className="dataTable bzTable"><caption className="visuallyHidden">{t('books.tab.bills')}</caption>
         <thead><tr><th scope="col">{t('books.col.bill')}</th><th scope="col">{t('books.col.state')}</th><th scope="col" className="num">{t('books.col.total')}</th><th scope="col" className="num">{t('books.col.balance')}</th><th scope="col" className="bzHideMd">{t('books.col.due')}</th></tr></thead>
         <tbody>{list.items.map((bill: BooksBill) => <tr key={bill.id} className={bill.id === openId ? 'selected' : undefined}>
           <th scope="row"><button type="button" className="linkButton" onClick={() => setOpenId(bill.id)}><span dir="auto">{bill.vendor_name}</span></button>
@@ -336,7 +336,7 @@ function Vendors({ setup }: { setup: BooksSetup }) {
     {list.load.kind === 'ready' && list.items.length === 0 && !filtered && <Empty title={t('books.vendors.emptyTitle')} text={write ? t('books.vendors.emptyText') : t('books.readOnly')}
       action={write ? <button type="button" onClick={() => setEditing('new')}><Plus aria-hidden="true" />{t('books.vendors.new')}</button> : undefined} />}
     {list.load.kind === 'ready' && list.items.length > 0 && <>
-      <div className="pane dataTableWrap"><table className="dataTable bzTable"><caption className="visuallyHidden">{t('books.tab.vendors')}</caption>
+      <div className="pane dataTableWrap" tabIndex={0} role="region" aria-label={t('books.table')}><table className="dataTable bzTable"><caption className="visuallyHidden">{t('books.tab.vendors')}</caption>
         <thead><tr><th scope="col">{t('books.col.name')}</th><th scope="col" className="bzHideSm">{t('books.col.taxNumber')}</th><th scope="col">{t('books.col.category')}</th><th scope="col" className="bzHideMd">{t('books.col.country')}</th></tr></thead>
         <tbody>{list.items.map((vendor: BooksVendor) => <tr key={vendor.id}><th scope="row">{write ? <button type="button" className="linkButton" onClick={() => setEditing(vendor)}><span dir="auto">{vendor.name}</span></button> : <span dir="auto">{vendor.name}</span>}
           {vendor.archived && <small>{t('books.archived')}</small>}</th>
@@ -371,7 +371,7 @@ function Allocations({ setup }: { setup: BooksSetup }) {
     {list.load.kind === 'ready' && list.items.length === 0 && !filtered && <Empty title={t('books.alloc.emptyTitle')} text={t('books.alloc.emptyText')}
       action={<a className="button secondary" href="#finance">{t('books.alloc.goFinance')}</a>} />}
     {list.load.kind === 'ready' && list.items.length > 0 && <>
-      <div className="pane dataTableWrap"><table className="dataTable bzTable"><caption className="visuallyHidden">{t('books.tab.allocations')}</caption>
+      <div className="pane dataTableWrap" tabIndex={0} role="region" aria-label={t('books.table')}><table className="dataTable bzTable"><caption className="visuallyHidden">{t('books.tab.allocations')}</caption>
         <thead><tr><th scope="col">{t('books.col.allocation')}</th><th scope="col" className="num">{t('books.col.amount', { currency: '' }).trim()}</th><th scope="col">{t('books.col.countsAs')}</th><th scope="col" className="bzHideMd">{t('books.col.date')}</th></tr></thead>
         <tbody>{list.items.map((row: BooksAllocation) => <tr key={row.id}><th scope="row">
           {setup.permissions.write ? <button type="button" className="linkButton" onClick={() => setTagging(row)}>{lineLabel(row.category)}</button> : lineLabel(row.category)}
@@ -409,7 +409,7 @@ function Budgets({ setup }: { setup: BooksSetup }) {
     {list.load.kind === 'ready' && list.items.length === 0 && <Empty title={t('books.budget.emptyTitle')} text={write ? t('books.budget.emptyText') : t('books.readOnly')}
       action={write ? <button type="button" onClick={() => setEditing('new')}><Plus aria-hidden="true" />{t('books.budget.new')}</button> : undefined} />}
     {list.load.kind === 'ready' && list.items.length > 0 && <>
-      <div className="pane dataTableWrap"><table className="dataTable bzTable"><caption className="visuallyHidden">{t('books.tab.budgets')}</caption>
+      <div className="pane dataTableWrap" tabIndex={0} role="region" aria-label={t('books.table')}><table className="dataTable bzTable"><caption className="visuallyHidden">{t('books.tab.budgets')}</caption>
         <thead><tr><th scope="col">{t('books.col.budget')}</th><th scope="col">{t('books.col.covers')}</th><th scope="col" className="num">{t('books.col.planned')}</th>{write && <th scope="col"><span className="visuallyHidden">{t('books.col.actions')}</span></th>}</tr></thead>
         <tbody>{list.items.map((row: BooksBudget) => <tr key={row.id}><th scope="row">{write ? <button type="button" className="linkButton" onClick={() => setEditing(row)}><span dir="auto">{row.name}</span></button> : <span dir="auto">{row.name}</span>}
           <small>{t('books.budget.months', { start: dayText(row.period_start), months: row.months })}</small></th>
@@ -448,7 +448,7 @@ function Journal({ setup }: { setup: BooksSetup }) {
     {list.load.kind === 'ready' && list.items.length === 0 && !filtered && <Empty title={t('books.journal.emptyTitle')} text={t('books.journal.emptyText')}
       action={manage ? <button type="button" onClick={() => setAdding(true)}><Plus aria-hidden="true" />{t('books.journal.new')}</button> : undefined} />}
     {list.load.kind === 'ready' && list.items.length > 0 && <>
-      <div className="pane dataTableWrap"><table className="dataTable bzTable"><caption className="visuallyHidden">{t('books.tab.journal')}</caption>
+      <div className="pane dataTableWrap" tabIndex={0} role="region" aria-label={t('books.table')}><table className="dataTable bzTable"><caption className="visuallyHidden">{t('books.tab.journal')}</caption>
         <thead><tr><th scope="col">{t('books.col.adjustment')}</th><th scope="col" className="num">{t('books.col.total')}</th><th scope="col" className="bzHideMd">{t('books.col.date')}</th>{manage && <th scope="col"><span className="visuallyHidden">{t('books.col.actions')}</span></th>}</tr></thead>
         <tbody>{list.items.map((row: BooksAdjustment) => <tr key={row.id}><th scope="row">{adjustmentLabel(row.kind)}{row.status === 'void' && <> <Badge tone="neutral">{t('books.void')}</Badge></>}
           <small dir="auto">{row.description}{row.months ? `, ${t('books.journal.spread', { months: row.months, start: dayText(row.start_month) })}` : ''}{row.reverse_on ? `, ${t('books.journal.reverses', { day: dayText(row.reverse_on) })}` : ''}</small>
@@ -481,7 +481,7 @@ function Intercompany({ setup }: { setup: BooksSetup }) {
     {list.load.kind === 'ready' && list.items.length === 0 && !includeVoid && <Empty title={t('books.ic.emptyTitle')} text={t('books.ic.emptyText')}
       action={manage ? <button type="button" onClick={() => setAdding(true)}><Plus aria-hidden="true" />{t('books.ic.new')}</button> : undefined} />}
     {list.load.kind === 'ready' && list.items.length > 0 && <>
-      <div className="pane dataTableWrap"><table className="dataTable bzTable"><caption className="visuallyHidden">{t('books.tab.intercompany')}</caption>
+      <div className="pane dataTableWrap" tabIndex={0} role="region" aria-label={t('books.table')}><table className="dataTable bzTable"><caption className="visuallyHidden">{t('books.tab.intercompany')}</caption>
         <thead><tr><th scope="col">{t('books.col.entry')}</th><th scope="col" className="num">{t('books.col.total')}</th><th scope="col" className="bzHideMd">{t('books.col.date')}</th>{manage && <th scope="col"><span className="visuallyHidden">{t('books.col.actions')}</span></th>}</tr></thead>
         <tbody>{list.items.map((row: BooksIntercompany) => <tr key={row.id}><th scope="row">{label(`books.ic.kind.${row.kind}`)}: <span dir="auto">{row.counterparty_name || row.counterparty_workspace_id}</span>
           {row.status === 'void' && <> <Badge tone="neutral">{t('books.void')}</Badge></>}<small>{label(`books.ic.dir.${row.kind}.${row.direction}`)}</small><small dir="auto">{row.description}</small></th>
