@@ -16,7 +16,7 @@ HANDLE = re.compile(r"^\{\{(login|card):([a-z0-9][a-z0-9-]{0,39})\.([a-z_]{3,10}
 LOGIN_PARTS = ("username", "password")
 CARD_PARTS = ("number", "expiry", "exp_month", "exp_year", "cvc", "name")
 SITE = re.compile(r"^(?=.{3,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$")
-HTTPS_ADDRESS = re.compile(r"https://[^\s<>\"'‏‎)\]]+", re.IGNORECASE)
+HTTPS_ADDRESS = re.compile(r"https://[^\s<>\"'\u200f\u200e)\]]+", re.IGNORECASE)
 
 
 @dataclass(frozen=True)

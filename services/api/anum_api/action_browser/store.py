@@ -240,7 +240,7 @@ class SqlActionStore:
 
         require_workspace(self.session, context.tenant_id, context.workspace_id)
         self.session.execute(text(
-            "insert into action_browser_sessions (tenant_id, workspace_id, " + _SESSION_COLUMNS + ") values (:t, :w, :id, :task_id, :run_id, "
+            "insert into action_browser_sessions (tenant_id, workspace_id, " + _SESSION_COLUMNS + ") values (:t, :w, :id, :task_id, :run_id, "  # nosec B608
             ":created_by, :status, :goal, :start_url, cast(:sites as jsonb), cast(:logins as jsonb), cast(:cards as jsonb), cast(:grants as jsonb), "
             ":browser_id, :step_count, :work_seconds, :current_url, :current_title, :waiting, cast(:pending as jsonb), :outcome, :message, "
             "cast(:result as jsonb), :created_at, :updated_at, :ended_at)"), self._session_values(context, record))
@@ -320,7 +320,7 @@ class SqlActionStore:
             raise ValueError("handle_taken")
         require_workspace(self.session, context.tenant_id, context.workspace_id)
         self.session.execute(text(
-            "insert into action_browser_credentials (tenant_id, workspace_id, " + _CREDENTIAL_COLUMNS + ") values (:t, :w, :id, :kind, :handle, "
+            "insert into action_browser_credentials (tenant_id, workspace_id, " + _CREDENTIAL_COLUMNS + ") values (:t, :w, :id, :kind, :handle, "  # nosec B608
             ":site, :hint, :secret, :created_by, :created_at, :updated_by, :updated_at) on conflict (tenant_id, workspace_id, id) do update set "
             "handle = excluded.handle, site = excluded.site, hint = excluded.hint, secret_ciphertext = excluded.secret_ciphertext, "
             "updated_by = excluded.updated_by, updated_at = excluded.updated_at"),
