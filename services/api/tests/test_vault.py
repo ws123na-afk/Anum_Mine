@@ -449,3 +449,30 @@ def test_due_step_picks_one_reminder_per_threshold() -> None:
     assert jobs.due_step(record.model_copy(update={"reminders_sent": ["2026-12-31:7"]}), 30, date(2026, 12, 26)) is None
     assert jobs.due_step(record, 30, date(2026, 12, 31)) == 0
     assert jobs.due_step(record, 30, date(2027, 1, 1)) is None
+
+
+def test_privacy_export_and_deletion_cover_the_vault() -> None:
+    private = add(category="passport").json()
+    client.patch(f"/api/v1/documents/{private['id']}", headers=ALICE, json={"row_version": 1, "number": "P1234567"})
+    shared = add(PDF + b"%w", category="certificate", access_class="workspace").json()
+    client.post("/api/v1/documents/devices", headers=ALICE, json={"name": "phone"})
+    summary = client.get("/api/v1/privacy", headers=ALICE).json()
+    assert summary["private"]["vault_private_documents"] == 1 and summary["private"]["vault_devices"] == 1
+    assert summary["shared"]["vault_workspace_documents"] == 1
+    exported = client.get("/api/v1/privacy/export", headers=ALICE)
+    assert exported.status_code == 200
+    section = exported.json()["sections"]["documents"] if "sections" in exported.json() else exported.json()["documents"]
+    assert {d["id"] for d in section["documents"]} == {private["id"], shared["id"]}
+    assert "P1234567" not in exported.text and "number_ciphertext" not in exported.text and "token_hash" not in exported.text
+    deleted = client.post("/api/v1/privacy/delete", headers=ALICE, json={"confirm": "DELETE MY DATA"})
+    assert deleted.status_code == 200, deleted.text
+    assert deleted.json()["deleted"]["vault_private_documents"] == 1
+    remaining = client.get("/api/v1/documents", headers=ALICE).json()["items"]
+    assert [d["id"] for d in remaining] == [shared["id"]]
+    assert client.get("/api/v1/documents/devices", headers=ALICE).json()[0]["status"] == "revoked"
+
+
+def test_people_lists_members_who_may_read_documents() -> None:
+    people = client.get("/api/v1/documents/people", headers=ALICE)
+    assert people.status_code == 200 and [p["user_id"] for p in people.json()] == ["bob", "owner_1"]
+    assert client.get("/api/v1/documents/people", headers=VIEWER).status_code == 403

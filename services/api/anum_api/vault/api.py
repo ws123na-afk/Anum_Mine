@@ -534,6 +534,17 @@ def reject_extraction(extraction_id: str, context: TenantContext = Depends(tenan
     return _extraction_view(decided)
 
 
+class Person(BaseModel):
+    user_id: str
+
+
+@router.get("/people", response_model=list[Person])
+def people(context: TenantContext = Depends(tenant_context)) -> list[Person]:
+    """Active members a private document can be shared with (they may read documents): ids only."""
+    _require(context, Permission.DOCUMENT_WRITE, WRITE_DENIED)
+    return [Person(user_id=user) for user in sorted(_readers(context) - {context.user_id})]
+
+
 # --------------------------------------------------------------------------- one document
 
 
