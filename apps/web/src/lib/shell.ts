@@ -7,7 +7,7 @@ export type View =
   | 'home' | 'command' | 'assistant' | 'agents' | 'voice' | 'call' | 'calls' | 'automation' | 'tasks' | 'meetings' | 'calendar' | 'team' | 'assistants' | 'integrations' | 'tyre' | 'commerce' | 'finance' | 'marketing' | 'business' | 'files' | 'vault' | 'memory' | 'knowledge' | 'reports' | 'skills'
   | 'favorites' | 'email' | 'inbox' | 'whatsapp' | 'learning' | 'approvals' | 'activity' | 'autonomy' | 'settings'
   | 'governance' | 'setup' | 'enterprise' | 'members' | 'audit' | 'budgets' | 'agentControls' | 'policy' | 'suppressions' | 'developer' | 'organisations'
-  | 'platformBilling' | 'office' | 'executive' | 'attendance' | 'vehicles';
+  | 'platformBilling' | 'office' | 'executive' | 'attendance' | 'vehicles' | 'purchases';
 
 export type NavGroup = 'main' | 'more' | 'admin';
 
@@ -25,7 +25,7 @@ export type NavGroup = 'main' | 'more' | 'admin';
  * and its render line in main.tsx.
  */
 export const NAV: readonly { group: NavGroup; views: readonly View[] }[] = [
-  { group: 'main', views: ['home', 'command', 'assistant', 'agents', 'voice', 'call', 'automation', 'tasks', 'email', 'calls', 'meetings', 'calendar', 'team', 'assistants', 'integrations', 'tyre', 'commerce', 'finance', 'marketing', 'business', 'files', 'vault', 'memory', 'reports', 'skills', 'office', 'executive', 'attendance', 'vehicles'] },
+  { group: 'main', views: ['home', 'command', 'assistant', 'agents', 'voice', 'call', 'automation', 'tasks', 'email', 'calls', 'meetings', 'calendar', 'team', 'assistants', 'integrations', 'tyre', 'commerce', 'finance', 'marketing', 'business', 'files', 'vault', 'memory', 'reports', 'skills', 'office', 'executive', 'attendance', 'vehicles', 'purchases'] },
   { group: 'more', views: ['favorites', 'whatsapp', 'learning', 'approvals', 'activity', 'autonomy', 'settings'] },
   { group: 'admin', views: ['governance', 'setup', 'enterprise', 'members', 'audit', 'budgets', 'agentControls', 'policy', 'suppressions', 'developer', 'organisations', 'platformBilling'] },
 ];
@@ -47,7 +47,7 @@ export const OPERATOR_ONLY: ReadonlySet<View> = new Set(['organisations', 'platf
  */
 export const OWN_HEADER: ReadonlySet<View> = new Set([
   'home', 'command', 'voice', 'assistant', 'files', 'vault', 'email', 'inbox', 'whatsapp', 'meetings', 'marketing', 'business',
-  'tasks', 'commerce', 'finance', 'team', 'assistants', 'call', 'calls', 'calendar', 'organisations', 'enterprise', 'skills', 'favorites', 'activity', 'autonomy', 'learning', 'office', 'executive', 'attendance', 'vehicles',
+  'tasks', 'commerce', 'finance', 'team', 'assistants', 'call', 'calls', 'calendar', 'organisations', 'enterprise', 'skills', 'favorites', 'activity', 'autonomy', 'learning', 'office', 'executive', 'attendance', 'vehicles', 'purchases',
 ]);
 
 export function isView(value: string): value is View {
@@ -95,6 +95,8 @@ export function viewFromHash(hash: string): View {
   if (id.startsWith('attendance-')) return 'attendance';
   // A Vehicles tab opened by link (#vehicles-list, docs/vehicles.md#web).
   if (id.startsWith('vehicles-')) return 'vehicles';
+  // A Purchases tab opened by link (#purchases-returns, docs/purchases.md#web).
+  if (id.startsWith('purchases-')) return 'purchases';
   return isView(id) ? id : 'home';
 }
 

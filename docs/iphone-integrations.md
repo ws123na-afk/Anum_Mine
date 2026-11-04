@@ -12,7 +12,8 @@ Code: `services/api/anum_api/finance/devices.py` (scopes, the integration regist
 | `finance.wallet` | Apple Wallet payments | `POST /api/v1/finance/wallet/ingest` | `finance:manage` | 30, 1,000 | on once SMS forwarding is on |
 | `attendance` | Attendance arrive and leave | `POST /api/v1/attendance/device/events` | `attendance:use` | 10, 200 | off |
 | `documents` | Document scans | `POST /api/v1/documents/device/upload` | `document:write` | 10, 200 (and the vault's own hourly cap) | off |
-| `vehicle`, `purchases` | registered by their modules | | | | |
+| `vehicle` | Vehicle driving sessions ([Vehicles](vehicles.md#iphone-driving-sessions)) | `POST /api/v1/vehicles/device/sessions` | `vehicle:write` | 10, 300 | off |
+| `purchases` | Shared order and delivery messages ([Purchases](purchases.md#iphone-share)) | `POST /api/v1/purchases/device/share` | `purchase:write` | 10, 200 | off |
 
 A scope with no registered integration cannot be put on a token and its requests answer `404 integration_unavailable`.
 
