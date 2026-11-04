@@ -111,9 +111,12 @@ def clean(text: str) -> tuple[str | None, str | None]:
 
 def _ask(context: TenantContext, prompt: str) -> tuple[str, str]:
     """One budgeted model call, run on its own event loop (the caller may be inside one)."""
+    from ...current_time import language_of, time_line_for, with_time_line
     from ...model_gateway import ModelRoute, route_gateway
     from ...onboarding import budgeted_model_gateway
 
+    # The current date and time in the user's zone (current_time.py); blocking, like this call.
+    prompt = with_time_line(prompt, time_line_for(context, language_of(prompt)))
     gateway = route_gateway(budgeted_model_gateway(context, _base_gateway()), ModelRoute.FAST)
     result: dict[str, Any] = {}
 

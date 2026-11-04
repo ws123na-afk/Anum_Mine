@@ -966,9 +966,12 @@ def default_planner_factory(gateway: Any) -> PlannerFactory:
     from .planner import ModelActionPlanner
 
     def factory(context: TenantContext) -> ActionPlanner:
+        from ..current_time import time_line_for
         from ..onboarding import budgeted_model_gateway
 
-        return ModelActionPlanner(lambda: budgeted_model_gateway(context, gateway))
+        return ModelActionPlanner(
+            lambda: budgeted_model_gateway(context, gateway), lambda language: time_line_for(context, language)
+        )
 
     return factory
 

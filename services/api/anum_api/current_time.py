@@ -23,7 +23,9 @@ in the user's language (Arabic weekday and month names for Arabic, Gregorian cal
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import re
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from datetime import UTC, datetime
@@ -180,6 +182,16 @@ def _stored_zones_sql(context: TenantContext) -> tuple[str | None, str | None]:
 def time_line_for(context: TenantContext, language: str = "en") -> str:
     """The date line for this user now (blocking: run it in a worker thread)."""
     return format_time_line(now(), resolve_zone(*stored_zones(context)), language)
+
+
+async def time_line_async(context: TenantContext, language: str = "en") -> str:
+    """:func:`time_line_for` from async code: the lookup runs in a worker thread."""
+    return await asyncio.to_thread(time_line_for, context, language)
+
+
+def language_of(text: str | None) -> str:
+    """``ar`` when ``text`` has Arabic letters, else ``en`` (the language of the line)."""
+    return "ar" if text and re.search(r"[\u0600-\u06FF]", text) else "en"
 
 
 def is_time_line(text: str) -> bool:

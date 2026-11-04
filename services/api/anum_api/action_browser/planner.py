@@ -8,6 +8,7 @@ action as JSON. Its answer is only a proposal: ``tool`` validates it against the
 
 from __future__ import annotations
 
+import asyncio
 import json
 import re
 from collections.abc import Callable
@@ -89,12 +90,20 @@ def parse_step(text: str) -> PlannedStep | None:
 class ModelActionPlanner:
     """Asks the workspace's budgeted model gateway (``generate_text``) for the next step."""
 
-    def __init__(self, gateway_factory: Callable[[], Any]) -> None:
+    def __init__(self, gateway_factory: Callable[[], Any], time_line: Callable[[str], str] | None = None) -> None:
         self._gateway_factory = gateway_factory
+        # ``time_line(language)``: the current date and time in the owner's zone (current_time.py).
+        self._time_line = time_line
 
     async def next_step(self, *, goal: str, scope: dict[str, Any], history: list[str], snapshot: dict[str, Any]) -> PlannedStep:
         gateway = self._gateway_factory()
-        response = await gateway.generate_text(build_prompt(goal=goal, scope=scope, history=history, snapshot=snapshot))
+        prompt = build_prompt(goal=goal, scope=scope, history=history, snapshot=snapshot)
+        if self._time_line is not None:
+            # "Book Friday morning" needs today's date: last in the prompt, read in a worker thread.
+            from ..current_time import language_of, with_time_line
+
+            prompt = with_time_line(prompt, await asyncio.to_thread(self._time_line, language_of(goal)))
+        response = await gateway.generate_text(prompt)
         step = parse_step(getattr(response, "text", "") or "")
         if step is None:
             return PlannedStep(action="fail", answer="The model did not answer with a step the browser can take.")

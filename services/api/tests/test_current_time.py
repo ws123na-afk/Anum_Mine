@@ -463,3 +463,142 @@ def test_the_setting_is_documented_for_every_deployment() -> None:
     assert "ANUM_DEFAULT_TIME_ZONE: Asia/Dubai" in (root / "infra/helm/anum/values.yaml").read_text(encoding="utf-8")
     assert "ANUM_DEFAULT_TIME_ZONE: ${ANUM_DEFAULT_TIME_ZONE:-Asia/Dubai}" in (root / "infra/oracle/compose.yaml").read_text(encoding="utf-8")
     assert "#current-date-and-time" in json.dumps((root / "docs/model-gateway.md").read_text(encoding="utf-8"))
+
+
+# --------------------------------------------------------------------------- drafting paths
+
+
+def _response(text: str = "{}") -> ModelResponse:
+    return ModelResponse(
+        text=text,
+        usage=ModelUsage(input_tokens=1, output_tokens=1, provider="test", model="test", estimated_cost_usd=0),
+        metadata=ModelCallMetadata(latency_ms=0, finish_reason="stop"),
+    )
+
+
+class Drafter:
+    """A real-looking provider that records every prompt (plain and cached-instruction calls)."""
+
+    provider = "test"
+    model = "test"
+
+    def __init__(self, cached: bool = False) -> None:
+        self.prompts: list[str] = []
+        self.instructions: list[str] = []
+        if cached:
+            self.generate_with_instructions = self._with_instructions
+
+    async def generate_text(self, prompt: str) -> ModelResponse:
+        self.prompts.append(prompt)
+        return _response()
+
+    async def _with_instructions(self, instructions: str, prompt: str) -> ModelResponse:
+        self.instructions.append(instructions)
+        self.prompts.append(prompt)
+        return _response()
+
+
+@pytest.mark.parametrize(("goal", "line"), [("Book Friday morning at the clinic", EN_LINE), ("احجز موعدا صباح الجمعة", AR_LINE)])
+def test_the_action_browser_plans_each_step_with_the_date_line(goal: str, line: str) -> None:
+    from anum_api.action_browser.planner import INSTRUCTIONS, ModelActionPlanner
+
+    model = Drafter()
+    planner = ModelActionPlanner(lambda: model, lambda language: time_line_for(CONTEXT, language))
+    snapshot = {"url": "https://clinic.example/book", "title": "Book", "elements": [], "text": "Pick a day"}
+    asyncio.run(planner.next_step(goal=goal, scope={"sites": ["clinic.example"]}, history=[], snapshot=snapshot))
+    head, found = split_time_line(model.prompts[0])
+    assert found == line and head.startswith(INSTRUCTIONS) and f"Goal (the owner's own words): {goal}" in head
+    # Without a clock the prompt is unchanged (fakes and older callers).
+    plain = Drafter()
+    asyncio.run(ModelActionPlanner(lambda: plain).next_step(goal=goal, scope={"sites": ["clinic.example"]}, history=[], snapshot=snapshot))
+    assert split_time_line(plain.prompts[0])[1] is None and plain.prompts[0].startswith(INSTRUCTIONS)
+
+
+def test_the_default_action_planner_reads_the_owners_zone(monkeypatch: pytest.MonkeyPatch) -> None:
+    from anum_api import onboarding
+    from anum_api.action_browser.tool import default_planner_factory
+
+    model = Drafter()
+    monkeypatch.setattr(onboarding, "budgeted_model_gateway", lambda context, gateway: model)
+    _profile("Asia/Riyadh")
+    planner = default_planner_factory(object())(CONTEXT)
+    asyncio.run(planner.next_step(goal="Book Friday morning", scope={}, history=[], snapshot={}))
+    assert model.prompts[0].endswith("13:32 (Asia/Riyadh, UTC+03:00). Use this for today, tomorrow, deadlines and relative dates.")
+
+
+def test_mailbox_ai_prompts_end_with_the_line(monkeypatch: pytest.MonkeyPatch) -> None:
+    from anum_api import email_inbox
+    from anum_api.mailbox import ai as mail_ai
+
+    model = Drafter()
+    monkeypatch.setattr(mail_ai, "ai_unavailable_reason", lambda context: None)
+    monkeypatch.setattr(email_inbox, "_gateway_for", lambda context: model)
+    asyncio.run(mail_ai._ask_model(CONTEXT, "Summarise this thread."))
+    assert model.prompts == [f"Summarise this thread.\n\n{EN_LINE}"]
+
+
+def test_email_triage_and_reply_drafts_know_today(monkeypatch: pytest.MonkeyPatch) -> None:
+    from types import SimpleNamespace
+
+    from anum_api import email_inbox
+
+    model = Drafter()
+    monkeypatch.setattr(email_inbox, "_gateway_for", lambda context: model)
+    monkeypatch.setattr(email_inbox, "email_block", lambda message, text, truncated: "EMAIL BLOCK")
+    monkeypatch.setattr(email_inbox, "rules_triage", lambda message: (email_inbox.Category("other"), email_inbox.Priority("normal")))
+    message = SimpleNamespace(snippet="Can you deliver?")
+    body = SimpleNamespace(text="Can you deliver next week?", truncated=False)
+    asyncio.run(email_inbox.triage_with_model(CONTEXT, message, body))  # type: ignore[arg-type]
+    asyncio.run(email_inbox.model_reply(CONTEXT, message, body, "قل إننا سنسلم يوم الثلاثاء القادم"))  # type: ignore[arg-type]
+    assert split_time_line(model.prompts[0])[1] == EN_LINE
+    assert split_time_line(model.prompts[1])[1] == AR_LINE
+
+
+def test_business_assist_puts_the_line_in_the_request_not_the_cached_instructions(monkeypatch: pytest.MonkeyPatch) -> None:
+    from anum_api.business import assist
+
+    cached = Drafter(cached=True)
+    monkeypatch.setattr(assist, "workspace_gateway", lambda context: cached)
+    asyncio.run(assist._ask(CONTEXT, "Write a follow up.", "Offer a call next Tuesday.", []))
+    assert cached.instructions == ["Write a follow up."]
+    assert cached.prompts == [f"Offer a call next Tuesday.\n\n{EN_LINE}"]
+    plain = Drafter()
+    monkeypatch.setattr(assist, "workspace_gateway", lambda context: plain)
+    asyncio.run(assist._ask(CONTEXT, "Write a follow up.", "Offer a call next Tuesday.", []))
+    assert plain.prompts == [f"Write a follow up.\n\nOffer a call next Tuesday.\n\n{EN_LINE}"]
+
+
+def test_marketing_ideas_get_the_line_after_the_brief(monkeypatch: pytest.MonkeyPatch) -> None:
+    from anum_api.marketing import assist
+    from anum_api.marketing.models import AssistIdeas
+
+    cached = Drafter(cached=True)
+    monkeypatch.setattr(assist, "workspace_gateway", lambda context: cached)
+    asyncio.run(assist.ideas(CONTEXT, AssistIdeas(brief="Launch next Monday"), brand_voice="", default_tags={}, tz="Asia/Dubai"))
+    assert cached.prompts and split_time_line(cached.prompts[0])[1] == EN_LINE
+    assert all(not is_time_line(part) for text in cached.instructions for part in text.split("\n\n"))
+
+
+@pytest.mark.parametrize(("language", "line"), [("en", EN_LINE), ("ar", AR_LINE)])
+def test_brevo_compose_gets_the_line_in_the_language_of_the_email(monkeypatch: pytest.MonkeyPatch, language: str, line: str) -> None:
+    from anum_api.brevo import compose
+    from anum_api.marketing import assist
+
+    cached = Drafter(cached=True)
+    monkeypatch.setattr(assist, "workspace_gateway", lambda context: cached)
+    asyncio.run(compose._model_sections(CONTEXT, subject="Sale", outline=["Offer"], brief="Sale ends Friday", brand="", voice="",
+                                        language=language))
+    assert split_time_line(cached.prompts[0])[1] == line
+    assert cached.instructions == [compose.INSTRUCTIONS]
+
+
+def test_finance_commentary_and_research_summaries_know_today(monkeypatch: pytest.MonkeyPatch) -> None:
+    from anum_api import onboarding
+    from anum_api.finance import research_summary
+    from anum_api.finance.intel import commentary
+
+    model = Drafter()
+    monkeypatch.setattr(onboarding, "budgeted_model_gateway", lambda context, gateway: model)
+    commentary._ask(CONTEXT, "Comment on this month.")
+    research_summary.ask(CONTEXT, "Summarise the research.")
+    assert model.prompts == [f"Comment on this month.\n\n{EN_LINE}", f"Summarise the research.\n\n{EN_LINE}"]
