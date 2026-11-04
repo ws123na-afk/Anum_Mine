@@ -51,6 +51,15 @@ class SenderMapping(BaseModel):
     bank: str = Field(min_length=1, max_length=40)
 
 
+class WalletCard(BaseModel):
+    """An Apple Wallet card or pass (its name as Wallet shows it, and the virtual card's last four
+    digits when known) and the account its payments hit. The owner sets these; ANUM never guesses."""
+
+    card: str = Field(min_length=1, max_length=80)
+    last4: str | None = Field(default=None, pattern=r"^\d{4}$")
+    account_id: str = Field(min_length=1, max_length=80)
+
+
 class AiSettings(BaseModel):
     enabled: bool = False
     opted_in_at: datetime | None = None  # the person's explicit consent to send masked text to their model
@@ -69,6 +78,7 @@ class SmsSettings(BaseModel):
     verified_senders: list[str] = Field(default_factory=list, max_length=MAX_SENDERS)
     extra_senders: list[SenderMapping] = Field(default_factory=list, max_length=MAX_SENDERS)
     account_map: list[AccountMapping] = Field(default_factory=list, max_length=MAX_ACCOUNT_MAP)
+    wallet_cards: list[WalletCard] = Field(default_factory=list, max_length=MAX_ACCOUNT_MAP)
     default_account_id: str | None = None  # the account a message is about when it names none
     cash_account_id: str | None = None  # where an ATM withdrawal goes (else it is cash spending)
     ai: AiSettings = Field(default_factory=AiSettings)
@@ -106,12 +116,18 @@ class MessageStatus(StrEnum):
     POSTED = "posted"
     REVIEW = "review"
     DUPLICATE = "duplicate"
+    ATTACHED = "attached"  # another source of a transaction already recorded (Apple Wallet and SMS)
     REJECTED = "rejected"
     DISMISSED = "dismissed"
     FAILED = "failed"
 
 
-MessageSource = Literal["device", "paste", "test"]
+MessageSource = Literal["device", "paste", "test", "wallet"]
+
+
+def source_kind(source: str) -> str:
+    """``wallet`` for Apple Wallet events, ``sms`` for messages (forwarded or pasted)."""
+    return "wallet" if source == "wallet" else "sms"
 
 
 class SmsMessage(BaseModel):
@@ -199,6 +215,8 @@ class SmsStore(Protocol):
     def entry_for_transaction(self, context: TenantContext, transaction_id: str) -> JournalEntry | None: ...
     def linked_transaction_ids(self, context: TenantContext) -> set[str]: ...
     def suspense_totals(self, context: TenantContext) -> dict[str, Decimal]: ...
+    def entry_sources(self, context: TenantContext, entry_ids: list[str]) -> dict[str, list[SmsMessage]]: ...
+    def lock_owner(self, context: TenantContext) -> None: ...
     # privacy
     def count_everything(self, context: TenantContext) -> int: ...
     def delete_everything(self, context: TenantContext) -> int: ...
@@ -382,6 +400,17 @@ class InMemorySmsStore:
                         out[p.currency] = out.get(p.currency, Decimal(0)) + p.amount
         return out
 
+    def entry_sources(self, context: TenantContext, entry_ids: list[str]) -> dict[str, list[SmsMessage]]:
+        wanted = set(entry_ids)
+        out: dict[str, list[SmsMessage]] = {}
+        for m in sorted(self.messages.values(), key=lambda m: m.received_at):
+            if _mine(m, context) and m.entry_id in wanted and m.status in (MessageStatus.POSTED, MessageStatus.ATTACHED, MessageStatus.DUPLICATE):
+                out.setdefault(m.entry_id, []).append(m.model_copy(deep=True))  # type: ignore[arg-type]
+        return out
+
+    def lock_owner(self, context: TenantContext) -> None:
+        """The service's per-owner lock already serializes this process (``sms_service.owner_lock``)."""
+
     def count_everything(self, context: TenantContext) -> int:
         tables = (self.devices, self.messages, self.rules)
         postings = sum(len(e.postings) for e in self.entries.values() if _mine(e, context))
@@ -429,6 +458,8 @@ __all__ = [
     "SmsRule",
     "SmsSettings",
     "SmsStore",
+    "WalletCard",
+    "source_kind",
     "open_sms_stores",
     "sms_memory_store",
 ]

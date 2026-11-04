@@ -33,6 +33,9 @@ import hmac
 import logging
 import re
 import secrets
+import threading
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
@@ -67,7 +70,9 @@ from .sms_store import (
     SmsSettings,
     SmsStore,
     open_sms_stores,
+    source_kind,
 )
+from . import wallet as W
 from .store import FinanceStore
 from .summary import today_in, zone
 
@@ -482,6 +487,38 @@ def _when(parsed: P.Parsed, received: datetime, tz_name: str) -> tuple[datetime,
     return P.occurred(parsed, local), parsed.occurred_at_time is not None or parsed.occurred_on is None
 
 
+def candidates(store: SmsStore, context: TenantContext, fp: str) -> list[W.Candidate]:
+    """The posted entries a new report could be another source of (same direction, amount, currency, account)."""
+    entries = [e for e in store.entries_with_fingerprint(context, fp) if e.status == EntryStatus.POSTED]
+    sources = store.entry_sources(context, [e.id for e in entries])
+    out = []
+    for e in entries:
+        kinds = frozenset(source_kind(m.source) for m in sources.get(e.id, []) if m.status in (MessageStatus.POSTED, MessageStatus.ATTACHED))
+        day = datetime.combine(e.posted_on, datetime.min.time()).replace(hour=12, tzinfo=(e.occurred_at.tzinfo if e.occurred_at else None))
+        out.append(W.Candidate(entry_id=e.id, when=e.occurred_at, day=day, merchant=e.merchant, reference=e.reference, sources=kinds))
+    return out
+
+
+def match(store: SmsStore, context: TenantContext, fp: str, report: W.Report) -> tuple[str, JournalEntry | None]:
+    """``("new", None)``, ``("same_source", entry)`` (a copy of a message already recorded), ``("attach", entry)``
+    (the other source of a recorded payment) or ``("ambiguous", None)``. The caller holds the owner's lock."""
+    found = candidates(store, context, fp)
+    decision, picked = W.choose(report, found)
+    if decision != "attach" or picked is None:
+        return decision, None
+    entry = store.get_entry(context, picked.entry_id)
+    return ("same_source" if report.source in picked.sources else "attach"), entry
+
+
+def _attach(message: SmsMessage, entry: JournalEntry, decision: str) -> Outcome:
+    if decision == "same_source":
+        message.status, message.reason, message.duplicate_of = MessageStatus.DUPLICATE, "already_recorded", entry.source_ref
+        message.entry_id = entry.id
+        return Outcome(message, notify="duplicate")
+    message.status, message.reason, message.entry_id = MessageStatus.ATTACHED, "attached_to_existing", entry.id
+    return Outcome(message)
+
+
 def process(finance: FinanceStore, store: SmsStore, context: TenantContext, message: SmsMessage, body: str, *, now: datetime) -> Outcome:
     """Read, check and (when confident) post one stored message. The caller commits."""
     settings = settings_for(store, context)
@@ -513,15 +550,18 @@ def process(finance: FinanceStore, store: SmsStore, context: TenantContext, mess
     reason = parsed.reason or resolved.problem
     if reason is None and not settings.auto_post:
         reason = "auto_post_off"
-    if reason is None and resolved.amount is not None:
-        fp = fingerprint(parsed.kind, resolved.amount, target.currency, _key_account(parsed.kind, resolved))  # type: ignore[union-attr]
+    if resolved.amount is not None and target is not None and parsed.kind != P.Kind.UNKNOWN and parsed.reason not in ("unknown_kind", "ambiguous_kind"):
+        fp = fingerprint(parsed.kind, resolved.amount, target.currency, _key_account(parsed.kind, resolved))
         message.fingerprint = fp
-        duplicate = find_duplicate(store, context, fp, when, has_time, parsed.reference)
-        if duplicate is not None:
-            clear_suspense(finance, store, context, duplicate, resolved, now=now, source_ref=message.id)
-            message.status, message.reason, message.duplicate_of = MessageStatus.DUPLICATE, "already_recorded", duplicate.source_ref
-            message.entry_id = duplicate.id
-            return Outcome(message, notify="duplicate")
+        report = W.Report(source="sms", when=when, precise=has_time,
+                          merchant=parsed.merchant, reference=parsed.reference)
+        decision, existing_entry = match(store, context, fp, report)
+        if existing_entry is not None:
+            if decision == "same_source":
+                clear_suspense(finance, store, context, existing_entry, resolved, now=now, source_ref=message.id)
+            return _attach(message, existing_entry, decision)
+        if decision == "ambiguous" and reason is None:
+            reason = "ambiguous_match"
     if reason is not None:
         message.status, message.reason = MessageStatus.REVIEW, reason
         return Outcome(message, notify="review")
@@ -549,10 +589,113 @@ def _is_unusual(store: SmsStore, context: TenantContext, entry: JournalEntry) ->
     return unusual(spent, [h for h in history if h > 0])
 
 
+@dataclass(frozen=True)
+class WalletEvent:
+    """What the Apple Wallet automation sends: no event time (the server's reception time is used)."""
+
+    amount: object
+    merchant: str
+    card: str
+    name: str
+
+
+def wallet_text(event: WalletEvent) -> str:
+    """The event as one line, for the idempotency key and the masked text kept for review."""
+    return P.normalize(f"Apple Wallet: {event.amount} at {event.merchant} with {event.card} ({event.name})")
+
+
+def process_wallet(finance: FinanceStore, store: SmsStore, context: TenantContext, message: SmsMessage, event: WalletEvent, *,
+                   now: datetime) -> Outcome:
+    """Record an Apple Wallet payment, or attach it to the SMS that already recorded it."""
+    settings = settings_for(store, context)
+    fsettings = finance.get_settings(context)
+    tz_name = fsettings.timezone if fsettings else "Asia/Dubai"
+    accounts = {a.id: a for a in finance.list_accounts(context) if not a.archived}
+    merchant = P.normalize(event.merchant)[:60] or None
+    parsed: dict[str, object] = {"merchant": merchant, "card": W.card_key(event.card) or None, "name": P.normalize(event.name)[:60] or None}
+    message.rule = "apple_wallet"
+    try:
+        amount = W.parse_amount(event.amount)
+    except W.WalletError as exc:
+        message.parsed = {k: v for k, v in parsed.items() if v}
+        message.status, message.reason = MessageStatus.REVIEW, exc.code
+        return Outcome(message, notify="review")
+    kind = P.Kind.REFUND if amount.refund else P.Kind.CARD_PURCHASE
+    parsed["kind"] = kind.value
+    account_id = W.find_card(event.card, [(W.card_key(c.card), c.last4, c.account_id) for c in settings.wallet_cards])
+    account = accounts.get(account_id or "")
+    currency = amount.currency
+    if account is not None and currency is None:
+        currency = account.currency
+        parsed["currency_inferred"] = True  # the Shortcut sent no currency: the mapped account's currency, shown in Review
+    if currency:
+        parsed["currency"] = currency
+        try:
+            parsed["amount"] = str(W.rounded(amount.amount, currency))
+        except W.WalletError:
+            parsed["amount"] = str(amount.amount)
+    else:
+        parsed["amount"] = str(amount.amount)
+    message.parsed = {k: v for k, v in parsed.items() if v not in (None, "")}
+    if account is None:
+        message.status, message.reason = MessageStatus.REVIEW, "wallet_card_unknown"
+        return Outcome(message, notify="review")
+    if currency != account.currency:
+        message.status, message.reason = MessageStatus.REVIEW, "needs_converted_amount"
+        return Outcome(message, notify="review")
+    value = W.rounded(amount.amount, currency)
+    when = now.astimezone(zone(tz_name))
+    resolved = Resolved(account, None, value)
+    fp = fingerprint(kind, value, account.currency, _key_account(kind, resolved))
+    message.fingerprint = fp
+    decision, existing_entry = match(store, context, fp, W.Report(source="wallet", when=when, precise=True, merchant=merchant, reference=None))
+    if existing_entry is not None:
+        return _attach(message, existing_entry, decision)
+    if decision == "ambiguous":
+        message.status, message.reason = MessageStatus.REVIEW, "ambiguous_match"
+        return Outcome(message, notify="review")
+    if not settings.auto_post:
+        message.status, message.reason = MessageStatus.REVIEW, "auto_post_off"
+        return Outcome(message, notify="review")
+    draft = Draft(kind=kind, resolved=resolved, merchant=merchant, category=None, occurred_at=when, has_time=True, reference=None, interest=None, fee=None)
+    try:
+        entry, _ = post(finance, store, context, settings, draft, source=EntrySource.SMS, source_ref=message.id, now=now)
+    except PlanError as exc:
+        message.status, message.reason = MessageStatus.REVIEW, exc.code
+        return Outcome(message, notify="review")
+    message.status, message.reason, message.entry_id = MessageStatus.POSTED, None, entry.id
+    flagged = _is_unusual(store, context, entry)
+    return Outcome(message, unusual=flagged, notify="unusual" if flagged else None)
+
+
+_owner_locks: dict[tuple[str, str, str], threading.Lock] = {}
+_owner_locks_guard = threading.Lock()
+
+
+@contextmanager
+def owner_lock(context: TenantContext) -> Iterator[None]:
+    """One ingest per owner at a time in this process; ``lock_owner`` adds the database lock across processes."""
+    key = (context.tenant_id, context.workspace_id, context.user_id)
+    with _owner_locks_guard:
+        lock = _owner_locks.setdefault(key, threading.Lock())
+    with lock:
+        yield
+
+
 def ingest(context: TenantContext, device_id: str | None, secret: str | None, sender: str, text: str, *,
-           source: str = "device", now: datetime | None = None) -> Outcome:
+           source: str = "device", now: datetime | None = None, wallet: WalletEvent | None = None) -> Outcome:
+    with owner_lock(context):
+        return _ingest(context, device_id, secret, sender, text, source=source, now=now, wallet=wallet)
+
+
+def _ingest(context: TenantContext, device_id: str | None, secret: str | None, sender: str, text: str, *,
+            source: str = "device", now: datetime | None = None, wallet: WalletEvent | None = None) -> Outcome:
     """The whole path for one message, in short units of work. Raises :class:`IngestError`."""
     now = now or utc_now()
+    if wallet is not None:
+        sender, text = "apple_wallet", wallet_text(wallet)
+        if not P.normalize(wallet.card):
+            raise IngestError(422, "The card is empty. Map Shortcut Input, Card or Pass to the card field.", "empty_card")
     sender_key = P.normalize_sender(sender)
     body = P.normalize(text)
     if not body:
@@ -560,13 +703,14 @@ def ingest(context: TenantContext, device_id: str | None, secret: str | None, se
     if not sender_key:
         raise IngestError(422, "The sender is empty. Map Shortcut Input, Sender to the sender field.", "empty_sender")
     with open_sms_stores(context) as (finance, store):
+        store.lock_owner(context)  # held until this short unit commits: concurrent reports cannot both post
         settings = settings_for(store, context)
         device = None
         if source == "device":
             device = check_device(store.get_device(context, device_id or ""), secret or "")
             device.last_seen_at = now
             store.save_device(device)
-            if sender_key == TEST_SENDER and body.lower() == TEST_TEXT:
+            if wallet is None and sender_key == TEST_SENDER and body.lower() == TEST_TEXT:
                 # The safe test from the Shortcut: proves the URL, the token and the JSON, records nothing.
                 device.last_ok_at, device.last_error, device.last_error_at = now, None, None
                 store.save_device(device)
@@ -590,14 +734,18 @@ def ingest(context: TenantContext, device_id: str | None, secret: str | None, se
         masked = P.mask(body) if retention > 0 else ""
         message = existing or SmsMessage(
             id=new_id("fin_sms"), tenant_id=context.tenant_id, workspace_id=context.workspace_id, owner_user_id=context.user_id,
-            device_id=device.id if device else None, source=source if source in ("device", "paste") else "paste",  # type: ignore[arg-type]
+            device_id=device.id if device else None,
+            source="wallet" if wallet is not None else (source if source in ("device", "paste") else "paste"),  # type: ignore[arg-type]
             idem_key=key, received_at=now, sender=sender_key, body_masked=masked,
             body_purge_at=now + timedelta(days=retention) if retention > 0 else None, status=MessageStatus.FAILED, created_at=now, updated_at=now,
         )
         if existing is not None:
             message.attempts += 1
         try:
-            outcome = process(finance, store, context, message, body, now=now)
+            if wallet is not None:
+                outcome = process_wallet(finance, store, context, message, wallet, now=now)
+            else:
+                outcome = process(finance, store, context, message, body, now=now)
         except Exception:
             logger.exception("finance_sms_processing_failed", extra={"anum_message_id": message.id})
             raise _Failed(message, device.id if device else None) from None

@@ -550,3 +550,105 @@ def test_the_assistant_capability_says_whether_sms_forwarding_is_on() -> None:
     send(s["token"], NO_AMOUNT)
     on = _finance(ctx, {"finance.summary"})
     assert on.available and "1 waiting for review" in (on.note or "")
+
+
+# -- Apple Wallet and SMS: one payment, two sources ------------------------------------------------
+
+WALLET_SMS = "SYNTHETIC. Purchase of SAR 125.00 at PANDA HYPERMARKET with card **1234"
+
+
+def wallet(token: str, amount: object = "SAR 125.00", merchant: str = "Panda Hypermarket", card: str = "My Visa", **extra: Any):  # type: ignore[no-untyped-def]
+    return client.post(f"{API}/wallet/ingest", headers={"Authorization": f"Bearer {token}"},
+                       json={"source": "apple_wallet", "amount": amount, "merchant": merchant, "card": card, "name": "Purchase", **extra})
+
+
+def wallet_setup() -> dict[str, Any]:
+    s = setup()
+    put_settings(wallet_cards=[{"card": "My Visa", "last4": "8888", "account_id": s["card"]["id"]}])
+    return s
+
+
+def expenses_sar() -> Decimal:
+    return money(dashboard()["expenses"])
+
+
+def test_apple_pay_first_then_the_bank_sms_make_one_expense() -> None:
+    s = wallet_setup()
+    first = wallet(s["token"]).json()
+    assert first["status"] == "posted"
+    second = send(s["token"], WALLET_SMS).json()
+    assert second["status"] == "attached" and second["reason"] == "attached_to_existing"
+    assert len(sms_memory_store.entries) == 1 and expenses_sar() == Decimal("125.00")
+    entry = client.get(f"{API}/ledger/entries", headers=OWNER).json()["items"][0]
+    assert sorted(src["kind"] for src in entry["sources"]) == ["sms", "wallet"]
+
+
+def test_the_bank_sms_first_then_apple_pay_make_one_expense() -> None:
+    s = wallet_setup()
+    assert send(s["token"], WALLET_SMS).json()["status"] == "posted"
+    assert wallet(s["token"]).json()["status"] == "attached"
+    assert len(sms_memory_store.entries) == 1 and expenses_sar() == Decimal("125.00")
+
+
+def test_concurrent_apple_pay_and_sms_make_one_expense() -> None:
+    from concurrent.futures import ThreadPoolExecutor
+
+    s = wallet_setup()
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(lambda f: f(), [lambda: wallet(s["token"]).json(), lambda: send(s["token"], WALLET_SMS).json()]))
+    assert sorted(r["status"] for r in results) == ["attached", "posted"]
+    assert len(sms_memory_store.entries) == 1 and expenses_sar() == Decimal("125.00")
+
+
+def test_two_genuine_purchases_of_the_same_amount_stay_two() -> None:
+    s = wallet_setup()
+    assert wallet(s["token"], merchant="Panda Hypermarket").json()["status"] == "posted"
+    assert wallet(s["token"], merchant="Jarir Bookstore").json()["status"] == "posted"
+    # The same merchant twice through Wallet is two purchases too: a second Wallet event never attaches.
+    assert wallet(s["token"], merchant="Panda Hypermarket", name="Second").json()["status"] == "posted"
+    assert len(sms_memory_store.entries) == 3 and expenses_sar() == Decimal("375.00")
+    # An SMS from another merchant at the same amount does not attach to any of them.
+    other = send(s["token"], "SYNTHETIC. Purchase of SAR 125.00 at NAHDI PHARMACY with card **1234").json()
+    assert other["status"] == "posted" and len(sms_memory_store.entries) == 4
+
+
+def test_amount_alone_never_matches_another_account() -> None:
+    s = wallet_setup()
+    wallet(s["token"])
+    # The same amount and merchant on the bank account (debit card 5678) is not the Visa payment.
+    result = send(s["token"], "SYNTHETIC. Purchase of SAR 125.00 at PANDA HYPERMARKET with card **5678").json()
+    assert result["status"] == "posted" and len(sms_memory_store.entries) == 2
+
+
+def test_wallet_amounts_in_any_shape_and_currency_from_the_mapped_card() -> None:
+    from anum_api.finance.wallet import parse_amount
+
+    assert parse_amount("SAR 1,234.50").amount == Decimal("1234.50") and parse_amount("SAR 1,234.50").currency == "SAR"
+    assert parse_amount("1.234,50 €").amount == Decimal("1234.50") and parse_amount("1.234,50 €").currency == "EUR"
+    assert parse_amount("١٢٥٫٠٠ ر.س").amount == Decimal("125.00") and parse_amount("١٢٥٫٠٠ ر.س").currency == "SAR"
+    assert parse_amount(125).amount == Decimal("125") and parse_amount("-20.00").refund
+    s = wallet_setup()
+    result = wallet(s["token"], amount="125").json()
+    assert result["status"] == "posted"
+    message = sms_memory_store.messages[result["message_id"]]
+    assert message.parsed["currency"] == "SAR" and message.parsed["currency_inferred"] is True
+
+
+def test_unmapped_wallet_card_and_bad_input_wait_or_are_refused() -> None:
+    s = wallet_setup()
+    unknown = wallet(s["token"], card="Some Other Card").json()
+    assert unknown["status"] == "review" and unknown["reason"] == "wallet_card_unknown" and not sms_memory_store.entries
+    assert wallet(s["token"], amount="abc").json()["reason"] == "missing_amount"
+    assert wallet(s["token"], user_id="someone").status_code == 422
+    assert client.post(f"{API}/wallet/ingest", headers={"Authorization": f"Bearer {s['token']}"},
+                       json={"source": "sms", "amount": "1", "card": "My Visa"}).status_code == 422
+    assert client.post(f"{API}/wallet/ingest", json={"source": "apple_wallet", "amount": "1", "card": "My Visa"}).status_code == 401
+    # The virtual card's last four digits find the card too.
+    assert wallet(s["token"], card="Visa •••• 8888").json()["status"] == "posted"
+
+
+def test_wallet_retry_is_recorded_once() -> None:
+    s = wallet_setup()
+    first = wallet(s["token"]).json()
+    again = wallet(s["token"]).json()
+    assert again["replayed"] and again["message_id"] == first["message_id"] and len(sms_memory_store.entries) == 1

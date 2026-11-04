@@ -4,7 +4,8 @@
   retention, confirmed senders, card and account numbers, AI help consent), JSON with a version.
 * ``finance_sms_devices``: device credentials. ``token_hash`` is the SHA-256 of the token's
   secret; the token itself is shown once and never stored.
-* ``finance_sms_messages``: every forwarded or pasted message: masked text only, and only until
+* ``finance_sms_messages``: every forwarded or pasted message and every Apple Wallet event
+  (``source = 'wallet'``): masked text only, and only until
   ``body_purge_at`` (refused messages keep no text at all), what was read, the status and the
   review reason. ``idem_key`` is unique per person: a retried delivery finds its first row.
 * ``finance_sms_rules``: rules the person taught from a corrected message.
@@ -126,8 +127,8 @@ def upgrade() -> None:
         sa.Column("created_at", TS, nullable=False, server_default=sa.func.now()),
         sa.Column("updated_at", TS, nullable=False, server_default=sa.func.now()),
         _workspace_fk("finance_sms_messages"),
-        sa.CheckConstraint("source in ('device', 'paste', 'test')", name="ck_finance_sms_messages_source"),
-        sa.CheckConstraint("status in ('posted', 'review', 'duplicate', 'rejected', 'dismissed', 'failed')", name="ck_finance_sms_messages_status"),
+        sa.CheckConstraint("source in ('device', 'paste', 'test', 'wallet')", name="ck_finance_sms_messages_source"),
+        sa.CheckConstraint("status in ('posted', 'review', 'duplicate', 'attached', 'rejected', 'dismissed', 'failed')", name="ck_finance_sms_messages_status"),
         # A refused message (one-time code, password, promotion) never keeps its text.
         sa.CheckConstraint("status <> 'rejected' or body_masked = ''", name="ck_finance_sms_messages_rejected"),
         sa.CheckConstraint("body_masked = '' or body_purge_at is not null", name="ck_finance_sms_messages_retention"),
@@ -135,6 +136,13 @@ def upgrade() -> None:
         sa.UniqueConstraint("tenant_id", "workspace_id", "owner_user_id", "idem_key", name="uq_finance_sms_messages_idem"),
     )
     op.create_index("ix_finance_sms_messages_owner", "finance_sms_messages", ["tenant_id", "workspace_id", "owner_user_id", "status", "received_at"])
+    # One transaction has at most one recorded or attached source of each kind: Apple Wallet and SMS
+    # are two sources of one payment, and a second Wallet event can never be glued to the same entry.
+    op.execute(
+        "create unique index uq_finance_sms_messages_entry_source on finance_sms_messages "
+        "(tenant_id, workspace_id, owner_user_id, entry_id, (case when source = 'wallet' then 'wallet' else 'sms' end)) "
+        "where entry_id is not null and status in ('posted', 'attached')"
+    )
     op.create_index("ix_finance_sms_messages_device", "finance_sms_messages", ["tenant_id", "workspace_id", "owner_user_id", "device_id", "created_at"])
 
     op.create_table(

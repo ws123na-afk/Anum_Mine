@@ -154,3 +154,64 @@ def test_database_refuses_unbalanced_entries_posting_edits_and_kept_refused_text
             session.execute(text(
                 "insert into finance_sms_messages (id, tenant_id, workspace_id, owner_user_id, source, idem_key, received_at, sender, body_masked, "
                 "body_purge_at, status) values ('m1', :t, :w, :u, 'device', 'k', now(), 's', 'kept text', now(), 'rejected')"), common)
+
+
+WALLET_SMS = "SYNTHETIC. Purchase of SAR 125.00 at PANDA HYPERMARKET with card **1234"
+
+
+def _wallet_setup(api: TestClient) -> dict[str, str]:
+    s = _setup(api)
+    version = api.get(f"{API}/sms/settings", headers=ME).json()["version"]
+    put = api.put(f"{API}/sms/settings", headers=ME, json={"version": version, "verified_senders": ["TestBank"],
+                                                            "wallet_cards": [{"card": "My Visa", "account_id": s["card"]}]})
+    assert put.status_code == 200, put.text
+    return s
+
+
+def _wallet(api: TestClient, token: str, merchant: str = "Panda Hypermarket") -> dict:
+    response = api.post(f"{API}/wallet/ingest", headers={"Authorization": f"Bearer {token}"},
+                        json={"source": "apple_wallet", "amount": "SAR 125.00", "merchant": merchant, "card": "My Visa", "name": "Purchase"})
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+def _expense_rows(app_session: Callable[..., Iterator[Session]]) -> list[Decimal]:
+    with app_session(tenant_context()) as session:
+        session.execute(text("select set_config('anum.user_id', 'user_test', true)"))
+        return list(session.execute(text("select amount from finance_postings where ledger_account like 'expense:%'")).scalars())
+
+
+@pytest.mark.parametrize("order", ["wallet_first", "sms_first", "concurrent"])
+def test_apple_pay_and_sms_are_one_expense_under_rls(order: str, client: TestClient, app_session: Callable[..., Iterator[Session]]) -> None:
+    from concurrent.futures import ThreadPoolExecutor
+
+    api = client
+    s = _wallet_setup(api)
+    if order == "wallet_first":
+        statuses = [_wallet(api, s["token"])["status"], _send(api, s["token"], WALLET_SMS)["status"]]
+    elif order == "sms_first":
+        statuses = [_send(api, s["token"], WALLET_SMS)["status"], _wallet(api, s["token"])["status"]]
+    else:
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            futures = [pool.submit(_wallet, api, s["token"]), pool.submit(_send, api, s["token"], WALLET_SMS)]
+            statuses = [f.result()["status"] for f in futures]
+    assert sorted(statuses) == ["attached", "posted"]
+    assert _expense_rows(app_session) == [Decimal("125.0000")]
+    board = api.get(f"{API}/ledger/dashboard", headers=ME, params={"month": api.get(f"{API}/ledger/entries", headers=ME).json()["items"][0]["posted_on"][:7]}).json()
+    assert board["expenses"] == [{"currency": "SAR", "amount": "125.00"}]
+    # A second genuine purchase of the same amount elsewhere stays separate.
+    assert _wallet(api, s["token"], merchant="Jarir Bookstore")["status"] == "posted"
+    assert len(_expense_rows(app_session)) == 2
+
+
+def test_database_refuses_two_wallet_sources_on_one_transaction(client: TestClient, app_session: Callable[..., Iterator[Session]]) -> None:
+    api = client
+    s = _wallet_setup(api)
+    first = _wallet(api, s["token"])
+    with pytest.raises(DBAPIError):
+        with app_session(tenant_context()) as session:
+            session.execute(text("select set_config('anum.user_id', 'user_test', true)"))
+            entry = session.execute(text("select entry_id from finance_sms_messages where id = :id"), {"id": first["message_id"]}).scalar_one()
+            session.execute(text(
+                "insert into finance_sms_messages (id, tenant_id, workspace_id, owner_user_id, source, idem_key, received_at, sender, status, entry_id) "
+                "values ('m_copy', :t, :w, 'user_test', 'wallet', 'k2', now(), 'applewallet', 'attached', :e)"), {"t": TENANT_A, "w": WORKSPACE_A, "e": entry})

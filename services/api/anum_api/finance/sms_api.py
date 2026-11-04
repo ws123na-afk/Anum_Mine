@@ -48,7 +48,9 @@ from .sms_store import (
     SmsMessage,
     SmsRule,
     SmsSettings,
+    WalletCard,
     open_sms_stores,
+    source_kind,
 )
 from .store import TransactionFilter
 from .summary import GoalProgress, month_range, settings_for, today_in, upcoming_bills
@@ -221,6 +223,7 @@ class SettingsInput(BaseModel):
     verified_senders: list[str] | None = Field(default=None, max_length=50)
     extra_senders: list[SenderMapping] | None = Field(default=None, max_length=50)
     account_map: list[AccountMapping] | None = Field(default=None, max_length=50)
+    wallet_cards: list[WalletCard] | None = Field(default=None, max_length=50)
     default_account_id: str | None = Field(default=None, max_length=80)
     cash_account_id: str | None = Field(default=None, max_length=80)
     ai_enabled: bool | None = None
@@ -272,6 +275,18 @@ def put_sms_settings(body: SettingsInput, context: TenantContext = Depends(tenan
                 if item.credit_limit is not None and item.credit_limit < 0:
                     raise _unprocessable("A credit limit cannot be negative.")
             updated.account_map = body.account_map
+        if body.wallet_cards is not None:
+            from .wallet import card_key
+
+            names: set[str] = set()
+            for card in body.wallet_cards:
+                if card.account_id not in accounts:
+                    raise _unprocessable("Apple Wallet cards: one of the accounts was not found. Reload and pick it again.")
+                key = card_key(card.card)
+                if not key or key in names:
+                    raise _unprocessable("Apple Wallet cards: each card or pass name must be filled in once.")
+                names.add(key)
+            updated.wallet_cards = [card.model_copy(update={"card": card_key(card.card)}) for card in body.wallet_cards]
         for field in ("default_account_id", "cash_account_id"):
             if field in body.model_fields_set:
                 value = getattr(body, field) or None
@@ -476,6 +491,7 @@ RESULT_TEXT = {
     "duplicate": "Already recorded, so not added again.",
     "rejected": "Not a bank transaction, so nothing was kept.",
     "test_ok": "Connected. ANUM received the test and recorded nothing.",
+    "attached": "Matched to the Apple Pay payment already recorded: one transaction.",
 }
 
 
@@ -532,6 +548,62 @@ def sms_ingest(request: Request, body: IngestBody, authorization: str | None = H
             svc.notify(context, outcome.notify, now)
     return IngestResult(status=message.status.value, reason=message.reason, message_id=message.id if message.status != MessageStatus.REJECTED else None,
                         replayed=outcome.replayed, text=RESULT_TEXT.get(message.status.value, "Saved."))
+
+
+class WalletBody(BaseModel):
+    """What the Apple Wallet transaction automation sends. No event time: ANUM stamps it on arrival."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    source: Literal["apple_wallet"]
+    amount: str | int | float
+    merchant: str = Field(default="", max_length=200)
+    card: str = Field(max_length=200)
+    name: str = Field(default="", max_length=200)
+
+
+WALLET_TEXT = {
+    "posted": "Recorded in your ledger.",
+    "attached": "Matched to the bank message already recorded: one transaction.",
+    "review": "Saved for your review in ANUM.",
+    "duplicate": "Already recorded, so not added again.",
+}
+
+
+@router.post("/wallet/ingest", response_model=IngestResult)
+def wallet_ingest(request: Request, body: WalletBody, authorization: str | None = Header(default=None)) -> Any:
+    """One Apple Pay payment from the Wallet transaction automation (docs/finance-sms.md#apple-wallet)."""
+    if not _https(request):
+        return JSONResponse(status_code=403, content={"detail": "Use the https address.", "code": "https_required"})
+    if isinstance(body.amount, str) and len(body.amount) > 40:
+        return JSONResponse(status_code=422, content={"detail": "The amount is too long.", "code": "invalid_amount"})
+    now = utc_now()
+    context: TenantContext | None = None
+    device_id = None
+    event = svc.WalletEvent(amount=body.amount, merchant=body.merchant, card=body.card, name=body.name)
+    try:
+        context, device_id, secret = svc.authorize(authorization)
+        outcome = svc.ingest(context, device_id, secret, "", "", now=now, wallet=event)
+    except svc.IngestError as exc:
+        headers = {"Retry-After": str(exc.retry_after)} if exc.retry_after else None
+        if context is not None and device_id and exc.code in ("rate_limited", "disabled"):
+            svc.record_device_error(context, device_id, exc.code, now)
+            _ingest_audit(context, device_id, "denied", {"code": exc.code, "source": "wallet"})
+        return JSONResponse(status_code=exc.status_code, content={"detail": exc.message, "code": exc.code}, headers=headers)
+    except svc._Failed as failed:
+        assert context is not None  # nosec B101: _Failed is raised only after authorize returned
+        message = svc.record_failure(context, failed, now)
+        svc.notify(context, "failed", now)
+        _ingest_audit(context, message.id, "failure", {"status": "failed", "source": "wallet"})
+        return JSONResponse(status_code=503, content={"detail": "ANUM could not process this payment. Your iPhone can send it again; it will not be recorded twice.",
+                                                      "code": "processing_error", "message_id": message.id}, headers={"Retry-After": "60"})
+    message = outcome.message
+    if not outcome.replayed:
+        _ingest_audit(context, message.id, "success", {"status": message.status.value, "reason": message.reason, "source": "wallet"})
+        if outcome.notify:
+            svc.notify(context, outcome.notify, now)
+    return IngestResult(status=message.status.value, reason=message.reason, message_id=message.id, replayed=outcome.replayed,
+                        text=WALLET_TEXT.get(message.status.value, "Saved."))
 
 
 class PasteInput(BaseModel):
@@ -627,6 +699,8 @@ def post_message(message_id: str, body: CorrectionInput, context: TenantContext 
             raise _not_found("Message")
         if message.status == MessageStatus.REJECTED:
             raise _conflict("This message was not a bank transaction, so it was not kept. Paste it again if it was one.")
+        if message.status == MessageStatus.ATTACHED and not body.allow_duplicate:
+            raise _conflict("This report is already part of a recorded transaction (Apple Pay and the bank message are one payment). Confirm that it is a separate payment to record it.")
         if message.status == MessageStatus.DUPLICATE and not body.allow_duplicate:
             raise _conflict("ANUM found this transaction already recorded. Confirm that it is a separate transaction to record it.")
         settings = svc.settings_for(store, context)
@@ -1022,6 +1096,7 @@ class EntryView(BaseModel):
     fx_rate: Decimal | None
     reconciled_at: Any
     postings: list[dict[str, Any]]
+    sources: list[dict[str, Any]]  # the reports behind this one transaction: "sms" and "wallet"
 
 
 class EntryPage(BaseModel):
@@ -1038,8 +1113,11 @@ def ledger_entries(limit: int = Query(default=25, ge=1, le=200), offset: int = Q
     _read(context)
     with open_sms_stores(context) as (_finance, store):
         entries = store.list_entries(context, limit=offset + limit)
-    page = entries[offset:offset + limit]
+        page = entries[offset:offset + limit]
+        sources = store.entry_sources(context, [e.id for e in page])
     items = [EntryView(**e.model_dump(exclude={"postings", "tenant_id", "workspace_id", "owner_user_id"}),
                        postings=[{"ledger_account": p.ledger_account, "account_id": p.account_id, "amount": str(p.amount), "currency": p.currency}
-                                 for p in e.postings]) for e in page]
+                                 for p in e.postings],
+                       sources=[{"kind": source_kind(m.source), "message_id": m.id, "status": m.status.value, "received_at": m.received_at.isoformat()}
+                                for m in sources.get(e.id, [])]) for e in page]
     return EntryPage(items=items, total=len(entries) if len(entries) < offset + limit else offset + limit + 1, limit=limit, offset=offset)

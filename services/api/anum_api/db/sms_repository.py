@@ -13,7 +13,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import Date, DateTime, Integer, Numeric, String, Text, delete, func, select, update
+from sqlalchemy import Date, DateTime, Integer, Numeric, String, Text, delete, func, select, text, update
 from sqlalchemy.dialects.postgresql import JSONB, insert
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
@@ -356,6 +356,24 @@ class SqlAlchemySmsStore:
         rows = self.session.execute(select(posting.currency, func.sum(posting.amount)).where(*_mine(posting, context), posting.ledger_account == SUSPENSE)
                                     .group_by(posting.currency))
         return {str(c): Decimal(v) for c, v in rows}
+
+    def entry_sources(self, context: TenantContext, entry_ids: list[str]) -> dict[str, list[SmsMessage]]:
+        if not entry_ids:
+            return {}
+        record = FinanceSmsMessageRecord
+        rows = self.session.scalars(select(record).where(
+            *_mine(record, context), record.entry_id.in_(entry_ids),
+            record.status.in_((MessageStatus.POSTED.value, MessageStatus.ATTACHED.value, MessageStatus.DUPLICATE.value))).order_by(record.received_at))
+        out: dict[str, list[SmsMessage]] = {}
+        for row in rows:
+            out.setdefault(str(row.entry_id), []).append(_load(row, SmsMessage))
+        return out
+
+    def lock_owner(self, context: TenantContext) -> None:
+        """One owner's ingest at a time across every API process: a transaction-level advisory lock,
+        released at commit. The unit of work that takes it is short and calls no model or provider."""
+        key = f"finance_sms:{context.tenant_id}:{context.workspace_id}:{context.user_id}"
+        self.session.execute(text("select pg_advisory_xact_lock(hashtextextended(:key, 0))"), {"key": key})
 
     # privacy
     def count_everything(self, context: TenantContext) -> int:
