@@ -145,7 +145,7 @@ def test_registry_matches_the_database_and_every_table_has_its_purge_policy(data
                 {"tables": [t.name for t in TENANT_TABLES]},
             )
         }
-    assert lookups <= {"agent_profiles", "mail_account_grants"}, f"grant the purger the lookup columns of {lookups}"
+    assert lookups <= {"agent_profiles", "mail_account_grants", "attendance_shares"}, f"grant the purger the lookup columns of {lookups}"
     assert in_database == {t.name for t in TENANT_TABLES}, "a tenant table is missing from anum_api/tenant_lifecycle_tables.py"
     assert policies == {t.name for t in PURGED_TABLES} and LIFECYCLE_JOBS_TABLE not in policies
     assert unextended == [], f"restrictive policies would hide rows from the purge: {unextended}"

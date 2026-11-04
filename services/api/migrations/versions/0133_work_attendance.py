@@ -115,7 +115,8 @@ def _rls(table: str) -> None:
         read = f"{owner} or {_shared(table, reports=table == 'attendance_daily_reports')} or {roles}"
     op.execute(f"create policy owner_read_{table} on {table} as restrictive for select using ({read})")
     op.execute(f"create policy owner_insert_{table} on {table} as restrictive for insert with check ({owner})")
-    op.execute(f"create policy owner_update_{table} on {table} as restrictive for update using ({owner}) with check ({owner})")
+    op.execute(f"create policy owner_update_{table} on {table} as restrictive for update "
+               f"using ({owner} or current_user = '{PURGER}'::name) with check ({owner})")
     op.execute(f"create policy owner_delete_{table} on {table} as restrictive for delete using ({owner} or current_user = '{PURGER}'::name)")
     _purge_policy(table)
 
@@ -314,5 +315,7 @@ def downgrade() -> None:
         $$
         """
     )
-    for table in reversed(TABLES):
+    # The owned tables' read policies refer to attendance_shares: drop them first.
+    for table in reversed(OWNED):
         op.drop_table(table)
+    op.drop_table("attendance_shares")
