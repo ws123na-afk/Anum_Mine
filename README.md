@@ -182,6 +182,8 @@ x-user-roles: owner,member
 - [Broker onboarding, statement reconciliation and custody safeguards (live off)](docs/finance-broker-onboarding.md)
 - [Live trading with Interactive Brokers: owner-approved ETF orders, paper first, every lock and the owner's steps](docs/finance-live-trading.md)
 - [iPhone SMS banking and the double-entry ledger: device tokens, review queue, taught formats, reconciliation and the dashboard (off by default)](docs/finance-sms.md)
+- [Finance links and business allocations: one payment linked to vehicles, purchases, documents and businesses without a second posting](docs/finance-links.md)
+- [iPhone integrations: one device token with scopes, per-integration switches, failed events, tests and Shortcut setup (Settings, Integrations, iPhone)](docs/iphone-integrations.md)
 - [Fund research: real data with sources, an AI summary that can only cite the data, backtests and paper runs](docs/finance-research.md)
 - [All-market trading plan and release gates (live trading off)](docs/finance-all-markets-implementation.md)
 - [SAR 500 stocks and crypto paper simulation](docs/finance-sar500-paper-integration.md)

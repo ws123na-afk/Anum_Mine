@@ -25,7 +25,7 @@ Still not built (stated plainly): PDF statement import, bank APIs (Open Finance 
 ## How a message travels
 
 1. The Shortcut posts `{"message": ..., "sender": ...}` to `POST /api/v1/finance/sms/ingest` with `Authorization: Bearer <device token>`, over HTTPS only.
-2. **Who:** the token carries its **scopes** (`finance.sms`, `finance.wallet`, chosen when the device is connected; later iPhone automations add their own), and each ingest route accepts only a token with its scope (403 `scope_missing`). The token is resolved in its owner's own tenant, workspace and user scope; the secret is compared in constant time with the stored hash. The owner must still be an active member with `finance:manage` (a viewer's or a former member's devices stop working), and the workspace must not be archived. Nothing in the body can name a user, workspace or account: other fields are refused (422).
+2. **Who:** the token carries its **scopes** (`finance.sms`, `finance.wallet`, chosen when the device is connected; other iPhone integrations add theirs, all managed on Settings, Integrations, iPhone: [iPhone integrations](iphone-integrations.md)), and each ingest route accepts only a token with its scope (403 `scope_missing`). The token is resolved in its owner's own tenant, workspace and user scope; the secret is compared in constant time with the stored hash. The owner must still be an active member with `finance:manage` (a viewer's or a former member's devices stop working), and the workspace must not be archived. Nothing in the body can name a user, workspace or account: other fields are refused (422).
 3. **Limits:** 30 messages a minute and 1,000 a day per device (429 with `Retry-After`).
 4. **Refused without storing text:** one-time codes, verification and activation codes, passwords and PINs, promotions, and anything without money in it. Only a row with the status `rejected` and the reason code is kept, so the person can see that ANUM ignored something.
 5. **Retries are safe:** the same device, sender, normalized text and minute make an idempotency key (SHA-256); a retried delivery gets the first answer and changes nothing. A processing failure keeps the masked message as `failed` and answers 503 with `Retry-After`; the retry processes it again.
@@ -52,6 +52,8 @@ Every payment is **one canonical transaction**, whatever reported it: an SMS, Ap
 
 - **Statement and hand-entered transactions are journalled too** (entry sources `statement` and `manual`, each linked to its stage 2 row). Editing such a row's amount, date or category reverses its entry and posts the new figures in the same chain; the row keeps its id. Deleting it, undoing its import or deleting its account reverses the entries. Rows recorded before this release have no stored entry and are counted from their category on the fly until they are edited.
 - **Sources** are rows of `finance_sms_messages` with `source` `device` or `paste` (SMS), `wallet` (Apple Pay) or `statement`, linked by `entry_id`; at most one recorded or attached source of each kind per entry (unique index).
+
+Other modules link to a canonical transaction instead of posting again, and their links follow its corrections, undo and reconciliation: [Finance links and business allocations](finance-links.md).
 
 ## Reconciliation on import
 
@@ -101,7 +103,7 @@ Every recorded message is a journal entry whose postings sum to zero in each cur
 
 A side no message has named yet (the paying account of a card's "payment received") waits in `suspense:own_transfer`, shown as "in transit", until a later message names it. Stated balances are **observations** shown next to the ledger's figure, never posted.
 
-Statement and hand-entered transactions have no stored entry; the dashboard builds their postings on the fly from their category, so every source is counted once.
+Statement and hand-entered transactions recorded before this release have no stored entry; the dashboard builds their postings on the fly from their category, so every source is counted once ([Canonical transactions](#canonical-transactions)).
 
 ## Review queue
 

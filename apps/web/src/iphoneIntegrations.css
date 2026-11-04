@@ -1,6 +1,6 @@
 /* Settings, Integrations, iPhone (docs/iphone-integrations.md). Shared tokens only; content-driven heights. */
-.iph { display: grid; gap: var(--d-s3); min-width: 0; }
-.iphIntro, .iphPanel { display: grid; gap: var(--d-s2); min-width: 0; padding: var(--d-s4); }
+.iph { display: grid; gap: var(--d-s3); grid-template-columns: minmax(0, 1fr); min-width: 0; }
+.iphIntro, .iphPanel { display: grid; gap: var(--d-s2); grid-template-columns: minmax(0, 1fr); min-width: 0; padding: var(--d-s4); }
 .iphIntro h2 { align-items: center; display: flex; gap: var(--d-s2); margin: 0; }
 .iphIntro h2 svg { height: 20px; width: 20px; }
 .iphIntro p, .iphPanel h2 { margin: 0; }
@@ -20,7 +20,8 @@
 .iphChips li { background: var(--d-glass-2); border-radius: 999px; font-size: var(--text-xs); padding: 2px var(--d-s2); }
 .iphScopes { border: 0; display: flex; flex-wrap: wrap; gap: var(--d-s1) var(--d-s3); margin: 0; min-width: 0; padding: 0; }
 .iphScopes legend { color: var(--d-muted); font-size: var(--text-sm); margin-bottom: var(--d-s1); padding: 0; }
-.iphCheck { align-items: center; display: inline-flex; gap: var(--d-s1); min-height: 44px; }
+.iphCheck { align-items: center; display: inline-flex; gap: var(--d-s2); min-height: 44px; white-space: nowrap; }
+.iphCheck input, .iphSwitch input { block-size: 18px; flex: none; inline-size: 18px; margin: 0; min-height: 0; }
 .iphEditScopes { display: grid; gap: var(--d-s2); }
 .iphAdd { border-top: 1px solid var(--d-line); display: grid; gap: var(--d-s2); padding-top: var(--d-s3); }
 .iphAddName { display: grid; gap: var(--d-s1); max-width: 28rem; }
@@ -28,13 +29,12 @@
 .iphAdd .actions { align-items: center; flex-wrap: wrap; }
 .iphCards { display: grid; gap: var(--d-s3); grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr)); }
 .iphCards > li { min-width: 0; }
-.iphCard { border: 1px solid var(--d-line); border-radius: var(--d-r-control); display: grid; gap: var(--d-s2); min-width: 0; padding: var(--d-s3); }
+.iphCard { border: 1px solid var(--d-line); border-radius: var(--d-r-control); display: grid; gap: var(--d-s2); grid-template-columns: minmax(0, 1fr); min-width: 0; padding: var(--d-s3); }
 .iphCardHead { align-items: flex-start; display: flex; gap: var(--d-s2); justify-content: space-between; }
 .iphCardHead > div { min-width: 0; }
-.iphCardHead h3 { font-size: var(--text-md, 1rem); margin: 0; }
+.iphCardHead h3 { font-size: var(--text-base); margin: 0; }
 .iphCardHead p { font-size: var(--text-sm); margin: var(--d-s1) 0 0; }
 .iphSwitch { align-items: center; display: inline-flex; flex: none; gap: var(--d-s1); min-height: 44px; }
-.iphSwitch input { height: 20px; width: 20px; }
 .iphState { font-size: var(--text-sm); font-weight: 600; margin: 0; }
 .iphState.ok { color: var(--d-ok, var(--d-sky)); }
 .iphState.failing { color: var(--d-stop); }
@@ -49,14 +49,16 @@
 .iphChecks svg { flex: none; height: 18px; width: 18px; }
 .iphChecks .ok { color: var(--d-ok, var(--d-sky)); }
 .iphChecks .bad { color: var(--d-stop); }
-.iphMore summary { cursor: pointer; font-weight: 600; min-height: 44px; display: flex; align-items: center; }
-.iphMore[open] { display: grid; gap: var(--d-s2); }
+.iphMore summary { cursor: pointer; display: list-item; font-weight: 600; min-block-size: 44px; padding-block: var(--d-s2); }
+.iphMore { min-width: 0; }
+.iphMore[open] { display: grid; gap: var(--d-s2); grid-template-columns: minmax(0, 1fr); }
 .iphMore h4 { margin: 0; }
 .iphMore p { margin: 0; }
 .iphDocs { display: grid; gap: var(--d-s2); margin: 0; }
 .iphCode { display: grid; gap: 2px; min-width: 0; }
 .iphCode code { background: var(--d-glass-2); border-radius: var(--d-r-control); display: block; font-size: var(--text-xs); overflow-wrap: anywhere; padding: 2px var(--d-s1); }
-.iphSteps { display: grid; gap: var(--d-s1); margin: 0; padding-inline-start: var(--d-s4); }
+.iphSteps { display: grid; gap: var(--d-s1); grid-template-columns: minmax(0, 1fr); margin: 0; padding-inline-start: var(--d-s4); }
+.iphSteps li, .iphMore p { overflow-wrap: anywhere; }
 .iphEvents { display: grid; gap: var(--d-s1); }
 .iphEvents li { display: flex; flex-wrap: wrap; gap: var(--d-s2); justify-content: space-between; }
 .iphEvents small { color: var(--d-muted); }

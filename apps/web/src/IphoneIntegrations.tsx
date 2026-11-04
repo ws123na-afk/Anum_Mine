@@ -142,10 +142,12 @@ function IntegrationCard({ item, pingPath, onChanged }: { item: IphoneIntegratio
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [test, setTest] = useState<IphoneTestResult | null>(null);
+  const [on, setOn] = useState(item.enabled);
+  useEffect(() => { setOn(item.enabled); }, [item.enabled]);
   const switchId = useId();
   const toggle = async (enabled: boolean) => {
-    setBusy(true); setError(null);
-    try { await api.setSwitch(item.key, enabled); onChanged(); } catch (e) { setError(describeError(e)); } finally { setBusy(false); }
+    setBusy(true); setError(null); setOn(enabled);
+    try { await api.setSwitch(item.key, enabled); onChanged(); } catch (e) { setOn(!enabled); setError(describeError(e)); } finally { setBusy(false); }
   };
   const runTest = async () => {
     setBusy(true); setError(null); setTest(null);
@@ -156,7 +158,7 @@ function IntegrationCard({ item, pingPath, onChanged }: { item: IphoneIntegratio
     <header className="iphCardHead">
       <div><h3 id={`${switchId}-title`}>{title}</h3>{guide && <p className="muted">{t(guide.purpose)}</p>}</div>
       <label className="iphSwitch" htmlFor={switchId}>
-        <input id={switchId} type="checkbox" role="switch" checked={item.enabled} disabled={busy || !item.allowed}
+        <input id={switchId} type="checkbox" role="switch" checked={on} disabled={busy || !item.allowed}
           aria-label={t('iph.switch.label', { name: title })} onChange={(e) => void toggle(e.target.checked)} />
         <span>{t('iph.switch')}</span>
       </label>

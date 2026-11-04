@@ -107,13 +107,11 @@ phone's time for a late delivery (at most 7 days back, at most 5 minutes ahead).
 the event `poor` (counted, not verified). Consent must be on and tracking not paused, or the answer is 409 and nothing
 is stored.
 
-**Token.** The owner's plan is one device enrollment for every iPhone integration (Settings, Integrations, iPhone),
-reusing the finance device tokens of PR #364 (merged; tokens carry per-integration scopes). The shared-foundation PR
-(`claude/finance-links`) adds the `attendance` scope and registers a `DeviceAuthority` here; that is the remaining
-step. `attendance/devices.py` is the seam: `register_device_authority()` takes a `DeviceAuthority` that resolves a scoped
-device token (scope `attendance`) to its owner. Until it is registered, the endpoint accepts the ordinary ANUM sign-in
-token, which expires, so an unattended Shortcut works only for testing. **Device testing waits for the foundation
-PR.** `X-Anum-Device` may carry a short device label; it never grants access.
+**Token.** One device enrollment for every iPhone integration: make a token with the **Attendance** scope on
+Settings, Integrations, iPhone and turn the "Attendance arrive and leave" integration on there
+([iPhone integrations](iphone-integrations.md)). The API registers its scoped `DeviceAuthority` here when it starts. `attendance/devices.py` is the seam: `register_device_authority()` takes a `DeviceAuthority` that resolves a scoped
+device token (scope `attendance`) to its owner. Any other bearer token falls back to the ordinary ANUM sign-in token, which expires. **Real-device testing is
+still to do.** `X-Anum-Device` may carry a short device label; it never grants access.
 
 Steps on the iPhone (one automation per site for arriving and one for leaving):
 
@@ -185,8 +183,6 @@ and Arabic (RTL), every state (loading, empty with a next action, error with ret
 
 ## Not in phase A
 
-- Long-lived iPhone device tokens with the `attendance` scope and the Settings, Integrations, iPhone page (foundation
-  PR after #364).
 - Flutter screens (`apps/mobile/lib/features/attendance/`).
 - A productivity view and a workspace-wide manager view (needs an owner decision on who may see whom).
 - Real-device testing of Shortcuts.
