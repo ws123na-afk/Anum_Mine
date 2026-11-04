@@ -106,7 +106,7 @@ test('connect an iPhone for attendance: the token is shown once and only the tic
   await expect(dialog.getByText('Authorization: Bearer <token>')).toBeVisible();
   await dialog.getByRole('button', { name: 'I saved it' }).click();
   await expect(page.locator('.iphDevice').getByText('Site phone')).toBeVisible();
-  expect(sent.find((s) => s.path.endsWith('/devices') && s.method === 'POST')?.body).toEqual({ name: 'Site phone', scopes: ['attendance'] });
+  await expect.poll(() => sent.find((s) => s.path.endsWith('/devices') && s.method === 'POST')?.body).toEqual({ name: 'Site phone', scopes: ['attendance'] });
   // The token never shows again once the dialog is closed.
   await expect(page.getByText(/anum_sms\.example/)).toHaveCount(0);
 });
@@ -121,7 +121,7 @@ test('an integration card: switch on, test, failed events and the exact Shortcut
   await expect(attendance.getByText('Test found something to fix:')).toBeVisible();
   await expect(attendance.getByText('The integration is on')).toBeVisible();
   await attendance.getByRole('switch', { name: 'Turn Attendance arrive and leave on or off' }).check();
-  expect(sent.find((s) => s.method === 'PUT')?.body).toEqual({ enabled: true });
+  await expect.poll(() => sent.find((s) => s.method === 'PUT')?.body).toEqual({ enabled: true });
   await attendance.getByRole('button', { name: 'Run test' }).click();
   await expect(attendance.getByText('Test passed. Nothing was recorded.')).toBeVisible();
   await attendance.getByText('Failed events (1)').click();
@@ -143,7 +143,7 @@ test('a device: change scopes, new token, pause and disconnect', async ({ page }
   await device.getByRole('button', { name: 'Change' }).click();
   await device.getByLabel('Apple Wallet').check();
   await device.getByRole('button', { name: 'Save' }).click();
-  expect(sent.find((s) => s.path.endsWith('/scopes'))?.body).toEqual({ scopes: ['finance.sms', 'attendance', 'finance.wallet'] });
+  await expect.poll(() => sent.find((s) => s.path.endsWith('/scopes'))?.body).toEqual({ scopes: ['finance.sms', 'attendance', 'finance.wallet'] });
   await device.getByRole('button', { name: 'New token' }).click();
   await expect(page.getByRole('dialog', { name: 'Your device token' }).getByRole('textbox')).toHaveValue(/rotated/);
   await page.getByRole('button', { name: 'I saved it' }).click();
