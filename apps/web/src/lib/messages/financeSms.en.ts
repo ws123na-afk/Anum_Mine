@@ -257,6 +257,8 @@ export const financeSmsEn = {
   'fledger.source.correction': 'Correction',
   'fledger.source.reversal': 'Reversal',
   'fledger.source.clearing': 'Other side arrived',
+  'fledger.debit': 'Debit',
+  'fledger.credit': 'Credit',
   'fledger.reversed': 'reversed',
   'fledger.reconciled': 'reconciled',
   'fledger.account.unknown': 'Removed account',

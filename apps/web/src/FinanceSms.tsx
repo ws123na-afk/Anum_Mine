@@ -149,7 +149,7 @@ function Devices({ status, onChanged }: { status: FinanceSmsStatusView; onChange
           <button type="button" className="secondary" disabled={busy} onClick={() => setRevoking(d)}><Trash2 aria-hidden="true" />{t('fsms.device.revoke')}</button>
         </div>}
       </li>)}</ul>)}
-    <form className="cmFilters finSmsAdd" onSubmit={(e) => void add(e)}>
+    <form className="finSmsAdd" onSubmit={(e) => void add(e)}>
       <label className="cmInline" htmlFor={nameId}><span>{t('fsms.device.name')}</span></label>
       <input id={nameId} value={name} maxLength={60} placeholder="iPhone" onChange={(e) => setName(e.target.value)} disabled={!status.ready} />
       <button type="submit" disabled={busy || !status.ready}><Plus aria-hidden="true" />{t('fsms.device.add')}</button>
@@ -420,7 +420,7 @@ function Banks() {
     <p className="notice">{t('fsms.banksHelp')}</p>
     {banks.kind === 'loading' && <Notice busy>{t('fsms.loading')}</Notice>}
     {banks.kind === 'error' && <LoadError message={banks.message} retry={reload} />}
-    {banks.kind === 'ready' && <div className="cmTableWrap"><table className="cmTable">
+    {banks.kind === 'ready' && <div className="cmTableWrap" tabIndex={0}><table className="cmTable">
       <thead><tr><th scope="col">{t('fsms.bank')}</th><th scope="col">{t('fsms.bank.country')}</th><th scope="col">{t('fsms.bank.senders')}</th><th scope="col">{t('fsms.bank.state')}</th></tr></thead>
       <tbody>{banks.value.map((b: FinanceSmsBank) => <tr key={b.key}><td>{b.name}</td><td>{b.country}</td><td dir="ltr">{b.senders.join(', ')}</td>
         <td>{b.confirmed_by_you ? t('fsms.bank.confirmed') : t('fsms.bank.unverified')}</td></tr>)}</tbody></table></div>}
@@ -456,7 +456,7 @@ function Reconcile() {
     {view?.kind === 'error' && <LoadError message={view.message} retry={() => pick(chosen)} />}
     {view?.kind === 'ready' && <>
       <p>{t('fsms.reconcile.summary', { matched: view.value.matched.length, statement: view.value.statement_only, sms: view.value.sms_only.length })}</p>
-      {view.value.matched.length > 0 && <div className="cmTableWrap"><table className="cmTable">
+      {view.value.matched.length > 0 && <div className="cmTableWrap" tabIndex={0}><table className="cmTable">
         <thead><tr><th scope="col">{t('fsms.field.date')}</th><th scope="col">{t('fsms.reconcile.statementRow')}</th><th scope="col" className="num">{t('fsms.field.amount')}</th></tr></thead>
         <tbody>{view.value.matched.map((p) => <tr key={p.statement_transaction_id}><td dir="ltr">{p.posted_on}</td><td dir="auto">{p.description}</td>
           <td className="num"><Money value={p.amount} currency={p.currency} signed /></td></tr>)}</tbody></table></div>}
@@ -511,6 +511,14 @@ export function LedgerPanel() {
           <option value="">{t('fledger.all')}</option>{SMS_KINDS.map((k) => <option key={k} value={k}>{kindLabel(k)}</option>)}<option value="statement">{t('fledger.kind.statement')}</option></select></label>
       </div>
       <dl className="finSmsFigures">{figures.map(([id, label, value]) => <div key={id}><dt>{label}</dt><dd dir="ltr">{value === 'nothing' ? '-' : value || '-'}</dd></div>)}</dl>
+      <h3 id="fledger-sync">{t('fledger.sync')}</h3>
+      <dl className="finSmsFacts">
+        <div><dt>{t('fsms.title')}</dt><dd>{b.sync.enabled ? t('fsms.on') : t('fsms.off')}</dd></div>
+        <div><dt>{t('fsms.devicesActive')}</dt><dd>{b.sync.devices_active}</dd></div>
+        <div><dt>{t('fsms.lastReceived')}</dt><dd>{when(b.sync.last_received_at)}</dd></div>
+        <div><dt>{t('fsms.lastError')}</dt><dd>{b.sync.last_error ? reasonLabel(b.sync.last_error) : '-'}</dd></div>
+        <div><dt>{t('fsms.section.review')}</dt><dd>{b.sync.review_count}</dd></div>
+      </dl>
       {b.in_transit.length > 0 && <p className="notice">{t('fledger.inTransitText', { amount: formatAmounts(b.in_transit) })}</p>}
       {b.entry_count === 0 && <Empty icon={<MessageSquareText aria-hidden="true" />} title={t('fledger.empty')} text={t('fledger.emptyText')} />}
     </section>
@@ -518,23 +526,15 @@ export function LedgerPanel() {
       <AccountsCard title={t('fledger.balances')} rows={b.accounts} empty={t('fledger.none')} />
       <AccountsCard title={t('fledger.cards')} rows={b.cards} empty={t('fledger.none')} owed />
       <AccountsCard title={t('fledger.loans')} rows={b.loans} empty={t('fledger.none')} owed />
-      <section className="surface cmPanel" aria-labelledby="fledger-sync"><h2 id="fledger-sync">{t('fledger.sync')}</h2>
-        <dl className="finSmsFacts">
-          <div><dt>{t('fsms.title')}</dt><dd>{b.sync.enabled ? t('fsms.on') : t('fsms.off')}</dd></div>
-          <div><dt>{t('fsms.devicesActive')}</dt><dd>{b.sync.devices_active}</dd></div>
-          <div><dt>{t('fsms.lastReceived')}</dt><dd>{when(b.sync.last_received_at)}</dd></div>
-          <div><dt>{t('fsms.lastError')}</dt><dd>{b.sync.last_error ? reasonLabel(b.sync.last_error) : '-'}</dd></div>
-          <div><dt>{t('fsms.section.review')}</dt><dd>{b.sync.review_count}</dd></div>
-        </dl></section>
     </div>
     <div className="finSmsGrid">
       <Table title={t('fledger.byCategory')} head={[t('fledger.category'), t('fledger.count')]} empty={t('fledger.none')}
-        rows={b.categories.map((c) => [ledgerAccountLabel(`expense:${c.category}`, names).split(': ')[1] ?? c.category, String(c.count), c.amount, c.currency])} />
+        rows={b.categories.map((c) => [(CATEGORIES as string[]).includes(c.category) ? categoryLabel(c.category as FinanceCategory) : c.category, String(c.count), c.amount, c.currency])} />
       <Table title={t('fledger.byMerchant')} head={[t('fledger.merchant'), t('fledger.count')]} empty={t('fledger.none')}
         rows={b.merchants.map((m) => [m.merchant, String(m.count), m.amount, m.currency])} />
     </div>
     <section className="surface cmPanel" aria-labelledby="fledger-trend"><h2 id="fledger-trend">{t('fledger.trend')}</h2>
-      {b.trend.length === 0 ? <p className="muted">{t('fledger.none')}</p> : <div className="cmTableWrap"><table className="cmTable">
+      {b.trend.length === 0 ? <p className="muted">{t('fledger.none')}</p> : <div className="cmTableWrap" tabIndex={0}><table className="cmTable">
         <thead><tr><th scope="col">{t('fledger.month')}</th><th scope="col">{t('fledger.currency')}</th><th scope="col" className="num">{t('fledger.income')}</th><th scope="col" className="num">{t('fledger.expenses')}</th><th scope="col" className="num">{t('fledger.net')}</th></tr></thead>
         <tbody>{[...b.trend, ...b.year].map((row) => <tr key={`${row.month}-${row.currency}`}><td>{row.month.length === 4 ? t('fledger.yearTotal', { year: row.month }) : monthLabel(row.month)}</td><td>{row.currency}</td>
           <td className="num"><Money value={row.income} currency={row.currency} /></td><td className="num"><Money value={row.expenses} currency={row.currency} /></td>
@@ -570,7 +570,7 @@ function AccountsCard({ title, rows, empty, owed }: { title: string; rows: Finan
 function Table({ title, head, rows, empty }: { title: string; head: [string, string]; rows: [string, string, string, string][]; empty: string }) {
   const titleId = useId();
   return <section className="surface cmPanel" aria-labelledby={titleId}><h2 id={titleId}>{title}</h2>
-    {rows.length === 0 ? <p className="muted">{empty}</p> : <div className="cmTableWrap"><table className="cmTable">
+    {rows.length === 0 ? <p className="muted">{empty}</p> : <div className="cmTableWrap" tabIndex={0}><table className="cmTable">
       <thead><tr><th scope="col">{head[0]}</th><th scope="col" className="num">{head[1]}</th><th scope="col" className="num">{t('fsms.field.amount')}</th></tr></thead>
       <tbody>{rows.map(([name, count, amount, cur]) => <tr key={`${name}-${cur}`}><td dir="auto">{name}</td><td className="num">{count}</td><td className="num"><Money value={amount} currency={cur} /></td></tr>)}</tbody>
     </table></div>}
@@ -591,7 +591,7 @@ function Journal({ names }: { names: Record<string, string> }) {
         <div><strong dir="auto">{e.description}</strong>
           <small><bdi dir="ltr">{e.posted_on}</bdi> · {kindLabel(e.kind)} · {t(`fledger.source.${e.source}` as MessageKey)}{e.status === 'reversed' ? ` · ${t('fledger.reversed')}` : ''}{e.reconciled_at ? ` · ${t('fledger.reconciled')}` : ''}</small>
           {e.original_amount && <small dir="ltr">{e.original_currency} {e.original_amount} @ {e.fx_rate}</small>}
-          <ul className="finSmsPostings">{e.postings.map((p, i) => <li key={i}><span>{ledgerAccountLabel(p.ledger_account, names)}</span><Money value={p.amount} currency={p.currency} signed /></li>)}</ul></div>
+          <ul className="finSmsPostings">{e.postings.map((p, i) => <li key={i}><span>{ledgerAccountLabel(p.ledger_account, names)}</span><span>{p.amount.startsWith('-') ? t('fledger.credit') : t('fledger.debit')} <Money value={p.amount.replace(/^-/, '')} currency={p.currency} /></span></li>)}</ul></div>
       </li>)}</ul>
       <div className="cmPager"><button type="button" className="secondary" disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - PAGE))}>{t('fsms.prev')}</button>
         <button type="button" className="secondary" disabled={page.value.total <= offset + PAGE} onClick={() => setOffset(offset + PAGE)}>{t('fsms.next')}</button></div>

@@ -257,6 +257,8 @@ export const financeSmsAr: Record<keyof typeof financeSmsEn, Message> = {
   'fledger.source.correction': "تصحيح",
   'fledger.source.reversal': "قيد عكسي",
   'fledger.source.clearing': "وصل الجانب الآخر",
+  'fledger.debit': 'مدين',
+  'fledger.credit': 'دائن',
   'fledger.reversed': "معكوس",
   'fledger.reconciled': "مطابق",
   'fledger.account.unknown': "حساب محذوف",

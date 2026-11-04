@@ -14,7 +14,8 @@
 .finSmsEndpoint { display: grid; gap: var(--d-s1); min-width: 0; }
 .finSmsEndpoint code, .finSmsPattern { overflow-wrap: anywhere; }
 .finSmsPattern { color: var(--d-muted); display: block; font-size: var(--text-xs); }
-.finSmsAdd { align-items: center; }
+.finSmsAdd { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); }
+.finSmsAdd label { font-size: var(--text-sm); }
 .finSmsAdd input { flex: 1 1 12rem; min-width: 0; }
 .finSmsDevice, .finSmsMessage { flex-wrap: wrap; }
 .finSmsDevice > div:first-child, .finSmsMessage > div:first-child, .finSmsEntry > div { display: grid; gap: var(--d-s1); min-width: 0; }
