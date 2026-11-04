@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
 from typing import Any, Literal, Protocol
 
@@ -34,6 +34,7 @@ from .store import DuplicateError, open_vehicle_store
 SCOPE = "vehicle"
 INTEGRATION = "vehicle.driving"
 INGEST_PATH = "/api/v1/vehicles/device/sessions"
+RETRY_WINDOW = timedelta(minutes=10)
 
 
 @dataclass(frozen=True)
@@ -148,15 +149,19 @@ def handle(context: TenantContext, device_id: str | None, event: SessionEvent) -
             except DuplicateError:
                 raise S.VehicleError(409, "A trip is already in progress.", "trip_open") from None
             return {"status": "started", "trip": _trip_view(trip), "message": f"Trip started on {vehicle.registration}."}
-        # end
-        end_key = S.record_key(context, "device-end", vehicle.id, seed)
-        parking_key = S.record_key(context, "device-parking", vehicle.id, seed)
-        done = store.record_by_idem(context, "fuel", end_key) or store.record_by_idem(context, "service", parking_key)
-        if done is None:
+        # end. A retry must not add a second reading, fuel or parking record. With no trip in progress, a device trip this
+        # person ended in the last 10 minutes means this is a retry of that end; the records' keys come from the Shortcut's
+        # key, else from the trip being ended.
+        if not open_trips:
             recent, _ = store.list_records(context, "trips", vehicle.id, query=None, start=None, end=None, limit=5, offset=0)
-            done = next((t for t in recent if t.status == "closed" and t.source == "device" and t.ended_at == moment
-                         and t.owner_user_id == context.user_id), None)
-        if done is not None:
+            done_trip = next((t for t in recent if t.status == "closed" and t.source == "device" and t.owner_user_id == context.user_id
+                              and t.ended_at is not None and now - t.updated_at < RETRY_WINDOW), None)
+            if done_trip is not None:
+                return {"status": "replayed", "trip": _trip_view(done_trip), "message": "Trip already saved."}
+        trip_seed = event.idempotency_key or (open_trips[0].id if open_trips else seed)
+        end_key = S.record_key(context, "device-end", vehicle.id, trip_seed)
+        parking_key = S.record_key(context, "device-parking", vehicle.id, trip_seed)
+        if store.record_by_idem(context, "fuel", end_key) or store.record_by_idem(context, "service", parking_key):
             return {"status": "replayed", "message": "Trip already saved."}
         trip = open_trips[0] if open_trips else None
         if trip is None:

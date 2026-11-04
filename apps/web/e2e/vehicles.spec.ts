@@ -77,7 +77,7 @@ test('overview: spend per currency, what is due, and a fuel payment linked from 
   await expect(page.locator('.vehChip.active').first()).toContainText('93.20');
   const links = sent.filter((r) => r.path.endsWith('/payment') && r.method === 'POST');
   expect(links).toHaveLength(1);
-  expect(links[0].body).toEqual({ canonical_id: 'fin_je_fuel2' });
+  expect(links[0].body).toEqual({ canonical_id: 'fin_je_fuel2', currency: 'SAR' });
   expect(sent.some((r) => r.path.startsWith('/api/v1/finance/transactions'))).toBe(false);
   await noSeriousAxe(page);
 });

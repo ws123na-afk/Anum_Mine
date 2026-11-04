@@ -398,7 +398,7 @@ export function PaymentDialog({ kind, recordId, payment, hint, onClose, onDone }
           <div><strong dir="auto">{c.merchant}</strong><small>{c.posted_on} · <span dir="ltr">{formatAmount(c.amount, c.currency)}</span>
             {c.remaining !== c.amount ? ` · ${t('veh.pay.left', { amount: formatAmount(c.remaining, c.currency) })}` : ''}</small></div>
           <button type="button" className="secondary" disabled={busy || Number(c.remaining) <= 0} aria-label={t('veh.pay.chooseLabel', { what: `${c.merchant} ${c.posted_on}` })}
-            onClick={() => void act(() => api.linkPayment(kind, recordId, { canonical_id: c.canonical_id }, key), t('veh.pay.linked'))}>{t('veh.pay.choose')}</button>
+            onClick={() => void act(() => api.linkPayment(kind, recordId, { canonical_id: c.canonical_id, currency: c.currency }, key), t('veh.pay.linked'))}>{t('veh.pay.choose')}</button>
         </li>)}</ul>}
       </>}
       {mode === 'cash' && <form className="vehForm" noValidate onSubmit={(e) => { e.preventDefault(); const amount = decimal(cash.amount);

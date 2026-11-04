@@ -234,7 +234,8 @@ class InMemoryVehicleStore:
     def records_for(self, context: TenantContext, kind: RecordKind, vehicle_ids: list[str]) -> list[Any]:
         wanted = set(vehicle_ids)
         rows = [r for r in self._rows(context, kind) if r.vehicle_id in wanted]
-        return [r.model_copy(deep=True) for r in sorted(rows, key=lambda r: (str(record_time(kind, r)), r.created_at, r.id))][:MAX_RECORDS_READ]
+        newest = sorted(rows, key=lambda r: (str(record_time(kind, r)), r.created_at, r.id), reverse=True)[:MAX_RECORDS_READ]
+        return [r.model_copy(deep=True) for r in reversed(newest)]  # the newest ones when there are more, oldest first
 
     def get_record(self, context: TenantContext, kind: RecordKind, record_id: str) -> Any | None:
         found = self.records[kind].get(record_id)

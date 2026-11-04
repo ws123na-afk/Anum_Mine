@@ -100,16 +100,22 @@ def vehicle_view(context: TenantContext, vehicle: Vehicle, *, odometer: Decimal 
     data["mine"] = vehicle.owner_user_id == context.user_id
     data["odometer_km"] = str(odometer) if odometer is not None else None
     data["due"] = due or []
+    _redact(data, "purchase_payment", vehicle.purchase_payment, context)
     return data
+
+
+def _redact(data: dict[str, Any], key: str, payment: Any, context: TenantContext) -> None:
+    """Another member's payment shows its amount only, never their ledger or link id."""
+    if data.get(key) is not None and payment is not None and payment.paid_by != context.user_id:
+        data[key]["canonical_id"] = None
+        data[key]["link_id"] = None
 
 
 def record_view(context: TenantContext, record: Any) -> dict[str, Any]:
     data = record.model_dump(mode="json", exclude=HIDDEN)
     data["can_edit"] = S.can_edit_record(context, record)
     data["mine"] = record.owner_user_id == context.user_id
-    if "payment" in data and data["payment"] is not None and record.payment.paid_by != context.user_id:
-        data["payment"]["canonical_id"] = None  # another member's payment: the amount only, never their ledger id
-        data["payment"]["link_id"] = None
+    _redact(data, "payment", getattr(record, "payment", None), context)
     return data
 
 
@@ -310,8 +316,7 @@ def update_vehicle(vehicle_id: str, body: VehiclePatch, context: TenantContext =
     with open_vehicle_store(context) as store:
         vehicle = S.get_vehicle(store, context, vehicle_id)
         S.require_vehicle_edit(context, vehicle)
-        if "country" in changes and changes["country"] is None:
-            changes.pop("country")
+        _no_nulls(changes, ("registration", "country", "fuel_type", "vehicle_type", "currency"))
         updated = S.apply_vehicle_changes(vehicle, changes, utc_now())
         try:
             saved = store.save_vehicle(updated, body.version)
@@ -490,9 +495,12 @@ def _build(store: VehicleStore, context: TenantContext, kind: RecordKind, vehicl
         base["currency"] = (base.get("currency") or vehicle.currency).upper()
         for key, limit in (("station", 120), ("notes", 500)):
             base[key] = S.clean(base.get(key), limit)
-        if base.get("price_per_litre") is None and base.get("total") is not None:
+        # The pump shows total and litres; the price per litre follows them unless it was the figure given or changed.
+        price_given = data.get("price_per_litre") is not None
+        total_given = data.get("total") is not None
+        if base.get("total") is not None and not price_given:
             base["price_per_litre"] = (Decimal(base["total"]) / Decimal(base["litres"])).quantize(Decimal("0.001"))
-        if base.get("total") is None and base.get("price_per_litre") is not None:
+        elif base.get("price_per_litre") is not None and (price_given or "litres" in data) and not total_given:
             base["total"] = (Decimal(base["price_per_litre"]) * Decimal(base["litres"])).quantize(Decimal("0.01"))
     elif kind == "trips":
         base["started_at"] = S.not_future(base["started_at"], "Start")
@@ -507,7 +515,7 @@ def _build(store: VehicleStore, context: TenantContext, kind: RecordKind, vehicl
         places = S.preferences(store, context).trip_places
         for key in ("origin", "destination"):
             base[key] = S.clean(base.get(key), 120)
-            if base[key] and not places:
+            if key in data and base[key] and not places:  # places stored earlier stay; new ones need the switch
                 raise S.VehicleError(422, "Trip places are off. Turn on \"Store trip places\" in Vehicles settings to keep them.", "places_off")
         for key, limit in (("purpose_note", 200), ("notes", 500)):
             base[key] = S.clean(base.get(key), limit)
@@ -610,6 +618,16 @@ def _patch_model(model: type[BaseModel]) -> type[BaseModel]:
     return create_model(f"{model.__name__}Patch", __config__=ConfigDict(extra="forbid"), **fields)
 
 
+REQUIRED = {"fuel": ("filled_at", "litres", "fuel_type", "currency", "full_tank"), "trips": ("started_at", "purpose"),
+            "service": ("kind", "service_on", "currency")}
+
+
+def _no_nulls(changes: dict[str, Any], required: tuple[str, ...]) -> None:
+    empty = sorted(key for key in required if key in changes and changes[key] is None)
+    if empty:
+        raise S.VehicleError(422, f"These fields cannot be empty: {', '.join(empty)}.", "required_field", {"fields": empty})
+
+
 def _record_routes(kind: RecordKind) -> None:
     model = INPUTS[kind]
     label = LABEL[kind]
@@ -646,6 +664,7 @@ def _record_routes(kind: RecordKind) -> None:
                repository: AnumRepository = Depends(repository_context)) -> Any:
         _write(context)
         changes = body.model_dump(exclude_unset=True, exclude={"version"})  # type: ignore[attr-defined]
+        _no_nulls(changes, REQUIRED[kind])
         with open_vehicle_store(context) as store:
             record = store.get_record(context, kind, record_id)
             if record is None:
@@ -696,6 +715,7 @@ class LinkInput(BaseModel):
 
     canonical_id: str = Field(min_length=1, max_length=80, pattern=r"^[A-Za-z0-9_.:-]+$")
     amount: Decimal | None = Field(default=None, gt=0, lt=Decimal("1000000000"), decimal_places=4)
+    currency: str | None = Field(default=None, min_length=3, max_length=3, description="Needed when the payment has more than one currency")
 
 
 class CashInput(BaseModel):
@@ -715,10 +735,9 @@ def _finance_manage(context: TenantContext) -> None:
 @router.post("/costs/{kind}/{record_id}/payment", response_model=None)
 @refusals
 def link_payment(kind: CostKind, record_id: str, body: LinkInput, context: TenantContext = Depends(tenant_context),
-                 repository: AnumRepository = Depends(repository_context),
-                 idempotency_key: str | None = Header(default=None, alias="Idempotency-Key", max_length=120)) -> Any:
+                 repository: AnumRepository = Depends(repository_context)) -> Any:
     _finance_manage(context)
-    payment, replayed = S.link_payment(context, kind, record_id, canonical_id=body.canonical_id, amount=body.amount, idempotency_key=idempotency_key)
+    payment, replayed = S.link_payment(context, kind, record_id, canonical_id=body.canonical_id, amount=body.amount, currency=body.currency)
     if not replayed:
         _audit(repository, context, "vehicle.payment.link", record_id, {"kind": kind, "link_id": payment.link_id})
     return JSONResponse(status_code=200 if replayed else 201, content={"payment": payment.model_dump(mode="json"), "replayed": replayed})

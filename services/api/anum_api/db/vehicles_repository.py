@@ -321,9 +321,10 @@ class SqlVehicleStore:
         if not vehicle_ids:
             return []
         table = TABLES[kind]
+        moment = getattr(table, TIME_COLUMN[kind])
         rows = self.session.scalars(select(table).where(self._visible(table, context), table.vehicle_id.in_(vehicle_ids))
-                                    .order_by(getattr(table, TIME_COLUMN[kind]), table.created_at, table.id).limit(MAX_RECORDS_READ)).all()
-        return [MODELS[kind].model_validate(_row(r)) for r in rows]
+                                    .order_by(moment.desc(), table.created_at.desc(), table.id.desc()).limit(MAX_RECORDS_READ)).all()
+        return [MODELS[kind].model_validate(_row(r)) for r in reversed(rows)]  # the newest ones when there are more, oldest first
 
     def get_record(self, context: TenantContext, kind: RecordKind, record_id: str) -> Any | None:
         table = TABLES[kind]

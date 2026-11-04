@@ -296,7 +296,7 @@ export interface VehiclePaymentCandidate {
   linked_to_vehicle: boolean;
 }
 
-export interface VehicleLinkInput { canonical_id: string; amount?: string | null }
+export interface VehicleLinkInput { canonical_id: string; amount?: string | null; /** Needed when the payment has more than one currency. */ currency?: string | null }
 export interface VehicleCashInput { account_id: string; amount: string; posted_on: string }
 export interface VehiclePaymentResult { payment: VehiclePayment; replayed: boolean }
 

@@ -291,8 +291,12 @@ def _current_payment(target: Any) -> PaymentRef | None:
 
 
 def link_payment(context: TenantContext, kind: str, record_id: str, *, canonical_id: str, amount: Decimal | None,
-                 idempotency_key: str | None = None) -> tuple[PaymentRef, bool]:
-    """Link (part of) a canonical transaction to the record. Returns the payment and whether it was a replay."""
+                 currency: str | None = None) -> tuple[PaymentRef, bool]:
+    """Link (part of) a canonical transaction to the record. Returns the payment and whether it was a replay.
+
+    The link's idempotency key names the record only, so a record has at most one live vehicle link: two tabs
+    linking different payments at once are serialised by the owner's lock in ``finance.links.create`` and the
+    second is refused (``already_linked``)."""
     from ..finance import links as K
     from ..finance.links_store import open_link_stores
 
@@ -310,9 +314,15 @@ def link_payment(context: TenantContext, kind: str, record_id: str, *, canonical
         live = links.live_links(context, canonical_id) if chain else []
     if not chain:
         raise VehicleError(404, "Payment not found in your Finance ledger.", "transaction_not_found")
-    if len(caps) != 1 and amount is None:
-        raise VehicleError(422, "This payment has more than one currency: enter the amount for this vehicle.", "amount_required")
-    currency = next(iter(caps)) if caps else "SAR"
+    if currency is not None:
+        currency = currency.upper()
+        if currency not in caps:
+            raise VehicleError(422, f"The payment is not in {currency}. Link it in its own currency.", "currency_mismatch", {"currencies": sorted(caps)})
+    elif len(caps) == 1:
+        currency = next(iter(caps))
+    else:
+        raise VehicleError(422, "This payment has more than one currency: choose the currency and enter the amount for this vehicle.",
+                           "currency_required", {"currencies": sorted(caps)})
     if amount is None:
         amount = caps[currency] - K.used(live, "vehicle", currency)
         if amount <= 0:
@@ -320,8 +330,10 @@ def link_payment(context: TenantContext, kind: str, record_id: str, *, canonical
     try:
         created = K.create(context, K.LinkRequest(canonical_id=canonical_id, dimension="vehicle", role="payment", target_type=target_of(kind),
                                                   target_id=record_id, amount=amount, currency=currency,
-                                                  idempotency_key=f"vehicles\x1f{kind}\x1f{record_id}\x1f{canonical_id}\x1f{idempotency_key or ''}"))
+                                                  idempotency_key=f"vehicles\x1f{kind}\x1f{record_id}"))
     except K.LinkError as exc:
+        if exc.code == "idempotency_conflict":
+            raise VehicleError(409, "This record was just linked to another payment. Reload to see it.", "already_linked") from None
         raise _link_error(exc) from None
     return payment_from_link(created.link), created.replayed
 
@@ -347,16 +359,25 @@ def record_cash(context: TenantContext, kind: str, record_id: str, *, account_id
     label = {"fuel_entry": "Fuel", "service_record": f"Vehicle {getattr(target, 'kind', 'service')}", "purchase": "Vehicle purchase"}[kind]
     category_key = "fuel" if kind == "fuel_entry" else CASH_CATEGORY.get(getattr(target, "kind", ""), "transport")
     seed = idempotency_key or f"v{getattr(target, 'version', 1)}"
-    transaction_id = "fin_txn_veh" + record_key(context, "cash", kind, record_id, seed)[:32]
     body = TransactionInput(account_id=account_id, posted_on=posted_on, amount=-amount, description=f"{label}, {vehicle.registration}",
                             category=Category(category_key), notes="Recorded from Vehicles")
     from fastapi import HTTPException
 
-    try:
-        _item, _decision, canonical = record_manual_transaction(context, body, transaction_id=transaction_id)
-    except HTTPException as exc:
-        raise VehicleError(exc.status_code, str(exc.detail), "finance_refused") from None
-    payment, replayed = link_payment(context, kind, record_id, canonical_id=canonical, amount=None, idempotency_key=f"cash\x1f{seed}")
+    # The id is derived from the record and the request, so a retry finds the transaction it made. An earlier cash
+    # payment of this record with other figures (unlinked, then entered again) is never reused: the next id is tried.
+    canonical = None
+    for attempt in range(8):
+        transaction_id = "fin_txn_veh" + record_key(context, "cash", kind, record_id, seed, attempt)[:32]
+        try:
+            item, _decision, found = record_manual_transaction(context, body, transaction_id=transaction_id)
+        except HTTPException as exc:
+            raise VehicleError(exc.status_code, str(exc.detail), "finance_refused") from None
+        if item.account_id == account_id and item.amount == -amount and item.posted_on == posted_on:
+            canonical = found
+            break
+    if canonical is None:
+        raise VehicleError(409, "This cash payment could not be recorded. Try again with a new request.", "cash_conflict")
+    payment, replayed = link_payment(context, kind, record_id, canonical_id=canonical, amount=None)
     payment.recorded_as_cash = True
     with open_vehicle_store(context) as store:
         _set_payment(store, context, kind, record_id, payment)
@@ -447,40 +468,40 @@ def plug_finance_links() -> None:
 
 
 def payment_candidates(context: TenantContext, *, query: str | None, around: date | None, amount: Decimal | None, limit: int) -> list[dict[str, Any]]:
-    """The caller's own live payments (never income or transfers) near a date, with what is left to link to a vehicle."""
+    """The caller's own live payments (never income or transfers) near a date, with what is left to link to a vehicle.
+
+    Two reads in one unit of work (the entries in the window with their postings, and the caller's vehicle links),
+    ranked before the cut. A suggestion only: linking checks the whole chain again under the owner's lock."""
     from ..finance import links as K
-    from ..finance.links_store import open_link_stores
+    from ..finance.links_store import LinkStatus, open_link_stores
 
     centre = around or utc_now().date()
     start, end = centre - timedelta(days=60), centre + timedelta(days=15)
     needle = (query or "").casefold().strip()
-    out: list[dict[str, Any]] = []
     with open_link_stores(context) as (_finance, store, links):
-        entries = store.list_entries(context, start=start, end=end, limit=2_000)
-        seen: set[str] = set()
-        for entry in entries:
-            canonical = entry.canonical_id or entry.id
-            if canonical in seen:
-                continue
-            seen.add(canonical)
-            chain = store.chain(context, canonical)
-            current = K.live_entry(chain)
-            if current is None or (current.category or "") in ("income", "transfer"):
-                continue
-            text = f"{current.merchant or ''} {current.description}".casefold()
-            if needle and needle not in text:
-                continue
-            caps = K.capacity(chain)
-            if not caps:
-                continue
-            live = links.live_links(context, canonical)
-            for currency, cap in caps.items():
-                remaining = cap - K.used(live, "vehicle", currency)
-                out.append({"canonical_id": canonical, "posted_on": current.posted_on.isoformat(), "merchant": (current.merchant or current.description)[:80],
-                            "category": current.category, "amount": A.money(cap), "currency": currency, "remaining": A.money(max(remaining, Decimal(0))),
-                            "linked_to_vehicle": any(l.dimension == "vehicle" for l in live), "_day": current.posted_on, "_cap": cap})
-            if len(out) >= 400:
-                break
+        entries = store.list_entries(context, start=start, end=end, limit=5_000)
+        vehicle_links, _ = links.list_links(context, canonical_id=None, dimension="vehicle", target_type=None, target_id=None, status=None,
+                                            limit=10_000, offset=0)
+    chains: dict[str, list[Any]] = {}
+    for entry in entries:
+        chains.setdefault(entry.canonical_id or entry.id, []).append(entry)
+    live_by: dict[str, list[Any]] = {}
+    for link in vehicle_links:
+        if link.status != LinkStatus.VOID:
+            live_by.setdefault(link.canonical_id, []).append(link)
+    out: list[dict[str, Any]] = []
+    for canonical, chain in chains.items():
+        current = K.live_entry(chain)
+        if current is None or (current.category or "") in ("income", "transfer"):
+            continue
+        if needle and needle not in f"{current.merchant or ''} {current.description}".casefold():
+            continue
+        live = live_by.get(canonical, [])
+        for currency, cap in K.capacity(chain).items():
+            remaining = cap - K.used(live, "vehicle", currency)
+            out.append({"canonical_id": canonical, "posted_on": current.posted_on.isoformat(), "merchant": (current.merchant or current.description)[:80],
+                        "category": current.category, "amount": A.money(cap), "currency": currency, "remaining": A.money(max(remaining, Decimal(0))),
+                        "linked_to_vehicle": bool(live), "_day": current.posted_on, "_cap": cap})
 
     def rank(item: dict[str, Any]) -> tuple[Any, ...]:
         gap = abs(item["_cap"] - amount) if amount is not None else Decimal(0)

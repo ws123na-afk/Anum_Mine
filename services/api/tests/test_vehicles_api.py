@@ -386,6 +386,10 @@ def test_driving_session_from_the_iphone() -> None:
     assert client.get(f"{API}/{car['id']}/fuel", headers=OWNER).json()["items"][0]["payment"] is None  # waits for its payment
     parking = client.get(f"{API}/{car['id']}/service", headers=OWNER).json()["items"][0]
     assert parking["kind"] == "parking" and parking["receipt_total"] == "10.00" and parking["trip_id"] == ended["trip"]["id"]
+    # Ending again without a key or a trip in progress is a retry of that end: nothing is added twice.
+    assert client.post(url, headers=OWNER, json={"action": "end", "odometer_km": "5032", "fuel_litres": "30"}).json()["status"] == "replayed"
+    assert client.get(f"{API}/{car['id']}/fuel", headers=OWNER).json()["total"] == 1
+    assert client.post(url, headers=OWNER, json={"action": "start"}).json()["status"] == "started"
     lower = client.post(url, headers=OWNER, json={"action": "end", "odometer_km": "10"})
     assert lower.status_code == 409 and lower.json()["code"] == "odometer_decrease"
 
@@ -420,3 +424,76 @@ def test_the_vehicle_target_refuses_records_of_other_people() -> None:
     assert direct.status_code == 404 and direct.json()["code"] == "target_not_found"
     assert "vehicle" in K.available_dimensions()
     assert D.integration("vehicle.driving") is not None
+
+
+# -- review findings ---------------------------------------------------------------------------------
+
+
+def test_another_members_purchase_payment_hides_their_ledger_id() -> None:
+    canonical, _card = fuel_payment()
+    van = vehicle(registration="VAN 5", ownership="business")
+    assert link("purchase", van["id"], canonical).status_code == 201
+    mine = client.get(f"{API}/{van['id']}", headers=OWNER).json()["purchase_payment"]
+    seen = client.get(f"{API}/{van['id']}", headers=MEMBER).json()["purchase_payment"]
+    listed = client.get(API, headers=MEMBER).json()["items"][0]["purchase_payment"]
+    assert mine["canonical_id"] == canonical
+    assert seen["canonical_id"] is None and seen["link_id"] is None and listed["canonical_id"] is None and seen["amount"] == "150.00"
+
+
+def test_patch_with_an_empty_required_field_is_refused_not_a_crash() -> None:
+    car = vehicle()
+    for field in ("registration", "fuel_type", "currency", "country"):
+        refused = client.patch(f"{API}/{car['id']}", headers=OWNER, json={"version": 1, field: None})
+        assert refused.status_code == 422 and refused.json()["code"] == "required_field", (field, refused.text)
+    entry = fuel(car["id"]).json()
+    for field in ("filled_at", "litres"):
+        assert client.patch(f"{API}/fuel/{entry['id']}", headers=OWNER, json={"version": 1, field: None}).status_code == 422
+
+
+def test_cash_entered_again_with_other_figures_is_a_new_finance_transaction() -> None:
+    cash = client.post(f"{FIN}/accounts", headers=OWNER, json={"name": "Wallet", "kind": "cash", "currency": "SAR"}).json()
+    car = vehicle()
+    entry = fuel(car["id"]).json()
+    day = utc_now().date().isoformat()
+    assert client.post(f"{API}/costs/fuel_entry/{entry['id']}/cash", headers=OWNER, json={"account_id": cash["id"], "amount": "100", "posted_on": day}).status_code == 201
+    assert client.delete(f"{API}/costs/fuel_entry/{entry['id']}/payment", headers=OWNER).status_code == 204
+    again = client.post(f"{API}/costs/fuel_entry/{entry['id']}/cash", headers=OWNER, json={"account_id": cash["id"], "amount": "80", "posted_on": day})
+    assert again.status_code == 201 and again.json()["payment"]["amount"] == "80.00"
+    assert sorted(t.amount for t in finance_store.transactions.values()) == [Decimal("-100.00"), Decimal("-80.00")]
+
+
+def test_a_trip_with_stored_places_stays_editable_after_places_are_turned_off() -> None:
+    car = vehicle()
+    assert client.put(f"{API}/preferences", headers=OWNER, json={"version": 0, "trip_places": True}).status_code == 200
+    trip = client.post(f"{API}/{car['id']}/trips", headers=OWNER, json={"started_at": utc_now().isoformat(), "origin": "Home", "destination": "Site"}).json()
+    assert client.put(f"{API}/preferences", headers=OWNER, json={"version": 1, "trip_places": False}).status_code == 200
+    edited = client.patch(f"{API}/trips/{trip['id']}", headers=OWNER, json={"version": 1, "purpose": "personal", "ended_at": utc_now().isoformat()})
+    assert edited.status_code == 200 and edited.json()["origin"] == "Home"
+    assert client.patch(f"{API}/trips/{trip['id']}", headers=OWNER, json={"version": 2, "origin": "Office"}).json()["code"] == "places_off"
+
+
+def test_a_record_takes_one_payment_and_the_currency_must_be_the_payments() -> None:
+    canonical, _card = fuel_payment()
+    car = vehicle()
+    entry = fuel(car["id"]).json()
+    wrong = client.post(f"{API}/costs/fuel_entry/{entry['id']}/payment", headers=OWNER, json={"canonical_id": canonical, "amount": "10", "currency": "AED"})
+    assert wrong.status_code == 422 and wrong.json()["code"] == "currency_mismatch"
+    cash = client.post(f"{FIN}/accounts", headers=OWNER, json={"name": "Wallet", "kind": "cash", "currency": "SAR"}).json()
+    other = client.post(f"{FIN}/transactions", headers=OWNER, json={"account_id": cash["id"], "posted_on": utc_now().date().isoformat(), "amount": "-20",
+                                                                  "description": "Car wash"}).json()
+    other_canonical = next(e.canonical_id or e.id for e in sms_memory_store.entries.values() if e.source_ref == other["id"])
+    assert link("fuel_entry", entry["id"], canonical, "50").status_code == 201
+    # Even when the read copy was not updated yet (a second tab), the record's one live link refuses another payment.
+    vehicle_memory_store.records["fuel"][entry["id"]].payment = None
+    clash = link("fuel_entry", entry["id"], other_canonical)
+    assert clash.status_code == 409 and clash.json()["code"] == "already_linked"
+
+
+def test_editing_litres_or_total_keeps_the_price_per_litre_in_step() -> None:
+    car = vehicle()
+    entry = fuel(car["id"], litres="40", total="100").json()
+    assert entry["price_per_litre"] == "2.500"
+    edited = client.patch(f"{API}/fuel/{entry['id']}", headers=OWNER, json={"version": 1, "litres": "50"}).json()
+    assert edited["total"] == "100.00" and edited["price_per_litre"] == "2.000"
+    edited = client.patch(f"{API}/fuel/{entry['id']}", headers=OWNER, json={"version": 2, "price_per_litre": "2.2"}).json()
+    assert edited["total"] == "110.00"
