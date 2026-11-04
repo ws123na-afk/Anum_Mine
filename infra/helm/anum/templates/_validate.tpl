@@ -21,6 +21,14 @@ hosts). Failing at `helm template`/`helm upgrade` is cheaper than a crash loop.
 {{- if not (has $liveBroker (list "" "ibkr")) -}}
 {{- fail "ANUM_FINANCE_LIVE_BROKER must be empty or ibkr: ibkr is the only reviewed live executor (docs/finance-live-trading.md#locks). The API refuses any other value at startup" -}}
 {{- end -}}
+{{- /* The action browser (docs/action-browser.md#setting-it-up): the API refuses ANUM_ACTION_BROWSER_ENABLED
+     without the browser service's URL and token (anum_api/settings.py). */ -}}
+{{- if has (lower (trim (toString (default "" (get $all "ANUM_ACTION_BROWSER_ENABLED"))))) (list "true" "1" "yes" "on" "y" "t") -}}
+{{- $secretKeys := concat (default (list) .Values.secrets.app.required) (default (list) .Values.secrets.app.optional) -}}
+{{- if or (not (trim (toString (default "" (get $all "ANUM_BROWSER_RESEARCH_URL"))))) (and (not (trim (toString (default "" (get $all "ANUM_BROWSER_RESEARCH_TOKEN"))))) (not (has "ANUM_BROWSER_RESEARCH_TOKEN" $secretKeys))) -}}
+{{- fail "ANUM_ACTION_BROWSER_ENABLED=true needs the browser service: set ANUM_BROWSER_RESEARCH_URL (config or extraEnv) and ANUM_BROWSER_RESEARCH_TOKEN (secrets.app.optional), and run the browser image with ANUM_BROWSER_ACTION_MODE=1 (docs/action-browser.md#setting-it-up). The API refuses it at startup" -}}
+{{- end -}}
+{{- end -}}
 {{- range $key, $value := $all -}}
 {{- if has (upper (toString $key)) (list "KEYCLOAK_ADMIN" "KEYCLOAK_ADMIN_PASSWORD" "KC_BOOTSTRAP_ADMIN_USERNAME" "KC_BOOTSTRAP_ADMIN_PASSWORD") -}}
 {{- fail (printf "%s is a Keycloak admin credential: ANUM never uses it, it must not be in config or extraEnv (rendered into a ConfigMap), and the API refuses the compose default admin/admin at startup" $key) -}}
