@@ -10,8 +10,9 @@ See docs/licenses.md. Two steps:
 Collectors read each package manager's own resolution and metadata, so the result does not
 depend on the operating system that runs the scan:
 
-  python  pip's resolver (`pip install --dry-run --report`) for services/api, for CPython
-          3.13 on manylinux x86_64 (the API image); licenses from the core metadata pip reports.
+  python  pip's resolver (`pip install --dry-run --report`) for services/api, services/api with
+          the `browser` extra and the backup image's psycopg pin, for CPython 3.13 on manylinux
+          x86_64 (the images); licenses from the core metadata pip reports.
   npm     pnpm-lock.yaml: the production closure of each app (all platform variants);
           licenses from the npm registry manifest of the exact locked version.
   cargo   `cargo metadata --locked` for apps/desktop/src-tauri, every target platform,
@@ -54,7 +55,9 @@ NOTICES_FILE = ROOT / "THIRD_PARTY_NOTICES.md"
 ECOSYSTEMS = ("python", "npm", "cargo", "dart", "gradle")
 # Which apps ship each ecosystem's packages. The desktop installer bundles the web build.
 APPS = {
-    "api": "services/api (FastAPI image)",
+    "api": "services/api (FastAPI image, also the worker)",
+    "browser": "services/api with the `browser` extra (browser research and action browser image)",
+    "backup": "infra/backup (backup image)",
     "web": "apps/web (browser bundle and web image)",
     "desktop": "apps/desktop (Tauri installer: Rust shell plus the web bundle)",
     "mobile": "apps/mobile (Flutter app)",
@@ -398,11 +401,24 @@ def find_license_file(directory: Path) -> Path | None:
 MIN_PIP = (25, 0)
 
 
-def collect_python(_: argparse.Namespace) -> list[dict]:
-    pip_version = re.match(r"pip (\d+)\.(\d+)", run([sys.executable, "-m", "pip", "--version"]))
-    if not pip_version or tuple(map(int, pip_version.groups())) < MIN_PIP:
-        raise SystemExit(f"pip {'.'.join(map(str, MIN_PIP))} or newer is needed to read License-Expression "
-                         f"metadata: {sys.executable} -m pip install --upgrade pip (or set PYTHON to a venv's python)")
+def python_targets() -> list[tuple[str, list[str]]]:
+    """What pip installs into each shipped Python image, with the apps it ships in.
+
+    api      services/api (services/api/Dockerfile, also used for the worker)
+    browser  services/api[browser] (the same Dockerfile with ANUM_BROWSER=1)
+    backup   the psycopg pin in infra/backup/Dockerfile
+    """
+    api = str(ROOT / "services" / "api")
+    targets = [("api", [api]), ("browser", [f"{api}[browser]"])]
+    dockerfile = (ROOT / "infra" / "backup" / "Dockerfile").read_text()
+    pins = re.findall(r'"(psycopg\[binary\]==[0-9][^"\s]*)"', dockerfile)
+    if len(set(pins)) != 1:
+        raise SystemExit(f"infra/backup/Dockerfile: expected one psycopg[binary]==<version> pin, found {pins}")
+    targets.append(("backup", [pins[0]]))
+    return targets
+
+
+def pip_report(requirements: list[str]) -> dict:
     with tempfile.TemporaryDirectory() as tmp:
         report_path = Path(tmp) / "report.json"
         run([
@@ -410,29 +426,41 @@ def collect_python(_: argparse.Namespace) -> list[dict]:
             "--dry-run", "--ignore-installed", "--report", str(report_path),
             "--python-version", "3.13", "--implementation", "cp",
             "--platform", "manylinux_2_28_x86_64", "--platform", "manylinux2014_x86_64",
-            "--only-binary=:all:", str(ROOT / "services" / "api"),
+            "--only-binary=:all:", *requirements,
         ])
-        report = json.loads(report_path.read_text())
-    records = []
-    for item in report["install"]:
-        meta = item["metadata"]
-        if meta["name"] == "anum-api":
-            continue
-        declared = meta.get("license_expression") or meta.get("license") or ""
-        license_expr = python_license(meta)
-        urls = meta.get("project_url", []) or []
-        source = meta.get("home_page") or ""
-        for entry in urls:
-            label, _, url = entry.partition(",")
-            if label.strip().lower() in ("source", "source code", "repository", "code", "github", "homepage", "home"):
-                source = url.strip()
-                if label.strip().lower() in ("source", "source code", "repository", "code", "github"):
-                    break
-        if not declared:
-            declared = "; ".join(c for c in meta.get("classifier", []) if c.startswith("License ::"))
-        records.append(record("python", canonical_python(meta["name"]), meta["version"],
-                              declared.splitlines()[0] if declared else "", license_expr, source, ["api"]))
-    return records
+        return json.loads(report_path.read_text())
+
+
+def collect_python(_: argparse.Namespace) -> list[dict]:
+    pip_version = re.match(r"pip (\d+)\.(\d+)", run([sys.executable, "-m", "pip", "--version"]))
+    if not pip_version or tuple(map(int, pip_version.groups())) < MIN_PIP:
+        raise SystemExit(f"pip {'.'.join(map(str, MIN_PIP))} or newer is needed to read License-Expression "
+                         f"metadata: {sys.executable} -m pip install --upgrade pip (or set PYTHON to a venv's python)")
+    found: dict[tuple[str, str], dict] = {}
+    for app, requirements in python_targets():
+        for item in pip_report(requirements)["install"]:
+            meta = item["metadata"]
+            if meta["name"] == "anum-api":
+                continue
+            key = (canonical_python(meta["name"]), meta["version"])
+            if key in found:
+                found[key]["apps"] = sorted(set(found[key]["apps"]) | {app})
+                continue
+            declared = meta.get("license_expression") or meta.get("license") or ""
+            license_expr = python_license(meta)
+            urls = meta.get("project_url", []) or []
+            source = meta.get("home_page") or ""
+            for entry in urls:
+                label, _, url = entry.partition(",")
+                if label.strip().lower() in ("source", "source code", "repository", "code", "github", "homepage", "home"):
+                    source = url.strip()
+                    if label.strip().lower() in ("source", "source code", "repository", "code", "github"):
+                        break
+            if not declared:
+                declared = "; ".join(c for c in meta.get("classifier", []) if c.startswith("License ::"))
+            found[key] = record("python", key[0], key[1], declared.splitlines()[0] if declared else "",
+                                license_expr, source, [app])
+    return list(found.values())
 
 
 def canonical_python(name: str) -> str:
@@ -891,6 +919,22 @@ def kept_sections(previous: str, missing: set[str]) -> tuple[dict[str, list[str]
             {title: [trim(b) for b in found] for title, found in blocks.items()})
 
 
+def block_key(header: str, versioned: bool) -> tuple[str, str, str]:
+    """Canonical order of a "### <name>[ <version>] (<ecosystem title>)" block.
+
+    Regenerated and kept blocks (a partial local scan) are sorted together with this key, so a
+    partial scan writes the same file as a full one: by ecosystem, then name, then version.
+    """
+    text = header.removeprefix("### ")
+    ecosystem = ""
+    for key, title in ECOSYSTEM_TITLES.items():
+        if text.endswith(f" ({title})"):
+            ecosystem, text = key, text[:-len(f" ({title})")]
+            break
+    name, version = text.rsplit(" ", 1) if versioned and " " in text else (text, "")
+    return ecosystem, name.lower(), version
+
+
 def bundled_lines(result: dict, apps: set[str]) -> list[str]:
     entry = result["bundled"]
     lines = [f"### {escape(result['name'])} {result['version']} ({ECOSYSTEM_TITLES[result['ecosystem']]})", "",
@@ -964,20 +1008,21 @@ def notices(results: list[dict], previous: str | None = None, missing: set[str] 
         lines += [ACCEPTED_TITLE, "",
                   "These components carry a weak copyleft license. Each was reviewed and accepted for",
                   "the reason given (docs/licenses.md).", ""]
-        for (ecosystem, name), entry in sorted(accepted.items(), key=lambda item: (item[0][0], item[0][1].lower())):
+        blocks = list(kept_accepted)
+        for (ecosystem, name), entry in accepted.items():
             result, exception = entry["result"], entry["result"]["exception"]
-            lines += [f"### {escape(name)} ({ECOSYSTEM_TITLES[ecosystem]})", "",
-                      f"- License: {result['effective']}",
-                      (f"- Used in: {', '.join(sorted(entry['apps']))}" if exception.get("shipped", True) else
-                       f"- Used in: not shipped (build-time only; in the lockfile closure of {', '.join(sorted(entry['apps']))})"),
-                      f"- Source: <{exception.get('source_url') or result['source']}>",
-                      f"- Why it is accepted: {exception['reason']}"]
+            block = [f"### {escape(name)} ({ECOSYSTEM_TITLES[ecosystem]})", "",
+                     f"- License: {result['effective']}",
+                     (f"- Used in: {', '.join(sorted(entry['apps']))}" if exception.get("shipped", True) else
+                      f"- Used in: not shipped (build-time only; in the lockfile closure of {', '.join(sorted(entry['apps']))})"),
+                     f"- Source: <{exception.get('source_url') or result['source']}>",
+                     f"- Why it is accepted: {exception['reason']}"]
             if exception.get("versions"):
-                lines.append(f"- Approved versions: {', '.join(exception['versions'])} (another version or license is reviewed again)")
+                block.append(f"- Approved versions: {', '.join(exception['versions'])} (another version or license is reviewed again)")
             if exception.get("notice"):
-                lines.append(f"- Notice: {exception['notice']}")
-            lines.append("")
-        for block in kept_accepted:
+                block.append(f"- Notice: {exception['notice']}")
+            blocks.append(block)
+        for block in sorted(blocks, key=lambda b: block_key(b[0], versioned=False)):
             lines += block + [""]
     # Native libraries that a package carries inside it (for example the shared libraries in a
     # manylinux wheel), reviewed in scripts/licenses/bundled.toml.
@@ -992,9 +1037,8 @@ def notices(results: list[dict], previous: str | None = None, missing: set[str] 
                   "These packages ship compiled third-party libraries inside them. Each library is listed",
                   "with its license, copyright holder and source, followed by the notices its license asks",
                   "for (scripts/licenses/bundled.toml, docs/licenses.md).", ""]
-        for key in sorted(carriers, key=lambda k: (k[0], k[1].lower(), k[2])):
-            lines += bundled_lines(carriers[key]["result"], carriers[key]["apps"]) + [""]
-        for block in kept_bundled:
+        blocks = list(kept_bundled) + [bundled_lines(c["result"], c["apps"]) for c in carriers.values()]
+        for block in sorted(blocks, key=lambda b: block_key(b[0], versioned=True)):
             lines += block + [""]
     return "\n".join(lines).rstrip() + "\n"
 

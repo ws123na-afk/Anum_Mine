@@ -51,7 +51,7 @@ reason = "Metadata says 'PSFL' with the classifier 'Python Software Foundation L
 [[exception]]
 ecosystem = "python"
 package = "psycopg"
-versions = ["3.3.6"]
+versions = ["3.3.6", "3.2.3"]  # 3.3.6: API image; 3.2.3: backup image (infra/backup/Dockerfile)
 license = "LGPL-3.0-only"
 reason = "PostgreSQL driver, used unmodified as a separate Python package that loads at run time and can be replaced; ANUM's code is not linked into it. Its LICENSE ships inside the package and in licenses/third-party/."
 reviewed_by = "owner"
@@ -62,7 +62,7 @@ notice = "psycopg is licensed under the GNU Lesser General Public License versio
 [[exception]]
 ecosystem = "python"
 package = "psycopg-binary"
-versions = ["3.3.6"]
+versions = ["3.3.6", "3.2.3"]  # 3.3.6: API image; 3.2.3: backup image (infra/backup/Dockerfile)
 license = "LGPL-3.0-only"
 reason = "Prebuilt C extension of psycopg, used unmodified as a separate shared library that can be replaced (for example by building psycopg[c]). It bundles libpq, OpenSSL and other native libraries, listed with their licenses and notices in scripts/licenses/bundled.toml."
 reviewed_by = "owner"

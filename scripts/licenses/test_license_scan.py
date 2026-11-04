@@ -197,6 +197,33 @@ class OutputTest(unittest.TestCase):
         npm_only, _ = scan.evaluate([package("left-pad", "MIT")], POLICY, [], [], {"npm"})
         self.assertEqual(scan.notices(npm_only, committed, {"dart", "gradle", "python", "cargo"}), committed)
 
+    def test_partial_scan_keeps_the_full_scan_order_of_exception_blocks(self):
+        # Review finding on #367: with npm skipped, regenerated python blocks came before the
+        # kept npm blocks, while a full scan sorts npm first.
+        def exception(ecosystem, name, license_expr):
+            return {"ecosystem": ecosystem, "package": name, "versions": ["1.0.0"], "license": license_expr,
+                    "reason": "x", "reviewed_by": "owner", "reviewed_on": "2026-11-04"}
+        exceptions = [exception("python", "psycopg", "LGPL-3.0-only"), exception("npm", "sharp-libvips", "LGPL-3.0-or-later"),
+                      exception("python", "aaa", "LGPL-3.0-only")]
+        everything = [package("psycopg", "LGPL-3.0-only", "python"), package("aaa", "LGPL-3.0-only", "python"),
+                      package("sharp-libvips", "LGPL-3.0-or-later"), package("left-pad", "MIT")]
+        bundled = [{**BUNDLED[0], "package": "psycopg"}, {**BUNDLED[0], "package": "zzz", "ecosystem": "npm"}]
+        everything.append(package("zzz", "MIT"))
+        full, _ = scan.evaluate(everything, POLICY, [], exceptions, {"python", "npm"})
+        scan.attach_bundled(full, bundled, {"python", "npm"})
+        committed = scan.notices(full)
+        self.assertLess(committed.index("### sharp-libvips"), committed.index("### aaa"))
+        self.assertLess(committed.index("### zzz 1.0.0"), committed.index("### psycopg 1.0.0"))
+        python_only = [p for p in everything if p["ecosystem"] == "python"]
+        partial, _ = scan.evaluate(python_only, POLICY, [], exceptions, {"python"})
+        scan.attach_bundled(partial, bundled, {"python"})
+        # Skip npm: the result equals the full scan (no stale notices, nothing the next full scan rejects).
+        self.assertEqual(scan.notices(partial, committed, {"npm", "cargo", "dart", "gradle"}), committed)
+        npm_only = [p for p in everything if p["ecosystem"] == "npm"]
+        partial, _ = scan.evaluate(npm_only, POLICY, [], exceptions, {"npm"})
+        scan.attach_bundled(partial, bundled, {"npm"})
+        self.assertEqual(scan.notices(partial, committed, {"python", "cargo", "dart", "gradle"}), committed)
+
     def test_local_scan_keeps_accepted_exceptions_of_unscanned_ecosystems(self):
         exception = {"ecosystem": "python", "package": "psycopg", "license": "LGPL-3.0-only",
                      "reason": "replaceable driver", "reviewed_by": "owner", "reviewed_on": "2026-11-04"}

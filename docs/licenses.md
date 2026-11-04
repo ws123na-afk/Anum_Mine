@@ -10,7 +10,7 @@ Only what ships: production dependencies, never test or build-only tooling that 
 
 | App | Ecosystem | What counts as shipped | Where the list comes from |
 |---|---|---|---|
-| `api` (FastAPI image) | Python | everything pip installs for `services/api` (no `test` extra) | `pip install --dry-run --report` for CPython 3.13 on manylinux x86_64, the API image's interpreter; licenses from the core metadata pip reports (`License-Expression`, `License`, then trove classifiers) |
+| `api` (FastAPI image, also the worker), `browser` (browser research and action browser image), `backup` (backup image) | Python | everything pip installs for `services/api` (no `test` extra), for `services/api[browser]` (the same Dockerfile with `ANUM_BROWSER=1`), and for the `psycopg[binary]` pin in `infra/backup/Dockerfile` | `pip install --dry-run --report` for CPython 3.13 on manylinux x86_64, the API image's interpreter; licenses from the core metadata pip reports (`License-Expression`, `License`, then trove classifiers) |
 | `web` (browser bundle, web image) and `desktop` (Tauri bundles the web build) | npm | the production closure of `apps/web`, `apps/desktop` and `packages/contracts` in `pnpm-lock.yaml`, every platform variant | the lockfile; licenses from the npm registry manifest of each exact locked version |
 | `desktop` | Rust | normal and build dependencies of `apps/desktop/src-tauri` for every target platform | `cargo metadata --locked`; licenses from each crate's `Cargo.toml` (or its license file) |
 | `mobile` (Flutter) | Dart | the non-dev closure of `apps/mobile` | `flutter pub deps --json`; licenses read from each package's `LICENSE` in the pub cache; packages from the Flutter SDK are covered by the SDK's BSD-3-Clause `LICENSE` |
@@ -47,7 +47,7 @@ Package metadata gives one license per package, but a prebuilt package can carry
 
 Full license texts are in [`licenses/third-party/`](../licenses/third-party/): the package's own license files copied verbatim from the wheel (Pillow's LICENSE holds every bundled library's text and copyright notice; psycopg's is the LGPL-3.0 text) and the standard texts of the other licenses named, from the SPDX license list (npm `spdx-license-list` 6.12.0). Never edit them; never modify third-party source.
 
-Which packages carry native libraries is found by hand today (open the wheel and look for `.libs/` and license files); the scan does not detect it. Reviewed so far: `psycopg-binary` and `pillow`.
+Which packages carry native libraries is found by hand today (open the wheel and look for `.libs/` and license files); the scan does not detect it. Reviewed so far: `psycopg-binary` (3.3.6 in the API image, 3.2.3 in the backup image), `pillow` and `playwright` (its Node.js driver, playwright-core and the Chromium headless shell it downloads at image build time; Chromium's own third-party components are not enumerated yet).
 
 ## Run it locally
 
@@ -72,7 +72,7 @@ The **Licenses and SBOMs** job in [`.github/workflows/ci.yml`](../.github/workfl
 1. Unit tests of the scanner (`python -m unittest discover -s scripts/licenses`).
 2. `scripts/licenses/regenerate.sh --check --sbom-dir ...`: collects all five ecosystems, prints a summary table (also in the job summary) and fails on any policy violation or stale exception.
 3. Fails if the committed `THIRD_PARTY_NOTICES.md` differs from what the scan generates. The regenerated file is uploaded as the `third-party-notices` artifact when the job fails, together with `results.json` (every package, its license and its class).
-4. Uploads the `sbom` artifact: `sbom-api.cdx.json`, `sbom-web.cdx.json`, `sbom-desktop.cdx.json` (Rust crates plus the web bundle), `sbom-mobile.cdx.json` and `sbom-android.cdx.json`, CycloneDX 1.6 JSON with package URLs, exact versions and license expressions. File names follow the image SBOMs the deploy workflows attach to each signed image (`sbom-api.cdx.json`, `sbom-web.cdx.json`).
+4. Uploads the `sbom` artifact: `sbom-api.cdx.json`, `sbom-browser.cdx.json`, `sbom-backup.cdx.json`, `sbom-web.cdx.json`, `sbom-desktop.cdx.json` (Rust crates plus the web bundle), `sbom-mobile.cdx.json` and `sbom-android.cdx.json`, CycloneDX 1.6 JSON with package URLs, exact versions and license expressions. File names follow the image SBOMs the deploy workflows attach to each signed image (`sbom-api.cdx.json`, `sbom-web.cdx.json`).
 
 The "Web and contracts" and "Tauri desktop" jobs also run `scripts/licenses/assert_not_bundled.py`, which fails if `sharp` or libvips ever appears in `apps/web/dist` or the Tauri bundle configuration (see the current result below).
 
@@ -90,7 +90,7 @@ Scan of 4 November 2026 on `main` (`1e934b0`), run locally with `regenerate.sh -
 
 | Ecosystem | Packages | Allowed | Accepted by exception | Violations | Scanned |
 |---|---|---|---|---|---|
-| Python (`api`) | 71 | 69 | 2 | 0 | 4 November |
+| Python (`api`, `browser`, `backup`) | 76 | 72 | 4 | 0 | 4 November |
 | npm (`web`, `desktop`) | 176 | 162 | 14 | 0 | 4 November |
 | Rust (`desktop`) | 532 | 532 | 0 | 0 | 4 November |
 | Dart (`mobile`) | 103 | 103 | 0 | 0 | 4 November |
@@ -110,4 +110,6 @@ Other reviewed items: `python-dateutil` declares only "Dual License"; its `LICEN
 
 Other changes since 18 October, all permissive: Python `charset-normalizer`, `dnspython`, `pypdf`, `requests`; npm `three`, `web-vitals`; Rust `static_vcruntime`; Dart: `file_picker` 13 is split into `android_file_picker`, `file_picker_*` and `windows_file_picker` (MIT), plus `ffi_leak_tracker` (BSD-3-Clause).
 
-Not covered by this scan: the backup image (`infra/backup/Dockerfile`) installs its own `psycopg[binary]` 3.2.3, which bundles the same kind of native libraries; native libraries inside other Python wheels are not detected automatically (see above).
+Added after review of #367: the Python scan now covers the browser image (`services/api[browser]`: `playwright` 1.56.0 Apache-2.0, `greenlet` MIT AND PSF-2.0, `pyee` MIT) and the backup image (`psycopg` and `psycopg-binary` 3.2.3, LGPL-3.0-only, under the owner's psycopg approval; its wheel bundles libpq 17, OpenSSL 3, MIT Kerberos, com_err, keyutils (LGPL-2.1-or-later), OpenLDAP, Cyrus SASL, PCRE and libselinux, listed in the notices). The playwright wheel carries Node.js 22.20.0 and playwright-core 1.56.1, whose license, NOTICE and third-party notices are copied verbatim to `licenses/third-party/playwright-1.56.0/`. The browser image also downloads the Chromium headless shell 141.0.7390.37 at build time: listed with Chromium's BSD-3-Clause license, but **its own third-party components are not enumerated yet** (the download host is blocked from the machine that did this review); the Debian packages `--with-deps` installs are in that image's Trivy SBOM.
+
+Not covered yet: native libraries inside other Python wheels are not detected automatically (see above), and Chromium's third-party credits are not in the notices.

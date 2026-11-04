@@ -252,3 +252,112 @@ license = "BSD-3-Clause"
 copyright = "Meta Platforms, Inc. and affiliates"
 source = "https://github.com/facebook/zstd"
 notice = "Used under BSD-3-Clause (chosen from BSD-3-Clause OR GPL-2.0-only)."
+
+[[bundled]]
+ecosystem = "python"
+package = "psycopg-binary"
+versions = ["3.2.3"]
+reviewed_on = "2026-11-04"
+note = "Backup image (infra/backup/Dockerfile). Read from the 3.2.3 wheels for CPython 3.13 on manylinux2014 x86_64 and aarch64 (`psycopg_binary.libs/`); the libraries come from the CentOS 7 based manylinux2014 build images. psycopg itself is LGPL-3.0-only (accepted in scripts/licenses/exceptions.toml). Used unmodified."
+license_texts = [
+  "licenses/third-party/psycopg-3.3.6-LICENSE.txt",
+  "licenses/third-party/GPL-3.0-only.txt",
+  "licenses/third-party/LGPL-2.1-or-later.txt",
+  "licenses/third-party/PostgreSQL.txt",
+  "licenses/third-party/Apache-2.0.txt",
+  "licenses/third-party/OLDAP-2.8.txt",
+  "licenses/third-party/BSD-Attribution-HPND-disclaimer.txt",
+  "licenses/third-party/MIT.txt",
+  "licenses/third-party/BSD-3-Clause.txt",
+]
+
+[[bundled.libraries]]
+name = "libpq 17 (libpq.so.5.17)"
+license = "PostgreSQL"
+copyright = "PostgreSQL Global Development Group; The Regents of the University of California"
+source = "https://www.postgresql.org/ftp/source/"
+
+[[bundled.libraries]]
+name = "OpenSSL 3 (libssl.so.3, libcrypto.so.3)"
+license = "Apache-2.0"
+copyright = "The OpenSSL Project Authors"
+source = "https://www.openssl.org/source/"
+
+[[bundled.libraries]]
+name = "MIT Kerberos (libkrb5, libgssapi_krb5, libk5crypto, libkrb5support)"
+license = "MIT"
+copyright = "Massachusetts Institute of Technology and other contributors"
+source = "https://web.mit.edu/kerberos/"
+
+[[bundled.libraries]]
+name = "com_err (libcom_err.so.2)"
+license = "MIT"
+copyright = "Massachusetts Institute of Technology"
+source = "https://e2fsprogs.sourceforge.net/"
+
+[[bundled.libraries]]
+name = "keyutils (libkeyutils.so.1)"
+license = "LGPL-2.1-or-later"
+copyright = "Red Hat, Inc."
+source = "https://people.redhat.com/~dhowells/keyutils/"
+notice = "Weak copyleft (LGPL-2.1-or-later), used unmodified as a separate shared library that can be replaced. If the backup image is ever distributed, ship this notice with the LGPL text and provide the library's corresponding source (or a written offer for it)."
+
+[[bundled.libraries]]
+name = "OpenLDAP (libldap, liblber)"
+license = "OLDAP-2.8"
+copyright = "The OpenLDAP Foundation"
+source = "https://www.openldap.org/software/download/"
+
+[[bundled.libraries]]
+name = "Cyrus SASL (libsasl2.so.3)"
+license = "BSD-Attribution-HPND-disclaimer"
+copyright = "Carnegie Mellon University"
+source = "https://www.cyrusimap.org/sasl/"
+notice = "This product includes software developed by Computing Services at Carnegie Mellon University (http://www.cmu.edu/computing/)."
+
+[[bundled.libraries]]
+name = "PCRE (libpcre.so.1)"
+license = "BSD-3-Clause"
+copyright = "University of Cambridge"
+source = "https://www.pcre.org/"
+
+[[bundled.libraries]]
+name = "libselinux (libselinux.so.1)"
+license = "LicenseRef-public-domain"
+copyright = "National Security Agency (public domain)"
+source = "https://github.com/SELinuxProject/selinux"
+
+[[bundled]]
+ecosystem = "python"
+package = "playwright"
+versions = ["1.56.0"]
+reviewed_on = "2026-11-04"
+note = "Browser image only (services/api/Dockerfile with ANUM_BROWSER=1). Read from the 1.56.0 manylinux1 x86_64 wheel: `playwright/driver/` holds a Node.js binary and the playwright-core npm package, each with its own license files, copied verbatim. At image build time `playwright install --with-deps --only-shell chromium` also downloads the Chromium headless shell (revision 1194, Chromium 141.0.7390.37) into /opt/ms-playwright and installs its Debian runtime packages; those Debian packages are in the image's Trivy SBOM. Chromium's own third-party components are NOT enumerated here: the download could not be fetched for review (its host is blocked from the review machine), so the Chromium row points at Chromium's license and credits instead."
+license_texts = [
+  "licenses/third-party/playwright-1.56.0/nodejs-22.20.0-LICENSE.txt",
+  "licenses/third-party/playwright-1.56.0/playwright-core-1.56.1-LICENSE.txt",
+  "licenses/third-party/playwright-1.56.0/playwright-core-1.56.1-NOTICE.txt",
+  "licenses/third-party/playwright-1.56.0/playwright-core-1.56.1-ThirdPartyNotices.txt",
+  "licenses/third-party/BSD-3-Clause.txt",
+]
+
+[[bundled.libraries]]
+name = "Node.js 22.20.0 (playwright/driver/node)"
+license = "MIT"
+copyright = "Node.js contributors; Joyent, Inc. and other Node contributors"
+source = "https://nodejs.org/download/release/v22.20.0/"
+notice = "Node.js bundles V8, ICU, OpenSSL, libuv, zlib, npm and other components under their own permissive licenses; all are listed with their full texts in nodejs-22.20.0-LICENSE.txt."
+
+[[bundled.libraries]]
+name = "playwright-core 1.56.1 (playwright/driver/package)"
+license = "Apache-2.0"
+copyright = "Microsoft Corporation"
+source = "https://github.com/microsoft/playwright/tree/v1.56.1"
+notice = "Playwright. Copyright (c) Microsoft Corporation. This software contains code derived from the Puppeteer project (https://github.com/puppeteer/puppeteer), available under the Apache 2.0 license. playwright-core incorporates the npm packages listed in playwright-core-1.56.1-ThirdPartyNotices.txt under their own licenses."
+
+[[bundled.libraries]]
+name = "Chromium headless shell 141.0.7390.37 (revision 1194, downloaded at image build time)"
+license = "BSD-3-Clause"
+copyright = "The Chromium Authors, plus third-party components under their own licenses (not enumerated)"
+source = "https://chromium.googlesource.com/chromium/src/+/refs/tags/141.0.7390.37/LICENSE"
+notice = "Chromium's third-party components and their licenses are listed in Chromium's credits (generated from the README.chromium files in its source tree at that tag); they are not enumerated in this file yet."
