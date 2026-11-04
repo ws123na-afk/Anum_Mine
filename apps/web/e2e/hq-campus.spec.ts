@@ -95,6 +95,8 @@ test('night and day both draw and the toggle keeps the page inside the viewport'
 });
 
 test('inside a building: floors, rooms, desks, agent cards and the module panels', async ({ page }) => {
+  // The campus, the building scene, a room, an agent's work record and a second floor in one walk: more than the default 30 s budget.
+  test.setTimeout(120_000);
   await openOffice(page);
   await enterFleetBuilding(page);
   const counters = hq(page).getByRole('list', { name: 'Building totals' });
@@ -321,6 +323,9 @@ test('office tools open the existing panels and Escape closes them', async ({ pa
 
 test('the assistant can move the view with a navigation command', async ({ page }) => {
   await openOffice(page);
+  // The command is sent once the scene is up, as the assistant does from a loaded office: before that the move waits for the
+  // campus (it is kept and applied on load), and the time to load the 3D scene is not part of what this test checks.
+  await sceneReady(page);
   await page.evaluate(() => window.dispatchEvent(new CustomEvent('anum:hq-navigate', { detail: { building: 'Al Noor Fleet HQ', floor: 'First floor', room: 'Finance' } })));
   await expect(hq(page).getByRole('complementary', { name: 'Room Finance' })).toBeVisible();
   await expect(hq(page).getByLabel('Choose a floor')).toHaveValue('flr_1');

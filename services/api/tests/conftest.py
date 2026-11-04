@@ -11,6 +11,7 @@ import pytest
 from alembic import command
 from alembic.config import Config
 from sqlalchemy import Engine, create_engine, text
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import NullPool
 
@@ -343,14 +344,45 @@ def test_database_url() -> str:
     return value
 
 
+# One test run per database at a time. A second pytest session on the same database
+# (two agents or terminals sharing one local cluster) downgrades the schema to base and
+# truncates every table under the first one: its tests then fail with "relation ... does
+# not exist", foreign-key violations on rows that were just seeded, deadlocks, or hang on
+# locks the other run holds. The session holds this advisory lock until it ends.
+TEST_DATABASE_LOCK_KEY = "anum-api-tests:database"
+
+
+@contextmanager
+def exclusive_test_database(database_url: str) -> Iterator[None]:
+    wait_seconds = int(os.getenv("ANUM_TEST_DATABASE_LOCK_WAIT_SECONDS", "1800"))
+    engine = create_engine(database_url, poolclass=NullPool)
+    connection = engine.connect().execution_options(isolation_level="AUTOCOMMIT")
+    try:
+        connection.execute(text(f"set lock_timeout = '{wait_seconds}s'"))
+        try:
+            connection.execute(text("select pg_advisory_lock(hashtextextended(:key, 0))"), {"key": TEST_DATABASE_LOCK_KEY})
+        except OperationalError as exc:
+            raise pytest.UsageError(
+                f"Another test run has used this database for over {wait_seconds} s. Database tests drop "
+                "and rebuild the whole schema, so two runs cannot share one database: wait for the other "
+                "run, or point ANUM_TEST_DATABASE_URL at a database of your own."
+            ) from exc
+        connection.execute(text("reset lock_timeout"))
+        yield
+    finally:
+        connection.close()  # ends the session, which releases the advisory lock
+        engine.dispose()
+
+
 @pytest.fixture(scope="session")
 def database_engine(test_database_url: str) -> Iterator[Engine]:
-    run_migration(test_database_url, "downgrade", "base")
-    run_migration(test_database_url, "upgrade", "head")
-    engine = create_engine(test_database_url, poolclass=NullPool, pool_pre_ping=True)
-    grant_app_role(engine)
-    yield engine
-    engine.dispose()
+    with exclusive_test_database(test_database_url):
+        run_migration(test_database_url, "downgrade", "base")
+        run_migration(test_database_url, "upgrade", "head")
+        engine = create_engine(test_database_url, poolclass=NullPool, pool_pre_ping=True)
+        grant_app_role(engine)
+        yield engine
+        engine.dispose()
 
 
 def _clean_database(engine: Engine) -> None:

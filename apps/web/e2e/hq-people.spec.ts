@@ -1,6 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { hqRegistry, openHq, TENANT_A } from './support/hqApi';
 import { mockFlow } from './support/hqFlowApi';
+import { reloadReleasingGl } from './support/hqScene';
 import { agentAvatars as teamAvatars } from './support/orgChartApi';
 
 // Avatar styles for the people of the headquarters (docs/ANUM_MINE_HQ_REALISM_ASSETS.md, "Avatar styles").
@@ -39,6 +40,8 @@ async function openOffice(page: Page, options: Parameters<typeof openHq>[1] = {}
 const looks = async (page: Page): Promise<string[]> => ((await canvas(page).getAttribute('data-figure-looks')) ?? '').split(' ').filter(Boolean);
 
 test('six assigned agents are drawn with six different styles, deterministic from their ids', async ({ page }) => {
+  // Two full scene loads (before and after the reload), each allowed 60 s by its poll: the default 30 s test budget cut the second one short.
+  test.setTimeout(150_000);
   await openOffice(page);
   await expect.poll(async () => (await looks(page)).length, { timeout: 60_000 }).toBe(6);
   const codes = await looks(page);
@@ -47,8 +50,8 @@ test('six assigned agents are drawn with six different styles, deterministic fro
   expect(codes.map((c) => c.split('/')[0])).toEqual(Array(6).fill('neutral'));
   await expect(canvas(page)).toHaveAttribute('data-figure-styles', 'feminine:0,masculine:0,neutral:6');
   await expect(canvas(page)).toHaveAttribute('data-model-figures', '6');
-  // Reloading shows the same styles: nothing random.
-  await page.reload();
+  // Reloading shows the same styles: nothing random. The reload lets go of the first WebGL context before the second scene is built.
+  await reloadReleasingGl(page);
   await hq(page).getByRole('button', { name: /^Al Noor Fleet HQ\./ }).click();
   await hq(page).getByRole('button', { name: 'Open Al Noor Fleet HQ' }).click();
   await expect.poll(async () => (await looks(page)).sort().join(' '), { timeout: 60_000 }).toBe([...codes].sort().join(' '));
