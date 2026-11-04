@@ -270,6 +270,7 @@ def test_links_need_a_registered_module_and_evidence_carries_no_amount() -> None
                                                                "target_type": "purchase", "target_id": "pur_1", "amount": "5", "currency": "SAR"})
     assert missing.status_code == 409 and missing.json()["code"] == "target_unavailable"
     assert link(canonical, "5", target_id="not_a_vehicle").status_code == 404
+    saved = K._targets.get("document")
     K.register_target("document", lambda context, kind, target: True)
     try:
         evidence = client.post(f"{API}/links", headers=OWNER, json={"canonical_id": canonical, "dimension": "document", "role": "evidence",
@@ -280,6 +281,8 @@ def test_links_need_a_registered_module_and_evidence_carries_no_amount() -> None
         assert with_amount.status_code == 422
     finally:
         K.unregister_target("document")
+        if saved is not None:
+            K.register_target("document", saved)
     assert client.post(f"{API}/links", headers={**OWNER, "x-user-roles": "viewer"}, json={"canonical_id": canonical, "dimension": "vehicle",
                        "role": "payment", "target_type": "vehicle", "target_id": "veh_x", "amount": "1", "currency": "SAR"}).status_code == 403
     assert link("fin_je_missing", "5").status_code == 404
@@ -338,11 +341,11 @@ def switch(key: str, enabled: bool) -> None:
 
 def test_a_scope_without_a_registered_integration_is_refused() -> None:
     setup()
-    refused = new_device(["documents"])
+    refused = new_device(["purchases"])
     assert refused.status_code == 404 and refused.json()["code"] == "integration_unavailable"
     assert new_device(["not_a_scope"]).status_code == 422
     with pytest.raises(D.DeviceError) as caught:
-        D.authorize_scope("Bearer anything", "documents")
+        D.authorize_scope("Bearer anything", "purchases")
     assert caught.value.code == "integration_unavailable"
 
 
@@ -394,7 +397,7 @@ def test_iphone_overview_events_test_and_ping(vehicle_integration: D.Integration
     token = new_device(["vehicle"]).json()["token"]
     overview = client.get(IPHONE, headers=OWNER).json()
     keys = [i["key"] for i in overview["integrations"]]
-    assert keys == ["finance.sms", "finance.wallet", "attendance.location", "vehicle.driving"]
+    assert keys == ["finance.sms", "finance.wallet", "attendance.location", "vehicle.driving", "documents.scan"]
     vehicle = next(i for i in overview["integrations"] if i["key"] == "vehicle.driving")
     assert vehicle["enabled"] is False and vehicle["devices_with_scope"] == 1 and vehicle["last_connection_at"] is None
     assert overview["scopes"] == list(D.DEVICE_SCOPES) and all("token" not in d for d in overview["devices"])
@@ -456,6 +459,52 @@ def test_an_attendance_shortcut_signs_in_with_a_scoped_device_token() -> None:
     attendance = next(i for i in client.get(IPHONE, headers=OWNER).json()["integrations"] if i["key"] == "attendance.location")
     assert attendance["enabled"] is True and attendance["last_ok_at"] is not None and attendance["failed_7d"] == 2
     attendance_store.clear()
+
+
+def test_a_vault_document_becomes_evidence_of_a_payment_without_a_posting() -> None:
+    from fastapi import HTTPException
+
+    from anum_api.vault import links as vault_links
+
+    _s, canonical = fuel_payment()
+    port = vault_links.finance_links()
+    assert isinstance(port, K.VaultLinkAdapter)  # plugged when the API started
+    saved = K._targets.get("document")
+    K.register_target("document", lambda context, kind, target: kind == "vault_document" and target == "vdoc_receipt")
+    try:
+        before = journal()
+        context = TenantContext(tenant_id=TENANT, workspace_id=WORKSPACE, user_id="owner_links", roles=["owner"])
+        assert port.propose(context, "vdoc_receipt", canonical) == "confirmed"
+        assert port.propose(context, "vdoc_receipt", canonical) == "confirmed"  # a retry finds the same link
+        evidence = [l for l in links_memory_store.links.values() if l.dimension == "document"]
+        assert len(evidence) == 1 and evidence[0].role == "evidence" and evidence[0].amount is None
+        assert journal() == before
+        with pytest.raises(HTTPException) as unknown:
+            port.propose(context, "vdoc_receipt", "fin_je_unknown")
+        assert unknown.value.status_code == 404
+        with pytest.raises(HTTPException) as viewer:
+            port.propose(context.model_copy(update={"roles": ["viewer"]}), "vdoc_receipt", canonical)
+        assert viewer.value.status_code == 403
+    finally:
+        K.unregister_target("document")
+        if saved is not None:
+            K.register_target("document", saved)
+
+
+def test_a_documents_token_from_the_iphone_page_uploads_to_the_vault() -> None:
+    from anum_api.vault.devices import shared_device
+
+    setup()
+    created = new_device(["documents"])
+    assert created.status_code == 201, created.text
+    bearer = f"Bearer {created.json()['token']}"
+    with pytest.raises(D.DeviceError) as off:
+        shared_device(bearer)
+    assert off.value.code == "disabled"
+    switch("documents.scan", True)
+    principal = shared_device(bearer)
+    assert principal is not None and principal.device_id == created.json()["device"]["id"] and principal.context.user_id == "owner_links"
+    assert shared_device("Bearer anumdoc.something") is None  # the vault's own tokens keep their path
 
 
 def test_scoped_authority_plugs_into_a_module_seam() -> None:

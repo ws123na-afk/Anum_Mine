@@ -233,6 +233,7 @@ from .contact_consent import router as contact_consent_router
 from .approval_reminders import router as approval_reminders_router
 from .agent_loop_limits import router as agent_loop_limits_router
 from .action_browser.api import router as action_browser_router
+from .vault.api import router as vault_router
 from .automation import build_automation_scheduler, register_scheduler_pass, router as automation_router
 from .assistants import router as assistants_router
 from .notifications import router as notifications_router
@@ -418,6 +419,8 @@ install_hardening(
     extra_upload_rules=(
         BodyLimitRule("POST", f"{meetings_router.prefix}/recordings", settings.meeting_recording_max_bytes + 1024),
         BodyLimitRule("POST", f"{meetings_router.prefix}/transcripts", settings.meeting_transcript_max_bytes + 1024),
+        # Document vault uploads, versions and the iPhone Shortcut (docs/documents.md): the Files limit.
+        BodyLimitRule("POST", vault_router.prefix, settings.max_upload_body_bytes),
     ),
 )
 app.add_middleware(
@@ -518,6 +521,7 @@ app.include_router(model_budget_router)
 app.include_router(agent_controls_router)
 app.include_router(agent_loop_limits_router)
 app.include_router(action_browser_router)
+app.include_router(vault_router)
 app.include_router(developer_router)
 app.include_router(whatsapp_router)
 app.include_router(sales_router)

@@ -11,7 +11,8 @@ Code: `services/api/anum_api/finance/devices.py` (scopes, the integration regist
 | `finance.sms` | Bank SMS | `POST /api/v1/finance/sms/ingest` | `finance:manage` | 30 a minute, 1,000 a day | the SMS forwarding switch (off) |
 | `finance.wallet` | Apple Wallet payments | `POST /api/v1/finance/wallet/ingest` | `finance:manage` | 30, 1,000 | on once SMS forwarding is on |
 | `attendance` | Attendance arrive and leave | `POST /api/v1/attendance/device/events` | `attendance:use` | 10, 200 | off |
-| `vehicle`, `documents`, `purchases` | registered by their modules | | | | |
+| `documents` | Document scans | `POST /api/v1/documents/device/upload` | `document:write` | 10, 200 (and the vault's own hourly cap) | off |
+| `vehicle`, `purchases` | registered by their modules | | | | |
 
 A scope with no registered integration cannot be put on a token and its requests answer `404 integration_unavailable`.
 
@@ -19,7 +20,7 @@ A scope with no registered integration cannot be put on a token and its requests
 
 `devices.authorize_scope(authorization, scope)` is the helper every module calls (from a worker thread). For `Authorization: Bearer <device token>` it checks, in order: the token's form; the owner is still an active member and holds the integration's permission; the workspace is not archived; the device row, looked up in the owner's own tenant, workspace and user scope, matches the secret in constant time; the device is not revoked or paused; the token carries the scope; the integration is switched on; the per-device, per-scope rate limit. It answers 401, 403, 404, 409 or 429 (with `Retry-After`) and records an event (`ok`, or `denied` with the code) once the secret matched. A wrong or unknown token records nothing. `devices.require_https(request)` refuses plain HTTP outside local and test environments.
 
-**Modules.** A module exposes a seam (`register_device_authority`, as `anum_api/attendance/devices.py` does). `devices.plug_module_authorities()` (called once when the API starts) registers `ScopedDeviceAuthority` with every installed seam: a header that is not a device token falls through to the ordinary sign-in.
+**Modules.** A module exposes a seam (`register_device_authority`, as `anum_api/attendance/devices.py` and `anum_api/vault/devices.py` do). `devices.plug_module_authorities()` (called once when the API starts) registers `ScopedDeviceAuthority` with every installed seam: a header that is not a device token falls through to the ordinary sign-in.
 
 Tokens: an id and a 256-bit secret, only the secret's SHA-256 is stored, shown once, rotatable (the old token stops at once), pausable and revocable (the hash is replaced). Tokens never appear in a URL, a log, an audit row or an export.
 

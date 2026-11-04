@@ -35,6 +35,11 @@ export const IPHONE_GUIDES: IphoneGuide[] = [
     steps: (url) => [t('iph.att.step.1'), t('iph.att.step.2'), t('iph.att.step.3', { url }), t('iph.att.step.4'), t('iph.att.step.5')],
     body: ['event = arrive (or leave)', 'site = the site name in ANUM', 'idempotency_key = Current Date (ISO 8601) + -arrive', 'occurred_at = Current Date (ISO 8601)'],
   },
+  {
+    key: 'documents.scan', title: 'iph.int.documents.scan', purpose: 'iph.int.documents.scan.purpose', settingsHash: '#vault',
+    steps: (url) => [t('iph.doc.step.1'), t('iph.doc.step.2', { url }), t('iph.doc.step.3'), t('iph.doc.step.4')],
+    body: ['Request Body = File: the scan, photo or Shortcut Input', 'name = scan.jpg (in the address: ?name=scan.jpg&category=receipt)'],
+  },
 ];
 
 export const SCOPES: IphoneScope[] = ['finance.sms', 'finance.wallet', 'vehicle', 'attendance', 'documents', 'purchases'];

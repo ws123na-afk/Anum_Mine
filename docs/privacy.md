@@ -73,6 +73,8 @@ Not included: audit records (the workspace's security log, ids and counts only; 
 
 **Size cap.** The export is built in memory, section by section, and refused with `413` once it passes `ANUM_PRIVACY_EXPORT_MAX_BYTES` (default 25 MiB, between 64 KiB and 512 MiB). It is never truncated: a partial export would look complete. The `413` message says how to fix it (delete old conversations, or the administrator raises the limit).
 
+Document vault: a `documents` section with the caller's own vault documents (masked number, never the ciphertext), who their private documents are shared with, links and iPhone Shortcut devices without token hashes ([Document vault](documents.md#privacy)).
+
 ## What deletion removes and keeps
 
 Removed, in one transaction (after the mailbox revocations below):
@@ -109,6 +111,8 @@ Kept, and counted in the response and on the page:
 - custom agents the caller owns and shared with the workspace, with their memories (`shared_agents_owned`, `shared_agent_memories`): other members use them, like a shared collection. The caller (or a workspace owner) deletes such an agent on its page;
 - audit records: they are the workspace's security record and hold ids and counts, not content;
 - the Keycloak account: ANUM does not delete identity accounts. The page says to ask the workspace owner or organization administrator, who removes the user in Keycloak and deactivates the membership.
+
+Document vault: the caller's private documents (rows, file rows, every version's bytes) are deleted and their iPhone Shortcut devices disconnected; workspace documents they added are kept, like workspace files ([Document vault](documents.md#privacy)).
 
 ## Contact suppression
 

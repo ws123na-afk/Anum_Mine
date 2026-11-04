@@ -23,7 +23,9 @@ past their retention (``anum_api.calls.retention``), reported under ``call_recor
 deletes in-app calls that ended more than ``ANUM_CALLS_RETENTION_DAYS`` ago
 (``anum_api.app_calls``), reported under ``app_calls``, and, last, deletes meeting transcripts and
 reception visitor records past each workspace's retention (``anum_api.record_retention``, owner decision O5),
-reported under ``record_retention``, so the daily retention CronJob covers every one of them.
+reported under ``record_retention``, and then sends document expiry reminders and empties the document
+vault's trash (``anum_api.vault.jobs``), reported under ``documents``, so the daily retention CronJob
+covers every one of them.
 """
 
 from __future__ import annotations
@@ -99,6 +101,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     from .attendance.jobs import run as run_attendance  # docs/attendance.md#daily-job
 
     report["attendance"] = run_attendance(dry_run=args.dry_run, batch_size=args.batch_size)
+    # The document vault's expiry reminders, retention and trash (docs/documents.md#expiry-reminders-trash-and-retention).
+    from .vault.jobs import run as run_vault
+
+    report["documents"] = run_vault(dry_run=args.dry_run)
     print(json.dumps(report, indent=2))
     return 0
 

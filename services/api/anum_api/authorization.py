@@ -157,6 +157,14 @@ class Permission(StrEnum):
     # Work attendance and daily reports (docs/attendance.md#permissions): the person's own
     # record (row policies on ``anum.user_id``); owners and members keep theirs, viewers none.
     ATTENDANCE_USE = "attendance:use"
+    # Document vault (docs/documents.md#who-can-do-what): identity papers, contracts and receipts
+    # are personal data, so viewers get none of it. Owners and members read workspace documents
+    # and add, change and delete their own; a private document is visible only to its owner and
+    # the people it is shared with, whatever the role. Owners also manage the vault's settings and
+    # categories and change or delete anyone's workspace documents.
+    DOCUMENT_READ = "document:read"
+    DOCUMENT_WRITE = "document:write"
+    DOCUMENT_MANAGE = "document:manage"
 
 
 class OrganizationRole(StrEnum):
@@ -255,6 +263,8 @@ ROLE_PERMISSIONS: Mapping[Role, frozenset[Permission]] = MappingProxyType(
             Permission.BUSINESS_READ,
             Permission.BUSINESS_WRITE,
             Permission.ATTENDANCE_USE,
+            Permission.DOCUMENT_READ,
+            Permission.DOCUMENT_WRITE,
         },
         Role.VIEWER: _READ_PERMISSIONS,
     }

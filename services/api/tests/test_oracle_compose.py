@@ -47,7 +47,7 @@ KEYCLOAK_ADMIN_VARS = {
     "KC_BOOTSTRAP_ADMIN_USERNAME",
     "KC_BOOTSTRAP_ADMIN_PASSWORD",
 }
-LONG_RUNNING = {"caddy", "postgres", "api", "web", "keycloak", "valkey", "ollama", "searxng", "clamd", "beszel", "beszel-agent", "glitchtip", "coturn", "browser"}
+LONG_RUNNING = {"caddy", "postgres", "api", "web", "keycloak", "valkey", "ollama", "searxng", "clamd", "beszel", "beszel-agent", "glitchtip", "coturn", "browser", "ocr"}
 MONITORING = {"beszel", "beszel-agent", "glitchtip"}
 ONE_SHOT = {"db-init", "migrate", "retention", "backup", "restore-tools", "backup-upload", "ollama-pull"}
 API_REQUIRED = {
@@ -164,6 +164,8 @@ def test_compose_has_the_expected_services_and_profiles() -> None:
     assert profiles["beszel-agent"] == ("monitoring-agent",)
     # The TURN relay for in-app calls is off unless calls.sh enable adds its profile.
     assert profiles["coturn"] == ("calls",)
+    # Document vault OCR is off unless its profile is added (docs/documents.md#the-ocr-service).
+    assert profiles["ocr"] == ("ocr",)
     for name in ("caddy", "postgres", "db-init", "migrate", "api", "web", "keycloak", "valkey"):
         assert profiles[name] == (), name
 
@@ -336,6 +338,7 @@ def test_env_example_holds_placeholders_only() -> None:
         "SEARXNG_SECRET",
         "ANUM_TURN_SECRET",
         "ANUM_BROWSER_TOKEN",
+        "ANUM_OCR_TOKEN",
     }
     owner = {key for key, value in example.items() if OWNER_PLACEHOLDER in value}
     assert {"ANUM_WEB_HOST", "ANUM_API_HOST", "ANUM_AUTH_HOST", "ACME_EMAIL"} <= owner
@@ -1251,3 +1254,17 @@ def test_anum_services_drop_capabilities_and_privilege_gain() -> None:
         assert "docker.sock" not in str(service.get("volumes", [])), name
     # Only Caddy publishes ports.
     assert {name for name, service in services.items() if service.get("ports")} == {"caddy"}
+
+
+def test_the_ocr_service_is_isolated_and_off_until_its_profile() -> None:
+    """Document vault OCR (docs/documents.md#the-ocr-service): no ANUM secrets, no internet, opt-in."""
+    compose = _compose()
+    ocr = compose["services"]["ocr"]
+    assert ocr["profiles"] == ["ocr"] and ocr["build"]["args"] == {"ANUM_OCR": "1"}
+    assert ocr["networks"] == ["ocr"] and compose["networks"]["ocr"]["internal"] is True
+    assert set(_env(ocr)) == {"ANUM_OCR_SERVICE_TOKEN", "ANUM_OCR_CONCURRENCY"}
+    assert _env(ocr)["ANUM_OCR_SERVICE_TOKEN"].startswith("${ANUM_OCR_TOKEN:?")
+    assert ocr["read_only"] is True and ocr["cap_drop"] == ["ALL"] and "ports" not in ocr
+    api = _env(compose["services"]["api"])
+    assert api["ANUM_OCR_SERVICE_URL"] == "${ANUM_OCR_SERVICE_URL:-}" and api["ANUM_OCR_SERVICE_TOKEN"] == "${ANUM_OCR_TOKEN:-}"
+    assert "ocr" in compose["services"]["api"]["networks"]

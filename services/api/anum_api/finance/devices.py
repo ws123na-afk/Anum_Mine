@@ -257,6 +257,9 @@ def plug_module_authorities() -> list[str]:
         if callable(register):
             register(ScopedDeviceAuthority())
             plugged.append(name)
+    from .links import plug_vault_links
+
+    plug_vault_links()
     return plugged
 
 
@@ -300,6 +303,12 @@ register_integration(Integration(key="finance.wallet", scope="finance.wallet", p
 register_integration(Integration(key="attendance.location", scope="attendance", permission=Permission.ATTENDANCE_USE,
                                  ingest_path="/api/v1/attendance/device/events", per_minute=10, per_day=200, default_on=False, order=30,
                                  body_fields=("event", "site", "occurred_at", "idempotency_key")))
+
+# Document vault (docs/documents.md#scanning-from-an-iphone): "Scan a document", Share Sheet and Files uploads.
+# Its upload route reads shared tokens through ``anum_api.vault.devices`` (its own older tokens keep working).
+register_integration(Integration(key="documents.scan", scope="documents", permission=Permission.DOCUMENT_WRITE,
+                                 ingest_path="/api/v1/documents/device/upload", per_minute=10, per_day=200, default_on=False, order=40,
+                                 body_fields=("file",)))
 
 
 __all__ = [

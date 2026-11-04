@@ -107,4 +107,10 @@ export const iphoneEn = {
   'iph.code.processing_error': 'ANUM could not process it',
   'iph.code.not_allowed': 'The owner\'s role no longer allows it',
   'iph.code.archived': 'The workspace is archived',
+  'iph.int.documents.scan': 'Document scans',
+  'iph.int.documents.scan.purpose': 'Sends a scan, photo or shared file to your Document vault, private to you.',
+  'iph.doc.step.1': 'Shortcuts, new shortcut: add Scan Document (or Take Photo, or turn on Show in Share Sheet for files).',
+  'iph.doc.step.2': 'Add Get Contents of URL: {url}?name=scan.jpg&category=receipt, Method POST, the Authorization header above, Request Body File with the scan.',
+  'iph.doc.step.3': 'Run it once and check the Document vault: the document arrives private to you.',
+  'iph.doc.step.4': 'Up to 60 uploads an hour per device; a bigger or unsupported file is refused with the reason.',
 } satisfies Record<string, Message>;

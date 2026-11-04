@@ -189,6 +189,8 @@ def test_summary_counts_only_the_callers_data_and_shows_retention() -> None:
         "app_calls": 0,
         "app_call_signals": 0,
         "attendance_records": 0,
+        "vault_private_documents": 0,
+        "vault_devices": 0,
     }
     assert body["shared"]["tasks_created"] == 1
     assert body["retention"]["conversation_days"] == settings.conversation_retention_days
@@ -382,6 +384,8 @@ def test_delete_removes_only_my_private_data_and_keeps_shared_records() -> None:
         "app_calls": 0,
         "app_call_signals": 0,
         "attendance_records": 0,
+        "vault_private_documents": 0,
+        "vault_devices": 0,
     }
     assert body["kept"]["tasks_created"] == 1
     assert "identity provider" in body["account_note"]
@@ -444,6 +448,7 @@ def test_build_export_is_valid_json_with_every_section() -> None:
         "approvals_decided", "notification_preferences", "user_preferences", "push_devices", "learning", "commands", "library", "files_uploaded",
         "meetings_imported", "meeting_connections", "home", "finance", "mail", "calls",
         "meetings_imported", "meeting_connections", "home", "finance", "mail", "app_calls", "attendance",
+        "meetings_imported", "meeting_connections", "home", "finance", "mail", "documents", "app_calls",
         "email", "whatsapp_messages_sent", "autonomy_actions_requested",
         "team_work", "tyre_planning", "commerce_connectors_created", "agents_owned", "workspace_records_created",
     }

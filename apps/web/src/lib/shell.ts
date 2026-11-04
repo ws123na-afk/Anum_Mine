@@ -4,7 +4,7 @@
 import { t, type MessageKey } from './i18n.ts';
 
 export type View =
-  | 'home' | 'command' | 'assistant' | 'agents' | 'voice' | 'call' | 'calls' | 'automation' | 'tasks' | 'meetings' | 'calendar' | 'team' | 'assistants' | 'integrations' | 'tyre' | 'commerce' | 'finance' | 'marketing' | 'business' | 'files' | 'memory' | 'knowledge' | 'reports' | 'skills'
+  | 'home' | 'command' | 'assistant' | 'agents' | 'voice' | 'call' | 'calls' | 'automation' | 'tasks' | 'meetings' | 'calendar' | 'team' | 'assistants' | 'integrations' | 'tyre' | 'commerce' | 'finance' | 'marketing' | 'business' | 'files' | 'vault' | 'memory' | 'knowledge' | 'reports' | 'skills'
   | 'favorites' | 'email' | 'inbox' | 'whatsapp' | 'learning' | 'approvals' | 'activity' | 'autonomy' | 'settings'
   | 'governance' | 'setup' | 'enterprise' | 'members' | 'audit' | 'budgets' | 'agentControls' | 'policy' | 'suppressions' | 'developer' | 'organisations'
   | 'platformBilling' | 'office' | 'executive' | 'attendance';
@@ -25,7 +25,7 @@ export type NavGroup = 'main' | 'more' | 'admin';
  * and its render line in main.tsx.
  */
 export const NAV: readonly { group: NavGroup; views: readonly View[] }[] = [
-  { group: 'main', views: ['home', 'command', 'assistant', 'agents', 'voice', 'call', 'automation', 'tasks', 'email', 'calls', 'meetings', 'calendar', 'team', 'assistants', 'integrations', 'tyre', 'commerce', 'finance', 'marketing', 'business', 'files', 'memory', 'reports', 'skills', 'office', 'executive', 'attendance'] },
+  { group: 'main', views: ['home', 'command', 'assistant', 'agents', 'voice', 'call', 'automation', 'tasks', 'email', 'calls', 'meetings', 'calendar', 'team', 'assistants', 'integrations', 'tyre', 'commerce', 'finance', 'marketing', 'business', 'files', 'vault', 'memory', 'reports', 'skills', 'office', 'executive', 'attendance'] },
   { group: 'more', views: ['favorites', 'whatsapp', 'learning', 'approvals', 'activity', 'autonomy', 'settings'] },
   { group: 'admin', views: ['governance', 'setup', 'enterprise', 'members', 'audit', 'budgets', 'agentControls', 'policy', 'suppressions', 'developer', 'organisations', 'platformBilling'] },
 ];
@@ -46,7 +46,7 @@ export const OPERATOR_ONLY: ReadonlySet<View> = new Set(['organisations', 'platf
  * and the working pages whose one header row carries their actions (PageParts.tsx PageHeader).
  */
 export const OWN_HEADER: ReadonlySet<View> = new Set([
-  'home', 'command', 'voice', 'assistant', 'files', 'email', 'inbox', 'whatsapp', 'meetings', 'marketing', 'business',
+  'home', 'command', 'voice', 'assistant', 'files', 'vault', 'email', 'inbox', 'whatsapp', 'meetings', 'marketing', 'business',
   'tasks', 'commerce', 'finance', 'team', 'assistants', 'call', 'calls', 'calendar', 'organisations', 'enterprise', 'skills', 'favorites', 'activity', 'autonomy', 'learning', 'office', 'executive', 'attendance',
 ]);
 
@@ -87,6 +87,8 @@ export function viewFromHash(hash: string): View {
   if (id.startsWith('finance-')) return 'finance';
   // A Phone calls tab opened by link (#calls-contacts, docs/calls.md).
   if (id.startsWith('calls-') || id.startsWith('calls?')) return 'calls';
+  // A Document vault tab opened by link (#vault-review, docs/documents.md#the-web-page).
+  if (id.startsWith('vault-')) return 'vault';
   // A Commerce tab opened by link (#commerce-orders, docs/commerce.md).
   if (id.startsWith('commerce-')) return 'commerce';
   // An Attendance tab opened by link (#attendance-reports, docs/attendance.md#web).

@@ -374,6 +374,58 @@ def allocate(context: TenantContext, *, canonical_id: str, workspace_id: str, am
     return create(context, request, allocation={"category": category, "project_id": project_id, "memo": memo_text, "treatment": treatment}, now=now)
 
 
+# -- the document vault -----------------------------------------------------------------------------
+
+
+def _vault_document(context: TenantContext, target_type: str, target_id: str) -> bool:
+    """A vault document the owner may edit (``vault_document``)."""
+    from fastapi import HTTPException
+
+    from ..vault.service import editable
+    from ..vault.store import open_vault_unit
+
+    if target_type != "vault_document":
+        return False
+    try:
+        with open_vault_unit(context) as unit:
+            editable(unit, context, target_id)
+    except HTTPException:
+        return False
+    return True
+
+
+class VaultLinkAdapter:
+    """The vault's ``FinanceLinkPort``: a receipt or document becomes **evidence** of a canonical transaction.
+    It carries no amount and never posts money; the link is active at once (the owner chose the transaction)."""
+
+    def propose(self, context: TenantContext, document_id: str, transaction_ref: str) -> str:
+        from fastapi import HTTPException
+
+        from ..authorization import Permission
+        from ..dependencies import has_permission
+
+        if not has_permission(context, Permission.FINANCE_MANAGE):
+            raise HTTPException(403, "Linking a document to a payment needs finance access in this workspace.")
+        try:
+            create(context, LinkRequest(canonical_id=transaction_ref, dimension="document", role="evidence", target_type="vault_document",
+                                        target_id=document_id))
+        except LinkError as exc:
+            raise HTTPException(exc.status_code, exc.message) from None
+        return "confirmed"
+
+
+def plug_vault_links() -> bool:
+    """Connect the vault's finance link point and its document targets, when the vault is installed."""
+    try:
+        from ..vault import links as vault_links
+    except ModuleNotFoundError:
+        return False
+    vault_links.set_finance_links(VaultLinkAdapter())
+    if "document" not in _targets:
+        register_target("document", _vault_document)
+    return True
+
+
 __all__ = [
     "Created",
     "LinkError",
@@ -386,6 +438,7 @@ __all__ = [
     "confirm",
     "create",
     "live_entry",
+    "plug_vault_links",
     "register_target",
     "settle",
     "sync",

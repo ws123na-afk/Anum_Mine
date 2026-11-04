@@ -455,7 +455,7 @@ def push_text(kind: PushKind, language: str | None) -> tuple[str, str]:
 # ``notification.created`` event never becomes a phone push. A visitor checked in for a host
 # (docs/ANUM_MINE_HQ_RECEPTION.md#host-notification) is one: owner rule, no autonomous email,
 # SMS or push.
-IN_APP_ONLY_KINDS = frozenset({"visitor_arrived", "budget_alert", "approval_reminder", "attendance_missed_check"})
+IN_APP_ONLY_KINDS = frozenset({"visitor_arrived", "budget_alert", "approval_reminder", "attendance_missed_check", "document_expiry"})
 
 EVENT_KINDS: dict[str, PushKind] = {
     "approval.requested": PushKind.APPROVAL_REQUIRED,

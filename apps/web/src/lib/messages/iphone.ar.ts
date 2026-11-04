@@ -106,4 +106,10 @@ export const iphoneAr = {
   'iph.code.processing_error': 'تعذر على ANUM معالجته',
   'iph.code.not_allowed': 'دور المالك لم يعد يسمح به',
   'iph.code.archived': 'مساحة العمل مؤرشفة',
+  'iph.int.documents.scan': 'مسح المستندات',
+  'iph.int.documents.scan.purpose': 'يرسل مسحًا ضوئيًا أو صورة أو ملفًا مشاركًا إلى خزنة مستنداتك، خاصًا بك.',
+  'iph.doc.step.1': 'الاختصارات، اختصار جديد: أضف Scan Document (أو Take Photo، أو فعّل Show in Share Sheet للملفات).',
+  'iph.doc.step.2': 'أضف Get Contents of URL إلى {url}?name=scan.jpg&category=receipt بالطريقة POST وترويسة Authorization أعلاه ونص طلب File بالمسح.',
+  'iph.doc.step.3': 'شغّله مرة وتحقق من خزنة المستندات: يصل المستند خاصًا بك.',
+  'iph.doc.step.4': 'حتى 60 رفعًا في الساعة لكل جهاز، ويُرفض الملف الأكبر أو غير المدعوم مع ذكر السبب.',
 } satisfies Record<string, Message>;

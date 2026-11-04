@@ -58,6 +58,7 @@ import { lifecycleEn } from './lifecycle.en.ts';
 import { recordRetentionEn } from './recordRetention.en.ts';
 import { attendanceEn } from './attendance.en.ts';
 import { iphoneEn } from './iphone.en.ts';
+import { vaultEn } from './vault.en.ts';
 import { helpEn } from './help.en.ts';
 import { publicSiteEn } from './publicSite.en.ts';
 import { ownerEn } from './en.owner.ts';
@@ -123,6 +124,7 @@ export const en = {
   ...recordRetentionEn,
   ...attendanceEn,
   ...iphoneEn,
+  ...vaultEn,
   ...helpEn,
   ...publicSiteEn,
   ...agentSkillsEn,

@@ -330,6 +330,15 @@ class Settings(BaseSettings):
     browser_research_timeout_seconds: float = Field(default=45.0, gt=0, le=120)
     # Pages read per workspace per hour (counted in each API or worker process).
     browser_research_per_hour: int = Field(default=30, ge=1, le=1000)
+    # Document vault OCR (docs/documents.md#the-ocr-service): the internal OCR service that runs
+    # local Tesseract (English and Arabic) in its own container (http://ocr:8091 in the Oracle
+    # stack, compose profile `ocr`) and the token the API sends it. Either empty: scanning reads
+    # only a PDF's own text layer and says "OCR is not connected". Operator configuration only.
+    ocr_service_url: str = ""
+    ocr_service_token: str = ""
+    ocr_timeout_seconds: float = Field(default=120.0, gt=0, le=300)
+    # Uploads per iPhone Shortcut token per hour (counted in each API process).
+    vault_device_uploads_per_hour: int = Field(default=60, ge=1, le=1000)
     # The action browser (docs/action-browser.md): the `web.act` tool, which signs in, fills forms
     # and clicks through sites in the same browser service run with ANUM_BROWSER_ACTION_MODE=1,
     # and stops for the owner's approval before anything binding. Off unless the operator turns

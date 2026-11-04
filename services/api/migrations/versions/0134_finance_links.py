@@ -20,7 +20,7 @@ tenant purge role, and ``lifecycle_purge_<table>``, like ``0131``. The allocatio
 tenant policy and the purge policy.
 
 Expand only: new tables, functions and a trigger on a new table. The previous release ignores
-them. Chained after ``0132_work_attendance``.
+them. Chained after ``0133_document_vault``.
 """
 
 import sqlalchemy as sa
@@ -28,7 +28,7 @@ from alembic import op
 from sqlalchemy.dialects import postgresql
 
 revision = "0134_finance_links"
-down_revision = "0132_work_attendance"
+down_revision = "0133_document_vault"
 branch_labels = None
 depends_on = None
 
