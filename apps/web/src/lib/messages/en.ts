@@ -9,6 +9,7 @@ import { financeIbkrEn } from './financeIbkr.en.ts';
 import { financeResearchEn } from './financeResearch.en.ts';
 import { financeSmsEn } from './financeSms.en.ts';
 import { financePdfEn } from './financePdf.en.ts';
+import { financeRegisterEn } from './financeRegister.en.ts';
 import { financeIntelEn } from './financeIntel.en.ts';
 import { financeEquityEn } from './financeEquity.en.ts';
 import { financeReportsEn } from './financeReports.en.ts';
@@ -108,6 +109,7 @@ export const en = {
   ...financeResearchEn,
   ...financeSmsEn,
   ...financePdfEn,
+  ...financeRegisterEn,
   ...financeIntelEn,
   ...financeEquityEn,
   ...financeReportsEn,
