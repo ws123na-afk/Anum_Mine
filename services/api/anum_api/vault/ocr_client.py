@@ -34,6 +34,8 @@ class OcrText:
     engine: str
     languages: str
     warnings: list[str] = field(default_factory=list)
+    # Word boxes per line (pixels), when the service sends them: the statement reader's geometry.
+    boxes: list[list[dict[str, float | str]]] = field(default_factory=list)
 
 
 def service_url() -> str | None:
@@ -98,8 +100,12 @@ async def read_text(content: bytes, content_type: str, *, client: httpx.AsyncCli
     try:
         body = response.json()
         rows = body.get("lines") or []
-        lines = [OcrLine(str(row.get("text", ""))[:500], float(row.get("confidence", 0))) for row in rows[:400] if isinstance(row, dict)]
-        return OcrText(lines, str(body.get("engine", "tesseract"))[:80], str(body.get("languages", ""))[:40])
+        kept = [row for row in rows[:400] if isinstance(row, dict)]
+        lines = [OcrLine(str(row.get("text", ""))[:500], float(row.get("confidence", 0))) for row in kept]
+        boxes = [[{"text": str(w.get("text", ""))[:120], "confidence": float(w.get("confidence", 0)), "left": float(w.get("left", 0)),
+                   "top": float(w.get("top", 0)), "width": float(w.get("width", 0)), "height": float(w.get("height", 0))}
+                  for w in (row.get("words") or [])[:80] if isinstance(w, dict)] for row in kept]
+        return OcrText(lines, str(body.get("engine", "tesseract"))[:80], str(body.get("languages", ""))[:40], boxes=boxes)
     except (ValueError, TypeError, AttributeError) as exc:
         raise OcrUnavailable("The OCR service answered something unexpected.") from exc
 

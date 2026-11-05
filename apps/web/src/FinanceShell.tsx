@@ -27,6 +27,25 @@ export function FinanceSectionNav({ tab, onPick }: { tab: FinanceTab; onPick: (n
   const wide = useMediaQuery(WIDE);
   const [slot, setSlot] = useState<HTMLElement | null>(null);
   useEffect(() => { setSlot(wide ? document.getElementById(FINANCE_NAV_SLOT) : null); }, [wide]);
+  // Bring the current section into the sidebar's view (nearest edge only, like Shell.tsx does for views).
+  useEffect(() => {
+    const reveal = () => {
+      const entry = slot?.querySelector<HTMLElement>('[aria-current="page"]'), nav = slot?.closest<HTMLElement>('nav[aria-label]');
+      if (!entry || !nav) return;
+      // Keep the Finance entry itself in view too when Finance and the current section fit together.
+      const parent = slot?.parentElement?.querySelector<HTMLElement>('.navItem');
+      const box = nav.getBoundingClientRect(), at = entry.getBoundingClientRect();
+      const top = parent && at.bottom - parent.getBoundingClientRect().top <= box.height - 32 ? parent.getBoundingClientRect().top : at.top;
+      if (at.bottom > box.bottom) nav.scrollTop += at.bottom - box.bottom + 24;
+      else if (top < box.top) nav.scrollTop -= box.top - top + 8;
+      const after = parent?.getBoundingClientRect();
+      if (after && after.top < box.top && at.bottom - after.top <= box.height - 32) nav.scrollTop -= box.top - after.top + 8;
+    };
+    reveal();
+    // Again once late entries (owner-only views) and web fonts have settled the sidebar's layout.
+    const timer = window.setTimeout(reveal, 400);
+    return () => window.clearTimeout(timer);
+  }, [slot, tab]);
   const current = groupOf(tab);
   const nav = <nav className={`finNav ${slot ? 'finNavSidebar' : 'finNavStrip'}`} aria-label={t('finance.tabs')}>
     {FINANCE_NAV.map((group, index) => <ul key={`${group.id}-${index}`} className={`finNavGroup finNavGroup-${group.id} ${current === group.id ? 'current' : ''}`}
@@ -144,9 +163,11 @@ export function KpiCard({ icon, label, value, hint, delta, deltaText, tone = '' 
 }
 
 /** The delta chip on its own (tables use it too). Arrows are decoration; the words carry the meaning. */
-export function DeltaChip({ delta, text }: { delta: Delta; text?: string }) {
+export function DeltaChip({ delta, text, compact }: { delta: Delta; text?: string; compact?: boolean }) {
   const Icon = delta.direction === 'up' ? ArrowUp : delta.direction === 'down' ? ArrowDown : Minus;
   const words = text ?? (delta.percent === null ? t(`fshell.delta.${delta.direction}` as MessageKey) : t(`fshell.delta.pct.${delta.direction}` as MessageKey, { percent: Math.abs(delta.percent) }));
+  // Compact (tables): the arrow and the figure show; the words are read out.
+  if (compact) return <span className={`finDelta ${delta.tone}`}><Icon aria-hidden="true" /><span aria-hidden="true" dir="ltr">{delta.percent === null ? '' : `${Math.abs(delta.percent)}%`}</span><span className="visuallyHidden">{words}</span></span>;
   return <span className={`finDelta ${delta.tone}`}><Icon aria-hidden="true" /><span>{words}</span></span>;
 }
 

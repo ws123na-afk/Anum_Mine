@@ -8,15 +8,15 @@
 Forced RLS with ``tenant_isolation_<table>``, the restrictive ``owner_only_<table>`` policy that
 also admits the tenant purge role, and ``lifecycle_purge_<table>``, like ``0134``.
 
-Expand only: one new table. The previous release ignores it. Chained after ``0138_books_v2``.
+Expand only: one new table. The previous release ignores it. Chained after ``0139_finance_pdf_templates``.
 """
 
 import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
-revision = "0139_finance_guardian_reviews"
-down_revision = "0138_books_v2"
+revision = "0140_finance_guardian_reviews"
+down_revision = "0139_finance_pdf_templates"
 branch_labels = None
 depends_on = None
 

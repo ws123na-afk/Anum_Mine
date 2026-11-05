@@ -258,10 +258,10 @@ test('Finance reads in Arabic, right to left, with dates and amounts kept left t
   await expect(page.getByRole('region', { name: 'الفواتير' })).toContainText('Rent');
   expect(await noHorizontalOverflow(page)).toBe(true);
   // Stages 3 to 5: safe to spend, the Guardian rules and connections, also right to left.
-  for (const [hash, heading] of [['finance-safe', 'المتاح للصرف'], ['finance-guardian', 'الحارس المالي'], ['finance-connections', 'اتصالاتك'], ['finance-trading', 'التداول التجريبي'], ['finance-execution', 'مفاتيح الإيقاف']] as const) {
+  // Safe to spend and Guardian draw their own page head (docs/finance.md#finance-shell), so their name is the h1.
+  for (const [hash, heading, level] of [['finance-safe', 'المتاح للصرف', 1], ['finance-guardian', 'الحارس المالي', 1], ['finance-connections', 'اتصالاتك', 2], ['finance-trading', 'التداول التجريبي', 2], ['finance-execution', 'مفاتيح الإيقاف', 2]] as const) {
     await page.goto(`/#${hash}`);
-    // Guardian now draws its own page head (an h1); the other sections keep their h2.
-    await expect(page.getByRole('heading', { level: hash === 'finance-guardian' ? 1 : 2, name: heading })).toBeVisible();
+    await expect(page.getByRole('heading', { level, name: heading })).toBeVisible();
     expect(await noHorizontalOverflow(page)).toBe(true);
   }
 });

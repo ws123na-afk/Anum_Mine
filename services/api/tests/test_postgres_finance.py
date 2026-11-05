@@ -432,7 +432,7 @@ def test_wider_live_reads_and_steps_down_on_postgres(client: TestClient, app_ses
     assert len(client.get("/api/v1/privacy/export", headers=ME).json()["finance"]["live_incidents"]) == 1
 
 
-# -- the Guardian review queue (migration 0139_finance_guardian_reviews) ----------------------------
+# -- the Guardian review queue (migration 0140_finance_guardian_reviews) ----------------------------
 
 
 def test_review_decisions_persist_one_per_payment_and_stay_private(

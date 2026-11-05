@@ -313,3 +313,18 @@
 .finPreflightGroups { display: grid; gap: var(--d-s3); grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr)); }
 .finPreflightGroups > div { display: grid; gap: var(--d-s2); align-content: start; min-width: 0; }
 .finPreflightAnswer a { align-items: center; display: inline-flex; gap: var(--d-s1); }
+
+/* PDF statement review (docs/finance.md#pdf-statements). */
+.finPdf h2:focus { outline: none; }
+.finPdf h2:focus-visible { outline: 2px solid var(--d-violet); outline-offset: 2px; }
+.finPdfCheck { display: grid; gap: var(--d-s2); }
+.finPdfCheck h3 { font-size: var(--text-md); margin: 0; }
+.finPdfTable input:not([type="checkbox"]) { min-height: 40px; min-width: 0; width: 100%; }
+.finPdfTable .finPdfDate { min-width: 140px; }
+.finPdfTable .finPdfText { min-width: 200px; }
+.finPdfTable .finPdfAmount { min-width: 110px; text-align: end; }
+.finPdfTick { accent-color: var(--d-violet); block-size: 20px; inline-size: 20px; min-height: 0; }
+.finPdfTable td:first-child { text-align: center; }
+.finPdfLeft td:not(:first-child) { opacity: .5; }
+.finPdfProblem td { background: rgb(var(--c-warn) / .08); }
+.finTable td small.finPdfFlag { color: var(--d-warn); }

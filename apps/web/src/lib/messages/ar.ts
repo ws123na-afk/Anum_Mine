@@ -9,11 +9,13 @@ import { financeTradingAr } from './financeTrading.ar.ts';
 import { financeIbkrAr } from './financeIbkr.ar.ts';
 import { financeResearchAr } from './financeResearch.ar.ts';
 import { financeSmsAr } from './financeSms.ar.ts';
+import { financePdfAr } from './financePdf.ar.ts';
 import { financeIntelAr } from './financeIntel.ar.ts';
 import { financeEquityAr } from './financeEquity.ar.ts';
 import { financeReportsAr } from './financeReports.ar.ts';
 import { financeGuardianAr } from './financeGuardian.ar.ts';
 import { financeShellAr } from './financeShell.ar.ts';
+import { financePagesAr } from './financePages.ar.ts';
 import { financeIntelActionsAr } from './financeIntelActions.ar.ts';
 import { tyreAr } from './tyre.ar.ts';
 import { hqAr } from './hq.ar.ts';
@@ -108,11 +110,13 @@ export const ar: Record<MessageKey, Message> = {
   ...financeIbkrAr,
   ...financeResearchAr,
   ...financeSmsAr,
+  ...financePdfAr,
   ...financeIntelAr,
   ...financeEquityAr,
   ...financeReportsAr,
   ...financeGuardianAr,
   ...financeShellAr,
+  ...financePagesAr,
   ...financeIntelActionsAr,
   ...teamAr,
   ...appCallsAr,
