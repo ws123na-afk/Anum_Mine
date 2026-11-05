@@ -160,7 +160,7 @@ class LinkRequest:
 
 def _validate(request: LinkRequest) -> LinkRequest:
     if request.dimension not in DIMENSIONS:
-        raise LinkError(422, "Choose what to link the payment to: vehicle, purchase, document, business, trip or project.", "invalid_dimension")
+        raise LinkError(422, "Choose what to link the payment to: vehicle, purchase, document, business, trip, project, bill or debt.", "invalid_dimension")
     if request.role not in ROLES:
         raise LinkError(422, "Choose the link's role: payment, refund, deposit or evidence.", "invalid_role")
     for value in (request.canonical_id, request.target_type, request.target_id, request.document_id or "x"):

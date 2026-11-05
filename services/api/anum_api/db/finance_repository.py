@@ -33,6 +33,7 @@ from anum_api.finance.models import (
     Holding,
     ImportRecord,
     PlanSettings,
+    Planning,
     Transaction,
 )
 from anum_api.finance.money import quantize
@@ -147,6 +148,7 @@ class FinanceDebtRecord(Base, _Owned):
     minimum_payment: Mapped[Decimal] = mapped_column(MONEY)
     due_day: Mapped[int | None] = mapped_column(Integer, nullable=True)
     account_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    original_balance: Mapped[Decimal | None] = mapped_column(MONEY, nullable=True)
     notes: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     created_at: Mapped[datetime] = mapped_column(TS)
     updated_at: Mapped[datetime] = mapped_column(TS)
@@ -163,6 +165,7 @@ class FinanceGoalRecord(Base, _Owned):
     target_on: Mapped[date | None] = mapped_column(Date, nullable=True)
     account_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
     monthly_contribution: Mapped[Decimal | None] = mapped_column(MONEY, nullable=True)
+    paused: Mapped[bool] = mapped_column(Boolean)
     notes: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     created_at: Mapped[datetime] = mapped_column(TS)
     updated_at: Mapped[datetime] = mapped_column(TS)
@@ -192,6 +195,8 @@ class FinancePlanRecord(Base):
     buffers: Mapped[list[dict[str, Any]]] = mapped_column(JSONB)
     combine_currencies: Mapped[bool] = mapped_column(Boolean)
     fx_max_age_days: Mapped[int] = mapped_column(Integer)
+    debt_plans: Mapped[list[dict[str, Any]]] = mapped_column(JSONB)
+    budget_alerts: Mapped[list[dict[str, Any]]] = mapped_column(JSONB)
     updated_at: Mapped[datetime] = mapped_column(TS)
 
 
@@ -526,7 +531,7 @@ def _fields(model: BaseModel) -> dict[str, Any]:
 
 
 MONEY_FIELDS = frozenset({
-    "amount", "opening_balance", "balance", "minimum_payment", "target_amount", "saved_amount", "cost_basis", "monthly_contribution",
+    "amount", "opening_balance", "balance", "minimum_payment", "target_amount", "saved_amount", "cost_basis", "monthly_contribution", "original_balance",
     "notional", "fee", "slippage",
 })
 
@@ -793,6 +798,28 @@ class SqlAlchemyFinanceStore:
         )
         self.session.execute(statement.on_conflict_do_update(index_elements=["tenant_id", "workspace_id", "owner_user_id"], set_=values))
         return plan
+
+    # Debt plans and budget alerts: two more columns of the same row (migration 0140) --------
+
+    def get_planning(self, context: TenantContext) -> Planning:
+        found = self.session.scalar(select(FinancePlanRecord).where(*self._mine(FinancePlanRecord, context)))
+        if found is None:
+            return Planning()
+        return Planning.model_validate({"debt_plans": found.debt_plans or [], "budget_alerts": found.budget_alerts or []})
+
+    def save_planning(self, context: TenantContext, planning: Planning) -> Planning:
+        require_workspace(self.session, context.tenant_id, context.workspace_id)
+        values = {
+            "debt_plans": [p.model_dump(mode="json") for p in planning.debt_plans],
+            "budget_alerts": [a.model_dump(mode="json") for a in planning.budget_alerts],
+        }
+        # A new row keeps the safe-to-spend defaults (no buffer, no combined total, rates up to 7 days old).
+        statement = insert(FinancePlanRecord).values(
+            tenant_id=context.tenant_id, workspace_id=context.workspace_id, owner_user_id=context.user_id,
+            buffers=[], combine_currencies=False, fx_max_age_days=7, updated_at=datetime.now().astimezone(), **values,
+        )
+        self.session.execute(statement.on_conflict_do_update(index_elements=["tenant_id", "workspace_id", "owner_user_id"], set_=values))
+        return planning
 
     # Stage 4: Guardian --------------------------------------------------------------------
 

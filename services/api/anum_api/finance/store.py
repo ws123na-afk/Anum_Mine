@@ -37,6 +37,7 @@ from .models import (
     Holding,
     ImportRecord,
     PlanSettings,
+    Planning,
     Transaction,
 )
 from .trading import PaperOrder, Portfolio, PriceRecord
@@ -97,6 +98,9 @@ class FinanceStore(Protocol):
     # Stage 3: safe-to-spend settings
     def get_plan(self, context: TenantContext) -> PlanSettings | None: ...
     def save_plan(self, context: TenantContext, plan: PlanSettings) -> PlanSettings: ...
+    # Debt plans and budget alerts (docs/finance.md#debts-and-goals)
+    def get_planning(self, context: TenantContext) -> Planning: ...
+    def save_planning(self, context: TenantContext, planning: Planning) -> Planning: ...
     # Stage 4: Guardian rule versions and proposed changes
     def get_policy(self, context: TenantContext) -> GuardianPolicy | None: ...
     def list_policies(self, context: TenantContext, *, limit: int, offset: int) -> tuple[list[GuardianPolicy], int]: ...
@@ -245,6 +249,7 @@ class InMemoryFinanceStore:
         self.imports: dict[str, ImportRecord] = {}
         self.items: dict[str, dict[str, BaseModel]] = {kind: {} for kind in ITEM_TYPES}
         self.plans: dict[tuple[str, str, str], PlanSettings] = {}
+        self.planning: dict[tuple[str, str, str], Planning] = {}
         self.policies: dict[str, GuardianPolicy] = {}
         self.changes: dict[str, GuardianChange] = {}
         self.connections: dict[str, Connection] = {}
@@ -433,6 +438,16 @@ class InMemoryFinanceStore:
         with self._lock:
             self.plans[self._key(context)] = plan.model_copy(deep=True)
             return plan
+
+    def get_planning(self, context: TenantContext) -> Planning:
+        with self._lock:
+            found = self.planning.get(self._key(context))
+            return found.model_copy(deep=True) if found else Planning()
+
+    def save_planning(self, context: TenantContext, planning: Planning) -> Planning:
+        with self._lock:
+            self.planning[self._key(context)] = planning.model_copy(deep=True)
+            return planning
 
     # Stage 4: Guardian -------------------------------------------------------------------
 

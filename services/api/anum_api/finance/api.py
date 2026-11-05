@@ -892,6 +892,8 @@ class DebtInput(BaseModel):
     minimum_payment: Amount = "0"
     due_day: int | None = Field(default=None, ge=1, le=31)
     account_id: str | None = Field(default=None, max_length=80)
+    # What was owed when you started tracking it. Left out: kept as it is; "" clears it.
+    original_balance: Amount | None = None
     notes: str | None = Field(default=None, max_length=1000)
 
 
@@ -907,6 +909,8 @@ class GoalInput(BaseModel):
     # Stage 3: what you put aside each month (safe-to-spend sets it aside). Empty: worked
     # out from the target date, or nothing.
     monthly_contribution: Amount | None = None
+    # Left out: kept as it is (a new goal is not paused).
+    paused: bool | None = None
     notes: str | None = Field(default=None, max_length=1000)
 
 
@@ -948,6 +952,7 @@ class DebtView(BaseModel):
     minimum_payment: Decimal
     due_day: int | None
     account_id: str | None
+    original_balance: Decimal | None = None
     notes: str | None
     created_at: Any
     updated_at: Any
@@ -962,6 +967,7 @@ class GoalView(BaseModel):
     target_on: date | None
     account_id: str | None
     monthly_contribution: Decimal | None = None
+    paused: bool = False
     notes: str | None
     created_at: Any
     updated_at: Any
@@ -1017,6 +1023,14 @@ def _build_bill(store: FinanceStore, context: TenantContext, body: BillInput, ex
     )
 
 
+def _original_balance(body: DebtInput, currency: str, existing: Debt | None) -> Decimal | None:
+    if body.original_balance is None:
+        return existing.original_balance if existing and existing.currency == currency else None
+    if str(body.original_balance).strip() == "":
+        return None
+    return _money(body.original_balance, currency, field="Starting balance", positive=True)
+
+
 def _build_debt(store: FinanceStore, context: TenantContext, body: DebtInput, existing: Debt | None) -> Debt:
     account = _linked_account(store, context, body.account_id)
     currency = _currency(body.currency or (account.currency if account else None), settings_for(store, context).base_currency)
@@ -1026,7 +1040,8 @@ def _build_debt(store: FinanceStore, context: TenantContext, body: DebtInput, ex
         owner_user_id=context.user_id, name=_clean(body.name, 120) or "Debt", kind=body.kind,
         balance=_money(body.balance, currency, field="Balance", positive=True), currency=currency, apr_percent=_apr(body.apr_percent),
         minimum_payment=_money(body.minimum_payment, currency, field="Minimum payment", positive=True), due_day=body.due_day,
-        account_id=account.id if account else None, notes=_clean(body.notes, 1000),
+        account_id=account.id if account else None, original_balance=_original_balance(body, currency, existing),
+        notes=_clean(body.notes, 1000),
         created_at=existing.created_at if existing else now, updated_at=now,
     )
 
@@ -1045,6 +1060,7 @@ def _build_goal(store: FinanceStore, context: TenantContext, body: GoalInput, ex
             _money(body.monthly_contribution, currency, field="Monthly amount", positive=True)
             if body.monthly_contribution not in (None, "") else None
         ),
+        paused=body.paused if body.paused is not None else (existing.paused if existing else False),
         notes=_clean(body.notes, 1000), created_at=existing.created_at if existing else now, updated_at=now,
     )
 
