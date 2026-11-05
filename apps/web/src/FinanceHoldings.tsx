@@ -149,9 +149,8 @@ export function HoldingsPage({ onOpen }: { onOpen: (tab: FinanceTab) => void }) 
     {notice && <Notice error={notice.error}>{notice.text}</Notice>}
     {d.holdings.length === 0 ? <div className="surface cmPanel"><Empty icon={<Wallet aria-hidden="true" />} title={t('finance.holdings.empty')} text={t('finance.holdings.emptyText')}
       action={<button type="button" onClick={() => setEditing('new')}><Plus aria-hidden="true" />{t('finance.holdings.add')}</button>} /></div> : <div {...tabPanel('fholdings', tab)}>
-      {tab === 'summary' && <div className="finCols">
+      {tab === 'summary' && <>{kpis}<div className="finCols">
         <div className="finMain">
-          {kpis}
           <FinBanner tone="info" icon={<Info />}>{t('fholdings.estimates')}</FinBanner>
           {allocationCard}
           <Positions rows={rows} cur={cur} actions={actions} compact onAll={() => setTab('positions')} />
@@ -162,7 +161,7 @@ export function HoldingsPage({ onOpen }: { onOpen: (tab: FinanceTab) => void }) 
           {quality}
           <FinBanner tone="info" icon={<Info />}>{t('fholdings.notAdvice')}</FinBanner>
         </aside>
-      </div>}
+      </div></>}
       {tab === 'positions' && <Positions rows={valued} cur={null} actions={actions} />}
       {tab === 'performance' && <div className="finStack">{kpis}{chart(true)}<Performance rows={rows} cur={cur} /></div>}
       {tab === 'valuation' && <Valuation rows={valued} prices={d.prices} onPrice={actions.onPrice} onOpen={onOpen} />}
@@ -219,8 +218,8 @@ function PositionRow({ v, actions, showCurrency, compact }: { v: ValuedHolding; 
     <td data-label={t('fholdings.col.trend')}><Sparkline values={v.trend} tone={trendTone} label={t('fholdings.trendLabel', { name, count: v.trend.length })} /></td>
     <td className="finRowActions">
       <button type="button" className="iconButton small" onClick={() => actions.onPrice(h)} aria-label={t('fholdings.recordPriceFor', { name })}><Tag aria-hidden="true" /></button>
-      <button type="button" className="iconButton small" onClick={() => actions.onEdit(h)} aria-label={t('finance.item.edit', { name })}><Pencil aria-hidden="true" /></button>
-      <button type="button" className="iconButton small" onClick={() => actions.onRemove(h)} aria-label={t('finance.item.delete', { name })}><Trash2 aria-hidden="true" /></button>
+      {!compact && <button type="button" className="iconButton small" onClick={() => actions.onEdit(h)} aria-label={t('finance.item.edit', { name })}><Pencil aria-hidden="true" /></button>}
+      {!compact && <button type="button" className="iconButton small" onClick={() => actions.onRemove(h)} aria-label={t('finance.item.delete', { name })}><Trash2 aria-hidden="true" /></button>}
     </td>
   </tr>;
 }
@@ -232,8 +231,8 @@ function DataQuality({ sum, rows, onReview, onPrice }: { sum: ReturnType<typeof 
   return <FinCard title={t('fholdings.quality.title')}>
     <p className="finQualityLine">{problems === 0 ? <BadgeCheck aria-hidden="true" className="finOk" /> : <CircleAlert aria-hidden="true" className="finWarnIcon" />}
       <span>{t('fholdings.quality.manual', { count: rows.length })} · {sum.oldestPrice ? t('fholdings.quality.oldest', { date: shortDate(sum.oldestPrice) }) : t('fholdings.quality.noPrices')}</span></p>
-    {sum.stale > 0 && <FinBanner tone="warn" icon={<CircleAlert />} title={t('fholdings.quality.stale', { count: sum.stale, days: STALE_DAYS })} />}
-    {sum.unpriced > 0 && <FinBanner tone="warn" icon={<CircleAlert />} title={t('fholdings.quality.unpriced', { count: sum.unpriced })} />}
+    {sum.stale > 0 && <FinBanner tone="warn" icon={<CircleAlert />}>{t('fholdings.quality.stale', { count: sum.stale, days: STALE_DAYS })}</FinBanner>}
+    {sum.unpriced > 0 && <FinBanner tone="warn" icon={<CircleAlert />}>{t('fholdings.quality.unpriced', { count: sum.unpriced })}</FinBanner>}
     <p className="muted finCardNote">{t('fholdings.quality.note')}</p>
     <div className="finCardButtons">
       <button type="button" onClick={onReview}>{t('fholdings.quality.review')}</button>
