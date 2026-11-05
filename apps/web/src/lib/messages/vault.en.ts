@@ -197,7 +197,7 @@ export const vaultEn = {
   'vault.trash.restoreLabel': 'Restore {title}',
   'vault.trash.restored': 'Restored {title}.',
   'vault.trash.forever': 'Delete for good',
-  'vault.trash.foreverLabel': 'Delete {title} for good',
+  'vault.trash.foreverLabel': 'Delete for good: {title}',
   'vault.trash.foreverTitle': 'Delete {title} for good?',
   'vault.trash.foreverText': 'The document, all its versions and its file are deleted. This cannot be undone.',
   'vault.trash.gone': 'Deleted {title} for good.',
