@@ -143,7 +143,7 @@ export const GATE_PAGES: GatePage[] = [
   { hash: 'organisations', view: 'organisations', mock: workspace, ready: '.orgsTable tbody tr' },
   { hash: 'platformBilling', view: 'platformBilling', mock: billing, ready: '.blConsoleBar' },
   { hash: 'billing', view: 'settings', mock: billing, ready: '.blPlanNow' },
-  { hash: 'attendance', view: 'attendance', mock: workspace, ready: '.attTimeline li, .attStatus h2' },
+  { hash: 'attendance', view: 'attendance', mock: workspace, ready: '.attRosterTable tbody tr, .attTimeline li, .attStatus h2' },
   { hash: 'vehicles', view: 'vehicles', mock: workspace, ready: '.vehGrid .cmList li' },
   { hash: 'vehicles-list', view: 'vehicles', mock: workspace, ready: '.vehList li' },
   { hash: 'vehicles-settings', view: 'vehicles', mock: workspace, ready: '.vehForm select' },
