@@ -192,6 +192,8 @@ class DocumentQuery(BaseModel):
     expiring_within_days: int | None = None
     expired: bool | None = None
     tag: str | None = None
+    # ``created`` (newest added first) or ``updated`` (newest change first); ``after`` holds that time and the id.
+    sort: Literal["created", "updated"] = "created"
     limit: int = 50
     after: tuple[datetime, str] | None = None
 

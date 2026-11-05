@@ -24,7 +24,7 @@ from threading import RLock
 from typing import Any, Protocol
 
 from fastapi import HTTPException, status
-from sqlalchemy import text
+from sqlalchemy import bindparam, text
 
 from ..audit import AuditRecord
 from ..schemas import TenantContext
@@ -65,6 +65,24 @@ class Summary:
     expired: int = 0
     review: int = 0
     trash: int = 0
+    # Active documents with at least one link (a vehicle, person, business, purchase or Finance payment).
+    linked: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class RowFacts:
+    """What a list row shows besides the document: its links (how many, the first) and whether a scan waits for review."""
+
+    links: int = 0
+    first_link: LinkRecord | None = None
+    review_pending: bool = False
+
+
+SORTS = ("created", "updated")
+
+
+def sort_key(record: DocumentRecord, sort: str) -> tuple[datetime, str]:
+    return (record.updated_at if sort == "updated" else record.created_at, record.id)
 
 
 class VaultStore(Protocol):
@@ -80,6 +98,7 @@ class VaultStore(Protocol):
     def list_documents(self, context: TenantContext, query: DocumentQuery, today: date) -> list[DocumentRecord]: ...
     def same_content(self, context: TenantContext, sha256: str) -> list[DocumentRecord]: ...
     def summary(self, context: TenantContext, today: date, within_days: int) -> Summary: ...
+    def row_facts(self, context: TenantContext, document_ids: list[str]) -> dict[str, RowFacts]: ...
     def access(self, context: TenantContext, document_id: str) -> list[AccessGrant]: ...
     def grant(self, context: TenantContext, grant: AccessGrant) -> AccessGrant: ...
     def revoke(self, context: TenantContext, document_id: str, user_id: str) -> bool: ...
@@ -223,9 +242,10 @@ class InMemoryVaultStore:
     def list_documents(self, context: TenantContext, query: DocumentQuery, today: date) -> list[DocumentRecord]:
         with self._lock:
             rows = [d for d in self._scoped_docs(context) if _matches(d, query, today)]
-        rows.sort(key=lambda d: (d.created_at, d.id), reverse=True)
+        rows.sort(key=lambda d: sort_key(d, query.sort), reverse=True)
         if query.after is not None:
-            rows = [d for d in rows if (d.created_at, d.id) < query.after]
+            after = query.after
+            rows = [d for d in rows if sort_key(d, query.sort) < after]
         return [d.model_copy(deep=True) for d in rows[: query.limit]]
 
     def same_content(self, context: TenantContext, sha256: str) -> list[DocumentRecord]:
@@ -246,7 +266,21 @@ class InMemoryVaultStore:
             expired=sum(1 for d in active if d.expiry_date and d.expiry_date < today),
             review=review,
             trash=sum(1 for d in docs if d.status == "deleted"),
+            linked=len({link.document_id for (t, w, _), link in list(self._links.items()) if (t, w) == self._ws(context)} & {d.id for d in active}),
         )
+
+    def row_facts(self, context: TenantContext, document_ids: list[str]) -> dict[str, RowFacts]:
+        wanted = set(document_ids)
+        with self._lock:
+            links = sorted((link for (t, w, _), link in self._links.items() if (t, w) == self._ws(context) and link.document_id in wanted),
+                           key=lambda r: (r.created_at, r.id))
+            pending = {e.document_id for (t, w, _), e in self._extractions.items()
+                       if (t, w) == self._ws(context) and e.document_id in wanted and e.status in ("queued", "pending")}
+        out: dict[str, RowFacts] = {}
+        for document_id in document_ids:
+            mine = [link for link in links if link.document_id == document_id]
+            out[document_id] = RowFacts(links=len(mine), first_link=mine[0].model_copy() if mine else None, review_pending=document_id in pending)
+        return out
 
     def access(self, context: TenantContext, document_id: str) -> list[AccessGrant]:
         with self._lock:
@@ -568,11 +602,12 @@ class SqlVaultStore:
                 "or tags::text ilike :q escape '\\' or coalesce(number_last4, '') ilike :q escape '\\')"
             )
             params["q"] = _like(query.search)
+        column = "updated_at" if query.sort == "updated" else "created_at"
         if query.after is not None:
-            where.append("(created_at, id) < (:after_at, :after_id)")
+            where.append(f"({column}, id) < (:after_at, :after_id)")
             params["after_at"], params["after_id"] = query.after
         rows = self.session.execute(text(
-            f"select {_DOC_COLUMNS} from vault_documents where {' and '.join(where)} order by created_at desc, id desc limit :limit"),  # nosec B608 - fixed fragments, bound values
+            f"select {_DOC_COLUMNS} from vault_documents where {' and '.join(where)} order by {column} desc, id desc limit :limit"),  # nosec B608 - fixed fragments, bound values
             params).all()
         return [self._doc(row) for row in rows]
 
@@ -590,14 +625,35 @@ class SqlVaultStore:
               count(*) filter (where status = 'active' and access_class = 'private') as private,
               count(*) filter (where status = 'active' and expiry_date between :today and :until) as expiring,
               count(*) filter (where status = 'active' and expiry_date < :today) as expired,
-              count(*) filter (where status = 'deleted') as trash
+              count(*) filter (where status = 'deleted') as trash,
+              count(*) filter (where status = 'active' and exists (
+                select 1 from vault_document_links l
+                where l.tenant_id = vault_documents.tenant_id and l.workspace_id = vault_documents.workspace_id and l.document_id = vault_documents.id
+              )) as linked
             from vault_documents where tenant_id = :t and workspace_id = :w
             """), self._p(context, today=today, until=today + timedelta(days=within_days))).one()
         review = self.session.execute(text(
             "select count(*) from vault_extractions e join vault_documents d on d.tenant_id = e.tenant_id and d.workspace_id = e.workspace_id "
             "and d.id = e.document_id where e.tenant_id = :t and e.workspace_id = :w and e.status in ('queued', 'pending') and d.status = 'active'"),
             self._p(context)).scalar_one()
-        return Summary(active=row.active, private=row.private, expiring=row.expiring, expired=row.expired, review=int(review), trash=row.trash)
+        return Summary(active=row.active, private=row.private, expiring=row.expiring, expired=row.expired, review=int(review), trash=row.trash,
+                       linked=row.linked)
+
+    def row_facts(self, context: TenantContext, document_ids: list[str]) -> dict[str, RowFacts]:
+        if not document_ids:
+            return {}
+        ids = bindparam("ids", expanding=True)
+        links = self.session.execute(text(
+            "select id, document_id, target_type, target_id, label, status, created_by, created_at from vault_document_links "
+            "where tenant_id = :t and workspace_id = :w and document_id in :ids order by created_at, id").bindparams(ids),
+            self._p(context, ids=document_ids)).all()
+        pending = set(self.session.execute(text(
+            "select distinct document_id from vault_extractions where tenant_id = :t and workspace_id = :w and document_id in :ids "
+            "and status in ('queued', 'pending')").bindparams(bindparam("ids", expanding=True)), self._p(context, ids=document_ids)).scalars())
+        grouped: dict[str, list[LinkRecord]] = {}
+        for row in links:
+            grouped.setdefault(row.document_id, []).append(LinkRecord.model_validate(dict(row._mapping)))
+        return {d: RowFacts(links=len(grouped.get(d, [])), first_link=(grouped.get(d) or [None])[0], review_pending=d in pending) for d in document_ids}
 
     # -- access, links
 

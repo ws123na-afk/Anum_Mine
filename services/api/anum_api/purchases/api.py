@@ -51,7 +51,7 @@ from .models import (
     ShipmentStatus,
     Status,
 )
-from .store import MAX_RETURNS, MAX_SHIPMENTS, DuplicateError, PurchaseStore, open_purchase_store
+from .store import MAX_RETURNS, MAX_SHIPMENTS, DuplicateError, ListFilters, PurchaseStore, open_purchase_store
 
 router = APIRouter(prefix="/api/v1/purchases", tags=["purchases"])
 
@@ -295,19 +295,55 @@ StatusFilter = Literal["ordered", "confirmed", "shipped", "out_for_delivery", "d
                        "awaiting", "returns", "closed", "open"]
 
 
+PaymentFilter = Literal["card", "apple_pay", "cash", "bank_transfer", "cash_on_delivery", "instalments", "gift_card", "other", "linked", "unlinked"]
+IN_TRANSIT = frozenset({"in_transit", "out_for_delivery"})
+
+
+def _row_extras(store: PurchaseStore, context: TenantContext, purchases: list[Purchase]) -> dict[str, dict[str, Any]]:
+    """What a list row shows besides the purchase: its first item, how many items, and its newest shipment."""
+    ids = [p.id for p in purchases]
+    by_purchase: dict[str, dict[str, Any]] = {pid: {"first_item": None, "item_count": 0, "latest_shipment": None} for pid in ids}
+    for item in sorted(store.items(context, ids), key=lambda i: (i.purchase_id, i.position)):
+        row = by_purchase[item.purchase_id]
+        row["item_count"] += 1
+        if row["first_item"] is None:
+            row["first_item"] = item.description
+    owners = {p.id: p for p in purchases}
+    for shipment in store.shipments(context, ids):  # oldest first, so the last one wins
+        by_purchase[shipment.purchase_id]["latest_shipment"] = shipment_view(context, owners[shipment.purchase_id], shipment)
+    return by_purchase
+
+
 @router.get("", response_model=None)
 @refusals
 def list_purchases(q: str | None = Query(default=None, max_length=80), status_filter: StatusFilter | None = Query(default=None, alias="status"),
                    archived: bool = False, limit: int = Query(default=20, ge=1, le=MAX_PAGE), offset: int = Query(default=0, ge=0),
+                   merchant: str | None = Query(default=None, max_length=120), ordered_from: date | None = Query(default=None, alias="from"),
+                   ordered_to: date | None = Query(default=None, alias="to"), payment: PaymentFilter | None = None,
+                   source: Literal["web", "iphone"] | None = None, warranty: bool = False,
                    context: TenantContext = Depends(tenant_context)) -> Any:
     _read(context)
+    if ordered_from and ordered_to and ordered_from > ordered_to:
+        raise S.PurchaseError(422, "The start date is after the end date.", "bad_range")
+    filters = ListFilters(merchant=(merchant or "").strip() or None, ordered_from=ordered_from, ordered_to=ordered_to, payment=payment,
+                          source=source, warranty_on=utc_now().date() if warranty else None)
     with open_purchase_store(context) as store:
         items, total = store.list_purchases(context, query=(q or "").strip() or None, status=status_filter, archived=archived, limit=limit,
-                                            offset=offset)
+                                            offset=offset, filters=filters)
         due = _due_for(store, context, items)
         returns = store.returns(context, [p.id for p in items])
-    return _page([purchase_view(context, p, due=due[p.id], refunded=_refunded_by_currency([r for r in returns if r.purchase_id == p.id]))
-                  for p in items], total, limit, offset)
+        extras = _row_extras(store, context, items)
+    return _page([{**purchase_view(context, p, due=due[p.id], refunded=_refunded_by_currency([r for r in returns if r.purchase_id == p.id])),
+                   **extras[p.id]} for p in items], total, limit, offset)
+
+
+@router.get("/merchants", response_model=None)
+@refusals
+def merchants(context: TenantContext = Depends(tenant_context)) -> Any:
+    """The shops of the caller's visible purchases, for the Seller filter."""
+    _read(context)
+    with open_purchase_store(context) as store:
+        return {"items": store.merchants(context)}
 
 
 def create_purchase(context: TenantContext, body: PurchaseInput, idempotency_key: str | None) -> tuple[Purchase, list[Item], bool]:
@@ -359,6 +395,14 @@ def overview(context: TenantContext = Depends(tenant_context)) -> Any:
         ids = [p.id for p in purchases]
         returns = store.returns(context, ids)
         due = _due_for(store, context, purchases)
+        shipments = store.shipments(context, ids)
+    awaiting_ids = {p.id for p in purchases if p.status in AWAITING_DELIVERY}
+    month_start = today.replace(day=1)
+    this_month = [p for p in purchases if p.ordered_on >= month_start and p.status != "cancelled"]
+    committed: dict[str, Decimal] = {}
+    for purchase in this_month:
+        if purchase.total is not None:
+            committed[purchase.currency] = committed.get(purchase.currency, Decimal(0)) + purchase.total
     spend: dict[str, Decimal] = {}
     refunded: dict[str, Decimal] = {}
     owed: dict[str, Decimal] = {}
@@ -386,6 +430,13 @@ def overview(context: TenantContext = Depends(tenant_context)) -> Any:
         "late": late,
         "open_returns": sum(1 for r in returns if r.status in OPEN_RETURN),
         "needs_review": sum(1 for p in purchases if p.needs_review),
+        # This month (UTC): orders placed and what the shops said they cost (a detail, not the ledger), per currency.
+        "month": month_start.strftime("%Y-%m"),
+        "orders_this_month": len(this_month),
+        "committed_this_month": _money_rows(committed),
+        "untotalled_this_month": sum(1 for p in this_month if p.total is None),
+        # Shipments on their way (in transit or out for delivery) of purchases still awaiting delivery.
+        "in_transit": sum(1 for sh in shipments if sh.status in IN_TRANSIT and sh.purchase_id in awaiting_ids),
         "unlinked": sum(1 for p in purchases if p.owner_user_id == context.user_id and p.status != "cancelled"
                         and (p.payment is None or p.payment.status == "void")),
         "spend": _money_rows(spend), "refunded": _money_rows(refunded), "net": _money_rows(net), "refunds_owed": _money_rows(owed),
