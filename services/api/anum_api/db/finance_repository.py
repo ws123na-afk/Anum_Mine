@@ -42,6 +42,7 @@ from anum_api.finance.trading import PaperOrder, Portfolio, PriceRecord
 from anum_api.finance.wider import Incident, Widening
 from anum_api.schemas import TenantContext
 
+from .advisor_repository import RECORDS as ADVISOR_RECORDS
 from .ibkr_repository import RECORDS as IBKR_RECORDS
 from .sms_repository import RECORDS as SMS_RECORDS
 from .models import Base
@@ -1353,7 +1354,7 @@ class SqlAlchemyFinanceStore:
     # privacy ------------------------------------------------------------------------------
 
     _ALL = (
-        *SMS_RECORDS, *IBKR_RECORDS, FinanceAgentDecisionRecord, FinanceStrategyRunRecord, FinanceStrategyRecord, FinanceMarketBarRecord, FinanceInstrumentRecord,
+        *SMS_RECORDS, *IBKR_RECORDS, *ADVISOR_RECORDS, FinanceAgentDecisionRecord, FinanceStrategyRunRecord, FinanceStrategyRecord, FinanceMarketBarRecord, FinanceInstrumentRecord,
         FinanceLiveIncidentRecord, FinanceLiveWideningRecord, FinancePaperOrderRecord, FinancePaperPortfolioRecord, FinancePriceRecord, FinanceExecIntentRecord, FinanceExecSettingsRecord,
         FinanceTransactionRecord, FinanceImportRecord, FinanceHoldingRecord, FinanceBillRecord, FinanceDebtRecord,
         FinanceGoalRecord, FinanceFxRateRecord, FinanceConnectionRecord, FinanceGuardianReviewRecord, FinanceGuardianChangeRecord,

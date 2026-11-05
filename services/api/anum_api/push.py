@@ -387,6 +387,8 @@ class PushKind(StrEnum):
     AUTOMATION_FAILED = "automation_failed"
     # The post-close SIMULATED trading report (docs/finance-trading-intel.md#daily-report).
     FINANCE_REPORT = "finance_report"
+    # The weekly Money advisor note (docs/finance.md#money-advisor).
+    FINANCE_ADVICE = "finance_advice"
     # In-app calls (docs/in-app-calls.md#phone-push): a teammate is ringing, or rang.
     INCOMING_CALL = "incoming_call"
     MISSED_CALL = "missed_call"
@@ -408,6 +410,7 @@ PREFERENCE: dict[PushKind, str] = {
     PushKind.AUTOMATION_FAILED: "automation_failed",
     # No switch of its own: follows the push channel switch, like team work.
     PushKind.FINANCE_REPORT: "push_enabled",
+    PushKind.FINANCE_ADVICE: "push_enabled",
     PushKind.INCOMING_CALL: "push_enabled",
     PushKind.MISSED_CALL: "push_enabled",
 }
@@ -425,6 +428,7 @@ TEXT: dict[PushKind, tuple[str, str]] = {
     PushKind.AUTOMATION_NOTICE: ("Automation update", "An automation has a message for you. Open ANUM to read it."),
     PushKind.AUTOMATION_FAILED: ("Automation failed", "An automation could not finish."),
     PushKind.FINANCE_REPORT: ("Daily trading report", "Your simulated trading report for today is ready. No real order was placed."),
+    PushKind.FINANCE_ADVICE: ("Weekly money note", "Your weekly money note is ready. ANUM only advises: it never moves money."),
     PushKind.INCOMING_CALL: ("Incoming call", "A teammate is calling you. Open ANUM to answer."),
     PushKind.MISSED_CALL: ("Missed call", "A teammate tried to call you in ANUM."),
 }
@@ -442,6 +446,7 @@ TEXT_AR: dict[PushKind, tuple[str, str]] = {
     PushKind.AUTOMATION_NOTICE: ("تحديث أتمتة", "لدى أتمتة رسالة لك. افتح ANUM لقراءتها."),
     PushKind.AUTOMATION_FAILED: ("فشلت الأتمتة", "تعذر إكمال أتمتة."),
     PushKind.FINANCE_REPORT: ("تقرير التداول اليومي", "تقرير التداول المحاكى لليوم جاهز. لم يُنفذ أي أمر حقيقي."),
+    PushKind.FINANCE_ADVICE: ("ملاحظة المال الأسبوعية", "ملاحظة المال الأسبوعية جاهزة. ANUM يقدّم النصيحة فقط ولا ينقل المال أبدًا."),
     PushKind.INCOMING_CALL: ("مكالمة واردة", "زميل يتصل بك. افتح ANUM للرد."),
     PushKind.MISSED_CALL: ("مكالمة فائتة", "حاول زميل الاتصال بك في ANUM."),
 }
@@ -567,6 +572,9 @@ def intent_for(event: DomainEvent) -> PushIntent | None:
         if event.payload.get("kind") == "finance_daily_report":
             # Not team work: its own kind and text, opening Finance on the phone.
             return PushIntent(**{**common, "kind": PushKind.FINANCE_REPORT}, recipient=recipient)
+        if event.payload.get("kind") == "finance_weekly_advice":
+            # The weekly money note: its own kind and text, opening Finance, Money advisor.
+            return PushIntent(**{**common, "kind": PushKind.FINANCE_ADVICE}, recipient=recipient)
         return PushIntent(**common, recipient=recipient, work_item_id=item if isinstance(item, str) and item else None)
     if kind in {PushKind.TASK_COMPLETED, PushKind.RUN_FAILED}:
         if task_id is None:
@@ -613,7 +621,7 @@ def resolve_recipients(intent: PushIntent, *, limit: int | None = None) -> list[
         elif intent.kind == PushKind.TEAM_WORK:
             if intent.recipient and _allowed(members.get(intent.recipient, ""), Permission.WORK_READ):
                 recipients = [intent.recipient]
-        elif intent.kind == PushKind.FINANCE_REPORT:
+        elif intent.kind in {PushKind.FINANCE_REPORT, PushKind.FINANCE_ADVICE}:
             if intent.recipient and _allowed(members.get(intent.recipient, ""), Permission.FINANCE_READ):
                 recipients = [intent.recipient]
         elif intent.kind in {PushKind.AUTOMATION_NOTICE, PushKind.AUTOMATION_FAILED}:

@@ -50,6 +50,7 @@ A request to pay or transfer ("pay the DEWA bill", "transfer 500 to the landlord
 | `finance_bills` | Name, amount, currency, cadence (`weekly`, `monthly`, `quarterly`, `yearly`, `once`), next due date, category, optional account, source (`manual` or `detected`), active |
 | `finance_debts` | Name, kind (`loan`, `card`, `mortgage`, `other`), balance owed, APR in percent, minimum payment, due day |
 | `finance_goals` | Name, target, saved so far, target date |
+| `finance_advisor_reports`, `finance_advisor_settings` | The weekly [Money advisor](#money-advisor) notes (one per advice week, the note as JSON, when its notice went out) and the person's switches (on or off, weekday) |
 | `finance_holdings` | Investment account, symbol, name, quantity and total cost. No prices |
 
 | `finance_plans` | Safe-to-spend settings: a buffer per currency, whether to show one total in the base currency, the oldest rate to use (days) |
@@ -138,6 +139,62 @@ The scope switch on both pages shows this workspace's ledger kind (Finance, iPho
 
 **One total.** With `combine_currencies` on (`PUT /plan`), the response adds `combined` in the base currency when every currency's figure can be converted with a recorded rate no older than `fx_max_age_days` (default 7): each conversion lists the amount, the rate, its date, its source and the shared base of a cross rate (for example USD to AED through EUR). If a rate is missing the status is `missing_rates` with the pairs, and the page points to Connections. Otherwise every figure stays per currency.
 
+## Money advisor
+
+A weekly money note for each person: where the money went, how many days the money would last if income stopped, the payments coming in the next 30 days, advice on each card and a short ranked list of next steps. **ANUM only advises: it never moves money, pays a bill or touches a bank or card.** The page says so on every view, the notice and the push say so, and no route in it writes anything but the note and its switches.
+
+Code: `finance/advisor.py` (pure arithmetic, no I/O, no model call), `finance/advisor_text.py` (the English and Arabic step templates), `finance/advisor_jobs.py` (gathering, writing and the weekly job), `finance/advisor_store.py` and `db/advisor_repository.py`, `finance/advisor_api.py`; migration `0143_finance_money_advisor`; web `apps/web/src/FinanceAdvisorPage.tsx` (`#finance-advisor`), `lib/financeAdvisor.ts`. Tests: `services/api/tests/test_finance_advisor.py`, `test_postgres_finance_advisor.py`, `apps/web/test/financeAdvisor.test.ts`, `apps/web/e2e/finance-advisor.spec.ts`.
+
+Everything is per currency: nothing is ever added or converted across currencies. Amounts are exact decimals. The inputs are the person's own records only: accounts and their ledger balances, the transactions of the last 400 days (statement imports, PDF imports and iPhone SMS all land there), bills, debts, the credit limits entered in iPhone SMS settings and the last balance a bank message stated.
+
+### Survival runway
+
+If income stopped, how long would the money last? **Money you have** is the balance of every bank and cash account that is not archived. A card's available limit is not money you have: it is shown on its own and never counted. Three ways:
+
+| Scenario | Monthly outflow |
+|---|---|
+| Bare minimum | Active recurring bills as a monthly figure (weekly x 52 / 12, quarterly / 3, yearly / 12; a one-off bill is not monthly) plus every debt's minimum payment (at most what is owed) |
+| Essentials | Bare minimum plus the average monthly spending in housing, utilities, telecom, groceries, transport, fuel, health and education. A saved bill in one of those categories is taken out of that category's average, so it is never counted twice |
+| As you spend now | The average of every spending category plus minimums, never less than essentials |
+
+The average is over the last three full calendar months the records cover (a month counts when the records start in its first week); with no full month, the last 30 days scaled to a month. Days are `money you have x 30.4375 / monthly outflow`, rounded down, with the date the money runs out. No money gives 0 days; nothing going out gives no end date; a runway past the last date the calendar holds keeps its day count and shows no end date. **With fewer than 30 days of records** only the bare minimum is worked out (it needs no history) and the note says plainly that there is not enough history, instead of guessing. The page writes out every assumption under the figures. Salary detection only informs: a credit with salary, payroll, WPS or راتب in the last 60 days, or a steady monthly credit from one payer; without one the note says so, and the runway already assumes no income.
+
+### Where money went
+
+Spending is money out except transfers and income. The **last 7 days** (the week ending yesterday) against the 7 days before and against the three-month average for a week; **this month so far** against the same days of last month and the three-month monthly average. Top categories (7 days, this month, usual month), the top five payees for the week and the month, and **unusual** spending: a category already 30 % above a usual whole month (so a rent paid on the 1st is not flagged), or a category with nothing in the averaged months that took at least 10 % of a usual month in 7 days. Small amounts (under 5 % of a usual month) are not flagged.
+
+### Coming payments
+
+The next 30 days: saved bills (a weekly bill each time it falls due), debt and card minimums on their next due day (a minimum with no due day is listed as "no due day set"), and recurring payments found in the records but not saved as bills (same payee, steady interval and amount, three times or more; the [bill suggestions](#summary) rule), each date in the window by its cadence like a saved bill, marked as subscriptions when the category or payee says so. Totals per currency: saved, found, and due within 7 days.
+
+### Card advice
+
+Each card account (and each card under Debts with no card account). What it owes by the ledger (or the debt's balance when the ledger shows nothing), the last balance a bank message stated, the credit limit and what is available when the person entered a limit, the minimum and the next due date from the linked debt. With an interest rate the person entered (APR on the debt), the interest of paying only the minimum next month (`(owed - minimum) x APR / 12`, rounded up), the months to clear at the minimum and the interest paid until then (each month the minimum is paid first, then interest is charged on what is left, the same order as the next-month figure), or that the minimum never clears the balance. **A rate is never invented:** an APR of 0 or none means "add the rate", and every missing piece is listed (a debt record, the rate, the due day, the minimum, the limit) with where to add it.
+
+### Next steps
+
+At most 10, most urgent first, then the soonest date. Fixed templates in English and Arabic (`advisor_text.py`, figures and names wrapped in Unicode isolates in Arabic, no long dashes), each with the Finance page that does it: pay a card in full before its due date (with the interest the minimum would cost when the rate is known), a minimum that never clears, add a card's debt record, due day, minimum or rate, a card over 30 % of its limit, a bill or minimum due within 7 days, survival under 60 days (urgent under 30), import more history, import a recent statement (newest record over 7 days old), add an account, spending up or new in a category, review subscriptions, save recurring payments as bills, and no salary found. No model writes them.
+
+### Weekly delivery
+
+`finance_advisor_reports` holds one note per person per advice week (`week_start`, unique) and `finance_advisor_settings` the switches: on or off (on by default) and the weekday (Sunday by default, Monday is 0), in the person's Finance time zone (Finance, Settings; Asia/Dubai until the person changes it). Both tables have forced RLS with the tenant policy, a restrictive owner-only policy and the tenant purge policy; they are in the organisation lifecycle, in "Download my data" (`advisor_notes`, `advisor_settings` in the `finance` section) and in "Delete my data". Notes older than two years are deleted when a new one is written.
+
+The daily job (`python -m anum_api.voice_retention`, reported under `finance_advisor` as counts only; `finance/advisor_jobs.py`) finds people with an active finance account as `anum_maintenance`, which may read only `tenant_id`, `workspace_id`, `owner_user_id` and `archived` of `finance_accounts` (a column grant, a select policy on unarchived rows and the restrictive owner policy admitting that role), never BYPASSRLS. Each person is then handled as the application role in their own scope: off, a viewer (no `finance:read`) or not their day is skipped; on the chosen day (or up to two days late if the job missed it) the week's note is written and `delivered_at` is claimed in one short transaction, then one in-app notification is sent (kind `finance_weekly_advice`, days and counts only, no amount or name). Its `notification.created` event is the phone push `finance_advice` ("Weekly money note" / "Your weekly money note is ready. ANUM only advises: it never moves money.", Arabic on an Arabic phone) when push is on. **Never an email** (owner rule): the notice is created without an address. A failed notice releases the claim so the next run tries again; a delivered week is never announced twice, also when the job runs twice or after "Generate now". The web bell opens `#finance-advisor`; the phone opens Finance.
+
+### Routes
+
+| Route | Permission |
+|---|---|
+| `GET /advisor` (switches, this advice week, next note date, newest note) | `finance:read` |
+| `GET /advisor/notes?limit=&offset=` (newest week first, at most 50), `GET /advisor/notes/{id}` | `finance:read` |
+| `POST /advisor/generate` (works this week's note out again; sends no notice) | `finance:manage` |
+| `GET /advisor/settings`; `PUT /advisor/settings` `{enabled, weekday}` | read; manage |
+
+Audit records carry the note id and counts only.
+
+### Not built
+
+The phone shows no advisor screen yet (the push and notice open Finance); the note covers personal finance only, not the business books; no forecast of future income; recurring income is not projected.
 ## Bills and budgets
 
 Finance, **Bills and budgets** (`#finance-bills`, `#finance-budgets`; web `FinanceBillsBudgets.tsx`, figures in `lib/financeBills.ts`) has the tabs Bills, Budgets, Recurring and Calendar, the scope (Personal only: Business and All finance point to the business books, where business bills and budgets live), the month and Add bill.
@@ -267,6 +324,7 @@ All under `/api/v1/finance`, every route checking permissions on the server:
 | `POST, DELETE /bills/{id}/matches`, `/debts/{id}/payments`; `PUT /debt-plan`, `/budgets/alerts` | `finance:manage` |
 | `GET, POST /bills`, `/debts`, `/goals`, `/holdings`; `GET, PATCH, DELETE /<kind>/{id}` | read for GET, manage otherwise |
 | `GET /safe-to-spend`, `GET /plan`; `PUT /plan` | read; manage |
+| `GET /advisor`, `GET /advisor/notes`, `GET /advisor/notes/{id}`, `GET /advisor/settings`; `POST /advisor/generate`, `PUT /advisor/settings` ([Money advisor](#money-advisor)) | read; manage |
 | `GET /guardian`, `GET /guardian/versions?limit=&offset=`, `GET /guardian/alerts?month=`, `GET /guardian/changes?status=`, `POST /guardian/evaluate`, `GET /guardian/review?month=&state=&limit=&offset=`, `GET /guardian/activity?limit=&cursor=` | `finance:read` |
 | `POST /guardian/changes`, `POST /guardian/changes/{id}/confirm`, `POST /guardian/changes/{id}/reject`, `POST /guardian/review/{transaction_id}` | `finance:manage` |
 | `GET /connectors`, `GET /connections`, `GET /connections/{id}`, `GET /fx-rates?limit=` | `finance:read` |

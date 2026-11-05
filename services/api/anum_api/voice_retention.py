@@ -25,7 +25,8 @@ deletes in-app calls that ended more than ``ANUM_CALLS_RETENTION_DAYS`` ago
 reception visitor records past each workspace's retention (``anum_api.record_retention``, owner decision O5),
 reported under ``record_retention``, and then sends document expiry reminders and empties the document
 vault's trash (``anum_api.vault.jobs``), reported under ``documents``, so the daily retention CronJob
-covers every one of them.
+covers every one of them. Last, it writes the weekly Money advisor notes that are due
+(``anum_api.finance.advisor_jobs``), reported under ``finance_advisor``.
 """
 
 from __future__ import annotations
@@ -117,6 +118,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     from .business.books_jobs import run as run_books
 
     report["business_books"] = run_books(dry_run=args.dry_run)
+    # The weekly Money advisor note (docs/finance.md#money-advisor): in-app notice and phone push, never email.
+    from .finance.advisor_jobs import run as run_advisor
+
+    report["finance_advisor"] = run_advisor(dry_run=args.dry_run)
     print(json.dumps(report, indent=2))
     return 0
 

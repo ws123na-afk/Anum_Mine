@@ -1285,3 +1285,84 @@ export interface FinanceEquity {
   generated_at: string;
   simulated: true;
 }
+
+// ---- The weekly Money advisor (docs/finance.md#money-advisor) ----------------------------------------
+// ANUM only advises: these are read-outs of the person's own records. Nothing here moves money.
+
+export type FinanceAdvisorScenarioKind = 'bare' | 'essential' | 'full';
+export interface FinanceAdvisorScenario { kind: FinanceAdvisorScenarioKind; monthly_outflow: FinanceMoney; days: number | null; runs_out_on: string | null }
+export interface FinanceAdvisorEssentialCategory { category: FinanceCategory; monthly_average: FinanceMoney; bills_monthly: FinanceMoney; counted: FinanceMoney }
+export interface FinanceAdvisorRunway {
+  status: 'ok' | 'not_enough_history' | 'no_records';
+  history_days: number;
+  first_record_on: string | null;
+  basis: 'months' | 'last_30_days' | 'none';
+  months: string[];
+  liquid: FinanceMoney;
+  accounts_counted: number;
+  bills_monthly: FinanceMoney;
+  minimums_monthly: FinanceMoney;
+  essential_spending_monthly: FinanceMoney | null;
+  total_spending_monthly: FinanceMoney | null;
+  essential_categories: FinanceAdvisorEssentialCategory[];
+  scenarios: FinanceAdvisorScenario[];
+}
+export interface FinanceAdvisorPeriod {
+  start: string; end: string; amount: FinanceMoney; previous: FinanceMoney; previous_start: string; previous_end: string;
+  change_percent: number | null; average: FinanceMoney | null; vs_average_percent: number | null;
+}
+export interface FinanceAdvisorCategoryLine {
+  category: FinanceCategory; week: FinanceMoney; previous_week: FinanceMoney; month: FinanceMoney; previous_month: FinanceMoney; average_month: FinanceMoney | null;
+}
+export interface FinanceAdvisorPayee { name: string; amount: FinanceMoney; count: number }
+export interface FinanceAdvisorSpike { category: FinanceCategory; period: 'month' | 'new'; amount: FinanceMoney; expected: FinanceMoney; percent: number | null }
+export interface FinanceAdvisorSpending {
+  week: FinanceAdvisorPeriod; month: FinanceAdvisorPeriod; categories: FinanceAdvisorCategoryLine[];
+  payees_week: FinanceAdvisorPayee[]; payees_month: FinanceAdvisorPayee[]; spikes: FinanceAdvisorSpike[];
+}
+export type FinanceAdvisorComingKind = 'bill' | 'minimum' | 'card_minimum' | 'recurring' | 'subscription';
+export interface FinanceAdvisorComing {
+  kind: FinanceAdvisorComingKind; name: string; ref_id: string | null; amount: FinanceMoney; due_on: string | null; days_until: number | null;
+  category: FinanceCategory | null; detected: boolean;
+}
+export interface FinanceAdvisorCurrency {
+  currency: string;
+  runway: FinanceAdvisorRunway;
+  card_available: FinanceMoney | null;
+  income_month: FinanceMoney;
+  spend_month: FinanceMoney;
+  spending: FinanceAdvisorSpending;
+  coming: { items: FinanceAdvisorComing[]; total: FinanceMoney; saved_total: FinanceMoney; detected_total: FinanceMoney; within_7_days: FinanceMoney };
+}
+export type FinanceAdvisorCardMissing = 'debt_record' | 'rate' | 'due_day' | 'minimum' | 'limit';
+export interface FinanceAdvisorCard {
+  name: string; account_id: string | null; debt_id: string | null; currency: string; last4: string | null;
+  owed: FinanceMoney; owed_source: 'ledger' | 'debt'; observed_balance: FinanceMoney | null; observed_at: string | null;
+  credit_limit: FinanceMoney | null; available: FinanceMoney | null; utilization_percent: number | null;
+  minimum_payment: FinanceMoney | null; due_on: string | null; days_until: number | null; apr_percent: FinanceMoney | null;
+  interest_if_minimum: FinanceMoney | null; months_to_clear_at_minimum: number | null; total_interest_at_minimum: FinanceMoney | null;
+  never_clears_at_minimum: boolean; missing: FinanceAdvisorCardMissing[];
+}
+export type FinanceAdvisorSeverity = 'urgent' | 'high' | 'medium' | 'info';
+export interface FinanceAdvisorAction {
+  code: string; severity: FinanceAdvisorSeverity; currency: string | null; params: Record<string, string>; text_en: string; text_ar: string; tab: string | null;
+}
+export interface FinanceAdvisorNote {
+  version: number; today: string; timezone: string; base_currency: string; week_start: string; week_end: string; month_start: string;
+  newest_record_on: string | null; history_days: number; has_accounts: boolean;
+  currencies: FinanceAdvisorCurrency[]; cards: FinanceAdvisorCard[];
+  income: { salary_found: boolean; last_salary_on: string | null };
+  actions: FinanceAdvisorAction[]; notice_en: string; notice_ar: string;
+}
+export interface FinanceAdvisorSettings { enabled: boolean; weekday: number; updated_at: string | null }
+export interface FinanceAdvisorNoteView {
+  id: string; week_start: string; trigger: 'schedule' | 'manual'; generated_at: string; delivered_at: string | null; note: FinanceAdvisorNote;
+}
+export interface FinanceAdvisorOverview {
+  settings: FinanceAdvisorSettings; timezone: string; today: string; week_start: string; next_note_on: string | null; latest: FinanceAdvisorNoteView | null;
+}
+export interface FinanceAdvisorNoteSummary {
+  id: string; week_start: string; trigger: 'schedule' | 'manual'; generated_at: string; delivered_at: string | null;
+  survival: { currency: string; status: string; days: number | null }[]; coming: { currency: string; amount: FinanceMoney }[]; actions: number; urgent: number;
+}
+export interface FinanceAdvisorNotePage { items: FinanceAdvisorNoteSummary[]; total: number; limit: number; offset: number }

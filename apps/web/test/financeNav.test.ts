@@ -13,7 +13,7 @@ describe('finance section nav', () => {
   });
   it('keeps the mockup order of the Finance group', () => {
     const finance = FINANCE_NAV[0].entries.map((e) => (e.kind === 'tab' ? e.tab : e.id));
-    const order = ['overview', 'transactions', 'accounts', 'bills', 'budgets', 'debts', 'goals', 'reports', 'safe', 'guardian'].filter((id) => finance.includes(id as never));
+    const order = ['overview', 'transactions', 'accounts', 'bills', 'budgets', 'debts', 'goals', 'reports', 'safe', 'advisor', 'guardian'].filter((id) => finance.includes(id as never));
     assert.deepEqual(finance, order);
   });
   it('ends with Business Expenses and P&L, a link to the business books', () => {
@@ -27,7 +27,7 @@ describe('finance section nav', () => {
     assert.equal(groupOf('overview'), 'finance');
   });
   it('lists the sections that draw their own head', () => {
-    assert.ok(OWN_HEAD_TABS.has('safe'));
+    assert.ok(OWN_HEAD_TABS.has('safe') && OWN_HEAD_TABS.has('advisor'));
     assert.ok(OWN_HEAD_TABS.has('transactions') && OWN_HEAD_TABS.has('accounts'));
     assert.ok(!OWN_HEAD_TABS.has('overview'));
   });

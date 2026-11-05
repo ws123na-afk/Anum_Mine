@@ -215,6 +215,7 @@ def test_every_purged_table_is_covered_by_the_purge_migration() -> None:
             **{name: "0138_books_v2" for name in ("business_book_bill_templates", "business_book_rate_feeds")},
             "finance_statement_templates": "0139_finance_pdf_templates",
             "finance_guardian_reviews": "0140_finance_guardian_reviews",
+            **{name: "0143_finance_money_advisor" for name in ("finance_advisor_reports", "finance_advisor_settings")},
             **{name: "0136_purchases" for name in ("purchases", "purchase_items", "purchase_events", "purchase_shipments", "purchase_returns", "purchase_reminders", "purchase_preferences")},
             **{name: "0135_vehicles" for name in ("vehicles", "vehicle_odometer_readings", "vehicle_fuel_entries", "vehicle_trips", "vehicle_service_records", "vehicle_reminders", "vehicle_preferences")},
             **{name: "0130_action_browser" for name in (

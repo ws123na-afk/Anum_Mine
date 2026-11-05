@@ -45,6 +45,7 @@ const PdfTemplates = lazy(() => import('./FinancePdfImport').then((m) => ({ defa
 // Pages with their own head (lib/financeNav.ts OWN_HEAD_TABS, docs/finance.md#finance-shell), each its own lazy chunk.
 const ReportsPage = lazy(() => import('./FinanceReportsPage').then((m) => ({ default: m.FinanceReportsPage })));
 const SafePage = lazy(() => import('./FinanceSafePage').then((m) => ({ default: m.FinanceSafePage })));
+const AdvisorPage = lazy(() => import('./FinanceAdvisorPage').then((m) => ({ default: m.FinanceAdvisorPage })));
 // Bills and budgets, debts and goals (docs/finance.md#bills-and-budgets): two pages in their own lazy chunk.
 const BillsBudgetsPage = lazy(() => import('./FinanceBillsBudgets').then((m) => ({ default: m.BillsBudgetsPage })));
 const DebtsGoalsPage = lazy(() => import('./FinanceDebtsGoals').then((m) => ({ default: m.DebtsGoalsPage })));
@@ -109,6 +110,7 @@ export function FinanceView() {
       <Suspense fallback={<Notice busy>{t('finance.loading')}</Notice>}>
         {tab === 'reports' && <ReportsPage onOpen={pick} />}
         {tab === 'safe' && <SafePage onOpen={pick} onChanged={refresh} />}
+        {tab === 'advisor' && <AdvisorPage onOpen={pick} />}
         {tab === 'accounts' && <AccountsPage accounts={accounts} base={summary.kind === 'ready' ? summary.value.base_currency : 'AED'} onChanged={refresh}
           onOpenTransactions={(accountId) => { setTxOpen((o) => ({ accountId, key: o.key + 1 })); pick('transactions'); }}
           onImport={() => { setTxOpen((o) => ({ tab: 'imports', key: o.key + 1 })); pick('transactions'); }} />}

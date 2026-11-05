@@ -13,6 +13,7 @@ import type {
   FinanceIntelBarsInput, FinanceIntelBarsResult, FinanceIntelCycle, FinanceIntelInstrument, FinanceIntelInstrumentInput, FinanceIntelPhase,
   FinanceIntelRule, FinanceStrategyInput, FinanceDailyReport, FinanceDailyReportItem, FinancePreflight, FinancePreflightInput,
   FinancePdfImportInput, FinancePdfRole, FinancePdfStatement, FinancePdfTemplate,
+  FinanceAdvisorNotePage, FinanceAdvisorNoteView, FinanceAdvisorOverview, FinanceAdvisorSettings,
 } from '@anum/contracts';
 import { apiBaseUrl, apiRequest, apiRequestVoid, authHeaders } from './api';
 import { apiErrorFromResponse } from './errors';
@@ -103,6 +104,13 @@ export async function downloadTransactions(q: Omit<TransactionQuery, 'limit' | '
 
 // ---- Stage 3: safe-to-spend ----
 export const getSafeToSpend = () => get<FinanceSafeToSpend>('/safe-to-spend');
+
+// The weekly Money advisor (docs/finance.md#money-advisor). Read-outs only: nothing here moves money.
+export const getAdvisor = () => get<FinanceAdvisorOverview>('/advisor');
+export const listAdvisorNotes = (limit: number, offset: number) => get<FinanceAdvisorNotePage>(`/advisor/notes?limit=${limit}&offset=${offset}`);
+export const getAdvisorNote = (noteId: string) => get<FinanceAdvisorNoteView>(`/advisor/notes/${id(noteId)}`);
+export const generateAdvisorNote = () => send<FinanceAdvisorNoteView>('POST', '/advisor/generate');
+export const saveAdvisorSettings = (body: { enabled: boolean; weekday: number }) => send<FinanceAdvisorSettings>('PUT', '/advisor/settings', body);
 export const getPlan = () => get<FinancePlan>('/plan');
 export const savePlan = (body: FinancePlanInput) => send<FinancePlan>('PUT', '/plan', body);
 
