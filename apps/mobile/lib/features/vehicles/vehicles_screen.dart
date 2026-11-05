@@ -333,7 +333,8 @@ class _DueCard extends StatelessWidget {
               tone: item.overdue ? AnumTone.stop : AnumTone.warn,
               title: item.registration,
               subtitle: dueLabel(context, item),
-              detail: item.dueOn == null ? null : recordsDate(context, item.dueOn),
+              detail:
+                  item.dueOn == null ? null : recordsDate(context, item.dueOn),
             ),
       ],
     );
@@ -355,7 +356,8 @@ class VehicleDetailScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Scaffold(
         appBar: AppBar(
-            title: Text(initial?.title ?? VehiclesStrings.of(context).t('title'))),
+            title:
+                Text(initial?.title ?? VehiclesStrings.of(context).t('title'))),
         body: VehicleDetailHost(
             repository: repository, vehicleId: vehicleId, initial: initial),
       );
@@ -413,8 +415,7 @@ class _VehicleDetailHostState extends State<VehicleDetailHost> {
                 values['correction'] != true
             ? _CorrectionAction(onPressed: () {
                 Navigator.of(context).pop(false);
-                _reading(
-                    correction: true, km: values['reading_km'] as String?);
+                _reading(correction: true, km: values['reading_km'] as String?);
               })
             : null,
       ),
@@ -486,8 +487,7 @@ class _VehicleDetailHostState extends State<VehicleDetailHost> {
             RecordsInput.time('start_time', s.t('startTime'),
                 required: true, initial: hhmm(now)),
             RecordsInput.number('start_odometer_km', s.t('startKm')),
-            RecordsInput.time('end_time', s.t('endTime'),
-                initial: hhmm(now)),
+            RecordsInput.time('end_time', s.t('endTime'), initial: hhmm(now)),
             RecordsInput.number('end_odometer_km', s.t('endKm')),
             RecordsInput.choice('purpose', s.t('purpose'),
                 initial: 'business',
@@ -514,8 +514,12 @@ class _VehicleDetailHostState extends State<VehicleDetailHost> {
                 },
                 idempotencyKey: key);
           },
-          onError: (e, v) => _decrease(e, v,
-              v['end_odometer_km'] != null ? 'end_odometer_km' : 'start_odometer_km'),
+          onError: (e, v) => _decrease(
+              e,
+              v,
+              v['end_odometer_km'] != null
+                  ? 'end_odometer_km'
+                  : 'start_odometer_km'),
         );
       case VehicleRecordKind.service:
         form = RecordsForm(
@@ -694,9 +698,8 @@ class _VehicleDetailHostState extends State<VehicleDetailHost> {
                         onLink: _tab.costKind != null && record.canEdit
                             ? () => _link(_tab, record)
                             : null,
-                        onDelete: record.canEdit
-                            ? () => _delete(_tab, record)
-                            : null,
+                        onDelete:
+                            record.canEdit ? () => _delete(_tab, record) : null,
                       ),
                   ]),
                 ),
@@ -749,17 +752,21 @@ class _Summary extends StatelessWidget {
             ),
         ]),
         const SizedBox(height: AnumSpacing.xs),
-        RecordsField(s.t('odometer'),
-            vehicle.odometerKm == null ? null : s.t('km', {'km': vehicle.odometerKm!})),
-        if (vehicle.makeModel.isNotEmpty) RecordsField(s.t('make'), vehicle.makeModel),
+        RecordsField(
+            s.t('odometer'),
+            vehicle.odometerKm == null
+                ? null
+                : s.t('km', {'km': vehicle.odometerKm!})),
+        if (vehicle.makeModel.isNotEmpty)
+          RecordsField(s.t('make'), vehicle.makeModel),
         RecordsField(s.t('country'), s.label('country', vehicle.country)),
         RecordsField(s.t('vin'), vehicle.vin),
         RecordsField(
             s.t('insurance'), recordsDate(context, vehicle.insuranceExpiresOn)),
         RecordsField(s.t('registrationExpires'),
             recordsDate(context, vehicle.registrationExpiresOn)),
-        RecordsField(
-            s.t('inspection'), recordsDate(context, vehicle.inspectionExpiresOn)),
+        RecordsField(s.t('inspection'),
+            recordsDate(context, vehicle.inspectionExpiresOn)),
         if (!vehicle.canEdit)
           Padding(
             padding: const EdgeInsets.only(top: AnumSpacing.xs),
@@ -802,14 +809,20 @@ class _RecordRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final s = VehiclesStrings.of(context);
     final locale = Localizations.localeOf(context);
-    final (String title, String subtitle, String? detail, VehiclePayment? pay,
-        bool payable) = switch (record) {
+    final (
+      String title,
+      String subtitle,
+      String? detail,
+      VehiclePayment? pay,
+      bool payable
+    ) = switch (record) {
       VehicleFuel f => (
           s.t('litresValue', {'litres': f.litres}),
           [
             recordsDate(context, f.filledAt),
             s.label('fuel', f.fuelType),
-            if (f.total != null) formatMoneyText(f.total!, f.currency, locale: locale),
+            if (f.total != null)
+              formatMoneyText(f.total!, f.currency, locale: locale),
             if (f.odometerKm != null) s.t('km', {'km': f.odometerKm!}),
             if (f.station != null) f.station!,
           ].join(' · '),

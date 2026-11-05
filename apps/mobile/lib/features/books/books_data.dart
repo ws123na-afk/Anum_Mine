@@ -58,16 +58,17 @@ class BooksLine {
 
 class BooksGroup {
   const BooksGroup(this.lines, this.total);
-  factory BooksGroup.fromJson(JsonReader j) => BooksGroup(
-      j.optObjects('lines', BooksLine.fromJson), j.string('total'));
+  factory BooksGroup.fromJson(JsonReader j) =>
+      BooksGroup(j.optObjects('lines', BooksLine.fromJson), j.string('total'));
   final List<BooksLine> lines;
   final String total;
 }
 
 class BooksAmount {
   const BooksAmount(this.currency, this.amount);
-  factory BooksAmount.fromJson(JsonReader j) =>
-      BooksAmount(j.string('currency'), j.optString('amount') ?? j.optString('total') ?? '0');
+  factory BooksAmount.fromJson(JsonReader j) => BooksAmount(
+      j.string('currency'),
+      j.optString('amount') ?? j.optString('total') ?? '0');
   final String currency, amount;
 }
 
@@ -255,8 +256,7 @@ abstract interface class BooksRepository {
   Future<BooksSetup> setup();
   Future<void> saveSettings(Map<String, Object?> body);
   Future<BooksReport> report({String? from, String? to, String? basis});
-  Future<BooksBillsChunk> bills(
-      {String query, String status, String? token});
+  Future<BooksBillsChunk> bills({String query, String status, String? token});
   Future<BooksBill> bill(String id);
   Future<BooksBill> pay(String billId, Map<String, Object?> body,
       {required String idempotencyKey});
@@ -281,8 +281,13 @@ class ApiBooksRepository implements BooksRepository {
 
   @override
   Future<BooksReport> report({String? from, String? to, String? basis}) async =>
-      BooksReport.fromJson(JsonReader(await api.request('GET',
-          '$_base/report${recordsQuery({'from': from, 'to': to, 'basis': basis})}')));
+      BooksReport.fromJson(JsonReader(await api.request(
+          'GET',
+          '$_base/report${recordsQuery({
+                'from': from,
+                'to': to,
+                'basis': basis
+              })}')));
 
   @override
   Future<BooksBillsChunk> bills(
@@ -317,8 +322,8 @@ class ApiBooksRepository implements BooksRepository {
   @override
   Future<BooksBill> voidPayment(
           String billId, String paymentId, String reason) async =>
-      BooksBill.fromJson(JsonReader(await api.request('POST',
-          '$_base/bills/${_id(billId)}/payments/${_id(paymentId)}/void',
+      BooksBill.fromJson(JsonReader(await api.request(
+          'POST', '$_base/bills/${_id(billId)}/payments/${_id(paymentId)}/void',
           body: {'reason': reason})));
 
   @override

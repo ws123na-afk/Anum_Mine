@@ -32,12 +32,14 @@ class VaultStrings extends ModuleStrings {
     'expiry.soon': 'Expiring soon',
     'expiry.expired': 'Expired',
     'trash': 'Trash',
-    'summary': '{active} documents, {expiring} expiring soon, {expired} expired',
+    'summary':
+        '{active} documents, {expiring} expiring soon, {expired} expired',
     'empty': 'No documents yet',
     'emptyText':
         'Add a passport, a contract or a receipt from your phone\'s files. Only you see it unless you choose Workspace.',
     'trashEmpty': 'The trash is empty',
-    'trashEmptyText': 'Deleted documents wait here before they are removed for good.',
+    'trashEmptyText':
+        'Deleted documents wait here before they are removed for good.',
     'add': 'Add document',
     'addTitle': 'Add a document',
     'addHelp':
@@ -164,7 +166,8 @@ class VaultStrings extends ModuleStrings {
     'access.workspace': 'مساحة العمل',
     'uploading': 'جارٍ الرفع {percent}%',
     'added': 'تمت إضافة المستند',
-    'duplicate': 'هذا الملف موجود بالفعل في الخزنة (أو في المحذوفات). هل تريد إضافته مرة أخرى؟',
+    'duplicate':
+        'هذا الملف موجود بالفعل في الخزنة (أو في المحذوفات). هل تريد إضافته مرة أخرى؟',
     'addAnyway': 'أضفه على أي حال',
     'tooBig': 'حجم هذا الملف {size}، والخزنة تقبل حتى {max}.',
     'state.valid': 'سارٍ',

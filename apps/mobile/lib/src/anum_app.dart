@@ -43,6 +43,8 @@ import '../features/finance/finance_repository.dart';
 import '../features/finance/finance_screen.dart';
 import '../features/team/team_screens.dart' show NotificationsScreen;
 import '../features/reports/workspace_tool_routes.dart';
+import '../features/records_kit/record_module_routes.dart';
+import '../features/vault/vault_transfer.dart';
 import '../features/business/accounts_data.dart';
 import '../features/business/business_controller.dart';
 import '../features/business/business_repository.dart';
@@ -250,6 +252,9 @@ class _AnumAppState extends State<AnumApp> {
   late final EmailController email;
   late final CommandController command;
   late final WorkspaceToolRoutes tools;
+
+  /// Document vault, attendance, vehicles, purchases and the business books.
+  late final RecordModuleRoutes records;
 
   /// Set when the build's configuration is unsafe; the app then shows only
   /// this message and creates no clients.
@@ -459,6 +464,13 @@ class _AnumAppState extends State<AnumApp> {
             baseUri: Uri.parse(configuredUrl),
             sessions: sessions,
             files: fileTransfer,
+            client: newClient?.call()));
+    records = RecordModuleRoutes(
+        api: api,
+        uploads: fileTransfer,
+        saver: HttpVaultFileSaver(
+            baseUri: Uri.parse(configuredUrl),
+            sessions: sessions,
             client: newClient?.call()));
     locale = LocaleController()..restore();
     // Pushes use the app's language (docs/notifications.md#phone-push).
@@ -818,6 +830,11 @@ class _AnumAppState extends State<AnumApp> {
       (child) => _AuthenticatedDestination(auth: auth, child: child),
     );
     if (tool != null) return tool;
+    final record = records.route(
+      settings,
+      (child) => _AuthenticatedDestination(auth: auth, child: child),
+    );
+    if (record != null) return record;
     if (name == AnumRoutes.billing) {
       return MaterialPageRoute<void>(
         settings: settings,

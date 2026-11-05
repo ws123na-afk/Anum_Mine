@@ -75,11 +75,30 @@ Map<String, Object?> docJson(String id,
     };
 
 Map<String, Object?> metaJson({bool canWrite = true}) => {
-      'summary': {'active': 2, 'private': 2, 'expiring': 1, 'expired': 1, 'review': 0, 'trash': 1},
+      'summary': {
+        'active': 2,
+        'private': 2,
+        'expiring': 1,
+        'expired': 1,
+        'review': 0,
+        'trash': 1
+      },
       'categories': [
         for (final id in ['passport', 'contract', 'receipt', 'other'])
-          {'id': id, 'label': null, 'built_in': true, 'reads': null, 'identity': id == 'passport'},
-        {'id': 'vcat_1', 'label': 'Medical', 'built_in': false, 'reads': null, 'identity': false},
+          {
+            'id': id,
+            'label': null,
+            'built_in': true,
+            'reads': null,
+            'identity': id == 'passport'
+          },
+        {
+          'id': 'vcat_1',
+          'label': 'Medical',
+          'built_in': false,
+          'reads': null,
+          'identity': false
+        },
       ],
       'settings': {
         'reminder_days': 30,
@@ -95,7 +114,13 @@ Map<String, Object?> metaJson({bool canWrite = true}) => {
       'max_upload_bytes': 26214400,
       'accepted': '.pdf,.jpg,.png',
       'accepted_extensions': ['.pdf', '.jpg', '.png'],
-      'link_types': ['vehicle', 'person', 'business', 'purchase', 'finance_transaction'],
+      'link_types': [
+        'vehicle',
+        'person',
+        'business',
+        'purchase',
+        'finance_transaction'
+      ],
       'reminder_window_days': 30,
     };
 
@@ -110,11 +135,14 @@ class VaultApi {
     final path = r.uri.path;
     final q = r.uri.queryParameters;
     const base = '/api/v1/documents';
-    if (r.method == 'GET' && path == '$base/meta') return ok(metaJson(canWrite: canWrite));
+    if (r.method == 'GET' && path == '$base/meta') {
+      return ok(metaJson(canWrite: canWrite));
+    }
     if (r.method == 'GET' && path == base) {
       if (q['status'] == 'deleted') {
         return ok({
-          'items': trashed ? [docJson('vdoc_1', status: 'deleted')] : <Object?>[],
+          'items':
+              trashed ? [docJson('vdoc_1', status: 'deleted')] : <Object?>[],
           'next_cursor': null
         });
       }
@@ -123,20 +151,31 @@ class VaultApi {
       }
       if (q['cursor'] == 'cursor_2') {
         return ok({
-          'items': [docJson('vdoc_3', title: 'Car insurance', category: 'other', state: 'valid', days: 200)],
+          'items': [
+            docJson('vdoc_3',
+                title: 'Car insurance',
+                category: 'other',
+                state: 'valid',
+                days: 200)
+          ],
           'next_cursor': null
         });
       }
       return ok({
         'items': [
           if (!trashed) docJson('vdoc_1'),
-          docJson('vdoc_2', title: 'Tenancy contract', category: 'contract', state: 'expired', days: -3),
+          docJson('vdoc_2',
+              title: 'Tenancy contract',
+              category: 'contract',
+              state: 'expired',
+              days: -3),
         ],
         'next_cursor': 'cursor_2',
       });
     }
     if (r.method == 'GET' && path == '$base/vdoc_1') {
-      return ok(docJson('vdoc_1', status: trashed ? 'deleted' : 'active', links: links));
+      return ok(docJson('vdoc_1',
+          status: trashed ? 'deleted' : 'active', links: links));
     }
     if (r.method == 'POST' && path == '$base/vdoc_1/number') {
       return ok({'number': 'X1234'});
@@ -196,8 +235,8 @@ class FakeUploads implements MeetingUploadTransfer {
   bool duplicateOnce = false;
 
   @override
-  Future<JsonMap> uploadTo(String endpoint, Map<String, String> query,
-      String path,
+  Future<JsonMap> uploadTo(
+      String endpoint, Map<String, String> query, String path,
       {required void Function(int sent, int total) onProgress,
       required UploadCancellation cancellation}) async {
     calls.add((endpoint, query, path));
@@ -207,14 +246,16 @@ class FakeUploads implements MeetingUploadTransfer {
     }
     onProgress(5, 10);
     onProgress(10, 10);
-    return docJson('vdoc_9', title: query['title'] ?? 'Upload', state: 'none', days: null);
+    return docJson('vdoc_9',
+        title: query['title'] ?? 'Upload', state: 'none', days: null);
   }
 }
 
 class FakeSaver implements VaultFileSaver {
   final saved = <(String, String, String?)>[];
   @override
-  Future<void> save(String documentId, String name, {String? versionId}) async =>
+  Future<void> save(String documentId, String name,
+          {String? versionId}) async =>
       saved.add((documentId, name, versionId));
 }
 
@@ -225,14 +266,15 @@ Future<(FakeUploads, FakeSaver)> pumpVault(WidgetTester tester, VaultApi fake,
     FakeUploads? uploads}) async {
   final transfer = uploads ?? FakeUploads();
   final saver = FakeSaver();
-  final controller = VaultController(ApiVaultRepository(fake.api.client(),
-      transfer: transfer, saver: saver));
+  final controller = VaultController(
+      ApiVaultRepository(fake.api.client(), transfer: transfer, saver: saver));
   addTearDown(controller.dispose);
   await pumpModule(
       tester,
       VaultScreen(
           controller: controller,
-          picker: (_) async => ('/tmp/example/receipt.pdf', 'receipt.pdf', 2048)),
+          picker: (_) async =>
+              ('/tmp/example/receipt.pdf', 'receipt.pdf', 2048)),
       size: size,
       textScale: textScale,
       locale: locale);
@@ -273,9 +315,13 @@ void main() {
     test('an upload sends name, title, category and access as the query',
         () async {
       final uploads = FakeUploads();
-      final repo = ApiVaultRepository(VaultApi().api.client(), transfer: uploads);
+      final repo =
+          ApiVaultRepository(VaultApi().api.client(), transfer: uploads);
       await repo.upload('/tmp/example/a.pdf',
-          name: 'a.pdf', title: 'Receipt', category: 'receipt', accessClass: 'private');
+          name: 'a.pdf',
+          title: 'Receipt',
+          category: 'receipt',
+          accessClass: 'private');
       expect(uploads.calls.single.$1, 'api/v1/documents');
       expect(uploads.calls.single.$2, {
         'name': 'a.pdf',
@@ -333,10 +379,15 @@ void main() {
       await tapVisible(tester, find.byKey(const Key('doc-vdoc_1')));
       await tapVisible(tester, find.byKey(const Key('vault-add-link')));
       await tester.enterText(find.byKey(const Key('field-target_id')), 'veh_1');
-      await tester.enterText(find.byKey(const Key('field-label')), 'Family car');
+      await tester.enterText(
+          find.byKey(const Key('field-label')), 'Family car');
       await tapVisible(tester, find.byKey(const Key('form-submit')));
-      expect(fake.api.sent('POST', '/api/v1/documents/vdoc_1/links').single.body,
-          {'target_type': 'vehicle', 'target_id': 'veh_1', 'label': 'Family car'});
+      expect(
+          fake.api.sent('POST', '/api/v1/documents/vdoc_1/links').single.body, {
+        'target_type': 'vehicle',
+        'target_id': 'veh_1',
+        'label': 'Family car'
+      });
       expect(find.text('Family car'), findsOneWidget);
       await tapVisible(tester, find.byKey(const Key('link-remove-vlink_1')));
       expect(find.text('Not linked to anything.'), findsOneWidget);
@@ -348,7 +399,8 @@ void main() {
       expect(find.textContaining('Removed for good on'), findsWidgets);
       await clearToasts(tester);
       await tapVisible(tester, find.byKey(const Key('vault-restore')));
-      expect(fake.api.sent('POST', '/api/v1/documents/vdoc_1/restore'), hasLength(1));
+      expect(fake.api.sent('POST', '/api/v1/documents/vdoc_1/restore'),
+          hasLength(1));
       expectClean(tester);
     });
 
@@ -378,7 +430,8 @@ void main() {
       fake.api.failMessage = 'Object storage is not reachable.';
       await pumpVault(tester, fake);
       expect(find.byKey(const Key('records-error')), findsOneWidget);
-      expect(find.textContaining('Object storage is not reachable.'), findsOneWidget);
+      expect(find.textContaining('Object storage is not reachable.'),
+          findsOneWidget);
     });
 
     testWidgets('a viewer is told who can see documents', (tester) async {

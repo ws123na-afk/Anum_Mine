@@ -77,7 +77,8 @@ class AttendanceController extends ChangeNotifier {
 
   /// Records [kind] now with one idempotency key per press. A repeat of
   /// the same key (a lost answer) is stored once by the API.
-  Future<AttendanceEvent> check(String kind, {String? siteId, String? key}) async {
+  Future<AttendanceEvent> check(String kind,
+      {String? siteId, String? key}) async {
     checking = kind;
     _notify();
     try {

@@ -221,7 +221,12 @@ class _AttendanceScreenState extends State<AttendanceScreen> {
                 isScrollable: true,
                 tabAlignment: TabAlignment.start,
                 tabs: [
-                  for (final tab in ['today', 'history', 'reports', 'corrections'])
+                  for (final tab in [
+                    'today',
+                    'history',
+                    'reports',
+                    'corrections'
+                  ])
                     Tab(key: Key('tab-$tab'), text: s.t('tab.$tab')),
                 ],
               ),

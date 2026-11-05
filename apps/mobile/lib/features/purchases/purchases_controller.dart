@@ -78,8 +78,8 @@ class PurchaseDetailController extends ChangeNotifier {
   Future<void> move(String to) async {
     final current = detail!.purchase;
     try {
-      detail = await repository.move(purchaseId,
-          to: to, version: current.version);
+      detail =
+          await repository.move(purchaseId, to: to, version: current.version);
       onChanged?.call(detail!.purchase);
       _notify();
       await timeline.load();

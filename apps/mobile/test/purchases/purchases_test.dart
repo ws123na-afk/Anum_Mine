@@ -123,7 +123,8 @@ class PurchasesApi {
   late final api = FakeApi(route);
 
   Map<String, Object?> detail() => {
-        ...purchaseJson('pur_1', status: status, version: version, payment: payment),
+        ...purchaseJson('pur_1',
+            status: status, version: version, payment: payment),
         'items': [
           {
             'id': 'pitem_1',
@@ -179,7 +180,8 @@ class PurchasesApi {
       if (staleOnce) {
         staleOnce = false;
         version += 1;
-        return refuse(409,
+        return refuse(
+            409,
             'This purchase changed since you opened it. Reload and try again.',
             'stale');
       }
@@ -217,7 +219,8 @@ class PurchasesApi {
       return ok({
         'items': [
           {
-            'canonical_id': q['kind'] == 'refund' ? 'canon_refund' : 'canon_pay',
+            'canonical_id':
+                q['kind'] == 'refund' ? 'canon_refund' : 'canon_pay',
             'posted_on': '2026-11-01',
             'merchant': 'NOON',
             'category': 'shopping',
@@ -267,7 +270,9 @@ class PurchasesApi {
 }
 
 Future<void> pumpPurchases(WidgetTester tester, PurchasesApi fake,
-    {Size size = phone, double textScale = 1, Locale locale = const Locale('en')}) async {
+    {Size size = phone,
+    double textScale = 1,
+    Locale locale = const Locale('en')}) async {
   final controller =
       PurchasesController(ApiPurchasesRepository(fake.api.client()));
   addTearDown(controller.dispose);
@@ -304,8 +309,10 @@ void main() {
     test('a move sends the version; a stale one keeps its code', () async {
       final fake = PurchasesApi()..staleOnce = true;
       final repo = ApiPurchasesRepository(fake.api.client());
-      await expectLater(repo.move('pur_1', to: 'delivered', version: 3),
-          throwsA(isA<ApiException>().having((e) => isStale(e), 'stale', isTrue)));
+      await expectLater(
+          repo.move('pur_1', to: 'delivered', version: 3),
+          throwsA(
+              isA<ApiException>().having((e) => isStale(e), 'stale', isTrue)));
       final moved = await repo.move('pur_1', to: 'delivered', version: 4);
       expect(moved.purchase.status, 'delivered');
       expect(fake.api.requests.last.body, {'to': 'delivered', 'version': 4});
@@ -335,7 +342,8 @@ void main() {
       expect(find.text('2 × Phone case'), findsOneWidget);
       expect(find.text('Ordered → Shipped'), findsOneWidget);
       await tapVisible(tester, find.byKey(const Key('move-delivered')));
-      expect(fake.api.sent('POST', '/api/v1/purchases/pur_1/status').single.body,
+      expect(
+          fake.api.sent('POST', '/api/v1/purchases/pur_1/status').single.body,
           {'to': 'delivered', 'version': 3});
       expect(find.text('Shipped → Delivered'), findsOneWidget);
       expectClean(tester);
@@ -367,7 +375,8 @@ void main() {
       await tester.enterText(
           find.byKey(const Key('field-reason_note')), 'Screen cracked');
       await tapVisible(tester, find.byKey(const Key('form-submit')));
-      final sent = fake.api.sent('POST', '/api/v1/purchases/pur_1/returns').single;
+      final sent =
+          fake.api.sent('POST', '/api/v1/purchases/pur_1/returns').single;
       expect(sent.body!['reason'], 'damaged');
       expect(sent.headers['Idempotency-Key'], startsWith('ret'));
       expect(find.text('Damaged · Requested'), findsOneWidget);
@@ -381,7 +390,8 @@ void main() {
       await tapVisible(tester, find.byKey(const Key('purchase-pur_1')));
       await tapVisible(tester, find.byKey(const Key('purchase-link-payment')));
       await tapVisible(tester, find.byKey(const Key('candidate-canon_pay')));
-      expect(fake.api.sent('POST', '/api/v1/purchases/pur_1/payment'), hasLength(1));
+      expect(fake.api.sent('POST', '/api/v1/purchases/pur_1/payment'),
+          hasLength(1));
       expect(find.text('AED 199.99, linked'), findsOneWidget);
       await tapVisible(tester, find.byKey(const Key('return-refund-pret_1')));
       expect(fake.api.requests.last.uri.queryParameters['kind'], 'refund');

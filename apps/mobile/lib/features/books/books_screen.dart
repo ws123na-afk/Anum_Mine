@@ -50,7 +50,8 @@ class _BooksScreenState extends State<BooksScreen> {
 
   Future<void> _setUp() async {
     final b = BooksStrings.of(context);
-    final months = DateFormat.MMMM(Localizations.localeOf(context).languageCode);
+    final months =
+        DateFormat.MMMM(Localizations.localeOf(context).languageCode);
     final saved = await openRecordsForm(
       context,
       RecordsForm(
@@ -86,7 +87,9 @@ class _BooksScreenState extends State<BooksScreen> {
         }),
       ),
     );
-    if (saved && mounted) recordsToast(context, KitStrings.of(context).t('saved'));
+    if (saved && mounted) {
+      recordsToast(context, KitStrings.of(context).t('saved'));
+    }
   }
 
   @override
@@ -263,7 +266,10 @@ class _PnlView extends StatelessWidget {
     children.add(RecordsSection(title: b.t('statement'), children: [
       group('revenue', report.revenue),
       group('cost_of_sales', report.costOfSales),
-      _Line(label: b.t('pnl.gross_profit'), amount: money(report.grossProfit), bold: true),
+      _Line(
+          label: b.t('pnl.gross_profit'),
+          amount: money(report.grossProfit),
+          bold: true),
       group('operating_expenses', report.operatingExpenses),
       _Line(
           label: b.t('pnl.operating_profit'),
@@ -271,9 +277,14 @@ class _PnlView extends StatelessWidget {
           bold: true),
       group('other_income', report.otherIncome),
       group('finance_costs', report.financeCosts),
-      _Line(label: b.t('pnl.fx_differences'), amount: money(report.fxDifferences)),
+      _Line(
+          label: b.t('pnl.fx_differences'),
+          amount: money(report.fxDifferences)),
       const Divider(),
-      _Line(label: b.t('pnl.net_profit'), amount: money(report.netProfit), bold: true),
+      _Line(
+          label: b.t('pnl.net_profit'),
+          amount: money(report.netProfit),
+          bold: true),
     ]));
     children.add(RecordsSection(title: b.t('owed'), children: [
       RecordsField(b.t('receivables'), _amounts(context, report.receivables)),
@@ -361,8 +372,12 @@ class _BillsView extends StatelessWidget {
           onRetry: list.load));
     } else {
       children.add(Text(
-        '${b.t('openTotal', {'amounts': _amounts(context, controller.openTotals)})}\n'
-        '${b.t('overdueTotal', {'amounts': _amounts(context, controller.overdueTotals)})}',
+        '${b.t('openTotal', {
+              'amounts': _amounts(context, controller.openTotals)
+            })}\n'
+        '${b.t('overdueTotal', {
+              'amounts': _amounts(context, controller.overdueTotals)
+            })}',
         key: const Key('bills-totals'),
       ));
       if (list.items.isEmpty) {
@@ -391,7 +406,8 @@ class _BillsView extends StatelessWidget {
                 title: bill.vendorName,
                 subtitle: [
                   _money(context, bill.total, bill.currency),
-                  b.label('state', bill.status == 'void' ? 'void' : bill.paymentState),
+                  b.label('state',
+                      bill.status == 'void' ? 'void' : bill.paymentState),
                   if (bill.reference.isNotEmpty) bill.reference,
                 ].join(' · '),
                 detail: bill.overdue
@@ -472,7 +488,13 @@ class _BillScreenState extends State<BillScreen> {
           RecordsInput.choice('method', b.t('method'),
               initial: 'bank_transfer',
               options: {
-                for (final m in ['bank_transfer', 'cash', 'card', 'cheque', 'other'])
+                for (final m in [
+                  'bank_transfer',
+                  'cash',
+                  'card',
+                  'cheque',
+                  'other'
+                ])
                   m: b.t('method.$m')
               }),
           RecordsInput.text('reference', b.t('reference'), maxLength: 120),
@@ -554,11 +576,14 @@ class _BillScreenState extends State<BillScreen> {
                 const SizedBox(height: AnumSpacing.xs),
                 RecordsField(b.t('reference'), bill.reference),
                 if (bill.description.isNotEmpty) Text(bill.description),
-                RecordsField(b.t('billDate'), recordsDate(context, bill.billDate)),
-                RecordsField(b.t('dueDate'), recordsDate(context, bill.dueDate)),
+                RecordsField(
+                    b.t('billDate'), recordsDate(context, bill.billDate)),
+                RecordsField(
+                    b.t('dueDate'), recordsDate(context, bill.dueDate)),
                 RecordsField(b.t('subtotal'),
                     _money(context, bill.subtotal, bill.currency)),
-                RecordsField(b.t('tax'), _money(context, bill.tax, bill.currency)),
+                RecordsField(
+                    b.t('tax'), _money(context, bill.tax, bill.currency)),
                 RecordsField(
                     b.t('total'), _money(context, bill.total, bill.currency)),
                 RecordsField(b.t('paid'),

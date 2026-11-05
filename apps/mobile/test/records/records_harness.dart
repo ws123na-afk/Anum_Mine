@@ -37,8 +37,8 @@ class FakeApi implements ApiTransport {
         const ApiResponse(statusCode: 404, body: {'detail': 'Not found'});
   }
 
-  Iterable<ApiRequest> sent(String method, String path) => requests
-      .where((r) => r.method == method && r.uri.path == path);
+  Iterable<ApiRequest> sent(String method, String path) =>
+      requests.where((r) => r.method == method && r.uri.path == path);
 
   AnumApiClient client() => AnumApiClient(
       baseUri: Uri.parse('https://api.example.test/'),

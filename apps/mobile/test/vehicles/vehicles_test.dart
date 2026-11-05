@@ -145,7 +145,7 @@ class VehiclesApi {
         return refuse(
             409,
             'The odometer cannot go down: 42000.0 km was recorded on 2026-11-02. '
-            'If the odometer was replaced or a reading was wrong, add a correction with a reason.',
+                'If the odometer was replaced or a reading was wrong, add a correction with a reason.',
             'odometer_decrease');
       }
       final body = r.body!;
@@ -202,8 +202,11 @@ class VehiclesApi {
 }
 
 Future<VehiclesController> pumpVehicles(WidgetTester tester, VehiclesApi fake,
-    {Size size = phone, double textScale = 1, Locale locale = const Locale('en')}) async {
-  final controller = VehiclesController(ApiVehiclesRepository(fake.api.client()));
+    {Size size = phone,
+    double textScale = 1,
+    Locale locale = const Locale('en')}) async {
+  final controller =
+      VehiclesController(ApiVehiclesRepository(fake.api.client()));
   addTearDown(controller.dispose);
   await pumpModule(tester, VehiclesScreen(controller: controller),
       size: size, textScale: textScale, locale: locale);
@@ -257,8 +260,10 @@ void main() {
       final repo = ApiVehiclesRepository(fake.api.client());
       await repo.addReading('veh_1',
           readingKm: '100', correction: true, reason: 'New odometer');
-      final body = fake.api.sent('POST', '/api/v1/vehicles/veh_1/odometer').single.body!;
-      expect(body, {'reading_km': '100', 'correction': true, 'reason': 'New odometer'});
+      final body =
+          fake.api.sent('POST', '/api/v1/vehicles/veh_1/odometer').single.body!;
+      expect(body,
+          {'reading_km': '100', 'correction': true, 'reason': 'New odometer'});
     });
 
     test('linking a payment posts the canonical id', () async {
@@ -298,7 +303,8 @@ void main() {
       await tapVisible(tester, find.byKey(const Key('vehicle-veh_1')));
       await tapVisible(tester, find.byKey(const Key('vehicle-add-fuel')));
       await tester.enterText(find.byKey(const Key('field-litres')), '30,5');
-      await tester.enterText(find.byKey(const Key('field-odometer_km')), '42100');
+      await tester.enterText(
+          find.byKey(const Key('field-odometer_km')), '42100');
       await tapVisible(tester, find.byKey(const Key('form-submit')));
       final sent = fake.api.sent('POST', '/api/v1/vehicles/veh_1/fuel').single;
       expect(sent.body!['litres'], '30.5');
@@ -315,17 +321,21 @@ void main() {
       await tapVisible(tester, find.byKey(const Key('vehicle-veh_1')));
       await tapVisible(tester, find.byKey(const Key('vehicle-add-fuel')));
       await tester.enterText(find.byKey(const Key('field-litres')), '20');
-      await tester.enterText(find.byKey(const Key('field-odometer_km')), '41000');
+      await tester.enterText(
+          find.byKey(const Key('field-odometer_km')), '41000');
       await tapVisible(tester, find.byKey(const Key('form-submit')));
-      expect(find.textContaining('The odometer cannot go down'), findsOneWidget);
+      expect(
+          find.textContaining('The odometer cannot go down'), findsOneWidget);
       await tapVisible(tester, find.byKey(const Key('odometer-correction')));
       // The correction form opens with the typed kilometres and the switch on.
-      final field = tester.widget<TextFormField>(
-          find.byKey(const Key('field-reading_km')));
+      final field = tester
+          .widget<TextFormField>(find.byKey(const Key('field-reading_km')));
       expect(field.controller!.text, '41000');
-      await tester.enterText(find.byKey(const Key('field-reason')), 'Odometer replaced');
+      await tester.enterText(
+          find.byKey(const Key('field-reason')), 'Odometer replaced');
       await tapVisible(tester, find.byKey(const Key('form-submit')));
-      final body = fake.api.sent('POST', '/api/v1/vehicles/veh_1/odometer').single.body!;
+      final body =
+          fake.api.sent('POST', '/api/v1/vehicles/veh_1/odometer').single.body!;
       expect(body['correction'], true);
       expect(body['reason'], 'Odometer replaced');
       expectClean(tester);
@@ -339,8 +349,9 @@ void main() {
       await tester.tap(find.byKey(const Key('menu-link')));
       await tester.pumpAndSettle();
       await tapVisible(tester, find.byKey(const Key('candidate-canon_1')));
-      expect(fake.api.sent('POST',
-              '/api/v1/vehicles/costs/fuel_entry/vfuel_1/payment'),
+      expect(
+          fake.api.sent(
+              'POST', '/api/v1/vehicles/costs/fuel_entry/vfuel_1/payment'),
           hasLength(1));
       expect(find.textContaining('linked'), findsWidgets);
       expectClean(tester);
@@ -359,7 +370,8 @@ void main() {
       fake.api.failMessage = 'The vehicles service is unavailable.';
       await pumpVehicles(tester, fake);
       expect(find.byKey(const Key('records-error')), findsOneWidget);
-      expect(find.textContaining('The vehicles service is unavailable.'), findsOneWidget);
+      expect(find.textContaining('The vehicles service is unavailable.'),
+          findsOneWidget);
       fake.api.failWith = null;
       await tester.tap(find.text('Try again'));
       await tester.pumpAndSettle();

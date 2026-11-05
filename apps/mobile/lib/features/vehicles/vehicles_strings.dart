@@ -178,8 +178,7 @@ class VehiclesStrings extends ModuleStrings {
     'personal': 'شخصية',
     'business': 'للعمل',
     'mine': 'أضفتها أنت',
-    'readOnly':
-        'لا يغيّر سجلات هذه المركبة إلا من أضافها أو مالك مساحة العمل.',
+    'readOnly': 'لا يغيّر سجلات هذه المركبة إلا من أضافها أو مالك مساحة العمل.',
     'details': 'التفاصيل',
     'tab.fuel': 'الوقود',
     'tab.trips': 'الرحلات',

@@ -44,13 +44,16 @@ class HttpVaultFileSaver implements VaultFileSaver {
     final uri = baseUri
         .resolve('api/v1/documents/${Uri.encodeComponent(documentId)}/content')
         .replace(
-            queryParameters: versionId == null ? null : {'version_id': versionId});
+            queryParameters:
+                versionId == null ? null : {'version_id': versionId});
     final response = await _client.get(uri, headers: sessionHeaders(session));
     if (response.statusCode < 200 || response.statusCode >= 300) {
       var message = 'The download failed (${response.statusCode}).';
       try {
         final body = jsonDecode(response.body);
-        if (body is Map && body['detail'] is String) message = body['detail'] as String;
+        if (body is Map && body['detail'] is String) {
+          message = body['detail'] as String;
+        }
       } on FormatException {
         // Not JSON: keep the status sentence.
       }

@@ -27,7 +27,9 @@ Map<String, Object?> eventJson(String id, String kind, String at) => {
       'note': null,
     };
 
-Map<String, Object?> dayJson(String day, {int worked = 0, List<String> flags = const []}) => {
+Map<String, Object?> dayJson(String day,
+        {int worked = 0, List<String> flags = const []}) =>
+    {
       'day': day,
       'time_zone': 'Asia/Dubai',
       'presence_seconds': worked,
@@ -115,7 +117,8 @@ class AttendanceApi {
     if (r.method == 'POST' && path == '$base/check') {
       final kind = r.body!['kind']! as String;
       checkedIn = kind == 'arrive';
-      final event = eventJson('aev_${events.length + 1}', kind, '2026-11-05T05:00:00Z');
+      final event =
+          eventJson('aev_${events.length + 1}', kind, '2026-11-05T05:00:00Z');
       events.add(event);
       return ok({'event': event, 'duplicate': false}, 201);
     }
@@ -124,7 +127,7 @@ class AttendanceApi {
       return okList([
         for (var i = 0; i < 7; i++)
           dayJson(
-              '${from.add(Duration(days: i)).toIso8601String().substring(0, 10)}',
+              from.add(Duration(days: i)).toIso8601String().substring(0, 10),
               worked: empty ? 0 : (i == 2 ? 28800 : 0),
               flags: !empty && i == 2 ? ['missing_checkout'] : const []),
       ]);
@@ -142,7 +145,8 @@ class AttendanceApi {
       }
       if (r.method == 'PUT') {
         final current = reports[day];
-        if (current != null && r.body!['expected_version'] != current['version']) {
+        if (current != null &&
+            r.body!['expected_version'] != current['version']) {
           return refuse(409, 'This report changed in another tab. Reload it.');
         }
         final saved = {
@@ -186,7 +190,9 @@ class AttendanceApi {
 }
 
 Future<void> pumpAttendance(WidgetTester tester, AttendanceApi fake,
-    {Size size = phone, double textScale = 1, Locale locale = const Locale('en')}) async {
+    {Size size = phone,
+    double textScale = 1,
+    Locale locale = const Locale('en')}) async {
   final controller = AttendanceController(
       ApiAttendanceRepository(fake.api.client()),
       now: () => DateTime(2026, 11, 5, 9));
@@ -248,9 +254,12 @@ void main() {
     test('other refusals keep their status', () async {
       final fake = AttendanceApi();
       fake.api.failWith = 409;
-      fake.api.failMessage = 'That record was already changed. Refresh to see the current one.';
-      await expectLater(ApiAttendanceRepository(fake.api.client()).report('2026-11-05'),
-          throwsA(isA<ApiException>().having((e) => e.statusCode, 'status', 409)));
+      fake.api.failMessage =
+          'That record was already changed. Refresh to see the current one.';
+      await expectLater(
+          ApiAttendanceRepository(fake.api.client()).report('2026-11-05'),
+          throwsA(
+              isA<ApiException>().having((e) => e.statusCode, 'status', 409)));
     });
   });
 
@@ -265,7 +274,8 @@ void main() {
       await tester.tap(find.text('Head office').last);
       await tester.pumpAndSettle();
       await tapVisible(tester, find.byKey(const Key('check-arrive')));
-      final sent = fake.api.sent('POST', '/api/v1/attendance/check').single.body!;
+      final sent =
+          fake.api.sent('POST', '/api/v1/attendance/check').single.body!;
       expect(sent['kind'], 'arrive');
       expect(sent['site_id'], 'asite_1');
       expect(sent['idempotency_key'], startsWith('att'));
@@ -280,19 +290,27 @@ void main() {
       final fake = AttendanceApi();
       await pumpAttendance(tester, fake);
       await tapVisible(tester, find.byKey(const Key('attendance-write-today')));
-      await tester.enterText(find.byKey(const Key('field-project')), 'Warehouse move');
       await tester.enterText(
-          find.byKey(const Key('field-tasks_done')), 'Packed shelves\n\nMoved desks');
+          find.byKey(const Key('field-project')), 'Warehouse move');
+      await tester.enterText(find.byKey(const Key('field-tasks_done')),
+          'Packed shelves\n\nMoved desks');
       await tapVisible(tester, find.byKey(const Key('form-submit')));
-      var body = fake.api.sent('PUT', '/api/v1/attendance/daily-reports/2026-11-05').single.body!;
+      var body = fake.api
+          .sent('PUT', '/api/v1/attendance/daily-reports/2026-11-05')
+          .single
+          .body!;
       expect(body['tasks_done'], ['Packed shelves', 'Moved desks']);
       expect(body['expected_version'], isNull);
 
       await tapVisible(tester, find.byKey(const Key('tab-reports')));
       await tapVisible(tester, find.byKey(const Key('report-2026-11-05')));
-      await tester.enterText(find.byKey(const Key('field-project')), 'Warehouse move B');
+      await tester.enterText(
+          find.byKey(const Key('field-project')), 'Warehouse move B');
       await tapVisible(tester, find.byKey(const Key('form-submit')));
-      body = fake.api.sent('PUT', '/api/v1/attendance/daily-reports/2026-11-05').last.body!;
+      body = fake.api
+          .sent('PUT', '/api/v1/attendance/daily-reports/2026-11-05')
+          .last
+          .body!;
       expect(body['expected_version'], 1);
       expect(body['project'], 'Warehouse move B');
       expectClean(tester);
@@ -305,7 +323,11 @@ void main() {
       expect(find.text('No check out'), findsOneWidget);
       expect(find.byKey(const Key('week-later')), findsNothing);
       await tapVisible(tester, find.byKey(const Key('week-earlier')));
-      final query = fake.api.sent('GET', '/api/v1/attendance/days').last.uri.queryParameters;
+      final query = fake.api
+          .sent('GET', '/api/v1/attendance/days')
+          .last
+          .uri
+          .queryParameters;
       expect(query, {'from': '2026-10-23', 'to': '2026-10-29'});
       expect(find.byKey(const Key('week-later')), findsOneWidget);
       expectClean(tester);
@@ -319,9 +341,11 @@ void main() {
       expect(find.byKey(const Key('corrections-empty')), findsOneWidget);
       await tapVisible(tester, find.byKey(const Key('attendance-add-missing')));
       await tester.enterText(find.byKey(const Key('field-time')), '08:15');
-      await tester.enterText(find.byKey(const Key('field-reason')), 'Forgot to check in');
+      await tester.enterText(
+          find.byKey(const Key('field-reason')), 'Forgot to check in');
       await tapVisible(tester, find.byKey(const Key('form-submit')));
-      final body = fake.api.sent('POST', '/api/v1/attendance/corrections').single.body!;
+      final body =
+          fake.api.sent('POST', '/api/v1/attendance/corrections').single.body!;
       expect(body['action'], 'add');
       expect(body['kind'], 'arrive');
       expect(body['reason'], 'Forgot to check in');
@@ -330,8 +354,7 @@ void main() {
       expectClean(tester);
     });
 
-    testWidgets('empty history offers to add a missing record',
-        (tester) async {
+    testWidgets('empty history offers to add a missing record', (tester) async {
       await pumpAttendance(tester, AttendanceApi(empty: true));
       await tapVisible(tester, find.byKey(const Key('tab-history')));
       expect(find.text('No records in these days.'), findsOneWidget);
@@ -358,7 +381,8 @@ void main() {
 
     testWidgets('Arabic, 320 px, 200 percent text, then a tablet',
         (tester) async {
-      final fake = AttendanceApi()..reports['2026-11-04'] = reportJson('2026-11-04');
+      final fake = AttendanceApi()
+        ..reports['2026-11-04'] = reportJson('2026-11-04');
       await pumpAttendance(tester, fake,
           size: narrow, textScale: 2, locale: const Locale('ar'));
       expect(find.text('الحضور'), findsWidgets);

@@ -466,7 +466,8 @@ class _PurchaseDetailHostState extends State<PurchaseDetailHost> {
                       ]),
                   const SizedBox(height: AnumSpacing.xs),
                   RecordsField(s.t('orderRef'), p.orderRef),
-                  RecordsField(s.t('orderedOn'), recordsDate(context, p.orderedOn)),
+                  RecordsField(
+                      s.t('orderedOn'), recordsDate(context, p.orderedOn)),
                   RecordsField(
                       s.t('total'),
                       p.total == null
@@ -525,8 +526,8 @@ class _PurchaseDetailHostState extends State<PurchaseDetailHost> {
                 RecordsSection(title: s.t('items'), children: [
                   for (final item in detail.items)
                     Padding(
-                      padding: const EdgeInsets.symmetric(
-                          vertical: AnumSpacing.xxs),
+                      padding:
+                          const EdgeInsets.symmetric(vertical: AnumSpacing.xxs),
                       child: Text(s.t('itemLine', {
                         'quantity': item.quantity,
                         'description': item.description

@@ -110,7 +110,10 @@ class Purchase {
 
 class PurchaseItem {
   const PurchaseItem(
-      {required this.id, required this.description, required this.quantity, this.unitPrice});
+      {required this.id,
+      required this.description,
+      required this.quantity,
+      this.unitPrice});
   factory PurchaseItem.fromJson(JsonReader j) => PurchaseItem(
       id: j.string('id'),
       description: j.string('description'),
@@ -303,8 +306,11 @@ class ApiPurchasesRepository implements PurchasesRepository {
   Future<PurchaseDetail> move(String id,
           {required String to, required int version, String? note}) async =>
       PurchaseDetail.fromJson(JsonReader(await api.request(
-          'POST', '$_base/${_id(id)}/status',
-          body: {'to': to, 'version': version, if (note != null) 'note': note})));
+          'POST', '$_base/${_id(id)}/status', body: {
+        'to': to,
+        'version': version,
+        if (note != null) 'note': note
+      })));
 
   @override
   Future<RecordsChunk<PurchaseEvent>> events(String id,
@@ -313,7 +319,10 @@ class ApiPurchasesRepository implements PurchasesRepository {
           JsonReader(await api.request(
               'GET',
               '$_base/${_id(id)}/events'
-                  '${recordsQuery({'offset': token ?? 0, 'limit': pageSize})}')),
+                  '${recordsQuery({
+                    'offset': token ?? 0,
+                    'limit': pageSize
+                  })}')),
           PurchaseEvent.fromJson);
 
   @override

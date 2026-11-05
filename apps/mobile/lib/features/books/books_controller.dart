@@ -47,7 +47,8 @@ class BooksController extends ChangeNotifier {
     try {
       setup = await repository.setup();
       failure = null;
-      phase = setup!.permissions.read ? RecordsPhase.ready : RecordsPhase.denied;
+      phase =
+          setup!.permissions.read ? RecordsPhase.ready : RecordsPhase.denied;
     } on Object catch (error) {
       failure = RecordsFailure.from(error);
       phase = failure!.denied ? RecordsPhase.denied : RecordsPhase.error;
@@ -84,8 +85,8 @@ class BooksController extends ChangeNotifier {
     _notify();
     final dates = range();
     try {
-      report = await repository.report(
-          from: dates.from, to: dates.to, basis: basis);
+      report =
+          await repository.report(from: dates.from, to: dates.to, basis: basis);
       reportFailure = null;
       reportPhase = RecordsPhase.ready;
     } on Object catch (error) {

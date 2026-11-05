@@ -320,12 +320,12 @@ class ApiVehiclesRepository implements VehiclesRepository {
           Vehicle.fromJson);
 
   @override
-  Future<Vehicle> get(String id) async =>
-      Vehicle.fromJson(JsonReader(await api.request('GET', '$_base/${_id(id)}')));
+  Future<Vehicle> get(String id) async => Vehicle.fromJson(
+      JsonReader(await api.request('GET', '$_base/${_id(id)}')));
 
   @override
-  Future<Vehicle> create(Map<String, Object?> body) async =>
-      Vehicle.fromJson(JsonReader(await api.request('POST', _base, body: body)));
+  Future<Vehicle> create(Map<String, Object?> body) async => Vehicle.fromJson(
+      JsonReader(await api.request('POST', _base, body: body)));
 
   @override
   Future<List<VehicleDue>> reminders() async =>
@@ -341,13 +341,15 @@ class ApiVehiclesRepository implements VehiclesRepository {
 
   @override
   Future<RecordsChunk<VehicleRecord>> records(
-          VehicleRecordKind kind, String vehicleId,
-          {String? token}) async =>
+          VehicleRecordKind kind, String vehicleId, {String? token}) async =>
       RecordsChunk.offsetPage(
           JsonReader(await api.request(
               'GET',
               '$_base/${_id(vehicleId)}/${kind.path}'
-                  '${recordsQuery({'offset': token ?? 0, 'limit': pageSize})}')),
+                  '${recordsQuery({
+                    'offset': token ?? 0,
+                    'limit': pageSize
+                  })}')),
           (j) => _record(kind, j));
 
   @override

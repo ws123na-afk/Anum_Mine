@@ -23,8 +23,7 @@ class PurchasesStrings extends ModuleStrings {
     'filter.returns': 'Returns',
     'filter.closed': 'Closed',
     'empty': 'No purchases yet',
-    'emptyText':
-        'Add an order to follow its delivery, returns and refund.',
+    'emptyText': 'Add an order to follow its delivery, returns and refund.',
     'add': 'Add purchase',
     'merchant': 'Merchant',
     'orderRef': 'Order number',
@@ -46,7 +45,8 @@ class PurchasesStrings extends ModuleStrings {
     'items': 'Items',
     'itemLine': '{quantity} × {description}',
     'shipments': 'Shipments and tracking',
-    'shipmentsEmpty': 'No shipment yet. Add one with the carrier and tracking number.',
+    'shipmentsEmpty':
+        'No shipment yet. Add one with the carrier and tracking number.',
     'addShipment': 'Add shipment',
     'carrier': 'Carrier',
     'tracking': 'Tracking number',

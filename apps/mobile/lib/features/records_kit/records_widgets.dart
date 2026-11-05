@@ -351,8 +351,7 @@ Future<T?> showRecordsSheet<T>(
       showDragHandle: true,
       constraints: const BoxConstraints(maxWidth: 640),
       builder: (sheet) => Padding(
-        padding: EdgeInsets.only(
-            bottom: MediaQuery.viewInsetsOf(sheet).bottom),
+        padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(sheet).bottom),
         child: SingleChildScrollView(
           padding: const EdgeInsets.fromLTRB(
               AnumSpacing.md, 0, AnumSpacing.md, AnumSpacing.lg),

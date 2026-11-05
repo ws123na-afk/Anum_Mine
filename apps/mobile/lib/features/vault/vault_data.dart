@@ -11,7 +11,10 @@ import '../workspace/files_repository.dart' show UploadCancellation;
 
 class VaultCategory {
   const VaultCategory(
-      {required this.id, required this.builtIn, this.label, this.identity = false});
+      {required this.id,
+      required this.builtIn,
+      this.label,
+      this.identity = false});
   factory VaultCategory.fromJson(JsonReader j) => VaultCategory(
       id: j.string('id'),
       label: j.optString('label'),
@@ -282,8 +285,8 @@ class ApiVaultRepository implements VaultRepository {
 
   @override
   Future<VaultDocument> restoreVersion(String id, String versionId) async =>
-      VaultDocument.fromJson(JsonReader(await api.request('POST',
-          '$_base/${_id(id)}/versions/${_id(versionId)}/restore')));
+      VaultDocument.fromJson(JsonReader(await api.request(
+          'POST', '$_base/${_id(id)}/versions/${_id(versionId)}/restore')));
 
   @override
   Future<VaultLink> addLink(String id,
@@ -291,12 +294,11 @@ class ApiVaultRepository implements VaultRepository {
           required String targetId,
           String label = ''}) async =>
       VaultLink.fromJson(JsonReader(await api.request(
-          'POST', '$_base/${_id(id)}/links',
-          body: {
-            'target_type': targetType,
-            'target_id': targetId,
-            'label': label
-          })));
+          'POST', '$_base/${_id(id)}/links', body: {
+        'target_type': targetType,
+        'target_id': targetId,
+        'label': label
+      })));
 
   @override
   Future<void> removeLink(String id, String linkId) =>

@@ -100,7 +100,10 @@ class AttendanceToday {
 
 class AttendanceSite {
   const AttendanceSite(
-      {required this.id, required this.name, required this.kind, required this.archived});
+      {required this.id,
+      required this.name,
+      required this.kind,
+      required this.archived});
   factory AttendanceSite.fromJson(JsonReader j) => AttendanceSite(
       id: j.string('id'),
       name: j.string('name'),
@@ -192,8 +195,7 @@ abstract interface class AttendanceRepository {
   Future<List<AttendanceDay>> days(String from, String to);
   Future<RecordsChunk<AttendanceCorrection>> corrections({String? token});
   Future<AttendanceCorrection> correct(Map<String, Object?> body);
-  Future<RecordsChunk<AttendanceReport>> reports(
-      {String query, String? token});
+  Future<RecordsChunk<AttendanceReport>> reports({String query, String? token});
 
   /// The report of [day], or null when none was written yet.
   Future<AttendanceReport?> report(String day);
@@ -219,16 +221,16 @@ class ApiAttendanceRepository implements AttendanceRepository {
   Future<AttendanceEvent> check(String kind,
           {required String idempotencyKey, String? siteId}) async =>
       AttendanceEvent.fromJson(JsonReader(await api.request(
-              'POST', '$_base/check',
-              body: {
-                'kind': kind,
-                'site_id': siteId,
-                'idempotency_key': idempotencyKey
-              }))
+              'POST', '$_base/check', body: {
+        'kind': kind,
+        'site_id': siteId,
+        'idempotency_key': idempotencyKey
+      }))
           .object('event'));
 
   @override
-  Future<List<AttendanceDay>> days(String from, String to) async =>
+  Future<List<AttendanceDay>> days(
+          String from, String to) async =>
       recordsListBody(
           await api.request(
               'GET', '$_base/days${recordsQuery({'from': from, 'to': to})}'),
@@ -239,8 +241,12 @@ class ApiAttendanceRepository implements AttendanceRepository {
       {String? token}) async {
     final offset = int.tryParse(token ?? '') ?? 0;
     return RecordsChunk.offsetPage(
-        JsonReader(await api.request('GET',
-            '$_base/corrections${recordsQuery({'limit': pageSize, 'offset': offset})}')),
+        JsonReader(await api.request(
+            'GET',
+            '$_base/corrections${recordsQuery({
+                  'limit': pageSize,
+                  'offset': offset
+                })}')),
         AttendanceCorrection.fromJson,
         offset: offset);
   }
@@ -285,6 +291,6 @@ class ApiAttendanceRepository implements AttendanceRepository {
           body: body)));
 
   @override
-  Future<void> deleteReport(String day) => api.request(
-      'DELETE', '$_base/daily-reports/${Uri.encodeComponent(day)}');
+  Future<void> deleteReport(String day) =>
+      api.request('DELETE', '$_base/daily-reports/${Uri.encodeComponent(day)}');
 }

@@ -18,11 +18,17 @@ class RecordsInput {
   const RecordsInput.text(String name, String label,
       {bool required = false, String? initial, String? help, int? maxLength})
       : this._(RecordsInputKind.text, name, label,
-            required: required, initial: initial, help: help, maxLength: maxLength);
+            required: required,
+            initial: initial,
+            help: help,
+            maxLength: maxLength);
   const RecordsInput.multiline(String name, String label,
       {bool required = false, String? initial, String? help, int? maxLength})
       : this._(RecordsInputKind.multiline, name, label,
-            required: required, initial: initial, help: help, maxLength: maxLength);
+            required: required,
+            initial: initial,
+            help: help,
+            maxLength: maxLength);
 
   /// A decimal: Arabic-Indic digits and a comma are accepted and sent as
   /// a plain decimal string.
@@ -123,8 +129,7 @@ class _RecordsFormState extends State<RecordsForm> {
           field.name: switch (field.kind) {
             RecordsInputKind.toggle => _toggle[field.name] ?? false,
             RecordsInputKind.choice => _choice[field.name],
-            RecordsInputKind.number =>
-              decimalText(_text[field.name]!.text),
+            RecordsInputKind.number => decimalText(_text[field.name]!.text),
             _ => _text[field.name]!.text.trim().isEmpty
                 ? null
                 : _text[field.name]!.text.trim(),
@@ -269,8 +274,7 @@ class _RecordsFormState extends State<RecordsForm> {
           ),
           if (widget.intro != null) ...[
             const SizedBox(height: AnumSpacing.xs),
-            Text(widget.intro!,
-                style: TextStyle(color: context.palette.muted)),
+            Text(widget.intro!, style: TextStyle(color: context.palette.muted)),
           ],
           for (final field in widget.fields) ...[
             const SizedBox(height: AnumSpacing.sm),

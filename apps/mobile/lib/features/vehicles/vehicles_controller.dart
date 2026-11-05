@@ -99,7 +99,8 @@ class VehicleDetailController extends ChangeNotifier {
     return record;
   }
 
-  Future<void> addReading(String km, {bool correction = false, String? reason}) async {
+  Future<void> addReading(String km,
+      {bool correction = false, String? reason}) async {
     await repository.addReading(vehicleId,
         readingKm: km, correction: correction, reason: reason);
     await _refreshVehicle();

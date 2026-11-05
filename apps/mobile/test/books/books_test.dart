@@ -48,7 +48,9 @@ Map<String, Object?> setupJson(
 Map<String, Object?> pnlGroup(List<Map<String, Object?>> lines, String total) =>
     {'lines': lines, 'total': total};
 
-Map<String, Object?> reportJson({String basis = 'accrual', bool empty = false}) => {
+Map<String, Object?> reportJson(
+        {String basis = 'accrual', bool empty = false}) =>
+    {
       'period': {'from': '2026-01-01', 'to': '2026-12-31', 'basis': basis},
       'base_currency': 'AED',
       'pnl': {
@@ -88,7 +90,11 @@ Map<String, Object?> reportJson({String basis = 'accrual', bool empty = false}) 
         'by_currency': <Object?>[],
         'allocations_without_tax_split': 0
       },
-      'cash_flow': {'lines': <String, Object?>{}, 'net': <Object?>[], 'paid_by_members': <String, Object?>{}},
+      'cash_flow': {
+        'lines': <String, Object?>{},
+        'net': <Object?>[],
+        'paid_by_members': <String, Object?>{}
+      },
       'balances': {
         'as_of': '2026-12-31',
         'aged_on': '2026-11-05',
@@ -186,7 +192,8 @@ Map<String, Object?> paymentJson(String id) => {
     };
 
 class BooksApi {
-  BooksApi({this.configured = true, this.manage = false, this.emptyBills = false});
+  BooksApi(
+      {this.configured = true, this.manage = false, this.emptyBills = false});
   bool configured, manage, emptyBills;
   String billState = 'unpaid';
   final payments = <Map<String, Object?>>[];
@@ -244,10 +251,14 @@ class BooksApi {
       billState = 'paid';
       return ok(
           billJson('bbill_1',
-              state: 'paid', balance: '0.00', canVoid: manage, payments: payments),
+              state: 'paid',
+              balance: '0.00',
+              canVoid: manage,
+              payments: payments),
           201);
     }
-    if (r.method == 'POST' && path == '$base/bills/bbill_1/payments/bpay_1/void') {
+    if (r.method == 'POST' &&
+        path == '$base/bills/bbill_1/payments/bpay_1/void') {
       if (!manage) {
         return refuse(
             403,
@@ -268,7 +279,9 @@ class BooksApi {
 }
 
 Future<BooksController> pumpBooks(WidgetTester tester, BooksApi fake,
-    {Size size = phone, double textScale = 1, Locale locale = const Locale('en')}) async {
+    {Size size = phone,
+    double textScale = 1,
+    Locale locale = const Locale('en')}) async {
   final controller = BooksController(ApiBooksRepository(fake.api.client()),
       today: () => DateTime(2026, 11, 5));
   addTearDown(controller.dispose);
@@ -290,7 +303,8 @@ void main() {
       expect(setup.configured, isTrue);
       expect(setup.permissions.manage, isFalse);
       expect(setup.periodFrom, '2026-01-01');
-      final report = await repo.report(from: '2026-01-01', to: '2026-12-31', basis: 'cash');
+      final report = await repo.report(
+          from: '2026-01-01', to: '2026-12-31', basis: 'cash');
       expect(report.basis, 'cash');
       expect(report.netProfit, '11850.00');
       expect(report.notConverted.single.currency, 'SAR');
@@ -316,10 +330,12 @@ void main() {
     test('a member voiding a payment gets the owner-only refusal', () async {
       final fake = BooksApi();
       final repo = ApiBooksRepository(fake.api.client());
-      await expectLater(repo.voidPayment('bbill_1', 'bpay_1', 'Typed twice'),
+      await expectLater(
+          repo.voidPayment('bbill_1', 'bpay_1', 'Typed twice'),
           throwsA(isA<ApiException>()
               .having((e) => e.isPermissionDenied, 'denied', isTrue)
-              .having((e) => e.message, 'message', contains('workspace owners'))));
+              .having(
+                  (e) => e.message, 'message', contains('workspace owners'))));
     });
   });
 
@@ -353,7 +369,8 @@ void main() {
       await tapVisible(tester, find.byKey(const Key('bill-bbill_1')));
       // Owner-only voids are explained, not offered, to a member.
       expect(find.byKey(const Key('bill-void')), findsNothing);
-      expect(find.textContaining('Only workspace owners can void'), findsOneWidget);
+      expect(find.textContaining('Only workspace owners can void'),
+          findsOneWidget);
       await tapVisible(tester, find.byKey(const Key('bill-pay')));
       await tapVisible(tester, find.byKey(const Key('form-submit')));
       final sent = fake.api
@@ -376,7 +393,8 @@ void main() {
       await tester.pumpAndSettle();
       await tapVisible(tester, find.byKey(const Key('bill-bbill_1')));
       await tapVisible(tester, find.byKey(const Key('void-payment-bpay_1')));
-      await tester.enterText(find.byKey(const Key('field-reason')), 'Typed twice');
+      await tester.enterText(
+          find.byKey(const Key('field-reason')), 'Typed twice');
       await tapVisible(tester, find.byKey(const Key('form-submit')));
       expect(find.textContaining('Voided: Typed twice'), findsOneWidget);
       expectClean(tester);
@@ -417,7 +435,8 @@ void main() {
       fake.api.failMessage = 'The books could not be read.';
       await pumpBooks(tester, fake);
       expect(find.byKey(const Key('records-error')), findsOneWidget);
-      expect(find.textContaining('The books could not be read.'), findsOneWidget);
+      expect(
+          find.textContaining('The books could not be read.'), findsOneWidget);
     });
 
     testWidgets('a viewer is told who can open the books', (tester) async {

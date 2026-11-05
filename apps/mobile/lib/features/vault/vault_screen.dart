@@ -32,9 +32,8 @@ String categoryLabel(BuildContext context, VaultMeta? meta, String id) {
         tone: AnumTone.stop
       ),
     'soon' => (
-        text: days == 0
-            ? s.t('state.today')
-            : s.t('state.soon', {'days': days}),
+        text:
+            days == 0 ? s.t('state.today') : s.t('state.soon', {'days': days}),
         tone: AnumTone.warn
       ),
     'valid' => (text: s.t('state.valid'), tone: AnumTone.ok),
@@ -71,7 +70,8 @@ class _VaultScreenState extends State<VaultScreen> {
     if (meta == null) return;
     final added = await showRecordsSheet<VaultDocument>(
       context,
-      (_) => _AddDocumentSheet(controller: c, meta: meta, picker: widget.picker),
+      (_) =>
+          _AddDocumentSheet(controller: c, meta: meta, picker: widget.picker),
     );
     if (added == null || !mounted) return;
     await c.changed(added);
@@ -265,8 +265,8 @@ class _VaultList extends StatelessWidget {
                   if (d.numberMasked != null) d.numberMasked!,
                 ].join(' · '),
                 detail: d.inTrash
-                    ? s.t('purgeOn',
-                        {'date': recordsDate(context, d.purgeAfter)})
+                    ? s.t(
+                        'purgeOn', {'date': recordsDate(context, d.purgeAfter)})
                     : expiryBadge(context, d).text,
                 trailing: const Icon(Icons.chevron_right),
                 onTap: () => onOpen(d),
@@ -407,7 +407,8 @@ class _AddDocumentSheetState extends State<_AddDocumentSheet> {
                   child: Text(categoryLabel(context, widget.meta, category.id),
                       overflow: TextOverflow.ellipsis)),
           ],
-          onChanged: busy ? null : (v) => setState(() => _category = v ?? 'other'),
+          onChanged:
+              busy ? null : (v) => setState(() => _category = v ?? 'other'),
         ),
         const SizedBox(height: AnumSpacing.sm),
         SegmentedButton<String>(
@@ -533,7 +534,9 @@ class _VaultDocumentHostState extends State<VaultDocumentHost> {
     setState(() => _progress = 0);
     await _run(
         () => _c.uploadVersion(picked.$1, onProgress: (sent, total) {
-              if (mounted && total > 0) setState(() => _progress = sent / total);
+              if (mounted && total > 0) {
+                setState(() => _progress = sent / total);
+              }
             }),
         s.t('versionAdded'));
     if (mounted) setState(() => _progress = null);
@@ -605,22 +608,33 @@ class _VaultDocumentHostState extends State<VaultDocumentHost> {
           final editable = d.canEdit && !d.inTrash;
           final linkTypes = meta?.linkTypes.isNotEmpty ?? false
               ? meta!.linkTypes
-              : const ['vehicle', 'person', 'business', 'purchase', 'finance_transaction'];
+              : const [
+                  'vehicle',
+                  'person',
+                  'business',
+                  'purchase',
+                  'finance_transaction'
+                ];
           return AnumPage(onRefresh: _c.load, children: [
             RecordsSection(title: d.title, children: [
-              Wrap(spacing: AnumSpacing.xs, runSpacing: AnumSpacing.xs, children: [
-                AnumPill(
-                    key: const Key('vault-expiry'),
-                    label: badge.text,
-                    tone: badge.tone,
-                    icon: Icons.event_outlined),
-                AnumPill(
-                    label: s.t(d.accessClass == 'private' ? 'private' : 'workspace'),
-                    icon: d.accessClass == 'private'
-                        ? Icons.lock_outline
-                        : Icons.groups_outlined),
-                AnumPill(label: categoryLabel(context, meta, d.category)),
-              ]),
+              Wrap(
+                  spacing: AnumSpacing.xs,
+                  runSpacing: AnumSpacing.xs,
+                  children: [
+                    AnumPill(
+                        key: const Key('vault-expiry'),
+                        label: badge.text,
+                        tone: badge.tone,
+                        icon: Icons.event_outlined),
+                    AnumPill(
+                        label: s.t(d.accessClass == 'private'
+                            ? 'private'
+                            : 'workspace'),
+                        icon: d.accessClass == 'private'
+                            ? Icons.lock_outline
+                            : Icons.groups_outlined),
+                    AnumPill(label: categoryLabel(context, meta, d.category)),
+                  ]),
               const SizedBox(height: AnumSpacing.xs),
               RecordsField(s.t('number'), d.numberMasked),
               if (d.numberMasked != null && d.isOwner && !d.inTrash)
@@ -634,13 +648,17 @@ class _VaultDocumentHostState extends State<VaultDocumentHost> {
                   ),
                 ),
               RecordsField(s.t('issueDate'), recordsDate(context, d.issueDate)),
-              RecordsField(s.t('expiryDate'), recordsDate(context, d.expiryDate)),
+              RecordsField(
+                  s.t('expiryDate'), recordsDate(context, d.expiryDate)),
               RecordsField(s.t('issuer'), d.issuer),
               RecordsField(s.t('country'), d.country),
-              if (d.tags.isNotEmpty) RecordsField(s.t('tags'), d.tags.join(', ')),
+              if (d.tags.isNotEmpty)
+                RecordsField(s.t('tags'), d.tags.join(', ')),
               if (d.description.isNotEmpty) Text(d.description),
               if (d.inTrash)
-                Text(s.t('purgeOn', {'date': recordsDate(context, d.purgeAfter)}),
+                Text(
+                    s.t('purgeOn',
+                        {'date': recordsDate(context, d.purgeAfter)}),
                     style: TextStyle(color: context.palette.warn)),
               if (!d.canEdit)
                 Text(s.t('readOnly'),
@@ -657,24 +675,27 @@ class _VaultDocumentHostState extends State<VaultDocumentHost> {
                   Text(s.t('infected'),
                       style: TextStyle(color: context.palette.stop)),
                 const SizedBox(height: AnumSpacing.xs),
-                Wrap(spacing: AnumSpacing.xs, runSpacing: AnumSpacing.xs, children: [
-                  if (!infected && !d.inTrash)
-                    OutlinedButton.icon(
-                      key: const Key('vault-download'),
-                      onPressed: () => _run(
-                          () => _c.repository.save(d.id, file.name),
-                          s.t('saved')),
-                      icon: const Icon(Icons.download_outlined),
-                      label: Text(s.t('download')),
-                    ),
-                  if (editable)
-                    OutlinedButton.icon(
-                      key: const Key('vault-new-version'),
-                      onPressed: _progress == null ? _newVersion : null,
-                      icon: const Icon(Icons.upload_outlined),
-                      label: Text(s.t('newVersion')),
-                    ),
-                ]),
+                Wrap(
+                    spacing: AnumSpacing.xs,
+                    runSpacing: AnumSpacing.xs,
+                    children: [
+                      if (!infected && !d.inTrash)
+                        OutlinedButton.icon(
+                          key: const Key('vault-download'),
+                          onPressed: () => _run(
+                              () => _c.repository.save(d.id, file.name),
+                              s.t('saved')),
+                          icon: const Icon(Icons.download_outlined),
+                          label: Text(s.t('download')),
+                        ),
+                      if (editable)
+                        OutlinedButton.icon(
+                          key: const Key('vault-new-version'),
+                          onPressed: _progress == null ? _newVersion : null,
+                          icon: const Icon(Icons.upload_outlined),
+                          label: Text(s.t('newVersion')),
+                        ),
+                    ]),
                 if (_progress != null) ...[
                   const SizedBox(height: AnumSpacing.xs),
                   LinearProgressIndicator(value: _progress),

@@ -185,7 +185,9 @@ String isoDay(DateTime day) => '${day.year.toString().padLeft(4, '0')}-'
 DateTime? parseDay(String? value) {
   if (value == null || value.isEmpty) return null;
   final parsed = DateTime.tryParse(value);
-  return parsed == null ? null : DateTime(parsed.year, parsed.month, parsed.day);
+  return parsed == null
+      ? null
+      : DateTime(parsed.year, parsed.month, parsed.day);
 }
 
 /// A query string from [params], leaving out empty values.
