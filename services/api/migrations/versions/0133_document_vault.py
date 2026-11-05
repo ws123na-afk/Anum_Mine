@@ -131,7 +131,7 @@ def upgrade() -> None:
         using (
           vault is null or vault = 'assistant'
           or current_setting('anum.vault', true) = 'on'
-          or current_user in ('{PURGER}', '{MAINTENANCE}')
+          or current_user in ('anum_tenant_purger', 'anum_maintenance')
         )
         with check (
           vault is null or vault = 'assistant'
@@ -339,8 +339,9 @@ def upgrade() -> None:
     # A private document: its owner and the people it is shared with only.
     op.execute(f"grant select (id, access_class, owner_user_id) on vault_documents to {PURGER}")
     op.execute(f"grant select (document_id, user_id) on vault_document_access to {PURGER}")
+    # The role names are written out (anum_tenant_purger, anum_maintenance) so the DDL is one fixed string.
     op.execute(
-        f"""
+        """
         create policy vault_documents_private on vault_documents
         as restrictive for all
         using (

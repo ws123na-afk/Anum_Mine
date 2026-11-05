@@ -15,6 +15,7 @@ OCR service reads a scan. Audit rows hold ids and codes only: never amounts, tex
 from __future__ import annotations
 
 import asyncio
+import logging
 import re
 from datetime import date, datetime
 from datetime import time as dtime
@@ -29,6 +30,7 @@ from ..errors import ApplicationError, ErrorCode, ErrorDetail
 from ..files import read_upload_body
 from ..repository import AnumRepository
 from ..schemas import TenantContext, new_id, utc_now
+from ..vault.ocr_client import OcrUnavailable
 from . import csv_import
 from . import statement_pdf as pdf
 from .api import ImportView, _audit, _clean, _invalid, _manage, _own_account, _view, record_import
@@ -40,6 +42,7 @@ from .store import open_finance_store
 from .summary import settings_for, zone
 
 router = APIRouter(prefix="/api/v1/finance", tags=["finance"])
+logger = logging.getLogger(__name__)
 
 PASSWORD_HEADER = "X-Statement-Password"  # nosec B105
 _STATUS = {
@@ -214,8 +217,10 @@ async def read_pdf_statement(
                 # A page that is only a picture: read it when OCR is there; the reader decides if it holds rows.
                 try:
                     found_words = await pdf.ocr.ocr_page(image.data, image.content_type, number)
-                except Exception:  # noqa: BLE001 - OCR missing or failing leaves the page unread, listed as such
-                    continue
+                except OcrUnavailable:
+                    # No OCR here, or it failed: the page stays unread and the preview lists it as such.
+                    logger.info("finance pdf picture page unread outcome=ocr_unavailable")
+                    found_words = []
                 if found_words and all(w.positioned for w in found_words):
                     pages[number - 1] = found_words
                     widths[number - 1] = max(w.x1 for w in found_words)

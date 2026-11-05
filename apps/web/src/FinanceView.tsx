@@ -48,6 +48,7 @@ const SafePage = lazy(() => import('./FinanceSafePage').then((m) => ({ default: 
 const AccountsPage = lazy(() => import('./FinanceAccountsPage').then((m) => ({ default: m.AccountsPage })));
 const TransactionsPage = lazy(() => import('./FinanceTransactionsPage').then((m) => ({ default: m.TransactionsPage })));
 const PdfStatementImport = lazy(() => import('./FinancePdfImport').then((m) => ({ default: m.PdfStatementImport })));
+const PdfTemplates = lazy(() => import('./FinancePdfImport').then((m) => ({ default: m.PdfTemplates })));
 const KINDS: FinanceAccountKind[] = ['bank', 'card', 'cash', 'loan', 'investment'];
 const CADENCES: FinanceCadence[] = ['monthly', 'weekly', 'quarterly', 'yearly', 'once'];
 const DEBT_KINDS: FinanceDebtKind[] = ['loan', 'card', 'mortgage', 'other'];
@@ -366,6 +367,7 @@ export function Import({ accounts, onChanged, onAddAccount, onDone }: { accounts
   const [file, setFile] = useState<{ name: string; content: string } | null>(null);
   // A PDF statement is read by the API, not here: the picked file is kept as is until it is reviewed.
   const [pdf, setPdf] = useState<File | null>(null), [pdfOpen, setPdfOpen] = useState(false), [inputKey, setInputKey] = useState(0);
+  const [templatesRefresh, setTemplatesRefresh] = useState(0);
   const [preset, setPreset] = useState(''), [dateFormat, setDateFormat] = useState('');
   const [mapping, setMapping] = useState<{ date: string; description: string; amount: string; debit: string; credit: string } | null>(null);
   const [preview, setPreview] = useState<FinanceImportPreview | null>(null);
@@ -415,7 +417,7 @@ export function Import({ accounts, onChanged, onAddAccount, onDone }: { accounts
     const matched = (result.reconciled ?? 0) || (result.held_for_review ?? 0)
       ? ` ${t('fsms.import.reconciled', { reconciled: result.reconciled ?? 0, review: result.held_for_review ?? 0 })}` : '';
     setNotice(t('finance.import.done', { imported: result.imported_count, duplicates: result.duplicate_count, errors: result.error_count }) + matched + (vault ? ` ${vault}` : ''));
-    setPdf(null); setPdfOpen(false); setInputKey((k) => k + 1); onChanged(); void loadHistory();
+    setPdf(null); setPdfOpen(false); setInputKey((k) => k + 1); setTemplatesRefresh((n) => n + 1); onChanged(); void loadHistory();
   }
   function pdfCancelled() { setPdf(null); setPdfOpen(false); setInputKey((k) => k + 1); }
   async function undo() {
@@ -484,6 +486,7 @@ export function Import({ accounts, onChanged, onAddAccount, onDone }: { accounts
         <button type="button" className="secondary" onClick={() => setUndoing(item)}><Undo2 aria-hidden="true" />{t('finance.import.undo')}</button>
       </li>)}</ul>)}
     </section>
+    <Suspense fallback={null}><PdfTemplates refresh={templatesRefresh} /></Suspense>
     {undoing && <ConfirmDialog title={t('finance.import.undoTitle')} confirmLabel={t('finance.import.undo')} danger busy={busy} onConfirm={() => void undo()} onCancel={() => setUndoing(null)}>
       <p dir="auto">{t('finance.import.undoText', { file: undoing.filename, count: undoing.imported_count })}</p>
     </ConfirmDialog>}

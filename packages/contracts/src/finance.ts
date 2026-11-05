@@ -144,7 +144,8 @@ export interface FinanceImport {
 }
 
 /** PDF statements (docs/finance.md#pdf-statements): one role per column the reader found. */
-export type FinancePdfRole = 'date' | 'description' | 'debit' | 'credit' | 'amount' | 'balance' | 'reference' | 'skip';
+export type FinancePdfRole = 'date' | 'description' | 'debit' | 'credit' | 'amount' | 'balance' | 'reference' | 'currency' | 'foreign_amount'
+  | 'fx_rate' | 'fee' | 'vat' | 'skip';
 
 export interface FinancePdfRow {
   line: number;
@@ -156,10 +157,27 @@ export interface FinancePdfRow {
   credit: string | null;
   balance: string | null;
   reference: string | null;
+  /** A currency printed on the row; a row in another currency than the account's cannot be imported. */
+  currency: string | null;
+  /** Card statements: the amount in the currency spent, its rate, fees and VAT, as printed. */
+  original_amount: string | null;
+  original_currency: string | null;
+  fx_rate: string | null;
+  fee: string | null;
+  vat: string | null;
+  /** From a "<type>Time:HH:MM:SS**Note:<details>" description: the type, the time and the other party. */
+  kind: string | null;
+  time: string | null;
+  counterparty: string | null;
+  /** A charge row's payment ("Transaction Charges" after its transfer): the line it belongs to. */
+  parent_line: number | null;
+  /** 0 to 1: OCR quality, how the sign was found, whether the balance agrees. */
+  confidence: number;
   category: string;
   /** Already in the ledger (same hash as a CSV import): importing it again adds nothing. */
   duplicate: boolean;
-  /** `sign_unsure`, `sign_from_balance`, `date_unreadable`, `amount_missing`, `amount_zero`. */
+  /** `sign_unsure`, `sign_from_balance`, `date_unreadable`, `amount_missing`, `amount_zero`, `hijri_date`, `balance_break`,
+   *  `foreign_currency`, `columns_swapped`, `low_confidence`. */
   flags: string[];
 }
 
@@ -174,6 +192,10 @@ export interface FinancePdfCheck {
   closing_source: 'statement' | 'rows' | 'none';
   /** Rows after which the running balance does not agree with the printed balance. */
   breaks: number[];
+  /** Pages whose balance brought forward is not the balance the page before ended with. */
+  page_breaks: number[];
+  /** The statement's own counts and totals against the rows read. */
+  summary: { name: 'deposits_count' | 'withdrawals_count' | 'deposits_total' | 'withdrawals_total' | 'total_due'; stated: string; found: string; ok: boolean }[];
 }
 
 /** What `POST /imports/pdf/read` found. Nothing is saved until the reviewed rows are imported. */
@@ -184,9 +206,18 @@ export interface FinancePdfStatement {
   file_sha256: string;
   source: 'text' | 'ocr';
   page_count: number;
-  layout: 'table' | 'lines';
+  layout: 'table' | 'columns' | 'lines';
   columns: { index: number; label: string; role: FinancePdfRole }[];
   roles: FinancePdfRole[];
+  /** The layout's fingerprint and the taught template it was read with, if any. */
+  fingerprint: string | null;
+  template_id: string | null;
+  confidence: number;
+  /** A current account (running balance) or a credit card (charges against an amount due). */
+  kind: 'account' | 'card';
+  statement_date: string | null;
+  due_date: string | null;
+  skipped_pages: { page: number; reason: 'not_transactions' | 'no_text' }[];
   date_format: string;
   date_formats: string[];
   date_format_ambiguous: boolean;
@@ -202,7 +233,7 @@ export interface FinancePdfStatement {
   row_count: number;
   duplicate_count: number;
   skipped_lines: number;
-  /** `currency_differs`, `no_rows`. */
+  /** `currency_differs`, `no_rows`, `page_breaks`, `summary_differs`, `low_confidence`, `debit_credit_swapped`, `columns_from_content`. */
   warnings: string[];
   rows: FinancePdfRow[];
 }
@@ -213,6 +244,20 @@ export interface FinancePdfImportRow {
   amount: string;
   balance?: string | null;
   reference?: string | null;
+  currency?: string | null;
+  time?: string | null;
+}
+
+/** A statement layout taught by the owner (Finance, Import): the mapping kept against the layout's fingerprint. */
+export interface FinancePdfTemplate {
+  id: string;
+  labels: string[];
+  roles: FinancePdfRole[];
+  date_format: string | null;
+  uses: number;
+  created_at: string;
+  updated_at: string;
+  last_used_at: string | null;
 }
 
 export interface FinancePdfImportInput {
@@ -225,6 +270,8 @@ export interface FinancePdfImportInput {
   closing_balance?: string | null;
   /** Import even though the rows do not add up to the closing balance (the owner confirmed it). */
   accept_mismatch?: boolean;
+  /** The layout the rows were read with; kept as a template when `remember` is true. */
+  layout?: { fingerprint: string; labels: string[]; roles: FinancePdfRole[]; date_format: string | null; remember: boolean } | null;
 }
 
 export interface FinanceBill {

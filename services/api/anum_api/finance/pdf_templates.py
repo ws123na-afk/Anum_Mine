@@ -85,6 +85,18 @@ class InMemoryTemplateStore:
             return True
 
 
+    def count_everything(self, context: TenantContext) -> int:
+        with self._lock:
+            return sum(1 for t in self.items.values() if _mine(t, context))
+
+    def delete_everything(self, context: TenantContext) -> int:
+        with self._lock:
+            mine_ids = [k for k, t in self.items.items() if _mine(t, context)]
+            for key in mine_ids:
+                del self.items[key]
+            return len(mine_ids)
+
+
 template_memory_store = InMemoryTemplateStore()
 
 
