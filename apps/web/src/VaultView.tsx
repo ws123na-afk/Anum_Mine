@@ -367,8 +367,7 @@ function DocumentsTab({ meta, tick, focus, onFocus, onChanged, onAdd, status, ex
         <tbody>{items.map((doc) => {
           const state = rowStatus(doc, categories);
           return <tr key={doc.id} className={focus === doc.id ? 'selected' : undefined}>
-            <th scope="row"><button type="button" className="vaultRowButton" aria-current={focus === doc.id || undefined} onClick={() => onFocus(doc.id)}
-              aria-label={t('vault.row.open', { title: doc.title })}>
+            <th scope="row"><button type="button" className="vaultRowButton" aria-current={focus === doc.id || undefined} onClick={() => onFocus(doc.id)}>
               <span className={`vaultFileIcon ${doc.file?.kind ?? ''}`} aria-hidden="true">{(doc.file?.name.split('.').pop() ?? 'file').slice(0, 4).toUpperCase()}</span>
               <span className="vaultRowText"><strong dir="auto">{doc.title}</strong>
                 {doc.file && <small><bdi dir="ltr">{doc.file.name} ({formatBytes(doc.file.size_bytes)})</bdi></small>}
