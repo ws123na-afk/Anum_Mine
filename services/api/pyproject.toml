@@ -21,9 +21,9 @@ dependencies = [
   "nats-py==2.16.0",
   "opentelemetry-api==1.45.2",
   "opentelemetry-exporter-otlp-proto-http==1.45.2",
-  "opentelemetry-instrumentation-fastapi==0.66b1",
-  "opentelemetry-instrumentation-httpx==0.66b1",
-  "opentelemetry-instrumentation-sqlalchemy==0.66b1",
+  "opentelemetry-instrumentation-fastapi==0.66b2",
+  "opentelemetry-instrumentation-httpx==0.66b2",
+  "opentelemetry-instrumentation-sqlalchemy==0.66b2",
   "opentelemetry-sdk==1.45.2",
   "psycopg[binary]==3.3.6",
   "pydantic-settings==2.16.2",
@@ -41,7 +41,7 @@ dependencies = [
 [project.optional-dependencies]
 # Only the browser image installs it (docs/browser-research.md#the-browser-image).
 browser = [
-  "playwright==1.64.1"
+  "playwright==1.56.0"
 ]
 test = [
   "moto[s3]==5.2.5",

@@ -133,7 +133,10 @@ def _clean(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     UNDO_FAILS["value"] = False
     registry = _registry()
     monkeypatch.setattr(main, "tool_registry", registry)
-    monkeypatch.setattr(main.app.state, "tool_registry", registry)
+    # pytest 9.2's monkeypatch restores from the instance __dict__, which Starlette's State
+    # does not use, so its undo would delete the app's registry: swap it by hand.
+    previous_registry = main.app.state.tool_registry
+    main.app.state.tool_registry = registry
     original = AgentPlanner._select_tool
 
     def select(self, prompt, skills, response):  # type: ignore[no-untyped-def]
@@ -141,7 +144,10 @@ def _clean(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
 
     monkeypatch.setattr(AgentPlanner, "_select_tool", select)
     PLANNED["call"] = None
-    yield
+    try:
+        yield
+    finally:
+        main.app.state.tool_registry = previous_registry
     autonomy_memory_store.clear()
     store.approval_policies.clear()
 
