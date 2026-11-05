@@ -110,6 +110,10 @@ iOS may delay automations while the phone is locked or in Low Power Mode, and Ca
 
 Refusals answer `{"detail": "<plain words>", "code": "<code>"}` with figures where they help. Audit rows hold ids and codes only, never a registration, VIN, place or amount.
 
+## Mobile
+
+Menu, **Vehicles** (`/vehicles`, `apps/mobile/lib/features/vehicles/`, [Record modules](mobile.md#record-modules)): the list with search, active or archived, paging and the reminders due (`GET /reminders`); a vehicle with its details, due items, and its fuel, trips and service records, each paged; adding a vehicle, a fuel entry, a trip with its start and end odometer and times, a service record (with the next due date or kilometres), and an odometer reading. Each add sends one `Idempotency-Key` per form, so a retry after a lost answer is stored once. The `odometer_decrease` refusal is shown with the server's sentence (the reading and date it conflicts with) and an **Add a correction** button that opens the reading form with the typed kilometres and the correction switch on; the correction needs a reason. **Link a payment** lists the person's own Finance payments (`GET /payments`) and links one to a fuel entry or service record; linking adds no money. People who may not change a vehicle see why. From 840 px the list and the selected vehicle sit side by side. Trip places (from, to) and the CSV export stay on the web. Tests: `apps/mobile/test/vehicles/vehicles_test.dart`.
+
 ## Storage, privacy and deletion
 
 Migration `0135_vehicles` (expand only, after `0134_finance_links`): `vehicles`, `vehicle_odometer_readings`, `vehicle_fuel_entries`, `vehicle_trips`, `vehicle_service_records`, `vehicle_reminders`, `vehicle_preferences`. Every table has forced RLS with the tenant policy, the restrictive `vehicle_visible_<table>` (business rows to the workspace, personal rows to their owner; the child rows carry the vehicle's visibility and owner, copied and checked by the trigger `vehicle_child_matches`, so no policy looks another table up), the restrictive `vehicle_insert_<table>` (a row is written by the person it names) and `lifecycle_purge_<table>`. All are listed in `tenant_lifecycle_tables.py`.
@@ -122,7 +126,7 @@ The privacy export includes the person's own vehicles, their records on business
 
 ## Not built here
 
-- Flutter screens (the iPhone side is the Shortcut; the app has no vehicle screens yet).
+- On the phone: editing or archiving a vehicle, trip places, recording a cost as cash, preferences and the analytics (on the web).
 - Automatic matching of a scanned fuel receipt to its payment (the document vault's OCR fills the receipt; linking stays a person's choice).
 - Business vehicles paid from a personal card: allocate the payment to the business under Finance; reading business allocations as vehicle costs is not built.
 - Tyre Pulse fleet vehicles stay a read-only snapshot in the Tyre module; there is no link from a Tyre Pulse vehicle to an ANUM vehicle yet.

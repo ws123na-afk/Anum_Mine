@@ -170,6 +170,10 @@ earlier reports), Corrections (add, change, remove with reason; history), Settin
 check in, sites, sharing, Shortcut steps). A colleague's shared record opens read only from the header picker. English
 and Arabic (RTL), every state (loading, empty with a next action, error with retry, denied with who can help).
 
+## Mobile
+
+Menu, **Attendance** (`/attendance`, `apps/mobile/lib/features/attendance/`, [Record modules](mobile.md#record-modules)), four tabs: **Today** (the status now with the site and since when, the buttons that fit it: check in or out, a break, remote work, each sent to `POST /check` with a fresh idempotency key and an optional site; worked, at a site, remote and break totals; today's records, each with **Change the time** and **Remove** as corrections), **History** (seven days at a time from `GET /days`, **Earlier week** and **Later week**, flags such as no check out; a day opens its daily report), **Daily reports** (write or edit a day's report with `PUT /daily-reports/{day}` and the version it was read at; site visits and files written on the web are kept; search and paging; delete) and **Corrections** (add a missing record with a reason, and the history with before, after and reason). Everything is the person's own record; sharing, sites, the profile and schedule, AI drafts and exports stay on the web. Tests: `apps/mobile/test/attendance/attendance_test.dart`.
+
 ## Tests
 
 - `tests/test_attendance_engine.py`: overnight, DST both ways, Riyadh and Dubai, zone change mid-week, missing checkout,
@@ -183,6 +187,6 @@ and Arabic (RTL), every state (loading, empty with a next action, error with ret
 
 ## Not in phase A
 
-- Flutter screens (`apps/mobile/lib/features/attendance/`).
+- On the phone: sharing, sites, the profile and schedule, AI drafts, CSV and PDF exports and reading a colleague's shared record (on the web).
 - A productivity view and a workspace-wide manager view (needs an owner decision on who may see whom).
 - Real-device testing of Shortcuts.

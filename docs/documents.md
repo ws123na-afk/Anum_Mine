@@ -24,6 +24,7 @@ Code: `services/api/anum_api/vault/` (`models.py`, `store.py`, `service.py`, `ap
 - [Privacy](#privacy)
 - [API](#api)
 - [The web page](#the-web-page)
+- [Mobile](#mobile)
 - [Tests](#tests)
 - [Not in this release](#not-in-this-release)
 
@@ -141,6 +142,10 @@ All under `/api/v1/documents` (contracts in `packages/contracts/src/documents.ts
 
 Sidebar **Document vault** (`#vault`, tabs `#vault-documents`, `#vault-review`, `#vault-expiring`, `#vault-trash`, `#vault-settings`): the summary band, Overview (expiring next, waiting for review, the empty state with "Add document" and "Scan from your iPhone"), Documents (search, category, access and expiry filters, keyset paging, a detail pane with preview, details and edit form, number reveal, receipt, scanning state, versions, sharing, links and activity), To review (one form per result with confidence, source line and warnings), Expiring, Trash (restore, delete for good) and Settings (reminders, trash days, scanning switches, OCR status, categories, iPhone tokens). Every list has loading, empty, error and permission states; viewers get the explanation of who can see the vault. English and Arabic (RTL), keyboard and screen-reader labels, and layouts from 390 px phones to 1440 px desktops.
 
+## Mobile
+
+Menu, **Document vault** (`/vault`, `apps/mobile/lib/features/vault/`, [Record modules](mobile.md#record-modules)): the summary, search, a category, **Expiring soon**, **Expired** and the trash, with cursor paging; each document shows its masked number and an expiry badge in words. A document shows its details, **Show number** (the owner only, `POST /{id}/number`, logged), its file, **Save a copy** (`GET /{id}/content` with the session, saved with the system dialog), **Upload a new version**, older versions to save or make current, links to a vehicle, person, business, purchase or Finance payment (add and remove), and **Move to trash** or **Restore**. **Add document** picks a file with the system picker (the vault's types and size limit are checked first), streams it with progress, and on the duplicate refusal offers **Add anyway** (`allow_duplicate=true`). From 840 px the list and the document sit side by side. Camera scanning is not on the phone: the app has no camera plugin, so photos come from the files the phone already has or from the iPhone Shortcut. Sharing, scan review, settings and categories stay on the web. Tests: `apps/mobile/test/vault/vault_test.dart`.
+
 ## Tests
 
 - API, memory backend: `services/api/tests/test_vault.py` (adding, types, size, malware, duplicates, private and workspace access, viewers and other workspaces, Files never shows vault files, properties, encrypted number, sharing, links, versions, trash, permanent deletion with bytes, signed links and expiry, assistant opt-in, scanning with a stubbed OCR service and review, settings and categories, iPhone tokens, reminders and purge, privacy).
@@ -152,6 +157,6 @@ Sidebar **Document vault** (`#vault`, tabs `#vault-documents`, `#vault-review`, 
 
 - Automatic matching of a fuel receipt to its vehicle and transaction, a receipt to its purchase, or insurance to a vehicle reminder. A purchase or return that names a vault document as its receipt or proof adds a `purchase` link on that document when its owner may edit it ([Purchases](purchases.md#records)).
 - The shared iPhone integrations page and generalised device tokens (after #364).
-- Native iPhone camera, VisionKit scanner and Share Sheet extension (Shortcuts only), and the Flutter vault screens.
+- Native iPhone camera, VisionKit scanner and Share Sheet extension (Shortcuts only), and camera capture in the Flutter app (no camera plugin yet; the phone screens upload files the phone already has). On the phone: sharing, scan review, editing a document's details, settings and categories (on the web).
 - OCR of scanned PDFs (send them as images), Hijri date conversion, and the OCR service in the Helm chart (compose profile only, like the browser service).
 - Per-category retention rules; retention is per document.
