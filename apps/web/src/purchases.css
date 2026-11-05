@@ -121,14 +121,15 @@
 
 .purTaskList { display: grid; list-style: none; margin: 0; padding: 0; }
 .purTaskList li { align-items: center; border-top: 1px solid var(--d-line); display: grid; gap: var(--d-s2) var(--d-s3);
-  grid-template-columns: auto minmax(120px, max-content) minmax(0, 1fr) auto auto; padding: var(--d-s2) 0; }
+  grid-template-columns: 24px 180px minmax(0, 1fr) 130px auto; padding: var(--d-s2) 0; }
+.purTaskList li > .finChip { justify-self: start; }
 .purTaskList li:first-child { border-top: 0; }
 .purTaskIcon { color: var(--d-warn); display: inline-flex; }
 .purTaskIcon svg { height: 20px; width: 20px; }
 .purTaskText { display: grid; min-width: 0; }
 .purTaskText strong { overflow-wrap: anywhere; }
 .purTaskText small { color: var(--d-muted); font-size: var(--text-xs); }
-.purTaskDue { font-size: var(--text-sm); white-space: nowrap; }
+.purTaskDue { font-size: var(--text-sm); text-align: end; white-space: nowrap; }
 .purTaskList button { min-height: 40px; }
 @media (max-width: 900px) {
   .purTaskList li { grid-template-columns: auto minmax(0, 1fr); }
@@ -190,7 +191,7 @@
 .purExternal { align-items: center; display: inline-flex; font-size: var(--text-sm); gap: 4px; }
 .purExternal svg { height: 14px; width: 14px; }
 [dir="rtl"] .purExternal svg { transform: scaleX(-1); }
-.purDrawerPair { display: grid; gap: var(--d-s3); grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); }
+.purDrawerPair { display: grid; gap: var(--d-s3); }
 .purAudit { display: grid; gap: var(--d-s1); list-style: none; margin: 0; padding: 0; }
 .purAudit li { display: grid; font-size: var(--text-sm); padding-inline-start: var(--d-s3); position: relative; }
 .purAudit li::before { background: var(--d-accent); border-radius: 50%; content: ""; height: 6px; inset-inline-start: 0; position: absolute; top: 8px; width: 6px; }
@@ -201,3 +202,9 @@
   .purSelect { flex: 1 1 140px; }
   .purSelect select { max-width: none; width: 100%; }
 }
+
+.purTracker { min-width: 600px; }
+/* With the drawer open the table keeps item, dates, status and total; the drawer shows the payment and the return deadline. */
+@media (max-width: 1679px) { .purWorkspace.withDrawer .purOptional { display: none; } }
+.purLayout > *, .purWorkspace > * { min-width: 0; }
+.purTracker { position: relative; } /* keeps its visually hidden labels inside the scrolling wrapper */

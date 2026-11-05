@@ -328,7 +328,7 @@ export const purchasesEn = {
   'pur.ekind.payment': 'Payment',
   'pur.ekind.refund': 'Refund',
   'pur.ekind.share': 'From a shared message',
-  'pur.source.web': 'web',
+  'pur.source.web': 'Web',
   'pur.source.iphone': 'iPhone',
   'pur.source.system': 'ANUM',
   'pur.details.title': 'Details',

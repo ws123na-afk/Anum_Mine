@@ -99,7 +99,7 @@ function PaymentCell({ p }: { p: Purchase }) {
   const state = linkState(p.payment);
   return <span className="purCell2"><span>{methodLabel(p.payment_method)}</span>
     <small className={state === 'active' ? 'purOk' : state === 'needs_review' ? 'purWarn' : 'muted'}>
-      {state === 'active' ? t('pur.pay.linked') : state === 'needs_review' ? t('pur.pay.reviewShort') : t('pur.pay.notLinked')}</small></span>;
+      {state === 'active' ? t('pur.drawer.linked') : state === 'needs_review' ? t('pur.pay.reviewShort') : t('pur.pay.notLinked')}</small></span>;
 }
 
 function DeliveryCell({ p }: { p: Purchase }) {
@@ -128,8 +128,8 @@ export function TrackerTable({ page, selected, onSelect, onOpenFull, caption, co
       <thead><tr>
         <th scope="col">{t('pur.col.item')}</th>
         <th scope="col">{t('pur.col.orderDate')}</th>
-        {columns === 'tracker' && <><th scope="col">{t('pur.col.expected')}</th><th scope="col">{t('pur.col.payment')}</th><th scope="col">{t('pur.col.status')}</th>
-          <th scope="col">{t('pur.col.deadline')}</th></>}
+        {columns === 'tracker' && <><th scope="col">{t('pur.col.expected')}</th><th scope="col" className="purOptional">{t('pur.col.payment')}</th><th scope="col">{t('pur.col.status')}</th>
+          <th scope="col" className="purOptional">{t('pur.col.deadline')}</th></>}
         {columns === 'deliveries' && <><th scope="col">{t('pur.col.carrier')}</th><th scope="col">{t('pur.col.tracking')}</th><th scope="col">{t('pur.col.shipment')}</th>
           <th scope="col">{t('pur.col.expected')}</th></>}
         {columns === 'warranty' && <><th scope="col">{t('pur.col.warrantyEnd')}</th><th scope="col">{t('pur.col.status')}</th></>}
@@ -145,10 +145,10 @@ export function TrackerTable({ page, selected, onSelect, onOpenFull, caption, co
           <td>{shortDay(p.ordered_on)}</td>
           {columns === 'tracker' && <>
             <td><DeliveryCell p={p} /></td>
-            <td><PaymentCell p={p} /></td>
+            <td className="purOptional"><PaymentCell p={p} /></td>
             <td><span className="purCell2"><StatusChip tone={chipTone(p.status)}>{statusLabel(p.status)}</StatusChip>
               {p.refunded.length > 0 && <small className="muted">{t('pur.row.refunded', { amount: p.refunded.map((r) => formatAmount(r.amount, r.currency)).join(', ') })}</small>}</span></td>
-            <td><ReturnDeadline p={p} /></td>
+            <td className="purOptional"><ReturnDeadline p={p} /></td>
           </>}
           {columns === 'deliveries' && <>
             <td dir="auto">{p.latest_shipment?.carrier ?? '-'}</td>

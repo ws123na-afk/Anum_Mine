@@ -126,3 +126,6 @@
   .finHeadText h1 { font-size: var(--text-3xl); }
   .finHeadButtons { width: 100%; }
 }
+
+/* Grid children may shrink below their content (tabs strip and wide tables scroll inside, never the page). */
+.finHead > *, .finCard > *, .finTabPanel > * { min-width: 0; }
