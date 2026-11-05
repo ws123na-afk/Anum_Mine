@@ -36,8 +36,12 @@ def clean() -> Iterator[None]:
     sms_memory_store.clear()
     links_memory_store.clear()
     svc._last_notified.clear()
+    # Tests here stand in their own document target; the vault's real one (registered at start-up) comes back after.
+    saved = (dict(K._targets), dict(K._observers), dict(K._vets), set(K._single_payment))
     yield
-    K.unregister_target("document")
+    for registry, before in zip((K._targets, K._observers, K._vets, K._single_payment), saved, strict=True):
+        registry.clear()
+        registry.update(before)  # type: ignore[arg-type]
     finance_store.clear()
     sms_memory_store.clear()
     links_memory_store.clear()

@@ -19,6 +19,7 @@ STRANGER = {**ME, "x-user-id": "someone_else", "x-user-roles": "member"}
 
 def test_register_joins_sources_receipts_and_running_balance_under_rls(client: TestClient) -> None:  # noqa: F811
     canonical, card = _fuel(client)
+    saved = (dict(K._targets), dict(K._observers), dict(K._vets), set(K._single_payment))
     K.register_target("document", lambda context, kind, target: kind == "vault_document" and target == "vdoc_receipt")
     try:
         made = client.post(f"{API}/links", headers=ME, json={"canonical_id": canonical, "dimension": "document", "role": "evidence",
@@ -38,4 +39,7 @@ def test_register_joins_sources_receipts_and_running_balance_under_rls(client: T
         assert client.get(f"{API}/register", headers=STRANGER).json()["total"] == 0
         assert client.get(f"{API}/register/{row['id']}", headers=STRANGER).status_code == 404
     finally:
-        K.unregister_target("document")
+        # The vault's real document target (registered at start-up) comes back for the tests after this one.
+        for registry, before in zip((K._targets, K._observers, K._vets, K._single_payment), saved, strict=True):
+            registry.clear()
+            registry.update(before)  # type: ignore[arg-type]
