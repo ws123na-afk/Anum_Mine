@@ -250,6 +250,8 @@
 .hqEmptyScene svg { color: var(--d-accent); height: 40px; width: 40px; }
 .hqEmptyScene p { color: var(--d-muted); max-width: 460px; }
 .hqLoading { align-items: center; background: var(--d-surface-2); border: 1px solid var(--d-line); border-radius: var(--d-r-panel); color: var(--d-muted); display: flex; gap: var(--d-s3); justify-content: center; padding: var(--d-s6); }
+/* While the 3D scene loads, the box holds the stage's height, so the totals, strips and the Live flow dock under it do not jump down when the scene arrives. */
+.hqLoadingStage { block-size: clamp(420px, calc(100dvh - 210px), 880px); }
 .hqSpinner { animation: hqSpin 1s linear infinite; border: 2px solid var(--d-line-strong); border-top-color: var(--d-accent); border-radius: 50%; height: 18px; width: 18px; }
 @keyframes hqSpin { to { transform: rotate(360deg); } }
 
@@ -290,6 +292,7 @@
 }
 @media (max-width: 760px) {
   .hqStage { block-size: clamp(360px, 62dvh, 640px); }
+  .hqLoadingStage { block-size: clamp(360px, 62dvh, 640px); }
   .hqOverlayMap { inset-inline-end: calc(var(--d-s3) + 64px); }
   .hqToolbar button span { display: none; }
   .hqLabelCard { max-width: 170px; }

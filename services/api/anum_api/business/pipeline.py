@@ -47,7 +47,7 @@ from .models import (
     LeadState,
     RecordSource,
 )
-from .outreach_models import Estimate, Observation, OutreachSettings, PipelineRun, RunKind, RunStatus, RunStep, SignalDecision, SignalStatus
+from .outreach_models import Estimate, Observation, OutreachSettings, PipelineRun, RunKind, RunStatus, RunStep, SignalDecision
 from .service import audit, clean_url, domain_of, name_key, record_activity, stamp_state, url_key, usage_today
 from .store import BusinessStore, Query, open_business_store
 

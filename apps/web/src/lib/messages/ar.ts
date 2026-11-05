@@ -8,6 +8,7 @@ import { financeAr } from './finance.ar.ts';
 import { financeTradingAr } from './financeTrading.ar.ts';
 import { financeIbkrAr } from './financeIbkr.ar.ts';
 import { financeResearchAr } from './financeResearch.ar.ts';
+import { financeSmsAr } from './financeSms.ar.ts';
 import { financeIntelAr } from './financeIntel.ar.ts';
 import { financeEquityAr } from './financeEquity.ar.ts';
 import { financeReportsAr } from './financeReports.ar.ts';
@@ -56,6 +57,12 @@ import { agentControlsAr } from './agentControls.ar.ts';
 import { billingAr } from './billing.ar.ts';
 import { lifecycleAr } from './lifecycle.ar.ts';
 import { recordRetentionAr } from './recordRetention.ar.ts';
+import { attendanceAr } from './attendance.ar.ts';
+import { vehiclesAr } from './vehicles.ar.ts';
+import { purchasesAr } from './purchases.ar.ts';
+import { businessBooksAr } from './businessBooks.ar.ts';
+import { iphoneAr } from './iphone.ar.ts';
+import { vaultAr } from './vault.ar.ts';
 import { helpAr } from './help.ar.ts';
 import { publicSiteAr } from './publicSite.ar.ts';
 import { ownerAr } from './ar.owner.ts';
@@ -98,6 +105,7 @@ export const ar: Record<MessageKey, Message> = {
   ...financeTradingAr,
   ...financeIbkrAr,
   ...financeResearchAr,
+  ...financeSmsAr,
   ...financeIntelAr,
   ...financeEquityAr,
   ...financeReportsAr,
@@ -118,6 +126,12 @@ export const ar: Record<MessageKey, Message> = {
   ...billingAr,
   ...lifecycleAr,
   ...recordRetentionAr,
+  ...attendanceAr,
+  ...vehiclesAr,
+  ...purchasesAr,
+  ...businessBooksAr,
+  ...iphoneAr,
+  ...vaultAr,
   ...helpAr,
   ...publicSiteAr,
   ...agentSkillsAr,

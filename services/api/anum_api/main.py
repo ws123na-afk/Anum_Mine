@@ -126,7 +126,7 @@ from .schemas import (
     utc_now,
 )
 from .settings import settings
-from .store import store
+from .store import store as store  # re-exported: tests import store from anum_api.main
 from .tasks import (
     ACTIVE_STATUSES,
     EVENT_PAGE_DEFAULT,
@@ -172,6 +172,8 @@ from .finance.intel_control_api import router as finance_intel_control_router
 from .finance.wider_api import router as finance_wider_router
 from .finance.intel_api import router as finance_intel_router
 from .finance.broker_api import router as finance_broker_router
+from .finance.sms_api import router as finance_sms_router
+from .finance.links_api import router as finance_links_router
 from .finance.ibkr_api import router as finance_ibkr_router
 from .finance.research_api import router as finance_research_router
 from .finance.sync import build_finance_scheduler
@@ -231,6 +233,7 @@ from .contact_consent import router as contact_consent_router
 from .approval_reminders import router as approval_reminders_router
 from .agent_loop_limits import router as agent_loop_limits_router
 from .action_browser.api import router as action_browser_router
+from .vault.api import router as vault_router
 from .automation import build_automation_scheduler, register_scheduler_pass, router as automation_router
 from .assistants import router as assistants_router
 from .notifications import router as notifications_router
@@ -282,6 +285,12 @@ from .identity import validate_auth_configuration
 from .telemetry import HttpMetricsMiddleware, setup_telemetry, shutdown_telemetry, sqlalchemy_engines
 from .error_reporting import setup_error_reporting, shutdown_error_reporting
 from .serving import prepare_for_serving
+from .attendance.api import router as attendance_router  # docs/attendance.md
+from .vehicles.api import router as vehicles_router  # docs/vehicles.md
+from .vehicles.devices import router as vehicles_device_router
+from .purchases.api import router as purchases_router  # docs/purchases.md
+from .purchases.devices import router as purchases_device_router
+from .business.api_books import router as business_books_router  # docs/business-books.md
 
 # Fail fast: header mode and anum_local_* sessions must never serve a non-local environment.
 validate_auth_configuration(settings)
@@ -415,6 +424,8 @@ install_hardening(
     extra_upload_rules=(
         BodyLimitRule("POST", f"{meetings_router.prefix}/recordings", settings.meeting_recording_max_bytes + 1024),
         BodyLimitRule("POST", f"{meetings_router.prefix}/transcripts", settings.meeting_transcript_max_bytes + 1024),
+        # Document vault uploads, versions and the iPhone Shortcut (docs/documents.md): the Files limit.
+        BodyLimitRule("POST", vault_router.prefix, settings.max_upload_body_bytes),
     ),
 )
 app.add_middleware(
@@ -515,6 +526,7 @@ app.include_router(model_budget_router)
 app.include_router(agent_controls_router)
 app.include_router(agent_loop_limits_router)
 app.include_router(action_browser_router)
+app.include_router(vault_router)
 app.include_router(developer_router)
 app.include_router(whatsapp_router)
 app.include_router(sales_router)
@@ -556,6 +568,8 @@ app.include_router(finance_trading_router)
 app.include_router(finance_wider_router)
 app.include_router(finance_intel_router)
 app.include_router(finance_broker_router)
+app.include_router(finance_sms_router)
+app.include_router(finance_links_router)
 app.include_router(finance_ibkr_router)
 app.include_router(finance_research_router)
 app.include_router(finance_intel_control_router)
@@ -588,6 +602,12 @@ app.include_router(public_logos_router)
 app.include_router(agents_router)
 app.include_router(home_router)
 app.include_router(setup_plans_router)
+app.include_router(attendance_router)
+app.include_router(vehicles_device_router)  # before /api/v1/vehicles/{vehicle_id}/...
+app.include_router(vehicles_router)
+app.include_router(purchases_device_router)  # before /api/v1/purchases/{purchase_id}/...
+app.include_router(purchases_router)
+app.include_router(business_books_router)
 repository = memory_repository
 model_gateway = build_default_model_gateway()
 integration_registry = default_integration_registry(settings)
@@ -2901,3 +2921,20 @@ def _record_partial_approval(
     )
     (shown,) = _with_progress([approval], context, repository)
     return ApprovalDecisionResponse(approval=shown, task=task, run=run)
+
+# Plug the shared iPhone device tokens into every installed module seam (docs/iphone-integrations.md).
+from .finance.devices import plug_module_authorities  # noqa: E402
+
+# Vehicles: the ``vehicle`` finance link dimension and the iPhone driving sessions (docs/vehicles.md).
+from .vehicles import devices as _vehicle_devices  # noqa: E402
+from .vehicles.service import plug_finance_links as _plug_vehicle_links  # noqa: E402
+
+_vehicle_devices.register()
+_plug_vehicle_links()
+# Purchases: the ``purchase`` finance link dimension and the iPhone shared order and delivery messages (docs/purchases.md).
+from .purchases import devices as _purchase_devices  # noqa: E402
+from .purchases.service import plug_finance_links as _plug_purchase_links  # noqa: E402
+
+_purchase_devices.register()
+_plug_purchase_links()
+plug_module_authorities()

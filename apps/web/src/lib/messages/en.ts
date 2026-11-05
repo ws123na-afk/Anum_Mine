@@ -7,6 +7,7 @@ import { financeEn } from './finance.en.ts';
 import { financeTradingEn } from './financeTrading.en.ts';
 import { financeIbkrEn } from './financeIbkr.en.ts';
 import { financeResearchEn } from './financeResearch.en.ts';
+import { financeSmsEn } from './financeSms.en.ts';
 import { financeIntelEn } from './financeIntel.en.ts';
 import { financeEquityEn } from './financeEquity.en.ts';
 import { financeReportsEn } from './financeReports.en.ts';
@@ -55,6 +56,12 @@ import { agentControlsEn } from './agentControls.en.ts';
 import { billingEn } from './billing.en.ts';
 import { lifecycleEn } from './lifecycle.en.ts';
 import { recordRetentionEn } from './recordRetention.en.ts';
+import { attendanceEn } from './attendance.en.ts';
+import { vehiclesEn } from './vehicles.en.ts';
+import { purchasesEn } from './purchases.en.ts';
+import { businessBooksEn } from './businessBooks.en.ts';
+import { iphoneEn } from './iphone.en.ts';
+import { vaultEn } from './vault.en.ts';
 import { helpEn } from './help.en.ts';
 import { publicSiteEn } from './publicSite.en.ts';
 import { ownerEn } from './en.owner.ts';
@@ -97,6 +104,7 @@ export const en = {
   ...financeTradingEn,
   ...financeIbkrEn,
   ...financeResearchEn,
+  ...financeSmsEn,
   ...financeIntelEn,
   ...financeEquityEn,
   ...financeReportsEn,
@@ -117,6 +125,12 @@ export const en = {
   ...billingEn,
   ...lifecycleEn,
   ...recordRetentionEn,
+  ...attendanceEn,
+  ...vehiclesEn,
+  ...purchasesEn,
+  ...businessBooksEn,
+  ...iphoneEn,
+  ...vaultEn,
   ...helpEn,
   ...publicSiteEn,
   ...agentSkillsEn,

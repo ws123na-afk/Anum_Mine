@@ -765,6 +765,10 @@ BREVO_CONNECTIONS = _multi_store(
 ACTION_BROWSER_CREDENTIALS = _multi_store(
     "action_browser_credentials", "action_browser_credential", ("secret_ciphertext",), ("tenant_id", "workspace_id", "id")
 )
+# The document vault (migration 0132): identity and account numbers, private to their owner.
+VAULT_DOCUMENTS = _multi_store(
+    "vault_documents", "vault_document", ("number_ciphertext",), ("tenant_id", "workspace_id", "id"), user_column="owner_user_id",
+)
 COMMERCE_CUSTOMERS = _multi_store(
     "commerce_customers", "commerce_customer",
     ("name_ciphertext", "email_ciphertext", "phone_ciphertext", "address_ciphertext"),
@@ -1025,6 +1029,23 @@ def rotate_action_browser_credentials(
     )
 
 
+def rotate_vault_numbers(
+    cipher: SecretCipher,
+    *,
+    session_factory: SessionFactory = default_session_factory,
+    maintenance_session_factory: SessionFactory | None = None,
+    dry_run: bool = False,
+    batch_size: int = 200,
+    correlation_id: str | None = None,
+) -> RotationReport:
+    """Re-encrypt every document vault number (docs/documents.md#identity-and-account-numbers)."""
+    return _rotate_store(
+        VAULT_DOCUMENTS, cipher, session_factory=session_factory,
+        maintenance_session_factory=maintenance_session_factory, dry_run=dry_run, batch_size=batch_size,
+        correlation_id=correlation_id,
+    )
+
+
 _BILLING_ISSUERS = text("select tenant_id from billing_settings where tenant_id > :after order by tenant_id limit :limit")
 
 
@@ -1135,6 +1156,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             ("billing_settings", rotate_billing_stripe_keys),
             ("calendar_connections", rotate_calendar_tokens),
             ("action_browser_credentials", rotate_action_browser_credentials),
+            ("vault_documents", rotate_vault_numbers),
         )
     }
     # Provider keys, integration and tyre credentials at the top level (as before); the rest nested.

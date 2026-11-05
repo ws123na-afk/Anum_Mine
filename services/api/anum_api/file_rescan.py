@@ -89,6 +89,22 @@ def rescan(
     batch_size: int = 200,
     limit: int | None = None,
 ) -> RescanResult:
+    from .files import vault_files_visible
+
+    # The job scans document vault files too (docs/documents.md#storage-and-isolation): names and
+    # bytes stay inside the job, the output is counts and ids only.
+    with vault_files_visible():
+        return _rescan(scanner, discovery, dry_run=dry_run, batch_size=batch_size, limit=limit)
+
+
+def _rescan(
+    scanner: file_policy.FileScanner,
+    discovery: Discovery,
+    *,
+    dry_run: bool,
+    batch_size: int,
+    limit: int | None,
+) -> RescanResult:
     from .files import file_store, open_file_metadata_store
     from .retrieval_api import forget_file
 

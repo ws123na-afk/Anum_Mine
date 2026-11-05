@@ -172,6 +172,19 @@ class PrivateCounts(BaseModel):
     # call as "Deleted user" so the other participant's history stays readable.
     app_calls: int = 0
     app_call_signals: int = 0
+    # Work attendance (migration 0132_work_attendance, docs/attendance.md#privacy): the caller's
+    # profile, sites, events, corrections, day totals, daily reports and the shares they gave.
+    attendance_records: int = 0
+    # Vehicles (migration 0135_vehicles, docs/vehicles.md#privacy): the caller's personal vehicles
+    # with every record, their own records on business vehicles, their reminders and settings.
+    vehicle_records: int = 0
+    # Purchases (migration 0136_purchases, docs/purchases.md#privacy): the caller's personal purchases
+    # with every row, their own status changes, shipments and returns on business purchases, their reminders and settings.
+    purchase_records: int = 0
+    # Document vault (migration 0133_document_vault, docs/documents.md#privacy): the caller's
+    # private documents (with their files) and iPhone Shortcut devices.
+    vault_private_documents: int = 0
+    vault_devices: int = 0
 
     @property
     def total(self) -> int:
@@ -210,6 +223,8 @@ class SharedCounts(BaseModel):
     # Agents the caller owns and shared with the workspace, with their memories.
     shared_agents_owned: int = 0
     shared_agent_memories: int = 0
+    # Document vault documents the caller added for the whole workspace (docs/documents.md#privacy).
+    vault_workspace_documents: int = 0
 
 
 class EmailCounts(BaseModel):
@@ -478,6 +493,9 @@ class PrivacyStore(Protocol):
     def commands(self) -> CommandStore: ...
     def library(self) -> LibraryPrivacy: ...
     def finance(self) -> Any: ...
+    def attendance(self) -> Any: ...
+    def vehicles(self) -> Any: ...
+    def purchases(self) -> Any: ...
     # Email, WhatsApp and autonomy rows the caller connected, wrote, sent or requested.
     def email_accounts_connected(self) -> list[EmailAccount]: ...
     def email_drafts_written(self) -> list[EmailDraft]: ...
@@ -647,6 +665,21 @@ class InMemoryPrivacyStore:
 
         return finance_store
 
+    def attendance(self) -> Any:
+        from .attendance.store import attendance_store
+
+        return attendance_store
+
+    def vehicles(self) -> Any:
+        from .vehicles.store import vehicle_memory_store
+
+        return vehicle_memory_store
+
+    def purchases(self) -> Any:
+        from .purchases.store import purchase_memory_store
+
+        return purchase_memory_store
+
     def team(self) -> Any:
         from .team_store import memory_team_store
 
@@ -802,6 +835,9 @@ class InMemoryPrivacyStore:
             **module_private,
             home_items=home_counts(self.home(), self.context),
             finance_records=self.finance().count_everything(self.context),
+            attendance_records=self.attendance().count_everything(self.context),
+            vehicle_records=self.vehicles().count_everything(self.context),
+            purchase_records=self.purchases().count_everything(self.context),
             **mail_privacy_counts(self.context),
             **calls_privacy_counts(self.context),
             **app_calls_privacy_counts(self.context),
@@ -863,6 +899,9 @@ class InMemoryPrivacyStore:
         self.commands().delete_all()
         self.library().delete_all()
         self.finance().delete_everything(self.context)
+        self.attendance().delete_everything(self.context)
+        self.vehicles().delete_everything(self.context)
+        self.purchases().delete_everything(self.context)
         delete_mail_everything(self.context)
         delete_my_app_calls(self.context)
         self._delete_email()
@@ -1127,7 +1166,47 @@ def finance_export(finance: Any, context: TenantContext) -> dict[str, Any]:
             for s in strategies for r in finance.list_strategy_runs(context, s.id, limit=2_000, offset=0)[0]
         ],
         "agent_decisions": [d.model_dump(mode="json", exclude=hidden) for d in finance.list_agent_decisions(context, limit=20_000, offset=0)[0]],
+        # iPhone SMS, Apple Wallet and the journal (docs/finance-sms.md#privacy-and-deletion): device token hashes are never exported.
+        **_sms_export(finance, context, hidden),
     }
+
+
+def _sms_export(finance: Any, context: TenantContext, hidden: set[str]) -> dict[str, Any]:
+    session = getattr(finance, "session", None)
+    if session is not None:
+        from .db.sms_repository import SqlAlchemySmsStore
+
+        sms: Any = SqlAlchemySmsStore(session)
+    else:
+        from .finance.sms_store import sms_memory_store
+
+        sms = sms_memory_store
+    settings = sms.get_settings(context)
+    messages: list[Any] = []
+    while True:
+        page, total = sms.list_messages(context, status=None, limit=200, offset=len(messages))
+        messages.extend(page)
+        if not page or len(messages) >= total:
+            break
+    return {
+        "sms_settings": settings.model_dump(mode="json") if settings is not None else None,
+        "sms_devices": [d.model_dump(mode="json", exclude=hidden | {"token_hash"}) for d in sms.list_devices(context)],
+        "sms_messages": [m.model_dump(mode="json", exclude=hidden | {"idem_key"}) for m in messages],
+        "sms_rules": [r.model_dump(mode="json", exclude=hidden) for r in sms.list_rules(context)],
+        "journal_entries": [e.model_dump(mode="json", exclude=hidden) for e in sms.list_entries(context, limit=100_000)],
+        # Finance links, the allocations this person made and their iPhone device events (docs/finance-links.md#privacy).
+        **_links_export(session, context),
+    }
+
+
+def _links_export(session: Any, context: TenantContext) -> dict[str, Any]:
+    if session is not None:
+        from .db.finance_links_repository import SqlAlchemyLinkStore
+
+        return SqlAlchemyLinkStore(session).export_everything(context)
+    from .finance.links_store import links_memory_store
+
+    return links_memory_store.export_everything(context)
 
 
 def export_sections(store: PrivacyStore, context: TenantContext) -> Iterator[tuple[str, Any]]:
@@ -1200,7 +1279,17 @@ def export_sections(store: PrivacyStore, context: TenantContext) -> Iterator[tup
     yield ("home", home_export(store.home(), context))
     # The caller's whole finance ledger (docs/finance.md#privacy).
     yield ("finance", finance_export(store.finance(), context))
+    # The caller's own attendance and daily reports (docs/attendance.md#privacy).
+    yield ("attendance", store.attendance().export(context))
+    # The caller's vehicles and vehicle records (docs/vehicles.md#privacy).
+    yield ("vehicles", store.vehicles().export(context))
+    # The caller's purchases, deliveries and returns (docs/purchases.md#privacy).
+    yield ("purchases", store.purchases().export(context))
     yield ("mail", mail_export(context))
+    # The caller's document vault records (docs/documents.md#privacy); bytes stay downloadable in the vault.
+    from .vault.privacy import export as vault_export
+
+    yield ("documents", vault_export(context))
     # The caller's calls with teammates, as they see them (no device ids, no peer id).
     yield ("app_calls", app_calls_privacy_export(context))
     yield ("calls", calls_export(context))
@@ -1399,6 +1488,11 @@ def privacy_summary(
         membership = store.membership()
         private, shared = store.counts()
         preferences = store.user_preferences() or UserPreferences()
+    from .vault.privacy import counts as vault_counts
+
+    vault_private, vault_devices, vault_workspace = vault_counts(context)
+    private = private.model_copy(update={"vault_private_documents": vault_private, "vault_devices": vault_devices})
+    shared = shared.model_copy(update={"vault_workspace_documents": vault_workspace})
     # Outside the privacy transaction: the governance read opens its own unit of work.
     memory = conversation_memory_state(context, preferences)
     return PrivacySummary(
@@ -1488,10 +1582,16 @@ def _private_mailboxes(context: TenantContext) -> list[EmailAccount]:
 def _delete_private(context: TenantContext, revoked: int) -> tuple[Any, Any]:
     # Calls (and their recording files) go first, in their own units of work.
     calls_deleted = delete_my_calls(context)
+    from .vault.privacy import counts as vault_counts
+    from .vault.privacy import delete_private as delete_vault_private
+
+    vault_documents, vault_devices = delete_vault_private(context)
     with open_privacy_store(context) as store:
         recording_keys = [record.storage_key for record in store.meeting_recordings()]
-        deleted = store.delete_private().model_copy(update={"calls_logged": calls_deleted})
+        deleted = store.delete_private().model_copy(update={
+            "calls_logged": calls_deleted, "vault_private_documents": vault_documents, "vault_devices": vault_devices})
         _, kept = store.counts()
+        kept = kept.model_copy(update={"vault_workspace_documents": vault_counts(context)[2]})
         _audit(
             store, context, "privacy.delete", "success",
             {"deleted": deleted.model_dump(), "kept": kept.model_dump(), "mailboxes_revoked_at_provider": revoked},

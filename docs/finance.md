@@ -4,6 +4,8 @@ Finance is ANUM's native Finance domain, stages 2 to 9: one person's own ledger 
 
 Code: `services/api/anum_api/finance/` (`safe_to_spend.py`, `fx.py`, `guardian.py`, `policy.py`, `connectors.py`, `sync.py`, `plan_api.py` for stages 3 to 5; `trading.py`, `execution.py`, `gateway.py`, `live.py`, `wider.py`, `trading_api.py`, `wider_api.py` for stages 6 to 9), `services/api/anum_api/db/finance_repository.py`, migrations `0056_finance_ledger`, `0057_finance_plan_guard_conn`, `0058_finance_paper_exec` and `0059_finance_wider_live`, `packages/contracts/src/finance.ts`, web `apps/web/src/FinanceView.tsx`, `FinancePlan.tsx`, `FinanceTrading.tsx` and `FinanceWider.tsx`, Flutter `apps/mobile/lib/features/finance/`.
 
+Bank and card SMS forwarded from an iPhone, the review queue and the double-entry journal with its ledger dashboard are in [iPhone SMS banking and the double-entry ledger](finance-sms.md) (off by default). A transaction an SMS recorded is part of a journal entry: the Transactions tab cannot change its amount, date or category (correct it under iPhone SMS, Review), and deleting it reverses the whole entry.
+
 ## Hard limits
 
 These are rules of the design, not settings:

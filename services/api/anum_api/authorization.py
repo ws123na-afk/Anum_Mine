@@ -154,6 +154,31 @@ class Permission(StrEnum):
     # get neither.
     BILLING_READ = "billing:read"
     BILLING_MANAGE = "billing:manage"
+    # Work attendance and daily reports (docs/attendance.md#permissions): the person's own
+    # record (row policies on ``anum.user_id``); owners and members keep theirs, viewers none.
+    ATTENDANCE_USE = "attendance:use"
+    # Document vault (docs/documents.md#who-can-do-what): identity papers, contracts and receipts
+    # are personal data, so viewers get none of it. Owners and members read workspace documents
+    # and add, change and delete their own; a private document is visible only to its owner and
+    # the people it is shared with, whatever the role. Owners also manage the vault's settings and
+    # categories and change or delete anyone's workspace documents.
+    DOCUMENT_READ = "document:read"
+    DOCUMENT_WRITE = "document:write"
+    DOCUMENT_MANAGE = "document:manage"
+    # Vehicles, fuel and mileage (docs/vehicles.md#who-can-do-what): owners and members keep
+    # vehicles; a personal vehicle is visible only to its owner (row policies), a business one to
+    # every member. Owners also change and delete anyone's business vehicles and records. Viewers
+    # get none of it (registrations, VINs and costs are personal or business data).
+    VEHICLE_READ = "vehicle:read"
+    VEHICLE_WRITE = "vehicle:write"
+    VEHICLE_MANAGE = "vehicle:manage"
+    # Purchases, deliveries, returns and refunds (docs/purchases.md#who-can-do-what): owners and
+    # members keep purchases; a personal purchase is visible only to its owner (row policies), a
+    # business one to every member. Owners also change and delete anyone's business purchases.
+    # Viewers get none of it (orders, addresses and refunds are personal or business data).
+    PURCHASE_READ = "purchase:read"
+    PURCHASE_WRITE = "purchase:write"
+    PURCHASE_MANAGE = "purchase:manage"
 
 
 class OrganizationRole(StrEnum):
@@ -251,6 +276,13 @@ ROLE_PERMISSIONS: Mapping[Role, frozenset[Permission]] = MappingProxyType(
             Permission.CALL_LOG,
             Permission.BUSINESS_READ,
             Permission.BUSINESS_WRITE,
+            Permission.ATTENDANCE_USE,
+            Permission.DOCUMENT_READ,
+            Permission.DOCUMENT_WRITE,
+            Permission.VEHICLE_READ,
+            Permission.VEHICLE_WRITE,
+            Permission.PURCHASE_READ,
+            Permission.PURCHASE_WRITE,
         },
         Role.VIEWER: _READ_PERMISSIONS,
     }

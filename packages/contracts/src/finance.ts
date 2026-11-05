@@ -137,6 +137,10 @@ export interface FinanceImport {
   created_at: string;
   /** Stage 4: imported rows that break a Guardian rule (on a confirmed import). */
   rule_breaks?: number;
+  /** Rows that reported a payment already recorded (SMS, Apple Pay, by hand): attached, not added (docs/finance-sms.md#reconciliation). */
+  reconciled?: number;
+  /** Rows that could match more than one recorded payment: waiting in Finance, iPhone SMS, Review. */
+  held_for_review?: number;
 }
 
 export interface FinanceBill {
