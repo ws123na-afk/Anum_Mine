@@ -21,8 +21,11 @@ reported under ``whatsapp``, deletes what ANUM keeps of each Email Center mailbo
 retention (``anum_api.mail_retention``), reported under ``mail``, deletes call recordings
 past their retention (``anum_api.calls.retention``), reported under ``call_recordings``, and
 deletes in-app calls that ended more than ``ANUM_CALLS_RETENTION_DAYS`` ago
-(``anum_api.app_calls``), reported under ``app_calls``, so the
-daily retention CronJob covers every one of them.
+(``anum_api.app_calls``), reported under ``app_calls``, and, last, deletes meeting transcripts and
+reception visitor records past each workspace's retention (``anum_api.record_retention``, owner decision O5),
+reported under ``record_retention``, and then sends document expiry reminders and empties the document
+vault's trash (``anum_api.vault.jobs``), reported under ``documents``, so the daily retention CronJob
+covers every one of them.
 """
 
 from __future__ import annotations
@@ -61,7 +64,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         description=(
             "Delete voice transcripts past their 30-day retention, retrieval index rows "
             "of expired or deleted memories and files, idle assistant conversations, WhatsApp "
-            "messages past their workspace's retention and Email Center messages and labels past their mailbox's retention."
+            "messages past their workspace's retention, Email Center messages and labels past their mailbox's retention, "
+            "and meeting transcripts and visitor records past their workspace's retention."
         ),
     )
     parser.add_argument("--dry-run", action="store_true", help="count what would be deleted")
@@ -90,6 +94,25 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     report["call_recordings"] = purge_call_recordings(dry_run=args.dry_run, batch_size=args.batch_size)
     report["app_calls"] = purge_app_calls(dry_run=args.dry_run, batch_size=args.batch_size)
+    # Last: on SIGTERM it finishes the workspace in progress and stops (``stopped: true``).
+    from .record_retention import purge as purge_records
+
+    report["record_retention"] = purge_records(dry_run=args.dry_run, batch_size=args.batch_size)
+    from .attendance.jobs import run as run_attendance  # docs/attendance.md#daily-job
+
+    report["attendance"] = run_attendance(dry_run=args.dry_run, batch_size=args.batch_size)
+    # The document vault's expiry reminders, retention and trash (docs/documents.md#expiry-reminders-trash-and-retention).
+    from .vault.jobs import run as run_vault
+
+    report["documents"] = run_vault(dry_run=args.dry_run)
+    # Vehicle expiry and service reminders (docs/vehicles.md#reminders).
+    from .vehicles.jobs import run as run_vehicles
+
+    report["vehicles"] = run_vehicles(dry_run=args.dry_run)
+    # Purchase delivery, return, refund and warranty reminders (docs/purchases.md#reminders).
+    from .purchases.jobs import run as run_purchases
+
+    report["purchases"] = run_purchases(dry_run=args.dry_run)
     print(json.dumps(report, indent=2))
     return 0
 

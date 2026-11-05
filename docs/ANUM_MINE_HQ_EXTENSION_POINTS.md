@@ -31,13 +31,14 @@ A layer around the scene that makes it easy to move between offices. It holds no
 
 | Part | What it does | Source of truth |
 |---|---|---|
-| Floor rail (`FloorRail.tsx`) | Floors of the open building, top first, with a thumbnail (a scene snapshot once taken, else a plan drawn from the saved room geometry), room types, rooms and assigned agents. Active state, arrow keys, collapse to a slim rail, a drawer under 900 px | `floorEntries` over the projection |
+| Floor rail (`FloorRail.tsx`) | Floors of the open building, top first, with a thumbnail (a scene snapshot once taken, else a plan drawn from the saved room geometry), room types, rooms and assigned agents. Active state, arrow keys. Not docked by default (the floor selector in the scene is the one floor control): the Floors button docks it from 900 px (whole or collapsed to a slim rail) and opens it as a drawer under 900 px | `floorEntries` over the projection |
 | Quick views (`ViewStrip.tsx`) | Campus aerial, one stop per non-archived building (locked when not accessible), then rooms of the open building: every room up to 8, otherwise the first room of each room kind, at most 12. Current stop outlined, Collapse, arrow keys | `stripStops`, `roomStops` |
 | Campus cards (`CampusView.tsx`) | Tags from real fields (building type only when an owner set it, floors, rooms, one department for the open workspace), agent count, initials of the open workspace's agents. Density rule: 6 or fewer buildings all full; more: the selected, open and executive buildings stay full, then the busiest up to six, the next to fourteen are compact (name and count), the rest a dot. Nothing is removed | `cardDensities`, `cardTags` |
-| Side panel (`SidePanel.tsx`) | Floor plan with the 2D (top-down) and 3D switch, people at their posts, quick moves, and the PA dock as a tab. A drawer under 1280 px | `planModel`, `peopleAtPosts` |
-| Camera (`flight.ts`, `cameraBridge.ts`) | Eased fly-to: duration 450 to 1800 ms from the travel (square-root curve), shortest yaw, a gentle rise over the ground, extra height wherever the eye would sit inside a building box. Reduced motion jumps. A pointer, wheel or key press on the stage ends a flight. One requestAnimationFrame loop runs only while flying | pure, unit tested |
+| Side panel (`SidePanel.tsx`, `PanelSection.tsx`, `OfficeStatus.tsx`) | Total agents, quick moves, the PA dock; inside a building the floor plan with the 2D (top-down) and 3D switch and the people at their posts. The selected room or building docks at its top. Each panel has the shared header with a live chip and a fold button ([page layout](ANUM_MINE_HQ_PAGE_LAYOUT.md)). Docked from 1600 px (or from 1280 px when the person chose Show the side panel), a drawer narrower | `planModel`, `peopleAtPosts` |
+| Camera (`flight.ts`, `cameraBridge.ts`) | Eased fly-to: duration 450 to 1800 ms from the travel (square-root curve), shortest yaw, a gentle rise over the ground, extra height wherever the eye would sit inside a building box. Reduced motion jumps. A pointer, wheel or key press on the stage ends a flight, and so does a camera control (Reset view, zoom, north, rotate, map jump): the campus and building views cancel the flight before they move the camera, so its next frame never undoes the control (`e2e/hq-camera-controls.spec.ts`). One requestAnimationFrame loop runs only while flying | pure, unit tested |
 | Thumbnails (`thumbs.ts`) | The stage hands its canvas to `ThumbCapture` inside the renderer's frame callback; a 192 by 108 JPEG is kept in memory and in this tab's sessionStorage, keyed by tenant, workspace, a layout signature, the place and day or night. A place not yet seen has none and the strip shows an icon | `HqStage` `onCanvasFrame` |
-| Live region | "Moving to X." then "Now showing X." (or "Showing X." when the camera jumped) | bridge events |
+| Live region | "Moving to X." then "Now showing X." (or "Showing X." when the camera jumped). A flight that stops short (a pointer, wheel or key on the stage, a camera control, the view closing) says "Stopped before reaching X." once, never "Now showing"; the place is then forgotten, so no later move repeats it. A flight replaced by a newer one says nothing of its own (`hq-nav/flightLive.ts`, `test/hqFlightLive.test.ts`, `test/hqCameraBridge.test.ts`, `e2e/hq-navigation.spec.ts`) | bridge events (`start`, `end`, `instant`, `missing`, `cancelled`) |
+| Opening a room on any floor (`roomMove` in `navModel.ts`) | A room picked anywhere (the floor plan, the quick views, the list view, the search, the team panel, the history, the flow dock, the assistant) opens its building and its floor first (the floor rail, the floor note and the camera follow), then selects the room and frames it on its floor. The floor the caller names is only a hint: the saved layout decides. The camera's floor glide and the room flight are one move (`HeadquartersLive` `focusRequest`, consumed by `BuildingView` once the room is on the open floor); in the floor overview a pick only selects. The live region names the room for every source | saved layout, unit tested (`test/hqPosts.test.ts`), `e2e/hq-people-floors.spec.ts` |
 
 Several buildings in one workspace: the card key of a registry building is `<workspace id>~<building id>` (`CampusBuilding.realWorkspaceId` and `registryBuildingId` say what it is). Opening one selects that registry building (floor rail, plan, people and room stops follow it); opening a building of another workspace still switches workspace. `hqCommands.navigateTo({ building })` matches registry buildings by name or key; a target that also names a floor or room of a registry building other than the open one only opens the building. The total on the campus is the sum of the cards, so an agent with no desk is in no building (the building view's Team status still counts it).
 
@@ -54,10 +55,14 @@ onSelectRoom(room: HqRoomRef)            // a room was selected (scene, list, to
 renderRoomPanel(room, { close })         // replaces the built-in room panel (the meetings workstream)
 onSelectAgent(agent: HqAgentRef)         // an agent card or desk was opened
 renderWorkstationPanel(agent, { close }) // replaces the built-in workstation panel
-renderPaDock({ close })                  // a dock beside the scene (up to 380 px); the executive PA panel goes here
+renderPaDock({ close, onStatus })        // a dock beside the scene (up to 380 px); the executive PA panel goes here
 liveMeetingRoomIds: ReadonlySet<string>  // rooms to light up as "In a meeting"
 onSwitchWorkspace / onSwitchOrganisation // supplied by the shell; used to open another building
 ```
+
+### Opening work inside the office
+
+Work never takes the person out of the headquarters. Code inside or outside the bundle opens a drawer over the scene with `openHqPanel` from `lib/hqWorkPanels.ts` (task, run, approval, the approvals of a task or the queue, a meeting or the meeting picker, an agent's work log) or `openViewInHq(view)` for a module view (`approvals`, `meetings`, `tasks` opens the live flow, `agents` the team panel). Both answer false when no headquarters is mounted, so the caller navigates as before. The same requests are DOM events: `anum:hq-work-panel` (detail: the panel), `anum:hq-open-task` (detail: a task id) and `anum:hq-scene-panel` (`flow`, `team`, `meetings`). The drawers, their states and every place that used to navigate are in [assign work](ANUM_MINE_ASSIGN_WORK.md#work-inside-the-office). The executive PA dock passes its `onOpenTask` and `onOpenView` through them (`main.tsx`).
 
 ### Navigation commands (executive assistant)
 
@@ -79,8 +84,10 @@ await hqCommands.navigateTo({ building: 'Tyre Pulse', floor: 1, room: 'Meeting R
 
 ```tsx
 import { ExecutivePaDock } from './ExecutivePanel';
-<HeadquartersEntrypoint renderPaDock={() => <ExecutivePaDock onOpenView={openView} />} />
+<HeadquartersEntrypoint renderPaDock={(c) => <ExecutivePaDock docked onStatus={c.onStatus} onOpenView={openView} />} streamState={stream} />
 ```
+
+The dock sits inside the shared panel header (`hq-nav/AssistantPanel.tsx`: title, purpose, live chip, fold). `docked` drops the panel's own title and status line (the header shows them), `onStatus` reports whether its tools loaded, and `streamState` is the shell's workspace event stream (`connecting`, `live`, `offline`); together they give the chip its words ([page layout](ANUM_MINE_HQ_PAGE_LAYOUT.md#what-live-means)).
 
 The PA moves the view only through `hqCommands.navigateTo`, so the dock needs no other access to the scene. The tour list comes from `GET /api/v1/executive-pa/tour`; the Guided visit (Office tools) reads the same endpoint and moves the view with `hqCommands.navigateTo`, so it shows only rooms the person can access. The daily briefing is `GET /api/v1/executive-pa/briefing` and the `daily_briefing` tool ([Executive PA](ANUM_MINE_EXECUTIVE_PA.md#daily-briefing)); a new briefing source is one more loader in `anum_api/pa_briefing.py` (`_LOADERS`, `SECTION_KEYS`) plus its `TEXT` templates in both languages.
 
@@ -111,13 +118,14 @@ The module a room opens follows its stored department (`team_department`, set by
 | `security` | Audit log (`#audit`) |
 | `hr` | Members and roles (`#members`) |
 | `procurement`, `custom` or any unknown value | No module: "No module connected for this department" and the Organisation gaps button |
-| `executive`, `commerce`, `meeting` | Accepted if a later contract stores them: `#executive`, `#commerce`, `#meetings` (not storable today) |
+| `executive` | The executive desk (`#executive`). Storable since migration 0116: a room whose stored department is executive opens it whatever its kind and building |
+| `commerce`, `meeting` | Accepted if a later contract stores them: `#commerce`, `#meetings` (not storable today) |
 
 No department stored: the room kind decides (meeting to `#meetings`, workshop to `#tyre`, warehouse to `#commerce`, reception to no module, with "no visitor register"); then a room in an executive building opens `#executive`; then a word in the room name; last, office to Tasks and lounge to Calendar. In every one of these cases the owner (`workspace:manage`) sees "Set a department in the builder". No route is invented: every target is a view that exists in the shell.
 
 A room with a live meeting (the stored `room_id` of an active meeting) adds the meeting to the module link: a meeting room's link opens `#office/meeting/<id>`, and a room of another department also shows "Open the live meeting". See [departments, modules and meeting rooms](ANUM_MINE_DEPARTMENTS_AND_MEETING_ROOMS.md).
 
-Reception: the live office has no visitor workflow and shows no invented host or room names (`ReceptionOperations` is a local simulation and is mounted only by the labelled Concept preview). A visitor registry is not built: owner decision O4 is open.
+Reception: the live office has no visitor workflow and shows no invented host or room names (the local `ReceptionOperations` simulation with its example hosts was deleted; the Concept preview keeps only clearly labelled example rooms and staff positions, held in `lib/conceptOfficeData.ts`, which cannot be stored or sent). A visitor registry is not built: owner decision O4 is open.
 
 ## Asset modules
 
@@ -181,7 +189,7 @@ sizes and limits: [ANUM_MINE_HQ_REALISM_ASSETS.md](ANUM_MINE_HQ_REALISM_ASSETS.m
 
 ## Camera, keyboard and performance
 
-Orbit by dragging, pan with Shift or the right button, zoom with the wheel or pinch. With the scene focused: arrows pan, Q and E rotate, plus and minus zoom, 0 resets. Reduced motion jumps the camera instead of tweening. The renderer is three.js (see "How the scene is drawn"): per-mesh frustum culling, render on demand, the shadow map redrawn only when needed, a pixel ratio capped at 2 and lowered after sustained slow frames. A lost context shows "Restoring the 3D view" and three.js rebuilds its buffers; if it does not come back in 5 seconds the page switches to the List view. The canvas dataset (`data-engine`, `data-draw-ms`, `data-triangles`, `data-drawn`, `data-culled`, `data-dpr`, `data-shadow`, `data-bloom`) exposes the renderer and the measured draw time for tests.
+Orbit by dragging, pan with Shift or the right button, zoom with the wheel or pinch. With the scene focused: arrows pan, Q and E rotate, plus and minus zoom, 0 resets. Reduced motion jumps the camera instead of tweening. The renderer is three.js (see "How the scene is drawn"): per-mesh frustum culling, render on demand, the shadow map redrawn only when needed, a pixel ratio capped at 2 and lowered after sustained slow frames. A lost context shows "Restoring the 3D view" and three.js rebuilds its buffers; if it does not come back in 5 seconds the page switches to the List view. The canvas dataset (`data-engine`, `data-draw-ms`, `data-triangles`, `data-drawn`, `data-culled`, `data-dpr`, `data-shadow`, `data-bloom`, `data-scene-settled`) exposes the renderer and the measured draw time for tests. `data-triangles` is the count of the last frame drawn (written whenever it changes, the other figures every tenth frame). `data-scene-settled` is `true` from the first frame that draws the final scene: the view waits for no lazy part that changes the meshes (on the campus the plan kit and the billboards with their atlas), the renderer's scene effect chunks (baked occlusion, campus detail) have loaded and the scene was built again with them, and the scene the view holds is the one handed to the renderer. The first builds are temporary, so a test that compares triangle counts reads them only once it is `true`.
 
 ## Live scene
 

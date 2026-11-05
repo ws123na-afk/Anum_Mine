@@ -20,15 +20,20 @@ One building per workspace where the caller has an **active membership** and `ta
 
 ```json
 { "version": 1, "tenant_id": "...", "current_workspace_id": "...", "generated_at": "ISO", "truncated": false,
-  "buildings": [{ "workspace_id": "...", "name": "...", "kind": "executive|business|department|personal|null",
+  "buildings": [{ "workspace_id": "...", "name": "...", "kind": "executive|business|department|personal|career|null",
     "icon": "building|briefcase|store|truck|home|user|landmark|factory|shield|chart|null", "profile_revision": 1,
     "role": "owner", "archived": false, "accessible": true,
     "floors": [{ "id": "...", "building_id": "...", "level": 0, "name": "..." }],
     "office_buildings": 1, "rooms": 3, "desks": 8,
-    "agents": { "total": 5, "by_state": { "working": 1, "queued": 0, "meeting": 0, "waiting_approval": 0, "blocked": 0, "idle": 4, "paused": 0, "unknown": 0 } },
+    "agents": { "total": 5, "by_state": { "working": 1, "queued": 0, "meeting": 0, "waiting_approval": 0, "blocked": 0, "idle": 4, "paused": 0, "unknown": 0 }, "off_shift": 0 },
     "presence_verified_at": "ISO|null", "presence_as_of": "ISO" }] }
 ```
+Shifts ([Green Concrete](ANUM_MINE_GREEN_CONCRETE.md#shifts)): an agent seated at a `day` or `night` desk whose shift is not in force now (the building's stored `shift_day_start` and `shift_night_start`, else 07:00 and 19:00, in the building's time zone) is counted in `off_shift` and not in `by_state`; `total` still counts every agent. `presence_verified_at` reads only the people on shift. The web treats a missing `off_shift` (an older server) as zero, and shows the count as **Off shift** in every total.
+
 `kind` and `icon` are null until an owner sets them; nothing is guessed. A workspace that fails to read is listed with `accessible: false`, `agents: null` and zero counts.
+
+### `GET /api/v1/office/campus/boards` (permission `task:read`)
+The billboard facts and signs of every other workspace the caller may read (open work counts, a rooms and departments summary, the owner's sign of each registry building), each read in that workspace's own tenant and workspace RLS context with the caller's role there. Paged (`limit` at most 16, `cursor`), cached 15 seconds per workspace, user and role, memberships read fresh every call. The open workspace is never in it. See [billboards: every building](ANUM_MINE_HQ_BILLBOARDS.md#every-building). Tests: `test_office_campus_boards.py`, `test_postgres_office_campus_boards.py`.
 
 ### `PUT /api/v1/office/campus/profile` (owner, `workspace:manage`)
 Body `{ "kind", "icon", "expected_revision"? }` for the **current** workspace. First save: no `expected_revision`. Later saves must send the current revision (409 when stale). Audited (`office.campus.profile`). Answers `{ workspace_id, kind, icon, revision }`.
@@ -82,7 +87,7 @@ Presence knows nothing about shifts: it is derived from records, per agent. The 
 
 ## Data and migration `0101_executive_grants`
 
-Expand only (new tables and one new role; nothing existing changes). Chained on `0100_office_room_geometry` (file `0099_office_room_geometry.py`); numbers are renumbered at merge (data agent 0101, meetings 0102, executive 0103).
+Expand only (new tables and one new role; nothing existing changes). Chained on `0100_office_room_geometry` (file `0100_office_room_geometry.py`); numbers are renumbered at merge (data agent 0101, meetings 0102, executive 0103).
 
 - `campus_workspace_profiles` (tenant, workspace, kind, icon, revision, updated_by): forced RLS by tenant and workspace.
 - `executive_grants`: forced RLS by tenant and workspace, check constraints (scopes subset of five names, 1 to 5 scopes, hash shape, active needs approver), one active grant per person and workspace (partial unique index), index on grantee.
@@ -117,3 +122,11 @@ Expand only (new tables and one new role; nothing existing changes). Chained on 
 - No UI, no Flutter, no e2e browser test: those belong to the visual and executive workstreams.
 - Presence for agents is per workspace; a person-level "everything I am doing" view is not built.
 - Load test at 200+ agents / 1000+ desks is still open (queries are bounded to 2000 rows per kind).
+
+## On the 3D monitors
+
+A desk monitor reads the presence record behind its desk (`status`, `stale`, `last_verified_at`) and the live flow item the flow places at the desk (`since`, `waiting.since`). Working and meeting show a scan line only while the record is fresh; a shift desk off shift is dark. Elapsed time counts from the real start of the record; a record without a start shows none. See [live screens](ANUM_MINE_HQ_LIVE_SCREENS.md).
+
+## Career building kind (27 October 2026)
+
+Owner decision O2: `career` is its own campus kind. `PUT /office/campus/profile` accepts it (migration `0118_career_visitor_register` widens `ck_campus_profile_kind`; the previous release shows an unknown kind as the business look), and the campus draws it as the career centre. See [reception and career](ANUM_MINE_HQ_RECEPTION.md).

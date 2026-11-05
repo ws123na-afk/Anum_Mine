@@ -13,6 +13,7 @@ import { skylineBackdrop, skylineTower, TOWER_TRIANGLES_CAP } from './skyline.ts
 import { bus, BUS_TRIANGLES_CAP, car, CAR_TRIANGLES_CAP, truck, TRUCK_TRIANGLES_CAP, van, VAN_TRIANGLES_CAP, type CarKind } from './vehicles.ts';
 import { bridge, BRIDGE_TRIANGLES_CAP, canal, fountain, FOUNTAIN_TRIANGLES_CAP, pond, POND_TRIANGLES_CAP } from './water.ts';
 import { roundedRectPath } from './paths.ts';
+import { AVENUE_TRIANGLES_CAP, CENTER_PLAZA_TRIANGLES_CAP, ROUNDABOUT_TRIANGLES_CAP, avenue, centerPlaza, roundabout } from './plaza.ts';
 
 export type BudgetRow = Readonly<{ name: string; triangles: number; cap: number }>;
 
@@ -36,6 +37,9 @@ export function measureEnvironmentKit(): BudgetRow[] {
   for (const style of ['arch', 'flat', 'foot'] as const) add(`bridge ${style}`, BRIDGE_TRIANGLES_CAP, (b) => bridge(b, 0, 0, { style }).triangles);
   add('pond', POND_TRIANGLES_CAP, (b) => pond(b, 0, 0, 8, { seed: 'budget' }).triangles);
   add('fountain', FOUNTAIN_TRIANGLES_CAP, (b) => fountain(b, 0, 0).triangles);
+  add('centre plaza and fountain', CENTER_PLAZA_TRIANGLES_CAP, (b) => centerPlaza(b, 0, 0).triangles);
+  add('roundabout with two mouths and crossings', ROUNDABOUT_TRIANGLES_CAP, (b) => roundabout(b, 0, 0, { mouths: [0, Math.PI / 2], crossings: [0.5, 1, 2.2, 3, 4, 5, 5.8] }).triangles);
+  add('avenue 90 m', AVENUE_TRIANGLES_CAP, (b) => avenue(b, [0, 0], [90, 0]).triangles);
   add('tennis court', TENNIS_TRIANGLES_CAP, (b) => tennisCourt(b, 0, 0).triangles);
   add('football pitch', PITCH_TRIANGLES_CAP, (b) => footballPitch(b, 0, 0).triangles);
   add('helipad', HELIPAD_TRIANGLES_CAP, (b) => helipad(b, 0, 0).triangles);

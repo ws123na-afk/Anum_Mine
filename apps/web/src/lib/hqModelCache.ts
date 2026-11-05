@@ -4,7 +4,7 @@
  * `resolvePlacements` decides, from what actually loaded, which placements to draw and which groups
  * keep their procedural stand-in.
  */
-import { MODEL_SPECS, PERSON_KEYS, type ModelGroup, type ModelKey, type ModelPlacement } from './hqModels.ts';
+import { PERSON_KEYS, isFigureKey, specOf, type ModelGroup, type ModelKey, type ModelPlacement } from './hqModels.ts';
 
 export type LoadOutcome<T> = Readonly<{ model: T; bytes: number }>;
 
@@ -72,7 +72,9 @@ export function resolvePlacements(asked: readonly ModelPlacement[], loaded: Read
   const fallbackGroups: ModelGroup[] = [];
   for (const group of groups) {
     const needed = new Set(asked.filter((p) => p.group === group).map((p) => p.key));
-    const ok = group === 'figure' ? PERSON_KEYS.some((k) => loaded.has(k)) : [...needed].every((k) => loaded.has(k));
+    // Kit figures are all or nothing (a room never mixes styles); the legacy people need any one model.
+    const kit = [...needed].some(isFigureKey);
+    const ok = group === 'figure' ? (kit ? [...needed].every((k) => loaded.has(k)) : PERSON_KEYS.some((k) => loaded.has(k))) : [...needed].every((k) => loaded.has(k));
     if (ok) ready.add(group); else fallbackGroups.push(group);
   }
   const people = PERSON_KEYS.filter((k) => loaded.has(k));
@@ -90,5 +92,5 @@ export function keysNeeded(placements: readonly ModelPlacement[]): ModelKey[] {
 
 /** Bytes the catalogue says are needed for these placements (shipped sizes). */
 export function catalogBytes(keys: readonly ModelKey[]): number {
-  return keys.reduce((n, k) => n + MODEL_SPECS[k].bytes, 0);
+  return keys.reduce((n, k) => n + specOf(k).bytes, 0);
 }

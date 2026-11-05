@@ -52,6 +52,9 @@ settings_table = Table(
     _j("tax_rules"), _i("default_tax_bp"), _j("reminder_days"), _i("grace_days"), _s("sending_workspace_id", 80),
     _b("stripe_enabled"), Column("stripe_secret_ciphertext", String()), Column("stripe_webhook_secret_ciphertext", String()),
     _s("stripe_key_mode", 10), _s("updated_by", 160), _t("updated_at"),
+    # Moyasar (migration 0123_selling_readiness).
+    _b("moyasar_enabled"), Column("moyasar_secret_ciphertext", String()), Column("moyasar_webhook_secret_ciphertext", String()),
+    _s("moyasar_key_mode", 10),
 )
 accounts = Table(
     "billing_accounts", metadata,
@@ -114,6 +117,21 @@ webhook_events = Table(
     "billing_webhook_events", metadata,
     _s("tenant_id", 80, primary_key=True), _s("provider", 20, primary_key=True), _s("event_id", 200, primary_key=True),
     _s("event_type", 100), _t("received_at"),
+)
+refunds = Table(
+    "billing_refunds", metadata,
+    _s("id", 80, primary_key=True), _s("tenant_id", 80), _s("issuer_tenant_id", 80), _s("invoice_id", 80), _s("payment_id", 80),
+    _m("amount_minor"), _s("currency", 3), _s("provider", 20), _s("provider_refund_id"), _s("status", 20), _s("reason", 500),
+    _s("idempotency_key", 120), _s("credit_note_id", 80), _s("failure", 300), _s("requested_by", 160), _t("created_at"),
+    _t("updated_at"),
+)
+company_profiles = Table(
+    "billing_company_profiles", metadata,
+    _s("tenant_id", 80, primary_key=True), _s("legal_name"), _s("trading_name"), _s("registration_number", 80),
+    _s("registration_country", 2), _s("registration_authority"), _s("address", 600), _s("contact_email", 254),
+    _s("support_contact", 254), _s("phone", 40), _s("vat_number", 40), _s("dpo_name", 160), _s("dpo_email", 254),
+    _s("security_email", 254), _s("server_location"), _s("hosting_provider", 20), _s("governing_law", 300), _j("legal_terms"),
+    _j("published_docs"), _s("updated_by", 160), _t("updated_at"),
 )
 signups = Table(
     "billing_signups", metadata,

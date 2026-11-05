@@ -101,7 +101,7 @@ def test_confirm_builds_the_campus_empty_audited_and_idempotent(hq: TestClient, 
     assert rows(database_engine, "select count(*) from office_rooms where scene_x is null or name_ar is null") == [(0,)]
     linked = dict(rows(database_engine, "select team_department, count(*) from office_rooms where team_department is not null group by 1"))
     assert set(linked) == {"sales", "support", "operations", "finance", "tyre_engineering", "marketing", "technology", "research",
-                           "legal", "compliance", "security", "hr", "procurement"}
+                           "legal", "compliance", "security", "hr", "procurement", "executive"}
     assert rows(database_engine, "select count(*) from office_floors where width_m is null or depth_m is null") == [(0,)]
     audit = rows(database_engine, "select metadata from audit_records where action = 'office.starter_campus.building' and tenant_id = :t", t=TENANT_A)
     assert len(audit) == 8

@@ -607,7 +607,7 @@ def test_invoice_email_waits_for_approval_or_says_what_to_connect() -> None:
 def test_audit_walks_of_billing_routes(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "web_app_url", "https://app.example")
     monkeypatch.setattr(providers, "transport", httpx.MockTransport(lambda r: httpx.Response(200, json={"id": "cs", "url": "https://checkout.example/cs"})))
-    console_probe = AuditProbe(client, "platform_billing", secrets=[STRIPE_KEY, WEBHOOK_SECRET])
+    console_probe = AuditProbe(client, "platform_billing", secrets=[STRIPE_KEY, WEBHOOK_SECRET, "example-webhook-token-value"])
     org_probe = AuditProbe(client, "billing")
     console_probe.call("PUT", "/api/v1/platform/billing/settings", OPERATOR, json={
         "issuer_name": "ANUM Co", "bank_iban": "SA0000", "stripe_enabled": True, "stripe_secret_key": STRIPE_KEY, "stripe_webhook_secret": WEBHOOK_SECRET})
@@ -620,6 +620,10 @@ def test_audit_walks_of_billing_routes(monkeypatch: pytest.MonkeyPatch) -> None:
     base = f"/api/v1/platform/billing/organizations/acme-co/invoices/{invoice['id']}"
     console_probe.call("POST", f"{base}/credit-notes", OPERATOR, json={"total_minor": 100, "reason": "Rounding"}, sent=["Rounding"])
     console_probe.call("POST", f"{base}/payments", OPERATOR, json={"amount_minor": 1000, "reference": "TRX-AUDIT"})
+    paid = ok(client.get(base, headers=OPERATOR))["payments"][0]["id"]
+    console_probe.call("POST", f"{base}/payments/{paid}/refunds", OPERATOR,
+                       json={"amount_minor": 10, "reason": "Returned by transfer", "mode": "manual", "idempotency_key": "audit-refund-1"},
+                       sent=["Returned by transfer"])
     try:
         console_probe.call("POST", f"{base}/email", OPERATOR, json={"to": "ap@acme.example"})
     except AssertionError:
@@ -640,6 +644,8 @@ def test_audit_walks_of_billing_routes(monkeypatch: pytest.MonkeyPatch) -> None:
     console_probe.call("POST", "/api/v1/platform/billing/organizations/acme-co/subscription/cancel", OPERATOR)
     console_probe.call("POST", "/api/v1/platform/billing/organizations/acme-co/subscription/reactivate", OPERATOR)
     console_probe.call("POST", "/api/v1/platform/billing/run", OPERATOR)
+    console_probe.call("PUT", "/api/v1/platform/billing/providers/moyasar", OPERATOR,
+                       json={"enabled": True, "secret_key": "sk_test_example", "webhook_secret": "example-webhook-token-value"})
     console_probe.assert_covered()
     org_probe.assert_covered()
 

@@ -2,13 +2,13 @@
 // plus the global search the command palette uses.
 //
 // A command is planned first (POST /commands/preview: nothing runs), then confirmed (POST /commands
-// creates one task per step) and every step is started (POST /tasks/{id}/run). The live view comes
+// creates one task per step) and started in dependency order (POST /commands/{id}/start). The live view comes
 // from GET /commands/{id}; Stop cancels the command's tasks (POST /tasks/bulk).
 import type { CommandNextStep, CommandPlan, CommandSource, CommandSuggestion, CommandSummary, CommandView, QuickCommand, QuickCommandCategory, Task } from '@anum/contracts';
 import * as api from './api';
 import { listEmailAccounts, listEmailMessages } from './emailApi';
 import { EMPTY_FILTERS, type EmailMessage } from './email';
-import { listTasks, runTask } from './tasksApi';
+import { listTasks } from './tasksApi';
 import { EMPTY_QUERY } from './tasks';
 import { apiErrorFromResponse } from './errors';
 import { downloadText } from './clipboard';
@@ -25,18 +25,24 @@ export const previewCommand = async (text: string, locale: 'en' | 'ar'): Promise
   mapPlan(await api.apiRequest<Raw>('/api/v1/commands/preview', send('POST', { text, locale })));
 
 /** Create the command (one task per confirmed step, in order). */
-export async function createCommand(body: { text: string; steps: string[]; source: CommandSource; locale: 'en' | 'ar'; attachments: string[]; quickCommandId?: string | null }): Promise<CommandView> {
+export async function createCommand(body: { text: string; steps: string[]; dependsOn?: number[][]; source: CommandSource; locale: 'en' | 'ar'; attachments: string[]; quickCommandId?: string | null }): Promise<CommandView> {
   return view(await api.apiRequest<Raw>('/api/v1/commands', send('POST', {
-    text: body.text, steps: body.steps.map((instruction) => ({ instruction })), source: body.source, locale: body.locale, attachments: body.attachments,
+    text: body.text, steps: body.steps.map((instruction, i) => (body.dependsOn ? { instruction, depends_on: body.dependsOn[i] ?? [] } : { instruction })),
+    source: body.source, locale: body.locale, attachments: body.attachments,
     ...(body.quickCommandId ? { quick_command_id: body.quickCommandId } : {}),
   })));
 }
 
-/** Start every step at once; rejects with the first refusal (for example the budget) after all were tried. */
-export async function startSteps(taskIds: readonly string[]): Promise<void> {
-  const results = await Promise.allSettled(taskIds.map((id) => runTask(id)));
-  const failed = results.find((r): r is PromiseRejectedResult => r.status === 'rejected');
-  if (failed) throw failed.reason;
+/**
+ * Start the command in dependency order (POST /commands/{id}/start): steps with nothing to wait for start
+ * together, a step that builds on others once they completed. Safe to call again: it starts only what is ready.
+ * Rejects with the first refusal (for example the budget) when a step could not start.
+ */
+export async function startCommand(id: string): Promise<CommandView> {
+  const result = await api.apiRequest<Raw>(`/api/v1/commands/${encodeURIComponent(id)}/start`, { method: 'POST' });
+  const refused = Object.values((result.refused ?? {}) as Record<string, string>);
+  if (refused.length) throw new Error(refused[0]);
+  return view(result.command as Raw);
 }
 
 export const getCommand = async (id: string): Promise<CommandView> => view(await api.apiRequest<Raw>(`/api/v1/commands/${encodeURIComponent(id)}`, { method: 'GET' }));

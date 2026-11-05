@@ -25,8 +25,15 @@ def invoice_summary(invoice: dict[str, Any], now: datetime) -> dict[str, Any]:
     return out
 
 
-def payment_view(payment: dict[str, Any]) -> dict[str, Any]:
+def refund_view(refund: dict[str, Any]) -> dict[str, Any]:
+    return {key: refund.get(key) for key in ("id", "payment_id", "amount_minor", "currency", "provider", "status", "reason",
+                                              "credit_note_id", "failure", "created_at")}
+
+
+def payment_view(payment: dict[str, Any], refunds: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+    taken = sum(int(r["amount_minor"]) for r in (refunds or []) if r["payment_id"] == payment["id"] and r["status"] != "failed")
     return {
+        "refunded_minor": taken, "refundable_minor": int(payment["amount_minor"]) - taken,
         "id": payment["id"], "amount_minor": payment["amount_minor"], "currency": payment["currency"], "method": payment["method"],
         "reference": payment.get("reference") or "", "received_at": payment["received_at"],
         "has_proof": bool(payment.get("proof_size")), "proof_name": payment.get("proof_name"),
@@ -57,8 +64,9 @@ def invoice_detail_view(detail: dict[str, Any], now: datetime) -> dict[str, Any]
             {key: line.get(key) for key in ("id", "description", "quantity", "unit_minor", "amount_minor", "kind", "period_start", "period_end")}
             for line in detail["lines"]
         ],
-        "payments": [payment_view(p) for p in detail["payments"]],
+        "payments": [payment_view(p, detail.get("refunds")) for p in detail["payments"]],
         "credit_notes": [credit_note_view(n) for n in detail["credit_notes"]],
+        "refunds": [refund_view(r) for r in detail.get("refunds") or []],
     }
 
 
@@ -97,7 +105,10 @@ def admin_plan_view(plan: dict[str, Any]) -> dict[str, Any]:
             "created_at": plan["created_at"], "updated_at": plan["updated_at"]}
 
 
-def settings_view(row: dict[str, Any]) -> dict[str, Any]:
+STRIPE_EVENTS = ["checkout.session.completed", "charge.refunded", "refund.created", "refund.updated", "refund.failed"]
+
+
+def settings_view(row: dict[str, Any], issuer_tenant_id: str | None = None) -> dict[str, Any]:
     keys = ("issuer_name", "issuer_address", "issuer_vat_number", "issuer_email", "bank_name", "bank_account_name", "bank_iban",
             "bank_swift", "invoice_prefix", "credit_note_prefix", "payment_terms_days", "tax_rules", "default_tax_bp",
             "reminder_days", "grace_days", "sending_workspace_id", "stripe_enabled")
@@ -105,4 +116,20 @@ def settings_view(row: dict[str, Any]) -> dict[str, Any]:
     out["has_stripe_secret_key"] = bool(row.get("stripe_secret_ciphertext"))
     out["has_stripe_webhook_secret"] = bool(row.get("stripe_webhook_secret_ciphertext"))
     out["stripe_test_mode"] = row.get("stripe_key_mode") == "test" if row.get("stripe_key_mode") else None
+    out["moyasar_enabled"] = bool(row.get("moyasar_enabled"))
+    # Where the owner points Stripe's webhook, and the events to send (docs/selling-readiness.md#stripe-uae).
+    out["stripe_webhook_url"] = f"/api/v1/billing/webhooks/stripe/{issuer_tenant_id}" if issuer_tenant_id else None
+    out["stripe_events"] = list(STRIPE_EVENTS)
     return out
+
+
+def moyasar_view(row: dict[str, Any], webhook_url: str | None) -> dict[str, Any]:
+    """The Moyasar adapter's state; keys are write-only and never come back."""
+    return {
+        "enabled": bool(row.get("moyasar_enabled")),
+        "has_secret_key": bool(row.get("moyasar_secret_ciphertext")),
+        "has_webhook_secret": bool(row.get("moyasar_webhook_secret_ciphertext")),
+        "test_mode": row.get("moyasar_key_mode") == "test" if row.get("moyasar_key_mode") else None,
+        "webhook_url": webhook_url,
+        "events": ["payment_paid", "payment_refunded"],
+    }

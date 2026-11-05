@@ -24,6 +24,7 @@ from sqlalchemy import text
 from . import agent_profiles as ap
 from . import office_green_concrete as gc
 from .authorization import Permission
+from .avatar_appearance import AVATAR_STYLES, AvatarAppearance, AvatarStyle
 from .dependencies import has_permission, require_permission, tenant_context
 from .events import CanonicalEventName, create_event
 from .office_scope import require_postgres, workspace_session
@@ -34,7 +35,9 @@ from .schemas import TenantContext
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/office/green-concrete", tags=["office green concrete"])
-VERSION = 1
+VERSION = 2
+SEAT_KEYS = ("shift", "seat_order", "facing", "seat_kind", "table_group", "work_start", "work_end")
+MAX_LOOKS = len(gc.PEOPLE) + 1
 
 
 class ConfirmBody(BaseModel):
@@ -44,6 +47,28 @@ class ConfirmBody(BaseModel):
     # Only a click on the review dialog confirms. Voice and typed sentences are refused.
     input_mode: Literal["click", "typed", "voice"] = "typed"
     timezone: str = Field(min_length=3, max_length=80)
+    # The look (masculine, feminine, neutral) the owner picked for each person; it is part of the hash. Optional: nothing sent
+    # means no look is stored (the scene draws the default from the id). ``default_look`` covers the people not listed.
+    default_look: AvatarStyle | None = None
+    appearance: dict[str, AvatarStyle] = Field(default_factory=dict, max_length=len(gc.PEOPLE))
+
+
+def _looks(default: str | None, chosen: dict[str, str] | None) -> dict[str, str]:
+    try:
+        return gc.clean_appearance(default, chosen)
+    except ValueError as exc:
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc)) from exc
+
+
+def _look_params(values: list[str]) -> dict[str, str]:
+    """``key:style`` pairs of the preview query. A repeated key or a malformed pair is refused."""
+    out: dict[str, str] = {}
+    for item in values[:MAX_LOOKS]:
+        key, _, style = item.partition(":")
+        if not key or not style or key in out or style not in AVATAR_STYLES:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Each look is person:masculine, person:feminine or person:neutral")
+        out[key] = style
+    return out
 
 
 def _zone(value: str) -> str:
@@ -80,7 +105,8 @@ def load_facts(session: Any, context: TenantContext) -> gc.Facts:
         {**p, "f": gc.FLOOR_ID, "n": gc.ROOM_NAME, "id": gc.ROOM_ID}).first() is not None
     ids = [gc.desk_id(i + 1) for i in range(len(gc.PEOPLE))]
     facts.desks = {row["id"]: dict(row) for row in session.execute(text(
-        "select id, agent_id, revision from office_desks where tenant_id = :t and workspace_id = :w and id = any(cast(:d as text[]))"),
+        "select id, agent_id, revision, shift, work_start from office_desks "
+        "where tenant_id = :t and workspace_id = :w and id = any(cast(:d as text[]))"),
         {**p, "d": ids}).mappings()}
     facts.agents = {row["template_id"]: row["id"] for row in session.execute(text(
         "select id, template_id from agent_profiles where tenant_id = :t and workspace_id = :w and template_id like 'gc:%' order by id desc"),
@@ -108,28 +134,34 @@ def _read(context: TenantContext, zone: str | None) -> tuple[str, gc.Facts]:
         return (zone or _default_zone(session, context, facts)), facts
 
 
-def _shifts(facts: gc.Facts) -> dict[str, Any]:
-    day, night, default = gc.valid_hours(*(facts.building and (facts.building["shift_day_start"], facts.building["shift_night_start"]) or (None, None)))
-    return {"day": {"start": day, "end": night}, "night": {"start": night, "end": day}, "defaults": default,
-            "note": "These hours are defaults the owner must confirm. Change them in the builder (building shift hours)."}
+def _hours(zone: str) -> dict[str, Any]:
+    """The working hours of the plan, grouped: the owner's answer of 28 October 2026, not defaults."""
+    windows: dict[tuple[str, str], list[str]] = {}
+    for person in gc.PEOPLE:
+        windows.setdefault(person.hours, []).append(person.key)
+    return {"timezone": zone, "night_shift": False,
+            "windows": [{"start": s, "end": e, "people": keys} for (s, e), keys in sorted(windows.items())]}
 
 
 @router.get("/preview")
-def preview(timezone: str | None = Query(default=None, max_length=80), context: TenantContext = Depends(tenant_context)) -> dict[str, Any]:
+def preview(timezone: str | None = Query(default=None, max_length=80),
+            default_look: AvatarStyle | None = Query(default=None),
+            look: list[str] = Query(default_factory=list, max_length=MAX_LOOKS),
+            context: TenantContext = Depends(tenant_context)) -> dict[str, Any]:
     require_permission(context, Permission.TASK_READ)
     zone, facts = _read(context, _zone(timezone) if timezone else None)
-    p = gc.plan(facts, zone)
+    p = gc.plan(facts, zone, _looks(default_look, _look_params(look)))
     return {
         "version": VERSION, "catalog_version": gc.CATALOG_VERSION, "workspace_id": context.workspace_id, "timezone": zone,
         "payload_hash": gc.proposal_hash(context.tenant_id, context.workspace_id, context.user_id, zone, p),
         "can_confirm": has_permission(context, Permission.WORKSPACE_MANAGE),
-        **p, "shifts": _shifts(facts), "monthly_cap_usd": gc.MONTHLY_CAP_USD,
+        **p, "hours": _hours(zone), "monthly_cap_usd": gc.MONTHLY_CAP_USD,
         "rules": {"creates_agents": True, "agents_start_paused": True, "attaches_tools": False, "changes_existing": False,
                   "infers_gender_or_ethnicity": False},
     }
 
 
-def _agent_payload(person: gc.Person) -> ap.AgentProfileCreate:
+def _agent_payload(person: gc.Person, look: str | None = None) -> ap.AgentProfileCreate:
     return ap.AgentProfileCreate(
         name=person.name, icon="user", color="#2f6f4f", category="work", department=person.role_en,
         description=f"{person.role_en} at Green Concrete. Created paused by the owner's Add Green Concrete action.",
@@ -138,6 +170,7 @@ def _agent_payload(person: gc.Person) -> ap.AgentProfileCreate:
         model_route="fast", allowed_skills=[], allowed_tools=[],
         autonomy={"read": "auto", "write": "off", "external": "off"},
         knowledge_mode="none", knowledge_sources=[], sharing="workspace", template_id=gc.marker(person),
+        avatar=AvatarAppearance(avatar_style=look) if look in AVATAR_STYLES else None,
     )
 
 
@@ -167,13 +200,13 @@ def confirm(body: ConfirmBody, context: TenantContext = Depends(tenant_context))
                             "Confirm this on screen with a click. A spoken or typed answer cannot confirm it.")
     zone = _zone(body.timezone)
     try:
-        return _apply(context, zone, body.payload_hash)
+        return _apply(context, zone, body.payload_hash, _looks(body.default_look, dict(body.appearance)))
     except SpaceStoreError as exc:
         logger.warning("green concrete refused", extra={"anum_reason": exc.reason or exc.code})
         raise HTTPException(status.HTTP_409_CONFLICT, _REFUSED.get(exc.reason or "", "A record conflicts with one that already exists. Nothing was created.")) from None
 
 
-def _apply(context: TenantContext, zone: str, expected: str) -> dict[str, Any]:
+def _apply(context: TenantContext, zone: str, expected: str, looks: dict[str, str]) -> dict[str, Any]:
     from .db.repository import SqlAlchemyRepository
     from .office_staff_desks_api import _set_caps
 
@@ -181,7 +214,7 @@ def _apply(context: TenantContext, zone: str, expected: str) -> dict[str, Any]:
         store.session.execute(text("select pg_advisory_xact_lock(hashtextextended(:k, 0))"),
                               {"k": f"{context.tenant_id}:{context.workspace_id}:starter-campus"})
         facts = load_facts(store.session, context)
-        plan = gc.plan(facts, zone)
+        plan = gc.plan(facts, zone, looks)
         digest = gc.proposal_hash(context.tenant_id, context.workspace_id, context.user_id, zone, plan)
         if not gc.has_work(plan):
             return _report("already_set_up", digest, zone, _zero(), "Already set up. Nothing was changed.")
@@ -203,7 +236,7 @@ def _apply(context: TenantContext, zone: str, expected: str) -> dict[str, Any]:
             snaps["floor"] = _snap("floors", row)
         if plan["room"]["action"] == "create":
             desks = [(s["desk_id"], s["label"], (s["pos_x"], s["pos_z"]),
-                      {k: s[k] for k in ("shift", "seat_order", "facing", "seat_kind", "table_group")}) for s in plan["seats"]]
+                      {k: s[k] for k in SEAT_KEYS}) for s in plan["seats"]]
             values = {"name": gc.ROOM_NAME, "kind": "command", "capacity": gc.ROOM_CAPACITY, "door_side": "south", "color": "forest",
                       "rotation": 0, "equipment": [{"kind": "monitor", "quantity": 10}, {"kind": "display", "quantity": 4},
                                                    {"kind": "network_switch", "quantity": 1}], "team_department": None}
@@ -217,7 +250,7 @@ def _apply(context: TenantContext, zone: str, expected: str) -> dict[str, Any]:
             for s in plan["seats"]:
                 if s["action"] == "create":
                     made = store._insert_desks(context, gc.ROOM_ID, [(s["desk_id"], s["label"], (s["pos_x"], s["pos_z"]),
-                                                {k: s[k] for k in ("shift", "seat_order", "facing", "seat_kind", "table_group")})])
+                                                {k: s[k] for k in SEAT_KEYS})])
                     created["desks"] += 1
                     ids.append(s["desk_id"])
                     snaps["desks"].extend(d["id"] for d in made)
@@ -230,7 +263,7 @@ def _apply(context: TenantContext, zone: str, expected: str) -> dict[str, Any]:
             if gc.marker(person) in agent_ids:
                 continue
             try:
-                agent_ids[gc.marker(person)] = ap.create_agent_governed(_agent_payload(person), context, ap.AgentStatus.PAUSED).id
+                agent_ids[gc.marker(person)] = ap.create_agent_governed(_agent_payload(person, looks.get(person.key)), context, ap.AgentStatus.PAUSED).id
                 new_agents.append((agent_ids[gc.marker(person)], gc.MONTHLY_CAP_USD))
                 created["agents"] += 1
             except HTTPException as exc:
@@ -255,7 +288,7 @@ def _apply(context: TenantContext, zone: str, expected: str) -> dict[str, Any]:
         office_audit(store, context, "office.green_concrete.add", gc.BUILDING_ID, kind="buildings", ids=ids,
                      before={"existing": [x for x in (gc.BUILDING_ID, gc.FLOOR_ID, gc.ROOM_ID) if x not in ids]},
                      after={"created": created, **snaps, "payload_hash": digest, "input_mode": "click", "paused": True,
-                            "catalog_version": gc.CATALOG_VERSION})
+                            "catalog_version": gc.CATALOG_VERSION, "looks_chosen": len(looks)})
         repository = SqlAlchemyRepository(store.session)
         for person in gc.PEOPLE:
             agent_id = agent_ids.get(gc.marker(person))

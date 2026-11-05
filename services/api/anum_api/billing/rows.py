@@ -86,6 +86,8 @@ _UNIQUE: dict[str, list[tuple[str, ...]]] = {
     "billing_accounts": [("tenant_id",)],
     "billing_settings": [("tenant_id",)],
     "billing_usage": [("tenant_id", "period", "meter")],
+    "billing_refunds": [("issuer_tenant_id", "idempotency_key"), ("issuer_tenant_id", "provider", "provider_refund_id")],
+    "billing_company_profiles": [("tenant_id",)],
 }
 
 

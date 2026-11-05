@@ -1,15 +1,17 @@
 # Finance: your own ledger, safe-to-spend, Guardian rules, read-only connectors, paper trading and the execution gateway
 
-Finance is ANUM's native Finance domain, stages 2 to 9: one person's own ledger and a read-only "Financial Twin" built from the bank and card statements they import (stage 2), what is safe to spend for the rest of the month (stage 3), the person's own spending and risk rules with the Guardian policy kernel that every finance action must pass (stage 4), read-only connectors that bring outside data in (stage 5), SIMULATED paper and shadow trading against prices the person recorded (stage 6), the execution gateway, the one governed path any real action would have to take (stage 7), and the frameworks for limited live (stage 8) and wider live use (stage 9), both **shipped off**. It answers "what did I spend this month", "which bills are due", "what do I owe" and "how much can I still spend", and lets the person practise orders with simulated money. It never moves real money: no live executor exists and every live request is refused.
+Finance is ANUM's native Finance domain, stages 2 to 9: one person's own ledger and a read-only "Financial Twin" built from the bank and card statements they import (stage 2), what is safe to spend for the rest of the month (stage 3), the person's own spending and risk rules with the Guardian policy kernel that every finance action must pass (stage 4), read-only connectors that bring outside data in (stage 5), SIMULATED paper and shadow trading against prices the person recorded (stage 6), the execution gateway, the one governed path any real action would have to take (stage 7), and the frameworks for limited live (stage 8) and wider live use (stage 9), both **shipped off**. It answers "what did I spend this month", "which bills are due", "what do I owe" and "how much can I still spend", and lets the person practise orders with simulated money. Since November 2026 one live path exists, for the owner's own Interactive Brokers account only: owner-approved limit orders for US-listed ETFs, paper first, behind every lock in [Live trading with Interactive Brokers](finance-live-trading.md). Everything else on this page that moves money stays refused.
 
 Code: `services/api/anum_api/finance/` (`safe_to_spend.py`, `fx.py`, `guardian.py`, `policy.py`, `connectors.py`, `sync.py`, `plan_api.py` for stages 3 to 5; `trading.py`, `execution.py`, `gateway.py`, `live.py`, `wider.py`, `trading_api.py`, `wider_api.py` for stages 6 to 9), `services/api/anum_api/db/finance_repository.py`, migrations `0056_finance_ledger`, `0057_finance_plan_guard_conn`, `0058_finance_paper_exec` and `0059_finance_wider_live`, `packages/contracts/src/finance.ts`, web `apps/web/src/FinanceView.tsx`, `FinancePlan.tsx`, `FinanceTrading.tsx` and `FinanceWider.tsx`, Flutter `apps/mobile/lib/features/finance/`.
+
+Bank and card SMS forwarded from an iPhone, the review queue and the double-entry journal with its ledger dashboard are in [iPhone SMS banking and the double-entry ledger](finance-sms.md) (off by default). A transaction an SMS recorded is part of a journal entry: the Transactions tab cannot change its amount, date or category (correct it under iPhone SMS, Review), and deleting it reverses the whole entry.
 
 ## Hard limits
 
 These are rules of the design, not settings:
 
-- **No real money moves.** There is no payment, transfer, order, trade or withdrawal call to any bank, broker or exchange anywhere in the finance code. The Guardian kernel's `gate` denies every real money-moving action whatever the rules say (`execution_not_available`); only SIMULATED paper and shadow orders run, and they touch no account.
-- **Live is off and cannot be switched on here.** No live executor and no write-scoped connector exist. `ANUM_FINANCE_LIVE_ENABLED` and `ANUM_FINANCE_WIDER_LIVE_ENABLED` are refused at startup (and by the Helm chart), the gateway refuses every live request ("Live execution is not enabled"), and the database refuses a live request in any approved or executed state.
+- **No real money moves outside the IBKR path.** The only order call is the IBKR executor ([live trading](finance-live-trading.md)): limit orders for allowed US ETFs, each approved by the owner, inside hard limits, with every live gate. There is no payment, transfer or withdrawal call anywhere. The Guardian kernel's `gate` denies every real money-moving action whatever the rules say (`execution_not_available`); only SIMULATED paper and shadow orders run, and they touch no account.
+- **Live is off by default.** Only the IBKR executor can lift it, and only with `ANUM_FINANCE_LIVE_BROKER=ibkr`, the paper proof, the owner's typed code and a cooling-off ([locks](finance-live-trading.md#modes-and-the-live-locks)). Otherwise: No live executor and no write-scoped connector exist. `ANUM_FINANCE_LIVE_ENABLED` and `ANUM_FINANCE_WIDER_LIVE_ENABLED` are refused at startup (and by the Helm chart), the gateway refuses every live request ("Live execution is not enabled"), and the database refuses a live request in any approved or executed state.
 - **No keys to the AI.** The assistant reads the ledger only through read-only tools (and may propose a stricter rule). A connector's credentials are encrypted at rest and never reach a prompt, a tool result, agent memory, a log, an audit record, the browser or an export.
 - **Read only connectors.** Every connector scope ends in `:read`, enforced by a database check constraint; no adapter has a write, order or transfer call. Third-party data is untrusted input.
 - **The person's rules are the person's.** An agent or plugin can read the rules and propose a stricter change; it can never confirm a change, and a proposal that loosens anything is refused for agents (also by a database check). Every change is confirmed by the person with the payload hash shown.
@@ -179,6 +181,11 @@ A sync never holds a database transaction across the network call: it reads the 
 | `ANUM_FINANCE_COMMENTARY_MONTHLY_LIMIT` | `31` | At most this many commentaries per person per UTC month, inside the workspace's model budget |
 | `ANUM_FINANCE_COMMENTARY_MAX_CHARS` | `1500` | The longest commentary kept |
 | `ANUM_FINANCE_COMMENTARY_TIMEOUT_SECONDS` | `45` | How long the model may take |
+| `ANUM_FINANCE_RESEARCH_CONTACT` | empty | Contact e-mail SEC EDGAR asks automated readers for ([Fund research](finance-research.md#operator-settings)); empty: SEC fund facts are not read |
+| `ANUM_FINANCE_RESEARCH_CACHE_MINUTES` | `30` | How long research figures are kept per person |
+| `ANUM_FINANCE_RESEARCH_TIMEOUT_SECONDS` | `20` | Timeout for each research source and the model |
+| `ANUM_FINANCE_RESEARCH_SUMMARY_ENABLED` | `true` | AI research summaries on or off |
+| `ANUM_FINANCE_RESEARCH_SUMMARY_DAILY_LIMIT` | `10` | AI research summaries per person per day, inside the model budget |
 
 The API must be able to reach `www.ecb.europa.eu` over HTTPS (add it to the network policy's `appEgress` where egress is restricted).
 
@@ -205,6 +212,7 @@ All under `/api/v1/finance`, every route checking permissions on the server:
 | `GET /execution/status`, `GET /execution/intents?status=&mode=&limit=&offset=`, `GET /execution/intents/{id}`, `GET /execution/live`, `GET /execution/wider` | `finance:read` |
 | `POST /execution/intents`, `POST /execution/intents/{id}/approve`, `POST /execution/intents/{id}/reject`, `POST /execution/live/changes`, `POST /execution/live/opt-out`, `POST /execution/wider/widenings`, `POST /execution/wider/widenings/{id}/approve`, `POST /execution/wider/widenings/{id}/reject`, `POST /execution/wider/review` | `finance:manage` (only the request's owner; live requests always 409) |
 | `PUT /execution/kill-switch` | `finance:manage`; `scope: global` also needs a workspace owner or an organisation administrator |
+| `POST /broker/readiness` ([live eligibility preflight](#live-eligibility-preflight)), `POST /broker/statement-preview`, `/broker/reconcile`, `/broker/analyze`, `/broker/history`, `/broker/paper/simulate` | `finance:read` (read only: nothing is saved except the preflight's audit row) |
 
 ## Permissions
 
@@ -224,6 +232,8 @@ Read-only tools (`finance/tools.py`, registered in the API's and the Temporal wo
 One tool writes, and only a proposal: `finance.guardian.propose` (`action_kind="create"`, `RiskLevel.LOW`, `edit`: a category cap, a blocked merchant or category, a single or daily limit, an approval amount). It applies the edit to the current rules and stores a pending change marked `agent`; a change that would loosen anything is refused ("Only you can loosen your own rules"). There is no tool that confirms, rejects or deletes rules, connects a source, reads a credential, or pays, transfers or trades: confirming is only the person's own `POST .../confirm` with the hash they were shown.
 
 Stages 6 to 9 add one read tool and two proposal tools: `finance.paper.portfolios` (read: the SIMULATED portfolios, cash, positions, P&L and the assumptions, "not real trades and no promise of returns"), `finance.paper.propose` (`action_kind="create"`: a paper or shadow trade request marked `agent`, checked by the Guardian gate, which adds "an assistant asked for this: you approve it yourself"; `mode: live` is refused) and `finance.live.widening.propose` (`action_kind="create"`: the next wider-live tier, refused while wider live use is off). No tool approves, executes, turns live on, sets live limits or changes a kill switch. The planner proposes a simulated order only when the user's own words say paper, simulated, shadow or تجريبي ("paper buy 10 EXMPL", "اشتر 10 EXMPL تجريبي"); "show my paper portfolio" and "المحفظة التجريبية" read the portfolios; any other buy, sell, pay or transfer still goes to `anum.external-action`. The skill's triggers add paper, shadow, simulate, simulated, simulation, portfolio and, in Arabic, تجريبي, تجريبيا, تجريبية, محاكاة, محفظة, المحفظة, محفظتي.
+
+Fund research adds the read tool `finance.research` (`symbol`, or none for the owner's IBKR portfolio as IBKR last reported it): text built from the gathered data only, never a free model answer, so no number outside the data reaches the reply ([Fund research](finance-research.md#assistant)). "research SPUS" and "how is my portfolio doing" ask it. Not financial advice; no guaranteed returns.
 
 The `anum.finance` skill (`agent_skills.py`) is selected by words such as spent, spending, budget, bills, balance, debts, transactions, afford, rules, cap, limit, block, guardian and, in Arabic, مصاريف, فواتير, رصيد, صرفت, ميزانية, ديون, أصرف, متاح, قواعد, حدود. Its planner (`finance.tools.plan_call`) reads only the user's own words (threat model G5): "what did I spend this month" asks `finance.summary`, "how much did I spend on groceries in September" and "transactions at Carrefour" search, "bills due this week" lists bills, "how much can I spend this month" and "كم أقدر أصرف هذا الشهر" ask `finance.safe_to_spend`, "show my spending rules" and "ما هي قواعد الصرف" read the rules, "cap dining at 600", "block payments to talabat", "never spend more than 2000 at once" and "no more than 300 a day" propose a stricter rule. Pay, transfer, send, buy, sell and "spend 200 on ..." return nothing and fall through to `anum.external-action`.
 
@@ -269,7 +279,7 @@ Stage 7 (`finance/gateway.py`). The one governed path for any finance action tha
 
 ## Limited live
 
-Stage 8 (`finance/live.py`): **the framework only, shipped off. Live execution is impossible in this release.**
+Stage 8 (`finance/live.py`): **the generic framework, shipped off.** The one live executor is the IBKR one, which has its own gates, limits, approvals and kill switch: see [Live trading with Interactive Brokers](finance-live-trading.md). Everything below describes the generic path, which still refuses every live request.
 
 - `LiveExecutor` is an interface with **no implementation and no provider adapter**: `LIVE_EXECUTORS` is empty. Connectors stay read only (the stage 5 database check is unchanged).
 - `ANUM_FINANCE_LIVE_ENABLED` defaults to false; the API refuses to start with it on while no live executor exists, and the Helm chart refuses it too (`infra/helm/ci/lint.sh`).
@@ -285,6 +295,17 @@ Nothing below exists; each item needs the owner, and the code needs a separate, 
 3. A live executor built and reviewed against that provider's documented API, with its own tests, and a contract migration that lifts the database's no-live check.
 4. The owner's live limits: per action, per day, per month, currencies, and the instruments or accounts allowed.
 5. The owner's explicit written approval to switch on bounded live actions, recorded before the operator sets `ANUM_FINANCE_LIVE_ENABLED`.
+
+## Live eligibility preflight
+
+One place answers "what is still missing before live trading could ever be considered": `POST /api/v1/finance/broker/readiness` (`finance/broker_readiness.py`), shown on Finance, Execution as **Live eligibility check** (English and Arabic). It merges the stage 8 preconditions above with the broker onboarding checklist ([Broker onboarding](finance-broker-onboarding.md)), and replaces the separate preflight endpoint proposed in PR #237.
+
+- **Input:** the person's own ticks in three groups (broker, account and data; research and paper testing; live review), and optionally a profile: the broker (Alpaca, Interactive Brokers or another), the two-letter country of residence and the assets (stocks, crypto). No account number, key or password is accepted: unknown fields are refused (422).
+- **Answer:** the missing items per group and a stage (`not_connected`, `read_only`, `live_blocked`); the person's **own live preconditions read from the database** (`gateway.preconditions`: deployment flag, live executor, write connector, opt-in, limits, both kill switches), so it reads only the caller's rows under RLS; informational notes. It always says `live_trading_enabled: false`, `eligibility_confirmed: false`, `credentials_connected: false`, `deposits_into_anum_supported: false` and `orders_sent: 0`, and the response model cannot hold any other value. A fully ticked list still leaves live off, because ANUM has no live executor.
+- **Read only:** it changes no setting, connects nothing, reads no key and sends no order. The only write is an audit row `finance.broker.live_preflight` with the actor, tenant, workspace and the person's id as target, and empty metadata: no country, assets or ticks are logged.
+- **Permission:** `finance:read` (owners and members); viewers get 403 with who can change it.
+- **Saudi residents and crypto** (informational, never a gate it can lift): when the country is `SA` and crypto is chosen, the answer adds a note with its source. Saudi Arabia's standing committee on virtual currencies, which includes the Saudi Central Bank (SAMA) and the Capital Market Authority (CMA), stated on 12 August 2018 that virtual currencies are not regulated in the Kingdom and that no party is licensed by the regulators to deal in them ([CMA statement](https://cma.gov.sa/en/MediaCenter/PR/Pages/Virtual_Currencies.aspx), [SAMA statement](https://www.sama.gov.sa/en-US/News/Pages/news12082018.aspx)). This is the most recent official statement found on 2 November 2026; re-check it, the broker's own terms for Saudi residents and legal advice before any crypto.
+- Tests: `services/api/tests/test_finance_live_preflight.py`, `test_finance_broker_readiness.py`, `test_postgres_finance_live_preflight.py` (RLS as the app role, audit rows), `apps/web/test/financePreflight.test.ts`, `apps/web/e2e/finance-live-preflight.spec.ts` (main path, Saudi note, every ticked, client checks, error with retry, denied, Arabic, the responsive gate at five sizes).
 
 ## Wider live
 
@@ -310,5 +331,5 @@ Stage 9 (`finance/wider.py`, `finance/wider_api.py`): **the framework only, ship
 
 Stages 2 to 7 are built; stages 8 and 9 are built as frameworks and **shipped off**. Not built, by design:
 
-- A live executor or any provider write integration (see [What the owner must provide before live](#what-the-owner-must-provide-before-live)). Live execution, limited or wider, cannot run.
+- A live executor for any provider other than IBKR. The IBKR executor is built ([live trading](finance-live-trading.md)); wider live (stage 9) still cannot run.
 - Adapters for bank, card, broker, crypto and market-price providers (see [Owner actions](#owner-actions)); a cross-currency "net worth"; PDF or OFX statement import; attachments (receipts); Flutter statement import, rule editing, connecting sources, placing paper orders and setting live limits; finance cards with item rows in chat (the chat answers in text above a summary card).

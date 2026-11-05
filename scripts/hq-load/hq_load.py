@@ -60,6 +60,37 @@ class Stats:
         }
 
 
+class Deliveries:
+    """Reconciles SSE arrivals with produced events, whatever order they happen in.
+
+    The producer learns a task id from the POST response, while an SSE client can read the
+    matching ``task.created`` frame first (the API publishes it before the response is read
+    by a busy client). Counting an arrival only when the id was already known dropped those
+    deliveries and reported them as loss (H-09). Arrivals are therefore recorded as they come
+    and matched with the produced ids at the end. Each client counts an event once.
+    """
+
+    def __init__(self) -> None:
+        self.sent_at: dict[str, float] = {}
+        self.arrivals: dict[str, dict[int, float]] = {}  # task id -> client -> first arrival time
+
+    def sent(self, task_id: str, at: float) -> None:
+        self.sent_at[task_id] = at
+
+    def arrived(self, client: int, task_id: str, at: float) -> None:
+        self.arrivals.setdefault(task_id, {}).setdefault(client, at)
+
+    def result(self) -> tuple[int, list[float]]:
+        """Deliveries of produced events, and each one's latency in ms (never negative)."""
+        delivered = 0
+        latencies: list[float] = []
+        for task_id, sent in self.sent_at.items():
+            for at in self.arrivals.get(task_id, {}).values():
+                delivered += 1
+                latencies.append(max(0.0, (at - sent) * 1000))
+        return delivered, latencies
+
+
 async def local_token(client: httpx.AsyncClient, base: str, tenant: str, workspace: str) -> str:
     response = await client.post(
         f"{base}/api/v1/auth/local/session",
@@ -96,7 +127,7 @@ async def seed(client: httpx.AsyncClient, base: str, headers: dict[str, str], co
 
 async def sse_client(
     base: str, headers: dict[str, str], ready: asyncio.Event, stop: asyncio.Event,
-    sent_at: dict[str, float], received: dict[str, int], latencies: list[float], connected: list[int], failed: list[int],
+    index: int, deliveries: Deliveries, connected: list[int], failed: list[int],
 ) -> None:
     # A client of its own so every SSE connection is a separate TCP connection, like separate browser tabs.
     timeout = httpx.Timeout(10.0, read=None)
@@ -108,7 +139,6 @@ async def sse_client(
                     return
                 connected.append(1)
                 ready.set()
-                mine: set[str] = set()  # one count per event per client, so duplicates cannot hide a loss
                 buffer = ""
                 async for chunk in response.aiter_text():
                     if stop.is_set():
@@ -127,10 +157,8 @@ async def sse_client(
                             if event.get("type") != "task.created":
                                 continue
                             task_id = event.get("subject") or (event.get("payload") or {}).get("task_id")
-                            if task_id in sent_at and task_id not in mine:
-                                mine.add(task_id)
-                                received[task_id] = received.get(task_id, 0) + 1
-                                latencies.append((time.perf_counter() - sent_at[task_id]) * 1000)
+                            if task_id:
+                                deliveries.arrived(index, task_id, time.perf_counter())
         except asyncio.CancelledError:
             raise  # the run is over: closing a client is not a failure
         except httpx.HTTPError:
@@ -139,16 +167,14 @@ async def sse_client(
 
 
 async def run_fanout(args: argparse.Namespace, base: str, headers: dict[str, str]) -> dict[str, object]:
-    sent_at: dict[str, float] = {}
-    received: dict[str, int] = {}
-    latencies: list[float] = []
+    deliveries = Deliveries()
     connected: list[int] = []
     failed: list[int] = []
     stop = asyncio.Event()
     ready = asyncio.Event()
     tasks = [
-        asyncio.create_task(sse_client(base, headers, ready, stop, sent_at, received, latencies, connected, failed))
-        for _ in range(args.sse_clients)
+        asyncio.create_task(sse_client(base, headers, ready, stop, index, deliveries, connected, failed))
+        for index in range(args.sse_clients)
     ]
     await asyncio.sleep(min(5.0, 0.5 + args.sse_clients * 0.02))  # let the clients connect
     limits = httpx.Limits(max_connections=20)
@@ -156,21 +182,21 @@ async def run_fanout(args: argparse.Namespace, base: str, headers: dict[str, str
         for i in range(args.events):
             task_id, sent = await create_task(producer, base, headers, f"hq load event {i}")
             if task_id:
-                sent_at[task_id] = sent
+                deliveries.sent(task_id, sent)
             await asyncio.sleep(args.event_gap)
     await asyncio.sleep(args.settle)
     stop.set()
     for t in tasks:
         t.cancel()
     await asyncio.gather(*tasks, return_exceptions=True)
-    expected = len(sent_at) * max(1, len(connected))
-    delivered = sum(received.values())
+    delivered, latencies = deliveries.result()
+    expected = len(deliveries.sent_at) * max(1, len(connected))
     stat = Stats(count=delivered, errors=len(failed), latencies_ms=latencies)
     return {
         "clients_requested": args.sse_clients,
         "clients_connected": len(connected),
         "clients_failed": len(failed),
-        "events_sent": len(sent_at),
+        "events_sent": len(deliveries.sent_at),
         "deliveries_expected": expected,
         "deliveries_received": delivered,
         "loss_pct": round(100 * (1 - delivered / expected), 2) if expected else 0.0,

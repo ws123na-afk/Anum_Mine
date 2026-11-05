@@ -31,6 +31,34 @@ FINANCE_TRIGGERS = frozenset(
         "paper", "shadow", "simulate", "simulated", "simulation", "portfolio", "portfolios",
         # Arabic: trial (paper), simulation, portfolio.
         "تجريبي", "تجريبيا", "تجريبية", "محاكاة", "المحفظة", "محفظة", "محفظتي",
+        # Fund research (docs/finance-research.md#assistant): the ETF words and the Shariah-screened tickers.
+        "etf", "etfs", "ibkr", "shariah", "halal", "spus", "hlal", "umma", "spre", "spsk", "حلال", "صندوق",
+    }
+)
+
+# Words that select browser research; the planner also needs an https address in the prompt.
+BROWSE_TRIGGERS = frozenset(
+    {
+        "open", "browse", "visit", "read", "page", "website", "site", "url", "link",
+        # Arabic: open, browse, visit, read, page, site, link.
+        "افتح", "تصفح", "زر", "اقرأ", "صفحة", "موقع", "رابط",
+    }
+)
+
+
+# Words that select the action browser (docs/action-browser.md); the planner also needs an https
+# address in the prompt. Never the read-only words (open, read, page): those stay with browse_page.
+ACT_TRIGGERS = frozenset(
+    {
+        # Any task done through a site: forms, portals, downloads, comparing, checking, updating, posting, buying.
+        "book", "booking", "buy", "purchase", "order", "pay", "checkout", "fill", "submit", "form", "forms", "signup", "sign-up",
+        "register", "login", "log-in", "portal", "apply", "reserve", "subscribe", "renew", "subscription", "download", "statement",
+        "statements", "invoice", "invoices", "compare", "collect", "extract", "table", "check", "status", "track", "tracking",
+        "shipment", "update", "settings", "profile", "post", "reply",
+        # Arabic: book, buy, order, pay, fill, form, register, apply, renew, download, statement, compare, collect,
+        # check, status, track, update, post, reply, portal.
+        "احجز", "حجز", "اشتر", "اشتري", "اطلب", "ادفع", "املأ", "املا", "نموذج", "سجل", "قدم", "اشترك", "جدد", "نزل", "حمل",
+        "كشف", "قارن", "اجمع", "تحقق", "حالة", "تتبع", "حدث", "انشر", "رد", "بوابة",
     }
 )
 
@@ -43,6 +71,16 @@ class SkillManifest(BaseModel):
     triggers: frozenset[str] = Field(default_factory=frozenset)
     required_tools: frozenset[str] = Field(default_factory=frozenset)
     risk_level: RiskLevel = RiskLevel.LOW
+    # Reviewed instructions a first-party role skill loads into every run and chat of an agent
+    # that allows it (docs/agents.md#skills). Empty for the classic built-in skills.
+    instructions: str = ""
+    # Selected only when the prompt itself names an https address (the action browser: a word
+    # such as "check" or "update" alone never means a website task).
+    needs_https_address: bool = False
+    name_ar: str = ""
+    description_ar: str = ""
+    # Selected only for an agent that allows it, never for the plain Assistant (role skills).
+    agent_only: bool = False
 
 
 class SkillRegistry:
@@ -59,12 +97,14 @@ class SkillRegistry:
         """Every skill, in registration order."""
         return list(self._manifests.values())
 
-    def select(self, prompt: str, available_tools: set[str]) -> list[SkillManifest]:
+    def select(self, prompt: str, available_tools: set[str], *, include_agent_only: bool = False) -> list[SkillManifest]:
         words = prompt_words(prompt)
         return [
             manifest
             for manifest in self._manifests.values()
-            if (not manifest.triggers or bool(words & manifest.triggers))
+            if (include_agent_only or not manifest.agent_only)
+            and (not manifest.triggers or bool(words & manifest.triggers))
+            and (not manifest.needs_https_address or "https://" in prompt.lower())
             and manifest.required_tools <= available_tools
         ]
 
@@ -126,6 +166,33 @@ def default_skill_registry() -> SkillRegistry:
                 ),
                 # Selectable only where ANUM_SEARXNG_URL registered the tool.
                 required_tools=frozenset({"web_search"}),
+            ),
+            SkillManifest(
+                id="anum.browser-research",
+                version="1.0.0",
+                name="Browser research",
+                description=(
+                    "Opens one public https page the user names in a sandboxed, read-only browser and reads its "
+                    "text and links (docs/browser-research.md)."
+                ),
+                # The planner also needs an https address in the user's own words.
+                triggers=BROWSE_TRIGGERS,
+                required_tools=frozenset({"web.browse_page"}),
+            ),
+            SkillManifest(
+                id="anum.action-browser",
+                version="1.0.0",
+                name="Action browser",
+                description=(
+                    "Does a browser task on a website the user names, in a sandboxed browser: signs in with a saved "
+                    "login, fills and submits forms, downloads statements into Files, compares and collects data into "
+                    "a table, checks statuses, updates settings. Stops for the owner's approval before paying, booking, "
+                    "sending, submitting, signing, posting or deleting (docs/action-browser.md)."
+                ),
+                # The planner also needs an https address in the user's own words.
+                triggers=ACT_TRIGGERS,
+                needs_https_address=True,
+                required_tools=frozenset({"web.act"}),
             ),
             SkillManifest(
                 id="anum.whatsapp-inbox",
@@ -244,8 +311,16 @@ def default_skill_registry() -> SkillRegistry:
             # The trading knowledge library: six SKILL.md packages under finance/intel/skills
             # (docs/finance-trading-intel.md#skills-and-tools), selected where their tools are registered.
             *_trading_skills(),
+            # Green Concrete role skills (docs/ANUM_MINE_GREEN_CONCRETE_AGENTS.md), agent only.
+            *_green_concrete_skills(),
         ]
     )
+
+
+def _green_concrete_skills() -> list[SkillManifest]:
+    from .green_concrete_kit import skill_manifests
+
+    return skill_manifests()
 
 
 def _trading_skills() -> list[SkillManifest]:

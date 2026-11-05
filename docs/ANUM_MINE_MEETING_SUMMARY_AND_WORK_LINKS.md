@@ -45,4 +45,4 @@ The meeting room (owner view) has a **Meeting summary** card: waiting while the 
 * No PDF export (not requested). No automatic summary when a meeting ends: the owner asks, because each one costs budget.
 * The work list in the link form shows the newest 50 tasks and 25 approvals; a run is reached through its task's latest run. Older work cannot be picked from the form (the API accepts any id of the workspace).
 * The reverse lookup `work-links` is built in the API; the Tasks and Approvals pages do not show it yet.
-* Retention windows for transcripts (O5) are still open; deleting a transcript keeps confirmed outputs, links and the summary.
+* Transcripts are kept 90 days after the meeting by default (O5, owner editable, [record retention](record-retention.md)); deleting a transcript, by hand or by retention, keeps confirmed outputs, links and the summary.

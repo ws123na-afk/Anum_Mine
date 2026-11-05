@@ -26,7 +26,10 @@ ANUM MINE draws every workspace you can open as a building on a campus. Inside a
 - On the campus the cards show a building's type, floors and rooms, and its agent count. With many buildings the cards shrink: the selected, the open and the executive building keep a full card, the busiest fill six, and the rest show a name and a count, then only an icon (the name appears on hover and focus). No card disappears.
 - If your workspace's office has several buildings (for example after **Set up my campus**), each one stands on the campus as its own building, labelled with the workspace name. Its card counts the agents assigned to its desks. Buildings of other workspaces you belong to stand beside them, one each.
 - **Quick moves** (right side) start the office tour, open meetings or the calendar, and suggest "Take me to" any building or room that exists.
-- **Hide side panels** (above the scene) folds the floor list and the right column away so the scene uses the whole width; **Show side panels** brings them back. The choice is remembered in this browser.
+- **Floors** (above the scene) docks the floor list with thumbnails beside the scene, or opens it as a drawer on a small screen; the floor buttons at the bottom of the scene always switch floors.
+- **Office tools**, **Hide side panels** folds the floor list and the right column away so the scene uses the whole width; **Show side panels** brings them back. The choice is remembered in this browser. **Concept preview** is in the same menu.
+- The status chip next to the title says whether the office is live; press it to see the people link, the office data and the graphics level.
+- **More camera options** (the compass button in the camera bar) holds Face north, Day, Blue hour and Night.
 - Arrow keys move between quick views and between floors; Home and End jump to the first and last.
 
 ## Work inside a building

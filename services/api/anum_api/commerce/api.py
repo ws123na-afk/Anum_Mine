@@ -14,9 +14,11 @@ Who can do what (checked here, on the server, for every route):
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import hmac
 import json
+import re
 import time
 from datetime import date, datetime, timedelta
 from typing import Any
@@ -28,6 +30,7 @@ from ..agent_tools import ToolCall, ToolRegistry
 from ..audit import AuditRecord
 from ..authorization import Permission
 from ..dependencies import has_permission, repository_context, require_permission, tenant_context
+from ..hardening import InMemoryTokenBucket, client_key
 from ..events import CanonicalEventName, create_event
 from ..model_gateway import MockModelGateway
 from ..repository import AnumRepository
@@ -71,7 +74,7 @@ from .models import (
     marketplace_name,
 )
 from .store import MAX_PAGE, open_commerce_store
-from .sync import SyncReport, ingest_webhook, sync_connector, workspace_settings
+from .sync import SyncReport, ingest_webhook_blocking, sync_connector, workspace_settings
 from .tools import change_tool, register_commerce_tools
 from .tyre import TyreSpec, parse_tyre
 
@@ -295,7 +298,7 @@ def _permissions(context: TenantContext) -> Permissions:
 
 
 @router.get("/setup", response_model=CommerceSetup)
-async def get_setup(context: TenantContext = Depends(tenant_context)) -> CommerceSetup:
+def get_setup(context: TenantContext = Depends(tenant_context)) -> CommerceSetup:
     """What the caller may do, which channels exist and how many are connected."""
     _require(context, Permission.COMMERCE_READ)
     with open_commerce_store(context) as store:
@@ -323,7 +326,7 @@ def _date(value: str | None, fallback: date) -> date:
 
 
 @router.get("/dashboard", response_model=insights.Dashboard)
-async def get_dashboard(
+def get_dashboard(
     start: str | None = Query(default=None, alias="from", max_length=10),
     end: str | None = Query(default=None, alias="to", max_length=10),
     tz: str | None = Query(default=None, max_length=64),
@@ -348,7 +351,7 @@ async def get_dashboard(
 
 
 @router.get("/summary", response_model=SummaryView)
-async def get_summary(
+def get_summary(
     period: str = Query(default="today", pattern="^(today|yesterday|last_7_days|last_30_days|this_month)$"),
     channel: Channel | None = None,
     tz: str | None = Query(default=None, max_length=64),
@@ -373,14 +376,14 @@ def _connector_or_404(store: Any, context: TenantContext, connector_id: str) -> 
 
 
 @router.get("/connectors", response_model=list[ConnectorView])
-async def list_connectors(context: TenantContext = Depends(tenant_context)) -> list[ConnectorView]:
+def list_connectors(context: TenantContext = Depends(tenant_context)) -> list[ConnectorView]:
     _require(context, Permission.COMMERCE_READ)
     with open_commerce_store(context) as store:
         return [connector_view(c) for c in store.list_connectors(context)]
 
 
 @router.post("/connectors", response_model=ConnectorCreated, status_code=status.HTTP_201_CREATED)
-async def create_connector(
+def create_connector(
     payload: ConnectorCreate,
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
@@ -429,14 +432,14 @@ def _default_name(channel: Channel, marketplaces: list[str]) -> str:
 
 
 @router.get("/connectors/{connector_id}", response_model=ConnectorView)
-async def get_connector(connector_id: str, context: TenantContext = Depends(tenant_context)) -> ConnectorView:
+def get_connector(connector_id: str, context: TenantContext = Depends(tenant_context)) -> ConnectorView:
     _require(context, Permission.COMMERCE_READ)
     with open_commerce_store(context) as store:
         return connector_view(_connector_or_404(store, context, connector_id))
 
 
 @router.patch("/connectors/{connector_id}", response_model=ConnectorView)
-async def update_connector(
+def update_connector(
     connector_id: str,
     payload: ConnectorInput,
     context: TenantContext = Depends(tenant_context),
@@ -492,7 +495,7 @@ async def update_connector(
 
 
 @router.delete("/connectors/{connector_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_connector(
+def delete_connector(
     connector_id: str,
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
@@ -509,9 +512,13 @@ async def delete_connector(
 async def test_connector(connector_id: str, context: TenantContext = Depends(tenant_context)) -> ConnectorTest:
     """Call the channel once with the saved credentials and record the result as the health."""
     _require(context, Permission.COMMERCE_MANAGE, MANAGE_DENIED)
-    with open_commerce_store(context) as store:
-        connector = _connector_or_404(store, context, connector_id)
-        ciphertext = store.credentials_ciphertext(context, connector_id)
+
+    def load() -> tuple[Any, Any]:
+        with open_commerce_store(context) as store:
+            return _connector_or_404(store, context, connector_id), store.credentials_ciphertext(context, connector_id)
+
+    # The store reads and writes run in worker threads; only the channel call waits on the loop.
+    connector, ciphertext = await asyncio.to_thread(load)
     ok, message = False, ""
     try:
         client = build_client(connector, decrypt_credentials(ciphertext))
@@ -526,11 +533,16 @@ async def test_connector(connector_id: str, context: TenantContext = Depends(ten
         message, health = exc.message, ConnectorHealth.ERROR
     except SecretDecryptionError:
         message, health = "The saved credentials cannot be decrypted with this server's key. Enter them again.", ConnectorHealth.AUTH_FAILED
-    with open_commerce_store(context) as store:
-        connector = _connector_or_404(store, context, connector_id)
-        connector.health, connector.last_error = health, None if ok else message
-        connector.updated_at = utc_now()
-        store.save_connector(connector)
+
+    def record() -> Any:
+        with open_commerce_store(context) as store:
+            connector = _connector_or_404(store, context, connector_id)
+            connector.health, connector.last_error = health, None if ok else message
+            connector.updated_at = utc_now()
+            store.save_connector(connector)
+        return connector
+
+    connector = await asyncio.to_thread(record)
     return ConnectorTest(ok=ok, message=message, connector=connector_view(connector))
 
 
@@ -545,7 +557,7 @@ async def sync_now(connector_id: str, context: TenantContext = Depends(tenant_co
 
 
 @router.post("/connectors/{connector_id}/webhook-secret", response_model=ConnectorCreated)
-async def rotate_webhook_secret(
+def rotate_webhook_secret(
     connector_id: str,
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
@@ -563,6 +575,32 @@ async def rotate_webhook_secret(
     return ConnectorCreated(connector=connector_view(connector), webhook_secret=secret)
 
 
+# Refused deliveries per caller address: enough for a store's retries, not for guessing.
+_webhook_refusals = InMemoryTokenBucket(rate_per_second=0.2, burst=20)
+_WEBHOOK_ID = re.compile(r"[A-Za-z0-9_\-]{1,80}")
+
+
+def reset_webhook_limits() -> None:
+    """Tests: a fresh refusal bucket."""
+    global _webhook_refusals
+    _webhook_refusals = InMemoryTokenBucket(rate_per_second=0.2, burst=20)
+
+
+def _webhook_secret(context: TenantContext, connector_id: str) -> tuple[Connector | None, str | None]:
+    """Blocking: the connection and its webhook secret (decrypted). Runs in a worker thread,
+    never on the event loop: this route is reachable without a session
+    (docs/security.md#pre-sale-review-november-2026)."""
+    with open_commerce_store(context) as store:
+        connector = store.get_connector(context, connector_id)
+        ciphertext = store.credentials_ciphertext(context, connector_id) if connector else None
+    if connector is None or connector.settings.get("mode") != OwnStoreMode.WEBHOOK.value or not connector.enabled:
+        return None, None
+    try:
+        return connector, decrypt_credentials(ciphertext).get("webhook_secret", "") or None
+    except SecretDecryptionError:
+        return connector, None
+
+
 @router.post("/webhooks/{tenant_id}/{workspace_id}/{connector_id}", include_in_schema=True)
 async def receive_webhook(
     tenant_id: str,
@@ -577,29 +615,37 @@ async def receive_webhook(
     ``X-Anum-Timestamp`` is the Unix time of sending; ``X-Anum-Signature`` is
     ``sha256=`` and the hex HMAC-SHA256 of ``"<timestamp>.<raw body>"``. The body is
     ``{"events": [{"type": "order" | "product" | "return", "data": {...}}]}`` in the
-    own-store contract's shapes. Events older than five minutes are refused.
+    own-store contract's shapes. Events older than five minutes are refused. Every
+    database read and write runs in a worker thread; refused deliveries are limited per
+    caller address (429 once a caller keeps sending bad ones).
     """
-    context = TenantContext(tenant_id=tenant_id[:80], workspace_id=workspace_id[:80], user_id=f"webhook:{connector_id[:60]}", roles=[])
     refused = HTTPException(status_code=401, detail="Signature missing, expired or invalid.")
+
+    def refuse(error: HTTPException) -> HTTPException:
+        decision = _webhook_refusals.acquire(client_key(request.scope))
+        if not decision.allowed:
+            return HTTPException(
+                status_code=429, detail="Too many refused deliveries; retry later.",
+                headers={"Retry-After": str(decision.retry_after_seconds)},
+            )
+        return error
+
+    if not all(_WEBHOOK_ID.fullmatch(value) for value in (tenant_id, workspace_id, connector_id)):
+        raise refuse(HTTPException(status_code=404, detail="Connection not found"))
+    context = TenantContext(tenant_id=tenant_id, workspace_id=workspace_id, user_id=f"webhook:{connector_id[:60]}", roles=[])
     try:
         sent_at = int(x_anum_timestamp)
     except ValueError:
-        raise refused from None
+        raise refuse(refused) from None
     if abs(time.time() - sent_at) > WEBHOOK_TOLERANCE_SECONDS:
-        raise refused
+        raise refuse(refused)
     body = await request.body()
-    with open_commerce_store(context) as store:
-        connector = store.get_connector(context, connector_id)
-        ciphertext = store.credentials_ciphertext(context, connector_id) if connector else None
-    if connector is None or connector.settings.get("mode") != OwnStoreMode.WEBHOOK.value or not connector.enabled:
-        raise HTTPException(status_code=404, detail="Connection not found")
-    try:
-        secret = decrypt_credentials(ciphertext).get("webhook_secret", "")
-    except SecretDecryptionError:
-        raise refused from None
-    expected = "sha256=" + hmac.new(secret.encode(), f"{sent_at}.".encode() + body, hashlib.sha256).hexdigest()
+    connector, secret = await asyncio.to_thread(_webhook_secret, context, connector_id)
+    if connector is None:
+        raise refuse(HTTPException(status_code=404, detail="Connection not found"))
+    expected = "sha256=" + hmac.new((secret or "").encode(), f"{sent_at}.".encode() + body, hashlib.sha256).hexdigest()
     if not secret or not hmac.compare_digest(expected, x_anum_signature):
-        raise refused
+        raise refuse(refused)
     try:
         payload = json.loads(body)
     except ValueError:
@@ -607,7 +653,7 @@ async def receive_webhook(
     events = payload.get("events") if isinstance(payload, dict) else None
     if not isinstance(events, list) or len(events) > 500:
         raise HTTPException(status_code=422, detail='Send {"events": [...]} with at most 500 events.')
-    counts = await ingest_webhook(context, connector, [e for e in events if isinstance(e, dict)])
+    counts = await asyncio.to_thread(ingest_webhook_blocking, context, connector, [e for e in events if isinstance(e, dict)])
     return {"accepted": sum(counts.values()), "counts": counts}
 
 
@@ -615,7 +661,7 @@ async def receive_webhook(
 
 
 @router.get("/products", response_model=ProductPage)
-async def list_products(
+def list_products(
     q: str | None = Query(default=None, max_length=200),
     limit: int = Query(default=25, ge=1, le=MAX_PAGE),
     offset: int = Query(default=0, ge=0, le=1_000_000),
@@ -630,7 +676,7 @@ async def list_products(
 
 
 @router.post("/products", response_model=ProductView, status_code=status.HTTP_201_CREATED)
-async def create_product(
+def create_product(
     payload: ProductCreate,
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
@@ -664,7 +710,7 @@ async def create_product(
 
 
 @router.get("/products/{product_id}", response_model=ProductView)
-async def get_product(product_id: str, context: TenantContext = Depends(tenant_context)) -> ProductView:
+def get_product(product_id: str, context: TenantContext = Depends(tenant_context)) -> ProductView:
     _require(context, Permission.COMMERCE_READ)
     with open_commerce_store(context) as store:
         product = store.get_product(context, product_id)
@@ -674,7 +720,7 @@ async def get_product(product_id: str, context: TenantContext = Depends(tenant_c
 
 
 @router.patch("/products/{product_id}", response_model=ProductView)
-async def update_product(
+def update_product(
     product_id: str,
     payload: ProductInput,
     context: TenantContext = Depends(tenant_context),
@@ -705,7 +751,7 @@ async def update_product(
 
 
 @router.delete("/products/{product_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_product(
+def delete_product(
     product_id: str,
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
@@ -725,7 +771,7 @@ async def delete_product(
 
 
 @router.get("/listings", response_model=ListingPage)
-async def list_listings(
+def list_listings(
     q: str | None = Query(default=None, max_length=200),
     connector_id: str | None = Query(default=None, max_length=80),
     limit: int = Query(default=25, ge=1, le=MAX_PAGE),
@@ -861,7 +907,7 @@ async def request_stock_change(
 
 
 @router.get("/orders", response_model=OrderPage)
-async def list_orders(
+def list_orders(
     channel: Channel | None = None,
     order_status: str | None = Query(default=None, alias="status", pattern="^(open|pending|unshipped|partially_shipped|shipped|delivered|cancelled|returned)$"),
     start: str | None = Query(default=None, alias="from", max_length=10),
@@ -925,7 +971,7 @@ def _customer_view(context: TenantContext, customer: Any) -> CustomerView:
 
 
 @router.get("/orders/{order_id}", response_model=OrderDetail)
-async def get_order(
+def get_order(
     order_id: str,
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
@@ -951,7 +997,7 @@ async def get_order(
 
 
 @router.get("/returns", response_model=ReturnPage)
-async def list_returns(
+def list_returns(
     days: int = Query(default=30, ge=1, le=366),
     limit: int = Query(default=25, ge=1, le=MAX_PAGE),
     offset: int = Query(default=0, ge=0, le=1_000_000),
@@ -964,7 +1010,7 @@ async def list_returns(
 
 
 @router.get("/alerts", response_model=AlertPage)
-async def list_alerts(
+def list_alerts(
     alert_status: AlertStatus | None = Query(default=AlertStatus.OPEN, alias="status"),
     limit: int = Query(default=25, ge=1, le=MAX_PAGE),
     offset: int = Query(default=0, ge=0, le=1_000_000),
@@ -977,7 +1023,7 @@ async def list_alerts(
 
 
 @router.post("/alerts/{alert_id}/acknowledge", response_model=Alert)
-async def acknowledge_alert(alert_id: str, context: TenantContext = Depends(tenant_context)) -> Alert:
+def acknowledge_alert(alert_id: str, context: TenantContext = Depends(tenant_context)) -> Alert:
     """Hide an open alert from the open list; it resolves by itself when its cause clears."""
     _require(context, Permission.COMMERCE_OPERATE, OPERATE_DENIED)
     with open_commerce_store(context) as store:
@@ -991,14 +1037,14 @@ async def acknowledge_alert(alert_id: str, context: TenantContext = Depends(tena
 
 
 @router.get("/settings", response_model=CommerceSettings)
-async def get_settings(context: TenantContext = Depends(tenant_context)) -> CommerceSettings:
+def get_settings(context: TenantContext = Depends(tenant_context)) -> CommerceSettings:
     _require(context, Permission.COMMERCE_READ)
     with open_commerce_store(context) as store:
         return workspace_settings(context, store)
 
 
 @router.put("/settings", response_model=CommerceSettings)
-async def put_settings(
+def put_settings(
     payload: CommerceSettings,
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),

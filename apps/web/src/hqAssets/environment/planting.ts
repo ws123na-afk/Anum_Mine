@@ -130,7 +130,7 @@ export function treeTemplate(sp: TreeSpecies, variant = 0): Template {
   return t;
 }
 
-export type TreeOptions = { species?: TreeSpecies; height?: number; rot?: number; variant?: number; seed?: string; shadow?: boolean };
+export type TreeOptions = { species?: TreeSpecies; height?: number; rot?: number; variant?: number; seed?: string; shadow?: boolean; tint?: Rgb };
 
 /** Plants one tree (stamped from the cached template, with a ground shadow). */
 export function tree(b: MeshBuilder, x: number, z: number, o: TreeOptions = {}): AssetResult {
@@ -141,7 +141,7 @@ export function tree(b: MeshBuilder, x: number, z: number, o: TreeOptions = {}):
   const sc = h / NOMINAL_HEIGHT[sp];
   return scoped(b, [], (m) => {
     if (o.shadow !== false) blobShadow(m, x, z, (sp === 'cypress' ? 0.18 : sp === 'datePalm' ? 0.28 : 0.4) * h, h * 0.9, 0.024);
-    stamp(m, t, { x, z, rot: o.rot ?? rnd() * Math.PI * 2, scale: sc });
+    stamp(m, t, { x, z, rot: o.rot ?? rnd() * Math.PI * 2, scale: sc, tint: o.tint });
   });
 }
 

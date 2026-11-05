@@ -25,6 +25,8 @@ Dependencies: every `package.json` names exact versions (no `latest`), and CI in
 
 The baseline should include unit tests, integration tests with local services, contract tests, RLS tests, authorization tests, workflow tests, and model gateway adapter tests with mocks.
 
+Database tests (`python -m pytest services/api -m database`, from the repository root) rebuild the whole schema of `ANUM_TEST_DATABASE_URL` at the start of the session and truncate every table around each test, so one database serves one run at a time. The session takes a PostgreSQL advisory lock for that: a second run against the same database waits for the first (up to `ANUM_TEST_DATABASE_LOCK_WAIT_SECONDS`, default 1800) and then stops with a message, instead of failing with missing relations, foreign-key violations, deadlocks or hangs. Give parallel runs a database each.
+
 ## Reviews
 
 Pull requests should explain behavior changes, data model changes, risk implications, and validation. Security-sensitive changes require extra scrutiny.

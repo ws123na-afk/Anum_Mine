@@ -14,13 +14,14 @@
 import { meetingHash } from './liveMeeting.ts';
 import type { View } from './shell.ts';
 
-/** What opening the module does. `flow` toggles the live flow dock inside the office; `none` has no module. */
+/** What opening the module does. `flow` toggles the live flow dock inside the office; `reception` opens the visitor register (owner decision O4); `none` has no module. */
 export type RoomModuleTarget =
   | Readonly<{ type: 'view'; view: View }>
   | Readonly<{ type: 'flow' }>
   /** The specific live meeting held in this room (`#office/meeting/<id>`), not the Meetings list. */
   | Readonly<{ type: 'meeting'; meetingId: string }>
-  | Readonly<{ type: 'none'; why: 'no_department_module' | 'no_visitor_register' }>;
+  | Readonly<{ type: 'reception' }>
+  | Readonly<{ type: 'none'; why: 'no_department_module' }>;
 
 export type RoomModuleSource = 'department' | 'kind' | 'building' | 'name' | 'generic';
 
@@ -50,7 +51,8 @@ const view = (id: string, v: View): Entry => ({ id, target: { type: 'view', view
 /**
  * Department to module. Every department the contract can store (`OFFICE_TEAM_DEPARTMENTS`) has an entry; a
  * test keeps the two in step. Each opens a view that exists in the shell, or says plainly that no module is
- * connected (`custom`, `procurement`): never a dead button. `executive`, `commerce` and `meeting` are not
+ * connected (`custom`, `procurement`): never a dead button. `executive` is storable (migration 0116), so a room whose
+ * stored department is executive opens the executive desk whatever its building kind. `commerce` and `meeting` are not
  * storable departments; they stay so a later contract value or a building kind resolves to the right module.
  *
  *   marketing   -> Marketing (#marketing)
@@ -61,6 +63,7 @@ const view = (id: string, v: View): Entry => ({ id, target: { type: 'view', view
  *   security    -> Audit log (#audit)
  *   hr          -> Members and roles (#members)
  *   procurement -> no module connected
+ *   executive   -> Executive desk (#executive)
  */
 export const DEPARTMENT_MODULES: Readonly<Record<string, Entry>> = {
   finance: view('finance', 'finance'),
@@ -87,7 +90,8 @@ export const KIND_MODULES: Readonly<Record<string, Entry>> = {
   meeting: view('meetings', 'meetings'),
   workshop: view('tyre', 'tyre'),
   warehouse: view('commerce', 'commerce'),
-  reception: { id: 'none', target: { type: 'none', why: 'no_visitor_register' } },
+  /** A reception room opens the real visitor register (`HqReceptionPanel`, docs/ANUM_MINE_HQ_RECEPTION.md). */
+  reception: { id: 'reception', target: { type: 'reception' } },
   /** The operations command centre opens the live flow (the same module as the operations department). */
   command: { id: 'operations', target: { type: 'flow' } },
 };

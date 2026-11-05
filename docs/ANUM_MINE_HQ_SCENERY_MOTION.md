@@ -9,11 +9,13 @@ Everything here is scenery. Nothing in it is read from a record, and nothing in 
 road is not "someone driving to a building"; a window that drifts in brightness is not "someone at a desk". Movement of agents and people is a
 different system, backed by presence records (see [presence and campus](ANUM_MINE_PRESENCE_AND_CAMPUS.md)), and is not touched by this pass.
 
+Record-backed work motion (a truck driving into a building's yard because a task started, a tyre rolling onto a rack because Tyre Pulse recorded an inspection) is a separate system with its own rules, in [campus motion](ANUM_MINE_HQ_CAMPUS_MOTION.md). Nothing on this page is a record.
+
 ## What moves
 
 | Motion | How it is drawn | Cost |
 |---|---|---|
-| Traffic: up to 18 cars, SUVs and vans on two lanes of the ring road, keeping right | One instanced mesh in three parts (paint, dark trim, head and tail lights), matrices written per frame into preallocated objects (`lib/hqSceneryLayer.ts`). Pose is a pure function of the scene clock (`hqAssets/environment/scenery.ts`). One speed per lane, so no vehicle catches another | about 120 triangles per vehicle, one draw call per part |
+| Traffic: up to 26 cars, SUVs, vans, buses and tyre flatbeds on two lanes of the ring road and a third loop (up to 3 vehicles) round the roundabout, keeping right | Instanced meshes (paint, dark trim, head and tail lights, a pool of light on the road, and one wheel mesh), matrices written per frame into preallocated objects (`lib/hqSceneryLayer.ts`). Pose is a pure function of the scene clock (`hqAssets/environment/scenery.ts`). One speed per lane, so no vehicle catches another. Wheels turn by the distance driven over their radius. The flatbed with a stack of tyres is plain scenery and says nothing about an order or a delivery | about 120 triangles per vehicle and 52 per wheel, a handful of draw calls |
 | Water: swell, rings from the fountain and ponds, a few glints on the sun side | Fragment shader on the water class; up to four ripple sources come from the campus plan | none beyond the water pixels |
 | Trees and fronds sway, flags and pennants ripple | Surface classes `foliage` and `cloth` (`MAT.foliage`, `MAT.cloth`); a vertex shader offsets by height and phase. A flag's `u` texture coordinate is its distance from the pole | vertex work only |
 | Clouds drift across the sky | Noise in the sky dome shader; cover and tint follow day, blue hour and night | sky pixels only |
@@ -48,9 +50,13 @@ The choice is kept in `localStorage["anum.hq.preset"]` (`lib/hqLightPreset.ts`),
 
 ## Tests
 
-`test/hqSceneryMotion.test.ts` (lanes, spacing, poses, ripples, levels, vehicle parts, light presets, surface classes) and
+`test/hqSceneryMotion.test.ts` and `test/hqCampusMotion.test.ts` (lanes, spacing, poses, ripples, levels, vehicle parts, light presets, surface classes) and
 `e2e/hq-exterior-look.spec.ts` (still by default on software GL, runs when switched on, frozen under reduced motion, day, blue hour and night differ, five viewports).
 
 ## Software rasterisers
 
 On SwiftShader or llvmpipe (CI) the scene also leaves out what would never move there and what costs shader compile time before the first frame: vehicles are not placed, leaves, flags and rooftop lights are drawn as plain surfaces, and the glass, water and sky programs are the lean ones (no lit rooms, no rings, no clouds). Pinning `anum.hq.ambient` brings all of it back, which is how `e2e/hq-exterior-look.spec.ts` checks the motion and the screenshots were taken.
+
+## Screens are not scenery
+
+The live screens in the rooms are not scenery motion: they change only when a record changes (at most once a second per screen) and the scan line shows only while a fresh record says work is running. Under reduced motion the content still updates and the scan line stands still. See [live screens](ANUM_MINE_HQ_LIVE_SCREENS.md).

@@ -60,12 +60,15 @@ export const roomNameFor = (id: string, english: string, locale: Locale = getLoc
 
 const DEFAULT_DESK = /^Desk (\d{1,4})$/;
 const SEAT_LABEL = /^(Day|Night) seat (\d{1,3})$/;
+const PLAIN_SEAT = /^Seat (\d{1,3})$/;
 /** A desk label in the current language: only the default "Desk N" a campus or the builder gives is translated; a label somebody typed stays as typed. */
 export function deskLabel(label: string, locale: Locale = getLocale()): string {
   if (locale !== 'ar') return label;
   const match = DEFAULT_DESK.exec(label);
   if (match) return translate(locale, 'hq.desk.number', { number: match[1] });
-  // The seats of a shift room (Green Concrete) are named by the action in English; they are shown in the language of the page.
+  // The seats of Green Concrete are named by the action in English; they are shown in the language of the page.
+  const plain = PLAIN_SEAT.exec(label);
+  if (plain) return translate(locale, 'hqGc.desk.seat', { number: plain[1] });
   const seat = SEAT_LABEL.exec(label);
   if (seat) return translate(locale, seat[1] === 'Day' ? 'hqGc.desk.day' : 'hqGc.desk.night', { number: seat[2] });
   return label === 'Manager desk' ? translate(locale, 'hqGc.desk.manager') : label;

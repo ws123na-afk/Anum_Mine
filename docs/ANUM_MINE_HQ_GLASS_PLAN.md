@@ -12,11 +12,11 @@ generated from its floor plans instead of a generic box. Nothing may be invented
 
 1. **Floor plans to a frame** (`lib/hqPlanFrame.ts`, main chunk, small). For a registry building, `planFrame(floors)` takes every floor with level 0
    or more (a basement is below ground) and gives each one its own footprint: its rooms, a 1.2 m margin and the shared service core, exactly the
-   slab the interior pipeline draws (`buildingLayout`). The union of the storeys is the footprint of the building, and its middle is where the
+   slab the interior pipeline draws (`buildingLayout`), grown to hold every storey above it (`slabPlans`, so no storey overhangs; see the [cutaway structure](ANUM_MINE_HQ_CUTAWAY.md#structure)). The union of the storeys is the footprint of the building, and its middle is where the
    building stands on the campus. The storey pitch is `FLOOR_PITCH` (4.2 m, the same number as the interior stack); floor 0 stands on a 0.9 m plinth.
    A plan smaller than 12 by 9 m is widened evenly so a one-room building is still a building.
 2. **Shell from the plans** (`hqAssets/exterior/planShell.ts`). One curtain wall storey per floor on that floor's footprint: an upper floor that is
-   smaller sets back (a roof deck is added on the biggest free strip), a larger one overhangs, the service core rises above the roof as a lift
+   smaller sets back (a roof deck is added on the biggest free strip), a larger one makes the storeys under it larger (since 2 November 2026; it used to overhang), the service core rises above the roof as a lift
    tower. The silhouette of the building kind is decoration on top of that footprint: the executive crown and portico, the tower crown with plant room and beacon, the
    admin block's louvres and terrace, the shop canopy, workshop and warehouse roller bays, the villa roof terrace with a pool. The campus layout uses the
    real footprints (`layoutCampus(buildings, sizes)`): rings widen so planned buildings never overlap; without plans the layout is exactly what it was.
@@ -32,6 +32,23 @@ generated from its floor plans instead of a generic box. Nothing may be invented
    parallax and one texture fetch.
 5. **Fallback**. A building with no registry floors, a workspace's building that is not in the open registry, and a registry building with no rooms keep the
    generic shell and the generic room behind the glass (`hq_room`). A plan that is not loaded yet shows the generic look and is swapped in when the lazy chunk arrives.
+
+## Turned buildings
+
+Since 28 October 2026 every campus building is turned by quarter turns and a small lean to face the plaza ([centre plaza](ANUM_MINE_HQ_CENTER_PLAZA.md#buildings-face-the-plaza)).
+The atlas tile stays in the building's own frame and turns with the facade: each atlas building carries its middle (`origin`), its quarter turns
+(`turn`), its lean (`yaw`) and its own size, `uPlanRect` is the middle and one over the size, and `uPlanInfo.w` is the whole change of heading in
+radians (quarter turns of minus a right angle, plus the lean). `hq_planAt` turns the world position back into the building's own frame by that one
+angle before it reads the tile, and `samplePlan` does the same arithmetic, so a pane always looks into the room that sits behind it on that floor
+(`test/hqCampusLook.test.ts` checks every pane of the planned headquarters at all four turns and two leaned ones, and that the shader's formula and
+the sampler agree). The revision includes where each tile stands and how it is turned and leaned.
+
+## Changes dissolve
+
+A new atlas with the same layout, size and building frames (only the occupancy moved: a desk lit or dimmed by presence) cross-dissolves from the
+previous one over `PLAN_FADE_MS` (450 ms, eased): the old texture stays bound as `uPlanPrev`, `uPlanMix` runs from 0 to 1, and the lookup blends the
+colour and the light of the two texels while keeping the wall bit of the new one. A new layout, a moved or turned building, a first atlas, or reduced
+motion swap at once (`planFade`, `canDissolve`). The content stays the real occupancy: only the transition between two real states is smoothed.
 
 ## Occupancy truth
 

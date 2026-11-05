@@ -2,6 +2,7 @@ import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 import { campusFixture, mockHq } from './support/hqCampusApi';
 import { useSavedLocale } from './support/workspaceApi';
+import { officeMenuItem } from './support/hqScene';
 
 // ANUM MINE headquarters navigation layer (docs/ANUM_MINE_HQ_EXTENSION_POINTS.md, "Navigation layer"):
 // the floor rail, the quick-view strip, the campus cards, the floor plan with people and the quick moves.
@@ -19,6 +20,9 @@ test.describe.configure({ timeout: 240_000 });
 
 async function openOffice(page: Page, size = { width: 1440, height: 900 }, options: Parameters<typeof mockHq>[1] = { campus: 'api', commerce: 'connected', meetings: 'live' }) {
   await page.addInitScript(() => { try { localStorage.setItem('anum.hq.light', 'day'); } catch { /* storage blocked */ } });
+  // This spec reads the floor list and the side column docked beside the scene: a person who docked them (the Floors button and Show the
+  // side panel). By default the floor selector in the scene is the one floor control and the side column docks from 1600 px (hq-declutter.spec.ts).
+  await page.addInitScript(() => { try { if (!sessionStorage.getItem('hq-nav-seeded')) { sessionStorage.setItem('hq-nav-seeded', '1'); localStorage.setItem('anum.hq.nav.rail', 'open'); localStorage.setItem('anum.hq.nav.side', 'open'); } } catch { /* storage blocked */ } });
   await mockHq(page, options);
   await page.setViewportSize(size);
   await page.goto('/#office-preview');
@@ -91,8 +95,9 @@ test('the people list shows only assigned agents with their real state', async (
   await openOffice(page);
   await enterFleetBuilding(page);
   const people = hq(page).getByRole('region', { name: 'People at their posts' });
-  await expect(people.getByRole('button', { name: /^Open Fleet Planner\. Working\./ })).toBeVisible({ timeout: 30_000 });
-  await expect(people.getByRole('button', { name: /^Open WhatsApp Concierge\. In meetings\./ })).toBeVisible();
+  // The name holds every word the button shows: the agent, its role and room, then its state.
+  await expect(people.getByRole('button', { name: /^Open Fleet Planner\. Operations and warehouse, in Tyre Analysis\. Working\./ })).toBeVisible({ timeout: 30_000 });
+  await expect(people.getByRole('button', { name: /^Open WhatsApp Concierge\. Customer Care, in Customer Care\. In meetings\./ })).toBeVisible();
   // Another person's agent keeps its desk and loses its name.
   await expect(people.getByRole('button', { name: /^Open Private agent\./ })).toBeDisabled();
   // Desks without an assignment are not people.
@@ -145,6 +150,31 @@ test('reduced motion jumps the camera and says so', async ({ page }) => {
   await expect(live(page)).toHaveText('Showing Executive HQ.');
 });
 
+test('a flight the person stops says so once and never claims it arrived', async ({ page }) => {
+  await openOffice(page);
+  await expect(strip(page)).toBeVisible({ timeout: 60_000 });
+  // As soon as the region says "Moving to", a wheel on the stage stops the flight where it is (before its next frame).
+  await page.evaluate(() => {
+    const region = document.querySelector('[data-testid="hq-nav-live"]')!;
+    (window as unknown as { __stopped: Promise<string> }).__stopped = new Promise<string>((resolve) => {
+      const watch = new MutationObserver(() => {
+        if (!region.textContent?.startsWith('Moving to')) return;
+        watch.disconnect();
+        const said = region.textContent;
+        document.querySelector('.hqStage')!.dispatchEvent(new WheelEvent('wheel', { bubbles: true, deltaY: 1 }));
+        resolve(said);
+      });
+      watch.observe(region, { childList: true, characterData: true, subtree: true });
+    });
+  });
+  await strip(page).getByRole('button', { name: /^Quick view: Executive HQ\./ }).click();
+  expect(await page.evaluate(() => (window as unknown as { __stopped: Promise<string> }).__stopped)).toBe('Moving to Executive HQ.');
+  await expect(live(page)).toHaveText('Stopped before reaching Executive HQ.');
+  // Longer than the longest flight: nothing stale follows (no "Now showing").
+  await page.waitForTimeout(2500);
+  await expect(live(page)).toHaveText('Stopped before reaching Executive HQ.');
+});
+
 test('the rail and the strip collapse, and the choice is remembered', async ({ page }) => {
   await openOffice(page);
   await enterFleetBuilding(page);
@@ -167,40 +197,44 @@ for (const [width, height] of [[1440, 900], [1366, 768], [1024, 768]] as const) 
     await expect(rail(page)).toBeVisible({ timeout: 60_000 });
     const stage = hq(page).locator('.hqBuilding .hqStage');
     const before = (await stage.boundingBox())!.width;
-    const toggle = hq(page).getByRole('button', { name: 'Hide side panels' });
+    // Hide side panels moved into the Office tools menu.
+    const toggle = await officeMenuItem(page, 'Hide side panels');
     await expect(toggle).toHaveAttribute('aria-expanded', 'true');
     await toggle.click();
-    const show = hq(page).getByRole('button', { name: 'Show side panels' });
+    const show = await officeMenuItem(page, 'Show side panels');
     await expect(show).toHaveAttribute('aria-expanded', 'false');
+    await page.keyboard.press('Escape');
     await expect(rail(page)).toHaveCount(0);
     await expect(hq(page).getByRole('complementary', { name: 'Floor plan, people and quick moves' })).toHaveCount(0);
     await expect.poll(async () => (await stage.boundingBox())!.width).toBeGreaterThan(before + (width >= 1280 ? 150 : 40));
     await noOverflow(page);
-    // Nothing essential is hidden with them: the floor menu and the quick views are still there.
-    await expect(hq(page).getByLabel('Choose a floor')).toBeVisible();
+    // Nothing essential is hidden with them: the floor selector in the scene and the quick views are still there.
+    await expect(hq(page).getByRole('group', { name: 'Floors of this building' })).toBeVisible();
     await expect(strip(page)).toBeVisible();
     await page.reload();
-    await expect(hq(page).getByRole('button', { name: 'Show side panels' })).toHaveAttribute('aria-expanded', 'false');
-    await hq(page).getByRole('button', { name: 'Show side panels' }).click();
-    await expect(hq(page).getByRole('button', { name: 'Hide side panels' })).toHaveAttribute('aria-expanded', 'true');
+    await expect(await officeMenuItem(page, 'Show side panels')).toHaveAttribute('aria-expanded', 'false');
+    await (await officeMenuItem(page, 'Show side panels')).click();
+    await expect(await officeMenuItem(page, 'Hide side panels')).toHaveAttribute('aria-expanded', 'true');
   });
 }
 
 test('the fold control is absent where the panels are already drawers, and reads Arabic in RTL', async ({ page }) => {
   await openOffice(page, { width: 768, height: 1024 });
-  await expect(hq(page).getByRole('button', { name: 'Hide side panels' })).toHaveCount(0);
+  await expect(await officeMenuItem(page, 'Hide side panels')).toHaveCount(0);
+  await page.keyboard.press('Escape');
   await noOverflow(page);
   const ar = await page.context().newPage();
   await useSavedLocale(ar, 'ar');
   await openOffice(ar, { width: 1440, height: 900 });
   await expect(ar.locator('html')).toHaveAttribute('dir', 'rtl');
-  await expect(hq(ar).getByRole('button', { name: 'إخفاء اللوحات الجانبية' })).toHaveAttribute('aria-expanded', 'true');
-  await hq(ar).getByRole('button', { name: 'إخفاء اللوحات الجانبية' }).click();
-  await expect(hq(ar).getByRole('button', { name: 'إظهار اللوحات الجانبية' })).toHaveAttribute('aria-expanded', 'false');
+  await expect(await officeMenuItem(ar, 'إخفاء اللوحات الجانبية')).toHaveAttribute('aria-expanded', 'true');
+  await (await officeMenuItem(ar, 'إخفاء اللوحات الجانبية')).click();
+  await expect(await officeMenuItem(ar, 'إظهار اللوحات الجانبية')).toHaveAttribute('aria-expanded', 'false');
+  await ar.keyboard.press('Escape');
   await noOverflow(ar);
 });
 
-test('many buildings: cards shrink by rule and none disappears', async ({ page }) => {
+test('many buildings: a few chips by rule, the rest status dots, and none disappears', async ({ page }) => {
   await page.addInitScript(() => { try { localStorage.setItem('anum.hq.light', 'day'); } catch { /* storage blocked */ } });
   await mockHq(page, { campus: 'api', commerce: 'none', meetings: 'none' });
   const many = { ...campusFixture, buildings: [...campusFixture.buildings, ...Array.from({ length: 10 }, (_, i) => ({ ...campusFixture.buildings[3], workspace_id: `workspace_extra_${i}`, name: `Extra Building ${i}`, accessible: true }))] };
@@ -210,23 +244,35 @@ test('many buildings: cards shrink by rule and none disappears', async ({ page }
   await expect(hq(page).locator('canvas.hqCanvas')).toBeVisible();
   const count = (d: string) => cards(page).locator(`.hqBuildingCard[data-density="${d}"]`).count();
   await expect.poll(async () => (await count('full')) + (await count('compact')) + (await count('dot')), { timeout: 60_000 }).toBe(16);
-  expect(await count('full')).toBe(6);
-  expect(await count('compact')).toBe(8);
-  expect(await count('dot')).toBe(2);
+  // Intentional change (quiet campus, docs/ANUM_MINE_HQ_LABELS.md): the 3D boards carry the details, so the page label is a chip (name and
+  // status dot) for at most four buildings and a status dot for the rest; the old full card (6 of them) is gone. Every building keeps its button.
+  expect(await count('full')).toBe(0);
+  expect(await count('compact')).toBe(4);
+  expect(await count('dot')).toBe(12);
   // A dot card still has its full name for assistive technology.
   await expect(cards(page).locator('.hqBuildingCard[data-density="dot"]').first()).toHaveAttribute('aria-label', /agents|Presence unavailable/);
 });
 
-test('cards carry real tags and counts only', async ({ page }) => {
+test('chips are name and status only; the real tags and counts are on the detail card and in the accessible name', async ({ page }) => {
   await openOffice(page);
+  // Intentional change (quiet campus): the kind, floors and agent counts moved off the chip, to the detail card of the selected building and
+  // the 3D board; the accessible name of the button keeps the summary.
   const exec = cards(page).locator('.hqBuildingCard[aria-label^="Executive HQ."]');
-  await expect(exec).toContainText('Executive');
-  await expect(exec).toContainText('3 floors');
-  await expect(exec).toContainText('5 agents, 2 working');
+  await expect(exec).toHaveAttribute('aria-label', /5 agents, 2 working/);
+  await expect(exec.locator('.hqCardTags, .hqAvatarStack, small:not(.hqWorkLine)')).toHaveCount(0);
+  // Open each building by keyboard (a building outside the first view is parked at the stage edge, reachable by focus, never by a pointer under the minimap).
+  await exec.focus();
+  await exec.press('Enter');
+  await expect(hq(page).locator('.hqDetail')).toContainText('Executive');
+  await expect(hq(page).locator('.hqDetail')).toContainText('3 floors');
+  await expect(hq(page).locator('.hqDetail')).toContainText('5 agents, 2 working');
   // An unclassified building shows no type tag, and a building without presence says so, with no invented count.
   const personal = cards(page).locator('.hqBuildingCard[aria-label^="Personal Office."]');
-  await expect(personal).not.toContainText('Business');
-  await expect(cards(page).locator('.hqBuildingCard[aria-label^="Tyre Pulse HQ."]')).toContainText('Presence unavailable');
+  await personal.focus();
+  await personal.press('Enter');
+  await expect(hq(page).locator('.hqDetail')).toContainText('Personal Office');
+  await expect(hq(page).locator('.hqDetail')).not.toContainText('Business');
+  await expect(cards(page).locator('.hqBuildingCard[aria-label^="Tyre Pulse HQ."]')).toHaveAttribute('aria-label', /Presence unavailable/);
 });
 
 test('quick moves run existing navigation and suggest only real places', async ({ page }) => {
@@ -308,6 +354,8 @@ for (const locale of ['en', 'ar'] as const) {
       await page.addInitScript(() => { try { localStorage.setItem('anum.hq.light', 'day'); } catch { /* storage blocked */ } });
       await useSavedLocale(page, locale);
       await page.addInitScript((value) => { try { localStorage.setItem('anum.theme', value); } catch { /* storage blocked */ } }, theme);
+      // The floor list and the side column docked (a person's choice), as in openOffice.
+      await page.addInitScript(() => { try { localStorage.setItem('anum.hq.nav.rail', 'open'); localStorage.setItem('anum.hq.nav.side', 'open'); } catch { /* storage blocked */ } });
       await mockHq(page, { campus: 'api', commerce: 'connected', meetings: 'live' });
       await page.setViewportSize({ width: 1440, height: 900 });
       await page.goto('/#office-preview');
@@ -336,11 +384,14 @@ test('a registry with eight buildings is eight buildings on the campus, next to 
   // People come from desk assignments and presence; a building without assignments says so, a registry building names its workspace.
   await expect(card('ANUM HQ')).toHaveAttribute('aria-label', /^ANUM HQ\. 6 agents, 1 working, 1 in meetings/);
   await expect(card('Corporate Services')).toHaveAttribute('aria-label', /^Corporate Services\. No agents/);
-  await expect(card('ANUM HQ')).toContainText('Al Noor Fleet HQ');
-  await expect(card('ANUM HQ')).not.toContainText('Business');
-  // More than ten buildings: the density rule applies and no card disappears.
-  const full = await cards(page).locator('.hqBuildingCard[data-density="full"]').count();
-  expect(full).toBeLessThanOrEqual(6);
+  // The workspace name is on the detail card of the selected registry building (it moved off the chip: quiet campus).
+  await card('ANUM HQ').focus();
+  await card('ANUM HQ').press('Enter');
+  await expect(hq(page).locator('.hqDetail')).toContainText('Al Noor Fleet HQ');
+  await expect(hq(page).locator('.hqDetail')).not.toContainText('Business');
+  // More than ten buildings: the chip rule applies (no full card, at most four chips) and no card disappears.
+  expect(await cards(page).locator('.hqBuildingCard[data-density="full"]').count()).toBe(0);
+  expect(await cards(page).locator('.hqBuildingCard[data-density="compact"]').count()).toBeLessThanOrEqual(5);
   // The strip lists the same buildings; opening one reads its own floors and rooms.
   for (const name of ['ANUM HQ', 'Tyre Pulse Workshop', 'Career and Employment', 'Executive HQ']) await expect(strip(page).getByRole('button', { name: `Quick view: ${name}.` })).toBeVisible();
   await strip(page).getByRole('button', { name: /^Quick view: Tyre Pulse Workshop\./ }).click();

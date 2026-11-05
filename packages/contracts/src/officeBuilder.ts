@@ -28,7 +28,7 @@ export type OfficeEquipmentKind = (typeof OFFICE_EQUIPMENT_KINDS)[number];
 /** The existing team concept (team_models.Department), plus the departments added with room modules. */
 export const OFFICE_TEAM_DEPARTMENTS = [
   'sales', 'support', 'operations', 'finance', 'tyre_engineering',
-  'marketing', 'technology', 'research', 'legal', 'compliance', 'security', 'hr', 'procurement',
+  'marketing', 'technology', 'research', 'legal', 'compliance', 'security', 'hr', 'procurement', 'executive',
   'custom',
 ] as const;
 export type OfficeTeamDepartment = (typeof OFFICE_TEAM_DEPARTMENTS)[number];
@@ -61,7 +61,7 @@ export interface OfficeBuildingCreate {
   timezone: string;
   latitude?: number | null;
   longitude?: number | null;
-  /** Shift hours "HH:MM" in the building's time zone; `null` clears them (the unconfirmed defaults 07:00 and 19:00 apply). */
+  /** Day and night hours "HH:MM" in the building's time zone, read only by older Day or Night seats without hours of their own; `null` clears them (07:00 and 19:00 then apply). */
   shift_day_start?: string | null;
   shift_night_start?: string | null;
 }
@@ -83,6 +83,10 @@ export interface OfficeRoomCreate {
   capacity: number;
 }
 
+/** The look of a building's sign (docs/ANUM_MINE_HQ_LOGO_SIGNS.md). `null` means the default lettered sign. */
+export type OfficeSignStyle = 'plain' | 'plaque' | 'illuminated' | 'banner';
+export const OFFICE_SIGN_STYLES: readonly OfficeSignStyle[] = ['plain', 'plaque', 'illuminated', 'banner'];
+
 /** PATCH bodies: send only what changes. `null` clears color, name_ar, team_department and coordinates. */
 export interface OfficeBuildingUpdate {
   expected_revision: number;
@@ -92,6 +96,12 @@ export interface OfficeBuildingUpdate {
   timezone?: string;
   latitude?: number | null;
   longitude?: number | null;
+  shift_day_start?: string | null;
+  shift_night_start?: string | null;
+  /** The sign style; `null` clears it (the lettered sign). */
+  sign_style?: OfficeSignStyle | null;
+  /** The brand colour of the sign, `#rrggbb` (the server lower-cases it); `null` clears it. */
+  brand_color?: string | null;
 }
 export interface OfficeFloorUpdate {
   expected_revision: number;
@@ -123,12 +133,16 @@ export interface OfficeDeskUpdate {
   /** Both or neither; both null clears the position. */
   pos_x?: number | null;
   pos_z?: number | null;
-  /** Seat fields (docs/ANUM_MINE_GREEN_CONCRETE.md); `null` clears one. */
+  /** Seat fields (docs/ANUM_MINE_GREEN_CONCRETE.md); `null` clears one. `shift` is the older day or night seat. */
   shift?: 'day' | 'night' | null;
   seat_order?: number | null;
   facing?: 'north' | 'south' | 'east' | 'west' | null;
   seat_kind?: 'team' | 'manager' | null;
   table_group?: string | null;
+  /** The working hours of the person at this seat, "HH:MM" in the building's time zone (an end before the start runs over
+   * midnight). Send both together; both `null` clears them. */
+  work_start?: string | null;
+  work_end?: string | null;
 }
 
 /** PUT /floors/{id}/layout: all or nothing. */

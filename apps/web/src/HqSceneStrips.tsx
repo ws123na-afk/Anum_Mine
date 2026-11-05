@@ -4,10 +4,11 @@
  * Every number is a stored count; a source that did not answer says "Not connected", never zero.
  */
 import type { OfficeFlowSnapshot, OfficeFlowStage } from '@anum/contracts';
-import { ArrowLeft, Building2, Layers } from 'lucide-react';
+import { ArrowLeft, Building2, ChevronLeft, ChevronRight, Layers } from 'lucide-react';
 import type { CampusTotals, StatusKey } from './lib/campusModel.ts';
 import { floorNameParts } from './lib/hqLabelModel.ts';
 import { t, type MessageKey } from './lib/i18n.ts';
+import { useEffect, useRef } from 'react';
 
 export type BackTone = 'ok' | 'stop' | 'faint';
 
@@ -18,7 +19,7 @@ export function backTone(totals: CampusTotals | null): BackTone {
 }
 
 export function SceneBackCard(props: {
-  name: string; kindLabel: string; totals: CampusTotals | null; floors: number; rooms: number; meetings: number | null; orders: number | null; onBack: () => void;
+  name: string; totals: CampusTotals | null; onBack: () => void;
 }) {
   const tone = backTone(props.totals);
   const toneText = tone === 'ok' ? t('hqLabels.back.status.live') : tone === 'stop' ? t('hqLabels.back.status.blocked') : t('hqLabels.back.status.none');
@@ -36,29 +37,58 @@ export function SceneBackCard(props: {
           </li>
         </ol>
       </nav>
-      <ul className="hqCounters hqFacts" aria-label={t('hq.counters.label')}>
-        <li className="hqFactKind"><span>{props.kindLabel}</span></li>
-        <li><strong>{props.totals ? props.totals.agents : '-'}</strong><span>{t('hq.counters.people')}</span></li>
-        <li><strong>{props.floors}</strong><span>{t('hq.counters.floors')}</span></li>
-        <li><strong>{props.rooms}</strong><span>{t('hq.counters.rooms')}</span></li>
-        {props.meetings !== null && <li><strong>{props.meetings}</strong><span>{t('hq.counters.meetings')}</span></li>}
-        {props.orders !== null && <li><strong>{props.orders.toLocaleString()}</strong><span>{t('hqLabels.facts.orders')}</span></li>}
-      </ul>
     </div>
   );
 }
 
 
-export function FloorSelector(props: { floors: ReadonlyArray<{ id: string; name: string }>; activeId: string; stacked: boolean; onPick: (id: string) => void; onStack: (on: boolean) => void }) {
+/**
+ * The building's facts (type, people, floors, rooms, live meetings, orders today), docked under the scene with the other building
+ * panels: the stage carries only the Back card and the camera controls. People reads "-" without presence; nothing is invented.
+ */
+export function BuildingFacts(props: { kindLabel: string; totals: CampusTotals | null; floors: number; rooms: number; meetings: number | null; orders: number | null }) {
+  return (
+    <ul className="hqCounters hqFacts" aria-label={t('hq.counters.label')}>
+      <li className="hqFactKind"><span>{props.kindLabel}</span></li>
+      <li><strong>{props.totals ? props.totals.agents : '-'}</strong><span>{t('hq.counters.people')}</span></li>
+      <li><strong>{props.floors}</strong><span>{t('hq.counters.floors')}</span></li>
+      <li><strong>{props.rooms}</strong><span>{t('hq.counters.rooms')}</span></li>
+      {props.meetings !== null && <li><strong>{props.meetings}</strong><span>{t('hq.counters.meetings')}</span></li>}
+      {props.orders !== null && <li><strong>{props.orders.toLocaleString()}</strong><span>{t('hqLabels.facts.orders')}</span></li>}
+    </ul>
+  );
+}
+
+
+/**
+ * The one floor control of a building (docs/ANUM_MINE_HQ_LABELS.md, "Declutter"): floor below, one button per floor, floor above and the
+ * stacked view switch. It is drawn at every width (the buttons scroll sideways on a narrow scene); the floor list with thumbnails is a toggle.
+ */
+export function FloorSelector(props: {
+  floors: ReadonlyArray<{ id: string; name: string }>; activeId: string; stacked: boolean; onPick: (id: string) => void; onStack: (on: boolean) => void;
+  onStep?: (dir: 1 | -1) => void; canDown?: boolean; canUp?: boolean;
+}) {
+  // On a narrow scene the floor buttons scroll sideways: keep the open floor's button in view (the row only, never the page).
+  const row = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const box = row.current;
+    const on = box?.querySelector<HTMLElement>('button[aria-pressed="true"]');
+    if (!box || !on || box.scrollWidth <= box.clientWidth) return;
+    const left = on.offsetLeft - box.offsetLeft, right = left + on.offsetWidth;
+    if (left < box.scrollLeft) box.scrollLeft = left;
+    else if (right > box.scrollLeft + box.clientWidth) box.scrollLeft = right - box.clientWidth;
+  }, [props.activeId]);
   return (
     <div className="hqFloorSelector" role="group" aria-label={t('hqLabels.selector.label')}>
-      <div className="hqFloorButtons">
+      {props.onStep && <button type="button" className="hqFloorStep" disabled={!props.canDown} onClick={() => props.onStep!(-1)} aria-label={t('hq.floor.down')} title={t('hq.floor.down')}><ChevronLeft aria-hidden="true" className="flip" /></button>}
+      <div className="hqFloorButtons" ref={row}>
         {props.floors.map((f) => (
           <button key={f.id} type="button" data-active={f.id === props.activeId && !props.stacked} aria-pressed={f.id === props.activeId} aria-label={t('hqLabels.selector.aria', { name: f.name })} title={f.name} onClick={() => props.onPick(f.id)}>
             {floorNameParts(f.name).short}
           </button>
         ))}
       </div>
+      {props.onStep && <button type="button" className="hqFloorStep" disabled={!props.canUp} onClick={() => props.onStep!(1)} aria-label={t('hq.floor.up')} title={t('hq.floor.up')}><ChevronRight aria-hidden="true" className="flip" /></button>}
       <button type="button" className="hqFloorStack" aria-pressed={props.stacked} aria-label={props.stacked ? t('hqLabels.selector.unstack') : t('hqLabels.selector.stack')} title={props.stacked ? t('hqLabels.selector.unstack') : t('hqLabels.selector.stack')} onClick={() => props.onStack(!props.stacked)}>
         <Layers aria-hidden="true" />
       </button>
@@ -82,6 +112,7 @@ export function LiveOpsStrip(props: { totals: CampusTotals | null; unreported: r
         <ul>
           <li><strong>{props.totals.agents}</strong><span>{t('hqLabels.ops.people')}</span></li>
           {OPS.map((o) => <li key={o.key} className={`tone-${OPS_TONE[o.key]}`}><strong>{un.has(o.key) ? '-' : props.totals![o.key]}</strong><span>{t(o.label)}</span></li>)}
+          {(props.totals.off_shift ?? 0) > 0 && <li className="tone-faint" data-testid="ops-off-shift"><strong>{props.totals.off_shift}</strong><span>{t('hq.status.off_shift')}</span></li>}
           <li className="tone-stop"><strong>{flowOk && props.snapshot ? props.snapshot.totals.stuck : '-'}</strong><span>{t('hqLabels.ops.stuck')}</span></li>
         </ul>
       ) : <p className="hqMuted" role="status"><strong>{t('hqLabels.ops.notConnected')}</strong> {t('hqLabels.ops.noPresence')}</p>}

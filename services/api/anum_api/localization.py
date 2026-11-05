@@ -123,6 +123,35 @@ ARABIC_MESSAGES: dict[str, str] = {
     "That plan is not offered; choose one of the plans on the pricing page.": (
         "هذه الخطة غير معروضة؛ اختر إحدى الخطط في صفحة الأسعار."
     ),
+    # Reception visitor register (anum_api/office_visitors_api.py)
+    "Confirm this on screen with a click. A spoken or typed answer cannot change the visitor register.": (
+        "أكّد ذلك على الشاشة بنقرة. لا تغيّر إجابة منطوقة أو مكتوبة سجل الزوار."
+    ),
+    "Visit not found": "الزيارة غير موجودة.",
+    "The visit changed; reload and try again": "تغيّرت الزيارة؛ أعد التحميل وحاول مرة أخرى.",
+    "A visit with this id already exists": "توجد زيارة بهذا المعرّف بالفعل.",
+    "A finished visit cannot be changed; delete it or add a new visit": "لا يمكن تغيير زيارة انتهت؛ احذفها أو أضف زيارة جديدة.",
+    "Only an expected visitor can be checked in": "لا يُسجَّل دخول إلا زائر متوقَّع.",
+    # Removing an agent from a live meeting (anum_api/live_agent_meeting_api.py)
+    "Only the owner can remove agents": "لا يمكن إزالة الوكلاء إلا لمالك الاجتماع.",
+    "That agent is not a participant of this meeting": "هذا الوكيل ليس مشاركًا في هذا الاجتماع.",
+    "Agents can only be removed from an active or paused meeting": "لا يمكن إزالة الوكلاء إلا من اجتماع جارٍ أو متوقف مؤقتًا.",
+    "Only a checked-in visitor can be checked out": "لا يُسجَّل خروج إلا زائر سُجّل دخوله.",
+    "Only an expected visit can be cancelled": "لا تُلغى إلا زيارة متوقَّعة.",
+    "That building or room does not exist in this workspace": "هذا المبنى أو هذه الغرفة غير موجودة في مساحة العمل هذه.",
+    "The room is not in that building": "الغرفة ليست في هذا المبنى.",
+    "The host is not an active member or a visible agent of this workspace": "المضيف ليس عضوًا نشطًا ولا وكيلًا ظاهرًا في مساحة العمل هذه.",
+    "Give both the host kind and the host, or neither": "حدّد نوع المضيف والمضيف معًا، أو اتركهما معًا.",
+    "The expected time must have a time zone and be within 400 days of today": "يجب أن يحمل الوقت المتوقَّع منطقة زمنية وأن يقع خلال 400 يوم من اليوم.",
+    "Give both since and until, with since before until": "حدّد بداية الفترة ونهايتها معًا، على أن تسبق البداية النهاية.",
+    "The visitor's name, the purpose and the expected time cannot be empty": "لا يمكن ترك اسم الزائر والغرض والوقت المتوقَّع فارغة.",
+    # Record retention (anum_api/record_retention_api.py, owner decision O5)
+    "Confirm this on screen with a click. A spoken or typed answer cannot change how long records are kept.": (
+        "أكّد ذلك على الشاشة بنقرة. لا تغيّر إجابة منطوقة أو مكتوبة مدة الاحتفاظ بالسجلات."
+    ),
+    "The retention setting changed; reload and try again": "تغيّر إعداد مدة الاحتفاظ؛ أعد التحميل وحاول مرة أخرى.",
+    "Meeting transcripts can be kept for 7 to 1825 days": "يمكن الاحتفاظ بنصوص الاجتماعات من 7 إلى 1825 يومًا.",
+    "Visitor records can be kept for 30 to 1825 days": "يمكن الاحتفاظ بسجلات الزوار من 30 إلى 1825 يومًا.",
     # Generic envelopes
     "Request validation failed": "تعذّر التحقق من الطلب.",
     "An unexpected error occurred": "حدث خطأ غير متوقع.",
@@ -200,6 +229,21 @@ ARABIC_MESSAGES: dict[str, str] = {
     "The room would overlap another room. Nothing was created.": "ستتداخل الغرفة مع غرفة أخرى. لم يُنشأ شيء.",
     "The room would fall outside its floor. Nothing was created.": "ستقع الغرفة خارج طابقها. لم يُنشأ شيء.",
     "A record conflicts with one that already exists. Nothing was created.": "يتعارض سجل مع سجل موجود بالفعل. لم يُنشأ شيء.",
+    # Building logo signs (anum_api/office_logo_api.py, office_logo_image.py)
+    "Confirm this on screen with a click. A spoken or typed answer cannot change a building's logo.": "أكّد هذا على الشاشة بنقرة. لا يمكن تغيير شعار المبنى بإجابة منطوقة أو مكتوبة.",
+    "This building has no logo.": "لا يوجد شعار لهذا المبنى.",
+    "SVG logos are not accepted because they can carry script. Export the logo as PNG, JPEG or WebP.": "لا تُقبل شعارات SVG لأنها قد تحمل شيفرة. صدّر الشعار بصيغة PNG أو JPEG أو WebP.",
+    "GIF logos are not accepted. Use a PNG, JPEG or WebP picture.": "لا تُقبل شعارات GIF. استخدم صورة بصيغة PNG أو JPEG أو WebP.",
+    "This file is not a PNG, JPEG or WebP picture. Choose a logo in one of those formats.": "هذا الملف ليس صورة PNG أو JPEG أو WebP. اختر شعارًا بإحدى هذه الصيغ.",
+    "The file is empty. Choose a logo picture.": "الملف فارغ. اختر صورة للشعار.",
+    "The logo is larger than 1 MB. Export a smaller picture (512 by 512 pixels is plenty).": "حجم الشعار أكبر من 1 ميغابايت. صدّر صورة أصغر (512 في 512 بكسل تكفي).",
+    "The content of this file does not match a PNG, JPEG or WebP picture.": "محتوى هذا الملف لا يطابق صورة PNG أو JPEG أو WebP.",
+    "The picture is too large (over 4096 pixels on a side). Export it at 512 by 512 pixels.": "الصورة كبيرة جدًا (أكثر من 4096 بكسل في أحد الأضلاع). صدّرها بحجم 512 في 512 بكسل.",
+    "Animated pictures are not accepted. Use a still PNG, JPEG or WebP picture.": "الصور المتحركة غير مقبولة. استخدم صورة ثابتة بصيغة PNG أو JPEG أو WebP.",
+    "The picture is too small. Use at least 16 by 16 pixels, 256 by 256 or more looks best.": "الصورة صغيرة جدًا. استخدم 16 في 16 بكسل على الأقل، والأفضل 256 في 256 أو أكثر.",
+    "This picture could not be read. It may be damaged. Export it again as PNG, JPEG or WebP.": "تعذّرت قراءة هذه الصورة، وقد تكون تالفة. صدّرها مرة أخرى بصيغة PNG أو JPEG أو WebP.",
+    "The picture is too detailed to store. Export a simpler version of the logo.": "الصورة معقدة جدًا للتخزين. صدّر نسخة أبسط من الشعار.",
+    "The picture is fully transparent. Choose a logo that shows something.": "الصورة شفافة بالكامل. اختر شعارًا يظهر فيه شيء.",
 }
 
 # Messages with values in them: (pattern, Arabic template using the named groups).

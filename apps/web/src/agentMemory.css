@@ -1,0 +1,18 @@
+/* An agent's working memory (AgentMemoryPanel): used on the agent's page and in the Green Concrete drawer. */
+.amPanel .agentMemoryList { display: grid; gap: var(--d-s2); list-style: none; margin: var(--d-s3) 0 0; padding: 0; }
+.amPanel .agentMemoryList > li { align-items: start; border-top: 1px solid var(--d-line); display: grid; gap: var(--d-s3); grid-template-columns: minmax(0, 1fr) auto; padding-top: var(--d-s3); }
+.amPanel .agentMemoryList > li:first-child { border-top: 0; }
+.amPanel .agentMemoryList p { margin: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
+.amPanel .agentMemoryList small { display: block; margin-top: var(--d-s1); overflow-wrap: anywhere; }
+.amPanel .memoryEdit { grid-column: 1 / -1; min-width: 0; }
+.amPanel .memoryMeta { display: grid; gap: var(--d-s3); grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr)); }
+.amPanel .memoryMeta input, .amPanel .memoryMeta select { min-width: 0; width: 100%; }
+.amPanel .memoryFilters { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s3); margin-top: var(--d-s4); }
+.amPanel .memoryFilters .memorySearch { margin-top: 0; }
+.amPanel .memoryActions { display: flex; gap: var(--d-s1); }
+.amPanel .memoryKind { font-weight: 600; }
+.amPanel .memoryKind.decision { color: var(--d-primary); }
+.amPanel .fieldErrors { color: var(--d-danger); margin: var(--d-s2) 0 0; padding-inline-start: var(--d-s4); }
+.amPanel .agentSearch { align-items: center; display: flex; flex: 1 1 220px; min-width: 0; position: relative; }
+.amPanel .agentSearch svg { color: var(--d-faint); height: 18px; inset-inline-start: var(--d-s3); pointer-events: none; position: absolute; width: 18px; }
+.amPanel .agentSearch input { padding-inline-start: 40px; width: 100%; }

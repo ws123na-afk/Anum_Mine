@@ -10,6 +10,7 @@ import { useLocale } from '../useLocale';
 import { canConfirm } from './client';
 import { provisioningClient } from './useProvisioning';
 import { reasonLine, roleName } from './OrgGapsPanel';
+import { openHqScenePanel } from '../lib/hqWorkPanels';
 
 type Load = { kind: 'loading' } | { kind: 'error'; detail: string; stale: boolean } | { kind: 'ready'; proposal: ProvisioningProposal };
 type Done = { result: ProvisioningResult; paused: boolean; turnOnError: string };
@@ -86,7 +87,7 @@ export function ProposalDialog({ templateId, onClose, onNavigate, onProvisioned 
           <p>{t('hqProv.dlg.error', { detail: load.detail })}</p>
           <button type="button" onClick={() => void read(roomId)}>{t('hqProv.retry')}</button>
         </div>}
-        {done ? <DoneView done={done} busy={busy} onTurnOn={() => void turnOn()} onOpenAgents={() => { onNavigate('#agents'); onClose(); }} onClose={onClose} />
+        {done ? <DoneView done={done} busy={busy} onTurnOn={() => void turnOn()} onOpenAgents={() => { if (!openHqScenePanel('team')) onNavigate('#agents'); onClose(); }} onClose={onClose} />
           : proposal && <ProposalBody proposal={proposal} locale={locale} roomId={roomId} onRoom={setRoomId} />}
         {!done && failure && <div className="hqProvNote hqProvFail" role="alert">
           <p>{t('hqProv.dlg.confirmFailed', { detail: failure.detail })}</p>

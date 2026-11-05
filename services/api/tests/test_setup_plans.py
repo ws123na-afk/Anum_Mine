@@ -79,7 +79,7 @@ def preview(client: TestClient, phase: str = "pilot", headers: dict[str, str] = 
 
 
 def apply(client: TestClient, phase: str = "pilot", headers: dict[str, str] = ADMIN, **extra: object) -> dict:
-    response = client.post(f"/api/v1/setup-plans/{PLAN}/apply", headers=headers, json={"phase": phase, "plan_version": 3, **extra})
+    response = client.post(f"/api/v1/setup-plans/{PLAN}/apply", headers=headers, json={"phase": phase, "plan_version": 4, **extra})
     assert response.status_code == 200, response.text
     return response.json()
 
@@ -139,14 +139,14 @@ def test_preview_is_read_only_and_explains_every_item(client: TestClient) -> Non
     assert not [r for r in store.audit_records if r.action.startswith("setup_plan")]
     # The plan lists what ANUM cannot do, honestly.
     unsupported = {item["key"] for item in items(result, "unsupported")}
-    assert {"u_banking", "u_courier", "u_per_agent_budget"} <= unsupported
+    assert {"u_banking", "u_courier", "u_refund_tools"} <= unsupported
 
 
 def test_member_and_viewer_are_refused_with_who_can(client: TestClient) -> None:
     for path in ("", f"/{PLAN}/preview"):
         response = client.get(f"/api/v1/setup-plans{path}", headers=MEMBER)
         assert response.status_code == 403 and "workspace owner or an organization administrator" in response.json()["error"]["message"]
-    response = client.post(f"/api/v1/setup-plans/{PLAN}/apply", headers=MEMBER, json={"phase": "pilot", "plan_version": 3})
+    response = client.post(f"/api/v1/setup-plans/{PLAN}/apply", headers=MEMBER, json={"phase": "pilot", "plan_version": 4})
     assert response.status_code == 403
     assert not agent_store.profiles
 
@@ -350,10 +350,10 @@ def test_a_failed_item_is_reported_released_and_created_by_the_next_apply(client
 
     real = knowledge_base.create_collection
 
-    async def broken(payload, context):  # type: ignore[no-untyped-def]
+    def broken(payload, context):  # type: ignore[no-untyped-def]
         if payload.name == "05 Finance":
             raise RuntimeError("store unavailable")
-        return await real(payload, context)
+        return real(payload, context)
 
     monkeypatch.setattr(knowledge_base, "create_collection", broken)
     result = apply(client)

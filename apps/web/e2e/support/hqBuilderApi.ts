@@ -18,7 +18,11 @@ export interface BuilderMockOptions extends HistoryMockOptions {
   down?: boolean;
   /** Extra rooms placed in a grid (for the large-floor spec). */
   extraRooms?: number;
+  /** Desk 2 is an older night seat (a shift, no working hours of its own), as a build made before the working hours has. */
+  olderSeat?: boolean;
   empty?: boolean;
+  /** The building starts with this logo (a PNG), as if the owner had uploaded it. */
+  withLogo?: Buffer;
 }
 
 export interface BuilderMock {
@@ -30,6 +34,10 @@ export interface BuilderMock {
   floors: Map<string, Json>;
   /** Simulates another editor: bumps a room's revision (and optionally moves it) behind the page's back. */
   touchRoom(id: string, patch?: Json): void;
+  /** The stored logo bytes by building id (what the logo route serves). */
+  logos: Map<string, Buffer>;
+  /** Simulates another editor: bumps a building's revision behind the page's back. */
+  touchBuilding(id: string): void;
 }
 
 const TEMPLATES = [
@@ -73,7 +81,7 @@ export async function mockOfficeBuilder(page: Page, options: BuilderMockOptions 
     rooms.set('r-recep', room('r-recep', 'Front desk', 'reception', 30, 2, 6, 4));
     rooms.set('r-spare', room('r-spare', 'Spare room', 'office', null, null, 6, 5));
     desks.set('d-1', desk('d-1', 'r-sales', 'Desk 1', 1.5, 1.5, 'agent_fleet'));
-    desks.set('d-2', desk('d-2', 'r-sales', 'Desk 2', 4.5, 1.5));
+    desks.set('d-2', { ...desk('d-2', 'r-sales', 'Desk 2', 4.5, 1.5), ...(options.olderSeat ? { shift: 'night' } : {}) });
     desks.set('d-3', desk('d-3', 'r-sales', 'Desk 3', null, null));
     for (let i = 0; i < (options.extraRooms ?? 0); i += 1) {
       rooms.set(`r-x${i}`, room(`r-x${i}`, `Bulk room ${i + 1}`, 'office', 40 + (i % 20) * 7, 2 + Math.floor(i / 20) * 6, 6, 5));
@@ -81,7 +89,11 @@ export async function mockOfficeBuilder(page: Page, options: BuilderMockOptions 
   }
   if (options.extraRooms) floors.set('floor-1', { ...floors.get('floor-1'), width_m: 200, depth_m: 200 });
 
+  const logos = new Map<string, Buffer>();
+  const fakeSha = (bytes: Buffer) => { let h = 0; for (const b of bytes) h = (h * 31 + b) >>> 0; return h.toString(16).padStart(8, '0').repeat(8); };
+  if (options.withLogo) { logos.set('building-1', options.withLogo); buildings.set('building-1', { ...buildings.get('building-1'), logo_sha256: fakeSha(options.withLogo) }); }
   const mock: BuilderMock = {
+    logos, touchBuilding(id) { const b = buildings.get(id); if (b) buildings.set(id, { ...b, revision: Number(b.revision) + 1 }); },
     requests: [], rooms, desks, floors, history: undefined as unknown as HistoryMock,
     touchRoom(id, patch = {}) {
       const current = rooms.get(id);
@@ -97,11 +109,18 @@ export async function mockOfficeBuilder(page: Page, options: BuilderMockOptions 
     const url = new URL(request.url());
     const path = url.pathname.replace('/api/v1/office-spaces', '');
     const method = request.method();
-    const body = request.postData() ? (JSON.parse(request.postData() as string) as Json) : null;
+    const isLogo = /\/buildings\/[^/]+\/logo$/.test(path);
+    const body = !isLogo && request.postData() ? (JSON.parse(request.postData() as string) as Json) : null;
     mock.requests.push({ method, path, body });
     const json = (value: unknown, status = 200) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(value) });
 
     if (options.down) return error(route, 503, 'Office persistence needs the PostgreSQL backend');
+    const logoPath = path.match(/^\/buildings\/([^/]+)\/logo$/);
+    if (logoPath && method === 'GET') {
+      const bytes = logos.get(logoPath[1]);
+      if (!bytes) return route.fulfill({ status: 404, contentType: 'application/json', body: JSON.stringify({ detail: 'This building has no logo.' }) });
+      return route.fulfill({ status: 200, contentType: 'image/png', headers: { 'cache-control': 'private, no-cache', etag: `"${fakeSha(bytes)}"` }, body: bytes });
+    }
     if (method === 'GET') {
       const list = path.match(/^\/(buildings|floors|rooms|desks)$/);
       if (list) {
@@ -197,13 +216,39 @@ export async function mockOfficeBuilder(page: Page, options: BuilderMockOptions 
       const created = { ...source, ...base(String(body?.id)), name: body?.name ?? `${source.name} copy`, scene_x: body?.x ?? source.scene_x, scene_z: body?.z ?? source.scene_z };
       rooms.set(String(body?.id), created);
       const made: Json[] = [];
-      if (body?.copy_desks) for (const d of [...desks.values()].filter((x) => x.room_id === copy[1])) { const c = desk(`${body?.id}-d${made.length + 1}`, String(body?.id), String(d.label), d.pos_x as number | null, d.pos_z as number | null); desks.set(String(c.id), c); made.push(c); }
+      if (body?.copy_desks) for (const d of [...desks.values()].filter((x) => x.room_id === copy[1])) { const c = { ...desk(`${body?.id}-d${made.length + 1}`, String(body?.id), String(d.label), d.pos_x as number | null, d.pos_z as number | null), shift: d.shift ?? null, seat_order: d.seat_order ?? null, facing: d.facing ?? null, seat_kind: d.seat_kind ?? null, table_group: d.table_group ?? null }; desks.set(String(c.id), c); made.push(c); }
       return json({ room: created, desks: made }, 201);
     }
     if (path === '/desks' && method === 'POST') {
       const created = desk(String(body?.id), String(body?.room_id), String(body?.label), null, null);
       desks.set(String(body?.id), created);
       return json(created, 201);
+    }
+
+    // ---- the building sign: logo upload and removal (mirrors services/api office_logo_api.py)
+    if (logoPath && (method === 'PUT' || method === 'DELETE')) {
+      const current = buildings.get(logoPath[1]);
+      if (!current) return error(route, 404, 'Office record not found in this workspace');
+      if (url.searchParams.get('input_mode') !== 'click') return error(route, 403, "Confirm this on screen with a click. A spoken or typed answer cannot change a building's logo.");
+      if (String(current.revision) !== url.searchParams.get('expected_revision')) return error(route, 409, 'Office layout changed. Reload before retrying', [issue(`buildings.${logoPath[1]}`, 'STALE_REVISION', 'changed')]);
+      if (method === 'DELETE') {
+        if (!logos.has(logoPath[1])) return error(route, 404, 'This building has no logo.');
+        logos.delete(logoPath[1]);
+        const next = { ...current, logo_sha256: null, revision: Number(current.revision) + 1 };
+        buildings.set(logoPath[1], next);
+        return json(next);
+      }
+      const raw = request.postDataBuffer() ?? Buffer.alloc(0);
+      const refuse = (status: number, message: string) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify({ error: { code: status === 413 ? 'payload_too_large' : 'bad_request', message, details: [], correlation_id: 'corr_example' } }) });
+      if (raw.length === 0) return refuse(422, 'The file is empty. Choose a logo picture.');
+      if (raw.length > 1_048_576) return refuse(413, 'Request body exceeds the 1048576 byte limit');
+      const head = raw.subarray(0, 512).toString('latin1').toLowerCase();
+      if (head.includes('<svg')) return refuse(415, 'SVG logos are not accepted because they can carry script. Export the logo as PNG, JPEG or WebP.');
+      if (!raw.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return refuse(415, 'This file is not a PNG, JPEG or WebP picture. Choose a logo in one of those formats.');
+      logos.set(logoPath[1], raw);
+      const next = { ...current, logo_sha256: fakeSha(raw), revision: Number(current.revision) + 1 };
+      buildings.set(logoPath[1], next);
+      return json(next);
     }
 
     // ---- patches

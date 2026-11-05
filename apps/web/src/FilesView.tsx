@@ -190,8 +190,9 @@ export function FilesView({ focusFileId, onFocusChange }: { focusFileId: string 
           <tbody>{shown.map((x) => {
             const badge = fileBadge(x);
             return <tr key={x.id} className={x.id === focusFileId ? 'selected' : undefined}>
-              <th scope="row"><button type="button" className="cellButton" aria-label={t('files.showDetails', { name: x.name })} aria-current={x.id === focusFileId ? 'true' : undefined} onClick={() => open(x.id)}>
-                <strong dir="auto">{x.kind === 'image' ? <ImageIcon aria-hidden="true" className="cellIcon" /> : <FileText aria-hidden="true" className="cellIcon" />}{x.name}</strong>
+              <th scope="row"><button type="button" className="cellButton" aria-current={x.id === focusFileId ? 'true' : undefined} onClick={() => open(x.id)}>
+                <span className="visuallyHidden">{t('files.showDetailsHint')} </span>
+                <strong dir="auto">{x.kind === 'image' ? <ImageIcon aria-hidden="true" className="cellIcon" /> : <FileText aria-hidden="true" className="cellIcon" />}{x.name}</strong>{' '}
                 <small>{fileTypeLabel(x.content_type)} · {uploaderLabel(x.created_by, me)} · <time dateTime={x.created_at}>{formatDateTime(x.created_at, { dateStyle: 'medium' })}</time></small>
               </button></th>
               <td className="num muted"><bdi>{formatBytes(x.size_bytes)}</bdi></td>

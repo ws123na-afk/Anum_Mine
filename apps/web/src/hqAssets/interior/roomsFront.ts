@@ -9,7 +9,7 @@ import {
   BLACK, armchair, barStool, bookcase, coatRack, credenza, deskPlant, floorLamp, pouf, roundTable, rug, sideChair, sideTable,
   sofa, tableLamp, tallPlant, taskChair, wallDisplay, whiteboard,
 } from './furniture.ts';
-import { seatedFigure } from './figures.ts';
+import { seatedFigure, standingFigure } from './figures.ts';
 import { contact } from './local.ts';
 import type { RoomCtx } from './types.ts';
 
@@ -57,7 +57,14 @@ export function reception(c: RoomCtx): number {
   R.box(dx + cw * 0.82, 1.07, dz + 0.3, 0.2, 0.05, 0.14, S.dark);
   R.prism(dx + cw * 0.9, 1.07, dz + 0.42, 0.045, 0.04, 0.05, 8, S.brass);
   deskPlant(R, dx + cw * 0.08, 1.07, dz + 0.3, S);
-  taskChair(R, dx + cw * 0.45, dz - 0.5, mix(S.fabric, hex('#14181d'), 0.5));
+  // The reception posts: each person the registry assigns to a desk of this room (and who is on shift) stands behind the
+  // counter facing the door, spread along it. Nobody is drawn without such a record; the chair stays when nobody stands there.
+  const staff = c.stations.filter((st) => st.occupantSeed).slice(0, Math.max(1, Math.floor(cw / 0.8)));
+  staff.forEach((st, i) => {
+    const [fx, fz] = R.pt(dx + (cw * (i + 1)) / (staff.length + 1), dz - 0.42);
+    standingFigure(b, fx, y, fz, { seed: st.occupantSeed!, rot: 0, pose: 'neutral', headset: st.headset, look: st.look });
+  });
+  taskChair(R, staff.length > 0 ? dx + cw * 0.92 : dx + cw * 0.45, dz - 0.5, mix(S.fabric, hex('#14181d'), 0.5));
   // Waiting group on a rug: sofa, two armchairs, marble coffee table, lamp.
   const gx = clamp(w * 0.24, 2.4, 3.2), gz = Math.min(d - 1.55, clamp(d * 0.7, dz + 2.2, d));
   rug(b, c.frame.x + gx - 1.9, y, c.frame.z + gz - 1.45, 3.8, 2.9, mix(S.rug, accent, 0.18), scale(S.rug, 0.7));
@@ -115,6 +122,19 @@ export function meetingRoom(c: RoomCtx): number {
   }
   sideChair(R, tx - 0.35, tz + td / 2, 3, chairTone, S.dark);
   sideChair(R, tx + tw + 0.35, tz + td / 2, 1, chairTone, S.dark);
+  // The stored participants of the live meeting, seated in order: the near and far sides from the screen end, then the heads.
+  // The chairs are furniture; a person is drawn only for a participant the meeting record lists.
+  const chairs: Array<[number, number, number]> = [];
+  for (let i = 0; i < seats; i++) {
+    const sx = tx + 0.45 + (i * (tw - 0.9)) / Math.max(1, seats - 1);
+    chairs.push([sx, tz - 0.4, 0], [sx, tz + td + 0.4, 2]);
+  }
+  chairs.push([tx - 0.35, tz + td / 2, 3], [tx + tw + 0.35, tz + td / 2, 1]);
+  c.attendees.slice(0, chairs.length).forEach((a, i) => {
+    const [lx, lz, rot] = chairs[i];
+    const [fx, fz] = R.pt(lx, lz);
+    seatedFigure(b, fx, y, fz, { seed: a.seed, rot, pose: i % 2 === 0 ? 'talking' : 'reading', look: a.look });
+  });
   // Table centre: cable cubby, speaker puck with a ring that lights when live, a carafe.
   R.box(tx + tw / 2 - 0.2, 0.75, tz + td / 2 - 0.08, 0.4, 0.02, 0.16, BLACK);
   R.prism(tx + tw / 2 - 0.5, 0.75, tz + td / 2, 0.1, 0.1, 0.03, 10, S.dark);

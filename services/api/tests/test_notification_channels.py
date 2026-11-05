@@ -47,6 +47,26 @@ def test_test_email_goes_only_to_the_callers_address_and_is_audited(client: Test
     assert sorted(a.outcome for a in audits) == ["failure", "failure", "success"]
 
 
+
+def test_test_email_audit_holds_ids_only_and_is_rate_limited(client: TestClient, outbox: Outbox, team: None) -> None:
+    """Audit records hold ids, never contact details; a person cannot flood their own mailbox
+    (docs/security.md#pre-sale-review-november-2026)."""
+    from anum_api import notifications
+
+    notifications.reset_test_email_limits()
+    memory_repository.store.audit_records.clear()
+    try:
+        codes = [client.post("/api/v1/notification-channels/email-test", headers=OWNER).status_code for _ in range(6)]
+        assert codes == [200] * 5 + [429]
+        other = client.post("/api/v1/notification-channels/email-test", headers={**OWNER, "x-user-id": "nobody"})
+        assert other.status_code == 200
+    finally:
+        notifications.reset_test_email_limits()
+    scope = TenantContext(tenant_id=N_TENANT, workspace_id=N_WORKSPACE, user_id="owner_a", roles=["owner"])
+    audits = [r for r in memory_repository.list_audit_records(scope) if r.action == "notification.email_test"]
+    assert audits and all("owner@example.com" not in repr(a) for a in audits)
+    assert all(a.target == a.actor for a in audits)
+
 def test_test_email_without_a_mail_server_says_so(client: TestClient, monkeypatch: pytest.MonkeyPatch, team: None) -> None:
     monkeypatch.setattr(settings, "smtp_host", None)
     result = client.post("/api/v1/notification-channels/email-test", headers=OWNER).json()

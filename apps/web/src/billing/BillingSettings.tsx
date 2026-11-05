@@ -12,6 +12,7 @@ import {
 import { describeError, isPermissionDenied } from '../lib/errors';
 import { t, type MessageKey } from '../lib/i18n';
 import { ConfirmDialog, Drawer, Modal } from '../Dialog';
+import { downloadReceipt } from '../lib/sellingApi';
 import { BankDetailsBlock, Badge, Empty, InvoiceBody, InvoiceFilters, InvoiceTable, Meters, Note, Pager, PlanCard, date, invoiceLabel, priceLine } from './parts';
 
 type Load<T> = { state: 'loading' } | { state: 'ready'; value: T } | { state: 'denied' | 'error'; message: string };
@@ -120,7 +121,7 @@ function PaymentMethods({ overview }: { overview: Overview }) {
     <div className="blMethods">
       <article className="blMethod"><h3><Landmark aria-hidden="true" />{t('billing.payment.bank')}</h3><BankDetailsBlock bank={overview.payment.bank_transfer} /><p className="muted">{t('billing.payment.bankHint')}</p></article>
       <article className="blMethod"><h3><CreditCard aria-hidden="true" />{t('billing.payment.card')}</h3>
-        <p className="muted">{overview.payment.card_enabled ? t('billing.payment.cardOn') : t('billing.payment.cardOff')}</p>
+        <p className="muted">{overview.payment.card_enabled ? (overview.payment.card_provider === 'moyasar' ? t('billing.payment.cardOnMoyasar') : t('billing.payment.cardOn')) : t('billing.payment.cardOff')}</p>
         <Badge tone={overview.payment.card_enabled ? 'success' : 'neutral'}>{overview.payment.card_enabled ? t('billing.payment.available') : t('billing.payment.unavailable')}</Badge>
       </article>
     </div>
@@ -231,13 +232,14 @@ function InvoiceDrawer({ invoiceId, cardEnabled }: { invoiceId: string; cardEnab
     catch (e) { setProblem(t('billing.invoice.payFailed', { message: describeError(e) })); setBusy(false); }
   };
   const download = async () => { setProblem(null); try { await b.downloadInvoice(value); } catch (e) { setProblem(t('billing.invoices.downloadFailed', { message: describeError(e) })); } };
+  const receipt = async (paymentId: string) => { setProblem(null); try { await downloadReceipt(value.id, paymentId); } catch (e) { setProblem(t('billing.receipt.failed', { message: describeError(e) })); } };
   return <div className="blDrawer">
     <div className="actions blInline">
       {value.number && <button type="button" className="secondary" onClick={() => void download()}><Download aria-hidden="true" />{t('billing.invoice.download')}</button>}
       {cardEnabled && value.status === 'open' && value.amount_due_minor > 0 && <button type="button" disabled={busy} onClick={() => void pay()}><CreditCard aria-hidden="true" />{busy ? t('common.loading') : t('billing.invoice.payCard', { amount: formatMoney(value.amount_due_minor, value.currency) })}</button>}
     </div>
     {problem && <Note error>{problem}</Note>}
-    <InvoiceBody invoice={value} />
+    <InvoiceBody invoice={value} paymentActions={(payment) => <button type="button" className="secondary" onClick={() => void receipt(payment.id)} aria-label={t('billing.receipt.downloadOf', { amount: formatMoney(payment.amount_minor, payment.currency) })}><Download aria-hidden="true" />{t('billing.receipt.download')}</button>} />
     <p className="visuallyHidden" aria-live="polite">{invoiceLabel(value)}</p>
   </div>;
 }

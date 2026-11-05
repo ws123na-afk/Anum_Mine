@@ -71,6 +71,8 @@ class CanonicalEventName(StrEnum):
     OFFICE_LAYOUT_CHANGED = "office.layout_changed"
     # A confirmed office role was built (docs/ANUM_MINE_AGENT_PROVISIONING.md): ids only.
     OFFICE_AGENT_PROVISIONED = "office.agent_provisioned"
+    # The reception visitor register (docs/ANUM_MINE_HQ_RECEPTION.md): ids and statuses only, never names.
+    OFFICE_VISITORS_CHANGED = "office.visitors_changed"
     MEETING_IMPORTED = "meeting.imported"
     MEETING_SUMMARIZED = "meeting.summarized"
     MEETING_FAILED = "meeting.failed"

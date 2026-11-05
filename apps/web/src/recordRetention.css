@@ -1,0 +1,14 @@
+/* Settings > Workspace: how long records are kept (docs/record-retention.md). */
+.recordRetention { display: grid; gap: var(--d-s3); }
+.recordRetention > h2, .recordRetention p { margin: 0; overflow-wrap: anywhere; }
+.recordRetentionCards { display: grid; gap: var(--d-s4); grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); }
+.recordRetentionCard { align-content: start; border-top: 1px solid var(--d-line); display: grid; gap: var(--d-s2); min-width: 0; padding-top: var(--d-s3); }
+.recordRetentionHead { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); justify-content: space-between; }
+.recordRetentionHead h3 { align-items: center; display: flex; font-size: var(--text-base); gap: var(--d-s2); margin: 0; }
+.recordRetentionHead h3 svg, .recordRetentionNote svg { flex: none; height: 18px; width: 18px; }
+.recordRetentionDays { font-size: var(--text-lg); font-weight: 700; }
+.recordRetentionForm { display: grid; gap: var(--d-s2); }
+.recordRetentionForm .field input { max-width: 12rem; }
+.recordRetentionForm .actions { margin: 0; }
+.recordRetentionCard .notice { margin: 0; }
+.recordRetentionNote { align-items: flex-start; display: flex; gap: var(--d-s2); }

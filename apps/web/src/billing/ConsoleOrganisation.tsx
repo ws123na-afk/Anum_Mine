@@ -2,13 +2,16 @@
 // actions (change, pause, resume, cancel, reactivate), usage, and invoices with record payment,
 // credit note, void, email (waits in Approvals) and the PDF.
 import { useCallback, useEffect, useId, useState, type FormEvent } from 'react';
-import { ArrowLeft, Ban, Download, FilePlus2, Mail, ReceiptText, RefreshCw, Wallet } from 'lucide-react';
+import { ArrowLeft, Ban, Download, FilePlus2, Mail, ReceiptText, RefreshCw, Undo2, Wallet } from 'lucide-react';
 import * as b from '../lib/billingApi';
 import {
   PAGE_SIZE, PAYMENT_METHODS, formatMoney, minorToInput, parseMoney, proofProblem, subscriptionTone,
   type AdminPlan, type ConsoleOrganisation as Org, type EmailOutcome, type Invoice, type InvoiceStatus, type InvoiceSummary, type Page, type PaymentMethod, type ProofType,
 } from '../lib/billing';
 import { describeError, isPermissionDenied } from '../lib/errors';
+import { downloadOrgReceipt, refundPayment } from '../lib/sellingApi';
+import { newIdempotencyKey, providerRefundLabel, refundableOf, refundsThroughProvider } from '../lib/selling';
+import type { Payment } from '../lib/billing';
 import { t, type MessageKey } from '../lib/i18n';
 import { ConfirmDialog, Drawer, Modal } from '../Dialog';
 import { Badge, Empty, InvoiceBody, InvoiceFilters, InvoiceTable, Meters, Note, Pager, date, priceLine } from './parts';
@@ -116,9 +119,11 @@ function OrgInvoices({ tenantId, contactEmail, onChanged }: { tenantId: string; 
 }
 
 type Dialog = 'payment' | 'credit' | 'void' | 'email' | null;
+type RefundTarget = Payment | null;
 
 function OperatorInvoice({ tenantId, invoiceId, contactEmail, onChanged }: { tenantId: string; invoiceId: string; contactEmail: string; onChanged: () => void }) {
   const [invoice, setInvoice] = useState<Load<Invoice>>({ state: 'loading' });
+  const [refunding, setRefunding] = useState<RefundTarget>(null);
   const [dialog, setDialog] = useState<Dialog>(null), [flash, setFlash] = useState<{ text: string; error?: boolean } | null>(null), [emailed, setEmailed] = useState<EmailOutcome | null>(null), [busy, setBusy] = useState(false);
   const load = useCallback(async () => { try { setInvoice({ state: 'ready', value: await b.getOrgInvoice(tenantId, invoiceId) }); } catch (e) { setInvoice(failed(e)); } }, [tenantId, invoiceId]);
   useEffect(() => { void load(); }, [load]);
@@ -127,6 +132,7 @@ function OperatorInvoice({ tenantId, invoiceId, contactEmail, onChanged }: { ten
   const value = invoice.value;
   const updated = (next: Invoice, text: string) => { setInvoice({ state: 'ready', value: next }); setDialog(null); setFlash({ text }); onChanged(); };
   const download = async () => { setFlash(null); try { await b.downloadOrgInvoice(tenantId, value); } catch (e) { setFlash({ text: t('billing.invoices.downloadFailed', { message: describeError(e) }), error: true }); } };
+  const receipt = async (paymentId: string) => { setFlash(null); try { await downloadOrgReceipt(tenantId, value.id, paymentId); } catch (e) { setFlash({ text: t('billing.receipt.failed', { message: describeError(e) }), error: true }); } };
   const doVoid = async () => {
     setBusy(true);
     try { updated(await b.voidInvoice(tenantId, value.id), t('billing.console.voided', { number: value.number ?? '' })); }
@@ -146,7 +152,11 @@ function OperatorInvoice({ tenantId, invoiceId, contactEmail, onChanged }: { ten
     {flash && <Note error={flash.error}>{flash.text}</Note>}
     {emailed && <p className="notice" role="status"><Mail aria-hidden="true" /><span>{emailed.message} {emailed.status === 'waiting_approval' && <a href="#approvals">{t('billing.console.openApprovals')}</a>}</span></p>}
     {value.last_email?.status && !emailed && <p className="muted blSmall">{t('billing.console.lastEmail', { status: value.last_email.status })}</p>}
-    <InvoiceBody invoice={value} />
+    <InvoiceBody invoice={value} paymentActions={(payment) => <>
+      <button type="button" className="secondary" onClick={() => void receipt(payment.id)} aria-label={t('billing.receipt.downloadOf', { amount: formatMoney(payment.amount_minor, payment.currency) })}><Download aria-hidden="true" />{t('billing.receipt.download')}</button>
+      {refundableOf(payment) > 0 && value.amount_paid_minor > 0 && <button type="button" className="secondary" onClick={() => setRefunding(payment)} aria-label={t('billing.refund.openOf', { amount: formatMoney(payment.amount_minor, payment.currency) })}><Undo2 aria-hidden="true" />{t('billing.refund.open')}</button>}
+    </>} />
+    {refunding && <RefundDialog tenantId={tenantId} invoice={value} payment={refunding} onClose={() => setRefunding(null)} onDone={(next, ok, waiting) => { setRefunding(null); setInvoice({ state: 'ready', value: next }); setFlash({ text: !ok ? t('billing.refund.failedNote') : waiting ? t('billing.refund.waitingNote', { number: value.number ?? '' }) : t('billing.refund.done', { number: value.number ?? '' }), error: !ok }); onChanged(); }} />}
     {dialog === 'payment' && <PaymentDialog tenantId={tenantId} invoice={value} onClose={() => setDialog(null)} onDone={(next) => updated(next, t('billing.console.paymentRecorded', { number: value.number ?? '' }))} />}
     {dialog === 'credit' && <CreditDialog tenantId={tenantId} invoice={value} max={creditable} onClose={() => setDialog(null)} onDone={(next) => updated(next, t('billing.console.creditIssued', { number: value.number ?? '' }))} />}
     {dialog === 'email' && <EmailDialog tenantId={tenantId} invoice={value} contactEmail={contactEmail} onClose={() => setDialog(null)} onDone={(outcome) => { setDialog(null); setEmailed(outcome); void load(); }} />}
@@ -227,5 +237,37 @@ function EmailDialog({ tenantId, invoice, contactEmail, onClose, onDone }: { ten
     <small className="muted" id={`${formId}-hint`}>{contactEmail ? t('billing.console.emailDefault', { email: contactEmail }) : t('billing.console.emailNoContact')}</small>
     {problem && <Note error>{problem}</Note>}
     <div className="actions"><button type="submit" disabled={busy}>{busy ? t('common.loading') : t('billing.console.emailAsk')}</button><button type="button" className="secondary" onClick={onClose}>{t('common.cancel')}</button></div>
+  </form></Modal>;
+}
+
+function RefundDialog({ tenantId, invoice, payment, onClose, onDone }: { tenantId: string; invoice: Invoice; payment: Payment; onClose: () => void; onDone: (invoice: Invoice, ok: boolean, waiting?: boolean) => void }) {
+  const max = Math.min(refundableOf(payment), invoice.amount_paid_minor, invoice.total_minor - invoice.amount_credited_minor);
+  const viaProvider = refundsThroughProvider(payment.provider);
+  const [amount, setAmount] = useState(minorToInput(max, invoice.currency)), [reason, setReason] = useState(''), [mode, setMode] = useState<'provider' | 'manual'>(viaProvider ? 'provider' : 'manual');
+  const [busy, setBusy] = useState(false), [problem, setProblem] = useState<string | null>(null);
+  // One key per dialog: a retry after a network error is the same refund, never a second one.
+  const [key] = useState(() => newIdempotencyKey());
+  const formId = useId();
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    const minor = parseMoney(amount, invoice.currency);
+    if (!minor || minor > max) { setProblem(t('billing.refund.range', { max: formatMoney(max, invoice.currency) })); return; }
+    if (reason.trim().length < 3) { setProblem(t('billing.console.reasonRequired')); return; }
+    setBusy(true); setProblem(null);
+    try { const result = await refundPayment(tenantId, invoice.id, payment.id, { amount_minor: minor, reason: reason.trim(), mode, idempotency_key: key }); onDone(result.invoice, result.refund.status !== 'failed', result.refund.status === 'pending'); }
+    catch (e) { setProblem(t('billing.failed', { message: describeError(e) })); }
+    finally { setBusy(false); }
+  };
+  return <Modal title={t('billing.refund.titleFor', { number: invoice.number ?? '' })} className="formDialog" onClose={onClose}><form onSubmit={(e) => void submit(e)} noValidate>
+    <p className="muted">{t('billing.refund.lead', { max: formatMoney(max, invoice.currency) })}</p>
+    <fieldset className="blRadios"><legend>{t('billing.refund.how')}</legend>
+      {viaProvider && <label className="blCheck"><input type="radio" name={`${formId}-mode`} checked={mode === 'provider'} onChange={() => setMode('provider')} /><span>{t(providerRefundLabel(payment.provider as 'moyasar' | 'stripe'))}</span></label>}
+      <label className="blCheck"><input type="radio" name={`${formId}-mode`} checked={mode === 'manual'} onChange={() => setMode('manual')} /><span>{t('billing.refund.manual')}</span></label>
+    </fieldset>
+    <label className="field" htmlFor={`${formId}-amount`}><span>{t('billing.refund.amount', { currency: invoice.currency })}</span><input id={`${formId}-amount`} inputMode="decimal" dir="ltr" value={amount} onChange={(e) => setAmount(e.target.value)} required /></label>
+    <label className="field" htmlFor={`${formId}-reason`}><span>{t('billing.console.reason')}</span><textarea id={`${formId}-reason`} rows={3} maxLength={500} dir="auto" value={reason} onChange={(e) => setReason(e.target.value)} required /></label>
+    <small className="muted">{t('billing.refund.creditNoteHint')}</small>
+    {problem && <Note error>{problem}</Note>}
+    <div className="actions"><button type="submit" disabled={busy}>{busy ? t('common.loading') : t('billing.refund.submit')}</button><button type="button" className="secondary" onClick={onClose}>{t('common.cancel')}</button></div>
   </form></Modal>;
 }

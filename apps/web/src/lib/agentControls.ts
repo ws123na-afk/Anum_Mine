@@ -144,3 +144,38 @@ export function stopSummary(controls: AgentControls): string {
   if (!controls.emergency_stop.engaged) return t('agentControls.offSummary');
   return controls.can_release ? t('agentControls.onSummaryRelease') : t('agentControls.onSummaryWait');
 }
+
+// ---------------------------------------------------------------- loop and retry limits (docs/agent-controls.md#loop-and-retry-limits)
+
+export interface LoopLimit {
+  agent_id: string;
+  name: string;
+  status: string;
+  max_runs_per_task: number | null;
+  max_step_attempts: number | null;
+  updated_by: string | null;
+  updated_at: string | null;
+}
+
+export interface LoopLimitPage { can_manage: boolean; total: number; items: LoopLimit[] }
+
+export const LOOP_PAGE_SIZE = 20;
+
+export function loopLimitsPath(query: string, offset: number, limit = LOOP_PAGE_SIZE): string {
+  const params = new URLSearchParams({ limit: String(limit), offset: String(Math.max(0, offset)) });
+  const q = query.trim();
+  if (q) params.set('q', q.slice(0, 120));
+  return `/api/v1/agent-controls/loop-limits?${params.toString()}`;
+}
+
+/** A whole number from 1 to ``max``; empty means no limit. */
+export function parseLimit(text: string, max: number): { ok: true; value: number | null } | { ok: false; error: string } {
+  const trimmed = text.trim();
+  if (!trimmed) return { ok: true, value: null };
+  if (!/^\d+$/.test(trimmed)) return { ok: false, error: t('agentControls.loop.invalid', { max }) };
+  const value = Number(trimmed);
+  if (value < 1 || value > max) return { ok: false, error: t('agentControls.loop.invalid', { max }) };
+  return { ok: true, value };
+}
+
+export const limitDraft = (value: number | null): string => (value === null ? '' : String(value));

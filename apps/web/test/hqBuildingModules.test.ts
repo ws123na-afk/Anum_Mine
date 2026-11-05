@@ -113,13 +113,15 @@ describe('every room of the eight building starter campus opens a real module or
   });
   test('each room resolves to a view, the live flow, a meeting, or an honest none with a reason', () => {
     for (const { r, m } of resolved) {
-      if (m.target.type === 'none') assert.ok(['no_department_module', 'no_visitor_register'].includes(m.target.why), r.room);
-      else assert.ok(['view', 'flow', 'meeting'].includes(m.target.type), r.room);
+      if (m.target.type === 'none') assert.equal(m.target.why, 'no_department_module', r.room);
+      else assert.ok(['view', 'flow', 'meeting', 'reception'].includes(m.target.type), r.room);
     }
   });
-  test('the rooms with no module are exactly reception, procurement and nothing else', () => {
+  test('the only room with no module is procurement; reception opens the visitor register', () => {
     const none = resolved.filter(({ m }) => m.target.type === 'none').map(({ r }) => `${r.building}/${r.room}`);
-    assert.deepEqual(none.sort(), ['corporate-services/procurement', 'hq/reception']);
+    assert.deepEqual(none.sort(), ['corporate-services/procurement']);
+    const reception = resolved.filter(({ m }) => m.target.type === 'reception').map(({ r }) => `${r.building}/${r.room}`);
+    assert.deepEqual(reception, ['hq/reception']);
   });
   test('Marketing, Technology, Research and Legal rooms open their own module', () => {
     const open = (dept: string) => resolved.filter(({ r }) => r.department === dept).map(({ m }) => moduleHash(m.target));
@@ -139,9 +141,23 @@ describe('every room of the eight building starter campus opens a real module or
     // Listed on purpose: these are the rooms the owner can still give a department in the builder.
     assert.deepEqual(generic.sort(), [
       'ai-labs:generic', 'ai-organization:generic', 'automation:generic', 'career-office:generic', 'data:generic', 'employment-desk:generic',
-      'events-hall:generic', 'executive-office:name', 'facilities:generic', 'future-businesses:generic', 'lounge:generic', 'personal-office:generic', 'terrace:generic',
+      'events-hall:generic', 'facilities:generic', 'future-businesses:generic', 'lounge:generic', 'personal-office:generic', 'terrace:generic',
     ]);
     for (const { m } of resolved.filter(({ m }) => m.source === 'generic' || m.source === 'name')) assert.equal(m.needsDepartment, true);
+  });
+  test('the Executive Office carries the stored executive department and opens the executive desk by it, not by name or building', () => {
+    const exec = resolved.find(({ r }) => r.room === 'executive-office')!;
+    assert.equal(exec.r.department, 'executive');
+    assert.equal(exec.m.source, 'department');
+    assert.equal(exec.m.needsDepartment, false);
+    assert.equal(moduleHash(exec.m.target), '#executive');
+  });
+  test('twelve starter rooms still have no department: each is a judgment call left to the owner', () => {
+    const unset = resolved.filter(({ r, m }) => r.department === null && m.source !== 'kind').map(({ r }) => r.room).sort();
+    assert.deepEqual(unset, [
+      'ai-labs', 'ai-organization', 'automation', 'career-office', 'data', 'employment-desk', 'events-hall', 'facilities',
+      'future-businesses', 'lounge', 'personal-office', 'terrace',
+    ]);
   });
   test('every view target exists in the shell', async () => {
     const { VIEWS } = await import('../src/lib/shell.ts');

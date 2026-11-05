@@ -36,18 +36,19 @@ function MiniPlan({ floor }: { floor: SceneFloor }): ReactElement {
 
 function Item({ entry, floor, active, slim, thumbKey, onPick }: { entry: FloorEntry; floor: SceneFloor; active: boolean; slim: boolean; thumbKey: string; onPick: () => void }) {
   const shot = useThumb(thumbKey);
-  const summary = [floorSubtitle(entry), entry.rooms > 0 ? t('hqNav.floor.rooms', { count: entry.rooms }) : null, entry.assigned > 0 ? t('hqNav.floor.assigned', { count: entry.assigned }) : null].filter(Boolean).join('. ');
+  const meta = entry.rooms > 0 ? `${t('hqNav.floor.rooms', { count: entry.rooms })}${entry.assigned > 0 ? `, ${t('hqNav.floor.assigned', { count: entry.assigned })}` : ''}` : null;
+  // The spoken name is the text itself (WCAG 2.5.3: it holds every word the item shows). The stops are zero-size inline text: they keep
+  // the pauses between the parts without the extra spaces a hidden block would add to the name.
+  // A slim rail shows only the picture, so the same text is there for screen readers only.
   return (
     <li>
-      <button type="button" className="hqRailItem" data-nav-item="" data-active={active} aria-current={active ? 'true' : undefined} aria-label={`${entry.name}. ${summary}.`} title={slim ? entry.name : undefined} onClick={onPick}>
+      <button type="button" className="hqRailItem" data-nav-item="" data-active={active} aria-current={active ? 'true' : undefined} title={slim ? entry.name : undefined} onClick={onPick}>
         <span className="hqThumb">{shot ? <img src={shot} alt="" /> : <MiniPlan floor={floor} />}</span>
-        {!slim && (
-          <span className="hqRailText">
-            <strong>{entry.name}</strong>
-            <small>{floorSubtitle(entry)}</small>
-            {entry.rooms > 0 && <small className="hqRailMeta">{t('hqNav.floor.rooms', { count: entry.rooms })}{entry.assigned > 0 ? `, ${t('hqNav.floor.assigned', { count: entry.assigned })}` : ''}</small>}
-          </span>
-        )}
+        <span className={slim ? 'hqRailText visuallyHidden' : 'hqRailText'}>
+          <strong>{entry.name}<span className="hqSpokenStop">.</span></strong>{' '}
+          <small>{floorSubtitle(entry)}{meta && <span className="hqSpokenStop">.</span>}</small>{' '}
+          {meta && <small className="hqRailMeta">{meta}<span className="hqSpokenStop">.</span></small>}
+        </span>
       </button>
     </li>
   );
@@ -68,7 +69,7 @@ export function FloorRail(props: FloorRailProps) {
         )}
       </header>
       {props.onOverview && entries.length > 0 && (
-        <button type="button" className="hqRailOverview" data-nav-item="" data-testid="hq-rail-overview" aria-pressed={props.overview === true} aria-label={t('hqFloor.railHint')} title={t('hqFloor.railHint')} onClick={props.onOverview}>
+        <button type="button" className="hqRailOverview" data-nav-item="" data-testid="hq-rail-overview" aria-pressed={props.overview === true} aria-label={`${t('hqFloor.rail')}. ${t('hqFloor.railHint')}.`} title={t('hqFloor.railHint')} onClick={props.onOverview}>
           <LayoutGrid aria-hidden="true" />{!props.slim && <span>{t('hqFloor.rail')}</span>}
         </button>
       )}

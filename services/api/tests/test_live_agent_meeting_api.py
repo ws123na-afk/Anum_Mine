@@ -62,3 +62,37 @@ def test_turns_are_not_faked_in_memory_backend(monkeypatch):
     monkeypatch.setattr(settings, "repository_backend", "memory")
     response = client.get("/api/v1/agent-meetings/nonexistent/turns", headers=_headers())
     assert response.status_code == 503, response.text
+
+
+def test_meeting_detail_says_which_participants_have_left(monkeypatch):
+    """A person who left the room carries the stored `left_at`; everyone else carries null. Nobody is added or dropped."""
+    from contextlib import contextmanager
+
+    import anum_api.live_agent_meeting_api as meeting_api
+
+    class FakeStore:
+        def get(self, context, meeting_id):
+            return {"id": meeting_id, "status": "active", "title": "Weekly"}
+
+        def participants(self, context, meeting_id):
+            return [
+                {"id": "p1", "actor_id": "agent_1", "kind": "agent"},
+                {"id": "p2", "actor_id": "user_left", "kind": "human"},
+                {"id": "p3", "actor_id": "user_here", "kind": "human"},
+            ]
+
+        def left_at_by_actor(self, context, meeting_id):
+            return {"user_left": "2026-10-28T09:30:00+00:00"}
+
+    @contextmanager
+    def fake_store(context):
+        yield FakeStore()
+
+    monkeypatch.setattr(meeting_api, "_store", fake_store)
+    response = client.get("/api/v1/agent-meetings/meeting_1", headers=_headers())
+    assert response.status_code == 200, response.text
+    by_actor = {p["actor_id"]: p for p in response.json()["participants"]}
+    assert list(by_actor) == ["agent_1", "user_left", "user_here"]
+    assert by_actor["user_left"]["left_at"] == "2026-10-28T09:30:00+00:00"
+    assert by_actor["user_here"]["left_at"] is None
+    assert by_actor["agent_1"]["left_at"] is None

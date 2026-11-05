@@ -2,6 +2,7 @@ import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 import { hqRegistry, openHq, TENANT_A } from './support/hqApi';
 import { mockFlow, flowItems } from './support/hqFlowApi';
+import { cameraOptions, widenScene } from './support/hqScene';
 
 // The label layer and scene chrome of a building (docs/ANUM_MINE_HQ_LABELS.md): room cards with a subtitle from the registry,
 // agent cards only for real seated agents with their real state, density, the stacked view's depth test, the floor selector,
@@ -81,7 +82,7 @@ test('no agents seated: no agent cards, and the strips say so without a made-up 
 test('the density rule: cards never overlap, and a crowded view uses the smaller densities', async ({ page }) => {
   await open(page);
   // A scene narrower than 641 px squeezes cards onto their anchors (a phone); the no-overlap rule is for a scene wide enough to follow it.
-  await hq(page).getByRole('button', { name: /Hide side panels/ }).click();
+  await widenScene(page); // Hide side panels moved into Office tools (and exists only while something is docked)
   await page.waitForTimeout(800);
   await page.waitForTimeout(1500);
   const result = await page.evaluate(() => {
@@ -105,9 +106,9 @@ test('the density rule: cards never overlap, and a crowded view uses the smaller
 test('single floor: only that floor is labelled; the stacked view tags every floor and keeps the open floor labelled', async ({ page }) => {
   await page.setViewportSize({ width: 1920, height: 1080 });
   await open(page);
-  await hq(page).getByRole('button', { name: /Hide side panels/ }).click();
+  await widenScene(page); // Hide side panels moved into Office tools (and exists only while something is docked)
   const selector = hq(page).getByRole('group', { name: 'Floors of this building' });
-  await expect(selector.getByRole('button')).toHaveCount(4); // three floors and the stack switch
+  await expect(selector.getByRole('button')).toHaveCount(6); // floor below, three floors, floor above and the stack switch (the selector is the one floor control)
   await expect(selector.getByRole('button', { name: /^Ground floor: Front office$/ })).toHaveAttribute('aria-pressed', 'true');
   await selector.getByRole('button', { name: /^Floor 1: Meetings$/ }).click();
   await expect(hq(page).locator('.hqRoomCard', { hasText: 'Alpha Boardroom' })).toHaveCount(1);
@@ -125,14 +126,16 @@ test('single floor: only that floor is labelled; the stacked view tags every flo
   await expect(selector.getByRole('button', { name: /^Floor 2: Studio$/ })).toHaveAttribute('aria-pressed', 'true');
 });
 
-test('the Back to campus card names the building with a status dot and real facts', async ({ page }) => {
+test('the Back to campus card names the building with a status dot; its real facts are docked under the scene', async ({ page }) => {
   await open(page);
   const card = hq(page).locator('.hqBackCard');
   await expect(card).toBeVisible({ timeout: 30_000 });
   await expect(card.getByRole('button', { name: 'Back to campus' })).toBeVisible();
   await expect(card.getByRole('heading', { level: 2, name: 'Al Noor Fleet HQ' })).toBeVisible();
   await expect(card.getByRole('img', { name: /Presence is reporting/ })).toBeVisible();
-  const facts = card.getByRole('list', { name: 'Building totals' });
+  // The stage carries only scene controls: the facts list is in the building panels under the scene, not on the card.
+  await expect(card.getByRole('list', { name: 'Building totals' })).toHaveCount(0);
+  const facts = hq(page).locator('.hqBottomPanels').getByRole('list', { name: 'Building totals' });
   await expect(facts).toContainText('3Floors');
   await expect(facts).toContainText('5Rooms');
   await card.getByRole('button', { name: 'Back to campus' }).click();
@@ -152,7 +155,7 @@ test('pan: the camera bar switches drag-to-pan on and off', async ({ page }) => 
 test('wide scene: live operations from presence and the flow strip from /office/flow', async ({ page }) => {
   await page.setViewportSize({ width: 1920, height: 1080 });
   await open(page);
-  await hq(page).getByRole('button', { name: /Hide side panels/ }).click();
+  await widenScene(page); // Hide side panels moved into Office tools (and exists only while something is docked)
   const ops = hq(page).getByRole('region', { name: 'Live numbers for this building' });
   await expect(ops).toBeVisible();
   await expect(ops).toContainText('People');
@@ -164,7 +167,7 @@ test('wide scene: live operations from presence and the flow strip from /office/
 test('flow not connected: the flow strip says so, with no number', async ({ page }) => {
   await page.setViewportSize({ width: 1920, height: 1080 });
   await open(page, { flowFail: 500 });
-  await hq(page).getByRole('button', { name: /Hide side panels/ }).click();
+  await widenScene(page); // Hide side panels moved into Office tools (and exists only while something is docked)
   const flow = hq(page).getByRole('region', { name: 'Work in flight in this building' });
   await expect(flow).toContainText('Not connected');
   await expect(flow.getByRole('listitem')).toHaveCount(0);
@@ -172,7 +175,7 @@ test('flow not connected: the flow strip says so, with no number', async ({ page
 
 test('presence denied: People is "-" and the facts never invent a count', async ({ page }) => {
   await open(page, { stream: 'denied', presence: 'missing' });
-  const facts = hq(page).locator('.hqBackCard').getByRole('list', { name: 'Building totals' });
+  const facts = hq(page).locator('.hqBottomPanels').getByRole('list', { name: 'Building totals' });
   await expect(facts).toContainText('3Floors');
   await expect(hq(page).locator('.hqBackCard').getByRole('img', { name: /Presence is (reporting|not reporting)/ })).toBeVisible();
 });
@@ -193,6 +196,7 @@ test('Arabic, right to left: Arabic subtitles, mirrored chrome, no sideways scro
 test('English: axe clean over the labels and the chrome, in the day and the night lighting', async ({ page }) => {
   await open(page);
   for (const night of [false, true]) {
+    await cameraOptions(page); // the light moved under More camera options
     await hq(page).getByRole('group', { name: /light|Lighting/i }).getByRole('button').nth(night ? 1 : 0).click();
     await page.waitForTimeout(800);
     const results = await new AxeBuilder({ page }).include('.hqBuilding').withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']).analyze();
@@ -213,7 +217,7 @@ test('no horizontal overflow and no clipped chrome at the five screen sizes', as
     await page.waitForTimeout(700);
     expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth), `${w}x${h}`).toBeLessThanOrEqual(0);
     const wrap = (await hq(page).locator('.hqBuilding .hqSceneWrap').boundingBox())!;
-    for (const sel of ['.hqBackCard', '.hqDock .hqToolbar', '.hqOverlayRight .hqTools']) {
+    for (const sel of ['.hqBackCard', '.hqDock .hqToolbar', '.hqDock .hqFloorSelector']) {
       const el = hq(page).locator(sel).first();
       if (!(await el.isVisible())) continue;
       const b = (await el.boundingBox())!;

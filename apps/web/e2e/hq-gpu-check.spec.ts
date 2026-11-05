@@ -2,7 +2,7 @@ import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 import { mockHq } from './support/hqCampusApi';
 import { useSavedLocale } from './support/workspaceApi';
-import { sceneReady } from './support/hqScene';
+import { openStatus, sceneReady } from './support/hqScene';
 import { REPORT_SCHEMA, reportLooksAnonymous } from '../src/lib/hqGpuReport';
 import { HQ_TIERS } from '../src/lib/hqQualityTiers';
 
@@ -54,6 +54,7 @@ test.describe('graphics check', () => {
   test('the chip shows the tier and why, and opens the panel', async ({ page }) => {
     test.setTimeout(150_000);
     await openOffice(page);
+    await openStatus(page); // the graphics chip is in the status chip's panel
     const chip = page.getByTestId('hq-gpu-chip');
     await expect(chip).toBeVisible();
     await expect(chip).toHaveAttribute('data-tier', 'low');
@@ -117,6 +118,34 @@ test.describe('graphics check', () => {
   });
 });
 
+test.describe('shader warm-up', () => {
+  test.use({ viewport: { width: 1440, height: 900 } });
+
+  test('after the warm-up, switching through every tier compiles no new shader program, and the full run offers to remember', async ({ page }) => {
+    test.setTimeout(240_000);
+    await openOffice(page, () => { try { localStorage.setItem('anum.hq.bench', '1'); } catch { /* storage blocked */ } });
+    type Hooks = { __anumHqPrewarm(ids?: number[]): Promise<{ programs: number } | null>; __anumHqPrograms(): number };
+    const ids = HQ_TIERS.map((t) => t.id);
+    const warm = await page.evaluate(async (all) => (window as unknown as Hooks).__anumHqPrewarm(all), ids);
+    expect(warm, 'the warm-up ran').not.toBeNull();
+    const before = await page.evaluate(() => (window as unknown as Hooks).__anumHqPrograms());
+    expect(before).toBeGreaterThan(0);
+    await openPanel(page);
+    const panel = page.getByTestId('hq-gpu-check');
+    await expect(panel.getByTestId('hq-gpu-remember')).toBeChecked();
+    await panel.getByTestId('hq-gpu-length').selectOption('2');
+    await panel.getByTestId('hq-gpu-bench').click();
+    await expect(panel.getByTestId('hq-gpu-progress')).toContainText(/Done\. Tiers measured: 4/, { timeout: 180_000 });
+    const after = await page.evaluate(() => (window as unknown as Hooks).__anumHqPrograms());
+    expect(after, 'a tier switch after the warm-up compiles nothing').toBe(before);
+    // Each card shows the warm-up that was left out of the timing.
+    await expect(panel.getByTestId('hq-gpu-results').locator('li').first()).toContainText(/Warm-up \(not timed\)\s*\d+\.\d s/);
+    // Software drawing is never remembered: the tier stays automatic.
+    expect(await page.evaluate(() => localStorage.getItem('anum.hq.quality'))).toBeNull();
+    await expect(page.getByTestId('hq-gpu-chip')).toHaveAttribute('data-tier', 'low');
+  });
+});
+
 test.describe('context loss and shader failure', () => {
   test.use({ viewport: { width: 1440, height: 900 } });
 
@@ -139,7 +168,9 @@ test.describe('context loss and shader failure', () => {
     await expect(hq(page).getByRole('button', { name: /^Office tools/ })).toBeEnabled();
     await page.evaluate(() => (window as unknown as { __ext: { restoreContext(): void } }).__ext.restoreContext());
     await expect(banner).toHaveCount(0);
+    await openStatus(page);
     await expect(page.getByTestId('hq-gpu-chip')).toBeVisible();
+    await page.keyboard.press('Escape');
     await hq(page).getByRole('button', { name: /^Zoom in|^Zoom/ }).first().click().catch(() => undefined);
     await expect.poll(() => page.evaluate(() => (document.querySelector('canvas.hqCanvas') as HTMLCanvasElement).dataset.drawMs ?? ''), { timeout: 30_000 }).not.toBe('');
     await expect(hq(page).getByRole('button', { name: /^Executive HQ\./ })).toBeAttached();
@@ -157,7 +188,9 @@ test.describe('context loss and shader failure', () => {
     await hq(page).getByTestId('hq-retry-3d').click();
     await expect(hq(page).getByText(/3D is not available in this browser/)).toHaveCount(0);
     await expect(hq(page).locator('canvas.hqCanvas')).toBeVisible({ timeout: 30_000 });
-    await expect(page.getByTestId('hq-gpu-chip')).toBeVisible({ timeout: 60_000 });
+    await expect(page.getByTestId('hq-gpu-chip')).toBeAttached({ timeout: 60_000 });
+    await openStatus(page);
+    await expect(page.getByTestId('hq-gpu-chip')).toBeVisible();
   });
 
   test('a shader that fails to link switches to the simple materials and keeps the scene on screen', async ({ page }) => {
@@ -176,6 +209,7 @@ test.describe('context loss and shader failure', () => {
     const chip = page.getByTestId('hq-gpu-chip');
     await expect(chip).toHaveAttribute('data-reduced', 'true', { timeout: 60_000 });
     await expect(chip).toContainText('reduced');
+    await openStatus(page);
     await chip.click();
     await expect(page.getByTestId('hq-gpu-quality')).toContainText('simple materials');
     await expect(hq(page).getByText(/3D is not available in this browser/)).toHaveCount(0);

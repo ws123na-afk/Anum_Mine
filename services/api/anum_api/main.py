@@ -1,8 +1,9 @@
 import asyncio
-from dataclasses import replace
+from dataclasses import dataclass, replace
 import json
+import logging
 from datetime import datetime, timezone
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from typing import Any
 
@@ -22,6 +23,7 @@ from .dependencies import (
     provisioning_repository_context,
     provisioning_tenant_context,
     require_permission,
+    run_in_unit,
     tenant_context,
     UnitsOfWork,
     units_of_work,
@@ -54,6 +56,11 @@ from .integrations import (
 )
 from .integration_tools import configured_external_handler
 from .web_search import SEARXNG_INTEGRATION_ID, configured_web_search_handler
+from .browser_research import BROWSER_INTEGRATION_ID
+from .action_browser import ACTION_INTEGRATION_ID
+from .action_browser.card_code import card_code_problem, needs_card_code, with_card_code
+from .action_browser.tool import default_planner_factory, register_action_tools
+from .browser_research.tool import register_browser_tools
 from .model_gateway import build_default_model_gateway
 from .memory import (
     CONVERSATION_SOURCE_TYPE,
@@ -71,7 +78,7 @@ from .realtime import live_event_source
 from .runtime import AgentRuntime
 from .durable_runs import build_run_dispatcher, run_input_for, workflow_id_for
 from .valkey import CoordinationUnavailable, LockNotAcquired, build_run_lock_manager
-from .agent_tools import default_tool_registry
+from .agent_tools import ToolCall, default_tool_registry
 from .tool_governance import decision_requirements, match_governance, required_approvals
 from .suppression import suppressed_for_call
 from .approval_routing import (
@@ -119,7 +126,7 @@ from .schemas import (
     utc_now,
 )
 from .settings import settings
-from .store import store
+from .store import store as store  # re-exported: tests import store from anum_api.main
 from .tasks import (
     ACTIVE_STATUSES,
     EVENT_PAGE_DEFAULT,
@@ -143,6 +150,7 @@ from .meetings import router as meetings_router
 from .voice import router as voice_router
 from .voice_call import call_router as voice_call_router
 from . import chat_tools
+from .capabilities import configure as configure_capabilities
 from . import voice_actions
 from .agent_skills import default_skill_registry
 from .conversations import router as conversations_router
@@ -153,6 +161,7 @@ from .sales_api import router as sales_router
 from .sales_followup_scheduler import run_due_sales_followups
 from . import email_inbox
 from .email_api import router as email_router
+from .email_unified import router as email_unified_router
 from .commerce.api import router as commerce_router
 from .commerce.scheduler import build_commerce_scheduler
 from .commerce.tools import register_commerce_tools
@@ -163,6 +172,10 @@ from .finance.intel_control_api import router as finance_intel_control_router
 from .finance.wider_api import router as finance_wider_router
 from .finance.intel_api import router as finance_intel_router
 from .finance.broker_api import router as finance_broker_router
+from .finance.sms_api import router as finance_sms_router
+from .finance.links_api import router as finance_links_router
+from .finance.ibkr_api import router as finance_ibkr_router
+from .finance.research_api import router as finance_research_router
 from .finance.sync import build_finance_scheduler
 from .finance.tools import register_finance_tools
 from .mailbox.ai_api import router as mail_ai_router
@@ -187,6 +200,7 @@ from .business import register_business_tools, router as business_router
 from .brevo import register_brevo_tools, router as brevo_router
 from .billing import build_billing_scheduler, console as billing_console_router, public as billing_public_router
 from .billing import router as billing_router, signup_router as billing_signup_router, webhooks as billing_webhook_router
+from .billing import public_legal_router as billing_public_legal_router, selling_router as billing_selling_router
 from .billing.api import _BlockedChange, blocked_change_handler
 from .billing.enforce import require_capacity
 from .user_preferences import router as user_preferences_router
@@ -203,7 +217,8 @@ from .learning_store import new_signal, record_server_signal
 from . import delivery
 from .tyre.api import router as tyre_router
 from .tyre.tools import register_tyre_tools
-from .commands import router as commands_router
+from .green_concrete_ops import register_green_concrete_tools
+from .commands import prepare_step_run as prepare_command_step_run, router as commands_router
 from .favorites import router as favorites_router
 from .knowledge_base import router as knowledge_router
 from .reports import router as reports_router
@@ -214,6 +229,11 @@ from .agent_profiles import router as agents_router
 from .phase5 import router as phase5_router
 from .governance import router as governance_router
 from .suppression import router as suppression_router
+from .contact_consent import router as contact_consent_router
+from .approval_reminders import router as approval_reminders_router
+from .agent_loop_limits import router as agent_loop_limits_router
+from .action_browser.api import router as action_browser_router
+from .vault.api import router as vault_router
 from .automation import build_automation_scheduler, register_scheduler_pass, router as automation_router
 from .assistants import router as assistants_router
 from .notifications import router as notifications_router
@@ -225,11 +245,12 @@ from .team_work import build_team_reminder_scheduler, router as team_router
 from .automation_dispatch import automation_dispatcher
 from .files import router as files_router
 from .retrieval_api import forget_memory, index_memory_note, retriever_for, router as retrieval_router
-from .inline_runs import RunClaimLost, claim_expired, run_inline
+from .inline_runs import RunClaimLost, claim_expired, execute_committed, run_inline
 from .skills_api import configure_tool_catalog, router as skills_router
 from .model_budget import ModelBudgetExceededError, check_model_budget, router as model_budget_router
 from .agent_controls import AgentsStoppedError, agents_stopped, configure_cancel_notifier, router as agent_controls_router
 from .onboarding import budgeted_model_gateway, router as onboarding_router
+from .model_status import router as model_status_router
 from .workspace_members import router as workspace_members_router
 from .membership_directory import router as membership_directory_router
 from .audit_log import router as audit_log_router
@@ -238,15 +259,21 @@ from .office_layout_history_api import router as office_layout_history_router
 from .workspace_admin import router as workspace_admin_router
 from .office_space_api import router as office_space_router
 from .office_campus_api import router as office_campus_router
+from .office_campus_boards import router as office_campus_boards_router
 from .office_presence_api import router as office_presence_router
 from .office_flow_api import router as office_flow_router
 from .office_provisioning_api import router as office_provisioning_router
 from .office_staff_desks_api import router as office_staff_desks_router
+from .office_staffing_api import router as office_staffing_router
 from .office_assign_api import router as office_assign_router
 from .office_building_api import router as office_building_router
 from .office_starter_campus_api import router as office_starter_campus_router
 from .office_arabic_names_api import router as office_arabic_names_router
+from .office_logo_api import router as office_logo_router
+from .office_visitors_api import router as office_visitors_router
+from .record_retention_api import router as record_retention_router
 from .office_green_concrete_api import router as office_green_concrete_router
+from .green_concrete_kit_api import router as green_concrete_kit_router
 from .executive_api import router as executive_router
 from .live_agent_meeting_api import router as live_agent_meeting_router
 from .executive_pa import router as executive_pa_router
@@ -257,13 +284,20 @@ from .integration_setup import router as integration_setup_router
 from .identity import validate_auth_configuration
 from .telemetry import HttpMetricsMiddleware, setup_telemetry, shutdown_telemetry, sqlalchemy_engines
 from .error_reporting import setup_error_reporting, shutdown_error_reporting
+from .serving import prepare_for_serving
+from .attendance.api import router as attendance_router  # docs/attendance.md
+from .vehicles.api import router as vehicles_router  # docs/vehicles.md
+from .vehicles.devices import router as vehicles_device_router
+from .purchases.api import router as purchases_router  # docs/purchases.md
+from .purchases.devices import router as purchases_device_router
+from .business.api_books import router as business_books_router  # docs/business-books.md
 
 # Fail fast: header mode and anum_local_* sessions must never serve a non-local environment.
 validate_auth_configuration(settings)
 
 
 @asynccontextmanager
-async def lifespan(_: FastAPI):
+async def lifespan(application: FastAPI):
     await event_runtime.start()
     # Phone push from committed events when ANUM_FCM_SERVICE_ACCOUNT_JSON is set
     # (docs/notifications.md); the developer watcher refreshes in-progress developer
@@ -316,9 +350,18 @@ async def lifespan(_: FastAPI):
     lifecycle = build_lifecycle_runner(settings)
     if lifecycle is not None:
         lifecycle.start()
+    # Cards saved before ANUM stopped storing the security code lose it, once per start, in a
+    # worker thread (PostgreSQL only; docs/action-browser.md#the-card-security-code).
+    card_code_cleanup = _start_card_code_cleanup()
+    # Last: build every route's state now instead of on the first request, then keep the
+    # startup heap out of later garbage collections, whose full passes paused the event
+    # loop for half a second or more (anum_api/serving.py, docs/realtime.md#garbage-collection).
+    await prepare_for_serving(application.router)
     try:
         yield
     finally:
+        if card_code_cleanup is not None and not card_code_cleanup.done():
+            await asyncio.wait({card_code_cleanup}, timeout=30)
         if lifecycle is not None:
             await lifecycle.stop()
         if reminders is not None:
@@ -349,6 +392,21 @@ async def lifespan(_: FastAPI):
         shutdown_error_reporting()
 
 
+def _start_card_code_cleanup() -> asyncio.Task[object] | None:
+    if settings.repository_backend != "postgresql":
+        return None
+    from .action_browser.cleanup import strip_saved_card_codes
+
+    async def run() -> object:
+        try:
+            return await asyncio.to_thread(strip_saved_card_codes)
+        except Exception as exc:  # noqa: BLE001  # the next start tries again; nothing else depends on it
+            logging.getLogger("anum_api.action_browser").warning("card_code_cleanup_skipped error_class=%s", type(exc).__name__)
+            return None
+
+    return asyncio.ensure_future(run())
+
+
 enforce_startup_policy(settings)
 # Upload malware scanning with clamd when ANUM_FILE_SCANNER=clamav (docs/files.md#malware-scanning).
 install_configured_scanner(settings)
@@ -366,6 +424,8 @@ install_hardening(
     extra_upload_rules=(
         BodyLimitRule("POST", f"{meetings_router.prefix}/recordings", settings.meeting_recording_max_bytes + 1024),
         BodyLimitRule("POST", f"{meetings_router.prefix}/transcripts", settings.meeting_transcript_max_bytes + 1024),
+        # Document vault uploads, versions and the iPhone Shortcut (docs/documents.md): the Files limit.
+        BodyLimitRule("POST", vault_router.prefix, settings.max_upload_body_bytes),
     ),
 )
 app.add_middleware(
@@ -426,11 +486,14 @@ app.include_router(privacy_router)
 app.include_router(phase5_router)
 app.include_router(governance_router)
 app.include_router(suppression_router)
+app.include_router(contact_consent_router)
+app.include_router(approval_reminders_router)
 app.include_router(automation_router)
 app.include_router(files_router)
 app.include_router(retrieval_router)
 app.include_router(skills_router)
 app.include_router(onboarding_router)
+app.include_router(model_status_router)
 app.include_router(workspace_members_router)
 app.include_router(membership_directory_router)
 app.include_router(audit_log_router)
@@ -439,6 +502,7 @@ app.include_router(office_layout_history_router)
 app.include_router(workspace_admin_router)
 app.include_router(office_space_router)
 app.include_router(office_campus_router)
+app.include_router(office_campus_boards_router)
 app.include_router(office_presence_router)
 app.include_router(office_flow_router)
 app.include_router(office_provisioning_router)
@@ -446,8 +510,13 @@ app.include_router(office_assign_router)
 app.include_router(office_building_router)
 app.include_router(office_starter_campus_router)
 app.include_router(office_arabic_names_router)
+app.include_router(office_logo_router)
+app.include_router(office_visitors_router)
+app.include_router(record_retention_router)
 app.include_router(office_green_concrete_router)
 app.include_router(office_staff_desks_router)
+app.include_router(office_staffing_router)
+app.include_router(green_concrete_kit_router)
 app.include_router(executive_router)
 app.include_router(live_agent_meeting_router)
 app.include_router(executive_pa_router)
@@ -455,9 +524,13 @@ app.include_router(live_agent_meeting_room_router)
 app.include_router(tenant_lifecycle_router)
 app.include_router(model_budget_router)
 app.include_router(agent_controls_router)
+app.include_router(agent_loop_limits_router)
+app.include_router(action_browser_router)
+app.include_router(vault_router)
 app.include_router(developer_router)
 app.include_router(whatsapp_router)
 app.include_router(sales_router)
+app.include_router(email_unified_router)
 app.include_router(email_router)
 app.include_router(mail_ai_router)
 app.include_router(mail_router)
@@ -482,6 +555,9 @@ app.include_router(billing_router)
 app.include_router(billing_console_router)
 app.include_router(billing_public_router)
 app.include_router(billing_signup_router)
+# Ready to sell (docs/selling-readiness.md): company details, the public legal facts and the checklist.
+app.include_router(billing_selling_router)
+app.include_router(billing_public_legal_router)
 app.add_exception_handler(_BlockedChange, blocked_change_handler)
 app.include_router(user_preferences_router)
 app.include_router(push_router)
@@ -492,6 +568,10 @@ app.include_router(finance_trading_router)
 app.include_router(finance_wider_router)
 app.include_router(finance_intel_router)
 app.include_router(finance_broker_router)
+app.include_router(finance_sms_router)
+app.include_router(finance_links_router)
+app.include_router(finance_ibkr_router)
+app.include_router(finance_research_router)
 app.include_router(finance_intel_control_router)
 app.include_router(tyre_router)
 event_runtime.add_listener(push_dispatcher.submit)
@@ -522,14 +602,26 @@ app.include_router(public_logos_router)
 app.include_router(agents_router)
 app.include_router(home_router)
 app.include_router(setup_plans_router)
+app.include_router(attendance_router)
+app.include_router(vehicles_device_router)  # before /api/v1/vehicles/{vehicle_id}/...
+app.include_router(vehicles_router)
+app.include_router(purchases_device_router)  # before /api/v1/purchases/{purchase_id}/...
+app.include_router(purchases_router)
+app.include_router(business_books_router)
 repository = memory_repository
 model_gateway = build_default_model_gateway()
 integration_registry = default_integration_registry(settings)
-tool_registry = register_calendar_tools(register_brevo_tools(register_call_tools(register_business_tools(register_mail_tools(register_finance_tools(register_marketing_tools(register_tyre_tools(register_commerce_tools(email_inbox.register_email_tools(register_whatsapp_tools(register_developer_tools(default_tool_registry(
+tool_registry = register_green_concrete_tools(register_calendar_tools(register_brevo_tools(register_call_tools(register_business_tools(register_mail_tools(register_finance_tools(register_marketing_tools(register_tyre_tools(register_commerce_tools(email_inbox.register_email_tools(register_whatsapp_tools(register_developer_tools(default_tool_registry(
     configured_external_handler(settings, integration_registry),
     configured_web_search_handler(settings, integration_registry.workspace_enabled(SEARXNG_INTEGRATION_ID)),
 )))))))
-))))))
+)))))))
+# Browser research (docs/browser-research.md): always registered, off per workspace until an owner turns it on.
+register_browser_tools(tool_registry, settings, integration_registry.workspace_enabled(BROWSER_INTEGRATION_ID))
+# The action browser (docs/action-browser.md): registered everywhere, "Not available" until set up.
+register_action_tools(
+    tool_registry, settings, integration_registry.workspace_enabled(ACTION_INTEGRATION_ID), default_planner_factory(model_gateway),
+)
 # Reports and other features send through whichever delivery tools are registered.
 delivery.configure(tool_registry)
 # Skill details describe required tools as this runtime would treat them (docs/skills.md).
@@ -570,6 +662,8 @@ chat_tools.configure(
         ),
     )
 )
+# What ANUM can do in a workspace reads the owners' integration switches (docs/conversations.md#what-anum-can-do).
+configure_capabilities(integration_registry)
 # Home's insights read the last recorded integration checks (docs/home.md).
 app.state.integration_registry = integration_registry
 
@@ -934,20 +1028,23 @@ async def summarize_tasks(
 async def bulk_tasks(
     payload: TaskBulkRequest,
     context: TenantContext = Depends(tenant_context),
-    repository: AnumRepository = Depends(repository_context),
+    units: UnitsOfWork = Depends(units_of_work),
 ) -> TaskBulkResponse:
-    """Archive, restore or cancel up to 100 tasks; each task answers as its single route would."""
+    """Archive, restore or cancel up to 100 tasks; each task answers as its single route would,
+    in its own short unit of work (a cancel tells the durable workflow after its commit)."""
     require_permission(context, Permission.TASK_READ)
-    handlers = {
-        TaskBulkAction.ARCHIVE: archive_task,
-        TaskBulkAction.UNARCHIVE: unarchive_task,
-        TaskBulkAction.CANCEL: cancel_task,
-    }
-    handler = handlers[payload.action]
     results: list[TaskBulkItemResult] = []
     for task_id in payload.task_ids:
         try:
-            task = await handler(task_id, context=context, repository=repository)
+            if payload.action == TaskBulkAction.CANCEL:
+                task = await cancel_task(task_id, context=context, units=units)
+            else:
+                handler = archive_task if payload.action == TaskBulkAction.ARCHIVE else unarchive_task
+                task = await run_in_unit(
+                    units, context, lambda repository, handler=handler, task_id=task_id: handler(
+                        task_id, context=context, repository=repository
+                    )
+                )
         except HTTPException as exc:
             results.append(
                 TaskBulkItemResult(task_id=task_id, ok=False, status_code=exc.status_code, message=str(exc.detail))
@@ -1062,7 +1159,7 @@ async def update_task(
 
 
 @app.post("/api/v1/tasks/{task_id}/archive", response_model=Task)
-async def archive_task(
+def archive_task(
     task_id: str,
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
@@ -1086,7 +1183,7 @@ async def archive_task(
 
 
 @app.post("/api/v1/tasks/{task_id}/unarchive", response_model=Task)
-async def unarchive_task(
+def unarchive_task(
     task_id: str,
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
@@ -1249,6 +1346,8 @@ async def start_task_retry(task_id: str, context: TenantContext, units: UnitsOfW
                 check_model_budget(context)
                 task = _get_task_for_context(task_id, context, repository, for_update=True)
                 _check_retryable(task, context, repository)
+                # The agent's loop limit (docs/agent-controls.md#loop-and-retry-limits).
+                check_retry_allowed(context, repository, task)
                 agent = agent_run_profile(context, _usable_agent(context, task.agent_id)) if task.agent_id else None
                 previous = repository.find_run_for_task(task.id, context)
                 _record_task_event(
@@ -1272,6 +1371,7 @@ async def start_task_retry(task_id: str, context: TenantContext, units: UnitsOfW
             if task is None:
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
             _check_retryable(task, context, repository)
+            check_retry_allowed(context, repository, task)
             # A retry as an agent uses the agent as it is now (docs/agents.md).
             return agent_run_profile(context, _usable_agent(context, task.agent_id)) if task.agent_id else None
 
@@ -1285,6 +1385,12 @@ async def start_task_retry(task_id: str, context: TenantContext, units: UnitsOfW
             )
 
         return await _run_inline_task(context, task_id, check, on_start=retried, unit_of_work=units)
+
+
+def check_retry_allowed(context: TenantContext, repository: AnumRepository, task: Task) -> None:
+    from .agent_loop_limits import check_retry_allowed as check
+
+    check(context, repository, task)
 
 
 def _check_retryable(task: Task, context: TenantContext, repository: AnumRepository) -> None:
@@ -1345,6 +1451,9 @@ def _check_runnable(task: Task, context: TenantContext, repository: AnumReposito
         task, repository, context
     ):
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Task cannot be run from current state")
+    # A command step that builds on earlier steps waits for them and receives their results
+    # (docs/command.md#steps-that-build-on-each-other).
+    prepare_command_step_run(task, repository, context)
 
 
 def _usable_agent(context: TenantContext, agent_id: str):  # type: ignore[no-untyped-def]
@@ -1417,7 +1526,9 @@ async def run_task_for_automation(context: TenantContext, task_id: str) -> None:
             raise StepFailed(f"The agent task {task_id} no longer exists in this workspace.")
         if task.status not in {TaskStatus.CREATED, TaskStatus.QUEUED} or unit.find_run_for_task(task.id, context):
             raise _AlreadyStarted  # a repeated hand-off
-        return None
+        # A step that runs as an agent: the agent as it is now, with the run's owner's identity (a paused agent
+        # answers 409 and the step fails with that sentence).
+        return agent_run_profile(context, _usable_agent(context, task.agent_id)) if task.agent_id else None
 
     try:
         async with _task_lock(context, task_id):
@@ -1425,7 +1536,7 @@ async def run_task_for_automation(context: TenantContext, task_id: str) -> None:
                 with tenant_unit_of_work(context) as unit:
                     task = unit.get_task(task_id, context)
                     try:
-                        check(unit, task)
+                        agent = check(unit, task)
                     except _AlreadyStarted:
                         return
                     runtime = AgentRuntime(
@@ -1434,7 +1545,7 @@ async def run_task_for_automation(context: TenantContext, task_id: str) -> None:
                         tools=tool_registry,
                         retriever=retriever_for(context, model_gateway),
                     )
-                    await _queue_durable_run(task, context, unit, runtime)  # type: ignore[arg-type]
+                    await _queue_durable_run(task, context, unit, runtime, agent=agent)  # type: ignore[arg-type]
                     return
             try:
                 await _run_inline_task(context, task_id, check, unit_of_work=tenant_unit_of_work)
@@ -1451,11 +1562,13 @@ automation_dispatcher.configure(task_runner=run_task_for_automation)
 async def cancel_task(
     task_id: str,
     context: TenantContext = Depends(tenant_context),
-    repository: AnumRepository = Depends(repository_context),
+    units: UnitsOfWork = Depends(units_of_work),
 ) -> Task:
     # The row lock and writes run in a worker thread: on the event loop they stalled every other
-    # request (even /health) for as long as the database took (docs/realtime.md#event-loop).
-    task, run = await asyncio.to_thread(cancel_task_record, task_id, context, repository)
+    # request (even /health) for as long as the database took (docs/realtime.md#event-loop). They
+    # commit in their own short unit before the durable workflow is told, so no transaction or
+    # row lock is held while the dispatcher answers.
+    task, run = await run_in_unit(units, context, lambda repository: cancel_task_record(task_id, context, repository))
     if run_dispatcher is not None and run is not None:
         await run_dispatcher.cancelled(context, task.id)
     return task
@@ -1557,33 +1670,56 @@ async def get_latest_task_run(
 async def resume_agent_run(
     run_id: str,
     context: TenantContext = Depends(tenant_context),
-    repository: AnumRepository = Depends(repository_context),
+    units: UnitsOfWork = Depends(units_of_work),
 ) -> RunTaskResponse:
+    """Resume a run stranded at an executable checkpoint. The checks and the ``executing``
+    checkpoint commit in one short unit of work; the tool runs with none open; the outcome is
+    written in a new unit that re-checks the claim (docs/realtime.md#event-loop)."""
     require_permission(context, Permission.TASK_RUN)
-    run = repository.get_run(run_id, context)
+    run = await run_in_unit(units, context, lambda repository: repository.get_run(run_id, context))
     if not run:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent run not found")
-    async with _task_lock(context, run.task_id):
-        task = _get_task_for_context(run.task_id, context, repository, for_update=True)
-        run = repository.get_run(run_id, context) or run
-        runtime = AgentRuntime(budgeted_model_gateway(context, model_gateway), repository, tools=tool_registry)
+    task_id = run.task_id
+    gateways: list[Any] = []
+
+    def runtime_for(repository: AnumRepository) -> AgentRuntime:
+        return AgentRuntime(gateways[0], repository, tools=tool_registry)
+
+    def begin(repository: AnumRepository) -> tuple[Task, AgentRun, ToolCall | None]:
+        task = _get_task_for_context(task_id, context, repository, for_update=True)
+        current = repository.get_run(run_id, context) or run
+        gateways.append(budgeted_model_gateway(context, model_gateway))
+        runtime = runtime_for(repository)
         try:
+            runtime.check_resumable(task, current)
             if run_dispatcher is not None:
                 # The worker resumes from the same checkpoint; this only (re)starts its workflow.
-                runtime.check_resumable(task, run)
-                await _dispatch(context, task.id, run.id)
-                return RunTaskResponse(task=task, run=run, approval=None)
-            resumed = await runtime.resume_run(task, run, context)
+                return task, current, None
+            call = runtime.begin_execution(task, current, context, record_resume=True)
         except ValueError as exc:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
-    repository.save_task(task)
-    repository.save_run(resumed)
-    approval = (
-        repository.get_approval(resumed.checkpoint.approval_id, context)
-        if resumed.checkpoint.approval_id
-        else None
-    )
-    return RunTaskResponse(task=task, run=resumed, approval=_approval_with_progress(approval, context, repository))
+        repository.save_task(task)
+        repository.save_run(current)
+        return task, current, call
+
+    async with _task_lock(context, task_id):
+        task, run, call = await run_in_unit(units, context, begin)
+        if run_dispatcher is not None:
+            await _dispatch(context, task.id, run.id)
+            return RunTaskResponse(task=task, run=run, approval=None)
+        if call is not None:
+            try:
+                task, run = await execute_committed(
+                    context, task, run, call, unit_of_work=units, runtime_factory=runtime_for
+                )
+            except RunClaimLost as exc:
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=exc.message) from exc
+
+    def shown(repository: AnumRepository) -> Approval | None:
+        approval = repository.get_approval(run.checkpoint.approval_id, context) if run.checkpoint.approval_id else None
+        return _approval_with_progress(approval, context, repository)
+
+    return RunTaskResponse(task=task, run=run, approval=await run_in_unit(units, context, shown))
 
 
 @app.get("/api/v1/events", response_model=list[DomainEvent])
@@ -1889,15 +2025,17 @@ async def approve(
     payload: ApprovalDecisionRequest,
     request: Request,
     context: TenantContext = Depends(tenant_context),
-    repository: AnumRepository = Depends(repository_context),
+    units: UnitsOfWork = Depends(units_of_work),
 ) -> ApprovalDecisionResponse | JSONResponse:
     # Owners hold approval:decide; anyone else may decide only an approval an organization
-    # approval rule routes to them (checked in _decide_approval_locked).
+    # approval rule routes to them (checked in _decide_in_unit).
     require_permission(context, Permission.APPROVAL_READ)
     # While the emergency stop is on a held action stays held: approving it is refused (423)
     # and it stays pending; rejecting it still works (docs/agent-controls.md).
     if await asyncio.to_thread(agents_stopped, context):
         raise AgentsStoppedError()
+    # The card security code is taken off the request model at once: only the one execution holds it.
+    card_code, payload.security_code = payload.security_code, None
     return await _decide_approval(
         approval_id,
         ApprovalStatus.APPROVED,
@@ -1905,7 +2043,8 @@ async def approve(
         payload.reason,
         request,
         context,
-        repository,
+        units,
+        card_code=card_code,
     )
 
 
@@ -1919,7 +2058,7 @@ async def reject(
     request: Request,
     payload: ApprovalRejectRequest | None = None,
     context: TenantContext = Depends(tenant_context),
-    repository: AnumRepository = Depends(repository_context),
+    units: UnitsOfWork = Depends(units_of_work),
 ) -> ApprovalDecisionResponse | JSONResponse:
     require_permission(context, Permission.APPROVAL_READ)
     return await _decide_approval(
@@ -1929,7 +2068,7 @@ async def reject(
         payload.reason if payload else None,
         request,
         context,
-        repository,
+        units,
     )
 
 
@@ -2011,15 +2150,100 @@ async def _decide_approval(
     reason: str | None,
     request: Request,
     context: TenantContext,
-    repository: AnumRepository,
+    units: UnitsOfWork,
+    *,
+    card_code: str | None = None,
 ) -> ApprovalDecisionResponse | JSONResponse:
-    approval = repository.get_approval(approval_id, context)
+    """Decide an approval with no transaction open while its tool runs (docs/realtime.md#event-loop).
+
+    1. One short unit locks the task and the approval (``FOR UPDATE``), checks everything
+       (pending, expiry, payload hash, routing and governance, the two-person rule, the
+       integration target), records the decision with its event and audit record and, for an
+       inline run whose last approval this is, commits the run as ``executing``. A second
+       approve of the same approval then finds it decided (409): it is used once.
+    2. The tool runs with no transaction and no row lock held.
+    3. A new short unit re-checks the claim (the run is still that ``executing`` checkpoint)
+       and records the outcome (``inline_runs.execute_committed``). A cancel meanwhile is kept
+       and answered 409; a tool that raises fails the run.
+    """
+    approval = await run_in_unit(units, context, lambda repository: repository.get_approval(approval_id, context))
     if not approval:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Approval not found")
+    if decision == ApprovalStatus.APPROVED and approval.status == ApprovalStatus.PENDING:
+        # An action browser step that types a card's security code needs the code the owner typed on the
+        # approval card (docs/action-browser.md#the-card-security-code); nothing else takes one.
+        problem = card_code_problem(needed=needs_card_code(approval.action, approval.arguments), code=card_code,
+                                    inline=run_dispatcher is None)
+        if problem is not None:
+            raise HTTPException(status_code=problem[0], detail=problem[1])
     async with _task_lock(context, approval.task_id):
-        return await _decide_approval_locked(
-            approval_id, decision, shown_hash, reason, request, context, repository
+        decided = await run_in_unit(
+            units, context, _decide_in_unit, approval_id, decision, shown_hash, reason, request, context
         )
+        if decided.signal and run_dispatcher is not None:
+            # The workflow applies the decision; a lost signal is caught by its next poll.
+            await run_dispatcher.approval_decided(context, decided.task_id, approval_id)
+        if decided.execute is None or decided.runtime_factory is None:
+            return decided.response
+        task, run, call = decided.execute
+        definition = tool_registry.definition(call.name)
+        work: Awaitable[tuple[Task, AgentRun]] = execute_committed(
+            context, task, run, call,
+            unit_of_work=units,
+            runtime_factory=decided.runtime_factory,
+            approval_id=approval_id,
+        )
+        if card_code:
+            # In memory for this one execution only; dropped when it ends, whatever the outcome.
+            work = with_card_code(card_code, work)
+            card_code = None
+        if definition is not None and definition.long_running:
+            # The action browser works for minutes between pauses (docs/action-browser.md): its
+            # segment runs on the loop, awaiting only sockets, with the same claim checks, and the
+            # approve request answers now with the run ``executing``.
+            _run_in_background(work, name=f"long-running {call.name}")
+            return decided.response
+        try:
+            task, run = await work
+        except RunClaimLost as exc:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=exc.message) from exc
+        response = decided.response
+        if not isinstance(response, ApprovalDecisionResponse):  # pragma: no cover - set with execute
+            return response
+        return response.model_copy(update={"task": task, "run": run})
+
+
+_BACKGROUND_RUNS: set[asyncio.Task[object]] = set()
+
+
+def _run_in_background(work: Awaitable[object], *, name: str) -> None:
+    """Keep a reference until it ends; a failure is logged (the run itself records it)."""
+
+    async def guarded() -> object:
+        try:
+            return await work
+        except RunClaimLost:
+            return None
+        except Exception as exc:  # pragma: no cover - the run is failed by execute_committed
+            logging.getLogger("anum_api.runs").warning("background_run_failed name=%s error_class=%s", name, type(exc).__name__)
+            return None
+
+    job: asyncio.Task[object] = asyncio.ensure_future(guarded())
+    _BACKGROUND_RUNS.add(job)
+    job.add_done_callback(_BACKGROUND_RUNS.discard)
+
+
+@dataclass
+class _Decided:
+    """What the decision's unit of work committed, and what is left to do with none open."""
+
+    response: ApprovalDecisionResponse | JSONResponse
+    task_id: str = ""
+    # Signal the durable workflow (ANUM_RUNTIME_BACKEND=temporal) after the commit.
+    signal: bool = False
+    # An inline run committed as ``executing``: run its tool, then settle it.
+    execute: tuple[Task, AgentRun, ToolCall] | None = None
+    runtime_factory: Callable[[AnumRepository], AgentRuntime] | None = None
 
 
 # Risk levels the optional two-person rule applies to (docs/approvals-and-risk.md, A6).
@@ -2391,15 +2615,17 @@ def _approval_with_progress(
     return shown
 
 
-async def _decide_approval_locked(
+def _decide_in_unit(
+    repository: AnumRepository,
     approval_id: str,
     decision: ApprovalStatus,
     shown_hash: str | None,
     reason: str | None,
     request: Request,
     context: TenantContext,
-    repository: AnumRepository,
-) -> ApprovalDecisionResponse | JSONResponse:
+) -> _Decided:
+    """Step 1 of ``_decide_approval``, in one short unit of work in a worker thread. A
+    returned refusal commits (its audit record stays); a raised one rolls back."""
     approval = repository.get_approval(approval_id, context)
     if not approval:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Approval not found")
@@ -2423,9 +2649,10 @@ async def _decide_approval_locked(
     if not has_permission(context, Permission.APPROVAL_DECIDE):
         delegated_refusal = _delegated_refusal(request, context, repository, task, approval, route, recorded, decision)
         if delegated_refusal is not None:
-            return delegated_refusal
+            return _Decided(delegated_refusal)
 
-    runtime = AgentRuntime(budgeted_model_gateway(context, model_gateway), repository, tools=tool_registry)
+    gateway = budgeted_model_gateway(context, model_gateway)
+    runtime = AgentRuntime(gateway, repository, tools=tool_registry)
     # The approval's own run: a retried task has several runs (docs/tasks.md#retry).
     run = (
         repository.get_run(approval.run_id, context) if approval.run_id else None
@@ -2433,19 +2660,20 @@ async def _decide_approval_locked(
     now = utc_now()
     if runtime.expire_if_due(task, approval, context, now):
         # Commit the expiry (and the failed run) but refuse the decision. Nothing is
-        # raised, so the request's unit of work commits before the 410 is sent.
-        if run_dispatcher is not None:
-            if run:
-                await run_dispatcher.approval_decided(context, task.id, approval.id)
-        elif run is not None and run.checkpoint.approval_id == approval.id:
+        # raised, so this unit of work commits before the 410 is sent.
+        if run_dispatcher is None and run is not None and run.checkpoint.approval_id == approval.id:
             runtime.begin_execution(task, run, context, approval=approval)
             repository.save_task(task)
             repository.save_run(run)
-        return error_response(
-            request,
-            status_code=status.HTTP_410_GONE,
-            code=ErrorCode.GONE,
-            message="Approval expired; the action was not executed",
+        return _Decided(
+            error_response(
+                request,
+                status_code=status.HTTP_410_GONE,
+                code=ErrorCode.GONE,
+                message="Approval expired; the action was not executed",
+            ),
+            task.id,
+            signal=run_dispatcher is not None and run is not None,
         )
     if shown_hash is not None or decision == ApprovalStatus.APPROVED:
         if approval.payload_hash is None or shown_hash != approval.payload_hash:
@@ -2464,7 +2692,7 @@ async def _decide_approval_locked(
                 request, context, repository, task, approval, now
             )
         if refusal is not None:
-            return refusal
+            return _Decided(refusal)
     if (
         decision == ApprovalStatus.APPROVED
         and approval.risk_level in TWO_PERSON_RISK_LEVELS
@@ -2487,27 +2715,31 @@ async def _decide_approval_locked(
                 metadata={"task_id": task.id, "tool": approval.action, "risk_level": approval.risk_level.value},
             )
         )
-        return error_response(
-            request,
-            status_code=status.HTTP_403_FORBIDDEN,
-            code=ErrorCode.FORBIDDEN,
-            message=(
-                "This workspace requires two people for high-risk actions: you created or "
-                "started this task, so another owner must approve it. You can still reject it."
-            ),
+        return _Decided(
+            error_response(
+                request,
+                status_code=status.HTTP_403_FORBIDDEN,
+                code=ErrorCode.FORBIDDEN,
+                message=(
+                    "This workspace requires two people for high-risk actions: you created or "
+                    "started this task, so another owner must approve it. You can still reject it."
+                ),
+            )
         )
 
     if decision == ApprovalStatus.APPROVED and runtime.refuse_changed_target(task, run, approval, context, now):
         # Every approve, partial or final, re-checks the integration target the way
         # execution does. Nothing is raised, so the expired approval, the failed run and
-        # the approval.target_mismatch audit record commit with this request.
+        # the approval.target_mismatch audit record commit with this unit of work.
         repository.save_task(task)
         if run is not None:
             repository.save_run(run)
-            if run_dispatcher is not None:
-                await run_dispatcher.approval_decided(context, task.id, approval.id)
-        return ApprovalDecisionResponse(
-            approval=_approval_with_progress(approval, context, repository) or approval, task=task, run=run
+        return _Decided(
+            ApprovalDecisionResponse(
+                approval=_approval_with_progress(approval, context, repository) or approval, task=task, run=run
+            ),
+            task.id,
+            signal=run is not None and run_dispatcher is not None,
         )
 
     approvers = recorded
@@ -2536,8 +2768,10 @@ async def _decide_approval_locked(
         approvers = [*approvers, approver]
         if len(approvers) < requirements.required:
             _learn_from_decision(context, approval, ApprovalStatus.APPROVED, reason)
-            return _record_partial_approval(
-                context, repository, task, run, approval, approvers, requirements, reason, now
+            return _Decided(
+                _record_partial_approval(
+                    context, repository, task, run, approval, approvers, requirements, reason, now
+                )
             )
 
     approval.status = decision
@@ -2591,15 +2825,19 @@ async def _decide_approval_locked(
     _learn_from_decision(context, approval, decision, reason)
     (shown,) = _with_progress([approval], context, repository)
     if run_dispatcher is not None:
-        # The workflow applies the decision; a lost signal is caught by its next poll.
-        if run:
-            await run_dispatcher.approval_decided(context, task.id, approval.id)
-        return ApprovalDecisionResponse(approval=shown, task=task, run=run)
-    resumed_run = await runtime.resume_after_approval(task, run, approval, context) if run else None
+        return _Decided(ApprovalDecisionResponse(approval=shown, task=task, run=run), task.id, signal=run is not None)
+    # Inline: re-check the payload hash, expiry, target and policy, and commit the run as
+    # ``executing`` with the decision; the tool runs after this unit of work has committed.
+    call = runtime.begin_execution(task, run, context, approval=approval) if run else None
     repository.save_task(task)
-    if resumed_run:
-        repository.save_run(resumed_run)
-    return ApprovalDecisionResponse(approval=shown, task=task, run=resumed_run)
+    if run:
+        repository.save_run(run)
+    return _Decided(
+        ApprovalDecisionResponse(approval=shown, task=task, run=run),
+        task.id,
+        execute=(task, run, call) if run is not None and call is not None else None,
+        runtime_factory=lambda unit: AgentRuntime(gateway, unit, tools=tool_registry),
+    )
 
 
 def _learn_from_decision(
@@ -2683,3 +2921,20 @@ def _record_partial_approval(
     )
     (shown,) = _with_progress([approval], context, repository)
     return ApprovalDecisionResponse(approval=shown, task=task, run=run)
+
+# Plug the shared iPhone device tokens into every installed module seam (docs/iphone-integrations.md).
+from .finance.devices import plug_module_authorities  # noqa: E402
+
+# Vehicles: the ``vehicle`` finance link dimension and the iPhone driving sessions (docs/vehicles.md).
+from .vehicles import devices as _vehicle_devices  # noqa: E402
+from .vehicles.service import plug_finance_links as _plug_vehicle_links  # noqa: E402
+
+_vehicle_devices.register()
+_plug_vehicle_links()
+# Purchases: the ``purchase`` finance link dimension and the iPhone shared order and delivery messages (docs/purchases.md).
+from .purchases import devices as _purchase_devices  # noqa: E402
+from .purchases.service import plug_finance_links as _plug_purchase_links  # noqa: E402
+
+_purchase_devices.register()
+_plug_purchase_links()
+plug_module_authorities()

@@ -5,7 +5,7 @@
 import { AnimationMixer, Box3, BufferAttribute, BufferGeometry, Color, Mesh, Object3D, SkinnedMesh, Vector3, type AnimationClip, type Material } from 'three';
 import { ROLE, cellOf, roleOf, rowShade, swatchColour, type Role } from './hqFigureRoles.ts';
 import type { LoadOutcome } from './hqModelCache.ts';
-import { MODEL_SPECS, type ModelGroup, type ModelKey } from './hqModels.ts';
+import { MODEL_SPECS, type LegacyKey, type ModelGroup } from './hqModels.ts';
 
 /** `material` is null for a figure: the layer draws it with the role tint material (per instance colours). */
 export type Part = Readonly<{ geometry: BufferGeometry; material: Material | null }>;
@@ -171,7 +171,7 @@ function bakeFigure(root: Object3D, clip: AnimationClip | undefined, key: string
   return { parts: [{ geometry, material: null }], size, anchors };
 }
 
-export async function loadBaked(key: ModelKey): Promise<LoadOutcome<BakedModel>> {
+export async function loadBaked(key: LegacyKey): Promise<LoadOutcome<BakedModel>> {
   const spec = MODEL_SPECS[key];
   const response = await fetch(`${baseUrl()}hq/models/${spec.file}`);
   if (!response.ok) throw new Error(`model ${key}: HTTP ${response.status}`);

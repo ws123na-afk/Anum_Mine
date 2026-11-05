@@ -7,7 +7,7 @@ import { Download, Gauge, X } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { getLiveRenderer } from '../lib/hqGpuBridge.ts';
 import { getGpuState, subscribeGpuState } from '../lib/hqGpuState.ts';
-import { buildReport, verdictFor, type GpuProbe, type TierResult } from '../lib/hqGpuReport.ts';
+import { buildReport, rememberTierFor, verdictFor, type GpuProbe, type TierResult } from '../lib/hqGpuReport.ts';
 import { HQ_TIERS, QUALITY_PIN_KEY } from '../lib/hqQualityTiers.ts';
 import { reasonText, tierName } from '../lib/hqGpuText.ts';
 import { t } from '../lib/i18n.ts';
@@ -40,6 +40,7 @@ export default function HqGpuCheckPanel({ onClose }: { onClose: () => void }) {
   const [run, setRun] = useState<Run>({ state: 'idle' });
   const [seconds, setSeconds] = useState<number>(5);
   const [note, setNote] = useState('');
+  const [remember, setRemember] = useState(true);
   const live = getLiveRenderer();
 
   const close = useCallback(() => {
@@ -76,9 +77,14 @@ export default function HqGpuCheckPanel({ onClose }: { onClose: () => void }) {
     try {
       const { runBenchmark } = await import('./gpuBench.ts');
       const got = await runBenchmark(renderer, ids, seconds * 1000, controller.signal, ({ tier, index, total }) => setRun({ state: 'running', tier, index, total }));
-      setResults((previous) => [...previous.filter((p) => !got.some((g) => g.tier === p.tier)), ...got].sort((a, b) => a.tier - b.tier));
-      setProbe(readGpuProbe(liveContext(renderer)));
+      const merged = [...results.filter((p) => !got.some((g) => g.tier === p.tier)), ...got].sort((a, b) => a.tier - b.tier);
+      const after = readGpuProbe(liveContext(renderer));
+      setResults(merged);
+      setProbe(after);
       setRun(controller.signal.aborted ? { state: 'stopped' } : { state: 'done', count: got.length });
+      // A full benchmark on a graphics card can remember its verdict for this device (the pin; Back to automatic undoes it).
+      const keep = remember && !controller.signal.aborted && ids.length === HQ_TIERS.length ? rememberTierFor(after, merged) : null;
+      if (keep !== null) { writePin(keep); renderer.setPin(keep); setNote(t('hqGpu.remember.done', { tier: tierName(keep) })); }
     } catch {
       setRun({ state: 'error' });
     }
@@ -179,6 +185,10 @@ export default function HqGpuCheckPanel({ onClose }: { onClose: () => void }) {
               <button type="button" className="hqPrimary" disabled={!live || running || !quality} onClick={() => void measure(HQ_TIERS.map((x) => x.id))} data-testid="hq-gpu-bench">{t('hqGpu.measure.all')}</button>
               {running && <button type="button" className="hqGhost" onClick={() => abort.current?.abort()}>{t('hqGpu.measure.cancel')}</button>}
             </div>
+            <label className="hqGpuCheck">
+              <input type="checkbox" checked={remember} disabled={running} onChange={(e) => setRemember(e.target.checked)} data-testid="hq-gpu-remember" />
+              {t('hqGpu.remember')}
+            </label>
             <p className="hqGpuHint" role="status" data-testid="hq-gpu-progress">{progress}</p>
           </section>
 
@@ -194,6 +204,9 @@ export default function HqGpuCheckPanel({ onClose }: { onClose: () => void }) {
                       <dt>{t('hqGpu.col.p95')}</dt><dd><bdi>{ms1(r.frames.p95Ms)} ms</bdi></dd>
                       <dt>{t('hqGpu.col.worst')}</dt><dd><bdi>{ms1(r.frames.worstMs)} ms</bdi></dd>
                       <dt>{t('hqGpu.col.dropped')}</dt><dd><bdi>{r.frames.droppedFrames}</bdi></dd>
+                      <dt>{t('hqGpu.col.gpu')}</dt><dd><bdi>{r.gpu ? `${ms1(r.gpu.medianMs)} ms` : '-'}</bdi></dd>
+                      <dt>{t('hqGpu.col.warmup')}</dt><dd><bdi>{r.warmupMs !== undefined ? `${(r.warmupMs / 1000).toFixed(1)} s` : '-'}</bdi></dd>
+                      <dt>{t('hqGpu.col.hitches')}</dt><dd><bdi>{r.hitches ? t('hqGpu.col.hitches.value', { count: r.hitches.count, compile: r.hitches.compile }) : '-'}</bdi></dd>
                       <dt>{t('hqGpu.col.calls')}</dt><dd><bdi>{r.drawCalls}</bdi></dd>
                       <dt>{t('hqGpu.col.triangles')}</dt><dd><bdi>{r.triangles.toLocaleString('en')}</bdi></dd>
                       <dt>{t('hqGpu.col.memory')}</dt><dd><bdi>{r.memoryEstimateMb.toFixed(0)} MB</bdi></dd>

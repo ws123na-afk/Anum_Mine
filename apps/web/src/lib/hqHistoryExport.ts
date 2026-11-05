@@ -1,12 +1,22 @@
 /**
- * History CSV export for views the audit export cannot express itself (room view, agent view, the
- * "Other" type). The panel asks the existing audited export (`GET /audit/export`, permission
- * `audit:export`) for the broad filters, then keeps only the rows the view shows, using the same
- * rules as the timeline (`relatesTo`, the action prefixes). Nothing is added: the rows are a subset of
+ * History CSV and JSON export for views the audit export cannot express by its plain filters (room view,
+ * agent view, the "Other" type). The panel asks the existing audited export (`GET /audit/export`,
+ * permission `audit:export`) for the broad filters plus, for a room or agent view, the server's
+ * `mention` filter (the room and its desks, or the agent), then keeps only the rows the view shows,
+ * using the same rules as the timeline (`relatesTo`, the action prefixes). Nothing is added: the rows are a subset of
  * what that export returns, so a viewer never gets more than the permission already gives.
  * Pure functions only (unit tested); the network call lives in hqHistoryExportApi.ts.
  */
+import type { AuditFilters } from '@anum/contracts';
+import { auditQuery } from './audit.ts';
 import { CATEGORY_ACTION_PREFIX, relatesTo, type HistoryFilters, type HistoryScope } from './hqHistory.ts';
+
+/** The export query: the audit filters, the JSON format and one `mention` per id (the server's room or agent filter). */
+export function narrowedExportQuery(filters: AuditFilters, mentions: readonly string[] | null): string {
+  const params = new URLSearchParams(auditQuery(filters, { format: 'json' }));
+  for (const id of mentions ?? []) params.append('mention', id);
+  return params.toString();
+}
 
 export const EXPORT_COLUMNS = ['id', 'created_at', 'actor', 'action', 'target', 'outcome', 'correlation_id', 'tenant_id', 'workspace_id', 'metadata'] as const;
 
@@ -71,10 +81,15 @@ export function rowsToCsv(rows: readonly ExportRow[]): string {
   return `${lines.join('\r\n')}\r\n`;
 }
 
+/** JSON with the same fields as the audit export (an array, newest first as received), secret or text keys dropped. */
+export function rowsToJson(rows: readonly ExportRow[]): string {
+  return `${JSON.stringify(rows.map((row) => ({ ...row, metadata: safeMetadata(row.metadata) })), null, 2)}\n`;
+}
+
 /** The file name for a narrowed export; only letters, digits, dot and dash. */
-export function narrowedFilename(scope: HistoryScope, day: string): string {
+export function narrowedFilename(scope: HistoryScope, day: string, format: 'csv' | 'json' = 'csv'): string {
   const part = scope.kind === 'room' ? 'room' : scope.kind === 'agent' ? 'agent' : 'other';
-  return `history-${part}-${day.replace(/[^0-9-]/g, '')}.csv`;
+  return `history-${part}-${day.replace(/[^0-9-]/g, '')}.${format}`;
 }
 
 export function parseExportRows(raw: unknown): ExportRow[] {

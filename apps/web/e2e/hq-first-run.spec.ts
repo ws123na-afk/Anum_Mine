@@ -4,6 +4,7 @@ import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { hqRegistry, openHq, TENANT_A } from './support/hqApi';
 import { mockFlow } from './support/hqFlowApi';
+import { officeMenuItem, showFloorList } from './support/hqScene';
 import { mockProvisioning } from './support/hqProvisioningApi';
 import { MASTER_TOTALS, mockFirstRun, type FirstRunMock } from './support/hqFirstRunApi';
 
@@ -168,6 +169,7 @@ test('the building view shows every room of the floor, and the floor overview la
   await expect(toggle).toHaveAttribute('aria-pressed', 'true');
   // The floor rail (inline from 1024 px; a drawer on narrower screens) reaches the same mode.
   if (wide(page)) {
+    await showFloorList(page); // the floor list is docked by the Floors button (the selector in the scene is the default floor control)
     const rail = page.getByTestId('hq-rail-overview');
     await expect(rail).toHaveAttribute('aria-pressed', 'true');
     await rail.click();
@@ -201,8 +203,8 @@ test('the floor overview works with the floors, the fold control, the navigation
   // Folding the side panels gives the scene more width: the picture is framed again.
   const wrap = hq(page).locator('.hqSceneWrap');
   const before = await wrap.getAttribute('data-camera-distance');
-  const fold = hq(page).getByRole('button', { name: /Hide side panels/ });
-  if (await fold.count()) { await fold.click(); await expect.poll(() => wrap.getAttribute('data-camera-distance')).not.toBe(before); }
+  const fold = await officeMenuItem(page, /Hide side panels/); // moved into Office tools
+  if (await fold.count()) { await fold.click(); await expect.poll(() => wrap.getAttribute('data-camera-distance')).not.toBe(before); } else await page.keyboard.press('Escape');
   await expect(cards).toHaveCount(4);
   // The navigation strip is still there.
   await expect(hq(page).locator('.hqStrip, [data-testid="hq-strip"], .hqStripToggle').first()).toBeAttached();

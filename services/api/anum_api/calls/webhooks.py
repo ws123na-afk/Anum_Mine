@@ -60,6 +60,11 @@ def _xml(twiml: TwiML) -> Response:
     return Response(content=twiml.render(), media_type="application/xml")
 
 
+def _provider(context: TenantContext) -> ProviderAccount | None:
+    with open_calls_store(context) as store:
+        return store.get_provider()
+
+
 async def _verified(request: Request, route_id: str) -> tuple[TenantContext, ProviderAccount, dict[str, str]]:
     if not _ROUTE.match(route_id) or not call_settings.webhooks_ready:
         raise HTTPException(status_code=403, detail="Forbidden")
@@ -71,8 +76,9 @@ async def _verified(request: Request, route_id: str) -> tuple[TenantContext, Pro
     if scope is None:
         raise HTTPException(status_code=403, detail="Forbidden")
     context = service.system_context(*scope)
-    with open_calls_store(context) as store:
-        account = store.get_provider()
+    # In a worker thread like route_workspace: the signature is not checked yet, so this
+    # read must never stall the event loop (docs/security.md#pre-sale-review-november-2026).
+    account = await asyncio.to_thread(_provider, context)
     if account is None or account.route_id != route_id:
         raise HTTPException(status_code=403, detail="Forbidden")
     url = call_settings.public_base_url.rstrip("/") + request.url.path + (f"?{request.url.query}" if request.url.query else "")
@@ -97,9 +103,10 @@ def _refuse(text: str = "This call could not be connected.") -> Response:
 async def voice(route_id: str, request: Request) -> Response:
     context, account, params = await _verified(request, route_id)
     caller = params.get("From", "")
+    # The call log reads and writes run in a worker thread (docs/realtime.md#event-loop).
     if caller.startswith("client:"):
-        return _browser_call(context, account, params, caller.removeprefix("client:"))
-    return _inbound(context, account, params)
+        return await asyncio.to_thread(_browser_call, context, account, params, caller.removeprefix("client:"))
+    return await asyncio.to_thread(_inbound, context, account, params)
 
 
 def _browser_call(context: TenantContext, account: ProviderAccount, params: dict[str, str], identity: str) -> Response:
@@ -179,7 +186,7 @@ def _inbound(context: TenantContext, account: ProviderAccount, params: dict[str,
 @router.post("/{route_id}/dial/{call_id}")
 async def dial_result(route_id: str, call_id: str, request: Request, background: BackgroundTasks) -> Response:
     context, account, params = await _verified(request, route_id)
-    _record_status(context, account, call_id, None, params.get("DialCallStatus", ""), params.get("DialCallDuration"), background)
+    await asyncio.to_thread(_record_status, context, account, call_id, None, params.get("DialCallStatus", ""), params.get("DialCallDuration"), background)
     return _xml(TwiML().hangup())
 
 
@@ -187,14 +194,14 @@ async def dial_result(route_id: str, call_id: str, request: Request, background:
 async def status_by_sid(route_id: str, request: Request, background: BackgroundTasks) -> Response:
     """The provider number's call status URL (calls in): the call is found by its provider id."""
     context, account, params = await _verified(request, route_id)
-    _record_status(context, account, None, params.get("CallSid", ""), params.get("CallStatus", ""), params.get("CallDuration"), background)
+    await asyncio.to_thread(_record_status, context, account, None, params.get("CallSid", ""), params.get("CallStatus", ""), params.get("CallDuration"), background)
     return Response(status_code=204)
 
 
 @router.post("/{route_id}/status/{call_id}")
 async def status_by_id(route_id: str, call_id: str, request: Request, background: BackgroundTasks) -> Response:
     context, account, params = await _verified(request, route_id)
-    _record_status(context, account, call_id, None, params.get("CallStatus", ""), params.get("CallDuration"), background)
+    await asyncio.to_thread(_record_status, context, account, call_id, None, params.get("CallStatus", ""), params.get("CallDuration"), background)
     return Response(status_code=204)
 
 
@@ -222,12 +229,16 @@ async def recording(route_id: str, call_id: str, request: Request, background: B
     context, account, params = await _verified(request, route_id)
     if params.get("RecordingStatus") != "completed" or not params.get("RecordingUrl"):
         return Response(status_code=204)
-    with open_calls_store(context) as store:
-        entry = store.get_call(call_id)
+    entry = await asyncio.to_thread(_get_call, context, call_id)
     if entry is None or entry.recording_consent is None or entry.recording_file_id:
         return Response(status_code=204)
     background.add_task(store_recording, context, account, call_id, params["RecordingUrl"])
     return Response(status_code=204)
+
+
+def _get_call(context: TenantContext, call_id: str) -> CallEntry | None:
+    with open_calls_store(context) as store:
+        return store.get_call(call_id)
 
 
 async def store_recording(context: TenantContext, account: ProviderAccount, call_id: str, url: str) -> None:
@@ -239,20 +250,26 @@ async def store_recording(context: TenantContext, account: ProviderAccount, call
 
     try:
         content, content_type = await service.voice(account).fetch_recording(url, call_settings.recording_max_bytes)
-        with open_calls_store(context) as store:
-            entry = store.get_call(call_id)
+        entry = await asyncio.to_thread(_get_call, context, call_id)
         if entry is None:
             return
         person = _person(context, entry.user_id)
         record = await asyncio.to_thread(store_workspace_file, person, f"call-{entry.started_at:%Y%m%d-%H%M}-{entry.id[-6:]}.mp3", content, content_type)
-        with open_calls_store(context) as store:
-            current = store.get_call(call_id, lock=True)
-            if current is None:
-                remove_workspace_file(person, record.id)
-                return
-            current = current.model_copy(update={"recording_file_id": record.id, "recording_expires_at": utc_now() + timedelta(days=account.recording_retention_days), "updated_at": utc_now()})
-            store.save_call(current)
-        service.audit(context, "call.recording.stored", call_id, metadata={"bytes": len(content), "retention_days": account.recording_retention_days})
+
+        def link() -> CallEntry | None:
+            with open_calls_store(context) as store:
+                current = store.get_call(call_id, lock=True)
+                if current is None:
+                    remove_workspace_file(person, record.id)
+                    return None
+                current = current.model_copy(update={"recording_file_id": record.id, "recording_expires_at": utc_now() + timedelta(days=account.recording_retention_days), "updated_at": utc_now()})
+                store.save_call(current)
+            service.audit(context, "call.recording.stored", call_id, metadata={"bytes": len(content), "retention_days": account.recording_retention_days})
+            return current
+
+        current = await asyncio.to_thread(link)
+        if current is None:
+            return
         transcriber = build_transcriber(settings) if account.transcription_enabled and current.recording_consent and current.recording_consent.transcription else None
         if transcriber is None:
             return
@@ -262,10 +279,14 @@ async def store_recording(context: TenantContext, account: ProviderAccount, call
             logger.warning("call_transcription_failed", extra={"anum_detail": exc.detail[:120]})
             return
         text = "\n".join(f"{segment.speaker + ': ' if segment.speaker else ''}{segment.text}" for segment in result.segments)[:60_000]
-        with open_calls_store(context) as store:
-            current = store.get_call(call_id, lock=True)
-            if current is not None:
-                store.save_call(current.model_copy(update={"transcript": text or None, "updated_at": utc_now()}))
+
+        def keep_transcript() -> None:
+            with open_calls_store(context) as store:
+                current = store.get_call(call_id, lock=True)
+                if current is not None:
+                    store.save_call(current.model_copy(update={"transcript": text or None, "updated_at": utc_now()}))
+
+        await asyncio.to_thread(keep_transcript)
         if text:
             await service.write_summary(context, call_id)
     except Exception as exc:
@@ -307,33 +328,43 @@ def _request_for(store: Any, entry: CallEntry) -> Any:
 async def ai_answered(route_id: str, call_id: str, request: Request) -> Response:
     """The other side answered an AI call: the disclosure first, then the first sentence of the script."""
     context, account, _params = await _verified(request, route_id)
-    with open_calls_store(context) as store:
-        entry = store.get_call(call_id)
-        ai_request = _request_for(store, entry) if entry is not None else None
+    entry, ai_request = await asyncio.to_thread(_call_and_request, context, call_id)
     if entry is None or entry.kind != CallKind.AI_OUTBOUND or ai_request is None or entry.status in {CallStatus.COMPLETED, CallStatus.FAILED}:
         return _xml(TwiML().hangup())
     language = ai_request.language
     disclosure = service.ai_disclosure(account.business_name, entry.contact_name, language=language, inbound=False)
     lines = [("ai", disclosure)]
     try:
+        gateway = await asyncio.to_thread(ai.call_gateway, context)
         turn = await ai.next_turn(
-            ai.call_gateway(context), inbound=False, business=account.business_name, purpose=ai_request.purpose,
+            gateway, inbound=False, business=account.business_name, purpose=ai_request.purpose,
             script=ai_request.script, language=language, lines=lines, max_tokens=call_settings.ai_turn_max_tokens,
         )
     except Exception as exc:
         _note_model_failure(exc)
-        return _end(context, call_id, [("ai", disclosure)], _sorry(language, account.business_name), language)
+        return await asyncio.to_thread(_end, context, call_id, [("ai", disclosure)], _sorry(language, account.business_name), language)
     transcript = service.add_line(service.add_line(None, "ai", disclosure), "ai", turn.say)
-    with open_calls_store(context) as store:
-        current = store.get_call(call_id, lock=True)
-        if current is not None:
-            store.save_call(current.model_copy(update={"transcript": transcript, "status": CallStatus.IN_PROGRESS, "updated_at": utc_now()}))
+
+    def answered() -> None:
+        with open_calls_store(context) as store:
+            current = store.get_call(call_id, lock=True)
+            if current is not None:
+                store.save_call(current.model_copy(update={"transcript": transcript, "status": CallStatus.IN_PROGRESS, "updated_at": utc_now()}))
+
+    await asyncio.to_thread(answered)
     twiml = TwiML().say(disclosure, language)
     if turn.done:
         return _xml(twiml.say(turn.say, language).hangup())
     twiml.gather(service.webhook_url(account.route_id, "turn", call_id), language=language, prompt=turn.say)
     twiml.redirect(service.webhook_url(account.route_id, "turn", call_id))
     return _xml(twiml)
+
+
+def _call_and_request(context: TenantContext, call_id: str) -> tuple[CallEntry | None, Any]:
+    """The call and its AI request, read in a worker thread."""
+    with open_calls_store(context) as store:
+        entry = store.get_call(call_id)
+        return entry, _request_for(store, entry) if entry is not None else None
 
 
 def _note_model_failure(exc: Exception) -> None:
@@ -357,9 +388,7 @@ def _end(context: TenantContext, call_id: str, extra: list[tuple[str, str]], tex
 async def ai_turn(route_id: str, call_id: str, request: Request, background: BackgroundTasks) -> Response:
     """What the other side said (speech) or pressed (keypad); the AI's next sentence."""
     context, account, params = await _verified(request, route_id)
-    with open_calls_store(context) as store:
-        entry = store.get_call(call_id)
-        ai_request = _request_for(store, entry) if entry is not None else None
+    entry, ai_request = await asyncio.to_thread(_call_and_request, context, call_id)
     if entry is None or entry.kind not in {CallKind.AI_OUTBOUND, CallKind.AI_INBOUND} or entry.status in {CallStatus.COMPLETED, CallStatus.FAILED}:
         return _xml(TwiML().hangup())
     inbound = entry.kind == CallKind.AI_INBOUND
@@ -369,7 +398,7 @@ async def ai_turn(route_id: str, call_id: str, request: Request, background: Bac
     speech, digits = params.get("SpeechResult", "").strip()[:1000], params.get("Digits", "")
     heard = speech or (f"(pressed {digits})" if digits else "")
 
-    def close(extra: list[tuple[str, str]], text: str, lang: str) -> Response:
+    def finish(extra: list[tuple[str, str]], text: str, lang: str) -> Response:
         response = _end(context, call_id, extra, text, lang)
         if inbound:
             # Calls in have no status report unless the owner set the number's status URL; finish here.
@@ -377,15 +406,23 @@ async def ai_turn(route_id: str, call_id: str, request: Request, background: Bac
             _record_status(context, account, call_id, None, "completed", str(max(seconds, 1)), background)
         return response
 
+    async def close(extra: list[tuple[str, str]], text: str, lang: str) -> Response:
+        return await asyncio.to_thread(finish, extra, text, lang)
+
     stop = _is_stop(digits, speech)
     if stop is not None and entry.phone_normalized:
-        with open_calls_store(context) as store:
-            opt = service.record_opt_out(store, context, entry.phone_normalized, OptOutSource.INBOUND if inbound else stop, None, service.SYSTEM_ACTOR)
-            for contact in store.contacts_by_number(entry.phone_normalized):
-                if contact.ai_consent is not None:
-                    store.save_contact(contact.model_copy(update={"ai_consent": None, "updated_at": utc_now()}))
-        service.audit(context, "call.opt_out.added", opt.id, metadata={"source": stop.value, "during_call": True})
-        return close([("caller", heard or "(asked to stop)")], _opted_out_reply(language), language)
+        phone = entry.phone_normalized
+
+        def opt_out() -> None:
+            with open_calls_store(context) as store:
+                opt = service.record_opt_out(store, context, phone, OptOutSource.INBOUND if inbound else stop, None, service.SYSTEM_ACTOR)
+                for contact in store.contacts_by_number(phone):
+                    if contact.ai_consent is not None:
+                        store.save_contact(contact.model_copy(update={"ai_consent": None, "updated_at": utc_now()}))
+            service.audit(context, "call.opt_out.added", opt.id, metadata={"source": stop.value, "during_call": True})
+
+        await asyncio.to_thread(opt_out)
+        return await close([("caller", heard or "(asked to stop)")], _opted_out_reply(language), language)
 
     lines = service.transcript_lines(entry.transcript)
     longest, dearest = service.ai_caps(account)
@@ -399,24 +436,29 @@ async def ai_turn(route_id: str, call_id: str, request: Request, background: Bac
         or service.estimated_cost_cents(elapsed + 60, account) > (ai_request.max_cost_cents if ai_request else dearest)
         or (silent and recent_silence)
     ):
-        return close([("caller", heard or "(silence)")], _goodbye(language), language)
+        return await close([("caller", heard or "(silence)")], _goodbye(language), language)
     lines.append(("caller", heard or "(silence)"))
     try:
+        gateway = await asyncio.to_thread(ai.call_gateway, context)
         turn = await ai.next_turn(
-            ai.call_gateway(context), inbound=inbound, business=account.business_name,
+            gateway, inbound=inbound, business=account.business_name,
             purpose=ai_request.purpose if ai_request else "Take a message", script=ai_request.script if ai_request else "",
             language=language, lines=lines, max_tokens=call_settings.ai_turn_max_tokens,
         )
     except Exception as exc:
         _note_model_failure(exc)
-        return close([("caller", heard or "(silence)")], _sorry(language, account.business_name), language)
+        return await close([("caller", heard or "(silence)")], _sorry(language, account.business_name), language)
     if turn.done:
-        return close([("caller", heard or "(silence)")], turn.say, language)
-    with open_calls_store(context) as store:
-        current = store.get_call(call_id, lock=True)
-        if current is not None:
-            transcript = service.add_line(service.add_line(current.transcript, "caller", heard or "(silence)"), "ai", turn.say)
-            store.save_call(current.model_copy(update={"transcript": transcript[:60_000], "updated_at": utc_now()}))
+        return await close([("caller", heard or "(silence)")], turn.say, language)
+
+    def heard_and_said() -> None:
+        with open_calls_store(context) as store:
+            current = store.get_call(call_id, lock=True)
+            if current is not None:
+                transcript = service.add_line(service.add_line(current.transcript, "caller", heard or "(silence)"), "ai", turn.say)
+                store.save_call(current.model_copy(update={"transcript": transcript[:60_000], "updated_at": utc_now()}))
+
+    await asyncio.to_thread(heard_and_said)
     twiml = TwiML().gather(service.webhook_url(account.route_id, "turn", call_id), language=language, prompt=turn.say)
     twiml.redirect(service.webhook_url(account.route_id, "turn", call_id))
     return _xml(twiml)

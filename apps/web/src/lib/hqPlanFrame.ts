@@ -1,6 +1,6 @@
 /**
  * The real floor plans of a registry building as the campus needs them: one storey per above-ground floor, each with its own
- * footprint (rooms, margin and the shared service core, exactly the slab the interior pipeline draws, `buildingLayout`), the
+ * footprint (rooms, margin and the shared service core, grown to hold the storeys above it: exactly the slab the interior pipeline draws), the
  * frame that maps plan metres to world metres, and the stable keys that say when a plan changed.
  *
  * Data truth (docs/ANUM_MINE_HQ_GLASS_PLAN.md): everything here is read from registry records (rooms, desks, assignments) and
@@ -10,6 +10,7 @@
 import type { SceneBuilding, SceneFloor } from './headquartersProjection.ts';
 import { FLOOR_PITCH, buildingLayout } from './buildingScene.ts';
 import { CORE_DEPTH, CORE_WIDTH } from '../hqAssets/interior/core.ts';
+import { slabPlans } from './buildingStructure.ts';
 import { presenceForDesk, type HqPresenceIndex } from './hqPresence.ts';
 
 /** What the glass impostor of one building is made from. `lit` and `seated` hold desk ids. */
@@ -66,10 +67,9 @@ export function planFrame(floors: readonly SceneFloor[]): PlanFrame | null {
   floors.forEach((f, i) => { if (f.level >= 0) above.push(i); });
   // A building whose floors are all below ground (or numbered oddly) draws every floor rather than nothing.
   const order = above.length ? above : floors.map((_, i) => i);
-  const storeys: PlanStorey[] = order.map((floorIndex, n) => {
-    const b = layout.boxes[floorIndex];
-    return { floorIndex, n, rect: { x0: b.x0, z0: b.z0, x1: b.x1, z1: b.z1 }, core: b.core };
-  });
+  // Each storey holds every storey above it (the slab the interior draws), so no storey overhangs the one under it.
+  const rects = slabPlans(order.map((i) => { const b = layout.boxes[i]; return { x0: b.x0, z0: b.z0, x1: b.x1, z1: b.z1 }; }));
+  const storeys: PlanStorey[] = order.map((floorIndex, n) => ({ floorIndex, n, rect: rects[n], core: layout.boxes[floorIndex].core }));
   let x0 = Math.min(...storeys.map((s) => s.rect.x0)), z0 = Math.min(...storeys.map((s) => s.rect.z0));
   let x1 = Math.max(...storeys.map((s) => s.rect.x1)), z1 = Math.max(...storeys.map((s) => s.rect.z1));
   // A tiny plan is widened evenly round its middle so the shell stays a plausible building.

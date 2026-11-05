@@ -283,7 +283,7 @@ def load_evidence(session: Session, context: TenantContext, now: datetime) -> Ev
     for row in session.execute(text(
         "select s.id, pa.actor_id, s.updated_at from agent_meeting_sessions s "
         "join agent_meeting_participants pa on pa.tenant_id = s.tenant_id and pa.workspace_id = s.workspace_id "
-        "and pa.session_id = s.id "
+        "and pa.session_id = s.id and pa.left_at is null "
         "where s.tenant_id = :t and s.workspace_id = :w and s.status = 'active' and pa.kind = 'agent' "
         "order by s.id limit :n"), {**p, "n": MAX_EVIDENCE_ROWS}):
         if row.actor_id in visible:

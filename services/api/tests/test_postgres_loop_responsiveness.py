@@ -11,6 +11,8 @@ any blocking database call on the event loop shows up as a stall here.
 
 from __future__ import annotations
 
+import asyncio
+import gc
 import socket
 import statistics
 import threading
@@ -28,6 +30,7 @@ from sqlalchemy.orm import sessionmaker
 from anum_api.db import session as db_session
 from anum_api.main import app
 from anum_api.model_gateway import ModelResponse, ModelUsage
+from anum_api.serving import prepare_for_serving
 from anum_api.settings import settings
 from anum_api.voice import voice_model_gateway
 
@@ -112,6 +115,11 @@ def server(
     monkeypatch.setattr(db_session, "SessionLocal", factory)
     monkeypatch.setattr(settings, "repository_backend", "postgresql")
     app.dependency_overrides[voice_model_gateway] = lambda: SlowGateway()
+    # The lifespan is off (no schedulers in a test), so run its last step here, as the
+    # production server does before it serves: every route built and the heap so far
+    # frozen, or a full garbage collection over it stops the whole process (the event loop
+    # included) for half a second or more mid-test (docs/realtime.md#garbage-collection).
+    asyncio.run(prepare_for_serving(app.router))
     port = _free_port()
     config = uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning", lifespan="off")
     uv = uvicorn.Server(config)
@@ -132,6 +140,7 @@ def server(
         thread.join(timeout=15)
         app.dependency_overrides.pop(voice_model_gateway, None)
         engine.dispose()
+        gc.unfreeze()
 
 
 def _hold_stream(base: str, opened: threading.Event, stop: threading.Event) -> None:

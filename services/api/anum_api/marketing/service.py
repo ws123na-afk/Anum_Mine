@@ -10,6 +10,7 @@ auto-post is itself enabled through an owner approval.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from datetime import datetime, timedelta
@@ -20,7 +21,7 @@ from pydantic import BaseModel
 
 from ..agent_tools import ToolCall, ToolRegistry
 from ..audit import AuditRecord
-from ..dependencies import _unit_of_work
+from ..dependencies import UnitsOfWork, _unit_of_work, run_in_unit
 from ..events import CanonicalEventName, create_event
 from ..model_gateway import MockModelGateway
 from ..repository import AnumRepository
@@ -176,46 +177,57 @@ async def start_oauth(context: TenantContext, provider: Provider) -> str:
     return connector.authorize_url(issue_state(context, provider, verifier), challenge)
 
 
-async def finish_oauth(context: TenantContext, code: str, state: str, repository: AnumRepository) -> list[SocialAccount]:
+async def finish_oauth(context: TenantContext, code: str, state: str, units: UnitsOfWork) -> list[SocialAccount]:
+    """Exchange the code with no store open, then save the accounts and audit in worker
+    threads, each in its own short unit of work (docs/realtime.md#event-loop)."""
     provider, verifier = read_state(state, context)
     connector = clients.connector(provider)
     try:
         discovered = await connector.exchange(code, verifier)
     except clients.PlatformCallError as exc:
-        audit(repository, context, "marketing.account.connect_failed", provider.value, outcome="failure", metadata={"code": exc.error.code})
+        code = exc.error.code
+        await run_in_unit(
+            units, context, lambda repository: audit(
+                repository, context, "marketing.account.connect_failed", provider.value, outcome="failure", metadata={"code": code},
+            ),
+        )
         raise http_error(502, f"{exc.error.message} {exc.error.fix}") from None
-    now = utc_now()
-    saved: list[SocialAccount] = []
-    with open_marketing_store(context) as store:
-        for found in discovered:
-            if not found.external_id:
-                continue
-            existing = store.find_account(context, found.platform, found.external_id)
-            account = existing or SocialAccount(
-                id=new_id("mkacct"), tenant_id=context.tenant_id, workspace_id=context.workspace_id, platform=found.platform,
-                provider=provider, external_id=found.external_id, display_name=found.display_name, connected_by=context.user_id,
-                created_at=now, updated_at=now,
-            )
-            account.display_name = found.display_name[:200]
-            account.handle = (found.handle or None) and str(found.handle)[:200]
-            account.status = AccountStatus.CONNECTED
-            account.scopes = [scope for scope in found.scopes if scope][:40]
-            account.access_token_ciphertext = encrypt(found.access_token)
-            account.refresh_token_ciphertext = encrypt(found.refresh_token)
-            account.token_expires_at = found.expires_at
-            account.details = {**account.details, **found.details}
-            account.last_checked_at = now
-            account.last_error = None
-            account.connected_by = context.user_id
-            account.updated_at = now
-            if existing is None:
-                store.add_account(account)
-            else:
-                store.save_account(account)
-            saved.append(account)
-    for account in saved:
-        audit(repository, context, "marketing.account.connected", account.id, metadata={"platform": account.platform.value, "external_id": account.external_id})
-    return saved
+
+    def save(repository: AnumRepository) -> list[SocialAccount]:
+        now = utc_now()
+        saved: list[SocialAccount] = []
+        with open_marketing_store(context) as store:
+            for found in discovered:
+                if not found.external_id:
+                    continue
+                existing = store.find_account(context, found.platform, found.external_id)
+                account = existing or SocialAccount(
+                    id=new_id("mkacct"), tenant_id=context.tenant_id, workspace_id=context.workspace_id, platform=found.platform,
+                    provider=provider, external_id=found.external_id, display_name=found.display_name, connected_by=context.user_id,
+                    created_at=now, updated_at=now,
+                )
+                account.display_name = found.display_name[:200]
+                account.handle = (found.handle or None) and str(found.handle)[:200]
+                account.status = AccountStatus.CONNECTED
+                account.scopes = [scope for scope in found.scopes if scope][:40]
+                account.access_token_ciphertext = encrypt(found.access_token)
+                account.refresh_token_ciphertext = encrypt(found.refresh_token)
+                account.token_expires_at = found.expires_at
+                account.details = {**account.details, **found.details}
+                account.last_checked_at = now
+                account.last_error = None
+                account.connected_by = context.user_id
+                account.updated_at = now
+                if existing is None:
+                    store.add_account(account)
+                else:
+                    store.save_account(account)
+                saved.append(account)
+        for account in saved:
+            audit(repository, context, "marketing.account.connected", account.id, metadata={"platform": account.platform.value, "external_id": account.external_id})
+        return saved
+
+    return await run_in_unit(units, context, save)
 
 
 async def access_token(context: TenantContext, account: SocialAccount) -> str:
@@ -301,12 +313,18 @@ async def check_account(context: TenantContext, account_id: str) -> SocialAccoun
         return current
 
 
-async def revoke_account(context: TenantContext, account_id: str, repository: AnumRepository) -> SocialAccount:
+async def revoke_account(context: TenantContext, account_id: str, units: UnitsOfWork) -> SocialAccount:
     """Revoke the token at the platform where it offers that, then forget it here.
 
-    The row stays (as ``revoked``) so published posts keep their account name."""
-    with open_marketing_store(context) as store:
-        account = store.get_account(context, account_id)
+    The row stays (as ``revoked``) so published posts keep their account name. The platform
+    call runs with no store open; the reads and writes run in worker threads, each in its own
+    short unit of work (docs/realtime.md#event-loop)."""
+
+    def load() -> SocialAccount | None:
+        with open_marketing_store(context) as store:
+            return store.get_account(context, account_id)
+
+    account = await asyncio.to_thread(load)
     if account is None:
         raise http_error(404, "Account not found")
     note = None
@@ -318,28 +336,32 @@ async def revoke_account(context: TenantContext, account_id: str, repository: An
             note = "The platform did not confirm the revocation; remove ANUM from the account's connected apps there too."
         if account.provider == Provider.META:
             note = "Meta tokens are removed here. To revoke the app entirely, remove ANUM under Facebook Settings > Business integrations."
-    now = utc_now()
-    with open_marketing_store(context) as store:
-        current = store.get_account(context, account_id, for_update=True)
-        if current is None:
-            raise http_error(404, "Account not found")
-        current.status = AccountStatus.REVOKED
-        current.access_token_ciphertext = current.refresh_token_ciphertext = None
-        current.token_expires_at = None
-        current.last_error = PlatformError(code="revoked", message="Disconnected.", fix=note or "Connect it again to publish to it.") if note else None
-        current.updated_at = now
-        store.save_account(current)
-        # Nothing waits to go out to a disconnected account.
-        from .store import PostQuery
 
-        for post in store.list_posts(context, PostQuery(statuses={PostStatus.SCHEDULED, PostStatus.PENDING_APPROVAL}, account_id=account_id, limit=500)):
-            post.status = PostStatus.DRAFT
-            post.approved_hash = None
-            post.last_error = PlatformError(code="account_revoked", message="The account was disconnected.", fix="Reconnect it, then schedule the post again.")
-            post.updated_at = now
-            store.save_post(post)
-    audit(repository, context, "marketing.account.revoked", account_id, metadata={"platform": account.platform.value})
-    return current
+    def forget(repository: AnumRepository) -> SocialAccount:
+        now = utc_now()
+        with open_marketing_store(context) as store:
+            current = store.get_account(context, account_id, for_update=True)
+            if current is None:
+                raise http_error(404, "Account not found")
+            current.status = AccountStatus.REVOKED
+            current.access_token_ciphertext = current.refresh_token_ciphertext = None
+            current.token_expires_at = None
+            current.last_error = PlatformError(code="revoked", message="Disconnected.", fix=note or "Connect it again to publish to it.") if note else None
+            current.updated_at = now
+            store.save_account(current)
+            # Nothing waits to go out to a disconnected account.
+            from .store import PostQuery
+
+            for post in store.list_posts(context, PostQuery(statuses={PostStatus.SCHEDULED, PostStatus.PENDING_APPROVAL}, account_id=account_id, limit=500)):
+                post.status = PostStatus.DRAFT
+                post.approved_hash = None
+                post.last_error = PlatformError(code="account_revoked", message="The account was disconnected.", fix="Reconnect it, then schedule the post again.")
+                post.updated_at = now
+                store.save_post(post)
+        audit(repository, context, "marketing.account.revoked", account_id, metadata={"platform": account.platform.value})
+        return current
+
+    return await run_in_unit(units, context, forget)
 
 
 # -- media --------------------------------------------------------------------------------------
@@ -606,7 +628,7 @@ def auto_post_covers(campaign: Campaign | None, post: Post, today: datetime) -> 
     return True
 
 
-async def schedule_post(context: TenantContext, post_id: str, when: datetime | None, repository: AnumRepository) -> PostView:
+def schedule_post(context: TenantContext, post_id: str, when: datetime | None, repository: AnumRepository) -> PostView:
     """Ask to publish a post: auto-post campaigns schedule it, everything else waits for approval."""
     now = utc_now()
     with open_marketing_store(context) as store:

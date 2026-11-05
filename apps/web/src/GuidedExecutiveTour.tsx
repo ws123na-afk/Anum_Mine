@@ -118,7 +118,7 @@ function TourBody({ stops, onArrive }: { stops: readonly TourStop[]; onArrive: P
     <div className="executiveTourActions">
       {state.phase === 'ready' && <button type="button" className="executiveTourPrimary" onClick={() => perform({ type: 'begin', at: at() })}><Play size={15} aria-hidden="true" /> {t('gt.begin')}</button>}
       {state.phase === 'touring' && <>
-        <button type="button" className="executiveTourPrimary" onClick={() => perform({ type: 'next', at: at() })}><ArrowRight size={15} aria-hidden="true" /> {last ? t('gt.finish') : t('gt.next')}</button>
+        <button type="button" className="executiveTourPrimary" onClick={() => perform({ type: 'next', at: at() })}><ArrowRight size={15} className="flipRtl" aria-hidden="true" /> {last ? t('gt.finish') : t('gt.next')}</button>
         <button type="button" onClick={() => perform({ type: 'pause', at: at() })}><Pause size={15} aria-hidden="true" /> {t('gt.pause')}</button></>}
       {state.phase === 'paused' && <button type="button" className="executiveTourPrimary" onClick={() => perform({ type: 'resume', at: at() })}><Play size={15} aria-hidden="true" /> {t('gt.resume')}</button>}
       {state.phase === 'finished' && <button type="button" onClick={() => perform({ type: 'reset', stops, at: at() })}><RotateCcw size={15} aria-hidden="true" /> {t('gt.restart')}</button>}

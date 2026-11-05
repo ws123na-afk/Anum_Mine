@@ -289,14 +289,14 @@ async def get_push_status(context: TenantContext = Depends(tenant_context)) -> P
 
 
 @router.get("/me/devices", response_model=list[PushDevice])
-async def list_my_devices(context: TenantContext = Depends(tenant_context)) -> list[PushDevice]:
+def list_my_devices(context: TenantContext = Depends(tenant_context)) -> list[PushDevice]:
     """The caller's own phones registered in this workspace (newest last)."""
     with open_push_device_store(context) as store:
         return [device.view() for device in store.list(context)]
 
 
 @router.post("/me/devices", response_model=PushDevice, status_code=status.HTTP_201_CREATED)
-async def register_my_device(
+def register_my_device(
     payload: DeviceRegistration,
     response: Response,
     context: TenantContext = Depends(tenant_context),
@@ -356,7 +356,7 @@ async def register_my_device(
 
 
 @router.delete("/me/devices/{device_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def remove_my_device(
+def remove_my_device(
     device_id: str,
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
@@ -450,6 +450,13 @@ TEXT_AR: dict[PushKind, tuple[str, str]] = {
 def push_text(kind: PushKind, language: str | None) -> tuple[str, str]:
     """The fixed title and body of a kind in the phone's language (English when unknown)."""
     return (TEXT_AR if language == "ar" else TEXT)[kind]
+
+# Notification kinds that stay in the app (the inbox row and the web bell): their
+# ``notification.created`` event never becomes a phone push. A visitor checked in for a host
+# (docs/ANUM_MINE_HQ_RECEPTION.md#host-notification) is one: owner rule, no autonomous email,
+# SMS or push.
+IN_APP_ONLY_KINDS = frozenset({"visitor_arrived", "budget_alert", "approval_reminder", "attendance_missed_check", "document_expiry", "vehicle_reminder",
+                               "purchase_reminder"})
 
 EVENT_KINDS: dict[str, PushKind] = {
     "approval.requested": PushKind.APPROVAL_REQUIRED,
@@ -553,6 +560,8 @@ def intent_for(event: DomainEvent) -> PushIntent | None:
         item = event.payload.get("work_item_id")
         if not isinstance(recipient, str) or not recipient:
             return None
+        if event.payload.get("kind") in IN_APP_ONLY_KINDS:
+            return None  # the inbox row only, never a phone push
         if event.payload.get("kind") == "missed_call":
             return PushIntent(**{**common, "kind": PushKind.MISSED_CALL}, recipient=recipient)
         if event.payload.get("kind") == "finance_daily_report":

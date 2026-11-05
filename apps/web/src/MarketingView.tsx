@@ -181,6 +181,10 @@ function PostCard({ post, setup, owner, onEdit, onChange, onRemove, onNotice }: 
   </li>;
 }
 
+/** The words a post's row shows (its title or text, then language, media and issues); its button's spoken name holds them in order (WCAG 2.5.3). */
+const postShown = (post: Post): string => post.title || post.text || t('pages.mk.noText');
+const postMeta = (post: Post): string => `${t(`marketing.language.${post.language}`)}${post.media.length > 0 ? ` · ${t('pages.mk.media', { count: post.media.length })}` : ''}${post.issues.some((issue) => issue.severity === 'error') ? ` · ${t('pages.mk.hasIssues')}` : ''}`;
+
 function PostsTab({ setup, campaigns, owner, onEdit, onNotice }: { setup: Setup; campaigns: Campaign[]; owner: boolean; onEdit: (post: Post) => void; onNotice: (text: string) => void }) {
   const [items, setItems] = useState<Post[]>([]);
   const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading'), [problem, setProblem] = useState<string | null>(null);
@@ -227,9 +231,9 @@ function PostsTab({ setup, campaigns, owner, onEdit, onNotice }: { setup: Setup;
         <caption className="visuallyHidden">{t('marketing.tab.posts')}</caption>
         <thead><tr><th scope="col">{t('pages.mk.col.post')}</th><th scope="col" className="optional">{t('pages.mk.col.account')}</th><th scope="col">{t('pages.mk.col.status')}</th><th scope="col" className="optional">{t('pages.mk.col.when')}</th></tr></thead>
         <tbody>{items.map((post) => <tr key={post.id} className={post.id === openId ? 'selected' : undefined}>
-          <th scope="row"><button type="button" className="cellButton" aria-haspopup="dialog" aria-label={t('pages.mk.openPost', { account: post.account_name || post.account_id, text: post.text.slice(0, 60) })} onClick={() => setOpenId(post.id)}>
-            <strong dir={post.language === 'ar' ? 'rtl' : 'auto'} lang={post.language} className="mkExcerpt">{post.title || post.text || t('pages.mk.noText')}</strong>
-            <small>{t(`marketing.language.${post.language}`)}{post.media.length > 0 ? ` · ${t('pages.mk.media', { count: post.media.length })}` : ''}{post.issues.some((issue) => issue.severity === 'error') ? ` · ${t('pages.mk.hasIssues')}` : ''}</small>
+          <th scope="row"><button type="button" className="cellButton" aria-haspopup="dialog" aria-label={`${t('pages.mk.openPost', { account: post.account_name || post.account_id, text: postShown(post) })}. ${postMeta(post)}`} onClick={() => setOpenId(post.id)}>
+            <strong dir={post.language === 'ar' ? 'rtl' : 'auto'} lang={post.language} className="mkExcerpt">{postShown(post)}</strong>{' '}
+            <small>{postMeta(post)}</small>
           </button></th>
           <td className="optional"><span className={`mkPlatform ${post.platform}`}>{platformName(post.platform)}</span> <span dir="auto">{post.account_name || post.account_id}</span></td>
           <td><Badge tone={statusTone(post.status)}>{statusName(post.status)}</Badge>{post.approval && <small>{t('pages.mk.awaitingApproval')}</small>}</td>
@@ -498,9 +502,11 @@ function CalendarTab({ setup, onEdit, onNew, onNotice }: { setup: Setup; onEdit:
   }
   const label = new Intl.DateTimeFormat(getLocale() === 'ar' ? 'ar-u-nu-latn' : 'en', { month: 'long', year: 'numeric' }).format(new Date(month.year, month.month, 1));
   const shift = (delta: number) => setMonth(({ year, month: current }) => { const next = new Date(year, current + delta, 1); return { year: next.getFullYear(), month: next.getMonth() }; });
+  // A chip's spoken name starts with the time and platform it shows (WCAG 2.5.3), then the account, status and full date.
+  const chipTime = (post: Post) => formatDateTime(post.scheduled_at ?? post.published_at ?? post.created_at, { hour: '2-digit', minute: '2-digit' });
   const chip = (post: Post) => <button type="button" key={post.id} className={`mkChip ${post.platform} ${post.status}`} draggable={movable(post)} onDragStart={(event: DragEvent) => { event.dataTransfer.setData('text/plain', post.id); setDragging(post.id); }} onDragEnd={() => setDragging(null)} onClick={() => (movable(post) ? onEdit(post) : post.external_url && window.open(post.external_url, '_blank', 'noreferrer'))}
-    aria-label={t('marketing.calendar.chip', { platform: platformName(post.platform), account: post.account_name, status: statusName(post.status), when: when(post.scheduled_at ?? post.published_at) })}>
-    <span className="mkChipTime">{formatDateTime(post.scheduled_at ?? post.published_at ?? post.created_at, { hour: '2-digit', minute: '2-digit' })}</span> {platformName(post.platform)}</button>;
+    aria-label={`${chipTime(post)}. ${t('marketing.calendar.chip', { platform: platformName(post.platform), account: post.account_name, status: statusName(post.status), when: when(post.scheduled_at ?? post.published_at) })}`}>
+    <span className="mkChipTime">{chipTime(post)}</span> {platformName(post.platform)}</button>;
   return <section aria-labelledby="mk-calendar-title" className="mkCalendar">
     <div className="mkCalendarHead"><button type="button" className="iconButton" aria-label={t('marketing.calendar.previous')} onClick={() => shift(-1)}><ChevronLeft aria-hidden="true" className="mkFlip" /></button>
       <h2 id="mk-calendar-title">{label}</h2>
@@ -514,9 +520,10 @@ function CalendarTab({ setup, onEdit, onNew, onNotice }: { setup: Setup; onEdit:
       {weeks.map((week) => <div className="mkWeek" role="row" key={dayKey(week[0])}>{week.map((date) => {
         const key = dayKey(date), items = (byDay.get(key) ?? []).map((index) => posts[index]);
         const outside = date.getMonth() !== month.month, isToday = key === dayKey(today);
-        return <div key={key} role="gridcell" className={`mkDay ${outside ? 'outside' : ''} ${isToday ? 'today' : ''} ${moving ? 'target' : ''}`} aria-label={formatDateTime(date, { dateStyle: 'full' })}
+        return <div key={key} role="gridcell" className={`mkDay ${outside ? 'outside' : ''} ${isToday ? 'today' : ''} ${moving ? 'target' : ''}`}
           onDragOver={(event) => { if (dragging) event.preventDefault(); }} onDrop={(event) => { event.preventDefault(); const id = event.dataTransfer.getData('text/plain'); setDragging(null); if (id) void move(id, date); }}>
-          <div className="mkDayHead"><span>{date.getDate()}</span>
+          {/* The cell is named by its content: the full date for screen readers in place of the bare day number, then its posts. */}
+          <div className="mkDayHead"><span aria-hidden="true">{date.getDate()}</span><span className="visuallyHidden">{formatDateTime(date, { dateStyle: 'full' })}</span>
             {moving ? <button type="button" className="linkButton" onClick={() => { void move(moving, date); setMoving(null); }}>{t('marketing.calendar.moveHere')}</button>
               : setup.can_write && !outside && <button type="button" className="mkAdd" aria-label={t('marketing.calendar.newOn', { day: formatDateTime(date, { dateStyle: 'medium' }) })} onClick={() => onNew(date)}><Plus aria-hidden="true" /></button>}</div>
           {items.map((post) => <div key={post.id} className="mkChipRow">{chip(post)}{movable(post) && !moving && <button type="button" className="mkMoveButton" aria-label={t('marketing.calendar.moveOf', { platform: platformName(post.platform), account: post.account_name })} onClick={() => setMoving(post.id)}>⇄</button>}</div>)}

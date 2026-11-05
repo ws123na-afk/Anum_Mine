@@ -1,0 +1,381 @@
+import assert from 'node:assert/strict';
+import { test } from 'node:test';
+import { readFileSync } from 'node:fs';
+import type { OfficeFlowSnapshot } from '@anum/contracts';
+import type { CampusBuilding, CampusTotals } from '../src/lib/campusModel.ts';
+import { translate, CATALOGS, type Locale, type MessageKey } from '../src/lib/i18n.ts';
+import {
+  BILLBOARD_FIELDS, BILLBOARD_READS, BILLBOARD_STALE_MS, billboardModel, billboardTexts, workOf, type BillboardFlow, type BillboardInput,
+} from '../src/hq-billboards/billboardModel.ts';
+import { BOARD_ASPECT, boardAtlasLayout, boardMesh, boardSites, boardWidth } from '../src/hq-billboards/billboardSites.ts';
+import { layoutCampus } from '../src/lib/campusModel.ts';
+import { buildCampusScene } from '../src/lib/campusScene.ts';
+
+// The billboard of a building shows only fixed messages and real record fields (docs/ANUM_MINE_HQ_BILLBOARDS.md). Every name here is plainly fake.
+const NOW = Date.parse('2026-10-26T10:00:00Z');
+const FRESH = '2026-10-26T09:59:30Z';
+const totals = (over: Partial<CampusTotals> = {}): CampusTotals => ({ agents: 0, working: 0, queued: 0, meeting: 0, waiting_approval: 0, blocked: 0, idle: 0, paused: 0, unknown: 0, ...over });
+const LEAK = 'ZZLEAK';
+
+const poisoned = (over: Record<string, unknown> = {}): CampusBuilding => ({
+  workspace_id: 'ws~bld_hq', tenant_id: `${LEAK}TENANT`, name: 'OKNAME Tower', nameAr: 'برج OKNAME', kind: 'executive', kindKnown: true, icon: `${LEAK}ICON`, role: `${LEAK}ROLE`,
+  rooms: 7, desks: 31, floors: 3, accessible: true, totals: totals({ agents: 6, working: 2, meeting: 1, waiting_approval: 1, idle: 2 }), presence_verified_at: FRESH,
+  realWorkspaceId: 'ws', registryBuildingId: 'bld_hq', workspaceName: `${LEAK}WORKSPACE`, people: [`${LEAK}PEOPLE`], departments: [`${LEAK}AGENTROLE`],
+  profileRevision: 4, archived: false, ...over,
+} as unknown as CampusBuilding);
+
+const room = (label: string, department: string | null) => ({
+  id: `${LEAK}ROOMID`, floorId: 'f', buildingId: 'b', label, labelAr: `${label} ع`, kind: 'office', x: 0, z: 0, width: 5, depth: 4, height: 3, capacity: 4, revision: 1,
+  deskIds: [`${LEAK}DESK`], teamDepartment: department, evidence: 'registry',
+});
+const plan = () => ({
+  floors: [
+    { id: 'f1', name: `${LEAK}FLOOR`, level: 0, rooms: [room('OKROOM Executive Office', 'marketing'), room('OKROOM Boardroom', 'sales')], desks: [{ id: 'd', roomId: 'r', label: 'Desk 1', position: { x: 0, y: 0, z: 0 }, agentId: `${LEAK}AGENTID`, agent: { name: `${LEAK}AGENTNAME` }, assignmentVisible: true }], bounds: { width: 10, depth: 10 } },
+    { id: 'f2', name: 'Upper', level: 1, rooms: [room('OKROOM Strategy Room', null), room('OKROOM Command Center', 'marketing'), room('OKROOM Lounge', null), room('OKROOM Library', null)], desks: [], bounds: { width: 10, depth: 10 } },
+  ],
+  lit: new Set([`${LEAK}LIT`]), seated: new Set([`${LEAK}SEATED`]),
+}) as unknown as NonNullable<BillboardInput['plan']>;
+
+const item = (key: string, stage: string, building: string | null, extra: Record<string, unknown> = {}) => ({
+  key, kind: 'task', id: key, title: `${LEAK}TITLE-${key}`, stage, status: `${LEAK}STATUS`, since: FRESH, created_at: FRESH,
+  location: building ? { building_id: building, floor_id: 'f', room_id: 'r', room_name: `${LEAK}ROOMNAME`, desk_id: 'd', agent_id: `${LEAK}A`, agent_name: `${LEAK}AGENT` } : null,
+  location_reason: null, stuck: null, waiting: null, ...extra,
+});
+const snapshot = (items: unknown[], over: Record<string, unknown> = {}): OfficeFlowSnapshot => ({
+  version: 1, workspace_id: 'ws', as_of: FRESH, cursor: null, thresholds: {}, sources: { tasks: 'connected', approvals: 'connected', leads: 'connected', orders: 'not_connected' },
+  items, rooms: {}, totals: {}, truncated: false, ...over,
+} as unknown as OfficeFlowSnapshot);
+const flowOf = (items: unknown[], status: BillboardFlow['status'] = 'ready', over: Record<string, unknown> = {}): BillboardFlow => ({ status, snapshot: snapshot(items, over) });
+
+const input = (over: Partial<BillboardInput> = {}, locale: Locale = 'en'): BillboardInput => ({
+  building: poisoned(), plan: plan(), flow: flowOf([item('a', 'in_office', 'bld_hq'), item('b', 'blocked', 'bld_hq'), item('c', 'waiting_human', 'bld_hq', { waiting: { code: 'approval_pending' } }), item('d', 'in_office', 'bld_other'), item('e', 'done', 'bld_hq'), item('f', 'in_office', null)]),
+  currentWorkspaceId: 'ws', now: NOW, locale, tr: (key, vars) => translate(locale, key, vars), ...over,
+});
+
+// ---- recording proxy: which properties does the model read?
+
+function track<T extends object>(value: T, path: string, log: Set<string>): T {
+  return new Proxy(value, {
+    get(target, key, receiver) {
+      const out = Reflect.get(target, key, receiver);
+      if (typeof key === 'symbol' || key === 'length' || typeof out === 'function') return out;
+      const part = Array.isArray(target) ? '[]' : `.${key}`;
+      const next = Array.isArray(target) ? `${path}[]` : `${path}.${key}`;
+      void part;
+      log.add(next);
+      return out && typeof out === 'object' && !(out instanceof Set) ? track(out as object, next, log) : out;
+    },
+  });
+}
+
+test('the billboard reads only the allowed record fields', () => {
+  const log = new Set<string>();
+  const base = input();
+  const model = billboardModel({ ...base, building: track(base.building, 'building', log), plan: track(base.plan!, 'plan', log), flow: track(base.flow!, 'flow', log) });
+  assert.ok(model.rows.length > 5);
+  const outside = [...log].filter((path) => !BILLBOARD_READS.includes(path));
+  assert.deepEqual(outside, [], 'a property outside BILLBOARD_READS was read');
+  assert.ok(log.has('building.totals.working') && log.has('plan.floors[].rooms[].label') && log.has('flow.snapshot.items[].stage'), 'the proxy sees the reads that matter');
+});
+
+test('no string comes from a field outside the allowed list, in English or Arabic', () => {
+  for (const locale of ['en', 'ar'] as const) {
+    const model = billboardModel(input({}, locale));
+    const texts = billboardTexts(model);
+    const ids = new Set<string>(BILLBOARD_FIELDS.map((f) => f.id));
+    for (const { field, text } of texts) {
+      assert.ok(ids.has(field), `unknown field ${field}`);
+      assert.ok(!text.includes(LEAK), `${field} leaks: ${text}`);
+      assert.ok(!/undefined|NaN|null|\[object/.test(text), `${field} prints a bad value: ${text}`);
+    }
+    const all = texts.map((x) => x.text).join(' | ');
+    assert.match(all, locale === 'en' ? /OKNAME Tower/ : /برج OKNAME/);
+    assert.match(all, locale === 'en' ? /OKROOM Executive Office/ : /OKROOM Executive Office ع/);
+  }
+});
+
+test('every fixed text is a catalogue message, every other text is a record field value', () => {
+  const fixedEn = new Set<string>();
+  for (const [key, message] of Object.entries(CATALOGS.en)) {
+    if (!key.startsWith('hqBillboard.') && !key.startsWith('hq.status.') && !key.startsWith('hq.kind.') && !key.startsWith('hq.building.') && !key.startsWith('hqNav.card.')) continue;
+    for (const form of typeof message === 'string' ? [message] : Object.values(message)) if (typeof form === 'string') fixedEn.add(form);
+  }
+  const model = billboardModel(input());
+  const fields = new Set(['name', 'roomNames', 'presenceTime', 'workTime']);
+  for (const { field, text } of billboardTexts(model)) {
+    if (fields.has(field)) continue;
+    const stripped = [...fixedEn].some((form) => new RegExp(`^${form.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/\\\{\w+\\\}/g, '.*')}$`).test(text));
+    const numberParts = /^[A-Za-z ]+ \d+\+?$/.test(text);
+    const departments = field === 'departments';
+    const sizeLine = field === 'floors' && / · /.test(text);
+    assert.ok(stripped || numberParts || departments || sizeLine || /^\d+\+?$/.test(text), `${field} text is neither fixed nor a plain count: ${text}`);
+  }
+});
+
+test('property check: random availability never prints data that is not there', () => {
+  let seed = 7;
+  const rnd = () => { seed = (seed * 1664525 + 1013904223) % 4294967296; return seed / 4294967296; };
+  for (let i = 0; i < 300; i++) {
+    const hasTotals = rnd() < 0.5, hasPlan = rnd() < 0.5, hasFlow = rnd() < 0.5, known = rnd() < 0.5;
+    const model = billboardModel(input({
+      building: poisoned({
+        totals: hasTotals ? totals({ agents: Math.floor(rnd() * 9), working: 1 }) : null, kindKnown: known, rooms: rnd() < 0.5 ? null : 4, floors: rnd() < 0.5 ? null : 2,
+        accessible: rnd() < 0.8, presence_verified_at: rnd() < 0.3 ? null : FRESH,
+      }),
+      plan: hasPlan ? plan() : null, flow: hasFlow ? flowOf([item('a', 'in_office', 'bld_hq')], rnd() < 0.5 ? 'ready' : 'error', { sources: { tasks: rnd() < 0.5 ? 'connected' : 'not_connected' } }) : null,
+    }));
+    const text = billboardTexts(model);
+    assert.ok(text.every((x) => !x.text.includes(LEAK)));
+    const hasPresence = hasTotals && model.accessible;
+    const presence = model.rows.find((r) => r.field === 'presence')!;
+    assert.equal(presence.connected, hasPresence, 'presence is connected only with a totals record');
+    if (!presence.connected) assert.equal(presence.value, 'Not connected');
+    assert.equal(model.rows.some((r) => r.field === 'presenceTime'), hasPresence, 'no verified time without presence');
+    const rooms = model.rows.find((r) => r.field === 'roomNames')!;
+    assert.equal(rooms.connected, hasPlan);
+    if (!hasPlan) assert.equal(rooms.value, 'Not connected');
+  }
+});
+
+test('an unavailable feed shows Not connected, never a zero', () => {
+  const m = billboardModel(input({ building: poisoned({ totals: null, rooms: null, floors: null }), plan: null, flow: null }));
+  const byField = (f: string) => m.rows.find((r) => r.field === f)!;
+  for (const f of ['presence', 'work', 'roomNames']) { assert.equal(byField(f).value, 'Not connected', f); assert.equal(byField(f).connected, false); assert.equal(byField(f).parts, undefined); }
+  assert.equal(m.summary, 'Not connected');
+  assert.ok(!m.rows.some((r) => r.field === 'presenceTime' || r.field === 'workTime'));
+  const ar = billboardModel(input({ building: poisoned({ totals: null }), flow: null }, 'ar'));
+  assert.equal(ar.rows.find((r) => r.field === 'presence')!.value, 'غير متصل');
+  // Another workspace's building has no flow of its own; a denied or failed flow is not a count either.
+  assert.equal(workOf(poisoned({ realWorkspaceId: 'other' }), flowOf([]), 'ws').state, 'not_connected');
+  assert.equal(workOf(poisoned(), { status: 'denied', snapshot: null }, 'ws').state, 'no_access');
+  assert.equal(workOf(poisoned(), { status: 'error', snapshot: null }, 'ws').state, 'not_connected');
+  assert.equal(workOf(poisoned(), flowOf([], 'ready', { sources: { tasks: 'not_connected' } }), 'ws').state, 'not_connected');
+});
+
+test('open work counts only tasks a record placed in this building, and says when the read failed', () => {
+  const w = workOf(poisoned(), input().flow, 'ws');
+  assert.deepEqual(w.state === 'ok' ? [w.open, w.waiting, w.blocked, w.stale, w.atLeast] : null, [3, 1, 1, false, false]);
+  const stale = workOf(poisoned(), { ...input().flow!, status: 'error' }, 'ws');
+  assert.equal(stale.state === 'ok' && stale.stale, true);
+  const cut = workOf(poisoned(), flowOf([item('a', 'in_office', 'bld_hq')], 'ready', { truncated: true }), 'ws');
+  assert.equal(cut.state === 'ok' && cut.atLeast, true);
+  const row = billboardModel(input({ flow: flowOf([item('a', 'in_office', 'bld_hq')], 'ready', { truncated: true }) })).rows.find((r) => r.field === 'work')!;
+  assert.equal(row.value, '1+');
+  // The workspace's only building (no registry id) takes every located task.
+  const own = workOf(poisoned({ registryBuildingId: undefined }), input().flow, 'ws');
+  assert.equal(own.state === 'ok' ? own.open : -1, 4);
+});
+
+test('presence shows the campus panel counts with a verified time, and calls an old record stale', () => {
+  const fresh = billboardModel(input());
+  const p = fresh.rows.find((r) => r.field === 'presence')!;
+  assert.deepEqual(p.parts?.map((x) => `${x.key}:${x.value}`), ['working:2', 'meeting:1', 'waiting_approval:1', 'idle:2']);
+  assert.match(fresh.rows.find((r) => r.field === 'presenceTime')!.value, /^Verified /);
+  const old = new Date(NOW - BILLBOARD_STALE_MS - 1000).toISOString();
+  const stale = billboardModel(input({ building: poisoned({ presence_verified_at: old }) })).rows.find((r) => r.field === 'presenceTime')!;
+  assert.equal(stale.stale, true);
+  assert.match(stale.value, /^Stale: last verified /);
+  const none = billboardModel(input({ building: poisoned({ presence_verified_at: null }) })).rows.find((r) => r.field === 'presenceTime')!;
+  assert.equal(none.value, 'Verification time not reported');
+  const empty = billboardModel(input({ building: poisoned({ totals: totals() }) })).rows.find((r) => r.field === 'presence')!;
+  assert.equal(empty.value, 'No agents');
+});
+
+test('what it does is a fixed sentence per kind, only for a kind the owner set, and rooms and departments are the registry ones', () => {
+  const about = (kind: string, known: boolean) => billboardModel(input({ building: poisoned({ kind, kindKnown: known }) })).rows.find((r) => r.field === 'purpose')!.value;
+  const sentences = ['executive', 'business', 'department', 'personal'].map((k) => about(k, true));
+  assert.equal(new Set(sentences).size, 4);
+  for (const s of sentences) assert.ok(!/\d/.test(s) && !/working|task|agent/i.test(s), `a kind sentence must not claim activity: ${s}`);
+  assert.match(about('executive', false), /not set yet/);
+  const m = billboardModel(input());
+  assert.equal(m.kindText, 'Executive');
+  assert.equal(billboardModel(input({ building: poisoned({ kindKnown: false }) })).kindText, null);
+  assert.equal(m.rows.find((r) => r.field === 'departments')!.value, 'Marketing, Sales');
+  assert.equal(m.rows.find((r) => r.field === 'roomNames')!.value, 'OKROOM Executive Office, OKROOM Boardroom, OKROOM Strategy Room, OKROOM Command Center, OKROOM Lounge, +1 more');
+  assert.equal(m.rows.find((r) => r.field === 'floors')!.value, '3 floors · 7 rooms');
+});
+
+test('the field table of the docs lists every field and its source', () => {
+  const doc = readFileSync(new URL('../../../docs/ANUM_MINE_HQ_BILLBOARDS.md', import.meta.url), 'utf8');
+  for (const f of BILLBOARD_FIELDS) assert.ok(doc.includes(`\`${f.id}\``), `docs must list the field ${f.id}`);
+  const keys = (Object.keys(CATALOGS.en) as MessageKey[]).filter((k) => k.startsWith('hqBillboard.'));
+  assert.deepEqual(keys.sort(), (Object.keys(CATALOGS.ar) as MessageKey[]).filter((k) => k.startsWith('hqBillboard.')).sort());
+});
+
+// ---- the boards in the scene
+
+const mk = (id: string, name: string, kind: CampusBuilding['kind'], floors: number): CampusBuilding => ({ workspace_id: id, tenant_id: 't', name, kind, icon: null, floors, accessible: true, totals: null, presence_verified_at: null });
+const fixture = () => ['a', 'b', 'c', 'd', 'e'].map((id, i) => mk(id, `Fake ${id}`, (['executive', 'business', 'department', 'personal', 'business'] as const)[i], 2));
+
+test('a board stands in front of each building, clear of the buildings, walkways and plaza, and is the same every time', () => {
+  const placements = layoutCampus(fixture());
+  const scene = buildCampusScene(placements);
+  const ctx = { placements, buildings: scene.buildings.map((b) => ({ workspaceId: b.workspaceId, box: b.box, door: b.door })), monument: scene.monument, extentRadius: scene.extent.radius, canalRadius: scene.canalRadius, plaza: scene.plaza };
+  const sites = boardSites(ctx);
+  assert.equal(sites.length, 5);
+  assert.deepEqual(sites, boardSites(ctx));
+  const width = boardWidth(scene.extent.radius);
+  sites.forEach((s, i) => {
+    const p = placements[i];
+    // In front: on the side of the building its door is on.
+    const toDoor = [scene.buildings[i].door.x - p.x, scene.buildings[i].door.z - p.z];
+    assert.ok((s.x - p.x) * toDoor[0] + (s.z - p.z) * toDoor[1] > 0, `board ${i} is not in front of its building`);
+    for (const other of scene.buildings) {
+      const inside = s.x > other.box.min.x && s.x < other.box.max.x && s.z > other.box.min.z && s.z < other.box.max.z;
+      assert.ok(!inside, `board ${i} stands inside a building`);
+    }
+    assert.ok(Math.hypot(s.x - scene.plaza.center.x, s.z - scene.plaza.center.z) > scene.plaza.outer, `board ${i} stands on the plaza`);
+    for (const a of scene.plaza.avenues) { const dx = a.to[0] - a.from[0], dz = a.to[1] - a.from[1], l2 = dx * dx + dz * dz; const k = Math.max(0, Math.min(1, ((s.x - a.from[0]) * dx + (s.z - a.from[1]) * dz) / l2)); assert.ok(Math.hypot(s.x - a.from[0] - k * dx, s.z - a.from[1] - k * dz) > 3, `board ${i} stands on an avenue`); }
+    assert.ok(Math.hypot(s.nx, s.nz) > 0.99);
+    assert.equal(s.width, width);
+    assert.equal(s.height, width * BOARD_ASPECT);
+  });
+  const mesh = boardMesh(sites);
+  assert.ok(mesh.triangles > 0 && mesh.triangles < 1000, `cheap: ${mesh.triangles} triangles`);
+  assert.equal(mesh.vertices.length / 13, mesh.triangles * 3);
+  assert.ok(mesh.halos.length === sites.length * 8);
+  // Wider campuses get wider boards, within limits.
+  assert.ok(boardWidth(200) > boardWidth(30) && boardWidth(200) <= 13 && boardWidth(1) >= 9);
+});
+
+test('the board atlas gives every board its own cell inside a canvas of at most 2048 x 1024', () => {
+  for (const count of [0, 1, 4, 5, 13, 16, 17, 64, 65, 300]) {
+    const layout = boardAtlasLayout(count);
+    assert.ok(layout.width === 2048 && layout.height <= 1024 && (layout.height & (layout.height - 1)) === 0, `canvas ${layout.width}x${layout.height} for ${count}`);
+    const seen = new Set<string>();
+    for (let i = 0; i < Math.min(count, layout.capacity); i++) {
+      const cell = layout.cell(i), o = layout.origin(i);
+      assert.ok(cell.u0 >= 0 && cell.u1 <= 1 && cell.v0 >= 0 && cell.v1 <= 1 && cell.u1 > cell.u0 && cell.v1 > cell.v0);
+      assert.ok(o.x + layout.cellW <= layout.width && o.y + layout.cellH <= layout.height);
+      // The texture cell is the canvas cell: u from the left, v measured up from the bottom.
+      assert.ok(Math.abs(cell.u0 * layout.width - o.x) < 1e-6 && Math.abs((1 - cell.v1) * layout.height - o.y) < 1e-6);
+      assert.ok(!seen.has(`${o.x},${o.y}`), 'two boards share a cell');
+      seen.add(`${o.x},${o.y}`);
+    }
+    if (count > 0 && count <= 16) assert.equal(layout.cellH, 256, 'up to sixteen boards keep the full 512 x 256 cell');
+    assert.equal(layout.cellW, 2 * layout.cellH);
+  }
+});
+
+test('the billboards are a separate pass: only the focused building has a card unless the camera is near, and the main labels never see them', () => {
+  const src = readFileSync(new URL('../src/CampusView.tsx', import.meta.url), 'utf8');
+  const labelsMemo = src.slice(src.indexOf('const labels: StageLabel[]'), src.indexOf('// The billboards are a separate pass'));
+  assert.ok(labelsMemo.length > 200 && !/billboard|boards/i.test(labelsMemo), 'the main label list must not contain billboards');
+  assert.ok(/extraLabels=\{extraLabels\}/.test(src) && (src.match(/labelKeepOut="([^"]*)"/g) ?? []).join() === 'labelKeepOut="[data-keepout]"', 'billboards go to the extra pass; the campus keeps its own keep-out selector');
+});
+
+test('the sign, logo and icon reads stay inside the whitelist: the brand colour, the logo id and hash, and each room\'s department or kind', () => {
+  const log = new Set<string>();
+  const base = input();
+  const sign = { buildingId: 'bld_hq', style: `${LEAK}STYLE`, color: '#1b3a6b', logoSha256: 'b'.repeat(64), uploadedBy: `${LEAK}UPLOADER` };
+  const building = track(poisoned({ sign }), 'building', log);
+  const model = billboardModel({ ...base, building, plan: track(base.plan!, 'plan', log), flow: track(base.flow!, 'flow', log) });
+  assert.deepEqual([...log].filter((path) => !BILLBOARD_READS.includes(path)), [], 'a property outside BILLBOARD_READS was read');
+  for (const path of ['building.sign.color', 'building.sign.logoSha256', 'building.sign.buildingId', 'plan.floors[].rooms[].kind']) assert.ok(log.has(path), `reads ${path}`);
+  assert.ok(!log.has('building.sign.style') && !log.has('building.sign.uploadedBy'), 'the board never reads the sign style or who uploaded it');
+  assert.deepEqual(model.logo, { buildingId: 'bld_hq', sha: 'b'.repeat(64) });
+  assert.deepEqual(model.icons, ['dept:marketing', 'dept:sales', 'kind:office']);
+  assert.ok(BILLBOARD_FIELDS.some((f) => f.id === 'logo') && BILLBOARD_FIELDS.some((f) => f.id === 'icons'));
+  assert.ok(!JSON.stringify(model).includes(LEAK));
+});
+
+// ---- every building kind has words on its card (a Career building once printed the raw key "hqBillboard.purpose.career")
+
+test('every building kind gets a purpose sentence and a kind name in both languages, never a raw message key', () => {
+  const KINDS = ['executive', 'business', 'department', 'personal', 'career'] as const satisfies readonly CampusBuilding['kind'][];
+  const rawKey = /\b[a-z]+[A-Z]?[a-zA-Z]*\.[a-z][a-zA-Z.]+\b/;
+  for (const locale of ['en', 'ar'] as const) {
+    for (const kind of KINDS) {
+      const model = billboardModel(input({ building: poisoned({ kind }) }, locale));
+      const purpose = model.rows.find((r) => r.field === 'purpose');
+      assert.ok(purpose && purpose.value.length > 0, `${locale} ${kind}: no purpose row`);
+      assert.doesNotMatch(purpose.value, rawKey, `${locale} ${kind}: purpose is a raw key`);
+      assert.ok(model.kindText, `${locale} ${kind}: no kind name`);
+      assert.doesNotMatch(model.kindText, rawKey, `${locale} ${kind}: kind name is a raw key`);
+      for (const { text } of billboardTexts(model)) assert.doesNotMatch(text, rawKey, `${locale} ${kind}: "${text}"`);
+    }
+  }
+  for (const key of ['hqBillboard.purpose.career', 'hqBillboard.close'] as MessageKey[]) {
+    assert.equal(typeof CATALOGS.en[key], 'string', key);
+    assert.equal(typeof CATALOGS.ar[key], 'string', key);
+  }
+});
+
+test('the focused billboard card (top priority) is pulled into the stage when its anchor is off the side, so its Close button stays reachable', async () => {
+  const { layoutLabels } = await import('../src/lib/hqLabels.ts');
+  const vp = new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]);
+  const sizeOf = () => ({ w: 250, h: 48 });
+  // Far off the left edge of a 378 x 539 phone stage, but in front of the camera.
+  const off = { x: -1.6, y: 0.1, z: 0.5 };
+  const [focused] = layoutLabels([{ id: 'billboard:a', anchor: off, priority: -1, tiers: ['full'], fine: true }], vp, 378, 539, sizeOf, 0);
+  assert.equal(focused.shown, true);
+  assert.ok(focused.x - 125 >= 0 && focused.x + 125 <= 378, `inside the stage at ${focused.x}`);
+  // An ordinary card in the same place keeps the old rule: parked out of sight until a focus brings it forward.
+  const [plain] = layoutLabels([{ id: 'billboard:b', anchor: off, priority: 1.9, tiers: ['compact', 'dot'] }], vp, 378, 539, sizeOf, 0);
+  assert.equal(plain.shown, false);
+});
+
+// ---- every building: another workspace's board facts (docs/ANUM_MINE_HQ_BILLBOARDS.md#every-building)
+
+const remoteBoard = (over: Record<string, unknown> = {}) => ({
+  asOf: FRESH, roomsTotal: 63, departments: ['finance', 'legal', `${LEAK}DEPT`],
+  rooms: [{ label: 'OKROOM Treasury', labelAr: 'OKROOM خزينة', kind: 'office', teamDepartment: 'finance' }, { label: 'OKROOM Court', labelAr: null, kind: 'meeting', teamDepartment: null }],
+  work: { source: 'connected', open: 4, waiting: 1, blocked: 0, truncated: false }, ...over,
+});
+const other = (remote: unknown, over: Record<string, unknown> = {}) => poisoned({ workspace_id: 'ws_other', realWorkspaceId: undefined, registryBuildingId: undefined, rooms: null, remote, ...over });
+
+test('another workspace\'s building shows its own open work, rooms and departments, read only through the whitelist', () => {
+  const log = new Set<string>();
+  const base = input({ building: other({ status: 'ready', board: remoteBoard() }), plan: null });
+  const m = billboardModel({ ...base, building: track(base.building, 'building', log), flow: track(base.flow!, 'flow', log) });
+  assert.deepEqual([...log].filter((p) => !BILLBOARD_READS.includes(p)), [], 'a property outside BILLBOARD_READS was read');
+  assert.ok(log.has('building.remote.board.work.open') && log.has('building.remote.board.rooms[].label'));
+  const row = (f: string) => m.rows.find((r) => r.field === f)!;
+  assert.deepEqual(row('work').parts?.map((p) => `${p.key}:${p.value}`), ['open:4', 'waiting:1', 'blocked:0']);
+  assert.match(m.rows.find((r) => r.field === 'workTime')!.value, /^Verified /);
+  assert.equal(row('departments').value, 'Finance, Legal');
+  // The rooms the server did not send are counted, never named.
+  assert.equal(row('roomNames').value, 'OKROOM Treasury, OKROOM Court, +61 more');
+  assert.equal(row('floors').value, '3 floors · 63 rooms');
+  // The open workspace's flow never counts for another workspace's building.
+  for (const t of billboardTexts(m)) assert.ok(!t.text.includes(LEAK), `leak in ${t.field}: ${t.text}`);
+  const ar = billboardModel(input({ building: other({ status: 'ready', board: remoteBoard() }), plan: null }, 'ar'));
+  assert.match(ar.rows.find((r) => r.field === 'roomNames')!.value, /OKROOM خزينة/);
+});
+
+test('another workspace: zero is zero, missing is Not connected, loading says so, a failed read offers Try again, an old answer is stale', () => {
+  const work = (remote: unknown, now = NOW) => billboardModel(input({ building: other(remote), plan: null, now })).rows.find((r) => r.field === 'work')!;
+  const zero = work({ status: 'ready', board: remoteBoard({ work: { source: 'connected', open: 0, waiting: 0, blocked: 0, truncated: false } }) });
+  assert.equal(zero.value, '0');
+  assert.equal(zero.connected, true);
+  assert.equal(work(undefined).value, 'Not connected');
+  assert.equal(work({ status: 'ready', board: null }).value, 'Not connected');
+  assert.equal(work({ status: 'unsupported', board: null }).value, 'Not connected');
+  assert.equal(work({ status: 'ready', board: remoteBoard({ work: { source: 'not_connected', open: null, waiting: null, blocked: null, truncated: false } }) }).value, 'Not connected');
+  assert.equal(work({ status: 'ready', board: remoteBoard({ work: { source: 'no_access', open: null, waiting: null, blocked: null, truncated: false } }) }).value, 'No access');
+  const loading = work({ status: 'loading', board: null });
+  assert.equal(loading.value, 'Loading');
+  assert.equal(loading.loading, true);
+  const failed = billboardModel(input({ building: other({ status: 'error', board: null }), plan: null }));
+  assert.equal(failed.rows.find((r) => r.field === 'work')!.failed, true);
+  assert.match(failed.rows.find((r) => r.field === 'roomNames')!.value, /Could not load/);
+  assert.equal(failed.retry, true);
+  assert.equal(failed.retryLabel, 'Try again');
+  assert.equal(billboardModel(input({ building: other({ status: 'ready', board: remoteBoard() }), plan: null })).retry, false);
+  // A failed later read keeps the last answer and calls it stale; so does an answer older than the stale window.
+  const kept = billboardModel(input({ building: other({ status: 'error', board: remoteBoard() }), plan: null }));
+  assert.equal(kept.rows.find((r) => r.field === 'work')!.stale, true);
+  assert.match(kept.rows.find((r) => r.field === 'workTime')!.value, /^Stale: last verified /);
+  const late = billboardModel(input({ building: other({ status: 'ready', board: remoteBoard() }), plan: null, now: NOW + BILLBOARD_STALE_MS + 60_000 }));
+  assert.equal(late.rows.find((r) => r.field === 'workTime')!.stale, true);
+  // A truncated flow is "at least".
+  assert.equal(work({ status: 'ready', board: remoteBoard({ work: { source: 'connected', open: 9, waiting: 0, blocked: 0, truncated: true } }) }).value, '9+');
+  // Counts that are not counts are never shown.
+  assert.equal(work({ status: 'ready', board: remoteBoard({ work: { source: 'connected', open: -1, waiting: 0, blocked: 0, truncated: false } }) }).value, 'Not connected');
+});
+
+test('the open workspace\'s own buildings never read another workspace\'s facts', () => {
+  const m = billboardModel(input({ building: poisoned({ remote: { status: 'ready', board: remoteBoard() } }) }));
+  assert.equal(m.rows.find((r) => r.field === 'work')!.parts?.[0].value, '3');
+  assert.ok(!m.rows.find((r) => r.field === 'roomNames')!.value.includes('Treasury'));
+});

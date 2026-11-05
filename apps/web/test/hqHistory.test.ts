@@ -4,7 +4,7 @@ import { describe, test } from 'node:test';
 import type { OfficeHistoryEvidence, OfficeHistoryPage } from '@anum/contracts';
 import {
   EMPTY_FILTERS, EMPTY_STATE, OFFICE_SCOPE, dateWindow, exportFilters, groupByDay, historyQuery, loadMore, parseHistoryPage,
-  relatesTo, sourceRefs, type HistoryScope,
+  newerRecords, relatesTo, sourceRefs, type HistoryScope,
 } from '../src/lib/hqHistory.ts';
 import { buildRoomTimeline, changeFor, desksAt, stateAt } from '../src/lib/hqRoomHistory.ts';
 
@@ -196,5 +196,31 @@ describe('source summaries', () => {
     const approval = summarizeSource('approval', { id: 'a1', action: 'send_email', arguments: { to: 'recipient-marker' }, status: 'pending' });
     assert.deepEqual(approval.fields.map((f) => f.label), ['hqHist.source.field.status']);
     assert.equal(approval.title, 'send_email');
+  });
+});
+
+describe('newer records while the panel is open', () => {
+  test('counts the new records above the newest one shown, never the ones already on screen', () => {
+    const old1 = rec('office.room.renamed', 'rooms/room_a', 1);
+    const old2 = rec('office.room.renamed', 'rooms/room_a', 0);
+    const new1 = rec('office.room.renamed', 'rooms/room_a', 3);
+    const new2 = rec('task.created', 'tasks/t1', 2);
+    assert.deepEqual(newerRecords([new1, new2, old1, old2], [old1, old2], OFFICE_SCOPE), { count: 2, atLeast: false });
+    assert.deepEqual(newerRecords([old1, old2], [old1, old2], OFFICE_SCOPE), { count: 0, atLeast: false });
+  });
+  test('a page with nothing shown on it is a lower bound; an empty timeline counts exactly', () => {
+    const a = rec('task.created', 'tasks/t1', 5);
+    const b = rec('task.created', 'tasks/t2', 4);
+    const shown = rec('task.created', 'tasks/t0', 0);
+    assert.deepEqual(newerRecords([a, b], [shown], OFFICE_SCOPE), { count: 2, atLeast: true });
+    assert.deepEqual(newerRecords([a, b], [], OFFICE_SCOPE), { count: 2, atLeast: false });
+    assert.deepEqual(newerRecords([], [shown], OFFICE_SCOPE), { count: 0, atLeast: false });
+  });
+  test('records outside the scope never count', () => {
+    const scope: HistoryScope = { kind: 'room', roomId: 'room_a', label: 'A', deskIds: [] };
+    const inRoom = rec('office.room.renamed', 'room_a', 3);
+    const other = rec('office.room.renamed', 'room_b', 2);
+    const shown = rec('office.room.renamed', 'room_a', 0);
+    assert.deepEqual(newerRecords([inRoom, other, shown], [shown], scope), { count: 1, atLeast: false });
   });
 });

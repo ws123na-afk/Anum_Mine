@@ -7,31 +7,34 @@ import type { AvatarAppearance } from '@anum/contracts';
 import type { OfficeFlowSnapshot } from '@anum/contracts';
 import type { ChangeBatch } from './useOfficeFlow';
 import { useFlowLabels } from './HqFlowStage';
-import { ArrowLeft, ChevronDown, DoorOpen, Layers } from 'lucide-react';
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { ChevronDown, DoorOpen, Layers } from 'lucide-react';
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-const SceneBackCard = lazy(() => import('./HqSceneStrips').then((m) => ({ default: m.SceneBackCard })));
-const FloorSelector = lazy(() => import('./HqSceneStrips').then((m) => ({ default: m.FloorSelector })));
 const LiveOpsStrip = lazy(() => import('./HqSceneStrips').then((m) => ({ default: m.LiveOpsStrip })));
 const FlowStrip = lazy(() => import('./HqSceneStrips').then((m) => ({ default: m.FlowStrip })));
+const SceneBackCard = lazy(() => import('./HqSceneStrips').then((m) => ({ default: m.SceneBackCard })));
+const FloorSelector = lazy(() => import('./HqSceneStrips').then((m) => ({ default: m.FloorSelector })));
+const BuildingFacts = lazy(() => import('./HqSceneStrips').then((m) => ({ default: m.BuildingFacts })));
 const CommercePanels = lazy(() => import('./BuildingPanels').then((m) => ({ default: m.CommercePanels })));
 const FloorRooms = lazy(() => import('./BuildingPanels').then((m) => ({ default: m.FloorRooms })));
 const TyrePanel = lazy(() => import('./BuildingPanels').then((m) => ({ default: m.TyrePanel })));
 const HqCommandWall = lazy(() => import('./HqCommandWall').then((m) => ({ default: m.HqCommandWall })));
-import { BottomToolbar, CameraTools, TotalsPanel } from './HqChrome';
-import { AgentLabelCard, FloorTagCard, RoomLabelCard } from './HqLabelCards';
-import { roomLabelSpecs, roomSubtitle } from './lib/hqLabelModel.ts';
+import { BottomToolbar, TotalsPanel } from './HqChrome';
+import { useIdleFade } from './useIdleFade';
+import { AgentLabelCard, FloorTagCard, RoomIcon, RoomLabelCard } from './HqLabelCards';
+import { roomLabelSpecs, roomSubtitle, visitorLine } from './lib/hqLabelModel.ts';
 import { HqStage, useAspect, type StageLabel } from './HqStage';
 import { visualOfStatus } from './hqAssets/interior/stateVisual.ts';
 import { buildBuildingScene, FLOOR_PITCH, WALL_HEIGHT, type DeskVisual } from './lib/buildingScene.ts';
 import { CUT_PITCH, STACK_AUTO_MAX, cutLifts, facingSides, snapYaw, type CutawayInfo, type Facade, type Side } from './lib/hqCutaway.ts';
-import { HOME_YAW, buildingFitCamera, floorOverviewCamera, clampInside, clampTarget, insideCamera, isInsideView, faceNorth, rotateBy, threeDView, topView, zoomBy } from './lib/hqCamera.ts';
+import { HOME_YAW, buildingFitCamera, floorOverviewCamera, clampInside, clampTarget, insideCamera, isInsideView, faceNorth, rotateBy, threeDView, topView } from './lib/hqCamera.ts';
 import { dolly, type CameraState } from './lib/headquartersSpatial.ts';
 import type { RoomGeometry, SceneBuilding, SceneDesk, SceneFloor } from './lib/headquartersProjection.ts';
 import { deskShiftLine, WORK_STATUSES } from './lib/hqShifts.ts';
 import { deskVisual } from './lib/hqDeskState.ts';
 import { roleText } from './lib/hqRoles.ts';
-import { presenceForDesk, totalsOf, type HqPresenceIndex } from './lib/hqPresence.ts';
+import { presenceForDesk, totalsOf, type HqPresenceIndex, type RoomMeeting } from './lib/hqPresence.ts';
+import { MAX_MEETING_CHAIRS, meetingAttendees, postOccupants, seatedInMeetings } from './lib/hqPosts.ts';
 import type { StatusKey } from './lib/campusModel.ts';
 import type { HqView } from './HqChrome';
 import type { CommerceLive, ModuleState, TyreLive } from './lib/hqModules.ts';
@@ -45,6 +48,7 @@ import { useLocale } from './useLocale';
 import { useArabicSignFont } from './lib/arabicFont.ts';
 import type { HqNavHandles } from './hq-nav/HqNavigation';
 import type { WallModel } from './lib/hqCommandWall.ts';
+import { useScreens } from './lib/hqScreens.ts';
 
 export type BuildingViewProps = Readonly<{
   workspaceName: string;
@@ -53,9 +57,19 @@ export type BuildingViewProps = Readonly<{
   building: SceneBuilding;
   floor: SceneFloor;
   presence: HqPresenceIndex | null;
+  /** Agents (and `desk:<id>`) of a shift not in force now: counted as off shift. */
+  offShift?: ReadonlySet<string>;
   unreported: readonly StatusKey[];
   verifiedAt: string | null;
   liveMeetings: number | null;
+  /** The live meetings by room id (stored participants): their people are seated at the room's table, nobody else. */
+  meetingRooms?: ReadonlyMap<string, RoomMeeting> | null;
+  /** Opens a room of any floor of this building: the floor is switched first, then the room is selected and framed. */
+  onOpenRoom?: (floorId: string, roomId: string) => void;
+  /** A room to frame once it is on the open floor (a pick from a list, the search or another floor), with a counter so the same room can be asked for again. */
+  focusRequest?: Readonly<{ roomId: string; n: number }> | null;
+  /** Stored count of checked-in visitors per reception room (`receptionCounts`); null when the register was not read (no line drawn). */
+  visitorCounts?: ReadonlyMap<string, number> | null;
   liveMeetingRoomIds: ReadonlySet<string>;
   commerce: ModuleState<CommerceLive>;
   tyre: ModuleState<TyreLive>;
@@ -80,17 +94,25 @@ export type BuildingViewProps = Readonly<{
   /** The navigation layer's camera bridge and thumbnail capture (flights, snapshots). */
   nav?: HqNavHandles;
   /** The open room or workstation panel, drawn over the scene (stacked under it on narrow screens). */
-  side: ReactNode;
   /** Stored work per room and the last move the server reported, for the live-flow badges and markers. */
   flow?: Readonly<{ snapshot: OfficeFlowSnapshot | null; batch: ChangeBatch; onPickRoom: (roomId: string) => void }>;
   /** Avatar style and department per agent id, from the agent profiles; an agent with no entry is drawn with the default style. */
   agentStyles?: ReadonlyMap<string, AgentStyleInfo>;
   /** The operations wall: real numbers (or "Not connected") drawn over an operations room while it is selected. */
   wall?: Readonly<{ model: WallModel; isOperations: (room: RoomGeometry) => boolean; onReload: () => void }>;
+  /** The presence stream is connected right now: the Live mark on the 3D wall shows only then. */
+  screenLive?: boolean;
 }>;
+
+/** A floor tag nearer the eye than this (metres) is inside the camera's near view and is not drawn. */
+const FLOOR_TAG_MIN_DEPTH = 3;
 
 export type AgentStyleInfo = Readonly<{ avatar: AvatarAppearance | null; department: string | null }>;
 
+
+/** The wall shows the tyre figures in a building that is for tyres, or any building whose tyre feed answers; a default building with no feed says nothing about tyres. */
+const wallTyre = (modules: ReturnType<typeof buildingModules>, tyre: ModuleState<TyreLive>): ModuleState<TyreLive> | null =>
+  modules.panels.includes('tyre') && (modules.source !== 'default' || tyre.state === 'ready') ? tyre : null;
 
 export function BuildingView(props: BuildingViewProps) {
   const { building, floor, view, night, presence } = props;
@@ -116,14 +138,17 @@ export function BuildingView(props: BuildingViewProps) {
     return map;
   }, [floors, presence]);
 
-  const people = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const f of floors) for (const d of f.desks) {
-      const p = presenceForDesk(presence, d);
-      if (d.agentId || p) map.set(d.id, d.agentId ?? p?.agentId ?? d.id);
-    }
+  // Who stands where (lib/hqPosts.ts): a person at a desk only with an assignment or presence record and on shift; the
+  // people of a live meeting in this building are seated in its room instead of at their desks.
+  const meetingRooms = props.meetingRooms ?? null;
+  const inMeeting = useMemo(() => seatedInMeetings(floors.flatMap((f) => f.rooms.map((r) => r.id)), meetingRooms), [floors, meetingRooms]);
+  const people = useMemo(() => postOccupants(floors, { presence, offShift: props.offShift, inMeeting }), [floors, presence, props.offShift, inMeeting]);
+  const attendees = useMemo(() => {
+    const map = new Map<string, ReturnType<typeof meetingAttendees>>();
+    if (!meetingRooms) return map;
+    for (const f of floors) for (const r of f.rooms) { const list = meetingAttendees(meetingRooms.get(r.id), props.agentStyles, MAX_MEETING_CHAIRS); if (list.length) map.set(r.id, list); }
     return map;
-  }, [floors, presence]);
+  }, [floors, meetingRooms, props.agentStyles]);
   const looks = useMemo(() => {
     const map = new Map<string, AgentStyleInfo>();
     for (const [deskId, agentId] of people) { const info = props.agentStyles?.get(agentId); if (info) map.set(deskId, info); }
@@ -132,10 +157,11 @@ export function BuildingView(props: BuildingViewProps) {
   // The overview and the top view look straight down at the open floor: the floors above would hide it, so they stay out of those views.
   const stackOn = showAll && !props.overview && view !== 'top';
   const scene = useMemo(
-    () => buildBuildingScene(floors, { activeIndex, showAll: stackOn, cutaway: true, selectedRoomId: props.selectedRoomId, deskState, meetingRoomIds: props.liveMeetingRoomIds, people, looks, locale }),
-    [floors, activeIndex, stackOn, props.selectedRoomId, deskState, props.liveMeetingRoomIds, people, looks, locale],
+    () => buildBuildingScene(floors, { activeIndex, showAll: stackOn, cutaway: true, selectedRoomId: props.selectedRoomId, deskState, meetingRoomIds: props.liveMeetingRoomIds, people, looks, attendees, locale }),
+    [floors, activeIndex, stackOn, props.selectedRoomId, deskState, props.liveMeetingRoomIds, people, looks, attendees, locale],
   );
   const [wrap, aspect] = useAspect();
+  const idle = useIdleFade(wrap);
   const { overview } = props;
   // The home camera fits the footprint, the turn of the isometric view and the shape of the stage; the overview camera fits the active floor from above.
   const fp = scene.footprint;
@@ -272,6 +298,22 @@ export function BuildingView(props: BuildingViewProps) {
     if (room && !latest.current.overview) focusRoom(room);
   }, [roomById, focusRoom]);
 
+  // A room asked for from outside the scene (another floor's label, the floor plan, the quick views, a list, the search, the
+  // assistant): once the room is on the open floor, the camera frames it. It runs after the floor's own glide was started, stops it
+  // and flies to the room instead, so the floor change and the room focus are one move. In the floor overview it only selects.
+  const doneFocus = useRef(0);
+  useEffect(() => {
+    const req = props.focusRequest;
+    if (!req || req.n === doneFocus.current) return;
+    const room = roomById.get(req.roomId);
+    if (!room) return; // its floor is not open yet: the next render (the new floor) frames it
+    doneFocus.current = req.n;
+    if (latest.current.overview || insideRef.current) return;
+    stopGlide();
+    shownFloor.current = activeIndex;
+    focusRoom(room);
+  }, [props.focusRequest, roomById, activeIndex, focusRoom]); // eslint-disable-line react-hooks/exhaustive-deps
+
   const targets: PickTarget[] = useMemo(() => scene.rooms.filter((r) => r.floorIndex === activeIndex).map((r) => ({ id: r.id, box: r.box })), [scene, activeIndex]);
   // The floor the person was on before this one, so the floor they just left can ease away instead of vanishing.
   const lastActive = useRef(activeIndex);
@@ -280,8 +322,15 @@ export function BuildingView(props: BuildingViewProps) {
     () => ({ ...floorLifts(scene.ghosts.map((g) => g.floorIndex), activeIndex, stackOn, lastActive.current !== activeIndex ? lastActive.current : null), ...cutLifts(cut) }),
     [scene, activeIndex, stackOn, cut],
   );
+  // The live faces of the monitors and the operations wall (the lazy screens chunk); a Tyre Pulse building's wall also shows the tyre figures.
+  const screens = useScreens({
+    screens: scene.screens, floor, floorIndex: activeIndex, floorY: activeIndex * FLOOR_PITCH + 0.06, presence, deskState, flow: props.flow?.snapshot ?? null,
+    wall: props.wall ?? null, tyre: wallTyre(buildingModules(building), props.tyre), buildingName: props.workspaceName,
+    live: props.screenLive === true, reducedMotion: props.reducedMotion, camera: cameraRef,
+  });
   const renderScene = useMemo(() => ({
     opaque: [
+      ...screens.items,
       { id: 'building', vertices: scene.opaque.vertices, bounds: scene.opaque.bounds, cull: false },
       ...scene.walls.map((w) => ({ id: `cut-o:${w.side}:${w.floorIndex}`, vertices: w.opaque.vertices, bounds: w.opaque.bounds, cull: false, lift: { group: `cut:${w.side}`, y: w.y } })),
       ...scene.ghosts.map((g) => ({ id: `floor-o:${g.floorIndex}`, vertices: g.opaque.vertices, bounds: g.opaque.bounds, cull: false, lift: { group: `floor:${g.floorIndex}`, y: g.y } })),
@@ -302,7 +351,7 @@ export function BuildingView(props: BuildingViewProps) {
     models: scene.models,
     halos: scene.halos,
     lifts,
-  }), [scene, props.workspaceName, lifts, fontsReady]);
+  }), [scene, props.workspaceName, lifts, fontsReady, screens.items]);
 
   const flowAnchor = useCallback((id: string) => scene.rooms.find((r) => r.id === id)?.anchor, [scene]);
   const flowLabels = useFlowLabels({
@@ -311,10 +360,17 @@ export function BuildingView(props: BuildingViewProps) {
   });
 
   const wantsStack = stackOn && floors.length > 1;
-  // The stacked view's helpers load the first time it is asked for; until then the labels are the single floor's.
+  // The floor tags' helpers (a lazy chunk the stage loads with the renderer); until they are here the scene has no floor tag.
   const [stackLib, setStackLib] = useState<typeof import('./lib/hqLabels.ts') | null>(null);
-  useEffect(() => { if (wantsStack && !stackLib) void import('./lib/hqLabels.ts').then(setStackLib); }, [wantsStack, stackLib]);
+  useEffect(() => { if (!stackLib) void import('./lib/hqLabels.ts').then(setStackLib); }, [stackLib]);
   const stacked = wantsStack && stackLib !== null;
+  // Zoomed in (closer than 60 % of the home framing) or inside a room: only the open floor keeps its tag (docs/ANUM_MINE_HQ_LABELS.md, "Declutter").
+  const zoomedIn = inside || camera.distance < home.distance * 0.6;
+  const focusBox = useMemo(() => {
+    const id = props.selectedRoomId;
+    const handle = id ? scene.rooms.find((r) => r.id === id && r.floorIndex === activeIndex) : null;
+    return handle ? [handle.box] as const : null;
+  }, [scene, props.selectedRoomId, activeIndex]);
   const labels: StageLabel[] = useMemo(() => {
     const list: StageLabel[] = [];
     const roomHandle = new Map(scene.rooms.map((r) => [r.id, r]));
@@ -344,15 +400,25 @@ export function BuildingView(props: BuildingViewProps) {
       const onFloor = spec.floor === activeIndex;
       list.push({
         id: spec.id, anchor: spec.anchor, priority: spec.priority, maxDistance: spec.maxDistance, tiers: spec.tiers, occluders: spec.occluders,
-        node: <RoomLabelCard name={roomName(room)} kind={room.kind} sub={roomSubtitle(room, c.desks)} working={c.working} live={props.liveMeetingRoomIds.has(room.id)} selected={room.id === props.selectedRoomId}
-          onPick={() => (onFloor ? pickRoom(room.id) : latest.current.onSelectFloor(floors[spec.floor].id))} />,
+        // No other room's card covers the room the camera is focused on.
+        avoid: focusBox && room.id !== props.selectedRoomId ? focusBox : undefined,
+        node: <RoomLabelCard name={roomName(room)} kind={room.kind} department={room.teamDepartment} sub={visitorLine(room.kind, props.visitorCounts?.get(room.id), roomSubtitle(room, c.desks))} working={c.working} live={props.liveMeetingRoomIds.has(room.id)} selected={room.id === props.selectedRoomId}
+          onPick={() => (onFloor ? pickRoom(room.id) : latest.current.onOpenRoom ? latest.current.onOpenRoom(floors[spec.floor].id, room.id) : latest.current.onSelectFloor(floors[spec.floor].id))} />,
       });
     }
-    if (stacked && stackLib) {
-      for (const tag of stackLib.floorTagSpecs({ floors, activeIndex })) {
+    if (stackLib) {
+      // Floor tags: the open floor's own tag, and with All floors one compact tag per floor at its own edge (never the others while zoomed in).
+      // Each stays at its anchor or gives way, is hidden off the stage, behind a slab above it, too near the eye or over the focused room.
+      // Anchored at the drawn slab of each floor (the structure grows a lower slab to hold the floors above it), hidden behind the drawn slabs above.
+      const plans = new Map(scene.structure.slabs.map((b) => [b.floorIndex, b] as const));
+      const above = stacked ? stackLib.drawnSlabsAbove(floors.length, scene.structure.slabs) : null;
+      for (const tag of stackLib.floorTagSpecs({ floors, activeIndex, plans })) {
+        const active = tag.floor === activeIndex;
+        if (!active && (!stacked || zoomedIn)) continue;
         const f = floors[tag.floor];
         list.push({ id: tag.id, anchor: tag.anchor, alternatives: tag.alternatives, priority: tag.priority, maxDistance: tag.maxDistance, tiers: tag.tiers,
-          node: <FloorTagCard name={sceneName(f)} rooms={f.rooms.length} active={tag.floor === activeIndex} onPick={() => latest.current.onSelectFloor(f.id)} /> });
+          anchored: true, minDepth: FLOOR_TAG_MIN_DEPTH, occluders: above?.[tag.floor], avoid: focusBox ?? undefined,
+          node: <FloorTagCard name={sceneName(f)} rooms={f.rooms.length} active={active} onPick={() => latest.current.onSelectFloor(f.id)} /> });
       }
     }
     // Agent cards: only for a desk with a real agent record (registry assignment or presence), on the active floor.
@@ -370,22 +436,14 @@ export function BuildingView(props: BuildingViewProps) {
         node: <AgentLabelCard offShift={deskShiftLine(desk.shiftInfo, p ? WORK_STATUSES.has(p.status) : false)} chip={hidden ? null : { id: key, avatar: props.agentStyles?.get(key)?.avatar ?? null, department: props.agentStyles?.get(key)?.department ?? p?.role ?? null }} name={hidden ? t('hq.agent.private') : (p?.name || desk.agent?.name || t('hq.agent.assigned'))} role={p?.role ? roleText(p.role) : null} status={p?.status ?? null} stale={p?.stale === true} selected={key === props.selectedAgentId} onPick={() => latest.current.onSelectAgent(key, desk)} />,
       });
     }
-    const wallRoomId = props.selectedRoomId ?? insideRoomId;
-    if (props.wall && wallRoomId) {
-      const room = roomById.get(wallRoomId);
-      const handle = roomHandle.get(wallRoomId);
-      if (room && handle && props.wall.isOperations(room)) {
-        // The board hangs where the room's video wall is: on the back wall, so the Inside view looks straight at it.
-        list.push({ id: 'wall:' + room.id, anchor: { x: (handle.box.min.x + handle.box.max.x) / 2, y: handle.box.min.y + 1.7, z: handle.box.min.z + 0.5 }, priority: 0, maxDistance: 220, node: <Suspense fallback={null}><HqCommandWall model={props.wall.model} variant="scene" onReload={props.wall.onReload} /></Suspense> });
-      }
-    }
+    // The operations wall is not drawn over the scene: its numbers are in the docked room panel and the building panels below (and on the room's own 3D wall screen).
     return [...list, ...flowLabels];
-  }, [roomById, insideRoomId, props.wall, scene, floor, floors, presence, props.selectedRoomId, props.selectedAgentId, props.liveMeetingRoomIds, props.agentStyles, activeIndex, pickRoom, flowLabels, overview, stacked, stackLib]);
+  }, [roomById, insideRoomId, props.wall, scene, floor, floors, presence, props.selectedRoomId, props.selectedAgentId, props.liveMeetingRoomIds, props.agentStyles, activeIndex, pickRoom, flowLabels, overview, stacked, stackLib, zoomedIn, focusBox]);
 
-  const agents = useMemo(() => (presence ? totalsOf([...presence.byAgent.values()]) : null), [presence]);
+  const agents = useMemo(() => (presence ? totalsOf([...presence.byAgent.values()], props.offShift) : null), [presence, props.offShift]);
   const insideRoom = insideRoomId ? roomById.get(insideRoomId) ?? null : null;
   const keep = (c: CameraState): CameraState => (insideRoom && isInsideView(c) ? clampInside(c, insideRoom) : clampTarget(c, 400));
-  const change = (fn: (c: CameraState) => CameraState) => { stopGlide(); setCamera((c) => keep(fn(c))); };
+  const change = (fn: (c: CameraState) => CameraState) => { stopGlide(); props.nav?.bridge.cancel(); setCamera((c) => keep(fn(c))); };
   const stepFloor = (d: 1 | -1) => { const f = floors[activeIndex + d]; if (f) props.onSelectFloor(f.id); };
   const roomsTotal = floors.reduce((n, f) => n + f.rooms.length, 0);
   const modules = useMemo(() => buildingModules(building), [building]);
@@ -415,7 +473,6 @@ export function BuildingView(props: BuildingViewProps) {
           </label>
         )}
         <div className="hqFloorControl" role="group" aria-label={t('hq.floor.label')}>
-          <button type="button" onClick={() => stepFloor(-1)} disabled={activeIndex <= 0} aria-label={t('hq.floor.down')}><ArrowLeft aria-hidden="true" className="flip" /></button>
           <label className="hqSelect compactSelect">
             <span className="hqSrOnly">{t('hq.floor.pick')}</span>
             <Layers aria-hidden="true" />
@@ -423,7 +480,6 @@ export function BuildingView(props: BuildingViewProps) {
               {floors.map((f) => <option key={f.id} value={f.id}>{sceneName(f, locale)}</option>)}
             </select>
           </label>
-          <button type="button" onClick={() => stepFloor(1)} disabled={activeIndex >= floors.length - 1} aria-label={t('hq.floor.up')}><ArrowLeft aria-hidden="true" className="flipOpposite" /></button>
           <span className="hqFloorCount" data-testid="hq-floor-count">{t('hq.floor.count', { index: activeIndex + 1, count: floors.length })}</span>
           <div className="hqSegment" role="group" aria-label={t('hq.facade.label')}>
             {(['cutaway', 'closed'] as const).map((f) => (
@@ -436,13 +492,13 @@ export function BuildingView(props: BuildingViewProps) {
 
       <p className="hqSrOnly" role="status" aria-live="polite" data-testid="hq-facade-live">{facadeSaid ? t(`hq.facade.${facade}Now` as MessageKey) : ''}</p>
       <p className="hqSrOnly" role="status" aria-live="polite" data-testid="hq-floor-live">{t('hq.floor.now', { name: floorTitle, index: activeIndex + 1, count: floors.length })}</p>
-      <div className="hqSceneWrap" ref={wrap} data-facade={cut.facade} data-cut-sides={cut.cutSides.join(' ')} data-roof-open={cut.roofOpen} data-stack={stackOn} data-camera-yaw={camera.yaw.toFixed(1)} data-camera-distance={camera.distance.toFixed(2)} data-camera-eye-y={(camera.target.y + Math.sin((camera.pitch * Math.PI) / 180) * camera.distance).toFixed(2)}>
+      <div className="hqSceneWrap" ref={wrap} data-facade={cut.facade} data-cut-sides={cut.cutSides.join(' ')} data-roof-open={cut.roofOpen} data-stack={stackOn} data-screen-texts={screens.texts || undefined} data-camera-yaw={camera.yaw.toFixed(1)} data-camera-distance={camera.distance.toFixed(2)} data-camera-eye-y={(camera.target.y + Math.sin((camera.pitch * Math.PI) / 180) * camera.distance).toFixed(2)}>
         <HqStage
           label={t('hq.building.stageLabel', { name: props.workspaceName, floor: floorTitle })} description={t('hq.building.stageHelp')}
           scene={renderScene} pickTargets={targets} camera={camera} homeCamera={view === 'top' ? topView(home) : home}
           onCamera={(c) => { stopGlide(); setCamera(keep(c)); }} night={night} reducedMotion={props.reducedMotion}
           hoverId={null} selectedId={null} onHover={() => undefined}
-          onPick={pickRoom} labels={labels} panMode={panMode} labelKeepOut="[data-keepout]" onUnavailable={props.onUnavailable} onCanvasFrame={props.nav?.capture.onFrame}
+          screenAtlas={screens.atlas} onPick={pickRoom} labels={labels} panMode={panMode} labelKeepOut="[data-keepout]" onUnavailable={props.onUnavailable} onCanvasFrame={props.nav?.capture.onFrame}
         />
         {floor.rooms.length === 0 && (
           <div className="hqEmptyFloor" role="status">
@@ -454,40 +510,26 @@ export function BuildingView(props: BuildingViewProps) {
         )}
         <div className="hqOverlay hqOverlayTopLeft" data-keepout="">
           <Suspense fallback={<h2 className="hqSrOnly">{props.workspaceName}</h2>}>
-            <SceneBackCard
-              name={props.workspaceName} kindLabel={props.kindLabel} totals={agents} floors={floors.length} rooms={roomsTotal} meetings={props.liveMeetings} onBack={props.onBack}
-              orders={modules.panels.includes('commerce') && props.commerce.state === 'ready' ? props.commerce.data.orders : null}
-            />
+            <SceneBackCard name={props.workspaceName} totals={agents} onBack={props.onBack} />
           </Suspense>
         </div>
-        <div className="hqOverlay hqOverlayFlow" data-keepout="">
-          <Suspense fallback={null}><FlowStrip snapshot={props.flow?.snapshot} /></Suspense>
-        </div>
-        <div className="hqOverlay hqOverlayRight" data-keepout="">
-          <CameraTools
-            yaw={camera.yaw} night={night} onNight={props.onNight}
-            onZoomIn={() => change((c) => zoomBy(c, 0.8))} onZoomOut={() => change((c) => zoomBy(c, 1.25))}
-            onReset={() => { setInside(false); setHomeYaw(HOME_YAW); setCamera(view === 'top' ? topView(home) : buildingFitCamera(fitBox, aspect, CUT_PITCH, HOME_YAW)); }} onNorth={() => change(faceNorth)}
-          />
-        </div>
-        {props.side && <div className="hqOverlay hqSideOverlay" data-keepout="">{props.side}</div>}
         <div className="hqOverlay hqOverlayBottom hqDock" data-keepout="">
-          <div className="hqDockOps">
-            <Suspense fallback={null}><LiveOpsStrip totals={agents} unreported={props.unreported} snapshot={props.flow?.snapshot} /></Suspense>
-          </div>
           <div className="hqDockTools">
           <BottomToolbar
+            idle={idle}
             inside={{ active: inside, disabled: !selectedRoom || view === 'top', onToggle: toggleInside }}
             overview={{ active: overview, onToggle: toggleOverview }}
             onRotateLeft={() => turn(-1)} onRotateRight={() => turn(1)}
-            onPrev={() => stepFloor(-1)} onNext={() => stepFloor(1)} prevDisabled={activeIndex <= 0} nextDisabled={activeIndex >= floors.length - 1} prevLabel={t('hq.floor.down')} nextLabel={t('hq.floor.up')}
             onZoomIn={() => change((c) => dolly(c, -250))} onZoomOut={() => change((c) => dolly(c, 250))}
+            onReset={() => { stopGlide(); props.nav?.bridge.cancel(); setInside(false); setHomeYaw(HOME_YAW); setCamera(view === 'top' ? topView(home) : buildingFitCamera(fitBox, aspect, CUT_PITCH, HOME_YAW)); }}
+            north={{ yaw: camera.yaw, onNorth: () => change(faceNorth) }} light={{ night, onNight: props.onNight }}
             pan={{ active: panMode, onToggle: () => setPanMode((v) => !v) }}
             fullscreen={props.fullscreen} onFullscreen={props.onToggleFullscreen}
           />
           </div>
           <div className="hqDockFloors">
-            <Suspense fallback={null}><FloorSelector floors={floors.map((f) => ({ id: f.id, name: sceneName(f) }))} activeId={floor.id} stacked={showAll && floors.length > 1} onPick={props.onSelectFloor} onStack={setShowAll} /></Suspense>
+            <Suspense fallback={null}><FloorSelector floors={floors.map((f) => ({ id: f.id, name: sceneName(f) }))} activeId={floor.id} stacked={showAll && floors.length > 1} onPick={props.onSelectFloor} onStack={setShowAll}
+              onStep={stepFloor} canDown={activeIndex > 0} canUp={activeIndex < floors.length - 1} /></Suspense>
           </div>
         </div>
       </div>
@@ -497,6 +539,14 @@ export function BuildingView(props: BuildingViewProps) {
       {overview && floor.rooms.length > 0 && <Suspense fallback={null}><FloorRooms floor={floor} has={(d) => !!presenceForDesk(presence, d)} selectedRoomId={props.selectedRoomId} onPick={pickRoom} onLeave={() => props.onOverview(false)} /></Suspense>}
 
       <div className="hqBottomPanels">
+        <Suspense fallback={null}>
+          <BuildingFacts kindLabel={props.kindLabel} totals={agents} floors={floors.length} rooms={roomsTotal} meetings={props.liveMeetings}
+            orders={modules.panels.includes('commerce') && props.commerce.state === 'ready' ? props.commerce.data.orders : null} />
+        </Suspense>
+        <div className="hqLiveRow">
+          <Suspense fallback={null}><LiveOpsStrip totals={agents} unreported={props.unreported} snapshot={props.flow?.snapshot} /></Suspense>
+          <Suspense fallback={null}><FlowStrip snapshot={props.flow?.snapshot} /></Suspense>
+        </div>
         <TotalsPanel
           title={t('hq.team.title')} totals={agents} unreported={props.unreported} compact verifiedAt={props.verifiedAt}
           note={presence && agents && agents.agents === 0 ? t('hq.team.none') : null}
@@ -513,7 +563,7 @@ export function BuildingView(props: BuildingViewProps) {
 function OverviewCard(props: { room: RoomGeometry; desks: number; assigned: number; selected: boolean; onPick: () => void }) {
   return (
     <button type="button" className="hqLabelCard hqOverviewCard" data-selected={props.selected} data-kind={props.room.kind} aria-pressed={props.selected} onClick={props.onPick}>
-      <span className="hqLabelIcon" data-kind={props.room.kind} aria-hidden="true" />
+      <RoomIcon kind={props.room.kind} department={props.room.teamDepartment} />
       <span className="hqLabelText"><strong>{roomName(props.room)}</strong><small>{t(`hq.roomKind.${props.room.kind}` as MessageKey)}</small><small>{t('hqFloor.stats', { desks: props.desks, agents: props.assigned })}</small></span>
     </button>
   );

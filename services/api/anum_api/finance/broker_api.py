@@ -3,24 +3,31 @@
 POST endpoints receive user-supplied snapshots, never broker credentials. They
 perform validation and calculations in memory only. No deposits, real orders,
 broker fetch, approval bypass or cross-account operations are possible.
+
+``/readiness`` is the live eligibility preflight: it also reads the person's own
+live preconditions (read only) and records an audit row with ids only.
 """
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
-from ..dependencies import tenant_context
+from ..dependencies import repository_context, tenant_context
+from ..repository import AnumRepository
 from ..schemas import TenantContext
-from .api import _read
+from . import gateway
+from .api import _audit, _read
 from .broker_import import parse_broker_statement_csv
 from .broker_analytics import StatementAnalytics, analyze_broker_statement
 from .broker_history import StatementChangeReport, compare_broker_history
 from .broker_paper import PaperSimulationRequest, PaperSimulationResult, simulate_paper_trade
-from .broker_readiness import BrokerReadiness, BrokerReadinessResult, evaluate_broker_readiness
+from .live import Precondition
+from .broker_readiness import BrokerKind, BrokerProfile, BrokerReadiness, LivePreflightResult, evaluate_live_preflight
 from .broker_reconciliation import (
     BrokerDataError, BrokerReconciliation, BrokerSnapshot,
     ReconciliationTolerance, reconcile_snapshots,
 )
+from .store import open_finance_store
 
 router = APIRouter(prefix="/api/v1/finance/broker", tags=["finance"])
 
@@ -40,7 +47,8 @@ class ReconcileRequest(BaseModel):
 
 class ReadinessRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    facts: BrokerReadiness
+    facts: BrokerReadiness = Field(default_factory=BrokerReadiness)
+    profile: BrokerProfile | None = None
 
 
 @router.post("/statement-preview", response_model=BrokerSnapshot)
@@ -69,12 +77,29 @@ def reconcile(
         raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
-@router.post("/readiness", response_model=BrokerReadinessResult)
+@router.post("/readiness", response_model=LivePreflightResult)
 def readiness(
-    request: ReadinessRequest, context: TenantContext = Depends(tenant_context),
-) -> BrokerReadinessResult:
+    request: ReadinessRequest,
+    context: TenantContext = Depends(tenant_context),
+    repository: AnumRepository = Depends(repository_context),
+) -> LivePreflightResult:
+    """Live eligibility preflight: what is still missing before live could ever be considered.
+
+    Read only. It changes no setting, connects nothing and sends no order; the answer
+    always says live trading is off and zero orders were sent. The audit row holds ids
+    only (no country, assets or ticked facts).
+    """
     _read(context)
-    return evaluate_broker_readiness(request.facts)
+    with open_finance_store(context) as store:
+        system = gateway.preconditions(store, context)
+    ibkr: list[Precondition] = []
+    if request.profile is not None and request.profile.broker == BrokerKind.INTERACTIVE_BROKERS:
+        from .ibkr_api import live_gate_preconditions
+
+        ibkr = [Precondition(code=c.code, met=c.ok, message=c.message) for c in live_gate_preconditions(context)]
+    result = evaluate_live_preflight(request.facts, request.profile, system, ibkr)
+    _audit(repository, context, "finance.broker.live_preflight", context.user_id)
+    return result
 
 
 @router.post("/analyze", response_model=StatementAnalytics)

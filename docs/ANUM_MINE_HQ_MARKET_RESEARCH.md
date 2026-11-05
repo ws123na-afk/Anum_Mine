@@ -9,7 +9,7 @@ Note: `docs/ANUM_MINE_HQ_EXTENSION_POINTS.md` named in the request does not exis
 ## 1. Current state (verified in code on main)
 
 ### 1.1 Data model and API
-Registry API, prefix `/api/v1/office-spaces` (`services/api/anum_api/office_space_api.py`, store in `office_space_store.py`). Tables from migration `0097_office_spaces`: `office_buildings`, `office_floors`, `office_rooms`, `office_desks`, all with forced row level security on tenant and workspace. Idempotency claims from `0099_office_create_keys`. Room geometry from revision `0100_office_room_geometry` (file `0099_office_room_geometry.py`).
+Registry API, prefix `/api/v1/office-spaces` (`services/api/anum_api/office_space_api.py`, store in `office_space_store.py`). Tables from migration `0097_office_spaces`: `office_buildings`, `office_floors`, `office_rooms`, `office_desks`, all with forced row level security on tenant and workspace. Idempotency claims from `0099_office_create_keys`. Room geometry from revision `0100_office_room_geometry` (file `0100_office_room_geometry.py`).
 
 | Capability | Endpoint | Permission | Notes |
 |---|---|---|---|

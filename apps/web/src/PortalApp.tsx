@@ -496,7 +496,10 @@ function InvoiceDetail({ id, onBack, onLinkLost }: { id: string; onBack: () => v
     {invoice.status !== 'void' && !settled && <section className="surface ptDecision" aria-labelledby="pt-how-h">
       <h3 id="pt-how-h">{t('pt.invoices.howToPay')}</h3>
       {invoice.seller.bank_details ? <p dir="auto" className="ptPre">{invoice.seller.bank_details}</p> : <p className="muted">{t('pt.invoices.noBank')}</p>}
-      <p className="muted">{t('pt.invoices.noOnline')}</p>
+      {invoice.payment_url
+        ? <><p className="muted">{t('pt.invoices.payByCardHelp')}</p>
+          <div className="actions"><a className="button" href={invoice.payment_url} target="_blank" rel="noopener noreferrer">{t('pt.invoices.payByCard')}</a></div></>
+        : <p className="muted">{t('pt.invoices.noOnline')}</p>}
       {invoice.payment_terms && <p dir="auto" className="ptPre">{invoice.payment_terms}</p>}
     </section>}
     {(invoice.payment_notices.length > 0 || invoice.can_report_payment || (invoice.status === 'sent' && !settled)) && <section className="ptBlock" aria-labelledby="pt-report-h">

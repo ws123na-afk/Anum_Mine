@@ -115,6 +115,7 @@ export const teamEn = {
   'team.dept.security': 'Security',
   'team.dept.hr': 'People (HR)',
   'team.dept.procurement': 'Procurement',
+  'team.dept.executive': 'Executive',
   'team.dept.custom': 'Other',
   'team.noProfile': 'No team profile yet, so ANUM cannot find this person by name.',
   'team.editMine': 'Edit my profile',

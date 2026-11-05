@@ -29,6 +29,8 @@
 .callsRows li.selected .callsRow { background: var(--d-glass-2); border-color: rgb(var(--c-violet) / .4); }
 .callsRowIcon { color: var(--d-sky); display: grid; flex: none; height: 32px; place-items: center; width: 32px; }
 .callsRowIcon svg { height: 18px; width: 18px; }
+/* Initials come from data-initials, so a row named by its text never shows a word its name lacks. */
+.callsAvatar[data-initials]::before { content: attr(data-initials); }
 .callsAvatar {
   align-items: center; background: rgb(var(--c-violet) / .16); border: 1px solid rgb(var(--c-violet) / .35); border-radius: 999px; color: var(--d-violet-text);
   display: inline-flex; flex: none; font-size: var(--text-sm); font-weight: 700; height: 36px; justify-content: center; width: 36px;

@@ -176,3 +176,18 @@ test('an empty workspace points at the composer', async ({ page }) => {
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1);
   expect(overflow).toBe(false);
 });
+
+test('Run task with nothing written says what to write instead of doing nothing', async ({ page }) => {
+  await mockApi(page);
+  await page.goto('/#tasks');
+  const run = page.getByRole('button', { name: 'Run task' });
+  await expect(run).toBeEnabled();
+  await run.click();
+  const instructions = page.getByLabel('Task instructions');
+  await expect(page.getByRole('alert').filter({ hasText: 'Write what the task should do, then run it.' })).toBeVisible();
+  await expect(instructions).toBeFocused();
+  await expect(instructions).toHaveAttribute('aria-invalid', 'true');
+  await instructions.fill('Review the release');
+  await expect(page.getByText('Write what the task should do, then run it.')).toHaveCount(0);
+  await expect(instructions).not.toHaveAttribute('aria-invalid', 'true');
+});

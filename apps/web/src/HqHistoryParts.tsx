@@ -4,6 +4,7 @@ import type { OfficeHistoryEvidence } from '@anum/contracts';
 import { CATEGORY_IDS, EMPTY_FILTERS, dateWindow, groupByDay, type HistoryFilters } from './lib/hqHistory';
 import { actionLabel, categoryLabel, outcomeLabel, timeOnly, whoLabel, type NameMap } from './lib/hqHistoryText';
 import { getLocale, intlLocale, t } from './lib/i18n';
+import { LocalDateInput } from './hq-date/LocalDateInput.tsx';
 
 export interface PickOption { id: string; label: string }
 
@@ -62,8 +63,8 @@ export function HistoryFilterForm(props: {
           <input value={draft.actor} onChange={(e) => set('actor', e.target.value)} placeholder={t('hqHist.actorHint')} maxLength={160} list="hqHistActors" dir="ltr" />
           <datalist id="hqHistActors">{props.agents.map((a) => <option key={a.id} value={a.id} label={a.label} />)}</datalist>
         </label>
-        <label>{t('hqHist.from')}<input type="date" value={draft.from} onChange={(e) => set('from', e.target.value)} /></label>
-        <label>{t('hqHist.to')}<input type="date" value={draft.to} onChange={(e) => set('to', e.target.value)} /></label>
+        <label>{t('hqHist.from')}<LocalDateInput type="date" value={draft.from} onChange={(e) => set('from', e.target.value)} /></label>
+        <label>{t('hqHist.to')}<LocalDateInput type="date" value={draft.to} onChange={(e) => set('to', e.target.value)} /></label>
         <div className="hqHistFilterActions">
           <button type="button" className="hqGhost" onClick={() => { setDraft(EMPTY_FILTERS); setRoom(''); setAgent(''); setError(null); props.onReset(); }}>{t('hqHist.reset')}</button>
         </div>

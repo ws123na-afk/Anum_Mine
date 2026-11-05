@@ -544,15 +544,24 @@ def delete_transcript(store: SqlLiveMeetingStore, ctx: TenantContext, meeting_id
         raise LiveMeetingStoreError("conflict", "End the meeting before deleting its transcript")
     if meeting.get("transcript_deleted_at") is not None:
         return {"turns": 0, "events": 0}
-    args = store.args(ctx, id=meeting_id)
-    turns = store.session.execute(text("""delete from agent_meeting_turns
+    return erase_transcript(store.session, ctx.tenant_id, ctx.workspace_id, meeting_id)
+
+
+def erase_transcript(session: Any, tenant_id: str, workspace_id: str, meeting_id: str) -> dict[str, int]:
+    """Remove the messages, turn leases and event log of one ended meeting and mark its transcript deleted.
+
+    Shared by the owner's ``DELETE /transcript`` and the retention purge (``anum_api.record_retention``), so both
+    keep the same things: the meeting, its usage totals, the summary, confirmed outputs, links and tasks. Runs in the
+    caller's session, inside the tenant and workspace RLS context."""
+    args = {"tenant": tenant_id, "workspace": workspace_id, "id": meeting_id}
+    turns = session.execute(text("""delete from agent_meeting_turns
         where tenant_id=:tenant and workspace_id=:workspace and session_id=:id"""), args).rowcount
-    store.session.execute(text("""delete from agent_meeting_turn_leases
+    session.execute(text("""delete from agent_meeting_turn_leases
         where tenant_id=:tenant and workspace_id=:workspace and session_id=:id"""), args)
-    events = store.session.execute(text("""delete from agent_meeting_events
+    events = session.execute(text("""delete from agent_meeting_events
         where tenant_id=:tenant and workspace_id=:workspace and session_id=:id"""), args).rowcount
-    store.session.execute(text("""update agent_meeting_outputs set source_sequences='[]'::jsonb
+    session.execute(text("""update agent_meeting_outputs set source_sequences='[]'::jsonb
         where tenant_id=:tenant and workspace_id=:workspace and session_id=:id"""), args)
-    store.session.execute(text("""update agent_meeting_sessions set transcript_deleted_at=now(), updated_at=now()
+    session.execute(text("""update agent_meeting_sessions set transcript_deleted_at=now(), updated_at=now()
         where tenant_id=:tenant and workspace_id=:workspace and id=:id"""), args)
     return {"turns": int(turns or 0), "events": int(events or 0)}

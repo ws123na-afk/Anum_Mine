@@ -11,7 +11,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from decimal import ROUND_HALF_UP, Decimal
 from enum import StrEnum
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, PlainSerializer
 
@@ -283,6 +283,25 @@ class Lead(Scoped):
     lost_at: datetime | None = None
     suppressed_at: datetime | None = None
     created_by: str
+    # Where the lead came from when it was mapped from the WhatsApp Sales CRM (migration
+    # 0125_unify_whatsapp_leads, docs/business.md#whatsapp-leads): the channel, the conversation,
+    # the normalised phone number and the old ``sales_leads`` row. Null for every other lead.
+    channel: Literal["whatsapp"] | None = None
+    channel_conversation_id: str | None = Field(default=None, max_length=80)
+    channel_phone: str | None = Field(default=None, max_length=20)
+    sales_lead_id: str | None = Field(default=None, max_length=80)
+
+
+class LeadPairDecision(Scoped):
+    """The owner's answer to a duplicate suggestion, so the same pair is not asked again.
+
+    ``pair_key`` is the two sides sorted and joined with ``|``; a side is ``lead:<business lead id>``
+    or ``whatsapp:<sales lead id>``.
+    """
+
+    pair_key: str = Field(max_length=200)
+    decision: Literal["separate", "merged"]
+    decided_by: str
 
 
 class Confidence(StrEnum):

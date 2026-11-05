@@ -15,6 +15,10 @@ export interface OfficeLayoutDiffSummary {
   desks_added: number;
   desks_removed: number;
   desks_moved: number;
+  /** Desks whose seat fields (shift, place at the table, facing, seat kind, table group) changed and nothing else. Absent on older revisions. */
+  seats_changed?: number;
+  /** True when the building's shift hours differ. Absent on older revisions. */
+  shift_hours_changed?: boolean;
   floor_resized: boolean;
   /** Totals in the revision itself. */
   rooms: number;

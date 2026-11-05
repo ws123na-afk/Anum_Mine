@@ -9,6 +9,7 @@ The web host serves these pages without sign-in:
 | `https://<WEB>/legal/dpa` | Data Processing Addendum (DRAFT) with the security measures annex | [docs/legal/data-processing-addendum.md](legal/data-processing-addendum.md) |
 | `https://<WEB>/legal/aup` | Acceptable Use Policy (DRAFT) | [docs/legal/acceptable-use-policy.md](legal/acceptable-use-policy.md) |
 | `https://<WEB>/legal/subprocessors` | Subprocessor list (DRAFT) | [docs/legal/subprocessors.md](legal/subprocessors.md) |
+| The same five pages in Arabic | Shown when the site language is Arabic | [docs/legal/ar/](legal/ar/terms-of-service.md) |
 | `https://<WEB>/trust` | Trust page: security facts and the vulnerability disclosure contact | `apps/web/src/PublicSite.tsx`, messages `publicSite.{en,ar}.ts` |
 | `https://<WEB>/status` | Live status of the web app, API and sign-in, checked from the browser | `apps/web/src/PublicSite.tsx` |
 | `https://<WEB>/privacy` (and `/privacy/`) | The short Privacy Policy published on 13 October 2026 for TikTok and the app stores | `apps/web/public/policies/privacy.html` |
@@ -20,17 +21,21 @@ For the owner's deployment `<WEB>` is `app.anum360os.com`.
 
 The five documents in `docs/legal/` are drafts written from what the code and deployment configuration actually do (checked 18 October 2026): the subprocessors that code and config use, retention as implemented, export and deletion as built. Each starts with "DRAFT, owner and a lawyer must review before publishing". They make no legal conclusions and claim no certification. Every fact only the owner can supply is a `{{PLACEHOLDER}}`, for example `{{LEGAL_ENTITY_NAME}}`, `{{REGISTERED_ADDRESS}}`, `{{TRADE_LICENCE_NUMBER}}`, `{{PRIVACY_CONTACT_EMAIL}}`, `{{GOVERNING_LAW}}` and the hosting regions.
 
-The web app renders them from the same files: `apps/web/src/lib/legalDocs.ts` imports the Markdown at build time (`?raw`), `src/lib/publicSite.ts` drops the source's DRAFT quote, reads the title and "Last updated" line, rewrites links between the documents to their routes, and `PublicSite.tsx` renders the result with the safe Markdown reader (`src/lib/markdown.ts`: text nodes only, `http(s)` and `mailto` links only). Placeholders are highlighted. The documents are English only; the Arabic interface says so above the text. The web image copies `docs/legal` for this (`apps/web/Dockerfile`, `Dockerfile.dockerignore`), and Render rebuilds the web service when `docs/legal/**` changes.
+The web app renders them from the same files: `apps/web/src/lib/legalDocs.ts` imports the Markdown at build time (`?raw`), `src/lib/publicSite.ts` drops the source's DRAFT quote, reads the title and "Last updated" line, rewrites links between the documents to their routes, and `PublicSite.tsx` renders the result with the safe Markdown reader (`src/lib/markdown.ts`: text nodes only, `http(s)` and `mailto` links only). Placeholders are highlighted. Each document also has an Arabic text in `docs/legal/ar/` (same file name, same placeholders, the same DRAFT notice): the page shows the Arabic text, right to left, when the site language is Arabic and the English text otherwise, and says above the Arabic text that the English text applies until a lawyer approves the translation. The Arabic texts must be reviewed by the lawyer like the English ones ([Ready to sell](selling-readiness.md#company-and-legal)). The web image copies `docs/legal` for this (`apps/web/Dockerfile`, `Dockerfile.dockerignore`), and Render rebuilds the web service when `docs/legal/**` changes.
+
+### Company details fill the documents
+
+The platform owner enters the company details and the legal facts in Platform billing > Company and legal; each page reads them from `GET /api/v1/public/legal` and fills every `{{PLACEHOLDER}}` as it renders, showing **Not set yet** for the rest, a "Who provides ANUM" card, and, on the privacy, DPA and terms pages, buttons to the app's own export and deletion flows. Facts the server knows (service address, retention, subprocessors in use, Moyasar and Stripe) are generated, never typed. The owner can mark a document published there after confirming a lawyer reviewed it. See [Ready to sell](selling-readiness.md#company-and-legal).
 
 ### Publishing a document
 
 Each page shows a **Draft, not yet published** banner until the build marks it published:
 
-1. The owner and a lawyer approve the text and replace every `{{PLACEHOLDER}}` in the file.
+1. The owner and a lawyer approve the text, and every `{{PLACEHOLDER}}` is filled (by the company details and legal facts in the console, or in the file).
 2. Set `VITE_ANUM_LEGAL_PUBLISHED` for the web build to the published ids, comma-separated (`terms,privacy,dpa,aup,subprocessors`) or `all`: `ANUM_LEGAL_PUBLISHED` in `infra/oracle/.env` (passed as a build argument by `infra/oracle/compose.yaml`), the `VITE_ANUM_LEGAL_PUBLISHED` variable of the Render web service, or `--build-arg` for a plain `docker build`.
 3. Rebuild the web image (`docker compose up -d --build web` on the VM).
 
-A document marked published that still contains a placeholder keeps the banner and says how many facts are missing (`legalState` returns `blocked`), so a half-filled document cannot be shown as final.
+Alternatively the owner ticks Published in Platform billing > Company and legal (after confirming the lawyer's review); either way, a document marked published that still has a fact not set keeps the banner and says how many facts are missing (`legalState` returns `blocked`), so a half-filled document cannot be shown as final.
 
 ### ANUM_PRIVACY_POLICY_URL
 
@@ -83,6 +88,6 @@ They are plain HTML with inline CSS only (no scripts, nothing from another origi
 
 ## Not done yet
 
-- The legal text is English only.
+- No document is lawyer-reviewed or published yet: every page is still a DRAFT until the owner marks it published in Platform billing > Company and legal after a UAE lawyer reviewed the English and the Arabic text ([Ready to sell](selling-readiness.md#company-and-legal)).
+- The Arabic texts in `docs/legal/ar/` are translations: the English text applies until the lawyer approves them.
 - The status page has no incident history or subscriptions.
-- Deleting a whole organization is an operator task without a documented procedure; the DPA leaves `{{TENANT_DELETION_PROCEDURE}}` for it.

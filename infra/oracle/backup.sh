@@ -30,6 +30,25 @@ die() { printf 'ERROR: %s\n' "$*" >&2; exit 1; }
 env_value() { sed -n "s/^$1=//p" "$ENV_FILE" | tail -n 1 | sed "s/^'\(.*\)'$/\1/"; }
 stamp() { date -u +%Y%m%dT%H%M%SZ; }
 
+# The outcome of the last backup, for the platform console's Ready to sell checklist
+# (docs/selling-readiness.md#backups): times, ok and the local keep days only, world-readable
+# in <backup dir>/status so the API container can mount that folder read-only.
+record_status() {
+  local kind="$1" ok="$2" status_dir="$BACKUP_DIR/status" file now last
+  now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  mkdir -p "$status_dir" && chmod 755 "$status_dir"
+  file="$status_dir/last-$kind.json"
+  last="null"
+  if [ "$ok" = "true" ]; then
+    last="\"$now\""
+  elif [ -f "$file" ]; then
+    last="$(sed -n 's/.*"last_success_at": *\("[^"]*"\|null\).*/\1/p' "$file" | head -n 1)"
+    last="${last:-null}"
+  fi
+  printf '{"ok": %s, "finished_at": "%s", "last_success_at": %s, "keep_days": %s}\n' "$ok" "$now" "$last" "$KEEP_DAYS" > "$file.tmp"
+  chmod 644 "$file.tmp" && mv "$file.tmp" "$file"
+}
+
 [ -f "$ENV_FILE" ] || die "$ENV_FILE is missing; run install.sh first"
 BACKUP_DIR="$(env_value ANUM_BACKUP_DIR)"
 BACKUP_DIR="${BACKUP_DIR:-/var/lib/anum/backups}"
@@ -64,7 +83,7 @@ admin_psql() {
 case "${1:-}" in
   backup)
     echo "== ANUM database"
-    dc run --rm backup
+    if ! dc run --rm backup; then record_status local false; exit 1; fi
     echo "== Keycloak database"
     # $0 is the timestamp; the inner script runs in the backup image as uid 10001.
     # shellcheck disable=SC2016 # expanded by the container's shell
@@ -76,7 +95,8 @@ case "${1:-}" in
       file="/backups/keycloak/keycloak-$0.dump"
       pg_dump --format=custom --compress=6 --no-password --dbname=keycloak --file="$file"
       printf "{\"keycloak_dump\": \"%s\", \"size_bytes\": %s}\n" "$file" "$(stat -c %s "$file")"
-    ' "$(stamp)"
+    ' "$(stamp)" || { record_status local false; exit 1; }
+    record_status local true
     echo "== Pruning local copies older than $KEEP_DAYS days"
     for directory in "$BACKUP_DIR/anum" "$BACKUP_DIR/keycloak"; do
       if [ -d "$directory" ]; then
@@ -84,7 +104,8 @@ case "${1:-}" in
       fi
     done
     echo "== Off-site copy (encrypted)"
-    dc run --rm backup-upload
+    if ! dc run --rm backup-upload; then record_status offsite false; exit 1; fi
+    record_status offsite true
     ;;
   list)
     dc run --rm backup-upload lsl sealed:

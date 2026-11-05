@@ -16,15 +16,28 @@ hosts). Failing at `helm template`/`helm upgrade` is cheaper than a crash loop.
 {{- if not (hasPrefix "https://" (toString $c.ANUM_KEYCLOAK_ISSUER)) -}}
 {{- fail "config.ANUM_KEYCLOAK_ISSUER must be the https issuer URL of the Keycloak realm" -}}
 {{- end -}}
-{{- range $key, $value := merge (dict) (default (dict) $c) (default (dict) .Values.extraEnv) -}}
+{{- $all := merge (dict) (default (dict) $c) (default (dict) .Values.extraEnv) -}}
+{{- $liveBroker := lower (trim (toString (default "" (get $all "ANUM_FINANCE_LIVE_BROKER")))) -}}
+{{- if not (has $liveBroker (list "" "ibkr")) -}}
+{{- fail "ANUM_FINANCE_LIVE_BROKER must be empty or ibkr: ibkr is the only reviewed live executor (docs/finance-live-trading.md#locks). The API refuses any other value at startup" -}}
+{{- end -}}
+{{- /* The action browser (docs/action-browser.md#setting-it-up): the API refuses ANUM_ACTION_BROWSER_ENABLED
+     without the browser service's URL and token (anum_api/settings.py). */ -}}
+{{- if has (lower (trim (toString (default "" (get $all "ANUM_ACTION_BROWSER_ENABLED"))))) (list "true" "1" "yes" "on" "y" "t") -}}
+{{- $secretKeys := concat (default (list) .Values.secrets.app.required) (default (list) .Values.secrets.app.optional) -}}
+{{- if or (not (trim (toString (default "" (get $all "ANUM_BROWSER_RESEARCH_URL"))))) (and (not (trim (toString (default "" (get $all "ANUM_BROWSER_RESEARCH_TOKEN"))))) (not (has "ANUM_BROWSER_RESEARCH_TOKEN" $secretKeys))) -}}
+{{- fail "ANUM_ACTION_BROWSER_ENABLED=true needs the browser service: set ANUM_BROWSER_RESEARCH_URL (config or extraEnv) and ANUM_BROWSER_RESEARCH_TOKEN (secrets.app.optional), and run the browser image with ANUM_BROWSER_ACTION_MODE=1 (docs/action-browser.md#setting-it-up). The API refuses it at startup" -}}
+{{- end -}}
+{{- end -}}
+{{- range $key, $value := $all -}}
 {{- if has (upper (toString $key)) (list "KEYCLOAK_ADMIN" "KEYCLOAK_ADMIN_PASSWORD" "KC_BOOTSTRAP_ADMIN_USERNAME" "KC_BOOTSTRAP_ADMIN_PASSWORD") -}}
 {{- fail (printf "%s is a Keycloak admin credential: ANUM never uses it, it must not be in config or extraEnv (rendered into a ConfigMap), and the API refuses the compose default admin/admin at startup" $key) -}}
 {{- end -}}
 {{- if and (eq (upper (toString $key)) "ANUM_FINANCE_WIDER_LIVE_ENABLED") (has (lower (trim (toString $value))) (list "true" "1" "yes" "on" "y" "t")) -}}
 {{- fail "ANUM_FINANCE_WIDER_LIVE_ENABLED must stay false: it requires ANUM_FINANCE_LIVE_ENABLED, which is refused while no live executor exists (docs/finance.md#wider-live). The API refuses it at startup" -}}
 {{- end -}}
-{{- if and (eq (upper (toString $key)) "ANUM_FINANCE_LIVE_ENABLED") (has (lower (trim (toString $value))) (list "true" "1" "yes" "on" "y" "t")) -}}
-{{- fail "ANUM_FINANCE_LIVE_ENABLED must stay false: ANUM has no live executor and no write-scoped connector, so live finance execution cannot be enabled (docs/finance.md#limited-live). The API refuses it at startup" -}}
+{{- if and (eq (upper (toString $key)) "ANUM_FINANCE_LIVE_ENABLED") (has (lower (trim (toString $value))) (list "true" "1" "yes" "on" "y" "t")) (ne $liveBroker "ibkr") -}}
+{{- fail "ANUM_FINANCE_LIVE_ENABLED must stay false: ANUM has no live executor and no write-scoped connector, so live finance execution cannot be enabled (docs/finance.md#limited-live). Only with ANUM_FINANCE_LIVE_BROKER=ibkr (the reviewed IBKR executor, docs/finance-live-trading.md#locks) may it be true. The API refuses it at startup" -}}
 {{- end -}}
 {{- if and (eq (upper (toString $key)) "ANUM_FCM_SERVICE_ACCOUNT_JSON") (trim (toString (default "" $value))) -}}
 {{- fail "ANUM_FCM_SERVICE_ACCOUNT_JSON carries the Firebase service account's private key: put it in the secrets.app Secret (listed in secrets.app.optional), never in config or extraEnv (rendered into a ConfigMap). The API refuses a value that is not a service-account JSON key at startup" -}}

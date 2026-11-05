@@ -19,40 +19,32 @@
  * `create` and the page falls back to the list and the 2D plan.
  */
 import {
-  ACESFilmicToneMapping, AmbientLight, BackSide, BufferGeometry, CanvasTexture, Color, DirectionalLight, DoubleSide, Float32BufferAttribute, Fog, HalfFloatType,
+  ACESFilmicToneMapping, AmbientLight, BackSide, BufferGeometry, CanvasTexture, Color, DirectionalLight, DoubleSide, Float32BufferAttribute, Fog,
   HemisphereLight, LinearMipmapLinearFilter, Material, Mesh, MeshLambertMaterial, MeshBasicMaterial, MeshPhysicalMaterial, MeshStandardMaterial, NoColorSpace, PCFShadowMap,
-  PerspectiveCamera, PMREMGenerator, RepeatWrapping, Scene, ShaderMaterial, SphereGeometry, SRGBColorSpace, Texture, Vector2, Vector3, Vector4, WebGLRenderer, WebGLRenderTarget,
+  PerspectiveCamera, PMREMGenerator, RepeatWrapping, Scene, ShaderMaterial, SphereGeometry, SRGBColorSpace, Texture, Vector2, Vector3, Vector4, WebGLRenderer,
   LinearFilter, Matrix4, DataTexture, type IUniform,
 } from 'three';
-import { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
-import { OutputPass } from 'three/addons/postprocessing/OutputPass.js';
-import { RenderPass } from 'three/addons/postprocessing/RenderPass.js';
-import { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
-import { VERTEX_FLOATS, MAT } from './hqGeometry.ts';
+import type { EffectComposer } from 'three/addons/postprocessing/EffectComposer.js';
+import type { UnrealBloomPass } from 'three/addons/postprocessing/UnrealBloomPass.js';
+import { VERTEX_FLOATS } from './hqGeometry.ts';
+import { batchItems, classOf, pickNumbers, type Cls } from './hqBatches.ts';
+import { UploadGate } from './hqUploadGate.ts';
 import { poseAt, type AmbientMotion } from '../hqAssets/interior/ambient.ts';
 import { cameraEye, type CameraState } from './headquartersSpatial.ts';
 import { DUSK, lightingFor } from './hqLighting.ts';
-import { SceneryLayer } from './hqSceneryLayer.ts';
+import { SceneryLayer, vehicleKit } from './hqSceneryLayer.ts';
 import { SCENERY_FPS, MAX_RIPPLES, sceneryLevelFor, readSceneryOverride, type SceneryLevel } from '../hqAssets/environment/scenery.ts';
 import { clipPlanes, viewProjection } from './hqMath.ts';
 import { LIFT_MS, easeLift, type AmbientItem, type RenderItem, type RenderScene, type RenderStats, type RendererCallbacks } from './hqRenderTypes.ts';
 import { drawMaterialTexture, drawSignAtlas, type MaterialTextureKind } from './hqTextures.ts';
 import { ModelLayer } from './hqModelLayer.ts';
-import { QUALITY_PIN_KEY, ladderFor, parsePin, tierById, type QualityState, type StepSettings, type TierReason } from './hqQualityTiers.ts';
+import { QUALITY_PIN_KEY, budgetedDpr, ladderFor, pixelBudget, parsePin, programVariants, tierById, type QualityState, type StepSettings, type TierReason } from './hqQualityTiers.ts';
 import type { FrameGovernor } from './hqGovernor.ts';
-import { PROMOTE_FRAMES, classifyRenderer, parseFxOff, shouldPromote, type FxName, type GpuClass } from './hqQualityTier.ts';
+import { PROMOTE_FRAMES, classifyRenderer, parseFxOff, shouldPromote, startTierFor, type FxName, type GpuClass } from './hqQualityTier.ts';
 import type { PhotoFx, PbrHook } from './hqPhotoFx.ts';
 import type { ModelGroup } from './hqModels.ts';
 
 export type { RenderItem, RenderScene, RenderStats, RendererCallbacks } from './hqRenderTypes.ts';
-
-type Cls = 'paint' | 'flat' | 'concrete' | 'tile' | 'asphalt' | 'grass' | 'wood' | 'metal' | 'water' | 'glass' | 'roller' | 'sign' | 'court' | 'pane' | 'foliage' | 'cloth' | 'beacon';
-
-const CLASS_OF_MAT: Readonly<Record<number, Cls>> = {
-  [MAT.flat]: 'flat', [MAT.concrete]: 'concrete', [MAT.tile]: 'tile', [MAT.asphalt]: 'asphalt', [MAT.grass]: 'grass', [MAT.wood]: 'wood',
-  [MAT.metal]: 'metal', [MAT.water]: 'water', [MAT.glass]: 'glass', [MAT.roller]: 'roller', [MAT.sign]: 'sign', [MAT.court]: 'court', [MAT.paint]: 'paint',
-  [MAT.foliage]: 'foliage', [MAT.cloth]: 'cloth', [MAT.beacon]: 'beacon',
-};
 
 /** World units per texture repeat, as a frequency. */
 const TEX_SCALE: Partial<Record<Cls, number>> = { concrete: 0.25, tile: 0.4, asphalt: 0.3, grass: 0.1, wood: 0.5, metal: 0.5, roller: 0.5, court: 0.25 };
@@ -61,9 +53,12 @@ const srgbToLinear = (c: number) => (c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1
 
 // ---------------------------------------------------------------- shader patches
 
-const VERT_COMMON = 'attribute float aEm;\nvarying float vEm;\nvarying vec3 vWPos;\nvarying vec3 vWNrm;\nvarying vec2 vPUv;\nuniform float uTime;\nuniform float uAmb;';
-const VERT_BODY = 'vPUv = uv;\nvEm = aEm;\nvWPos = (modelMatrix * vec4(position, 1.0)).xyz;\nvWNrm = normalize(mat3(modelMatrix) * normal);';
+const VERT_COMMON = 'attribute float aEm;\nattribute float aPick;\nvarying float vPick;\nvarying float vEm;\nvarying vec3 vWPos;\nvarying vec3 vWNrm;\nvarying vec2 vPUv;\nuniform float uTime;\nuniform float uAmb;';
+const VERT_BODY = 'vPUv = uv;\nvEm = aEm;\nvPick = aPick;\nvWPos = (modelMatrix * vec4(position, 1.0)).xyz;\nvWNrm = normalize(mat3(modelMatrix) * normal);';
 const FRAG_COMMON = `varying float vEm;
+varying float vPick;
+uniform float uHlSel;
+uniform float uHlHov;
 varying vec3 vWPos;
 varying vec3 vWNrm;
 varying vec2 vPUv;
@@ -71,7 +66,6 @@ uniform float uNight;
 uniform float uLit;
 uniform float uTime;
 uniform float uAmb;
-uniform float uHighlight;
 uniform vec2 uDetail;
 uniform sampler2D uTexMap;
 uniform float uTexScale;
@@ -206,24 +200,23 @@ const WATER_GLINT = `
     float s = sin(vWPos.x * 2.3 + uTime * 1.7) * sin(vWPos.z * 2.1 - uTime * 1.3);
     totalEmissiveRadiance += uSunCol * pow(max(s, 0.0), 14.0) * 0.5 * (1.0 - uNight) * uAmb;
   }`;
-const HIGHLIGHT = '  totalEmissiveRadiance += vec3(0.08, 0.2, 0.17) * uHighlight;';
+/** The hover and selection glow: a vertex's pick number (`hqBatches.pickNumbers`, 0 = none) against the selected and hovered ones. */
+const HIGHLIGHT = '  totalEmissiveRadiance += vec3(0.08, 0.2, 0.17) * (vPick > 0.5 && abs(vPick - uHlSel) < 0.5 ? 1.0 : vPick > 0.5 && abs(vPick - uHlHov) < 0.5 ? 0.6 : 0.0);';
 
 type Shared = {
   uNight: IUniform<number>; uLit: IUniform<number>; uTime: IUniform<number>; uAmb: IUniform<number>; uDetail: IUniform<Vector2>;
   uSkyTop: IUniform<Color>; uSkyHor: IUniform<Color>; uSunDir: IUniform<Vector3>; uSunCol: IUniform<Color>; uRipples: IUniform<Vector4[]>;
+  uHlSel: IUniform<number>; uHlHov: IUniform<number>;
 };
 type Variant = 'std' | 'glass' | 'water' | 'foliage' | 'cloth' | 'beacon';
 
 /** `rich` adds the lit rooms behind glass, the water rings and the sky's clouds; a software rasteriser compiles and runs the plain programs. */
 function patched(material: Material, shared: Shared, opts: { texture?: Texture; scale?: number; variant?: Variant; rich?: boolean; pbr?: () => PbrHook | null }): void {
-  const hl: IUniform<number> = { value: 0 };
   const variant = opts.variant ?? 'std';
-  material.userData.hl = hl;
   material.onBeforeCompile = (shader) => {
     const pb = opts.pbr?.() ?? null;
     if (pb) for (const key of Object.keys(pb.uniforms)) shader.uniforms[key] = pb.uniforms[key];
     for (const key of Object.keys(shared) as Array<keyof Shared>) shader.uniforms[key] = shared[key];
-    shader.uniforms.uHighlight = hl;
     shader.uniforms.uTexMap = { value: opts.texture ?? null };
     shader.uniforms.uTexScale = { value: opts.scale ?? 0.25 };
     const sway = variant === 'foliage' ? SWAY_FOLIAGE : variant === 'cloth' ? SWAY_CLOTH : '';
@@ -302,21 +295,22 @@ function readAmbientOverride(): boolean | null {
   } catch { return null; }
 }
 
-function probeGpu(): GpuClass {
+/** The unmasked renderer name (empty when hidden or unavailable). */
+function probeGpu(): string {
   try {
     const scratch = document.createElement('canvas');
     const gl = scratch.getContext('webgl2');
-    if (!gl) return 'unknown';
+    if (!gl) return '';
     const info = gl.getExtension('WEBGL_debug_renderer_info');
     const name = info ? String(gl.getParameter(info.UNMASKED_RENDERER_WEBGL)) : '';
     gl.getExtension('WEBGL_lose_context')?.loseContext();
-    return classifyRenderer(name);
-  } catch { return 'unknown'; }
+    return name;
+  } catch { return ''; }
 }
 
 
 export class HqRenderer {
-  readonly stats: RenderStats = { frames: 0, lastDrawMs: 0, avgDrawMs: 0, drawn: 0, culled: 0, triangles: 0, dpr: 1, shadowSize: 0, bloom: false, ambient: 0, ambientMoving: false, tier: 0, fx: '', scenery: { level: 0, frames: 0, clock: 0, vehicles: 0 }, models: { placed: 0, figures: 0, loaded: 0, asked: 0, bytes: 0, loadMs: 0, fallbacks: [], looks: [] } };
+  readonly stats: RenderStats = { frames: 0, lastDrawMs: 0, avgDrawMs: 0, drawn: 0, culled: 0, triangles: 0, dpr: 1, uploads: 0, shadowSize: 0, bloom: false, ambient: 0, ambientMoving: false, tier: 0, fx: '', sceneFx: 'loading', scenery: { level: 0, frames: 0, clock: 0, vehicles: 0 }, models: { placed: 0, figures: 0, loaded: 0, asked: 0, bytes: 0, loadMs: 0, fallbacks: [], looks: [] } };
   private readonly renderer: WebGLRenderer;
   private readonly scene = new Scene();
   private readonly camera = new PerspectiveCamera(40, 1, 0.2, 1000);
@@ -328,10 +322,23 @@ export class HqRenderer {
     uNight: { value: 0 }, uLit: { value: 0 }, uTime: { value: 0 }, uAmb: { value: 0 }, uDetail: { value: new Vector2(60, 200) },
     uSkyTop: { value: new Color() }, uSkyHor: { value: new Color() }, uSunDir: { value: new Vector3(0, -1, 0) }, uSunCol: { value: new Color() },
     uRipples: { value: Array.from({ length: MAX_RIPPLES }, () => new Vector4(0, 0, 0, 0)) },
+    uHlSel: { value: -1 }, uHlHov: { value: -1 },
   };
+  /** Pick numbers of the scene's item ids, for the glow (`hqBatches.pickNumbers`). */
+  private picks = new Map<string, number>();
   private readonly materials = new Map<Cls, Material>();
   private readonly textures: Texture[] = [];
   private signTexture: Texture | null = null;
+  private boardSource: HTMLCanvasElement | null = null;
+  /** Uploads a live atlas only when its drawing changed (hqUploadGate.ts). */
+  private readonly boardGate = new UploadGate<HTMLCanvasElement>();
+  private readonly screenGate = new UploadGate<HTMLCanvasElement>();
+  private boardTexture: Texture | null = null;
+  private boardTierUnlit = false;
+  /** The billboards take the flat unlit material: the tier says so, or the simple materials are on (the governor's last rung). */
+  private get boardUnlit(): boolean { return this.boardTierUnlit || this.lean; }
+  private screenSource: HTMLCanvasElement | null = null;
+  private screenTexture: Texture | null = null;
   private signKey = '';
   private envs: Array<Texture | undefined> = [];
   private sky: Mesh | null = null;
@@ -341,13 +348,20 @@ export class HqRenderer {
   private readyGroups: ReadonlySet<ModelGroup> = new Set();
   private composer: EffectComposer | null = null;
   private bloom: UnrealBloomPass | null = null;
+  /** The glow pass is its own chunk (`hqBloom.ts`): loaded when the tier's top rung has bloom or a frame first wants it; until then frames draw the plain way. */
+  private bloomKit: typeof import('./hqBloom.ts') | null = null;
+  private bloomLoad: Promise<void> | null = null;
   private cameraState: CameraState | null = null;
   private night = 0;
+  private light: ReturnType<typeof lightingFor> | null = null;
+  private lightAt = -1;
   private hover: string | null = null;
   private selected: string | null = null;
   private shadowRegion: { center: { x: number; y: number; z: number }; radius: number } | null = null;
   private shadowDirty = true;
+  /** '' marks the shadow camera dirty; `sunKey` holds the region, sun and map size it was last placed for. */
   private lastSunKey = '';
+  private readonly sunKey = new Float64Array(6);
   /** The tier in force: the automatic one, a pin, or a Graphics check run (`override`). */
   private quality = 3;
   private reason: TierReason = 'automatic';
@@ -404,7 +418,11 @@ export class HqRenderer {
   private readonly canvas: HTMLCanvasElement;
   private readonly onLostEvent: () => void;
   private readonly onRestoredEvent: () => void;
-  private sizeKey = '';
+  /** The canvas size and pixel ratio last applied (width -1 forces a resize). Numbers, so a frame builds no key string. */
+  private sizeW = -1;
+  private sizeH = 0;
+  private sizeDpr = 0;
+  private readonly view = { width: 1, height: 1, dpr: 1 };
   // Ambient motion: one scene clock, the level it runs at, and the loop that keeps frames coming while it is above 0.
   private scenery: SceneryLayer | null = null;
   private clock = 0;
@@ -427,7 +445,7 @@ export class HqRenderer {
       this.envs = [];
       this.composer?.dispose(); this.composer = null; this.bloom = null;
       this.sun.shadow.map?.dispose(); this.sun.shadow.map = null;
-      this.lost = false; this.sizeKey = ''; this.shadowDirty = true; this.lastSunKey = ''; this.governor?.reset();
+      this.lost = false; this.sizeW = -1; this.shadowDirty = true; this.lastSunKey = ''; this.governor?.reset();
       this.cb.onRestored?.(); this.requestFrame();
     };
     canvas.addEventListener('webglcontextlost', this.onLostEvent);
@@ -452,7 +470,8 @@ export class HqRenderer {
     // it gets simple lit materials, no reflection map, no antialiasing and a lower pixel ratio, unless quality is pinned.
     const photoPin = readPhotoPin();
     const forced = photoPin ? 3 : readQualityOverride();
-    const gpu = probeGpu();
+    const gpuName = probeGpu();
+    const gpu = classifyRenderer(gpuName);
     const software = gpu === 'software';
     const cheap = forced === null && software;
     let renderer: WebGLRenderer;
@@ -470,6 +489,8 @@ export class HqRenderer {
         const hooks = window as unknown as { __anumHqBench: unknown; __anumHqTune: unknown };
         hooks.__anumHqBench = (n: number, off?: string[]) => made.bench(n, off);
         hooks.__anumHqTune = (t: Parameters<PhotoFx['setTune']>[0]) => { made.photo?.setTune(t); made.requestFrame(); };
+        (hooks as unknown as Record<string, unknown>).__anumHqPrograms = () => made.renderer.info.programs?.length ?? 0;
+        (hooks as unknown as Record<string, unknown>).__anumHqPrewarm = (ids?: number[]) => made.prewarm(ids);
       }
       try { made.forcedScenery = readSceneryOverride(window.localStorage); } catch { made.forcedScenery = null; }
       const pin = readAmbientOverride();
@@ -486,7 +507,11 @@ export class HqRenderer {
     made.pinned = forced;
     if (forced !== null) { made.quality = forced; made.reason = 'pinned'; }
     else if (cheap) { made.quality = 0; made.reason = 'software'; }
-    else if (pixels > 4_000_000) { made.quality = 2; made.reason = 'large-canvas'; }
+    else {
+      // The automatic start (hqQualityTier `startTierFor`): integrated graphics start at High, older ones at Medium, discrete at Ultra.
+      made.quality = startTierFor(gpuName, pixels);
+      if (pixels > 4_000_000 && made.quality === 2 && startTierFor(gpuName, 0) > 2) made.reason = 'large-canvas';
+    }
     made.configureTier();
     void made.loadSceneFx();
     if (photoPin) void made.enablePhoto();
@@ -496,11 +521,25 @@ export class HqRenderer {
   /** Rebuild the ladder and governor for the tier in force and apply the top rung. */
   private configureTier(): void {
     const id = this.override ?? this.pinned ?? this.quality;
+    const unlit = tierById(id).boardUnlit;
+    if (unlit !== this.boardTierUnlit) { this.boardTierUnlit = unlit; this.swapBoards(); }
     this.ladder = ladderFor(tierById(id));
+    if (this.ladder[0].bloom) this.loadBloom();
     this.governor = null;
     this.governed = this.pinned === null && this.override === null && !this.software;
     if (this.governed) void (this.governorLoad ??= import('./hqGovernor.ts')).then((m) => { if (!this.disposed && this.governed && !this.governor) this.governor = new m.FrameGovernor(this.ladder.length); });
     this.applyStep(0);
+  }
+
+  /** The billboards' posts, frame and lamps change material in place when the tier's board style changes (no scene rebuild, no new buffers). */
+  private swapBoards(): void {
+    for (const mesh of this.meshes) {
+      const cls = mesh.userData.boardCls as Cls | undefined;
+      if (!cls) continue;
+      mesh.material = this.materials.get(this.boardUnlit ? 'boardFlat' : cls)!;
+      mesh.castShadow = !this.boardUnlit && cls !== 'water' && cls !== 'glass' && cls !== 'pane';
+    }
+    this.shadowDirty = true;
   }
 
   private applyStep(step: number): void {
@@ -510,7 +549,8 @@ export class HqRenderer {
     const lean = wantLean !== this.lean;
     this.applied = wantLean && !next.lean ? { ...next, lean: true } : next;
     this.dprScale = next.dprScale;
-    this.sizeKey = ''; this.shadowDirty = true; this.lastSunKey = '';
+    // The canvas is resized only when the pixel ratio really changes (`resize` compares it): setting its size reallocates the drawing buffer, a hitch on every tier switch.
+    this.shadowDirty = true; this.lastSunKey = '';
     if (lean) this.setLean(wantLean);
     if (step > 0 && this.photoAuto) { this.photoAuto = false; this.demoted = true; this.leavePhoto(); }
     this.emitQuality();
@@ -551,6 +591,19 @@ export class HqRenderer {
   // `liftValue`, `startLifts` and `requestFrame` through a cast, so none of that costs this chunk anything. Keep the names in step.
 
 
+  /**
+   * Compiles every shader variant the given tiers draw with (default: the rungs of the tier in force), in parallel where the browser can,
+   * so a tier switch or a governor step does not stall a frame on a compile. Resolves with what it did, or null when it could not run.
+   */
+  prewarm(ids?: readonly number[]): Promise<import('./hqWarmup.ts').WarmResult | null> {
+    if (this.disposed || this.lost || !this.cameraState) return Promise.resolve(null);
+    const steps = ids ? ids.map((id) => ladderFor(tierById(id))[0]) : this.ladder;
+    const boards = (ids ?? [this.override ?? this.pinned ?? this.quality]).some((id) => tierById(id).boardUnlit !== this.boardUnlit);
+    // The glow variants only matter when glow can draw: at dusk and night, or whenever the governor may switch it on later.
+    const glow = !ids || this.night > 0.04;
+    return import('./hqWarmup.ts').then((m) => m.warmPrograms(this as never, programVariants(steps, glow && !this.reducedMotion), boards)).catch(() => null);
+  }
+
   /** True while the photographic effects draw: wanted, loaded, on the full rung and not in the simple materials. */
   private photoActive(): boolean { return (this.photoPin || this.photoAuto) && this.photoOn && this.photo !== null && this.step === 0 && !this.lean; }
 
@@ -565,6 +618,13 @@ export class HqRenderer {
       // Build the scene again only when the new chunks change it: a floor view on a software rasteriser takes none of them, and a second build would restart its lifts.
       if (!this.disposed && this.lastScene && (!this.software || this.lastScene.scenery !== undefined || this.photoPin)) this.setScene(this.lastScene);
     } catch { this.sceneFx = null; }
+    // The glow pass is a lazy chunk too (`hqBloom.ts`, started by `configureTier` when the top rung has bloom): the scene counts as settled only once it is here.
+    if (this.bloomLoad) await this.bloomLoad;
+    // The next frame draws the scene built with the chunks (the stage reports it as part of `data-scene-settled`).
+    this.stats.sceneFx = 'ready';
+    if (!this.disposed) this.requestFrame();
+    // On a graphics card, compile ahead every shader variant the governor's rungs use, a moment after the scene settled (`hqWarmup.ts`).
+    if (!this.software && this.governed) window.setTimeout(() => { void this.prewarm(); }, 1500);
   }
 
   /** Loads the photographic extension (PBR detail maps, post stack, point lights) and recompiles the materials with it. */
@@ -664,6 +724,10 @@ export class HqRenderer {
     std('beacon', { roughness: 0.5, metalness: 0 }, undefined, 'beacon');
     const sign = new MeshBasicMaterial({ color: new Color(1, 1, 1), toneMapped: true });
     this.materials.set('sign', sign);
+    this.materials.set('screen', new MeshBasicMaterial({ color: new Color(1, 1, 1), map: this.screenTexture, toneMapped: true, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 }));
+    this.materials.set('board', new MeshBasicMaterial({ color: new Color(1, 1, 1), map: this.boardTexture, toneMapped: true }));
+    // The lowest tiers draw the billboards' posts, frame and lamps unlit (hqQualityTiers `boardUnlit`): one cheap program, no light or shadow.
+    this.materials.set('boardFlat', new MeshBasicMaterial({ vertexColors: true, side: DoubleSide }));
     const pane = this.cheap
       ? new MeshLambertMaterial({ vertexColors: true, transparent: true, opacity: 0.22, depthWrite: false, side: DoubleSide })
       : new MeshPhysicalMaterial({ vertexColors: true, transparent: true, opacity: 0.22, roughness: 0.05, metalness: 0, envMapIntensity: 1.2, depthWrite: false, side: DoubleSide });
@@ -794,35 +858,45 @@ export class HqRenderer {
     return this.software && this.forcedScenery === null && (cls === 'foliage' || cls === 'cloth' || cls === 'beacon') ? 'flat' : cls;
   }
 
-  private addItem(item: RenderItem, transparent: boolean, scene: RenderScene): void {
-    // Baked ambient occlusion (and tall walls cut so it has a gradient to carry): a vertex colour multiplier, free per frame.
-    // A software rasteriser bakes the campus only: a floor view rebuilds on every click and a bake is CPU time its slow frames cannot spare.
-    const baked = !transparent && this.sceneFx && !this.fxOff.has('ao') && (!this.software || this.lastScene?.scenery !== undefined) ? this.sceneFx.prepare(item.vertices, this.cheap || this.software) : null;
-    const v = baked ? baked.vertices : item.vertices;
-    const aoOf = baked ? baked.ao : null;
-    const total = v.length / VERTEX_FLOATS;
-    const buckets = new Map<Cls, number[]>();
-    for (let t = 0; t + 2 < total; t += 3) {
-      const base = t * VERTEX_FLOATS;
-      const em = v[base + 9];
-      const cls: Cls = transparent ? 'pane' : em >= 2 ? 'glass' : this.stillClass(CLASS_OF_MAT[v[base + 10]] ?? 'flat');
-      let list = buckets.get(cls);
-      if (!list) { list = []; buckets.set(cls, list); }
-      list.push(t);
+  /**
+   * One batch of items (`hqBatches.batchItems`): every item is cut by surface class and the pieces of all the items in the batch are merged,
+   * so the batch costs one draw call per class however many buildings it holds. Each vertex keeps its item's pick number for the glow.
+   */
+  private addItem(item: RenderItem, transparent: boolean, scene: RenderScene): void { this.addBatch([item], transparent, scene); }
+
+  private addBatch(items: readonly RenderItem[], transparent: boolean, scene: RenderScene): void {
+    const buckets = new Map<Cls, Array<{ v: Float32Array; ao: Float32Array | null; pick: number; t: number }>>();
+    for (const part of items) {
+      // Baked ambient occlusion (and tall walls cut so it has a gradient to carry): a vertex colour multiplier, free per frame.
+      // A software rasteriser bakes the campus only: a floor view rebuilds on every click and a bake is CPU time its slow frames cannot spare.
+      const baked = !transparent && this.sceneFx && !this.fxOff.has('ao') && (!this.software || this.lastScene?.scenery !== undefined) ? this.sceneFx.prepare(part.vertices, this.cheap || this.software) : null;
+      const v = baked ? baked.vertices : part.vertices;
+      const ao = baked ? baked.ao : null;
+      const pick = this.picks.get(part.id) ?? 0;
+      const total = v.length / VERTEX_FLOATS;
+      for (let t = 0; t + 2 < total; t += 3) {
+        const cls = classOf(v, t, transparent, (c) => this.stillClass(c));
+        let list = buckets.get(cls);
+        if (!list) { list = []; buckets.set(cls, list); }
+        list.push({ v, ao, pick, t });
+      }
     }
+    // The items of a batch share how they draw (it is the batch key): the first one speaks for all.
+    const item = items[0];
     for (const [cls, tris] of buckets) {
       const n = tris.length * 3;
-      const position = new Float32Array(n * 3), normal = new Float32Array(n * 3), color = new Float32Array(n * 3), em = new Float32Array(n), uv = new Float32Array(n * 2);
+      const position = new Float32Array(n * 3), normal = new Float32Array(n * 3), color = new Float32Array(n * 3), em = new Float32Array(n), uv = new Float32Array(n * 2), pk = new Float32Array(n);
       let o = 0;
-      for (const t of tris) {
+      for (const { v, ao, pick, t } of tris) {
         for (let k = 0; k < 3; k++) {
           const s = (t + k) * VERTEX_FLOATS;
-          position.set([v[s], v[s + 1], v[s + 2]], o * 3);
-          normal.set([v[s + 3], v[s + 4], v[s + 5]], o * 3);
-          const a = aoOf ? aoOf[t + k] : 1;
-          color.set([srgbToLinear(v[s + 6]) * a, srgbToLinear(v[s + 7]) * a, srgbToLinear(v[s + 8]) * a], o * 3);
+          position[o * 3] = v[s]; position[o * 3 + 1] = v[s + 1]; position[o * 3 + 2] = v[s + 2];
+          normal[o * 3] = v[s + 3]; normal[o * 3 + 1] = v[s + 4]; normal[o * 3 + 2] = v[s + 5];
+          const a = ao ? ao[t + k] : 1;
+          color[o * 3] = srgbToLinear(v[s + 6]) * a; color[o * 3 + 1] = srgbToLinear(v[s + 7]) * a; color[o * 3 + 2] = srgbToLinear(v[s + 8]) * a;
           em[o] = v[s + 9];
-          uv.set([v[s + 11], v[s + 12]], o * 2);
+          uv[o * 2] = v[s + 11]; uv[o * 2 + 1] = v[s + 12];
+          pk[o] = pick;
           o += 1;
         }
       }
@@ -831,41 +905,39 @@ export class HqRenderer {
       geometry.setAttribute('normal', new Float32BufferAttribute(normal, 3));
       geometry.setAttribute('color', new Float32BufferAttribute(color, 3));
       geometry.setAttribute('aEm', new Float32BufferAttribute(em, 1));
+      geometry.setAttribute('aPick', new Float32BufferAttribute(pk, 1));
       geometry.setAttribute('uv', new Float32BufferAttribute(uv, 2));
       geometry.computeBoundingSphere();
-      const material = this.materials.get(cls)!;
+      const material = this.materials.get(item.board ? (cls === 'sign' ? 'board' : this.boardUnlit ? 'boardFlat' : cls) : cls)!;
       if (cls === 'pane') (material as MeshPhysicalMaterial).opacity = scene.glassAlpha ?? 0.22;
       const mesh = new Mesh(geometry, material);
+      // The items of a batch share these (they are part of its key).
       mesh.frustumCulled = item.cull !== false;
-      mesh.userData.id = item.id;
-      mesh.userData.hl = 0;
+      mesh.userData.id = items.length === 1 ? item.id : null;
+      mesh.userData.items = items.length;
       mesh.userData.fallbackOf = item.fallbackOf ?? null;
       mesh.userData.lift = item.lift ?? null;
+      if (item.board && cls !== 'sign') mesh.userData.boardCls = cls;
       mesh.visible = !item.fallbackOf || !this.readyGroups.has(item.fallbackOf);
-      const sunOk = cls !== 'sign' && cls !== 'pane' && cls !== 'glass';
+      const sunOk = cls !== 'sign' && cls !== 'pane' && cls !== 'glass' && !(item.board && this.boardUnlit);
       mesh.castShadow = sunOk && cls !== 'water';
       mesh.receiveShadow = cls !== 'sign' && cls !== 'pane';
-      mesh.onBeforeRender = (_r, _s, _c, _g, mat) => {
-        const hl = (mat as Material).userData.hl as IUniform<number> | undefined;
-        if (!hl) return;
-        const value = mesh.userData.hl as number;
-        if (hl.value !== value) { hl.value = value; (mat as Material & { uniformsNeedUpdate: boolean }).uniformsNeedUpdate = true; }
-      };
       this.scene.add(mesh);
       this.meshes.push(mesh);
     }
   }
 
-  /** Campus only (not a building's floors): roof coping and plant, window sills, planters and the soft contact discs under cars, trees and wall feet. */
-  private addCampusDetail(scene: RenderScene): void {
+  /** Campus only (not a building's floors): roof coping and plant, window sills and planters (returned, to be batched with the buildings) and the soft contact discs under cars, trees and wall feet. */
+  private addCampusDetail(scene: RenderScene): RenderItem[] {
     const fx = this.campusFx;
-    if (!fx || !scene.scenery || !this.campusFxAllowed()) return;
+    const extra: RenderItem[] = [];
+    if (!fx || !scene.scenery || !this.campusFxAllowed()) return extra;
     const contacts: Float32Array[] = [];
     for (const item of scene.opaque) {
       const tall = item.bounds.max.y - item.bounds.min.y > 6;
       if (tall && !this.fxOff.has('detail')) {
-        const extra = fx.detailOf(item.vertices, item.id);
-        if (extra) this.addItem({ id: item.id, vertices: extra, bounds: item.bounds, cull: item.cull }, false, scene);
+        const vertices = fx.detailOf(item.vertices, item.id);
+        if (vertices) extra.push({ id: item.id, vertices, bounds: item.bounds, cull: item.cull, ...(item.board ? { board: true } : {}), ...(item.lift ? { lift: item.lift } : {}), ...(item.fallbackOf ? { fallbackOf: item.fallbackOf } : {}) });
       }
       if (!this.fxOff.has('contact')) contacts.push(fx.contactsOf(item.vertices));
     }
@@ -873,6 +945,7 @@ export class HqRenderer {
     let at = 0;
     for (const c of contacts) { all.set(c, at); at += c.length; }
     if (all.length) { this.contactMesh = fx.contactMesh(all); this.scene.add(this.contactMesh); this.photo?.setPrepassHidden(this.contactMesh); }
+    return extra;
   }
 
   setScene(scene: RenderScene): void {
@@ -881,9 +954,10 @@ export class HqRenderer {
     if (scene.models?.length && !this.layer) this.layer = new ModelLayer(this.scene, this.cheap, (ready) => this.applyReady(ready), () => this.requestFrame());
     if (!this.layer && scene.halos?.length) this.layer = new ModelLayer(this.scene, this.cheap, (ready) => this.applyReady(ready), () => this.requestFrame());
     if (this.layer) { this.readyGroups = scene.models?.length ? this.layer.readyNow(scene.models) : new Set(); this.layer.setNight(this.night); }
-    for (const item of scene.opaque) this.addItem(item, false, scene);
+    this.picks = pickNumbers([...scene.opaque, ...scene.glass, ...(scene.ambient ?? [])].map((i) => i.id));
+    // Opaque items are merged by surface class (hqBatches.ts): one draw call per class per batch, not per class per building.
+    for (const batch of batchItems([...scene.opaque, ...this.addCampusDetail(scene)])) this.addBatch(batch, false, scene);
     for (const item of scene.glass) this.addItem(item, true, scene);
-    this.addCampusDetail(scene);
     for (const item of scene.ambient ?? []) this.addAmbient(item, scene);
     if (this.layer) {
       this.layer.setHalos(scene.halos);
@@ -922,9 +996,63 @@ export class HqRenderer {
   }
 
 
+  /** The live screen atlas (desk monitors and video walls): a canvas the lazy screens chunk draws into. A new canvas makes a new texture, the same canvas is uploaded again. */
+  setScreens(source: HTMLCanvasElement | null, version?: number): void {
+    const step = this.screenGate.step(source, version);
+    if (step === 'none') return;
+    const m = this.materials.get('screen') as MeshBasicMaterial;
+    if (step === 'new') {
+      this.screenTexture?.dispose();
+      this.screenSource = source;
+      this.screenTexture = null;
+      if (source) {
+        const tex = new CanvasTexture(source);
+        tex.colorSpace = SRGBColorSpace;
+        tex.anisotropy = Math.min(8, this.renderer.capabilities.getMaxAnisotropy());
+        this.screenTexture = tex;
+      }
+      m.map = this.screenTexture;
+      m.needsUpdate = true;
+    } else if (this.screenTexture) { this.screenTexture.needsUpdate = true; this.stats.uploads = this.boardGate.uploads + this.screenGate.uploads; }
+    this.requestFrame();
+  }
+
+
+  /** The live board atlas (the billboards): a canvas the lazy billboard chunk draws into. A new canvas makes a new texture, the same canvas is uploaded again. */
+  setBoards(source: HTMLCanvasElement | null, version?: number): void {
+    const step = this.boardGate.step(source, version);
+    if (step === 'none') return;
+    const m = this.materials.get('board') as MeshBasicMaterial;
+    if (step === 'new') {
+      this.boardTexture?.dispose();
+      this.boardSource = source;
+      this.boardTexture = null;
+      if (source) {
+        const tex = new CanvasTexture(source);
+        tex.colorSpace = SRGBColorSpace;
+        tex.anisotropy = Math.min(8, this.renderer.capabilities.getMaxAnisotropy());
+        this.boardTexture = tex;
+      }
+      m.map = this.boardTexture;
+      m.needsUpdate = true;
+    } else if (this.boardTexture) { this.boardTexture.needsUpdate = true; this.stats.uploads = this.boardGate.uploads + this.screenGate.uploads; }
+    this.requestFrame();
+  }
+
+
+  /** What the work layer chunk needs (see `hqWorkLayer.setWork`): the scene, a frame request, the lights level and whether drawing is slow. */
+  workHooks() {
+    return { kit: vehicleKit, scene: this.scene, cheap: this.cheap, request: () => this.requestFrame(), lit: () => this.shared.uLit.value as number, slow: () => this.stats.avgDrawMs > 35, report: (n: number) => { this.canvas.dataset.workRigs = String(n); } };
+  }
+
+  /** What the walker layer chunk needs (see `hqWalkerLayer.setWalkers`): the scene, a frame request, whether drawing is slow and a place to report the figure count. */
+  walkerHooks() {
+    return { scene: this.scene, cheap: this.cheap, request: () => this.requestFrame(), slow: () => this.stats.avgDrawMs > 35, report: (n: number) => { this.canvas.dataset.walkers = String(n); } };
+  }
+
   /** What the plan shader chunk needs to put a plan atlas behind the glass (see `hqGlassShader.applyPlan`): the renderer itself, whose shared uniforms, glass material, stats and frame request it uses, and the three.js classes. */
   glassHooks() {
-    return { r: this, T: DataTexture };
+    return { r: this, T: DataTexture, reducedMotion: () => this.reducedMotion };
   }
 
   /** Decide where each lift group goes: a new target eases from `from` (or from where the group stands), unseen groups jump. */
@@ -996,7 +1124,8 @@ export class HqRenderer {
   setReducedMotion(reduced: boolean): void { this.reducedMotion = reduced; this.requestFrame(); }
 
   private applyHighlight(): void {
-    for (const mesh of this.meshes) mesh.userData.hl = mesh.userData.id === this.selected ? 1 : mesh.userData.id === this.hover ? 0.6 : 0;
+    this.shared.uHlSel.value = (this.selected !== null && this.picks.get(this.selected)) || -1;
+    this.shared.uHlHov.value = (this.hover !== null && this.picks.get(this.hover)) || -1;
   }
 
   get isLost(): boolean { return this.lost; }
@@ -1027,7 +1156,9 @@ export class HqRenderer {
   // -------------------------------------------------------------- frame
 
   private applyLighting(): void {
-    const light = lightingFor(this.night);
+    // The light preset is worked out again only when the time of day moved (it builds a dozen small arrays).
+    if (this.lightAt !== this.night || !this.light) { this.light = lightingFor(this.night); this.lightAt = this.night; }
+    const light = this.light;
     const set = (target: Color, t: readonly [number, number, number]) => target.setRGB(t[0], t[1], t[2], SRGBColorSpace);
     set(this.sun.color, light.sunColor);
     this.sun.intensity = light.sunIntensity;
@@ -1072,6 +1203,8 @@ export class HqRenderer {
     const sign = this.materials.get('sign') as MeshBasicMaterial;
     const gain = 0.9 + 1.3 * light.lit;
     sign.color.setRGB(gain, gain, gain);
+    (this.materials.get('board') as MeshBasicMaterial).color.setRGB(gain, gain, gain);
+    (this.materials.get('boardFlat') as MeshBasicMaterial).color.setScalar(1 - 0.6 * light.lit);
     // Shadow light: from the sun (or moon) towards the middle of the region.
     // The photographic effects fit one big shadow map to what the camera looks at instead of the whole campus.
     const photo = this.photoActive();
@@ -1082,9 +1215,13 @@ export class HqRenderer {
       const dir = { x: light.sunDir[0], y: light.sunDir[1], z: light.sunDir[2] };
       const len = Math.hypot(dir.x, dir.y, dir.z);
       const R = region.radius;
-      const key = `${region.center.x.toFixed(1)},${region.center.z.toFixed(1)},${R.toFixed(1)},${(dir.x / len).toFixed(2)},${(dir.z / len).toFixed(2)},${shadowSize}`;
-      if (key !== this.lastSunKey) {
-        this.lastSunKey = key;
+      // The shadow camera moves only when the region, the sun or the map size changed (compared as numbers: no key string per frame).
+      const k = this.sunKey;
+      const changed = this.lastSunKey === '' || Math.abs(k[0] - region.center.x) > 0.05 || Math.abs(k[1] - region.center.z) > 0.05 || Math.abs(k[2] - R) > 0.05
+        || Math.abs(k[3] - dir.x / len) > 0.005 || Math.abs(k[4] - dir.z / len) > 0.005 || k[5] !== shadowSize;
+      if (changed) {
+        this.lastSunKey = 'set';
+        k[0] = region.center.x; k[1] = region.center.z; k[2] = R; k[3] = dir.x / len; k[4] = dir.z / len; k[5] = shadowSize;
         this.sun.position.set(region.center.x - (dir.x / len) * R * 2, region.center.y - (dir.y / len) * R * 2, region.center.z - (dir.z / len) * R * 2);
         this.sun.target.position.set(region.center.x, region.center.y, region.center.z);
         const cam = this.sun.shadow.camera;
@@ -1115,30 +1252,33 @@ export class HqRenderer {
 
   private resize(): { width: number; height: number; dpr: number } {
     const box = this.canvas.getBoundingClientRect();
-    const dpr = Math.max(0.6, Math.min(this.maxDpr, window.devicePixelRatio || 1) * this.dprScale);
-    const key = `${box.width.toFixed(1)}x${box.height.toFixed(1)}@${dpr.toFixed(2)}`;
-    if (key !== this.sizeKey) {
-      this.sizeKey = key;
+    // The tier's pixel budget first (hqQualityTiers `pixelBudget`: an integrated GPU's cost grows with the pixels), then the governor's rung.
+    const budget = this.photoActive() ? null : pixelBudget(tierById(this.override ?? this.pinned ?? this.quality), this.gpu);
+    const base = budgetedDpr(Math.min(this.maxDpr, window.devicePixelRatio || 1), box.width * box.height, budget);
+    const dpr = Math.max(0.5, base * this.dprScale);
+    if (Math.abs(box.width - this.sizeW) > 0.05 || Math.abs(box.height - this.sizeH) > 0.05 || Math.abs(dpr - this.sizeDpr) > 0.005) {
+      this.sizeW = box.width; this.sizeH = box.height; this.sizeDpr = dpr;
       this.renderer.setPixelRatio(dpr);
       this.renderer.setSize(Math.max(1, Math.round(box.width)), Math.max(1, Math.round(box.height)), false);
       this.composer?.setPixelRatio(dpr);
       this.composer?.setSize(Math.max(1, Math.round(box.width)), Math.max(1, Math.round(box.height)));
     }
     this.stats.dpr = dpr;
-    return { width: Math.max(1, box.width), height: Math.max(1, box.height), dpr };
+    const v = this.view;
+    v.width = Math.max(1, box.width); v.height = Math.max(1, box.height); v.dpr = dpr;
+    return v;
   }
 
-  private ensureComposer(width: number, height: number, dpr: number): EffectComposer {
+  /** Starts loading the glow pass once; a frame is drawn again when it arrives. */
+  private loadBloom(): void {
+    this.bloomLoad ??= import('./hqBloom.ts').then((m) => { this.bloomKit = m; if (!this.disposed) this.requestFrame(); }, () => { this.bloomLoad = null; });
+  }
+
+  private ensureComposer(width: number, height: number, dpr: number, kit: typeof import('./hqBloom.ts')): EffectComposer {
     if (!this.composer) {
-      const target = new WebGLRenderTarget(Math.round(width * dpr), Math.round(height * dpr), { type: HalfFloatType, samples: 4 });
-      const composer = new EffectComposer(this.renderer, target);
-      composer.setPixelRatio(dpr);
-      composer.setSize(Math.round(width), Math.round(height));
-      composer.addPass(new RenderPass(this.scene, this.camera));
-      this.bloom = new UnrealBloomPass(new Vector2(Math.round(width), Math.round(height)), 0.85, 0.5, 1.0);
-      composer.addPass(this.bloom);
-      composer.addPass(new OutputPass());
-      this.composer = composer;
+      const made = kit.makeBloomComposer(this.renderer, this.scene, this.camera, width, height, dpr);
+      this.bloom = made.bloom;
+      this.composer = made.composer;
     }
     return this.composer;
   }
@@ -1180,11 +1320,14 @@ export class HqRenderer {
       this.stepAmbient();
       if (this.shadowDirty && this.renderer.shadowMap.enabled) { this.renderer.shadowMap.needsUpdate = true; this.shadowDirty = false; }
       this.renderer.info.reset();
+      const vp = viewProjection(cs, aspect);
       let usePhoto = this.photoActive();
-      const useBloom = !usePhoto && this.applied.bloom && !this.reducedMotion && this.night > 0.04;
+      const wantBloom = !usePhoto && this.applied.bloom && !this.reducedMotion && this.night > 0.04;
+      if (wantBloom && !this.bloomKit) this.loadBloom();
+      const useBloom = wantBloom && this.bloomKit !== null;
       if (usePhoto) {
         try {
-          this.photo!.frame({ camera: cs, viewProjection: viewProjection(cs, aspect), width, height, dpr, night: this.night, time: this.clock, halos: this.lastScene?.halos, reducedMotion: this.reducedMotion });
+          this.photo!.frame({ camera: cs, viewProjection: vp, width, height, dpr, night: this.night, time: this.clock, halos: this.lastScene?.halos, reducedMotion: this.reducedMotion });
         } catch (error) {
           // A pass that cannot run on this GPU: leave the photographic effects for good and draw this frame the plain way.
           this.leavePhoto();
@@ -1193,7 +1336,7 @@ export class HqRenderer {
           this.renderer.render(this.scene, this.camera);
         }
       } else if (useBloom) {
-        const composer = this.ensureComposer(width, height, dpr);
+        const composer = this.ensureComposer(width, height, dpr, this.bloomKit!);
         if (this.bloom) { this.bloom.strength = 0.5 * Math.min(1, this.night * 1.4); this.bloom.threshold = 1.05; this.bloom.radius = 0.4; }
         composer.render();
       } else {
@@ -1201,14 +1344,16 @@ export class HqRenderer {
       }
       this.stats.bloom = useBloom || usePhoto;
       this.stats.tier = usePhoto ? 4 : this.override ?? this.pinned ?? this.quality;
-      this.stats.fx = this.fxList(usePhoto);
+      if (usePhoto !== this.fxPhoto || this.fxKeyNow() !== this.fxKey) { this.fxPhoto = usePhoto; this.fxKey = this.fxKeyNow(); this.stats.fx = this.fxList(usePhoto); }
       this.stats.scenery.level = this.level; this.stats.scenery.clock = this.clock; this.stats.scenery.vehicles = this.scenery?.count ?? 0;
       if (this.level > 0) this.stats.scenery.frames += 1;
       if (this.layer) Object.assign(this.stats.models, this.layer.stats);
       this.stats.triangles = this.renderer.info.render.triangles;
       this.stats.drawn = this.renderer.info.render.calls;
-      this.stats.culled = Math.max(0, this.meshes.length - this.meshes.filter((m) => m.visible).length);
-      this.cb.onFrame?.(viewProjection(cs, aspect), aspect);
+      let hidden = 0;
+      for (const m of this.meshes) if (!m.visible) hidden += 1;
+      this.stats.culled = hidden;
+      this.cb.onFrame?.(vp, aspect);
       if (lifting) this.requestFrame();
     } catch (error) {
       this.fail(error);
@@ -1235,6 +1380,11 @@ export class HqRenderer {
     else if (decision) { gov.apply(decision, started); this.applyStep(gov.step); }
   }
 
+  /** The inputs of `fxList` as one number, so the list string is built only when one of them changed. */
+  private fxKeyNow(): number { return (this.sceneFx ? 1 : 0) + (this.contactMesh ? 2 : 0) + (this.photoOn ? 4 : 0) + this.fxOff.size * 8; }
+  private fxKey = -1;
+  private fxPhoto = false;
+
   /** What is on right now, for the canvas attributes and the docs: a comma list. */
   private fxList(photo: boolean): string {
     const on: string[] = [];
@@ -1255,7 +1405,7 @@ export class HqRenderer {
       this.photo?.setOff(next);
       if (pbr) for (const material of this.materials.values()) material.needsUpdate = true;
       if (rebuild && this.lastScene) this.setScene(this.lastScene);
-      this.shadowDirty = true; this.lastSunKey = '';
+      this.shadowDirty = true; this.lastSunKey = ''; this.fxKey = -1;
     }
     const gl = this.renderer.getContext();
     const times: number[] = [];
@@ -1286,6 +1436,8 @@ export class HqRenderer {
     for (const material of this.materials.values()) material.dispose();
     for (const texture of this.textures) texture.dispose();
     this.signTexture?.dispose();
+    this.boardTexture?.dispose();
+    this.screenTexture?.dispose();
     if (this.sky) { this.sky.geometry.dispose(); (this.sky.material as Material).dispose(); }
     for (const env of this.envs) env?.dispose();
     this.scenery?.dispose();

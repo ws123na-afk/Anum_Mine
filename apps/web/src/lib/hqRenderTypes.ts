@@ -11,6 +11,8 @@ export type RenderItem = Readonly<{
   id: string; vertices: Float32Array; bounds: Aabb; cull?: boolean; fallbackOf?: ModelGroup;
   /** Part of a group the stage can ease in and out (a floor of the cut-away). `y` is the level the group collapses towards. */
   lift?: Readonly<{ group: string; y: number }>;
+  /** Its lettered faces (the sign class) take the live board atlas (`HqRenderer.setBoards`) instead of the sign atlas: the building billboards. */
+  board?: boolean;
 }>;
 
 /**
@@ -25,7 +27,11 @@ export const easeLift = (t: number): number => { const x = Math.max(0, Math.min(
 
 /** The text of one sign (the real building name over the ANUM MINE wordmark). Index matches the sign cell the scene was built with. */
 /** `fontsReady` only changes the sign key: the atlas is drawn again once the Arabic face has loaded (a canvas does not wait for a web font). */
-export type SignText = Readonly<{ title: string; subtitle: string; fontsReady?: boolean }>;
+export type SignText = Readonly<{
+  title: string; subtitle: string; fontsReady?: boolean;
+  /** The owner's brand sign (docs/ANUM_MINE_HQ_LOGO_SIGNS.md): `brand` is part of the sign key, `paint` draws the whole 512 x 128 cell at (x, y), so the lazy sign painter never loads into the renderer. */
+  brand?: string; paint?: (ctx: CanvasRenderingContext2D, x: number, y: number, k: number) => void;
+}>;
 
 /** A scenery piece the renderer moves on its own (a fan, a light glint, a lift indicator); see `hqAssets/interior/ambient.ts`. */
 export type AmbientItem = RenderItem & Readonly<{ motion: AmbientMotion }>;
@@ -52,6 +58,8 @@ export type RenderScene = Readonly<{
 
 export type RenderStats = {
   frames: number; lastDrawMs: number; avgDrawMs: number; drawn: number; culled: number; triangles: number; dpr: number;
+  /** Uploads of a live atlas (billboards, screens) that was already on the GPU: each one is the whole canvas, so they happen only when its drawing changed. */
+  uploads?: number;
   /** Shadow map size in pixels (0 = off) and whether the night glow pass is on. */
   shadowSize: number; bloom: boolean;
   /** Ambient parts in the scene, and whether they are moving right now (false under reduced motion, in a hidden tab, or at the lowest quality). */
@@ -60,10 +68,15 @@ export type RenderStats = {
   tier: number; fx: string;
   /** Revision of the plan atlas on the GPU ('' when none). */
   glassPlan?: string;
+  /**
+   * 'loading' until the scene effect chunks (baked occlusion, campus detail) have loaded or failed and the scene that was waiting for them
+   * is built again; then 'ready'. Until then the drawn scene is a first, temporary build (its triangle count is not the settled one).
+   */
+  sceneFx?: 'loading' | 'ready';
   /** Model layer: placements drawn, models loaded of those asked for, bytes fetched, load time in ms, groups that fell back. */
   /** Exterior scenery motion: level 0 to 2 (0 = still), frames drawn by its loop, the scene clock in seconds and the vehicles placed. */
   scenery: { level: number; frames: number; clock: number; vehicles: number };
-  models: { placed: number; figures: number; loaded: number; asked: number; bytes: number; loadMs: number; fallbacks: string[]; looks: string[] };
+  models: { placed: number; figures: number; /** People built by the character kit (not loaded from a file). */ kit?: number; loaded: number; asked: number; bytes: number; loadMs: number; fallbacks: string[]; looks: string[] };
 };
 
 export type RendererCallbacks = Readonly<{

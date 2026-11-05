@@ -85,7 +85,19 @@ test('no desk and no person is invented: stations come only from the caller', ()
     const stations = layoutStations(frame, ['a', 'b', 'c']).map((s, i) => ({ ...s, occupantSeed: `agent-${i}` }));
     const withStations = buildInteriorMesh(kind, frame, { seed: 'p', stations }).triangles;
     if (STATION_KINDS.includes(kind) && kind !== 'executive') assert.ok(withStations > none + 3 * 500, `${kind} draws its stations and occupants`);
-    if (!STATION_KINDS.includes(kind)) assert.equal(withStations, none, `${kind} ignores stations`);
+    if (!STATION_KINDS.includes(kind)) {
+      // A room with no workstations invents no desk: vacant stations draw nothing; each occupied post (a stored assignment)
+      // stands exactly one person (docs/ANUM_MINE_HQ_PEOPLE_CHARACTERS.md, "People at their posts").
+      const vacant = buildInteriorMesh(kind, frame, { seed: 'p', stations: stations.map((s) => ({ ...s, occupantSeed: null })) }).triangles;
+      assert.equal(vacant, none, `${kind} draws no desk for a station`);
+      const b = new MeshBuilder();
+      buildInteriorRoom(b, kind, frame, { seed: 'p', stations });
+      const people = b.slots.filter((x) => x.model === 'person');
+      assert.ok(stations.length > 0, kind);
+      assert.deepEqual(people.map((x) => x.seed).sort(), stations.map((x) => x.occupantSeed).sort(), `${kind} stands one person per occupied post`);
+      assert.ok(people.every((x) => x.standing === true), `${kind} posts stand`);
+      assert.ok(withStations > none && withStations <= none + stations.length * FIGURE_TRIANGLE_CAP, `${kind} adds only the people`);
+    }
   }
 });
 

@@ -128,6 +128,18 @@ class BusinessLeadRecord(Base, _Updated):
     lost_at: Mapped[datetime | None] = mapped_column(TS)
     suppressed_at: Mapped[datetime | None] = mapped_column(TS)
     created_by: Mapped[str] = mapped_column(String(160))
+    # Migration 0125_unify_whatsapp_leads.
+    channel: Mapped[str | None] = mapped_column(String(20))
+    channel_conversation_id: Mapped[str | None] = mapped_column(String(80))
+    channel_phone: Mapped[str | None] = mapped_column(String(20))
+    sales_lead_id: Mapped[str | None] = mapped_column(String(80))
+
+
+class BusinessLeadPairDecisionRecord(Base, _Updated):
+    __tablename__ = "business_lead_pair_decisions"
+    pair_key: Mapped[str] = mapped_column(String(200))
+    decision: Mapped[str] = mapped_column(String(20))
+    decided_by: Mapped[str] = mapped_column(String(160))
 
 
 class BusinessEvidenceRecord(Base, _Updated):
@@ -457,6 +469,37 @@ class BusinessInvoicePaymentRecord(Base, _Updated):
     reference: Mapped[str] = mapped_column(String(120))
     note: Mapped[str] = mapped_column(String(300))
     recorded_by: Mapped[str] = mapped_column(String(160))
+    idempotency_key: Mapped[str | None] = mapped_column(String(80))
+    provider: Mapped[str | None] = mapped_column(String(20))
+    provider_payment_id: Mapped[str | None] = mapped_column(String(200))
+
+
+class BusinessInvoiceMessageRecord(Base, _Updated):
+    __tablename__ = "business_invoice_messages"
+    invoice_id: Mapped[str] = mapped_column(String(80))
+    kind: Mapped[str] = mapped_column(String(10))
+    reminder_number: Mapped[int | None] = mapped_column(Integer)
+    language: Mapped[str] = mapped_column(String(2))
+    to_email: Mapped[str] = mapped_column(String(254))
+    subject: Mapped[str] = mapped_column(String(200))
+    status: Mapped[str] = mapped_column(String(20))
+    approval_id: Mapped[str | None] = mapped_column(String(80))
+    task_id: Mapped[str | None] = mapped_column(String(80))
+    payload_hash: Mapped[str | None] = mapped_column(String(64))
+    detail: Mapped[str] = mapped_column(String(500))
+    requested_by: Mapped[str] = mapped_column(String(160))
+
+
+class BusinessInvoicePaymentLinkRecord(Base, _Updated):
+    __tablename__ = "business_invoice_payment_links"
+    invoice_id: Mapped[str] = mapped_column(String(80))
+    provider: Mapped[str] = mapped_column(String(20))
+    provider_invoice_id: Mapped[str] = mapped_column(String(200))
+    url: Mapped[str] = mapped_column(String(500))
+    amount: Mapped[Decimal] = mapped_column(MONEY)
+    currency: Mapped[str] = mapped_column(String(3))
+    status: Mapped[str] = mapped_column(String(10))
+    created_by: Mapped[str] = mapped_column(String(160))
 
 
 class BusinessCreditNoteRecord(Base, _Updated):
@@ -552,6 +595,7 @@ RECORDS: dict[str, Any] = {
     "accounts": BusinessAccountRecord,
     "contacts": BusinessContactRecord,
     "leads": BusinessLeadRecord,
+    "lead_pair_decisions": BusinessLeadPairDecisionRecord,
     "evidence": BusinessEvidenceRecord,
     "inferences": BusinessInferenceRecord,
     "activities": BusinessActivityRecord,
@@ -571,6 +615,8 @@ RECORDS: dict[str, Any] = {
     "invoice_counters": BusinessInvoiceCounterRecord,
     "credit_notes": BusinessCreditNoteRecord,
     "payment_notices": BusinessPaymentNoticeRecord,
+    "invoice_messages": BusinessInvoiceMessageRecord,
+    "payment_links": BusinessInvoicePaymentLinkRecord,
     "portal_access": BusinessPortalAccessRecord,
     "portal_decisions": BusinessPortalDecisionRecord,
 }

@@ -9,6 +9,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { endpointMissing, loadDeskWork } from './lib/hqPresenceApi.ts';
 import { t } from './lib/i18n.ts';
 import type { OfficeWorkstationWork } from '@anum/contracts';
+import { ShowHistoryLink } from './HqHistoryLauncher';
+import { openHqPanel } from './lib/hqWorkPanels.ts';
 
 type State =
   | { kind: 'idle' }
@@ -81,7 +83,8 @@ export function WorkstationWork(props: Readonly<{ deskId: string | null; fallbac
                     )}
                   </div>
                 ) : <p className="hqMuted">{t('hq.work.noRun')}</p>}
-                <a className="hqLink" href={'#tasks'}>{t('hq.work.openTasks')}</a>
+                <button type="button" className="hqLinkButton" data-testid="desk-open-task" onClick={() => openHqPanel({ kind: 'task', id: task.id })}>{t('hq.work.openTask')}</button>
+                <ShowHistoryLink record={{ recordKind: 'task', id: task.id, label: task.title ?? undefined }} />
               </details>
             </li>
           ))}
@@ -95,10 +98,11 @@ export function WorkstationWork(props: Readonly<{ deskId: string | null; fallbac
               <li key={a.id}>
                 <strong>{a.action ?? t('hq.work.untitled')}</strong>
                 <small>{a.risk_level}{a.expired ? ` · ${t('hq.work.expired')}` : ''}</small>
+                <button type="button" className="hqLinkButton" data-testid="desk-review-approval" onClick={() => openHqPanel({ kind: 'approval', id: a.id })}>{t('hq.work.review')}</button>
+                <ShowHistoryLink record={{ recordKind: 'approval', id: a.id, label: a.action ?? undefined }} />
               </li>
             ))}
           </ul>
-          <a className="hqLink" href="#approvals">{t('hq.work.openApprovals')}</a>
         </>
       )}
       {w.errors.length > 0 && (

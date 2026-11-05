@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { mockHq } from './support/hqCampusApi';
+import { sceneSettled } from './support/hqScene';
 
 // The photographic look (docs/ANUM_MINE_HQ_PHOTOREAL.md): quality tiers, the effects that cost nothing per frame (baked ambient
 // occlusion, contact discs) and the pin that makes the top tier reachable on a real GPU. CI runs a software rasteriser, which must
@@ -67,6 +68,8 @@ test('the quality pin sets the tier; a pinned software rasteriser gets baked occ
   expect(await canvas(page).getAttribute('data-shadow')).toBe('2048');
   // Roof detail and contact discs are for hardware: a software rasteriser never draws them, pinned or not.
   expect(await fx(page)).not.toMatch(/contact|gtao|pbr|agx/);
+  // The first builds are temporary (the campus plan kit, the billboards and the effect chunks come later): compare the settled scenes only.
+  await sceneSettled(page, 180_000);
   const withAo = Number(await canvas(page).getAttribute('data-triangles'));
 
   const second = await page.context().newPage();
@@ -74,6 +77,7 @@ test('the quality pin sets the tier; a pinned software rasteriser gets baked occ
   await open(second, '3', 'ao');
   await expect.poll(() => tier(second), { timeout: 180_000 }).toBe('3');
   expect(await fx(second)).not.toMatch(/ao/);
+  await sceneSettled(second, 180_000);
   // Baked occlusion cuts the wide walls, so the same scene has more triangles with it.
   expect(Number(await canvas(second).getAttribute('data-triangles'))).toBeLessThan(withAo);
   await second.close();

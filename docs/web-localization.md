@@ -25,6 +25,8 @@ No i18n dependency; the code is in `apps/web/src/lib/i18n.ts` (pure, unit tested
 
 Dates use `Intl.DateTimeFormat` with the current locale (`formatDateTime`). Arabic uses Western digits and separators (`ar-u-nu-latn`), so counts, times and the ids, hashes and codes shown next to them read the same in both languages.
 
+Date fields: the browser's own date picker follows the browser's language, not the page's. The headquarters date and date-and-time fields (office history day window and jump to a time, the Reception expected time, Assign work due time) use `hq-date/LocalDateInput.tsx`: the field gets `lang` and `dir` from the app locale, and in Arabic the chosen value is also written out in Arabic under the field (`lib/localDate.ts`, Western digits). That line describes the field for screen readers and stays out of its name. Tests: `test/hqLocalDate.test.ts`, the Arabic checks in `e2e/hq-history.spec.ts` and `e2e/hq-reception.spec.ts`.
+
 ### Adding or changing a string
 
 Add the key to `en.ts` and `ar.ts` in the same change, use it through `t(...)`, and run `pnpm --filter @anum/web test:unit`. Never build a sentence by concatenating translated fragments; give the translator the whole sentence with placeholders.
@@ -62,6 +64,8 @@ Also translated: Voice (`voice.*`), Governance and Enterprise operations (`gov.*
 
 Voice has two languages: the interface follows the page language, and the speech language (Voice settings > Speech language) picks what the browser listens for and how replies are spoken. Without a saved speech language, an Arabic page listens in Arabic (`ar-SA`). The "Try saying" examples are in the speech language, because they are meant to be said; the greeting is the assistant speaking, so it follows the speech language too.
 
+Headquarters office tools: the guided visit (`gt.*`), Reception (`hqRec.*`) and Manage spaces (`OfficeSpaceLiveManager.tsx`, `osm.*` in `messages/officeSpace.*.ts`, room types from `hqSc.kind.*`) are fully Arabic, right to left. Stored names (buildings, floors, rooms, desks, visitors) keep their own direction with `<bdi>` or `dir="auto"`; the arrows of Next stop, Check in, Check out and Return to office carry `flipRtl`. Time zone ids (`Asia/Riyadh`) and the X and Z axis letters stay as they are. The date and time picker of the visitor form is the browser's own control and follows the browser's language. `test/hqArabicScreens.test.ts` checks the keys, the Arabic, the icons and the logical CSS; `e2e/hq-arabic-screens.spec.ts` renders Manage spaces and Reception in Arabic at the five gate sizes, and `e2e/hq-guided-visit.spec.ts` does the same for the visit.
+
 What still renders in English: text people or the model wrote (names, pack descriptions, routing ids, the assistant's replies), the developer timeline's stage labels and summaries, which the API writes, and API sentences that have no Arabic catalog entry yet (see below).
 
 ## Messages written by the API
@@ -76,5 +80,16 @@ The API answers in the page language for the sentences the web shows: the web se
 - there is exactly one `main` landmark, named by the page title, and a labelled primary navigation (the sidebar is a sibling of `main`, not inside it).
 
 Other basics the views follow: decorative icons are `aria-hidden`; loading and result notices are `role="status"` (errors `role="alert"`); every form control has a visible label; the pending-approvals count in the navigation has a spoken label ("1 pending approval"); the queue of pending approvals has a heading for screen-reader navigation; contrast comes from the theme tokens in `styles.css`, which are documented with their ratios for both the dark and the light theme ([theme](design/anum360.md#theme)); the axe gate also runs every view in the light theme.
+
+### Visible text in the spoken name
+
+A control's spoken name holds every word it shows, in the order shown (WCAG 2.5.3, axe rule `label-content-name-mismatch`), so a person using speech input can say what they see. The ways the views meet it:
+
+- **Name from the content.** A row or card with rich text drops its `aria-label`, so its text is its name; a verb only a screen reader needs comes first in a `visuallyHidden` span (the call and contact rows: "Open the call with", the meeting rows: "Open", the file rows: "Show details of", the Command Center orb: "Start speaking a command", the public site's language switch, the account button). A marketing calendar day is named by its full date in a hidden span, then its posts. The floor list items in the headquarters use zero-size inline full stops (`.hqSpokenStop`) between their parts, since a hidden block would add spaces inside the name.
+- **A label that starts from the words shown.** When a short verb button names one item ("Edit", "Keep", "Settings", "Review the proposal"), its label message starts with that verb in both catalogs ("Review the proposal for Orders Desk", "الإعدادات الخاصة بـ shop@example.com"). When a card keeps an `aria-label` because its density can hide its text (the headquarters building, room, floor and agent cards, billboards, the people list, the mailbox rail), the label lists the visible parts in their order, then the extra facts ("Al Noor Fleet HQ. Because: meeting started. 4 agents, 1 working.").
+- **Digits and initials from a data attribute.** A count badge or avatar initials inside a named control are drawn by CSS from `data-count` or `data-initials` (`content: attr(...)`), as the bell does, and the name says the number in words ("3 unread messages", "1 working"). In Arabic a number in a sentence is wrapped in bidi isolates and may be spelled out, so the drawn digits would never match it.
+- Adjacent text elements in such a control are separated by a space in the markup (`{' '}`): axe joins child text without one. Flex and grid layouts ignore that space.
+
+Tests: `apps/web/test/hqVisibleNames.test.ts` (the label messages in English and Arabic hold the words shown, compared the way axe compares them), the axe specs listed above, and `e2e/hq-navigation.spec.ts` for the names.
 
 `apps/web/e2e/localization.spec.ts` covers the language choice end to end: a browser asking for Arabic opens in Arabic and right to left, Settings > Language switches and persists across a reload, "Match my browser" goes back, and the main views (Integrations, Skills, the marketplace, Members, Budgets, the Approval policy, Governance, Enterprise and Voice included) read in Arabic with Arabic plural forms and no horizontal overflow.

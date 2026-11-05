@@ -40,6 +40,31 @@ export function floorEntries(building: SceneBuilding | null): FloorEntry[] {
   return rows.sort((a, b) => b.level - a.level || a.name.localeCompare(b.name) || a.id.localeCompare(b.id));
 }
 
+// ---------------------------------------------------------------- opening a room on any floor
+
+export type RoomMove = Readonly<{ buildingId: string; floorId: string; roomId: string; switchBuilding: boolean; switchFloor: boolean }>;
+
+/**
+ * Where the view must go to show a room picked anywhere (the scene, the floor rail, the quick views, the search, the team
+ * panel, the history, the flow): the building and the floor that hold the room, and whether the open building or floor
+ * must change first. The floor id the caller passes is a hint only: the saved layout decides, so a stale hint never opens
+ * the wrong floor. A room no saved floor holds gives null (nothing changes).
+ */
+export function roomMove(
+  buildings: ReadonlyArray<Pick<SceneBuilding, 'id' | 'floors'>>, current: Readonly<{ buildingId: string | null; floorId: string | null }>, roomId: string, floorHint?: string | null,
+): RoomMove | null {
+  let found: { b: string; f: string } | null = null;
+  for (const b of buildings) for (const f of b.floors) {
+    if (!f.rooms.some((r) => r.id === roomId)) continue;
+    // The hinted floor wins when it really holds the room; else the first floor of the open building, else the first one found.
+    const better = !found || (f.id === floorHint) || (found.b !== current.buildingId && b.id === current.buildingId && found.f !== floorHint);
+    if (better) found = { b: b.id, f: f.id };
+  }
+  if (!found) return null;
+  const switchBuilding = found.b !== current.buildingId;
+  return { buildingId: found.b, floorId: found.f, roomId, switchBuilding, switchFloor: switchBuilding || found.f !== current.floorId };
+}
+
 // ---------------------------------------------------------------- quick-view strip
 
 export type StripStop =
@@ -118,6 +143,29 @@ export function cardDensities(
     // A selected or open building is never smaller than compact, however many buildings there are.
     out.set(b.workspace_id, density === 'dot' && pinned(b) ? 'compact' : density);
   });
+  return out;
+}
+
+/** How many buildings show a name chip at once on a campus (the rest are status dots); a phone-sized stage shows fewer. */
+export const MAX_CHIPS = 4;
+export const MAX_CHIPS_COMPACT = 2;
+
+/**
+ * The quiet campus (docs/ANUM_MINE_HQ_LABELS.md): the 3D boards carry the details, so a building's page label is a small chip (name and status
+ * dot) for only a few buildings and a status dot for the rest. Priority: the selected building, the open workspace's building, the executive
+ * tower, then the buildings nearest the point the camera looks at. Every building keeps its button (a dot has the same accessible name), so none
+ * is ever left out. `at` gives each building's ground position (the placements); a building without one ranks last.
+ */
+export function quietDensities(
+  buildings: readonly CampusBuilding[],
+  args: Readonly<{ selectedId: string | null; currentId: string; target: Readonly<{ x: number; z: number }>; at: ReadonlyMap<string, Readonly<{ x: number; z: number }>>; max?: number }>,
+): Map<string, CardDensity> {
+  const max = args.max ?? MAX_CHIPS;
+  const pinned = (b: CampusBuilding): number => (b.workspace_id === args.selectedId ? 3 : b.workspace_id === args.currentId ? 2 : b.kind === 'executive' ? 1 : 0);
+  const far = (b: CampusBuilding): number => { const p = args.at.get(b.workspace_id); return p ? Math.hypot(p.x - args.target.x, p.z - args.target.z) : Infinity; };
+  const ranked = buildings.slice().sort((a, b) => pinned(b) - pinned(a) || far(a) - far(b) || a.name.localeCompare(b.name) || a.workspace_id.localeCompare(b.workspace_id));
+  const out = new Map<string, CardDensity>();
+  ranked.forEach((b, i) => out.set(b.workspace_id, i < max || b.workspace_id === args.selectedId ? 'compact' : 'dot'));
   return out;
 }
 

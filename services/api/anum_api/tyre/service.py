@@ -7,6 +7,7 @@ reports run as the schedule's creator after their membership is re-checked).
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from collections import defaultdict
@@ -105,8 +106,9 @@ def save_connection(connection: TyreConnection) -> TyreConnection:
 
 
 async def test_connection(context: TenantContext) -> tuple[TyreConnection, str]:
-    """Try the saved credential; the connection records the outcome either way."""
-    connection = get_connection(context)
+    """Try the saved credential; the connection records the outcome either way. The store
+    reads and writes run in worker threads; only the source call waits on the loop."""
+    connection = await asyncio.to_thread(get_connection, context)
     try:
         message = await open_connection_source(connection).test()
         connection.status, connection.last_error = ConnectionStatus.OK, None
@@ -114,7 +116,7 @@ async def test_connection(context: TenantContext) -> tuple[TyreConnection, str]:
         message = exc.message
         connection.status, connection.last_error = ConnectionStatus.FAILED, exc.message
     connection.last_tested_at = utc_now()
-    save_connection(connection)
+    await asyncio.to_thread(save_connection, connection)
     return connection, message
 
 
@@ -196,7 +198,9 @@ class SyncOutcome:
 
 
 async def sync(context: TenantContext, actor: str) -> SyncOutcome:
-    connection = get_connection(context)
+    """Read the source with no store open; the store steps run in worker threads
+    (docs/realtime.md#event-loop)."""
+    connection = await asyncio.to_thread(get_connection, context)
     mapping = connection.mapping
     if mapping is None or mapping.problems():
         problems = mapping.problems() if mapping else ["Save a mapping first."]
@@ -206,7 +210,7 @@ async def sync(context: TenantContext, actor: str) -> SyncOutcome:
         rows, stats = await read_source(connection, mapping)
     except TyreSourceError as exc:
         connection.status, connection.last_error, connection.last_tested_at = ConnectionStatus.FAILED, exc.message, utc_now()
-        save_connection(connection)
+        await asyncio.to_thread(save_connection, connection)
         raise
     dataset, stats = apply_mapping(mapping, rows, stats=stats)
     now = utc_now()
@@ -214,14 +218,19 @@ async def sync(context: TenantContext, actor: str) -> SyncOutcome:
     snapshot = TyreSnapshot(tenant_id=context.tenant_id, workspace_id=context.workspace_id,
                             dataset=dataset, stats=sync_stats, synced_by=actor)
     candidates = evaluate_alerts(dataset, connection.assumptions, now.date())
-    with open_tyre_store(context) as store:
-        store.save_snapshot(snapshot)
-        raised = reconcile_alerts(store, context, candidates, now)
-        current = store.get_connection(context)
-        if current is not None:
-            current.status, current.last_error, current.last_tested_at = ConnectionStatus.OK, None, now
-            store.save_connection(current)
-    announce(context, raised)
+
+    def keep() -> list[TyreAlert]:
+        with open_tyre_store(context) as store:
+            store.save_snapshot(snapshot)
+            raised = reconcile_alerts(store, context, candidates, now)
+            current = store.get_connection(context)
+            if current is not None:
+                current.status, current.last_error, current.last_tested_at = ConnectionStatus.OK, None, now
+                store.save_connection(current)
+        announce(context, raised)
+        return raised
+
+    raised = await asyncio.to_thread(keep)
     counts = dataset_counts(dataset)
     return SyncOutcome(stats=sync_stats, counts=counts, raised=raised)
 

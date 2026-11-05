@@ -9,6 +9,7 @@ Code: `apps/web/src/lib/hqLabels.ts` (placement), `lib/hqLabelModel.ts` (what th
 | On the screen | Where it comes from |
 |---|---|
 | Room name | The room record |
+| Room icon | The icon of the room's stored department (`team_department`, only a department the catalogue names), else the icon of its kind ([icons](#icons)) |
 | Room subtitle | Kind, desk count and department of the room record: `Office · 6 desks · Sales`. A department the message catalogue does not know is left out, never guessed. A live meeting adds "In a meeting" from the stored meeting `room_id` |
 | Agent card | Only a desk with a registry assignment or a presence record. Name, role (department) and state come from presence; no record, no card. A private agent shows as "Private agent" |
 | State chip | The presence state (Working, In meetings, Idle, Queued, Waiting for approval, Blocked, Paused) with its tone; stale evidence is marked "stale" and drawn dashed |
@@ -20,32 +21,45 @@ Code: `apps/web/src/lib/hqLabels.ts` (placement), `lib/hqLabelModel.ts` (what th
 ## Where a label hangs
 
 - A label is anchored to the room centre at its floor's height: `y = floorIndex * FLOOR_PITCH` (`lib/buildingScene.ts`) plus the wall height and half a metre in the single floor view, or `STACKED_LABEL_Y` (1.9 m) inside the floor in the stacked view.
-- Single floor view: only the active floor has labels. Every other floor is cut away, so it has none.
-- Stacked view (All floors, the section view's default): room and agent cards stay on the open floor only, hung above the rooms like the single floor view, so the stack does not carry every room's card at once. Each floor also gets one tag on the edge of its floor nearest the eye, so no slab can cover it; clicking it shows that floor. The depth test (`isOccluded`, a segment against box test on the camera eye, with the floor slabs as boxes) and the stacked anchors (`STACKED_LABEL_Y`) are kept in `lib/hqLabels.ts` and `lib/hqLabelModel.ts` and unit tested, but the building view does not use them while the cutaway keeps the open floor visible. A card whose anchor leaves the stage is not drawn but stays in the page (invisible, drawn at the edge when it takes focus) for keyboard and screen reader users; agent cards and cards beyond their distance are hidden.
+- Single floor view: only the active floor has labels, and one floor tag: its own. Every other floor is cut away, so it has none.
+- Stacked view (All floors, the section view's default): room and agent cards stay on the open floor only, hung above the rooms like the single floor view, so the stack does not carry every room's card at once. Each floor also gets one compact tag on the edge of its floor nearest the eye (the open floor's tag may show its line); clicking it shows that floor. A floor tag is hidden behind the slabs of the floors above it (`isOccluded` with `slabsAbove`), and while the camera is zoomed in only the open floor keeps its tag ([declutter](#declutter)). The stacked room anchors (`STACKED_LABEL_Y`) are kept in `lib/hqLabelModel.ts` and unit tested, but the building view does not use them while the cutaway keeps the open floor visible. A card whose anchor leaves the stage is not drawn but stays in the page (invisible, drawn at the edge when it takes focus) for keyboard and screen reader users; agent cards and cards beyond their distance are hidden.
 - The floor overview keeps its own room cards (kind, desks, agents).
 
 ## Density
 
 Every label can take three densities, richest first: **full** (icon, name, subtitle), **compact** (icon and name) and **dot** (the icon alone, or the status ring of an agent). The layout runs per frame in priority order (selected, rooms, then seated agents; near before far) and gives each label the richest density that is free at its anchor. A room that fits at no density is hidden unless it is selected; a room that is crowded may move up to two steps; a seated agent never moves off its desk (it is shown there or gives way, because its position is the fact it states). Hover, keyboard focus and selection open the full card. The text stays in the accessibility tree at every density.
 
-Cards also keep clear of the controls drawn over the scene (the Back to campus card, the camera tools, the dock, the open room panel): their rectangles are read when they change size, never per frame (`bindKeepOut`), and a card is never put under one. A card that has no free spot at any density is **crowded**: it stays at its anchor, unseen and not clickable, but in the tab order, and a keyboard focus brings it forward (`data-hidden="crowded"`). In a scene narrower than 641 px (a phone) no card is left out: one with no free spot sits on its anchor in its smallest density, even over another. A card hidden by the depth test (`data-occluded="true"`) or out of view is removed from the page's tab order; the room list, the room panel and the floor tags reach those.
+Cards also keep clear of the controls drawn over the scene (the Back to campus card, the camera tools, the dock, the open room panel): their rectangles are read when they change size, never per frame (`bindKeepOut`), and a card is never put under one. A card that has no free spot at any density is **crowded**: it stays at its anchor, unseen and not clickable, but in the tab order, and a keyboard focus brings it forward (`data-hidden="crowded"`). In a scene narrower than 641 px (a phone) a card with no free spot sits on its anchor in its smallest density, even over another, unless that density is a dot: two dots never touch (a dot with no free spot is crowded, see [quiet campus](#quiet-campus)). A card hidden by the depth test (`data-occluded="true"`) or out of view is removed from the page's tab order; the room list, the room panel and the floor tags reach those.
 
 ## Chrome
 
 - **Back to campus card** (top left of the scene): the back button, the building name, the status dot and a facts row. It replaces the crumb and counters row above the scene; the building and floor controls stay there.
-- **Floor selector** (bottom right in a wide scene, above the camera bar in a medium one, left to the control bar above the scene in a narrow one): one button per floor, named with the stored floor name up to the first colon, and a switch for the stacked view. It does not replace the floor stepper, the floors rail or the All floors checkbox.
-- **Camera bar**: rotate left and right, floor below and above, Inside, Floor overview, **Pan** (new: dragging moves the scene sideways while it is on), zoom, full screen. Words show only where the scene is wide enough; the icons keep their names and tooltips.
-- **Live operations strip** (bottom left) and **Current flow strip** (top, beside the camera tools) show from 1340 px of scene width. Under that the same numbers are in the panels under the scene.
+- **Floor selector** (bottom right in a wide scene, above the camera bar in a narrower one, at every width): Floor below, one button per floor, named with the stored floor name up to the first colon, Floor above, and a switch for the stacked view. It is the one floor control: the floor list with thumbnails is a toggle (the Floors button), the floor menu above the scene is kept for the keyboard and screen readers only (visible while focused), and Page Up and Page Down still move between floors. On a narrow scene the floor buttons scroll sideways and the open floor stays in view.
+- **Camera group** (one bar along the bottom of the scene, campus and building): rotate left and right (on the campus also the previous and next building), Inside, Floor overview, **Pan**, zoom out and in, Reset view, the campus map (campus), **More camera options** (Face north with the compass, Day, Blue hour, Night) and full screen. The corner column of camera tools is gone; its zoom buttons were a second copy of the bar's. Words show only where the scene is wide enough; the icons keep their names and tooltips. The group fades to 40 % while the scene is idle (3 s without a pointer move, press, wheel, key or focus in the scene) and is whole again on any of them, on hover and while it holds keyboard focus (`useIdleFade.ts`); under reduced motion it changes without a transition.
+- The **Live operations** and **Current flow** strips are docked widgets in the panels under the scene at every width (they are no longer drawn over the stage); same numbers and words as before ([page layout](ANUM_MINE_HQ_PAGE_LAYOUT.md)).
 - Full screen gives the scene the window height.
 
 These steps follow the width of the scene, not the window: `bindKeepOut` writes `data-s641`, `data-s700`, `data-s1340` and `data-s1600` on the scene. (A CSS size container was tried and dropped: it let the scene width stop depending on its content and moved the page columns.)
+
+## Declutter
+
+Owner feedback (2 November 2026, 1920x1080, ANUM HQ cut away with every floor, Rooftop open, zoomed in: "too many things showing, so messy"): the floor tags of every floor were drawn in the middle of the zoomed rooftop, far from their floors and over a room card, and the stage got less than half the screen. The rules now:
+
+- **Priority, lower first** (`FLOOR_TAG_PRIORITY` in `lib/hqLabels.ts`, `BuildingView.tsx`): the selected room 0, the open floor's rooms 1, seated agents 2, the open floor's tag 3, the other floors' tags 4. The layout places them in that order (near before far within one priority), so the lower ones give way first, the same way every time.
+- **Floor tags stay where they belong** (`anchored`): a tag never moves off its floor's edge. With no free spot it gives way (crowded: unseen, in the tab order, a focus brings it forward), never stacked on another label, on a phone too.
+- **Hidden** when the anchor is off the stage (not pulled in from the edge), behind the eye, nearer the eye than 3 m (`minDepth`, the camera's near view), behind a slab above (the stacked view), or over the focused room.
+- **Zoomed in** (the camera closer than 60 % of the home framing, or inside a room) only the open floor keeps its tag.
+- **The focused room stays clear** (`avoid`): no other room card and no floor tag may cover the screen rectangle of the selected room (`boxRect`); its own card and its seated agents are not affected.
+- **Fade, never pop**: a card that leaves fades out over 160 ms (`data-fade="out"`, no clicks while it goes) and is then taken out of the page; a crowded card fades too. Reduced motion: no fade, no transition.
+
+Tests: `test/hqLabelModel.test.ts` ("declutter": anchored tags, off the stage, the near view, the focused room, the priority order), `e2e/hq-declutter.spec.ts` (no two visible labels overlap on the campus, a building with every floor, zoomed in and with one floor at 1920x1080, 1440x900, 1366x768, 1024x768, 768x1024 and 390x844; one floor shows only its own tag; the stage share; every moved control reachable by keyboard; the idle fade).
 
 ## Accessibility, language, motion
 
 - Every card is a button with a name that states the room and its subtitle (or the agent, role and state) and what a press does. The pressed state is `aria-pressed`. The cards are in the page's tab order; the list view and the floor rooms list remain the full alternative.
 - English and Arabic: logical properties only, names in `dir="auto"`, plural subtitles per language (`hqLabels.desks`), the floor selector and the facts row mirror in a right to left page.
 - Light and night: the cards are dark glass in both (AA against any scene colour behind them); the agent card is white.
-- Reduced motion: no fade in, no transitions.
+- Reduced motion: no fade in, no fade out, no transitions (the camera group's idle fade changes at once).
 
 ## Cost
 
@@ -54,10 +68,29 @@ No React render per frame. The cards are DOM nodes written by `placeLabels` only
 ## Tests
 
 - Unit: `test/hqLabelModel.test.ts` (subtitle facts, anchors and floor height, slab occlusion (library), density with 60 rooms, agents that do not move), `test/hqLabelsPresence.test.ts` (placement).
-- Browser: `e2e/hq-labels.spec.ts` (cards, density, stacked view, states: no agents, presence not connected, flow not connected, denied, Arabic, axe). Local render check: `e2e/hq-labels-look.local.spec.ts`.
+- Browser: `e2e/hq-labels.spec.ts` (cards, density, stacked view, states: no agents, presence not connected, flow not connected, denied, Arabic, axe), `e2e/hq-declutter.spec.ts` ([declutter](#declutter)). Local render check: `e2e/hq-labels-look.local.spec.ts`; before and after screenshots: `e2e/tools/hqDeclutter.shots.ts`.
+
+## Icons
+
+One icon set for the headquarters (`lib/hqIcons.ts`): line icons on a 24 unit grid, round caps and joins, a 1.8 unit stroke, paths only. The room kind icons are the masks `hqLabels.css` already drew (a unit test keeps the two equal); each department of the catalogue (`team.dept.*`: Sales, Support, Operations, Finance, Tyre engineering, Marketing, Technology, Research, Legal, Compliance, Security, People, Procurement, Executive, Other) has one icon in the same style. No icon library was added.
+
+- A room card and the floor overview card show the icon of the room's stored department, else the icon of its kind (`roomIconKey`); the department icon is set as the same CSS mask on the card's icon, so it reads like the kind icons. A department the catalogue does not name is never guessed: the kind icon shows.
+- The 3D billboards draw the same icons on the canvas (`Path2D` of the same paths): a row of up to six for the building's rooms (departments first, then the kinds of rooms without one) and the department icons before the departments line of the close view ([billboards](ANUM_MINE_HQ_BILLBOARDS.md)).
+- Icons are decorative (`aria-hidden`); the card's name already says the department in its subtitle.
 
 ## Not in this change
 
-- Per department icons (the icon follows the room kind).
 - A Team status card with Offline: presence has no offline state.
 - The concept's room name subtitles are written by hand; ours are generated from the record, so they read plainer.
+
+## Quiet campus
+
+Owner feedback (27 October 2026): the campus looked busy, with a card (name, kind chips, avatar initials, counts) on every building, overlapping each other and the panels. The details now live on the 3D boards ([billboards](ANUM_MINE_HQ_BILLBOARDS.md)), so the page labels of the buildings are minimal.
+
+- **A building label is a chip or a dot.** A chip is the type icon, the building name and a status dot. A dot is only the status dot (name on hover and focus, in the tooltip and in the accessible name). The kind chips, the avatar initials, the counts and the second line are gone from the label; they are on the board, on the detail panel of the selected building and in the accessible name ("Name. 4 agents, 0 working."). A chip that shows a work, feed or walker line says it right after the name, before the summary, so the name holds the visible words in order ([visible text in the spoken name](web-localization.md#visible-text-in-the-spoken-name)).
+- **Few chips, by rule** (`quietDensities` in `hq-nav/navModel.ts`): at most four chips at a time (two on a phone-sized stage), chosen by priority (selected, the open workspace's building, the executive tower, then the buildings nearest the point the camera looks at); every other building is a dot. The set follows the camera target, so zooming to a corner gives that corner its chips. The layout still gives a chip up to a dot before two labels would overlap.
+- **Full detail only for the focused building**: hover, keyboard focus or selection shows its billboard card (full) and, when selected, the detail panel. No unfocused billboard card is in the page.
+- **Never lost**: every building keeps its button in the page (the same accessible name and the same click), in the tab order, in the quick view strip, the minimap and the list view.
+- **Dots never touch.** On a scene narrower than 641 px a dot keeps a clear gap of `DOT_GAP` (4 px) round it: it looks for a free spot on a finer ring round its anchor (half a dot per step, up to four dots away), and a dot with no free spot is not drawn over another one: it is crowded (in the page and the tab order, a keyboard focus brings it forward, the building is still in the quick view strip and the list). A chip never overlaps anything, and on wider scenes nothing overlaps.
+- `cardDensities` and `cardTags` (the old full card rules) stay in `navModel.ts` with their unit tests but the campus no longer uses them.
+- Tests: `test/hqBoardFace.test.ts` (chip rules), `test/hqIcons.test.ts` (dots never touch on a phone-sized scene), `e2e/hq-quiet-campus.spec.ts` (five viewports, English and Arabic, no overlap and no two dots touching at any width, axe). Specs changed on purpose: `hq-navigation.spec.ts` (the density counts and the tags now checked on chips, the detail card and the accessible name) and `hq-billboards.spec.ts` (no unfocused billboard cards).

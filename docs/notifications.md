@@ -18,6 +18,8 @@ Notification preferences are per user and per workspace (`GET`/`PUT /api/v1/noti
 | `desktop_enabled` | Desktop notifications | Not a phone channel. The channel switch for the web and desktop apps' [operating-system notifications](#desktop) |
 | `email_enabled` | Email | The channel switch for [email](#email): each kind above is also emailed to people who turned this on |
 
+A visitor checked in for a host (kind `visitor_arrived`, [reception](ANUM_MINE_HQ_RECEPTION.md#host-notification)) is in-app only: its row is stored with email and push `not_requested`, and `push.IN_APP_ONLY_KINDS` keeps its `notification.created` event from becoming a phone push, whatever the switches say (owner rule: no autonomous email, SMS or push).
+
 In-app calls ([In-app calls](in-app-calls.md#phone-push)) push `incoming_call` (from `app_call.ringing`) and `missed_call` (from a `missed_call` notification) to the person rung; they have no switch of their own and follow `push_enabled`.
 
 The web app shows these under **Settings › Notifications** with the person's registered phones; the Flutter app under **Settings › Notifications** with the **Phone push** card.

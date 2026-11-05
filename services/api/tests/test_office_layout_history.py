@@ -80,3 +80,94 @@ def test_migration_is_expand_only_with_short_id() -> None:
     assert len(module.revision) <= 32 and module.down_revision == "0111_meeting_summary_links"
     source = (ROOT / "migrations" / "versions" / "0112_layout_history.py").read_text(encoding="utf-8")
     assert "drop_column" not in source and "alter table office_" not in source
+
+
+SEAT = {"shift": "day", "seat_order": 2, "facing": "west", "seat_kind": "team", "table_group": "l-table"}
+HOURS = {"shift_day_start": "06:30", "shift_night_start": "18:30"}
+
+
+def test_snapshot_keeps_seat_fields_and_shift_hours() -> None:
+    a = h.build_snapshot(FLOOR, [room("a")], [desk("d1", "a", **SEAT)], HOURS)
+    assert a["v"] == 3 and a["shifts"] == {"shift_day_start": "06:30", "shift_night_start": "18:30"}
+    assert {k: a["desks"][0][k] for k in SEAT} == SEAT
+    night = h.build_snapshot(FLOOR, [room("a")], [desk("d1", "a", **{**SEAT, "shift": "night"})], HOURS)
+    other_hours = h.build_snapshot(FLOOR, [room("a")], [desk("d1", "a", **SEAT)], {**HOURS, "shift_day_start": "07:00"})
+    assert len({h.snapshot_hash(a), h.snapshot_hash(night), h.snapshot_hash(other_hours)}) == 3
+    s = h.diff_snapshots(a, night)["summary"]
+    assert (s["seats_changed"], s["desks_moved"], s["shift_hours_changed"]) == (1, 0, False)
+    assert h.diff_snapshots(a, other_hours)["summary"]["shift_hours_changed"] is True
+
+
+def test_restore_plan_brings_seats_and_hours_back() -> None:
+    target = h.build_snapshot(FLOOR, [room("a")], [desk("d1", "a", **SEAT), desk("d2", "a", 3, 3, **{**SEAT, "seat_order": 5, "facing": "east"})], HOURS)
+    current = h.build_snapshot(FLOOR, [room("a")], [desk("d1", "a", shift=None, seat_order=None, facing=None, seat_kind=None, table_group=None)],
+                               {"shift_day_start": None, "shift_night_start": None})
+    plan = h.restore_plan(current, target)
+    assert plan["desk_updates"] == [("d1", SEAT)]
+    assert [(d["id"], d["facing"], d["seat_order"]) for d in plan["desk_inserts"]] == [("d2", "east", 5)]
+    assert plan["shift_hours"] == HOURS
+
+
+def test_version_1_revision_leaves_seats_and_hours_alone() -> None:
+    v1 = {"v": 1, "floor": FLOOR, "rooms": [{f: room("a").get(f) for f in h.ROOM_FIELDS}],
+          "desks": [{f: desk("d1", "a").get(f) for f in h.DESK_FIELDS_V1}]}
+    now = h.build_snapshot(FLOOR, [room("a")], [desk("d1", "a", **SEAT)], HOURS)
+    assert h.snapshot_hash(h.as_version_of(now, v1)) == h.snapshot_hash(v1)
+    plan = h.restore_plan(now, v1)
+    assert plan["desk_updates"] == [] and "shift_hours" not in plan
+    assert h.as_version_of(now, now) is now
+
+
+WORK = {"work_start": "13:00", "work_end": "22:00"}
+
+
+def test_snapshot_version_3_keeps_each_persons_working_hours() -> None:
+    a = h.build_snapshot(FLOOR, [room("a")], [desk("d1", "a", **SEAT, **WORK)], HOURS)
+    assert a["v"] == 3 and {k: a["desks"][0][k] for k in WORK} == WORK
+    later = h.build_snapshot(FLOOR, [room("a")], [desk("d1", "a", **SEAT, work_start="06:00", work_end="14:00")], HOURS)
+    assert h.snapshot_hash(a) != h.snapshot_hash(later)
+    s = h.diff_snapshots(a, later)["summary"]
+    assert (s["seats_changed"], s["desks_moved"]) == (1, 0), "changed hours are a changed seat"
+    plan = h.restore_plan(later, a)
+    assert plan["desk_updates"] == [("d1", WORK)], "a restore brings the hours back exactly"
+    over = h.build_snapshot(FLOOR, [room("a")], [desk("d1", "a", **SEAT, work_start="22:00", work_end="06:00")], HOURS)
+    assert h.restore_plan(a, over)["desk_updates"] == [("d1", {"work_start": "22:00", "work_end": "06:00"})], "hours over midnight too"
+    inserted = h.restore_plan(h.build_snapshot(FLOOR, [room("a")], [], HOURS), a)["desk_inserts"]
+    assert {k: inserted[0][k] for k in WORK} == WORK, "a re-created desk comes back with its hours"
+
+
+def test_version_2_revision_leaves_the_working_hours_alone() -> None:
+    now = h.build_snapshot(FLOOR, [room("a")], [desk("d1", "a", **SEAT, **WORK)], HOURS)
+    v2 = {"v": 2, "floor": FLOOR, "shifts": HOURS, "rooms": [{f: room("a").get(f) for f in h.ROOM_FIELDS}],
+          "desks": [{f: desk("d1", "a", **SEAT).get(f) for f in h.DESK_FIELDS_V2}]}
+    assert "work_start" not in v2["desks"][0]
+    assert h.snapshot_hash(h.as_version_of(now, v2)) == h.snapshot_hash(v2), "the floor as it is matches the version 2 revision"
+    plan = h.restore_plan(now, v2)
+    assert plan["desk_updates"] == [] and "shift_hours" not in plan, "nothing to change: the hours are kept"
+    moved = {**v2, "desks": [{**v2["desks"][0], "seat_order": 7}]}
+    assert h.restore_plan(now, moved)["desk_updates"] == [("d1", {"seat_order": 7})], "only the version 2 fields are restored"
+    assert h.diff_snapshots(v2, now)["summary"]["seats_changed"] == 0, "hours a version 2 revision never held are not a change"
+    gone = h.restore_plan(h.build_snapshot(FLOOR, [room("a")], [], HOURS), v2)["desk_inserts"]
+    assert gone and gone[0].get("work_start") is None
+
+
+def test_migration_0119_adds_the_working_hours_expand_only() -> None:
+    path = ROOT / "migrations" / "versions" / "0119_desk_work_hours.py"
+    spec = importlib.util.spec_from_file_location("m0119", path)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    assert len(module.revision) <= 32 and module.down_revision == "0118_career_visitor_register"
+    import inspect
+    source = inspect.getsource(module.upgrade)
+    assert all(f'"{f}"' in source for f in h.HOUR_FIELDS) and "drop_" not in source and "nullable=True" in source
+
+
+def test_migration_0115_is_the_seat_schema_the_snapshot_reads() -> None:
+    spec = importlib.util.spec_from_file_location("m0115", ROOT / "migrations" / "versions" / "0115_desk_seats_shifts.py")
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    import inspect
+    source = inspect.getsource(module.upgrade)
+    assert all(f'"{f}"' in source for f in (*h.SEAT_FIELDS_V2, *h.SHIFT_FIELDS))

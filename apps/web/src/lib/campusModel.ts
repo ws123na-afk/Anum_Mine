@@ -6,11 +6,37 @@
  * `totals` is null and the screen says "Presence unavailable". Nothing here invents a number.
  * Pure functions, no DOM: the unit runner covers layout, totals and keyboard order.
  */
-export type CampusBuildingKind = 'executive' | 'business' | 'department' | 'personal';
+import { aimedLean, facingTurn, footprintRect, turnRect, type QuarterTurn } from './campusFacing.ts';
+import { archetypeOf } from './campusBuildings.ts';
+import { warehouseEntranceX } from '../hqAssets/exterior/warehouseDoor.ts';
+
+export type CampusBuildingKind = 'executive' | 'business' | 'department' | 'personal' | 'career';
 
 export type CampusTotals = Readonly<{
   agents: number; working: number; queued: number; meeting: number; waiting_approval: number;
   blocked: number; idle: number; paused: number; unknown: number;
+  /** People seated at a day or night seat whose shift is not in force now (stored hours, building time zone): not counted by a work state. */
+  off_shift?: number;
+}>;
+
+/** The owner's sign for a registry building (docs/ANUM_MINE_HQ_LOGO_SIGNS.md): the style and brand colour, and the hash of the uploaded logo (null: no logo). */
+export type BuildingSign = Readonly<{
+  buildingId: string; style: string | null; color: string | null; logoSha256: string | null;
+  /** Set when the registry building belongs to another workspace than the open one: its logo is read in that workspace (`x-workspace-id`). */
+  workspaceId?: string;
+}>;
+
+/** One registry room of another workspace, as its campus board read gives it (docs/ANUM_MINE_HQ_BILLBOARDS.md#every-building). */
+export type RemoteRoom = Readonly<{ label: string; labelAr: string | null; kind: string; teamDepartment: string | null }>;
+/** Open work of another workspace's building, from its own flow (null numbers when the source is not connected). */
+export type RemoteWork = Readonly<{ source: string; open: number | null; waiting: number | null; blocked: number | null; truncated: boolean }>;
+/**
+ * What the campus boards read (`GET /office/campus/boards`) says about another workspace's building. `status` is the read's own state;
+ * `board` is null until a first answer, when the workspace was not in it, or when it could not be read (`accessible` false).
+ */
+export type RemoteBoardFacts = Readonly<{
+  status: 'loading' | 'ready' | 'error' | 'unsupported';
+  board: Readonly<{ asOf: string | null; rooms: readonly RemoteRoom[]; roomsTotal: number; departments: readonly string[]; work: RemoteWork }> | null;
 }>;
 
 export type CampusBuilding = Readonly<{
@@ -44,6 +70,10 @@ export type CampusBuilding = Readonly<{
   realWorkspaceId?: string;
   /** The office registry building this card stands for (a registry building is a real record; nothing else is drawn as one). */
   registryBuildingId?: string;
+  /** The sign the owner set up for this building's registry record; absent when none of style, colour or logo is set. */
+  sign?: BuildingSign;
+  /** Another workspace's building: its board facts from the campus boards read. Absent on the open workspace's buildings. */
+  remote?: RemoteBoardFacts;
   /** The workspace's own name, shown on a registry building's card so it is never mistaken for another workspace. */
   workspaceName?: string;
   /** Initials of the agents assigned to desks in this building and their departments (real assignments and presence only). */
@@ -68,7 +98,7 @@ export function addTotals(a: CampusTotals, b: CampusTotals): CampusTotals {
   return {
     agents: a.agents + b.agents, working: a.working + b.working, queued: a.queued + b.queued, meeting: a.meeting + b.meeting,
     waiting_approval: a.waiting_approval + b.waiting_approval, blocked: a.blocked + b.blocked,
-    idle: a.idle + b.idle, paused: a.paused + b.paused, unknown: a.unknown + b.unknown,
+    idle: a.idle + b.idle, paused: a.paused + b.paused, unknown: a.unknown + b.unknown, off_shift: (a.off_shift ?? 0) + (b.off_shift ?? 0),
   };
 }
 
@@ -84,12 +114,14 @@ export function campusTotals(buildings: readonly CampusBuilding[]): { totals: Ca
   return { totals, reporting, missing: buildings.length - reporting };
 }
 
-export type StatusKey = 'working' | 'queued' | 'meeting' | 'waiting_approval' | 'blocked' | 'idle' | 'paused' | 'unknown';
-export const STATUS_ORDER: readonly StatusKey[] = ['working', 'meeting', 'queued', 'waiting_approval', 'blocked', 'idle', 'paused', 'unknown'];
+export type StatusKey = 'working' | 'queued' | 'meeting' | 'waiting_approval' | 'blocked' | 'idle' | 'paused' | 'unknown' | 'off_shift';
+export const STATUS_ORDER: readonly StatusKey[] = ['working', 'meeting', 'queued', 'waiting_approval', 'blocked', 'idle', 'paused', 'unknown', 'off_shift'];
+/** A count of a status (an older reading has no off shift count: zero). */
+export const countOf = (totals: CampusTotals, key: StatusKey): number => totals[key] ?? 0;
 
 /** Tone per status, shared by the dot, the donut and the agent pill. */
 export const STATUS_TONE: Readonly<Record<StatusKey, 'ok' | 'meeting' | 'queue' | 'warn' | 'stop' | 'info' | 'muted' | 'faint'>> = {
-  working: 'ok', queued: 'queue', meeting: 'meeting', waiting_approval: 'warn', blocked: 'stop', idle: 'info', paused: 'muted', unknown: 'faint',
+  working: 'ok', queued: 'queue', meeting: 'meeting', waiting_approval: 'warn', blocked: 'stop', idle: 'info', paused: 'muted', unknown: 'faint', off_shift: 'faint',
 };
 
 /** The dominant status of a building: what the status dot on its label shows. */
@@ -103,19 +135,19 @@ export function buildingStatus(b: CampusBuilding): StatusKey | 'unavailable' | '
   if (b.totals.queued > 0) return 'queued';
   if (b.totals.idle > 0) return 'idle';
   if (b.totals.paused > 0) return 'paused';
-  return 'unknown';
+  return countOf(b.totals, 'off_shift') > 0 && b.totals.unknown === 0 ? 'off_shift' : 'unknown';
 }
 
 export type DonutArc = Readonly<{ key: StatusKey; value: number; start: number; end: number }>;
 
 /** Donut slices in radians, clockwise from twelve o'clock. Zero-valued statuses are left out. */
 export function donutArcs(totals: CampusTotals): DonutArc[] {
-  const sum = STATUS_ORDER.reduce((s, k) => s + totals[k], 0);
+  const sum = STATUS_ORDER.reduce((s, k) => s + countOf(totals, k), 0);
   if (sum <= 0) return [];
   const arcs: DonutArc[] = [];
   let angle = 0;
   for (const key of STATUS_ORDER) {
-    const value = totals[key];
+    const value = countOf(totals, key);
     if (value <= 0) continue;
     const span = (value / sum) * Math.PI * 2;
     arcs.push({ key, value, start: angle, end: angle + span });
@@ -145,69 +177,151 @@ export type Placement = Readonly<{
   kind: CampusBuildingKind;
   /** The icon an owner picked for the building (its name in the campus contract), or null. It decides the drawn building type. */
   icon: string | null;
+  /**
+   * Quarter turns of the building (`campusFacing.ts`): its front (door, sign, forecourt) faces the plaza centre. `width` and `depth`
+   * stay the building's own (along and across its front); `footprintRect` gives the world rectangle.
+   */
+  turn: QuarterTurn;
+  /**
+   * The lean on top of the quarter turn (radians, at most 45 degrees either way; `campusFacing.leanOf`): with it the front points straight
+   * at the plaza centre, also on a diagonal plot. A building whose entrance is off its middle (the warehouse's office annex) aims from
+   * halfway to its door (`campusFacing.aimedLean`), so the middle and the doorway both look at the fountain. Absent or 0 means the quarter turn alone.
+   */
+  yaw?: number;
 }>;
 
 export const FLOOR_HEIGHT = 3.4;
 const SIZE: Record<CampusBuildingKind, { w: number; d: number }> = {
-  executive: { w: 15, d: 15 }, business: { w: 17, d: 14 }, department: { w: 14, d: 12 }, personal: { w: 11, d: 10 },
+  executive: { w: 30, d: 26 }, business: { w: 17, d: 14 }, department: { w: 14, d: 12 }, personal: { w: 11, d: 10 }, career: { w: 15, d: 12 },
 };
-const RING_CAPACITY = [7, 12, 18, 24];
-const RING_RADIUS = [38, 66, 94, 122];
+
+/**
+ * The centre of the campus (ground plan, metres from the middle): the fountain basin, the paved plaza round it, the
+ * roundabout (centre line and width of the road), the outer edge of its pavement, and the radius inside which no building
+ * lot may stand. `corridor` is the half width kept free for the two avenues (south and east) that join the roundabout to the ring road.
+ */
+export const PLAZA = { basin: 12.5, paved: 18.8, roadCentre: 25.8, roadWidth: 8, outer: 32.6, clear: 35, corridor: 13 } as const;
+
+/**
+ * What a building takes from the ground: its footprint plus a margin at the sides and back, and its front garden on the side where
+ * the door is (the side that faces the plaza). The executive building drawn from its own asset has a long forecourt (drive, pool, flags) and a wider podium.
+ */
+export const LOT = { side: 6, back: 6, front: 16 } as const;
+export const EXECUTIVE_LOT = { side: 10.5, back: 6, front: 31 } as const;
+
+export type Lot = Readonly<{ x0: number; x1: number; z0: number; z1: number }>;
+
+/** The lot in world axes: built in the building's own frame (front garden on +z) and turned with the building. */
+export function lotOf(p: Readonly<{ x: number; z: number; width: number; depth: number; turn?: number; yaw?: number }>, margins: Readonly<{ side: number; back: number; front: number }> = LOT): Lot {
+  return turnRect({ x0: -p.width / 2 - margins.side, x1: p.width / 2 + margins.side, z0: -p.depth / 2 - margins.back, z1: p.depth / 2 + margins.front }, p.turn ?? 0, p.x, p.z, p.yaw ?? 0);
+}
+
+/** The margins of a placement: the executive building has its long forecourt unless it is drawn from floor plans. */
+export const marginsOf = (kind: CampusBuildingKind, planned: boolean): Readonly<{ side: number; back: number; front: number }> => (kind === 'executive' && !planned ? EXECUTIVE_LOT : LOT);
 
 /** Size of a building drawn from its real floor plans: footprint, storeys and roof height (see `hqPlanFrame.ts`). */
 export type PlannedSize = Readonly<{ w: number; d: number; levels: number; height: number }>;
 
+/** A stable number in [0, 1) from a workspace id (FNV-1a with a final mix): where a building prefers to stand does not depend on the others. */
+export function unitOf(id: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < id.length; i++) { h ^= id.charCodeAt(i); h = Math.imul(h, 16777619); }
+  h ^= h >>> 15; h = Math.imul(h, 2246822519); h ^= h >>> 13; h = Math.imul(h, 3266489917); h ^= h >>> 16;
+  return (h >>> 0) / 4294967296;
+}
+
+/** How many slots of a ring a building tries before it goes to the next ring out: a chain of displaced buildings stays short. */
+const TRIES = 4;
+
+const distanceToLot = (l: Lot): number => Math.hypot(l.x0 > 0 ? l.x0 : l.x1 < 0 ? -l.x1 : 0, l.z0 > 0 ? l.z0 : l.z1 < 0 ? -l.z1 : 0);
+const lotsOverlap = (a: Lot, b: Lot, pad: number): boolean => a.x0 < b.x1 + pad && a.x1 > b.x0 - pad && a.z0 < b.z1 + pad && a.z1 > b.z0 - pad;
+/** True when a lot stands on the plaza or on either avenue (south from the roundabout, east from the roundabout). */
+export const lotBlocksCentre = (l: Lot): boolean => distanceToLot(l) < PLAZA.clear
+  || (l.z1 > 0 && l.x0 < PLAZA.corridor && l.x1 > -PLAZA.corridor) || (l.x1 > 0 && l.z0 < PLAZA.corridor && l.z1 > -PLAZA.corridor);
+
 /**
- * Deterministic placement: the executive tower in the middle, the rest on rings ordered by name. A building drawn from its floor
- * plans (`sizes`, keyed by workspace id) keeps its real footprint, and the rings widen so that real footprints never overlap.
+ * Deterministic placement round the plaza at the centre. Every building is turned so its front faces the plaza (`facingTurn`, then `aimedLean` points it straight at the centre), and its
+ * front garden lies on that side. The executive building takes the north slot (its door looks down on the fountain); every other building is tried first at the slot its id hashes to, then at the next slots, then on the next ring out, and
+ * stands at the smallest radius where its whole lot clears the plaza, both avenues and every lot already placed. Buildings are placed in
+ * order of their hash, never of the list, and a slot does not move when another building comes or goes: adding or removing one building
+ * moves at most the few that were next to its slot. A building drawn from its floor plans (`sizes`, keyed by workspace id) keeps its real
+ * footprint, and the rings widen with the largest one. The returned order is the executive first, then by name (the order of the signs).
  */
 export function layoutCampus(buildings: readonly CampusBuilding[], sizes?: ReadonlyMap<string, PlannedSize>): Placement[] {
   const executive = buildings.find((b) => b.kind === 'executive');
   const others = buildings.filter((b) => b !== executive).slice().sort((a, b) => a.name.localeCompare(b.name) || a.workspace_id.localeCompare(b.workspace_id));
-  const out: Placement[] = [];
+  // How far along its front a building aims (`campusFacing.aimedLean`): halfway to an entrance that is off its middle. Only the
+  // warehouse's door is (its office annex at the left end); a building drawn from its floor plans has its door in the middle.
+  const aimOf = (b: CampusBuilding): number => {
+    if (sizes?.has(b.workspace_id) || archetypeOf({ kind: b.kind, icon: b.icon ?? null, workspaceId: b.workspace_id }) !== 'warehouse') return 0;
+    return warehouseEntranceX(SIZE[b.kind].w) / 2;
+  };
+  const leanFor = (b: CampusBuilding, x: number, z: number, turn: QuarterTurn): number => aimedLean(x, z, turn, aimOf(b));
   const make = (b: CampusBuilding, x: number, z: number): Placement => {
     const size = SIZE[b.kind];
     const planned = sizes?.get(b.workspace_id);
+    const turn = facingTurn(x, z);
+    const yaw = leanFor(b, x, z, turn);
     if (planned) {
-      return { workspaceId: b.workspace_id, x, z, width: planned.w, depth: planned.d, levels: Math.max(1, planned.levels), kind: b.kind, icon: b.icon ?? null, height: planned.height + 6 };
+      return { workspaceId: b.workspace_id, x, z, width: planned.w, depth: planned.d, levels: Math.max(1, planned.levels), kind: b.kind, icon: b.icon ?? null, height: planned.height + 6, turn, yaw };
     }
     const levels = Math.max(b.kind === 'executive' ? 4 : 1, Math.min(14, b.floors ?? (b.kind === 'personal' ? 1 : 2)));
     return {
-      workspaceId: b.workspace_id, x, z, width: size.w, depth: size.d, levels, kind: b.kind, icon: b.icon ?? null,
+      workspaceId: b.workspace_id, x, z, width: size.w, depth: size.d, levels, kind: b.kind, icon: b.icon ?? null, turn, yaw,
       height: levels * FLOOR_HEIGHT * (b.kind === 'executive' ? 1.25 : 1) + 1.2,
     };
   };
-  const reach = (b: CampusBuilding): number => { const s = sizes?.get(b.workspace_id); return s ? Math.hypot(s.w, s.d) / 2 + 6 : 0; };
-  const execReach = executive ? reach(executive) : 0;
-  if (executive) out.push(make(executive, 0, 0));
-  let index = 0;
-  let inner = execReach;
-  for (let ring = 0; index < others.length; ring++) {
-    const capacity = RING_CAPACITY[Math.min(ring, RING_CAPACITY.length - 1)];
-    let radius = RING_RADIUS[Math.min(ring, RING_RADIUS.length - 1)] + Math.max(0, ring - 3) * 28;
-    const count = Math.min(capacity, others.length - index);
-    const slots = ring === 0 && count < capacity ? Math.max(count, 3) : count;
-    if (sizes?.size) {
-      // Real footprints: clear the inner ring or the middle building, and leave the chord between neighbours wide enough.
-      const widest = Math.max(...others.slice(index, index + count).map(reach));
-      radius = Math.max(radius, inner + widest + 8, (slots * (widest * 2 + 6)) / (Math.PI * 2));
-      inner = radius + widest;
+  const all = executive ? [executive, ...others] : others;
+  const dims = all.map((b) => make(b, 0, 0));
+  // The executive forecourt is the one oversized lot: the ring spacing follows the other buildings.
+  const regular = dims.filter((p) => p.kind !== 'executive' || sizes?.has(p.workspaceId));
+  const maxW = Math.max(0, ...regular.map((p) => p.width)), maxD = Math.max(0, ...regular.map((p) => p.depth));
+  const lotW = maxW + 2 * LOT.side, lotD = maxD + LOT.back + LOT.front;
+  // Ring r accepts a building whose smallest clear radius is at most `limit(r)`; `slots(r)` angles share the ring.
+  const step = Math.max(lotW, lotD) * 0.85;
+  const limit0 = PLAZA.clear + LOT.front + maxD / 2 + 4;
+  const limit = (r: number) => limit0 + r * step;
+  const slots = (r: number) => Math.max(4, Math.floor((Math.PI * 2 * (limit(r) - 8)) / (lotW + 3)));
+  const priority = all.slice().sort((a, b) => (a === executive ? -1 : 0) - (b === executive ? -1 : 0) || unitOf(a.workspace_id) - unitOf(b.workspace_id) || a.workspace_id.localeCompare(b.workspace_id));
+  const taken: Lot[] = [];
+  const at = new Map<string, Placement>();
+  for (const b of priority) {
+    const size = make(b, 0, 0);
+    const margins = marginsOf(b.kind, !!sizes?.has(b.workspace_id));
+    let placed: Placement | null = null;
+    for (let ring = 0; !placed && ring < 40; ring++) {
+      const m = slots(ring);
+      // This building's own order of the slots of the ring: a fixed shuffle of its id, so a slot taken by another building moves only the buildings that wanted that slot.
+      const order = b === executive
+        ? [0]
+        : Array.from({ length: m }, (_, k) => k).sort((p, q) => unitOf(`${b.workspace_id}|${ring}|${p}`) - unitOf(`${b.workspace_id}|${ring}|${q}`) || p - q);
+      for (const k of ring === 0 ? order.slice(0, TRIES) : order) {
+        if (placed) break;
+        const angle = -Math.PI / 2 + ((k + (ring % 2) * 0.5) / m) * Math.PI * 2;
+        // The radius depends on this building and the slot alone (the plaza, the avenues and the ring), never on its neighbours.
+        const floor = ring === 0 ? PLAZA.clear : limit(ring - 1) + step * 0.15;
+        for (let r = floor; r <= floor + 60; r += 1) {
+          const x = Math.cos(angle) * r, z = Math.sin(angle) * r;
+          const turn = facingTurn(x, z);
+          const lot = lotOf({ x, z, width: size.width, depth: size.depth, turn, yaw: leanFor(b, x, z, turn) }, margins);
+          if (lotBlocksCentre(lot)) continue;
+          if (!taken.some((t) => lotsOverlap(lot, t, 1))) { taken.push(lot); placed = make(b, x, z); }
+          break;
+        }
+      }
     }
-    for (let i = 0; i < count; i++) {
-      const angle = Math.PI * 0.75 + ((i + (slots > count ? 0.5 : 0)) / slots) * Math.PI * 2;
-      out.push(make(others[index + i], Math.cos(angle) * radius, Math.sin(angle) * radius));
-    }
-    index += count;
+    at.set(b.workspace_id, placed ?? make(b, 0, 0));
   }
-  return out;
+  return all.map((b) => at.get(b.workspace_id)!);
 }
 
 export function campusExtent(placements: readonly Placement[]): { minX: number; maxX: number; minZ: number; maxZ: number; radius: number } {
   if (!placements.length) return { minX: -30, maxX: 30, minZ: -30, maxZ: 30, radius: 30 };
-  const minX = Math.min(...placements.map((p) => p.x - p.width / 2));
-  const maxX = Math.max(...placements.map((p) => p.x + p.width / 2));
-  const minZ = Math.min(...placements.map((p) => p.z - p.depth / 2));
-  const maxZ = Math.max(...placements.map((p) => p.z + p.depth / 2));
+  const rects = placements.map((p) => footprintRect(p));
+  const minX = Math.min(...rects.map((r) => r.x0));
+  const maxX = Math.max(...rects.map((r) => r.x1));
+  const minZ = Math.min(...rects.map((r) => r.z0));
+  const maxZ = Math.max(...rects.map((r) => r.z1));
   const radius = Math.max(Math.abs(minX), Math.abs(maxX), Math.abs(minZ), Math.abs(maxZ));
   return { minX, maxX, minZ, maxZ, radius };
 }
@@ -273,7 +387,7 @@ export function campusFromMemberships(
   return { buildings, totals: campusTotals(buildings).totals, generated_at: now.toISOString() };
 }
 
-const KINDS: readonly string[] = ['executive', 'business', 'department', 'personal'];
+const KINDS: readonly string[] = ['executive', 'business', 'department', 'personal', 'career'];
 const STATE_KEYS: readonly StatusKey[] = ['working', 'queued', 'meeting', 'waiting_approval', 'blocked', 'idle', 'paused', 'unknown'];
 
 /** Reads `{ total, by_state }` of the campus contract; anything missing or malformed means no presence. */
@@ -288,6 +402,8 @@ function readAgents(value: unknown): CampusTotals | null {
     if (typeof n !== 'number' || !Number.isFinite(n) || n < 0) return null;
     out[key] = Math.floor(n);
   }
+  const off = row.off_shift;
+  if (typeof off === 'number' && Number.isFinite(off) && off > 0) out.off_shift = Math.floor(off);
   return out as unknown as CampusTotals;
 }
 

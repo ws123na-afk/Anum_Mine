@@ -154,13 +154,19 @@ def skill_states(profile: AgentProfile, context: TenantContext) -> tuple[list[Ag
                 state, reason = "needs_tools", f"Allow the tool {_join(not_allowed)} on this agent so the skill can run."
             else:
                 state, reason = "ready", None
+            # A first-party role skill (Green Concrete) loads its reviewed instructions into every run and
+            # chat while it is ready, like an installed skill; its tool is still chosen from the user's words.
+            loads = bool(manifest.instructions) and state == "ready"
+            if loads:
+                instructions[skill_id] = manifest.instructions[:LOADED_SKILL_CHARS]
             items.append(
                 AgentSkillState(
                     id=skill_id, name=manifest.name, description=manifest.description, source="builtin",
                     version=manifest.version, latest_version=manifest.version, risk_level=manifest.risk_level,
-                    state=state, reason=reason, activation="on_request" if manifest.triggers else "always",
+                    state=state, reason=reason,
+                    activation="always" if manifest.instructions or not manifest.triggers else "on_request",
                     triggers=sorted(manifest.triggers, key=lambda w: (not w.isascii(), w))[:MAX_TRIGGERS_SHOWN],
-                    tools=tools,
+                    loads_instructions=loads, tools=tools,
                 )
             )
             continue
@@ -225,8 +231,9 @@ def loaded_skills(profile: AgentProfile, context: TenantContext) -> list[LoadedS
     """The installed skills a run or chat as ``profile`` loads now (ready ones only)."""
     from .agent_policy import LoadedSkill
 
-    if not any(runtime_skills().get(s) is None for s in profile.allowed_skills):
-        return []  # only built-in skills: nothing to read from the skill store
+    registry = runtime_skills()
+    if not any((m := registry.get(s)) is None or m.instructions for s in profile.allowed_skills):
+        return []  # only classic built-in skills: nothing to load
     items, instructions = skill_states(profile, context)
     agent_tools = set(profile.allowed_tools) | {ALWAYS_ALLOWED_TOOL}
     return [
@@ -247,8 +254,17 @@ def agent_run_profile(context: TenantContext, profile: AgentProfile) -> AgentRun
     """
     from .agent_policy import AgentRunProfile
 
+    from .agent_profiles import collection_sources
+
     snapshot = AgentRunProfile.from_profile(profile)
     snapshot.loaded_skills = loaded_skills(profile, context)
+    collections = [s.id for s in profile.knowledge_sources if s.type == "collection"]
+    if collections:
+        # A shared knowledge collection is read as the notes and documents it holds when the run starts,
+        # so a procedure the owner adds later is used by the next run (docs/agents.md#knowledge-collections).
+        direct = [s for s in profile.knowledge_sources if s.type != "collection"]
+        seen = {(s.type, s.id) for s in direct}
+        snapshot.knowledge_sources = direct + [s for s in collection_sources(context, collections) if (s.type, s.id) not in seen]
     return snapshot
 
 
@@ -259,7 +275,7 @@ def agent_run_profile(context: TenantContext, profile: AgentProfile) -> AgentRun
 
 
 @router.get("/skills/usage", response_model=SkillUsagePage)
-async def skill_usage(context: TenantContext = Depends(tenant_context)) -> SkillUsagePage:
+def skill_usage(context: TenantContext = Depends(tenant_context)) -> SkillUsagePage:
     """Which of the agents the caller can see load each skill."""
     require_permission(context, Permission.TASK_READ)
     with open_agent_store(context) as store:
@@ -277,7 +293,7 @@ async def skill_usage(context: TenantContext = Depends(tenant_context)) -> Skill
 
 
 @router.get("/{agent_id}/skills", response_model=AgentSkillLoadout)
-async def agent_skills(agent_id: str, context: TenantContext = Depends(tenant_context)) -> AgentSkillLoadout:
+def agent_skills(agent_id: str, context: TenantContext = Depends(tenant_context)) -> AgentSkillLoadout:
     """The agent's skills with their state, version, tools and how they load."""
     require_permission(context, Permission.TASK_READ)
     with open_agent_store(context) as store:

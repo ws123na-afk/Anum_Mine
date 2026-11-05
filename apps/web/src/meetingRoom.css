@@ -44,6 +44,11 @@
 .mrAvatar { align-items: center; background: var(--d-primary); border-radius: 50%; color: var(--d-on-primary); display: inline-flex; font-size: var(--text-sm); font-weight: 600; height: 28px; justify-content: center; width: 28px; }
 .mrIsSpeaking { border-color: var(--d-accent); box-shadow: var(--d-glow); }
 .mrSpeakTag { color: var(--d-accent-text); font-size: var(--text-xs); }
+.mrAgentLeft { opacity: .72; }
+.mrLeftTag { font-size: var(--text-xs); }
+.mrRemove { font-size: var(--text-xs); min-height: 32px; padding: 0 var(--d-s2); }
+.mrRemoveAsk { flex-wrap: wrap; gap: var(--d-s2); }
+.mrSpeaker.mrAsking { border-radius: var(--d-radius); flex-wrap: wrap; }
 .mrTyping { align-items: center; color: var(--d-accent-text); display: flex; gap: var(--d-s2); margin: 0; }
 .mrPulse { animation: mrPulse 1.1s ease-in-out infinite; background: var(--d-accent); border-radius: 50%; height: 8px; width: 8px; }
 @keyframes mrPulse { 50% { opacity: .25; transform: scale(.7); } }

@@ -15,6 +15,7 @@ recorded on the source and never fail the create; ``POST /index`` retries them.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -92,14 +93,30 @@ def _log_hook_failure(action: str, exc: BaseException) -> None:
 async def index_memory_note(
     context: TenantContext, note: Any, memories: MemoryRepository, *, embedder: Embedder | None = None
 ) -> IndexOutcome | None:
-    """Index a just-created memory in the memory route's own transaction (best effort)."""
+    """Index a just-created memory in the memory route's own transaction (best effort).
+
+    The savepoint, the embedder's model settings and every store call run in worker threads,
+    never on the event loop (docs/realtime.md#event-loop)."""
     session = getattr(memories, "session", None)
     try:
-        with _savepoint(session):
+        nested = await asyncio.to_thread(session.begin_nested) if session is not None else None
+        try:
             indexer = RetrievalIndexer(
-                retrieval_store_for_session(session), embedder or build_embedder(context, default_model_gateway())
+                retrieval_store_for_session(session),
+                embedder or await asyncio.to_thread(build_embedder, context, default_model_gateway()),
             )
-            return await indexer.index_memory(context, note)
+            outcome = await indexer.index_memory(context, note)
+        except Exception:
+            if nested is not None:
+                await asyncio.to_thread(nested.rollback)
+            raise
+        except BaseException:
+            if nested is not None:
+                nested.rollback()  # cancelled: undone right here, without awaiting again
+            raise
+        if nested is not None:
+            await asyncio.to_thread(nested.commit)
+        return outcome
     except Exception as exc:
         _log_hook_failure("index_memory", exc)
         return None
@@ -114,14 +131,48 @@ def forget_memory(context: TenantContext, memory_id: str, memories: MemoryReposi
         _log_hook_failure("forget_memory", exc)
 
 
+class _ShortUnitStore:
+    """The indexer's store calls, each in its own short unit of work. The indexer runs them in
+    worker threads, so no session is open on the event loop or while the embedding model
+    answers (docs/realtime.md#event-loop). For files, whose metadata already committed."""
+
+    def __init__(self, context: TenantContext) -> None:
+        self._context = context
+
+    def get_source(self, *args: Any, **kwargs: Any) -> Any:
+        with open_retrieval_store(self._context) as store:
+            return store.get_source(*args, **kwargs)
+
+    def save_source(self, *args: Any, **kwargs: Any) -> Any:
+        with open_retrieval_store(self._context) as store:
+            return store.save_source(*args, **kwargs)
+
+    def delete_source(self, *args: Any, **kwargs: Any) -> Any:
+        with open_retrieval_store(self._context) as store:
+            return store.delete_source(*args, **kwargs)
+
+
+async def _file_indexer(context: TenantContext) -> RetrievalIndexer:
+    embedder = await asyncio.to_thread(build_embedder, context, default_model_gateway())
+    return RetrievalIndexer(_ShortUnitStore(context), embedder)  # type: ignore[arg-type]
+
+
 async def index_uploaded_file(context: TenantContext, record: Any, content: bytes) -> IndexOutcome | None:
     """Index an uploaded file after its metadata committed (best effort)."""
     try:
-        with open_retrieval_store(context) as store:
-            indexer = RetrievalIndexer(store, build_embedder(context, default_model_gateway()))
-            return await indexer.index_file(context, record, content)
+        return await (await _file_indexer(context)).index_file(context, record, content)
     except Exception as exc:
         _log_hook_failure("index_file", exc)
+        return None
+
+
+async def index_committed_note(context: TenantContext, note: Any) -> IndexOutcome | None:
+    """Index a memory whose own transaction already committed (best effort), each store call
+    in its own short unit of work in a worker thread: nothing is held across the embedding."""
+    try:
+        return await (await _file_indexer(context)).index_memory(context, note)
+    except Exception as exc:
+        _log_hook_failure("index_memory", exc)
         return None
 
 
@@ -133,9 +184,7 @@ def current_embedding_model(context: TenantContext) -> str:
 async def reindex_one_file(context: TenantContext, record: Any, content: bytes) -> IndexOutcome:
     """Index one file again (``POST /api/v1/files/{id}/reindex``). Unlike the upload hook a
     failure to reach the store raises; a failed embedding is recorded on the row."""
-    with open_retrieval_store(context) as store:
-        indexer = RetrievalIndexer(store, build_embedder(context, default_model_gateway()))
-        return await indexer.index_file(context, record, content)
+    return await (await _file_indexer(context)).index_file(context, record, content)
 
 
 def forget_file(context: TenantContext, file_id: str) -> None:
@@ -189,24 +238,31 @@ async def reindex(
 
     now = datetime.now(timezone.utc)
     store: RetrievalStore = _workspace_store(memories)
-    embedder = build_embedder(context, default_model_gateway())
+
+    def plan() -> tuple[Embedder, list[Any], list[Any], dict[tuple[SourceType, str], Any], int]:
+        # The reads and the removals run in a worker thread; the indexer below runs its own
+        # store calls in worker threads too (docs/realtime.md#event-loop).
+        embedder = build_embedder(context, default_model_gateway())
+        notes = [
+            note
+            for note in memories.list(context, MemoryListFilters(), now)
+            if note.tenant_id == context.tenant_id and note.workspace_id == context.workspace_id
+        ]
+        with open_file_metadata_store(context) as files:
+            # Vault documents whose owner let the assistant read them stay indexed (docs/documents.md#the-assistant).
+            records = files.list_files(context, 500, include_assistant_vault=True)
+        existing = {(source.source_type, source.source_id): source for source in store.list_sources(context)}
+        live = {(SourceType.MEMORY, note.id) for note in notes} | {(SourceType.FILE, record.id) for record in records}
+        removed = 0
+        for key in existing:
+            if key not in live:
+                store.delete_source(context, key[0], key[1])
+                removed += 1
+        return embedder, notes, records, existing, removed
+
+    embedder, notes, records, existing, removed = await asyncio.to_thread(plan)
     indexer = RetrievalIndexer(store, embedder)
-    result = ReindexResult(status=index_status([], embedder.model_name))
-
-    notes = [
-        note
-        for note in memories.list(context, MemoryListFilters(), now)
-        if note.tenant_id == context.tenant_id and note.workspace_id == context.workspace_id
-    ]
-    with open_file_metadata_store(context) as files:
-        records = files.list_files(context, 500)
-    existing = {(source.source_type, source.source_id): source for source in store.list_sources(context)}
-
-    live = {(SourceType.MEMORY, note.id) for note in notes} | {(SourceType.FILE, record.id) for record in records}
-    for key in existing:
-        if key not in live:
-            store.delete_source(context, key[0], key[1])
-            result.removed += 1
+    result = ReindexResult(status=index_status([], embedder.model_name), removed=removed)
 
     model = embedder.model_name
     budget = limit
@@ -240,14 +296,14 @@ async def reindex(
             result.stale_remaining += int(source is not None and is_stale(source, model))
             continue
         try:
-            content = file_store.storage.get(record.storage_key)
+            content = await asyncio.to_thread(file_store.storage.get, record.storage_key)
         except FileNotFoundError:
             result.failed += 1
             continue
         outcome = await indexer.index_file(context, record, content)
         budget -= 1
         _count(result, outcome, source, model)
-    result.status = index_status(store.list_sources(context), model)
+    result.status = index_status(await asyncio.to_thread(store.list_sources, context), model)
     if result.reembedded or result.stale_remaining:
         logger.info(
             "retrieval_reembedded count=%d remaining=%d",
@@ -297,7 +353,7 @@ def memory_title(content: str) -> str:
 
 
 @router.get("/sources", response_model=SourceNames)
-async def source_names(
+def source_names(
     memory_id: list[str] = Query(default_factory=list, max_length=MAX_SOURCE_LOOKUP),
     file_id: list[str] = Query(default_factory=list, max_length=MAX_SOURCE_LOOKUP),
     context: TenantContext = Depends(tenant_context),

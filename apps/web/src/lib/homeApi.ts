@@ -4,7 +4,7 @@ import type { ModelBudgetOverview } from '@anum/contracts';
 import { apiRequest, apiRequestVoid } from './api';
 import { getModelBudgets } from './adminApi';
 import { listConversations } from './whatsappApi';
-import type { CalendarEvent, HomeSummary, InsightList, Pin, PinKind } from './home';
+import type { CalendarEvent, HomeLayout, HomeSection, HomeSummary, InsightList, Pin, PinKind } from './home';
 import { todayRange } from './home';
 
 const base = '/api/v1/home';
@@ -35,3 +35,8 @@ export async function whatsappUnread(): Promise<{ chats: number; messages: numbe
 
 /** This month's model budgets and usage (owners: `organization:manage`). */
 export const budgets = (): Promise<ModelBudgetOverview> => getModelBudgets();
+
+/** The caller's own Home order (docs/home.md#arrange-home). */
+export const getLayout = () => apiRequest<HomeLayout>(`${base}/layout`, { method: 'GET' });
+export const saveLayout = (sections: HomeSection[]) => apiRequest<HomeLayout>(`${base}/layout`, json('PUT', { sections }));
+export const resetLayout = () => apiRequest<HomeLayout>(`${base}/layout`, { method: 'DELETE' });

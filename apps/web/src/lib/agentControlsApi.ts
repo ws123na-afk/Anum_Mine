@@ -2,7 +2,7 @@
 // server: any member reads the switch, owners turn it on, only the organization owner turns it off,
 // owners read and change agent caps.
 import { apiRequest } from './api';
-import { capsPath, heldPath, type AgentCap, type AgentCapsPage, type AgentControls, type HeldPage } from './agentControls';
+import { capsPath, heldPath, loopLimitsPath, type AgentCap, type AgentCapsPage, type AgentControls, type HeldPage, type LoopLimit, type LoopLimitPage } from './agentControls';
 
 const BASE = '/api/v1/agent-controls';
 
@@ -17,3 +17,8 @@ export const setAgentCap = (agentId: string, cost: number | null, tokens: number
   apiRequest(`${BASE}/agent-caps/${encodeURIComponent(agentId)}`, { method: 'PUT', body: JSON.stringify({ monthly_cost_limit_usd: cost, monthly_token_limit: tokens }) });
 
 export const listHeld = (offset = 0): Promise<HeldPage> => apiRequest(heldPath(offset), { method: 'GET' });
+
+export const listLoopLimits = (query = '', offset = 0): Promise<LoopLimitPage> => apiRequest(loopLimitsPath(query, offset), { method: 'GET' });
+
+export const setLoopLimit = (agentId: string, runs: number | null, attempts: number | null): Promise<LoopLimit> =>
+  apiRequest(`${BASE}/loop-limits/${encodeURIComponent(agentId)}`, { method: 'PUT', body: JSON.stringify({ max_runs_per_task: runs, max_step_attempts: attempts }) });

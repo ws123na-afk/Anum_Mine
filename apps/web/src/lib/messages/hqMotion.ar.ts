@@ -1,0 +1,22 @@
+// Arabic catalogue of hqMotion.en.ts: same keys and placeholders.
+export const hqMotionAr = {
+  'hqMotion.because.agent_working': 'السبب: سجل الحضور يُظهر وكيلاً يعمل، {time}',
+  'hqMotion.because.task_started': 'السبب: بدأ تشغيل مهمة، {time}',
+  'hqMotion.because.task_done': 'السبب: انتهت مهمة، {time}',
+  'hqMotion.because.tyre_inspection': 'السبب: سُجّل فحص في Tyre Pulse، {time}',
+  'hqMotion.because.tyre_alert': 'السبب: ظهر تنبيه في Tyre Pulse ({what})، {time}',
+  'hqMotion.because.tyre_alert_plain': 'السبب: ظهر تنبيه في Tyre Pulse، {time}',
+  'hqMotion.alert.low_tread': 'نقص عمق الكفر',
+  'hqMotion.alert.under_inflation': 'ضغط منخفض',
+  'hqMotion.alert.over_inflation': 'ضغط مرتفع',
+  'hqMotion.alert.overdue_inspection': 'فحص متأخر',
+  'hqMotion.alert.abnormal_wear': 'تآكل غير طبيعي',
+  'hqMotion.alert.cost_anomaly': 'تكلفة غير معتادة',
+  'hqMotion.legend': 'حركة واحدة لكل نوع حدث، وليست عدداً.',
+  'hqMotion.feed.off': 'Tyre Pulse: غير متصل',
+  'hqMotion.feed.offHint.not_connected': 'لا يوجد مصدر Tyre Pulse متصل بمساحة العمل هذه، لذلك لا تظهر حركة للكفرات.',
+  'hqMotion.feed.offHint.forbidden': 'ليس لديك صلاحية الوصول إلى Tyre Pulse هنا، لذلك لا تظهر حركة للكفرات.',
+  'hqMotion.feed.offHint.error': 'تعذرت قراءة Tyre Pulse، لذلك لا تظهر حركة للكفرات.',
+  'hqMotion.feed.offHint.elsewhere': 'افتح مساحة العمل هذه لقراءة بيانات Tyre Pulse. حتى ذلك الحين لا تظهر حركة للكفرات.',
+  'hqMotion.marker': 'حدث عمل',
+} as const;

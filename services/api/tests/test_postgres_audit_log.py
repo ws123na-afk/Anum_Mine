@@ -105,6 +105,48 @@ def test_export_streams_in_batches_through_its_own_sessions(
     assert refused.status_code == 403
 
 
+def test_export_mention_filters_in_the_database_and_stays_inside_the_tenant(
+    client: TestClient, repository_factory, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(audit_log, "EXPORT_BATCH", 2)
+    base = datetime(2026, 9, 1, tzinfo=timezone.utc)
+
+    def put(tenant: str, workspace: str, record_id: str, minute: int, **fields) -> None:
+        values = {"actor": "owner_pg", "action": "office.room.rename", "target": "room_other", "metadata": {}} | fields
+        with repository_factory(tenant_context(tenant, workspace), commit=True) as repository:
+            repository.record_audit(AuditRecord(
+                id=record_id, tenant_id=tenant, workspace_id=workspace, outcome="success",
+                correlation_id=f"corr_{record_id}", created_at=base + timedelta(minutes=minute), **values,
+            ))
+
+    put(TENANT_A, WORKSPACE_A, "m_target", 1, target="room_alpha")
+    put(TENANT_A, WORKSPACE_A, "m_desk", 2, action="office.desk.assignment", target="desk_alpha_1",
+        metadata={"after": {"agent_id": "agent_fleet", "room_id": "room_alpha"}})
+    put(TENANT_A, WORKSPACE_A, "m_actor", 3, actor="agent_fleet", action="task.updated", target="task_1")
+    put(TENANT_A, WORKSPACE_A, "m_list", 4, action="agent_meeting.create", target="meeting_1",
+        metadata={"participants": [{"id": "agent_fleet"}], "depth": {"a": {"b": ["room_alpha"]}}})
+    put(TENANT_A, WORKSPACE_A, "m_text", 5, metadata={"note": "room_alpha next door", "n": 7})
+    put(TENANT_A, WORKSPACE_A2, "m_other_ws", 6, target="room_alpha")
+    put(TENANT_B, WORKSPACE_B, "m_other_tenant", 7, target="room_alpha", actor="agent_fleet")
+
+    def ids(query: str, who: dict[str, str] = OWNER) -> list[str]:
+        response = client.get(f"/api/v1/audit/export?{query}", headers=who)
+        assert response.status_code == 200, response.text
+        return [row["id"] for row in response.json() if row["action"] != "audit.export"]
+
+    assert ids("mention=room_alpha&mention=desk_alpha_1") == ["m_list", "m_desk", "m_target"]
+    assert ids("mention=agent_fleet") == ["m_list", "m_actor", "m_desk"]
+    assert ids("mention=agent_fleet&action=office.*") == ["m_desk"]
+    assert ids("mention=room_al") == []
+    # Ids that look like SQL/JSON path or LIKE syntax are plain values.
+    assert ids('mention=%24ids&mention=%25&mention=%22%29') == []
+    # Tenant B, naming tenant A's room and agent, reads only its own record (RLS and the scope).
+    tenant_b = headers(tenant=TENANT_B, workspace=WORKSPACE_B)
+    assert ids("mention=room_alpha&mention=agent_fleet", tenant_b) == ["m_other_tenant"]
+    # The filter adds no permission.
+    assert client.get("/api/v1/audit/export?mention=room_alpha", headers=headers("viewer_pg", roles="viewer")).status_code == 403
+
+
 def test_resend_rotates_the_stored_hash(client: TestClient, database_engine: Engine) -> None:
     created = client.post("/api/v1/workspace-invitations", headers=OWNER,
                           json={"role": "member", "invitee_user_id": "resend_pg"}).json()

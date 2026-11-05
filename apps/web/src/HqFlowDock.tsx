@@ -1,12 +1,16 @@
 import { useEffect, useState } from 'react';
-import { AlertTriangle, ChevronDown, ChevronUp, Hourglass, MapPin, RefreshCcw, WifiOff, X } from 'lucide-react';
+import { AlertTriangle, ChevronDown, ChevronUp, Hourglass, MapPin, RefreshCcw, X } from 'lucide-react';
 import type { OfficeFlowItem, OfficeFlowSnapshot, OfficeFlowSourceState, OfficeFlowTrail } from '@anum/contracts';
 import { t, formatDateTime, type MessageKey } from './lib/i18n';
 import { roomNameFor } from './lib/registryNames.ts';
 import { actionHash, actionText, ageText, changeAnnouncement, reasonText } from './lib/officeFlow';
 import { flowClient, type ChangeBatch, type FlowLink, type FlowStatus } from './useOfficeFlow';
 import { useLocale } from './useLocale';
+import { FLOW_STALE_MS, flowLive } from './lib/hqPanelStatus.ts';
+import { LiveChip } from './hq-nav/LiveChip';
+import { useNow } from './hq-nav/useNow';
 import { openAssign, openTaskPanel } from './lib/hqAssign';
+import { openHqPanel } from './lib/hqWorkPanels';
 import './hqFlow.css';
 
 export interface FlowRoomInfo { label: string }
@@ -24,6 +28,7 @@ export function HqFlowDock(props: HqFlowDockProps) {
   useLocale();
   const { snapshot, status, error, link, batch, rooms, open, onToggle, onReload, roomFilter, onRoomFilter, onFocusRoom, onNavigate } = props;
   const [announce, setAnnounce] = useState('');
+  const now = useNow(10_000);
   const roomName = (id: string | null) => (id ? rooms.get(id)?.label ?? id : t('hqFlow.unlocated'));
   useEffect(() => {
     if (!batch.changes.length) return;
@@ -35,7 +40,6 @@ export function HqFlowDock(props: HqFlowDockProps) {
   const shown = (snapshot?.items ?? []).filter((i) => !roomFilter || i.location?.room_id === roomFilter);
   const stuck = shown.filter((i) => i.stuck);
   const calm = shown.filter((i) => !i.stuck);
-  const linkLabel = link === 'live' ? t('hqFlow.linkLive') : link === 'polling' ? t('hqFlow.linkPolling') : t('hqFlow.linkOffline');
   const summary = totals
     ? t('hqFlow.statusLine', { items: totals.items - totals.by_stage.done, waiting: totals.waiting_human, stuck: totals.stuck })
     : status === 'denied' ? t('hqFlow.denied') : status === 'error' ? t('hqFlow.error', { detail: error }) : t('hqFlow.loading');
@@ -49,9 +53,7 @@ export function HqFlowDock(props: HqFlowDockProps) {
         <span className="hqFlowSummary">{summary}</span>
         {open ? <ChevronDown size={16} aria-hidden="true" /> : <ChevronUp size={16} aria-hidden="true" />}
       </button>
-      <span className="hqFlowLink" data-link={link} role="status">
-        {link === 'offline' && <WifiOff size={13} aria-hidden="true" />}{linkLabel}
-      </span>
+      <LiveChip state={flowLive(link, status)} at={snapshot?.as_of ?? null} staleAfterMs={FLOW_STALE_MS} nowMs={now} pollingText={t('hqPanels.flow.polling')} testId="hq-flow-live" />
     </div>
     <div className="hqFlowLive" role="status" aria-live="polite" aria-atomic="true">{announce}</div>
     {open && <div id="hqFlowBody" className="hqFlowBody">
@@ -141,8 +143,10 @@ function FlowCard({ item, roomName, onFocusRoom, onNavigate }: {
       <p className="hqFlowReason"><AlertTriangle size={14} aria-hidden="true" /> <span>{reasonText(item)}</span></p>
       <p className="hqFlowNext"><span>{t('hqFlow.next')}</span>
         <button type="button" onClick={() => {
-          // A task opens beside the office; every other next step goes to the page that owns it.
+          // Work opens beside the office: the task, its approvals, the agent's work log. Leads and orders go to the page that owns them.
           if (item.kind === 'task' && (stuck.action === 'open_task' || stuck.action === 'retry_task') && openTaskPanel(item.id)) return;
+          if (item.kind === 'task' && stuck.action === 'decide_approval' && openHqPanel({ kind: 'approvals', taskId: item.id })) return;
+          if (stuck.action === 'resume_agent' && loc?.agent_id && openHqPanel({ kind: 'agent', id: loc.agent_id, name: loc.agent_name })) return;
           onNavigate(actionHash(stuck.action));
         }}>{actionText(stuck.action)}</button>
         {loc?.agent_id && <button type="button" onClick={() => openAssign({ agentId: loc.agent_id, roomId: loc.room_id, roomName: roomNameFor(loc.room_id, loc.room_name), source: 'flow_dock' })}>{t('hqAssign.openFor', { name: loc.agent_name ?? '' })}</button>}</p>

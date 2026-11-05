@@ -1,9 +1,36 @@
 # ANUM MINE headquarters: baseline audit (F01)
 
 Date: 22 October 2026. Audited commit: `34dee88` (main after PR 214), plus this branch's fixes.
+Statuses refreshed on 29 October 2026 against main `40f05e8` (see "Status on main, 29 October 2026" below);
+the sections after it keep the 22 October findings as they were written, with the issue register updated.
 Status words: **not started**, **partial** (some of it exists and is tested), **tested** (code and a
 passing test for the stated scope), **deployed** (running on a real environment; nothing here is,
 see "What is deployed"). A plan is not implementation.
+
+## Status on main, 29 October 2026
+
+Checked on main `40f05e8` by reading the files named here and the [feature completion matrix](ANUM_MINE_FEATURE_COMPLETION_MATRIX.md),
+which is the current audit and carries the evidence per requirement. The branches this audit listed as unmerged
+(`claude/hq-data`, `claude/hq-meetings`, `claude/hq-executive`) have landed: PRs 218 to 222, 242 to 244 and 246, and
+later HQ PRs up to 317. Migrations now run in one chain to `0121_meeting_agent_leave`, and every file number is unique
+(H-12 fixed by renaming the file `0099_office_room_geometry.py` to `0100_office_room_geometry.py`; revision ids unchanged).
+
+| Feature | 22 Oct | 29 Oct | Evidence on main | Still open (matrix row) |
+| --- | --- | --- | --- | --- |
+| F01 baseline and ADR | tested | tested | this file, ADR 0003, `pnpm docs:check` | none |
+| F02 office data contract and floor-plan editor | partial | tested | `office_space_api.py`, `office_layout.py`; contracts `officeBuilder.ts`, `officeLayoutHistory.ts`; builder `apps/web/src/hqBuilder/*` with save, reload, undo, revisions, templates; `e2e/hq-builder.spec.ts`, `hq-layout-history.spec.ts` | editing in the 3D scene is not built (11.9, optional) |
+| F03 true presence projection | partial | tested | `office_presence_api.py`, `office_presence.py`, `office_campus_api.py`, contract `officePresence.ts`; snapshot then stream with `Last-Event-ID` (`lib/presenceStream.ts`); `test_office_presence.py`, `e2e/hq-live-scene.spec.ts` | long run on the Oracle VM (8.2, 14.6) |
+| F04 3D renderer | partial | partial | three.js 0.184 (`lib/hqThreeRenderer.ts`), loaded lazily; lighting, shadows, glTF and fallbacks (section 3 of the matrix) | premium exteriors and characters against the concept renders (2.2, 2.8, 5.3) |
+| F05 floor navigation, department and desk details | partial | tested | floors, rooms, desk work record with checkpoints, approvals, errors and documents (`HqWorkstationWork.tsx`), agent profile link, five-viewport gates (12.2) | none in this list |
+| F06 live meeting data model | tested (server) | tested | migrations 0098, 0104, 0107, 0111; outputs, decisions, links, transcript retention 90 days (O5) | none in this list |
+| F07 governed meeting runner | partial | partial | `unattended_meeting_worker.py`, leases, owner interrupt, budget and turn rate | proof that a worker runs anywhere (9.4) |
+| F08 interactive meeting rooms | partial | tested | `MeetingRoomPage.tsx`, `MeetingRoomPanel.tsx`; `e2e/meeting-room.spec.ts`, `meeting-summary.spec.ts` | none in this list |
+| F09 work history and replay | partial (API only) | partial | History panel (`HqHistoryPanel.tsx`), CSV and JSON export with the server `mention` filter, "Show history" from task, meeting and approval screens; `e2e/hq-history*.spec.ts` | a true replay needs stored snapshots (O8, 10.5) |
+| F10 executive office and switcher | not started on main | tested | `executive_api.py` (migration `0101_executive_grants`), `executive_pa.py`, `ExecutiveCommandCenter.tsx`; `test_executive_pa.py`, `e2e/executive.spec.ts` | a PA persona in the scene (O9, 6.8) |
+| F11 behaviours and polish | not started | partial | agents walk only when a stored record says they moved (O1), campus motion, reduced motion | see matrix sections 2 and 5 |
+| F12 Flutter control surface | not started | not started | `apps/mobile/lib/features` has no office, presence or meeting-room feature | whole feature |
+| F13 live voice room | not started | not started | none | whole feature (optional per plan) |
+| F14 readiness, load, deployment | partial | partial | budgets in `e2e/hq-performance.spec.ts`; `test_postgres_hq_rls.py` and `test_postgres_office_spaces.py` pass against a local password-auth PostgreSQL (29 October 2026) | load test and rollback rehearsal on the Oracle VM (O13, 12.9, 12.10) |
 
 ## What is deployed
 
@@ -73,16 +100,16 @@ State: fixed (in this branch or PR 217), open (owner of the fix in brackets).
 | H-01 | High | fixed (PR 217) | Main CI red on three office specs after PR 214 (see above) |
 | H-02 | Medium | fixed (PR 217) | Workstation evidence read "Stale" for up to 10 s after every good refresh: the panel clock lagged the new snapshot (`OfficeWorkstations.tsx`) |
 | H-03 | High | fixed | The office never refreshed from events: the event type pattern in `HeadquartersLive.tsx` had a doubled backslash and matched nothing. Only the 10 s poll worked. Covered by `e2e/hq-live-data.spec.ts` |
-| H-04 | Medium | open (visual) | Below 768 px the room inspector is hidden and the directory is clipped, so a phone user cannot pick a room except by tapping a label in the scene (screenshot at 390x844). The "Authenticated office / Concept preview" switch overlaps the footer |
+| H-04 | Medium | fixed (29 Oct: the five-viewport gates in `hq-campus.spec.ts` and the panels layout, matrix 3.21 and 12.2) | Below 768 px the room inspector is hidden and the directory is clipped, so a phone user cannot pick a room except by tapping a label in the scene (screenshot at 390x844). The "Authenticated office / Concept preview" switch overlaps the footer |
 | H-05 | Medium | fixed | In the light app theme the global `strong, h1-h3` colour made office text near-black on dark panels (contrast 1.3 to 1); the active room's second line was 4.2 to 1; icon-only header buttons had no name on phones; room rows were `button role=listitem` (lost button semantics). Covered by `e2e/hq-a11y.spec.ts` |
-| H-06 | Medium | open (visual) | The office has no Arabic: its text is hard-coded English and not in the message catalog (`lib/messages`). The axe scan in Arabic passes only because the page language switch does not translate these strings |
-| H-07 | Medium | open (visual) | The scene is flat-shaded quads sorted by depth. With synthetic 6 by 6 rooms it renders as large white blocks. No lighting, depth buffer or real assets |
-| H-08 | Low | open | The office route is not keyed by tenant and workspace, and has no switcher inside it. The controller is safe (tested), but a switch made in another way will only be noticed on the next refresh or focus |
-| H-09 | Medium | open | SSE fan-out at 200 clients lost 0.3 to 0.8 percent of deliveries in memory mode (not at 21 clients). Cause not isolated; re-run on Oracle with PostgreSQL (see `docs/ANUM_MINE_HQ_LOAD_TESTING.md`) |
-| H-10 | Low | open | `services/api/tests/test_postgres_hq_rls.py` was written without a reachable test database in this sandbox (no credentials), so it is compile-checked only. CI's database job is its first run |
-| H-11 | Medium | open | The master plan's `agent_meeting_sessions` allow a `max_cost_usd` up to 1000 per meeting and there is no workspace-wide cap (security finding S-02) |
-| H-13 | Low | open (visual) | In the office overlay the panel close button ("Close office panel") is covered by the dialog header, so a mouse click on it is intercepted (keyboard works, and the dialog has its own Close button). Found by `hq-csp.spec.ts` while clicking it |
-| H-12 | Low | open | Two migration files are numbered 0099 (`0099_office_create_keys.py`, `0099_office_room_geometry.py`); the revision ids chain correctly (`0100_office_room_geometry` follows `0099_office_create_keys`). Parallel HQ branches add 0101 to 0103: renumber at merge |
+| H-06 | Medium | fixed (29 Oct: `lib/messages/hq.ar.ts` and the other HQ catalogs, key parity in `test/i18n.test.ts`, matrix 13.5) | The office had no Arabic: its text is hard-coded English and not in the message catalog (`lib/messages`). The axe scan in Arabic passes only because the page language switch does not translate these strings |
+| H-07 | Medium | fixed (29 Oct: three.js renderer `lib/hqThreeRenderer.ts` with lighting and a depth buffer, matrix 3.1; the premium look itself is matrix 2.2) | The scene was flat-shaded quads sorted by depth. With synthetic 6 by 6 rooms it renders as large white blocks. No lighting, depth buffer or real assets |
+| H-08 | Low | open (not re-checked on 29 Oct) | The office route is not keyed by tenant and workspace, and has no switcher inside it. The controller is safe (tested), but a switch made in another way will only be noticed on the next refresh or focus |
+| H-09 | Medium | fixed (29 Oct: a counting bug in the load tool; 0 percent loss at 200 clients in memory mode, matrix 12.9; the Oracle run is still open) | SSE fan-out at 200 clients lost 0.3 to 0.8 percent of deliveries in memory mode (not at 21 clients). Cause not isolated; re-run on Oracle with PostgreSQL (see `docs/ANUM_MINE_HQ_LOAD_TESTING.md`) |
+| H-10 | Low | fixed (29 Oct: passes in CI and against a local password-auth PostgreSQL) | `services/api/tests/test_postgres_hq_rls.py` was written without a reachable test database in this sandbox (no credentials), so it is compile-checked only. CI's database job is its first run |
+| H-11 | Medium | fixed (29 Oct: S-02 closed, USD 50 per workspace per month, matrix 9.3) | The master plan's `agent_meeting_sessions` allow a `max_cost_usd` up to 1000 per meeting and there is no workspace-wide cap (security finding S-02) |
+| H-13 | Low | open (visual, not re-checked on 29 Oct) | In the office overlay the panel close button ("Close office panel") is covered by the dialog header, so a mouse click on it is intercepted (keyboard works, and the dialog has its own Close button). Found by `hq-csp.spec.ts` while clicking it |
+| H-12 | Low | fixed (29 Oct: the file is now `0100_office_room_geometry.py`, ids unchanged, `test_migrations.py` checks unique numbers and one chain) | Two migration files are numbered 0099 (`0099_office_create_keys.py`, `0099_office_room_geometry.py`); the revision ids chain correctly (`0100_office_room_geometry` follows `0099_office_create_keys`). Parallel HQ branches add 0101 to 0103: renumber at merge |
 
 ## Rollback approach
 

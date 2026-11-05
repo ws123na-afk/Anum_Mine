@@ -5,6 +5,9 @@ import type { Message } from './types.ts';
 import { commerceEn } from './commerce.en.ts';
 import { financeEn } from './finance.en.ts';
 import { financeTradingEn } from './financeTrading.en.ts';
+import { financeIbkrEn } from './financeIbkr.en.ts';
+import { financeResearchEn } from './financeResearch.en.ts';
+import { financeSmsEn } from './financeSms.en.ts';
 import { financeIntelEn } from './financeIntel.en.ts';
 import { financeEquityEn } from './financeEquity.en.ts';
 import { financeReportsEn } from './financeReports.en.ts';
@@ -16,9 +19,14 @@ import { meetingRoomEn } from './meetingRoom.en.ts';
 import { builderEn } from './builder.en.ts';
 import { hqFlowEn } from './hqFlow.en.ts';
 import { hqHistoryEn } from './hqHistory.en.ts';
+import { hqReceptionEn } from './hqReception.en.ts';
+import { officeSpaceEn } from './officeSpace.en.ts';
 import { hqGpuEn } from './hqGpu.en.ts';
 import { hqLiveEn } from './hqLive.en.ts';
+import { hqPanelsEn } from './hqPanels.en.ts';
 import { hqProvisioningEn } from './hqProvisioning.en.ts';
+import { officeStaffingEn } from './officeStaffing.en.ts';
+import { greenConcreteKitEn } from './greenConcreteKit.en.ts';
 import { hqNavEn } from './hqNav.en.ts';
 import { hqAssignEn } from './hqAssign.en.ts';
 import { hqStarterCampusEn } from './hqStarterCampus.en.ts';
@@ -26,6 +34,11 @@ import { hqGreenConcreteEn } from './hqGreenConcrete.en.ts';
 import { hqFirstRunEn } from './hqFirstRun.en.ts';
 import { hqFloorEn } from './hqFloor.en.ts';
 import { hqLabelsEn } from './hqLabels.en.ts';
+import { hqMotionEn } from './hqMotion.en.ts';
+import { hqWalkersEn } from './hqWalkers.en.ts';
+import { hqBillboardEn } from './hqBillboard.en.ts';
+import { hqScreenEn } from './hqScreen.en.ts';
+import { hqLogoEn } from './hqLogo.en.ts';
 import { hqStaffDesksEn } from './hqStaffDesks.en.ts';
 import { teamEn } from './team.en.ts';
 import { appCallsEn } from './appCalls.en.ts';
@@ -35,12 +48,20 @@ import { businessPipelineEn } from './businessPipeline.en.ts';
 import { businessSupportEn } from './businessSupport.en.ts';
 import { filesVersionsEn } from './filesVersions.en.ts';
 import { invoiceMoneyEn } from './invoiceMoney.en.ts';
+import { invoiceSendEn } from './invoiceSend.en.ts';
 import { invoicesEn } from './invoices.en.ts';
 import { portalEn } from './portal.en.ts';
 import { brevoEn } from './brevo.en.ts';
 import { agentControlsEn } from './agentControls.en.ts';
 import { billingEn } from './billing.en.ts';
 import { lifecycleEn } from './lifecycle.en.ts';
+import { recordRetentionEn } from './recordRetention.en.ts';
+import { attendanceEn } from './attendance.en.ts';
+import { vehiclesEn } from './vehicles.en.ts';
+import { purchasesEn } from './purchases.en.ts';
+import { businessBooksEn } from './businessBooks.en.ts';
+import { iphoneEn } from './iphone.en.ts';
+import { vaultEn } from './vault.en.ts';
 import { helpEn } from './help.en.ts';
 import { publicSiteEn } from './publicSite.en.ts';
 import { ownerEn } from './en.owner.ts';
@@ -59,6 +80,8 @@ import { mailOutgoingEn } from './mailOutgoing.en.ts';
 import { mailAiEn } from './mailAi.en.ts';
 import { mailShareEn } from './mailShare.en.ts';
 import { mailAllEn } from './mailAll.en.ts';
+import { emailHubEn } from './emailHub.en.ts';
+import { leadSourcesEn } from './leadSources.en.ts';
 import { inboxComposeEn } from './inboxCompose.en.ts';
 import { mailRulesEn } from './mailRules.en.ts';
 import { mailOpsEn } from './mailOps.en.ts';
@@ -79,6 +102,9 @@ export const en = {
   // ---- Finance (finance.en.ts) ----
   ...financeEn,
   ...financeTradingEn,
+  ...financeIbkrEn,
+  ...financeResearchEn,
+  ...financeSmsEn,
   ...financeIntelEn,
   ...financeEquityEn,
   ...financeReportsEn,
@@ -92,11 +118,19 @@ export const en = {
   ...filesVersionsEn,
   ...invoicesEn,
   ...invoiceMoneyEn,
+  ...invoiceSendEn,
   ...portalEn,
   ...brevoEn,
   ...agentControlsEn,
   ...billingEn,
   ...lifecycleEn,
+  ...recordRetentionEn,
+  ...attendanceEn,
+  ...vehiclesEn,
+  ...purchasesEn,
+  ...businessBooksEn,
+  ...iphoneEn,
+  ...vaultEn,
   ...helpEn,
   ...publicSiteEn,
   ...agentSkillsEn,
@@ -109,6 +143,8 @@ export const en = {
   ...mailAiEn,
   ...mailShareEn,
   ...mailAllEn,
+  ...emailHubEn,
+  ...leadSourcesEn,
   ...inboxComposeEn,
   ...mailRulesEn,
   ...mailOpsEn,
@@ -395,6 +431,11 @@ export const en = {
 
   // ---- Model gateway (Settings) ----
   'model.ownerOnly': 'Choosing the model, saving its API key and testing the connection need the owner role for this organization. Ask an owner to change the model, or to change your role.',
+  'model.placeholder.server': 'AI answers are placeholders: the server has no AI model set up.',
+  'model.placeholder.workspace': 'AI answers are placeholders: this workspace is set to the placeholder model.',
+  'model.placeholder.fix': 'An owner chooses a real model in Settings, under Model gateway. The server operator can also set ANUM_MODEL_PROVIDER for every workspace.',
+  'model.placeholder.openSettings': 'Open Settings',
+  'model.placeholder.help': 'How to set it up',
   'model.ownerRequired': 'Owner access required',
   'model.apiAnswered': 'The API answered: {detail}',
   'model.saveConflict': '{reason} Finish "Workspace onboarding" above, then save again.',
@@ -665,6 +706,8 @@ export const en = {
   'chatCard.failed.title': 'The task did not finish',
   'chatCard.cancelled': 'Stopped before the task finished. Nothing was changed.',
   'chatCard.denied.title': 'Your role cannot run tasks',
+  'chatCard.unavailable.title': 'Not turned on here yet',
+  'chatCard.needsInput.title': 'ANUM can do this: one detail missing',
   'chatCard.stillRunning': 'Still running in the background. Open the task to follow it; this card updates when you reopen the chat.',
   'chatCard.running.commerce': 'Reading your store data…',
   'chatCard.running.tyre': 'Reading your tyre data…',
@@ -679,6 +722,9 @@ export const en = {
   'chatCard.openItem.tyre': 'Open in Tyre planning: {title}',
   'chatCard.badge.unshipped': 'Not shipped',
   'chatCard.badge.low_stock': 'Low stock',
+  'chatCard.badge.source': 'Page read',
+  'chatCard.badge.link': 'Link on the page',
+  'chatCard.running.browse': 'Reading the page…',
   'chat.connectionDropped': 'The connection dropped before the answer finished.',
 
   // ---- Tasks ----
@@ -703,6 +749,7 @@ export const en = {
   'tasks.stream.offline': 'Updates offline',
   'tasks.instructions': 'Task instructions',
   'tasks.instructionsPlaceholder': 'Describe the result the agent should produce',
+  'tasks.instructionsRequired': 'Write what the task should do, then run it.',
   'tasks.running': 'Running...',
   'tasks.run': 'Run task',
   'tasks.cancel': 'Cancel',
@@ -979,6 +1026,8 @@ export const en = {
 
   // ---- Approvals ----
   'approvals.pendingHeading': 'Waiting for a decision',
+  'approvals.queueIndex': 'Queue',
+  'approvals.queueIndexCount': '{count} waiting',
   'approvals.queueClear': 'Queue clear',
   'approvals.queueClearText': 'No actions need approval.',
   'approvals.metric.pending': 'Pending',
@@ -1233,7 +1282,7 @@ export const en = {
   'files.sortLabel': 'Sort files',
   'files.loading': 'Loading files...',
   'files.list': 'Files',
-  'files.showDetails': 'Show details of {name}',
+  'files.showDetailsHint': 'Show details of',
   'files.rowMeta': '{type} · {size} · {uploader} · ',
   'files.download': 'Download',
   'files.downloadOf': 'Download {name}',
@@ -1411,6 +1460,12 @@ export const en = {
   'integrations.tool.available': 'Agent tool web_search: available.',
   'integrations.tool.degraded': 'Agent tool web_search: calls fail until search answers.',
   'integrations.tool.unavailable': 'Agent tool web_search: unavailable here.',
+  'integrations.act.available': 'Agent tool web.act: available. It stays off in a workspace until an owner turns it on below, and it asks before anything binding.',
+  'integrations.act.degraded': 'Agent tool web.act: the browser service answers but is not in action mode, or did not answer.',
+  'integrations.act.unavailable': 'Agent tool web.act: not available here.',
+  'integrations.browse.available': 'Agent tool web.browse_page: available. It stays off in a workspace until an owner turns it on below.',
+  'integrations.browse.degraded': 'Agent tool web.browse_page: pages cannot be read until the browser service answers.',
+  'integrations.browse.unavailable': 'Agent tool web.browse_page: not available here. It answers "Not available on this server" or "off for this workspace".',
 
   // ---- Skills ----
   'skills.eyebrow': 'Governed capabilities',
@@ -1712,6 +1767,29 @@ export const en = {
   'agents.memory.manual': 'Added by hand',
   'agents.memory.deleteNamed': 'Delete memory: {text}',
   'agents.memory.deleteTitle': 'Delete this memory?',
+  'agents.memory.kind': 'Kind',
+  'agents.memory.kind.fact': 'Fact',
+  'agents.memory.kind.decision': 'Decision',
+  'agents.memory.source': 'Where it comes from',
+  'agents.memory.sourcePlaceholder': 'For example: Tyre SOP, version 3',
+  'agents.memory.date': 'True from',
+  'agents.memory.err.content': 'Write what the agent should remember.',
+  'agents.memory.err.contentLong': 'Keep a memory under 2,000 characters.',
+  'agents.memory.err.sourceLong': 'Keep the source under 200 characters.',
+  'agents.memory.err.date': 'Enter the date as a full day.',
+  'agents.memory.err.future': 'The date cannot be in the future.',
+  'agents.memory.filter': 'Show',
+  'agents.memory.filter.all': 'Facts and decisions',
+  'agents.memory.emptyEdit': 'No memories yet. Add a fact or a decision above, with where it comes from.',
+  'agents.memory.editText': 'Memory',
+  'agents.memory.saveEdit': 'Save changes',
+  'agents.memory.fromFile': 'From a document',
+  'agents.memory.asOf': 'true from {date}',
+  'agents.memory.edited': 'edited',
+  'agents.memory.expires': 'removed on {date} (memory rules)',
+  'agents.memory.kept': 'kept until deleted',
+  'agents.memory.edit': 'Edit',
+  'agents.memory.editNamed': 'Edit memory: {text}',
   'agents.owner': 'Created by',
   'agents.you': 'You',
   'agents.createdAt': 'Created',
@@ -2042,6 +2120,11 @@ export const en = {
   'auto.field.attempts': 'Attempts',
   'auto.field.retryDelay': 'Wait before retrying (seconds, doubles each time)',
   'auto.field.runTask': 'Run the task (uncheck to only create it under Tasks)',
+  'auto.field.runAs': "Run as",
+  'auto.field.runAsHint': "Run the task as an agent: its tools, freedom to act, monthly cap and loop limits apply. Leave it as you to use your own access only.",
+  'auto.field.runAsOwner': "You (the automation owner)",
+  'auto.field.runAsUnknown': "An agent you cannot see now",
+  'auto.field.runAsPaused': "{name} (paused)",
   'auto.field.mailbox': 'Send from',
   'auto.field.chooseMailbox': 'Choose a mailbox',
   'auto.field.noMailbox': 'No mailbox is connected. Connect one under Email first.',
@@ -2639,7 +2722,7 @@ export const en = {
   'activity.undone': 'Undone: {summary}',
   'activity.undoneShort': 'Undone.',
   'activity.tighten': 'Always ask for this',
-  'activity.tightenLabel': 'Always ask before {pattern}',
+  'activity.tightenLabel': 'Always ask for this: {pattern}',
   'activity.tightened': 'ANUM will ask before {pattern} from now on.',
   'activity.loadMore': 'Load more',
   'activity.noticesLabel': 'Actions ANUM took',
@@ -3238,9 +3321,14 @@ export const en = {
   ...builderEn,
   ...hqFlowEn,
   ...hqHistoryEn,
+  ...hqReceptionEn,
+  ...officeSpaceEn,
   ...hqGpuEn,
   ...hqLiveEn,
+  ...hqPanelsEn,
   ...hqProvisioningEn,
+  ...officeStaffingEn,
+  ...greenConcreteKitEn,
   ...hqNavEn,
   ...hqAssignEn,
   ...hqStarterCampusEn,
@@ -3248,6 +3336,11 @@ export const en = {
   ...hqFirstRunEn,
   ...hqFloorEn,
   ...hqLabelsEn,
+  ...hqMotionEn,
+  ...hqWalkersEn,
+  ...hqBillboardEn,
+  ...hqScreenEn,
+  ...hqLogoEn,
   ...hqStaffDesksEn,
   // ---- ANUM 360 shell and Command Center (docs/design/anum360.md#web-command-center) ----
   'brand.name': 'ANUM 360',
@@ -3339,7 +3432,7 @@ export const en = {
   "meetings.allStatuses": "All statuses",
   "meetings.loading": "Loading meetings...",
   "meetings.list": "Meetings",
-  "meetings.open": "Open {title}",
+  "meetings.openHint": "Open",
   "meetings.pages": "Meeting pages",
   "meetings.previous": "Previous",
   "meetings.next": "Next",
@@ -3463,7 +3556,7 @@ export const en = {
   "meetings.actions.createTaskOf": "Create a task for {text}",
   "meetings.actions.taskDone": "Task created. Running it follows the workspace approval policy.",
   "meetings.actions.creating": "Creating...",
-  "meetings.actions.createTask": "Create task",
+  "meetings.actions.createTask": "Create a task",
   "meetings.actions.approvalNote": "Nothing happens on its own: each item becomes a task only when you create it, and its run asks for approval when the policy says so.",
   "meetings.email.title": "Follow-up email",
   "meetings.email.to": "To",

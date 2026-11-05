@@ -39,7 +39,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from .agent_policy import AgentRunProfile
-from .agent_tools import ToolCall, ToolResult
+from .agent_tools import ToolCall, ToolResult, running_in
 from .repository import AnumRepository
 from .runtime import AgentRuntime
 from .schemas import AgentRun, Approval, RunPhase, Task, TaskStatus, TenantContext, utc_now
@@ -127,7 +127,8 @@ async def run_inline(
             if call is None:
                 return InlineRunResult(task, run, approval)
             try:
-                result = await planner.tools.execute(call, context)
+                with running_in(task.id, run.id):
+                    result = await planner.tools.execute(call, context)
             except Exception as exc:
                 await asyncio.to_thread(
                     _settle_failure, context, task.id, run, unit_of_work, runtime_factory,
@@ -148,6 +149,38 @@ async def run_inline(
         if not applied:
             await asyncio.to_thread(_release, context, claimed, run, unit_of_work, runtime_factory)
         raise
+
+
+async def execute_committed(
+    context: TenantContext,
+    task: Task,
+    run: AgentRun,
+    call: ToolCall,
+    *,
+    unit_of_work: UnitOfWork,
+    runtime_factory: RuntimeFactory,
+    approval_id: str | None = None,
+) -> tuple[Task, AgentRun]:
+    """Steps 4 and 5 for a run whose ``executing`` checkpoint an earlier unit of work committed
+    (an approved action, a resumed run): the tool runs with no transaction open, then the
+    outcome is written in a new short unit that re-checks the claim (still the same
+    ``executing`` checkpoint). A cancel meanwhile raises :class:`RunClaimLost`; the tool's
+    audit record is kept. A tool that raises fails the run (when the claim still holds) and
+    re-raises."""
+    planner = runtime_factory(_NoRepository())  # type: ignore[arg-type]
+    try:
+        with running_in(task.id, run.id):
+            result = await planner.tools.execute(call, context)
+    except Exception as exc:
+        await asyncio.to_thread(
+            _settle_failure, context, task.id, run, unit_of_work, runtime_factory,
+            f"The action stopped with an error ({type(exc).__name__}); it may not have finished.",
+            approval_id,
+        )
+        raise
+    return await asyncio.to_thread(
+        _settle, context, task.id, run, call, result, unit_of_work, runtime_factory, approval_id
+    )
 
 
 def _in_background(function: Callable[..., None], *args: Any) -> None:
@@ -240,6 +273,7 @@ def _settle(
     result: ToolResult,
     unit_of_work: UnitOfWork,
     runtime_factory: RuntimeFactory,
+    approval_id: str | None = None,
 ) -> tuple[Task, AgentRun]:
     with unit_of_work(context) as repository:
         runtime = runtime_factory(repository)
@@ -260,7 +294,7 @@ def _settle(
             lost = True
         else:
             lost = False
-            runtime._settle(task, run, context, result)
+            runtime._settle(task, run, context, result, approval_id)
             repository.save_task(task)
             repository.save_run(run)
     if lost:
@@ -277,13 +311,14 @@ def _settle_failure(
     unit_of_work: UnitOfWork,
     runtime_factory: RuntimeFactory,
     reason: str,
+    approval_id: str | None = None,
 ) -> None:
     with unit_of_work(context) as repository:
         try:
             task, run = _locked_executing_run(repository, context, task_id, run)
         except RunClaimLost:
             return
-        runtime_factory(repository)._fail(task, run, context, reason, run.checkpoint.approval_id)
+        runtime_factory(repository)._fail(task, run, context, reason, approval_id or run.checkpoint.approval_id)
         repository.save_task(task)
         repository.save_run(run)
 
@@ -319,4 +354,4 @@ def _release(
         logger.warning("inline_run_release_failed error_class=%s", type(exc).__name__)
 
 
-__all__ = ["InlineRunResult", "RunClaimLost", "claim_expired", "run_inline"]
+__all__ = ["InlineRunResult", "RunClaimLost", "claim_expired", "execute_committed", "run_inline"]

@@ -121,7 +121,8 @@ test('a typed command shows the plan, is edited, then starts every step and show
   await expect(detail.getByText('2 of 2 steps done')).toBeVisible();
   expect(state.created).toEqual([{
     text: 'Check my emails, find today\'s urgent items and schedule a meeting with the team tomorrow at 10 AM',
-    steps: [{ instruction: 'Schedule a meeting with the team tomorrow at 10 AM' }, { instruction: 'Check my emails, find today\'s urgent items' }],
+    // Each confirmed step says what it waits for: nothing here (no "then", no earlier result used).
+    steps: [{ instruction: 'Schedule a meeting with the team tomorrow at 10 AM', depends_on: [] }, { instruction: 'Check my emails, find today\'s urgent items', depends_on: [] }],
     source: 'typed', locale: 'en', attachments: [],
   }]);
   expect(state.runs.sort()).toEqual(['task_cmd_1', 'task_cmd_2']);
@@ -129,6 +130,38 @@ test('a typed command shows the plan, is edited, then starts every step and show
   await detail.getByRole('button', { name: 'Draft replies to the urgent emails' }).click();
   await expect(page.getByLabel('Your command')).toHaveValue('Draft replies to the urgent emails');
   await expect(page.getByRole('region', { name: 'Here is what ANUM will do' })).toBeVisible();
+});
+
+test('a step that builds on an earlier one waits for it, then starts with its results', async ({ page }) => {
+  const state = await openCommand(page);
+  await page.getByLabel('Your command').fill('Check my emails, find today\'s urgent items, then schedule a meeting with the team tomorrow at 10 AM');
+  await page.getByRole('button', { name: 'Show the plan' }).click();
+  const plan = page.getByRole('region', { name: 'Here is what ANUM will do' });
+  await expect(plan.getByRole('listitem').nth(1)).toContainText('Starts after step 1 and uses its results');
+  await expect(plan.getByRole('listitem').first()).not.toContainText('Starts after step');
+  await plan.getByRole('button', { name: 'Start' }).click();
+
+  const detail = tracker(page).filter({ hasText: 'steps done' });
+  // The first call starts only the email step; the page sees the meeting is ready and starts it.
+  await expect(detail.getByText('Meeting drafted for tomorrow at 10:00.')).toBeVisible();
+  await expect(detail.getByText('2 of 2 steps done')).toBeVisible();
+  expect((state.created[0] as { steps: unknown[] }).steps).toEqual([
+    { instruction: 'Check my emails, find today\'s urgent items', depends_on: [] },
+    { instruction: 'Schedule a meeting with the team tomorrow at 10 AM', depends_on: [1] },
+  ]);
+  expect(state.runs).toEqual(['task_cmd_1', 'task_cmd_2']);
+});
+
+test('moving a step above the one it waits for drops that wait', async ({ page }) => {
+  const state = await openCommand(page);
+  await page.getByLabel('Your command').fill('Check my emails, then schedule a meeting with the team tomorrow at 10 AM');
+  await page.getByRole('button', { name: 'Show the plan' }).click();
+  const plan = page.getByRole('region', { name: 'Here is what ANUM will do' });
+  await plan.getByRole('button', { name: 'Move step 2 up' }).click();
+  await expect(plan.getByText('Starts after step', { exact: false })).toHaveCount(0);
+  await plan.getByRole('button', { name: 'Start' }).click();
+  await expect(tracker(page).filter({ hasText: 'steps done' }).getByText('2 of 2 steps done')).toBeVisible();
+  expect((state.created[0] as { steps: { depends_on: number[] }[] }).steps.map((s) => s.depends_on)).toEqual([[], []]);
 });
 
 test('a saved command is planned with one click and a new one can be saved', async ({ page }) => {

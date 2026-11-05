@@ -6,7 +6,7 @@ Status: built in this change (API, one migration, contracts, web, tests). Web an
 
 A room stores one department (`office_rooms.team_department`). The storable set is now:
 
-`sales, support, operations, finance, tyre_engineering, marketing, technology, research, legal, compliance, security, hr, procurement, custom`
+`sales, support, operations, finance, tyre_engineering, marketing, technology, research, legal, compliance, security, hr, procurement, executive, custom`
 
 Old values stay valid. The set lives in four places that a test keeps equal: the Python enum `team_models.Department`, `office_layout.TEAM_DEPARTMENTS` with the API literal `TeamDepartment`, the database check constraint `ck_office_room_department` (widened by migration `0108_departments_meeting_room`), and the contract `OFFICE_TEAM_DEPARTMENTS` (`packages/contracts/src/officeBuilder.ts`, also `team.ts` `Department`). The web builder list (`hqBuilder/labels.ts`) is checked against the contract list in `test/hqRoomModule.test.ts`.
 
@@ -25,6 +25,7 @@ Every module is a view that exists in the shell (`lib/shell.ts`). Where nothing 
 | `compliance` | Governance (`#governance`) | Policy packs, roles, approval rules |
 | `security` | Audit log (`#audit`) | Who did what, when |
 | `hr` | Members and roles (`#members`) | People, invitations, roles. This is access management, not a payroll or recruiting module |
+| `executive` | Executive desk (`#executive`) | Added with migration `0116_room_dept_executive` (expand only, no backfill). The starter campus Executive Office carries it; a room's building kind no longer decides this |
 | `procurement` | No module connected | There is no procurement or supplier module. The room says so and offers Organisation gaps |
 | `custom`, unknown | No module connected | By design |
 | `sales`, `support`, `operations`, `finance`, `tyre_engineering` | unchanged: `#whatsapp`, `#inbox`, live flow dock, `#finance`, `#tyre` | |
@@ -43,7 +44,7 @@ Governed provisioning (`docs/ANUM_MINE_AGENT_PROVISIONING.md`) gets four more ro
 |---|---|---|---|---|---|
 | Marketing Specialist (`marketing_specialist`) | `marketing` | `marketing.summary`, `marketing.draft_social_post`, `brevo.list_campaigns`, `brevo.campaign_report`, `brevo.draft_campaign`, `brevo.list_lists`, `web.fetch_page` | `anum.brevo`, `anum.document-drafting` | USD 6 | advertising account reports; website and search analytics. It cannot publish, schedule or send: those tools are high risk and are never attached, so the skill `anum.marketing` (which needs scheduling) is not attached either |
 | Technology Coordinator (`technology_coordinator`) | `technology` | `web.fetch_page`, `search_email`, `read_email`, `classify_mail`, `summarize_mail`, `team.assign_task` | `anum.email`, `anum.team-assign`, `anum.document-drafting` | USD 6 | reading repositories and pull requests; build and deployment status; a monitoring and incident feed. It does not change code: it writes briefs the owner can paste into Developer mode |
-| Research Analyst (`research_analyst`) | `research` | `web.fetch_page`, `search_email`, `read_email`, `summarize_mail`, plus workspace knowledge base access | `anum.email`, `anum.document-drafting` | USD 8 | web search (needs a search service connected, so the skill `anum.web-search` is not attached); reading files from the Documents library |
+| Research Analyst (`research_analyst`) | `research` | `web.fetch_page`, `web.browse_page` (off until the owner turns on Browser research), `search_email`, `read_email`, `summarize_mail`, plus workspace knowledge base access | `anum.email`, `anum.document-drafting`, `anum.browser-research` | USD 8 | web search (needs a search service connected, so the skill `anum.web-search` is not attached); reading files from the Documents library |
 | Legal Reviewer (`legal_reviewer`) | `legal` | `search_email`, `read_email`, `summarize_mail`, `classify_mail`, `draft_reply`, `team.assign_task`, plus workspace knowledge base access | `anum.email`, `anum.document-drafting`, `anum.team-assign` | USD 5 | reading contracts from the Documents library; a contract register; sending for signature. It gives no legal advice and marks risks as questions for a qualified person |
 | Compliance Reviewer (`compliance_reviewer`, existing) | now linked to `compliance` rooms | unchanged | unchanged | USD 4 | unchanged |
 
@@ -61,6 +62,10 @@ Staff desks: the staff desk mapping (which desk a role sits at) is built in anot
 - Web: the office reads active meetings (`?status=active`) and their participants. A room with an active meeting shows **In a meeting** in the 3D label card (and the scene mark), in the list, and in the room inspector, with the meeting title and only the agents stored as participants (names come from the presence records the viewer may see, otherwise "Private agent"; people who joined are a count, never a name). The room's module link opens that very meeting (`#office/meeting/<id>`); a room whose department opens another module also shows "Open the live meeting". A finished, cancelled or failed meeting stops showing as soon as the office refreshes. The scene gets `liveMeetingRoomIds` from this evidence inside `HeadquartersLive` (a host may still pass extra ids); the shell does not need to.
 - Starting a meeting: in a meeting room with no live meeting the owner sees **Start a meeting here**, which opens the meeting sessions panel with that room chosen. The panel's create form has a room list (this workspace's meeting rooms, or no room). Anyone else sees who can start one.
 - Not built: a scheduled or paused meeting does not mark the room (only `active` does); one live meeting is shown per room; moving a meeting to another room after creation is not offered; the executive building's own room panel (`renderRoomPanel`) is not replaced.
+
+## 3a. Each office's blueprint
+
+The roles above, the Staff my campus roles and the Green Concrete people are now grouped per office kind in the [office staffing blueprint](ANUM_MINE_OFFICE_STAFFING.md): Marketing, Technology, Research and Legal rooms (O3) each map to a unit with its roles, their skills, tools, rules and data sources, and the Command Center's Offices and agents tab shows the gap per office and applies it with an owner's click.
 
 ## 4. Tests
 

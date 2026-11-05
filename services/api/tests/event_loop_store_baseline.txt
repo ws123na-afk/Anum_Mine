@@ -1,0 +1,4 @@
+# Async routes that open a store or unit of work on the event loop (pre-sale review, 2 Nov 2026).
+# The 261 routes found then were all fixed (docs/security.md#pre-sale-review-november-2026, P7):
+# the list is empty and must stay empty. Never add a line: move the route's database work into
+# asyncio.to_thread (or make it a plain def route) instead.

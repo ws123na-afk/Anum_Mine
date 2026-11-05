@@ -9,6 +9,7 @@ import { STOREY, clamp, curtainWall, entrance, faceBox, faceQuad, fins, finish, 
 import { accentBand, flagPole, slabBand } from './towerParts.ts';
 import { balconyRun, beaconLight, louvres, roofDeck } from './facadeKit.ts';
 import type { ExteriorAsset, ExteriorParams } from './types.ts';
+import { cornerBevels } from './bevel.ts';
 
 export function buildAdminBlock(params: ExteriorParams = {}): ExteriorAsset {
   const ctx = makeCtx('adminBlock', params, 0.5);
@@ -26,6 +27,7 @@ export function buildAdminBlock(params: ExteriorParams = {}): ExteriorAsset {
   castShadow(b, x0, z0, W, D, H + 1.5, 0.022);
   b.box(x0 - 0.4, 0, z0 - 0.4, W + 0.8, y0, D + 0.8 + ad * 0.5, scheme.stone);
   b.box(x0, y0, z0, W, H, D, scale(scheme.wall, 1.0), { skip: ['top', 'bottom'], grad: 0.12 });
+  cornerBevels(b, x0, z0, W, D, y0, y0 + H, scheme.trim);
   // Ground-floor stone base on all faces.
   for (const f of Object.values(F)) faceQuad(b, f, 0, f.len, y0, y0 + 1.0, scale(scheme.stone, 0.72), 0, 0.05);
 

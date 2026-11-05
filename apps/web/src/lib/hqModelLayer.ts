@@ -14,11 +14,17 @@ import {
   Vector3, type IUniform, type Scene,
 } from 'three';
 import { ModelCache, keysNeeded, resolvePlacements } from './hqModelCache.ts';
-import { MODEL_SPECS, type ModelGroup, type ModelKey, type ModelPlacement } from './hqModels.ts';
+import { isFigureKey, specOf, type LegacyKey, type ModelGroup, type ModelKey, type ModelPlacement } from './hqModels.ts';
 import type { BakedModel, FigureAnchors } from './hqModelLoad.ts';
 
-/** Fetch, parse and bake one model: a separate chunk, loaded on first use. */
-const loadBaked = async (key: ModelKey) => (await import('./hqModelLoad.ts')).loadBaked(key);
+/** Fetch, parse and bake one model, or build a person with the character kit: separate chunks, loaded on first use. */
+const loadBaked = async (key: ModelKey) => (isFigureKey(key) ? (await import('../hqAssets/characters/bake.ts')).bakeCharacter(key) : (await import('./hqModelLoad.ts')).loadBaked(key as LegacyKey));
+
+/** People are drawn from their shape code; a busy scene uses a lighter version of each figure (`:l`, then `:f`), so the triangles stay bounded. */
+const shaped = (list: readonly ModelPlacement[], cheap: boolean): readonly ModelPlacement[] => {
+  const n = list.length, lod = n > (cheap ? 60 : 120) ? ':f' : n > (cheap ? 18 : 40) ? ':l' : '';
+  return list.map((p) => (p.shape ? { ...p, key: `${p.shape}${lod}` as ModelKey } : p));
+};
 
 /** Height of the seat of a person above the floor, in metres (the slot's y is the floor). */
 const SEAT_HEIGHT = 0.46;
@@ -123,10 +129,10 @@ const badgeGeometry = (): BufferGeometry => boxesGeometry([
   [0, -0.02, 0.004, 0.075, 0.095, 0.014],
 ]);
 
-export type ModelStats = { placed: number; figures: number; loaded: number; asked: number; bytes: number; loadMs: number; fallbacks: string[]; looks: string[] };
+export type ModelStats = { placed: number; figures: number; kit: number; loaded: number; asked: number; bytes: number; loadMs: number; fallbacks: string[]; looks: string[] };
 
 export class ModelLayer {
-  readonly stats: ModelStats = { placed: 0, figures: 0, loaded: 0, asked: 0, bytes: 0, loadMs: 0, fallbacks: [], looks: [] };
+  readonly stats: ModelStats = { placed: 0, figures: 0, kit: 0, loaded: 0, asked: 0, bytes: 0, loadMs: 0, fallbacks: [], looks: [] };
   private readonly cache = new ModelCache<BakedModel>(loadBaked);
   private readonly root = new Object3D();
   private readonly uNight: IUniform<number> = { value: 0 };
@@ -148,7 +154,8 @@ export class ModelLayer {
   }
 
   /** Groups whose models are already loaded: the renderer hides their procedural stand-ins at once on a rebuild. */
-  readyNow(placements: readonly ModelPlacement[]): ReadonlySet<ModelGroup> {
+  readyNow(asked: readonly ModelPlacement[]): ReadonlySet<ModelGroup> {
+    const placements = shaped(asked, this.cheap);
     const loaded = new Set(keysNeeded(placements).filter((k) => this.cache.peek(k)));
     return resolvePlacements(placements, loaded).readyGroups;
   }
@@ -156,7 +163,8 @@ export class ModelLayer {
   setNight(night: number): void { this.uNight.value = night; }
 
   /** Replace the placed models. Loads what is missing, then draws; a failure keeps the fallbacks and says so in `stats`. */
-  async setPlacements(placements: readonly ModelPlacement[]): Promise<void> {
+  async setPlacements(asked: readonly ModelPlacement[]): Promise<void> {
+    const placements = shaped(asked, this.cheap);
     const generation = ++this.generation;
     const keys = keysNeeded(placements);
     this.stats.asked = keys.length;
@@ -191,13 +199,14 @@ export class ModelLayer {
     this.clear();
     this.stats.placed = placements.length;
     this.stats.figures = placements.filter((p) => p.group === 'figure').length;
+    this.stats.kit = placements.filter((p) => isFigureKey(p.key)).length;
     this.stats.looks = placements.filter((p) => p.group === 'figure' && p.look).map((p) => p.look!.code);
     const byKey = new Map<ModelKey, ModelPlacement[]>();
     for (const p of placements) { const list = byKey.get(p.key) ?? []; list.push(p); byKey.set(p.key, list); }
     const m = new Matrix4(), q = new Quaternion(), pos = new Vector3(), s = new Vector3(), up = new Vector3(0, 1, 0);
     for (const [key, list] of byKey) {
       const baked = this.cache.peek(key)!.model;
-      const spec = MODEL_SPECS[key];
+      const spec = specOf(key);
       for (const part of baked.parts) {
         const figure = part.material === null;
         const geometry = figure ? part.geometry.clone() : part.geometry;
@@ -205,7 +214,7 @@ export class ModelLayer {
         if (figure) mesh.userData.ownGeometry = true;
         list.forEach((p, i) => {
           q.setFromAxisAngle(up, p.yaw + spec.yawOffset);
-          pos.set(p.x, p.y + (spec.group === 'figure' ? SEAT_HEIGHT : 0), p.z);
+          pos.set(p.x, p.y + (spec.group === 'figure' && !spec.kit ? SEAT_HEIGHT : 0), p.z);
           const k = p.look?.scale ?? [1, 1, 1];
           s.set(p.scale * k[0], p.scale * k[1], p.scale * k[2]);
           m.compose(pos, q, s);
@@ -217,7 +226,7 @@ export class ModelLayer {
         mesh.frustumCulled = false;
         this.root.add(mesh);
       }
-      if (baked.anchors) this.accessories(key, list, baked.anchors, spec.group === 'figure' ? SEAT_HEIGHT : 0);
+      if (baked.anchors) this.accessories(key, list, baked.anchors, SEAT_HEIGHT);
     }
     // Soft contact shadows: one instanced plane for every placed model.
     if (placements.length) {

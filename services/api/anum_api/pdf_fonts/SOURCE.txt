@@ -1,0 +1,19 @@
+Noto Sans Arabic 2.013 (Regular and Bold), the same family the web app uses.
+Source: https://github.com/notofonts/arabic/releases/tag/NotoSansArabic-v2.013
+(NotoSansArabic/unhinted/ttf/NotoSansArabic-{Regular,Bold}.ttf).
+Licence: SIL Open Font License 1.1, OFL-NotoSansArabic.txt (copied from the release's OFL.txt).
+
+Subset with fontTools 4.66 for the PDF writer (anum_api/pdf_text.py, docs/business.md#printing-and-pdf):
+Arabic letters, harakat, Arabic and Persian digits and punctuation, and the Arabic
+Presentation Forms the writer shapes into. Layout tables are dropped (the writer shapes
+with presentation forms, so it needs no GSUB) and hinting is removed:
+
+  U="U+0020,U+060C,U+061B,U+061F,U+0621-063A,U+0640-0652,U+0660-066C,U+067E,U+0686,U+0698,U+06A9,U+06AF,U+06CC,U+FB56-FB59,U+FB7A-FB7D,U+FB8A-FB8B,U+FB8E-FB95,U+FBFC-FBFF,U+FE70-FE74,U+FE76-FEFC"
+  pyftsubset NotoSansArabic-Regular.ttf --unicodes="$U" --layout-features='' --no-hinting \
+    --drop-tables+=GSUB,GPOS,GDEF,DSIG,STAT,meta --name-IDs='*' --name-languages='*' \
+    --notdef-outline --output-file=NotoSansArabic-PDF-Regular.ttf
+  (the same for Bold)
+
+The OFL lets the font be subset and embedded; the subset keeps the font's name and copyright
+records (name IDs '*'), and it is not renamed, as the OFL's Reserved Font Name clause allows
+for an unmodified family name only when no Reserved Font Name is declared (Noto declares none).

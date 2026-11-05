@@ -351,7 +351,7 @@ router = APIRouter(prefix="/api/v1", tags=["scale-and-ecosystem"])
 
 
 @router.get("/marketplace/packages", response_model=list[MarketplacePackage])
-async def list_packages(
+def list_packages(
     kind: MarketplaceKind | None = None,
     q: str | None = Query(default=None, max_length=200),
     verified: bool | None = None,
@@ -372,7 +372,7 @@ async def list_packages(
 
 
 @router.put("/marketplace/packages/{package_id}", response_model=MarketplacePackage)
-async def upsert_package(package_id: str, payload: MarketplacePackage, context: TenantContext = Depends(tenant_context)) -> MarketplacePackage:
+def upsert_package(package_id: str, payload: MarketplacePackage, context: TenantContext = Depends(tenant_context)) -> MarketplacePackage:
     # The catalog is the tenant's: every workspace sees it, so publishing needs the
     # organization administrator role (docs/governance-and-scale.md#who-may-change-what).
     require_permission(context, Permission.ORG_POLICY_MANAGE)
@@ -407,7 +407,7 @@ async def upsert_package(package_id: str, payload: MarketplacePackage, context: 
 
 
 @router.put("/marketplace/packages/{package_id}/signature", response_model=MarketplacePackage)
-async def sign_package(package_id: str, payload: SkillSignature, context: TenantContext = Depends(tenant_context)) -> MarketplacePackage:
+def sign_package(package_id: str, payload: SkillSignature, context: TenantContext = Depends(tenant_context)) -> MarketplacePackage:
     """Attach a signature to an integration package that is unsigned or no longer verifies."""
     require_permission(context, Permission.ORG_POLICY_MANAGE)
     keys = tenant_trusted_keys(context)
@@ -437,7 +437,7 @@ async def sign_package(package_id: str, payload: SkillSignature, context: Tenant
 
 
 @router.delete("/marketplace/packages/{package_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_package(package_id: str, context: TenantContext = Depends(tenant_context)) -> Response:
+def delete_package(package_id: str, context: TenantContext = Depends(tenant_context)) -> Response:
     require_permission(context, Permission.ORG_POLICY_MANAGE)
     try:
         with open_scale_store(context) as scoped:
@@ -452,7 +452,7 @@ async def delete_package(package_id: str, context: TenantContext = Depends(tenan
 
 
 @router.get("/marketplace/installs", response_model=list[PackageInstall])
-async def list_installs(context: TenantContext = Depends(tenant_context)) -> list[PackageInstall]:
+def list_installs(context: TenantContext = Depends(tenant_context)) -> list[PackageInstall]:
     require_permission(context, Permission.MARKETPLACE_READ)
     keys = tenant_trusted_keys(context)
     with open_scale_store(context) as scoped:
@@ -472,7 +472,7 @@ def _install_view(install: PackageInstall, package: MarketplacePackage | None, k
     response_model=PackageInstall,
     status_code=status.HTTP_201_CREATED,
 )
-async def install_package(
+def install_package(
     package_id: str,
     payload: InstallRequest,
     context: TenantContext = Depends(tenant_context),
@@ -506,7 +506,7 @@ async def install_package(
 
 
 @router.patch("/marketplace/packages/{package_id}/install", response_model=PackageInstall)
-async def update_package_install(
+def update_package_install(
     package_id: str, payload: PackageInstallUpdate, context: TenantContext = Depends(tenant_context),
 ) -> PackageInstall:
     """Turn this workspace's install off or on; on again for a flagged package needs ``acknowledge_flagged``."""
@@ -532,7 +532,7 @@ async def update_package_install(
 
 
 @router.delete("/marketplace/packages/{package_id}/install", status_code=status.HTTP_204_NO_CONTENT)
-async def uninstall_package(
+def uninstall_package(
     package_id: str,
     context: TenantContext = Depends(tenant_context),
 ) -> Response:
@@ -547,14 +547,14 @@ async def uninstall_package(
 
 
 @router.get("/routing/targets", response_model=list[RoutingTarget])
-async def list_targets(context: TenantContext = Depends(tenant_context)) -> list[RoutingTarget]:
+def list_targets(context: TenantContext = Depends(tenant_context)) -> list[RoutingTarget]:
     require_permission(context, Permission.ROUTING_READ)
     with open_scale_store(context) as scoped:
         return scoped.targets(context)
 
 
 @router.put("/routing/targets/{target_id}", response_model=RoutingTarget)
-async def configure_target(
+def configure_target(
     target_id: str,
     target: RoutingTarget,
     context: TenantContext = Depends(tenant_context),
@@ -568,7 +568,7 @@ async def configure_target(
 
 
 @router.post("/routing/decisions", response_model=RoutingDecision)
-async def decide_route(
+def decide_route(
     payload: RoutingRequest,
     context: TenantContext = Depends(tenant_context),
 ) -> RoutingDecision:
@@ -606,7 +606,7 @@ async def decide_route(
 
 
 @router.get("/enterprise/operations", response_model=EnterpriseOperations)
-async def enterprise_operations(context: TenantContext = Depends(tenant_context)) -> EnterpriseOperations:
+def enterprise_operations(context: TenantContext = Depends(tenant_context)) -> EnterpriseOperations:
     require_permission(context, Permission.OPERATIONS_READ)
     with open_scale_store(context) as scoped:
         targets = scoped.targets(context)

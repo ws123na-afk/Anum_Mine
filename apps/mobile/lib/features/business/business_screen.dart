@@ -520,14 +520,21 @@ class _BusinessScreenState extends State<BusinessScreen> {
         (lead) => AnumRow(
           key: Key('biz-lead-${lead.id}'),
           title: lead.accountName,
-          subtitle:
-              '${lead.title} · ${lead.productName ?? l.t('biz.leads.noOffer')}',
+          // The source badge of the one lead list: WhatsApp leads say so.
+          subtitle: [
+            if (lead.channel == 'whatsapp') l.t('biz.source.whatsapp'),
+            lead.title,
+            lead.productName ?? l.t('biz.leads.noOffer'),
+          ].join(' · '),
           detail: l.f('biz.score', {
             'total': lead.scoreTotal,
             'known': lead.scoreKnown,
           }),
-          icon:
-              lead.blockReason == null ? Icons.business_outlined : Icons.block,
+          icon: lead.blockReason != null
+              ? Icons.block
+              : lead.channel == 'whatsapp'
+                  ? Icons.forum_outlined
+                  : Icons.business_outlined,
           tone: lead.blockReason == null ? null : AnumTone.stop,
           trailing: AnumPill(
             label: l.t('biz.state.${lead.state}'),

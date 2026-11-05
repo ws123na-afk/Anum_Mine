@@ -1,6 +1,34 @@
-# Email: the unified inbox
+# Email: one module over two mail back ends
 
 ANUM reads the owner's business mailboxes (Gmail / Google Workspace, Outlook / Microsoft 365, Zoho Mail) through each provider's official API and OAuth, shows them as one inbox, sorts and summarises messages, drafts replies with the model, and sends a reply only after an owner approves the exact message. Code: `services/api/anum_api/email_providers.py` (provider clients), `email_inbox.py` (settings, storage, sync, triage, tools), `email_api.py` (routes), `db/email_repository.py` and migration `0035_email_inbox`; web `apps/web/src/InboxView.tsx`; Flutter `apps/mobile/lib/features/email/`.
+
+## One Email module
+
+ANUM has two mail back ends and keeps both: the OAuth provider inbox described on this page (Gmail, Outlook and Zoho Mail, `/api/v1/email`) and the [Email Center](#email-center) on the workspace's own mail server (IMAP and SMTP, `/api/v1/mail`). A person sees one product: **Email** in the main sidebar. The old **Inbox** entry under More is gone; its links (`#inbox`, the OAuth return `/?email_connect=<id>#inbox`, search and chat cards, Home and Command shortcuts) open the provider inbox inside Email.
+
+| Part | What it does |
+| --- | --- |
+| Mailbox list | A list beside the page from 1280px (a scrolling row above it below that): **All inboxes**, every mailbox the person may read with a source badge (Gmail, Outlook, Zoho Mail, Own server), its unread count, **Shared** for mailboxes shared with the person and **Needs attention** when a grant or a saved password stopped working, then **Connections**. |
+| All inboxes | One list, newest first, over every provider mailbox and every own-server inbox the person may read, with search (sender, subject, text), **Unread**, **Load more**, the source badge and address on each row, a mailbox that could not be read named with its reason and **Try again**, and every state (loading, empty with **Check again** and **Connections**, no match with **Clear search and filters**, failure with **Try again**, permission denied). |
+| Reader | A message opens in the reader of the back end that owns it: a provider message with its plain text, drafts, **Summarise and suggest a reply** and **Draft with AI** (the provider path above); an own-server message with the sanitized frame, attachments, reply, reply all, forward and the [Email Center AI](#ai-on-email) actions. **Open in (address)** opens that mailbox on its own. A message from a mailbox shared to read only offers no reply, star or flag. |
+| Write | **Write** lists every address the person may send from (connected provider mailboxes, own-server mailboxes they own or that are shared with them to send). A provider address opens the provider compose drawer; an own-server address starts an Email Center draft. Either way the message is a draft and goes out only after an owner approves the exact message (payload hash), as before. |
+| One mailbox | Picking a mailbox in the list opens that back end's own page for it: the provider inbox filtered to it, or the Email Center on that mailbox (folders, flags, moves, scheduled send, rules, retention, sharing). |
+| Connections | One settings page listing every connection: provider mailboxes (with **Connect or manage**, which opens the provider connect and disconnect panel) and own-server mailboxes (with **Connect a mailbox**), each with **Open** and **Settings** routed to its back end, and the operator setting to change when a back end is off or not set up. |
+
+Where `#email` lands: **All inboxes** once there are two mailboxes or more; the one mailbox when there is exactly one; with none, the Email Center's connect form when the own server is on and the person may connect there, else **Connections**. Links: `#email/all`, `#email/connections`, `#email/mailbox/<provider|server>:<id>`, `#email/provider` (the provider inbox as a whole, also `#inbox`) and `#email/server` (the Email Center as a whole, with its own mailbox picker, sharing and contacts).
+
+The read layer is thin and adds no table (`services/api/anum_api/email_unified.py`):
+
+| Method and path | Answer |
+| --- | --- |
+| `GET /api/v1/email/unified/mailboxes` | `{items: [{ref, id, backend: provider\|server, source: gmail\|outlook\|zoho\|mailserver, address, display_name, status, access, unread, can_send}], provider: {state, detail}, server: {state, detail}, can_act, can_manage}`. Provider mailboxes through `visible_accounts` (a private mailbox only for the person who connected it), own-server mailboxes through the caller's own and shared ones (`accounts_for`); a back end that is off, not set up, not allowed for the organisation or failing says so in `state` and `detail` and never hides the other. |
+| `GET /api/v1/email/unified/messages?q&unread&limit&cursor` | All inboxes. One page holds the next `limit` messages of each back end merged newest first: the provider inbox from the synced metadata (in a worker thread) and the own server's inboxes read live (`mailbox/all_inboxes.py`). The cursor keeps each back end's own cursor, so no message is shown twice or skipped. Each item carries `ref`, `backend`, `source`, its mailbox, the provider `message_id` or the server `folder` and `uid` with the Email Center's own summary (`server_message`), and `read_only`. `unreadable` lists own-server mailboxes that could not be read for this page. A bad cursor answers 422. |
+
+Both need `email:read` (owners and members; viewers get 403 with who may read mail). Nothing is copied into ANUM. Every action after reading (marking read, archiving, drafting, AI, asking to send, approving) goes to the back end that owns the mailbox, through its own routes, permissions, tool policy, autonomy and approvals, so tenant scoping and the approval rules for sending are unchanged and nothing is sent without an owner's approval.
+
+Code: web `apps/web/src/EmailHub.tsx`, `emailHub.css`, `lib/emailHub.ts`, `lib/emailHubApi.ts`, strings `lib/messages/emailHub.*.ts`; the provider page (`InboxView.tsx`) and the Email Center page (`EmailView.tsx`) take the picked mailbox from it. Tests: `services/api/tests/test_email_unified.py` (both back ends in one list, private and other-organisation mailboxes hidden, viewers refused, merged paging without repeats, search and unread, the Email Center off, an unreadable mailbox, cursors), `test_postgres_business_lead_sources.py` (the mailbox list under the row policies), web unit `apps/web/test/emailHub.test.ts` (one sidebar entry, old links, panes, landing, senders) and Playwright `apps/web/e2e/email-hub.spec.ts` (both sources, each reader, Write, Connections, `#inbox`, empty, failure, viewers, and the gate sizes 1440x900, 1366x768, 1024x768, 768x1024 and 390x844 in English and Arabic with axe).
+
+Not done yet: the Email page on the phone is still two screens (Email and Email Center under More); the Flutter navigation labels say which is which (see [Mobile features](mobile-features.md)).
 
 ## What it does
 

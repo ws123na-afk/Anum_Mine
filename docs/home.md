@@ -67,6 +67,10 @@ register_insight_source(InsightSource("learning", collect_learning_insights, Per
 
 A collector takes a `HomeScope` (context, the request's repository, the app state, `now`) and returns a `FocusResult` or a list of `Insight`s, sync or async. Insight keys must be `<source name>:<id>` and stable while the finding is the same; keys of another source are rejected. Raise `SourceNotInstalled` or `SourceNotConnected` to report those states. Give each insight `kind`, `params` and English `title`/`finding`/`question`: the apps translate known kinds and show the English text for new ones. The learning-patterns module (being built separately) registers its insights this way; a calendar module should register a `meetings` focus source, which also stops it reading as not installed.
 
+## Arrange Home
+
+Each person chooses which parts of the web Home are shown and in what order (**Arrange Home** in the header, `apps/web/src/HomeArrangeDialog.tsx`, a lazy chunk; move up and down with buttons, show or hide, back to the default). Parts: `glance`, `decisions`, `focus`, `activity`, `meetings`, `alerts`, `insights`, `pinned`, `goto` (the default order). `GET /api/v1/home/layout` answers `{sections, hidden, default, customized}`; `PUT /api/v1/home/layout` `{sections}` (known parts, each once, at least one; audited as `home.layout_updated`); `DELETE` goes back to the default. Stored per person and tenant in `home_profiles.sections` (migration `0129_setup_plan_gaps`); changing the greeting name keeps it. With a chosen order Home lays the parts out in two columns in that order, the glance, pins and quick links across the width; with none it keeps the default page. The setup plan sets the applier's own order to put decisions first; it never changes anyone else's Home.
+
 ## Storage and isolation
 
 Migration `0046_home` adds `home_profiles` (tenant and user), `home_pins` and `home_insight_states` (tenant, workspace and user). All three are under forced RLS whose policies check `anum.user_id` as well as the scope, and the stores repeat the same filters. Expand only.

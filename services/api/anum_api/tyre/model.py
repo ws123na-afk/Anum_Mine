@@ -481,6 +481,8 @@ class Inspection(BaseModel):
     vehicle_id: str | None = None
     position: str | None = None
     inspected_at: date
+    # The time of the reading when the source stores one (UTC); None for a date-only record.
+    inspected_time: datetime | None = None
     tread_mm: float | None = None
     pressure_psi: float | None = None
     target_psi: float | None = None
@@ -526,6 +528,8 @@ class InspectionVisit(BaseModel):
     id: str
     vehicle_id: str
     inspected_at: date
+    # The time of the inspection when the source stores one (UTC); None for a date-only record.
+    inspected_time: datetime | None = None
     site: str | None = None
     inspection_type: str | None = None
     status: str | None = None

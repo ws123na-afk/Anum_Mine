@@ -25,7 +25,7 @@ export function createRoomMock(options: {
       total_input_tokens: 0, total_output_tokens: 0, total_cost_usd: '0.000000', started_at: new Date().toISOString(), ended_at: null, ended_reason: null,
       hand_raised_by: null as string | null, transcript_deleted_at: null as string | null,
     },
-    participants: [{ id: 'p1', actor_id: 'agent_maya', kind: 'agent' }, { id: 'p2', actor_id: 'agent_omar', kind: 'agent' }],
+    participants: [{ id: 'p1', actor_id: 'agent_maya', kind: 'agent', left_at: null as string | null }, { id: 'p2', actor_id: 'agent_omar', kind: 'agent', left_at: null as string | null }],
     attendance: [] as { actor_id: string; joined_at: string; left_at: string | null }[],
     agenda: [{ id: 'ag1', position: 1, title: 'Fix the launch date', state: 'current' }],
     outputs: [] as Record<string, unknown>[],
@@ -35,7 +35,7 @@ export function createRoomMock(options: {
     events: [] as RoomEventRow[],
     outage: false,
     transcriptDeleted: false,
-    calls: { summaries: 0, links: 0, jsonExports: 0, patches: [] as Record<string, unknown>[], runs: 0, tasks: 0, messages: [] as string[], exports: 0, streamHits: 0, forbidden: [] as string[], budgetGets: 0, budgetPuts: [] as (number | null)[] },
+    calls: { summaries: 0, links: 0, jsonExports: 0, patches: [] as Record<string, unknown>[], runs: 0, tasks: 0, messages: [] as string[], exports: 0, streamHits: 0, forbidden: [] as string[], budgetGets: 0, budgetPuts: [] as (number | null)[], removals: [] as string[] },
     budget: { used: options.budget?.used ?? 12.34, limit: options.budget?.limit ?? 50, isDefault: options.budget?.isDefault ?? true, canManage: options.budget?.canManage ?? owner },
     nextTurn: [] as { speaker: string; body: string }[],
   };
@@ -121,6 +121,20 @@ export function createRoomMock(options: {
       if (joining) { state.attendance.push({ actor_id: me, joined_at: new Date().toISOString(), left_at: null }); push('joined', { actor_id: me }, me); }
       else { state.attendance.forEach((a) => { a.left_at = new Date().toISOString(); }); push('left', { actor_id: me }, me); }
       await json({ ok: true }); return true;
+    }
+    const removing = /^\/agents\/(agent_\w+)\/remove$/.exec(rest);
+    if (removing && method === 'POST') {
+      // As the API: owner only, a live meeting, the shown revision; the agent's row keeps the time; a second removal changes nothing.
+      state.calls.removals.push(removing[1]);
+      const who = state.participants.find((p) => p.actor_id === removing[1]);
+      if (!owner) { await json({ error: { code: 'forbidden', message: 'Only the owner can remove agents', correlation_id: 'c12', details: [] } }, 403); return true; }
+      if (!who) { await json({ error: { code: 'not_found', message: 'That agent is not a participant of this meeting', correlation_id: 'c13', details: [] } }, 404); return true; }
+      if (Number(body().expected_revision) !== state.meeting.revision) { await json({ error: { code: 'conflict', message: 'Meeting revision changed', correlation_id: 'c14', details: [] } }, 409); return true; }
+      if (!who.left_at) {
+        who.left_at = new Date().toISOString(); state.meeting.revision += 1;
+        push('agent_left', { agent_id: who.actor_id }, me);
+      }
+      await json(state.meeting); return true;
     }
     if (rest === '/hand') { state.meeting.hand_raised_by = null; push('hand_lowered', {}, me); await json({ hand_raised_by: null }); return true; }
     if (rest === '/run') {

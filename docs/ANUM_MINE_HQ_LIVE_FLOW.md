@@ -78,7 +78,7 @@ Next actions open existing views: decide an approval (`#approvals`), open or ret
 ## Connection and failure states
 
 - Live: the event stream triggers a re-read within 400 ms; a 20 s timer is a safety net.
-- Stream down: the dock says "Polling" and re-reads every 8 s.
+- Stream down: the bar says "Checking every 8 s" and re-reads every 8 s. The bar is a thin strip in the page flow under the quick views (never over the scene); its list opens as a sheet that rises from the bar. Its chip shows the real time of the last read ("Updated hh:mm:ss") and says Stale after 60 s without one ([page layout](ANUM_MINE_HQ_PAGE_LAYOUT.md)).
 - Request failing: the last answer stays visible with "Offline. Showing the last answer" and a retry button; with no earlier answer the dock shows the error and a retry.
 - 403: the dock says who can grant access. Sources the role cannot read say "No access".
 - Empty: "Nothing is in progress" with a link to Tasks.

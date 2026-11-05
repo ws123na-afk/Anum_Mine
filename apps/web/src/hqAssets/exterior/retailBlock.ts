@@ -10,6 +10,7 @@ import { STOREY, clamp, curtainWall, entrance, faceBox, faceQuad, finish, makeCt
 import { accentBand, slabBand } from './towerParts.ts';
 import { beaconLight, canopy, signFrame } from './facadeKit.ts';
 import type { ExteriorAsset, ExteriorParams } from './types.ts';
+import { cornerBevels } from './bevel.ts';
 
 const AWNINGS: readonly Rgb[] = [hex('#c0453a'), hex('#2f6a8f'), hex('#d9b25f'), hex('#3d6b52'), hex('#7a4a8a'), hex('#e0803a')];
 
@@ -28,6 +29,7 @@ export function buildRetailBlock(params: ExteriorParams = {}): ExteriorAsset {
   castShadow(b, x0, z0, W, D, H + 1.5, 0.022);
   b.box(x0 - 0.4, 0, z0 - 0.4, W + 0.8, y0, D + 0.8, scheme.stone);
   b.box(x0, y0, z0, W, H, D, scale(scheme.wall, 1.0), { skip: ['top', 'bottom'], grad: 0.12 });
+  cornerBevels(b, x0, z0, W, D, y0, y0 + H, scheme.trim);
   for (const f of Object.values(F)) faceQuad(b, f, 0, f.len, y0, y0 + 0.9, scale(scheme.stone, 0.7), 0, 0.05);
 
   // Shop units either side of the portal.

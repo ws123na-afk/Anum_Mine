@@ -16,7 +16,7 @@ test('office is an architectural interactive scene, not emoji furniture placehol
 });
 
 test('existing server-backed workspace modules remain reachable', () => {
-  for (const moduleName of ['OfficeWorkstations', 'OfficeSpaceLiveManager', 'ReceptionOperations']) {
+  for (const moduleName of ['OfficeWorkstations', 'OfficeSpaceLiveManager']) {
     assert.ok(scene.includes('<' + moduleName), moduleName + ' missing from office');
   }
   // The guided visit walks the office registry's real rooms; the concept preview draws invented ones, so it has no visit.

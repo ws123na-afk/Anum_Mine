@@ -31,7 +31,7 @@ from __future__ import annotations
 import fnmatch
 from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
-from datetime import datetime
+from datetime import date, datetime, timedelta
 from enum import StrEnum
 from threading import RLock
 from typing import Any, Literal, Protocol
@@ -164,7 +164,9 @@ class AgentAutonomy(BaseModel):
 class KnowledgeSource(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    type: Literal["memory", "file"]
+    # ``collection``: a shared knowledge base collection; a run reads the notes and documents
+    # it holds when the run starts (docs/agents.md#knowledge-collections).
+    type: Literal["memory", "file", "collection"]
     id: str = Field(min_length=1, max_length=80)
 
 
@@ -214,7 +216,7 @@ class AgentProfileFields(BaseModel):
         if self.knowledge_mode != KnowledgeMode.SELECTED:
             self.knowledge_sources = []
         elif not self.knowledge_sources:
-            raise ValueError("Pick at least one memory or file, or choose another knowledge setting")
+            raise ValueError("Pick at least one memory, file or collection, or choose another knowledge setting")
         seen: set[tuple[str, str]] = set()
         unique = []
         for source in self.knowledge_sources:
@@ -283,6 +285,18 @@ class AgentPage(BaseModel):
 class AgentMemorySource(StrEnum):
     MANUAL = "manual"
     TASK = "task"
+    # Taken from a Documents file the agent itself may read (migration 0128).
+    FILE = "file"
+
+
+class AgentMemoryKind(StrEnum):
+    """A recurring fact, or a decision a person made (migration 0128)."""
+
+    FACT = "fact"
+    DECISION = "decision"
+
+
+SOURCE_LABEL_CHARS = 200
 
 
 class AgentMemoryCreate(BaseModel):
@@ -290,6 +304,30 @@ class AgentMemoryCreate(BaseModel):
 
     content: str = Field(min_length=1, max_length=MEMORY_CHARS)
     task_id: str | None = Field(default=None, max_length=80)
+    kind: AgentMemoryKind = AgentMemoryKind.FACT
+    # Where it comes from in plain words ("SOP: tyre rotation, version 3") and the date it holds from.
+    source_label: str | None = Field(default=None, max_length=SOURCE_LABEL_CHARS)
+    source_date: date | None = None
+    # A Documents file it was taken from: one the agent's knowledge sources include.
+    file_id: str | None = Field(default=None, max_length=80)
+
+    @model_validator(mode="after")
+    def _one_origin(self) -> "AgentMemoryCreate":
+        if self.task_id and self.file_id:
+            raise ValueError("A memory comes from a task or from a file, not both")
+        self.source_label = self.source_label or None
+        return self
+
+
+class AgentMemoryUpdate(BaseModel):
+    """``PATCH /agents/{id}/memories/{memory_id}``: any field left out keeps its value."""
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    content: str | None = Field(default=None, min_length=1, max_length=MEMORY_CHARS)
+    kind: AgentMemoryKind | None = None
+    source_label: str | None = Field(default=None, max_length=SOURCE_LABEL_CHARS)
+    source_date: date | None = None
 
 
 class AgentMemory(BaseModel):
@@ -302,6 +340,29 @@ class AgentMemory(BaseModel):
     task_id: str | None = None
     created_by: str
     created_at: datetime
+    kind: AgentMemoryKind = AgentMemoryKind.FACT
+    source_label: str | None = None
+    source_date: date | None = None
+    source_file_id: str | None = None
+    updated_at: datetime | None = None
+    updated_by: str | None = None
+    # From the organisation's memory governance; None keeps it until someone deletes it.
+    expires_at: datetime | None = None
+
+    def expired(self, now: datetime) -> bool:
+        return self.expires_at is not None and self.expires_at <= now
+
+    def for_prompt(self) -> str:
+        """The memory as a run reads it: its kind, source and date first, then the text."""
+        facts = ["Decision" if self.kind == AgentMemoryKind.DECISION else "Fact"]
+        if self.source_label:
+            facts.append(f"source: {self.source_label}")
+        elif self.source == AgentMemorySource.TASK and self.task_id:
+            facts.append(f"source: task {self.task_id}")
+        elif self.source == AgentMemorySource.FILE and self.source_file_id:
+            facts.append(f"source: file {self.source_file_id}")
+        facts.append(f"as of {(self.source_date or self.created_at.date()).isoformat()}")
+        return f"[{', '.join(facts)}] {self.content}"
 
 
 class AgentMemoryPage(BaseModel):
@@ -405,8 +466,8 @@ TEMPLATES: tuple[_TemplateSpec, ...] = (
             "Research the question on the web, compare sources and answer with a short summary "
             "followed by the sources you used. Say clearly when sources disagree or are missing."
         ),
-        tool_patterns=["web_search"],
-        skills=["anum.web-search", "anum.document-drafting"],
+        tool_patterns=["web_search", "web.browse_page"],
+        skills=["anum.web-search", "anum.browser-research", "anum.document-drafting"],
         wants=[("web_search", "Web search (set ANUM_SEARXNG_URL)")],
     ),
     _TemplateSpec(
@@ -670,11 +731,46 @@ def validate_capabilities(fields: AgentProfileFields, context: TenantContext) ->
                 raise _unprocessable(f"The skill {skill.name} needs the tool {', '.join(missing)}: allow it too")
     if fields.knowledge_mode == KnowledgeMode.SELECTED:
         visible = _visible_sources(context)
+        collections = _shared_collections(context) if any(s.type == "collection" for s in fields.knowledge_sources) else set()
         for source in fields.knowledge_sources:
+            if source.type == "collection":
+                if source.id not in collections:
+                    raise _unprocessable(
+                        f"The collection {source.id} does not exist here or is not shared with the workspace. "
+                        "Only a shared knowledge collection can be an agent's source."
+                    )
+                continue
             if (source.type, source.id) not in visible:
                 raise _unprocessable(
                     f"The {source.type} {source.id} is not indexed in this workspace or not visible to you"
                 )
+
+
+def _shared_collections(context: TenantContext) -> set[str]:
+    from .knowledge_base import open_knowledge_store
+
+    with open_knowledge_store(context) as store:
+        return {c.id for c in store.list_collections(context) if c.owner_user_id is None}
+
+
+def collection_sources(context: TenantContext, collection_ids: Iterable[str]) -> list[KnowledgeSource]:
+    """The notes (memories) and documents (files) the shared collections hold now, as the caller sees them."""
+    wanted = set(collection_ids)
+    if not wanted:
+        return []
+    from .knowledge_base import open_knowledge_store
+
+    out: list[KnowledgeSource] = []
+    seen: set[tuple[str, str]] = set()
+    with open_knowledge_store(context) as store:
+        shared = {c.id for c in store.list_collections(context) if c.owner_user_id is None}
+        for collection_id in sorted(wanted & shared):
+            for item in store.list_items(context, collection_id):
+                kind = "memory" if str(getattr(item.kind, "value", item.kind)) == "note" else "file"
+                if (kind, item.source_id) not in seen:
+                    seen.add((kind, item.source_id))
+                    out.append(KnowledgeSource(type=kind, id=item.source_id))
+    return out
 
 
 def _visible_sources(context: TenantContext) -> set[tuple[str, str]]:
@@ -696,6 +792,8 @@ class AgentStoreProtocol(Protocol):
     def list_memories(self, context: TenantContext, agent_id: str) -> list[AgentMemory]: ...
     def add_memory(self, memory: AgentMemory) -> AgentMemory: ...
     def delete_memory(self, context: TenantContext, agent_id: str, memory_id: str) -> bool: ...
+    def update_memory(self, memory: AgentMemory) -> bool: ...
+    def delete_expired_memories(self, context: TenantContext, agent_id: str, now: datetime) -> int: ...
     def record_audit(self, record: AuditRecord) -> None: ...
 
 
@@ -768,6 +866,24 @@ class InMemoryAgentStore:
             self.memories[agent_id] = kept
             return len(kept) != len(items)
 
+    def update_memory(self, memory: AgentMemory) -> bool:
+        with self._lock:
+            items = self.memories.get(memory.agent_id, [])
+            for index, item in enumerate(items):
+                if item.id == memory.id:
+                    items[index] = memory.model_copy(deep=True)
+                    return True
+            return False
+
+    def delete_expired_memories(self, context: TenantContext, agent_id: str, now: datetime) -> int:
+        with self._lock:
+            if self.get(context, agent_id) is None:
+                return 0
+            items = self.memories.get(agent_id, [])
+            kept = [m for m in items if not m.expired(now)]
+            self.memories[agent_id] = kept
+            return len(items) - len(kept)
+
     def record_audit(self, record: AuditRecord) -> None:
         from .dependencies import memory_repository
 
@@ -799,6 +915,8 @@ def agent_memories_for_run(context: TenantContext, agent_id: str, limit: int = 2
     """The agent's newest memories, for a run or a chat (the caller must see the agent)."""
     with open_agent_store(context) as store:
         items = store.list_memories(context, agent_id)
+    now = utc_now()
+    items = [m for m in items if not m.expired(now)]
     items.sort(key=lambda m: (m.created_at, m.id), reverse=True)
     return items[:limit]
 
@@ -907,7 +1025,7 @@ async def agent_catalog(context: TenantContext = Depends(tenant_context)) -> Age
 
 
 @router.get("", response_model=AgentPage)
-async def list_agents(
+def list_agents(
     category: AgentCategory | None = None,
     agent_status: AgentStatus | None = Query(default=None, alias="status"),
     q: str | None = Query(default=None, max_length=120),
@@ -980,7 +1098,7 @@ def create_agent_governed(payload: AgentProfileCreate, context: TenantContext, i
 
 
 @router.get("/{agent_id}", response_model=AgentProfileView)
-async def get_agent(agent_id: str, context: TenantContext = Depends(tenant_context)) -> AgentProfileView:
+def get_agent(agent_id: str, context: TenantContext = Depends(tenant_context)) -> AgentProfileView:
     require_permission(context, Permission.TASK_READ)
     with open_agent_store(context) as store:
         profile = _agent_or_404(store, context, agent_id)
@@ -991,6 +1109,12 @@ async def get_agent(agent_id: str, context: TenantContext = Depends(tenant_conte
 async def update_agent(
     agent_id: str, payload: AgentProfileUpdate, context: TenantContext = Depends(tenant_context)
 ) -> AgentProfileView:
+    return update_agent_governed(agent_id, payload, context)
+
+
+def update_agent_governed(agent_id: str, payload: AgentProfileUpdate, context: TenantContext) -> AgentProfileView:
+    """Synchronous body of ``PATCH /agents/{id}`` (permission, edit right, version check, capability checks,
+    audit), for callers that already run off the event loop (the office staffing apply uses it)."""
     require_permission(context, Permission.TASK_CREATE)
     changes = payload.model_dump(exclude_unset=True)
     expected_version = changes.pop("version", None)
@@ -1033,7 +1157,7 @@ async def update_agent(
 
 
 @router.delete("/{agent_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None)
-async def delete_agent(agent_id: str, context: TenantContext = Depends(tenant_context)) -> Response:
+def delete_agent(agent_id: str, context: TenantContext = Depends(tenant_context)) -> Response:
     """Delete the agent and its memories. Its tasks and chats stay in the workspace history."""
     require_permission(context, Permission.TASK_CREATE)
     with open_agent_store(context) as store:
@@ -1045,9 +1169,10 @@ async def delete_agent(agent_id: str, context: TenantContext = Depends(tenant_co
 
 
 @router.get("/{agent_id}/memories", response_model=AgentMemoryPage)
-async def list_agent_memories(
+def list_agent_memories(
     agent_id: str,
     q: str | None = Query(default=None, max_length=120),
+    kind: AgentMemoryKind | None = None,
     limit: int = Query(default=DEFAULT_LIST_LIMIT, ge=1, le=MAX_LIST_LIMIT),
     cursor: str | None = Query(default=None, max_length=80),
     context: TenantContext = Depends(tenant_context),
@@ -1056,10 +1181,15 @@ async def list_agent_memories(
     with open_agent_store(context) as store:
         _agent_or_404(store, context, agent_id)
         items = store.list_memories(context, agent_id)
+    now = utc_now()
+    # An expired memory is hidden at once; the next change to this agent's memories deletes it.
+    items = [m for m in items if not m.expired(now)]
     items.sort(key=lambda m: (m.created_at, m.id), reverse=True)
+    if kind is not None:
+        items = [m for m in items if m.kind == kind]
     if q and q.strip():
         words = q.lower().split()
-        items = [m for m in items if all(w in m.content.lower() for w in words)]
+        items = [m for m in items if all(w in f"{m.content} {m.source_label or ''}".lower() for w in words)]
     total = len(items)
     if cursor:
         index = next((i for i, m in enumerate(items) if m.id == cursor), None)
@@ -1070,35 +1200,118 @@ async def list_agent_memories(
     return AgentMemoryPage(items=page, next_cursor=page[-1].id if len(items) > limit else None, total=total)
 
 
+def memory_retention(context: TenantContext, now: datetime) -> tuple[datetime | None, bool]:
+    """(expiry, provenance required) from the organisation's memory governance.
+
+    Kept until deleted unless governance forbids permanent retention, then ``default_retention_days``
+    from now, the rule remembered chat facts follow (docs/memory.md#retention). A governance store that
+    cannot be read keeps the memory without an expiry and asks for no source, as it does for chat facts.
+    """
+    try:
+        from .governance import open_governance_store
+
+        with open_governance_store(context) as store:
+            governance = store.get_memory_governance(context)
+    except Exception:  # noqa: BLE001 - the memory is still saved; reads apply governance once it is readable
+        governance = None
+    if governance is None:
+        return None, False
+    expires = None if governance.allow_permanent_retention else now + timedelta(days=governance.default_retention_days)
+    return expires, bool(governance.require_provenance)
+
+
+def _require_agent_file(context: TenantContext, profile: AgentProfile, file_id: str) -> None:
+    """A memory may come from a file only when the agent itself may read it and the person saving it sees it."""
+    if profile.knowledge_mode == KnowledgeMode.NONE:
+        raise _unprocessable("This agent reads no workspace knowledge, so it cannot remember from a file. Change its knowledge first.")
+    if (("file", file_id)) not in _visible_sources(context):
+        raise _unprocessable("That file is not in this workspace's indexed documents or you cannot see it.")
+    if profile.knowledge_mode == KnowledgeMode.SELECTED:
+        allowed = {(s.type, s.id) for s in profile.knowledge_sources if s.type != "collection"}
+        allowed |= {(s.type, s.id) for s in collection_sources(
+            context, [s.id for s in profile.knowledge_sources if s.type == "collection"])}
+        if ("file", file_id) not in allowed:
+            raise _unprocessable("This agent may not read that file: it is not among its knowledge sources.")
+
+
 @router.post("/{agent_id}/memories", response_model=AgentMemory, status_code=status.HTTP_201_CREATED)
-async def create_agent_memory(
+def create_agent_memory(
     agent_id: str, payload: AgentMemoryCreate, context: TenantContext = Depends(tenant_context)
 ) -> AgentMemory:
     require_permission(context, Permission.MEMORY_CREATE)
     if payload.task_id is not None:
         _require_agent_task(context, agent_id, payload.task_id)
+    now = utc_now()
+    expires_at, provenance = memory_retention(context, now)
+    if provenance and not (payload.task_id or payload.file_id or payload.source_label):
+        raise _unprocessable("Your organisation asks every memory to say where it comes from. Add a source.")
     with open_agent_store(context) as store:
         profile = _agent_or_404(store, context, agent_id)
         _require_edit(profile, context)
+        if payload.file_id is not None:
+            _require_agent_file(context, profile, payload.file_id)
+        store.delete_expired_memories(context, agent_id, now)
         if len(store.list_memories(context, agent_id)) >= MAX_AGENT_MEMORIES:
             raise HTTPException(
                 status_code=status.HTTP_409_CONFLICT,
                 detail=f"This agent has the maximum of {MAX_AGENT_MEMORIES} memories. Delete some first.",
             )
+        source = (AgentMemorySource.TASK if payload.task_id else AgentMemorySource.FILE if payload.file_id
+                  else AgentMemorySource.MANUAL)
         memory = AgentMemory(
             id=new_id("agent_memory"),
             tenant_id=context.tenant_id,
             workspace_id=context.workspace_id,
             agent_id=agent_id,
             content=payload.content,
-            source=AgentMemorySource.TASK if payload.task_id else AgentMemorySource.MANUAL,
+            source=source,
             task_id=payload.task_id,
             created_by=context.user_id,
-            created_at=utc_now(),
+            created_at=now,
+            kind=payload.kind,
+            source_label=payload.source_label,
+            source_date=payload.source_date,
+            source_file_id=payload.file_id,
+            expires_at=expires_at,
         )
         store.add_memory(memory)
-        _audit(store, context, "agent_memory.created", memory.id, {"agent_id": agent_id, "source": memory.source.value})
+        _audit(store, context, "agent_memory.created", memory.id,
+               {"agent_id": agent_id, "source": memory.source.value, "kind": memory.kind.value,
+                "expires": expires_at is not None})
     return memory
+
+
+@router.patch("/{agent_id}/memories/{memory_id}", response_model=AgentMemory)
+def update_agent_memory(
+    agent_id: str, memory_id: str, payload: AgentMemoryUpdate, context: TenantContext = Depends(tenant_context)
+) -> AgentMemory:
+    """Edit a memory's text, kind, source or date. Retention starts again from the edit."""
+    require_permission(context, Permission.MEMORY_CREATE)
+    changes = payload.model_dump(exclude_unset=True)
+    if not changes:
+        raise _unprocessable("Change at least one field")
+    now = utc_now()
+    expires_at, provenance = memory_retention(context, now)
+    with open_agent_store(context) as store:
+        profile = _agent_or_404(store, context, agent_id)
+        _require_edit(profile, context)
+        store.delete_expired_memories(context, agent_id, now)
+        memory = next((m for m in store.list_memories(context, agent_id) if m.id == memory_id), None)
+        if memory is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Memory not found")
+        if "content" in changes and changes["content"] is None:
+            raise _unprocessable("A memory needs its text")
+        if "kind" in changes and changes["kind"] is None:
+            changes.pop("kind")
+        if "source_label" in changes:
+            changes["source_label"] = changes["source_label"] or None
+        updated = memory.model_copy(update={**changes, "updated_at": now, "updated_by": context.user_id,
+                                            "expires_at": expires_at})
+        if provenance and not (updated.task_id or updated.source_file_id or updated.source_label):
+            raise _unprocessable("Your organisation asks every memory to say where it comes from. Keep a source.")
+        store.update_memory(updated)
+        _audit(store, context, "agent_memory.updated", memory_id, {"agent_id": agent_id, "changed": sorted(changes)})
+    return updated
 
 
 def _require_agent_task(context: TenantContext, agent_id: str, task_id: str) -> None:
@@ -1111,13 +1324,14 @@ def _require_agent_task(context: TenantContext, agent_id: str, task_id: str) -> 
 
 
 @router.delete("/{agent_id}/memories/{memory_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None)
-async def delete_agent_memory(agent_id: str, memory_id: str, context: TenantContext = Depends(tenant_context)) -> Response:
+def delete_agent_memory(agent_id: str, memory_id: str, context: TenantContext = Depends(tenant_context)) -> Response:
     require_permission(context, Permission.MEMORY_DELETE)
     with open_agent_store(context) as store:
         profile = _agent_or_404(store, context, agent_id)
         _require_edit(profile, context)
         if not store.delete_memory(context, agent_id, memory_id):
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Memory not found")
+        store.delete_expired_memories(context, agent_id, utc_now())
         _audit(store, context, "agent_memory.deleted", memory_id, {"agent_id": agent_id})
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 

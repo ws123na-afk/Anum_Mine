@@ -55,10 +55,10 @@
   font-size: var(--text-md); gap: var(--d-s2); min-height: 40px; padding: var(--d-s1) var(--d-s3); text-align: start; width: 100%;
 }
 .mailFolder:hover { background: var(--d-glass-1); }
-.mailFolder.active { background: var(--d-glass-2); border-color: rgb(var(--c-violet) / .4); font-weight: 650; }
+.mailFolder.active { background: var(--d-glass-2); border-color: rgb(var(--c-violet) / .4); font-weight: 600; }
 .mailFolder > span:first-child { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mailOutbox { border-top: 1px solid var(--d-line); min-width: 0; padding-top: var(--d-s2); }
-.mailOutbox summary { align-items: center; cursor: pointer; display: flex; font-size: var(--text-md); font-weight: 650; gap: var(--d-s2); list-style: none; min-height: 36px; }
+.mailOutbox summary { align-items: center; cursor: pointer; display: flex; font-size: var(--text-md); font-weight: 600; gap: var(--d-s2); list-style: none; min-height: 36px; }
 .mailOutbox summary::-webkit-details-marker { display: none; }
 .mailOutbox summary svg { color: var(--d-violet); height: 16px; width: 16px; }
 .mailOutbox > p { font-size: var(--text-sm); margin: 0 0 var(--d-s1); }
@@ -82,7 +82,7 @@
 .mailRowTop { align-items: baseline; display: flex; gap: var(--d-s2); justify-content: space-between; min-width: 0; }
 .mailRowTop strong { font-size: var(--text-md); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mailRowTop time { color: var(--d-faint); flex: none; font-size: var(--text-xs); }
-.mailRow.unread .mailRowTop strong, .mailRow.unread .mailRowSubject { font-weight: 700; }
+.mailRow.unread .mailRowTop strong, .mailRow.unread .mailRowSubject { font-weight: 600; }
 .mailRowSubject { align-items: center; display: flex; font-size: var(--text-md); gap: var(--d-s2); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mailUnreadDot { background: var(--d-sky); border-radius: 50%; flex: none; height: 8px; width: 8px; }
 .mailClip { color: var(--d-faint); flex: none; height: 14px; width: 14px; }

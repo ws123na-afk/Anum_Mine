@@ -32,6 +32,10 @@ updates:
     directory: /apps/mobile
     schedule:
       interval: weekly
+    ignore:
+      # Held at 6.3.29, the last Java release: later versions need AGP 9
+      # built-in Kotlin, which apps/mobile turns off (docs/mobile.md, Dependencies).
+      - dependency-name: url_launcher_android
     groups:
       pub:
         update-types: [minor, patch]

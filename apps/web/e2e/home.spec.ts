@@ -51,8 +51,8 @@ test('Home is the overview of the day, not the command page', async ({ page }) =
   await expect(activity.getByRole('listitem')).toHaveCount(8);
 
   // A quick link opens its area; the glance card opens Approvals.
-  await page.getByRole('navigation', { name: 'Go to' }).getByRole('button', { name: /Inbox/ }).click();
-  await expect(page.getByRole('heading', { level: 1, name: 'Inbox' })).toBeVisible();
+  await page.getByRole('navigation', { name: 'Go to' }).getByRole('button', { name: /^Email/ }).click();
+  await expect(page.getByRole('heading', { level: 1, name: 'Email' })).toBeVisible();
 });
 
 test('approving from Home sends the payload hash that was shown', async ({ page }) => {

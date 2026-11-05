@@ -483,6 +483,39 @@ def test_webhook_events_are_accepted_only_when_signed() -> None:
     assert client.post(other, content=body, headers=_signed(rotated, body)).status_code == 404
 
 
+
+def test_webhook_never_touches_the_database_on_the_event_loop(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Unauthenticated callers reach this route: the connection lookup, the secret and the
+    ingest run in worker threads, so a flood of forged deliveries cannot stall other users
+    (docs/security.md#pre-sale-review-november-2026)."""
+    from loop_guard import store_opens_on_loop
+
+    response = client.post(f"{API}/connectors", headers=OWNER, json={"channel": "own_store", "settings": {"mode": "webhook", "currency": "SAR"}})
+    secret, path = response.json()["webhook_secret"], response.json()["connector"]["webhook_path"]
+    body = json.dumps({"events": [{"type": "product", "data": {"sku": "LOOP-1", "title": "Loop tyre", "price": 10, "quantity": 1}}]}).encode()
+    with store_opens_on_loop(monkeypatch) as on_loop:
+        assert client.post(path, content=body, headers=_signed("whsec_forged", body)).status_code == 401
+        assert client.post(path, content=body, headers=_signed(secret, body)).status_code == 200
+    assert on_loop == []
+
+
+def test_webhook_refusals_are_rate_limited_per_caller() -> None:
+    from anum_api.commerce import api as commerce_api
+
+    commerce_api.reset_webhook_limits()
+    try:
+        response = client.post(f"{API}/connectors", headers=OWNER, json={"channel": "own_store", "settings": {"mode": "webhook", "currency": "SAR"}})
+        secret, path = response.json()["webhook_secret"], response.json()["connector"]["webhook_path"]
+        body = b'{"events": []}'
+        codes = [client.post(path, content=body, headers=_signed("whsec_guess", body)).status_code for _ in range(25)]
+        assert codes[:20] == [401] * 20 and set(codes[20:]) == {429}
+        # Ids that are not plain identifiers are refused before any lookup.
+        assert client.post(f"{API}/webhooks/{TENANT}/{WORKSPACE}/x%27%3B", content=body, headers=_signed(secret, body)).status_code == 429
+    finally:
+        commerce_api.reset_webhook_limits()
+    assert client.post(path, content=body, headers=_signed(secret, body)).status_code == 200
+
+
 # -- catalogue CRUD -----------------------------------------------------------------------------
 
 

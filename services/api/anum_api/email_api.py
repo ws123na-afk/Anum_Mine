@@ -12,6 +12,7 @@ high risk and always waits for approval with the payload hash.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from datetime import timedelta
@@ -24,7 +25,7 @@ from pydantic import BaseModel, Field
 from .agent_tools import ToolCall, ToolPolicyOutcome, ToolResult
 from .audit import AuditRecord
 from .authorization import Permission
-from .dependencies import has_permission, repository_context, require_permission, tenant_context
+from .dependencies import UnitsOfWork, has_permission, repository_context, require_permission, run_in_unit, tenant_context, units_of_work
 from .email_inbox import (
     DRAFT_TOOL,
     MARK_READ_TOOL,
@@ -418,27 +419,40 @@ def _pause_for_approval(
 
 
 async def _mediated(
-    repository: AnumRepository, context: TenantContext, call: ToolCall, title: str
+    units: UnitsOfWork, context: TenantContext, call: ToolCall, title: str
 ) -> tuple[ToolResult | None, Approval | None]:
-    """Run an email tool for a person's click under the same policy agents get."""
+    """Run an email tool for a person's click under the same policy agents get.
+
+    Policy and the audit run in their own short units of work in worker threads; the tool
+    (and the provider or model it calls) runs with no transaction open
+    (docs/realtime.md#event-loop)."""
     registry = email_tool_registry()
-    runtime = AgentRuntime(MockModelGateway(), repository, tools=registry)
-    decision = runtime.evaluate(call, context)
-    if decision.outcome == ToolPolicyOutcome.BLOCK:
-        _audit(repository, context, f"email.{call.name}", str(call.arguments.get("message_id") or ""), "denied", {"reason": decision.reason})
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"Blocked by policy: {decision.reason}")
-    if decision.outcome == ToolPolicyOutcome.REQUIRE_APPROVAL:
-        _, approval = _pause_for_approval(repository, context, call, title, f"{title} ({call.name}).")
+
+    def decide(repository: AnumRepository) -> tuple[str, Approval | None, str]:
+        runtime = AgentRuntime(MockModelGateway(), repository, tools=registry)
+        decision = runtime.evaluate(call, context)
+        if decision.outcome == ToolPolicyOutcome.BLOCK:
+            _audit(repository, context, f"email.{call.name}", str(call.arguments.get("message_id") or ""), "denied", {"reason": decision.reason})
+            return "blocked", None, decision.reason
+        if decision.outcome == ToolPolicyOutcome.REQUIRE_APPROVAL:
+            _, approval = _pause_for_approval(repository, context, call, title, f"{title} ({call.name}).")
+            return "approval", approval, ""
+        return "run", None, ""
+
+    outcome, approval, reason = await run_in_unit(units, context, decide)
+    if outcome == "blocked":
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"Blocked by policy: {reason}")
+    if outcome == "approval":
         return None, approval
     result = await registry.execute(call, context)
-    _audit(
+    await run_in_unit(units, context, lambda repository: _audit(
         repository,
         context,
         f"email.{call.name}",
         str(call.arguments.get("message_id") or call.arguments.get("draft_id") or call.arguments.get("account_id") or ""),
         "success" if result.status == "succeeded" else "failure",
         {**result.audit_metadata, "summary": result.summary[:200] if result.status != "succeeded" else None},
-    )
+    ))
     return result, None
 
 
@@ -475,7 +489,7 @@ def _retire(repository: AnumRepository, context: TenantContext, draft: EmailDraf
 
 
 @router.get("/setup", response_model=EmailSetup)
-async def get_setup(context: TenantContext = Depends(tenant_context)) -> EmailSetup:
+def get_setup(context: TenantContext = Depends(tenant_context)) -> EmailSetup:
     """Which providers the operator set up (never a secret) and what is missing."""
     _require(context, Permission.EMAIL_READ, READ_DENIED)
     providers = []
@@ -507,7 +521,7 @@ def _state_token(pending: OAuthPending) -> str:
 
 
 @router.post("/oauth/{provider}/start", response_model=ConnectStartResponse)
-async def start_connect(
+def start_connect(
     provider: EmailProvider,
     payload: ConnectStart,
     context: TenantContext = Depends(tenant_context),
@@ -559,7 +573,7 @@ def _web_return(**params: str) -> RedirectResponse:
 
 
 @router.get("/oauth/callback", include_in_schema=True)
-async def oauth_callback(
+def oauth_callback(
     state: str = Query(default="", max_length=2000),
     code: str | None = Query(default=None, max_length=4000),
     error: str | None = Query(default=None, max_length=200),
@@ -594,28 +608,35 @@ async def oauth_callback(
 async def complete_connect(
     payload: ConnectComplete,
     context: TenantContext = Depends(tenant_context),
-    repository: AnumRepository = Depends(repository_context),
+    units: UnitsOfWork = Depends(units_of_work),
 ) -> EmailAccountView:
     _require(context, Permission.EMAIL_MANAGE, MANAGE_DENIED)
     from .secret_box import secret_cipher
 
     cipher = secret_cipher()
-    with open_email_store(context) as store:
-        pending = store.get_pending(payload.connection)
-        if pending is None:
-            raise HTTPException(status_code=404, detail="This connection request was not found or was already used. Start again.")
-        if pending.user_id != context.user_id:
-            raise HTTPException(status_code=403, detail="This connection was started by someone else; start your own.")
-        if pending.code_enc is None and pending.error is None:
-            raise HTTPException(status_code=409, detail="The provider has not sent you back yet. Finish the sign-in in the provider's window.")
-        # Single use: consumed before the code is exchanged.
-        store.delete_pending(pending.nonce)
+
+    def claim(_repository: AnumRepository) -> Any:
+        with open_email_store(context) as store:
+            pending = store.get_pending(payload.connection)
+            if pending is None:
+                raise HTTPException(status_code=404, detail="This connection request was not found or was already used. Start again.")
+            if pending.user_id != context.user_id:
+                raise HTTPException(status_code=403, detail="This connection was started by someone else; start your own.")
+            if pending.code_enc is None and pending.error is None:
+                raise HTTPException(status_code=409, detail="The provider has not sent you back yet. Finish the sign-in in the provider's window.")
+            # Single use: consumed before the code is exchanged.
+            store.delete_pending(pending.nonce)
+        return pending
+
+    # Database work runs in worker threads, each step in its own short unit of work, and no
+    # transaction stays open while the provider answers (docs/realtime.md#event-loop).
+    pending = await run_in_unit(units, context, claim)
     provider = pending.provider
     name = PROVIDER_NAMES[provider]
     if pending.expires_at < utc_now():
         raise HTTPException(status_code=410, detail="The connection request expired. Start again.")
     if pending.error:
-        _audit(repository, context, "email.connect.denied", pending.nonce, "denied", {"provider": provider.value})
+        await run_in_unit(units, context, _audit, context, "email.connect.denied", pending.nonce, "denied", {"provider": provider.value})
         raise HTTPException(status_code=400, detail=f"{name} did not grant access: {pending.error}")
     client = provider_client(provider)
     try:
@@ -625,7 +646,7 @@ async def complete_connect(
         )
         profile = await client.profile(grant.access_token)
     except MailProviderError as exc:
-        _audit(repository, context, "email.connect.failed", pending.nonce, "failure", {"provider": provider.value, "status": exc.status})
+        await run_in_unit(units, context, _audit, context, "email.connect.failed", pending.nonce, "failure", {"provider": provider.value, "status": exc.status})
         raise HTTPException(status_code=502, detail=f"Connecting failed: {exc.message}") from None
     if not grant.refresh_token:
         raise HTTPException(
@@ -633,53 +654,62 @@ async def complete_connect(
             detail=f"{name} did not return a refresh token, so ANUM could not keep the mailbox in sync. Remove ANUM's access in your account's security settings and connect again.",
         )
     now = utc_now()
-    with open_email_store(context) as store:
-        account = store.find_account(provider, profile.address)
-        if account is not None and not can_see(account, context):
-            raise HTTPException(status_code=409, detail="Someone else connected this mailbox privately in this workspace.")
-        if account is None:
-            account = EmailAccount(
-                id=new_id("emb"),
-                tenant_id=context.tenant_id,
-                workspace_id=context.workspace_id,
-                provider=provider,
-                address=profile.address,
-                connected_by=context.user_id,
-                visibility=pending.visibility,
-                created_at=now,
-                updated_at=now,
-            )
-            store.add_account(account)
-            created = True
-        else:
-            created = False
-        account.display_name = profile.display_name
-        account.provider_account_id = profile.provider_account_id or account.provider_account_id
-        account.scopes = list(grant.scopes or client.scopes)
-        account.access_token_enc = cipher.encrypt(grant.access_token)
-        account.refresh_token_enc = cipher.encrypt(grant.refresh_token)
-        account.access_expires_at = grant.expires_at
-        account.status = AccountStatus.CONNECTED
-        account.last_error = None
-        account.updated_at = now
-        store.save_account(account)
-    _audit(
-        repository,
-        context,
-        "email.account.connected" if created else "email.account.reconnected",
-        account.id,
-        metadata={"provider": provider.value, "visibility": account.visibility.value},
-    )
+
+    def keep(repository: AnumRepository) -> EmailAccount:
+        with open_email_store(context) as store:
+            account = store.find_account(provider, profile.address)
+            if account is not None and not can_see(account, context):
+                raise HTTPException(status_code=409, detail="Someone else connected this mailbox privately in this workspace.")
+            if account is None:
+                account = EmailAccount(
+                    id=new_id("emb"),
+                    tenant_id=context.tenant_id,
+                    workspace_id=context.workspace_id,
+                    provider=provider,
+                    address=profile.address,
+                    connected_by=context.user_id,
+                    visibility=pending.visibility,
+                    created_at=now,
+                    updated_at=now,
+                )
+                store.add_account(account)
+                created = True
+            else:
+                created = False
+            account.display_name = profile.display_name
+            account.provider_account_id = profile.provider_account_id or account.provider_account_id
+            account.scopes = list(grant.scopes or client.scopes)
+            account.access_token_enc = cipher.encrypt(grant.access_token)
+            account.refresh_token_enc = cipher.encrypt(grant.refresh_token)
+            account.access_expires_at = grant.expires_at
+            account.status = AccountStatus.CONNECTED
+            account.last_error = None
+            account.updated_at = now
+            store.save_account(account)
+        _audit(
+            repository,
+            context,
+            "email.account.connected" if created else "email.account.reconnected",
+            account.id,
+            metadata={"provider": provider.value, "visibility": account.visibility.value},
+        )
+        return account
+
+    account = await run_in_unit(units, context, keep)
     try:
         account = await sync_account(account.id, context, force=True)
     except EmailError:
         pass
-    with open_email_store(context) as store:
-        counts = store.counts([account.id]).get(account.id, (0, 0))
+    counts = await asyncio.to_thread(_counts, context, account.id)
     return account_view(account, counts, context, True)
 
 
 # -- accounts -------------------------------------------------------------------------------
+
+
+def _counts(context: TenantContext, account_id: str) -> tuple[int, int]:
+    with open_email_store(context) as store:
+        return store.counts([account_id]).get(account_id, (0, 0))
 
 
 def _get_account(context: TenantContext, account_id: str) -> EmailAccount:
@@ -691,7 +721,7 @@ def _get_account(context: TenantContext, account_id: str) -> EmailAccount:
 
 
 @router.get("/accounts", response_model=list[EmailAccountView])
-async def list_accounts(context: TenantContext = Depends(tenant_context)) -> list[EmailAccountView]:
+def list_accounts(context: TenantContext = Depends(tenant_context)) -> list[EmailAccountView]:
     _require(context, Permission.EMAIL_READ, READ_DENIED)
     manage = has_permission(context, Permission.EMAIL_MANAGE)
     with open_email_store(context) as store:
@@ -704,22 +734,26 @@ async def list_accounts(context: TenantContext = Depends(tenant_context)) -> lis
 async def sync(
     account_id: str,
     context: TenantContext = Depends(tenant_context),
-    repository: AnumRepository = Depends(repository_context),
+    units: UnitsOfWork = Depends(units_of_work),
 ) -> EmailAccountView:
     _require(context, Permission.EMAIL_READ, READ_DENIED)
-    _get_account(context, account_id)
+    await run_in_unit(units, context, lambda _repository: _get_account(context, account_id))
     try:
         account = await sync_account(account_id, context, force=True)
     except EmailError as exc:
-        _audit(repository, context, "email.account.synced", account_id, "failure", {"status": exc.status})
+        await run_in_unit(units, context, _audit, context, "email.account.synced", account_id, "failure", {"status": exc.status})
         raise _http(exc) from None
-    with open_email_store(context) as store:
-        counts = store.counts([account.id]).get(account.id, (0, 0))
-    _audit(
-        repository, context, "email.account.synced", account.id,
-        "success" if account.last_sync_status != "error" else "failure",
-        {"provider": account.provider.value, "status": account.status.value},
-    )
+
+    def finish(repository: AnumRepository) -> tuple[int, int]:
+        counts = _counts(context, account.id)
+        _audit(
+            repository, context, "email.account.synced", account.id,
+            "success" if account.last_sync_status != "error" else "failure",
+            {"provider": account.provider.value, "status": account.status.value},
+        )
+        return counts
+
+    counts = await run_in_unit(units, context, finish)
     return account_view(account, counts, context, has_permission(context, Permission.EMAIL_MANAGE))
 
 
@@ -727,12 +761,12 @@ async def sync(
 async def disconnect(
     account_id: str,
     context: TenantContext = Depends(tenant_context),
-    repository: AnumRepository = Depends(repository_context),
+    units: UnitsOfWork = Depends(units_of_work),
 ) -> DisconnectResult:
     """Revoke ANUM's grant at the provider (where it has an endpoint) and delete the mailbox's
     tokens, synced messages and drafts from ANUM."""
     _require(context, Permission.EMAIL_MANAGE, MANAGE_DENIED)
-    account = _get_account(context, account_id)
+    account = await run_in_unit(units, context, lambda _repository: _get_account(context, account_id))
     if account.visibility == Visibility.PRIVATE and account.connected_by != context.user_id:  # pragma: no cover - hidden above
         raise HTTPException(status_code=404, detail="Mailbox not found")
     revoked = False
@@ -746,9 +780,12 @@ async def disconnect(
         detail += f" Revoking at the provider failed ({getattr(exc, 'message', 'token unreadable')}); remove ANUM's access in your account's security settings."
     if not revoked and account.provider == EmailProvider.OUTLOOK:
         detail += " Microsoft has no per-app revoke call: remove ANUM under myapps.microsoft.com (or the Azure admin centre) to withdraw consent."
-    with open_email_store(context) as store:
-        store.delete_account(account.id)
-    _audit(repository, context, "email.account.disconnected", account.id, metadata={"provider": account.provider.value, "revoked": revoked})
+    def forget(repository: AnumRepository) -> None:
+        with open_email_store(context) as store:
+            store.delete_account(account.id)
+        _audit(repository, context, "email.account.disconnected", account.id, metadata={"provider": account.provider.value, "revoked": revoked})
+
+    await run_in_unit(units, context, forget)
     return DisconnectResult(revoked_at_provider=revoked, detail=detail)
 
 
@@ -756,7 +793,7 @@ async def disconnect(
 
 
 @router.get("/messages", response_model=MessagePage)
-async def list_messages(
+def list_messages(
     account_id: str | None = Query(default=None, max_length=80),
     category: Category | None = None,
     priority: Priority | None = None,
@@ -795,7 +832,7 @@ async def list_messages(
 async def inbox_summary(context: TenantContext = Depends(tenant_context)) -> InboxSummary:
     """Counts for the assistant and voice ("any urgent customer emails?")."""
     _require(context, Permission.EMAIL_READ, READ_DENIED)
-    return summary_for(context)
+    return await asyncio.to_thread(summary_for, context)
 
 
 def summary_for(context: TenantContext) -> InboxSummary:
@@ -821,18 +858,25 @@ async def get_message(
     message_id: str,
     body: bool = Query(default=True),
     context: TenantContext = Depends(tenant_context),
-    repository: AnumRepository = Depends(repository_context),
+    units: UnitsOfWork = Depends(units_of_work),
 ) -> MessageDetail:
     """The message with its thread and drafts. The body is fetched from the provider (capped);
     a provider failure is reported in ``body_error`` and the metadata still comes back."""
     _require(context, Permission.EMAIL_READ, READ_DENIED)
-    try:
-        account, message = load_message(context, message_id)
-    except EmailError as exc:
-        raise _http(exc) from None
-    with open_email_store(context) as store:
-        thread = store.thread(account.id, message.thread_id, 50)
-        drafts = store.list_drafts([account.id], message_id=message.id, limit=20)
+
+    def load(repository: AnumRepository) -> tuple[EmailAccount, Any, list[Any], list[DraftView]]:
+        try:
+            account, message = load_message(context, message_id)
+        except EmailError as exc:
+            raise _http(exc) from None
+        with open_email_store(context) as store:
+            thread = store.thread(account.id, message.thread_id, 50)
+            drafts = store.list_drafts([account.id], message_id=message.id, limit=20)
+        return account, message, thread, [_draft_view(d, repository, context) for d in drafts]
+
+    # The reads run in a worker thread in a short unit of work; only the provider fetch below
+    # waits on the loop, with no transaction open.
+    account, message, thread, draft_views = await run_in_unit(units, context, load)
     text = None
     truncated = False
     error = None
@@ -851,7 +895,7 @@ async def get_message(
         body_truncated=truncated,
         body_error=error,
         attachments=attachments,
-        drafts=[_draft_view(d, repository, context) for d in drafts],
+        drafts=draft_views,
     )
 
 
@@ -879,20 +923,19 @@ async def download_attachment(message_id: str, attachment_id: str, context: Tena
 
 
 async def _message_action(
-    message_id: str, tool: str, arguments: dict[str, Any], title: str, context: TenantContext, repository: AnumRepository
+    message_id: str, tool: str, arguments: dict[str, Any], title: str, context: TenantContext, units: UnitsOfWork
 ) -> ActionResult:
     _require(context, Permission.EMAIL_ACT, ACT_DENIED)
     try:
-        account, message = load_message(context, message_id)
+        account, message = await run_in_unit(units, context, lambda _repository: load_message(context, message_id))
     except EmailError as exc:
         raise _http(exc) from None
-    result, approval = await _mediated(repository, context, ToolCall(name=tool, arguments={"message_id": message_id, **arguments}), title)
+    result, approval = await _mediated(units, context, ToolCall(name=tool, arguments={"message_id": message_id, **arguments}), title)
     if approval is not None:
         return ActionResult(status="waiting_approval", summary="Waiting for approval (workspace or organization policy).", approval=approval)
     if result is None:  # pragma: no cover - _mediated returns one of the two
         raise HTTPException(status_code=500, detail="The action returned nothing")
-    with open_email_store(context) as store:
-        fresh = store.get_message(message_id) or message
+    fresh = await asyncio.to_thread(_fresh_message, context, message_id) or message
     return ActionResult(
         status="done" if result.status == "succeeded" else "failed",
         summary=result.summary,
@@ -900,15 +943,20 @@ async def _message_action(
     )
 
 
+def _fresh_message(context: TenantContext, message_id: str) -> EmailMessage | None:
+    with open_email_store(context) as store:
+        return store.get_message(message_id)
+
+
 @router.post("/messages/{message_id}/read", response_model=ActionResult)
 async def mark_read(
     message_id: str,
     payload: ReadBody,
     context: TenantContext = Depends(tenant_context),
-    repository: AnumRepository = Depends(repository_context),
+    units: UnitsOfWork = Depends(units_of_work),
 ) -> ActionResult:
     return await _message_action(
-        message_id, MARK_READ_TOOL, {"read": payload.read}, "Mark email read" if payload.read else "Mark email unread", context, repository
+        message_id, MARK_READ_TOOL, {"read": payload.read}, "Mark email read" if payload.read else "Mark email unread", context, units
     )
 
 
@@ -916,27 +964,30 @@ async def mark_read(
 async def archive(
     message_id: str,
     context: TenantContext = Depends(tenant_context),
-    repository: AnumRepository = Depends(repository_context),
+    units: UnitsOfWork = Depends(units_of_work),
 ) -> ActionResult:
-    return await _message_action(message_id, ARCHIVE_TOOL, {}, "Archive email", context, repository)
+    return await _message_action(message_id, ARCHIVE_TOOL, {}, "Archive email", context, units)
 
 
 @router.post("/messages/{message_id}/analyze", response_model=AnalyzeResult)
 async def analyze(
     message_id: str,
     context: TenantContext = Depends(tenant_context),
-    repository: AnumRepository = Depends(repository_context),
+    units: UnitsOfWork = Depends(units_of_work),
 ) -> AnalyzeResult:
     """AI triage: category, priority, summary and a suggested reply (one budgeted model call)."""
     _require(context, Permission.EMAIL_READ, READ_DENIED)
     try:
+        # Membership and the message are checked first, in a short unit of work; the model
+        # answers with none open.
+        await run_in_unit(units, context, lambda _repository: load_message(context, message_id))
         message, result = await analyze_message(context, message_id)
-        account, _ = load_message(context, message_id)
+        account, _ = await asyncio.to_thread(load_message, context, message_id)
     except EmailError as exc:
         raise _http(exc) from None
     # The labels and the model; never the summary or the suggested reply.
-    _audit(
-        repository, context, "email.message.analyzed", message_id,
+    await run_in_unit(
+        units, context, _audit, context, "email.message.analyzed", message_id,
         metadata={
             "category": message.category.value if message.category else None,
             "priority": message.priority.value if message.priority else None,
@@ -955,12 +1006,12 @@ async def create_reply_draft(
     message_id: str,
     payload: DraftCreate,
     context: TenantContext = Depends(tenant_context),
-    repository: AnumRepository = Depends(repository_context),
+    units: UnitsOfWork = Depends(units_of_work),
 ) -> DraftCreateResult:
     """A reply draft: ``body`` as written, or drafted by the model (following ``instructions``)."""
     _require(context, Permission.EMAIL_ACT, ACT_DENIED)
     try:
-        load_message(context, message_id)
+        await run_in_unit(units, context, lambda _repository: load_message(context, message_id))
     except EmailError as exc:
         raise _http(exc) from None
     arguments: dict[str, Any] = {"message_id": message_id}
@@ -968,13 +1019,17 @@ async def create_reply_draft(
         arguments["body"] = payload.body
     if payload.instructions and payload.instructions.strip():
         arguments["instructions"] = payload.instructions.strip()
-    result, approval = await _mediated(repository, context, ToolCall(name=DRAFT_TOOL, arguments=arguments), "Draft an email reply")
+    result, approval = await _mediated(units, context, ToolCall(name=DRAFT_TOOL, arguments=arguments), "Draft an email reply")
     if approval is not None:
         return DraftCreateResult(status="waiting_approval", summary="Drafting waits for approval (workspace policy).", approval=approval)
     if result is None:  # pragma: no cover - _mediated returns one of the two
         raise HTTPException(status_code=500, detail="The action returned nothing")
     if result.status != "succeeded":
         raise HTTPException(status_code=409, detail=result.summary)
+    return await run_in_unit(units, context, _created_draft, context, result)
+
+
+def _created_draft(repository: AnumRepository, context: TenantContext, result: ToolResult) -> DraftCreateResult:
     _, draft, _ = load_draft(context, str(result.output.get("draft_id")))
     warning = result.output.get("warning") or None
     return DraftCreateResult(status="done", summary=result.summary, draft=_draft_view(draft, repository, context), warning=warning)
@@ -991,12 +1046,12 @@ async def update_draft(
     draft_id: str,
     payload: DraftUpdate,
     context: TenantContext = Depends(tenant_context),
-    repository: AnumRepository = Depends(repository_context),
+    units: UnitsOfWork = Depends(units_of_work),
 ) -> DraftView:
     """Edit a draft. A pending send approval for the old text is withdrawn."""
     _require(context, Permission.EMAIL_ACT, ACT_DENIED)
     try:
-        account, draft, original = load_draft(context, draft_id)
+        account, draft, original = await run_in_unit(units, context, lambda _repository: load_draft(context, draft_id))
         if draft.status not in EDITABLE:
             raise EmailError(409, f"This reply is {draft.status.value}; it can no longer be edited.")
         if payload.to is not None:
@@ -1017,36 +1072,40 @@ async def update_draft(
             # Edited by a person: the model (if any) stays named as the first drafter.
             draft.source = "person"
         draft.body = body
-    _retire(repository, context, draft)
+    await run_in_unit(units, context, _retire, context, draft)
     draft.status = DraftStatus.DRAFT
     draft.approval_id = draft.task_id = None
     draft.error = None
     draft.updated_at = utc_now()
     draft.provider_draft_id, _warning = await save_provider_draft(context, account, draft, original)
-    with open_email_store(context) as store:
-        store.save_draft(draft)
-    # Which fields changed; never the recipients, subject or text.
-    _audit(
-        repository, context, "email.draft.updated", draft.id,
-        metadata={"fields": sorted(payload.model_dump(exclude_none=True)), "account_id": account.id},
-    )
-    return _draft_view(draft, repository, context)
+
+    def save(repository: AnumRepository) -> DraftView:
+        with open_email_store(context) as store:
+            store.save_draft(draft)
+        # Which fields changed; never the recipients, subject or text.
+        _audit(
+            repository, context, "email.draft.updated", draft.id,
+            metadata={"fields": sorted(payload.model_dump(exclude_none=True)), "account_id": account.id},
+        )
+        return _draft_view(draft, repository, context)
+
+    return await run_in_unit(units, context, save)
 
 
 @router.delete("/drafts/{draft_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def discard_draft(
     draft_id: str,
     context: TenantContext = Depends(tenant_context),
-    repository: AnumRepository = Depends(repository_context),
+    units: UnitsOfWork = Depends(units_of_work),
 ) -> Response:
     _require(context, Permission.EMAIL_ACT, ACT_DENIED)
     try:
-        account, draft, _ = load_draft(context, draft_id)
+        account, draft, _ = await run_in_unit(units, context, lambda _repository: load_draft(context, draft_id))
     except EmailError as exc:
         raise _http(exc) from None
     if draft.status == DraftStatus.SENT:
         raise HTTPException(status_code=409, detail="This reply was already sent.")
-    _retire(repository, context, draft)
+    await run_in_unit(units, context, _retire, context, draft)
     if draft.provider_draft_id:
         try:
             token = await access_token(account, context)
@@ -1055,14 +1114,18 @@ async def discard_draft(
             pass  # the ANUM copy is discarded either way
     draft.status = DraftStatus.DISCARDED
     draft.updated_at = utc_now()
-    with open_email_store(context) as store:
-        store.save_draft(draft)
-    _audit(repository, context, "email.draft.discarded", draft.id)
+
+    def save(repository: AnumRepository) -> None:
+        with open_email_store(context) as store:
+            store.save_draft(draft)
+        _audit(repository, context, "email.draft.discarded", draft.id)
+
+    await run_in_unit(units, context, save)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.post("/drafts/{draft_id}/send-approval", response_model=SendApprovalResponse)
-async def request_send_approval(
+def request_send_approval(
     draft_id: str,
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
@@ -1126,14 +1189,14 @@ async def request_send_approval(
 async def compose_draft(
     payload: ComposeCreate,
     context: TenantContext = Depends(tenant_context),
-    repository: AnumRepository = Depends(repository_context),
+    units: UnitsOfWork = Depends(units_of_work),
 ) -> DraftCreateResult:
     """A new email (not a reply), saved as a draft exactly as written; it sends nothing.
 
     Runs the ``draft_reply`` tool under the same policy as reply drafts; sending is the
     same ``send_email`` approval (``POST /drafts/{id}/send-approval``)."""
     _require(context, Permission.EMAIL_ACT, ACT_DENIED)
-    account = _get_account(context, payload.account_id)
+    account = await run_in_unit(units, context, lambda _repository: _get_account(context, payload.account_id))
     try:
         to, cc, bcc = valid_addresses(payload.to), valid_addresses(payload.cc), valid_addresses(payload.bcc)
         if len(to) + len(cc) + len(bcc) > 50:
@@ -1143,20 +1206,18 @@ async def compose_draft(
     arguments: dict[str, Any] = {
         "account_id": account.id, "to": to, "cc": cc, "bcc": bcc, "subject": payload.subject, "body": payload.body,
     }
-    result, approval = await _mediated(repository, context, ToolCall(name=DRAFT_TOOL, arguments=arguments), "Draft a new email")
+    result, approval = await _mediated(units, context, ToolCall(name=DRAFT_TOOL, arguments=arguments), "Draft a new email")
     if approval is not None:
         return DraftCreateResult(status="waiting_approval", summary="Drafting waits for approval (workspace policy).", approval=approval)
     if result is None:  # pragma: no cover - _mediated returns one of the two
         raise HTTPException(status_code=500, detail="The action returned nothing")
     if result.status != "succeeded":
         raise HTTPException(status_code=409, detail=result.summary)
-    _, draft, _ = load_draft(context, str(result.output.get("draft_id")))
-    warning = result.output.get("warning") or None
-    return DraftCreateResult(status="done", summary=result.summary, draft=_draft_view(draft, repository, context), warning=warning)
+    return await run_in_unit(units, context, _created_draft, context, result)
 
 
 @router.get("/drafts", response_model=list[DraftView])
-async def list_drafts(
+def list_drafts(
     limit: int = Query(default=25, ge=1, le=MAX_LISTED),
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),

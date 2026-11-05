@@ -17,10 +17,10 @@ function Tile({ tile }: { tile: WallTile }) {
 }
 
 /**
- * A wall of dashboards for the operations room. Every number is read from a stored record through an existing endpoint;
+ * A wall of dashboards for the operations room, docked with the room and building panels (never drawn over the scene). Every number is read from a stored record through an existing endpoint;
  * a source that is down shows "Not connected" and no number.
  */
-export function HqCommandWall(props: Readonly<{ model: WallModel; variant: 'panel' | 'scene'; onReload?: () => void }>) {
+export function HqCommandWall(props: Readonly<{ model: WallModel; variant: 'panel'; onReload?: () => void }>) {
   const { model } = props;
   const a = model.agents;
   const broken = model.tiles.some((x) => x.state === 'not_connected') || a.state === 'not_connected';

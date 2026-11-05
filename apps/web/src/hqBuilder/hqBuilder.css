@@ -225,3 +225,4 @@
 .hqhDialogBody p { margin: 0; }
 .hqhDialogActions { flex: 0 0 auto; }
 .hqb .hqbCheck input[type=checkbox] { flex: none; width: 20px; height: 20px; min-height: 0; margin: 0; }
+.hqbTables rect { fill: rgba(207, 233, 239, 0.16); stroke: rgba(207, 233, 239, 0.5); stroke-width: 1; vector-effect: non-scaling-stroke; pointer-events: none; }

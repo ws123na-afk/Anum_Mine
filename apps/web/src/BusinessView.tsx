@@ -22,6 +22,7 @@ import { SupportPolicySection, SupportTab } from './BusinessSupport';
 import { InvoicesTab } from './BusinessInvoices';
 import { AccountsTab } from './BusinessAccounts';
 import { BillingProfileSection } from './BusinessBilling';
+import { BooksTab } from './BusinessBooks';
 import './business.css';
 
 type State = { kind: 'loading' } | { kind: 'ready'; setup: BusinessSetup } | { kind: 'denied'; text: string } | { kind: 'error'; text: string };
@@ -82,6 +83,7 @@ export function BusinessView() {
     {tab === 'proposals' && <ProposalsTab setup={setup} openId={id} onOpen={(item) => go('proposals', item)} onOpenProject={(item) => go('projects', item)} onGoPipeline={() => go('pipeline')} onChanged={changed} />}
     {tab === 'projects' && <ProjectsTab setup={setup} openId={id} onOpen={(item) => go('projects', item)} onGoProposals={() => go('proposals')} />}
     {tab === 'invoices' && <InvoicesTab setup={setup} openId={id} onOpen={(item) => go('invoices', item)} onChanged={changed} />}
+    {tab === 'books' && <BooksTab section={id} onSection={(item) => go('books', item === 'overview' ? null : item)} />}
     {tab === 'support' && <SupportTab setup={setup} products={products} openId={id} onOpen={(item) => go('support', item)} onChanged={changed} />}
     {tab === 'catalog' && <CatalogTab setup={setup} onChanged={() => void loadProducts()} />}
     {tab === 'settings' && <SettingsTab setup={setup} onSaved={() => void loadSetup()} />}

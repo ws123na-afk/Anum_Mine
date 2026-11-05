@@ -20,7 +20,7 @@ landscaped. Their names, numbers, people and activity are never reproduced; vehi
   behind the scene. Day sun is lower and warmer (longer shadows); night is brighter and bluer so ground, paths and trees read.
 - Foliage: smooth shaded, lumpy canopies (`MeshBuilder.smoothBlob`, a normal and a tone per vertex) replace the faceted stones; palms have four
   segment arched fronds; darker, richer greens. Stamped trees keep their normals (`stamp` now copies normals).
-- Campus: a globe monument in a pool on a banded plaza with jets and lit rings (`environment/plaza.ts`); a garden for every building (paving
+- Campus: a globe monument in a pool on a banded plaza with jets and lit rings (`environment/plaza.ts`; since the [centre plaza](ANUM_MINE_HQ_CENTER_PLAZA.md) change the middle of the campus is a big three tier fountain with the globe on top, a roundabout and two avenues, and the buildings stand round it instead of the executive tower standing on the centre); a garden for every building (paving
   bands, hedged lawn beds with palms, trees and topiary, flank tree rows); paths 4.6 m wide with a lit centre; more trees; a darker lawn and a
   teal canal.
 - Facades: near floor-to-ceiling glass with slim mullions and a pale slab edge between storeys; the tower is six storeys, not eight.
@@ -75,7 +75,7 @@ is the same; the buildings, the light and the motion changed.
   neighbouring faces read differently. It is computed in the shader, so it also works on the software path.
 - **Blue hour.** A third light preset: deep blue zenith, warm orange horizon band, lavender haze, low warm sun, lit windows against bluish glass.
 - **Reflection maps** for day, blue hour and night on hardware GL.
-- **Scenery in motion**, see [ambient motion](ANUM_MINE_HQ_SCENERY_MOTION.md).
+- **Scenery in motion**, see [ambient motion](ANUM_MINE_HQ_SCENERY_MOTION.md), and **work motion from records** (trucks and tyres at a building, each with its reason), see [campus motion](ANUM_MINE_HQ_CAMPUS_MOTION.md). **People outdoors** are only the figures of real agents walking between buildings for one stored record (a meeting in another building's room, a desk moved), each with its reason: see [agent walkers](ANUM_MINE_HQ_AGENT_WALKERS.md). No crowds, no pedestrians in the scenery.
 - **Heights.** Measured on the campus sizes: the glass office tower is 37 m to its roof plant (was 49 m), the executive HQ stays the landmark at about 58 m to the tip of the crown (was 58 m, but with a thin spire instead of the blades). The tower no longer repeats the executive silhouette.
 
 ### What still differs (honest list)
@@ -107,3 +107,44 @@ was checked on software GL for single frames only). Still different: no bevels o
 ## Cutaway section, 26 October 2026
 
 The building view opens as a dollhouse section like concept renders 22 and 24: front walls and roof removed by camera azimuth, all floors stacked, the open floor highlighted and the others dimmed, a Cutaway / Closed toggle and 90 degree rotate snaps. What it is, how it is built and what still differs from the renders: [cutaway](ANUM_MINE_HQ_CUTAWAY.md).
+
+## Billboards, 26 October 2026
+
+The concept renders show a sign or billboard at each building with its name and what it does. Each building now has a board on posts in front of it (lit at night, lettered with the real building name in the sign atlas, Arabic right to left) and a card above it with what the building is for and its real work details, from registry and live records only. How it is built, every field and its source, and what is not done: [billboards](ANUM_MINE_HQ_BILLBOARDS.md). Still different from the renders: the board carries the name only (the details are the card, a real overlay), and the boards are plain panels, not the animated screens of the concepts.
+
+## People inside the rooms
+
+Inside a building the people at their desks are no longer boxes or chibi models: they are low poly humanoids with a face, hair, hands, clothing and a pose, in the masculine, feminine or neutral look the owner chose for that person. They appear only at desks with an assigned agent. See [the people doc](ANUM_MINE_HQ_PEOPLE_CHARACTERS.md) for the kit, the budgets, the screenshots and what is still simplified (the campus and building distances show a person only a few pixels tall; the poses are static; there are still no people on paths and plazas).
+
+The concept renders show a sign or billboard at each building with its name and what it does. Each building now has a board on posts in front of it (lit at night, lettered with the real building name in the sign atlas, Arabic right to left) and a card above it with what the building is for and its real work details, from registry and live records only. How it is built, every field and its source, and what is not done: [billboards](ANUM_MINE_HQ_BILLBOARDS.md). Update 27 October 2026: the board now carries the live details itself (name, what the building does, live counts with the verified time or Stale or Not connected, a Live tick while the stream is connected) as a small canvas texture drawn in place, in a metal frame with a night glow, and the page labels on the campus are minimal chips and dots (see [labels](ANUM_MINE_HQ_LABELS.md#quiet-campus)). Still different from the renders: the boards are flat lit panels, not the animated screens of the concepts, and no real GPU look was checked.
+
+## Brand signs (27 October 2026)
+
+A building's sign can now carry the owner's own logo, brand colour and one of four sign styles (plain, plaque, illuminated, banner), set in the builder's Floor tab. Without an upload the sign stays the lettered sign with the building's real name. The painter draws into the existing sign atlas cell, so no texture and no renderer code was added beyond a one line hook. See [logo and brand signs](ANUM_MINE_HQ_LOGO_SIGNS.md).
+
+## Career centre (27 October 2026)
+
+Owner decision O2 makes career its own building kind. It is always drawn as the career centre: two learning wings with ribbon windows and amber sunshade reveals, a glass barrel-vault entrance hall between them, and a free-standing sign pylon on the forecourt that carries the lettered sign or the owner's logo sign (`hqAssets/exterior/careerCentre.ts`, triangle cap 2,600, accent amber `#e8a24a`), loaded with the lazy plan kit. The starter Career & Employment building takes the career kind by its stable id; because it has floor plans it is drawn by the plan shell like every planned building, with the career sign. See [reception and career](ANUM_MINE_HQ_RECEPTION.md).
+
+## Edges and planting (28 October 2026)
+
+- **Bevels** (`hqAssets/exterior/bevel.ts`): every slab band and roof line (`slabBand`, used by the towers, the admin and retail blocks, the
+  executive building, the crowns and the plan shells) has chamfered vertical corners and a chamfered top edge (38 triangles instead of 10), and the
+  main wall blocks of the admin, retail, warehouse, workshop, villa and career buildings have slim chamfered corner beads (24 triangles a block). The
+  45 degree faces catch the light differently and read as softened edges at campus distance. Per building at default size: warehouse 1,304 to 1,328
+  triangles, workshop 1,250 to 1,274, tower 3,353 to 3,437, admin 2,356 to 2,408, retail 1,060 to 1,140, executive 5,328 to 5,524, villa 1,444 to
+  1,492; every kind stays under its cap (`TRIANGLE_CAPS`).
+- **Facing and planting**: buildings face the plaza and the free ground has a seeded mix of trees, shrubs, grasses and succulents in five leaf tints,
+  see [the centre plaza](ANUM_MINE_HQ_CENTER_PLAZA.md#buildings-face-the-plaza).
+- Tests: `test/hqCampusLook.test.ts` (band and bead triangle counts, every face looks out or up, the chamfer passes outside the sharp corner).
+
+
+## Standing on the ground, 2 November 2026
+
+Owner review: the building view looked like thin plates floating in the air. Every building in the building view now stands on a stone podium with
+entrance steps, a contact shadow at its foot and the site flush with it, and every floor is carried by columns, ring beams and a continuous lift and
+stair core, with the outer walls up to the slab above; no slab overhangs the floor under it, in the building view and in the campus plan shells.
+Details, the cutaway rules and the tests: [cutaway structure](ANUM_MINE_HQ_CUTAWAY.md#structure). The campus exteriors already stood on plinths;
+`test/hqGroundedBuilding.test.ts` now checks that every campus archetype's base reaches across it at ground level. Before and after screenshots
+(the campus, Knowledge and AI, Tyre Pulse and Personal Office, Closed and Cutaway, five sizes) are in the pull request. Still different: looked at on
+software GL only; the stair inside the core is one straight flight, not a full flight per storey.

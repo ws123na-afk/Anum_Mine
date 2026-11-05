@@ -14,14 +14,14 @@ A channel that is not set up reports ``not_connected``; a channel that fails rep
 
 from __future__ import annotations
 
+import asyncio
 from typing import Literal
 
 from fastapi import HTTPException
 from pydantic import BaseModel, Field
 
 from ..authorization import Permission
-from ..dependencies import has_permission
-from ..repository import AnumRepository
+from ..dependencies import UnitsOfWork, has_permission, run_in_unit
 from ..schemas import TenantContext, new_id, utc_now
 from .analytics import WeeklyReport
 
@@ -62,16 +62,20 @@ def _detail(exc: HTTPException) -> str:
     return detail if isinstance(detail, str) else "The request was refused."
 
 
-async def deliver_email(context: TenantContext, repository: AnumRepository, report: WeeklyReport, account_id: str | None) -> ChannelResult:
+async def deliver_email(context: TenantContext, units: UnitsOfWork, report: WeeklyReport, account_id: str | None) -> ChannelResult:
     from .. import email_api, email_inbox
 
     if not has_permission(context, Permission.EMAIL_ACT):
         return ChannelResult(outcome="not_allowed", detail="Sending email needs the email permission (owner, admin or member).")
-    with email_inbox.open_email_store(context) as store:
-        accounts = [
-            account for account in email_inbox.visible_accounts(store, context)
-            if account.status == email_inbox.AccountStatus.CONNECTED and (account_id is None or account.id == account_id)
-        ]
+
+    def connected() -> list[email_inbox.EmailAccount]:
+        with email_inbox.open_email_store(context) as store:
+            return [
+                account for account in email_inbox.visible_accounts(store, context)
+                if account.status == email_inbox.AccountStatus.CONNECTED and (account_id is None or account.id == account_id)
+            ]
+
+    accounts = await asyncio.to_thread(connected)
     if not accounts:
         detail = "That mailbox is not connected or not visible to you." if account_id else "Connect a mailbox in Email to send the report."
         return ChannelResult(outcome="not_connected", detail=detail)
@@ -85,10 +89,14 @@ async def deliver_email(context: TenantContext, repository: AnumRepository, repo
     )
     # The copy in the provider's Drafts folder is a convenience; its failure does not stop delivery.
     draft.provider_draft_id, _warning = await email_inbox.save_provider_draft(context, account, draft, None)
-    with email_inbox.open_email_store(context) as store:
-        store.add_draft(draft)
+
+    def keep() -> None:
+        with email_inbox.open_email_store(context) as store:
+            store.add_draft(draft)
+
+    await asyncio.to_thread(keep)
     try:
-        response = await email_api.request_send_approval(draft.id, context, repository)
+        response = await run_in_unit(units, context, lambda repository: email_api.request_send_approval(draft.id, context, repository))
     except HTTPException as exc:
         return ChannelResult(outcome="failed", detail=_detail(exc), target=account.address)
     return ChannelResult(
@@ -97,20 +105,23 @@ async def deliver_email(context: TenantContext, repository: AnumRepository, repo
     )
 
 
-async def deliver_whatsapp(context: TenantContext, repository: AnumRepository, report: WeeklyReport, conversation_id: str | None) -> ChannelResult:
+async def deliver_whatsapp(context: TenantContext, units: UnitsOfWork, report: WeeklyReport, conversation_id: str | None) -> ChannelResult:
     from .. import whatsapp
 
     if conversation_id is None:
         return ChannelResult(outcome="not_requested", detail="Choose a WhatsApp conversation to send the report to.")
     if not has_permission(context, Permission.WHATSAPP_REPLY):
         return ChannelResult(outcome="not_allowed", detail="Sending WhatsApp messages needs the WhatsApp reply permission.")
-    with whatsapp.open_whatsapp_store(context) as store:
-        connected = store.get_account() is not None
+    def account_connected() -> bool:
+        with whatsapp.open_whatsapp_store(context) as store:
+            return store.get_account() is not None
+
+    connected = await asyncio.to_thread(account_connected)
     if not connected or whatsapp.setup_problems():
         return ChannelResult(outcome="not_connected", detail="Connect WhatsApp Business in WhatsApp to send the report.")
     _subject, body = report_text(report)
     try:
-        response = await whatsapp.send(conversation_id, whatsapp.SendRequest(text=body[: whatsapp.MAX_TEXT]), context, repository)
+        response = await whatsapp.send(conversation_id, whatsapp.SendRequest(text=body[: whatsapp.MAX_TEXT]), context, units)
     except HTTPException as exc:
         return ChannelResult(outcome="failed", detail=_detail(exc), target=conversation_id)
     if response.outcome == "failed":
@@ -121,11 +132,13 @@ async def deliver_whatsapp(context: TenantContext, repository: AnumRepository, r
     )
 
 
-async def deliver(context: TenantContext, repository: AnumRepository, report: WeeklyReport, request: DeliveryRequest) -> DeliveryResult:
-    """Both channels, independently; one failing never stops the other."""
+async def deliver(context: TenantContext, units: UnitsOfWork, report: WeeklyReport, request: DeliveryRequest) -> DeliveryResult:
+    """Both channels, independently; one failing never stops the other. Each store step runs
+    in its own short unit of work in a worker thread, so no transaction is open while the mail
+    provider or Meta answers (docs/realtime.md#event-loop)."""
     email = (
-        await deliver_email(context, repository, report, request.email_account_id)
+        await deliver_email(context, units, report, request.email_account_id)
         if request.email else ChannelResult(outcome="not_requested")
     )
-    whatsapp_result = await deliver_whatsapp(context, repository, report, request.whatsapp_conversation_id)
+    whatsapp_result = await deliver_whatsapp(context, units, report, request.whatsapp_conversation_id)
     return DeliveryResult(email=email, whatsapp=whatsapp_result)

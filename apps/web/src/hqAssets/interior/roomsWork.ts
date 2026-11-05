@@ -101,6 +101,9 @@ export function operationsRoom(c: RoomCtx): number {
       }
     }
   }
+  // The whole wall takes one live face, laid over the tiles (the lazy screens chunk draws it).
+  const wx0 = x0, wx1 = x0 + cols * cw, wy1 = y0 + rows * ch;
+  b.screens.push({ kind: 'wall', id: '', p: [...R.w([wx0, y0, 0.185]), ...R.w([wx1, y0, 0.185]), ...R.w([wx1, wy1, 0.185]), ...R.w([wx0, wy1, 0.185])] });
   R.box(x0 - 0.1, y0 - 0.14, 0.08, cols * cw + 0.2, 0.04, 0.2, accent, { emissive: live ? 0.9 : 0.35, shade: false });
   // Side wall rack and server cabinet with steady status lights, and a briefing corner.
   const rx = w - 0.9;

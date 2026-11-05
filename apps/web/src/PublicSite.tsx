@@ -1,18 +1,20 @@
 // The public pages that need no sign-in (docs/legal-pages.md): /legal/* render the documents in
 // docs/legal, /trust lists the security facts, /status checks the API and sign-in from the browser.
 // main.tsx renders this instead of the signed-in app when the path is one of them.
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { Activity, Bot, CircleAlert, CircleCheck, CircleDashed, CircleX, DatabaseBackup, Download, FileText, KeyRound, Languages, Layers, LockKeyhole, RefreshCw, ScanSearch, ScrollText, ShieldCheck, WifiOff } from 'lucide-react';
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import { Activity, Bot, Building2, CircleAlert, CircleCheck, CircleDashed, CircleX, DatabaseBackup, Download, FileText, KeyRound, Languages, Layers, LockKeyhole, RefreshCw, ScanSearch, ScrollText, ShieldCheck, WifiOff } from 'lucide-react';
 import { AnumMark } from './Shell';
 import { apiBaseUrl } from './lib/api';
 import { chooseLocale, formatDateTime, getLocale, t, type MessageKey } from './lib/i18n';
 import { parseMarkdown, type MdBlock, type MdInline } from './lib/markdown';
 import { LEGAL_SOURCES } from './lib/legalDocs';
 import {
-  LEGAL_DOCS, STATUS_PATH, STATUS_REFRESH_MS, TRUST_PATH, apiHealthy, checkEndpoint, discoveryHealthy, headingIds, internalPath,
-  legalState, overallState, parsePublished, readLegalDocument, rewriteDocLinks, splitPlaceholders, statusTargets,
+  LEGAL_DOCS, STATUS_PATH, STATUS_REFRESH_MS, TRUST_PATH, apiHealthy, checkEndpoint, discoveryHealthy, fillPlaceholders, headingIds, internalPath,
+  legalLanguage, legalState, localizeLegalValues, overallState, parsePublished, publishedIds, readLegalDocument, remainingPlaceholders, rewriteDocLinks, statusTargets,
   type ComponentCheck, type ComponentState, type LegalDocId, type PublicRoute,
 } from './lib/publicSite';
+import { getPublicLegal } from './lib/publicLegalApi';
+import type { PublicLegal } from './lib/selling';
 import './publicSite.css';
 
 /** The contact for vulnerability reports, as in SECURITY.md. */
@@ -35,7 +37,8 @@ export function PublicSite({ route }: { route: PublicRoute }) {
         <a href={TRUST_PATH} aria-current={current === TRUST_PATH ? 'page' : undefined}>{t('public.nav.trust')}</a>
         <a href={STATUS_PATH} aria-current={current === STATUS_PATH ? 'page' : undefined}>{t('public.nav.status')}</a>
         <a href="/legal/privacy" aria-current={route.kind === 'legal' ? 'page' : undefined}>{t('public.nav.legal')}</a>
-        <button type="button" className="publicLang" lang={getLocale() === 'en' ? 'ar' : 'en'} aria-label={t('public.language.switchLabel')} onClick={() => chooseLocale(getLocale() === 'en' ? 'ar' : 'en')}><Languages aria-hidden="true" size={16} />{t('public.language.switch')}</button>
+        {/* Named by its text (WCAG 2.5.3): what it does in this page's language, then the other language's name in that language. */}
+        <button type="button" className="publicLang" onClick={() => chooseLocale(getLocale() === 'en' ? 'ar' : 'en')}><Languages aria-hidden="true" size={16} /><span className="visuallyHidden">{t('public.language.switchLabel')}: </span><span lang={getLocale() === 'en' ? 'ar' : 'en'}>{t('public.language.switch')}</span></button>
         <a className="publicOpen" href="/">{t('public.nav.open')}</a>
       </nav>
     </header>
@@ -61,41 +64,92 @@ export function PublicSite({ route }: { route: PublicRoute }) {
 
 // ---- Legal documents ---------------------------------------------------------------------------
 
+// The company details and legal facts the platform owner entered (GET /api/v1/public/legal) fill the
+// placeholders as the page renders; a fact not set yet shows as "Not set yet" (docs/selling-readiness.md).
+const LegalValues = createContext<Record<string, string | null> | null>(null);
+type LegalLoad = { state: 'loading' } | { state: 'ready'; value: PublicLegal } | { state: 'error' };
+const RIGHTS_DOCS: ReadonlySet<LegalDocId> = new Set(['privacy', 'dpa', 'terms']);
+
 function LegalPage({ id }: { id: LegalDocId }) {
-  const doc = useMemo(() => readLegalDocument(LEGAL_SOURCES[id]), [id]);
-  const state = legalState(id, doc, PUBLISHED);
+  // The text follows the site language switch: docs/legal/ar for Arabic, docs/legal for English.
+  const language = legalLanguage(getLocale());
+  const dir = language === 'ar' ? 'rtl' : 'ltr';
+  const doc = useMemo(() => readLegalDocument(LEGAL_SOURCES[language][id]), [id, language]);
+  const [facts, setFacts] = useState<LegalLoad>({ state: 'loading' });
+  useEffect(() => {
+    let live = true;
+    getPublicLegal().then((value) => { if (live) setFacts({ state: 'ready', value }); }, () => { if (live) setFacts({ state: 'error' }); });
+    return () => { live = false; };
+  }, []);
+  const values = facts.state === 'ready' ? localizeLegalValues(facts.value.values, language) : null;
+  const published = publishedIds(PUBLISHED, facts.state === 'ready' ? facts.value.published : null);
+  const state = legalState(id, doc, published, values);
+  const remaining = remainingPlaceholders(doc, values);
   const blocks = useMemo(() => parseMarkdown(rewriteDocLinks(doc.body)), [doc]);
   const headings = blocks.filter((b): b is Extract<MdBlock, { kind: 'heading' }> => b.kind === 'heading' && b.level === 2);
   const ids = headingIds(headings.map((h) => inlineText(h.inline)));
   const idOf = new Map(headings.map((h, i) => [h, ids[i]]));
-  return <article className="legalDoc" lang="en" aria-labelledby="legal-title">
+  return <LegalValues.Provider value={values}><article className="legalDoc" lang={language} dir={dir} aria-labelledby="legal-title" aria-busy={facts.state === 'loading'}>
     <div className="publicIntro">
       <p className="publicEyebrow" lang={getLocale()}><FileText aria-hidden="true" size={16} />{t('public.legal.eyebrow')}</p>
-      <h1 id="legal-title" dir="ltr">{doc.title}</h1>
+      <h1 id="legal-title" dir={dir}>{doc.title}</h1>
       <p className="publicMeta">
         {doc.updated && <span lang={getLocale()}><PlaceholderText text={t('public.legal.updated', { date: doc.updated })} /></span>}
         {state === 'published' && <span className="publicBadge ok" lang={getLocale()}>{t('public.legal.publishedBadge')}</span>}
       </p>
-      {getLocale() !== 'en' && <p className="publicNote" lang={getLocale()}>{t('public.legal.englishOnly')}</p>}
+      {language === 'ar' && <p className="publicNote" lang="ar">{t('public.legal.translationNote')}</p>}
     </div>
     {state !== 'published' && <section className="draftBanner" role="note" aria-labelledby="draft-title" lang={getLocale()}>
       <CircleAlert aria-hidden="true" size={20} />
       <div>
         <h2 id="draft-title">{t('public.legal.draftTitle')}</h2>
-        <p>{state === 'blocked' ? t('public.legal.blockedText', { count: doc.placeholders.length }) : t('public.legal.draftText')}</p>
-        {doc.placeholders.length > 0 && <p>{t('public.legal.placeholderNote')}</p>}
+        <p>{state === 'blocked' ? t('public.legal.blockedText', { count: remaining.length }) : t('public.legal.draftText')}</p>
+        <p>{t('public.legal.templateNote')}</p>
+        {facts.state === 'ready' && remaining.length > 0 && <p>{t('public.legal.notSetNote', { count: remaining.length })}</p>}
+        {facts.state === 'loading' && <p role="status">{t('public.legal.factsLoading')}</p>}
+        {facts.state === 'error' && <p role="status">{t('public.legal.factsFailed')}</p>}
       </div>
     </section>}
+    {facts.state === 'ready' && facts.value.company.legal_name && <CompanyCard company={facts.value.company} />}
     <div className={`legalLayout${headings.length > 2 ? ' withToc' : ''}`}>
       {headings.length > 2 && <nav className="legalToc" aria-labelledby="legal-toc">
         <h2 id="legal-toc" lang={getLocale()}>{t('public.legal.contents')}</h2>
         <ol>{headings.map((h, i) => <li key={ids[i]}><a href={`#${ids[i]}`}><Inlines parts={h.inline} plain /></a></li>)}</ol>
       </nav>}
-      <div className="legalBody" dir="ltr">
+      <div className="legalBody" dir={dir}>
         {blocks.map((b, i) => <Block key={i} block={b} id={b.kind === 'heading' ? idOf.get(b) : undefined} />)}
+        {RIGHTS_DOCS.has(id) && <RightsPanel />}
       </div>
     </div>
-  </article>;
+  </article></LegalValues.Provider>;
+}
+
+/** Who provides the Service, from the company details (only the parts that are set). */
+function CompanyCard({ company }: { company: PublicLegal['company'] }) {
+  const rows: [MessageKey, string][] = ([
+    ['public.company.legalName', company.legal_name], ['public.company.registration', [company.registration_number, company.registration_authority, company.registration_country].filter(Boolean).join(', ')],
+    ['public.company.address', company.address], ['public.company.vat', company.vat_number], ['public.company.contact', company.contact_email],
+    ['public.company.dpo', [company.dpo_name, company.dpo_email].filter(Boolean).join(', ')], ['public.company.server', company.server_location],
+  ] as [MessageKey, string][]).filter(([, value]) => Boolean(value));
+  return <section className="companyCard" aria-labelledby="company-card" lang={getLocale()}>
+    <h2 id="company-card"><Building2 aria-hidden="true" size={18} />{t('public.company.title')}</h2>
+    <dl>{rows.map(([label, value]) => <div key={label}><dt>{t(label)}</dt><dd dir="auto">{value}</dd></div>)}</dl>
+  </section>;
+}
+
+/** Data subject rights wired to ANUM's own flows: a person's export and deletion, the organisation's export and deletion. */
+function RightsPanel() {
+  return <section className="rightsPanel" aria-labelledby="rights-title" lang={getLocale()} dir={getLocale() === 'ar' ? 'rtl' : 'ltr'}>
+    <h2 id="rights-title">{t('public.rights.title')}</h2>
+    <p>{t('public.rights.lead')}</p>
+    <ul>
+      <li><a className="publicAction" href="/#privacy"><Download aria-hidden="true" size={16} />{t('public.rights.exportMine')}</a><span>{t('public.rights.exportMineText')}</span></li>
+      <li><a className="publicAction" href="/#privacy"><ShieldCheck aria-hidden="true" size={16} />{t('public.rights.deleteMine')}</a><span>{t('public.rights.deleteMineText')}</span></li>
+      <li><a className="publicAction" href="/#settings"><DatabaseBackup aria-hidden="true" size={16} />{t('public.rights.organisation')}</a><span>{t('public.rights.organisationText')}</span></li>
+      <li><a className="publicAction" href="/#settings"><ScrollText aria-hidden="true" size={16} />{t('public.rights.retention')}</a><span>{t('public.rights.retentionText')}</span></li>
+    </ul>
+    <p className="publicNote">{t('public.rights.signInNote')}</p>
+  </section>;
 }
 
 function Block({ block, id }: { block: MdBlock; id?: string }) {
@@ -121,7 +175,10 @@ function Block({ block, id }: { block: MdBlock; id?: string }) {
 function inlineText(parts: MdInline[]): string { return parts.map((p) => p.text).join(''); }
 
 function PlaceholderText({ text }: { text: string }) {
-  return <>{splitPlaceholders(text).map((part, i) => part.placeholder ? <mark key={i} className="placeholder">{part.text}</mark> : <span key={i}>{part.text}</span>)}</>;
+  const values = useContext(LegalValues);
+  return <>{fillPlaceholders(text, values).map((part, i) => part.kind === 'missing'
+    ? <mark key={i} className="placeholder" title={part.text}><span lang={getLocale()}>{t('public.legal.notSet')}</span> <small dir="ltr">{part.key}</small></mark>
+    : part.kind === 'value' ? <span key={i} className="filled" dir="auto">{part.text}</span> : <span key={i}>{part.text}</span>)}</>;
 }
 
 function Inlines({ parts, plain = false }: { parts: MdInline[]; plain?: boolean }) {

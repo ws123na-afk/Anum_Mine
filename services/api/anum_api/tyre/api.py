@@ -7,6 +7,7 @@ connect the data source and change the mapping and assumptions (``tyre:manage``)
 
 from __future__ import annotations
 
+import asyncio
 import re
 from datetime import date, datetime, timedelta
 from typing import Any, Literal
@@ -17,7 +18,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from .. import delivery
 from ..audit import AuditRecord
 from ..authorization import Permission
-from ..dependencies import has_permission, repository_context, tenant_context
+from ..dependencies import UnitsOfWork, has_permission, repository_context, run_in_unit, tenant_context, units_of_work
 from ..repository import AnumRepository
 from ..schemas import TenantContext, new_id, utc_now
 from . import service
@@ -223,7 +224,7 @@ def _validated_endpoint(payload: ConnectionInput, secret: str | None) -> str:
 
 
 @router.put("/connection", response_model=SetupView)
-async def save_connection(
+def save_connection(
     payload: ConnectionInput,
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
@@ -263,7 +264,7 @@ async def save_connection(
 
 
 @router.delete("/connection", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_connection(
+def delete_connection(
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
 ) -> Response:
@@ -286,7 +287,7 @@ class TestView(BaseModel):
 @router.post("/connection/test", response_model=TestView)
 async def test_connection(
     context: TenantContext = Depends(tenant_context),
-    repository: AnumRepository = Depends(repository_context),
+    units: UnitsOfWork = Depends(units_of_work),
 ) -> TestView:
     _require(context, Permission.TYRE_MANAGE, OWNER_ONLY)
     try:
@@ -294,8 +295,13 @@ async def test_connection(
     except service.NotConnectedError as exc:
         raise _conflict(exc) from None
     ok = connection.status == ConnectionStatus.OK
-    _audit(repository, context, "tyre.connection.tested", "tyre_connection", outcome="success" if ok else "failure")
-    return TestView(ok=ok, message=message, setup=_setup(context))
+
+    def done(repository: AnumRepository) -> SetupView:
+        _audit(repository, context, "tyre.connection.tested", "tyre_connection", outcome="success" if ok else "failure")
+        return _setup(context)
+
+    # No transaction is open while the source answers (docs/realtime.md#event-loop).
+    return TestView(ok=ok, message=message, setup=await run_in_unit(units, context, done))
 
 
 @router.post("/discover", response_model=DiscoveryView)
@@ -315,7 +321,7 @@ async def discover(context: TenantContext = Depends(tenant_context)) -> Discover
 
 
 @router.get("/presets/{name}", response_model=TyreMapping)
-async def get_preset(name: str, context: TenantContext = Depends(tenant_context)) -> TyreMapping:
+def get_preset(name: str, context: TenantContext = Depends(tenant_context)) -> TyreMapping:
     """A ready-made mapping, fitted to the last discovered schema when there is one."""
     _read(context)
     preset = PRESETS.get(name)
@@ -329,7 +335,7 @@ async def get_preset(name: str, context: TenantContext = Depends(tenant_context)
 
 
 @router.put("/mapping", response_model=SetupView)
-async def save_mapping(
+def save_mapping(
     payload: TyreMapping,
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
@@ -367,7 +373,7 @@ async def preview_mapping(payload: TyreMapping, context: TenantContext = Depends
 
 
 @router.put("/assumptions", response_model=SetupView)
-async def save_assumptions(
+def save_assumptions(
     payload: Assumptions,
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
@@ -398,19 +404,24 @@ class SyncResultView(BaseModel):
 @router.post("/sync", response_model=SyncResultView)
 async def sync(
     context: TenantContext = Depends(tenant_context),
-    repository: AnumRepository = Depends(repository_context),
+    units: UnitsOfWork = Depends(units_of_work),
 ) -> SyncResultView:
-    """Read the mapped tables now and recompute forecasts and alerts."""
+    """Read the mapped tables now and recompute forecasts and alerts. No transaction is open
+    while the source answers; the audit runs in its own short unit (docs/realtime.md#event-loop)."""
     _require(context, Permission.TYRE_OPERATE, OPERATORS_ONLY)
     try:
         outcome = await service.sync(context, context.user_id)
     except service.NotConnectedError as exc:
         raise _conflict(exc) from None
     except TyreSourceError as exc:
-        _audit(repository, context, "tyre.sync", "tyre_snapshot", {"error": exc.message[:200]}, outcome="failure")
+        await run_in_unit(units, context, _audit, context, "tyre.sync", "tyre_snapshot", {"error": exc.message[:200]}, outcome="failure")
         raise _source_error(exc, status.HTTP_502_BAD_GATEWAY if "mapping" not in exc.message else status.HTTP_409_CONFLICT) from None
-    _audit(repository, context, "tyre.sync", "tyre_snapshot", {**outcome.counts, "new_alerts": len(outcome.raised)})
-    return SyncResultView(setup=_setup(context), new_alerts=len(outcome.raised))
+
+    def done(repository: AnumRepository) -> SetupView:
+        _audit(repository, context, "tyre.sync", "tyre_snapshot", {**outcome.counts, "new_alerts": len(outcome.raised)})
+        return _setup(context)
+
+    return SyncResultView(setup=await run_in_unit(units, context, done), new_alerts=len(outcome.raised))
 
 
 # --- dashboard, forecasts, plan -------------------------------------------------------------
@@ -433,16 +444,20 @@ class DashboardView(BaseModel):
     top_alerts: list[TyreAlert]
     due_soon: list[TyreForecast]
     due_by_month: dict[str, int]
+    # When ANUM first saw the newest alert that is not resolved (its stored first_seen_at,
+    # UTC); None without one. Read by the HQ campus motion (docs/ANUM_MINE_HQ_CAMPUS_MOTION.md).
+    latest_alert_at: datetime | None = None
 
 
 @router.get("/dashboard", response_model=DashboardView)
-async def dashboard(context: TenantContext = Depends(tenant_context)) -> DashboardView:
+def dashboard(context: TenantContext = Depends(tenant_context)) -> DashboardView:
     loaded, forecasts = _loaded(context)
     today = utc_now().date()
     summary = fleet_summary(loaded.snapshot.dataset, loaded.connection.assumptions, today, forecasts)
     with open_tyre_store(context) as store:
         counts = store.alert_counts(context)
         top, _ = store.list_alerts(context, status="open", kind=None, query=None, limit=5, offset=0)
+        latest_alert_at = max((alert.first_seen_at for alert in store.active_alerts(context)), default=None)
     by_month: dict[str, int] = {}
     horizon = today + timedelta(days=366)
     for item in forecasts:
@@ -456,6 +471,7 @@ async def dashboard(context: TenantContext = Depends(tenant_context)) -> Dashboa
     return DashboardView(
         summary=summary, operations=operations, synced_at=loaded.snapshot.stats.synced_at, alert_counts=counts, top_alerts=top,
         due_soon=[item for item in forecasts if item.projected_removal][:10], due_by_month=dict(sorted(by_month.items())),
+        latest_alert_at=latest_alert_at,
     )
 
 
@@ -585,7 +601,7 @@ class AlertPage(BaseModel):
 
 
 @router.get("/alerts", response_model=AlertPage)
-async def list_alerts(
+def list_alerts(
     status_filter: Literal["active", "open", "acknowledged", "resolved"] | None = Query(default="active", alias="status"),
     kind: AlertKind | None = None,
     q: str | None = Query(default=None, max_length=100),
@@ -702,7 +718,7 @@ async def create_report(
 
 
 @router.get("/reports", response_model=ReportPage)
-async def list_reports(
+def list_reports(
     kind: ReportKind | None = None,
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
@@ -747,7 +763,7 @@ async def export_report(
 
 
 @router.delete("/reports/{report_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_report(
+def delete_report(
     report_id: str,
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
@@ -788,12 +804,14 @@ class DeliveryView(BaseModel):
 
 
 async def deliver(
-    context: TenantContext, repository: AnumRepository, report: TyreReport, payload: DeliveryInput
+    context: TenantContext, units: UnitsOfWork, report: TyreReport, payload: DeliveryInput
 ) -> DeliveryView:
-    reference = delivery.attachment_reference(REPORT_ATTACHMENT_KIND, report.id, payload.format, context)
+    """Every store step runs in its own short unit of work in a worker thread; the delivery
+    tool runs with no transaction open (docs/realtime.md#event-loop)."""
+    reference = await asyncio.to_thread(delivery.attachment_reference, REPORT_ATTACHMENT_KIND, report.id, payload.format, context)
     try:
         outcome = await delivery.request_delivery(
-            context, repository, channel=payload.channel, to=payload.to,
+            context, units, channel=payload.channel, to=payload.to,
             subject=f"{report.title} ({report.period_from} to {report.period_to})",
             text=summary_text(report.content), attachments=[reference],
             title=f"Send tyre report: {report.title}",
@@ -803,15 +821,20 @@ async def deliver(
     entry = {"channel": payload.channel, "to": payload.to, "format": payload.format, "status": outcome.status,
              "approval_id": outcome.approval_id, "task_id": outcome.task_id,
              "requested_at": utc_now().isoformat(), "requested_by": context.user_id}
-    with open_tyre_store(context) as store:
-        current = store.get_report(context, report.id)
-        if current is not None:
-            current.deliveries = (current.deliveries + [entry])[-20:]
-            store.save_report(current)
-            report = current
-    _audit(repository, context, "tyre.report.delivery_requested", report.id,
-           {"channel": payload.channel, "status": outcome.status, "task_id": outcome.task_id},
-           outcome="success" if outcome.status in ("sent", "waiting_approval") else "failure")
+    def remember(repository: AnumRepository) -> TyreReport:
+        kept = report
+        with open_tyre_store(context) as store:
+            current = store.get_report(context, report.id)
+            if current is not None:
+                current.deliveries = (current.deliveries + [entry])[-20:]
+                store.save_report(current)
+                kept = current
+        _audit(repository, context, "tyre.report.delivery_requested", kept.id,
+               {"channel": payload.channel, "status": outcome.status, "task_id": outcome.task_id},
+               outcome="success" if outcome.status in ("sent", "waiting_approval") else "failure")
+        return kept
+
+    report = await run_in_unit(units, context, remember)
     message = {
         "waiting_approval": "Sending needs an approval: approve it in Approvals and it will be sent.",
         "sent": "Sent.",
@@ -825,11 +848,12 @@ async def deliver_report(
     report_id: str,
     payload: DeliveryInput,
     context: TenantContext = Depends(tenant_context),
-    repository: AnumRepository = Depends(repository_context),
+    units: UnitsOfWork = Depends(units_of_work),
 ) -> DeliveryView:
     """Send the report through a connected email or WhatsApp integration (approval rules apply)."""
     _require(context, Permission.TYRE_OPERATE, OPERATORS_ONLY)
-    return await deliver(context, repository, _report_or_404(context, report_id), payload)
+    report = await run_in_unit(units, context, lambda _repository: _report_or_404(context, report_id))
+    return await deliver(context, units, report, payload)
 
 
 def _resolve_report_attachment(context: TenantContext, report_id: str, fmt: str) -> tuple[str, str, bytes] | None:

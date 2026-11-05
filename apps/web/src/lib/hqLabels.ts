@@ -26,10 +26,23 @@ export type LabelInput = Readonly<{
   id: string; anchor: Vec3; maxDistance?: number; priority?: number;
   /** The densities this label may take, richest first. Without it the label is always a full card that may be pushed aside. */
   tiers?: readonly Density[];
+  /** A way into the scene (a building card): never hidden for lack of room; with no free spot it takes its smallest density on the least covered spot. */
+  keep?: boolean;
   /** Solid boxes (floor slabs above the label) that hide the label while they stand between the eye and its anchor. */
   occluders?: readonly Aabb[];
   /** Other anchors for the same label (a floor tag sits on the edge of the floor nearest the eye). */
   alternatives?: readonly Vec3[];
+  /** A large card (a billboard): search for a free spot in small steps around the anchor instead of whole card heights. */
+  fine?: boolean;
+  /**
+   * A tag that belongs exactly where it hangs (a floor tag at its own floor's edge): it never moves off its anchor, is hidden while
+   * its anchor is off the stage, and gives way (crowded) instead of looking for another spot.
+   */
+  anchored?: boolean;
+  /** Hidden while its anchor is nearer the eye than this many metres (inside the camera's near view when zoomed in). */
+  minDepth?: number;
+  /** Solid boxes whose screen rectangle this label must never cover (the room the camera is focused on). */
+  avoid?: readonly Aabb[];
 }>;
 /** `crowded`: no free spot at any density, so the card stays at its anchor unseen and unclickable but in the tab order, and a focus brings it forward. */
 export type LabelPlacement = Readonly<{ id: string; x: number; y: number; depth: number; shown: boolean; shifted: number; density: Density; occluded: boolean; crowded?: boolean }>;
@@ -39,6 +52,8 @@ export type Rect = Readonly<{ x0: number; y0: number; x1: number; y1: number }>;
 export type LayoutOptions = Readonly<{ eye?: Vec3 | null; keepOut?: readonly Rect[]; /** A phone-sized scene: no card is left out; one with no free spot sits on its anchor in its smallest density, even over another. */ squeeze?: boolean }>;
 
 const MAX_SHIFTS = 7;
+/** On a phone-sized scene two status dots keep at least this many pixels apart (they never touch). */
+export const DOT_GAP = 4;
 
 /** True when the straight line from the eye to the anchor passes through the box (slab test). */
 export function segmentHitsBox(a: Vec3, b: Vec3, box: Aabb): boolean {
@@ -59,6 +74,20 @@ export function isOccluded(eye: Vec3 | null | undefined, anchor: Vec3, boxes: re
   if (!eye || !boxes || boxes.length === 0) return false;
   for (const box of boxes) if (segmentHitsBox(eye, anchor, box)) return true;
   return false;
+}
+
+/** The screen rectangle of a box (the corners in front of the eye), clamped to the stage; null when the box is wholly behind the eye or off the stage. */
+export function boxRect(vp: Mat4, box: Aabb, width: number, height: number): Rect | null {
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const x of [box.min.x, box.max.x]) for (const y of [box.min.y, box.max.y]) for (const z of [box.min.z, box.max.z]) {
+    const p = projectToNdc(vp, { x, y, z });
+    if (p.depth <= 1e-6) continue;
+    const px = ndcToPixels(p, width, height);
+    x0 = Math.min(x0, px.x); x1 = Math.max(x1, px.x); y0 = Math.min(y0, px.y); y1 = Math.max(y1, px.y);
+  }
+  if (!Number.isFinite(x0)) return null;
+  const r = { x0: Math.max(0, x0), y0: Math.max(0, y0), x1: Math.min(width, x1), y1: Math.min(height, y1) };
+  return r.x1 > r.x0 && r.y1 > r.y0 ? r : null;
 }
 
 const dist2 = (a: Vec3, b: Vec3) => (a.x - b.x) ** 2 + (a.y - b.y) ** 2 + (a.z - b.z) ** 2;
@@ -85,12 +114,21 @@ export function layoutLabels(
     if (isOccluded(eye, anchor, input.occluders)) { hide(input, 0, true); continue; }
     const p = projectToNdc(vp, anchor);
     const px = ndcToPixels(p, width, height);
+    // A tag at its own anchor: off the stage, behind the eye or inside the near view it is not drawn at all (never pulled in from the edge).
+    if (input.anchored && (!p.visible || px.x < 0 || px.x > width || px.y < 0 || px.y > height)) { hide(input, p.depth); continue; }
+    if (input.minDepth !== undefined && p.depth < input.minDepth) { hide(input, p.depth); continue; }
     const away = input.maxDistance !== undefined && p.depth > input.maxDistance;
     const inView = p.visible && !away && px.x > -60 && px.x < width + 60 && px.y > -90 && px.y < height + 120;
     if (!inView) {
       // A building or room that is only off the edge of the stage stays in the page for keyboard and screen reader users (invisible,
       // shown where it can be reached when it takes focus); an agent card, or a card beyond its distance, is hidden.
       if (away || (input.priority ?? 1) >= 2) { hide(input, p.depth); continue; }
+      // The focused card (top priority, below 0: the billboard of the selected building) is never parked out of sight while its anchor is
+      // in front of the camera: it is pulled into the stage and placed like any other, so its Close button can always be reached.
+      if ((input.priority ?? 1) < 0 && p.visible && Number.isFinite(px.x) && Number.isFinite(px.y)) {
+        items.push({ input, x: Math.max(0, Math.min(width, px.x)), y: Math.max(0, Math.min(height, px.y)), depth: p.depth });
+        continue;
+      }
       const { w, h } = sizeOf(input.id, input.tiers?.[input.tiers.length - 1] ?? 'full');
       const x = Math.max(w / 2 + 4, Math.min(width - w / 2 - 4, Number.isFinite(px.x) ? px.x : width / 2));
       const y = Math.min(Math.max(Number.isFinite(px.y) ? px.y : height / 2, h + 6), height - bottomInset);
@@ -101,6 +139,13 @@ export function layoutLabels(
   }
   items.sort((a, b) => (a.input.priority ?? 1) - (b.input.priority ?? 1) || a.depth - b.depth);
   const placed: Array<{ x0: number; y0: number; x1: number; y1: number }> = [...(options.keepOut ?? [])];
+  const avoidCache = new Map<readonly Aabb[], Rect[]>();
+  const avoidRects = (input: LabelInput): readonly Rect[] => {
+    if (!input.avoid?.length) return [];
+    let rects = avoidCache.get(input.avoid);
+    if (!rects) { rects = input.avoid.map((b) => boxRect(vp, b, width, height)).filter((r): r is Rect => r !== null); avoidCache.set(input.avoid, rects); }
+    return rects;
+  };
   // `bottomInset` keeps cards clear of the toolbar along the bottom edge of the stage, so a card is never under a control.
   const limit = height - bottomInset;
   const set = (item: Item, x: number, y: number, size: Size, density: Density, shifted: number) => {
@@ -113,7 +158,7 @@ export function layoutLabels(
   const clampHome = (item: Item, w: number, h: number) => ({ x: Math.max(w / 2 + 4, Math.min(width - w / 2 - 4, item.x)), y: Math.min(Math.max(item.y, h + 6), limit) });
   for (const item of items) {
     const tiers = item.input.tiers;
-    if (!tiers || tiers.length < 2 || (item.input.priority ?? 1) < 2) continue;
+    if (!tiers || tiers.length < 2 || (item.input.priority ?? 1) < 2 || item.input.anchored) continue;
     const { w, h } = sizeOf(item.input.id, tiers[tiers.length - 1]);
     const home = clampHome(item, w, h);
     reserved.set(item.input.id, { x0: home.x - w / 2, x1: home.x + w / 2, y0: home.y - h, y1: home.y });
@@ -126,72 +171,121 @@ export function layoutLabels(
     for (let ti = 0; ti < tiers.length && !done; ti++) {
       const density = tiers[ti];
       const { w, h } = sizeOf(item.input.id, density);
-      const hits = (q: { x0: number; y0: number; x1: number; y1: number }, x: number, y: number) => x - w / 2 < q.x1 - 2 && x + w / 2 > q.x0 + 2 && y - h < q.y1 - 2 && y > q.y0 + 2;
+      // A dot on a phone-sized scene needs a clear gap round it; every other card may meet its neighbour by two pixels.
+      const dotGap = options.squeeze && density === 'dot';
+      const slack = dotGap ? -DOT_GAP : 2;
+      const hits = (q: { x0: number; y0: number; x1: number; y1: number }, x: number, y: number) => x - w / 2 < q.x1 - slack && x + w / 2 > q.x0 + slack && y - h < q.y1 - slack && y > q.y0 + slack;
       const keepReserved = (item.input.priority ?? 1) > 0;
-      const overlaps = (x: number, y: number) => placed.some((q) => hits(q, x, y)) || (keepReserved && [...reserved].some(([id, q]) => id !== item.input.id && hits(q, x, y)));
+      const avoid = avoidRects(item.input);
+      const overlaps = (x: number, y: number) => placed.some((q) => hits(q, x, y)) || avoid.some((q) => hits(q, x, y)) || (keepReserved && [...reserved].some(([id, q]) => id !== item.input.id && hits(q, x, y)));
       const inside = (x: number, y: number) => x - w / 2 >= 4 && x + w / 2 <= width - 4 && y - h >= 4 && y <= limit;
       // The first spot is the anchor itself, pulled into the stage when the anchor sits just outside it.
       const home = clampHome(item, w, h);
       if (!overlaps(home.x, home.y) && inside(home.x, home.y)) { set(item, home.x, home.y, { w, h }, density, 0); done = true; break; }
       // A room card keeps its detail by stepping up (twice at most) before it gives any up; a seated agent never steps.
-      if (adaptive && ti < lastIndex && (item.input.priority ?? 1) < 2) {
+      if (adaptive && ti < lastIndex && (item.input.priority ?? 1) < 2 && !item.input.anchored) {
         const up = [1, 2].map((k) => ({ x: home.x, y: home.y - k * h * 1.05 })).find((c) => inside(c.x, c.y) && !overlaps(c.x, c.y));
         if (up) { set(item, up.x, up.y, { w, h }, density, Math.round((home.y - up.y) / (h * 1.05))); done = true; break; }
       }
       // An adaptive label first gives up detail (the next tier); only its last tier looks for another spot.
-      if (adaptive && ti < lastIndex) continue;
+      // (A `fine` label, a large card, first looks for a free spot at this density and gives up detail only when there is none.)
+      if (adaptive && ti < lastIndex && !item.input.fine) continue;
       // Candidate spots around the anchor, nearest first: straight up (the usual case), then down and sideways.
       const spots: Array<{ x: number; y: number; cost: number }> = [];
-      // A secondary card (a seated agent) never moves off its anchor: it shows where it sits or gives way.
-      const secondary = adaptive && (item.input.priority ?? 1) >= 2;
-      const reach = secondary ? 0 : adaptive ? 4 : MAX_SHIFTS, sideways = secondary ? 0 : 2;
-      for (let iy = -reach; iy <= reach; iy++) {
-        for (let ix = -sideways; ix <= sideways; ix++) {
-          const x = item.x + ix * w * 1.05, y = item.y + iy * h * 1.05;
-          spots.push({ x, y, cost: Math.abs(iy) * (iy < 0 ? 1 : 1.3) + Math.abs(ix) * 3 });
+      // A secondary card (a seated agent) and an anchored tag never move off their anchor: they show where they belong or give way.
+      const secondary = (adaptive && (item.input.priority ?? 1) >= 2) || item.input.anchored === true;
+      // A building's dot (one tier, never left out) may look further sideways before it falls back to the least covered spot: on a phone it then keeps clear of the controls.
+      const reach = secondary ? 0 : adaptive ? 4 : MAX_SHIFTS, sideways = secondary ? 0 : !adaptive && item.input.keep ? 5 : 2;
+      if (item.input.fine) {
+        for (let dy = -h * 1.5; dy <= h * 1.5; dy += 20) {
+          for (let dx = -w * 1.6; dx <= w * 1.6; dx += 20) spots.push({ x: item.x + dx, y: item.y + dy, cost: (Math.abs(dy) + Math.abs(dx) * 0.7) / 20 });
+        }
+      } else {
+        for (let iy = -reach; iy <= reach; iy++) {
+          for (let ix = -sideways; ix <= sideways; ix++) {
+            const x = item.x + ix * w * 1.05, y = item.y + iy * h * 1.05;
+            spots.push({ x, y, cost: Math.abs(iy) * (iy < 0 ? 1 : 1.3) + Math.abs(ix) * 3 });
+          }
+        }
+      }
+      if (dotGap && !secondary) {
+        // A dot also tries a finer ring round its anchor (half a dot per step, up to four dots away), so it can sit beside a neighbour instead of on it.
+        for (let r = 1; r <= 8; r++) {
+          for (let a = 0; a < 12; a++) {
+            const angle = (a / 12) * Math.PI * 2;
+            spots.push({ x: item.x + Math.cos(angle) * r * w * 0.5, y: item.y + Math.sin(angle) * r * h * 0.5, cost: r * 1.2 + 0.5 });
+          }
         }
       }
       spots.sort((p, q) => p.cost - q.cost);
       const pick = spots.find((c) => inside(c.x, c.y) && !overlaps(c.x, c.y));
       if (pick) { set(item, pick.x, pick.y, { w, h }, density, Math.round(Math.abs(pick.y - item.y) / (h * 1.05))); done = true; break; }
+      if (adaptive && ti < lastIndex) continue;
       // No free spot. Building and room cards are the way into the scene, so they stay (on the least covered spot);
       // only the secondary agent cards give way, and so does a crowded label that has a dot to fall back on.
-      if (options.squeeze && adaptive) { set(item, home.x, home.y, { w, h }, density, 0); done = true; break; }
-      if ((item.input.priority ?? 1) >= 2 || (adaptive && (item.input.priority ?? 1) >= 1)) { out.set(item.input.id, { id: item.input.id, x: home.x, y: home.y, depth: item.depth, shown: false, shifted: 0, density, occluded: false, crowded: true }); done = true; break; }
+      // On a phone a dot with no free spot is never drawn on another dot: it is crowded (kept in the page and the tab order, a focus brings it forward).
+      if (dotGap) { out.set(item.input.id, { id: item.input.id, x: home.x, y: home.y, depth: item.depth, shown: false, shifted: 0, density, occluded: false, crowded: true }); done = true; break; }
+      if (options.squeeze && adaptive && !item.input.anchored) { set(item, home.x, home.y, { w, h }, density, 0); done = true; break; }
+      if (item.input.anchored || (item.input.priority ?? 1) >= 2 || (adaptive && !item.input.keep && (item.input.priority ?? 1) >= 1)) { out.set(item.input.id, { id: item.input.id, x: home.x, y: home.y, depth: item.depth, shown: false, shifted: 0, density, occluded: false, crowded: true }); done = true; break; }
       const area = (x: number, y: number) => placed.reduce((sum, q) => sum + Math.max(0, Math.min(x + w / 2, q.x1) - Math.max(x - w / 2, q.x0)) * Math.max(0, Math.min(y, q.y1) - Math.max(y - h, q.y0)), 0);
       const best = spots.filter((c) => inside(c.x, c.y)).sort((p, q) => area(p.x, p.y) - area(q.x, q.y) || p.cost - q.cost)[0] ?? home;
-      set(item, best.x, best.y, { w, h }, adaptive ? tiers[0] : density, 0);
+      set(item, best.x, best.y, { w, h }, adaptive ? tiers[item.input.keep ? lastIndex : 0] : density, 0);
       done = true;
     }
   }
   return labels.map((l) => out.get(l.id)!);
 }
 
-type Memo = { vp: Float32Array; width: number; height: number; inset: number; labels: readonly LabelInput[]; eye: string; keep: string };
+/** A label that leaves fades out (hqLabels.css `[data-fade="out"]`) and is then taken out of the page; under reduced motion it goes at once. */
+export const FADE_MS = 160;
+const fades = new WeakMap<HTMLElement, number>();
+const reduced = () => typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true;
+function fadeOut(node: HTMLElement): void {
+  if (fades.has(node)) return;
+  if (reduced() || node.dataset.hidden === 'crowded' || typeof window === 'undefined') { node.style.display = 'none'; return; }
+  node.dataset.fade = 'out';
+  fades.set(node, window.setTimeout(() => { fades.delete(node); delete node.dataset.fade; node.style.display = 'none'; }, FADE_MS));
+}
+function cancelFade(node: HTMLElement): void {
+  const id = fades.get(node);
+  if (id === undefined) return;
+  window.clearTimeout(id);
+  fades.delete(node);
+  delete node.dataset.fade;
+}
+
+type Memo = { vp: Float32Array; width: number; height: number; inset: number; labels: readonly LabelInput[]; eye: string; keep: string; rects: Rect[] };
 const memos = new WeakMap<object, Memo>();
 
-/** Writes placements to the label wrappers (display, transform, z-index, density) and caches card sizes. */
+/**
+ * Writes placements to the label wrappers (display, transform, z-index, density) and caches card sizes. Returns where the shown cards are
+ * (from the placement and the cached sizes, never read back from the page), so a second pass can keep round them without a forced layout.
+ * Only attributes that changed are written: an unchanged attribute write still costs the browser a style pass.
+ */
 export function placeLabels(
   labels: readonly LabelInput[], nodes: ReadonlyMap<string, HTMLElement>, sizes: Map<string, Size>,
   vp: Mat4, width: number, height: number, bottomInset = 0, eye: Vec3 | null = null, keepOut: readonly Rect[] = [],
-): void {
+): Rect[] {
   const eyeKey = eye ? `${eye.x.toFixed(2)},${eye.y.toFixed(2)},${eye.z.toFixed(2)}` : '';
   const keep = keepOut.map((r) => `${Math.round(r.x0)},${Math.round(r.y0)},${Math.round(r.x1)},${Math.round(r.y1)}`).join(';');
   const prev = memos.get(sizes);
   // A frame with the same camera, size and labels would write the same values: skip it.
-  if (prev && prev.labels === labels && prev.width === width && prev.height === height && prev.inset === bottomInset && prev.eye === eyeKey && prev.keep === keep && prev.vp.every((v, i) => v === vp[i])) return;
-  memos.set(sizes, { vp: Float32Array.from(vp), width, height, inset: bottomInset, labels, eye: eyeKey, keep });
+  if (prev && prev.labels === labels && prev.width === width && prev.height === height && prev.inset === bottomInset && prev.eye === eyeKey && prev.keep === keep && prev.vp.every((v, i) => v === vp[i])) return prev.rects;
+  const rects: Rect[] = [];
+  memos.set(sizes, { vp: Float32Array.from(vp), width, height, inset: bottomInset, labels, eye: eyeKey, keep, rects });
   const sizeOf = (id: string, density: Density): Size => {
     const key = `${id}|${density}`;
     const cached = sizes.get(key);
     if (cached) return cached;
     const node = nodes.get(id);
     if (!node) return { w: 160, h: 44 };
-    const prevDisplay = node.style.display, prevDensity = node.dataset.density;
+    const prevDisplay = node.style.display, prevDensity = node.dataset.density, prevTransform = node.style.transform;
     node.style.display = '';
     node.style.transform = 'translate3d(-9999px, 0, 0)';
     node.dataset.density = density;
     const size = { w: node.offsetWidth || 160, h: node.offsetHeight || 44 };
+    // Put the card back where it was: a measurement must never move a card that is already placed.
+    node.style.transform = prevTransform;
     node.style.display = prevDisplay;
     if (prevDensity === undefined) delete node.dataset.density; else node.dataset.density = prevDensity;
     sizes.set(key, size);
@@ -202,16 +296,24 @@ export function placeLabels(
     const node = nodes.get(labels[i].id);
     const p = placements[i];
     if (!node) continue;
-    node.dataset.occluded = p.occluded ? 'true' : 'false';
+    const occluded = p.occluded ? 'true' : 'false';
+    if (node.dataset.occluded !== occluded) node.dataset.occluded = occluded;
     const crowded = !p.shown && p.crowded === true;
     const hidden = crowded ? 'crowded' : 'no';
     if (node.dataset.hidden !== hidden) node.dataset.hidden = hidden;
-    if (!p.shown && !crowded) { if (node.style.display !== 'none') node.style.display = 'none'; continue; }
+    if (!p.shown && !crowded) { if (node.style.display !== 'none') fadeOut(node); continue; }
+    cancelFade(node);
     if (node.dataset.density !== p.density) node.dataset.density = p.density;
-    node.style.display = '';
-    node.style.transform = `translate3d(${p.x.toFixed(1)}px, ${p.y.toFixed(1)}px, 0) translate(-50%, -100%)`;
-    node.style.zIndex = String(Math.max(1, Math.round(5000 - p.depth * 10) - (labels[i].priority ?? 0) * 1000));
+    if (node.style.display !== '') node.style.display = '';
+    const transform = `translate3d(${p.x.toFixed(1)}px, ${p.y.toFixed(1)}px, 0) translate(-50%, -100%)`;
+    if (node.style.transform !== transform) node.style.transform = transform;
+    const z = String(Math.max(1, Math.round(5000 - p.depth * 10) - (labels[i].priority ?? 0) * 1000));
+    if (node.style.zIndex !== z) node.style.zIndex = z;
+    if (!p.shown) continue;
+    const size = sizeOf(labels[i].id, p.density);
+    if (size.w > 14 && size.h > 14) rects.push({ x0: p.x - size.w / 2, y0: p.y - size.h, x1: p.x + size.w / 2, y1: p.y });
   }
+  return rects;
 }
 
 /**
@@ -255,6 +357,11 @@ export function slabBox(extent: RoomRect, index: number, pitch = FLOOR_PITCH_M):
   return { min: { x: extent.x0 - 0.6, y: y - SLAB_M, z: extent.z0 - 0.6 }, max: { x: extent.x1 + 0.6, y: y + 0.02, z: extent.z1 + 0.6 } };
 }
 
+/** The drawn slabs of the floors above each floor (from the scene's `structure.slabs`) as solid boxes, for the floor tags' depth test. */
+export function drawnSlabsAbove(count: number, slabs: readonly (RoomRect & Readonly<{ floorIndex: number; y0: number; y1: number }>)[]): Aabb[][] {
+  return Array.from({ length: count }, (_, i) => slabs.filter((b) => b.floorIndex > i).map((b) => ({ min: { x: b.x0, y: b.y0, z: b.z0 }, max: { x: b.x1, y: b.y1, z: b.z1 } })));
+}
+
 /** For each floor, the slabs of the floors above it: what can stand between the eye and a label hung inside that floor. */
 export function slabsAbove(floors: readonly Pick<SceneFloor, 'rooms'>[], pitch = FLOOR_PITCH_M): Aabb[][] {
   const slabs = floors.map((f, i) => { const e = floorExtent(f); return e ? slabBox(e, i, pitch) : null; });
@@ -267,16 +374,25 @@ export type FloorTagSpec = Readonly<{
 }>;
 
 
+export const FLOOR_TAG_PRIORITY = { active: 3, other: 4 } as const;
+
 /** One tag per floor for the stacked view: it sits on the floor's edge nearest the eye, so no slab can cover it. */
-export function floorTagSpecs(args: Readonly<{ floors: readonly Pick<SceneFloor, 'id' | 'rooms'>[]; activeIndex: number; pitch?: number }>): FloorTagSpec[] {
+export function floorTagSpecs(args: Readonly<{
+  floors: readonly Pick<SceneFloor, 'id' | 'rooms'>[]; activeIndex: number; pitch?: number;
+  /** The drawn slab of each floor when the scene knows it (`structure.slabs`: the rooms, a margin, the core, grown to hold the floors above); else the rooms' extent. */
+  plans?: ReadonlyMap<number, RoomRect>;
+}>): FloorTagSpec[] {
   const pitch = args.pitch ?? FLOOR_PITCH_M;
   const out: FloorTagSpec[] = [];
   args.floors.forEach((floor, fi) => {
-    const e = floorExtent(floor);
+    const e = floor.rooms.length ? args.plans?.get(fi) ?? floorExtent(floor) : null;
     if (!e) return;
     const y = fi * pitch + 1.1, cx = (e.x0 + e.x1) / 2, cz = (e.z0 + e.z1) / 2, out1 = 1.6;
     const sides: Vec3[] = [{ x: cx, y, z: e.z0 - out1 }, { x: cx, y, z: e.z1 + out1 }, { x: e.x0 - out1, y, z: cz }, { x: e.x1 + out1, y, z: cz }];
-    out.push({ id: `floor:${floor.id}`, kind: 'floor', floor: fi, floorId: floor.id, anchor: sides[0], alternatives: sides.slice(1), priority: fi === args.activeIndex ? 0 : 1, tiers: ['full', 'compact'], maxDistance: 200 });
+    // Priority order of the building view (lower first): the selected room 0, the open floor's rooms 1, seated agents 2, the open floor's tag 3,
+    // the other floors' tags 4. The open floor's tag may show its line; the others are compact (the name only).
+    const active = fi === args.activeIndex;
+    out.push({ id: `floor:${floor.id}`, kind: 'floor', floor: fi, floorId: floor.id, anchor: sides[0], alternatives: sides.slice(1), priority: active ? FLOOR_TAG_PRIORITY.active : FLOOR_TAG_PRIORITY.other, tiers: active ? ['full', 'compact'] : ['compact'], maxDistance: 200 });
   });
   return out;
 }

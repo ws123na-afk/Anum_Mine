@@ -5,6 +5,7 @@ import { describeError } from './lib/errors';
 import { t, type MessageKey } from './lib/i18n';
 import { citedMessages, liveSummary, linksOf, workIndex, type RoomOutput, type RoomState, type WorkKind, type WorkLink } from './lib/liveMeeting';
 import { meetingRoomApi } from './lib/liveMeetingApi';
+import { inHqClick, panelForRecord } from './lib/hqWorkPanels';
 
 const jump = (seq: number) => { const el = document.getElementById(`mr-msg-${seq}`); el?.scrollIntoView({ block: 'nearest' }); el?.focus?.(); };
 
@@ -101,7 +102,7 @@ export function DecisionLinks({ output, links, owner, busy, onLink, onUnlink }: 
   if (output.kind !== 'decision') return null;
   return <div className="mrLinks">
     {mine.length > 0 && <ul className="mrPlain" aria-label={t('meetingRoom.links')}>{mine.map((l) => <li key={l.id}>
-      <span><Link2 aria-hidden="true" /><span className="mrChip">{t(`meetingRoom.linkKind.${l.target_kind}` as MessageKey)}</span> <a href={l.target_kind === 'approval' ? '#approvals' : '#tasks'} dir="auto">{l.target_label ?? l.target_id}</a>
+      <span><Link2 aria-hidden="true" /><span className="mrChip">{t(`meetingRoom.linkKind.${l.target_kind}` as MessageKey)}</span> <a href={l.target_kind === 'approval' ? '#approvals' : '#tasks'} onClick={inHqClick(panelForRecord(l.target_kind, l.target_id))} dir="auto">{l.target_label ?? l.target_id}</a>
         {l.target_status && <small className="muted"> {l.target_status}</small>}</span>
       {owner && <button type="button" className="secondary mrIcon" disabled={busy} aria-label={t('meetingRoom.linkRemove', { name: l.target_label ?? l.target_id })} onClick={() => onUnlink(l)}><X aria-hidden="true" /></button>}
     </li>)}</ul>}
@@ -117,7 +118,7 @@ export function LinkedWorkCard({ state }: { state: RoomState }) {
   return <section aria-labelledby="mr-work" className="mrCard" data-testid="linked-work"><h3 id="mr-work"><FileText aria-hidden="true" />{t('meetingRoom.work')}</h3>
     {index.length === 0 ? <p className="muted">{t('meetingRoom.workEmpty')}</p> :
       <ul className="mrPlain">{index.map((w) => <li key={w.key}>
-        <span><span className="mrChip">{t(`meetingRoom.linkKind.${w.kind}` as MessageKey)}</span> <a href={w.kind === 'approval' ? '#approvals' : '#tasks'} dir="auto">{w.label}</a></span>
+        <span><span className="mrChip">{t(`meetingRoom.linkKind.${w.kind}` as MessageKey)}</span> <a href={w.kind === 'approval' ? '#approvals' : '#tasks'} onClick={inHqClick(panelForRecord(w.kind, w.id))} dir="auto">{w.label}</a></span>
         {w.decisions.map((d) => <small key={d.id} className="muted" dir="auto">{t('meetingRoom.workFrom', { text: d.body.length > 90 ? d.body.slice(0, 87) + '...' : d.body })}</small>)}
       </li>)}</ul>}
   </section>;

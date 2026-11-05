@@ -105,12 +105,12 @@ export type ResolvedAvatar = Readonly<{
 }>;
 
 /**
- * The default look of a record: deterministic from the id (and the role family for outfit cues), spread over the whole
- * palette so a room of agents mixes feminine, masculine and neutral builds, skin tones, hair and outfits.
+ * The default look of a record: the neutral build (owner rule: a build is drawn only when the owner chose one), with skin
+ * tone, hair, outfit and accent deterministic from the id (and the role family for outfit cues), spread over the palette.
  * It reads nothing else: not a name, not a description.
  */
 export function defaultAvatar(seed: string, role: RoleFamily = 'office'): ResolvedAvatar {
-  const build = weighted<AvatarStyle>(stream(seed, 'build'), [['feminine', 40], ['masculine', 40], ['neutral', 20]]);
+  const build: AvatarStyle = 'neutral';
   const hairs = HAIR_BY_STYLE[build];
   const defaults = ROLE_DEFAULTS[role];
   return {

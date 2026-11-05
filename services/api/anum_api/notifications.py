@@ -35,6 +35,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel
 
 from .dependencies import UnitsOfWork, tenant_context, units_of_work
+from .hardening import InMemoryTokenBucket
 from .identity import is_local_environment
 from .onboarding import NotificationPreferences
 from .schemas import TenantContext, new_id, utc_now
@@ -76,12 +77,23 @@ def create_notification(
     body: str,
     work_item_id: str | None = None,
     email: str | None = None,
+    in_app_only: bool = False,
 ) -> UserNotification:
     """Store one notification for ``user_id`` in the caller's workspace.
 
     The caller is often someone else (an assignment notifies the assignee); the insert
     policy allows that, and only the recipient can read the row afterwards.
+
+    ``in_app_only``: the inbox row alone (web bell, phone Notifications screen), never an
+    email and never a phone push, whatever the recipient's switches say. Its kind must also
+    be in ``push.IN_APP_ONLY_KINDS`` so the ``notification.created`` event pushes nothing.
     """
+    if in_app_only:
+        return store.add_notification(context, UserNotification(
+            id=new_id("ntf"), user_id=user_id, kind=kind, title=title[:200], body=body[:1000],
+            work_item_id=work_item_id, email_status=EmailStatus.NOT_REQUESTED,
+            push_status=PushStatus.NOT_REQUESTED, created_at=utc_now(),
+        ))
     preferences = recipient_preferences(store, context, user_id)
     from .push import configured_account
 
@@ -390,10 +402,25 @@ def _send_test_email(units: UnitsOfWork, context: TenantContext) -> EmailTestRes
                 outcome="success" if outcome.status == "sent" else "failure",
                 correlation_id=new_id("correlation"),
                 created_at=utc_now(),
-                metadata={"status": outcome.status, "attempts": outcome.attempts, "error": outcome.error, "to": address},
+                metadata={"status": outcome.status, "attempts": outcome.attempts, "error": outcome.error},
             )
         )
     return EmailTestResult(status=outcome.status, to=address, attempts=outcome.attempts, error=outcome.error)
+
+
+# Test emails per person: a few in a row, then one a minute, so the button cannot be used
+# to flood a mailbox or burn the server's sending quota.
+def _test_email_bucket() -> InMemoryTokenBucket:
+    return InMemoryTokenBucket(rate_per_second=1 / 60, burst=5)
+
+
+_test_email_limits = _test_email_bucket()
+
+
+def reset_test_email_limits() -> None:
+    """Tests: a fresh per-person limit for the test email."""
+    global _test_email_limits
+    _test_email_limits = _test_email_bucket()
 
 
 @router.post("/notification-channels/email-test", response_model=EmailTestResult)
@@ -402,7 +429,16 @@ async def send_test_email(
     units: UnitsOfWork = Depends(units_of_work),
 ) -> EmailTestResult:
     """Send the caller a test email through ANUM's system mail, so they can see the Email switch
-    work (or why not). Only ever to the caller's own address; audited as ``notification.email_test``."""
+    work (or why not). Only ever to the caller's own address; audited as ``notification.email_test``
+    (ids only: the address is never written to the audit log). At most five in a row, then one
+    a minute per person (429)."""
+    decision = _test_email_limits.acquire(f"{context.tenant_id}:{context.user_id}")
+    if not decision.allowed:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many test emails. Wait a minute, then try again.",
+            headers={"Retry-After": str(decision.retry_after_seconds)},
+        )
     return await asyncio.to_thread(_send_test_email, units, context)
 
 

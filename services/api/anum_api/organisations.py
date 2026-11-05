@@ -314,22 +314,26 @@ async def set_logo(request: Request, context: TenantContext = Depends(tenant_con
         raise HTTPException(status_code=413 if content else 422, detail="The logo must be 1 byte to 256 KiB")
     if content_type not in LOGO_TYPES or not _sniff(content, content_type):
         raise HTTPException(status_code=415, detail="The logo must be a PNG, JPEG or WebP image")
-    from .team_work import open_team_unit
-
-    with open_team_unit(context, require_membership=True) as unit:
-        session = unit.session
-        current = _read_branding(session, context.tenant_id)
-        name = current["display_name"] if current else (_tenant_name(session, context.tenant_id) or context.tenant_id)
-        _write_branding(session, context.tenant_id, {
-            "display_name": name, "logo": content, "logo_content_type": content_type,
-            "updated_by_user_id": context.user_id, "updated_at": utc_now(),
-        })
-        _audit(context, unit.repository, "organization.logo.update", context.tenant_id, {"bytes": len(content), "content_type": content_type})
-        view = _branding_view(context.tenant_id, _read_branding(session, context.tenant_id), None)
-    # The public, content-addressed copy for email headers; a failure here never undoes the
-    # upload (``logo_link`` publishes it again when an email needs it).
     import asyncio
 
+    from .team_work import open_team_unit
+
+    def save() -> Branding:
+        with open_team_unit(context, require_membership=True) as unit:
+            session = unit.session
+            current = _read_branding(session, context.tenant_id)
+            name = current["display_name"] if current else (_tenant_name(session, context.tenant_id) or context.tenant_id)
+            _write_branding(session, context.tenant_id, {
+                "display_name": name, "logo": content, "logo_content_type": content_type,
+                "updated_by_user_id": context.user_id, "updated_at": utc_now(),
+            })
+            _audit(context, unit.repository, "organization.logo.update", context.tenant_id, {"bytes": len(content), "content_type": content_type})
+            return _branding_view(context.tenant_id, _read_branding(session, context.tenant_id), None)
+
+    # The write runs in a worker thread, never on the event loop (docs/realtime.md#event-loop).
+    view = await asyncio.to_thread(save)
+    # The public, content-addressed copy for email headers; a failure here never undoes the
+    # upload (``logo_link`` publishes it again when an email needs it).
     await asyncio.to_thread(_publish_quietly, context.tenant_id, content, content_type)
     return view
 

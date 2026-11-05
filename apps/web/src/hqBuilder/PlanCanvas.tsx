@@ -3,6 +3,7 @@
 import { memo, useCallback, useMemo, useRef, useState, type KeyboardEvent, type PointerEvent } from 'react';
 import type { OfficeRoomKind } from '@anum/contracts';
 import { t } from '../lib/i18n.ts';
+import { rotOfFacing, tableJoins, type SeatFacing } from '../lib/hqSeatTables.ts';
 import { useLocale } from '../useLocale';
 import type { DraftDesk, DraftRoom } from './draftModel.ts';
 import {
@@ -11,7 +12,8 @@ import {
 } from './geometry.ts';
 
 export interface CanvasRoom { id: string; name: string; kind: OfficeRoomKind; color: string | null; draft: DraftRoom }
-export interface CanvasDesk { id: string; label: string; draft: DraftDesk; seated: boolean }
+/** `facing` and `group` are the desk's stored seat fields: seats of one table group are drawn as one table (a right or a left L). */
+export interface CanvasDesk { id: string; label: string; draft: DraftDesk; seated: boolean; facing?: SeatFacing | null; group?: string | null }
 
 interface Props {
   rooms: readonly CanvasRoom[];
@@ -261,6 +263,19 @@ export function PlanCanvas({
             onPointerDown={stableDown} onKeyDown={stableKey} onFocus={stableFocus}
           />
         ))}
+      </g>
+
+      <g className="hqbTables" aria-hidden="true">
+        {placed.flatMap((room) => {
+          const rect = liveRect(room);
+          const seats = desks.filter((d) => d.group && d.draft.roomId === room.id && d.draft.posX != null && d.draft.posZ != null)
+            .map((d) => ({ x: d.draft.posX as number, z: d.draft.posZ as number, facing: d.facing ?? null, group: d.group ?? null }));
+          return [
+            ...seats.map((p, i) => { const across = rotOfFacing(p.facing) % 2 === 0; const w = across ? 1.5 : 0.78, h = across ? 0.78 : 1.5;
+              return <rect key={`${room.id}s${i}`} x={rect.x + p.x - w / 2} y={rect.z + p.z - h / 2} width={w} height={h} rx="0.08" />; }),
+            ...tableJoins(seats).map((j, i) => <rect key={`${room.id}j${i}`} x={rect.x + j.x} y={rect.z + j.z} width={j.width} height={j.depth} rx="0.08" />),
+          ];
+        })}
       </g>
 
       <g className="hqbDesks">

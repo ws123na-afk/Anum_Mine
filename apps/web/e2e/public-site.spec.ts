@@ -1,3 +1,4 @@
+import { sweep } from './support/sweep';
 import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 import { useSavedLocale } from './support/workspaceApi';
@@ -18,11 +19,15 @@ const viewports = [
   { width: 1440, height: 900 }, { width: 1366, height: 768 }, { width: 1024, height: 768 }, { width: 768, height: 1024 }, { width: 390, height: 844 },
 ];
 
-/** Answers GET /health like the API and records every other API call, which a public page must never make. */
+/** No company details entered yet: GET /api/v1/public/legal as a fresh deployment answers it. */
+const EMPTY_LEGAL = { configured: false, company: {}, values: {}, published: [], missing: {} };
+
+/** Answers GET /health and the public legal facts like the API, and records every other API call, which a public page must never make. */
 async function mockHealth(page: Page, answer: 'ok' | 'down' | 'error' = 'ok'): Promise<string[]> {
   const others: string[] = [];
   await page.route(`${API}/**`, async (route) => {
     const url = new URL(route.request().url());
+    if (url.pathname === '/api/v1/public/legal' && !route.request().headers().authorization) return route.fulfill({ status: 200, json: EMPTY_LEGAL, headers: { 'access-control-allow-origin': '*' } });
     if (url.pathname !== '/health') { others.push(url.pathname); return route.fulfill({ status: 401, json: { detail: 'Not signed in' } }); }
     if (answer === 'down') return route.abort('connectionrefused');
     if (answer === 'error') return route.fulfill({ status: 503, json: { detail: 'unavailable' } });
@@ -50,7 +55,7 @@ for (const doc of legal) {
     // The source's own DRAFT line is replaced by the banner; owner facts are marked.
     await expect(page.locator('.legalBody')).not.toContainText('DRAFT, owner and a lawyer');
     await expect(page.locator('.legalBody mark.placeholder').first()).toBeVisible();
-    await expect(page.getByText('Last updated: {{EFFECTIVE_DATE}}')).toBeVisible();
+    await expect(page.locator('.publicMeta')).toContainText('Last updated: Not set yet EFFECTIVE_DATE');
     // Every section is in the contents list and the list jumps to it.
     const firstEntry = page.locator('.legalToc a').first();
     await expect(firstEntry).toBeVisible();
@@ -129,15 +134,20 @@ test('/status says so when the device is offline', async ({ page, context }) => 
   await expect(page.getByRole('heading', { level: 2, name: 'All systems operational' })).toBeVisible();
 });
 
-test('Arabic: the chrome is right to left and the English-only document says so', async ({ page }) => {
+test('Arabic: the document follows the language switch, right to left, with the same draft rule', async ({ page }) => {
   await mockHealth(page);
   await useSavedLocale(page, 'ar');
   await page.goto('/legal/privacy');
   await expect(page.locator('html')).toHaveAttribute('dir', 'rtl');
-  await expect(page.getByText('هذا المستند متاح بالإنجليزية فقط.')).toBeVisible();
-  await expect(page.locator('.legalBody')).toHaveAttribute('dir', 'ltr');
+  await expect(page.getByRole('heading', { level: 1, name: 'سياسة الخصوصية' })).toBeVisible();
+  await expect(page.getByText('هذه ترجمة للنص الإنجليزي. يبقى النص الإنجليزي هو المرجع إلى أن يعتمد محامٍ هذه الترجمة.')).toBeVisible();
+  await expect(page.locator('.legalBody')).toHaveAttribute('dir', 'rtl');
+  await expect(page.locator('article.legalDoc')).toHaveAttribute('lang', 'ar');
+  await expect(page.getByRole('heading', { level: 2, name: 'مدة الاحتفاظ' })).toBeVisible();
   await page.getByRole('button', { name: 'اعرض هذه الصفحة بالإنجليزية' }).click();
   await expect(page.locator('html')).toHaveAttribute('dir', 'ltr');
+  await expect(page.getByRole('heading', { level: 1, name: 'Privacy Policy' })).toBeVisible();
+  await expect(page.locator('.legalBody')).toHaveAttribute('dir', 'ltr');
   await expect(page.getByRole('note')).toContainText('Draft, not yet published');
 });
 
@@ -196,6 +206,20 @@ test('responsive: no horizontal overflow or clipped header at every gate size', 
       expect(layout.navLeft, where).toBeGreaterThanOrEqual(0);
       expect(layout.navRight, where).toBeLessThanOrEqual(layout.width);
       await expect(page.getByRole('link', { name: 'Open ANUM' })).toBeInViewport();
+    }
+  }
+});
+
+test('responsive in Arabic: every legal page right to left at every gate size, no overflow, clipped control or axe violation', async ({ page }) => {
+  test.setTimeout(240_000);
+  await mockHealth(page);
+  await useSavedLocale(page, 'ar');
+  for (const size of viewports) {
+    await page.setViewportSize(size);
+    for (const path of ['/legal/terms', '/legal/privacy', '/legal/dpa', '/legal/aup', '/legal/subprocessors']) {
+      await page.goto(path);
+      await expect(page.locator('.legalBody')).toHaveAttribute('dir', 'rtl');
+      await sweep(page, `ar ${path} at ${size.width}x${size.height}`);
     }
   }
 });

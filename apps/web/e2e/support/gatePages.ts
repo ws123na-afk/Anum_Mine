@@ -5,18 +5,23 @@ import { mockWhatsApp } from './whatsappApi';
 import { mockCallsApi } from './callsApi';
 import { mockBusiness } from './businessApi';
 import { mockInvoices } from './businessInvoicesApi';
+import { mockBooks } from './businessBooksApi';
 import { mockTyre } from './tyreApi';
 import { mockHq } from './hqCampusApi';
 import { mockMailApi } from './mailApi';
 import { mockDeveloper } from './developerApi';
 import { mockBrevo } from './brevoApi';
 import { mockBilling } from './billingApi';
+import { mockVault } from './vaultApi';
 import { VIEWS } from '../../src/lib/shell.ts';
 import { TABS as BUSINESS_TABS } from '../../src/lib/business.ts';
 import { TABS as CALLS_TABS } from '../../src/lib/calls.ts';
 import { COMMERCE_TABS } from '../../src/lib/commerce.ts';
 import { FINANCE_TABS } from '../../src/lib/finance.ts';
 import { MARKETING_TABS } from '../../src/lib/marketing.ts';
+import { ATTENDANCE_TABS } from '../../src/lib/attendance.ts';
+import { VEHICLE_TABS } from '../../src/lib/vehicles.ts';
+import { PURCHASE_TABS } from '../../src/lib/purchases.ts';
 
 // Every page the web app can open, for the UI quality gates: e2e/page-layout.spec.ts (overflow and
 // clipped controls), e2e/accessibility.spec.ts (axe) and e2e/journey.spec.ts (no dead buttons).
@@ -42,6 +47,7 @@ const mail = async (page: Page) => { await mockWorkspaceApi(page); await mockMai
 const callsWithProvider = (page: Page) => mockCallsApi(page, { provider: true });
 const headquarters = async (page: Page) => { await mockHq(page, { commerce: 'connected', tyre: 'none', meetings: 'live' }); };
 const billing = async (page: Page) => { await mockWorkspaceApi(page); await mockBilling(page); };
+const vault = async (page: Page) => { await mockWorkspaceApi(page); await mockVault(page); };
 
 /** Invoices with every state in the list: sent and overdue, sent on time, a draft and one waiting for approval. */
 async function mockInvoicesWithData(page: Page) {
@@ -95,7 +101,15 @@ export const GATE_PAGES: GatePage[] = [
   { hash: 'business-catalog', view: 'business', mock: mockBusiness, ready: '.bzTabs [aria-current="page"]' },
   { hash: 'business-invoices', view: 'business', mock: mockInvoicesWithData, ready: '.bzTabs [aria-current="page"]' },
   { hash: 'business-settings', view: 'business', mock: mockInvoices, ready: '.bzTabs [aria-current="page"]' },
+  { hash: 'business-books', view: 'business', mock: (page) => mockBooks(page), ready: '.bkStatement' },
+  { hash: 'business-books/bills', view: 'business', mock: (page) => mockBooks(page), ready: '.bzTable tbody tr' },
+  { hash: 'business-books/settings', view: 'business', mock: (page) => mockBooks(page), ready: '#bk-rates-set' },
   { hash: 'files', view: 'files', mock: workspace, ready: '.filesTable tbody tr' },
+  { hash: 'vault', view: 'vault', mock: vault, ready: '.vaultMiniList li' },
+  { hash: 'vault-documents', view: 'vault', mock: vault, ready: '.vaultRow' },
+  { hash: 'vault-review', view: 'vault', mock: vault, ready: '.vaultReviewCard input' },
+  { hash: 'vault-trash', view: 'vault', mock: vault, ready: '.vaultTrashRow' },
+  { hash: 'vault-settings', view: 'vault', mock: vault, ready: '.vaultDevices form' },
   { hash: 'memory', view: 'memory', mock: workspace, ready: '.memoryRow' },
   { hash: 'knowledge', view: 'knowledge', mock: workspace, ready: '.kbCollectionButton' },
   { hash: 'reports', view: 'reports', mock: workspace, ready: '.reportRow' },
@@ -124,6 +138,14 @@ export const GATE_PAGES: GatePage[] = [
   { hash: 'organisations', view: 'organisations', mock: workspace, ready: '.orgsTable tbody tr' },
   { hash: 'platformBilling', view: 'platformBilling', mock: billing, ready: '.blConsoleBar' },
   { hash: 'billing', view: 'settings', mock: billing, ready: '.blPlanNow' },
+  { hash: 'attendance', view: 'attendance', mock: workspace, ready: '.attTimeline li, .attStatus h2' },
+  { hash: 'vehicles', view: 'vehicles', mock: workspace, ready: '.vehGrid .cmList li' },
+  { hash: 'vehicles-list', view: 'vehicles', mock: workspace, ready: '.vehList li' },
+  { hash: 'vehicles-settings', view: 'vehicles', mock: workspace, ready: '.vehForm select' },
+  { hash: 'purchases', view: 'purchases', mock: workspace, ready: '.purGrid .purDueList li' },
+  { hash: 'purchases-list', view: 'purchases', mock: workspace, ready: '.purList li' },
+  { hash: 'purchases-returns', view: 'purchases', mock: workspace, ready: '.purList, .emptyState' },
+  { hash: 'purchases-settings', view: 'purchases', mock: workspace, ready: '.purForm input[type=number]' },
   { hash: 'office', view: 'office', mock: headquarters, ready: '.hqLive .hqBuildingCard, .hqLive .hqListBuilding' },
 ];
 
@@ -140,6 +162,9 @@ export const DEEP_LINKS: readonly string[] = [
   ...tabLinks('commerce', COMMERCE_TABS),
   ...tabLinks('finance', FINANCE_TABS),
   ...tabLinks('marketing', MARKETING_TABS),
+  ...tabLinks('attendance', ATTENDANCE_TABS),
+  ...tabLinks('vehicles', VEHICLE_TABS),
+  ...tabLinks('purchases', PURCHASE_TABS),
   // Settings sections and the Integrations connection setup (shell.ts viewFromHash).
   'notifications', 'language', 'privacy', 'appearance', 'connections',
 ];
@@ -152,6 +177,9 @@ function familyOf(link: string): { view: string; mock: (page: Page) => Promise<u
   if (link.startsWith('calls-')) return { view: 'calls', mock: callsWithProvider };
   if (link.startsWith('commerce-')) return { view: 'commerce', mock: workspace };
   if (link.startsWith('finance-')) return { view: 'finance', mock: workspace };
+  if (link.startsWith('attendance-')) return { view: 'attendance', mock: workspace };
+  if (link.startsWith('vehicles-')) return { view: 'vehicles', mock: workspace };
+  if (link.startsWith('purchases-')) return { view: 'purchases', mock: workspace };
   if (link === 'connections') return { view: 'integrations', mock: workspace };
   if (['notifications', 'language', 'privacy', 'appearance'].includes(link)) return { view: 'settings', mock: workspace };
   return { view: link, mock: workspace };

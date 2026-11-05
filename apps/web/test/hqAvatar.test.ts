@@ -10,7 +10,7 @@ import { placementsFromSlots } from '../src/lib/hqModels.ts';
 
 const ids = Array.from({ length: 600 }, (_, i) => `agent_${(i * 7919).toString(36)}${i}`);
 
-test('the default style is deterministic and spreads over the whole palette', () => {
+test('the default style is deterministic, always the neutral build, and spreads the rest over the palette', () => {
   assert.deepEqual(defaultAvatar('agent_x'), defaultAvatar('agent_x'));
   const seen = { build: new Set<string>(), skin: new Set<string>(), hair: new Set<string>(), color: new Set<string>(), outfit: new Set<string>(), accent: new Set<string>() };
   const builds: Record<string, number> = {};
@@ -20,14 +20,14 @@ test('the default style is deterministic and spreads over the whole palette', ()
     builds[a.avatar_style] = (builds[a.avatar_style] ?? 0) + 1;
     assert.ok(HAIR_BY_STYLE[a.avatar_style].includes(a.hair_style), 'the hair shape exists for the build');
   }
-  assert.equal(seen.build.size, AVATAR_STYLES.length);
+  assert.deepEqual([...seen.build], ['neutral']);
   assert.equal(seen.skin.size, SKIN_TONES.length);
-  assert.equal(seen.hair.size, HAIR_STYLES.length);
+  assert.equal(seen.hair.size, HAIR_BY_STYLE.neutral.length);
   assert.equal(seen.color.size, HAIR_COLORS.length);
   assert.equal(seen.outfit.size, OUTFITS.length);
   assert.equal(seen.accent.size, ACCENTS.length);
-  // About 40 / 40 / 20 percent.
-  assert.ok(builds.feminine > 190 && builds.feminine < 290 && builds.masculine > 190 && builds.masculine < 290 && builds.neutral > 70 && builds.neutral < 170, JSON.stringify(builds));
+  // A build is drawn only when the owner chose one: every record without a choice is neutral.
+  assert.deepEqual(builds, { neutral: ids.length });
 });
 
 test('a room of six agents mostly looks different from each other', () => {

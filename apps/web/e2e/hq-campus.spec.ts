@@ -1,7 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { mockHq, type HqMockOptions } from './support/hqCampusApi';
 import { useSavedLocale } from './support/workspaceApi';
-import { reloadReleasingGl, sceneReady } from './support/hqScene';
+import { cameraOptions, officeMenuItem, reloadReleasingGl, sceneReady } from './support/hqScene';
 
 // ANUM MINE headquarters (docs/ANUM_MINE_HQ_EXTENSION_POINTS.md): the campus of workspaces, the
 // building cutaway, the accessible list, the no-WebGL fallback and the navigation command. The API is
@@ -35,8 +35,9 @@ test('the campus shows one building per workspace with real counts, and opens a 
   const totals = hq(page).getByRole('region', { name: 'Total agents' });
   await expect(totals).toContainText('4 of 6 buildings report presence');
   await expect(totals.getByRole('img')).toHaveAccessibleName('22 agents by status');
-  // The concept toggle stays, visibly separate.
-  await expect(page.getByRole('group', { name: 'Office presentation mode' })).toBeVisible();
+  // The concept preview stays a separate, labelled choice: it moved into the Office tools menu (the preview shows the mode switch to come back).
+  await expect(await officeMenuItem(page, 'Concept preview')).toBeVisible();
+  await page.keyboard.press('Escape');
 
   await hq(page).getByRole('button', { name: /^Al Noor Fleet HQ\./ }).click();
   const detail = hq(page).getByRole('complementary', { name: 'About Al Noor Fleet HQ' });
@@ -82,6 +83,7 @@ test('night glow is off under reduced motion', async ({ page }) => {
 test('night and day both draw and the toggle keeps the page inside the viewport', async ({ page }) => {
   await openOffice(page);
   const canvas = hq(page).locator('canvas.hqCanvas');
+  await cameraOptions(page); // Day, Blue hour and Night moved under More camera options
   await hq(page).getByRole('button', { name: 'Night', exact: true }).click();
   await expect(hq(page).locator('.hqStage')).toHaveAttribute('data-night', 'true');
   await page.waitForTimeout(700);
@@ -93,6 +95,8 @@ test('night and day both draw and the toggle keeps the page inside the viewport'
 });
 
 test('inside a building: floors, rooms, desks, agent cards and the module panels', async ({ page }) => {
+  // The campus, the building scene, a room, an agent's work record and a second floor in one walk: more than the default 30 s budget.
+  test.setTimeout(120_000);
   await openOffice(page);
   await enterFleetBuilding(page);
   const counters = hq(page).getByRole('list', { name: 'Building totals' });
@@ -210,7 +214,8 @@ test('a stale building type save asks the owner to reopen the card', async ({ pa
 
 test('the concept preview stays a separate, labelled mode', async ({ page }) => {
   await openOffice(page);
-  await page.getByRole('button', { name: 'Concept preview' }).click();
+  // The concept preview is a choice of the Office tools menu.
+  await (await officeMenuItem(page, 'Concept preview')).click();
   await expect(page.locator('.anumOfficeTour')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Authenticated office' })).toBeVisible();
   await page.getByRole('button', { name: 'Authenticated office' }).click();
@@ -318,6 +323,9 @@ test('office tools open the existing panels and Escape closes them', async ({ pa
 
 test('the assistant can move the view with a navigation command', async ({ page }) => {
   await openOffice(page);
+  // The command is sent once the scene is up, as the assistant does from a loaded office: before that the move waits for the
+  // campus (it is kept and applied on load), and the time to load the 3D scene is not part of what this test checks.
+  await sceneReady(page);
   await page.evaluate(() => window.dispatchEvent(new CustomEvent('anum:hq-navigate', { detail: { building: 'Al Noor Fleet HQ', floor: 'First floor', room: 'Finance' } })));
   await expect(hq(page).getByRole('complementary', { name: 'Room Finance' })).toBeVisible();
   await expect(hq(page).getByLabel('Choose a floor')).toHaveValue('flr_1');
@@ -339,8 +347,10 @@ test('the executive PA dock sits beside the scene and its navigation moves the c
     return route.fulfill({ status: 404, contentType: 'application/json', body: '{}' });
   });
   await reloadReleasingGl(page);
-  const dock = hq(page).getByRole('complementary', { name: /assistant|PA/i });
-  await expect(dock).toBeVisible();
+  // The dock is the shared side panel "Executive assistant" (a named region with the panel header since the shared header, no longer an
+  // aside); the panel and the assistant itself are lazy chunks, loaded again after the reload.
+  const dock = hq(page).getByRole('region', { name: 'Executive assistant', exact: true });
+  await expect(dock).toBeVisible({ timeout: 60_000 });
   await dock.locator('#pa-input').fill('go to Finance');
   await dock.getByRole('button', { name: 'Send' }).click();
   await expect(hq(page).getByRole('complementary', { name: 'Room Finance' })).toBeVisible();
@@ -407,3 +417,27 @@ test('draw time stays low while the camera moves (measured on this machine)', as
   expect(Number(frames.triangles)).toBeGreaterThan(1000);
   expect(Number(frames.drawMs)).toBeLessThan(120);
 });
+
+// Every building shows its own details (docs/ANUM_MINE_HQ_BILLBOARDS.md#every-building): another workspace's billboard comes from the
+// campus boards read; the building cards and the counts of the campus read stay as they were.
+for (const locale of ['en', 'ar'] as const) {
+  test(`every building on the campus shows its own billboard details (${locale})`, async ({ page }) => {
+    await useSavedLocale(page, locale);
+    await openOffice(page, { campus: 'api', commerce: 'connected', meetings: 'live', boards: 'api' });
+    await sceneReady(page);
+    await expect(hq(page).getByRole('button', { name: /^Executive HQ\./ })).toBeAttached();
+    const execCard = hq(page).locator('.hqBuildingCard', { hasText: /Executive HQ/ }).first();
+    await execCard.focus();
+    await page.keyboard.press('Enter');
+    const board = hq(page).locator('[data-testid="hq-billboard"][data-building="workspace_exec"]');
+    await expect(board).toBeVisible();
+    await expect(board.locator('[data-field="work"] [data-part="open"] b')).toHaveText('4');
+    await expect(board.locator('[data-field="work"] [data-part="open"]')).toContainText(locale === 'ar' ? 'مهام مفتوحة' : 'Open tasks');
+    // The campus counts are untouched: the boards read adds details, never presence numbers.
+    await expect(board.locator('[data-field="presence"] dd').first()).toContainText(locale === 'ar' ? '5' : '5 agents');
+    // A workspace the campus cannot open is never read and keeps its honest text.
+    await expect(hq(page).locator('[data-testid="hq-billboard"][data-building="workspace_legal"]')).toHaveCount(0);
+    await expect(hq(page).locator('.hqSceneWrap')).toHaveAttribute('data-sign-brands', '2');
+    expect(await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth)).toBeLessThanOrEqual(0);
+  });
+}

@@ -1,8 +1,11 @@
-/* The shift toggle and shift lines of a room with shift seats (HqShiftBar.tsx, HqPanels.tsx). */
+/* The working hours of a room whose seats have hours, and the hours lines of its desks (HqShiftBar.tsx, HqPanels.tsx). */
 .hqShiftBar{display:grid;gap:6px;padding:8px 10px;border:1px solid var(--hq-line,#3d6570);border-radius:10px;margin:6px 0}
 .hqShiftNow{margin:0;display:flex;gap:8px;align-items:flex-start}
 .hqShiftNow svg{flex:none;width:18px;height:18px;margin-top:2px}
 .hqShiftNow span{display:grid;gap:1px;min-width:0}
 .hqShiftNow strong,.hqShiftNow small{overflow-wrap:anywhere}
-.hqShiftBar button{justify-self:start;min-height:36px}
 .hqShiftCard{display:grid;gap:2px;margin:4px 0}
+.hqShiftWindows{list-style:none;margin:0;padding:0;display:grid;gap:4px}
+.hqShiftWindows li{display:flex;flex-wrap:wrap;align-items:center;gap:4px 8px;min-width:0}
+.hqShiftWindows li>span:first-child{font-variant-numeric:tabular-nums;font-weight:600}
+.hqShiftWindows .hqPill{margin-inline-start:auto}

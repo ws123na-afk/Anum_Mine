@@ -51,6 +51,9 @@ test('search, event type, who and date range become server filters', async ({ pa
   await panel.getByLabel('Done by (id)').fill('owner_example');
   await panel.getByLabel('From day').fill('2026-10-19');
   await panel.getByLabel('To day').fill('2026-10-20');
+  // In English the field says so and the browser's own picker is enough: nothing is written beside it.
+  await expect(panel.getByLabel('From day')).toHaveAttribute('lang', 'en');
+  await expect(panel.getByTestId('hq-date-shown')).toHaveCount(0);
   await panel.getByRole('button', { name: 'Apply filters' }).click();
   await expect(panel.locator('.hqHistRow')).toHaveCount(2); // the two renames inside the two days
   const last = history.requests[history.requests.length - 1];
@@ -199,7 +202,8 @@ test('empty history says nothing was recorded and what to do', async ({ page }) 
   const panel = await openPanel(page);
   await expect(panel.getByRole('heading', { name: 'No records match' })).toBeVisible();
   await expect(panel.getByText('Nothing has been recorded yet.')).toBeVisible();
-  await expect(panel.getByRole('button', { name: 'Open tasks' })).toBeVisible();
+  // Since #348 the next step gives work inside the office (the assign drawer) instead of leaving for Tasks.
+  await expect(panel.getByRole('button', { name: 'Assign work' })).toBeVisible();
 });
 
 test('a filter with no match offers to clear it', async ({ page }) => {
@@ -259,6 +263,27 @@ test('Arabic: the panel is right to left with Arabic wording', async ({ page }) 
   await expect(panel.getByText('لا يمكن إعادة بناء هذا الوقت').first().or(panel.getByText('الخطوة 7 من 7'))).toBeVisible();
 });
 
+test('Arabic: the day fields follow the app language and write the chosen day in Arabic', async ({ page }) => {
+  await open(page, { locale: 'ar' });
+  const hq = page.locator('.hqLive');
+  await hq.getByRole('button', { name: /أدوات المكتب|Office tools/ }).click();
+  await hq.getByRole('button', { name: 'السجل', exact: true }).click();
+  const panel = page.getByTestId('hq-history');
+  await panel.getByRole('button', { name: /^عوامل التصفية/ }).click();
+  const from = panel.locator('.hqHistFilterBody input[type="date"]').first();
+  await expect(from).toHaveAccessibleName('من يوم');
+  await expect(from).toHaveAttribute('lang', 'ar');
+  await expect(from).toHaveAttribute('dir', 'rtl');
+  await from.fill('2026-10-19');
+  const shown = panel.getByTestId('hq-date-shown');
+  await expect(shown).toHaveCount(1);
+  await expect(shown).toHaveAttribute('lang', 'ar');
+  await expect(shown).toContainText('19 أكتوبر 2026');
+  // The written day describes the field for screen readers; the field's name stays the label.
+  await expect(from).toHaveAccessibleDescription(/19 أكتوبر 2026/);
+  await expect(from).toHaveAccessibleName('من يوم');
+});
+
 test('works without WebGL', async ({ page }) => {
   await open(page, { noWebgl: true });
   const panel = await openPanel(page);
@@ -273,4 +298,31 @@ test('a record from another workspace is never shown: the answer is refused', as
   expect(history.requests.every((u) => u.pathname.startsWith('/api/v1/office-history'))).toBe(true);
   // The request carries the open workspace in its headers; the mock would 403 any other tenant in a real server.
   expect(record('task.updated', 'x', 1).verified).toBe(true);
+});
+
+test('the panel header says it checks every 30 s, and newer records are offered, never pushed into the list', async ({ page }) => {
+  await page.clock.install();
+  const fixture = historyFixture();
+  await open(page, {}, { records: fixture });
+  const panel = await openPanel(page);
+  const chip = panel.getByTestId('hq-history-live');
+  await expect(chip).toHaveAttribute('data-live', 'polling');
+  await expect(chip).toContainText(/Checking every 30 s/);
+  await expect(chip).toContainText(/Updated \d{2}:\d{2}:\d{2}/);
+  await expect(panel.locator('.hqHistRow').first()).toBeVisible();
+  const before = await panel.locator('.hqHistRow').count();
+  const fresh = [record('task.created', 'task_new_2', -2), record('task.created', 'task_new_1', -1)];
+  history.setRecords([...fresh, ...fixture]);
+  await page.clock.fastForward(31_000);
+  const newer = panel.getByTestId('hq-history-newer');
+  await expect(newer).toContainText('2 newer records');
+  expect(await panel.locator('.hqHistRow').count()).toBe(before);
+  await newer.getByRole('button', { name: 'Show them' }).click();
+  await expect(newer).toHaveCount(0);
+  await expect(panel.locator(`[data-record-id="${fresh[0].id}"]`)).toBeVisible();
+  // A failed check keeps the list and says the panel is trying again.
+  history.failNext();
+  await page.clock.fastForward(31_000);
+  await expect(chip).toHaveAttribute('data-live', 'reconnecting');
+  await expect(panel.locator('.hqHistRow').first()).toBeVisible();
 });

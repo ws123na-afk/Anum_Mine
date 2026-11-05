@@ -371,7 +371,14 @@ def delete_account(
     """Deletes the account with its transactions, imports and holdings. Bills, debts and
     goals linked to it stay, without the link."""
     _manage(context)
-    with open_finance_store(context) as store:
+    from .sms_service import owner_lock, reverse_for_transactions
+    from .sms_store import open_sms_stores
+
+    with owner_lock(context), open_sms_stores(context) as (store, sms):
+        sms.lock_owner(context)
+        if store.get_account(context, account_id) is not None:
+            rows, _ = store.list_transactions(context, TransactionFilter(account_id=account_id), limit=50_000, offset=0)
+            reverse_for_transactions(store, sms, context, [t.id for t in rows], now=utc_now(), why="account deleted")
         if not store.delete_account(context, account_id):
             raise _not_found("Account")
     _audit(repository, context, "finance.account.delete", account_id)
@@ -496,14 +503,24 @@ def _own_transaction(store: FinanceStore, context: TenantContext, transaction_id
     return found
 
 
-@router.post("/transactions", response_model=TransactionView, status_code=status.HTTP_201_CREATED)
-def create_transaction(
-    body: TransactionInput,
-    context: TenantContext = Depends(tenant_context),
-    repository: AnumRepository = Depends(repository_context),
-) -> TransactionView:
-    _manage(context)
-    with open_finance_store(context) as store:
+def record_manual_transaction(context: TenantContext, body: TransactionInput, *, transaction_id: str | None = None) -> tuple[Transaction, Any, str]:
+    """A hand-entered transaction and its journal entry, in one unit of work under the owner's lock.
+
+    Returns ``(transaction, guardian decision, canonical id)``. Used by ``POST /transactions`` and by modules that
+    record a cash payment once and then link it (docs/vehicles.md#payments). With ``transaction_id`` it is
+    idempotent: when the owner already has that transaction, it is returned unchanged. The caller checks
+    ``finance:manage`` first."""
+    from .ledger import EntrySource
+    from .sms_service import owner_lock, record_plain
+    from .sms_store import open_sms_stores
+
+    with owner_lock(context), open_sms_stores(context) as (store, sms):
+        sms.lock_owner(context)
+        if transaction_id is not None:
+            existing = store.get_transaction(context, transaction_id)
+            if existing is not None:
+                entry = sms.entry_for_transaction(context, existing.id)
+                return existing, None, (entry.canonical_id or entry.id) if entry is not None else existing.id
         account = _own_account(store, context, body.account_id)
         amount = _money(body.amount, account.currency, field="Amount")
         description = _clean(body.description, 500)
@@ -515,7 +532,7 @@ def create_transaction(
             category, source = categorize(description, amount, settings_for(store, context).category_rules)
         now = utc_now()
         item = Transaction(
-            id=new_id("fin_txn"), tenant_id=context.tenant_id, workspace_id=context.workspace_id, owner_user_id=context.user_id,
+            id=transaction_id or new_id("fin_txn"), tenant_id=context.tenant_id, workspace_id=context.workspace_id, owner_user_id=context.user_id,
             account_id=account.id, posted_on=body.posted_on, amount=amount, currency=account.currency, description=description,
             category=category, category_source=source, notes=_clean(body.notes, 1000), import_id=None,
             # A hand-entered row is never a duplicate of another.
@@ -523,7 +540,20 @@ def create_transaction(
             created_at=now, updated_at=now,
         )
         store.save_transaction(item)
+        # The canonical transaction: hand-entered money has its journal entry like every other source.
+        entry = record_plain(sms, context, item, account, EntrySource.MANUAL, now=now)
         decision = check_record(store, context, item, utc_now())
+    return item, decision, (entry.canonical_id or entry.id) if entry is not None else item.id
+
+
+@router.post("/transactions", response_model=TransactionView, status_code=status.HTTP_201_CREATED)
+def create_transaction(
+    body: TransactionInput,
+    context: TenantContext = Depends(tenant_context),
+    repository: AnumRepository = Depends(repository_context),
+) -> TransactionView:
+    _manage(context)
+    item, decision, _canonical = record_manual_transaction(context, body)
     _audit(repository, context, "finance.transaction.create", item.id, _guardian_meta(decision))
     return TransactionView(**_view(item), guardian=decision)
 
@@ -544,8 +574,20 @@ def update_transaction(
 ) -> TransactionView:
     _manage(context)
     changes = body.model_dump(exclude_unset=True)
-    with open_finance_store(context) as store:
+    from .ledger import EntrySource
+    from .sms_service import owner_lock, repost_plain
+    from .sms_store import open_sms_stores
+
+    with owner_lock(context), open_sms_stores(context) as (store, sms):
+        sms.lock_owner(context)
         item = _own_transaction(store, context, transaction_id)
+        entry = sms.entry_for_transaction(context, transaction_id)
+        plain = entry is not None and entry.source in (EntrySource.MANUAL, EntrySource.STATEMENT)
+        if entry is not None and not plain and {"amount", "posted_on", "category"} & set(changes):
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=(
+                "An iPhone SMS or Apple Pay recorded this transaction. Correct its amount, date or category under Finance, iPhone SMS, "
+                "Review, so the ledger records the change as a correction."))
+        before = (item.posted_on, item.amount, item.category)
         if body.posted_on is not None:
             item.posted_on = body.posted_on
         if "amount" in changes and body.amount is not None:
@@ -556,10 +598,13 @@ def update_transaction(
             item.notes = _clean(body.notes, 1000)
         if body.category is not None:
             item.category, item.category_source = body.category, CategorySource.MANUAL
-        elif item.category_source != CategorySource.MANUAL and ({"description", "amount"} & set(changes)):
+        elif item.category_source != CategorySource.MANUAL and ({"description", "amount"} & set(changes)) and (entry is None or plain):
             item.category, item.category_source = categorize(item.description, item.amount, settings_for(store, context).category_rules)
         item.updated_at = utc_now()
         store.save_transaction(item)
+        if plain and entry is not None and (item.posted_on, item.amount, item.category) != before:
+            # A correction reverses the entry and reposts it in the same canonical chain; the row keeps its id.
+            repost_plain(store, sms, context, entry, item, now=item.updated_at)
         decision = check_record(store, context, item, utc_now())
     _audit(repository, context, "finance.transaction.update", transaction_id, {"fields": sorted(changes), **_guardian_meta(decision)})
     return TransactionView(**_view(item), guardian=decision)
@@ -572,10 +617,18 @@ def delete_transaction(
     repository: AnumRepository = Depends(repository_context),
 ) -> Response:
     _manage(context)
-    with open_finance_store(context) as store:
-        if not store.delete_transaction(context, transaction_id):
+    from .sms_service import reverse
+    from .sms_store import open_sms_stores
+
+    # A transaction an SMS recorded is part of a journal entry: deleting it reverses the whole
+    # entry (docs/finance-sms.md#ledger), so the journal keeps the record and stays balanced.
+    with open_sms_stores(context) as (store, sms):
+        entry = sms.entry_for_transaction(context, transaction_id)
+        if entry is not None:
+            reverse(store, sms, context, entry, now=utc_now(), why="transaction deleted by the owner")
+        elif not store.delete_transaction(context, transaction_id):
             raise _not_found("Transaction")
-    _audit(repository, context, "finance.transaction.delete", transaction_id)
+    _audit(repository, context, "finance.transaction.delete", transaction_id, {"reversed_entry": entry.id} if entry else None)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -637,6 +690,8 @@ class ImportPreview(BaseModel):
 
 
 class ImportView(BaseModel):
+    reconciled: int = 0  # rows that matched a payment already recorded (SMS, Apple Pay, by hand): attached, not added
+    held_for_review: int = 0  # rows that could match more than one recorded payment: in Finance, iPhone SMS, Review
     id: str
     account_id: str
     filename: str
@@ -704,7 +759,12 @@ def confirm_import(
 ) -> ImportView:
     """Import the statement previewed with the same choices; duplicates are skipped."""
     _manage(context)
-    with open_finance_store(context) as store:
+    from .ledger import EntrySource
+    from .sms_service import owner_lock, reconcile_rows, record_plain
+    from .sms_store import open_sms_stores
+
+    with owner_lock(context), open_sms_stores(context) as (store, sms):
+        sms.lock_owner(context)
         account, parsed, existing = _parse(store, context, body)
         fresh = [row for row in parsed.rows if row.dedupe_hash not in existing]
         if not parsed.rows:
@@ -730,13 +790,19 @@ def confirm_import(
                     import_id=record.id, dedupe_hash=row.dedupe_hash, created_at=now, updated_at=now,
                 )
             )
+        # A row that reports a payment an SMS, Apple Pay or the person already recorded is attached to that
+        # transaction instead of creating another; a row that could be more than one waits for review.
+        rows, reconciled = reconcile_rows(store, sms, context, account, rows, record.id, now=now)
         added = store.add_transactions(rows)
+        for row in rows:
+            record_plain(sms, context, row, account, EntrySource.STATEMENT, now=now)
         record.imported_count = added
-        record.duplicate_count += len(rows) - added
+        record.duplicate_count += reconciled.attached
         store.save_import(record)
         breaks = _import_rule_breaks(store, context, rows)
-    _audit(repository, context, "finance.import.create", record.id, {"imported": added, "duplicates": record.duplicate_count, "rule_breaks": breaks})
-    return ImportView(**_view(record), rule_breaks=breaks)
+    _audit(repository, context, "finance.import.create", record.id, {"imported": added, "duplicates": record.duplicate_count, "rule_breaks": breaks,
+                                                                     "reconciled": reconciled.attached, "review": reconciled.review})
+    return ImportView(**_view(record), rule_breaks=breaks, reconciled=reconciled.attached, held_for_review=reconciled.review)
 
 
 def _import_rule_breaks(store: FinanceStore, context: TenantContext, rows: list[Transaction]) -> int:
@@ -781,7 +847,15 @@ def delete_import(
 ) -> Response:
     """Undo an import: its transactions go with it."""
     _manage(context)
-    with open_finance_store(context) as store:
+    from .sms_service import owner_lock, reverse_for_transactions
+    from .sms_store import open_sms_stores
+
+    with owner_lock(context), open_sms_stores(context) as (store, sms):
+        sms.lock_owner(context)
+        record = store.get_import(context, import_id)
+        if record is not None:
+            rows, _ = store.list_transactions(context, TransactionFilter(account_id=record.account_id), limit=10_000, offset=0)
+            reverse_for_transactions(store, sms, context, [t.id for t in rows if t.import_id == import_id], now=utc_now(), why="statement import undone")
         removed = store.delete_import(context, import_id)
     if removed is None:
         raise _not_found("Import")

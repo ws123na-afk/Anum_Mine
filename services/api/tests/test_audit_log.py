@@ -171,6 +171,73 @@ def test_csv_export_neutralises_spreadsheet_formulas(client: TestClient) -> None
     assert row["actor"] == "'=HYPERLINK(1)" and row["target"] == "'+cmd"
 
 
+def _office(record_id: str, *, tenant: str = TENANT, workspace: str = WORKSPACE, actor: str = "owner_1",
+            action: str = "office.room.rename", target: str = "room_alpha", metadata: dict | None = None,
+            minute: int = 0) -> AuditRecord:
+    return memory_repository.record_audit(AuditRecord(
+        id=record_id, tenant_id=tenant, workspace_id=workspace, actor=actor, action=action, target=target,
+        outcome="success", correlation_id=f"corr_{record_id}", metadata=metadata or {},
+        created_at=datetime(2026, 9, 1, tzinfo=timezone.utc) + timedelta(minutes=minute),
+    ))
+
+
+def test_export_mention_keeps_records_that_name_the_room_desks_or_agent_on_the_server(client: TestClient) -> None:
+    _office("a_target", target="room_alpha", minute=1)
+    _office("a_desk", action="office.desk.assignment", target="desk_alpha_1",
+            metadata={"before": {"agent_id": None}, "after": {"agent_id": "agent_fleet", "room_id": "room_alpha"}}, minute=2)
+    _office("a_actor", actor="agent_fleet", action="task.updated", target="task_1", minute=3)
+    _office("a_nested", action="agent_meeting.create", target="meeting_1",
+            metadata={"participants": [{"id": "agent_fleet"}]}, minute=4)
+    _office("a_other", action="office.room.rename", target="room_beta", metadata={"note": "room_alpha is next door"}, minute=5)
+    seed(3)
+
+    def ids(query: str) -> list[str]:
+        response = client.get(f"/api/v1/audit/export?format=json&{query}", headers=OWNER)
+        assert response.status_code == 200, response.text
+        return [row["id"] for row in response.json() if row["action"] != "audit.export"]
+
+    # The room with its desk: the room as target, the desk as target, the room as a recorded value.
+    assert ids("mention=room_alpha&mention=desk_alpha_1") == ["a_desk", "a_target"]
+    # The agent: as actor, as a recorded value inside an object, inside a list.
+    assert ids("mention=agent_fleet") == ["a_nested", "a_actor", "a_desk"]
+    # Combined with the other filters, and blank or repeated ids are ignored.
+    assert ids("mention=agent_fleet&mention=&mention=agent_fleet&action=office.*") == ["a_desk"]
+    # A substring is not a mention.
+    assert ids("mention=room_al") == []
+    # The export's own audit record names the room or agent it was narrowed to.
+    exported = client.get("/api/v1/audit-records?action=audit.export", headers=OWNER).json()["items"]
+    assert {"mentions": "agent_fleet", "action": "office.*"} in [item["metadata"]["filters"] for item in exported]
+    # CSV takes the same filter.
+    text = client.get("/api/v1/audit/export?format=csv&mention=desk_alpha_1", headers=OWNER).text
+    assert [row["id"] for row in csv.DictReader(io.StringIO(text)) if row["action"] != "audit.export"] == ["a_desk"]
+
+
+def test_export_mention_never_crosses_the_tenant_or_the_permission(client: TestClient) -> None:
+    _office("mine", target="room_alpha", minute=1)
+    _office("theirs", tenant="tenant_elsewhere", workspace="workspace_elsewhere", target="room_alpha", minute=2)
+    elsewhere = headers_for("owner_1", roles="owner", tenant="tenant_elsewhere", workspace="workspace_elsewhere")
+    mine = [row["id"] for row in client.get("/api/v1/audit/export?mention=room_alpha", headers=OWNER).json()]
+    assert "mine" in mine and "theirs" not in mine
+    # Another tenant naming this tenant's room gets only its own records.
+    theirs = [row["id"] for row in client.get("/api/v1/audit/export?mention=room_alpha", headers=elsewhere).json()]
+    assert "theirs" in theirs and "mine" not in theirs
+    # This workspace's id sent with another tenant's id never reaches this tenant's records.
+    crossed = headers_for("owner_1", roles="owner", tenant="tenant_elsewhere", workspace=WORKSPACE)
+    refused = client.get("/api/v1/audit/export?mention=room_alpha", headers=crossed)
+    assert refused.status_code in (200, 403, 404)
+    assert '"mine"' not in refused.text
+    # The filter adds no permission: a member is still refused.
+    assert client.get("/api/v1/audit/export?mention=room_alpha", headers=MEMBER).status_code == 403
+
+
+def test_export_mention_refuses_too_many_or_too_long_ids(client: TestClient) -> None:
+    many = "&".join(f"mention=id_{index}" for index in range(101))
+    assert client.get(f"/api/v1/audit/export?{many}", headers=OWNER).status_code == 422
+    assert client.get(f"/api/v1/audit/export?mention={'x' * 201}", headers=OWNER).status_code == 422
+    hundred = "&".join(f"mention=id_{index}" for index in range(100))
+    assert client.get(f"/api/v1/audit/export?{hundred}", headers=OWNER).status_code == 200
+
+
 def test_export_spans_more_than_one_batch(client: TestClient) -> None:
     seed(1203)
     rows = client.get("/api/v1/audit/export?action=task.create", headers=OWNER).json()

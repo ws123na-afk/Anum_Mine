@@ -131,6 +131,44 @@ def parse_date(value: Any) -> date | None:
     return None
 
 
+def parse_instant(value: Any) -> datetime | None:
+    """The instant a source value names, in UTC, or None when it does not name one.
+
+    Only a value that carries both a time of day and a time zone is an instant: a timezone
+    aware datetime, an ISO 8601 text with an offset or "Z", or epoch seconds or
+    milliseconds. A plain date, a text without an offset (the zone is unknown) and a value
+    at exactly 00:00:00 in its own zone (a date stored as a timestamp) give None, so a
+    date-only record is never given a made-up time.
+    """
+    if value is None or isinstance(value, bool):
+        return None
+    if isinstance(value, datetime):
+        moment = value
+    elif isinstance(value, date):
+        return None
+    elif isinstance(value, (int, float)):
+        seconds = float(value) / (1000 if value > 1e11 else 1)
+        if not math.isfinite(seconds) or seconds <= 0:
+            return None
+        try:
+            moment = datetime.fromtimestamp(seconds, tz=timezone.utc)
+        except (OverflowError, OSError, ValueError):
+            return None
+    else:
+        text = str(value).strip()
+        if len(text) <= 10:
+            return None
+        try:
+            moment = datetime.fromisoformat(text.replace("Z", "+00:00"))
+        except ValueError:
+            return None
+    if moment.tzinfo is None or moment.utcoffset() is None:
+        return None
+    if (moment.hour, moment.minute, moment.second, moment.microsecond) == (0, 0, 0, 0):
+        return None
+    return moment.astimezone(timezone.utc)
+
+
 def tread_to_mm(value: float | None, unit: TreadUnit) -> float | None:
     if value is None:
         return None
@@ -201,6 +239,12 @@ def _lookup(row: Mapping[str, Any], column: str) -> Any:
             return None
         current = current[part]
     return current
+
+
+def _instant(row: Mapping[str, Any], mapping: EntityMapping, name: str) -> datetime | None:
+    """The instant in the column a date field is read from, when the source stores one."""
+    column = mapping.fields.get(name)
+    return parse_instant(_lookup(row, column)) if column is not None else None
 
 
 def _values(row: Mapping[str, Any], entity: Entity, mapping: EntityMapping) -> dict[str, Any]:
@@ -385,6 +429,7 @@ def apply_mapping(
                 vehicle_id=values["vehicle_id"] or (tyre.vehicle_id if tyre else None),
                 position=values["position"] or (tyre.position if tyre else None),
                 inspected_at=values["inspected_at"],
+                inspected_time=_instant(row, mapping.entities[Entity.INSPECTIONS], "inspected_at"),
                 tread_mm=tread,
                 pressure_psi=pressure if pressure and pressure > 0 else None,
                 target_psi=pressure_to_psi(values["target_pressure"], units.pressure),
@@ -530,6 +575,8 @@ def _apply_operations(mapping: TyreMapping, entity_rows: Any, dataset: TyreDatas
             if entity == Entity.HOUR_READINGS and values["hours"] <= 0:
                 _skip(stats[entity.value], "zero or negative reading")
                 continue
+            if entity == Entity.INSPECTION_VISITS:
+                values["inspected_time"] = _instant(row, mapping.entities[entity], "inspected_at")
             target.append(model(**values))
             stats[entity.value].kept += 1
 

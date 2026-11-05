@@ -1,20 +1,20 @@
 // Sales desk for WhatsApp leads. Every action hits the authenticated API.
 // Quotes and follow-ups are drafts only, never silently sent to customers.
-import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useState, type FormEvent } from 'react';
 import { AlertCircle, ArrowUpRight, ClipboardList, RefreshCcw } from 'lucide-react';
 import { describeError } from './lib/errors';
 import { formatDateTime, getLocale, subscribeLocale } from './lib/i18n';
 import {
-  createSalesQuote, getSalesOverview, getSalesLeadHistory, listSalesLeads, proposeSalesFollowup, requestSalesQuoteDelivery,
+  createSalesQuote, getSalesLead, getSalesOverview, getSalesLeadHistory, proposeSalesFollowup, requestSalesQuoteDelivery,
   recordSalesConsent, getSalesConsentHistory,
-  transitionSalesLead, updateSalesLead,
+  updateSalesLead,
   type SalesLead, type SalesOverview, type SalesStage, type SalesHistory,
 } from './lib/salesApi';
 import './salesDashboard.css';
 import { SalesCampaignAndOperations } from './SalesCampaignAndOperations';
+import { FIGURES_NOTE, salesFigures } from './lib/salesFigures';
 import { useIsOwner } from './useIsOwner';
 
-const STAGES: SalesStage[] = ['new', 'qualifying', 'qualified', 'quoted', 'negotiating', 'won', 'lost', 'disqualified'];
 const LABELS = {
   en: {
     title: 'Sales pipeline', subtitle: 'WhatsApp enquiries, marketing sources and quotations in one place',
@@ -29,12 +29,15 @@ const LABELS = {
     due: 'Due date & time', channel: 'Channel', purpose: 'Reason', createFollowup: 'Save follow-up proposal',
     empty: 'No matching leads yet. Incoming eligible WhatsApp enquiries appear here after ingestion.',
     noSelection: 'Select a lead to review its history and next steps.',
-    limited: 'Showing up to 100 recent leads. Totals may exclude older records.',
     consent: 'Marketing consent', consentNo: 'Not verified', consentYes: 'Verified',
     reload: 'Refresh', saved: 'Saved successfully', draftSaved: 'Draft saved. Approval is still required.',
     error: 'Unable to load the sales pipeline', quoteNotice: 'Draft only: not delivered to customer.',
     followNotice: 'Proposal only: no customer message will be sent.',
     next: 'Next action', openWhatsApp: 'WhatsApp inbox',
+    oneList: 'WhatsApp leads are in the one lead list: Business, Leads, marked WhatsApp. Their stage and score are set there.',
+    openLeads: 'Open the lead list', toolsFor: 'Quotes, follow-ups and consent for this WhatsApp lead.',
+    pickFromLeads: 'Open a WhatsApp lead in Business, Leads, then choose Quotes and follow-ups.',
+    stageInBusiness: 'The stage of this lead is set in Business, Leads.', notFound: 'This WhatsApp lead was not found.',
   },
   ar: {
     title: 'إدارة المبيعات', subtitle: 'طلبات واتساب ومصادر التسويق وعروض الأسعار في مكان واحد',
@@ -49,12 +52,15 @@ const LABELS = {
     due: 'تاريخ ووقت المتابعة', channel: 'القناة', purpose: 'السبب', createFollowup: 'حفظ اقتراح المتابعة',
     empty: 'لا توجد نتائج. تظهر استفسارات واتساب هنا بعد تسجيلها.',
     noSelection: 'اختر عميلاً لمراجعة بياناته وخطوات العمل التالية.',
-    limited: 'يتم عرض آخر 100 عميل كحد أقصى وقد لا تشمل الأرقام السجلات الأقدم.',
     consent: 'موافقة التسويق', consentNo: 'غير مؤكدة', consentYes: 'مؤكدة',
     reload: 'تحديث', saved: 'تم الحفظ بنجاح', draftSaved: 'تم حفظ المسودة وتحتاج إلى الموافقة.',
     error: 'تعذر تحميل بيانات المبيعات', quoteNotice: 'مسودة فقط، لم تُرسل إلى العميل.',
     followNotice: 'اقتراح فقط، لم تُرسل أي رسالة إلى العميل.',
     next: 'الخطوة التالية', openWhatsApp: 'صندوق واتساب',
+    oneList: 'عملاء واتساب في قائمة العملاء الموحدة: الأعمال، العملاء المحتملون، بعلامة واتساب. تُحدد مرحلتهم وتقييمهم هناك.',
+    openLeads: 'افتح قائمة العملاء', toolsFor: 'عروض الأسعار والمتابعات والموافقة لعميل واتساب هذا.',
+    pickFromLeads: 'افتح عميل واتساب في الأعمال، العملاء المحتملون، ثم اختر عروض الأسعار والمتابعات.',
+    stageInBusiness: 'تُحدد مرحلة هذا العميل في الأعمال، العملاء المحتملون.', notFound: 'لم يُعثر على عميل واتساب هذا.',
   },
 } as const;
 const STAGE_TEXT: Record<SalesStage, {en:string; ar:string}> = {
@@ -70,37 +76,31 @@ const SERVICE: Record<string, {en:string;ar:string}> = {
   other:{en:'Other',ar:'أخرى'},
 };
 
-export function SalesDashboard() {
+// One lead list (docs/business.md#whatsapp-leads): the leads themselves are listed in Business, Leads.
+// This desk keeps the WhatsApp figures, campaigns, operations, and the quotes, follow-ups and consent
+// of the one WhatsApp lead opened from there (#whatsapp/sales/<id>).
+export function SalesDashboard({ focusLeadId = null }: { focusLeadId?: string | null } = {}) {
   const [locale, setLocale] = useState(getLocale);
-  const [data, setData] = useState<SalesLead[]>([]);
+  const [focused, setFocused] = useState<SalesLead | null>(null);
   const [overview, setOverview] = useState<SalesOverview | null>(null);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [filter, setFilter] = useState<SalesStage | 'all'>('all');
-  const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const labels = LABELS[locale];
-  const selected = data.find((lead) => lead.id === selectedId) ?? null;
+  const selected = focused;
   useEffect(() => subscribeLocale(setLocale), []);
 
   const refresh = useCallback(async () => {
     setLoading(true); setError('');
     try {
-      const [result, summary] = await Promise.all([listSalesLeads(), getSalesOverview()]);
-      setData(result.items); setOverview(summary);
+      const [lead, summary] = await Promise.all([focusLeadId ? getSalesLead(focusLeadId).catch(() => null) : Promise.resolve(null), getSalesOverview()]);
+      setFocused(lead); setOverview(summary);
+      if (focusLeadId && !lead) setError(LABELS[getLocale()].notFound);
     } catch (cause) { setError(describeError(cause)); }
     finally { setLoading(false); }
-  }, []);
+  }, [focusLeadId]);
   useEffect(() => { void refresh(); }, [refresh]);
-
-  const visible = useMemo(() => data.filter((lead) => {
-    if (filter !== 'all' && lead.status !== filter) return false;
-    const search = [lead.company_name, lead.contact_name, lead.phone_e164, lead.assigned_to, lead.campaign_hint]
-      .filter(Boolean).join(' ').toLocaleLowerCase();
-    return search.includes(query.trim().toLocaleLowerCase());
-  }), [data, filter, query]);
 
   const action = async (operation: () => Promise<unknown>, message: string = labels.saved) => {
     setBusy(true); setError(''); setNotice('');
@@ -116,51 +116,31 @@ export function SalesDashboard() {
     </header>
     {error && <p role="alert" className="salesError"><AlertCircle size={18}/>{error}</p>}
     {notice && <p role="status" className="salesSuccess">{notice}</p>}
-    <div className="salesKpis">
-      {([
-        [labels.leads, overview?.leads ?? 0], [labels.qualified, overview?.qualified ?? 0],
-        [labels.quoted, overview?.quoted ?? 0], [labels.won, overview?.won ?? 0],
-        [labels.lost, overview?.lost ?? 0],
-      ] as const).map(([label, count]) => <div className="salesKpi" key={label}><span>{label}</span><strong>{count}</strong></div>)}
+    <div className="salesKpis" aria-busy={loading && !overview ? 'true' : undefined}>
+      {salesFigures(overview, locale).map((figure) => <div className="salesKpi" key={figure.key}><span>{figure.label}</span><strong>{figure.value}</strong></div>)}
     </div>
-    <p className="salesHint">{labels.limited}</p>
+    {overview && <p className="salesHint">{FIGURES_NOTE[locale]} <a href="#business-leads">{labels.openLeads}</a></p>}
     <SalesCampaignAndOperations locale={locale}/>
     <div className="salesSplit">
       <section className="salesListing" aria-label={labels.leads}>
-        <div className="salesFilters"><input aria-label={labels.search} placeholder={labels.search}
-          value={query} onChange={(e) => setQuery(e.target.value)}/>
-          <select aria-label={labels.stage} value={filter} onChange={(e) => setFilter(e.target.value as SalesStage | 'all')}>
-            <option value="all">{labels.all}</option>
-            {STAGES.map((stage) => <option key={stage} value={stage}>{STAGE_TEXT[stage][locale]}</option>)}
-          </select></div>
-        {loading ? <p className="salesEmpty" role="status">...</p> :
-          visible.length === 0 ? <p className="salesEmpty">{labels.empty}</p> :
-          <div className="salesList" role="list">{visible.map((lead) => <button type="button" role="listitem" key={lead.id}
-            aria-pressed={lead.id === selectedId} onClick={() => {setSelectedId(lead.id);setError('');setNotice('');}}
-            className={lead.id === selectedId ? 'salesLead selected' : 'salesLead'}>
-            <span className="salesLeadTop"><strong>{lead.company_name || lead.contact_name || lead.phone_e164 || lead.contact_id}</strong>
-              <small>{STAGE_TEXT[lead.status][locale]}</small></span>
-            <span className="salesLeadBottom"><span>{SERVICE[lead.intent]?.[locale] || lead.intent}</span>
-              <time dateTime={lead.updated_at}>{formatDateTime(lead.updated_at)}</time></span>
-            {lead.campaign_hint && <span className="salesCampaign">{labels.source}: {lead.campaign_hint}</span>}
-          </button>)}</div>}
+        <p className="salesHint">{labels.oneList}</p>
+        <a className="salesLeadsLink" href="#business-leads"><ArrowUpRight size={16}/>{labels.openLeads}</a>
       </section>
       <section className="salesDetail" aria-label={labels.details}>
         {selected ? <LeadEditor key={selected.id + ':' + selected.revision} lead={selected}
           locale={locale} disabled={busy} save={(fields) => action(() => updateSalesLead(selected, fields))}
-          changeStage={(stage) => action(() => transitionSalesLead(selected, stage))}
           createQuote={(items, currency, terms) => action(() => createSalesQuote(selected.id, items, currency, terms), labels.draftSaved)}
           followUp={(due, channel, purpose) => action(() => proposeSalesFollowup(selected.id, due, channel, purpose), labels.draftSaved)}
           recordConsent={(granted, note, evidenceId) => action(() => recordSalesConsent(selected.id, granted, note, evidenceId))} /> :
-          <div className="salesEmpty"><ClipboardList size={36}/><p>{labels.noSelection}</p></div>}
+          <div className="salesEmpty"><ClipboardList size={36}/><p>{loading ? '...' : labels.pickFromLeads}</p></div>}
       </section>
     </div>
   </section>;
 }
 
-function LeadEditor({lead, locale, disabled, save, changeStage, createQuote, followUp, recordConsent}: {
+function LeadEditor({lead, locale, disabled, save, createQuote, followUp, recordConsent}: {
   lead: SalesLead; locale:'ar'|'en'; disabled:boolean;
-  save:(value:Record<string,unknown>)=>void; changeStage:(value:SalesStage)=>void;
+  save:(value:Record<string,unknown>)=>void;
   createQuote:(items:{description:string;amount:string}[],currency:string,terms:string)=>void;
   followUp:(due:string,channel:string,purpose:string)=>void;
   recordConsent:(granted:boolean,note:string,evidenceId:string)=>void;
@@ -172,7 +152,6 @@ function LeadEditor({lead, locale, disabled, save, changeStage, createQuote, fol
   const [assignment,setAssignment] = useState(lead.assigned_to || '');
   const [budgetMin,setBudgetMin] = useState(lead.budget_min || '');
   const [budgetMax,setBudgetMax] = useState(lead.budget_max || '');
-  const [nextStage,setNextStage] = useState<SalesStage>(lead.status);
   const [quoteDesc,setQuoteDesc] = useState('');
   const [quoteAmount,setQuoteAmount] = useState('');
   const [quoteTerms,setQuoteTerms] = useState('');
@@ -201,9 +180,7 @@ function LeadEditor({lead, locale, disabled, save, changeStage, createQuote, fol
       <label>{l.requirements}<textarea rows={3} maxLength={4000} value={requirements} onChange={e=>setRequirements(e.target.value)}/></label>
       <button disabled={disabled} type="submit">{l.save}</button>
     </form>
-    <div className="salesWorkflow"><label>{l.change}<select value={nextStage} onChange={e=>setNextStage(e.target.value as SalesStage)}>
-        {STAGES.map(stage=><option key={stage} value={stage}>{STAGE_TEXT[stage][locale]}</option>)}
-      </select></label><button type="button" disabled={disabled || nextStage === lead.status} onClick={()=>changeStage(nextStage)}>{l.change}</button></div>
+    <p className="salesHint">{l.stageInBusiness} <a href="#business-leads">{l.openLeads}</a></p>
     <section className="salesSubForm"><h4>{l.quotation}</h4><p>{l.quoteNotice}</p>
       <form onSubmit={e=>{e.preventDefault();createQuote([{description:quoteDesc,amount:quoteAmount}],lead.currency,quoteTerms);}}>
         <label>{l.item}<input required maxLength={200} value={quoteDesc} onChange={e=>setQuoteDesc(e.target.value)}/></label>

@@ -9,6 +9,7 @@ import { roleText } from '../lib/hqRoles.ts';
 import { t, type MessageKey } from '../lib/i18n.ts';
 import { roomName, sceneName } from '../lib/registryNames.ts';
 import { initialsOf, planModel, type PersonRow } from './navModel.ts';
+import { PanelSection } from './PanelSection.tsx';
 
 export type Move = Readonly<{ id: string; label: string; icon: ReactNode; run: () => void }>;
 
@@ -20,21 +21,20 @@ export function QuickMoves(props: { moves: readonly Move[]; suggestions: Readonl
     if (!result.ok && result.code !== 'not-mounted') setError(t('hqNav.moves.failed', { reason: result.message }));
   };
   return (
-    <section className="hqMoves" aria-label={t('hqNav.moves.title')}>
-      <h3>{t('hqNav.moves.title')}</h3>
+    <PanelSection id="moves" title={t('hqNav.moves.title')} purpose={t('hqPanels.moves.purpose')} className="hqMoves">
       <ul className="hqMoveList">
         {props.moves.map((m) => <li key={m.id}><button type="button" className="hqMove" onClick={m.run}>{m.icon}<span>{m.label}</span></button></li>)}
       </ul>
       {props.suggestions.length > 0 ? (
         <>
-          <h4>{t('hqNav.moves.suggested')}</h4>
+          <h3 className="hqSubHead">{t('hqNav.moves.suggested')}</h3>
           <ul className="hqPhrases">
             {props.suggestions.map((s) => <li key={s.id}><button type="button" onClick={() => void go(s.target)}>{s.label}</button></li>)}
           </ul>
         </>
       ) : props.moves.length === 0 && <p className="hqMuted">{t('hqNav.moves.none')}</p>}
       {error && <p className="hqNote" role="alert" data-error="true">{error}</p>}
-    </section>
+    </PanelSection>
   );
 }
 
@@ -44,9 +44,8 @@ export function FloorPlan(props: { floor: SceneFloor | null; selectedRoomId: str
   const selected = floor?.rooms.find((r) => r.id === props.selectedRoomId) ?? null;
   const heading = floor ? (selected ? t('hqNav.plan.headingRoom', { floor: sceneName(floor), room: roomName(selected) }) : t('hqNav.plan.heading', { floor: sceneName(floor) })) : '';
   return (
-    <section className="hqPlan" aria-label={floor ? t('hqNav.plan.label', { floor: sceneName(floor) }) : t('hqNav.tab.plan')}>
+    <PanelSection id="plan" title={heading || t('hqNav.tab.plan')} purpose={t('hqPanels.plan.purpose')} className="hqPlan" ariaLabel={floor ? t('hqNav.plan.label', { floor: sceneName(floor) }) : t('hqNav.tab.plan')}>
       <div className="hqPlanHead">
-        <h3>{heading}</h3>
         <div className="hqSegment" role="group" aria-label={t('hqNav.plan.mode')}>
           <button type="button" aria-pressed={props.view === 'top'} onClick={() => props.onView('top')}>{t('hqNav.plan.2d')}</button>
           <button type="button" aria-pressed={props.view === '3d'} disabled={!props.canThreeD} onClick={() => props.onView('3d')}>{t('hqNav.plan.3d')}</button>
@@ -68,33 +67,35 @@ export function FloorPlan(props: { floor: SceneFloor | null; selectedRoomId: str
           })}
         </svg>
       )}
-    </section>
+    </PanelSection>
   );
 }
 
 const PAGE = 6;
 
-export function PeopleList(props: { rows: readonly PersonRow[]; presenceKnown: boolean; onOpen: (row: PersonRow) => void }) {
+export function PeopleList(props: { rows: readonly PersonRow[]; presenceKnown: boolean; onOpen: (row: PersonRow) => void; live?: ReactNode }) {
   const [all, setAll] = useState(false);
   const rows = all ? props.rows : props.rows.slice(0, PAGE);
   return (
-    <section className="hqPeople" aria-label={t('hqNav.people.title')}>
-      <h3>{t('hqNav.people.title')}</h3>
+    <PanelSection id="people" title={t('hqNav.people.title')} purpose={t('hqPanels.people.purpose')} live={props.live} className="hqPeople">
       {props.rows.length === 0 ? <p className="hqMuted" role="status">{t('hqNav.people.none')}</p> : (
         <ul>
           {rows.map((r) => {
             const name = r.state === 'private' ? t('hq.agent.private') : r.name ?? t('hq.agent.assigned');
             const chip = r.offShift ? t(r.offShift === 'off_waiting' ? 'hqGc.offWaiting' : 'hqGc.off') : r.state === 'not_connected' ? (props.presenceKnown ? t('hqNav.people.notConnected') : t('hqNav.people.unavailable')) : r.status ? statusLabel(r.status) : t('hq.status.unknown');
             const tone = r.state === 'known' && r.status && !r.offShift ? STATUS_TONE[r.status] : 'faint';
+            const where = [r.role ? roleText(r.role) : null, r.roomLabel ? t('hqNav.people.in', { room: r.roomLabel }) : null].filter(Boolean).join(', ');
+            const state = `${chip}${r.stale ? ` (${t('hq.agent.stale')})` : ''}`;
+            // The spoken name holds every word the button shows (WCAG 2.5.3): the name, where they sit, then the state. The initials are drawn from data-initials.
             return (
               <li key={r.key}>
-                <button type="button" className="hqPerson" disabled={!r.agentId} aria-label={`${t('hqNav.people.open', { name })}. ${chip}.`} onClick={() => r.agentId && props.onOpen(r)}>
-                  <span className="hqAvatar" aria-hidden="true">{r.name && r.state !== 'private' ? initialsOf(r.name) : '?'}</span>
+                <button type="button" className="hqPerson" disabled={!r.agentId} aria-label={`${t('hqNav.people.open', { name })}. ${where ? `${where}. ` : ''}${state}.`} onClick={() => r.agentId && props.onOpen(r)}>
+                  <span className="hqAvatar" aria-hidden="true" data-initials={r.name && r.state !== 'private' ? initialsOf(r.name) : '?'} />
                   <span className="hqPersonText">
-                    <strong>{name}</strong>
-                    <small>{[r.role ? roleText(r.role) : null, r.roomLabel ? t('hqNav.people.in', { room: r.roomLabel }) : null].filter(Boolean).join(', ')}</small>
-                  </span>
-                  <span className={`hqPill tone-${tone}`} data-stale={r.stale}>{chip}{r.stale ? ` (${t('hq.agent.stale')})` : ''}</span>
+                    <strong>{name}</strong>{' '}
+                    <small>{where}</small>
+                  </span>{' '}
+                  <span className={`hqPill tone-${tone}`} data-stale={r.stale}>{state}</span>
                 </button>
               </li>
             );
@@ -102,7 +103,6 @@ export function PeopleList(props: { rows: readonly PersonRow[]; presenceKnown: b
         </ul>
       )}
       {props.rows.length > PAGE && <button type="button" className="hqGhost" onClick={() => setAll((v) => !v)}>{all ? t('hqNav.people.less') : t('hqNav.people.more', { count: props.rows.length - PAGE })}</button>}
-    </section>
+    </PanelSection>
   );
 }
-

@@ -13,6 +13,7 @@
 import { MeshBuilder, VERTEX_FLOATS, hex, mix, seeded, type MatId, type Rgb } from '../../lib/hqGeometry.ts';
 import { workstation, type StationSpec } from './furniture.ts';
 import { Local } from './local.ts';
+import { standingFigure } from './figures.ts';
 import { executive, lounge, meetingRoom, reception } from './roomsFront.ts';
 import { warehouse, workshop } from './roomsIndustrial.ts';
 import { customerCare, drawStations, openOffice, operationsRoom } from './roomsWork.ts';
@@ -21,7 +22,7 @@ import { resolveScheme } from './scheme.ts';
 import { INTERIOR_KINDS, type DoorSide, type InteriorKind, type InteriorOptions, type InteriorResult, type RoomCtx, type RoomFrame } from './types.ts';
 
 export { INTERIOR_KINDS } from './types.ts';
-export type { DoorSide, InteriorKind, InteriorOptions, InteriorResult, RoomFrame } from './types.ts';
+export type { Attendee, DoorSide, InteriorKind, InteriorOptions, InteriorResult, RoomFrame } from './types.ts';
 export { ambientParts, ambientTag, ambientTagsOf, parseAmbientTag, poseAt, REST_POSE, type AmbientKind, type AmbientMotion, type AmbientPart, type AmbientPose } from './ambient.ts';
 export { SCHEMES, resolveScheme, type InteriorScheme, type InteriorSchemeName } from './scheme.ts';
 export { seatedFigure, standingFigure, FIGURE_TRIANGLE_CAP, type SeatedPose, type StandingPose, type SeatedOptions, type StandingOptions, type FigureOptions } from './figures.ts';
@@ -164,6 +165,11 @@ function appendTurned(dst: MeshBuilder, src: MeshBuilder, cx: number, cz: number
     const [x, z] = turnOffset(side, src.halos[h] - cx, src.halos[h + 2] - cz);
     dst.halos.push(cx + x, src.halos[h + 1], cz + z, ...src.halos.slice(h + 3, h + 8));
   }
+  for (const sc of src.screens) {
+    const p: number[] = [];
+    for (let i = 0; i < 12; i += 3) { const [x, z] = turnOffset(side, sc.p[i] - cx, sc.p[i + 2] - cz); p.push(cx + x, sc.p[i + 1], cz + z); }
+    dst.screens.push({ ...sc, p });
+  }
 }
 
 function dress(b: MeshBuilder, kind: InteriorKind, frame: RoomFrame, options: InteriorOptions): void {
@@ -189,12 +195,24 @@ function drawRoom(b: MeshBuilder, kind: InteriorKind, frame: RoomFrame, options:
   const ctx: RoomCtx = {
     b, R, w: frame.width, d: frame.depth, y: frame.y, S, rnd: seeded(`interior:${kind}:${options.seed}`),
     accent, floor: options.floor ?? DEFAULT_FLOOR, live: options.live === true, lite: options.detail === 'lite',
-    stations: options.stations ?? [], frame,
+    stations: options.stations ?? [], attendees: kind === 'meeting' ? options.attendees ?? [] : [], frame,
   };
   BUILDERS[kind](ctx);
   // A desk is a registry record: a room whose kit does not place desks itself still shows each one it is given.
   if (kind === 'warehouse' || kind === 'workshop') drawStations(ctx, { plant: false, chairTone: mix(ctx.S.fabric, hex('#14181d'), 0.6) });
+  // A person assigned to a post in a room whose kit draws no workstation stands at the stored post (the reception kit stands its own behind the counter).
+  const own = STATIONS_DRAWN[kind] ?? 0;
+  ctx.stations.forEach((st, i) => {
+    if (i < own || !st.occupantSeed) return;
+    standingFigure(b, st.x, frame.y, st.z, { seed: st.occupantSeed, rot: ((st.rot ?? 0) + 2) % 4, pose: 'neutral', headset: st.headset, look: st.look });
+  });
 }
+
+/** How many of the given stations each kit draws itself (with a person seated or standing at it); the rest stand at their post. */
+const STATIONS_DRAWN: Readonly<Partial<Record<InteriorKind, number>>> = {
+  office: Infinity, 'customer-care': Infinity, operations: Infinity, warehouse: Infinity, workshop: Infinity, server: Infinity, finance: Infinity, sales: Infinity,
+  reception: Infinity, executive: 1,
+};
 
 /** Copy `src` into `dst`, scaled by `s` about the frame's minimum corner at floor level. */
 function appendScaled(dst: MeshBuilder, src: MeshBuilder, frame: RoomFrame, s: number): void {
@@ -213,6 +231,7 @@ function appendScaled(dst: MeshBuilder, src: MeshBuilder, frame: RoomFrame, s: n
   for (let h = 0; h < src.halos.length; h += 8) {
     dst.halos.push(frame.x + (src.halos[h] - frame.x) * s, frame.y + (src.halos[h + 1] - frame.y) * s, frame.z + (src.halos[h + 2] - frame.z) * s, src.halos[h + 3] * s, ...src.halos.slice(h + 4, h + 8));
   }
+  for (const sc of src.screens) dst.screens.push({ ...sc, p: sc.p.map((v, i) => [frame.x, frame.y, frame.z][i % 3] + (v - [frame.x, frame.y, frame.z][i % 3]) * s) });
 }
 
 /** A standalone mesh in the same shape as `SceneMesh`, for tests, previews and caching. */

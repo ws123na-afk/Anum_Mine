@@ -116,6 +116,7 @@ export const teamAr: Record<keyof typeof teamEn, Message> = {
   'team.dept.security': 'الأمن',
   'team.dept.hr': 'الموارد البشرية',
   'team.dept.procurement': 'المشتريات',
+  'team.dept.executive': 'التنفيذي',
   'team.dept.custom': 'أخرى',
   'team.noProfile': 'لا ملف فريق بعد، لذا لا يجد أنعم هذا الشخص بالاسم.',
   'team.editMine': 'تعديل ملفي',

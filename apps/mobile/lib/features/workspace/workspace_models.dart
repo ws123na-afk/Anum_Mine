@@ -155,6 +155,12 @@ class WorkspaceApproval {
   /// Approve is offered only while pending, unexpired and bound to a hash.
   bool canApprove([DateTime? now]) =>
       effectiveStatus(now) == 'pending' && payloadHash != null;
+
+  /// An action browser step that types a card's security code. ANUM never
+  /// saves the code; the owner types it on the web approval card, so the
+  /// app does not approve it (docs/action-browser.md#the-card-security-code).
+  bool get needsCardCodeOnWeb =>
+      action == 'web.act' && arguments['cvc'] == 'entered at approval';
 }
 
 /// One recorded approve decision of an approval.

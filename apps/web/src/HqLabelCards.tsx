@@ -7,18 +7,28 @@ import type { AvatarAppearance } from '@anum/contracts';
 import { AvatarChip } from './AvatarStyleEditor';
 import { statusLabel } from './HqChrome';
 import { STATUS_TONE, type StatusKey } from './lib/campusModel.ts';
-import { floorNameParts } from './lib/hqLabelModel.ts';
+import { departmentText, floorNameParts } from './lib/hqLabelModel.ts';
 import { t } from './lib/i18n.ts';
 import './hqLabels.css';
 
-export function RoomLabelCard(props: { name: string; kind: string; sub: string; working: number | null; live: boolean; selected: boolean; onPick: () => void }) {
+/**
+ * The icon of a room card: the icon of the room's stored department when the catalogue names it (the `data-dept` masks of
+ * `hqLabels.css`), else its kind. One icon set either way (`lib/hqIcons.ts`, docs/ANUM_MINE_HQ_LABELS.md "Icons").
+ */
+export function RoomIcon(props: { kind: string; department?: string | null }) {
+  const dept = props.department && departmentText(props.department) !== null ? props.department : undefined;
+  return <span className="hqLabelIcon" data-kind={props.kind} data-dept={dept} aria-hidden="true" />;
+}
+
+export function RoomLabelCard(props: { name: string; kind: string; department?: string | null; sub: string; working: number | null; live: boolean; selected: boolean; onPick: () => void }) {
   const sub = props.live ? `${t('hq.room.inMeeting')} \u00B7 ${props.sub}` : props.sub;
   return (
     <button type="button" className="hqLabelCard hqRoomCard" data-selected={props.selected} data-live={props.live} data-kind={props.kind} aria-pressed={props.selected}
       aria-label={t('hqLabels.roomAria', { name: props.name, sub: props.working ? `${sub}. ${t('hqLabels.working', { count: props.working })}` : sub })} onClick={props.onPick}>
-      <span className="hqLabelIcon" data-kind={props.kind} aria-hidden="true" />
-      <span className="hqLabelText" aria-hidden="true"><strong dir="auto">{props.name}</strong><small dir="auto">{sub}</small></span>
-      {props.working ? <span className="hqRoomWorking" aria-hidden="true" title={t('hqLabels.working', { count: props.working })}>{props.working}</span> : null}
+      <RoomIcon kind={props.kind} department={props.department} />
+      <span className="hqLabelText" aria-hidden="true"><strong dir="auto">{props.name}</strong>{' '}<small dir="auto">{sub}</small></span>
+      {/* The count is drawn from data-count (hqLabels.css) so the visible text stays inside the spoken name, which says it in words. */}
+      {props.working ? <span className="hqRoomWorking" aria-hidden="true" title={t('hqLabels.working', { count: props.working })} data-count={props.working} /> : null}
     </button>
   );
 }
@@ -37,10 +47,10 @@ export function AgentLabelCard(props: {
       aria-label={t('hqLabels.agentAria', { name: props.name, role: props.role ?? t('hqLabels.agentNoRole'), status: props.stale ? `${statusText} (${t('hq.agent.stale')})` : statusText })} onClick={props.onPick}>
       {props.chip
         ? <AvatarChip id={props.chip.id} name={props.name} avatar={props.chip.avatar} department={props.chip.department} size={34} decorative />
-        : <span className="hqAvatar" aria-hidden="true">{props.name.slice(0, 1).toUpperCase()}</span>}
+        : <span className="hqAvatar" aria-hidden="true" data-initials={props.name.slice(0, 1).toUpperCase()} />}
       <span className="hqLabelText" aria-hidden="true">
-        <strong dir="auto">{props.name}</strong>
-        {props.role && <small dir="auto">{props.role}</small>}
+        <strong dir="auto">{props.name}</strong>{' '}
+        {props.role && <small dir="auto">{props.role}</small>}{' '}
         <span className={`hqPill tone-${tone}`}>{statusText}{props.stale ? ` (${t('hq.agent.stale')})` : ''}</span>
       </span>
       <span className="hqAgentGo" aria-hidden="true">{'\u203A'}</span>
@@ -51,8 +61,8 @@ export function AgentLabelCard(props: {
 export function FloorTagCard(props: { name: string; rooms: number; active: boolean; onPick: () => void }) {
   const parts = floorNameParts(props.name);
   return (
-    <button type="button" className="hqLabelCard hqFloorTag" data-selected={props.active} aria-pressed={props.active} aria-label={t('hqLabels.floorTagAria', { name: props.name })} onClick={props.onPick}>
-      <span className="hqLabelText" aria-hidden="true"><strong dir="auto">{parts.short}</strong><small dir="auto">{parts.rest ? `${parts.rest} \u00B7 ` : ''}{t('hqLabels.floorTagRooms', { count: props.rooms })}</small></span>
+    <button type="button" className="hqLabelCard hqFloorTag" data-selected={props.active} aria-pressed={props.active} aria-label={t('hqLabels.floorTagAria', { name: props.name, rooms: t('hqLabels.floorTagRooms', { count: props.rooms }) })} onClick={props.onPick}>
+      <span className="hqLabelText" aria-hidden="true"><strong dir="auto">{parts.short}</strong>{' '}<small dir="auto">{parts.rest ? `${parts.rest} \u00B7 ` : ''}{t('hqLabels.floorTagRooms', { count: props.rooms })}</small></span>
     </button>
   );
 }

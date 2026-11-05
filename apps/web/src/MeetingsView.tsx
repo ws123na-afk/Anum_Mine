@@ -169,9 +169,11 @@ export function MeetingsView({ onOpenTasks, onOpenApprovals, onOpenSettings }: {
             {page.value.items.map((meeting) => {
               const open_ = meeting.action_items.filter((item) => !item.done).length;
               return <li key={meeting.id} className={meeting.id === selected ? 'selected' : undefined}>
-                <button type="button" className="meetingRow" aria-current={meeting.id === selected ? 'true' : undefined} aria-label={t('meetings.open', { title: meeting.title })} onClick={() => open(meeting.id)}>
-                  <span className="meetingRowTop"><strong dir="auto">{meeting.title}</strong><span className={`statusBadge ${statusTone(meeting.status)}`}>{statusLabel(meeting.status)}</span></span>
-                  <small>{[sourceLabel(meeting.source), formatDateTime(meeting.occurred_at ?? meeting.created_at, { dateStyle: 'medium', timeStyle: 'short' }), durationText(meeting.duration_seconds)].filter(Boolean).join(' · ')}</small>
+                <button type="button" className="meetingRow" aria-current={meeting.id === selected ? 'true' : undefined} onClick={() => open(meeting.id)}>
+                  {/* Named by its own text after a hidden verb (WCAG 2.5.3: the name holds every word the row shows). */}
+                  <span className="visuallyHidden">{t('meetings.openHint')} </span>
+                  <span className="meetingRowTop"><strong dir="auto">{meeting.title}</strong>{' '}<span className={`statusBadge ${statusTone(meeting.status)}`}>{statusLabel(meeting.status)}</span></span>
+                  <small>{[sourceLabel(meeting.source), formatDateTime(meeting.occurred_at ?? meeting.created_at, { dateStyle: 'medium', timeStyle: 'short' }), durationText(meeting.duration_seconds)].filter(Boolean).join(' · ')}</small>{' '}
                   {(meeting.action_items.length > 0 || meeting.agent_skill_id) && <span className="meetingRowMeta">
                     {meeting.action_items.length > 0 && <span className={open_ ? 'meetingOpenItems' : 'muted'}><ListChecks aria-hidden="true" />{open_ ? t('pages.meetings.row.open', { count: open_ }) : t('pages.meetings.row.allDone')}</span>}
                     {meeting.agent_skill_id && <span className="tagChip" dir="ltr">{meeting.agent_skill_id}</span>}

@@ -33,6 +33,15 @@ export function roomSubtitle(room: Pick<RoomGeometry, 'kind' | 'teamDepartment'>
   return parts.join(' · ');
 }
 
+/**
+ * A reception room's card leads with the stored number of visitors checked in there (docs/ANUM_MINE_HQ_RECEPTION.md):
+ * "No visitors checked in" at zero. With no count (the register was not read) the card stays as it was: nothing is invented.
+ */
+export function visitorLine(kind: string, count: number | undefined, sub: string, tr: Translate = t): string {
+  if (kind !== 'reception' || count === undefined) return sub;
+  return `${count > 0 ? tr('hqRec.room.count', { count }) : tr('hqRec.room.none')} · ${sub}`;
+}
+
 export type LabelMode = 'single' | 'stacked';
 
 export type RoomLabelSpec = Readonly<{

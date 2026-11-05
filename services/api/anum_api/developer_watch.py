@@ -62,10 +62,17 @@ def discover_in_progress(tenant_id: str, workspace_id: str = "", *, limit: int =
     return sorted(found)[:limit]
 
 
+def _stored(context: TenantContext, request_id: str):  # type: ignore[no-untyped-def]
+    from .developer import open_developer_store
+
+    with open_developer_store(context) as store:
+        return store.get(request_id, context)
+
+
 async def refresh_in_progress() -> int:
     """Refresh every in-progress request of the configured tenant once. Returns how many changed."""
     from .dependencies import _unit_of_work
-    from .developer import TERMINAL, _refresh, developer_settings, open_developer_store, setup_problems
+    from .developer import TERMINAL, _refresh, developer_settings, setup_problems
 
     if setup_problems():
         return 0
@@ -75,13 +82,13 @@ async def refresh_in_progress() -> int:
     for request_id, workspace_id in scopes:
         context = TenantContext(tenant_id=tenant_id, workspace_id=workspace_id, user_id=WATCH_ACTOR, roles=[])
         try:
-            with open_developer_store(context) as store:
-                request = store.get(request_id, context)
+            request = await asyncio.to_thread(_stored, context, request_id)
             if request is None or request.status in TERMINAL:
                 continue
             previous = request.status
-            with _unit_of_work(context, require_membership=False) as repository:
-                refreshed = await _refresh(request, repository, context)
+            # Each store step in its own short unit, in a worker thread; nothing is held
+            # while GitHub answers (docs/realtime.md#event-loop).
+            refreshed = await _refresh(request, lambda scope: _unit_of_work(scope, require_membership=False), context)
             changed += int(refreshed.status != previous)
         except Exception:  # one request must not stop the others
             logger.exception(

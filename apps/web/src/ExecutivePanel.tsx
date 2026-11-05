@@ -21,6 +21,7 @@ import { BuildingProposalCard } from './hq-command/BuildingProposalCard';
 import { useLocale } from './useLocale';
 import type { BriefingOpen } from './PaBriefingCard';
 import './executivePanel.css';
+import { openHqPanel, panelForRecord } from './lib/hqWorkPanels';
 
 // The briefing card loads only when a briefing is asked for (the dock stays small).
 // The campus proposal card ("set up my campus") loads when asked for; its button is the only way to create.
@@ -33,8 +34,12 @@ interface Pending { tool: PaToolName; args: Record<string, unknown>; proposal: P
 const mk = (key: string, vars?: Record<string, string | number>) => t(key as MessageKey, vars);
 
 export function ExecutivePaDock(props: Parameters<typeof ExecutivePanel>[0]) { return <ExecutivePanel {...props} />; }
-export function ExecutivePanel({ onOpenView, onLocation, onOpenTask }: {
+export function ExecutivePanel({ onOpenView, onLocation, onOpenTask, docked, onStatus }: {
   onOpenView(view: string): void;
+  /** In the headquarters' docked panel the shared panel header shows the title and the live status, so this panel leaves them out. */
+  docked?: boolean;
+  /** Reports whether the tools loaded (the docked panel header turns it into its live status). */
+  onStatus?(status: 'loading' | 'ready' | 'unavailable'): void;
   /** Opens one task from a briefing line; without it the Tasks screen opens. */
   onOpenTask?(id: string): void;
   onLocation?(location: Location | null): void;
@@ -232,6 +237,7 @@ export function ExecutivePanel({ onOpenView, onLocation, onOpenTask }: {
   };
   const allowed = (name: PaToolName) => tools === null || tools.find((x) => x.name === name)?.allowed !== false;
   const status: 'loading' | 'ready' | 'unavailable' = toolsError ? 'unavailable' : tools === null ? 'loading' : 'ready';
+  useEffect(() => { onStatus?.(status); }, [status, onStatus]);
   // Example phrases come from the real office and the real tools, never from invented names.
   const examples = [
     ...(stops[0] ? [t('pa.example.go', { room: stops[0].room_name })] : []),
@@ -239,8 +245,11 @@ export function ExecutivePanel({ onOpenView, onLocation, onOpenTask }: {
   ];
 
   const openBriefingItem = (target: BriefingOpen) => {
-    if (target.kind === 'task' && onOpenTask) onOpenTask(target.id);
-    else onOpenView(target.view);
+    if (target.kind === 'task' && onOpenTask) { onOpenTask(target.id); return; }
+    // Inside the headquarters an approval or a meeting line opens that very record in a drawer there.
+    const panel = target.kind === 'approval' || target.kind === 'meeting' ? panelForRecord(target.kind, target.id) : null;
+    if (panel && openHqPanel(panel)) return;
+    onOpenView(target.view);
   };
 
   const goStop = (index: number) => {
@@ -254,13 +263,13 @@ export function ExecutivePanel({ onOpenView, onLocation, onOpenTask }: {
   const writeTools = (tools ?? []).filter((x) => x.kind === 'write');
   const readTools = (tools ?? []).filter((x) => x.kind === 'read');
 
-  return <section className="paPanel paDock" aria-labelledby="pa-title">
+  return <section className="paPanel paDock" aria-labelledby={docked ? undefined : 'pa-title'} data-docked={docked ? 'true' : undefined}>
     <header className="paHead">
-      <span className="paAvatar" aria-hidden="true"><Sparkles /></span>
-      <div className="paHeadText">
+      {!docked && <span className="paAvatar" aria-hidden="true"><Sparkles /></span>}
+      {!docked && <div className="paHeadText">
         <h2 id="pa-title">{t('pa.title')}</h2>
         <p className={`paStatus ${status}`} role="status"><span aria-hidden="true" />{t(`pa.status.${status}` as MessageKey)}</p>
-      </div>
+      </div>}
       <p className="paPlace" aria-live="polite"><Compass aria-hidden="true" /><span>{t('pa.location')}:</span> <strong dir="auto">{place ?? t('pa.location.none')}</strong></p>
     </header>
     <p className="paWelcome">{t('pa.subtitle')}</p>
@@ -336,7 +345,7 @@ export function ExecutivePanel({ onOpenView, onLocation, onOpenTask }: {
         : null)}
     </section>
 
-    <details className="paTools"><summary id="pa-tools-title">{t('pa.toolsTitle')}</summary>
+    <details className="paTools" open={toolsError !== null || undefined}><summary id="pa-tools-title">{t('pa.toolsTitle')}</summary>
       {toolsError && <p className="notice errorNotice" role="alert">{toolsError}<button type="button" className="secondary" onClick={() => void loadTools()}>{t('common.retry')}</button></p>}
       <ul>
         {[...readTools, ...writeTools].map((x) => <li key={x.name} className={x.allowed ? '' : 'off'}>

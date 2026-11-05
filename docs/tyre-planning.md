@@ -288,6 +288,14 @@ covered it (a visit covers a tyre when it read the tyre's position, recorded not
 position, or read positions no tyre record names). Odometer logs and inspection
 odometers feed each vehicle's km per day.
 
+Event times (read only, for the HQ campus motion, `docs/ANUM_MINE_HQ_CAMPUS_MOTION.md`):
+the dashboard returns `operations.last_inspection_at`, the time of the last inspection,
+and `latest_alert_at`, when ANUM first saw the newest alert that is not resolved. Both
+are UTC instants from stored values or `null`. The sync keeps an inspection's time only
+when the mapped inspection date column stores a time of day with a time zone; a date, a
+timestamp without a zone or one at exactly midnight stays date-only, and
+`last_inspection_at` is set only when every inspection of the last day has a time.
+
 The large tables are never copied: `work_order_line_items` and `parts_consumption` are
 read on demand for one work order, one vehicle or one period (at most 10,000 rows, only
 the operational columns in `tyre/live_tables.py`, filtered at the source), and nothing
@@ -364,9 +372,10 @@ Kinds: fleet tyre health, tread wear rates, pressure compliance, cost per km and
 hour (by brand, size and vehicle), scrap and removal reasons, brand performance, tyres
 due for removal, and the purchase plan. A report is generated on demand (**Reports >
 Generate**) for a period, or on a schedule, and its content is frozen when generated.
-Each downloads as CSV (formulas neutralised) or PDF. The PDF uses the built-in PDF
-fonts, which cover Latin text only: Arabic text in the data prints as `?` there; the CSV
-keeps it.
+Each downloads as CSV (formulas neutralised) or PDF. The PDF uses ANUM's shared writer
+(`anum_api/pdf_writer.py`): Latin text in the built-in Helvetica, Arabic text in the data
+(a site or vehicle name) shaped and right to left in the embedded Noto Sans Arabic
+([Business: printing and PDF](business.md#printing-and-pdf)); the CSV keeps every character.
 
 **Schedules.** **Reports > Schedule** creates an automation workflow with one
 `tyre.report` step and a daily, weekly or monthly schedule in a time zone, visible in the
@@ -425,7 +434,7 @@ All under `/api/v1/tyre`; errors use the standard envelope.
 | `PUT /mapping`, `POST /mapping/preview` | manage | save; dry-run on a sample |
 | `PUT /assumptions` | manage | save and re-evaluate alerts |
 | `POST /sync` | operate | read the source now |
-| `GET /dashboard` | read | summary, operations counts, alert counts, top alerts, soonest removals, removals per month |
+| `GET /dashboard` | read | summary, operations counts (with `last_inspection_at`), alert counts, top alerts, `latest_alert_at`, soonest removals, removals per month |
 | `GET /forecasts`, `GET /forecasts.csv` | read | per tyre; `month`, `due_by`, `state`, `confidence`, `q`, `limit`, `offset` |
 | `GET /purchase-plan`, `GET /purchase-plan.csv` | read | `months` 1-36 |
 | `GET /alerts`, `POST /alerts/{id}/acknowledge`, `POST /alerts/{id}/reopen` | read / operate | `status`, `kind`, `q`, paging |

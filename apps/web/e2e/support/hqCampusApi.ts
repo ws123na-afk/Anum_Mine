@@ -2,11 +2,18 @@ import type { Page, Route } from '@playwright/test';
 import { mockWorkspaceApi } from './workspaceApi';
 import { agentAvatars, seedAgents } from './orgChartApi';
 import { readFileSync } from 'node:fs';
+import { logoPng } from './pngFixture';
 
 // A mock of what the ANUM MINE headquarters reads (docs/ANUM_MINE_HQ_EXTENSION_POINTS.md): the
 // office registry of the open workspace, the caller's workspaces, the campus endpoint, agents and
 // their tasks, live agent meetings and the commerce and tyre setup. Every value is plainly fake.
 const now = new Date().toISOString();
+/**
+ * The fixtures carry `now` from when this module loaded. A worker that runs specs for longer than the presence window (5 minutes)
+ * would otherwise serve "verified" times that the page rightly calls stale, so every answer is stamped with the time it is sent.
+ * A time a test sets on purpose (anything other than the load time) is left as it is.
+ */
+const stamp = (body: string) => body.split(now).join(new Date().toISOString());
 const tenant = 'tenant_local';
 const workspace = 'workspace_foundation';
 
@@ -34,6 +41,12 @@ export interface HqMockOptions {
   profile?: 'ok' | 'conflict';
   /** The office room the live meeting (`meeting_live`) is held in; null or omitted means a meeting with no room link. */
   meetingRoomId?: string | null;
+  /**
+   * GET /office/campus/boards (docs/ANUM_MINE_HQ_BILLBOARDS.md#every-building). Omitted or 'missing': 404 (an older API; other workspaces'
+   * boards say Not connected). 'api' serves `boardsFixture`; 'failing' answers 503 until `boards.recover()`; 'slow' holds the answer until
+   * `boards.release()`.
+   */
+  boards?: 'missing' | 'api' | 'failing' | 'slow';
 }
 
 const record = (id: string, extra: Record<string, unknown>) => ({ id, revision: 1, tenant_id: tenant, workspace_id: workspace, created_at: now, updated_at: now, ...extra });
@@ -173,6 +186,29 @@ export const campusFixture = {
   ],
 };
 
+export const BOARD_LOGO_SHA = 'cd'.repeat(32);
+const room = (name: string, kind: string, team_department: string | null, building_id: string, name_ar: string | null = null) => ({ name, name_ar, kind, team_department, building_id });
+const work = (open: number, waiting: number, blocked: number) => ({ source: 'connected', open, waiting, blocked, truncated: false, by_building: {} });
+const boardOf = (id: string, buildings: unknown[], rooms: unknown[], departments: string[], w: unknown) => ({
+  workspace_id: id, accessible: true, as_of: now, buildings, buildings_total: buildings.length, rooms: { total: rooms.length, items: rooms }, departments, work: w,
+});
+/**
+ * GET /api/v1/office/campus/boards, version 1 (packages/contracts/src/officeCampus.ts): the other workspaces of `campusFixture`. Executive HQ has a
+ * logo and a brand colour, Tyre Pulse HQ a colour only and no open work at all (zeros), ANUM360 Commerce could not be read, and Personal Office
+ * has no registry yet. Legal and Compliance is not in it (the campus says it cannot be opened).
+ */
+export const boardsFixture = {
+  version: 1, tenant_id: tenant, current_workspace_id: workspace, generated_at: now, next_cursor: null,
+  boards: [
+    boardOf('workspace_exec', [{ id: 'exec-tower', name: 'Executive Tower', name_ar: 'البرج التنفيذي', floors: 3, rooms: 3, sign: { style: 'plaque', color: '#1b3a6b', logo_sha256: BOARD_LOGO_SHA } }],
+      [room('Boardroom', 'meeting', null, 'exec-tower', 'قاعة المجلس'), room('Treasury', 'office', 'finance', 'exec-tower', 'الخزينة'), room('Counsel', 'office', 'legal', 'exec-tower', 'المستشار')], ['finance', 'legal'], work(4, 1, 1)),
+    boardOf('workspace_tyre', [{ id: 'tyre-shop', name: 'Tyre Shop', name_ar: null, floors: 2, rooms: 2, sign: { style: null, color: '#0f5b45', logo_sha256: null } }],
+      [room('Workshop', 'workshop', 'tyre_engineering', 'tyre-shop', 'الورشة'), room('Fleet Desk', 'office', 'operations', 'tyre-shop', 'مكتب الأسطول')], ['operations', 'tyre_engineering'], work(0, 0, 0)),
+    { workspace_id: 'workspace_commerce', accessible: false },
+    boardOf('workspace_personal', [], [], [], work(0, 0, 0)),
+  ],
+};
+
 /** GET /api/v1/office/presence, contract version 1 (packages/contracts/src/officePresence.ts). */
 export function presenceFixture() {
   const item = (agent: string, name: string, state: string, extra: Record<string, unknown> = {}) => ({
@@ -239,10 +275,11 @@ export async function mockHq(page: Page, options: HqMockOptions = {}) {
     task('task_mail', 'waiting_approval', 'agent_outreach', 'Email Al Noor Transport about the pilot'),
   ];
   const calls: string[] = [];
-  /** Specs flip `active` to finish the live meeting; `created` records meetings started from the UI (with their room_id). */
-  const meeting = { active: options.meetings === 'live', roomId: options.meetingRoomId ?? null, created: [] as Array<Record<string, unknown>> };
+  /** Specs flip `active` to finish the live meeting; `created` records meetings started from the UI (with their room_id);
+   *  `left` adds participants whose record says they left (`left_at`). */
+  const meeting = { active: options.meetings === 'live', roomId: options.meetingRoomId ?? null, created: [] as Array<Record<string, unknown>>, left: [] as Array<Record<string, unknown>> };
   const streamState = { requests: [] as Array<{ lastEventId: string | null }>, held: [] as Array<{ route: Route; timer: ReturnType<typeof setTimeout> }>, queued: [] as string[], items: presenceFixture().items as Array<Record<string, unknown>>, event: 1 };
-  const sse = (route: Route, body: string) => route.fulfill({ status: 200, contentType: 'text/event-stream', headers: { 'cache-control': 'no-cache' }, body });
+  const sse = (route: Route, body: string) => route.fulfill({ status: 200, contentType: 'text/event-stream', headers: { 'cache-control': 'no-cache' }, body: stamp(body) });
   const snapshotFrame = () => sseFrame('snapshot', { ...presenceFixture(), as_of: new Date().toISOString(), items: streamState.items, cursor: `evt_${streamState.event}`, sequence: 0 }, `evt_${streamState.event}`);
   const stream = {
     requests: streamState.requests,
@@ -266,12 +303,22 @@ export async function mockHq(page: Page, options: HqMockOptions = {}) {
     },
   };
   const profileCalls: Array<{ kind: string; icon: string; expected_revision?: number }> = [];
+  /** The boards read: `requests` counts reads, `logos` the other workspaces' logo reads (building id and the workspace named in the request). */
+  const boardsState = { mode: options.boards ?? 'missing', requests: 0, logos: [] as Array<{ building: string; workspace: string | null }>, held: [] as Route[] };
+  const boards = {
+    get requests() { return boardsState.requests; },
+    logos: boardsState.logos,
+    /** A failing boards read answers again from now on. */
+    recover() { boardsState.mode = 'api'; },
+    /** Lets the held (slow) reads answer. */
+    async release() { boardsState.mode = 'api'; for (const r of boardsState.held.splice(0)) await r.fulfill({ status: 200, contentType: 'application/json', body: stamp(JSON.stringify(boardsFixture)) }); },
+  };
   await page.route('http://localhost:8000/**', async (route) => {
     const url = new URL(route.request().url());
     const path = url.pathname;
     const method = route.request().method();
     calls.push(`${method} ${path}`);
-    const json = (value: unknown, status = 200) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(value) });
+    const json = (value: unknown, status = 200) => route.fulfill({ status, contentType: 'application/json', body: stamp(JSON.stringify(value)) });
     const error = (status: number, code: string, message: string) => json({ error: { code, message, correlation_id: 'corr', details: [] } }, status);
     // The executive PA dock beside the scene: quiet by default (no tools, no tour); specs that test it register their own routes.
     if (path === '/api/v1/executive-pa/tools') return json({ tools: [] });
@@ -286,6 +333,21 @@ export async function mockHq(page: Page, options: HqMockOptions = {}) {
       if (options.campus === 'api') return json(campusFixture);
       if (options.campus === 'denied') return error(403, 'forbidden', 'You cannot read the campus.');
       return error(404, 'not_found', 'Not found.');
+    }
+    if (path === '/api/v1/office/campus/boards') {
+      boardsState.requests += 1;
+      if (boardsState.mode === 'missing') return error(404, 'not_found', 'Not found.');
+      if (boardsState.mode === 'failing') return error(503, 'unavailable', 'The campus boards could not be read.');
+      if (boardsState.mode === 'slow') { boardsState.held.push(route); return undefined; }
+      return json(boardsFixture);
+    }
+    const otherLogo = /^\/api\/v1\/office-spaces\/buildings\/([^/]+)\/logo$/.exec(path);
+    if (otherLogo && method === 'GET' && boardsState.mode !== 'missing') {
+      const named = route.request().headers()['x-workspace-id'] ?? null;
+      boardsState.logos.push({ building: otherLogo[1], workspace: named });
+      // Only Executive HQ's building has a logo, and only when the request names Executive HQ's workspace (the API reads it in that workspace).
+      if (otherLogo[1] === 'exec-tower' && named === 'workspace_exec') return route.fulfill({ status: 200, contentType: 'image/png', headers: { 'cache-control': 'private, no-cache', etag: `"${BOARD_LOGO_SHA}"` }, body: logoPng(160, 80, [27, 58, 107]) });
+      return error(404, 'not_found', 'This building has no logo.');
     }
     if (path === '/api/v1/office/presence/stream') {
       const mode = options.presence === 'missing' ? 'unsupported' : options.stream ?? 'unsupported';
@@ -326,7 +388,7 @@ export async function mockHq(page: Page, options: HqMockOptions = {}) {
         ...(wantsActive ? [] : meeting.created)];
       return json({ items: all, next_cursor: null });
     }
-    if (path === '/api/v1/agent-meetings/meeting_live') return json({ id: 'meeting_live', title: 'Weekly sync', status: 'active', revision: 1, participants: [{ id: 'p1', session_id: 'meeting_live', actor_id: 'agent_care', kind: 'agent' }] });
+    if (path === '/api/v1/agent-meetings/meeting_live') return json({ id: 'meeting_live', title: 'Weekly sync', status: 'active', revision: 1, participants: [{ id: 'p1', session_id: 'meeting_live', actor_id: 'agent_care', kind: 'agent', left_at: null }, ...meeting.left] });
     if (path === '/api/v1/commerce/setup') {
       if (options.commerce === 'denied') return error(403, 'forbidden', 'You need commerce access.');
       return json({ permissions: {}, connectors: options.commerce === 'connected' ? 1 : 0, channels: [], own_store_modes: [], sync_scheduler: false });
@@ -339,5 +401,5 @@ export async function mockHq(page: Page, options: HqMockOptions = {}) {
     if (path === '/api/v1/tyre/dashboard') return json({ summary: { as_of: now, currency: 'AED', vehicles: 42, tyres_fitted: 250, tyres_in_stock: 30, tyres_removed_last_30_days: 4, tyres_with_readings: 200, average_tread_mm: 8, below_minimum: 3, in_warning_band: 5, pressure_checked: 100, pressure_compliant_pct: 90, under_inflated: 2, over_inflated: 1, overdue_inspections: 6, due_next_30_days: 11, due_next_90_days: 20, cost_per_1000_km: null, cost_per_hour: null, min_tread_mm: 3 }, synced_at: now, alert_counts: { critical: 1, warning: 2 }, top_alerts: [], due_soon: [], due_by_month: {} });
     return route.fallback();
   });
-  return { calls, profileCalls, meeting, stream };
+  return { calls, profileCalls, meeting, stream, boards };
 }

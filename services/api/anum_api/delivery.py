@@ -114,7 +114,7 @@ class DeliveryOutcome:
 
 async def request_delivery(
     context: TenantContext,
-    repository: Any,
+    units: Any,
     *,
     channel: str,
     to: str,
@@ -123,10 +123,16 @@ async def request_delivery(
     attachments: list[dict[str, Any]],
     title: str,
 ) -> DeliveryOutcome:
-    """Plan the channel's tool call as a task run and let policy decide it."""
+    """Plan the channel's tool call as a task run and let policy decide it.
+
+    ``units`` opens a short unit of work for a tenant context (``dependencies.units_of_work``).
+    The plan and policy decision commit in one unit, the tool runs with no transaction open,
+    and its outcome is written in another; every store step runs in a worker thread
+    (docs/realtime.md#event-loop)."""
+    from .dependencies import run_in_unit
     from .events import CanonicalEventName, create_event
     from .model_gateway import MockModelGateway
-    from .runtime import AgentRuntime
+    from .runtime import AgentRuntime, finish_execution_in_units
     from .schemas import AgentRunStep, RunPhase, Task, TaskStatus, new_id, utc_now
 
     tools = _registry
@@ -140,64 +146,73 @@ async def request_delivery(
         name=tool_name,
         arguments={"to": to, "subject": subject, "text": text, "attachments": attachments},
     )
-    now = utc_now()
-    task = Task(
-        id=new_id("task"),
-        title=title[:160],
-        prompt=f"Send '{subject}' to {to} by {channel}.",
-        status=TaskStatus.CREATED,
-        tenant_id=context.tenant_id,
-        workspace_id=context.workspace_id,
-        created_at=now,
-        updated_at=now,
-        created_by=context.user_id,
-    )
-    repository.create_task(task)
-    repository.record_event(
-        create_event(CanonicalEventName.TASK_CREATED, context, task.id, {"title": task.title},
-                     correlation_id=task.id, created_at=now).event
-    )
-    runtime = AgentRuntime(MockModelGateway(), repository, tools=tools)
-    run = runtime.new_run(task)
-    decision = runtime.evaluate(call, context)
-    proposal = AgentRunStep(
-        id=new_id("step"),
-        type="tool_proposal",
-        summary=f"Proposed tool call: {tool_name}",
-        created_at=utc_now(),
-        metadata={
-            "tool": tool_name,
-            "risk_level": decision.risk_level.value,
-            "policy_outcome": decision.outcome.value,
-            "governance_rules": list(decision.governance_rules),
-            "delivery_channel": channel,
-        },
-    )
-    run.steps.append(proposal)
-    run.checkpoint.phase = RunPhase.TOOL_READY
-    run.checkpoint.version += 1
-    run.checkpoint.tool_call = call.model_dump(mode="json")
-    run.checkpoint.last_step_id = proposal.id
-    task.status = run.status = TaskStatus.RUNNING
-    repository.save_task(task)
-    repository.save_run(run)
-    ready = runtime.begin_execution(task, run, context)
-    repository.save_task(task)
-    repository.save_run(run)
-    if ready is not None:
-        run = await runtime.finish_execution(task, run, context, ready)
+
+    def runtime_for(repository: Any) -> AgentRuntime:
+        return AgentRuntime(MockModelGateway(), repository, tools=tools)
+
+    def propose(repository: Any) -> tuple[Any, Any, ToolCall | None, DeliveryOutcome | None]:
+        now = utc_now()
+        task = Task(
+            id=new_id("task"),
+            title=title[:160],
+            prompt=f"Send '{subject}' to {to} by {channel}.",
+            status=TaskStatus.CREATED,
+            tenant_id=context.tenant_id,
+            workspace_id=context.workspace_id,
+            created_at=now,
+            updated_at=now,
+            created_by=context.user_id,
+        )
+        repository.create_task(task)
+        repository.record_event(
+            create_event(CanonicalEventName.TASK_CREATED, context, task.id, {"title": task.title},
+                         correlation_id=task.id, created_at=now).event
+        )
+        runtime = runtime_for(repository)
+        run = runtime.new_run(task)
+        decision = runtime.evaluate(call, context)
+        proposal = AgentRunStep(
+            id=new_id("step"),
+            type="tool_proposal",
+            summary=f"Proposed tool call: {tool_name}",
+            created_at=utc_now(),
+            metadata={
+                "tool": tool_name,
+                "risk_level": decision.risk_level.value,
+                "policy_outcome": decision.outcome.value,
+                "governance_rules": list(decision.governance_rules),
+                "delivery_channel": channel,
+            },
+        )
+        run.steps.append(proposal)
+        run.checkpoint.phase = RunPhase.TOOL_READY
+        run.checkpoint.version += 1
+        run.checkpoint.tool_call = call.model_dump(mode="json")
+        run.checkpoint.last_step_id = proposal.id
+        task.status = run.status = TaskStatus.RUNNING
         repository.save_task(task)
         repository.save_run(run)
-        ok = run.status == TaskStatus.COMPLETED
-        return DeliveryOutcome("sent" if ok else "failed", task.id, None, None, run.result or "")
-    if run.checkpoint.phase == RunPhase.WAITING_APPROVAL and run.checkpoint.approval_id:
-        approval = repository.get_approval(run.checkpoint.approval_id, context)
-        return DeliveryOutcome(
-            "waiting_approval", task.id, run.checkpoint.approval_id,
-            getattr(approval, "payload_hash", None), "Waiting for approval.",
-        )
-    reason = run.steps[-1].summary if run.steps else "Blocked by policy."
-    return DeliveryOutcome("blocked", task.id, None, None, reason)
+        ready = runtime.begin_execution(task, run, context)
+        repository.save_task(task)
+        repository.save_run(run)
+        if ready is not None:
+            return task, run, ready, None
+        if run.checkpoint.phase == RunPhase.WAITING_APPROVAL and run.checkpoint.approval_id:
+            approval = repository.get_approval(run.checkpoint.approval_id, context)
+            return task, run, None, DeliveryOutcome(
+                "waiting_approval", task.id, run.checkpoint.approval_id,
+                getattr(approval, "payload_hash", None), "Waiting for approval.",
+            )
+        reason = run.steps[-1].summary if run.steps else "Blocked by policy."
+        return task, run, None, DeliveryOutcome("blocked", task.id, None, None, reason)
+
+    task, run, ready, outcome = await run_in_unit(units, context, propose)
+    if outcome is not None or ready is None:
+        return outcome or DeliveryOutcome("blocked", task.id, None, None, "Blocked by policy.")
+    # The executing checkpoint is committed; the tool runs with no transaction open.
+    run = await finish_execution_in_units(runtime_for, units, task, run, context, ready)
+    ok = run.status == TaskStatus.COMPLETED
+    return DeliveryOutcome("sent" if ok else "failed", task.id, None, None, run.result or "")
 
 
 def result_summary(result: ToolResult) -> str:

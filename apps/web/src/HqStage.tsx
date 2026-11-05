@@ -11,6 +11,8 @@ import { readNightPreset, subscribeNightPreset, targetBlend } from './lib/hqLigh
 import type { HqRenderer } from './lib/hqThreeRenderer.ts';
 import type { RenderScene } from './lib/hqRenderTypes.ts';
 import type { GlassPlanData } from './lib/hqPlanAtlas.ts';
+import type { WorkLayerPlan } from './lib/hqWorkLayer.ts';
+import type { WalkerLayerPlan } from './lib/hqWalkerLayer.ts';
 import { setGpuState } from './lib/hqGpuState.ts';
 import { setLiveRenderer } from './lib/hqGpuBridge.ts';
 import { emitGpuTelemetry } from './lib/hqGpuTelemetry.ts';
@@ -35,10 +37,20 @@ export type StageLabel = Readonly<{
   priority?: number;
   /** The densities the label may take, richest first (docs/ANUM_MINE_HQ_LABELS.md). */
   tiers?: readonly Density[];
+  /** Never hidden for lack of room (see `LabelInput.keep`). */
+  keep?: boolean;
   /** Solid boxes that hide the label while they stand between the eye and the anchor. */
   occluders?: readonly Aabb[];
   /** Other anchors for the same label; the one nearest the eye is used. */
   alternatives?: readonly Vec3[];
+  /** A large card (a billboard): the placement searches in small steps for a free spot. */
+  fine?: boolean;
+  /** Stays exactly at its anchor or gives way (a floor tag at its floor's edge); see `LabelInput.anchored`. */
+  anchored?: boolean;
+  /** Hidden while the anchor is nearer the eye than this (metres). */
+  minDepth?: number;
+  /** Boxes whose screen rectangle the label must never cover (the focused room). */
+  avoid?: readonly Aabb[];
 }>;
 
 export type StageStatus = 'ok' | 'recovering';
@@ -47,8 +59,17 @@ type Props = Readonly<{
   label: string;
   description: string;
   scene: RenderScene | null;
+  /**
+   * False while the view still waits for a lazy part that changes the meshes (the campus plan kit, the billboards): the scene handed over
+   * is a first, temporary build. Omitted means the scene is final once handed over. Read only for QA, as the canvas's `data-scene-settled`.
+   */
+  sceneSettled?: boolean;
   /** The plan atlas the glass looks through (campus only). Changing it never rebuilds the scene meshes. */
   glassPlan?: GlassPlanData | null;
+  /** Record-backed work motion (docs/ANUM_MINE_HQ_CAMPUS_MOTION.md): vehicles and tyres on a timeline, each started by one stored record. Changing it never rebuilds the scene meshes. */
+  work?: WorkLayerPlan | null;
+  /** Record-backed agent walkers (docs/ANUM_MINE_HQ_AGENT_WALKERS.md): each figure is started by one stored record. Changing it never rebuilds the scene meshes. */
+  walkers?: WalkerLayerPlan | null;
   pickTargets: readonly PickTarget[];
   camera: CameraState;
   homeCamera: CameraState;
@@ -60,6 +81,16 @@ type Props = Readonly<{
   onHover: (id: string | null) => void;
   onPick: (id: string | null) => void;
   labels: readonly StageLabel[];
+  /**
+   * A second, separate pass of cards (the billboards): placed after the main cards by their own call, round the main cards and the
+   * panels named by `extraKeepOut`, and never able to move, hide or park a main card.
+   */
+  extraLabels?: readonly StageLabel[];
+  extraKeepOut?: string;
+  /** The live screen atlas (a canvas drawn in place by the lazy screens chunk; `version` moves when it changed and must be uploaded again). */
+  screenAtlas?: Readonly<{ canvas: HTMLCanvasElement | null; version: number }> | null;
+  /** The live board atlas of the billboards (a canvas drawn in place; `version` moves when it changed and must be uploaded again). */
+  boardAtlas?: Readonly<{ canvas: HTMLCanvasElement | null; version: number }> | null;
   /** Dragging with the primary button moves the scene sideways instead of turning it (the toolbar's Pan). */
   panMode?: boolean;
   /** Elements next to the stage (CSS selector, searched in the stage's parent) that cards keep clear of: the controls drawn over the scene. */
@@ -79,6 +110,23 @@ function giveGlassPlan(r: HqRenderer | null, plan: GlassPlanData | null | undefi
   void import('./lib/hqGlassShader.ts').then((m) => { if (stillWanted()) m.applyPlan(r.glassHooks(), plan); }).catch(() => undefined);
 }
 
+let workLib: typeof import('./lib/hqWorkLayer.ts') | null = null;
+/** Hands the work plan to the renderer; the layer (its own lazy chunk) is fetched only when the plan has something to draw. */
+function giveWork(r: HqRenderer | null, plan: WorkLayerPlan | null | undefined, stillWanted: () => boolean): void {
+  if (!r) return;
+  const empty = !plan || (!plan.motions.length && !plan.racks.length);
+  if (empty) { workLib?.detachWork(r); return; }
+  void import('./lib/hqWorkLayer.ts').then((m) => { workLib = m; if (stillWanted()) m.setWork(r, r.workHooks(), plan); }).catch(() => undefined);
+}
+
+let walkerLib: typeof import('./lib/hqWalkerLayer.ts') | null = null;
+/** Hands the walkers to the renderer; the layer (its own lazy chunk) is fetched only when a record has produced a walker. */
+function giveWalkers(r: HqRenderer | null, plan: WalkerLayerPlan | null | undefined, stillWanted: () => boolean): void {
+  if (!r) return;
+  if (!plan || !plan.walkers.length) { walkerLib?.detachWalkers(r); return; }
+  void import('./lib/hqWalkerLayer.ts').then((m) => { walkerLib = m; if (stillWanted()) m.setWalkers(r, r.walkerHooks(), plan); }).catch(() => undefined);
+}
+
 type Pointer = { x: number; y: number };
 
 export function HqStage(props: Props) {
@@ -96,16 +144,26 @@ export function HqStage(props: Props) {
   const labelEls = useRef(new Map<string, HTMLDivElement>());
   const labelSizes = useRef(new Map<string, { w: number; h: number }>());
   const labelsRef = useRef(labels);
+  const extraRef = useRef<readonly StageLabel[]>([]);
+  const extraEls = useRef(new Map<string, HTMLDivElement>());
+  const extraSizes = useRef(new Map<string, { w: number; h: number }>());
+  const extraHost = useRef<HTMLDivElement>(null);
   const keepOut = useRef<readonly Rect[]>([]);
+  /** The panels the billboard cards keep round, and when they were last read (see onFrame). */
+  const extraPanels = useRef<readonly Rect[]>([]);
+  const extraPanelsAt = useRef(0);
   const lastModelSig = useRef('');
   const size = useRef({ width: 1, height: 1 });
   const pointers = useRef(new Map<number, Pointer>());
   const gesture = useRef<{ moved: boolean; button: number; startX: number; startY: number; pinch: number } | null>(null);
   const propsRef = useRef(props);
+  /** The scene last handed to the renderer (`data-scene-settled` is true only while it is the one the view holds). */
+  const shownScene = useRef<RenderScene | null>(null);
   propsRef.current = props;
   const [status, setStatus] = useState<StageStatus>('ok');
   const lostTimer = useRef<number | null>(null);
   labelsRef.current = labels;
+  extraRef.current = props.extraLabels ?? [];
 
   const emit = useCallback((next: CameraState) => {
     live.current = next;
@@ -131,7 +189,10 @@ export function HqStage(props: Props) {
       // The controls over the scene are read when they change size (never per frame), so a card is not drawn under one.
       if (propsRef.current.labelKeepOut && host.current) stopKeepOut = labelLib.bindKeepOut(host.current, propsRef.current.labelKeepOut, (rects) => { keepOut.current = rects; created?.requestFrame(); });
       const r: HqRenderer | null = Renderer.create(el, {
-        onQuality: (state) => { setGpuState(state); emitGpuTelemetry({ kind: 'quality', tier: tierById(state.tier).key, step: state.step, reason: state.reason }); },
+        onQuality: (state) => {
+          // The cheap tiers draw the cards over the scene without the glass blur (hqLabels.css `data-lite`): a blur over a canvas that redraws is a second full pass of the compositor each frame.
+          if (host.current) host.current.dataset.lite = state.tier <= 1 || state.settings.lean || state.software ? 'true' : 'false';
+          setGpuState(state); emitGpuTelemetry({ kind: 'quality', tier: tierById(state.tier).key, step: state.step, reason: state.reason }); },
         onLost: () => {
           setStatus('recovering');
           emitGpuTelemetry({ kind: 'context-lost' });
@@ -146,7 +207,27 @@ export function HqStage(props: Props) {
         onError: (error) => propsRef.current.onUnavailable(error.message),
         onFrame: (vp, aspect) => {
           const { width, height } = size.current;
-          placeLabels?.(labelsRef.current, labelEls.current, labelSizes.current, vp, width, height, 64, cameraEye(live.current), keepOut.current);
+          // Reads first, then writes: the panels the billboard cards keep round are read at most four times a second, before this frame
+          // writes any label (a read after the writes forced a layout of the whole page every frame).
+          const sel = propsRef.current.extraKeepOut;
+          if (extraRef.current.length && sel && host.current && performance.now() - extraPanelsAt.current > 250) {
+            extraPanelsAt.current = performance.now();
+            const box = host.current.getBoundingClientRect();
+            const rects: Rect[] = [];
+            host.current.parentElement?.querySelectorAll(sel).forEach((el) => {
+              const r = el.getBoundingClientRect();
+              if (r.width > 14 && r.height > 14) rects.push({ x0: r.left - box.left - 4, y0: r.top - box.top - 4, x1: r.right - box.left + 4, y1: r.bottom - box.top + 4 });
+            });
+            extraPanels.current = rects;
+          }
+          const main = placeLabels?.(labelsRef.current, labelEls.current, labelSizes.current, vp, width, height, 64, cameraEye(live.current), keepOut.current) ?? [];
+          if (extraRef.current.length && placeLabels && host.current) {
+            // The billboard pass keeps round the main cards (where the pass above put them) and the panels; the main pass never sees it.
+            const around: Rect[] = main.map((r) => ({ x0: r.x0 - 4, y0: r.y0 - 4, x1: r.x1 + 4, y1: r.y1 + 4 }));
+            around.push(...extraPanels.current);
+            if (extraHost.current) { const w = width >= 700 ? '1' : '0'; if (extraHost.current.dataset.wide !== w) extraHost.current.dataset.wide = w; }
+            placeLabels(extraRef.current, extraEls.current, extraSizes.current, vp, width, height, 64, cameraEye(live.current), around);
+          }
           propsRef.current.onView?.(live.current, aspect);
           if (canvas.current) propsRef.current.onCanvasFrame?.(canvas.current);
           const s = created?.stats;
@@ -171,6 +252,7 @@ export function HqStage(props: Props) {
             canvas.current.dataset.ambient = s.ambientMoving ? String(s.ambient) + ' moving' : String(s.ambient);
             canvas.current.dataset.modelsPlaced = String(s.models.placed);
             canvas.current.dataset.modelFigures = String(s.models.figures);
+            canvas.current.dataset.modelKit = String(s.models.kit ?? 0);
             // Avatar styles drawn: build/hair/outfit/skin per figure (codes only, never a name), and a count per build.
             canvas.current.dataset.figureLooks = [...s.models.looks].sort().join(' ');
             canvas.current.dataset.figureStyles = ['feminine', 'masculine', 'neutral'].map((b) => `${b}:${s.models.looks.filter((l) => l.startsWith(`${b}/`)).length}`).join(',');
@@ -179,6 +261,15 @@ export function HqStage(props: Props) {
             canvas.current.dataset.modelLoadMs = String(s.models.loadMs);
             canvas.current.dataset.modelFallbacks = s.models.fallbacks.join(',');
           }
+          // What this frame drew, on every frame where it changed: `data-triangles` is never an earlier frame's count, and `data-scene-settled`
+          // is true from the first frame that draws the final scene (no lazy part pending in the view, the scene effect chunks loaded, and the
+          // scene the view holds now is the one handed to the renderer).
+          if (s && canvas.current) {
+            const tri = String(Math.round(s.triangles));
+            if (canvas.current.dataset.triangles !== tri) canvas.current.dataset.triangles = tri;
+            const settled = String(propsRef.current.sceneSettled !== false && s.sceneFx === 'ready' && propsRef.current.scene !== null && shownScene.current === propsRef.current.scene);
+            if (canvas.current.dataset.sceneSettled !== settled) canvas.current.dataset.sceneSettled = settled;
+          }
         },
       });
       if (!r) { propsRef.current.onUnavailable('webgl-unavailable'); return; }
@@ -186,10 +277,14 @@ export function HqStage(props: Props) {
       renderer.current = r;
       setLiveRenderer(r);
       r.setReducedMotion(propsRef.current.reducedMotion);
+      giveWork(r, propsRef.current.work, () => true);
+      giveWalkers(r, propsRef.current.walkers, () => true);
       r.setCamera(live.current);
       r.setNight(nightNow.current);
-      if (propsRef.current.scene) r.setScene(propsRef.current.scene);
+      if (propsRef.current.scene) { r.setScene(propsRef.current.scene); shownScene.current = propsRef.current.scene; }
+      r.setScreens(propsRef.current.screenAtlas?.canvas ?? null, propsRef.current.screenAtlas?.version);
       { const plan = propsRef.current.glassPlan; giveGlassPlan(r, plan, () => propsRef.current.glassPlan === plan); }
+      r.setBoards(propsRef.current.boardAtlas?.canvas ?? null, propsRef.current.boardAtlas?.version);
       r.setHighlight(propsRef.current.hoverId, propsRef.current.selectedId);
       resizeObserver = new ResizeObserver(() => {
         const box = el.getBoundingClientRect();
@@ -205,6 +300,8 @@ export function HqStage(props: Props) {
       resizeObserver?.disconnect();
       stopKeepOut?.();
       if (lostTimer.current !== null) window.clearTimeout(lostTimer.current);
+      if (created) workLib?.detachWork(created);
+      if (created) walkerLib?.detachWalkers(created);
       created?.dispose();
       renderer.current = null;
       setLiveRenderer(null);
@@ -215,15 +312,23 @@ export function HqStage(props: Props) {
   }, []);
 
   useEffect(() => { renderer.current?.setReducedMotion(reducedMotion); }, [reducedMotion]);
-  useEffect(() => { if (scene) renderer.current?.setScene(scene); }, [scene]);
+  useEffect(() => { if (scene && renderer.current) { renderer.current.setScene(scene); shownScene.current = scene; } }, [scene]);
+  useEffect(() => { renderer.current?.requestFrame(); }, [props.sceneSettled]);
+  const work = props.work;
+  useEffect(() => { giveWork(renderer.current, work, () => propsRef.current.work === work); }, [work]);
+  const walkers = props.walkers;
+  useEffect(() => { giveWalkers(renderer.current, walkers, () => propsRef.current.walkers === walkers); }, [walkers]);
   // The revision of the plan atlas the scene asks for (the drawn one is `data-glass-plan`): a layout or presence change moves it.
   useEffect(() => {
     const plan = props.glassPlan;
     if (canvas.current) canvas.current.dataset.glassPlanWanted = plan?.revision ?? '';
     giveGlassPlan(renderer.current, plan, () => propsRef.current.glassPlan === plan);
   }, [props.glassPlan]);
+  useEffect(() => { renderer.current?.setScreens(props.screenAtlas?.canvas ?? null, props.screenAtlas?.version); }, [props.screenAtlas?.canvas, props.screenAtlas?.version]);
+  useEffect(() => { renderer.current?.setBoards(props.boardAtlas?.canvas ?? null, props.boardAtlas?.version); }, [props.boardAtlas?.canvas, props.boardAtlas?.version]);
   useEffect(() => { renderer.current?.setHighlight(props.hoverId, props.selectedId); }, [props.hoverId, props.selectedId]);
   useLayoutEffect(() => { labelSizes.current.clear(); renderer.current?.requestFrame(); }, [labels]);
+  useLayoutEffect(() => { extraSizes.current.clear(); renderer.current?.requestFrame(); }, [props.extraLabels]);
 
   // Camera changes from the controls tween; changes the stage itself emitted are already in place.
   useEffect(() => {
@@ -345,6 +450,17 @@ export function HqStage(props: Props) {
     </div>
   )), [labels]);
 
+  const extraNodes = useMemo(() => (props.extraLabels ?? []).map((spec) => (
+    <div
+      key={spec.id}
+      className="hqLabelAnchor"
+      style={{ display: 'none' }}
+      ref={(node) => { if (node) extraEls.current.set(spec.id, node); else extraEls.current.delete(spec.id); }}
+    >
+      {spec.node}
+    </div>
+  )), [props.extraLabels]);
+
   return (
     <div
       ref={host}
@@ -369,6 +485,7 @@ export function HqStage(props: Props) {
         onContextMenu={(event) => event.preventDefault()}
       />
       <p id="hq-stage-help" className="hqSrOnly">{props.description}</p>
+      {extraNodes.length > 0 && <div className="hqLabels hqLabelsExtra" ref={extraHost}>{extraNodes}</div>}
       <div className="hqLabels">{labelNodes}</div>
       {status === 'recovering' && (
         <div className="hqRecovering" role="status">{t('hq.stage.recovering')}</div>

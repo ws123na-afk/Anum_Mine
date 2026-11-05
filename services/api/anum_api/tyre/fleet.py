@@ -10,7 +10,7 @@ the tables a sync never copies.
 from __future__ import annotations
 
 from collections import Counter, defaultdict
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -111,6 +111,9 @@ class OperationsSummary(BaseModel):
     inspections_last_30_days: int
     inspections_total: int
     last_inspection: date | None
+    # The time of the last inspection (UTC), only when every inspection of that day stores
+    # one; None when the source keeps dates only. Never estimated.
+    last_inspection_at: datetime | None = None
     tyre_readings: int
     readings_on_tyre_records: int
     schedules_upcoming_14_days: int
@@ -134,12 +137,32 @@ def _visits(dataset: TyreDataset) -> list[InspectionVisit]:
     if dataset.inspection_visits:
         return dataset.inspection_visits
     seen: dict[tuple[str, date], InspectionVisit] = {}
+    timed: dict[tuple[str, date], list[datetime | None]] = defaultdict(list)
     for item in dataset.inspections:
-        if item.vehicle_id and (_key(item.vehicle_id), item.inspected_at) not in seen:
-            seen[(_key(item.vehicle_id), item.inspected_at)] = InspectionVisit(
+        if not item.vehicle_id:
+            continue
+        key = (_key(item.vehicle_id), item.inspected_at)
+        timed[key].append(item.inspected_time)
+        if key not in seen:
+            seen[key] = InspectionVisit(
                 id=f"{item.vehicle_id}@{item.inspected_at.isoformat()}", vehicle_id=item.vehicle_id,
                 inspected_at=item.inspected_at, odometer_km=item.odometer_km, hours=item.hours)
+    for key, visit in seen.items():
+        # A visit made of readings has a time only when every reading of it has one: the latest.
+        times = timed[key]
+        if all(times):
+            visit.inspected_time = max(t for t in times if t)
     return list(seen.values())
+
+
+def last_inspection_time(visits: list[InspectionVisit], day: date | None) -> datetime | None:
+    """The latest time on the last inspection day, when every inspection of that day has one."""
+    if day is None:
+        return None
+    times = [visit.inspected_time for visit in visits if visit.inspected_at == day]
+    if not times or not all(times):
+        return None
+    return max(t for t in times if t)
 
 
 def operations_summary(dataset: TyreDataset, as_of: date, work_order_window_days: int | None = None) -> OperationsSummary:
@@ -149,6 +172,7 @@ def operations_summary(dataset: TyreDataset, as_of: date, work_order_window_days
     recent_orders = [o for o in dataset.work_orders if o.opened_at >= last30]
     costs = [cost for cost in (order_cost(o) for o in recent_orders) if cost is not None]
     vehicle_ids = {_key(v.id) for v in dataset.vehicles} or {_key(t.vehicle_id) for t in dataset.tyres if t.vehicle_id}
+    last_day = max((v.inspected_at for v in visits), default=None)
     return OperationsSummary(
         as_of=as_of,
         vehicles=len(vehicle_ids),
@@ -156,7 +180,8 @@ def operations_summary(dataset: TyreDataset, as_of: date, work_order_window_days
         vehicles_inspected_last_90_days=len({_key(v.vehicle_id) for v in visits if v.inspected_at >= last90}),
         inspections_last_30_days=sum(1 for v in visits if v.inspected_at >= last30),
         inspections_total=len(visits),
-        last_inspection=max((v.inspected_at for v in visits), default=None),
+        last_inspection=last_day,
+        last_inspection_at=last_inspection_time(visits, last_day),
         tyre_readings=len(dataset.inspections),
         readings_on_tyre_records=sum(1 for item in dataset.inspections if item.tyre_id),
         schedules_upcoming_14_days=sum(

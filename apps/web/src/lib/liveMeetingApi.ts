@@ -41,6 +41,14 @@ export const meetingRoomApi = {
       catch (error) { if (attempt >= 1 || (error as { status?: number }).status !== 409) throw error; }
     }
   },
+  /** The owner removes an agent from the live meeting: it leaves now (the server stores the time) and cannot rejoin. */
+  async removeAgent(id: string, agentId: string) {
+    for (let attempt = 0; ; attempt++) {
+      const meeting = await apiRequest<{ revision: number }>(one(id), { method: 'GET' });
+      try { return await post(`${one(id)}/agents/${encodeURIComponent(agentId)}/remove`, { expected_revision: meeting.revision }); }
+      catch (error) { if (attempt >= 1 || (error as { status?: number }).status !== 409) throw error; }
+    }
+  },
   addAgenda: (id: string, title: string) => post<AgendaItem>(`${one(id)}/agenda`, { title }),
   patchAgenda: (id: string, item: string, body: { title?: string; state?: 'open' | 'current' | 'done' }) => apiRequest<AgendaItem>(`${one(id)}/agenda/${encodeURIComponent(item)}`, { method: 'PATCH', body: JSON.stringify(body) }),
   deleteAgenda: (id: string, item: string) => apiRequestVoid(`${one(id)}/agenda/${encodeURIComponent(item)}`, { method: 'DELETE' }),

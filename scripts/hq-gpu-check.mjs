@@ -78,6 +78,9 @@ async function benchAndSave(page, o, label, log) {
   await openPanel(page);
   const panel = page.getByTestId('hq-gpu-check');
   await panel.getByTestId('hq-gpu-length').selectOption(String(o.length));
+  // The script only measures: it leaves the quality automatic (the panel's Use button or its remember box pins a tier when you choose).
+  const remember = panel.getByTestId('hq-gpu-remember');
+  if (await remember.count()) await remember.uncheck();
   await panel.getByTestId('hq-gpu-bench').click();
   log(`Timing every tier (${label}), about ${Math.round(4 * (o.length + 1))} seconds. Leave the window alone.`);
   await panel.getByTestId('hq-gpu-progress').filter({ hasText: /Done|Stopped|could not finish/ }).waitFor({ timeout: 8 * 60_000 });
@@ -92,7 +95,11 @@ async function benchAndSave(page, o, label, log) {
 }
 
 async function lighting(page, name) {
-  await page.locator('.hqLive').getByRole('group', { name: 'Lighting' }).getByRole('button', { name }).click();
+  // Day, Blue hour and Night sit under More camera options (the decluttered toolbar), which closes when the scene is rebuilt.
+  const live = page.locator('.hqLive');
+  const more = live.getByTestId('hq-cam-more').first();
+  if ((await more.getAttribute('aria-expanded')) !== 'true') await more.click();
+  await live.getByRole('group', { name: 'Lighting' }).getByRole('button', { name }).click();
   await page.waitForTimeout(1500);
 }
 
@@ -149,10 +156,10 @@ export async function runCheck(page, o, log = console.log) {
   writeFileSync(path.join(o.out, 'summary.json'), JSON.stringify(summary, null, 2));
 
   log('');
-  log('Tier      median  p95     worst   fps   dropped  (frame times in ms)');
+  log('Tier      median  p95     worst   fps   dropped  gpu    warmup  hitches  (times in ms, warm-up in s)');
   for (const [label, rep] of Object.entries(reports)) {
     log(`-- ${label}`);
-    for (const t of rep.tiers) log(`${t.key.padEnd(9)} ${t.frames.medianMs.toFixed(1).padStart(6)} ${t.frames.p95Ms.toFixed(1).padStart(6)} ${t.frames.worstMs.toFixed(1).padStart(7)} ${t.frames.fps.toFixed(0).padStart(5)} ${String(t.frames.droppedFrames).padStart(8)}`);
+    for (const t of rep.tiers) log(`${t.key.padEnd(9)} ${t.frames.medianMs.toFixed(1).padStart(6)} ${t.frames.p95Ms.toFixed(1).padStart(6)} ${t.frames.worstMs.toFixed(1).padStart(7)} ${t.frames.fps.toFixed(0).padStart(5)} ${String(t.frames.droppedFrames).padStart(8)} ${(t.gpu ? t.gpu.medianMs.toFixed(1) : '-').padStart(6)} ${(t.warmupMs !== undefined ? (t.warmupMs / 1000).toFixed(1) : '-').padStart(7)} ${(t.hitches ? `${t.hitches.count}/${t.hitches.compile}` : '-').padStart(8)}`);
   }
   log('');
   log(`Verdict (campus): ${campus.verdict}`);

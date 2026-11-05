@@ -37,7 +37,11 @@ export type HqNavResult =
   | Readonly<{ ok: true; applied: Readonly<{ workspaceId: string | null; floorId: string | null; roomId: string | null; agentId: string | null }> }>
   | Readonly<{ ok: false; code: 'not-found' | 'not-accessible' | 'not-mounted' | 'ambiguous'; message: string }>;
 
-export type HqPanelContext = Readonly<{ close: () => void }>;
+export type HqPanelContext = Readonly<{
+  close: () => void;
+  /** The Executive assistant dock reports whether its tools loaded, so its panel header can say whether it is connected. */
+  onStatus?: (status: 'loading' | 'ready' | 'unavailable') => void;
+}>;
 
 export type HqSlots = Readonly<{
   /** Rendered in the side panel when a room is selected. Without it the built-in room summary shows. */

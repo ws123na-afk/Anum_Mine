@@ -24,13 +24,17 @@ export interface SalesLead {
   updated_at: string;
 }
 
+// Counted from Business leads with the WhatsApp source (docs/business.md#whatsapp-leads): `quoted`
+// is Business's `offered` state; `waiting` counts enquiries that are not in the lead list yet.
 export interface SalesOverview {
   leads: number;
   qualified: number;
   quoted: number;
   won: number;
   lost: number;
+  waiting: number;
   by_intent: Record<string, number>;
+  source: string;
   scope: string;
   revenue_estimate: string | null;
 }
@@ -42,6 +46,7 @@ const id = (value: string) => encodeURIComponent(value);
 export const listSalesLeads = (status?: SalesStage): Promise<{items: SalesLead[]; count: number}> =>
   apiRequest(`${BASE}/leads?limit=100${status ? `&status=${encodeURIComponent(status)}` : ''}`, {method: 'GET'});
 
+export const getSalesLead = (leadId: string): Promise<SalesLead> => apiRequest(`${BASE}/leads/${encodeURIComponent(leadId)}`, {method: 'GET'});
 export const getSalesOverview = (): Promise<SalesOverview> => apiRequest(`${BASE}/overview`, {method: 'GET'});
 
 export const updateSalesLead = (lead: SalesLead, fields: Record<string, unknown>): Promise<SalesLead> =>

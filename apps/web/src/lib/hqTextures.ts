@@ -172,6 +172,7 @@ export function drawSignAtlas(signs: readonly SignText[]): HTMLCanvasElement | n
   signs.forEach((sign, i) => {
     const col = i % SIGN_COLS, row = Math.floor(i / SIGN_COLS);
     const x = col * SIGN_CELL_W, y = row * SIGN_CELL_H;
+    if (sign.paint) { sign.paint(ctx, x, y, 1); return; }
     const rtl = hasArabicScript(sign.title) || hasArabicScript(sign.subtitle);
     const bg = ctx.createLinearGradient(x, y, x, y + SIGN_CELL_H);
     bg.addColorStop(0, '#142c3d'); bg.addColorStop(1, '#0b1722');
