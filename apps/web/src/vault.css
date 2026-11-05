@@ -152,7 +152,7 @@
 .vaultRowText strong { overflow-wrap: anywhere; }
 .vaultRowText small, .vaultLinkCell small { color: var(--d-muted); font-size: var(--text-xs); overflow-wrap: anywhere; }
 .vaultLinkCell { display: grid; gap: 1px; }
-.vaultFileIcon { align-items: center; background: rgb(var(--c-stop) / .12); border-radius: 6px; color: var(--d-stop); display: inline-flex; flex: none; font-size: 10px;
+.vaultFileIcon { align-items: center; background: rgb(var(--c-stop) / .12); border-radius: 6px; color: var(--d-stop); display: inline-flex; flex: none; font-size: var(--text-2xs);
   font-weight: 700; height: 36px; justify-content: center; letter-spacing: .02em; width: 32px; }
 .vaultFileIcon.image { background: rgb(var(--c-accent, 56 189 248) / .14); color: var(--d-sky); }
 .vaultActions { white-space: nowrap; text-align: end; }
