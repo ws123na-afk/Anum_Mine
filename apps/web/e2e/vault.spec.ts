@@ -42,7 +42,8 @@ test('documents: search, filter, open the detail, reveal the number, share and e
   await expect(rows.filter({ hasText: 'Iqama' }).getByText('Expired')).toBeVisible();
   await expect(rows.filter({ has: page.locator('strong', { hasText: /^Passport$/ }) }).getByText('Sensitive identity')).toBeVisible();
   await expect(rows.filter({ hasText: 'Fuel receipt' }).getByText('Review needed')).toBeVisible();
-  await expect(rows.filter({ hasText: 'Flat lease' }).getByText('Example van')).toBeVisible();
+  // The linked record column is left out on phones (the detail pane lists every link); it is in the row either way.
+  await expect(rows.filter({ hasText: 'Flat lease' }).getByText('Example van')).toHaveCount(1);
   await list.getByRole('searchbox', { name: 'Search' }).fill('iqama');
   await list.getByRole('searchbox', { name: 'Search' }).press('Enter');
   await expect(rows).toHaveCount(1);
