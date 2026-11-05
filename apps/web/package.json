@@ -13,11 +13,11 @@
   },
   "dependencies": {
     "@anum/contracts": "workspace:*",
-    "@sentry/browser": "11.9.0",
+    "@sentry/browser": "11.10.0",
     "@twilio/voice-sdk": "2.18.5",
     "@vitejs/plugin-react": "6.1.2",
     "kokoro-js": "1.2.1",
-    "lucide-react": "1.61.0",
+    "lucide-react": "1.65.0",
     "pdfjs-dist": "6.4.299",
     "react": "19.3.1",
     "react-dom": "19.3.1",
