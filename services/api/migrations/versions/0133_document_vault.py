@@ -340,8 +340,8 @@ def upgrade() -> None:
     op.execute(f"grant select (id, access_class, owner_user_id) on vault_documents to {PURGER}")
     op.execute(f"grant select (document_id, user_id) on vault_document_access to {PURGER}")
     op.execute(
+        "create policy vault_documents_private on vault_documents"  # nosec B608: fixed table and role names
         f"""
-        create policy vault_documents_private on vault_documents
         as restrictive for all
         using (
           access_class = 'workspace'
