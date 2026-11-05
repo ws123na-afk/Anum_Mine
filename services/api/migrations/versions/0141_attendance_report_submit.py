@@ -15,7 +15,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision = "0141_attendance_report_submit"
-down_revision = "0139_finance_pdf_templates"
+down_revision = "0140_finance_guardian_reviews"
 branch_labels = None
 depends_on = None
 
