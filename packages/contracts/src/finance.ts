@@ -143,6 +143,90 @@ export interface FinanceImport {
   held_for_review?: number;
 }
 
+/** PDF statements (docs/finance.md#pdf-statements): one role per column the reader found. */
+export type FinancePdfRole = 'date' | 'description' | 'debit' | 'credit' | 'amount' | 'balance' | 'reference' | 'skip';
+
+export interface FinancePdfRow {
+  line: number;
+  page: number;
+  posted_on: string | null;
+  description: string;
+  amount: string | null;
+  debit: string | null;
+  credit: string | null;
+  balance: string | null;
+  reference: string | null;
+  category: string;
+  /** Already in the ledger (same hash as a CSV import): importing it again adds nothing. */
+  duplicate: boolean;
+  /** `sign_unsure`, `sign_from_balance`, `date_unreadable`, `amount_missing`, `amount_zero`. */
+  flags: string[];
+}
+
+export interface FinancePdfCheck {
+  status: 'matched' | 'mismatch' | 'unknown';
+  opening: string | null;
+  closing: string | null;
+  rows_total: string;
+  expected_closing: string | null;
+  difference: string | null;
+  opening_source: 'statement' | 'rows' | 'none';
+  closing_source: 'statement' | 'rows' | 'none';
+  /** Rows after which the running balance does not agree with the printed balance. */
+  breaks: number[];
+}
+
+/** What `POST /imports/pdf/read` found. Nothing is saved until the reviewed rows are imported. */
+export interface FinancePdfStatement {
+  account_id: string;
+  currency: string;
+  filename: string;
+  file_sha256: string;
+  source: 'text' | 'ocr';
+  page_count: number;
+  layout: 'table' | 'lines';
+  columns: { index: number; label: string; role: FinancePdfRole }[];
+  roles: FinancePdfRole[];
+  date_format: string;
+  date_formats: string[];
+  date_format_ambiguous: boolean;
+  period_start: string | null;
+  period_end: string | null;
+  /** Only the last four digits of the account or card number; never more. */
+  account_last4: string | null;
+  account_last4_matches: boolean | null;
+  statement_currency: string | null;
+  opening_balance: string | null;
+  closing_balance: string | null;
+  check: FinancePdfCheck;
+  row_count: number;
+  duplicate_count: number;
+  skipped_lines: number;
+  /** `currency_differs`, `no_rows`. */
+  warnings: string[];
+  rows: FinancePdfRow[];
+}
+
+export interface FinancePdfImportRow {
+  posted_on: string;
+  description: string;
+  amount: string;
+  balance?: string | null;
+  reference?: string | null;
+}
+
+export interface FinancePdfImportInput {
+  account_id: string;
+  filename: string;
+  file_sha256: string;
+  source: 'text' | 'ocr';
+  rows: FinancePdfImportRow[];
+  opening_balance?: string | null;
+  closing_balance?: string | null;
+  /** Import even though the rows do not add up to the closing balance (the owner confirmed it). */
+  accept_mismatch?: boolean;
+}
+
 export interface FinanceBill {
   id: string;
   name: string;

@@ -12,6 +12,7 @@ import type {
   FinanceAgentDecision, FinanceEquity, FinanceIntelAgent, FinanceIntelOverview, FinanceStrategy, FinanceStrategyRun, FinanceStrategyState,
   FinanceIntelBarsInput, FinanceIntelBarsResult, FinanceIntelCycle, FinanceIntelInstrument, FinanceIntelInstrumentInput, FinanceIntelPhase,
   FinanceIntelRule, FinanceStrategyInput, FinanceDailyReport, FinanceDailyReportItem, FinancePreflight, FinancePreflightInput,
+  FinancePdfImportInput, FinancePdfRole, FinancePdfStatement,
 } from '@anum/contracts';
 import { apiBaseUrl, apiRequest, apiRequestVoid, authHeaders } from './api';
 import { apiErrorFromResponse } from './errors';
@@ -50,6 +51,21 @@ export const previewImport = (body: FinanceImportInput) => send<FinanceImportPre
 export const confirmImport = (body: FinanceImportInput) => send<FinanceImport>('POST', '/imports', body);
 export const listImports = (limit: number, offset: number) => get<FinancePage<FinanceImport>>(`/imports${query({ limit, offset })}`);
 export const deleteImport = (importId: string) => remove(`/imports/${id(importId)}`);
+
+export interface PdfReadOptions { account_id: string; filename: string; roles?: readonly FinancePdfRole[] | null; date_format?: string | null }
+
+/** Read a statement PDF (docs/finance.md#pdf-statements). The password, when the bank set one, goes in a
+ *  header, never the URL, and the API uses it in memory only. Nothing is saved. */
+export async function readPdfStatement(file: Blob, options: PdfReadOptions, password?: string): Promise<FinancePdfStatement> {
+  const params = query({ account_id: options.account_id, filename: options.filename, roles: options.roles?.length ? options.roles.join(',') : null, date_format: options.date_format });
+  const headers: Record<string, string> = { ...(await authHeaders()), 'content-type': 'application/pdf' };
+  if (password) headers['x-statement-password'] = password;
+  const response = await fetch(`${apiBaseUrl}${BASE}/imports/pdf/read${params}`, { method: 'POST', headers, body: file });
+  if (!response.ok) throw await apiErrorFromResponse(response);
+  return await response.json() as FinancePdfStatement;
+}
+
+export const importPdfStatement = (body: FinancePdfImportInput) => send<FinanceImport>('POST', '/imports/pdf', body);
 
 export const listBills = () => get<FinanceBill[]>('/bills');
 export const upcomingBills = (days = 30) => get<FinanceUpcomingBill[]>(`/bills/upcoming${query({ days })}`);
