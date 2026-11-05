@@ -276,7 +276,7 @@ Apps: `api` services/api (FastAPI image, also the worker), `browser` services/ap
 
 ## Rust crates (crates.io)
 
-474 components.
+471 components.
 
 | Component | License | Used in | Source |
 |---|---|---|---|
@@ -325,6 +325,7 @@ Apps: `api` services/api (FastAPI image, also the worker), `browser` services/ap
 | cfb | MIT | desktop | <https://github.com/mdsteele/rust-cfb> |
 | cfg-expr | MIT OR Apache-2.0 | desktop | <https://github.com/EmbarkStudios/cfg-expr> |
 | cfg-if | MIT OR Apache-2.0 | desktop | <https://github.com/rust-lang/cfg-if> |
+| chacha20 | MIT OR Apache-2.0 | desktop | <https://github.com/RustCrypto/stream-ciphers> |
 | chrono | MIT OR Apache-2.0 | desktop | <https://github.com/chronotope/chrono> |
 | combine | MIT | desktop | <https://github.com/Marwes/combine> |
 | concurrent-queue | Apache-2.0 OR MIT | desktop | <https://github.com/smol-rs/concurrent-queue> |
@@ -535,7 +536,6 @@ Apps: `api` services/api (FastAPI image, also the worker), `browser` services/ap
 | portable-atomic-util | Apache-2.0 OR MIT | desktop | <https://github.com/taiki-e/portable-atomic-util> |
 | potential_utf | Unicode-3.0 | desktop | <https://github.com/unicode-org/icu4x> |
 | powerfmt | MIT OR Apache-2.0 | desktop | <https://github.com/jhpratt/powerfmt> |
-| ppv-lite86 | MIT OR Apache-2.0 | desktop | <https://github.com/cryptocorrosion/cryptocorrosion> |
 | precomputed-hash | MIT | desktop | <https://github.com/emilio/precomputed-hash> |
 | proc-macro-crate | MIT OR Apache-2.0 | desktop | <https://github.com/bkchr/proc-macro-crate> |
 | proc-macro-error | MIT OR Apache-2.0 | desktop | <https://gitlab.com/CreepySkeleton/proc-macro-error> |
@@ -545,8 +545,7 @@ Apps: `api` services/api (FastAPI image, also the worker), `browser` services/ap
 | quote | MIT OR Apache-2.0 | desktop | <https://github.com/dtolnay/quote> |
 | r-efi | MIT OR Apache-2.0 OR LGPL-2.1-or-later | desktop | <https://github.com/r-efi/r-efi> |
 | rand | MIT OR Apache-2.0 | desktop | <https://github.com/rust-random/rand> |
-| rand_chacha | MIT OR Apache-2.0 | desktop | <https://github.com/rust-random/rand> |
-| rand_core | MIT OR Apache-2.0 | desktop | <https://github.com/rust-random/rand> |
+| rand_core | MIT OR Apache-2.0 | desktop | <https://github.com/rust-random/rand_core> |
 | raw-window-handle | MIT OR Apache-2.0 OR Zlib | desktop | <https://github.com/rust-windowing/raw-window-handle> |
 | redox_syscall | MIT | desktop | <https://gitlab.redox-os.org/redox-os/syscall> |
 | redox_users | MIT | desktop | <https://gitlab.redox-os.org/redox-os/users> |
@@ -741,8 +740,6 @@ Apps: `api` services/api (FastAPI image, also the worker), `browser` services/ap
 | zbus_macros | MIT | desktop | <https://github.com/z-galaxy/zbus> |
 | zbus_names | MIT | desktop | <https://github.com/z-galaxy/zbus> |
 | zcheapstr | MIT | desktop | <https://github.com/z-galaxy/zcheapstr> |
-| zerocopy | BSD-2-Clause OR Apache-2.0 OR MIT | desktop | <https://github.com/google/zerocopy> |
-| zerocopy-derive | BSD-2-Clause OR Apache-2.0 OR MIT | desktop | <https://github.com/google/zerocopy> |
 | zerofrom | Unicode-3.0 | desktop | <https://github.com/unicode-org/icu4x> |
 | zerofrom-derive | Unicode-3.0 | desktop | <https://github.com/unicode-org/icu4x> |
 | zeroize | Apache-2.0 OR MIT | desktop | <https://github.com/RustCrypto/utils> |
