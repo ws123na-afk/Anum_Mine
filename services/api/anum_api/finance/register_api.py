@@ -427,7 +427,9 @@ def accounts_overview(context: TenantContext = Depends(tenant_context)) -> Accou
         item = per[txn.account_id]
         item["last"] = max(item["last"] or txn.posted_on, txn.posted_on)
         item["sources"].update({"apple_wallet" if s == "wallet" else s for s in row.sources} or {"manual"})
-        if txn.import_id:
+        # A statement line either created this row or was reconciled onto an SMS or Apple Pay record of it
+        # (a statement source on the entry, no row of its own): both are imported lines.
+        if "statement" in row.sources:
             item["imported"] += 1
             item["matched"] += 1 if row.reconciled else 0
         item["review"] += row.links_need_review

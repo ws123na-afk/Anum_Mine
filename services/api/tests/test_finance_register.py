@@ -188,3 +188,17 @@ def test_rows_are_the_callers_own_and_viewers_are_refused() -> None:
     assert client.get(f"{API}/accounts/overview", headers=STRANGER).json()["accounts"] == []
     assert client.get(f"{API}/register", headers=VIEWER).status_code == 403
     assert client.get(f"{API}/accounts/overview", headers=VIEWER).status_code == 403
+
+
+def test_statement_lines_reconciled_onto_an_sms_payment_count_as_imported_and_matched() -> None:
+    card, token = sms_card()
+    assert send(token)["status"] == "posted"
+    today = utc_now().date().isoformat()
+    made = client.post(f"{API}/imports", headers=OWNER, json={
+        "account_id": card["id"], "filename": "card.csv",
+        "content": f"Date,Description,Amount\n{today},PETROMIN FUEL,-150.00\n{today},BOOKSHOP NOT ON SMS,-20.00\n"})
+    assert made.status_code == 201, made.text
+    assert made.json()["reconciled"] == 1
+    item = next(a for a in client.get(f"{API}/accounts/overview", headers=OWNER).json()["accounts"] if a["account_id"] == card["id"])
+    assert item["imported"] == 2 and item["matched"] == 1
+    assert item["last_reconciled_at"] is not None
