@@ -205,6 +205,21 @@ def test_every_purged_table_is_covered_by_the_purge_migration() -> None:
             "business_invoice_payment_links": "0126_business_invoice_send",
             **{name: "0129_setup_plan_gaps" for name in (
                 "contact_consents", "contact_consent_settings", "agent_loop_limits", "approval_reminder_settings", "approval_reminders")},
+            **{name: "0131_finance_sms_ledger" for name in (
+                "finance_sms_settings", "finance_sms_devices", "finance_sms_messages", "finance_sms_rules", "finance_journal_entries",
+                "finance_postings")},
+            **{name: "0134_finance_links" for name in ("finance_links", "finance_device_events", "business_ledger_allocations")},
+            **{name: "0137_business_books" for name in (
+                "business_book_settings", "business_book_cost_centres", "business_book_vendors", "business_book_bills", "business_book_bill_payments",
+                "business_book_allocation_tags", "business_book_budgets", "business_book_rates", "business_book_adjustments", "business_book_intercompany")},
+            **{name: "0136_purchases" for name in ("purchases", "purchase_items", "purchase_events", "purchase_shipments", "purchase_returns", "purchase_reminders", "purchase_preferences")},
+            **{name: "0135_vehicles" for name in ("vehicles", "vehicle_odometer_readings", "vehicle_fuel_entries", "vehicle_trips", "vehicle_service_records", "vehicle_reminders", "vehicle_preferences")},
+            **{name: "0130_action_browser" for name in (
+                "action_browser_credentials", "action_browser_sessions", "action_browser_steps")},
+            **{name: "0132_work_attendance" for name in ("attendance_shares", "attendance_profiles", "attendance_sites", "attendance_events", "attendance_corrections", "attendance_day_totals", "attendance_daily_reports")},
+            **{name: "0133_document_vault" for name in (
+                "vault_settings", "vault_categories", "vault_documents", "vault_document_access", "vault_document_links",
+                "vault_extractions", "vault_access_log", "vault_devices")},
             "billing_company_profiles": "0123_selling_readiness",
             "workspace_record_retention": "0120_record_retention",
             "office_visitors": "0118_career_visitor_register",

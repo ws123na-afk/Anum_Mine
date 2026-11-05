@@ -153,6 +153,11 @@ class Settings(BaseSettings):
     # model with each question, and the character budget those turns may use.
     conversation_history_turns: int = Field(default=12, ge=0, le=50)
     conversation_history_chars: int = Field(default=24000, ge=1000, le=200000)
+    # The time zone of the date line every model prompt gets (current_time.py,
+    # docs/model-gateway.md#current-date-and-time) when neither the user's team profile
+    # nor the workspace's first office building names one. An unknown name falls back to
+    # Asia/Dubai with a warning; it never stops the API.
+    default_time_zone: str = Field(default="Asia/Dubai", min_length=1, max_length=80)
     # Conversation retention (docs/conversations.md#retention): the daily retention job
     # deletes conversations (and their turns) with no activity for this many days, the
     # same 30 days as voice transcripts by default; 0 keeps them until the user deletes
@@ -325,6 +330,27 @@ class Settings(BaseSettings):
     browser_research_timeout_seconds: float = Field(default=45.0, gt=0, le=120)
     # Pages read per workspace per hour (counted in each API or worker process).
     browser_research_per_hour: int = Field(default=30, ge=1, le=1000)
+    # Document vault OCR (docs/documents.md#the-ocr-service): the internal OCR service that runs
+    # local Tesseract (English and Arabic) in its own container (http://ocr:8091 in the Oracle
+    # stack, compose profile `ocr`) and the token the API sends it. Either empty: scanning reads
+    # only a PDF's own text layer and says "OCR is not connected". Operator configuration only.
+    ocr_service_url: str = ""
+    ocr_service_token: str = ""
+    ocr_timeout_seconds: float = Field(default=120.0, gt=0, le=300)
+    # Uploads per iPhone Shortcut token per hour (counted in each API process).
+    vault_device_uploads_per_hour: int = Field(default=60, ge=1, le=1000)
+    # The action browser (docs/action-browser.md): the `web.act` tool, which signs in, fills forms
+    # and clicks through sites in the same browser service run with ANUM_BROWSER_ACTION_MODE=1,
+    # and stops for the owner's approval before anything binding. Off unless the operator turns
+    # it on here (and each workspace owner under Integrations). Refused without the browser
+    # service URL and token above.
+    action_browser_enabled: bool = False
+    action_browser_max_steps: int = Field(default=60, ge=5, le=200)
+    action_browser_task_minutes: int = Field(default=20, ge=1, le=120)
+    action_browser_segment_seconds: int = Field(default=240, ge=30, le=280)
+    action_browser_tasks_per_day: int = Field(default=20, ge=1, le=500)
+    # How long a step approval waits: the browser's idle time (ANUM_BROWSER_ACTION_IDLE_SECONDS).
+    action_browser_approval_seconds: int = Field(default=900, ge=60, le=3600)
     # Tyre planning (docs/tyre-planning.md): reads the owner's fleet data from their own
     # Supabase (PostgreSQL or REST) or Firebase (Firestore). Workspace-saved Supabase
     # hosts must be public HTTPS/TLS endpoints outside local; this comma-separated list of
@@ -506,6 +532,16 @@ class Settings(BaseSettings):
         from .model_egress import parse_allowed_hosts
 
         parse_allowed_hosts(value)
+        return value
+
+    @field_validator("action_browser_enabled")
+    @classmethod
+    def _action_browser_needs_the_browser_service(cls, value: bool, info: ValidationInfo) -> bool:
+        if value and not (str(info.data.get("browser_research_url") or "").strip() and str(info.data.get("browser_research_token") or "").strip()):
+            raise ValueError(
+                "ANUM_ACTION_BROWSER_ENABLED=true needs the browser service: set ANUM_BROWSER_RESEARCH_URL and "
+                "ANUM_BROWSER_RESEARCH_TOKEN (docs/action-browser.md#setting-it-up)"
+            )
         return value
 
     @field_validator("clamav_host")

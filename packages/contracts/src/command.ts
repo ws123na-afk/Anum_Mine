@@ -42,6 +42,8 @@ export interface PlanStep {
   /** False for agents without a live integration (calendar, tyre); `note` says what happens instead. */
   connected: boolean;
   note: string | null;
+  /** Positions of earlier steps this step waits for; it starts once they completed and its run receives their results. */
+  dependsOn: number[];
 }
 
 export interface CommandPlan {
@@ -56,7 +58,8 @@ export interface CommandPlan {
 /** Body of `POST /api/v1/commands`: the confirmed steps, in order. */
 export interface CommandCreate {
   text: string;
-  steps: { instruction: string }[];
+  /** `dependsOn`: positions of earlier confirmed steps; left out, the server decides from the instruction. */
+  steps: { instruction: string; dependsOn?: number[] }[];
   source?: CommandSource;
   locale?: CommandLocale;
   /** Workspace file ids (at most 5). */
@@ -82,6 +85,10 @@ export interface CommandStepView {
   startedAt: string | null;
   finishedAt: string | null;
   approvals: Approval[];
+  /** Earlier steps it waits for; those not completed yet; those that failed or were cancelled (it then does not start). */
+  dependsOn: number[];
+  waitingFor: number[];
+  blockedBy: number[];
 }
 
 export interface CommandTimelineEntry {

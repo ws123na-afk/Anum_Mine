@@ -83,6 +83,10 @@ def build_activities(
         from .browser_research.tool import register_browser_tools
 
         register_browser_tools(registry, config, integrations.workspace_enabled(BROWSER_INTEGRATION_ID))
+        from .action_browser import ACTION_INTEGRATION_ID
+        from .action_browser.tool import default_planner_factory, register_action_tools
+
+        register_action_tools(registry, config, integrations.workspace_enabled(ACTION_INTEGRATION_ID), default_planner_factory(gateway))
 
     def runtime_factory(context: TenantContext, repository: AnumRepository) -> AgentRuntime:
         from .retrieval_api import retriever_for

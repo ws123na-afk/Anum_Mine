@@ -35,11 +35,13 @@ create are ordinary workspace tasks. Creating, deleting and exporting are audite
 
 from __future__ import annotations
 
+import asyncio
 import re
 from collections import Counter
 from datetime import datetime
 from enum import StrEnum
 from threading import RLock
+from collections.abc import Awaitable, Callable
 from typing import Any, Literal, Protocol
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
@@ -51,7 +53,7 @@ from .agent_tools import ToolCall, ToolPolicy, ToolPolicyOutcome, ToolRegistry
 from .approval_integrity import as_viewed
 from .audit import AuditRecord
 from .authorization import Permission
-from .dependencies import repository_context, require_permission, tenant_context
+from .dependencies import UnitsOfWork, repository_context, require_permission, run_in_unit, tenant_context, units_of_work
 from .events import CanonicalEventName, create_event
 from .punctuation import LONG_DASHES
 from .repository import AnumRepository
@@ -118,15 +120,30 @@ _AGENT_NAMES: dict[AgentId, tuple[str, str]] = {
 # What a step routed to an agent without a live integration actually does (shown in the
 # plan, so nobody expects a calendar invite or a TyrePulse query that will not happen).
 _AGENT_NOTES: dict[AgentId, tuple[str, str]] = {
-    AgentId.CALENDAR: (
-        "No calendar is connected to ANUM yet: this step drafts the meeting (time, attendees, agenda) for you to send.",
-        "لا يوجد تقويم متصل بـ ANUM بعد: هذه الخطوة تجهّز مسودة الاجتماع (الوقت والحضور والجدول) لترسلها بنفسك.",
-    ),
     AgentId.TYRE: (
         "Tyre planning is not available on this server: this step answers from the files and notes in this workspace.",
         "تخطيط الإطارات غير متاح على هذا الخادم: هذه الخطوة تجيب من الملفات والملاحظات الموجودة في مساحة العمل.",
     ),
 }
+
+# Calendar steps read the workspace's real calendar connections (Calendar > Sync,
+# docs/calendar.md#sync). With none, the step only drafts. With one, the step still drafts,
+# because invitations go out only through Calendar's "Ask to send invitations", which an
+# owner approves for the exact event (calendar.send_invitations).
+_CALENDAR_NONE_NOTE = (
+    "No calendar is connected to ANUM yet (connect one under Calendar): this step drafts the meeting (time, attendees, agenda) for you to send.",
+    "لا يوجد تقويم متصل بـ ANUM بعد (اربط تقويما من شاشة التقويم): هذه الخطوة تجهّز مسودة الاجتماع (الوقت والحضور والجدول) لترسلها بنفسك.",
+)
+_CALENDAR_REAUTH_NOTE = (
+    "{provider} needs to be connected again under Calendar: until then this step drafts the meeting for you to send.",
+    "يحتاج {provider} إلى إعادة الربط من شاشة التقويم: حتى ذلك الحين تجهّز هذه الخطوة مسودة الاجتماع لترسلها بنفسك.",
+)
+_CALENDAR_CONNECTED_NOTE = (
+    "{provider} is connected. This step drafts the meeting; to invite people, add it in Calendar and press "
+    "Ask to send invitations, which an owner approves for the exact event.",
+    "{provider} متصل. هذه الخطوة تجهّز مسودة الاجتماع؛ لدعوة الحضور أضفه في التقويم واضغط طلب إرسال الدعوات، "
+    "ويوافق المالك على الحدث كما هو.",
+)
 
 # A tyre step whose tools exist but whose workspace has no tyre data connected yet: the
 # run would fail with "Connect your tyre data first" (docs/tyre-planning.md).
@@ -212,20 +229,53 @@ _SPLIT = re.compile(
 _LEADING = re.compile(r"^(?:and|also|then|please|و|ثم)\s+", re.IGNORECASE)
 
 
-def split_request(text: str) -> list[str]:
-    """The request's clauses, in order, without leading "and"/"then" and empty pieces."""
-    clauses: list[str] = []
-    for piece in _SPLIT.split(text):
+# "then", "after that", "ثم": what follows waits for what came before.
+_SEQUENCE = re.compile(r"^(?:and\s+)?then$|^after that$|^ثم$|^and then$", re.IGNORECASE)
+_SEQUENCE_LEAD = re.compile(r"^(?:then|ثم|afterwards|after that)\s+", re.IGNORECASE)
+# A clause that uses an earlier step's output ("send the summary", "reply to them", "based on
+# the results"): it waits for the step before it and receives its result.
+_REFERS_BACK = re.compile(
+    r"\b(?:it|them|those|these|the (?:results?|findings|summary|report|list|answers?|draft|totals?)|"
+    r"(?:that|this) (?:summary|report|list|draft)|based on|from (?:step|above)|above)\b"
+    r"|النتائج|النتيجة|الملخص|التقرير|القائمة|بناء على|بناءً على|بناءا على",
+    re.IGNORECASE,
+)
+
+
+def split_clauses(text: str) -> list[tuple[str, bool]]:
+    """The request's clauses in order, each with whether it was introduced by "then",
+    "after that" or "ثم" (it waits for everything before it)."""
+    clauses: list[tuple[str, bool]] = []
+    pieces: list[tuple[str, str]] = []
+    last, separator = 0, ""
+    for match in _SPLIT.finditer(text):
+        pieces.append((text[last : match.start()], separator))
+        separator, last = match.group(0), match.end()
+    pieces.append((text[last:], separator))
+    for piece, before in pieces:
         clause = " ".join(piece.split())
+        sequential = bool(_SEQUENCE.match(" ".join(before.split())))
         while True:
+            if _SEQUENCE_LEAD.match(clause):
+                sequential = True
             stripped = _LEADING.sub("", clause)
             if stripped == clause:
                 break
             clause = stripped
         clause = clause.strip(" .,;:-" + LONG_DASHES)
         if len(clause) >= 2:
-            clauses.append(clause)
+            clauses.append((clause, sequential))
     return clauses
+
+
+def split_request(text: str) -> list[str]:
+    """The request's clauses, in order, without leading "and"/"then" and empty pieces."""
+    return [clause for clause, _ in split_clauses(text)]
+
+
+def refers_back(instruction: str) -> bool:
+    """Whether a step's words use an earlier step's output ("send the summary to the team")."""
+    return bool(_REFERS_BACK.search(instruction))
 
 
 def _title(text: str) -> str:
@@ -279,6 +329,9 @@ class PlanStep(BaseModel):
     # then says what the step does instead.
     connected: bool = True
     note: str | None = None
+    # Positions of earlier steps this step waits for; it starts once they completed and its
+    # run receives their results (docs/command.md#steps-that-build-on-each-other).
+    depends_on: list[int] = Field(default_factory=list)
 
 
 class CommandPlan(BaseModel):
@@ -342,7 +395,8 @@ class Planner:
             ToolPolicyOutcome.REQUIRE_APPROVAL: ApprovalNeed.REQUIRED,
             ToolPolicyOutcome.BLOCK: ApprovalNeed.BLOCKED,
         }[decision.outcome]
-        note = self._note(agent, call.name)
+        noted = self._note(agent, call.name)
+        note, live = (None, True) if noted is None else noted
         arabic = self.locale == "ar"
         return PlanStep(
             position=position,
@@ -362,7 +416,7 @@ class Planner:
             risk_level=decision.risk_level,
             approval=approval,
             approval_reason=decision.reason,
-            connected=note is None,
+            connected=live,
             note=None if note is None else (note[1] if arabic else note[0]),
         )
 
@@ -380,34 +434,76 @@ class Planner:
                 self._tyre_connection = False
         return self._tyre_connection
 
-    def _note(self, agent: AgentId, tool_name: str) -> tuple[str, str] | None:
-        """What a step does instead when its agent has no live integration, else None."""
+    _calendar: tuple[str, str | None] | None = None
+
+    def _calendar_state(self) -> tuple[str, str | None]:
+        """("connected" | "reauth" | "none", provider name) from the workspace's calendar
+        connections (one cached read per plan)."""
+        if self._calendar is None:
+            from .calendar_providers import PROVIDER_NAMES
+            from .calendar_sync import ConnectionStatus, open_sync_store
+
+            try:
+                with open_sync_store(self.context) as store:
+                    connections = store.list_connections()
+            except Exception:  # unreadable: say "not connected", never claim a connection
+                connections = []
+            usable = [c for c in connections if c.status != ConnectionStatus.REAUTH_REQUIRED]
+            if usable:
+                self._calendar = ("connected", PROVIDER_NAMES[usable[0].provider])
+            elif connections:
+                self._calendar = ("reauth", PROVIDER_NAMES[connections[0].provider])
+            else:
+                self._calendar = ("none", None)
+        return self._calendar
+
+    def _note(self, agent: AgentId, tool_name: str) -> tuple[tuple[str, str], bool] | None:
+        """What a step does instead (or must know) about its agent's integration, and whether
+        that integration is live; None when there is nothing to say."""
         if agent == AgentId.TYRE and tool_name in _tyre_tools():
-            return None if self._tyre_connected() else _TYRE_CONNECT_NOTE
-        return _AGENT_NOTES.get(agent)
+            return None if self._tyre_connected() else (_TYRE_CONNECT_NOTE, False)
+        if agent == AgentId.CALENDAR:
+            state, provider = self._calendar_state()
+            if state == "connected":
+                english, arabic = _CALENDAR_CONNECTED_NOTE
+                return (english.format(provider=provider), arabic.format(provider=provider)), True
+            if state == "reauth":
+                english, arabic = _CALENDAR_REAUTH_NOTE
+                return (english.format(provider=provider), arabic.format(provider=provider)), False
+            return _CALENDAR_NONE_NOTE, False
+        note = _AGENT_NOTES.get(agent)
+        return None if note is None else (note, False)
 
     def plan(self, text: str) -> CommandPlan:
         """Clauses become steps; a clause that names no agent of its own (or only asks for a
         summary) joins the step before it, as does one for the same agent."""
-        groups: list[tuple[AgentId, list[str]]] = []
-        for clause in split_request(text) or [text]:
+        groups: list[tuple[AgentId, list[str], bool]] = []
+        for clause, sequential in split_clauses(text) or [(text, False)]:
             agent = self.agent_of(clause)
             if groups and (agent in {AgentId.GENERAL, AgentId.WRITER} or agent == groups[-1][0]):
                 if groups[-1][0] in {AgentId.GENERAL, AgentId.WRITER} and agent not in {
                     AgentId.GENERAL,
                     AgentId.WRITER,
                 }:
-                    groups[-1] = (agent, groups[-1][1])
+                    groups[-1] = (agent, groups[-1][1], groups[-1][2])
                 groups[-1][1].append(clause)
                 continue
-            groups.append((agent, [clause]))
+            groups.append((agent, [clause], sequential))
         # Past the step limit, the rest of the request stays together in the last step.
         if len(groups) > MAX_STEPS:
-            tail = [clause for _, clauses in groups[MAX_STEPS - 1 :] for clause in clauses]
-            groups = groups[: MAX_STEPS - 1] + [(groups[MAX_STEPS - 1][0], tail)]
-        steps = [
-            self.step(index, ", ".join(clauses)[:MAX_INSTRUCTION_CHARS]) for index, (_, clauses) in enumerate(groups, 1)
-        ]
+            tail = [clause for _, clauses, _ in groups[MAX_STEPS - 1 :] for clause in clauses]
+            groups = groups[: MAX_STEPS - 1] + [(groups[MAX_STEPS - 1][0], tail, groups[MAX_STEPS - 1][2])]
+        steps: list[PlanStep] = []
+        barrier: list[int] = []  # every step before the latest "then"
+        for index, (_, clauses, sequential) in enumerate(groups, 1):
+            step = self.step(index, ", ".join(clauses)[:MAX_INSTRUCTION_CHARS])
+            if sequential and index > 1:
+                barrier = list(range(1, index))
+            depends = set(barrier)
+            if index > 1 and refers_back(step.instruction):
+                depends.add(index - 1)
+            step.depends_on = sorted(depends)
+            steps.append(step)
         return _plan_of(text, steps)
 
 
@@ -452,6 +548,8 @@ class StoredStep(BaseModel):
     tool: str | None = None
     risk_level: RiskLevel
     approval: ApprovalNeed
+    # Positions of the earlier steps this step waits for (empty: starts at once).
+    depends_on: list[int] = Field(default_factory=list)
 
 
 class CommandAttachment(BaseModel):
@@ -501,6 +599,7 @@ def text_key(text: str) -> str:
 class CommandStore(Protocol):
     def add_command(self, command: StoredCommand) -> StoredCommand: ...
     def get_command(self, command_id: str) -> StoredCommand | None: ...
+    def find_by_task(self, task_id: str) -> StoredCommand | None: ...
     def list_commands(self, limit: int, after: str | None) -> list[StoredCommand]: ...
     def recent_texts(self, limit: int) -> list[tuple[str, str, datetime]]: ...
     def delete_command(self, command_id: str) -> bool: ...
@@ -554,6 +653,10 @@ class _BoundMemoryStore:
         if command is None or (command.tenant_id, command.workspace_id, command.created_by) != self.scope:
             return None
         return command
+
+    def find_by_task(self, task_id: str) -> StoredCommand | None:
+        with self.store._lock:
+            return next((c for c in self._mine() if any(step.task_id == task_id for step in c.steps)), None)
 
     def list_commands(self, limit: int, after: str | None) -> list[StoredCommand]:
         with self.store._lock:
@@ -677,6 +780,11 @@ class CommandStepView(BaseModel):
     started_at: datetime | None = None
     finished_at: datetime | None = None
     approvals: list[Approval] = Field(default_factory=list)
+    # The earlier steps it waits for, those not completed yet, and those that failed or were
+    # cancelled (then this step does not start on its own: try that step again first).
+    depends_on: list[int] = Field(default_factory=list)
+    waiting_for: list[int] = Field(default_factory=list)
+    blocked_by: list[int] = Field(default_factory=list)
 
 
 class TimelineEntry(BaseModel):
@@ -791,8 +899,61 @@ def _states(command: StoredCommand, repository: AnumRepository, context: TenantC
     return states
 
 
+_STOPPED = {TaskStatus.FAILED, TaskStatus.CANCELLED}
+
+
+def _stopped_positions(states: list[_StepState]) -> set[int]:
+    """Steps that cannot finish on their own: their task failed, was cancelled or can no longer
+    be read, or it never started and a step it waits for is itself stopped (transitively, so
+    a failure blocks the whole chain and every branch of a diamond below it)."""
+    by_position = {state.step.position: state for state in states}
+    stopped: set[int] = set()
+    # Dependencies always point to earlier positions, so one pass in position order settles it.
+    for position in sorted(by_position):
+        state = by_position[position]
+        task = state.task
+        if task is None or task.status in _STOPPED:
+            stopped.add(position)
+        elif task.status == TaskStatus.CREATED and any(
+            dep in stopped or dep not in by_position for dep in state.step.depends_on
+        ):
+            stopped.add(position)
+    return stopped
+
+
+def _dependencies(
+    step: StoredStep, states: list[_StepState], stopped: set[int] | None = None
+) -> tuple[list[int], list[int]]:
+    """(waiting_for, blocked_by): the step's dependencies not completed yet, and those that
+    cannot complete on their own (failed, cancelled, unreadable, or blocked further up)."""
+    stopped = _stopped_positions(states) if stopped is None else stopped
+    by_position = {state.step.position: state for state in states}
+    waiting: list[int] = []
+    blocked: list[int] = []
+    for position in step.depends_on:
+        state = by_position.get(position)
+        task = state.task if state is not None else None
+        if task is not None and task.status == TaskStatus.COMPLETED:
+            continue
+        waiting.append(position)
+        if state is None or position in stopped:
+            blocked.append(position)
+    return waiting, blocked
+
+
+def _effective_status(state: _StepState, stopped: set[int]) -> str:
+    """The task's status, except that a step that never started because a step it needs
+    (directly or further up) cannot finish counts as failed for the command's status."""
+    if state.task is None:
+        return TaskStatus.FAILED.value
+    if state.task.status == TaskStatus.CREATED and state.step.position in stopped:
+        return TaskStatus.FAILED.value
+    return state.task.status.value
+
+
 def _summary(command: StoredCommand, states: list[_StepState]) -> CommandSummary:
-    statuses = [state.task.status.value if state.task else TaskStatus.FAILED.value for state in states]
+    stopped = _stopped_positions(states)
+    statuses = [_effective_status(state, stopped) for state in states]
     progress = [_step_progress(state.task, state.run) for state in states]
     agents: dict[AgentId, CommandAgent] = {}
     for step in command.steps:
@@ -818,6 +979,7 @@ def _summary(command: StoredCommand, states: list[_StepState]) -> CommandSummary
 def build_view(command: StoredCommand, repository: AnumRepository, context: TenantContext) -> CommandView:
     states = _states(command, repository, context)
     summary = _summary(command, states)
+    stopped = _stopped_positions(states)
     steps: list[CommandStepView] = []
     timeline: list[TimelineEntry] = []
     files = [
@@ -835,6 +997,7 @@ def build_view(command: StoredCommand, repository: AnumRepository, context: Tena
     for state in states:
         step, task, run = state.step, state.task, state.run
         agent = agent_view(step.agent, command.locale)
+        waiting_for, blocked_by = _dependencies(step, states, stopped)
         done = task is not None and task.status in _TERMINAL
         if run is not None:
             started.append(run.created_at)
@@ -858,6 +1021,9 @@ def build_view(command: StoredCommand, repository: AnumRepository, context: Tena
                 started_at=run.created_at if run is not None else None,
                 finished_at=(run.updated_at if run is not None else None) if done else None,
                 approvals=state.approvals,
+                depends_on=step.depends_on,
+                waiting_for=waiting_for,
+                blocked_by=blocked_by,
             )
         )
         if task is None:
@@ -918,6 +1084,127 @@ def _safe_name(value: str) -> str:
     return cleaned[:40] or "step"
 
 
+# -- steps that build on each other ------------------------------------------------------
+
+STEP_INPUT_CHARS = 4000
+
+
+_WAITING_WORDS = {
+    TaskStatus.CREATED: "has not started yet",
+    TaskStatus.QUEUED: "is queued",
+    TaskStatus.RUNNING: "is running",
+    TaskStatus.WAITING_APPROVAL: "is waiting for approval",
+}
+
+
+class StepWaiting(HTTPException):
+    """A command step asked to run before the earlier steps it waits for completed."""
+
+    def __init__(self, detail: str) -> None:
+        super().__init__(status.HTTP_409_CONFLICT, detail)
+
+
+def prepare_step_run(task: Task, repository: AnumRepository, context: TenantContext) -> None:
+    """Before any task runs (``POST /tasks/{id}/run``, in its claim transaction): a command
+    step that waits for earlier steps is refused (409) until they all completed.
+
+    Commands are private to their creator, so only the creator's runs are checked."""
+    if task.created_by != context.user_id or task.status != TaskStatus.CREATED:
+        return
+    command = command_store(repository, context).find_by_task(task.id)
+    if command is None:
+        return
+    step = next(item for item in command.steps if item.task_id == task.id)
+    by_position = {item.position: item for item in command.steps}
+    for position in step.depends_on:
+        earlier = by_position.get(position)
+        earlier_task = repository.get_task(earlier.task_id, context) if earlier is not None else None
+        if earlier is None or earlier_task is None:
+            raise StepWaiting(f"Step {step.position} needs step {position}, which can no longer be read.")
+        if earlier_task.status in _STOPPED:
+            raise StepWaiting(
+                f"Step {step.position} needs step {position} (\"{earlier.title}\"), which {earlier_task.status.value}. "
+                f"Run step {position} again first."
+            )
+        if earlier_task.status != TaskStatus.COMPLETED:
+            state = _WAITING_WORDS.get(earlier_task.status, f"is {earlier_task.status.value}")
+            raise StepWaiting(f"Step {step.position} waits for step {position} (\"{earlier.title}\") to complete; it {state}.")
+
+
+def step_inputs(task: Task, context: TenantContext) -> tuple[list[str], list[int]]:
+    """The results of the earlier steps a command step builds on, as labeled untrusted data
+    blocks for its run's model prompt, and their positions. Like retrieved context they reach
+    the model only: they never select a skill or a tool and are not part of an approval, so
+    the plan the person confirmed (agent, tool, approval) is what runs. Opens its own short
+    unit of work: call it off the event loop (``runtime.plan_with_model`` does)."""
+    if not task.created_by or task.created_by != context.user_id:
+        return [], []
+    from .dependencies import _unit_of_work
+    from .prompt_provenance import Provenance, label_untrusted
+
+    found: list[tuple[int, str, str]] = []
+    with _unit_of_work(context, require_membership=True) as repository:
+        command = command_store(repository, context).find_by_task(task.id)
+        if command is None:
+            return [], []
+        step = next(item for item in command.steps if item.task_id == task.id)
+        by_position = {item.position: item for item in command.steps}
+        for position in step.depends_on:
+            earlier = by_position.get(position)
+            if earlier is None:
+                continue
+            run = repository.find_run_for_task(earlier.task_id, context)
+            if run is not None and run.status == TaskStatus.COMPLETED and run.result:
+                found.append((position, earlier.title, run.result))
+    blocks = [
+        label_untrusted(f"Result of step {position} ({title}):\n{result}", source=Provenance.TOOL_OUTPUT,
+                        origin=f"command-step-{position}", max_chars=STEP_INPUT_CHARS)
+        for position, title, result in found
+    ]
+    return blocks, [position for position, _, _ in found]
+
+
+def ready_steps(repository: AnumRepository, context: TenantContext, command_id: str) -> list[str]:
+    """Task ids of the command's steps that can start now: never started, and every step they
+    wait for completed. ``404`` for a command that is not the caller's."""
+    command = _command_or_404(command_store(repository, context), command_id)
+    states = _states(command, repository, context)
+    return [
+        state.step.task_id
+        for state in states
+        if state.task is not None
+        and state.task.status == TaskStatus.CREATED
+        and state.task.archived_at is None
+        and not _dependencies(state.step, states)[0]
+    ]
+
+
+async def run_ready_steps(
+    command_id: str,
+    context: TenantContext,
+    units: Callable[[TenantContext], Any],
+    run: Callable[[str], Awaitable[Any]],
+) -> dict[str, Any]:
+    """Start every step that can start, together; when a run finishes inline (the default
+    runtime), start the steps that were waiting for it, and so on. Each read is its own short
+    unit of work in a worker thread; no transaction is open while a step runs.
+
+    Returns ``{task_id: run result or the exception that refused it}`` for the steps started
+    here. Steps still waiting (an earlier step is queued for the durable worker, waits for
+    approval or failed) are left for the next call (``POST /commands/{id}/start``)."""
+    outcomes: dict[str, Any] = {}
+    for _ in range(MAX_STEPS):
+        ready = [task_id for task_id in await run_in_unit(units, context, ready_steps, context, command_id) if task_id not in outcomes]
+        if not ready:
+            break
+        results = await asyncio.gather(*(run(task_id) for task_id in ready), return_exceptions=True)
+        for task_id, result in zip(ready, results, strict=True):
+            if isinstance(result, BaseException) and not isinstance(result, Exception):
+                raise result
+            outcomes[task_id] = result
+    return outcomes
+
+
 # -- routes: plan and create -------------------------------------------------------------
 
 
@@ -959,6 +1246,10 @@ async def preview_command(
 
 class CommandStepInput(BaseModel):
     instruction: str = Field(min_length=1, max_length=MAX_INSTRUCTION_CHARS)
+    # Positions (1-based, in the confirmed order) of earlier steps this one waits for. Null:
+    # the server decides from the instruction (a step that uses an earlier result, such as
+    # "send the summary", waits for the step before it).
+    depends_on: list[int] | None = Field(default=None, max_length=MAX_STEPS)
 
     @field_validator("instruction")
     @classmethod
@@ -1030,6 +1321,15 @@ def create_command_record(
     locale = payload.locale or language_of(payload.text)
     planner = Planner(tools, repository, context, locale)
     planned = [planner.step(index, step.instruction) for index, step in enumerate(payload.steps, 1)]
+    for plan_step, step_input in zip(planned, payload.steps, strict=True):
+        position = plan_step.position
+        if step_input.depends_on is None:
+            plan_step.depends_on = [position - 1] if position > 1 and refers_back(plan_step.instruction) else []
+            continue
+        wanted = sorted(set(step_input.depends_on))
+        if any(dep < 1 or dep >= position for dep in wanted):
+            raise HTTPException(422, f"Step {position} can only wait for steps that come before it.")
+        plan_step.depends_on = wanted
     blocked = [step.position for step in planned if step.approval == ApprovalNeed.BLOCKED]
     if blocked:
         raise HTTPException(
@@ -1079,6 +1379,7 @@ def create_command_record(
                 tool=step.tool.name if step.tool else None,
                 risk_level=step.risk_level,
                 approval=step.approval,
+                depends_on=step.depends_on,
             )
         )
     command = store.add_command(
@@ -1115,6 +1416,46 @@ def create_command_record(
         },
     )
     return build_view(command, repository, context)
+
+
+class CommandStartResult(BaseModel):
+    # Task ids started by this call (a run that needs approval counts: it started).
+    started: list[str]
+    # Task id: why that step could not start (for example the monthly model budget).
+    refused: dict[str, str]
+    command: CommandView
+
+
+def _view_of(repository: AnumRepository, context: TenantContext, command_id: str) -> CommandView:
+    return build_view(_command_or_404(command_store(repository, context), command_id), repository, context)
+
+
+@router.post("/commands/{command_id}/start", response_model=CommandStartResult)
+async def start_command(
+    command_id: str,
+    context: TenantContext = Depends(tenant_context),
+    units: UnitsOfWork = Depends(units_of_work),
+) -> CommandStartResult:
+    """Start the command's steps in dependency order (docs/command.md#steps-that-build-on-each-other):
+    steps with nothing to wait for start together; a step that waits for others starts once
+    they completed and receives their results. Call it again to continue after an approval
+    or a durable run finished; it starts only what is ready, so repeating it is safe."""
+    require_permission(context, Permission.TASK_RUN)
+    from .main import start_task_run
+
+    outcomes = await run_ready_steps(command_id, context, units, lambda task_id: start_task_run(task_id, context, units))
+    # A refusal with its own answer (the monthly model budget, an emergency stop) is raised as
+    # that answer, as POST /tasks/{id}/run would; the steps started before it keep running.
+    for result in outcomes.values():
+        if isinstance(result, Exception) and not isinstance(result, HTTPException):
+            raise result
+    refused = {
+        task_id: str(result.detail) for task_id, result in outcomes.items() if isinstance(result, HTTPException)
+    }
+    view = await run_in_unit(units, context, _view_of, context, command_id)
+    return CommandStartResult(
+        started=[task_id for task_id in outcomes if task_id not in refused], refused=refused, command=view
+    )
 
 
 # -- routes: read ------------------------------------------------------------------------

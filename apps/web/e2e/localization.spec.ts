@@ -139,7 +139,8 @@ test('Files reads in Arabic, right to left, with Arabic plurals', async ({ page 
   const list = page.getByRole('region', { name: 'الملفات' });
   await expect(list.locator('.statusBadge').getByText('مفهرس', { exact: true })).toBeVisible();
   await expect(list.locator('.statusBadge').getByText('غير مفهرس', { exact: true })).toBeVisible();
-  await list.getByRole('button', { name: /^عرض تفاصيل .?release-notes\.md.?$/ }).click();
+  // The row button is named by its visible text (#350): the hint, the file name, then its type, uploader and date.
+  await list.getByRole('button', { name: /^عرض تفاصيل .?release-notes\.md.? Markdown · أنت · / }).click();
   const detail = page.locator('.fileDetail');
   await expect(detail.getByText('تستطيع المهام استخدام هذا الملف (3 مقاطع).')).toBeVisible();
   await expect(detail.getByRole('region', { name: 'معاينة' }).getByRole('heading', { name: 'Release notes' })).toBeVisible();

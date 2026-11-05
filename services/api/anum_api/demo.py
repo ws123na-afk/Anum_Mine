@@ -626,7 +626,7 @@ def _seed_business(demo: TenantContext, now: datetime, tag: _Tagger) -> None:
             )
             proposal = store.add("proposals", Proposal(id=tag.id("business_proposals", "prop"), opportunity_id=opportunity.id, account_id=account.id,
                                                        title=LABEL + "Fleet renewal proposal", created_by=demo.user_id, **base))
-            version = store.add("proposal_versions", ProposalVersion(
+            store.add("proposal_versions", ProposalVersion(
                 **content.model_dump(), id=tag.id("business_proposal_versions", "propv"), tenant_id=demo.tenant_id, workspace_id=demo.workspace_id,
                 proposal_id=proposal.id, version=1, content_hash=content_hash(content), created_by=demo.user_id, created_at=now))
 
@@ -653,7 +653,7 @@ def _seed_marketing(demo: TenantContext, now: datetime, tag: _Tagger) -> None:
             (Language.EN, "Winter tyre safety", "Rain is coming. Check tread depth and pressure on every truck this week."),
             (Language.AR, "سلامة الإطارات في الشتاء", "موسم الأمطار قادم. افحص عمق المداس وضغط الإطارات في كل شاحنة هذا الأسبوع."),
         ):
-            post = store.add_post(Post(
+            store.add_post(Post(
                 id=tag.id("marketing_posts", "mkp"), tenant_id=demo.tenant_id, workspace_id=demo.workspace_id, campaign_id=campaign.id,
                 group_id=group, account_id=account_id, platform=Platform.LINKEDIN, language=language,
                 title=LABEL + title, text=text, hashtags=["fleetsafety"], created_by=demo.user_id,

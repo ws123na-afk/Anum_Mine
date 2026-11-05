@@ -55,8 +55,11 @@ dc config --quiet
 log "Building images"
 dc --profile jobs build --pull
 # The browser research image (profile `browser`, docs/browser-research.md), only when enabled.
+# The same image serves the action browser when ANUM_BROWSER_ACTION_MODE=1 (docs/action-browser.md).
 if grep -Eq '^COMPOSE_PROFILES=(.*,)?browser(,.*)?$' "$ENV_FILE"; then
   dc --profile browser build --pull browser
+elif grep -Eq '^ANUM_BROWSER_ACTION_MODE=(1|true)$' "$ENV_FILE"; then
+  log "ANUM_BROWSER_ACTION_MODE=1 but the browser profile is not in COMPOSE_PROFILES: the action browser stays unavailable"
 fi
 
 log "Starting the database and applying roles and migrations"

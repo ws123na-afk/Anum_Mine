@@ -30,9 +30,10 @@ test(`labels ${BUILDING}`, async ({ page }) => {
   if (process.env.LBL_FULL === '1') { await hq(page).getByRole('button', { name: /^(Full screen|\u0645\u0644\u0621 \u0627\u0644\u0634\u0627\u0634\u0629)$/ }).click(); await page.waitForTimeout(2500); }
   if (process.env.LBL_HIDE === '1') { const h = hq(page).getByRole('button', { name: /Hide side panels|\u0625\u062e\u0641\u0627\u0621 \u0627\u0644\u0644\u0648\u062d\u0627\u062a \u0627\u0644\u062c\u0627\u0646\u0628\u064a\u0629/ }); if (await h.count()) await h.click({ timeout: 4000 }).catch(() => undefined); const c = hq(page).getByRole('button', { name: /Collapse the floor list/ }); if (await c.count()) await c.click().catch(() => undefined); await page.waitForTimeout(1500); }
   if (process.env.LBL_ALL === '1') { await hq(page).getByRole('checkbox', { name: /All floors/ }).check(); await page.waitForTimeout(3000); }
-  const rail = hq(page).getByRole('group', { name: 'Floors of this building' });
+  // The floor buttons only: the selector also holds the Floor below / Floor above steppers and the stack toggle.
+  const floors = hq(page).getByRole('group', { name: 'Floors of this building' }).locator('button[data-active]');
   for (const f of FLOORS) {
-    if (await rail.getByRole('button').count()) await rail.getByRole('button').nth(f).click();
+    if (await floors.count()) await floors.nth(f).click();
     await page.waitForTimeout(4500);
     if (process.env.LBL_ROOM) {
       await hq(page).getByRole('button', { name: new RegExp(`^${process.env.LBL_ROOM}`) }).first().click({ force: true });

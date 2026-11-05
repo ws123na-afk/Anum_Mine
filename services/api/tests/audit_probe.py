@@ -39,6 +39,7 @@ MODULE_PREFIXES = {
     "business_support": "/api/v1/business/support",
     "business_invoices": "/api/v1/business/invoices",
     "business_portal": "/api/v1/business/portal",
+    "business_books": "/api/v1/business/books",
     "portal": "/api/v1/portal",
     "autonomy": "/api/v1/autonomy",
     "developer": "/api/v1/developer",

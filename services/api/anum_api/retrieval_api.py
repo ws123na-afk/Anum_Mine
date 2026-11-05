@@ -249,7 +249,8 @@ async def reindex(
             if note.tenant_id == context.tenant_id and note.workspace_id == context.workspace_id
         ]
         with open_file_metadata_store(context) as files:
-            records = files.list_files(context, 500)
+            # Vault documents whose owner let the assistant read them stay indexed (docs/documents.md#the-assistant).
+            records = files.list_files(context, 500, include_assistant_vault=True)
         existing = {(source.source_type, source.source_id): source for source in store.list_sources(context)}
         live = {(SourceType.MEMORY, note.id) for note in notes} | {(SourceType.FILE, record.id) for record in records}
         removed = 0

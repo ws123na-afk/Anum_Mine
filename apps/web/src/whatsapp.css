@@ -13,7 +13,7 @@
   align-items: center; background: var(--d-primary-grad); border: 1px solid transparent; border-radius: var(--d-r-control); color: #fff;
   display: inline-flex; font-size: var(--text-md); font-weight: 650; gap: var(--d-s2); justify-content: center; min-height: 44px; padding: 10px var(--d-s4);
 }
-.waLayout button.secondary { background: var(--d-glass-2); border-color: var(--d-line-strong); color: var(--d-text); }
+.waLayout button.secondary { background: var(--d-control-bg); border-color: var(--d-line-strong); color: var(--d-text); }
 .waLayout button.danger { background: var(--d-danger); }
 .waLayout button.iconOnly { padding: 10px; width: 44px; }
 .waLayout .linkButton { background: none; border: 0; color: var(--d-sky); cursor: pointer; display: inline; font: inherit; min-height: 0; padding: 0; text-decoration: underline; }

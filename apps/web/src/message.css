@@ -32,9 +32,9 @@
 .chatHeader .msgMenu, .chatList .msgMenu { inset-inline-end: 0; inset-inline-start: auto; }
 
 .msgToast {
-  background: var(--d-surface-3); border: 1px solid var(--d-line-strong); border-radius: 999px; bottom: var(--d-s5); box-shadow: var(--d-elev-1); color: var(--d-text);
+  background: var(--d-surface-2); border: 1px solid var(--d-line-strong); border-radius: 999px; bottom: var(--d-s5); box-shadow: var(--d-elev-2); color: var(--d-text);
   font-size: var(--text-sm); font-weight: 600; inset-inline-start: 50%; opacity: 0; padding: var(--d-s2) var(--d-s4); pointer-events: none; position: fixed;
-  transform: translate(-50%, var(--d-s2)); transition: opacity .18s var(--d-ease), transform .18s var(--d-ease); z-index: 40;
+  transform: translate(-50%, var(--d-s2)); transition: opacity var(--d-base) var(--d-ease), transform var(--d-base) var(--d-ease); z-index: var(--z-toast);
 }
 [dir="rtl"] .msgToast { transform: translate(50%, var(--d-s2)); }
 .msgToast[data-shown="true"] { opacity: 1; transform: translate(-50%, 0); }
@@ -50,7 +50,7 @@
 .mdTableWrap { border: 1px solid var(--d-line); border-radius: var(--d-r-control); max-width: 100%; overflow-x: auto; }
 .mdTableWrap table { border-collapse: collapse; font-size: var(--text-md); min-width: 100%; }
 .mdTableWrap th, .mdTableWrap td { border-bottom: 1px solid var(--d-line); padding: var(--d-s2) var(--d-s3); text-align: start; vertical-align: top; }
-.mdTableWrap th { background: var(--d-glass-2); color: var(--d-text); font-weight: 650; white-space: nowrap; }
+.mdTableWrap th { background: var(--d-glass-2); color: var(--d-text); font-weight: 600; white-space: nowrap; }
 .mdTableWrap tbody tr:last-child td { border-bottom: 0; }
 .mdTableWrap:focus-visible, .mdCode pre:focus-visible { outline: 2px solid var(--d-violet); outline-offset: 2px; }
 

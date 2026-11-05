@@ -2,9 +2,9 @@
 // chips and search, integrations grouped into collapsible categories, one compact row per
 // integration with its status and one primary action, and everything else (setup steps, missing
 // server settings, callback URLs, checks, health detail, workspace switch and token) in a drawer.
-import { useCallback, useEffect, useId, useMemo, useState, type ReactNode } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useId, useMemo, useState, type ReactNode } from 'react';
 import {
-  Activity, Bell, Bot, Bug, ChevronDown, Code, Database, FileAudio, FileText, GitBranch, Globe, HardDrive, KeyRound, LogIn, Mail,
+  Activity, Bell, Bot, Bug, ChevronDown, Code, Database, FileAudio, FileText, GitBranch, Globe, HardDrive, KeyRound, LogIn, Mail, MousePointerClick,
   Megaphone, MemoryStick, MessageCircle, Mic, Plug, RefreshCw, Search, ShieldAlert, ShoppingCart, Truck, Video, Webhook, Workflow, Wrench,
 } from 'lucide-react';
 import { describeError, isPermissionDenied } from './lib/errors';
@@ -28,7 +28,10 @@ import './governance.css';
 import './catalog.css';
 import './integrations.css';
 
-const serviceIcons: Record<string, ReactNode> = { postgresql: <Database />, keycloak: <KeyRound />, nats: <GitBranch />, temporal: <Workflow />, valkey: <MemoryStick />, minio: <FileText />, s3: <FileText />, searxng: <Search />, 'browser-research': <Globe />, 'external-webhook': <Webhook /> };
+// Saved logins and cards of the action browser (docs/action-browser.md): its own lazy chunk.
+const ActionBrowserVault = lazy(() => import('./action-browser/ActionBrowserVault'));
+
+const serviceIcons: Record<string, ReactNode> = { postgresql: <Database />, keycloak: <KeyRound />, nats: <GitBranch />, temporal: <Workflow />, valkey: <MemoryStick />, minio: <FileText />, s3: <FileText />, searxng: <Search />, 'browser-research': <Globe />, 'action-browser': <MousePointerClick />, 'external-webhook': <Webhook /> };
 const kindIcons: Record<string, ReactNode> = { email: <Mail />, search: <Search />, tool: <Webhook />, database: <Database />, identity: <KeyRound />, cache: <MemoryStick />, object_storage: <FileText />, workflow: <Workflow />, event_bus: <GitBranch /> };
 const setupIcons: Record<string, ReactNode> = {
   model: <Bot />, speech: <Mic />, transcription: <FileAudio />, web_search: <Globe />, email_gmail: <Mail />, email_outlook: <Mail />, email_zoho: <Mail />,
@@ -229,6 +232,7 @@ function ServiceDetails({ item, owner, testing, flash, onTest, onChanged }: {
     {owner && <div className="setupActions"><button type="button" className="secondary" disabled={testing !== null || item.status === 'disabled'} title={item.status === 'disabled' ? t('integrations.testDisabled') : undefined} onClick={onTest}><Activity aria-hidden="true" />{testing === item.id ? t('integrations.testing') : t('integrations.test')}</button></div>}
     {flash && <div className="setupFlash"><Note error={flash.error}>{flash.text}</Note></div>}
     {owner && <ConfigurePanel integration={item} onChanged={onChanged} />}
+    {item.id === 'action-browser' && owner !== false && <Suspense fallback={null}><ActionBrowserVault /></Suspense>}
   </div>;
 }
 

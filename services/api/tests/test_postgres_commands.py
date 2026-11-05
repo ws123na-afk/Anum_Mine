@@ -146,3 +146,20 @@ def test_quick_command_crud_and_use_count_persist(client: TestClient) -> None:
     assert suggestions[0]["kind"] == "quick" and suggestions[0]["quick_command_id"] == quick_id
     assert client.delete(f"/api/v1/quick-commands/{quick_id}", headers=headers()).status_code == 204
     assert client.get("/api/v1/quick-commands", headers=headers()).json() == []
+
+
+def test_steps_start_in_dependency_order_under_rls(client: TestClient) -> None:
+    """The dependency gate finds the step's command by its task id (JSONB containment) as the
+    application role, and only for the command's own user."""
+    command = _create(client)
+    send = command["steps"][1]
+    assert send["depends_on"] == [1]
+    early = client.post(f"/api/v1/tasks/{send['task_id']}/run", headers=headers())
+    assert early.status_code == 409 and "Step 2 waits for step 1" in early.json()["error"]["message"]
+    started = client.post(f"/api/v1/commands/{command['id']}/start", headers=headers())
+    assert started.status_code == 200, started.text
+    body = started.json()
+    assert body["started"] == [step["task_id"] for step in command["steps"]] and body["refused"] == {}
+    assert [step["status"] for step in body["command"]["steps"]] == ["completed", "waiting_approval"]
+    # Another user of the workspace cannot start this user's command.
+    assert client.post(f"/api/v1/commands/{command['id']}/start", headers=headers("user_other")).status_code == 404

@@ -39,7 +39,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from .agent_policy import AgentRunProfile
-from .agent_tools import ToolCall, ToolResult
+from .agent_tools import ToolCall, ToolResult, running_in
 from .repository import AnumRepository
 from .runtime import AgentRuntime
 from .schemas import AgentRun, Approval, RunPhase, Task, TaskStatus, TenantContext, utc_now
@@ -127,7 +127,8 @@ async def run_inline(
             if call is None:
                 return InlineRunResult(task, run, approval)
             try:
-                result = await planner.tools.execute(call, context)
+                with running_in(task.id, run.id):
+                    result = await planner.tools.execute(call, context)
             except Exception as exc:
                 await asyncio.to_thread(
                     _settle_failure, context, task.id, run, unit_of_work, runtime_factory,
@@ -168,7 +169,8 @@ async def execute_committed(
     re-raises."""
     planner = runtime_factory(_NoRepository())  # type: ignore[arg-type]
     try:
-        result = await planner.tools.execute(call, context)
+        with running_in(task.id, run.id):
+            result = await planner.tools.execute(call, context)
     except Exception as exc:
         await asyncio.to_thread(
             _settle_failure, context, task.id, run, unit_of_work, runtime_factory,

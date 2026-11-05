@@ -1104,8 +1104,14 @@ async def ask(
     if str(getattr(routed, "provider", getattr(gateway, "provider", ""))) == "mock":
         return AskResult(status=AskStatus.ANSWERED, answer=_extractive_answer(payload.question, citations),
                          citations=citations, model="extractive")
+    # The current date and time in the user's zone (current_time.py), so "this year" and
+    # "is it expired?" are answered against the real today; read in a worker thread.
+    from .current_time import time_line_for, with_time_line
+    from .voice_figures import is_arabic
+
+    time_line = await asyncio.to_thread(time_line_for, context, "ar" if is_arabic(payload.question) else "en")
     messages: list[ChatMessage] = [
-        {"role": "system", "content": with_untrusted_rules(ASK_INSTRUCTIONS, *blocks)},
+        {"role": "system", "content": with_time_line(with_untrusted_rules(ASK_INSTRUCTIONS, *blocks), time_line)},
         {"role": "user", "content": payload.question},
     ]
     try:

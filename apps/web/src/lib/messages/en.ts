@@ -7,6 +7,7 @@ import { financeEn } from './finance.en.ts';
 import { financeTradingEn } from './financeTrading.en.ts';
 import { financeIbkrEn } from './financeIbkr.en.ts';
 import { financeResearchEn } from './financeResearch.en.ts';
+import { financeSmsEn } from './financeSms.en.ts';
 import { financeIntelEn } from './financeIntel.en.ts';
 import { financeEquityEn } from './financeEquity.en.ts';
 import { financeReportsEn } from './financeReports.en.ts';
@@ -55,6 +56,12 @@ import { agentControlsEn } from './agentControls.en.ts';
 import { billingEn } from './billing.en.ts';
 import { lifecycleEn } from './lifecycle.en.ts';
 import { recordRetentionEn } from './recordRetention.en.ts';
+import { attendanceEn } from './attendance.en.ts';
+import { vehiclesEn } from './vehicles.en.ts';
+import { purchasesEn } from './purchases.en.ts';
+import { businessBooksEn } from './businessBooks.en.ts';
+import { iphoneEn } from './iphone.en.ts';
+import { vaultEn } from './vault.en.ts';
 import { helpEn } from './help.en.ts';
 import { publicSiteEn } from './publicSite.en.ts';
 import { ownerEn } from './en.owner.ts';
@@ -97,6 +104,7 @@ export const en = {
   ...financeTradingEn,
   ...financeIbkrEn,
   ...financeResearchEn,
+  ...financeSmsEn,
   ...financeIntelEn,
   ...financeEquityEn,
   ...financeReportsEn,
@@ -117,6 +125,12 @@ export const en = {
   ...billingEn,
   ...lifecycleEn,
   ...recordRetentionEn,
+  ...attendanceEn,
+  ...vehiclesEn,
+  ...purchasesEn,
+  ...businessBooksEn,
+  ...iphoneEn,
+  ...vaultEn,
   ...helpEn,
   ...publicSiteEn,
   ...agentSkillsEn,
@@ -417,6 +431,11 @@ export const en = {
 
   // ---- Model gateway (Settings) ----
   'model.ownerOnly': 'Choosing the model, saving its API key and testing the connection need the owner role for this organization. Ask an owner to change the model, or to change your role.',
+  'model.placeholder.server': 'AI answers are placeholders: the server has no AI model set up.',
+  'model.placeholder.workspace': 'AI answers are placeholders: this workspace is set to the placeholder model.',
+  'model.placeholder.fix': 'An owner chooses a real model in Settings, under Model gateway. The server operator can also set ANUM_MODEL_PROVIDER for every workspace.',
+  'model.placeholder.openSettings': 'Open Settings',
+  'model.placeholder.help': 'How to set it up',
   'model.ownerRequired': 'Owner access required',
   'model.apiAnswered': 'The API answered: {detail}',
   'model.saveConflict': '{reason} Finish "Workspace onboarding" above, then save again.',
@@ -687,6 +706,8 @@ export const en = {
   'chatCard.failed.title': 'The task did not finish',
   'chatCard.cancelled': 'Stopped before the task finished. Nothing was changed.',
   'chatCard.denied.title': 'Your role cannot run tasks',
+  'chatCard.unavailable.title': 'Not turned on here yet',
+  'chatCard.needsInput.title': 'ANUM can do this: one detail missing',
   'chatCard.stillRunning': 'Still running in the background. Open the task to follow it; this card updates when you reopen the chat.',
   'chatCard.running.commerce': 'Reading your store data…',
   'chatCard.running.tyre': 'Reading your tyre data…',
@@ -728,6 +749,7 @@ export const en = {
   'tasks.stream.offline': 'Updates offline',
   'tasks.instructions': 'Task instructions',
   'tasks.instructionsPlaceholder': 'Describe the result the agent should produce',
+  'tasks.instructionsRequired': 'Write what the task should do, then run it.',
   'tasks.running': 'Running...',
   'tasks.run': 'Run task',
   'tasks.cancel': 'Cancel',
@@ -1004,6 +1026,8 @@ export const en = {
 
   // ---- Approvals ----
   'approvals.pendingHeading': 'Waiting for a decision',
+  'approvals.queueIndex': 'Queue',
+  'approvals.queueIndexCount': '{count} waiting',
   'approvals.queueClear': 'Queue clear',
   'approvals.queueClearText': 'No actions need approval.',
   'approvals.metric.pending': 'Pending',
@@ -1436,6 +1460,9 @@ export const en = {
   'integrations.tool.available': 'Agent tool web_search: available.',
   'integrations.tool.degraded': 'Agent tool web_search: calls fail until search answers.',
   'integrations.tool.unavailable': 'Agent tool web_search: unavailable here.',
+  'integrations.act.available': 'Agent tool web.act: available. It stays off in a workspace until an owner turns it on below, and it asks before anything binding.',
+  'integrations.act.degraded': 'Agent tool web.act: the browser service answers but is not in action mode, or did not answer.',
+  'integrations.act.unavailable': 'Agent tool web.act: not available here.',
   'integrations.browse.available': 'Agent tool web.browse_page: available. It stays off in a workspace until an owner turns it on below.',
   'integrations.browse.degraded': 'Agent tool web.browse_page: pages cannot be read until the browser service answers.',
   'integrations.browse.unavailable': 'Agent tool web.browse_page: not available here. It answers "Not available on this server" or "off for this workspace".',

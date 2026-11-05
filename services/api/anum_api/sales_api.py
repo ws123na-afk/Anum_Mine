@@ -18,7 +18,6 @@ from uuid import uuid4
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
 
 from .authorization import Permission
 from .dependencies import UnitsOfWork, require_permission, tenant_context, units_of_work

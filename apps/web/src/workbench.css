@@ -19,7 +19,7 @@
   align-items: center; background: var(--d-primary-grad); border: 1px solid transparent; border-radius: var(--d-r-control); color: #fff; display: inline-flex;
   font-size: var(--text-md); font-weight: 650; gap: var(--d-s2); min-height: 44px; padding: 10px var(--d-s4);
 }
-.autoInlineButton.secondary { background: var(--d-glass-2); border-color: var(--d-line-strong); color: var(--d-text); }
+.autoInlineButton.secondary { background: var(--d-control-bg); border-color: var(--d-line-strong); color: var(--d-text); }
 
 .autoHead { align-items: flex-start; flex-wrap: nowrap; }
 .autoHeadText { min-width: 0; }

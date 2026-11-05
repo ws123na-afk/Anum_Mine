@@ -26,7 +26,7 @@
   align-items: center; background: var(--d-primary-grad); border: 1px solid transparent; border-radius: var(--d-r-control); color: #fff;
   display: inline-flex; font-size: var(--text-md); font-weight: 650; gap: var(--d-s2); min-height: 44px; padding: 0 var(--d-s4);
 }
-.autonomyRow .rowActions button.secondary { background: var(--d-glass-2); border-color: var(--d-line-strong); color: var(--d-text); }
+.autonomyRow .rowActions button.secondary { background: var(--d-control-bg); border-color: var(--d-line-strong); color: var(--d-text); }
 .autonomyRow .notice { margin-top: var(--d-s2); }
 
 .autonomyReadOnly { align-items: flex-start; display: flex; gap: var(--d-s3); margin-bottom: var(--d-s5); padding: var(--d-s4); }
@@ -61,7 +61,7 @@
 .actionNotice small { color: var(--d-text); display: block; font-size: var(--text-sm); margin-top: var(--d-s1); }
 .actionNoticeButtons { display: flex; flex-wrap: wrap; gap: var(--d-s2); grid-column: 1 / -1; justify-content: flex-end; }
 .actionNoticeButtons button { align-items: center; background: var(--d-primary-grad); border: 1px solid transparent; border-radius: var(--d-r-control); color: #fff; display: inline-flex; font-size: var(--text-md); font-weight: 650; gap: var(--d-s2); min-height: 44px; padding: 0 var(--d-s4); }
-.actionNoticeButtons button.secondary { background: var(--d-glass-2); border-color: var(--d-line-strong); color: var(--d-text); }
+.actionNoticeButtons button.secondary { background: var(--d-control-bg); border-color: var(--d-line-strong); color: var(--d-text); }
 .actionNoticeButtons button.iconOnly { min-width: 44px; padding: 0; justify-content: center; }
 
 @media (max-width: 1100px) {

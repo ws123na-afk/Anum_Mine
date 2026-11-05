@@ -540,3 +540,24 @@ def test_dns_check_resolves_on_the_server(monkeypatch: pytest.MonkeyPatch) -> No
     assert result["domain"] == "example.com" and result["spf"]["status"] == "no_senders" and result["dmarc"]["policy"] == "none"
     assert client.post("/api/v1/platform/readiness/dns", headers=OPERATOR, json={"domain": "not a domain"}).status_code == 422
     assert client.post("/api/v1/platform/readiness/dns", headers=OPERATOR, json={"domain": "127.0.0.1"}).status_code == 422
+
+
+def test_readiness_lists_the_ai_model(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The placeholder model, or a hosted one without its key, is not ready to sell; a real one is."""
+    def model_item() -> dict[str, Any]:
+        items = {item["key"]: item for item in ok(client.get("/api/v1/platform/readiness", headers=OPERATOR))["items"]}
+        return items["ai_model"]
+
+    monkeypatch.setattr(settings, "model_provider", "mock")
+    item = model_item()
+    assert item["state"] == "missing" and item["fix"] == "env"
+    assert item["detail"] == {"provider": "mock", "placeholder": True, "key_missing": False}
+    monkeypatch.setattr(settings, "model_provider", "anthropic")
+    monkeypatch.setattr(settings, "model_api_key", None)
+    item = model_item()
+    assert item["state"] == "missing" and item["detail"]["key_missing"] is True and item["detail"]["placeholder"] is False
+    monkeypatch.setattr(settings, "model_api_key", "sk-ant-example")
+    assert model_item()["state"] == "done"
+    monkeypatch.setattr(settings, "model_provider", "ollama")
+    monkeypatch.setattr(settings, "model_api_key", None)
+    assert model_item()["state"] == "done"

@@ -1,8 +1,9 @@
 import asyncio
 from dataclasses import dataclass, replace
 import json
+import logging
 from datetime import datetime, timezone
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 from typing import Any
 
@@ -56,6 +57,9 @@ from .integrations import (
 from .integration_tools import configured_external_handler
 from .web_search import SEARXNG_INTEGRATION_ID, configured_web_search_handler
 from .browser_research import BROWSER_INTEGRATION_ID
+from .action_browser import ACTION_INTEGRATION_ID
+from .action_browser.card_code import card_code_problem, needs_card_code, with_card_code
+from .action_browser.tool import default_planner_factory, register_action_tools
 from .browser_research.tool import register_browser_tools
 from .model_gateway import build_default_model_gateway
 from .memory import (
@@ -122,7 +126,7 @@ from .schemas import (
     utc_now,
 )
 from .settings import settings
-from .store import store
+from .store import store as store  # re-exported: tests import store from anum_api.main
 from .tasks import (
     ACTIVE_STATUSES,
     EVENT_PAGE_DEFAULT,
@@ -146,6 +150,7 @@ from .meetings import router as meetings_router
 from .voice import router as voice_router
 from .voice_call import call_router as voice_call_router
 from . import chat_tools
+from .capabilities import configure as configure_capabilities
 from . import voice_actions
 from .agent_skills import default_skill_registry
 from .conversations import router as conversations_router
@@ -167,6 +172,8 @@ from .finance.intel_control_api import router as finance_intel_control_router
 from .finance.wider_api import router as finance_wider_router
 from .finance.intel_api import router as finance_intel_router
 from .finance.broker_api import router as finance_broker_router
+from .finance.sms_api import router as finance_sms_router
+from .finance.links_api import router as finance_links_router
 from .finance.ibkr_api import router as finance_ibkr_router
 from .finance.research_api import router as finance_research_router
 from .finance.sync import build_finance_scheduler
@@ -211,7 +218,7 @@ from . import delivery
 from .tyre.api import router as tyre_router
 from .tyre.tools import register_tyre_tools
 from .green_concrete_ops import register_green_concrete_tools
-from .commands import router as commands_router
+from .commands import prepare_step_run as prepare_command_step_run, router as commands_router
 from .favorites import router as favorites_router
 from .knowledge_base import router as knowledge_router
 from .reports import router as reports_router
@@ -225,6 +232,8 @@ from .suppression import router as suppression_router
 from .contact_consent import router as contact_consent_router
 from .approval_reminders import router as approval_reminders_router
 from .agent_loop_limits import router as agent_loop_limits_router
+from .action_browser.api import router as action_browser_router
+from .vault.api import router as vault_router
 from .automation import build_automation_scheduler, register_scheduler_pass, router as automation_router
 from .assistants import router as assistants_router
 from .notifications import router as notifications_router
@@ -241,6 +250,7 @@ from .skills_api import configure_tool_catalog, router as skills_router
 from .model_budget import ModelBudgetExceededError, check_model_budget, router as model_budget_router
 from .agent_controls import AgentsStoppedError, agents_stopped, configure_cancel_notifier, router as agent_controls_router
 from .onboarding import budgeted_model_gateway, router as onboarding_router
+from .model_status import router as model_status_router
 from .workspace_members import router as workspace_members_router
 from .membership_directory import router as membership_directory_router
 from .audit_log import router as audit_log_router
@@ -275,6 +285,12 @@ from .identity import validate_auth_configuration
 from .telemetry import HttpMetricsMiddleware, setup_telemetry, shutdown_telemetry, sqlalchemy_engines
 from .error_reporting import setup_error_reporting, shutdown_error_reporting
 from .serving import prepare_for_serving
+from .attendance.api import router as attendance_router  # docs/attendance.md
+from .vehicles.api import router as vehicles_router  # docs/vehicles.md
+from .vehicles.devices import router as vehicles_device_router
+from .purchases.api import router as purchases_router  # docs/purchases.md
+from .purchases.devices import router as purchases_device_router
+from .business.api_books import router as business_books_router  # docs/business-books.md
 
 # Fail fast: header mode and anum_local_* sessions must never serve a non-local environment.
 validate_auth_configuration(settings)
@@ -334,6 +350,9 @@ async def lifespan(application: FastAPI):
     lifecycle = build_lifecycle_runner(settings)
     if lifecycle is not None:
         lifecycle.start()
+    # Cards saved before ANUM stopped storing the security code lose it, once per start, in a
+    # worker thread (PostgreSQL only; docs/action-browser.md#the-card-security-code).
+    card_code_cleanup = _start_card_code_cleanup()
     # Last: build every route's state now instead of on the first request, then keep the
     # startup heap out of later garbage collections, whose full passes paused the event
     # loop for half a second or more (anum_api/serving.py, docs/realtime.md#garbage-collection).
@@ -341,6 +360,8 @@ async def lifespan(application: FastAPI):
     try:
         yield
     finally:
+        if card_code_cleanup is not None and not card_code_cleanup.done():
+            await asyncio.wait({card_code_cleanup}, timeout=30)
         if lifecycle is not None:
             await lifecycle.stop()
         if reminders is not None:
@@ -371,6 +392,21 @@ async def lifespan(application: FastAPI):
         shutdown_error_reporting()
 
 
+def _start_card_code_cleanup() -> asyncio.Task[object] | None:
+    if settings.repository_backend != "postgresql":
+        return None
+    from .action_browser.cleanup import strip_saved_card_codes
+
+    async def run() -> object:
+        try:
+            return await asyncio.to_thread(strip_saved_card_codes)
+        except Exception as exc:  # noqa: BLE001  # the next start tries again; nothing else depends on it
+            logging.getLogger("anum_api.action_browser").warning("card_code_cleanup_skipped error_class=%s", type(exc).__name__)
+            return None
+
+    return asyncio.ensure_future(run())
+
+
 enforce_startup_policy(settings)
 # Upload malware scanning with clamd when ANUM_FILE_SCANNER=clamav (docs/files.md#malware-scanning).
 install_configured_scanner(settings)
@@ -388,6 +424,8 @@ install_hardening(
     extra_upload_rules=(
         BodyLimitRule("POST", f"{meetings_router.prefix}/recordings", settings.meeting_recording_max_bytes + 1024),
         BodyLimitRule("POST", f"{meetings_router.prefix}/transcripts", settings.meeting_transcript_max_bytes + 1024),
+        # Document vault uploads, versions and the iPhone Shortcut (docs/documents.md): the Files limit.
+        BodyLimitRule("POST", vault_router.prefix, settings.max_upload_body_bytes),
     ),
 )
 app.add_middleware(
@@ -455,6 +493,7 @@ app.include_router(files_router)
 app.include_router(retrieval_router)
 app.include_router(skills_router)
 app.include_router(onboarding_router)
+app.include_router(model_status_router)
 app.include_router(workspace_members_router)
 app.include_router(membership_directory_router)
 app.include_router(audit_log_router)
@@ -486,6 +525,8 @@ app.include_router(tenant_lifecycle_router)
 app.include_router(model_budget_router)
 app.include_router(agent_controls_router)
 app.include_router(agent_loop_limits_router)
+app.include_router(action_browser_router)
+app.include_router(vault_router)
 app.include_router(developer_router)
 app.include_router(whatsapp_router)
 app.include_router(sales_router)
@@ -527,6 +568,8 @@ app.include_router(finance_trading_router)
 app.include_router(finance_wider_router)
 app.include_router(finance_intel_router)
 app.include_router(finance_broker_router)
+app.include_router(finance_sms_router)
+app.include_router(finance_links_router)
 app.include_router(finance_ibkr_router)
 app.include_router(finance_research_router)
 app.include_router(finance_intel_control_router)
@@ -559,6 +602,12 @@ app.include_router(public_logos_router)
 app.include_router(agents_router)
 app.include_router(home_router)
 app.include_router(setup_plans_router)
+app.include_router(attendance_router)
+app.include_router(vehicles_device_router)  # before /api/v1/vehicles/{vehicle_id}/...
+app.include_router(vehicles_router)
+app.include_router(purchases_device_router)  # before /api/v1/purchases/{purchase_id}/...
+app.include_router(purchases_router)
+app.include_router(business_books_router)
 repository = memory_repository
 model_gateway = build_default_model_gateway()
 integration_registry = default_integration_registry(settings)
@@ -569,6 +618,10 @@ tool_registry = register_green_concrete_tools(register_calendar_tools(register_b
 )))))))
 # Browser research (docs/browser-research.md): always registered, off per workspace until an owner turns it on.
 register_browser_tools(tool_registry, settings, integration_registry.workspace_enabled(BROWSER_INTEGRATION_ID))
+# The action browser (docs/action-browser.md): registered everywhere, "Not available" until set up.
+register_action_tools(
+    tool_registry, settings, integration_registry.workspace_enabled(ACTION_INTEGRATION_ID), default_planner_factory(model_gateway),
+)
 # Reports and other features send through whichever delivery tools are registered.
 delivery.configure(tool_registry)
 # Skill details describe required tools as this runtime would treat them (docs/skills.md).
@@ -609,6 +662,8 @@ chat_tools.configure(
         ),
     )
 )
+# What ANUM can do in a workspace reads the owners' integration switches (docs/conversations.md#what-anum-can-do).
+configure_capabilities(integration_registry)
 # Home's insights read the last recorded integration checks (docs/home.md).
 app.state.integration_registry = integration_registry
 
@@ -1396,6 +1451,9 @@ def _check_runnable(task: Task, context: TenantContext, repository: AnumReposito
         task, repository, context
     ):
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Task cannot be run from current state")
+    # A command step that builds on earlier steps waits for them and receives their results
+    # (docs/command.md#steps-that-build-on-each-other).
+    prepare_command_step_run(task, repository, context)
 
 
 def _usable_agent(context: TenantContext, agent_id: str):  # type: ignore[no-untyped-def]
@@ -1976,6 +2034,8 @@ async def approve(
     # and it stays pending; rejecting it still works (docs/agent-controls.md).
     if await asyncio.to_thread(agents_stopped, context):
         raise AgentsStoppedError()
+    # The card security code is taken off the request model at once: only the one execution holds it.
+    card_code, payload.security_code = payload.security_code, None
     return await _decide_approval(
         approval_id,
         ApprovalStatus.APPROVED,
@@ -1984,6 +2044,7 @@ async def approve(
         request,
         context,
         units,
+        card_code=card_code,
     )
 
 
@@ -2090,6 +2151,8 @@ async def _decide_approval(
     request: Request,
     context: TenantContext,
     units: UnitsOfWork,
+    *,
+    card_code: str | None = None,
 ) -> ApprovalDecisionResponse | JSONResponse:
     """Decide an approval with no transaction open while its tool runs (docs/realtime.md#event-loop).
 
@@ -2106,6 +2169,13 @@ async def _decide_approval(
     approval = await run_in_unit(units, context, lambda repository: repository.get_approval(approval_id, context))
     if not approval:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Approval not found")
+    if decision == ApprovalStatus.APPROVED and approval.status == ApprovalStatus.PENDING:
+        # An action browser step that types a card's security code needs the code the owner typed on the
+        # approval card (docs/action-browser.md#the-card-security-code); nothing else takes one.
+        problem = card_code_problem(needed=needs_card_code(approval.action, approval.arguments), code=card_code,
+                                    inline=run_dispatcher is None)
+        if problem is not None:
+            raise HTTPException(status_code=problem[0], detail=problem[1])
     async with _task_lock(context, approval.task_id):
         decided = await run_in_unit(
             units, context, _decide_in_unit, approval_id, decision, shown_hash, reason, request, context
@@ -2116,19 +2186,51 @@ async def _decide_approval(
         if decided.execute is None or decided.runtime_factory is None:
             return decided.response
         task, run, call = decided.execute
+        definition = tool_registry.definition(call.name)
+        work: Awaitable[tuple[Task, AgentRun]] = execute_committed(
+            context, task, run, call,
+            unit_of_work=units,
+            runtime_factory=decided.runtime_factory,
+            approval_id=approval_id,
+        )
+        if card_code:
+            # In memory for this one execution only; dropped when it ends, whatever the outcome.
+            work = with_card_code(card_code, work)
+            card_code = None
+        if definition is not None and definition.long_running:
+            # The action browser works for minutes between pauses (docs/action-browser.md): its
+            # segment runs on the loop, awaiting only sockets, with the same claim checks, and the
+            # approve request answers now with the run ``executing``.
+            _run_in_background(work, name=f"long-running {call.name}")
+            return decided.response
         try:
-            task, run = await execute_committed(
-                context, task, run, call,
-                unit_of_work=units,
-                runtime_factory=decided.runtime_factory,
-                approval_id=approval_id,
-            )
+            task, run = await work
         except RunClaimLost as exc:
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=exc.message) from exc
         response = decided.response
         if not isinstance(response, ApprovalDecisionResponse):  # pragma: no cover - set with execute
             return response
         return response.model_copy(update={"task": task, "run": run})
+
+
+_BACKGROUND_RUNS: set[asyncio.Task[object]] = set()
+
+
+def _run_in_background(work: Awaitable[object], *, name: str) -> None:
+    """Keep a reference until it ends; a failure is logged (the run itself records it)."""
+
+    async def guarded() -> object:
+        try:
+            return await work
+        except RunClaimLost:
+            return None
+        except Exception as exc:  # pragma: no cover - the run is failed by execute_committed
+            logging.getLogger("anum_api.runs").warning("background_run_failed name=%s error_class=%s", name, type(exc).__name__)
+            return None
+
+    job: asyncio.Task[object] = asyncio.ensure_future(guarded())
+    _BACKGROUND_RUNS.add(job)
+    job.add_done_callback(_BACKGROUND_RUNS.discard)
 
 
 @dataclass
@@ -2819,3 +2921,20 @@ def _record_partial_approval(
     )
     (shown,) = _with_progress([approval], context, repository)
     return ApprovalDecisionResponse(approval=shown, task=task, run=run)
+
+# Plug the shared iPhone device tokens into every installed module seam (docs/iphone-integrations.md).
+from .finance.devices import plug_module_authorities  # noqa: E402
+
+# Vehicles: the ``vehicle`` finance link dimension and the iPhone driving sessions (docs/vehicles.md).
+from .vehicles import devices as _vehicle_devices  # noqa: E402
+from .vehicles.service import plug_finance_links as _plug_vehicle_links  # noqa: E402
+
+_vehicle_devices.register()
+_plug_vehicle_links()
+# Purchases: the ``purchase`` finance link dimension and the iPhone shared order and delivery messages (docs/purchases.md).
+from .purchases import devices as _purchase_devices  # noqa: E402
+from .purchases.service import plug_finance_links as _plug_purchase_links  # noqa: E402
+
+_purchase_devices.register()
+_plug_purchase_links()
+plug_module_authorities()

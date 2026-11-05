@@ -21,7 +21,7 @@
 .blEmpty { margin: 0; }
 
 /* Links drawn as buttons (an <a> that navigates). */
-.blLink { align-items: center; background: var(--d-glass-2); border: 1px solid var(--d-line-strong); border-radius: var(--d-r-control); color: var(--d-text); display: inline-flex; font-size: var(--text-md); font-weight: 650; gap: var(--d-s2); justify-content: center; min-height: 40px; padding: 0 var(--d-s3); text-decoration: none; }
+.blLink { align-items: center; background: var(--d-glass-2); border: 1px solid var(--d-line-strong); border-radius: var(--d-r-control); color: var(--d-text); display: inline-flex; font-size: var(--text-md); font-weight: 600; gap: var(--d-s2); justify-content: center; min-height: 40px; padding: 0 var(--d-s3); text-decoration: none; }
 .blLink:hover { background: var(--d-glass-3); }
 .blLink.primary { background: var(--d-primary-grad); border-color: transparent; color: var(--d-on-primary); }
 .blLink.primary:hover { background: var(--d-primary-grad-hover); }
@@ -31,7 +31,7 @@
 .blPlanNow { display: grid; gap: var(--d-s2); }
 .blPlanName { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); }
 .blPlanName h3 { font-size: var(--text-2xl); overflow-wrap: anywhere; }
-.blPrice { font-size: var(--text-lg); font-variant-numeric: tabular-nums; font-weight: 650; margin: 0; }
+.blPrice { font-size: var(--text-lg); font-variant-numeric: tabular-nums; font-weight: 600; margin: 0; }
 .blFacts { display: grid; gap: var(--d-s2) var(--d-s4); grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); margin: 0; }
 .blFacts dt { color: var(--d-muted); font-size: var(--text-xs); }
 .blFacts dd { margin: 0; overflow-wrap: anywhere; }
@@ -97,7 +97,7 @@
 .blTotals div { display: flex; gap: var(--d-s3); justify-content: space-between; }
 .blTotals dt { color: var(--d-muted); }
 .blTotals dd { font-variant-numeric: tabular-nums; margin: 0; white-space: nowrap; }
-.blTotals .blGrand { border-top: 1px solid var(--d-line); font-weight: 700; padding-top: var(--d-s1); }
+.blTotals .blGrand { border-top: 1px solid var(--d-line); font-weight: 600; padding-top: var(--d-s1); }
 .blTotals .blGrand dt { color: var(--d-text); }
 .blList { display: grid; gap: var(--d-s2); list-style: none; margin: 0; padding: 0; }
 .blList li { border: 1px solid var(--d-line); border-radius: var(--d-r-control); display: flex; flex-wrap: wrap; gap: var(--d-s1) var(--d-s3); padding: var(--d-s2) var(--d-s3); }

@@ -318,6 +318,43 @@ void main() {
     expect(repository.reasons, ['Wrong list']);
   });
 
+  testWidgets('a card security code step is approved on the web only',
+      (tester) async {
+    final step = WorkspaceApproval(
+      id: 'approval_code',
+      taskId: 'task_1',
+      action: 'web.act',
+      reason: 'Waiting for your approval: enter the card security code.',
+      risk: 'high',
+      status: 'pending',
+      createdAt: DateTime.utc(2026, 10, 6, 10),
+      payloadHash: _hash,
+      expiresAt: DateTime.now().add(const Duration(hours: 5)),
+      arguments: const {
+        'kind': 'card_security_code',
+        'cvc': 'entered at approval'
+      },
+    );
+    expect(step.needsCardCodeOnWeb, isTrue);
+    expect(_approval().needsCardCodeOnWeb, isFalse);
+    final repository = _FakeRepository([step]);
+    final controller = WorkspaceController(repository);
+    await controller.load();
+    await _pumpApprovals(tester, controller);
+    expect(
+        find.text('Approve on the web to enter the security code. '
+            'ANUM never saves it; you type it there for this step only.'),
+        findsOneWidget);
+    final approve = tester.widget<FilledButton>(find.ancestor(
+        of: find.text('Approve'),
+        matching: find.byWidgetPredicate((w) => w is FilledButton)));
+    expect(approve.onPressed, isNull);
+    // Rejecting still works from the app.
+    await tester.tap(find.text('Reject'));
+    await tester.pumpAndSettle();
+    expect(repository.decided, [('approval_code', _hash, false)]);
+  });
+
   testWidgets('an approval without a hash cannot be approved', (tester) async {
     final controller =
         WorkspaceController(_FakeRepository([_approval().copyWithoutHash()]));
