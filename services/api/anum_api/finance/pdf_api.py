@@ -17,6 +17,7 @@ from __future__ import annotations
 import asyncio
 import re
 from datetime import date, datetime
+from datetime import time as dtime
 from decimal import Decimal
 from typing import Any, Literal
 
@@ -36,7 +37,7 @@ from .models import Category
 from .money import MoneyError, quantize
 from .pdf_templates import MAX_TEMPLATES, StatementTemplate, open_template_store
 from .store import open_finance_store
-from .summary import settings_for
+from .summary import settings_for, zone
 
 router = APIRouter(prefix="/api/v1/finance", tags=["finance"])
 
@@ -72,11 +73,32 @@ class PdfRow(BaseModel):
     balance: Decimal | None
     reference: str | None
     currency: str | None
+    original_amount: Decimal | None
+    original_currency: str | None
+    fx_rate: Decimal | None
+    fee: Decimal | None
+    vat: Decimal | None
+    kind: str | None
+    time: str | None
+    counterparty: str | None
+    parent_line: int | None
     category: Category
     duplicate: bool
     # 0 to 1: the reading's certainty (OCR quality, how the sign was found, whether the balance agrees).
     confidence: float
     flags: list[str]
+
+
+class PdfSummaryCheck(BaseModel):
+    name: str
+    stated: Decimal
+    found: Decimal
+    ok: bool
+
+
+class PdfSkippedPage(BaseModel):
+    page: int
+    reason: Literal["not_transactions", "no_text"]
 
 
 class PdfCheck(BaseModel):
@@ -91,6 +113,8 @@ class PdfCheck(BaseModel):
     breaks: list[int]
     # Pages whose balance brought forward is not the balance the page before ended with.
     page_breaks: list[int]
+    # The statement's own counts and totals (deposits, withdrawals, amount due) against the rows read.
+    summary: list[PdfSummaryCheck]
 
 
 class PdfStatementView(BaseModel):
@@ -107,6 +131,10 @@ class PdfStatementView(BaseModel):
     fingerprint: str | None
     template_id: str | None
     confidence: float
+    kind: Literal["account", "card"]
+    statement_date: date | None
+    due_date: date | None
+    skipped_pages: list[PdfSkippedPage]
     date_format: str
     date_formats: list[str]
     date_format_ambiguous: bool
@@ -181,7 +209,16 @@ async def read_pdf_statement(
             positioned = bool(words) and sum(w.positioned for w in words) * 2 > len(words)
             widths = [max((w.x1 for w in page), default=0.0) for page in pages]
         else:
-            pages, positioned, widths = extracted.pages, True, extracted.widths
+            pages, positioned, widths = list(extracted.pages), True, list(extracted.widths)
+            for number, image in extracted.image_pages.items():
+                # A page that is only a picture: read it when OCR is there; the reader decides if it holds rows.
+                try:
+                    found_words = await pdf.ocr.ocr_page(image.data, image.content_type, number)
+                except Exception:  # noqa: BLE001 - OCR missing or failing leaves the page unread, listed as such
+                    continue
+                if found_words and all(w.positioned for w in found_words):
+                    pages[number - 1] = found_words
+                    widths[number - 1] = max(w.x1 for w in found_words)
 
         def read() -> tuple[Any, StatementTemplate | None]:
             statement = pdf.parse(pages, currency=found.currency, roles=wanted_roles, date_format=date_format, positioned=positioned, page_widths=widths)
@@ -232,8 +269,10 @@ async def read_pdf_statement(
         category = categorize(row.description, row.amount or Decimal(0), rules)[0]
         views.append(PdfRow(
             line=row.line, page=row.page, posted_on=row.posted_on, description=row.description, amount=row.amount, debit=row.debit,
-            credit=row.credit, balance=row.balance, reference=row.reference, currency=row.currency, category=category, duplicate=duplicate,
-            confidence=row.confidence, flags=row.flags,
+            credit=row.credit, balance=row.balance, reference=row.reference, currency=row.currency, original_amount=row.original_amount,
+            original_currency=row.original_currency, fx_rate=row.fx_rate, fee=row.fee, vat=row.vat, kind=row.kind,
+            time=row.time.isoformat() if row.time else None, counterparty=row.counterparty, parent_line=row.parent_line,
+            category=category, duplicate=duplicate, confidence=row.confidence, flags=row.flags,
         ))
     check = statement.check
 
@@ -255,7 +294,10 @@ async def read_pdf_statement(
         period_start=statement.period_start, period_end=statement.period_end, account_last4=last4,
         account_last4_matches=None if not (last4 and found.last4) else last4 == found.last4,
         statement_currency=statement.currency, opening_balance=statement.opening_balance, closing_balance=statement.closing_balance,
-        check=PdfCheck(**check.__dict__), row_count=len(views), duplicate_count=duplicates, skipped_lines=statement.skipped_lines,
+        check=PdfCheck(**{**check.__dict__, "summary": [PdfSummaryCheck(**c.__dict__) for c in check.summary]}),
+        kind=statement.kind, statement_date=statement.statement_date, due_date=statement.due_date,  # type: ignore[arg-type]
+        skipped_pages=[PdfSkippedPage(page=p, reason=r) for p, r in statement.skipped_pages],  # type: ignore[arg-type]
+        row_count=len(views), duplicate_count=duplicates, skipped_lines=statement.skipped_lines,
         warnings=statement.warnings, rows=views,
     )
 
@@ -269,6 +311,7 @@ class PdfImportRow(BaseModel):
     balance: Decimal | None = None
     reference: str | None = Field(default=None, max_length=60)
     currency: str | None = Field(default=None, pattern=r"^[A-Z]{3}$")
+    time: str | None = Field(default=None, pattern=r"^\d{2}:\d{2}(:\d{2})?$", description="The time the statement prints for the row")
 
 
 class PdfLayout(BaseModel):
@@ -326,6 +369,7 @@ def import_pdf_statement(
     """Record the reviewed rows of a PDF statement through the same path as a CSV import."""
     _manage(context)
     references: dict[str, str] = {}
+    times: dict[str, datetime] = {}
 
     def build(store: Any, account: Any) -> csv_import.ParsedFile:
         currency = account.currency
@@ -343,13 +387,13 @@ def import_pdf_statement(
                 raise _invalid(f"Row {number}: the amount is zero. Fix it or drop the row.")
             if row.currency and row.currency != currency:
                 raise _invalid(f"Row {number} is in {row.currency}, but the account is in {currency}. Drop the row or pick an account in {row.currency}.")
-            items.append((row.posted_on, amount, description, balance, row.reference))
+            items.append((row.posted_on, amount, description, balance, row.reference, row.time))
         try:
             opening = quantize(body.opening_balance, currency) if body.opening_balance is not None else None
             closing = quantize(body.closing_balance, currency) if body.closing_balance is not None else None
         except MoneyError as exc:
             raise _invalid(str(exc)) from None
-        check = pdf.verify([(i, amount, balance) for i, (_, amount, _, balance, _) in enumerate(items, start=1)], opening, closing)
+        check = pdf.verify([(i, amount, balance) for i, (_, amount, _, balance, _, _) in enumerate(items, start=1)], opening, closing)
         if check.status == "mismatch" and not body.accept_mismatch:
             raise ApplicationError(
                 ErrorCode.VALIDATION_ERROR,
@@ -357,10 +401,14 @@ def import_pdf_statement(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 details=[ErrorDetail(type="pdf_balance_mismatch", message=str(check.difference) if check.difference is not None else "")],
             )
-        hashes = _occurrence_hashes(account.id, currency, [(posted, amount, description) for posted, amount, description, _, _ in items])
+        hashes = _occurrence_hashes(account.id, currency, [(posted, amount, description) for posted, amount, description, _, _, _ in items])
+        tz = zone(settings_for(store, context).timezone)
         rows = []
-        for number, ((posted, amount, description, _, reference), digest) in enumerate(zip(items, hashes, strict=True), start=1):
+        for number, ((posted, amount, description, _, reference, at), digest) in enumerate(zip(items, hashes, strict=True), start=1):
             rows.append(csv_import.ParsedRow(number, posted, amount, description, digest))
+            if at:
+                parts = [int(x) for x in at.split(":")] + [0]
+                times[digest] = datetime.combine(posted, dtime(parts[0] % 24, parts[1] % 60, parts[2] % 60), tzinfo=tz)
             if reference:
                 clean = re.sub(r"[^\w\-/]", "", reference)[:60]
                 if clean:
@@ -380,7 +428,7 @@ def import_pdf_statement(
             known = templates.list(context)
         if len(known) >= MAX_TEMPLATES and all(t.fingerprint != layout.fingerprint for t in known):
             raise _invalid(f"You have {MAX_TEMPLATES} saved statement layouts. Delete one you no longer use, then import again.")
-    record, added, breaks, reconciled = record_import(context, body.account_id, _filename(body.filename), build, references=references)
+    record, added, breaks, reconciled = record_import(context, body.account_id, _filename(body.filename), build, references=references, times=times)
     template_id = _remember(context, layout) if layout is not None else None
     _audit(repository, context, "finance.import.create", record.id, {
         "format": record.preset, "imported": added, "duplicates": record.duplicate_count, "rule_breaks": breaks,

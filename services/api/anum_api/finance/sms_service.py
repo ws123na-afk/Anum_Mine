@@ -1016,12 +1016,14 @@ class StatementOutcome:
 
 
 def reconcile_rows(finance: FinanceStore, store: SmsStore, context: TenantContext, account: Account, rows: list[Transaction],
-                   import_id: str, *, now: datetime, references: dict[str, str] | None = None) -> tuple[list[Transaction], StatementOutcome]:
+                   import_id: str, *, now: datetime, references: dict[str, str] | None = None,
+                   times: dict[str, datetime] | None = None) -> tuple[list[Transaction], StatementOutcome]:
     """Statement rows that report a payment already recorded from an SMS, Apple Pay or by hand are attached
     to that transaction instead of creating another; a row that could be more than one waits for review.
     Returns the rows to import as new transactions. The caller holds the owner's lock. ``references`` (by
     ``dedupe_hash``) carries a PDF statement row's bank reference: an agreeing reference confirms a match and a
-    conflicting one rules it out, as for SMS."""
+    conflicting one rules it out, as for SMS. ``times`` (by ``dedupe_hash``) carries the time a PDF row prints:
+    when the day alone leaves more than one candidate, the one within the precise window is picked."""
     outcome = StatementOutcome()
     fresh: list[Transaction] = []
     for row in rows:
@@ -1031,6 +1033,13 @@ def reconcile_rows(finance: FinanceStore, store: SmsStore, context: TenantContex
         report = W.Report(source="statement", when=day, precise=False, merchant=row.description, reference=reference)
         found = [c for c in candidates(store, context, fp)]
         decision, picked = W.choose(report, found)
+        at = (times or {}).get(row.dedupe_hash)
+        if decision == "ambiguous" and at is not None:
+            # The printed time narrows it down; it never turns a day match into a new transaction.
+            precise = W.Report(source="statement", when=at, precise=True, merchant=row.description, reference=reference)
+            narrowed, chosen = W.choose(precise, found)
+            if narrowed == "attach" and chosen is not None:
+                decision, picked = narrowed, chosen
         if decision == "new" or (decision == "attach" and picked is None):
             fresh.append(row)
             continue

@@ -776,6 +776,7 @@ def record_import(
     build: Any,
     *,
     references: dict[str, str] | None = None,
+    times: dict[str, Any] | None = None,
 ) -> tuple[ImportRecord, int, int, Any]:
     """The one import path for every statement format (CSV and PDF): under the owner's lock, skip rows
     already in the ledger, attach rows that report a payment already recorded (SMS, Apple Pay, by hand),
@@ -816,7 +817,7 @@ def record_import(
             )
         # A row that reports a payment an SMS, Apple Pay or the person already recorded is attached to that
         # transaction instead of creating another; a row that could be more than one waits for review.
-        rows, reconciled = reconcile_rows(store, sms, context, account, rows, record.id, now=now, references=references)
+        rows, reconciled = reconcile_rows(store, sms, context, account, rows, record.id, now=now, references=references, times=times)
         added = store.add_transactions(rows)
         for row in rows:
             record_plain(sms, context, row, account, EntrySource.STATEMENT, now=now)

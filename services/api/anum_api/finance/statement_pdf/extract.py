@@ -53,6 +53,9 @@ class Extracted:
     pages: list[list[Word]] = field(default_factory=list)
     widths: list[float] = field(default_factory=list)
     images: list[PageImage] = field(default_factory=list)
+    # A text PDF's pages that are only a picture (a scanned page, or the bank's printed example):
+    # read through OCR when it is there, and classified like any other page.
+    image_pages: dict[int, PageImage] = field(default_factory=dict)
     sha256: str = ""
 
 
@@ -94,10 +97,12 @@ def extract(data: bytes, password: str | None = None) -> Extracted:
         pages, widths = text_words(data, password)
         letters = sum(1 for page in pages for word in page for ch in word.text if ch.isalnum())
         if letters >= SCAN_THRESHOLD:
-            return Extracted(page_count, "text", pages=pages, widths=widths, sha256=sha)
+            blank = {n for n, page in enumerate(pages, start=1) if sum(1 for w in page for ch in w.text if ch.isalnum()) < 10}
+            image_pages = {n: image for n, image in page_images(reader, blank).items()} if blank else {}
+            return Extracted(page_count, "text", pages=pages, widths=widths, image_pages=image_pages, sha256=sha)
         if page_count > MAX_OCR_PAGES:
             raise PdfStatementError("too_many_pages", f"A scanned statement can have at most {MAX_OCR_PAGES} pages. Split it and import each part.")
-        images = page_images(reader)
+        images = list(page_images(reader).values())
         if not images:
             raise PdfStatementError("no_text", "This PDF has no text and no page images, so there is nothing to read.")
         return Extracted(page_count, "ocr", images=images, sha256=sha)
@@ -111,9 +116,12 @@ def extract(data: bytes, password: str | None = None) -> Extracted:
         raise
 
 
-def page_images(reader: Any) -> list[PageImage]:
-    images: list[PageImage] = []
-    for page in reader.pages:
+def page_images(reader: Any, only: set[int] | None = None) -> dict[int, PageImage]:
+    """The biggest picture on each page (or on the pages in ``only``), by page number."""
+    images: dict[int, PageImage] = {}
+    for number, page in enumerate(reader.pages, start=1):
+        if only is not None and number not in only:
+            continue
         found = [(len(image.data), image) for image in page.images]
         if not found:
             continue
@@ -125,7 +133,7 @@ def page_images(reader: Any) -> list[PageImage]:
             buffer = io.BytesIO()
             biggest.image.save(buffer, format="PNG")
             payload, content_type = buffer.getvalue(), "image/png"
-        images.append(PageImage(payload, content_type))
+        images[number] = PageImage(payload, content_type)
     return images
 
 
