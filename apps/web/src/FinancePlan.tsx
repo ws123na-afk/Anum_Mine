@@ -69,7 +69,7 @@ export function SafeToSpendPanel({ onOpen, onChanged }: { onOpen: (tab: FinanceT
   </section>;
 }
 
-function SafeBody({ data, onOpen }: { data: FinanceSafeToSpend; onOpen: (tab: FinanceTab) => void }) {
+export function SafeBody({ data, onOpen }: { data: FinanceSafeToSpend; onOpen: (tab: FinanceTab) => void }) {
   if (data.currencies.length === 0) {
     return <Empty icon={<Landmark aria-hidden="true" />} title={t('finance.safe.empty')} text={t('finance.safe.emptyText')}
       action={<button type="button" onClick={() => onOpen('accounts')}><Plus aria-hidden="true" />{t('finance.accounts.add')}</button>} />;
@@ -130,7 +130,7 @@ function SafeCurrency({ row, days }: { row: FinanceCurrencySafeToSpend; days: nu
   </article>;
 }
 
-function PlanDialog({ onClose }: { onClose: (saved: boolean) => void }) {
+export function PlanDialog({ onClose }: { onClose: (saved: boolean) => void }) {
   const [state, setState] = useState<Load<FinancePlan>>({ kind: 'loading' });
   const [buffers, setBuffers] = useState<LimitDraft[]>([]), [combine, setCombine] = useState(false), [age, setAge] = useState('7');
   const [error, setError] = useState<string | null>(null), [busy, setBusy] = useState(false);
