@@ -10,10 +10,10 @@ import {
 import type { FinanceAccount, FinanceAccountActivity, FinanceAccountOverview, FinanceAccountsOverview, FinanceAccountSource, FinanceRegisterPage, FinanceSettings } from '@anum/contracts';
 import * as api from './lib/financeApi';
 import { getAccountActivity, getAccountsOverview, getRegister } from './lib/financeRegisterApi';
-import { NO_REGISTER_FILTERS, accountTab, activityScale, compact, maskedNumber, percentOf, primarySource, type AccountsTab } from './lib/financeRegister';
-import { formatAmount, isolate, parseAmount } from './lib/finance';
+import { NO_REGISTER_FILTERS, accountTab, activityScale, compact, maskedNumber, percentOf, plainAmount, primarySource, type AccountsTab } from './lib/financeRegister';
+import { amountTone, formatAmount, isolate, minorDigits, parseAmount } from './lib/finance';
 import { describeError } from './lib/errors';
-import { formatDateTime, getLocale, t, type MessageKey } from './lib/i18n';
+import { formatDateTime, getLocale, intlLocale, t, type MessageKey } from './lib/i18n';
 import { ConfirmDialog, Modal } from './Dialog';
 import { Denied, Empty, FormActions, FormError, LoadError, Money, Notice, failed, type Load } from './FinanceParts';
 import { FinBanner, FinCard, FinancePageHead, FinanceTabs, KpiCard, KpiRow, StatusChip, tabPanel } from './FinanceShell';
@@ -159,7 +159,7 @@ function Kpis({ accounts, info, overview, currency }: { accounts: FinanceAccount
     <KpiCard icon={<Wallet />} label={t('facct.kpi.available')} value={available.length ? <span dir="ltr">{formatAmount(total.toFixed(2), currency)}</span> : '-'}
       hint={others.length ? t('facct.kpi.otherCurrencies', { list: others.join(', ') }) : t('facct.kpi.availableHint')} />
     <KpiCard icon={<Landmark />} label={t('facct.kpi.accounts')} value={accounts.length} />
-    <KpiCard icon={<CalendarCheck />} label={t('facct.kpi.reconciled')} value={last ? formatDateTime(last).split(',')[0] : t('facct.kpi.never')} hint={last ? undefined : t('facct.kpi.neverHint')} />
+    <KpiCard icon={<CalendarCheck />} label={t('facct.kpi.reconciled')} value={last ? formatDateTime(last, { dateStyle: 'medium' }) : t('facct.kpi.never')} hint={last ? undefined : t('facct.kpi.neverHint')} />
     <KpiCard icon={<AlertTriangle />} label={t('facct.kpi.attention')} value={attention}
       hint={overview?.review_count ? t('facct.kpi.reviewWaiting', { count: overview.review_count }) : undefined} tone={attention || overview?.review_count ? 'warn' : ''} />
   </KpiRow>;
@@ -213,13 +213,14 @@ function AccountRegister({ account, onOpenTransactions }: { account: FinanceAcco
             <th scope="col" className="num fregHideSm">{t('facct.col.balance', { currency: account.currency })}</th></tr></thead>
           <tbody>{ready.items.map((row) => {
             const inflow = Number(row.amount) > 0;
+            const figure = (value: string, tone: string) => <span className={`finMoney ${tone}`} dir="ltr">{plainAmount(value, minorDigits(row.currency), intlLocale(getLocale()))}</span>;
             return <tr key={row.id}>
               <td className="fregDate"><bdi dir="ltr">{row.posted_on}</bdi></td>
               <td className="fregDesc"><strong dir="auto">{row.description}</strong></td>
               <td><CategoryChip category={row.category} /></td>
-              <td className="num">{inflow ? <Money value={row.amount} currency={row.currency} signed /> : <span className="muted">-</span>}</td>
-              <td className="num">{inflow ? <span className="muted">-</span> : <Money value={row.amount} currency={row.currency} signed />}</td>
-              <td className="num fregHideSm">{row.running_balance ? <Money value={row.running_balance} currency={row.currency} /> : '-'}</td>
+              <td className="num">{inflow ? figure(row.amount, amountTone(row.amount)) : <span className="muted">-</span>}</td>
+              <td className="num">{inflow ? <span className="muted">-</span> : figure(row.amount, amountTone(row.amount))}</td>
+              <td className="num fregHideSm">{row.running_balance ? figure(row.running_balance, '') : '-'}</td>
             </tr>;
           })}</tbody>
         </table></div>)}
@@ -285,7 +286,7 @@ export function ActivityChart({ activity }: { activity: FinanceAccountActivity }
   const slot = (width - left) / bars.length;
   const bar = Math.max(2, Math.min(10, slot / 2 - 1));
   const y = (v: number) => 6 + plot - (v / top) * plot;
-  const labelEvery = Math.ceil(bars.length / 7);
+  const labelEvery = Math.ceil(bars.length / 5);
   return <figure className="facctChart">
     <div className="facctLegend" aria-hidden="true"><span className="in" />{t('facct.activity.inflow')}<span className="out" />{t('facct.activity.outflow')}</div>
     <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={t('facct.activity.aria', { count: bars.length, currency: activity.currency })}>

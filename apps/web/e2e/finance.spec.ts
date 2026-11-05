@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import AxeBuilder from '@axe-core/playwright';
 import { financeReply, financeState } from './support/financeApi';
 import { useSavedLocale } from './support/workspaceApi';
 
@@ -96,6 +97,8 @@ test('transactions and ledger: period, search, server filters and paging; the dr
   await expect(drawer.getByText('Possible duplicate').first()).toBeVisible();
   await drawer.getByRole('button', { name: 'View match' }).click();
   await expect(drawer).toContainText('DEWA UTILITY');
+  await drawer.getByRole('button', { name: 'Close details' }).click();
+  await expect(drawer).toHaveCount(0);
 
   await tab(page, 'Bills').click();
   await expect(page).toHaveURL(/#finance-bills$/);
@@ -124,6 +127,7 @@ test('a receipt is attached from the drawer to the vault and linked to the payme
   await drawer.locator('input[type=file]').setInputFiles({ name: 'talabat.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4 SYNTHETIC') });
   await expect(drawer.getByText('Receipt saved in your vault and linked to this payment.')).toBeVisible();
   expect(vault).toEqual(['POST /api/v1/documents', 'POST /api/v1/documents/doc_new/links']);
+  await drawer.getByRole('button', { name: 'Done' }).click();
 
   await page.getByRole('tab', { name: /SMS review/ }).click();
   await expect(page.getByRole('tab', { name: /SMS review/ })).toContainText('2');
@@ -177,7 +181,7 @@ test('accounts: groups, sources, masked numbers, actions, the register with runn
   await page.getByRole('tab', { name: /Archived/ }).click();
   await page.getByRole('button', { name: 'View all transactions' }).click();
   await expect(page).toHaveURL(/#finance-transactions$/);
-  await expect(page.getByLabel('Account', { exact: true })).toHaveValue('fin_acct_current');
+  await expect(page.getByRole('combobox', { name: 'Account', exact: true })).toHaveValue('fin_acct_current');
 });
 
 test('a statement is previewed with its column mapping, then imported; the import can be undone', async ({ page }) => {
@@ -262,3 +266,35 @@ test('Finance reads in Arabic, right to left, with Western digits', async ({ pag
   await expect(page.getByRole('heading', { name: 'الحسابات', level: 1 })).toBeVisible();
   await expect(page.getByText('ANUM غير متصل بأي بنك.', { exact: false })).toBeVisible();
 });
+
+const VIEWPORTS = [[1440, 900], [1366, 768], [1024, 768], [768, 1024], [390, 844]] as const;
+for (const locale of ['en', 'ar'] as const) {
+  for (const [width, height] of VIEWPORTS) {
+    for (const view of ['transactions', 'accounts'] as const) {
+      test(`responsive @gate: ${view} fits with no sideways scroll at ${width}x${height} (${locale})`, async ({ page }) => {
+        await page.setViewportSize({ width, height });
+        if (locale === 'ar') await useSavedLocale(page, 'ar');
+        await mockApi(page);
+        await page.goto(`/#finance-${view}`);
+        if (view === 'transactions') {
+          await page.getByRole('combobox', { name: locale === 'ar' ? 'الفترة' : 'Period', exact: true }).selectOption('');
+          await page.locator('.fregTable tbody tr').nth(2).click();
+          await expect(page.locator('.fregDrawer .fregFacts')).toBeVisible();
+        } else {
+          await expect(page.locator('.facctRegister tbody tr').first()).toBeVisible();
+        }
+        const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+        expect(overflow).toBeLessThanOrEqual(0);
+        for (const control of await page.locator('.fregPage button:visible').all()) {
+          if (await control.evaluate((el) => Boolean(el.closest('.finTableWrap, .finTabs')))) continue;
+          const box = await control.boundingBox();
+          if (!box) continue;
+          expect(box.x).toBeGreaterThanOrEqual(-0.5);
+          expect(box.x + box.width).toBeLessThanOrEqual(width + 0.5);
+        }
+        const serious = (await new AxeBuilder({ page }).include('main').analyze()).violations.filter((v) => v.impact === 'critical' || v.impact === 'serious');
+        expect(serious).toEqual([]);
+      });
+    }
+  }
+}

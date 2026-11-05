@@ -3,6 +3,8 @@
 
 .fregPage { min-width: 0; }
 .fregPage select { min-height: 40px; }
+/* Hidden header labels are absolutely placed: keep them inside the scrolling table, not out past the page edge. */
+.fregPage .finTableWrap { position: relative; }
 
 /* ---- Transactions: reconciliation strip ---- */
 .fregRecon {
@@ -13,10 +15,10 @@
 .fregReconHead > svg { color: var(--d-accent); flex: none; height: 28px; width: 28px; }
 .fregReconHead h2 { font-size: var(--text-md); margin: 0; }
 .fregReconHead p { font-size: var(--text-xs); margin: 2px 0 0; }
-.fregReconFigures { display: grid; gap: var(--d-s2); grid-template-columns: repeat(4, minmax(0, 1fr)); margin: 0; }
+.fregReconFigures { display: grid; gap: var(--d-s2); grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); margin: 0; }
 .fregReconFigures > div { border-inline-start: 1px solid var(--d-line); display: grid; gap: 2px; min-width: 0; padding-inline-start: var(--d-s3); }
 .fregReconFigures dt { color: var(--d-muted); font-size: var(--text-xs); }
-.fregReconFigures dd { display: grid; font-size: var(--text-lg); font-variant-numeric: tabular-nums; font-weight: 700; margin: 0; }
+.fregReconFigures dd { display: grid; overflow-wrap: anywhere; font-size: var(--text-lg); font-variant-numeric: tabular-nums; font-weight: 700; margin: 0; }
 .fregReconFigures dd.ok { color: var(--d-ok); }
 .fregReconFigures dd.warn { color: var(--d-warn); }
 .fregReconNote { align-items: flex-start; border-top: 1px solid rgb(var(--c-warn) / .25); color: var(--d-muted); display: flex; font-size: var(--text-sm); gap: var(--d-s2); grid-column: 1 / -1; margin: 0; padding-top: var(--d-s2); }
@@ -26,8 +28,15 @@
 /* ---- Transactions: table and drawer ---- */
 .fregWork { align-items: start; display: grid; gap: var(--d-s4); grid-template-columns: minmax(0, 1fr); min-width: 0; }
 .fregWork.withDrawer { grid-template-columns: minmax(0, 1fr) minmax(320px, 380px); }
+/* With the drawer open the account and receipt columns step aside; the drawer shows both. */
+.fregWork.withDrawer .fregHideMd { display: none; }
 .fregTableCard { min-width: 0; }
-.fregFilters { align-items: center; display: grid; gap: var(--d-s2); grid-template-columns: minmax(200px, 2fr) repeat(4, minmax(120px, 1fr)) auto auto; }
+/* One flexible track, so a wide table scrolls inside its card instead of stretching it. */
+.fregTableCard, .facctRegister { grid-template-columns: minmax(0, 1fr); }
+.fregFilters { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); }
+.fregFilters > .fregSearch { flex: 2 1 220px; }
+.fregFilters > .fregFilter { flex: 1 1 130px; }
+.fregFilters > button { flex: none; }
 .fregSearch { align-items: center; display: flex; gap: var(--d-s2); position: relative; }
 .fregSearch svg { color: var(--d-faint); height: 16px; inset-inline-start: 10px; pointer-events: none; position: absolute; width: 16px; }
 .fregSearch input { min-height: 40px; padding-inline-start: 32px; width: 100%; }
@@ -149,7 +158,6 @@
 .facctLegend span.out { background: rgb(var(--c-warn)); margin-inline-start: var(--d-s2); }
 
 @media (max-width: 1279px) {
-  .fregFilters { grid-template-columns: minmax(180px, 1fr) repeat(2, minmax(120px, 1fr)); }
   .facctLayout { grid-template-columns: minmax(0, 1fr); }
   .facctSide { grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
 }
@@ -158,11 +166,15 @@
   .fregHideMd { display: none; }
 }
 @media (max-width: 760px) {
-  .fregReconFigures { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .fregFilters { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
-  .fregSearch { grid-column: 1 / -1; }
+  .fregFilters > .fregSearch { flex-basis: 100%; }
   .fregHideSm { display: none; }
   .facctSide { grid-template-columns: minmax(0, 1fr); }
   .facctActions > button { flex: 1 1 calc(50% - var(--d-s2)); justify-content: center; }
   .facctActionsTitle { flex-basis: 100%; }
 }
+
+/* Primary buttons in these pages' cards and drawer (the shared rule only covers .actions and the head). */
+.facctSide .finCard > button:not(.secondary), .fregDrawerActions > button:not(.secondary) {
+  background: var(--d-primary-grad); border: 1px solid transparent; border-radius: var(--d-r-control); box-shadow: var(--d-button-shadow); color: var(--d-on-primary); font-weight: 600;
+}
+.facctSide .finCard > button:not(.secondary):hover:not(:disabled), .fregDrawerActions > button:not(.secondary):hover:not(:disabled) { background: var(--d-primary-grad-hover); }

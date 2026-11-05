@@ -97,3 +97,10 @@ export function activityScale(activity: Pick<FinanceAccountActivity, 'days'>): {
 export function compact(value: number, locale: string): string {
   return new Intl.NumberFormat(locale, { notation: 'compact', maximumFractionDigits: 1 }).format(value);
 }
+
+/** A figure without its currency code, for columns whose header already names the currency ("Inflow (SAR)"). */
+export function plainAmount(value: string, digits: number, locale: string): string {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return '-';
+  return new Intl.NumberFormat(locale, { minimumFractionDigits: digits, maximumFractionDigits: digits }).format(n);
+}

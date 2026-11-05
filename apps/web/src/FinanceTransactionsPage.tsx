@@ -16,6 +16,7 @@ import { categoryLabel, formatAmount, formatAmounts, isolate, monthLabel, rangeL
 import { describeError } from './lib/errors';
 import { formatDateTime, t, type MessageKey } from './lib/i18n';
 import { smsSettings } from './lib/financeSmsApi';
+import { kindLabel } from './lib/financeSms';
 import { upload as uploadToVault, addLink as linkDocument } from './lib/vaultApi';
 import { ConfirmDialog, Modal } from './Dialog';
 import { Denied, Empty, LoadError, Money, Notice, failed, type Load } from './FinanceParts';
@@ -157,9 +158,9 @@ export function TransactionsPage({ accounts, initialAccountId, initialTab, onCha
                 : <RegisterTable page={ready} accounts={accounts} selected={selected} onOpen={setSelected} onPage={setOffset} />}
             </FinCard>
             {selected && (wide
-              ? <TransactionDrawer key={selected} id={selected} accounts={accounts} onClose={() => setSelected(null)} onOpen={setSelected} onChanged={changed} />
+              ? <TransactionDrawer key={selected} id={selected} onClose={() => setSelected(null)} onOpen={setSelected} onChanged={changed} />
               : <Modal title={t('freg.drawer.title')} titleHidden className="fregDrawerModal" onClose={() => setSelected(null)}>
-                <TransactionDrawer key={selected} id={selected} accounts={accounts} onClose={() => setSelected(null)} onOpen={setSelected} onChanged={changed} inModal />
+                <TransactionDrawer key={selected} id={selected} onClose={() => setSelected(null)} onOpen={setSelected} onChanged={changed} inModal />
               </Modal>)}
           </div>
         </>}
@@ -254,8 +255,8 @@ function Pager({ page, onPage }: { page: FinanceRegisterPage; onPage: (offset: n
 
 // ---- Details drawer ----------------------------------------------------------------------------
 
-function TransactionDrawer({ id, accounts, onClose, onOpen, onChanged, inModal }: {
-  id: string; accounts: FinanceAccount[]; onClose: () => void; onOpen: (id: string) => void; onChanged: () => void; inModal?: boolean;
+function TransactionDrawer({ id, onClose, onOpen, onChanged, inModal }: {
+  id: string; onClose: () => void; onOpen: (id: string) => void; onChanged: () => void; inModal?: boolean;
 }) {
   const [state, setState] = useState<Load<FinanceRegisterDetail>>({ kind: 'loading' });
   const [category, setCategory] = useState<FinanceCategory | ''>('');
@@ -309,7 +310,7 @@ function TransactionDrawer({ id, accounts, onClose, onOpen, onChanged, inModal }
     <div className="fregDrawerAmount">
       <span className="fregDrawerIcon" aria-hidden="true">{(() => { const Icon = SOURCE_ICON[row.origin]; return <Icon />; })()}</span>
       <div><strong><Money value={row.amount} currency={row.currency} signed /></strong> <StatusLabel row={row} />
-        <p dir="auto">{counterparty}</p><small className="muted">{t(Number(row.amount) >= 0 ? 'freg.drawer.in' : 'freg.drawer.out')}{d.kind ? ` · ${d.kind.replace(/_/g, ' ')}` : ''}</small></div>
+        <p dir="auto">{counterparty}</p><small className="muted">{t(Number(row.amount) >= 0 ? 'freg.drawer.in' : 'freg.drawer.out')}{d.kind ? ` · ${kindLabel(d.kind)}` : ''}</small></div>
     </div>
     <dl className="fregFacts">
       <div><dt>{t('finance.col.date')}</dt><dd><bdi dir="ltr">{row.posted_on}</bdi></dd></div>
