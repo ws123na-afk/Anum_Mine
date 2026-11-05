@@ -4,11 +4,14 @@
 // its paging, writing and editing a daily report with its version, a
 // correction with a reason, and every state from 320 px Arabic at 200
 // percent to a tablet.
+import 'dart:async';
+
 import 'package:anum_mobile/data/api_client.dart';
 import 'package:anum_mobile/features/attendance/attendance_controller.dart';
 import 'package:anum_mobile/features/attendance/attendance_data.dart';
 import 'package:anum_mobile/features/attendance/attendance_screen.dart';
 import 'package:anum_mobile/features/attendance/attendance_strings.dart';
+import 'package:anum_mobile/features/records_kit/records_kit.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -263,6 +266,23 @@ void main() {
     });
   });
 
+  test('a slower earlier week never replaces the week now chosen', () async {
+    final slow = Completer<void>();
+    final api = AttendanceApi();
+    final inner = ApiAttendanceRepository(api.api.client());
+    final c = AttendanceController(_SlowWeeks(inner, slow, '2026-10-29'),
+        now: () => DateTime(2026, 11, 5, 9));
+    await c.load();
+    final earlier = c.shiftWeek(-1); // 23 to 29 Oct, held back
+    final latest = c.shiftWeek(1); // back to this week, answers first
+    await latest;
+    slow.complete();
+    await earlier;
+    expect(isoDay(c.weekEnd), '2026-11-05');
+    expect(c.week.first.day, '2026-11-05');
+    c.dispose();
+  });
+
   group('screen', () {
     testWidgets('check in, then the status and today\'s record',
         (tester) async {
@@ -397,4 +417,44 @@ void main() {
       await expectLater(tester, meetsGuideline(labeledTapTargetGuideline));
     });
   });
+}
+
+/// Holds the days of the week ending [heldEnd] until [slow] completes.
+class _SlowWeeks implements AttendanceRepository {
+  _SlowWeeks(this.inner, this.slow, this.heldEnd);
+  final AttendanceRepository inner;
+  final Completer<void> slow;
+  final String heldEnd;
+
+  @override
+  Future<List<AttendanceDay>> days(String from, String to) async {
+    if (to == heldEnd) await slow.future;
+    return inner.days(from, to);
+  }
+
+  @override
+  Future<AttendanceToday> today() => inner.today();
+  @override
+  Future<List<AttendanceSite>> sites() => inner.sites();
+  @override
+  Future<AttendanceEvent> check(String kind,
+          {required String idempotencyKey, String? siteId}) =>
+      inner.check(kind, idempotencyKey: idempotencyKey, siteId: siteId);
+  @override
+  Future<RecordsChunk<AttendanceCorrection>> corrections({String? token}) =>
+      inner.corrections(token: token);
+  @override
+  Future<AttendanceCorrection> correct(Map<String, Object?> body) =>
+      inner.correct(body);
+  @override
+  Future<RecordsChunk<AttendanceReport>> reports(
+          {String query = '', String? token}) =>
+      inner.reports(query: query, token: token);
+  @override
+  Future<AttendanceReport?> report(String day) => inner.report(day);
+  @override
+  Future<AttendanceReport> saveReport(String day, Map<String, Object?> body) =>
+      inner.saveReport(day, body);
+  @override
+  Future<void> deleteReport(String day) => inner.deleteReport(day);
 }

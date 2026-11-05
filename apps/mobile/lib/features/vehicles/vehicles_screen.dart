@@ -91,7 +91,10 @@ class _VehiclesScreenState extends State<VehiclesScreen> {
     }
     Navigator.of(context).push(MaterialPageRoute<void>(
       builder: (_) => VehicleDetailScreen(
-          repository: c.repository, vehicleId: vehicle.id, initial: vehicle),
+          repository: c.repository,
+          vehicleId: vehicle.id,
+          initial: vehicle,
+          onChanged: c.changed),
     ));
   }
 
@@ -138,6 +141,7 @@ class _VehiclesScreenState extends State<VehiclesScreen> {
                         key: ValueKey(selected),
                         repository: c.repository,
                         vehicleId: selected,
+                        onChanged: c.changed,
                         initial: list.items
                             .where((v) => v.id == selected)
                             .firstOrNull,
@@ -347,11 +351,13 @@ class VehicleDetailScreen extends StatelessWidget {
     required this.repository,
     required this.vehicleId,
     this.initial,
+    this.onChanged,
     super.key,
   });
   final VehiclesRepository repository;
   final String vehicleId;
   final Vehicle? initial;
+  final ValueChanged<Vehicle>? onChanged;
 
   @override
   Widget build(BuildContext context) => Scaffold(
@@ -359,7 +365,10 @@ class VehicleDetailScreen extends StatelessWidget {
             title:
                 Text(initial?.title ?? VehiclesStrings.of(context).t('title'))),
         body: VehicleDetailHost(
-            repository: repository, vehicleId: vehicleId, initial: initial),
+            repository: repository,
+            vehicleId: vehicleId,
+            initial: initial,
+            onChanged: onChanged),
       );
 }
 
@@ -369,11 +378,13 @@ class VehicleDetailHost extends StatefulWidget {
     required this.repository,
     required this.vehicleId,
     this.initial,
+    this.onChanged,
     super.key,
   });
   final VehiclesRepository repository;
   final String vehicleId;
   final Vehicle? initial;
+  final ValueChanged<Vehicle>? onChanged;
 
   @override
   State<VehicleDetailHost> createState() => _VehicleDetailHostState();
@@ -382,7 +393,7 @@ class VehicleDetailHost extends StatefulWidget {
 class _VehicleDetailHostState extends State<VehicleDetailHost> {
   late final VehicleDetailController _c = VehicleDetailController(
       widget.repository, widget.vehicleId,
-      initial: widget.initial)
+      initial: widget.initial, onChanged: widget.onChanged)
     ..load();
   VehicleRecordKind _tab = VehicleRecordKind.fuel;
 

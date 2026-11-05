@@ -80,16 +80,24 @@ class BooksController extends ChangeNotifier {
     }
   }
 
+  /// Only the newest report request may change what is shown: a slower
+  /// answer for an earlier period or basis is dropped.
+  int _reportGeneration = 0;
+
   Future<void> loadReport() async {
+    final generation = ++_reportGeneration;
     reportPhase = RecordsPhase.loading;
     _notify();
     final dates = range();
     try {
-      report =
+      final loaded =
           await repository.report(from: dates.from, to: dates.to, basis: basis);
+      if (generation != _reportGeneration) return;
+      report = loaded;
       reportFailure = null;
       reportPhase = RecordsPhase.ready;
     } on Object catch (error) {
+      if (generation != _reportGeneration) return;
       reportFailure = RecordsFailure.from(error);
       reportPhase =
           reportFailure!.denied ? RecordsPhase.denied : RecordsPhase.error;
@@ -108,11 +116,12 @@ class BooksController extends ChangeNotifier {
     await load();
   }
 
-  /// A bill changed on its page (a payment or a void): refresh the list
-  /// row and the totals.
+  /// A bill changed on its page (a payment or a void): reload the bills
+  /// with the same search and filter, so the open and overdue totals and
+  /// the filter's rows follow, and the P&L.
   Future<void> billChanged(BooksBill bill) async {
     bills.upsert(bill, (b) => b.id == bill.id);
-    await loadReport();
+    await Future.wait([bills.load(), loadReport()]);
   }
 
   @override

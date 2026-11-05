@@ -149,6 +149,17 @@ class PurchasesApi {
     final path = r.uri.path;
     final q = r.uri.queryParameters;
     if (r.method == 'GET' && path == '/api/v1/purchases') {
+      if (q['status'] == 'awaiting') {
+        return ok({
+          'items': [
+            if (status != 'delivered')
+              purchaseJson('pur_1', status: status, version: version),
+          ],
+          'total': status != 'delivered' ? 1 : 0,
+          'limit': 20,
+          'offset': 0,
+        });
+      }
       if (empty || q['status'] == 'returns') {
         return ok({'items': [], 'total': 0, 'limit': 20, 'offset': 0});
       }
@@ -347,6 +358,18 @@ void main() {
           {'to': 'delivered', 'version': 3});
       expect(find.text('Shipped → Delivered'), findsOneWidget);
       expectClean(tester);
+    });
+
+    testWidgets('a move refreshes a filtered list', (tester) async {
+      final fake = PurchasesApi();
+      await pumpPurchases(tester, fake);
+      await tapVisible(tester, find.byKey(const Key('filter-awaiting')));
+      await tapVisible(tester, find.byKey(const Key('purchase-pur_1')));
+      await tapVisible(tester, find.byKey(const Key('move-delivered')));
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      // Delivered is no longer awaiting delivery.
+      expect(find.byKey(const Key('purchase-pur_1')), findsNothing);
     });
 
     testWidgets('a stale move reloads and says so', (tester) async {

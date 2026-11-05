@@ -3,6 +3,8 @@
 // setup and permissions, the P&L for a period and basis (read only), the
 // bills with open and overdue totals and paging, recording a payment with
 // an idempotency key, owner-only voids, and every state.
+import 'dart:async';
+
 import 'package:anum_mobile/data/api_client.dart';
 import 'package:anum_mobile/features/books/books_controller.dart';
 import 'package:anum_mobile/features/books/books_data.dart';
@@ -231,7 +233,10 @@ class BooksApi {
         'offset': offset,
         'summary': {
           'open': [
-            {'currency': 'AED', 'amount': '2100.00'}
+            {
+              'currency': 'AED',
+              'amount': billState == 'paid' ? '1050.00' : '2100.00'
+            }
           ],
           'overdue': [
             {'currency': 'AED', 'amount': '1050.00'}
@@ -339,6 +344,22 @@ void main() {
     });
   });
 
+  test('a slower earlier P&L answer never replaces the latest one', () async {
+    final slow = Completer<void>();
+    final repo =
+        _RacingBooks(ApiBooksRepository(BooksApi().api.client()), slow);
+    final c = BooksController(repo, today: () => DateTime(2026, 11, 5));
+    await c.load();
+    final first = c.choose(basis: 'cash'); // slow
+    final second = c.choose(basis: 'accrual'); // fast
+    await second;
+    slow.complete();
+    await first;
+    expect(c.basis, 'accrual');
+    expect(c.report!.basis, 'accrual');
+    c.dispose();
+  });
+
   group('screen', () {
     testWidgets('P&L for the financial year, then cash basis and last month',
         (tester) async {
@@ -383,6 +404,21 @@ void main() {
       expect(find.text('Paid'), findsWidgets);
       expect(find.byKey(const Key('void-payment-bpay_1')), findsNothing);
       expectClean(tester);
+    });
+
+    testWidgets('the open total follows a recorded payment', (tester) async {
+      final fake = BooksApi();
+      await pumpBooks(tester, fake);
+      await tester.tap(find.text('Bills'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('Open: AED 2,100.00'), findsOneWidget);
+      await tapVisible(tester, find.byKey(const Key('bill-bbill_1')));
+      await tapVisible(tester, find.byKey(const Key('bill-pay')));
+      await tapVisible(tester, find.byKey(const Key('form-submit')));
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      expect(find.textContaining('Open: AED 1,050.00'), findsOneWidget);
+      expect(find.textContaining('Open: AED 2,100.00'), findsNothing);
     });
 
     testWidgets('an owner voids a payment with a reason', (tester) async {
@@ -463,4 +499,40 @@ void main() {
       await expectLater(tester, meetsGuideline(labeledTapTargetGuideline));
     });
   });
+}
+
+/// Holds every cash-basis report until [slow] completes.
+class _RacingBooks implements BooksRepository {
+  _RacingBooks(this.inner, this.slow);
+  final BooksRepository inner;
+  final Completer<void> slow;
+
+  @override
+  Future<BooksReport> report({String? from, String? to, String? basis}) async {
+    if (basis == 'cash') await slow.future;
+    return inner.report(from: from, to: to, basis: basis);
+  }
+
+  @override
+  Future<BooksSetup> setup() => inner.setup();
+  @override
+  Future<void> saveSettings(Map<String, Object?> body) =>
+      inner.saveSettings(body);
+  @override
+  Future<BooksBillsChunk> bills(
+          {String query = '', String status = '', String? token}) =>
+      inner.bills(query: query, status: status, token: token);
+  @override
+  Future<BooksBill> bill(String id) => inner.bill(id);
+  @override
+  Future<BooksBill> pay(String billId, Map<String, Object?> body,
+          {required String idempotencyKey}) =>
+      inner.pay(billId, body, idempotencyKey: idempotencyKey);
+  @override
+  Future<BooksBill> voidPayment(
+          String billId, String paymentId, String reason) =>
+      inner.voidPayment(billId, paymentId, reason);
+  @override
+  Future<BooksBill> voidBill(String billId, String reason) =>
+      inner.voidBill(billId, reason);
 }

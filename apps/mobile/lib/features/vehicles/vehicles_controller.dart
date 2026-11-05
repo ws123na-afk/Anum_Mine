@@ -41,6 +41,12 @@ class VehiclesController extends ChangeNotifier {
     return vehicle;
   }
 
+  /// A vehicle changed on its page: refresh its row and what is due.
+  Future<void> changed(Vehicle vehicle) async {
+    vehicles.upsert(vehicle, (v) => v.id == vehicle.id);
+    await loadReminders();
+  }
+
   @override
   void dispose() {
     _disposed = true;
@@ -51,7 +57,8 @@ class VehiclesController extends ChangeNotifier {
 
 /// One vehicle: its details and its fuel, trips and service, each paged.
 class VehicleDetailController extends ChangeNotifier {
-  VehicleDetailController(this.repository, this.vehicleId, {Vehicle? initial})
+  VehicleDetailController(this.repository, this.vehicleId,
+      {Vehicle? initial, this.onChanged})
       : vehicle = initial {
     for (final kind in VehicleRecordKind.values) {
       lists[kind] = RecordsList<VehicleRecord>(
@@ -60,6 +67,10 @@ class VehicleDetailController extends ChangeNotifier {
   }
   final VehiclesRepository repository;
   final String vehicleId;
+
+  /// A record changed the vehicle (odometer, what is due): the list
+  /// refreshes its row and reminders.
+  final ValueChanged<Vehicle>? onChanged;
   final lists = <VehicleRecordKind, RecordsList<VehicleRecord>>{};
 
   Vehicle? vehicle;
@@ -118,6 +129,7 @@ class VehicleDetailController extends ChangeNotifier {
     try {
       vehicle = await repository.get(vehicleId);
       _notify();
+      onChanged?.call(vehicle!);
     } on Object {
       // The odometer and due items refresh on the next load.
     }

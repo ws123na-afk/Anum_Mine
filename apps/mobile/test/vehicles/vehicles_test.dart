@@ -314,6 +314,19 @@ void main() {
       expectClean(tester);
     });
 
+    testWidgets('a new record refreshes the list row and reminders',
+        (tester) async {
+      final fake = VehiclesApi();
+      await pumpVehicles(tester, fake);
+      final before = fake.api.sent('GET', '/api/v1/vehicles/reminders').length;
+      await tapVisible(tester, find.byKey(const Key('vehicle-veh_1')));
+      await tapVisible(tester, find.byKey(const Key('vehicle-add-fuel')));
+      await tester.enterText(find.byKey(const Key('field-litres')), '20');
+      await tapVisible(tester, find.byKey(const Key('form-submit')));
+      expect(fake.api.sent('GET', '/api/v1/vehicles/reminders').length,
+          greaterThan(before));
+    });
+
     testWidgets('the odometer refusal says why and offers a correction',
         (tester) async {
       final fake = VehiclesApi()..decreaseOnce = true;

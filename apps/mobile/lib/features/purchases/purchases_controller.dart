@@ -22,9 +22,16 @@ class PurchasesController extends ChangeNotifier {
     return detail;
   }
 
-  /// A purchase changed on its page: show the new state in the list.
-  void changed(Purchase purchase) =>
+  /// A purchase changed on its page: show the new state in the list. With
+  /// a status group chosen, the list is read again, since the purchase may
+  /// have moved in or out of the group.
+  void changed(Purchase purchase) {
+    if (purchases.filter.isNotEmpty) {
+      purchases.load();
+    } else {
       purchases.upsert(purchase, (p) => p.id == purchase.id);
+    }
+  }
 
   @override
   void dispose() {

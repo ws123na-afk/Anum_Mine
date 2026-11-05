@@ -92,16 +92,21 @@ class AttendanceController extends ChangeNotifier {
     }
   }
 
+  /// Only the newest week request may change what History shows.
+  int _weekGeneration = 0;
+
   Future<void> loadWeek() async {
+    final generation = ++_weekGeneration;
     weekPhase = RecordsPhase.loading;
     _notify();
     try {
-      week = (await repository.days(isoDay(weekStart), isoDay(weekEnd)))
-          .reversed
-          .toList();
+      final days = await repository.days(isoDay(weekStart), isoDay(weekEnd));
+      if (generation != _weekGeneration) return;
+      week = days.reversed.toList();
       weekFailure = null;
       weekPhase = RecordsPhase.ready;
     } on Object catch (error) {
+      if (generation != _weekGeneration) return;
       weekFailure = RecordsFailure.from(error);
       weekPhase =
           weekFailure!.denied ? RecordsPhase.denied : RecordsPhase.error;
