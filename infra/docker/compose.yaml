@@ -80,7 +80,7 @@ services:
   s3:
     # S3-compatible object storage (SeaweedFS). MinIO no longer publishes community
     # images. Credentials come from infra/seaweedfs/s3.json and are DEV-ONLY.
-    image: chrislusf/seaweedfs:4.48
+    image: chrislusf/seaweedfs:4.50
     # Small volumes keep the dev store light; SeaweedFS defaults to 30 GB volumes.
     # 4.x runs as the `seaweed` user (the entrypoint chowns /data) and allocates no
     # volumes, so uploads time out, when the disk has less than 1% free space.
@@ -97,7 +97,7 @@ services:
       retries: 10
 
   otel-collector:
-    image: otel/opentelemetry-collector-contrib:0.163.2
+    image: otel/opentelemetry-collector-contrib:0.164.0
     # The base config only prints what it receives. With the observability profile set
     # ANUM_OTELCOL_OVERLAY=observability so the overlay sends traces to Tempo, metrics
     # to Prometheus and logs to Loki (docs/observability.md#local-stack).
@@ -151,7 +151,7 @@ services:
 
   grafana:
     profiles: ["observability"]
-    image: grafana/grafana:13.2.3
+    image: grafana/grafana:13.3.0
     environment:
       # Local only: anonymous read-only access, no sign-up, no usage reporting.
       GF_AUTH_ANONYMOUS_ENABLED: "true"
@@ -176,7 +176,7 @@ services:
   # A host-run API cannot reach it; leave ANUM_SEARXNG_URL empty there (tool off).
   searxng:
     profiles: ["app"]
-    image: searxng/searxng:2026.10.4-d48c4b555
+    image: searxng/searxng:2026.10.30-ffa88e3ba
     environment:
       # DEV-ONLY placeholder; set SEARXNG_SECRET in your shell to override it.
       SEARXNG_SECRET: ${SEARXNG_SECRET:-local-dev-only}
