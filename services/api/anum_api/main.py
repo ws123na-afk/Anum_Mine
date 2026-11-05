@@ -166,6 +166,7 @@ from .commerce.api import router as commerce_router
 from .commerce.scheduler import build_commerce_scheduler
 from .commerce.tools import register_commerce_tools
 from .finance.api import router as finance_router
+from .finance.register_api import router as finance_register_router
 from .finance.plan_api import router as finance_plan_router
 from .finance.trading_api import router as finance_trading_router
 from .finance.intel_control_api import router as finance_intel_control_router
@@ -566,6 +567,8 @@ app.add_exception_handler(_BlockedChange, blocked_change_handler)
 app.include_router(user_preferences_router)
 app.include_router(push_router)
 app.include_router(commerce_router)
+# Before the finance router: GET /accounts/overview must not be read as an account id.
+app.include_router(finance_register_router)
 app.include_router(finance_router)
 app.include_router(finance_plan_router)
 app.include_router(finance_trading_router)
