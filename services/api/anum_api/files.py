@@ -26,6 +26,7 @@ import logging
 import re
 from collections.abc import Iterator
 from contextlib import contextmanager
+from contextvars import ContextVar
 from datetime import datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
@@ -230,6 +231,34 @@ class FileRecord(BaseModel):
     scanned_at: datetime | None = None
     # The current version number (migration 0090_file_versions, docs/files.md#versions).
     version: int = 1
+    # Document vault (migration 0133_document_vault, docs/documents.md#storage-and-isolation): None
+    # for an ordinary file. Vault files are never listed or served by the Files routes; `hidden`
+    # ones are invisible to every unit of work that is not the vault's own.
+    vault: Literal["hidden", "assistant"] | None = None
+
+
+# Set only inside the vault's own units of work (and the malware rescan): with PostgreSQL it turns
+# on anum.vault for the session, which the row policy of workspace_files requires to see hidden rows.
+_VAULT_FILES: ContextVar[bool] = ContextVar("anum_vault_files", default=False)
+
+
+@contextmanager
+def vault_files_visible() -> Iterator[None]:
+    """Let file metadata stores opened in this block see hidden vault files (docs/documents.md)."""
+    token = _VAULT_FILES.set(True)
+    try:
+        yield
+    finally:
+        _VAULT_FILES.reset(token)
+
+
+def vault_files_in_scope() -> bool:
+    return _VAULT_FILES.get()
+
+
+def _visible(record: FileRecord) -> bool:
+    """The memory backend's copy of the row policy ``vault_files_hidden``."""
+    return record.vault != "hidden" or _VAULT_FILES.get()
 
 
 class FileVersionRecord(BaseModel):
@@ -384,7 +413,10 @@ class FileMetadataStore(Protocol):
         ...
 
     def get(self, context: TenantContext, file_id: str) -> FileRecord | None: ...
-    def list_files(self, context: TenantContext, limit: int) -> list[FileRecord]: ...
+    def list_files(self, context: TenantContext, limit: int, *, include_assistant_vault: bool = False) -> list[FileRecord]:
+        """The oldest files first. ``include_assistant_vault``: also vault documents their owner let the
+        assistant read (the retrieval reindex), never shown in the Files list (docs/documents.md#the-assistant)."""
+        ...
     def list_page(self, context: TenantContext, query: FilePageQuery) -> list[FileRecord]: ...
     def usage(self, context: TenantContext) -> FileUsage: ...
     def rename(self, context: TenantContext, file_id: str, name: str) -> FileRecord | None: ...
@@ -457,7 +489,7 @@ class FileStore:
 
     def _scoped(self, context: TenantContext) -> list[FileRecord]:
         return [r for r in self.records.values()
-                if r.tenant_id == context.tenant_id and r.workspace_id == context.workspace_id]
+                if r.tenant_id == context.tenant_id and r.workspace_id == context.workspace_id and _visible(r)]
 
     def add(self, record: FileRecord, quota_bytes: int | None = None) -> FileRecord:
         scope = TenantContext(tenant_id=record.tenant_id, workspace_id=record.workspace_id, user_id=record.created_by)
@@ -471,17 +503,18 @@ class FileStore:
 
     def get(self, context: TenantContext, file_id: str) -> FileRecord | None:
         record = self.records.get(file_id)
-        if record is None or record.tenant_id != context.tenant_id or record.workspace_id != context.workspace_id:
+        if record is None or record.tenant_id != context.tenant_id or record.workspace_id != context.workspace_id or not _visible(record):
             return None
         return record
 
-    def list_files(self, context: TenantContext, limit: int) -> list[FileRecord]:
+    def list_files(self, context: TenantContext, limit: int, *, include_assistant_vault: bool = False) -> list[FileRecord]:
         with self._lock:
-            return sorted(self._scoped(context), key=lambda r: (r.created_at, r.id))[:limit]
+            rows = (r for r in self._scoped(context) if r.vault is None or (include_assistant_vault and r.vault == "assistant"))
+            return sorted(rows, key=lambda r: (r.created_at, r.id))[:limit]
 
     def list_page(self, context: TenantContext, query: FilePageQuery) -> list[FileRecord]:
         with self._lock:
-            items = self._scoped(context)
+            items = [r for r in self._scoped(context) if r.vault is None]
         if query.search:
             needle = query.search.lower()
             items = [r for r in items if needle in r.name.lower()]
@@ -584,7 +617,7 @@ class FileStore:
 
     def storage_report(self, context: TenantContext, largest: int) -> StorageReport:
         with self._lock:
-            items = self._scoped(context)
+            items = [r for r in self._scoped(context) if r.vault is None]
             versions = self._scoped_versions(context)
         return build_storage_report(self.usage(context), items, versions, largest)
 
@@ -613,8 +646,12 @@ def open_file_metadata_store(context: TenantContext) -> Iterator[FileMetadataSto
     """File metadata for one unit of work, chosen by ``ANUM_REPOSITORY_BACKEND``."""
 
     def sql_store(session):  # type: ignore[no-untyped-def]
+        from sqlalchemy import text
+
         from .db.workspace_settings_repository import SqlAlchemyFileMetadataStore
 
+        if _VAULT_FILES.get():
+            session.execute(text("select set_config('anum.vault', 'on', true)"))
         return SqlAlchemyFileMetadataStore(session)
 
     with open_scoped_store(context, file_store, sql_store) as store:
@@ -734,9 +771,15 @@ def _valid_name(value: str) -> str:
     return name
 
 
+def _files_get(store: FileMetadataStore, context: TenantContext, file_id: str) -> FileRecord | None:
+    """A file the Files routes may show: vault documents answer as missing (docs/documents.md)."""
+    record = store.get(context, file_id)
+    return None if record is None or record.vault is not None else record
+
+
 def _record(file_id: str, context: TenantContext) -> FileRecord:
     with open_file_metadata_store(context) as store:
-        record = store.get(context, file_id)
+        record = _files_get(store, context, file_id)
     if record is None:
         raise HTTPException(404, "File not found")
     return record
@@ -1043,7 +1086,7 @@ def list_files(
     with open_file_metadata_store(context) as store:
         after = None
         if cursor:
-            after = store.get(context, cursor)
+            after = _files_get(store, context, cursor)
             if after is None:
                 raise HTTPException(400, "Unknown or invalid cursor: the file it names is gone. Reload the list.")
         records = store.list_page(
@@ -1116,7 +1159,7 @@ def serve_link(token: str) -> Response:
         if membership is None or not membership.active:
             raise HTTPException(403, "The person who opened this link is no longer a member of the workspace.")
     with open_file_metadata_store(context) as store:
-        record = store.get(context, claims.file_id)
+        record = _files_get(store, context, claims.file_id)
     if record is None or record.sha256 != claims.sha256:
         raise HTTPException(404, "File not found")
     if record.scan_status == "infected":
@@ -1151,7 +1194,7 @@ def rename_file(file_id: str, body: FileRename, context: TenantContext = Depends
     _require(context, Permission.FILE_UPLOAD, UPLOAD_DENIED)
     name = _valid_name(body.name)
     with open_file_metadata_store(context) as store:
-        record = store.get(context, file_id)
+        record = _files_get(store, context, file_id)
         if record is None:
             raise HTTPException(404, "File not found")
         if not _can_manage(context, record):
@@ -1317,7 +1360,7 @@ def list_file_versions(
     """The current version and one page of older versions, newest first."""
     _require(context, Permission.FILE_READ, READ_DENIED)
     with open_file_metadata_store(context) as store:
-        record = store.get(context, file_id)
+        record = _files_get(store, context, file_id)
         if record is None:
             raise HTTPException(404, "File not found")
         items, total = store.list_versions(context, file_id, limit, offset)
@@ -1434,7 +1477,7 @@ def delete_file_version(file_id: str, version_id: str, context: TenantContext = 
 def delete_file(file_id: str, context: TenantContext = Depends(tenant_context)) -> Response:
     _require(context, Permission.FILE_UPLOAD, UPLOAD_DENIED)
     with open_file_metadata_store(context) as store:
-        record = store.get(context, file_id)
+        record = _files_get(store, context, file_id)
         if record is None:
             raise HTTPException(404, "File not found")
         if not _can_manage(context, record):

@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field
 
 from .agent_skills import SkillManifest, SkillRegistry
 from .agent_tools import ToolCall, ToolRegistry
+from .current_time import with_time_line
 from .model_gateway import ModelGateway, ModelResponse, ModelRoute, route_gateway
 from .retrieval import build_cache_layout_prompt, build_task_prompt
 from .schemas import Task
@@ -44,6 +45,7 @@ class AgentPlanner:
         context_blocks: Sequence[str] = (),
         learned_block: str | None = None,
         agent: "AgentRunProfile | None" = None,
+        time_line: str | None = None,
     ) -> PlanResult:
         """Plan ``task``; ``context_blocks`` are provenance-labeled retrieved data.
 
@@ -56,6 +58,7 @@ class AgentPlanner:
         As an ``agent`` (docs/agents.md): only the agent's skills and tools can be
         selected, its persona and instructions come before the task in the model
         prompt (they never select anything), and its model route is used.
+        ``time_line`` (the current date and time in the user's zone) follows the task.
         """
         tools = self.tools.names
         if agent is not None:
@@ -76,6 +79,9 @@ class AgentPlanner:
         # the model only, never what selects a skill or tool.
         preface = [part for part in (agent.persona() if agent is not None else None, learned_block) if part]
         prompt = "\n\n".join([*preface, f"Task:\n{task.prompt}"]) if preface else task.prompt
+        # The current date and time (current_time.py) follows the task, outside the cached
+        # instructions, so "by Friday" and "tomorrow" resolve against the user's real today.
+        prompt = with_time_line(prompt, time_line)
         response = await self._generate(planner, prompt, context_blocks)
         # As an agent, only its tools can be chosen (team work's ``team.assign_task`` too).
         call = _brevo_call(task.prompt, selected) or _marketing_call(task, selected) or (
@@ -87,6 +93,12 @@ class AgentPlanner:
         from .brevo.planning import refusal as brevo_refusal
 
         call = await brevo_refusal(task, call) or call
+        if call.name == "web.act":
+            # The logins saved for the approved sites and the cards the prompt names, as handles
+            # only (docs/action-browser.md#how-it-is-used): read from the vault, never decrypted.
+            from .action_browser.scope import action_scope
+
+            call = await action_scope(task, call)
         return PlanResult(
             plan=AgentPlan(
                 objective=task.prompt,
@@ -151,6 +163,13 @@ def choose_tool_call(
         # "ask Ahmed to call the supplier by Thursday": the tool parses the user's own
         # sentence (never model output) and resolves the person in the workspace.
         return ToolCall(name="team.assign_task", arguments={"command": " ".join(prompt.split())[:500]})
+    if any(skill.id == "anum.action-browser" for skill in skills):
+        # The goal, the start address and the sites come from the user's own prompt, never from
+        # retrieved text, a page or model output (threat model G5); the owner approves them
+        # before anything opens (docs/action-browser.md#how-it-is-used).
+        act_call = _action_browser_call(prompt)
+        if act_call is not None:
+            return act_call
     gc_call = _green_concrete_call(prompt, skills)
     if gc_call is not None:
         return gc_call
@@ -227,6 +246,29 @@ def choose_tool_call(
         # (threat model G5); the tool caps its length.
         return ToolCall(name="web_search", arguments={"query": " ".join(prompt.split())[:400]})
     return ToolCall(name="anum.respond", arguments={"text": planned_text})
+
+
+def _action_browser_call(prompt: str) -> ToolCall | None:
+    """``web.act`` with the scope the owner approves, or None without an https address."""
+    import re as _re
+
+    from .action_browser.handles import prompt_addresses, prompt_sites
+
+    addresses = prompt_addresses(prompt)
+    if not addresses:
+        return None
+    lowered = prompt.lower()
+    named_cards = sorted({match.group(1) for match in _re.finditer(r"\bcard:([a-z0-9][a-z0-9-]{0,39})\b", lowered)}
+                         | {match.group(1) for match in _re.finditer(r"\b([a-z0-9][a-z0-9-]{0,39})\s+card\b", lowered)})
+    any_card = bool(_re.search(r"\b(card|pay|payment|checkout)\b|بطاقة|ادفع|الدفع", lowered))
+    return ToolCall(
+        name="web.act",
+        arguments={
+            "goal": " ".join(prompt.split())[:1000], "start_url": addresses[0][:2048], "allowed_domains": prompt_sites(prompt),
+            # Filled from the saved logins and cards before the call is checkpointed (``action_scope``).
+            "logins": {}, "cards": [], "card_names": named_cards[:5], "any_card": any_card,
+        },
+    )
 
 
 def _green_concrete_call(prompt: str, skills: Sequence[SkillManifest]) -> ToolCall | None:

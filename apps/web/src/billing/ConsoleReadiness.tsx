@@ -81,6 +81,11 @@ function detailText(item: ReadinessItem): string[] {
     case 'plans':
       lines.push(t('selling.ready.plans.counts', { active: Number(d.active ?? 0), published: Number(d.published ?? 0) }));
       break;
+    case 'ai_model':
+      lines.push(d.placeholder ? t('selling.ready.model.placeholder')
+        : d.key_missing ? t('selling.ready.model.keyMissing', { provider: String(d.provider) })
+          : t('selling.ready.model.real', { provider: String(d.provider) }));
+      break;
     case 'public_issuer':
       if (!d.configured) lines.push(t('selling.ready.issuer.notSet'));
       else if (!d.is_you) lines.push(t('selling.ready.issuer.other'));

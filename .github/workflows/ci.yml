@@ -62,6 +62,9 @@ jobs:
       - run: pnpm docs:check
       - run: pnpm check
       - run: pnpm build
+      - name: No sharp or libvips (LGPL) in the shipped web and desktop bundles
+        # The web image and the desktop installer ship apps/web/dist (docs/licenses.md).
+        run: python3 scripts/licenses/assert_not_bundled.py --dist apps/web/dist --tauri-config apps/desktop/src-tauri/tauri.conf.json
 
   api-unit:
     name: API unit tests
@@ -99,6 +102,31 @@ jobs:
           python -m pytest services/api -m browser -rs | tee browser.log
           if grep -q "SKIPPED" browser.log; then
             echo "::error::Browser research tests were skipped"
+            exit 1
+          fi
+
+  # Document vault OCR (docs/documents.md#scanning-and-extraction): synthetic English and Arabic
+  # receipts and an identity page read by the real Tesseract. Deselected in "API unit tests"; here
+  # none may be skipped.
+  api-document-ocr:
+    name: Document OCR (Tesseract)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7.1.0
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: services/api/pyproject.toml
+      - run: sudo apt-get update && sudo apt-get install --yes --no-install-recommends tesseract-ocr tesseract-ocr-eng tesseract-ocr-ara fonts-dejavu-core
+      - run: python -m pip install --disable-pip-version-check "pip==24.3.1"
+      - run: python -m pip install --disable-pip-version-check -e "services/api[test]"
+      - name: Run the OCR tests (none may be skipped)
+        run: |
+          set -o pipefail
+          python -m pytest services/api -m ocr -rs | tee ocr.log
+          if grep -q "SKIPPED" ocr.log; then
+            echo "::error::Document OCR tests were skipped"
             exit 1
           fi
 
@@ -388,6 +416,58 @@ jobs:
           cargo install cargo-audit --locked --version "${CARGO_AUDIT_VERSION}"
           cargo audit --file apps/desktop/src-tauri/Cargo.lock
 
+  licenses:
+    name: Licenses and SBOMs
+    # Every shipped dependency (API, web, desktop, Flutter, Android) against
+    # scripts/licenses/policy.toml; THIRD_PARTY_NOTICES.md must match the scan; one CycloneDX
+    # SBOM per app is uploaded (docs/licenses.md).
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7.1.0
+        with:
+          python-version: "3.13"
+      - uses: dtolnay/rust-toolchain@89b12181fb390509a0842a86cc55eeb8eb928c1d # stable
+        with:
+          toolchain: stable
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with:
+          channel: stable
+          cache: true
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@3f5f9adaf7d9fecd50b5935e54106014257a94e6 # v6.4.0
+        with:
+          gradle-version: "8.10.2"
+      # pip 25.0+ reports License-Expression (Core Metadata 2.4); the scanner refuses older.
+      - name: Install the scanner's YAML parser and a current pip
+        run: python -m pip install --disable-pip-version-check "pip>=25.0" "PyYAML==6.0.3"
+      - name: License scanner unit tests
+        run: python -m unittest discover -s scripts/licenses -v
+      - name: License policy, THIRD_PARTY_NOTICES.md and SBOMs
+        env:
+          LICENSE_SCAN_DIR: ${{ runner.temp }}/licenses
+        run: scripts/licenses/regenerate.sh --check --sbom-dir "$RUNNER_TEMP/sbom"
+      - name: Upload SBOMs (CycloneDX, one per app)
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: sbom
+          path: ${{ runner.temp }}/sbom/*.cdx.json
+          if-no-files-found: warn
+      - name: Upload regenerated THIRD_PARTY_NOTICES.md and scan results
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: third-party-notices
+          path: |
+            ${{ runner.temp }}/licenses/THIRD_PARTY_NOTICES.md
+            ${{ runner.temp }}/licenses/results.json
+          if-no-files-found: ignore
+
   images:
     name: Docker images
     runs-on: ubuntu-latest
@@ -401,6 +481,8 @@ jobs:
         run: docker build -t anum-api:ci services/api
       - name: Build web image
         run: docker build -f apps/web/Dockerfile -t anum-web:ci .
+      - name: Build OCR image (document vault, docs/documents.md#the-ocr-service)
+        run: docker build --build-arg ANUM_OCR=1 -t anum-ocr:ci services/api
       - name: Build backup image
         # Scanned here as well, so a finding in the backup image fails the PR, not the
         # staging deploy after merge.
@@ -412,7 +494,7 @@ jobs:
         run: |
           mkdir -p "$HOME/.cache/trivy"
           # The checkout is mounted as the working directory so a .trivyignore is read.
-          for image in anum-api:ci anum-web:ci anum-backup:ci; do
+          for image in anum-api:ci anum-web:ci anum-backup:ci anum-ocr:ci; do
             docker run --rm \
               -v /var/run/docker.sock:/var/run/docker.sock \
               -v "$HOME/.cache/trivy:/root/.cache/trivy" \
@@ -627,6 +709,8 @@ jobs:
       # never falls back to the local development session (docs/desktop.md#release-builds).
       - name: Build Windows installer
         run: pnpm --filter @anum/desktop build:release
+      - name: No sharp or libvips (LGPL) in the installer's web bundle
+        run: python scripts/licenses/assert_not_bundled.py --dist apps/web/dist --tauri-config apps/desktop/src-tauri/tauri.conf.json
       - name: Upload Windows installer
         uses: actions/upload-artifact@v7
         with:

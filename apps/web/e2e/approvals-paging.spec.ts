@@ -145,3 +145,21 @@ test('the list fits the screen without sideways scrolling', async ({ page }) => 
     expect(overflow, `${size.width}px`).toBeLessThanOrEqual(0);
   }
 });
+
+test('on a wide screen the queue lists what waits and opens a request in place', async ({ page, isMobile }) => {
+  test.skip(isMobile, 'The queue index shows from 1100px; phones read the requests one after another.');
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await mockApi(page);
+  await page.goto('/#approvals');
+  await expect(cards(page)).toHaveCount(25);
+  const queue = page.getByRole('navigation', { name: 'Queue' });
+  await expect(queue.getByText('25 waiting')).toBeVisible();
+  const items = queue.getByRole('button');
+  await expect(items).toHaveCount(25);
+  const last = cards(page).last();
+  const name = await last.getAttribute('aria-label');
+  await items.last().click();
+  await expect(last).toBeFocused();
+  await expect(last).toBeInViewport();
+  expect(name).toMatch(/^Approval for /);
+});

@@ -2,15 +2,18 @@
    All inboxes filters and the Connections groups. Spacing, radii and colour from the shared tokens. */
 .emailHub { display: grid; gap: var(--d-s3); grid-template-columns: minmax(0, 1fr); min-width: 0; }
 .emailHubMain { display: grid; align-content: start; gap: var(--d-s3); min-width: 0; }
-/* From 1280px the list sits beside the page; below it is a row of mailboxes above the page. */
-@media (min-width: 1280px) {
+/* On very wide screens the mailbox list sits beside the page; below that it is one row of mailboxes
+   above the page, so the mail itself keeps three full panes: folders, messages and the reader
+   (docs/web-design-system.md#pages). */
+@media (min-width: 1680px) {
   .emailHub { align-items: start; grid-template-columns: 216px minmax(0, 1fr); }
   .emailHubRail { position: sticky; top: var(--d-s3); }
 }
 
 .emailHubRail { border: 1px solid var(--d-line); border-radius: var(--d-r-control); min-width: 0; padding: var(--d-s2); }
 .hubRailList { display: grid; gap: var(--d-s1); list-style: none; margin: 0; padding: 0; }
-@media (max-width: 1279px) {
+@media (max-width: 1679px) {
+  .emailHubRail { background: var(--d-surface-1); border-radius: var(--d-r-panel); box-shadow: var(--d-elev-1); padding: var(--d-s1); }
   .hubRailList { display: flex; gap: var(--d-s1); overflow-x: auto; overscroll-behavior-x: contain; padding-bottom: var(--d-s1); }
   .hubRailList > li { flex: none; max-width: 280px; }
 }

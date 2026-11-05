@@ -14,7 +14,8 @@
 .bzBlocked { color: var(--d-stop); font-size: var(--text-sm); }
 
 /* Toolbar: search, filters and the page actions on one row; wraps on narrow screens. */
-.bzToolbar { align-items: end; display: flex; flex-wrap: wrap; gap: var(--d-s3); min-width: 0; }
+.bzToolbar { align-items: end; display: flex; flex-wrap: wrap; font-size: var(--text-md); gap: var(--d-s3); min-width: 0; }
+.bzToolbar button { font-size: var(--text-md); }
 .bzToolbar > .bzHint { flex: 1 1 280px; }
 .bzToolbarEnd { display: flex; flex-wrap: wrap; gap: var(--d-s2); margin-inline-start: auto; }
 .bzSearch { display: flex; flex: 1 1 260px; gap: var(--d-s2); min-width: 0; }
@@ -49,7 +50,7 @@
 /* Drawers: one column of blocks. */
 .bzDrawer { display: grid; gap: var(--d-s4); min-width: 0; }
 .bzLeadHead { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2) var(--d-s3); }
-.bzScore { font-variant-numeric: tabular-nums; font-weight: 700; }
+.bzScore { font-variant-numeric: tabular-nums; font-weight: 600; }
 .bzScore small { color: var(--d-muted); font-weight: 400; }
 .bzBlock { border-top: 1px solid var(--d-line); display: grid; gap: var(--d-s3); min-width: 0; padding-top: var(--d-s4); }
 .bzBlock > h3 { font-size: var(--text-base); margin: 0; }
@@ -210,3 +211,21 @@
 .invLink { display: grid; gap: var(--d-s1); min-width: 0; }
 .invLink p { margin: 0; }
 .invLinkUrl { min-width: 0; overflow-wrap: anywhere; word-break: break-all; text-align: start; }
+
+/* ==== Redesign (docs/web-design-system.md#pages): invoices read like a ledger ====
+   The money figures are one strip with hairlines between them; the table's first column leads with
+   the invoice number in the text colour (underlined on hover), amounts in tabular figures. */
+.invCurrency { padding: var(--d-s4) var(--d-s5); }
+.invCurrency h3 { color: var(--d-muted); font-weight: 500; }
+.invTiles { gap: var(--d-s3) 0; }
+.invTile { border-inline-start: 1px solid var(--d-line); padding-inline: var(--d-s4); }
+.invTile:first-child { border-inline-start: 0; padding-inline-start: 0; }
+.invTile dt { font-weight: 500; }
+.invTile strong { font-size: var(--text-3xl); font-weight: 600; letter-spacing: -.016em; }
+.bzTable .linkButton { color: var(--d-text); font-weight: 600; text-decoration: none; }
+.bzTable .linkButton:hover, .bzTable .linkButton:focus-visible { color: var(--d-accent-text); text-decoration: underline; }
+.bzTable td { font-variant-numeric: tabular-nums; }
+.bzTable tbody tr { transition: background var(--d-fast) var(--d-ease); }
+@media (max-width: 640px) {
+  .invTile { border-inline-start: 0; padding-inline: 0; }
+}

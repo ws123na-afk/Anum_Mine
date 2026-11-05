@@ -37,13 +37,14 @@ export function ConfirmDialog({ title, children, confirmLabel, danger, busy, con
   const panel = useModal(onCancel);
   const titleId = useId();
   const bodyId = useId();
+  // A destructive confirmation opens on Cancel, so Enter never deletes by accident (docs/web-design-system.md#shared-components).
   return <div className="dialogBackdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) onCancel(); }}>
     <div className="surface dialogPanel" role="alertdialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={bodyId} ref={panel}>
       <h2 id={titleId}>{title}</h2>
       <div id={bodyId} className="dialogBody">{children}</div>
       <div className="actions">
-        <button type="button" className={danger ? 'danger' : undefined} disabled={busy || confirmDisabled} onClick={onConfirm} data-autofocus>{busy ? t('dialog.working') : confirmLabel}</button>
-        <button type="button" className="secondary" disabled={busy} onClick={onCancel}>{t('common.cancel')}</button>
+        <button type="button" className={danger ? 'danger' : undefined} disabled={busy || confirmDisabled} onClick={onConfirm} data-autofocus={danger ? undefined : true}>{busy ? t('dialog.working') : confirmLabel}</button>
+        <button type="button" className="secondary" disabled={busy} onClick={onCancel} data-autofocus={danger ? true : undefined}>{t('common.cancel')}</button>
       </div>
     </div>
   </div>;

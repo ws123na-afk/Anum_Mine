@@ -150,7 +150,7 @@ void emailJourneys() => group('Email', () {
         await launchApp(tester, api);
         await signIn(tester, api);
 
-        await openFromMenu(tester, api, 'Inbox');
+        await openFromMenu(tester, api, 'Email: Gmail, Outlook, Zoho');
         await waitFor(tester, find.text('Invoice 4471 is overdue'), api: api);
         await tapOn(tester, find.text('Invoice 4471 is overdue'));
 
@@ -222,7 +222,7 @@ void emailJourneys() => group('Email', () {
         await launchApp(tester, api);
         await signIn(tester, api);
 
-        await openFromMenu(tester, api, 'Inbox');
+        await openFromMenu(tester, api, 'Email: Gmail, Outlook, Zoho');
         await waitFor(tester, find.text('Invoice 4471 is overdue'), api: api);
         await tapOn(tester, find.text('Invoice 4471 is overdue'));
         await waitFor(tester, find.text('Draft with AI'), api: api);

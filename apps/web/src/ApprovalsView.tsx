@@ -1,11 +1,11 @@
 // Approvals: the exact tool call, where it goes, why it stopped, when it lapses, and who decided
 // and why. See docs/approvals-and-risk.md. Approve sends back the payload hash shown here.
-import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { BellOff, CheckCircle2, Clock, Fingerprint, Globe, Route, Search, ShieldCheck, UserX, Users, XCircle } from 'lucide-react';
 import type { Approval } from '@anum/contracts';
 import * as api from './lib/api';
 import { APPROVAL_FILTERS, approvalSignal,APPROVAL_PAGE_SIZE, APPROVAL_SEARCH_DELAY_MS, emptyKind, mergeApprovals, searchText, splitApprovals, summaryTotal } from './lib/approvalPaging';
-import { REASON_MAX_CHARS, approvalProgress, argumentRows, canApprove, decisionSummary, effectiveStatus, expiryLabel, hasApproved, joinNames, normalizeReason, shortHash } from './lib/approvals';
+import { REASON_MAX_CHARS, approvalProgress, argumentRows, canApprove, cardCodeValid, decisionSummary, effectiveStatus, expiryLabel, hasApproved, joinNames, needsCardCode, normalizeReason, shortHash } from './lib/approvals';
 import { mayApprove, mayReject, routingView, suppressedText } from './lib/approvalRules';
 import { describeError, isPermissionDenied } from './lib/errors';
 import { formatDateTime, formatNumber, t } from './lib/i18n';
@@ -13,11 +13,14 @@ import { riskLabel, statusLabel } from './lib/labels';
 import { EmptyPanel, PanelDenied, PanelError, PanelLoading } from './Panels';
 import { rich } from './rich';
 
+// A web.act step's picture and facts (docs/action-browser.md): its own lazy chunk.
+const ActionBrowserApproval = lazy(() => import('./action-browser/ActionBrowserApproval'));
+
 /**
  * Resolves with the API's refusal when the decision is not allowed (403, for example the
  * two-person rule refusing to let you approve your own high-risk task), otherwise with null.
  */
-export type Decide = (approval: Approval, decision: 'approve' | 'reject', reason?: string) => Promise<string | null>;
+export type Decide = (approval: Approval, decision: 'approve' | 'reject', reason?: string, securityCode?: string) => Promise<string | null>;
 
 const formatDate = (value: string) => formatDateTime(value);
 
@@ -105,12 +108,17 @@ export function ApprovalsView({ items, busy, decide, metric, empty, userId, onOp
   }
 
   // A decision changes the card (progress, status) even when the pending list looks the same: reload the page.
-  const decideAndRefresh: Decide = async (approval, decision, reason) => {
-    const refusal = await decide(approval, decision, reason);
+  const decideAndRefresh: Decide = async (approval, decision, reason, securityCode) => {
+    const refusal = await decide(approval, decision, reason, securityCode);
     void fetchFirst(true);
     return refusal;
   };
   const clearSearch = () => { setTyped(''); setQuery(''); };
+  const jumpTo = (id: string) => {
+    const card = document.getElementById(`approval-${id}`);
+    card?.scrollIntoView({ block: 'start' });
+    card?.focus({ preventScroll: true });
+  };
   const now = new Date();
   const status = (a: Approval) => effectiveStatus(a, now);
   const { pending, history } = splitApprovals(rows, now);
@@ -151,11 +159,30 @@ export function ApprovalsView({ items, busy, decide, metric, empty, userId, onOp
       {load.state === 'denied' && <section className="surface approvalTable"><PanelDenied title={t('approvals.denied.title')} text={t('approvals.denied.text')} /></section>}
       {load.state === 'error' && <section className="surface approvalTable"><PanelError message={t('approvals.error.text', { reason: load.reason })} onRetry={() => void fetchFirst(false)} /></section>}
       {ready && filter !== 'decided' && (
-        <section className="surface approvalTable" aria-labelledby="approvals-pending-heading">
-          <h2 className="visuallyHidden" id="approvals-pending-heading">{t('approvals.pendingHeading')}</h2>
-          {pending.map((a) => <PendingApproval key={a.id} approval={a} busy={busy} decide={decideAndRefresh} now={now} userId={userId} />)}
-          {!pending.length && (kind === 'search' ? noMatch : empty)}
-        </section>
+        // The review queue: on wide screens an index of what waits sits beside the requests, and picking
+        // one brings its card into view with focus (docs/web-design-system.md#pages).
+        <div className={`approvalQueue ${pending.length > 1 ? 'withIndex' : ''}`}>
+          {pending.length > 1 && (
+            <nav className="approvalQueueIndex" aria-label={t('approvals.queueIndex')}>
+              <p className="approvalQueueIndexTitle">{t('approvals.queueIndexCount', { count: formatNumber(pending.length) })}</p>
+              <ol>
+                {pending.map((a) => (
+                  <li key={a.id}>
+                    <button type="button" className={`approvalQueueItem risk-${a.riskLevel}`} onClick={() => jumpTo(a.id)}>
+                      <strong dir="ltr">{a.action}</strong>
+                      <small>{riskLabel(a.riskLevel)}, {formatDate(a.createdAt)}</small>
+                    </button>
+                  </li>
+                ))}
+              </ol>
+            </nav>
+          )}
+          <section className="surface approvalTable" aria-labelledby="approvals-pending-heading">
+            <h2 className="visuallyHidden" id="approvals-pending-heading">{t('approvals.pendingHeading')}</h2>
+            {pending.map((a) => <PendingApproval key={a.id} approval={a} busy={busy} decide={decideAndRefresh} now={now} userId={userId} />)}
+            {!pending.length && (kind === 'search' ? noMatch : empty)}
+          </section>
+        </div>
       )}
       {ready && filter !== 'pending' && history.length > 0 && (
         <section className="surface approvalTable approvalHistory" aria-label={t('approvals.history')}>
@@ -198,7 +225,11 @@ export function PendingApproval({ approval, busy, decide, now, userId }: { appro
   const alreadyApproved = hasApproved(approval, userId);
   // The API says whether this person may decide (approval routing by AED amount); a person the
   // route does not list sees the item read-only, with the reason.
-  const approvable = canApprove(approval, now) && !alreadyApproved && mayApprove(approval);
+  // An action browser step that types a card's security code needs the code typed on this card first;
+  // it lives only in this component's state and is cleared once the decision is sent.
+  const codeNeeded = needsCardCode(approval);
+  const [securityCode, setSecurityCode] = useState('');
+  const approvable = canApprove(approval, now) && !alreadyApproved && mayApprove(approval) && (!codeNeeded || cardCodeValid(securityCode));
   const rejectable = mayReject(approval);
   const route = routingView(approval);
   const suppressed = suppressedText(approval);
@@ -210,10 +241,12 @@ export function PendingApproval({ approval, busy, decide, now, userId }: { appro
   const typed = normalizeReason(reason);
   const act = (decision: 'approve' | 'reject') => {
     setRefusal(null);
-    void decide(approval, decision, typed).then(setRefusal);
+    const code = decision === 'approve' && codeNeeded ? securityCode : undefined;
+    setSecurityCode('');
+    void decide(approval, decision, typed, code).then(setRefusal);
   };
   return (
-    <article className="approvalDetail" aria-label={t('approvals.cardLabel', { action: approval.action })}>
+    <article id={`approval-${approval.id}`} tabIndex={-1} data-risk={approval.riskLevel} className="approvalDetail" aria-label={t('approvals.cardLabel', { action: approval.action })}>
       <div className="approvalIcon" aria-hidden="true"><ShieldCheck /></div>
       <div className="approvalBody">
         <h3>{rich('approvals.wantsToCall', { action: <code dir="ltr">{approval.action}</code> })}</h3>
@@ -226,6 +259,8 @@ export function PendingApproval({ approval, busy, decide, now, userId }: { appro
         {route?.explanation && !alreadyApproved && <p className="approvalReadOnly" role="note"><UserX aria-hidden size={14} />{route.explanation}</p>}
         {suppressed && <p className="approvalWarning approvalSuppressed" role="note"><BellOff aria-hidden size={14} />{suppressed}</p>}
         <TargetLine approval={approval} />
+        {approval.action === 'web.act' && <Suspense fallback={null}><ActionBrowserApproval approval={approval}
+          code={codeNeeded && canApprove(approval, now) && !alreadyApproved ? { value: securityCode, onChange: setSecurityCode } : undefined} /></Suspense>}
         <p className="approvalSubhead">{t('approvals.exactly')}</p>
         <ArgumentList approval={approval} />
         <HashLine approval={approval} />

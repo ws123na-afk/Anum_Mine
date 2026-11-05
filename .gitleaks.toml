@@ -69,3 +69,10 @@ condition = "AND"
 paths = ['''^services/api/tests/test_live_agent_meeting_turn_rate\.py$''']
 regexTarget = "match"
 regexes = ['''key-12345678''']
+
+[[allowlists]]
+description = "Fake payment idempotency key 'pay-1b2c-3d4e' in the invoice payment test (commit 341440a, #341); the test now uses 'pay-example'. Never a credential"
+condition = "AND"
+paths = ['''^apps/web/test/businessInvoiceSend\.test\.ts$''']
+regexTarget = "secret"
+regexes = ['''^pay-1b2c-3d4e$''']

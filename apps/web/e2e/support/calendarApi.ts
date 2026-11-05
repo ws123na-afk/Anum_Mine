@@ -60,7 +60,10 @@ export function createCalendarMock(options: CalendarMockOptions = {}) {
       const start = /^\/api\/v1\/calendar\/sync\/oauth\/(google|microsoft)\/start$/.exec(path);
       if (start && method === 'POST') {
         state.connectStarts.push(start[1]);
-        return json({ authorization_url: `${url.origin.replace('localhost:8000', '127.0.0.1:4173')}/?calendar_connect=coc_mock0001#calendar`, expires_at: at(1, 12) });
+        // The provider sends the browser back to the app that started the flow: the page's own origin
+        // (the configured baseURL), never a fixed port.
+        const appOrigin = new URL(request.headers().referer ?? request.frame().url()).origin;
+        return json({ authorization_url: `${appOrigin}/?calendar_connect=coc_mock0001#calendar`, expires_at: at(1, 12) });
       }
       if (path === '/api/v1/calendar/sync/oauth/complete' && method === 'POST') {
         state.connections = [connection()];

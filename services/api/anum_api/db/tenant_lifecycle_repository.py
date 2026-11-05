@@ -283,7 +283,11 @@ class PostgresTenantData:
         if job.kind == JobKind.WORKSPACE_DELETION:
             if table.workspace_column is None:
                 return 0, 0
-            scope += f" and {table.workspace_column} = :workspace"
+            if table.origin_workspace_column:
+                # Also the rows this workspace made in other workspaces (the purge policy admits them too).
+                scope += f" and ({table.workspace_column} = :workspace or {table.origin_workspace_column} = :workspace)"
+            else:
+                scope += f" and {table.workspace_column} = :workspace"
             params["workspace"] = job.workspace_id
         if table.name == "workspaces":
             scope += " and id <> :keep"

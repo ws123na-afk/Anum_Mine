@@ -7,7 +7,10 @@ import {
   REDACTED,
   argumentRows,
   canApprove,
+  CARD_CODE_MARKER,
+  cardCodeValid,
   decisionBody,
+  needsCardCode,
   decisionSummary,
   effectiveStatus,
   expiryLabel,
@@ -134,6 +137,15 @@ describe('decision reason (A4)', () => {
       reason: 'Checked with legal \n twice',
     });
     assert.deepEqual(decisionBody(approval(), '   '), { payload_hash: hash });
+  });
+  test('the card security code goes only with an action browser step that asks for it', () => {
+    const step = approval({ action: 'web.act', arguments: { kind: 'card_security_code', cvc: CARD_CODE_MARKER } });
+    assert.equal(needsCardCode(step), true);
+    assert.deepEqual(decisionBody(step, undefined, '739'), { payload_hash: hash, security_code: '739' });
+    assert.equal(needsCardCode(approval({ action: 'web.act', arguments: { kind: 'card_entry' } })), false);
+    assert.equal(needsCardCode(approval({ arguments: { cvc: CARD_CODE_MARKER } })), false);
+    assert.deepEqual(decisionBody(approval(), undefined, '739'), { payload_hash: hash });
+    assert.ok(cardCodeValid('739') && cardCodeValid('7391') && !cardCodeValid('73') && !cardCodeValid('73a') && !cardCodeValid(undefined));
   });
 
   test('rejecting an unbound approval may send only a reason', () => {

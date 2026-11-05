@@ -7,8 +7,12 @@ import { t as msg } from './i18n.ts';
 
 export type TurnStatus = 'complete' | 'cancelled' | 'failed';
 
-/** A question run as a task (docs/conversations.md#tools-in-chat): its results, approval or failure. */
-export type CardState = 'running' | 'results' | 'approval' | 'failed' | 'cancelled' | 'denied';
+/**
+ * A question run as a task (docs/conversations.md#tools-in-chat): its results, approval or failure;
+ * or, without a task, what to turn on (`unavailable`) or the detail to add (`needs_input`)
+ * (docs/conversations.md#what-anum-can-do).
+ */
+export type CardState = 'running' | 'results' | 'approval' | 'failed' | 'cancelled' | 'denied' | 'unavailable' | 'needs_input';
 export type CardCategory = 'email' | 'whatsapp' | 'commerce' | 'tyre' | 'finance' | 'web' | 'files' | 'action';
 
 export interface ChatCardItem {

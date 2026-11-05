@@ -31,7 +31,6 @@ from .common import Page, Reason, get_or_404, manage, page_bounds, read, write
 from .invoice_models import (
     OPEN_INVOICE_STATES,
     CreditNote,
-    CreditNoteStatus,
     Invoice,
     InvoiceLine,
     InvoicePayment,

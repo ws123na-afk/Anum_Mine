@@ -70,6 +70,8 @@ secrets:
       - ANUM_EXTERNAL_WEBHOOK_API_KEY
       - ANUM_SENTRY_DSN
       - ANUM_SEARXNG_URL
+      # The browser service's token (docs/browser-research.md, docs/action-browser.md).
+      - ANUM_BROWSER_RESEARCH_TOKEN
       - ANUM_FCM_SERVICE_ACCOUNT_JSON
       - ANUM_EMAIL_GOOGLE_CLIENT_SECRET
       - ANUM_EMAIL_MICROSOFT_CLIENT_SECRET
@@ -177,6 +179,9 @@ config:
   ANUM_SPEECH_TTS_VOICE_EN: ""
   ANUM_SPEECH_TTS_VOICE_AR: ""
   ANUM_SPEECH_TTS_USD_PER_MILLION_CHARS: "0"
+  # Zone of the date line in model prompts when neither the user's profile nor an
+  # office building names one (docs/model-gateway.md#current-date-and-time).
+  ANUM_DEFAULT_TIME_ZONE: Asia/Dubai
   ANUM_MODEL_TIMEOUT_SECONDS: "60"
   ANUM_MODEL_MAX_ATTEMPTS: "3"
   ANUM_MODEL_RETRY_BASE_SECONDS: "0.5"

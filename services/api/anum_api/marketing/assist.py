@@ -21,6 +21,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, ValidationError
 
+from ..current_time import language_of, time_line_async, with_time_line
 from ..model_budget import ModelBudgetExceededError
 from ..model_gateway import ModelGateway, ModelRoute, route_gateway
 from ..prompt_provenance import Provenance, label_untrusted, with_untrusted_rules
@@ -167,6 +168,8 @@ async def ideas(context: TenantContext, request: AssistIdeas, *, brand_voice: st
         )
         blocks = [label_untrusted(request.source_text, source=Provenance.WEB, origin=request.source_label or "owner-supplied-source", max_chars=6000)] if untrusted else []
         instructions = with_untrusted_rules(INSTRUCTIONS, *blocks) if blocks else INSTRUCTIONS
+        # "Ideas for next week's launch": the date line follows the brief, outside the cached instructions.
+        brief = with_time_line(brief, await time_line_async(context, language_of(request.brief)))
         try:
             routed = route_gateway(gateway, ModelRoute.FAST)
             generate = getattr(routed, "generate_with_instructions", None)

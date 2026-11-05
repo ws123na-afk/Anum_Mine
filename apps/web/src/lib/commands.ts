@@ -11,6 +11,7 @@ const str = (value: unknown): string => (typeof value === 'string' ? value : '')
 const opt = (value: unknown): string | null => (typeof value === 'string' ? value : null);
 const num = (value: unknown): number => (typeof value === 'number' && Number.isFinite(value) ? value : 0);
 const list = (value: unknown): Raw[] => (Array.isArray(value) ? (value as Raw[]) : []);
+const positions = (value: unknown): number[] => (Array.isArray(value) ? value.filter((v): v is number => typeof v === 'number' && Number.isInteger(v)) : []);
 const agent = (value: unknown): CommandAgent => { const raw = (value ?? {}) as Raw; return { id: str(raw.id) as CommandAgent['id'], name: str(raw.name) }; };
 
 export function mapPlan(raw: Raw): CommandPlan {
@@ -25,6 +26,7 @@ export function mapPlan(raw: Raw): CommandPlan {
         tool: tool ? { name: str(tool.name), description: str(tool.description), category: opt(tool.category), actionKind: opt(tool.action_kind), target: opt(tool.target) } : null,
         riskLevel: str(step.risk_level) as PlanStep['riskLevel'], approval: str(step.approval) as PlanStep['approval'],
         approvalReason: str(step.approval_reason), connected: step.connected !== false, note: opt(step.note),
+        dependsOn: positions(step.depends_on),
       };
     }),
     agents: list(raw.agents).map(agent),
@@ -52,6 +54,7 @@ export function mapView(raw: Raw, mapTask: (t: never) => Task, mapApproval: (a: 
       task: step.task ? mapTask(step.task as never) : null, status: str(step.status), progress: num(step.progress), runId: opt(step.run_id),
       result: opt(step.result), startedAt: opt(step.started_at), finishedAt: opt(step.finished_at),
       approvals: list(step.approvals).map((a) => mapApproval(a as never)),
+      dependsOn: positions(step.depends_on), waitingFor: positions(step.waiting_for), blockedBy: positions(step.blocked_by),
     })),
     pending: list(raw.pending).map((a) => mapApproval(a as never)),
     timeline: list(raw.timeline).map((e) => ({ id: str(e.id), at: str(e.at), type: str(e.type), taskId: str(e.task_id), position: num(e.position), agent: agent(e.agent), title: str(e.title) })),
@@ -104,6 +107,19 @@ export const removeStep = <T,>(steps: readonly T[], index: number): T[] => steps
 
 /** Whether the edited plan can start: at least one step and none refused by policy. */
 export const canStart = (steps: readonly Pick<PlanStep, 'approval'>[]): boolean => steps.length > 0 && steps.every((s) => s.approval !== 'blocked');
+
+/**
+ * The confirmed steps' dependencies after the person moved or removed steps: each step keeps the earlier
+ * steps it waits for (by their new position) that are still in the plan and still before it.
+ */
+export function confirmedDependencies(steps: readonly Pick<PlanStep, 'position' | 'dependsOn'>[]): number[][] {
+  const at = new Map(steps.map((step, index) => [step.position, index + 1]));
+  return steps.map((step, index) => [...new Set(step.dependsOn.map((p) => at.get(p)).filter((p): p is number => p !== undefined && p < index + 1))].sort((a, b) => a - b));
+}
+
+/** A step that never started and only waited for earlier steps that have now all completed. */
+export const readyToContinue = (view: Pick<CommandView, 'steps'>): boolean =>
+  view.steps.some((step) => step.status === 'created' && !step.runId && step.dependsOn.length > 0 && step.waitingFor.length === 0);
 
 /** The task ids of a command that have not started yet (each is run with `POST /tasks/{id}/run`). */
 export const unstartedTasks = (view: Pick<CommandView, 'steps'>): string[] =>
