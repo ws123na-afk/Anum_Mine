@@ -185,8 +185,10 @@ function UpcomingCard({ rows, month, today, accounts, onAdd, onMatch, onUnmatch,
     {view === 'month' && rows.length > 0 && <div className="fplStrip">
       <button type="button" className="iconButton small" disabled={start === 0} onClick={() => setStart(Math.max(0, start - 7))} aria-label={t('fplan.strip.earlier')}><ChevronLeft aria-hidden="true" className="cmFlip" /></button>
       <ol>{visible.map((d) => <li key={d.day}><button type="button" aria-pressed={day === d.day} className={`${d.today ? 'today' : ''} ${d.dueCount ? 'due' : ''}`}
-        aria-label={t('fplan.strip.day', { date: longDate(d.day), count: d.dueCount })} onClick={() => setDay(day === d.day ? null : d.day)}>
-        <small>{weekday(d.day)}</small><strong>{d.date}</strong>{d.dueCount > 0 && <span className="fplDot" aria-hidden="true" />}</button></li>)}</ol>
+        onClick={() => setDay(day === d.day ? null : d.day)}>
+        {/* The visible weekday and date start the accessible name; the full date and the count follow, hidden. */}
+        <small>{weekday(d.day)}</small><strong>{d.date}</strong><span className="visuallyHidden">{t('fplan.strip.day', { date: longDate(d.day), count: d.dueCount })}</span>
+        {d.dueCount > 0 && <span className="fplDot" aria-hidden="true" />}</button></li>)}</ol>
       <button type="button" className="iconButton small" disabled={start + 14 >= strip.length} onClick={() => setStart(Math.min(strip.length - 14, start + 7))} aria-label={t('fplan.strip.later')}><ChevronRight aria-hidden="true" className="cmFlip" /></button>
     </div>}
     {rows.length === 0 ? <Empty icon={<CalendarDays aria-hidden="true" />} title={t('fplan.upcoming.empty')} text={t('fplan.upcoming.emptyText')}

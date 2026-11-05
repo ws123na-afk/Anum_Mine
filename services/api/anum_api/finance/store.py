@@ -850,7 +850,7 @@ class InMemoryFinanceStore:
     def count_everything(self, context: TenantContext) -> int:
         with self._lock:
             rows = sum(1 for table in self._tables() for v in table.values() if mine(v, context))
-            keyed = (self.settings, self.plans, self.exec_settings)
+            keyed = (self.settings, self.plans, self.planning, self.exec_settings)
             return (rows + sum(int(self._key(context) in table) for table in keyed) + _ibkr_memory().count_everything(context)
                     + _sms_memory().count_everything(context) + _links_memory().count_everything(context))
 
@@ -861,7 +861,7 @@ class InMemoryFinanceStore:
                 for key in [k for k, v in table.items() if mine(v, context)]:
                     del table[key]
                     removed += 1
-            for keyed in (self.settings, self.plans, self.exec_settings):
+            for keyed in (self.settings, self.plans, self.planning, self.exec_settings):
                 if keyed.pop(self._key(context), None) is not None:
                     removed += 1
             return (removed + _ibkr_memory().delete_everything(context) + _sms_memory().delete_everything(context)

@@ -31,7 +31,7 @@ from .guardian import GuardianRules
 from .links_store import FinanceLink, LinkStatus
 from .models import Bill, BudgetAlert, Cadence, Category, Debt, Transaction
 from .money import quantize
-from .summary import add_months, next_after
+from .summary import next_after
 
 BILL_DIMENSION = "bill"
 BILL_TARGET = "finance_bill_due"
@@ -58,42 +58,22 @@ def parse_bill_target(target_id: str) -> tuple[str, date] | None:
         return None
 
 
-def _previous(due: date, cadence: Cadence, anchor: int) -> date | None:
-    if cadence == Cadence.WEEKLY:
-        return due - timedelta(days=7)
-    if cadence == Cadence.MONTHLY:
-        return add_months(due, -1, anchor)
-    if cadence == Cadence.QUARTERLY:
-        return add_months(due, -3, anchor)
-    if cadence == Cadence.YEARLY:
-        return add_months(due, -12, anchor)
-    return None
-
-
 def occurrences(bill: Bill, start: date, end: date) -> list[date]:
-    """Every due date of the bill from ``start`` to ``end``, inclusive.
+    """Every due date of the bill from ``start`` to ``end``, inclusive, forward from ``next_due_on``.
 
-    Forward from ``next_due_on`` like the summary, and also back from it (never before the day the bill
-    was added), so a due date earlier this month stays visible with its match after the person moved
-    ``next_due_on`` on."""
+    Never back from it: ``next_due_on`` is the person's to move, and a date stepped back from a new
+    anchor day (30 April back to 30 March) is not a date the bill was ever due. Due dates already matched
+    to a payment are kept by ``bill_schedule`` from their links, whatever ``next_due_on`` is now."""
     anchor = bill.next_due_on.day
-    floor = max(start, bill.created_at.date()) if bill.created_at else start
-    found: set[date] = set()
+    found: list[date] = []
     due: date | None = bill.next_due_on
     guard = 0
     while due is not None and due <= end and guard < 600:
         guard += 1
         if due >= start:
-            found.add(due)
+            found.append(due)
         due = next_after(due, bill.cadence, anchor)
-    back = _previous(bill.next_due_on, bill.cadence, anchor)
-    guard = 0
-    while back is not None and back >= floor and guard < 600:
-        guard += 1
-        if back <= end:
-            found.add(back)
-        back = _previous(back, bill.cadence, anchor)
-    return sorted(found)
+    return found
 
 
 class BillOccurrence(BaseModel):
@@ -134,7 +114,9 @@ def bill_schedule(bills: list[Bill], links: list[FinanceLink], today: date, star
             by_target.setdefault(link.target_id, []).append(link)
     rows: list[BillOccurrence] = []
     for bill in bills:
-        for due in occurrences(bill, start, end):
+        # A matched due date stays in its window even after next_due_on moved on.
+        matched_days = {parsed[1] for target in by_target if (parsed := parse_bill_target(target)) and parsed[0] == bill.id and start <= parsed[1] <= end}
+        for due in sorted(set(occurrences(bill, start, end)) | matched_days):
             matched = by_target.get(bill_target_id(bill.id, due), [])
             if not bill.active and not matched:
                 continue
@@ -274,13 +256,21 @@ def debt_target_exists(context: TenantContext, target_type: str, target_id: str)
     return target_type == DEBT_TARGET and target_id in _lookup(context).debts
 
 
+def is_money_out(entry: Any) -> bool:
+    """The payment left one of the person's own accounts: a credit (negative) posting on an account.
+
+    Read from the postings, never the category: a refund filed under shopping or an incoming transfer is
+    money in, whatever its category says."""
+    return (entry.category or "") != "income" and any(p.account_id and p.amount < 0 for p in entry.postings)
+
+
 def vet_link(context: TenantContext, request: Any, entry: Any) -> None:
     """Only money out pays a bill or a debt, and only as a ``payment``."""
     from .links import LinkError
 
     if request.role != "payment":
         raise LinkError(422, "Match a payment to a bill or a debt.", "invalid_role")
-    if (entry.category or "") == "income":
+    if not is_money_out(entry):
         raise LinkError(422, "Money in cannot pay a bill or a debt. Pick the payment that went out.", "not_a_payment")
 
 
@@ -303,6 +293,7 @@ __all__ = [
     "alert_for",
     "bill_schedule",
     "bill_target_id",
+    "is_money_out",
     "budget_report",
     "occurrence_status",
     "occurrences",

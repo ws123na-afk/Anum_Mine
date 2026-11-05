@@ -87,7 +87,7 @@
 .fplChart { min-width: 0; overflow: hidden; }
 .fplChart svg { display: block; max-width: 100%; }
 .fplGrid { stroke: var(--d-line); stroke-width: 1; }
-.fplAxis { fill: var(--d-faint); font-size: 12px; }
+.fplAxis { fill: var(--d-faint); font-size: var(--text-xs); }
 .fplLine { fill: none; stroke-linecap: round; stroke-linejoin: round; stroke-width: 2.5; }
 .fplLine.dashed { stroke-dasharray: 6 5; stroke-width: 2; }
 .fplArea { opacity: .14; stroke: none; }
@@ -104,11 +104,7 @@
 .fplLegend li { align-items: center; display: inline-flex; gap: var(--d-s2); }
 .fplSwatch { border-top: 3px solid currentColor; display: inline-block; width: 20px; }
 .fplSwatch.dashed { border-top-style: dashed; }
-.fplLegend .fplSeriesDebt { color: var(--d-primary); }
-.fplLegend .fplSeriesSave { color: var(--d-ok); }
-.fplLegend .fplSeriesBudget { color: var(--d-muted); }
 .fplLegend li { color: var(--d-text); }
-.fplLegend .fplSwatch { color: inherit; }
 .fplLegend .fplSeriesDebt .fplSwatch { border-top-color: var(--d-primary); }
 .fplLegend .fplSeriesSave .fplSwatch { border-top-color: var(--d-ok); }
 .fplLegend .fplSeriesBudget .fplSwatch { border-top-color: var(--d-muted); }
@@ -196,3 +192,6 @@
 .fplSub { align-items: center; color: var(--d-muted); display: flex; font-size: var(--text-xs); gap: 4px; }
 .fplSub svg { height: 12px; width: 12px; }
 .fplLinkSteps li { grid-template-columns: auto minmax(0, 1fr); }
+
+/* The strip button is a small grid: keep its hidden label out of the layout. */
+.fplStrip ol button { position: relative; }

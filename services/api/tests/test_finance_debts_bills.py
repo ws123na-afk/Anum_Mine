@@ -58,15 +58,21 @@ def _link(target: str, status: LinkStatus = LinkStatus.ACTIVE, amount: str = "25
 # -- pure figures -----------------------------------------------------------------------------------------------
 
 
-def test_occurrences_run_forward_and_back_but_never_before_the_bill_was_added() -> None:
+def test_occurrences_run_forward_from_next_due_on() -> None:
     bill = _bill(next_due_on=date(2026, 12, 3))
-    assert occurrences(bill, date(2026, 11, 1), date(2026, 12, 31)) == [date(2026, 11, 3), date(2026, 12, 3)]
-    late = _bill(next_due_on=date(2026, 12, 3), created_at=datetime(2026, 11, 20, tzinfo=timezone.utc))
-    assert occurrences(late, date(2026, 11, 1), date(2026, 12, 31)) == [date(2026, 12, 3)]
+    assert occurrences(bill, date(2026, 11, 1), date(2026, 12, 31)) == [date(2026, 12, 3)]
     weekly = _bill(cadence=Cadence.WEEKLY, next_due_on=date(2026, 11, 4))
     assert len(occurrences(weekly, date(2026, 11, 1), date(2026, 11, 30))) == 4
     once = _bill(cadence=Cadence.ONCE, next_due_on=date(2026, 11, 20))
     assert occurrences(once, date(2026, 11, 1), date(2026, 12, 31)) == [date(2026, 11, 20)]
+
+
+def test_a_matched_due_date_stays_when_next_due_on_moves_on() -> None:
+    # Paid on 31 March, then next_due_on moved to 30 April: the March date stays paid, and no
+    # unmatched 30 March appears from the new anchor day.
+    bill = _bill(next_due_on=date(2027, 4, 30), created_at=datetime(2026, 1, 1, tzinfo=timezone.utc))
+    rows = bill_schedule([bill], [_link("fin_bill_1:2027-03-31")], date(2027, 4, 2), date(2027, 3, 1), date(2027, 4, 30))
+    assert [(r.due_on, r.status) for r in rows] == [(date(2027, 3, 31), "paid"), (date(2027, 4, 30), "planned")]
 
 
 def test_a_bill_is_paid_only_with_an_active_match() -> None:
@@ -265,3 +271,28 @@ def test_budgets_follow_guardian_caps_and_their_alert_settings() -> None:
     assert client.put(f"{API}/budgets/alerts", headers=OWNER, json={"alerts": [{"category": "fuel", "currency": "SAR", "alert_percent": 100}]}).status_code == 422
     assert client.put(f"{API}/budgets/alerts", headers=VIEWER, json={"alerts": []}).status_code == 403
     assert client.get(f"{API}/budgets", headers=OTHER).json()["budgets"] == []
+
+
+def test_money_coming_in_never_counts_as_a_payment_whatever_its_category() -> None:
+    current = account()
+    bill = client.post(f"{API}/bills", headers=OWNER, json={"name": "Rent", "amount": "100", "currency": "SAR", "next_due_on": "2026-11-03"}).json()
+    debt = client.post(f"{API}/debts", headers=OWNER, json={"name": "Card", "currency": "SAR", "balance": "900"}).json()
+    refund = pay(current["id"], "80", description="Shop refund", category="shopping")
+    incoming = pay(current["id"], "300", description="Transfer from savings", category="transfer")
+    assert client.get(f"{API}/payment-candidates?for=bill&around=2026-11-03", headers=OWNER).json()["items"] == []
+    assert client.get(f"{API}/payment-candidates?for=debt&around=2026-11-03", headers=OWNER).json()["items"] == []
+    for canonical in (refund, incoming):
+        assert client.post(f"{API}/bills/{bill['id']}/matches", headers=OWNER, json={"canonical_id": canonical, "due_on": "2026-11-03"}).status_code == 422
+        assert client.post(f"{API}/debts/{debt['id']}/payments", headers=OWNER, json={"canonical_id": canonical}).status_code == 422
+
+
+def test_deleting_my_data_removes_the_debt_plan_and_budget_alerts() -> None:
+    from anum_api.schemas import TenantContext
+
+    me = TenantContext(tenant_id=OWNER["x-tenant-id"], workspace_id=OWNER["x-workspace-id"], user_id=OWNER["x-user-id"], roles=["owner"])
+    assert finance_store.count_everything(me) == 0
+    client.put(f"{API}/debt-plan", headers=OWNER, json={"plans": [{"currency": "SAR", "strategy": "snowball"}]})
+    assert finance_store.count_everything(me) == 1
+    assert finance_store.delete_everything(me) == 1
+    assert finance_store.count_everything(me) == 0
+    assert client.get(f"{API}/debt-plan", headers=OWNER).json() == {"plans": []}

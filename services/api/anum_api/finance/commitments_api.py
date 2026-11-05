@@ -38,6 +38,7 @@ from .commitments import (
     bill_schedule,
     bill_target_id,
     budget_report,
+    is_money_out,
     occurrences,
 )
 from .links_api import LinkResult, _view, refusals
@@ -127,7 +128,7 @@ def payment_candidates(
     out: list[tuple[tuple[Any, ...], Candidate]] = []
     for canonical, chain in chains.items():
         current = K.live_entry(chain)
-        if current is None or (current.category or "") == "income":
+        if current is None or not is_money_out(current):
             continue
         if needle and needle not in f"{current.merchant or ''} {current.description}".casefold():
             continue

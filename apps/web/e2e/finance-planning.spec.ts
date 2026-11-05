@@ -58,6 +58,7 @@ test('bills are forecasts until a recorded payment is matched; then the due date
 test('budgets: health, alert threshold saved, and a new cap confirmed with its code', async ({ page }) => {
   const { sent } = await mockApi(page);
   await page.goto('/#finance-budgets');
+  await expect(page.getByRole('heading', { level: 1, name: 'Bills and budgets' })).toBeVisible();
   await expect(page.getByRole('tab', { name: 'Budgets' })).toHaveAttribute('aria-selected', 'true');
   await expect(page.getByRole('progressbar', { name: /Dining: \d+% of the budget spent/ }).first()).toBeVisible();
   const rules = page.getByRole('region', { name: 'Budget rules' });
