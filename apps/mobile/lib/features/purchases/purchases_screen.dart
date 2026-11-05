@@ -265,6 +265,7 @@ class _PurchaseList extends StatelessWidget {
       ));
       children.add(RecordsMore(list: list));
     }
+    children.add(const RecordsFabSpace());
     return AnumPage(onRefresh: controller.load, children: children);
   }
 }

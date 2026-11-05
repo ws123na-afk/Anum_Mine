@@ -182,6 +182,14 @@ class RecordsMore extends StatelessWidget {
   }
 }
 
+/// Room under the last item of a page with a floating button, so the
+/// button never covers "Load more" or the last row.
+class RecordsFabSpace extends StatelessWidget {
+  const RecordsFabSpace({super.key});
+  @override
+  Widget build(BuildContext context) => const SizedBox(height: 72);
+}
+
 /// A search field that runs [onSearch] when the person submits.
 class RecordsSearchField extends StatefulWidget {
   const RecordsSearchField(
@@ -325,10 +333,12 @@ class RecordsSection extends StatelessWidget {
       );
 }
 
-/// Shows [message] in a snack bar when there is a messenger.
+/// Shows [message] in a snack bar when there is a messenger; the newest
+/// message replaces one still showing instead of queueing behind it.
 void recordsToast(BuildContext context, String message) =>
     ScaffoldMessenger.maybeOf(context)
-        ?.showSnackBar(SnackBar(content: Text(message)));
+      ?..removeCurrentSnackBar()
+      ..showSnackBar(SnackBar(content: Text(message)));
 
 /// Opens a scrollable form in a bottom sheet that rises with the keyboard
 /// and keeps a readable width on tablets.
