@@ -46,6 +46,8 @@ async function noOverflow(page: Page, where: string) {
   const overflow = await page.evaluate(() => {
     const width = document.documentElement.clientWidth;
     const wide = [...document.querySelectorAll<HTMLElement>('main button, main a, main input, main select, main h1, main h2')]
+      // A control inside a strip or table that scrolls on its own is reachable by scrolling it: only the page must never scroll sideways.
+      .filter((el) => { let a = el.parentElement; while (a && a !== document.body) { if (['auto', 'scroll'].includes(getComputedStyle(a).overflowX)) return false; a = a.parentElement; } return true; })
       .filter((el) => { const r = el.getBoundingClientRect(); return r.width > 0 && (r.right > width + 1 || r.left < -1); })
       .map((el) => `${el.tagName.toLowerCase()} ${el.textContent?.trim().slice(0, 30) ?? ''}`);
     return { page: document.documentElement.scrollWidth - width, wide };
@@ -54,20 +56,25 @@ async function noOverflow(page: Page, where: string) {
   expect(overflow.wide, `${where}: clipped controls`).toEqual([]);
 }
 
+// A tracker row opens the order drawer; "Open the full record" opens the purchase's own page.
 const openStore = async (page: Page) => {
-  await page.getByRole('button', { name: 'Open Example Store EX-1001' }).first().click();
-  await expect(page.getByRole('heading', { name: /Example Store/, level: 2 })).toBeVisible();
+  await page.getByRole('button', { name: /^Headphones and 1 more Example Store/ }).first().click();
+  await expect(page.locator('#pur-drawer-title')).toContainText('Example Store');
+  await page.getByRole('button', { name: 'Open the full record' }).click();
+  await expect(page.locator('.purDetailHead h2')).toContainText('Example Store');
 };
 const section = (page: Page, name: string) => page.getByRole('navigation', { name: 'Purchase sections' }).getByRole('button', { name });
 
 test('overview: what is late and due, and a payment linked from Finance stays one expense', async ({ page }) => {
   const { sent } = await mockApi(page);
   await page.goto('/#purchases');
-  await expect(page.getByRole('heading', { name: 'Purchases', level: 1 })).toBeVisible();
-  await expect(page.getByText(/Linking never adds money/).first()).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Purchases and Returns', level: 1 })).toBeVisible();
+  await expect(page.getByText(/never counted as income/).first()).toBeVisible();
   await expect(page.getByRole('region', { name: 'Purchases at a glance' })).toContainText('1 is late');
-  await expect(page.getByText(/Delivery late · Example Market N-77/)).toBeVisible();
-  await expect(page.getByText(/Return window closing · Example Store EX-1001/)).toBeVisible();
+  const tasks = page.getByRole('region', { name: /Delivery and refund tasks/ });
+  await expect(tasks.getByText('Delivery late')).toBeVisible();
+  await expect(tasks.getByText('Example Market N-77')).toBeVisible();
+  await expect(tasks.getByText('Return window closing')).toBeVisible();
   await openStore(page);
   await section(page, 'Details').click();
   await expect(page.getByText('No payment linked').first()).toBeVisible();
@@ -133,7 +140,7 @@ test('a cash payment retried after a failure is sent with the same key and recor
 test('the delivery moves along its steps, with shipments and an unchanging history', async ({ page }) => {
   await mockApi(page, { role: 'owner' });
   await page.goto('/#purchases-list');
-  await page.getByRole('button', { name: 'Add purchase' }).click();
+  await page.getByRole('button', { name: 'Track purchase' }).click();
   const form = page.getByRole('dialog', { name: 'Add purchase' });
   await form.getByRole('button', { name: 'Save' }).click();
   await expect(form.getByText('Enter the shop or seller.')).toBeVisible();
@@ -143,6 +150,8 @@ test('the delivery moves along its steps, with shipments and an unchanging histo
   await form.getByLabel('Item 1', { exact: true }).fill('Charger');
   await form.getByLabel('Unit price').fill('99');
   await form.getByRole('button', { name: 'Save' }).click();
+  await expect(page.locator('#pur-drawer-title')).toContainText('Charger · Example Gadgets');
+  await page.getByRole('button', { name: 'Open the full record' }).click();
   await expect(page.getByRole('heading', { name: /Example Gadgets/, level: 2 })).toBeVisible();
   const move = page.locator('#pur-status-title').locator('..');
   const offered = await move.getByLabel('Move to').locator('option').allTextContents();
@@ -168,7 +177,7 @@ test('the delivery moves along its steps, with shipments and an unchanging histo
   await page.getByRole('button', { name: 'Add note' }).click();
   await expect(page.getByText(/Called the shop/)).toBeVisible();
   await page.getByRole('button', { name: 'Back to purchases' }).click();
-  await page.getByRole('navigation', { name: 'Purchase sections' }).getByRole('button', { name: 'Purchases' }).click();
+  await page.getByRole('tab', { name: 'All purchases' }).click();
   const download = page.waitForEvent('download');
   await page.getByRole('button', { name: 'Export CSV' }).click();
   expect((await download).suggestedFilename()).toBe('anum-purchases.csv');
@@ -178,7 +187,8 @@ test('empty, error, permission denied, filter and paging states', async ({ page 
   await mockApi(page, { empty: true });
   await page.goto('/#purchases');
   await expect(page.getByRole('heading', { name: 'No purchases yet' })).toBeVisible();
-  await expect(page.locator('.emptyState').getByRole('button', { name: 'Add purchase' })).toBeVisible();
+  await expect(page.locator('.emptyState').getByRole('button', { name: 'Track purchase' })).toBeVisible();
+  await expect(page.locator('.emptyState').getByRole('button', { name: 'Import order' })).toBeVisible();
 
   await page.unrouteAll({ behavior: 'ignoreErrors' });
   await mockApi(page, { failOverview: true });
@@ -199,12 +209,15 @@ test('empty, error, permission denied, filter and paging states', async ({ page 
   await expect(page.getByText('Showing 1 to 20 of 25')).toBeVisible();
   await page.getByRole('button', { name: 'Next' }).click();
   await expect(page.getByText('Showing 21 to 25 of 25')).toBeVisible();
-  await page.getByRole('combobox', { name: /Show/ }).selectOption('awaiting');
-  await expect(page.locator('.purList li')).toHaveCount(20);
-  await page.getByLabel('Search shop, order number or notes').fill('N-77');
-  await page.getByRole('button', { name: 'Search', exact: true }).click();
-  await expect(page.locator('.purList li')).toHaveCount(1);
-  await page.getByRole('navigation', { name: 'Purchase sections' }).getByRole('button', { name: 'Returns' }).click();
+  await page.getByRole('combobox', { name: 'Status' }).selectOption('awaiting');
+  await expect(page.locator('.purTracker tbody tr')).toHaveCount(20);
+  await page.getByRole('searchbox', { name: 'Search purchases' }).fill('N-77');
+  await page.getByRole('searchbox', { name: 'Search purchases' }).press('Enter');
+  await expect(page.locator('.purTracker tbody tr')).toHaveCount(1);
+  await page.getByRole('button', { name: 'Clear filters' }).click();
+  await page.getByRole('combobox', { name: 'Source' }).selectOption('iphone');
+  await expect(page.getByRole('heading', { name: 'No purchases match' })).toBeVisible();
+  await page.getByRole('tab', { name: 'Returns and refunds' }).click();
   await expect(page.getByRole('heading', { name: 'No open returns' })).toBeVisible();
 });
 
@@ -213,12 +226,14 @@ test('Arabic reads right to left with the same refund rule', async ({ page }) =>
   await mockApi(page);
   await page.goto('/#purchases');
   await expect(page.locator('html')).toHaveAttribute('dir', 'rtl');
-  await expect(page.getByRole('heading', { name: 'المشتريات', level: 1 })).toBeVisible();
-  await expect(page.getByText('ولا يُحسب دخلًا أبدًا', { exact: false }).first()).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'المشتريات والمرتجعات', level: 1 })).toBeVisible();
+  await expect(page.getByText('لا تُحسب دخلًا أبدًا', { exact: false }).first()).toBeVisible();
+  await page.getByRole('button', { name: /Headphones.*Example Store/ }).click();
+  await expect(page.locator('.purDrawer')).toBeVisible();
   await noSeriousAxe(page);
 });
 
-test('responsive gate: overview, list, a purchase, returns and the payment dialog at five sizes in English and Arabic', async ({ page }, info) => {
+test('responsive gate: overview, list, the order drawer, a purchase, returns and the payment dialog at five sizes in English and Arabic', async ({ page }, info) => {
   test.skip(info.project.name === 'mobile', 'the desktop project sets every size itself');
   test.setTimeout(240_000);
   for (const locale of ['en', 'ar'] as const) {
@@ -230,12 +245,15 @@ test('responsive gate: overview, list, a purchase, returns and the payment dialo
       const where = `${locale} ${size.width}x${size.height}`;
       await page.goto('/#purchases');
       await page.reload();
-      await expect(page.locator('.purDueList li').first()).toBeVisible();
+      await expect(page.locator('.purTaskList li').first()).toBeVisible();
       await noOverflow(page, `${where} overview`);
       await page.goto('/#purchases-list');
-      await expect(page.locator('.purList li').first()).toBeVisible();
+      await expect(page.locator('.purTracker tbody tr').first()).toBeVisible();
       await noOverflow(page, `${where} list`);
-      await page.locator('.purList li').first().getByRole('button').click();
+      await page.locator('.purTracker tbody tr').first().locator('.purRowButton').click();
+      await expect(page.locator('#pur-drawer-title')).toContainText('Example');
+      await noOverflow(page, `${where} drawer`);
+      await page.locator('.purDrawer').getByRole('button', { name: locale === 'en' ? 'Open the full record' : 'فتح السجل الكامل' }).click();
       await expect(page.locator('.purDetailHead h2')).toBeVisible();
       await noOverflow(page, `${where} purchase`);
       await page.locator('.purTabs button').nth(2).click();
@@ -248,4 +266,42 @@ test('responsive gate: overview, list, a purchase, returns and the payment dialo
       await page.keyboard.press('Escape');
     }
   }
+});
+
+test('tracker: seller filter, import order, and the drawer with a carrier update, masked tracking and the carrier link', async ({ page }) => {
+  const { sent } = await mockApi(page);
+  await page.goto('/#purchases-list');
+  await page.getByRole('combobox', { name: 'Seller' }).selectOption('Example Market');
+  await expect(page.locator('.purTracker tbody tr')).toHaveCount(1);
+  expect(sent.some((r) => r.method === 'GET' && r.path === '/api/v1/purchases')).toBe(true);
+  await page.getByRole('button', { name: 'Clear filters' }).click();
+
+  await page.getByRole('button', { name: 'Import order' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Import an order' });
+  await dialog.getByRole('button', { name: 'Import' }).click();
+  await expect(dialog.getByText('Paste the message first.')).toBeVisible();
+  await dialog.getByLabel('Order or delivery message').fill('SYNTHETIC. Thank you for your order #IMP-42.');
+  await dialog.getByRole('button', { name: 'Import' }).click();
+  await expect(page.getByText('Order imported. Check it: it is marked for review.')).toBeVisible();
+  const share = sent.find((r) => r.path === '/api/v1/purchases/device/share');
+  expect(share?.body).toMatchObject({ action: 'save', ownership: 'personal' });
+  expect((share?.body as { idempotency_key: string }).idempotency_key).toMatch(/^import-/);
+  await expect(page.locator('#pur-drawer-title')).toContainText('Example Import Shop');
+  await page.locator('.purDrawer').getByRole('button', { name: 'Close order details' }).click();
+
+  await page.getByRole('button', { name: /^Example Market Example Market/ }).click();
+  const drawer = page.locator('.purDrawer');
+  await expect(drawer.getByText('••••5678')).toBeVisible();
+  await expect(drawer.getByRole('link', { name: /View on/ })).toHaveCount(0);
+  await drawer.getByRole('button', { name: 'Add carrier update' }).click();
+  const ship = page.getByRole('dialog', { name: 'Edit shipment' });
+  await ship.getByLabel('Carrier').fill('DHL');
+  await ship.getByLabel('Tracking number').fill('S3K7Q9AB');
+  await ship.getByRole('button', { name: 'Save' }).click();
+  await expect(page.getByText('Carrier update saved.')).toBeVisible();
+  const carrier = drawer.getByRole('link', { name: 'View on DHL' });
+  await expect(carrier).toHaveAttribute('href', /^https:\/\/www\.dhl\.com\/.*S3K7Q9AB$/);
+  await expect(carrier).toHaveAttribute('rel', 'noopener noreferrer');
+  await expect(drawer.getByText('••••Q9AB')).toBeVisible();
+  await noSeriousAxe(page);
 });

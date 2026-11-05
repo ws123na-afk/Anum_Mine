@@ -183,7 +183,7 @@ function ReturnsPanel({ onOpen, onDenied }: { onOpen: (id: string) => void; onDe
           <th scope="col">{t('pur.col.status')}</th><th scope="col">{t('pur.col.refundMatch')}</th><th scope="col" className="num">{t('pur.col.expectedRefund')}</th>
           <th scope="col" className="num">{t('pur.col.refunded')}</th></tr></thead>
         <tbody>{page.value.items.map((r) => <tr key={r.id}>
-          <th scope="row"><button type="button" className="purRowButton" onClick={() => onOpen(r.purchase_id)} aria-label={t('pur.openLabel', { name: r.merchant ?? r.purchase_id })}>
+          <th scope="row"><button type="button" className="purRowButton" onClick={() => onOpen(r.purchase_id)}>
             <strong dir="auto"><bdi>{r.merchant ?? '-'}</bdi></strong>{r.order_ref ? <small dir="ltr">{r.order_ref}</small> : null}</button></th>
           <td>{shortDay(r.requested_on)}</td>
           <td>{reasonLabel(r.reason)}</td>

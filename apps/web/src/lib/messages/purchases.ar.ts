@@ -532,4 +532,5 @@ export const purchasesAr = {
   'pur.warranty.empty': 'لا شيء تحت الضمان',
   'pur.warranty.emptyText': 'أضف تاريخ انتهاء الضمان لشراء أو لأحد أصنافه ليظهر هنا حتى ينتهي.',
   'pur.warranty.onItems': 'على أصنافه',
+  'pur.row.hint': 'يفتح تفاصيل الطلب',
 } satisfies Record<string, Message>;

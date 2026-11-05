@@ -532,4 +532,5 @@ export const purchasesEn = {
   'pur.warranty.empty': 'Nothing under warranty',
   'pur.warranty.emptyText': 'Add a warranty end date to a purchase or one of its items and it shows here until it ends.',
   'pur.warranty.onItems': 'On its items',
+  'pur.row.hint': 'Opens the order details',
 } satisfies Record<string, Message>;

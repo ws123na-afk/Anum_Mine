@@ -124,7 +124,7 @@ export function TrackerTable({ page, selected, onSelect, onOpenFull, caption, co
   const [menu, setMenu] = useState<string | null>(null);
   return <div className="finTableWrap">
     <table className="finGrid purTracker">
-      <caption className="visuallyHidden">{caption}</caption>
+      <caption className="visuallyHidden">{caption}<span id="pur-open-hint">{t('pur.row.hint')}</span></caption>
       <thead><tr>
         <th scope="col">{t('pur.col.item')}</th>
         <th scope="col">{t('pur.col.orderDate')}</th>
@@ -139,7 +139,7 @@ export function TrackerTable({ page, selected, onSelect, onOpenFull, caption, co
       <tbody>{page.items.map((p) => {
         const name = rowTitle(p);
         return <tr key={p.id} className={selected === p.id ? 'selected' : undefined} aria-selected={selected === p.id || undefined}>
-          <th scope="row"><button type="button" className="purRowButton" onClick={() => onSelect(p.id)} aria-label={t('pur.openLabel', { name: `${name}, ${p.merchant}` })}>
+          <th scope="row"><button type="button" className="purRowButton" onClick={() => onSelect(p.id)} aria-describedby="pur-open-hint">
             <strong dir="auto"><bdi>{name}</bdi></strong><small dir="auto"><bdi>{p.merchant}</bdi>{p.order_ref ? <> · <bdi dir="ltr">{p.order_ref}</bdi></> : null}</small>
           </button>{p.needs_review && <StatusChip tone="warn">{t('pur.review.chip')}</StatusChip>}</th>
           <td>{shortDay(p.ordered_on)}</td>
@@ -434,7 +434,7 @@ export function PurchaseDrawer({ purchaseId, onClose, onChanged, onOpenFull }: {
       {ret && <ReturnCards purchase={p} ret={ret} />}
       {!ret && <div className="purFiles"><VaultFile documentId={p.document_id} label={t('pur.drawer.receipt')} icon={<FileText aria-hidden="true" />} /></div>}
       <div className="purDrawerActions">
-        {p.can_edit && <button type="button" onClick={() => setDialog('ship')}><Truck aria-hidden="true" />{t('pur.drawer.carrierUpdate')}</button>}
+        <button type="button" onClick={() => setDialog('ship')}><Truck aria-hidden="true" />{t('pur.drawer.carrierUpdate')}</button>
         {ret?.can_edit && <UploadToVault label={t('pur.drawer.uploadProof')} category="other" title={t('pur.drawer.proofTitle', { name: purchaseName(p) })}
           onUploaded={async (documentId) => { await api.updateReturn(ret.id, { version: ret.version, proof_document_id: documentId }); done(t('pur.drawer.proofSaved')); }} />}
         {!ret && p.can_edit && <UploadToVault label={t('pur.drawer.uploadReceipt')} category="receipt" title={t('pur.drawer.receiptTitle', { name: purchaseName(p) })}
