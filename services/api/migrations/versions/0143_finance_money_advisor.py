@@ -18,7 +18,7 @@ nothing else; the restrictive owner policy on ``finance_accounts`` also admits t
 runs as the application role in each person's own scope.
 
 Expand only: new tables, a column grant, a policy and a widened restrictive policy that only the
-discovery role can use. The previous release ignores them. Chained after ``0139_finance_pdf_templates``.
+discovery role can use. The previous release ignores them. Chained after ``0140_finance_guardian_reviews``.
 """
 
 import sqlalchemy as sa
@@ -26,7 +26,7 @@ from alembic import op
 from sqlalchemy.dialects import postgresql
 
 revision = "0143_finance_money_advisor"
-down_revision = "0139_finance_pdf_templates"
+down_revision = "0140_finance_guardian_reviews"
 branch_labels = None
 depends_on = None
 

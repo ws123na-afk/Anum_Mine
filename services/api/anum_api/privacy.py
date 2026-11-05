@@ -1139,6 +1139,11 @@ def finance_export(finance: Any, context: TenantContext) -> dict[str, Any]:
         "plan": plan.model_dump(mode="json") if plan is not None else None,
         "guardian_versions": [p.model_dump(mode="json", exclude=hidden) for p in versions],
         "guardian_changes": [c.model_dump(mode="json", exclude=hidden) for c in finance.list_changes(context, status=None, limit=1000)],
+        "guardian_reviews": [
+            r.model_dump(mode="json", exclude=hidden)
+            for start in range(0, len(transactions), 1000)
+            for r in finance.list_reviews(context, [t.id for t in transactions[start:start + 1000]])
+        ],
         "connections": [
             {**c.model_dump(mode="json", exclude=hidden | {"credentials_encrypted", "credential_hint"}), "has_credentials": bool(c.credentials_encrypted)}
             for c in finance.list_connections(context)
