@@ -198,7 +198,7 @@ export const vaultAr: Record<keyof typeof vaultEn, Message> = {
   'vault.trash.restoreLabel': 'استعادة {title}',
   'vault.trash.restored': 'تمت استعادة {title}.',
   'vault.trash.forever': 'حذف نهائي',
-  'vault.trash.foreverLabel': 'حذف {title} نهائيًا',
+  'vault.trash.foreverLabel': 'حذف نهائي: {title}',
   'vault.trash.foreverTitle': 'حذف {title} نهائيًا؟',
   'vault.trash.foreverText': 'يُحذف المستند وكل نسخه وملفه. لا يمكن التراجع عن ذلك.',
   'vault.trash.gone': 'حُذف {title} نهائيًا.',
