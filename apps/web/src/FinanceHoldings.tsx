@@ -189,7 +189,7 @@ function Positions({ rows, cur, actions, compact, onAll }: { rows: ValuedHolding
     {page.length === 0 ? <p className="muted">{search ? t('fholdings.positions.noMatch') : t('fholdings.positions.none')}</p>
       : <div className="cmTableWrap" tabIndex={0}><table className="cmTable finTable finGrid finPositions">
         <caption className="visuallyHidden">{t('fholdings.positions.caption')}</caption>
-        <thead><tr>{sortHead('asset', t('fholdings.col.asset'))}{!compact && <th scope="col">{t('finance.col.account')}</th>}{sortHead('quantity', t('finance.form.quantity'), true)}
+        <thead><tr>{sortHead('asset', t('fholdings.col.asset'))}{!compact && <th scope="col">{t('finance.col.account')}</th>}{!compact && sortHead('quantity', t('finance.form.quantity'), true)}
           {!compact && <th scope="col" className="num">{t('fholdings.col.average')}</th>}<th scope="col" className="num">{t('fholdings.col.price')}</th>{sortHead('value', t('fholdings.col.value'), true)}
           {sortHead('gain', t('fholdings.col.gain'), true)}<th scope="col"><span className="visuallyHidden">{t('fholdings.col.trend')}</span></th><th scope="col"><span className="visuallyHidden">{t('fholdings.col.actions')}</span></th></tr></thead>
         <tbody>{page.map((v) => <PositionRow key={v.holding.id} v={v} actions={actions} showCurrency={cur === null} compact={compact} />)}</tbody>
@@ -207,9 +207,9 @@ function PositionRow({ v, actions, showCurrency, compact }: { v: ValuedHolding; 
   const gainTone = v.gain === null ? '' : Number(v.gain) > 0 ? 'up' : Number(v.gain) < 0 ? 'down' : '';
   const trendTone = v.trend.length < 2 ? 'flat' : v.trend[v.trend.length - 1] > v.trend[0] ? 'up' : v.trend[v.trend.length - 1] < v.trend[0] ? 'down' : 'flat';
   return <tr>
-    <th scope="row"><span className="finAsset"><strong dir="auto">{name}</strong><small><bdi dir="ltr">{h.symbol}</bdi>{showCurrency ? ` · ${c}` : ''}{compact && v.accountName ? <> · <bdi>{v.accountName}</bdi></> : null}</small></span></th>
+    <th scope="row"><span className="finAsset"><strong dir="auto">{name}</strong><small><bdi dir="ltr">{h.symbol}</bdi>{showCurrency ? ` · ${c}` : ''}{compact ? <> · <bdi dir="ltr">{formatDecimal(h.quantity, 8)}</bdi>{v.accountName ? <> · <bdi>{v.accountName}</bdi></> : null}</> : null}</small></span></th>
     {!compact && <td data-label={t('finance.col.account')} dir="auto">{v.accountName}</td>}
-    <td className="num" data-label={t('finance.form.quantity')} dir="ltr">{formatDecimal(h.quantity, 8)}</td>
+    {!compact && <td className="num" data-label={t('finance.form.quantity')} dir="ltr">{formatDecimal(h.quantity, 8)}</td>}
     {!compact && <td className="num" data-label={t('fholdings.col.average')} dir="ltr">{v.averageCost === null ? '-' : formatAmount(Number(v.averageCost).toFixed(4), c)}</td>}
     <td className="num" data-label={t('fholdings.col.price')}>{v.price ? <><span dir="ltr">{formatDecimal(v.price.price, 4)}</span>
       <small className={v.stale ? 'finStale' : 'muted'}>{v.stale ? t('fholdings.staleOn', { date: shortDate(v.price.as_of) }) : shortDate(v.price.as_of)}</small></> : <span className="muted">{t('fholdings.noPrice')}</span>}</td>
