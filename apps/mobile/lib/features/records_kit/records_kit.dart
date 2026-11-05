@@ -27,9 +27,10 @@ class RecordsChunk<T> {
   /// An offset page (`{items, total, limit, offset}`).
   static RecordsChunk<T> offsetPage<T>(
       JsonReader page, T Function(JsonReader item) read,
-      {String key = 'items'}) {
+      {String key = 'items', int? offset}) {
     final items = page.objects(key, read);
-    final offset = page.optInt('offset') ?? 0;
+    // Some pages (`{items, total}`) do not echo the offset they were asked.
+    offset ??= page.optInt('offset') ?? 0;
     final total = page.optInt('total') ?? items.length;
     final end = offset + items.length;
     return RecordsChunk(items,
