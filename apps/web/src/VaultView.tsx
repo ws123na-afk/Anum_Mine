@@ -4,22 +4,24 @@
 // person), Expiring, Trash and Settings (reminders, scanning switches, categories, iPhone Shortcut).
 import { lazy, Suspense, useCallback, useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import {
-  ArchiveRestore, CalendarClock, CircleAlert, CircleDot, Copy, Download, Eye, FileText, Link2, Lock, Plus, RefreshCw, RotateCcw, ScanText,
-  Search, Share2, ShieldCheck, Smartphone, Trash2, Upload, Users, X,
+  ArchiveRestore, CalendarClock, Check, ChevronLeft, ChevronRight, CircleAlert, CircleDot, Copy, Download, Eye, FileText, History, Layers, Link2, Lock, Pencil, Plus,
+  RefreshCw, RotateCcw, ScanLine, ScanText, Search, Share2, ShieldCheck, Smartphone, Tags, Trash2, Upload, Users, X,
 } from 'lucide-react';
 import { ConfirmDialog, Modal } from './Dialog';
-import { LoadingSkeleton, PageHeader, PageSummary, PaneProblem } from './PageParts';
+import { FinBanner, FinCard, FinancePageHead, FinanceTabs, KpiCard, KpiRow, StatusChip, tabPanel } from './FinanceShell';
+import { LoadingSkeleton, PaneProblem } from './PageParts';
 import { copyText } from './lib/clipboard';
 import { describeError, isPermissionDenied } from './lib/errors';
 import { formatBytes } from './lib/files';
 import { formatDateTime, formatNumber, t, type MessageKey } from './lib/i18n';
-import { figure, type Load } from './lib/pageSummary';
+import { type Load } from './lib/pageSummary';
 import { viewLabel } from './lib/shell';
 import {
-  CURRENCIES, DATE_FIELDS, RECEIPT_FIELDS, VAULT_TABS, activityLabel, categoryLabel, confidenceText, editDraft, editPatch, expiryText, expiryTone,
-  filterQuery, hashOf, mergeDocuments, reviewDraft, reviewProblems, tabFromHash, uploadProblem, warningTexts,
-  type DocumentExtraction, type EditDraft, type VaultDevice, type VaultDeviceCreated, type VaultDocument, type VaultDocumentDetail, type VaultMeta,
-  type VaultReviewItem, type VaultTab, type VaultVersionPage,
+  CURRENCIES, DATE_FIELDS, PAGE_SIZE, RECEIPT_FIELDS, SORTS, VAULT_TABS, activityLabel, categoryLabel, confidenceText, documentFromHash, editDraft, editPatch, expiriesByDay,
+  expiryText, expiryTone, filterQuery, hashOf, isIdentity, linkLabel, linkedPercent, mergeDocuments, monthGrid, reviewDraft, reviewProblems, rowStatus, rowStatusTone,
+  suggestionFields, tabFromHash, uploadProblem, warningTexts,
+  type DocumentExtraction, type EditDraft, type VaultDevice, type VaultDeviceCreated, type VaultDocument, type VaultDocumentDetail, type VaultDocumentRow, type VaultMeta,
+  type VaultReviewItem, type VaultSort, type VaultTab, type VaultVersionPage,
 } from './lib/vault';
 import * as api from './lib/vaultApi';
 import './admin.css';
@@ -46,8 +48,8 @@ function Empty({ icon, title, text, action }: { icon: ReactNode; title: string; 
 export function VaultView() {
   const [tab, setTab] = useState<VaultTab>(() => tabFromHash(location.hash));
   const [meta, setMeta] = useState<Load<VaultMeta>>({ state: 'loading' });
-  const [focus, setFocus] = useState<string | null>(null);
-  const [adding, setAdding] = useState(false);
+  const [focus, setFocus] = useState<string | null>(() => documentFromHash(location.hash));
+  const [adding, setAdding] = useState<'upload' | 'scan' | null>(null);
   const [flash, setFlash] = useState<Flash>(null);
   const [tick, setTick] = useState(0);
 
@@ -55,115 +57,237 @@ export function VaultView() {
     isPermissionDenied(error) ? { state: 'denied', message: describeError(error) } : { state: 'error', message: describeError(error) })), []);
   useEffect(() => { void loadMeta(); }, [loadMeta, tick]);
   useEffect(() => {
-    const onHash = () => { if (location.hash.startsWith('#vault')) setTab(tabFromHash(location.hash)); };
+    const onHash = () => {
+      if (!location.hash.startsWith('#vault')) return;
+      setTab(tabFromHash(location.hash));
+      const doc = documentFromHash(location.hash);
+      if (doc) setFocus(doc);
+    };
     window.addEventListener('hashchange', onHash);
     return () => window.removeEventListener('hashchange', onHash);
   }, []);
   const go = (next: VaultTab) => { setTab(next); setFocus(null); history.replaceState(null, '', hashOf(next)); };
+  const openDoc = (id: string) => { setTab('documents'); setFocus(id); history.replaceState(null, '', hashOf('documents')); };
   const changed = (text?: string) => { if (text) setFlash({ text }); setTick((n) => n + 1); };
   const value = meta.state === 'ready' ? meta.value : null;
   const counts = value?.summary;
 
   if (meta.state === 'denied') {
-    return <>
-      <PageHeader title={viewLabel('vault')} subtitle={t('vault.intro')} />
+    return <div className="finPage vaultPage">
+      <FinancePageHead title={viewLabel('vault')} subtitle={t('vault.intro')} />
       <section className="surface adminForbidden" aria-label={t('vault.denied.title')}>
         <span className="adminIcon"><Lock aria-hidden="true" /></span>
         <div><h2>{t('vault.denied.title')}</h2><p>{t('vault.denied.text')}</p><p className="muted">{t('vault.apiSaid', { message: meta.message })}</p></div>
       </section>
-    </>;
+    </div>;
   }
 
-  const figures = [
-    figure('active', t('vault.fig.documents'), meta, () => ({ value: formatNumber(counts!.active), hint: t('vault.fig.privateHint', { count: counts!.private }) })),
-    figure('expiring', t('vault.fig.expiring'), meta, () => ({ value: formatNumber(counts!.expiring), hint: t('vault.fig.expiringHint', { days: value!.reminder_window_days }), tone: counts!.expiring ? 'warn' : '' })),
-    figure('expired', t('vault.fig.expired'), meta, () => ({ value: formatNumber(counts!.expired), hint: t('vault.fig.expiredHint'), tone: counts!.expired ? 'danger' : '' })),
-    figure('review', t('vault.fig.review'), meta, () => ({ value: formatNumber(counts!.review), hint: value!.ocr_connected ? t('vault.fig.ocrOn') : t('vault.fig.ocrOff'), tone: counts!.review ? 'accent' : '' })),
-  ];
-  const count = (key: VaultTab) => (key === 'review' ? counts?.review : key === 'expiring' ? (counts ? counts.expiring + counts.expired : undefined) : key === 'trash' ? counts?.trash : undefined);
+  const badge = (key: VaultTab) => {
+    const n = key === 'review' ? counts?.review : key === 'expiring' ? (counts ? counts.expiring + counts.expired : undefined) : key === 'trash' ? counts?.trash : undefined;
+    return n ? formatNumber(n) : undefined;
+  };
+  const tabs = VAULT_TABS.map((key) => ({ id: key, label: t(`vault.tab.${key}` as MessageKey), badge: badge(key) }));
+  const actions = value?.can_write ? <>
+    <button type="button" className="secondary" onClick={() => setAdding('scan')}><ScanLine aria-hidden="true" />{t('vault.scan')}</button>
+    <button type="button" onClick={() => setAdding('upload')}><Upload aria-hidden="true" />{t('vault.upload')}</button>
+  </> : undefined;
 
-  return <>
-    <PageHeader title={viewLabel('vault')} subtitle={t('vault.intro')} actions={value?.can_write
-      ? <button type="button" className="uploadButton" onClick={() => setAdding(true)}><Upload aria-hidden="true" />{t('vault.add')}</button> : undefined} />
+  return <div className="finPage vaultPage">
+    <FinancePageHead title={viewLabel('vault')} subtitle={t('vault.intro')} actions={actions}
+      tabs={<FinanceTabs label={t('vault.tabs')} items={tabs} value={tab} idPrefix="vault" onChange={go} />} />
     {meta.state === 'error' && <PaneProblem text={t('vault.metaFailed', { message: meta.message })} onRetry={() => { setMeta({ state: 'loading' }); void loadMeta(); }} />}
     {flash && <Notice error={flash.error}>{flash.text}</Notice>}
-    <PageSummary label={t('vault.summary')} figures={figures} onRetry={() => { setMeta({ state: 'loading' }); void loadMeta(); }} />
-    <div className="segmented vaultTabs" role="tablist" aria-label={t('vault.tabs')}>
-      {VAULT_TABS.map((key) => <button key={key} type="button" role="tab" id={`vault-tab-${key}`} aria-selected={tab === key} aria-controls="vault-panel"
-        onClick={() => go(key)}>{t(`vault.tab.${key}` as MessageKey)}{count(key) ? <span className="vaultCount">{formatNumber(count(key)!)}</span> : null}</button>)}
-    </div>
-    <div id="vault-panel" role="tabpanel" aria-labelledby={`vault-tab-${tab}`} className="vaultPanel">
-      {tab === 'overview' && <Overview meta={value} tick={tick} onOpen={(id) => { setTab('documents'); setFocus(id); history.replaceState(null, '', hashOf('documents')); }} onGo={go} onAdd={() => setAdding(true)} />}
-      {tab === 'documents' && <DocumentsTab meta={value} tick={tick} focus={focus} onFocus={setFocus} onChanged={changed} onAdd={() => setAdding(true)} status="active" />}
-      {tab === 'expiring' && <DocumentsTab meta={value} tick={tick} focus={focus} onFocus={setFocus} onChanged={changed} onAdd={() => setAdding(true)} status="active" expiringOnly />}
+    <div {...tabPanel('vault', tab)}>
+      {tab === 'overview' && <Overview meta={value} tick={tick} onOpen={openDoc} onGo={go} onAdd={() => setAdding('upload')} onChanged={changed} />}
+      {tab === 'documents' && <DocumentsTab meta={value} tick={tick} focus={focus} onFocus={setFocus} onChanged={changed} onAdd={() => setAdding('upload')} status="active" />}
+      {tab === 'expiring' && <DocumentsTab meta={value} tick={tick} focus={focus} onFocus={setFocus} onChanged={changed} onAdd={() => setAdding('upload')} status="active" expiringOnly />}
       {tab === 'trash' && <TrashTab meta={value} tick={tick} onChanged={changed} />}
-      {tab === 'review' && <ReviewTab meta={value} tick={tick} onChanged={changed} onOpen={(id) => { setTab('documents'); setFocus(id); history.replaceState(null, '', hashOf('documents')); }} />}
+      {tab === 'review' && <ReviewTab meta={value} tick={tick} onChanged={changed} onOpen={openDoc} />}
+      {tab === 'categories' && <CategoriesTab meta={value} tick={tick} onChanged={changed} />}
+      {tab === 'access' && <AccessTab meta={value} />}
       {tab === 'settings' && <SettingsTab meta={value} onChanged={changed} />}
     </div>
-    {adding && value && <AddDialog meta={value} onClose={() => setAdding(false)} onAdded={(doc, text) => {
-      setAdding(false); changed(text); setTab('documents'); setFocus(doc.id); history.replaceState(null, '', hashOf('documents'));
-    }} onOpenExisting={(id) => { setAdding(false); setTab('documents'); setFocus(id); history.replaceState(null, '', hashOf('documents')); }} />}
-  </>;
+    {adding && value && <AddDialog meta={value} scan={adding === 'scan'} onClose={() => setAdding(null)} onAdded={(doc, text) => {
+      setAdding(null); changed(text); openDoc(doc.id);
+    }} onOpenExisting={(id) => { setAdding(null); openDoc(id); }} />}
+  </div>;
 }
 
 // --------------------------------------------------------------------------- overview
 
-function Overview({ meta, tick, onOpen, onGo, onAdd }: { meta: VaultMeta | null; tick: number; onOpen(id: string): void; onGo(tab: VaultTab): void; onAdd(): void }) {
-  const [soon, setSoon] = useState<Load<VaultDocument[]>>({ state: 'loading' });
-  const [review, setReview] = useState<Load<VaultReviewItem[]>>({ state: 'loading' });
-  const load = useCallback(() => {
-    api.listDocuments(filterQuery({ q: '', category: '', access: '', expiry: 'soon' })).then((page) => setSoon({ state: 'ready', value: page.items.slice(0, 5) }),
-      (error) => setSoon({ state: 'error', message: describeError(error) }));
-    api.getReview().then((items) => setReview({ state: 'ready', value: items.slice(0, 5) }), (error) => setReview({ state: 'error', message: describeError(error) }));
-  }, []);
-  useEffect(() => { load(); }, [load, tick]);
+function Overview({ meta, tick, onOpen, onGo, onAdd, onChanged }: { meta: VaultMeta | null; tick: number; onOpen(id: string): void; onGo(tab: VaultTab): void; onAdd(): void; onChanged(text?: string): void }) {
   if (meta && meta.summary.active === 0 && meta.summary.trash === 0) {
-    return <Empty icon={<ShieldCheck aria-hidden="true" />} title={t('vault.empty.title')} text={t('vault.empty.text')}
+    return <FinCard title={t('vault.docs.title')}><Empty icon={<ShieldCheck aria-hidden="true" />} title={t('vault.empty.title')} text={t('vault.empty.text')}
       action={meta.can_write ? <div className="actions"><button type="button" onClick={onAdd}><Plus aria-hidden="true" />{t('vault.add')}</button>
-        <button type="button" className="secondary" onClick={() => onGo('settings')}><Smartphone aria-hidden="true" />{t('vault.empty.phone')}</button></div> : undefined} />;
+        <button type="button" className="secondary" onClick={() => onGo('access')}><Smartphone aria-hidden="true" />{t('vault.empty.phone')}</button></div> : undefined} /></FinCard>;
   }
-  return <div className="vaultOverview">
-    <section className="surface vaultCard" aria-labelledby="vault-soon-title">
-      <h2 id="vault-soon-title"><CalendarClock aria-hidden="true" />{t('vault.overview.soon')}</h2>
-      {soon.state === 'loading' && <LoadingSkeleton label={t('vault.loading')} rows={2} />}
-      {soon.state === 'error' && <PaneProblem text={t('vault.listFailed', { message: soon.message })} onRetry={load} />}
-      {soon.state === 'ready' && (soon.value.length ? <ul className="vaultMiniList">{soon.value.map((doc) => <li key={doc.id}>
-        <button type="button" className="linkButton" onClick={() => onOpen(doc.id)} dir="auto">{doc.title}</button>
-        <Badge tone={expiryTone(doc.expiry_state)}>{expiryText(doc)}</Badge></li>)}</ul> : <p className="muted">{t('vault.overview.noneSoon')}</p>)}
-      <button type="button" className="secondary" onClick={() => onGo('expiring')}>{t('vault.overview.allExpiring')}</button>
-    </section>
-    <section className="surface vaultCard" aria-labelledby="vault-review-title">
-      <h2 id="vault-review-title"><ScanText aria-hidden="true" />{t('vault.overview.review')}</h2>
-      {review.state === 'loading' && <LoadingSkeleton label={t('vault.loading')} rows={2} />}
-      {review.state === 'error' && <PaneProblem text={t('vault.listFailed', { message: review.message })} onRetry={load} />}
-      {review.state === 'ready' && (review.value.length ? <ul className="vaultMiniList">{review.value.map((item) => <li key={item.extraction.id}>
-        <button type="button" className="linkButton" onClick={() => onGo('review')} dir="auto">{item.document.title}</button>
-        <Badge>{t(`vault.kind.${item.extraction.kind}` as MessageKey)}</Badge></li>)}</ul> : <p className="muted">{t('vault.overview.noneReview')}</p>)}
-      {meta && !meta.ocr_connected && <p className="muted">{t('vault.ocr.notConnected')}</p>}
-    </section>
-  </div>;
+  const counts = meta?.summary;
+  const pct = counts ? linkedPercent(counts) : null;
+  const loading = <span className="muted">{t('vault.loading')}</span>;
+  return <>
+    <KpiRow label={t('vault.summary')}>
+      <KpiCard icon={<FileText />} label={t('vault.fig.documents')} value={counts ? formatNumber(counts.active) : loading} hint={counts ? t('vault.fig.privateHint', { count: counts.private }) : undefined} />
+      <KpiCard icon={<CalendarClock />} label={meta ? t('vault.kpi.expiring', { days: meta.reminder_window_days }) : t('vault.fig.expiring')} value={counts ? formatNumber(counts.expiring) : loading}
+        hint={counts ? (counts.expired ? t('vault.kpi.expired', { count: counts.expired }) : t('vault.kpi.noneExpired')) : undefined} tone={counts?.expired ? 'bad' : counts?.expiring ? 'warn' : ''} />
+      <KpiCard icon={<ScanText />} label={t('vault.kpi.review')} value={counts ? formatNumber(counts.review) : loading} hint={meta ? (meta.ocr_connected ? t('vault.fig.ocrOn') : t('vault.fig.ocrOff')) : undefined} tone={counts?.review ? 'warn' : ''} />
+      <KpiCard icon={<Link2 />} label={t('vault.kpi.linked')} value={counts ? (pct === null ? '-' : t('vault.kpi.pct', { pct })) : loading}
+        hint={counts ? t('vault.kpi.linkedHint', { linked: counts.linked, total: counts.active }) : undefined} />
+    </KpiRow>
+    <div className="vaultBoard">
+      <div className="vaultBoardMain">
+        <DocumentsTab meta={meta} tick={tick} focus={null} onFocus={(id) => { if (id) onOpen(id); }} onChanged={onChanged} onAdd={onAdd} status="active" embedded />
+      </div>
+      <div className="vaultBoardSide">
+        <NextExpiries tick={tick} onOpen={onOpen} onAll={() => onGo('expiring')} />
+        <ReviewPeek meta={meta} tick={tick} onGo={onGo} onOpen={onOpen} onChanged={onChanged} />
+        <ScanFromPhone meta={meta} onGo={onGo} />
+      </div>
+    </div>
+    <SecurityStrip meta={meta} />
+  </>;
+}
+
+const WEEKDAYS = [0, 1, 2, 3, 4, 5, 6];
+
+function NextExpiries({ tick, onOpen, onAll }: { tick: number; onOpen(id: string): void; onAll(): void }) {
+  const [load, setLoad] = useState<Load<VaultDocumentRow[]>>({ state: 'loading' });
+  const now = new Date();
+  const [month, setMonth] = useState({ year: now.getFullYear(), month: now.getMonth() });
+  const fetch = useCallback(() => api.listDocuments(filterQuery({ q: '', category: '', access: '', expiry: '', sort: 'expiry' }, 'active', null, 100))
+    .then((page) => setLoad({ state: 'ready', value: page.items }), (e) => setLoad({ state: 'error', message: describeError(e) })), []);
+  useEffect(() => { void fetch(); }, [fetch, tick]);
+  const shift = (by: number) => setMonth(({ year, month: m }) => { const d = new Date(year, m + by, 1); return { year: d.getFullYear(), month: d.getMonth() }; });
+  const rows = load.state === 'ready' ? load.value : [];
+  const marks = expiriesByDay(rows, month.year, month.month);
+  const todayIso = new Date().toISOString().slice(0, 10);
+  const monthName = formatDateTime(new Date(Date.UTC(month.year, month.month, 1)), { month: 'long', year: 'numeric', timeZone: 'UTC' });
+  const weekday = (d: number) => formatDateTime(new Date(Date.UTC(2026, 10, 1 + d)), { weekday: 'narrow', timeZone: 'UTC' });
+  return <FinCard title={t('vault.next.title')} icon={<CalendarClock />} actions={<button type="button" className="linkButton" onClick={onAll}>{t('vault.next.all')}</button>} className="vaultNext">
+    {load.state === 'loading' && <LoadingSkeleton label={t('vault.loading')} rows={3} />}
+    {load.state === 'error' && <PaneProblem text={t('vault.listFailed', { message: load.message })} onRetry={() => void fetch()} />}
+    {load.state === 'ready' && <div className="vaultNextBody">
+      <div className="vaultCal">
+        <div className="vaultCalHead">
+          <button type="button" className="vaultIconButton" aria-label={t('vault.next.prev')} onClick={() => shift(-1)}><ChevronLeft aria-hidden="true" className="vaultFlip" /></button>
+          <strong aria-live="polite">{monthName}</strong>
+          <button type="button" className="vaultIconButton" aria-label={t('vault.next.nextMonth')} onClick={() => shift(1)}><ChevronRight aria-hidden="true" className="vaultFlip" /></button>
+        </div>
+        <table className="vaultCalGrid">
+          <caption className="visuallyHidden">{t('vault.next.calendar', { month: monthName })}</caption>
+          <thead><tr>{WEEKDAYS.map((d) => <th key={d} scope="col" abbr={formatDateTime(new Date(Date.UTC(2026, 10, 1 + d)), { weekday: 'long', timeZone: 'UTC' })}>{weekday(d)}</th>)}</tr></thead>
+          <tbody>{monthGrid(month.year, month.month).map((week, i) => <tr key={i}>{week.map((d, j) => {
+            if (!d) return <td key={j} />;
+            const iso = `${month.year}-${String(month.month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+            const titles = marks[d];
+            return <td key={j} className={`${titles ? 'has' : ''} ${iso === todayIso ? 'today' : ''}`}>
+              {titles ? <span title={titles.join(', ')}>{d}<span className="visuallyHidden">: {t('vault.next.expires', { titles: titles.join(', ') })}</span></span> : d}
+            </td>;
+          })}</tr>)}</tbody>
+        </table>
+      </div>
+      {rows.length === 0 ? <p className="muted">{t('vault.next.none')}</p>
+        : <ul className="vaultNextList">{rows.slice(0, 4).map((doc) => <li key={doc.id}>
+          <button type="button" className="vaultNextItem" onClick={() => onOpen(doc.id)}>
+            <span><strong dir="auto">{doc.title}</strong><small>{doc.expiry_date ? day(doc.expiry_date) : ''}</small></span>
+            <StatusChip tone={doc.expiry_state === 'soon' ? 'warn' : 'ok'}>{expiryText(doc)}</StatusChip>
+          </button>
+        </li>)}</ul>}
+    </div>}
+  </FinCard>;
+}
+
+function ReviewPeek({ meta, tick, onGo, onOpen, onChanged }: { meta: VaultMeta | null; tick: number; onGo(tab: VaultTab): void; onOpen(id: string): void; onChanged(text?: string): void }) {
+  const [load, setLoad] = useState<Load<VaultReviewItem[]>>({ state: 'loading' });
+  const [busy, setBusy] = useState(false);
+  const [problem, setProblem] = useState<string | null>(null);
+  const fetch = useCallback(() => api.getReview().then((value) => setLoad({ state: 'ready', value }), (e) => setLoad({ state: 'error', message: describeError(e) })), []);
+  useEffect(() => { void fetch(); }, [fetch, tick]);
+  const first = load.state === 'ready' ? load.value[0] : null;
+  const confirm = async () => {
+    if (!first) return;
+    const draft = reviewDraft(first.extraction);
+    const problems = reviewProblems(first.extraction.kind, draft);
+    if (Object.keys(problems).length) { onGo('review'); return; }
+    setBusy(true); setProblem(null);
+    try {
+      await api.confirmExtraction(first.extraction.id, draft, first.extraction.items);
+      onChanged(t('vault.review.confirmed', { title: first.document.title }));
+      onOpen(first.document.id);
+    } catch (e) { setProblem(describeError(e)); } finally { setBusy(false); }
+  };
+  const count = load.state === 'ready' ? load.value.length : 0;
+  return <FinCard title={t('vault.peek.title', { count })} icon={<ScanText />} className="vaultPeek"
+    actions={count > 0 ? <button type="button" className="linkButton" onClick={() => onGo('review')}>{t('vault.peek.all')}</button> : undefined}>
+    {load.state === 'loading' && <LoadingSkeleton label={t('vault.loading')} rows={2} />}
+    {load.state === 'error' && <PaneProblem text={t('vault.listFailed', { message: load.message })} onRetry={() => void fetch()} />}
+    {load.state === 'ready' && !first && <p className="muted">{meta && !meta.ocr_connected ? t('vault.ocr.notConnected') : t('vault.overview.noneReview')}</p>}
+    {first && <div className="vaultPeekBody">
+      <div><strong dir="auto">{first.document.title}</strong><small className="muted">{t(`vault.kind.${first.extraction.kind}` as MessageKey)} · {when(first.extraction.created_at)}</small></div>
+      <dl className="vaultSuggest" aria-label={t('vault.peek.suggestions')}>
+        {suggestionFields(first.extraction).map((f) => <div key={f.key}><dt>{t(`vault.rf.${f.key}` as MessageKey)}</dt><dd dir="auto">{f.value}</dd></div>)}
+      </dl>
+      {suggestionFields(first.extraction).length === 0 && <p className="muted">{t('vault.review.notRead')}</p>}
+      <p className="vaultPeekNote"><CircleAlert aria-hidden="true" />{t('vault.peek.note')}</p>
+      {problem && <Notice error>{problem}</Notice>}
+      {first.document.can_edit ? <div className="actions">
+        <button type="button" disabled={busy} onClick={() => void confirm()}><Check aria-hidden="true" />{t('vault.peek.confirm')}</button>
+        <button type="button" className="secondary" onClick={() => onGo('review')}><Pencil aria-hidden="true" />{t('vault.peek.edit')}</button>
+      </div> : <p className="muted">{t('vault.review.notYours')}</p>}
+    </div>}
+  </FinCard>;
+}
+
+function ScanFromPhone({ meta, onGo }: { meta: VaultMeta | null; onGo(tab: VaultTab): void }) {
+  const [devices, setDevices] = useState<Load<VaultDevice[]>>({ state: 'loading' });
+  useEffect(() => { if (meta?.can_write) api.getDevices().then((value) => setDevices({ state: 'ready', value }), (e) => setDevices({ state: 'error', message: describeError(e) })); }, [meta?.can_write]);
+  if (!meta?.can_write) return null;
+  const active = devices.state === 'ready' ? devices.value.filter((d) => d.status === 'active') : [];
+  return <FinCard title={t('vault.phone.title')} icon={<Smartphone />} className="vaultPhone">
+    <p className="muted">{t('vault.phone.text')}</p>
+    {devices.state === 'ready' && <p>{active.length ? t('vault.phone.connected', { count: active.length }) : t('vault.phone.none')}</p>}
+    {devices.state === 'error' && <p className="muted">{devices.message}</p>}
+    <div className="actions"><button type="button" className="secondary" onClick={() => onGo('access')}><Smartphone aria-hidden="true" />{active.length ? t('vault.phone.manage') : t('vault.phone.setup')}</button></div>
+  </FinCard>;
+}
+
+function SecurityStrip({ meta }: { meta: VaultMeta | null }) {
+  if (!meta) return null;
+  const items: { icon: ReactNode; title: string; text: string }[] = [
+    { icon: <History />, title: t('vault.sec.log'), text: t('vault.sec.logText') },
+    { icon: <Lock />, title: t('vault.sec.private'), text: t('vault.sec.privateText', { count: meta.summary.private }) },
+    { icon: <Users />, title: t('vault.sec.access'), text: t('vault.sec.accessText') },
+    { icon: <Layers />, title: t('vault.sec.versions'), text: t('vault.sec.versionsText') },
+    { icon: <Trash2 />, title: t('vault.sec.retention'), text: t('vault.sec.retentionText', { days: meta.settings.trash_days }) },
+  ];
+  return <FinCard title={t('vault.sec.title')} icon={<ShieldCheck />} subtitle={t('vault.sec.subtitle')} className="vaultSecurity">
+    <ul className="vaultSecList">{items.map((item) => <li key={item.title}><span className="vaultSecIcon" aria-hidden="true">{item.icon}</span><span><strong>{item.title}</strong><small>{item.text}</small></span></li>)}</ul>
+    <FinBanner tone="info" icon={<Lock />}>{t('vault.sec.twoStep')}</FinBanner>
+  </FinCard>;
 }
 
 // --------------------------------------------------------------------------- documents list and detail
 
-function DocumentsTab({ meta, tick, focus, onFocus, onChanged, onAdd, status, expiringOnly }: {
+function DocumentsTab({ meta, tick, focus, onFocus, onChanged, onAdd, status, expiringOnly, embedded }: {
   meta: VaultMeta | null; tick: number; focus: string | null; onFocus(id: string | null): void; onChanged(text?: string): void; onAdd(): void;
-  status: 'active'; expiringOnly?: boolean;
+  status: 'active'; expiringOnly?: boolean; embedded?: boolean;
 }) {
-  const [filters, setFilters] = useState({ q: '', category: '', access: '', expiry: expiringOnly ? 'soon' : '' });
+  const blank = { q: '', category: '', access: '', expiry: expiringOnly ? 'soon' : '', sort: (embedded ? 'updated' : 'created') as VaultSort };
+  const [filters, setFilters] = useState(blank);
   const [draft, setDraft] = useState(filters);
-  const [items, setItems] = useState<VaultDocument[]>([]);
+  const [items, setItems] = useState<VaultDocumentRow[]>([]);
   const [load, setLoad] = useState<Load<null>>({ state: 'loading' });
   const [cursor, setCursor] = useState<string | null>(null);
   const [more, setMore] = useState<'idle' | 'loading' | { error: string }>('idle');
+  const [problem, setProblem] = useState<string | null>(null);
   const request = useRef(0);
-  const ids = { q: useId(), category: useId(), access: useId(), expiry: useId() };
+  const ids = { q: useId(), category: useId(), access: useId(), expiry: useId(), sort: useId() };
+  const limit = embedded ? 6 : PAGE_SIZE;
 
   const fetchFirst = useCallback(async (next: typeof filters) => {
     const token = ++request.current;
     setLoad((current) => (current.state === 'ready' ? current : { state: 'loading' }));
     try {
-      const page = await api.listDocuments(filterQuery(next, status));
+      const page = await api.listDocuments(filterQuery(next, status, null, limit));
       let rows = page.items;
       if (expiringOnly && next.expiry === 'soon') {
         const expired = await api.listDocuments(filterQuery({ ...next, expiry: 'expired' }, status));
@@ -175,65 +299,99 @@ function DocumentsTab({ meta, tick, focus, onFocus, onChanged, onAdd, status, ex
       if (token !== request.current) return;
       setLoad(isPermissionDenied(error) ? { state: 'denied', message: describeError(error) } : { state: 'error', message: describeError(error) });
     }
-  }, [status, expiringOnly]);
+  }, [status, expiringOnly, limit]);
   useEffect(() => { void fetchFirst(filters); }, [fetchFirst, filters, tick]);
 
   const loadMore = async () => {
     setMore('loading');
     try {
       const page = await api.listDocuments(filterQuery(filters, status, cursor));
-      setItems((current) => mergeDocuments(current, page.items)); setCursor(page.next_cursor); setMore('idle');
+      setItems((current) => mergeDocuments(current, page.items) as VaultDocumentRow[]); setCursor(page.next_cursor); setMore('idle');
     } catch (error) { setMore({ error: describeError(error) }); }
   };
+  const apply = (next: typeof filters) => { setDraft(next); setFilters(next); };
   const submit = (event: FormEvent) => { event.preventDefault(); setFilters(draft); };
-  const clear = () => { const empty = { q: '', category: '', access: '', expiry: expiringOnly ? 'soon' : '' }; setDraft(empty); setFilters(empty); };
+  const clear = () => apply(blank);
   const filtered = Boolean(filters.q || filters.category || filters.access || (!expiringOnly && filters.expiry));
   const categories = meta?.categories ?? [];
+  const download = async (doc: VaultDocumentRow) => {
+    setProblem(null);
+    try { await api.download(doc.id, doc.file?.name ?? doc.title); } catch (e) { setProblem(describeError(e)); }
+  };
+  const title = expiringOnly ? t('vault.tab.expiring') : t('vault.docs.title');
+  const count = load.state === 'ready' ? (cursor ? t('vault.docs.countMore', { count: items.length }) : t('vault.docs.count', { count: items.length })) : undefined;
 
   return <div className={`vaultSplit ${focus ? 'hasDetail' : ''}`}>
-    <section className="surface vaultList" aria-label={t(expiringOnly ? 'vault.list.expiringLabel' : 'vault.list.label')}>
-      <form className="vaultFilters" role="search" onSubmit={submit}>
-        <label className="field vaultSearch" htmlFor={ids.q}><span>{t('vault.filter.search')}</span>
-          <input id={ids.q} type="search" dir="auto" value={draft.q} maxLength={120} placeholder={t('vault.filter.searchHint')} onChange={(e) => setDraft({ ...draft, q: e.target.value })} /></label>
-        <label className="field" htmlFor={ids.category}><span>{t('vault.field.category')}</span>
-          <select id={ids.category} value={draft.category} onChange={(e) => setDraft({ ...draft, category: e.target.value })}>
-            <option value="">{t('vault.filter.anyCategory')}</option>
+    <FinCard title={title} subtitle={count} className="vaultList">
+      <form className="vaultFilters" role="search" aria-label={t(expiringOnly ? 'vault.list.expiringLabel' : 'vault.list.label')} onSubmit={submit}>
+        <label className="vaultSearchBox" htmlFor={ids.q}><Search aria-hidden="true" /><span className="visuallyHidden">{t('vault.filter.search')}</span>
+          <input id={ids.q} type="search" dir="auto" value={draft.q} maxLength={120} placeholder={t('vault.filter.searchHint')} onChange={(e) => setDraft({ ...draft, q: e.target.value })}
+            onBlur={() => { if (draft.q !== filters.q) setFilters({ ...filters, q: draft.q }); }} /></label>
+        <label className="vaultSelect" htmlFor={ids.category}><span>{t('vault.field.category')}</span>
+          <select id={ids.category} value={draft.category} onChange={(e) => apply({ ...draft, category: e.target.value })}>
+            <option value="">{t('vault.filter.all')}</option>
             {categories.map((c) => <option key={c.id} value={c.id}>{categoryLabel(c.id, categories)}</option>)}
           </select></label>
-        <label className="field" htmlFor={ids.access}><span>{t('vault.field.access')}</span>
-          <select id={ids.access} value={draft.access} onChange={(e) => setDraft({ ...draft, access: e.target.value })}>
-            <option value="">{t('vault.filter.anyAccess')}</option>
+        {!expiringOnly && <label className="vaultSelect" htmlFor={ids.expiry}><span>{t('vault.filter.expiryState')}</span>
+          <select id={ids.expiry} value={draft.expiry} onChange={(e) => apply({ ...draft, expiry: e.target.value })}>
+            <option value="">{t('vault.filter.all')}</option><option value="soon">{t('vault.filter.soon')}</option><option value="expired">{t('vault.filter.expired')}</option>
+          </select></label>}
+        <label className="vaultSelect" htmlFor={ids.access}><span>{t('vault.filter.workspace')}</span>
+          <select id={ids.access} value={draft.access} onChange={(e) => apply({ ...draft, access: e.target.value })}>
+            <option value="">{t('vault.filter.all')}</option>
             <option value="private">{t('vault.access.private')}</option><option value="workspace">{t('vault.access.workspace')}</option>
           </select></label>
-        {!expiringOnly && <label className="field" htmlFor={ids.expiry}><span>{t('vault.field.expiry')}</span>
-          <select id={ids.expiry} value={draft.expiry} onChange={(e) => setDraft({ ...draft, expiry: e.target.value })}>
-            <option value="">{t('vault.filter.anyExpiry')}</option><option value="soon">{t('vault.filter.soon')}</option><option value="expired">{t('vault.filter.expired')}</option>
+        {!expiringOnly && <label className="vaultSelect" htmlFor={ids.sort}><span>{t('vault.filter.sort')}</span>
+          <select id={ids.sort} value={draft.sort} onChange={(e) => apply({ ...draft, sort: e.target.value as VaultSort })}>
+            {SORTS.map((key) => <option key={key} value={key}>{t(`vault.sort.${key}` as MessageKey)}</option>)}
           </select></label>}
-        <div className="actions">
-          <button type="submit" className="secondary"><Search aria-hidden="true" />{t('vault.filter.find')}</button>
-          {filtered && <button type="button" className="secondary" onClick={clear}><RotateCcw aria-hidden="true" />{t('vault.filter.clear')}</button>}
-        </div>
+        {filtered && <button type="button" className="secondary vaultClear" onClick={clear}><RotateCcw aria-hidden="true" />{t('vault.filter.clear')}</button>}
       </form>
+      {problem && <Notice error>{problem}</Notice>}
       {load.state === 'loading' && <LoadingSkeleton label={t('vault.loading')} rows={4} />}
       {load.state === 'error' && <PaneProblem text={t('vault.listFailed', { message: load.message })} onRetry={() => void fetchFirst(filters)} />}
       {load.state === 'ready' && !items.length && (filtered
         ? <Empty icon={<Search aria-hidden="true" />} title={t('vault.list.noMatch')} text={t('vault.list.noMatchText')} action={<button type="button" className="secondary" onClick={clear}>{t('vault.filter.clear')}</button>} />
         : expiringOnly
           ? <Empty icon={<CalendarClock aria-hidden="true" />} title={t('vault.expiring.none')} text={t('vault.expiring.noneText')} />
-          : <Empty icon={<FileText aria-hidden="true" />} title={t('vault.list.empty')} text={t('vault.list.emptyText')} action={meta?.can_write ? <button type="button" onClick={onAdd}><Plus aria-hidden="true" />{t('vault.add')}</button> : undefined} />)}
-      {load.state === 'ready' && items.length > 0 && <ul className="vaultRows">
-        {items.map((doc) => <li key={doc.id}><button type="button" className={`vaultRow ${focus === doc.id ? 'selected' : ''}`} aria-current={focus === doc.id || undefined} onClick={() => onFocus(doc.id)}>
-          <span className="vaultRowMain"><strong dir="auto">{doc.title}</strong>
-            <small>{categoryLabel(doc.category, categories)}{doc.number_masked ? <> · <bdi dir="ltr">{doc.number_masked}</bdi></> : null}</small></span>
-          <span className="vaultRowTags">
-            {doc.access_class === 'private' ? <Badge><Lock aria-hidden="true" />{t('vault.access.private')}</Badge> : <Badge><Users aria-hidden="true" />{t('vault.access.workspace')}</Badge>}
-            {doc.expiry_state !== 'none' && <Badge tone={expiryTone(doc.expiry_state)}>{expiryText(doc)}</Badge>}
-          </span>
-        </button></li>)}
-      </ul>}
-      {cursor && load.state === 'ready' && <div className="actions vaultMore"><button type="button" className="secondary" disabled={more === 'loading'} onClick={() => void loadMore()}>{more === 'loading' ? t('vault.loading') : t('vault.list.more')}</button></div>}
+          : filters.sort === 'expiry'
+            ? <Empty icon={<CalendarClock aria-hidden="true" />} title={t('vault.sort.expiryNone')} text={t('vault.sort.expiryNoneText')} />
+            : <Empty icon={<FileText aria-hidden="true" />} title={t('vault.list.empty')} text={t('vault.list.emptyText')} action={meta?.can_write ? <button type="button" onClick={onAdd}><Plus aria-hidden="true" />{t('vault.add')}</button> : undefined} />)}
+      {load.state === 'ready' && items.length > 0 && <div className="finTableWrap" tabIndex={0}><table className="finGrid vaultTable">
+        <caption className="visuallyHidden">{title}</caption>
+        <thead><tr>
+          <th scope="col">{t('vault.col.title')}</th><th scope="col" className="vaultOpt">{t('vault.col.linked')}</th><th scope="col">{t('vault.field.category')}</th>
+          <th scope="col" className="vaultOpt">{t('vault.col.updated')}</th><th scope="col">{t('vault.col.expiry')}</th><th scope="col">{t('vault.col.status')}</th>
+          <th scope="col"><span className="visuallyHidden">{t('vault.col.actions')}</span></th>
+        </tr></thead>
+        <tbody>{items.map((doc) => {
+          const state = rowStatus(doc, categories);
+          return <tr key={doc.id} className={focus === doc.id ? 'selected' : undefined}>
+            <th scope="row"><button type="button" className="vaultRowButton" aria-current={focus === doc.id || undefined} onClick={() => onFocus(doc.id)}>
+              <span className={`vaultFileIcon ${doc.file?.kind ?? ''}`} aria-hidden="true">{(doc.file?.name.split('.').pop() ?? 'file').slice(0, 4).toUpperCase()}</span>
+              <span className="vaultRowText"><strong dir="auto">{doc.title}</strong>
+                {doc.file && <small><bdi dir="ltr">{doc.file.name} ({formatBytes(doc.file.size_bytes)})</bdi></small>}
+                {doc.number_masked && <small><bdi dir="ltr">{doc.number_masked}</bdi></small>}
+              </span>
+            </button>{isIdentity(doc.category, categories) && <StatusChip tone="muted"><Lock aria-hidden="true" />{t('vault.row.identity')}</StatusChip>}</th>
+            <td className="vaultOpt">{doc.first_link ? <span className="vaultLinkCell"><strong dir="auto">{linkLabel(doc.first_link)}</strong>
+              <small>{t(`vault.link.${doc.first_link.target_type}` as MessageKey)}{doc.links_count > 1 ? ` · ${t('vault.row.moreLinks', { count: doc.links_count - 1 })}` : ''}</small></span>
+              : <span className="muted">{t('vault.row.noLink')}</span>}</td>
+            <td><StatusChip tone="muted">{categoryLabel(doc.category, categories)}</StatusChip></td>
+            <td className="vaultOpt">{formatDateTime(doc.updated_at, { dateStyle: 'medium' })}</td>
+            <td>{doc.expiry_date ? day(doc.expiry_date) : <span className="muted">{t('vault.row.noExpiry')}</span>}</td>
+            <td><StatusChip tone={rowStatusTone(state)}>{state === 'restricted' ? <Lock aria-hidden="true" /> : state === 'valid' ? <Check aria-hidden="true" /> : <CircleAlert aria-hidden="true" />}{t(`vault.status.${state}` as MessageKey)}</StatusChip></td>
+            <td className="vaultActions">
+              {doc.file && doc.file.scan_status !== 'infected' && <button type="button" className="vaultIconButton" aria-label={t('vault.row.download', { title: doc.title })} onClick={() => void download(doc)}><Download aria-hidden="true" /></button>}
+              <button type="button" className="vaultIconButton" aria-label={t('vault.row.versions', { title: doc.title, version: doc.file?.version ?? 1 })} onClick={() => onFocus(doc.id)}><History aria-hidden="true" /></button>
+            </td>
+          </tr>;
+        })}</tbody>
+      </table></div>}
+      {embedded && load.state === 'ready' && items.length > 0 && cursor && <div className="actions vaultMore"><a className="linkButton" href={hashOf('documents')}>{t('vault.docs.all')}</a></div>}
+      {!embedded && cursor && load.state === 'ready' && <div className="actions vaultMore"><button type="button" className="secondary" disabled={more === 'loading'} onClick={() => void loadMore()}>{more === 'loading' ? t('vault.loading') : t('vault.list.more')}</button></div>}
       {typeof more === 'object' && <Notice error>{more.error}</Notice>}
-    </section>
+    </FinCard>
     {focus && <DocumentDetail key={focus} id={focus} meta={meta} onClose={() => onFocus(null)} onChanged={onChanged} />}
   </div>;
 }
@@ -466,10 +624,10 @@ function Links({ doc, meta, onChanged }: { doc: VaultDocumentDetail; meta: Vault
 
 // --------------------------------------------------------------------------- adding
 
-function AddDialog({ meta, onClose, onAdded, onOpenExisting }: { meta: VaultMeta; onClose(): void; onAdded(doc: VaultDocument, text: string): void; onOpenExisting(id: string): void }) {
+function AddDialog({ meta, scan, onClose, onAdded, onOpenExisting }: { meta: VaultMeta; scan?: boolean; onClose(): void; onAdded(doc: VaultDocument, text: string): void; onOpenExisting(id: string): void }) {
   const [file, setFile] = useState<File | null>(null);
   const [title, setTitle] = useState('');
-  const [category, setCategory] = useState('other');
+  const [category, setCategory] = useState(scan ? 'receipt' : 'other');
   const [access, setAccess] = useState<'private' | 'workspace'>('private');
   const [problem, setProblem] = useState<string | null>(null);
   const [duplicate, setDuplicate] = useState<{ id: string; inTrash: boolean } | null>(null);
@@ -484,7 +642,14 @@ function AddDialog({ meta, onClose, onAdded, onOpenExisting }: { meta: VaultMeta
     try {
       const doc = await api.upload(file, { title: title.trim() || file.name.replace(/\.[^.]+$/, ''), category, access_class: access, allowDuplicate }, setProgress);
       const reads = meta.categories.find((c) => c.id === category)?.reads;
-      onAdded(doc, reads && ((reads === 'receipt' && meta.settings.ocr_receipts) || (reads === 'dates' && meta.settings.ocr_identity_dates)) ? t('vault.add.doneScan', { title: doc.title }) : t('vault.add.done', { title: doc.title }));
+      const automatic = Boolean(reads && ((reads === 'receipt' && meta.settings.ocr_receipts) || (reads === 'dates' && meta.settings.ocr_identity_dates)));
+      if (scan && reads && !automatic) {
+        // Scan document reads it now, whatever the automatic switch says; the result still waits for review.
+        try { await api.extract(doc.id); onAdded(doc, t('vault.add.doneScan', { title: doc.title })); }
+        catch (error) { onAdded(doc, t('vault.add.scanFailed', { title: doc.title, message: describeError(error) })); }
+        return;
+      }
+      onAdded(doc, automatic ? t('vault.add.doneScan', { title: doc.title }) : t('vault.add.done', { title: doc.title }));
     } catch (error) {
       setProgress(null);
       const found = api.duplicateOf(error);
@@ -492,10 +657,12 @@ function AddDialog({ meta, onClose, onAdded, onOpenExisting }: { meta: VaultMeta
       setProblem(describeError(error));
     }
   };
-  return <Modal title={t('vault.add.title')} className="formDialog vaultAddDialog" onClose={onClose}>
-    <form noValidate onSubmit={(e) => void submit(e)} aria-label={t('vault.add.title')}>
-      <label className="field" htmlFor={ids.file}><span>{t('vault.add.file')}</span>
-        <input id={ids.file} type="file" accept={meta.accepted_extensions.join(',')} onChange={(e) => { setFile(e.target.files?.[0] ?? null); setDuplicate(null); setProblem(null); }} />
+  const heading = scan ? t('vault.scanDialog.title') : t('vault.add.title');
+  return <Modal title={heading} className="formDialog vaultAddDialog" onClose={onClose}>
+    <form noValidate onSubmit={(e) => void submit(e)} aria-label={heading}>
+      {scan && <p className="muted">{meta.ocr_connected ? t('vault.scan.text') : t('vault.scan.noOcr')}</p>}
+      <label className="field" htmlFor={ids.file}><span>{scan ? t('vault.scan.file') : t('vault.add.file')}</span>
+        <input id={ids.file} type="file" accept={scan ? 'image/*,.pdf' : meta.accepted_extensions.join(',')} capture={scan ? 'environment' : undefined} onChange={(e) => { setFile(e.target.files?.[0] ?? null); setDuplicate(null); setProblem(null); }} />
         <small className="muted">{t('vault.add.limits', { size: formatBytes(meta.max_upload_bytes) })}</small></label>
       <label className="field" htmlFor={ids.title}><span>{t('vault.field.title')}</span><input id={ids.title} dir="auto" maxLength={200} value={title} placeholder={file?.name ?? ''} onChange={(e) => setTitle(e.target.value)} /></label>
       <label className="field" htmlFor={ids.category}><span>{t('vault.field.category')}</span>
@@ -509,7 +676,7 @@ function AddDialog({ meta, onClose, onAdded, onOpenExisting }: { meta: VaultMeta
         {duplicate ? <>
           <button type="button" onClick={() => onOpenExisting(duplicate.id)} disabled={duplicate.inTrash}>{t('vault.add.openExisting')}</button>
           <button type="button" className="secondary" onClick={(e) => void submit(e as unknown as FormEvent, true)}>{t('vault.add.anyway')}</button>
-        </> : <button type="submit" disabled={progress !== null}><Upload aria-hidden="true" />{progress !== null ? t('vault.add.sending') : t('vault.add.submit')}</button>}
+        </> : <button type="submit" disabled={progress !== null}><Upload aria-hidden="true" />{progress !== null ? t('vault.add.sending') : scan ? t('vault.scan.submit') : t('vault.add.submit')}</button>}
         <button type="button" className="secondary" onClick={onClose}>{t('vault.cancel')}</button>
       </div>
     </form>
@@ -630,7 +797,6 @@ function SettingsTab({ meta, onChanged }: { meta: VaultMeta | null; onChanged(te
     try { await api.saveSettings({ reminder_days: reminder, trash_days: trash, ocr_receipts: form.ocr_receipts, ocr_identity_dates: form.ocr_identity_dates }); onChanged(t('vault.settings.saved')); }
     catch (e) { setProblem(describeError(e)); }
   };
-  const custom = meta.categories.filter((c) => !c.built_in);
   return <div className="vaultSettings">
     <form className="surface vaultCard" aria-label={t('vault.settings.title')} noValidate onSubmit={(e) => void save(e)}>
       <h2>{t('vault.settings.title')}</h2>
@@ -644,17 +810,72 @@ function SettingsTab({ meta, onChanged }: { meta: VaultMeta | null; onChanged(te
       {problem && <Notice error>{problem}</Notice>}
       {manage && <div className="actions"><button type="submit">{t('vault.save')}</button></div>}
     </form>
-    <section className="surface vaultCard" aria-labelledby="vault-cats"><h2 id="vault-cats">{t('vault.cats.title')}</h2>
+  </div>;
+}
+
+function CategoriesTab({ meta, tick, onChanged }: { meta: VaultMeta | null; tick: number; onChanged(text?: string): void }) {
+  const [label, setLabel] = useState('');
+  const [problem, setProblem] = useState<string | null>(null);
+  const [counts, setCounts] = useState<Record<string, number> | null>(null);
+  const labelId = useId();
+  useEffect(() => {
+    // Counts per category from the documents themselves (the first 100, newest first): honest, never estimated beyond that.
+    api.listDocuments(filterQuery({ q: '', category: '', access: '', expiry: '' }, 'active', null, 100)).then((page) => {
+      const out: Record<string, number> = {};
+      for (const doc of page.items) out[doc.category] = (out[doc.category] ?? 0) + 1;
+      setCounts(page.next_cursor ? null : out);
+    }, () => setCounts(null));
+  }, [tick]);
+  if (!meta) return <LoadingSkeleton label={t('vault.loading')} rows={4} />;
+  const manage = meta.can_manage;
+  const custom = meta.categories.filter((c) => !c.built_in);
+  const builtIn = meta.categories.filter((c) => c.built_in);
+  return <div className="vaultTwo">
+    <FinCard title={t('vault.cats.builtIn')} icon={<Tags />}>
+      <ul className="vaultCatList">{builtIn.map((c) => <li key={c.id}>
+        <span><strong>{categoryLabel(c.id, meta.categories)}</strong>
+          <small className="muted">{c.identity ? t('vault.cats.identity') : c.reads === 'receipt' ? t('vault.cats.readsReceipt') : c.reads === 'dates' ? t('vault.cats.readsDates') : t('vault.cats.plain')}</small></span>
+        {counts && <StatusChip tone="muted">{t('vault.cats.count', { count: counts[c.id] ?? 0 })}</StatusChip>}
+      </li>)}</ul>
+    </FinCard>
+    <FinCard title={t('vault.cats.title')} icon={<Tags />}>
       <p className="muted">{t('vault.cats.text')}</p>
+      {!manage && <p className="notice accessNotice" role="note"><Lock aria-hidden="true" />{t('vault.settings.ownerOnly')}</p>}
       {custom.length ? <ul className="vaultPeople">{custom.map((c) => <li key={c.id}><bdi dir="auto">{c.label}</bdi>
+        {counts && <StatusChip tone="muted">{t('vault.cats.count', { count: counts[c.id] ?? 0 })}</StatusChip>}
         {manage && <button type="button" className="secondary" aria-label={t('vault.cats.removeLabel', { name: c.label ?? '' })} onClick={() => void api.deleteCategory(c.id).then(() => onChanged(t('vault.cats.removed')), (e) => setProblem(describeError(e)))}><X aria-hidden="true" />{t('vault.share.remove')}</button>}</li>)}</ul>
         : <p className="muted">{t('vault.cats.none')}</p>}
       {manage && <form className="vaultInline" onSubmit={(e) => { e.preventDefault(); if (label.trim()) void api.addCategory(label.trim()).then(() => { setLabel(''); onChanged(t('vault.cats.added')); }, (err) => setProblem(describeError(err))); }}>
-        <label className="field" htmlFor={ids.label}><span>{t('vault.cats.name')}</span><input id={ids.label} dir="auto" maxLength={80} value={label} onChange={(e) => setLabel(e.target.value)} /></label>
+        <label className="field" htmlFor={labelId}><span>{t('vault.cats.name')}</span><input id={labelId} dir="auto" maxLength={80} value={label} onChange={(e) => setLabel(e.target.value)} /></label>
         <button type="submit" className="secondary" disabled={!label.trim()}><Plus aria-hidden="true" />{t('vault.cats.add')}</button>
       </form>}
-    </section>
-    {meta.can_write && <Devices />}
+      {problem && <Notice error>{problem}</Notice>}
+    </FinCard>
+  </div>;
+}
+
+function AccessTab({ meta }: { meta: VaultMeta | null }) {
+  if (!meta) return <LoadingSkeleton label={t('vault.loading')} rows={4} />;
+  const rows: [MessageKey, MessageKey, MessageKey, MessageKey][] = [
+    ['vault.who.seeWorkspace', 'vault.who.no', 'vault.who.yes', 'vault.who.yes'],
+    ['vault.who.seePrivate', 'vault.who.sharedOnly', 'vault.who.sharedOnly', 'vault.who.sharedOnly'],
+    ['vault.who.add', 'vault.who.no', 'vault.who.yes', 'vault.who.yes'],
+    ['vault.who.change', 'vault.who.no', 'vault.who.own', 'vault.who.ownAndWorkspace'],
+    ['vault.who.share', 'vault.who.no', 'vault.who.adder', 'vault.who.adder'],
+    ['vault.who.settings', 'vault.who.no', 'vault.who.no', 'vault.who.yes'],
+  ];
+  return <div className="vaultTwo">
+    <div className="vaultStack">
+      <FinCard title={t('vault.who.title')} icon={<Users />} subtitle={meta.can_manage ? t('vault.who.youOwner') : meta.can_write ? t('vault.who.youMember') : t('vault.who.youViewer')}>
+        <div className="finTableWrap" tabIndex={0}><table className="finGrid">
+          <caption className="visuallyHidden">{t('vault.who.title')}</caption>
+          <thead><tr><th scope="col">{t('vault.who.action')}</th><th scope="col">{t('vault.who.viewer')}</th><th scope="col">{t('vault.who.member')}</th><th scope="col">{t('vault.who.owner')}</th></tr></thead>
+          <tbody>{rows.map(([label, ...cells]) => <tr key={label}><th scope="row">{t(label)}</th>{cells.map((c, i) => <td key={i}>{t(c)}</td>)}</tr>)}</tbody>
+        </table></div>
+      </FinCard>
+      <SecurityStrip meta={meta} />
+    </div>
+    {meta.can_write ? <Devices /> : <FinCard title={t('vault.devices.title')} icon={<Smartphone />}><p className="muted">{t('vault.devices.viewer')}</p></FinCard>}
   </div>;
 }
 

@@ -23,7 +23,7 @@ from ..schemas import TenantContext
 from ..scoped_store import open_scoped_store
 from .connectors import Connection, ConnectionStatus
 from .execution import ExecSettings, GlobalSwitch, Intent, IntentStatus
-from .guardian import GuardianChange, GuardianPolicy
+from .guardian import GuardianChange, GuardianPolicy, GuardianReview
 from .intel.marketdata import Instrument, StoredCandle
 from .intel.records import AgentDecision, StrategyConfig, StrategyRun
 from .models import (
@@ -108,6 +108,9 @@ class FinanceStore(Protocol):
     def list_changes(self, context: TenantContext, *, status: str | None, limit: int) -> list[GuardianChange]: ...
     def get_change(self, context: TenantContext, change_id: str) -> GuardianChange | None: ...
     def save_change(self, change: GuardianChange) -> GuardianChange: ...
+    # the review queue: the person's decisions on flagged payments (one per transaction)
+    def list_reviews(self, context: TenantContext, transaction_ids: list[str]) -> list[GuardianReview]: ...
+    def save_review(self, review: GuardianReview) -> GuardianReview: ...
     # Stage 5: connections and exchange rates
     def list_connections(self, context: TenantContext) -> list[Connection]: ...
     def get_connection(self, context: TenantContext, connection_id: str) -> Connection | None: ...
@@ -259,6 +262,7 @@ class InMemoryFinanceStore:
         self.planning: dict[tuple[str, str, str], Planning] = {}
         self.policies: dict[str, GuardianPolicy] = {}
         self.changes: dict[str, GuardianChange] = {}
+        self.reviews: dict[str, GuardianReview] = {}
         self.connections: dict[str, Connection] = {}
         self.fx_rates: dict[str, FxRate] = {}
         self.prices: dict[str, PriceRecord] = {}
@@ -490,6 +494,19 @@ class InMemoryFinanceStore:
         with self._lock:
             self.changes[change.id] = change.model_copy(deep=True)
             return change
+
+    def list_reviews(self, context: TenantContext, transaction_ids: list[str]) -> list[GuardianReview]:
+        wanted = set(transaction_ids)
+        with self._lock:
+            return [r.model_copy() for r in self.reviews.values() if mine(r, context) and r.transaction_id in wanted]
+
+    def save_review(self, review: GuardianReview) -> GuardianReview:
+        with self._lock:
+            # One decision per payment: a new one replaces the last (the audit log keeps them all).
+            for key in [k for k, r in self.reviews.items() if mine(r, _ctx(review)) and r.transaction_id == review.transaction_id]:
+                del self.reviews[key]
+            self.reviews[review.id] = review.model_copy()
+            return review
 
     # Stage 5: connections and rates ------------------------------------------------------
 
@@ -849,7 +866,7 @@ class InMemoryFinanceStore:
 
     def _tables(self) -> tuple[dict[str, Any], ...]:
         return (
-            self.transactions, self.imports, self.accounts, *self.items.values(), self.policies, self.changes,
+            self.transactions, self.imports, self.accounts, *self.items.values(), self.policies, self.changes, self.reviews,
             self.fx_rates, self.connections, self.prices, self.orders, self.portfolios, self.intents, self.widenings, self.incidents,
             self.bars, self.instruments, self.strategy_runs, self.strategies, self.decisions,
         )

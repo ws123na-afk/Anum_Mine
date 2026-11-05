@@ -20,7 +20,7 @@ from sqlalchemy.orm import Mapped, Session, mapped_column
 
 from anum_api.finance.connectors import Connection
 from anum_api.finance.execution import ExecSettings, GlobalSwitch, Intent, IntentStatus
-from anum_api.finance.guardian import GuardianChange, GuardianPolicy
+from anum_api.finance.guardian import GuardianChange, GuardianPolicy, GuardianReview
 from anum_api.finance.intel.marketdata import Instrument, StoredCandle
 from anum_api.finance.intel.records import AgentDecision, StrategyConfig, StrategyRun
 from anum_api.finance.models import (
@@ -227,6 +227,19 @@ class FinanceGuardianChangeRecord(Base, _Owned):
     created_at: Mapped[datetime] = mapped_column(TS)
     expires_at: Mapped[datetime] = mapped_column(TS)
     decided_at: Mapped[datetime | None] = mapped_column(TS, nullable=True)
+
+
+class FinanceGuardianReviewRecord(Base, _Owned):
+    __tablename__ = "finance_guardian_reviews"
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    transaction_id: Mapped[str] = mapped_column(String(80))
+    decision: Mapped[str] = mapped_column(String(12))
+    amount: Mapped[Decimal] = mapped_column(MONEY)
+    currency: Mapped[str] = mapped_column(String(3))
+    codes: Mapped[list[str]] = mapped_column(JSONB)
+    snoozed_until: Mapped[datetime | None] = mapped_column(TS, nullable=True)
+    decided_at: Mapped[datetime] = mapped_column(TS)
 
 
 class FinanceConnectionRecord(Base, _Owned):
@@ -886,6 +899,28 @@ class SqlAlchemyFinanceStore:
         self.session.flush()
         return change
 
+    def list_reviews(self, context: TenantContext, transaction_ids: list[str]) -> list[GuardianReview]:
+        if not transaction_ids:
+            return []
+        rows = self.session.scalars(
+            select(FinanceGuardianReviewRecord).where(
+                *self._mine(FinanceGuardianReviewRecord, context), FinanceGuardianReviewRecord.transaction_id.in_(transaction_ids)
+            )
+        )
+        return [GuardianReview.model_validate({name: getattr(row, name) for name in GuardianReview.model_fields}) for row in rows]
+
+    def save_review(self, review: GuardianReview) -> GuardianReview:
+        """One decision per person and payment: a new one replaces the last (the audit log keeps them all)."""
+        self._require(review)
+        values = {**_fields(review), "codes": list(review.codes)}
+        update_values = {k: v for k, v in values.items() if k not in ("id", "tenant_id", "workspace_id", "owner_user_id", "transaction_id")}
+        self.session.execute(
+            insert(FinanceGuardianReviewRecord).values(**values)
+            .on_conflict_do_update(constraint="uq_finance_guardian_reviews_transaction", set_=update_values)
+        )
+        self.session.flush()
+        return review
+
     # Stage 5: connections and rates -------------------------------------------------------
 
     @staticmethod
@@ -1321,7 +1356,7 @@ class SqlAlchemyFinanceStore:
         *SMS_RECORDS, *IBKR_RECORDS, FinanceAgentDecisionRecord, FinanceStrategyRunRecord, FinanceStrategyRecord, FinanceMarketBarRecord, FinanceInstrumentRecord,
         FinanceLiveIncidentRecord, FinanceLiveWideningRecord, FinancePaperOrderRecord, FinancePaperPortfolioRecord, FinancePriceRecord, FinanceExecIntentRecord, FinanceExecSettingsRecord,
         FinanceTransactionRecord, FinanceImportRecord, FinanceHoldingRecord, FinanceBillRecord, FinanceDebtRecord,
-        FinanceGoalRecord, FinanceFxRateRecord, FinanceConnectionRecord, FinanceGuardianChangeRecord,
+        FinanceGoalRecord, FinanceFxRateRecord, FinanceConnectionRecord, FinanceGuardianReviewRecord, FinanceGuardianChangeRecord,
         FinanceGuardianVersionRecord, FinancePlanRecord, FinanceAccountRecord, FinanceSettingsRecord, FinanceStatementTemplateRecord,
     )
 

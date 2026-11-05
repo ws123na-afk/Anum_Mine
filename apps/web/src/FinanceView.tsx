@@ -2,9 +2,9 @@
 // summary band, the month's spend by category, accounts, transactions with search and paging, CSV
 // statement import with a mapping preview, bills, debts, goals and manual holdings. Nothing here
 // moves money: there is no pay, transfer or trade button anywhere, by design (Stage 2).
-import { Suspense, lazy, useCallback, useEffect, useId, useMemo, useState, type FormEvent, type ReactNode } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useId, useMemo, useState, type FormEvent } from 'react';
 import {
-  ArrowDownLeft, ArrowUpRight, ChevronLeft, ChevronRight, CircleDot, Download, FileUp, Landmark, Lock, Pencil, PiggyBank,
+  ArrowDownLeft, ArrowUpRight, ChevronLeft, ChevronRight, CircleDot, Download, FileUp, Landmark, Lock, PiggyBank,
   Plus, RefreshCw, Search, Settings2, Trash2, Undo2, Wallet,
 } from 'lucide-react';
 import type {
@@ -24,8 +24,8 @@ import { figure, type Figure } from './lib/pageSummary';
 import { viewLabel } from './lib/shell';
 import { ConfirmDialog, Modal } from './Dialog';
 import { Denied, Empty, FormActions, FormError, LoadError, Money, Notice, failed, type Load } from './FinanceParts';
-import { ConnectionsPanel, GuardianPanel, SafeToSpendCard, reasonText } from './FinancePlan';
-import { ExecutionPanel, TradingPanel } from './FinanceTrading';
+import { ConnectionsPanel, SafeToSpendCard, reasonText } from './FinancePlan';
+import { ExecutionPanel } from './FinanceTrading';
 import { IntelPanel } from './FinanceIntel';
 import { PageHeader, PageSummary, useMediaQuery, type Crumb } from './PageParts';
 import { FinanceSectionNav } from './FinanceShell';
@@ -50,6 +50,13 @@ const SafePage = lazy(() => import('./FinanceSafePage').then((m) => ({ default: 
 const BillsBudgetsPage = lazy(() => import('./FinanceBillsBudgets').then((m) => ({ default: m.BillsBudgetsPage })));
 const DebtsGoalsPage = lazy(() => import('./FinanceDebtsGoals').then((m) => ({ default: m.DebtsGoalsPage })));
 const PLANNING_TABS: ReadonlySet<FinanceTab> = new Set<FinanceTab>(['bills', 'budgets', 'debts', 'goals']);
+// Accounts and Transactions and ledger draw their own page head (docs/finance.md#register-and-account-overview).
+const AccountsPage = lazy(() => import('./FinanceAccountsPage').then((m) => ({ default: m.AccountsPage })));
+const TransactionsPage = lazy(() => import('./FinanceTransactionsPage').then((m) => ({ default: m.TransactionsPage })));
+// Holdings (docs/finance.md#holdings) and the paper trading lab (docs/finance.md#paper-trading-lab) draw their own head too.
+const HoldingsPage = lazy(() => import('./FinanceHoldings').then((m) => ({ default: m.HoldingsPage })));
+const LabPage = lazy(() => import('./FinanceLab').then((m) => ({ default: m.LabPage })));
+const GuardianPage = lazy(() => import('./FinanceGuardian').then((m) => ({ default: m.GuardianPage })));
 const KINDS: FinanceAccountKind[] = ['bank', 'card', 'cash', 'loan', 'investment'];
 const CATEGORIES: FinanceCategory[] = [
   'groceries', 'dining', 'transport', 'fuel', 'utilities', 'telecom', 'housing', 'shopping', 'health', 'education', 'entertainment',
@@ -80,6 +87,8 @@ export function FinanceView() {
   const [summary, setSummary] = useState<Load<FinanceSummary>>({ kind: 'loading' });
   const [accounts, setAccounts] = useState<Load<FinanceAccount[]>>({ kind: 'loading' });
   const [settingsOpen, setSettingsOpen] = useState(false);
+  // Accounts hands an account (and optionally the Imports tab) to Transactions and ledger.
+  const [txOpen, setTxOpen] = useState<{ accountId?: string; tab?: 'imports'; key: number }>({ key: 0 });
   const loadSummary = useCallback(async () => {
     setSummary((current) => current.kind === 'ready' ? current : { kind: 'loading' });
     try { setSummary({ kind: 'ready', value: await api.getSummary(month ?? undefined) }); } catch (e) { setSummary(failed(e)); }
@@ -98,6 +107,16 @@ export function FinanceView() {
       <Suspense fallback={<Notice busy>{t('finance.loading')}</Notice>}>
         {tab === 'reports' && <ReportsPage onOpen={pick} />}
         {tab === 'safe' && <SafePage onOpen={pick} onChanged={refresh} />}
+        {tab === 'accounts' && <AccountsPage accounts={accounts} base={summary.kind === 'ready' ? summary.value.base_currency : 'AED'} onChanged={refresh}
+          onOpenTransactions={(accountId) => { setTxOpen((o) => ({ accountId, key: o.key + 1 })); pick('transactions'); }}
+          onImport={() => { setTxOpen((o) => ({ tab: 'imports', key: o.key + 1 })); pick('transactions'); }} />}
+        {tab === 'transactions' && (accounts.kind === 'loading' ? <Notice busy>{t('finance.loading')}</Notice>
+          : <TransactionsPage key={txOpen.key} accounts={accounts.kind === 'ready' ? accounts.value : []} initialAccountId={txOpen.accountId} initialTab={txOpen.tab}
+            onChanged={refresh} onAddAccount={() => pick('accounts')} />)}
+        {tab === 'holdings' && <HoldingsPage onOpen={pick} />}
+        {tab === 'trading' && <LabPage base={summary.kind === 'ready' ? summary.value.base_currency : 'AED'} onOpen={pick} />}
+        {/* Until the summary arrives, the settings' default base currency (AED) prefills Test and new limits. */}
+        {tab === 'guardian' && <GuardianPage base={summary.kind === 'ready' ? summary.value.base_currency : 'AED'} onOpen={pick} />}
       </Suspense>
     </div>;
   }
@@ -133,28 +152,23 @@ export function FinanceView() {
     {!ownHead && header}
     {!ownHead && <PageSummary label={t('finance.summary.label')} figures={figures} footer={<p className="muted finReadOnly">{t('finance.readOnly')}</p>} />}
     <FinanceSectionNav tab={tab} onPick={pick} />
-    {noAccounts && tab !== 'accounts' && <section className="surface cmPanel cmWelcome" aria-labelledby="fin-welcome">
+    {noAccounts && <section className="surface cmPanel cmWelcome" aria-labelledby="fin-welcome">
       <Wallet aria-hidden="true" />
       <div><h2 id="fin-welcome">{t('finance.welcome.title')}</h2><p className="muted">{t('finance.welcome.text')}</p>
         <div className="actions"><button type="button" onClick={() => pick('accounts')}><Plus aria-hidden="true" />{t('finance.accounts.add')}</button></div></div>
     </section>}
     {accounts.kind === 'error' && <LoadError message={t('finance.error.accounts', { message: accounts.message })} retry={() => void loadAccounts()} />}
     {tab === 'overview' && <Overview summary={s} month={month ?? s.month} onMonth={setMonth} onOpen={pick} />}
-    {tab === 'guardian' && <GuardianPanel base={base} />}
     {tab === 'connections' && <ConnectionsPanel />}
-    {tab === 'trading' && <TradingPanel base={base} onOpen={pick} />}
     {tab === 'intel' && <IntelPanel onOpen={pick} />}
     {tab === 'execution' && <ExecutionPanel />}
     {tab === 'ibkr' && <Suspense fallback={<section className="surface cmPanel"><Notice busy>{t('ibkr.loading')}</Notice></section>}><IbkrPanel /></Suspense>}
     {tab === 'research' && <Suspense fallback={<section className="surface cmPanel"><Notice busy>{t('fresearch.loading')}</Notice></section>}><ResearchPanel /></Suspense>}
     {tab === 'sms' && <Suspense fallback={<section className="surface cmPanel"><Notice busy>{t('fsms.loading')}</Notice></section>}><SmsPanel /></Suspense>}
     {tab === 'ledger' && <Suspense fallback={<section className="surface cmPanel"><Notice busy>{t('fsms.loading')}</Notice></section>}><LedgerPanel /></Suspense>}
-    {tab === 'transactions' && <Transactions accounts={accountList} onChanged={onChanged} onImport={() => pick('import')} />}
-    {tab === 'accounts' && <Accounts accounts={accounts} base={base} onChanged={onChanged} />}
     {tab === 'import' && <Import accounts={accountList} onChanged={onChanged} onAddAccount={() => pick('accounts')} onDone={() => pick('transactions')} />}
     {(tab === 'bills' || tab === 'budgets') && <Suspense fallback={planning}><BillsBudgetsPage key={tab} initial={tab} accounts={accountList} base={base} today={s.today} onOpen={pick} onChanged={onChanged} /></Suspense>}
     {(tab === 'debts' || tab === 'goals') && <Suspense fallback={planning}><DebtsGoalsPage key={tab} initial={tab} accounts={accountList} base={base} today={s.today} onOpen={pick} onChanged={onChanged} /></Suspense>}
-    {tab === 'holdings' && <Holdings accounts={accountList} onChanged={onChanged} onAddAccount={() => pick('accounts')} />}
     {settingsOpen && <SettingsDialog onClose={(saved) => { setSettingsOpen(false); if (saved) refresh(); }} />}
   </div>;
 }
@@ -281,90 +295,8 @@ function SpendChart({ summary, currency, onOpen }: { summary: FinanceSummary; cu
 
 // ---- Transactions ----------------------------------------------------------------------------
 
-function Pager({ page, onPage, label }: { page: FinancePage<unknown>; onPage: (offset: number) => void; label: string }) {
-  if (page.total <= page.limit && page.offset === 0) return <p className="muted cmPagerText">{rangeLabel(page.offset, page.items.length, page.total)}</p>;
-  return <nav className="cmPager" aria-label={label}>
-    <button type="button" className="secondary" disabled={page.offset === 0} onClick={() => onPage(Math.max(0, page.offset - page.limit))}><ChevronLeft aria-hidden="true" className="cmFlip" />{t('finance.page.previous')}</button>
-    <span className="muted" aria-live="polite">{rangeLabel(page.offset, page.items.length, page.total)}</span>
-    <button type="button" className="secondary" disabled={page.offset + page.items.length >= page.total} onClick={() => onPage(page.offset + page.limit)}>{t('finance.page.next')}<ChevronRight aria-hidden="true" className="cmFlip" /></button>
-  </nav>;
-}
 
-interface Filters { q: string; account_id: string; category: string; direction: '' | 'in' | 'out'; from: string; to: string }
-const NO_FILTERS: Filters = { q: '', account_id: '', category: '', direction: '', from: '', to: '' };
-
-function Transactions({ accounts, onChanged, onImport }: { accounts: FinanceAccount[]; onChanged: () => void; onImport: () => void }) {
-  const [draft, setDraft] = useState<Filters>(NO_FILTERS), [filters, setFilters] = useState<Filters>(NO_FILTERS), [offset, setOffset] = useState(0);
-  const [state, setState] = useState<Load<FinancePage<FinanceTransaction>>>({ kind: 'loading' });
-  const [editing, setEditing] = useState<FinanceTransaction | 'new' | null>(null), [removing, setRemoving] = useState<FinanceTransaction | null>(null);
-  const [notice, setNotice] = useState<{ error?: boolean; text: string } | null>(null), [busy, setBusy] = useState(false);
-  const names = useMemo(() => new Map(accounts.map((a) => [a.id, a.name])), [accounts]);
-  const load = useCallback(async () => {
-    setState((current) => current.kind === 'ready' ? current : { kind: 'loading' });
-    try { setState({ kind: 'ready', value: await api.listTransactions({ ...filters, limit: PAGE, offset }) }); } catch (e) { setState(failed(e)); }
-  }, [filters, offset]);
-  useEffect(() => { void load(); }, [load]);
-  const filtered = Object.values(filters).some(Boolean);
-  const wide = useMediaQuery('(min-width: 768px)');
-  const moreFilters = <>
-        <label className="cmInline"><span>{t('finance.col.account')}</span><select value={draft.account_id} onChange={(e) => setDraft({ ...draft, account_id: e.target.value })}><option value="">{t('finance.filter.allAccounts')}</option>{accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</select></label>
-        <label className="cmInline"><span>{t('finance.col.category')}</span><select value={draft.category} onChange={(e) => setDraft({ ...draft, category: e.target.value })}><option value="">{t('finance.filter.allCategories')}</option>{CATEGORIES.map((c) => <option key={c} value={c}>{categoryLabel(c)}</option>)}</select></label>
-        <label className="cmInline"><span>{t('finance.filter.direction')}</span><select value={draft.direction} onChange={(e) => setDraft({ ...draft, direction: e.target.value as Filters['direction'] })}><option value="">{t('finance.filter.both')}</option><option value="out">{t('finance.filter.out')}</option><option value="in">{t('finance.filter.in')}</option></select></label>
-        <label className="cmInline"><span>{t('finance.filter.from')}</span><input type="date" value={draft.from} onChange={(e) => setDraft({ ...draft, from: e.target.value })} /></label>
-        <label className="cmInline"><span>{t('finance.filter.to')}</span><input type="date" value={draft.to} onChange={(e) => setDraft({ ...draft, to: e.target.value })} /></label>
-  </>;
-  async function exportCsv() {
-    try { await api.downloadTransactions(filters); setNotice({ text: t('finance.transactions.exported') }); } catch (e) { setNotice({ error: true, text: describeError(e) }); }
-  }
-  async function confirmRemove() {
-    if (!removing) return;
-    setBusy(true);
-    try { await api.deleteTransaction(removing.id); setNotice({ text: t('finance.transactions.deleted') }); setRemoving(null); await load(); onChanged(); }
-    catch (e) { setNotice({ error: true, text: describeError(e) }); setRemoving(null); } finally { setBusy(false); }
-  }
-  return <section className="surface cmPanel" aria-labelledby="fin-transactions">
-    <div className="sectionHeader"><h2 id="fin-transactions">{t('finance.tab.transactions')}</h2>
-      <div className="finHeadActions">
-        <button type="button" className="secondary" onClick={() => void exportCsv()} disabled={state.kind !== 'ready' || state.value.total === 0}><Download aria-hidden="true" />{t('finance.transactions.export')}</button>
-        <button type="button" className="cmPrimary" disabled={accounts.length === 0} onClick={() => setEditing('new')}><Plus aria-hidden="true" />{t('finance.transactions.add')}</button>
-      </div>
-    </div>
-    <form className="cmFilters finFilters" role="search" aria-label={t('finance.transactions.filters')} onSubmit={(e) => { e.preventDefault(); setOffset(0); setFilters({ ...draft }); }}>
-      <label className="cmSearch"><span className="visuallyHidden">{t('finance.transactions.search')}</span><input type="search" value={draft.q} maxLength={200} placeholder={t('finance.transactions.search')} onChange={(e) => setDraft({ ...draft, q: e.target.value })} /></label>
-      {wide ? moreFilters : <details className="finMoreFilters" open={filtered || undefined}><summary>{t('finance.filter.more')}</summary><div className="cmFilters">{moreFilters}</div></details>}
-      <button type="submit" className="secondary"><Search aria-hidden="true" />{t('common.search')}</button>
-      {filtered && <button type="button" className="secondary" onClick={() => { setDraft(NO_FILTERS); setFilters(NO_FILTERS); setOffset(0); }}>{t('finance.filter.clear')}</button>}
-    </form>
-    {notice && <Notice error={notice.error}>{notice.text}</Notice>}
-    {state.kind === 'loading' && <Notice busy>{t('finance.transactions.loading')}</Notice>}
-    {state.kind === 'denied' && <Denied />}
-    {state.kind === 'error' && <LoadError message={t('finance.error.transactions', { message: state.message })} retry={() => void load()} />}
-    {state.kind === 'ready' && (state.value.items.length === 0
-      ? <Empty icon={<FileUp aria-hidden="true" />} title={filtered ? t('finance.transactions.noMatch') : t('finance.transactions.empty')} text={filtered ? t('finance.transactions.noMatchText') : t('finance.transactions.emptyText')}
-        action={filtered ? undefined : <button type="button" onClick={onImport}><FileUp aria-hidden="true" />{t('finance.import.open')}</button>} />
-      : <><div className="cmTableWrap" tabIndex={0}><table className="cmTable finTable finTxTable">
-        <thead><tr><th scope="col">{t('finance.col.date')}</th><th scope="col">{t('finance.col.description')}</th><th scope="col">{t('finance.col.category')}</th><th scope="col" className="num">{t('finance.col.amount')}</th><th scope="col"><span className="visuallyHidden">{t('finance.col.actions')}</span></th></tr></thead>
-        <tbody>{state.value.items.map((row) => <tr key={row.id}>
-          <td className="finDate"><bdi dir="ltr">{row.posted_on}</bdi></td>
-          <td className="finDescription"><strong dir="auto">{row.description}</strong><small dir="auto">{names.get(row.account_id) ?? ''}{row.notes ? ` · ${row.notes}` : ''}</small></td>
-          <td className="finCat">{categoryLabel(row.category)}{row.category_source === 'manual' && <small>{t('finance.transactions.manualCategory')}</small>}</td>
-          <td className="num"><Money value={row.amount} currency={row.currency} signed /></td>
-          <td className="finRowActions">
-            <button type="button" className="iconButton small" onClick={() => setEditing(row)} aria-label={t('finance.transactions.edit', { description: row.description })}><Pencil aria-hidden="true" /></button>
-            <button type="button" className="iconButton small" onClick={() => setRemoving(row)} aria-label={t('finance.transactions.delete', { description: row.description })}><Trash2 aria-hidden="true" /></button>
-          </td>
-        </tr>)}</tbody>
-      </table></div><Pager page={state.value} onPage={setOffset} label={t('finance.transactions.pages')} /></>)}
-    {editing && <Modal title={editing === 'new' ? t('finance.transactions.add') : t('finance.transactions.editTitle')} className="formDialog" onClose={() => setEditing(null)}>
-      <TransactionForm accounts={accounts} transaction={editing === 'new' ? null : editing} onDone={(text) => { setEditing(null); if (text) { setNotice({ text }); void load(); onChanged(); } }} />
-    </Modal>}
-    {removing && <ConfirmDialog title={t('finance.transactions.deleteTitle')} confirmLabel={t('finance.delete')} danger busy={busy} onConfirm={() => void confirmRemove()} onCancel={() => setRemoving(null)}>
-      <p dir="auto">{t('finance.transactions.deleteText', { description: removing.description, amount: isolate(formatAmount(removing.amount, removing.currency)) })}</p>
-    </ConfirmDialog>}
-  </section>;
-}
-
-function TransactionForm({ accounts, transaction, onDone }: { accounts: FinanceAccount[]; transaction: FinanceTransaction | null; onDone: (message: string | null) => void }) {
+export function TransactionForm({ accounts, transaction, onDone }: { accounts: FinanceAccount[]; transaction: FinanceTransaction | null; onDone: (message: string | null) => void }) {
   const [accountId, setAccountId] = useState(transaction?.account_id ?? accounts.find((a) => !a.archived)?.id ?? '');
   const [postedOn, setPostedOn] = useState(transaction?.posted_on ?? today()), [amount, setAmount] = useState(transaction?.amount ?? '');
   const [description, setDescription] = useState(transaction?.description ?? ''), [category, setCategory] = useState<FinanceCategory | ''>(transaction?.category ?? '');
@@ -403,45 +335,7 @@ function TransactionForm({ accounts, transaction, onDone }: { accounts: FinanceA
 
 // ---- Accounts --------------------------------------------------------------------------------
 
-function Accounts({ accounts, base, onChanged }: { accounts: Load<FinanceAccount[]>; base: string; onChanged: () => void }) {
-  const [editing, setEditing] = useState<FinanceAccount | 'new' | null>(null), [removing, setRemoving] = useState<FinanceAccount | null>(null);
-  const [notice, setNotice] = useState<{ error?: boolean; text: string } | null>(null), [busy, setBusy] = useState(false);
-  async function confirmRemove() {
-    if (!removing) return;
-    setBusy(true);
-    try { await api.deleteAccount(removing.id); setNotice({ text: t('finance.accounts.deleted', { name: removing.name }) }); setRemoving(null); onChanged(); }
-    catch (e) { setNotice({ error: true, text: describeError(e) }); setRemoving(null); } finally { setBusy(false); }
-  }
-  async function toggleArchive(account: FinanceAccount) {
-    try { await api.updateAccount(account.id, { archived: !account.archived }); setNotice({ text: account.archived ? t('finance.accounts.restored', { name: account.name }) : t('finance.accounts.archived', { name: account.name }) }); onChanged(); }
-    catch (e) { setNotice({ error: true, text: describeError(e) }); }
-  }
-  return <section className="surface cmPanel" aria-labelledby="fin-accounts">
-    <div className="sectionHeader"><h2 id="fin-accounts">{t('finance.tab.accounts')}</h2><button type="button" className="cmPrimary" onClick={() => setEditing('new')}><Plus aria-hidden="true" />{t('finance.accounts.add')}</button></div>
-    <p className="muted">{t('finance.accounts.privacy')}</p>
-    {notice && <Notice error={notice.error}>{notice.text}</Notice>}
-    {accounts.kind === 'loading' && <Notice busy>{t('finance.accounts.loading')}</Notice>}
-    {accounts.kind === 'error' && <LoadError message={t('finance.error.accounts', { message: accounts.message })} retry={onChanged} />}
-    {accounts.kind === 'ready' && (accounts.value.length === 0
-      ? <Empty icon={<Landmark aria-hidden="true" />} title={t('finance.accounts.none')} text={t('finance.accounts.noneText')} action={<button type="button" onClick={() => setEditing('new')}><Plus aria-hidden="true" />{t('finance.accounts.add')}</button>} />
-      : <ul className="cmList finItems">{accounts.value.map((a) => <li key={a.id} className={a.archived ? 'finArchived' : undefined}>
-        <div><strong dir="auto">{a.name}{a.archived && <span className="statusBadge neutral">{t('finance.accounts.archivedBadge')}</span>}</strong>
-          <small>{t(`finance.kind.${a.kind}` as MessageKey)} · {a.currency}{a.institution ? ` · ${a.institution}` : ''}{a.last4 ? ` · ${t('finance.accounts.endingIn', { last4: a.last4 })}` : ''} · {t('finance.accounts.count', { count: a.transaction_count })}</small></div>
-        <div className="finItemEnd"><Money value={a.balance} currency={a.currency} signed />
-          <button type="button" className="iconButton small" onClick={() => setEditing(a)} aria-label={t('finance.accounts.edit', { name: a.name })}><Pencil aria-hidden="true" /></button>
-          <button type="button" className="iconButton small" onClick={() => void toggleArchive(a)} aria-label={a.archived ? t('finance.accounts.restore', { name: a.name }) : t('finance.accounts.archive', { name: a.name })}><Undo2 aria-hidden="true" /></button>
-          <button type="button" className="iconButton small" onClick={() => setRemoving(a)} aria-label={t('finance.accounts.delete', { name: a.name })}><Trash2 aria-hidden="true" /></button></div>
-      </li>)}</ul>)}
-    {editing && <Modal title={editing === 'new' ? t('finance.accounts.add') : t('finance.accounts.editTitle')} className="formDialog" onClose={() => setEditing(null)}>
-      <AccountForm account={editing === 'new' ? null : editing} base={base} onDone={(text) => { setEditing(null); if (text) { setNotice({ text }); onChanged(); } }} />
-    </Modal>}
-    {removing && <ConfirmDialog title={t('finance.accounts.deleteTitle')} confirmLabel={t('finance.delete')} danger busy={busy} onConfirm={() => void confirmRemove()} onCancel={() => setRemoving(null)}>
-      <p dir="auto">{t('finance.accounts.deleteText', { name: removing.name, count: removing.transaction_count })}</p>
-    </ConfirmDialog>}
-  </section>;
-}
-
-function AccountForm({ account, base, onDone }: { account: FinanceAccount | null; base: string; onDone: (message: string | null) => void }) {
+export function AccountForm({ account, base, onDone }: { account: FinanceAccount | null; base: string; onDone: (message: string | null) => void }) {
   const [name, setName] = useState(account?.name ?? ''), [kind, setKind] = useState<FinanceAccountKind>(account?.kind ?? 'bank');
   const [currency, setCurrency] = useState(account?.currency ?? base), [institution, setInstitution] = useState(account?.institution ?? '');
   const [last4, setLast4] = useState(account?.last4 ?? ''), [opening, setOpening] = useState(account?.opening_balance ?? '0');
@@ -478,7 +372,7 @@ function AccountForm({ account, base, onDone }: { account: FinanceAccount | null
 
 // ---- Import ----------------------------------------------------------------------------------
 
-function Import({ accounts, onChanged, onAddAccount, onDone }: { accounts: FinanceAccount[]; onChanged: () => void; onAddAccount: () => void; onDone: () => void }) {
+export function Import({ accounts, onChanged, onAddAccount, onDone }: { accounts: FinanceAccount[]; onChanged: () => void; onAddAccount: () => void; onDone: () => void }) {
   const [formats, setFormats] = useState<Load<FinanceFormats>>({ kind: 'loading' });
   const [accountId, setAccountId] = useState(accounts.find((a) => !a.archived && a.kind !== 'investment')?.id ?? accounts[0]?.id ?? '');
   const [file, setFile] = useState<{ name: string; content: string } | null>(null);
@@ -613,98 +507,9 @@ function Import({ accounts, onChanged, onAddAccount, onDone }: { accounts: Finan
 // ---- Bills, debts, goals, holdings ------------------------------------------------------------
 
 /** Shared list frame for the four record kinds: load, empty with a next action, error, add, edit, delete. */
-function useItems<T>(list: () => Promise<T[]>) {
-  const [state, setState] = useState<Load<T[]>>({ kind: 'loading' });
-  const load = useCallback(async () => { try { setState({ kind: 'ready', value: await list() }); } catch (e) { setState(failed(e)); } }, [list]);
-  useEffect(() => { void load(); }, [load]);
-  return [state, load] as const;
-}
-
-function ItemsPanel<T extends { id: string; name?: string | null; symbol?: string }>({ id, title, addLabel, items, load, emptyIcon, emptyTitle, emptyText, intro, render, form, remove, onChanged, extra }: {
-  id: string; title: string; addLabel: string; items: Load<T[]>; load: () => Promise<void>; emptyIcon: ReactNode; emptyTitle: string; emptyText: string; intro?: string;
-  render: (item: T) => ReactNode; form: (item: T | null, done: (message: string | null) => void) => ReactNode; remove: (item: T) => Promise<void>; onChanged: () => void; extra?: ReactNode;
-}) {
-  const [editing, setEditing] = useState<T | 'new' | null>(null), [removing, setRemoving] = useState<T | null>(null);
-  const [notice, setNotice] = useState<{ error?: boolean; text: string } | null>(null), [busy, setBusy] = useState(false);
-  const nameOf = (item: T) => item.name || item.symbol || '';
-  async function confirmRemove() {
-    if (!removing) return;
-    setBusy(true);
-    try { await remove(removing); setNotice({ text: t('finance.item.deleted', { name: nameOf(removing) }) }); setRemoving(null); await load(); onChanged(); }
-    catch (e) { setNotice({ error: true, text: describeError(e) }); setRemoving(null); } finally { setBusy(false); }
-  }
-  return <section className="surface cmPanel" aria-labelledby={id}>
-    <div className="sectionHeader"><h2 id={id}>{title}</h2><button type="button" className="cmPrimary" onClick={() => setEditing('new')}><Plus aria-hidden="true" />{addLabel}</button></div>
-    {intro && <p className="muted">{intro}</p>}
-    {notice && <Notice error={notice.error}>{notice.text}</Notice>}
-    {extra}
-    {items.kind === 'loading' && <Notice busy>{t('finance.item.loading')}</Notice>}
-    {items.kind === 'denied' && <Denied />}
-    {items.kind === 'error' && <LoadError message={t('finance.error.items', { message: items.message })} retry={() => void load()} />}
-    {items.kind === 'ready' && (items.value.length === 0
-      ? <Empty icon={emptyIcon} title={emptyTitle} text={emptyText} action={<button type="button" onClick={() => setEditing('new')}><Plus aria-hidden="true" />{addLabel}</button>} />
-      : <ul className="cmList finItems">{items.value.map((item) => <li key={item.id}>{render(item)}
-        <div className="finItemActions">
-          <button type="button" className="iconButton small" onClick={() => setEditing(item)} aria-label={t('finance.item.edit', { name: nameOf(item) })}><Pencil aria-hidden="true" /></button>
-          <button type="button" className="iconButton small" onClick={() => setRemoving(item)} aria-label={t('finance.item.delete', { name: nameOf(item) })}><Trash2 aria-hidden="true" /></button>
-        </div>
-      </li>)}</ul>)}
-    {editing && <Modal title={editing === 'new' ? addLabel : t('finance.item.editTitle', { name: nameOf(editing) })} className="formDialog" onClose={() => setEditing(null)}>
-      {form(editing === 'new' ? null : editing, (text) => { setEditing(null); if (text) { setNotice({ text }); void load(); onChanged(); } })}
-    </Modal>}
-    {removing && <ConfirmDialog title={t('finance.item.deleteTitle', { name: nameOf(removing) })} confirmLabel={t('finance.delete')} danger busy={busy} onConfirm={() => void confirmRemove()} onCancel={() => setRemoving(null)}>
-      <p>{t('finance.item.deleteText')}</p>
-    </ConfirmDialog>}
-  </section>;
-}
-
-function Holdings({ accounts, onChanged, onAddAccount }: { accounts: FinanceAccount[]; onChanged: () => void; onAddAccount: () => void }) {
-  const [items, load] = useItems<FinanceHolding>(api.listHoldings);
-  const brokers = accounts.filter((a) => a.kind === 'investment');
-  if (brokers.length === 0) return <section className="surface cmPanel" aria-labelledby="fin-holdings"><h2 id="fin-holdings">{t('finance.tab.holdings')}</h2>
-    <Empty icon={<Wallet aria-hidden="true" />} title={t('finance.holdings.needAccount')} text={t('finance.holdings.needAccountText')} action={<button type="button" onClick={onAddAccount}><Plus aria-hidden="true" />{t('finance.accounts.add')}</button>} /></section>;
-  const names = new Map(brokers.map((a) => [a.id, a.name]));
-  return <ItemsPanel<FinanceHolding> id="fin-holdings" title={t('finance.tab.holdings')} addLabel={t('finance.holdings.add')} items={items} load={load} onChanged={onChanged}
-    intro={t('finance.holdings.intro')}
-    emptyIcon={<Wallet aria-hidden="true" />} emptyTitle={t('finance.holdings.empty')} emptyText={t('finance.holdings.emptyText')}
-    render={(h) => <div><strong dir="ltr">{h.symbol}{h.name ? <span dir="auto"> · {h.name}</span> : null}</strong><small>{names.get(h.account_id) ?? ''} · {t('finance.holdings.quantity', { quantity: Number(h.quantity).toString() })} · {t('finance.holdings.cost', { amount: isolate(formatAmount(h.cost_basis, h.currency)) })}</small></div>}
-    form={(h, done) => <HoldingForm holding={h} accounts={brokers} onDone={done} />}
-    remove={(h) => api.deleteHolding(h.id)} />;
-}
-
-function HoldingForm({ holding, accounts, onDone }: { holding: FinanceHolding | null; accounts: FinanceAccount[]; onDone: (message: string | null) => void }) {
-  const [accountId, setAccountId] = useState(holding?.account_id ?? accounts[0]?.id ?? ''), [symbol, setSymbol] = useState(holding?.symbol ?? ''), [name, setName] = useState(holding?.name ?? '');
-  const [quantity, setQuantity] = useState(holding ? String(Number(holding.quantity)) : ''), [cost, setCost] = useState(holding?.cost_basis ?? '');
-  const [error, setError] = useState<string | null>(null), [busy, setBusy] = useState(false);
-  const errorId = useId();
-  const currency = accounts.find((a) => a.id === accountId)?.currency ?? 'AED';
-  async function submit(event: FormEvent) {
-    event.preventDefault();
-    if (!symbol.trim()) { setError(t('finance.error.symbol')); return; }
-    if (!/^\d{1,12}(\.\d{1,8})?$/.test(quantity.trim())) { setError(t('finance.error.quantity')); return; }
-    const paid = parseAmount(cost, currency, { signed: false });
-    if (!paid.ok) { setError(paid.error); return; }
-    setBusy(true); setError(null);
-    const body = { account_id: accountId, symbol: symbol.trim(), name: name.trim() || null, quantity: quantity.trim(), cost_basis: paid.value };
-    try { if (holding) await api.updateHolding(holding.id, body); else await api.createHolding(body); onDone(t('finance.item.saved', { name: body.symbol.toUpperCase() })); }
-    catch (e) { setError(describeError(e)); } finally { setBusy(false); }
-  }
-  return <form className="finForm" onSubmit={(e) => void submit(e)} aria-describedby={error ? errorId : undefined}>
-    <div className="cmFormGrid">
-      <label className="field"><span>{t('finance.col.account')}</span><select value={accountId} onChange={(e) => setAccountId(e.target.value)}>{accounts.map((a) => <option key={a.id} value={a.id}>{a.name} ({a.currency})</option>)}</select></label>
-      <label className="field"><span>{t('finance.form.symbol')}</span><input value={symbol} onChange={(e) => setSymbol(e.target.value)} maxLength={40} dir="ltr" required /></label>
-      <label className="field"><span>{t('finance.form.holdingName')}</span><input value={name} onChange={(e) => setName(e.target.value)} maxLength={120} dir="auto" /></label>
-      <label className="field"><span>{t('finance.form.quantity')}</span><input value={quantity} onChange={(e) => setQuantity(e.target.value)} inputMode="decimal" dir="ltr" required /></label>
-      <label className="field"><span>{t('finance.form.cost', { currency })}</span><input value={cost} onChange={(e) => setCost(e.target.value)} inputMode="decimal" dir="ltr" required /></label>
-    </div>
-    <FormError id={errorId} text={error} />
-    <FormActions busy={busy} onCancel={() => onDone(null)} />
-  </form>;
-}
-
 // ---- Settings --------------------------------------------------------------------------------
 
-function SettingsDialog({ onClose }: { onClose: (saved: boolean) => void }) {
+export function SettingsDialog({ onClose }: { onClose: (saved: boolean) => void }) {
   const [state, setState] = useState<Load<FinanceSettings>>({ kind: 'loading' });
   const [currency, setCurrency] = useState('AED'), [zone, setZone] = useState('Asia/Dubai'), [rules, setRules] = useState<{ match: string; category: FinanceCategory }[]>([]);
   const [error, setError] = useState<string | null>(null), [busy, setBusy] = useState(false);

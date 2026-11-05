@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from collections.abc import Iterator
 from contextlib import contextmanager
+from dataclasses import dataclass
 from datetime import date
 from threading import RLock
 from typing import Any, Protocol
@@ -33,6 +34,7 @@ from .models import (
 )
 
 MAX_PURCHASES = 5_000  # read at once for the overview and the reminder job (the newest ones)
+MERCHANT_LIMIT = 200  # the shops offered in the list's Seller filter
 MAX_ITEMS = 200
 MAX_SHIPMENTS = 20
 MAX_RETURNS = 20
@@ -52,7 +54,8 @@ class DuplicateError(ValueError):
 
 class PurchaseStore(Protocol):
     def list_purchases(self, context: TenantContext, *, query: str | None, status: str | None, archived: bool, limit: int,
-                       offset: int) -> tuple[list[Purchase], int]: ...
+                       offset: int, filters: ListFilters | None = None) -> tuple[list[Purchase], int]: ...
+    def merchants(self, context: TenantContext) -> list[str]: ...
     def all_purchases(self, context: TenantContext) -> list[Purchase]: ...
     def get_purchase(self, context: TenantContext, purchase_id: str) -> Purchase | None: ...
     def purchase_by_idem(self, context: TenantContext, idem_key: str) -> Purchase | None: ...
@@ -94,6 +97,51 @@ class PurchaseStore(Protocol):
     def count_everything(self, context: TenantContext) -> int: ...
     def delete_everything(self, context: TenantContext) -> int: ...
     def export(self, context: TenantContext) -> dict[str, Any]: ...
+
+
+@dataclass(frozen=True, slots=True)
+class ListFilters:
+    """The list's extra filters (docs/purchases.md#api): the shop, the order dates, how it was paid, where it came from, warranty."""
+
+    merchant: str | None = None
+    ordered_from: date | None = None
+    ordered_to: date | None = None
+    # A payment method, or ``linked`` (an active payment link) or ``unlinked`` (none, or a void one).
+    payment: str | None = None
+    source: str | None = None
+    # Under warranty on this day: the purchase's warranty or one of its items' ends on or after it.
+    warranty_on: date | None = None
+
+
+def payment_matches(purchase: Purchase, payment: str | None) -> bool:
+    if not payment:
+        return True
+    linked = purchase.payment is not None and purchase.payment.status == "active"
+    if payment == "linked":
+        return linked
+    if payment == "unlinked":
+        return purchase.payment is None or purchase.payment.status == "void"
+    return purchase.payment_method == payment
+
+
+def filters_match(purchase: Purchase, filters: ListFilters | None, item_warranties: dict[str, list[date]]) -> bool:
+    if filters is None:
+        return True
+    if filters.merchant and purchase.merchant.casefold() != filters.merchant.casefold():
+        return False
+    if filters.ordered_from and purchase.ordered_on < filters.ordered_from:
+        return False
+    if filters.ordered_to and purchase.ordered_on > filters.ordered_to:
+        return False
+    if filters.source and purchase.source != filters.source:
+        return False
+    if not payment_matches(purchase, filters.payment):
+        return False
+    if filters.warranty_on is not None:
+        ends = [d for d in [purchase.warranty_until, *item_warranties.get(purchase.id, [])] if d is not None]
+        if not any(d >= filters.warranty_on for d in ends):
+            return False
+    return True
 
 
 def _scope(item: Any, context: Any) -> bool:
@@ -146,12 +194,21 @@ class InMemoryPurchaseStore:
     # purchases ---------------------------------------------------------------------------------
 
     def list_purchases(self, context: TenantContext, *, query: str | None, status: str | None, archived: bool, limit: int,
-                       offset: int) -> tuple[list[Purchase], int]:
+                       offset: int, filters: ListFilters | None = None) -> tuple[list[Purchase], int]:
         with self._lock:
+            warranties: dict[str, list[date]] = {}
+            for item in self.item_rows.values():
+                if item.warranty_until is not None and child_visible(item, context):
+                    warranties.setdefault(item.purchase_id, []).append(item.warranty_until)
             rows = [p for p in self.purchases.values() if purchase_visible(p, context) and (p.archived_at is not None) == archived
-                    and purchase_matches(p, query) and status_matches(p, status)]
+                    and purchase_matches(p, query) and status_matches(p, status) and filters_match(p, filters, warranties)]
         rows.sort(key=newest_first, reverse=True)
         return [p.model_copy(deep=True) for p in rows[offset:offset + limit]], len(rows)
+
+    def merchants(self, context: TenantContext) -> list[str]:
+        with self._lock:
+            names = {p.merchant for p in self.purchases.values() if purchase_visible(p, context) and p.archived_at is None}
+        return sorted(names, key=str.casefold)[:MERCHANT_LIMIT]
 
     def all_purchases(self, context: TenantContext) -> list[Purchase]:
         rows, _ = self.list_purchases(context, query=None, status=None, archived=False, limit=MAX_PURCHASES, offset=0)
@@ -451,13 +508,16 @@ __all__ = [
     "DuplicateError",
     "GROUPS",
     "InMemoryPurchaseStore",
+    "ListFilters",
     "MAX_ITEMS",
     "MAX_PURCHASES",
     "MAX_RETURNS",
     "MAX_SHIPMENTS",
+    "MERCHANT_LIMIT",
     "PurchaseStore",
     "child_visible",
     "export_records",
+    "filters_match",
     "open_purchase_store",
     "purchase_memory_store",
     "purchase_visible",

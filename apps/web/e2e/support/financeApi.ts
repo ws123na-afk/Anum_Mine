@@ -17,6 +17,7 @@ export interface FinanceState {
   settings: { base_currency: string; timezone: string; category_rules: { match: string; category: string }[]; updated_at: string | null };
   accounts: Record<string, unknown>[];
   transactions: Record<string, unknown>[];
+  receipts?: string[];
   imports: Record<string, unknown>[];
   bills: Record<string, unknown>[];
   debts: Record<string, unknown>[];
@@ -29,6 +30,10 @@ export interface FinanceState {
   guardian: { version: number; rules: Record<string, unknown>; confirmed_at: string | null };
   changes: Record<string, unknown>[];
   versions: Record<string, unknown>[];
+  /** Guardian review decisions by transaction id (the review queue). */
+  reviews: Record<string, { decision: string; snoozed_until: string | null; decided_at: string }>;
+  /** Guardian audit records the mocked API returns (newest first). */
+  activity: Record<string, unknown>[];
   connections: Record<string, unknown>[];
   rates: Record<string, unknown>[];
   failSafe: boolean;
@@ -129,6 +134,8 @@ export function financeState({ empty = false, denied = false, failSummary = fals
       created_at: stamp, expires_at: new Date(now.getTime() + 23 * 3_600_000).toISOString(), decided_at: null,
     }] : [],
     versions: empty ? [] : [{ id: 'fin_gpol_1', version: 1, rules: NO_RULES, change_id: 'c0', confirmed_by: 'user_local', created_at: stamp }],
+    reviews: {},
+    activity: empty ? [] : [{ id: 'audit_g1', action: 'finance.guardian.confirm', target: 'c0', created_at: stamp, metadata: { version: 1, loosens: [], proposed_by: 'person' } }],
     connections: [],
     rates: [],
     trading: tradingState({ empty, agentProposal, failTrading, role }),
@@ -338,6 +345,33 @@ function tradingReply(state: TradingState, method: string, sub: string, body: un
   return null;
 }
 
+/** The review queue: the first two dining payments break the dining cap (synthetic, like the rest of the mock). */
+function reviewQueue(state: FinanceState, url: URL) {
+  const rules = state.guardian.rules as { category_caps?: unknown[]; blocked_merchants?: unknown[]; paused?: string[] };
+  const on = state.guardian.version > 0 && !((rules.paused ?? []).includes('category_caps'));
+  const flagged = on ? state.transactions.filter((t) => t.category === 'dining' && Number(t.amount) < 0).slice(0, 2) : [];
+  const items = flagged.map((t) => {
+    const review = state.reviews[t.id as string];
+    const stateName = review ? review.decision : 'awaiting';
+    return {
+      transaction_id: t.id, posted_on: t.posted_on, description: t.description, amount: String(t.amount).replace('-', ''), currency: 'AED', category: 'dining',
+      account_id: t.account_id, account_name: 'Current account', recorded_at: stamp, outcome: 'deny',
+      reasons: [{ code: 'over_category_cap', outcome: 'deny', message: '', rule: 'category_caps', params: { currency: 'AED', category: 'dining', spent: '350.00', limit: '400.00' } }],
+      rules: ['category_caps'], typical_amount: '45.00', prior_count: 3, state: stateName, decided_at: review ? review.decided_at : null, snoozed_until: review?.snoozed_until ?? null,
+    };
+  });
+  const wanted = url.searchParams.get('state') ?? 'awaiting';
+  const chosen = items.filter((i) => wanted === 'all' || (wanted === 'resolved' ? ['expected', 'reviewed'].includes(i.state as string) : i.state === wanted));
+  const kinds = ['category_caps', 'blocked_merchants'].filter((k) => ((rules as Record<string, unknown[] | undefined>)[k] ?? []).length > 0);
+  return {
+    month: url.searchParams.get('month') ?? month, version: state.guardian.version, timezone: 'Asia/Dubai',
+    counts: { flagged: items.length, awaiting: items.filter((i) => i.state === 'awaiting').length, resolved: items.filter((i) => ['expected', 'reviewed'].includes(i.state as string)).length, snoozed: items.filter((i) => i.state === 'snoozed').length },
+    rules: kinds.map((kind) => ({ kind, count: kind === 'category_caps' ? items.length : 0, last: kind === 'category_caps' && items[0] ? items[0].posted_on : null })),
+    items: chosen.slice(Number(url.searchParams.get('offset') ?? 0), Number(url.searchParams.get('offset') ?? 0) + Number(url.searchParams.get('limit') ?? 10)), total: chosen.length,
+    limit: Number(url.searchParams.get('limit') ?? 10), offset: Number(url.searchParams.get('offset') ?? 0),
+  };
+}
+
 function financeStagesReply(state: FinanceState, method: string, sub: string, body: unknown, url: URL): { status: number; body: unknown } | null {
   const trading = tradingReply(state.trading, method, sub, body, url);
   if (trading) return trading;
@@ -355,6 +389,8 @@ function financeStagesReply(state: FinanceState, method: string, sub: string, bo
     const caps = (input.rules.category_caps as { amount: string }[] | undefined) ?? [];
     const before = (state.guardian.rules.category_caps as { amount: string }[] | undefined) ?? [];
     const loosens = before.length > caps.length || caps.some((c, i) => before[i] && Number(c.amount) > Number(before[i].amount)) ? ['category_caps'] : [];
+    const pausedBefore = (state.guardian.rules.paused as string[] | undefined) ?? [];
+    for (const kind of (input.rules.paused as string[] | undefined) ?? []) if (!pausedBefore.includes(kind) && !loosens.includes(kind)) loosens.push(kind);
     const change = { id: `fin_gchg_${changeCount}`, base_version: state.guardian.version, rules: input.rules, proposed_by: 'person', proposer: 'user_local', reason: input.reason, payload_hash: `${changeCount}`.padEnd(64, 'c'), loosens, status: 'pending', created_at: stamp, expires_at: new Date(now.getTime() + 24 * 3_600_000).toISOString(), decided_at: null };
     state.changes.unshift(change);
     return ok(change, 201);
@@ -369,7 +405,27 @@ function financeStagesReply(state: FinanceState, method: string, sub: string, bo
     state.versions.unshift({ id: `fin_gpol_${state.guardian.version}`, version: state.guardian.version, rules: change.rules, change_id: change.id, confirmed_by: 'user_local', created_at: stamp });
     for (const other of state.changes) if (other.status === 'pending') other.status = other === change ? 'confirmed' : 'superseded';
     change.status = 'confirmed';
+    state.activity.unshift({ id: `audit_c${state.activity.length}`, action: 'finance.guardian.confirm', target: change.id, created_at: stamp, metadata: { version: state.guardian.version, loosens: change.loosens, proposed_by: change.proposed_by } });
     return ok(guardianView());
+  }
+  if (sub === '/guardian/review' && method === 'GET') {
+    // The API refuses a page above 50 (plan_api.py), like the real one.
+    if (Number(url.searchParams.get('limit') ?? 10) > 50) return { status: 422, body: { error: { code: 'validation_error', message: 'limit: at most 50', correlation_id: 'c', details: [] } } };
+    return ok(reviewQueue(state, url));
+  }
+  const decide = /^\/guardian\/review\/([^/]+)$/.exec(sub);
+  if (decide && method === 'POST') {
+    const input = body as { decision: string; snooze_days: number | null };
+    const id = decodeURIComponent(decide[1]);
+    const until = input.decision === 'snoozed' ? new Date(now.getTime() + (input.snooze_days ?? 1) * 86_400_000).toISOString() : null;
+    if (input.decision === 'reopen') delete state.reviews[id]; else state.reviews[id] = { decision: input.decision, snoozed_until: until, decided_at: stamp };
+    state.activity.unshift({ id: `audit_r${state.activity.length}`, action: 'finance.guardian.review', target: id, created_at: stamp, metadata: { decision: input.decision, codes: ['over_category_cap'], ...(input.snooze_days ? { days: input.snooze_days } : {}) } });
+    return ok({ transaction_id: id, state: input.decision === 'reopen' ? 'awaiting' : input.decision, decided_at: input.decision === 'reopen' ? null : stamp, snoozed_until: until });
+  }
+  if (sub === '/guardian/activity') {
+    const limit = Number(url.searchParams.get('limit') ?? 10), offset = Number(url.searchParams.get('cursor') ?? 0);
+    const items = state.activity.slice(offset, offset + limit);
+    return ok({ items, next_cursor: offset + limit < state.activity.length ? String(offset + limit) : null });
   }
   if (sub === '/guardian/evaluate') {
     const input = body as { amount: string; category?: string | null; merchant?: string | null };
@@ -456,6 +512,91 @@ export const PREVIEW = {
 
 const denied = { status: 403, body: { error: { code: 'forbidden', message: 'Finance is for workspace owners and members. Ask a workspace owner to change your role from viewer to member.', correlation_id: 'c', details: [] } } };
 
+// The register and account overview (docs/finance.md#register-and-account-overview), computed from the mock ledger.
+// SYNTHETIC rows: every fourth came by SMS, then Apple Pay, a statement and by hand; row 1 repeats row 7.
+const ORIGINS = ['sms', 'apple_pay', 'statement', 'manual'] as const;
+function registerRow(state: FinanceState, t: Record<string, unknown>, running: string | null) {
+  const i = Number(String(t.id).replace(/\D/g, '')) || 0;
+  const origin = ORIGINS[i % 4];
+  const out = Number(t.amount) < 0;
+  const receipts = (state.receipts ?? []).filter((r) => r === t.id).length + (i % 5 === 0 && out ? 1 : 0);
+  const duplicate_of = t.id === 'fin_txn_1' ? 'fin_txn_7' : null;
+  const uncategorized = t.category_source === 'none';
+  const status = duplicate_of ? 'duplicate_candidate' : uncategorized ? 'uncategorized' : receipts ? 'linked' : 'recorded';
+  return {
+    ...t, canonical_id: `fin_jent_${i}`, origin, statement_format: origin === 'statement' ? 'csv' : null,
+    sources: origin === 'sms' ? ['sms'] : origin === 'apple_pay' ? ['wallet'] : origin === 'statement' ? ['statement'] : [],
+    reconciled: origin === 'statement' && i % 8 === 2, receipts, evidence: receipts ? 'linked' : out && t.category !== 'transfer' ? 'missing' : 'not_needed',
+    links_need_review: 0, duplicate_of, status, running_balance: running,
+  };
+}
+
+function registerReply(state: FinanceState, method: string, sub: string, url: URL): { status: number; body: unknown } | null {
+  if (method !== 'GET') return null;
+  const ok = (value: unknown) => ({ status: 200, body: value });
+  const sum = (rows: Record<string, unknown>[], sign: 1 | -1) => {
+    const total = rows.filter((r) => Number(r.amount) * sign > 0).reduce((a, r) => a + Math.abs(Number(r.amount)), 0);
+    return total ? [{ currency: 'AED', amount: total.toFixed(2) }] : [];
+  };
+  if (sub === '/register') {
+    const p = url.searchParams;
+    const q = (p.get('q') ?? '').toLowerCase(), accountId = p.get('account_id'), from = p.get('from'), to = p.get('to');
+    const limit = Number(p.get('limit') ?? 25), offset = Number(p.get('offset') ?? 0);
+    const account = state.accounts.find((a) => a.id === accountId);
+    const ordered = [...state.transactions].sort((a, b) => String(b.posted_on).localeCompare(String(a.posted_on)) || String(a.id).localeCompare(String(b.id)));
+    let balance = Number(account?.opening_balance ?? 0);
+    const running = new Map<unknown, string>();
+    for (const t of [...ordered].reverse().filter((t) => t.account_id === accountId)) { balance += Number(t.amount); running.set(t.id, balance.toFixed(2)); }
+    let rows = ordered.filter((t) => (!q || String(t.description).toLowerCase().includes(q)) && (!accountId || t.account_id === accountId)
+      && (!from || String(t.posted_on) >= from) && (!to || String(t.posted_on) <= to) && (!p.get('category') || t.category === p.get('category')))
+      .map((t) => registerRow(state, t, running.get(t.id) ?? null));
+    for (const key of ['origin', 'evidence', 'status'] as const) { const want = p.get(key); if (want) rows = rows.filter((r) => r[key] === want); }
+    const ending = (accountId ? [account] : state.accounts.filter((a) => a && !a.archived)).reduce((a, x) => a + Number(x?.balance ?? 0), 0);
+    return ok({
+      items: rows.slice(offset, offset + limit), total: rows.length, limit, offset, truncated: false,
+      totals: { count: rows.length, categorized: rows.filter((r) => r.category_source !== 'none').length, receipts_missing: rows.filter((r) => r.evidence === 'missing').length,
+        needs_review: 0, duplicate_candidates: rows.filter((r) => r.duplicate_of).length, matched: rows.filter((r) => r.reconciled).length, inflow: sum(rows, 1), outflow: sum(rows, -1) },
+      balances: state.accounts.length ? [{ currency: 'AED', beginning: (ending - rows.reduce((a, r) => a + Number(r.amount), 0)).toFixed(2), ending: ending.toFixed(2) }] : [],
+      review_count: state.transactions.length ? 2 : 0, ledger_kind: 'personal',
+    });
+  }
+  const detail = /^\/register\/([^/]+)$/.exec(sub);
+  if (detail) {
+    const t = state.transactions.find((x) => x.id === decodeURIComponent(detail[1]));
+    if (!t) return { status: 404, body: { error: { code: 'not_found', message: 'Transaction not found. It may have been deleted.', correlation_id: 'c', details: [] } } };
+    const row = registerRow(state, t, null);
+    const match = row.duplicate_of ? state.transactions.find((x) => x.id === row.duplicate_of) : null;
+    return ok({
+      row, account_name: state.accounts.find((a) => a.id === t.account_id)?.name ?? '', kind: row.origin === 'sms' ? 'card_purchase' : null, merchant: null, reference: row.origin === 'sms' ? 'TRF728410' : null,
+      suggested_category: 'dining', suggested_by: 'rule',
+      sources: row.origin === 'sms' ? [{ kind: 'sms', status: 'posted', received_at: stamp, sender: 'TestBank', text: t.id === 'fin_txn_4' ? null : 'SYNTHETIC. Purchase of AED 35.00 at TALABAT with card ***1234', kept_until: t.id === 'fin_txn_4' ? null : stamp }] : [],
+      receipt_document_ids: row.receipts ? ['doc_receipt'] : [], duplicate: match ? registerRow(state, match, null) : null,
+    });
+  }
+  if (sub === '/accounts/overview') {
+    return ok({
+      accounts: state.accounts.map((a) => ({
+        account_id: a.id, sources: a.kind === 'card' ? ['apple_wallet', 'sms'] : ['statement'], credit_limit: a.kind === 'card' ? '20000.00' : null,
+        observed_balance: null, observed_at: null, difference: null, last_activity_on: day(0), last_import_at: a.kind === 'card' ? null : stamp, last_reconciled_at: a.kind === 'card' ? null : stamp,
+        imported: a.kind === 'card' ? 0 : 64, matched: a.kind === 'card' ? 0 : 8, needs_attention: a.kind === 'card' ? [] : ['possible_duplicates'],
+        payment_due: a.kind === 'card' ? { name: 'Rewards card payment', due_on: day(10), amount: '250.00', currency: 'AED' } : null,
+      })),
+      review_count: state.transactions.length ? 2 : 0, last_reconciled_at: state.accounts.length ? stamp : null, base_currency: 'AED', ledger_kind: 'personal',
+    });
+  }
+  const activity = /^\/accounts\/([^/]+)\/activity$/.exec(sub);
+  if (activity) {
+    const days = Number(url.searchParams.get('days') ?? 14);
+    const id = decodeURIComponent(activity[1]);
+    return ok({ account_id: id, currency: 'AED', days: Array.from({ length: days }, (_, i) => {
+      const d = day(i - days + 1);
+      const rows = state.transactions.filter((t) => t.account_id === id && t.posted_on === d);
+      return { day: d, inflow: rows.filter((r) => Number(r.amount) > 0).reduce((a, r) => a + Number(r.amount), 0).toFixed(2), outflow: rows.filter((r) => Number(r.amount) < 0).reduce((a, r) => a - Number(r.amount), 0).toFixed(2) };
+    }) });
+  }
+  return null;
+}
+
 /** The reply for one request, or null when the path is not a finance path. */
 export function financeReply(state: FinanceState, method: string, url: URL, body: unknown): { status: number; body: unknown } | null {
   const path = url.pathname;
@@ -478,6 +619,8 @@ export function financeReply(state: FinanceState, method: string, url: URL, body
     const id = decodeURIComponent(report[1]);
     return reportList(state.reports ?? 0).some((r) => r.id === id) ? ok(reportDetail(id)) : ok({ error: { code: 'not_found', message: 'Report not found.', correlation_id: 'c', details: [] } }, 404);
   }
+  const register = registerReply(state, method, sub, url);
+  if (register) return register;
   if (sub === '/summary') return state.failSummary ? { status: 503, body: { error: { code: 'internal_error', message: 'The database is not reachable.', correlation_id: 'c', details: [] } } } : ok(summary(state, url.searchParams.get('month')));
   if (sub === '/settings') return method === 'PUT' ? ok((state.settings = { ...state.settings, ...(body as object), updated_at: stamp })) : ok(state.settings);
   if (sub === '/formats') return ok({ presets: [{ id: 'emirates_nbd', label: 'Emirates NBD' }, { id: 'generic', label: 'Generic (date, description, amount)' }], date_formats: ['%d/%m/%Y', '%m/%d/%Y', '%Y-%m-%d'], categories: [], account_kinds: [], limits: { max_bytes: 2_000_000, max_rows: 5000, max_page: 200 } });

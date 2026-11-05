@@ -92,6 +92,7 @@ def month_alerts(store: FinanceStore, context: TenantContext, month: str | None 
     settings = settings_for(store, context)
     label, start, end = month_range(month, today_in(settings, now))
     rules, version = current_rules(store, context)
+    rules = rules.active()  # a paused kind raises no alert
     alerts: list[GuardianAlert] = []
     if rules.is_empty():
         return GuardianAlerts(month=label, version=version, alerts=alerts)

@@ -1,5 +1,5 @@
 """Bills matched to payments, debt payments, the debt plan, paused goals and budget alerts in PostgreSQL
-(migration ``0140_finance_debts_bills``, docs/finance.md#bills-and-budgets). The API runs as the non-owner
+(migration ``0142_finance_debts_bills``, docs/finance.md#bills-and-budgets). The API runs as the non-owner
 ``anum_test_app`` role under forced RLS. Every record is SYNTHETIC.
 """
 

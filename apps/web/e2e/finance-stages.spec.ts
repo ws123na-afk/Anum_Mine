@@ -89,8 +89,8 @@ test('rules change only when the person confirms the change they reviewed, with 
   await expect(page.getByText('Your rules are now version 1.')).toBeVisible();
   const confirm = sent.find((r) => r.path.endsWith('/confirm'));
   expect((confirm?.body as { payload_hash: string }).payload_hash).toBe('1'.padEnd(64, 'c'));
-  await expect(page.getByRole('region', { name: 'Your spending rules' }).getByText('Version 1', { exact: true })).toBeVisible();
-  await expect(page.getByRole('region', { name: 'History' })).toContainText('Version 1');
+  await expect(page.getByRole('region', { name: 'Monitoring rules' }).getByText('Version 1', { exact: true })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Audit log' })).toContainText('Confirmed version 1');
   // No pay, transfer or trade action anywhere on the page.
   await expect(page.getByRole('button', { name: /^(pay|transfer|buy|sell|trade)/i })).toHaveCount(0);
 });
@@ -121,13 +121,48 @@ test("an assistant's proposal waits for review; loosening is named; a dry run ne
   await page.keyboard.press('Escape');
   await expect(page.getByText('Your change is waiting below. Nothing changes until you confirm it.')).toBeVisible();
 
-  const check = page.getByRole('region', { name: 'Check a spend' });
+  await page.getByRole('button', { name: 'Test Monthly caps per category' }).click();
+  const check = page.getByRole('dialog', { name: 'Check a spend' });
+  await expect(check.getByLabel('Amount')).toHaveValue('401');
   await check.getByLabel('Amount').fill('120');
   await check.getByLabel('Category').selectOption('dining');
   await check.getByRole('button', { name: 'Check' }).click();
   await expect(check.getByRole('status')).toContainText('Your rules do not allow it');
   await expect(check.getByRole('status')).toContainText('it goes over your cap of');
   await expect(check.getByRole('status')).toContainText('ANUM does not move money');
+});
+
+test('the review queue: a flagged payment is explained, marked expected, and a paused rule is confirmed with its code', async ({ page }) => {
+  const { sent } = await mockApi(page);
+  await page.goto('/#finance-guardian');
+  await expect(page.getByRole('heading', { name: 'Finance Guardian', level: 1 })).toBeVisible();
+  const kpis = page.getByRole('region', { name: 'Guardian this month' });
+  await expect(kpis).toContainText('Alerts this month');
+  await expect(kpis).toContainText('Awaiting review');
+  const queue = page.getByRole('region', { name: 'Review queue' });
+  await expect(queue).toContainText('Flagged because');
+  await expect(queue).toContainText('Typical for this merchant');
+  await expect(queue).toContainText('This is a monitoring alert, not an accusation.');
+  await queue.getByRole('button', { name: 'Mark expected' }).click();
+  await expect(page.getByText('Marked expected.')).toBeVisible();
+  expect(sent.some((r) => r.method === 'POST' && r.path.endsWith('/guardian/review/fin_txn_2') && (r.body as { decision: string }).decision === 'expected')).toBe(true);
+  await queue.getByRole('button', { name: /^Resolved/ }).click();
+  await expect(queue).toContainText('Marked expected');
+  // Delivery is shown as it really is: no email or SMS toggle.
+  const privacy = page.getByRole('region', { name: 'Privacy and boundaries' });
+  await expect(privacy).toContainText('It never moves money');
+  await expect(privacy.getByText('Not available')).toHaveCount(2);
+  await expect(privacy.getByRole('switch')).toHaveCount(0);
+  // Pausing a rule is a change like any other: reviewed with its code, loosening named.
+  await page.getByRole('switch', { name: 'Apply Monthly caps per category' }).click();
+  const review = page.getByRole('alertdialog', { name: 'Confirm your new rules' });
+  await expect(review).toContainText('Paused, not applied: Monthly caps per category');
+  await expect(review).toContainText('This loosens your rules');
+  await review.getByRole('button', { name: 'Confirm rules' }).click();
+  await expect(page.getByText('Your rules are now version 2.')).toBeVisible();
+  await expect(page.getByRole('switch', { name: 'Apply Monthly caps per category' })).not.toBeChecked();
+  await expect(page.getByRole('region', { name: 'Audit log' })).toContainText('Marked expected');
+  await expect(page.getByRole('button', { name: /^(pay|transfer|buy|sell|trade)/i })).toHaveCount(0);
 });
 
 test('connections are read only: the ECB rates connect and sync, unbuilt sources name the owner action, rates can be typed', async ({ page }) => {

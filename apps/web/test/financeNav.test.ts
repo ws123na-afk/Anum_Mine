@@ -28,7 +28,8 @@ describe('finance section nav', () => {
   });
   it('lists the sections that draw their own head', () => {
     assert.ok(OWN_HEAD_TABS.has('safe'));
-    assert.ok(!OWN_HEAD_TABS.has('transactions'));
+    assert.ok(OWN_HEAD_TABS.has('transactions') && OWN_HEAD_TABS.has('accounts'));
+    assert.ok(!OWN_HEAD_TABS.has('overview'));
   });
   it('puts the life modules above Finance in the app sidebar', () => {
     const main = NAV[0].views;

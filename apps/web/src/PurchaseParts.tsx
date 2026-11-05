@@ -244,7 +244,7 @@ function DeliveryPanel({ purchase, onChanged }: { purchase: PurchaseDetail; onCh
   </div>;
 }
 
-function ShipmentForm({ purchaseId, shipment, onClose, onSaved }: { purchaseId: string; shipment: PurchaseShipment | null; onClose: () => void; onSaved: () => void }) {
+export function ShipmentForm({ purchaseId, shipment, onClose, onSaved }: { purchaseId: string; shipment: PurchaseShipment | null; onClose: () => void; onSaved: () => void }) {
   const [f, setF] = useState({ carrier: shipment?.carrier ?? '', tracking_number: shipment?.tracking_number ?? '', status: shipment?.status ?? 'in_transit',
     shipped_on: shipment?.shipped_on ?? '', expected_on: shipment?.expected_on ?? '', delivered_on: shipment?.delivered_on ?? '', note: shipment?.note ?? '' });
   const [busy, setBusy] = useState(false);

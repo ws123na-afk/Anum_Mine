@@ -124,8 +124,8 @@ All under `/api/v1/documents` (contracts in `packages/contracts/src/documents.ts
 
 | Route | What |
 |---|---|
-| `GET /meta` | Counts, categories, settings, OCR status, upload limits, what the caller may do |
-| `GET /` | One page: `q`, `category`, `access_class`, `expiry=soon|expired`, `tag`, `status=active|deleted`, `cursor`, `limit` |
+| `GET /meta` | Counts (`summary.linked`: active documents with at least one link, for "Records linked"), categories, settings, OCR status, upload limits, what the caller may do |
+| `GET /` | One page: `q`, `category`, `access_class`, `expiry=soon|expired`, `tag`, `status=active|deleted`, `sort=created|updated|expiry` (newest added, newest change, or the next expiry first: only documents that expire today or later), `cursor` (bound to the sort), `limit`. Each row carries its file (name, size, version), `links_count`, `first_link` and `review_pending` |
 | `POST /` | Add (raw body) |
 | `GET /review` | Scan results waiting for review |
 | `PUT /settings`; `POST /categories`; `DELETE /categories/{id}` | Owners |
@@ -140,7 +140,13 @@ All under `/api/v1/documents` (contracts in `packages/contracts/src/documents.ts
 
 ## The web page
 
-Sidebar **Document vault** (`#vault`, tabs `#vault-documents`, `#vault-review`, `#vault-expiring`, `#vault-trash`, `#vault-settings`): the summary band, Overview (expiring next, waiting for review, the empty state with "Add document" and "Scan from your iPhone"), Documents (search, category, access and expiry filters, keyset paging, a detail pane with preview, details and edit form, number reveal, receipt, scanning state, versions, sharing, links and activity), To review (one form per result with confidence, source line and warnings), Expiring, Trash (restore, delete for good) and Settings (reminders, trash days, scanning switches, OCR status, categories, iPhone tokens). Every list has loading, empty, error and permission states; viewers get the explanation of who can see the vault. English and Arabic (RTL), keyboard and screen-reader labels, and layouts from 390 px phones to 1440 px desktops.
+Sidebar **Document vault** on the shared shell ([Finance shell](finance.md#finance-shell)), to the owner's mockup of 5 Nov 2026. Page head: **Scan document** (a photo or scan, camera first on phones, saved private as a receipt by default and read at once; the values wait for review) and **Upload file**. Tabs (`#vault`, `#vault-documents`, `#vault-review`, `#vault-expiring`, `#vault-categories`, `#vault-access`, `#vault-trash`, `#vault-settings`; `#vault-documents?doc=<id>` opens one document):
+
+- **Overview:** four KPI cards from `GET /meta` (documents and how many are private, expiring within the reminder window and how many already expired, scans that need review, records linked as a percentage of active documents); the documents table (newest change first, six rows, View all); **Next expiries** (a month calendar marking expiry days and the next four, from `sort=expiry`); the **scan review queue** (the oldest scan with its suggested values, **Confirm and open** and **Edit**: suggestions are saved only when confirmed, and a receipt never becomes a Finance transaction by itself); **Scan from iPhone** (connected iPhones, set up or manage); **Security and versions** (the access log, private by default with the private count, limited access by role, versions kept, the trash days, and a plain note that two-step sign-in is set in the sign-in service, which ANUM cannot read).
+- **Documents:** search, Category, Expiry state, Access (private or workspace) and Sort; a table (title and file with size, a sensitive identity tag, the linked record with how many more, category, updated, expiry, status Valid, Review needed, Expiring soon, Expired or Restricted for a private identity paper, download and versions), keyset paging, and the detail pane (preview, details and edit, number reveal, receipt, scanning, versions, sharing, links and activity).
+- **Review queue** (one form per result with confidence, source line and warnings), **Expiring**, **Categories** (built-in ones with what scanning reads and how many documents each has, the workspace's own to add or remove), **Access and devices** (who can do what by role, the security strip, the iPhone tokens), **Trash** (restore, delete for good) and **Settings** (reminders, trash days, scanning switches, OCR status).
+
+Every list has loading, empty, error and permission states; viewers get the explanation of who can see the vault. English and Arabic (RTL), keyboard and screen-reader labels, and layouts from 390 px phones to 1440 px desktops.
 
 ## Mobile
 
@@ -160,3 +166,4 @@ Menu, **Document vault** (`/vault`, `apps/mobile/lib/features/vault/`, [Record m
 - Native iPhone camera, VisionKit scanner and Share Sheet extension (Shortcuts only), and camera capture in the Flutter app (no camera plugin yet; the phone screens upload files the phone already has). On the phone: sharing, scan review, editing a document's details, settings and categories (on the web).
 - OCR of scanned PDFs (send them as images), Hijri date conversion, and the OCR service in the Helm chart (compose profile only, like the browser service).
 - Per-category retention rules; retention is per document.
+- From the owner's mockup: bulk actions on the documents table (Attach to workflow, Tags, Safe download, Restore previous version for a selection), a Create scan button inside the table card, retention in years per category, and a "2FA enabled" figure (two-step sign-in lives in the sign-in service, which ANUM cannot read). Each document's own actions are in its detail pane.

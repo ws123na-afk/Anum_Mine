@@ -1,6 +1,6 @@
 // Attendance panels besides Today and Reports (docs/attendance.md#web): the daily report editor and its list,
 // corrections with a required reason, and Settings (profile, schedule, sites, location check in, sharing, iPhone).
-import { useCallback, useEffect, useId, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useId, useState, type FormEvent, type ReactNode } from 'react';
 import { Archive, ArchiveRestore, FileText, History, MapPin, Paperclip, Plus, Search, Share2, Smartphone, Sparkles, Trash2, X } from 'lucide-react';
 import type {
   AttendanceCorrection, AttendanceDailyReport, AttendanceEvent, AttendanceEventKind, AttendancePage, AttendanceProfile, AttendanceShares,
@@ -9,63 +9,38 @@ import type {
 import * as api from './lib/attendanceApi';
 import { uploadFile } from './lib/api';
 import {
-  ZONES, checkReason, checkShift, clock, draftFromReport, localParts, emptyReportDraft, isOvernight, kindLabel, localToIso, reportBody, shiftDay,
+  ZONES, checkReason, checkShift, lines, clock, draftFromReport, localParts, emptyReportDraft, isOvernight, kindLabel, localToIso, reportBody, shiftDay,
   siteName, weekdayLabel, type ReportDraft,
 } from './lib/attendance';
 import { ApiError, describeError } from './lib/errors';
 import { formatDateTime, getLocale, t, type MessageKey } from './lib/i18n';
 import { ConfirmDialog } from './Dialog';
+import { StatusChip } from './FinanceShell';
+import { AuditTrail, ReasonFields } from './AttendanceTeam';
+import { reasonText, type ReasonPreset } from './lib/attendanceTeam';
 import { Empty, FormError, LoadError, Notice, failed, type Load } from './FinanceParts';
 
-const PAGE = 20;
+const FIX_PAGE = 20;
 const KINDS: AttendanceEventKind[] = ['arrive', 'leave', 'break_start', 'break_end', 'remote_start', 'remote_end'];
 const SITE_KINDS: AttendanceSiteKind[] = ['workplace', 'site', 'client', 'home'];
 type Flash = { text: string; error?: boolean } | null;
 
 // ---- Daily report --------------------------------------------------------------------------------
 
-export function DailyPanel({ person, sites, today, readOnly }: { person: string | null; sites: AttendanceSite[]; today: string; readOnly: boolean }) {
-  const [day, setDay] = useState(today);
-  const [list, setList] = useState<Load<AttendancePage<AttendanceDailyReport>>>({ kind: 'loading' });
-  const [q, setQ] = useState('');
-  const [search, setSearch] = useState('');
-  const [offset, setOffset] = useState(0);
-  const loadList = useCallback(async () => {
-    setList({ kind: 'loading' });
-    try { setList({ kind: 'ready', value: await api.listReports({ q: search || undefined, limit: PAGE, offset, person }) }); } catch (e) { setList(failed(e)); }
-  }, [search, offset, person]);
-  useEffect(() => { void loadList(); }, [loadList]);
+export function DailyPanel({ initialDay, sites, today, table, onSaved }: {
+  initialDay: string; sites: AttendanceSite[]; today: string; table: ReactNode; onSaved: () => void;
+}) {
+  const [day, setDay] = useState(initialDay);
   return <div className="attDaily">
-    <ReportEditor key={`${day}:${person ?? ''}`} day={day} person={person} sites={sites} readOnly={readOnly} today={today} onDay={setDay} onSaved={() => void loadList()} />
-    <section className="surface cmPanel" aria-labelledby="att-report-list">
-      <h2 id="att-report-list">{t('att.daily.listTitle')}</h2>
-      <form className="cmFilters" role="search" onSubmit={(e) => { e.preventDefault(); const next = q.trim(); if (next === search && offset === 0) void loadList(); else { setOffset(0); setSearch(next); } }}>
-        <label className="cmInline cmSearch"><span>{t('att.daily.search')}</span><input type="search" dir="auto" value={q} maxLength={120} onChange={(e) => setQ(e.target.value)} /></label>
-        <button type="submit" className="secondary"><Search aria-hidden="true" />{t('att.daily.find')}</button>
-      </form>
-      {list.kind === 'loading' && <Notice busy>{t('att.daily.loading')}</Notice>}
-      {list.kind === 'error' && <LoadError message={t('att.daily.error', { message: list.message })} retry={() => void loadList()} />}
-      {list.kind === 'denied' && <Notice error>{t('att.daily.notShared')}</Notice>}
-      {list.kind === 'ready' && (list.value.items.length === 0
-        ? <Empty icon={<FileText aria-hidden="true" />} title={search ? t('att.daily.noMatch') : t('att.daily.emptyTitle')} text={search ? t('att.daily.noMatchText') : t('att.daily.emptyText')} />
-        : <>
-          <ul className="cmList">{list.value.items.map((r) => <li key={r.id}>
-            <div><strong dir="auto">{r.project || t('att.daily.noProject')}</strong>
-              <small>{t('att.daily.rowMeta', { day: r.day, done: r.tasks_done.length, pending: r.tasks_pending.length })}</small></div>
-            <button type="button" className="secondary" aria-label={t('att.daily.openLabel', { day: r.day })} onClick={() => setDay(r.day)}>{t('att.daily.open')}</button>
-          </li>)}</ul>
-          <div className="actions">
-            {offset > 0 && <button type="button" className="secondary" onClick={() => setOffset(Math.max(0, offset - PAGE))}>{t('att.daily.newer')}</button>}
-            {offset + PAGE < list.value.total && <button type="button" className="secondary" onClick={() => setOffset(offset + PAGE)}>{t('att.daily.older')}</button>}
-          </div>
-        </>)}
-    </section>
+    <ReportEditor key={day} day={day} sites={sites} today={today} onDay={setDay} onSaved={onSaved} />
+    {table}
   </div>;
 }
 
-function ReportEditor({ day, person, sites, readOnly, today, onDay, onSaved }: {
-  day: string; person: string | null; sites: AttendanceSite[]; readOnly: boolean; today: string; onDay: (day: string) => void; onSaved: () => void;
+function ReportEditor({ day, sites, today, onDay, onSaved }: {
+  day: string; sites: AttendanceSite[]; today: string; onDay: (day: string) => void; onSaved: () => void;
 }) {
+  const [review, setReview] = useState(false);
   const [load, setLoad] = useState<Load<AttendanceDailyReport | null>>({ kind: 'loading' });
   const [draft, setDraft] = useState<ReportDraft>(emptyReportDraft);
   const [busy, setBusy] = useState<string | null>(null);
@@ -77,26 +52,31 @@ function ReportEditor({ day, person, sites, readOnly, today, onDay, onSaved }: {
   const fetchReport = useCallback(async () => {
     setLoad({ kind: 'loading' });
     try {
-      const report = await api.getReport(day, person);
+      const report = await api.getReport(day);
       setLoad({ kind: 'ready', value: report }); setDraft(draftFromReport(report));
     } catch (e) {
       if (e instanceof ApiError && e.status === 404) { setLoad({ kind: 'ready', value: null }); setDraft(emptyReportDraft()); }
       else setLoad(failed(e));
     }
-  }, [day, person]);
+  }, [day]);
   useEffect(() => { void fetchReport(); }, [fetchReport]);
   const report = load.kind === 'ready' ? load.value : null;
   const set = (patch: Partial<ReportDraft>) => setDraft((d) => ({ ...d, ...patch }));
 
-  const save = async (event: FormEvent) => {
-    event.preventDefault();
+  const save = async (submit: boolean) => {
+    const body = reportBody(draft, sites, report?.version ?? null);
+    if (!body.ok) { setError(body.error); setReview(false); return; }
+    setBusy(submit ? 'submit' : 'save'); setError(null); setFlash(null);
+    try {
+      const saved = await api.saveReport(day, { ...body.value, submit });
+      setLoad({ kind: 'ready', value: saved }); setDraft(draftFromReport(saved)); setReview(false);
+      setFlash({ text: submit ? t('attTeam.q.submitted') : t('att.daily.saved', { day }) }); onSaved();
+    } catch (e) { setError(describeError(e)); setReview(false); } finally { setBusy(null); }
+  };
+  const startReview = () => {
     const body = reportBody(draft, sites, report?.version ?? null);
     if (!body.ok) { setError(body.error); return; }
-    setBusy('save'); setError(null); setFlash(null);
-    try {
-      const saved = await api.saveReport(day, body.value);
-      setLoad({ kind: 'ready', value: saved }); setDraft(draftFromReport(saved)); setFlash({ text: t('att.daily.saved', { day }) }); onSaved();
-    } catch (e) { setError(describeError(e)); } finally { setBusy(null); }
+    setError(null); setReview(true);
   };
   const attach = async (files: FileList | null) => {
     if (!files?.length) return;
@@ -127,8 +107,9 @@ function ReportEditor({ day, person, sites, readOnly, today, onDay, onSaved }: {
     {load.kind === 'loading' && <Notice busy>{t('att.daily.loadingOne')}</Notice>}
     {load.kind === 'error' && <LoadError message={t('att.daily.error', { message: load.message })} retry={() => void fetchReport()} />}
     {load.kind === 'denied' && <Notice error>{t('att.daily.notShared')}</Notice>}
-    {load.kind === 'ready' && readOnly && (report ? <ReportView report={report} /> : <Empty icon={<FileText aria-hidden="true" />} title={t('att.daily.noneTitle')} text={t('att.daily.noneShared')} />)}
-    {load.kind === 'ready' && !readOnly && <form className="attForm" noValidate onSubmit={(e) => void save(e)} aria-describedby={error ? ids.error : undefined}>
+    {load.kind === 'ready' && <form className="attForm" noValidate onSubmit={(e) => { e.preventDefault(); void save(false); }} aria-describedby={error ? ids.error : undefined}>
+      {report && <p className="attStack"><StatusChip tone={report.submitted_at ? 'ok' : 'info'}>{report.submitted_at ? t('attTeam.report.submitted') : t('attTeam.report.draft')}</StatusChip>
+        <small className="muted">{report.submitted_at ? t('attTeam.submittedOn', { when: formatDateTime(report.submitted_at) }) : t('attTeam.q.note')}</small></p>}
       {!report && <p className="muted">{t('att.daily.new')}</p>}
       <label className="field"><span>{t('att.daily.project')}</span><input dir="auto" value={draft.project} maxLength={160} onChange={(e) => set({ project: e.target.value })} /></label>
       <div className="attTwo">
@@ -156,7 +137,8 @@ function ReportEditor({ day, person, sites, readOnly, today, onDay, onSaved }: {
       <FormError id={ids.error} text={error} />
       {flash && <Notice error={flash.error}>{flash.text}</Notice>}
       <div className="actions">
-        <button type="submit" disabled={busy !== null}>{busy === 'save' ? t('att.saving') : t('att.daily.save')}</button>
+        <button type="submit" className={report?.submitted_at ? '' : 'secondary'} disabled={busy !== null}>{busy === 'save' ? t('att.saving') : report?.submitted_at ? t('attTeam.q.saveChanges') : t('att.daily.save')}</button>
+        {!report?.submitted_at && <button type="button" disabled={busy !== null} onClick={startReview}>{t('attTeam.q.review')}</button>}
         <button type="button" className="secondary" disabled={busy !== null} onClick={() => void draftAi('day')}><Sparkles aria-hidden="true" />{busy === 'ai-day' ? t('att.daily.drafting') : t('att.daily.aiDay')}</button>
         <button type="button" className="secondary" disabled={busy !== null} onClick={() => void draftAi('week')}><Sparkles aria-hidden="true" />{busy === 'ai-week' ? t('att.daily.drafting') : t('att.daily.aiWeek')}</button>
         {report && <button type="button" className="secondary danger" disabled={busy !== null} onClick={() => setConfirmDelete(true)}><Trash2 aria-hidden="true" />{t('att.daily.delete')}</button>}
@@ -167,20 +149,18 @@ function ReportEditor({ day, person, sites, readOnly, today, onDay, onSaved }: {
           <button type="button" className="secondary" onClick={() => setAiText(null)}>{t('att.daily.aiDiscard')}</button></div>
       </div>}
     </form>}
+    {review && <ConfirmDialog title={t('attTeam.q.reviewTitle', { day })} confirmLabel={t('attTeam.q.submit')} busy={busy === 'submit'}
+      onConfirm={() => void save(true)} onCancel={() => setReview(false)}>
+      <dl className="attReport">
+        <div><dt>{t('attTeam.q.done')}</dt><dd>{lines(draft.done).join('; ') || '-'}</dd></div>
+        <div><dt>{t('attTeam.q.blocker')}</dt><dd dir="auto">{draft.issues.trim() || '-'}</dd></div>
+        <div><dt>{t('attTeam.q.next')}</dt><dd dir="auto">{lines(draft.pending).join('; ') || '-'}</dd></div>
+      </dl>
+      <p className="muted">{t('attTeam.q.reviewNote')}</p>
+    </ConfirmDialog>}
     {confirmDelete && <ConfirmDialog title={t('att.daily.deleteTitle', { day })} confirmLabel={t('att.daily.delete')} danger busy={busy === 'delete'}
       onConfirm={() => void remove()} onCancel={() => setConfirmDelete(false)}><p>{t('att.daily.deleteBody')}</p></ConfirmDialog>}
   </section>;
-}
-
-function ReportView({ report }: { report: AttendanceDailyReport }) {
-  return <dl className="attReport">
-    {report.project && <div><dt>{t('att.daily.project')}</dt><dd dir="auto">{report.project}</dd></div>}
-    <div><dt>{t('att.daily.done')}</dt><dd>{report.tasks_done.length ? <ul>{report.tasks_done.map((x) => <li key={x} dir="auto">{x}</li>)}</ul> : '-'}</dd></div>
-    <div><dt>{t('att.daily.pending')}</dt><dd>{report.tasks_pending.length ? <ul>{report.tasks_pending.map((x) => <li key={x} dir="auto">{x}</li>)}</ul> : '-'}</dd></div>
-    <div><dt>{t('att.daily.issues')}</dt><dd dir="auto">{report.issues ?? '-'}</dd></div>
-    <div><dt>{t('att.daily.priority')}</dt><dd>{t(`att.priority.${report.priority}` as MessageKey)}</dd></div>
-    <div><dt>{t('att.daily.notes')}</dt><dd dir="auto">{report.notes ?? '-'}</dd></div>
-  </dl>;
 }
 
 // ---- Corrections ---------------------------------------------------------------------------------
@@ -189,23 +169,26 @@ export function CorrectionsPanel({ sites, timeZone, today, onChanged }: { sites:
   const [action, setAction] = useState<'add' | 'change' | 'void'>('add');
   const [events, setEvents] = useState<Load<AttendanceEvent[]>>({ kind: 'loading' });
   const [history, setHistory] = useState<Load<AttendancePage<AttendanceCorrection>>>({ kind: 'loading' });
-  const [form, setForm] = useState({ eventId: '', kind: 'arrive' as AttendanceEventKind, day: today, time: '09:00', siteId: '', reason: '' });
+  const [form, setForm] = useState({ eventId: '', kind: 'arrive' as AttendanceEventKind, day: today, time: '09:00', siteId: '' });
+  const [preset, setPreset] = useState<ReasonPreset | ''>('');
+  const [details, setDetails] = useState('');
+  const [shown, setShown] = useState(FIX_PAGE);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [flash, setFlash] = useState<Flash>(null);
-  const ids = { error: useId() };
+  const ids = { error: useId(), reason: useId(), details: useId() };
   const load = useCallback(async () => {
-    const [e, h] = await Promise.allSettled([api.listEvents(shiftDay(today, -13), today), api.listCorrections(50, 0)]);
+    const [e, h] = await Promise.allSettled([api.listEvents(shiftDay(today, -13), today), api.listCorrections(shown, 0)]);
     setEvents(e.status === 'fulfilled' ? { kind: 'ready', value: e.value } : failed(e.reason));
     setHistory(h.status === 'fulfilled' ? { kind: 'ready', value: h.value } : failed(h.reason));
-  }, [today]);
+  }, [today, shown]);
   useEffect(() => { void load(); }, [load]);
   const recent = events.kind === 'ready' ? [...events.value].reverse() : [];
   const label = (e: AttendanceEvent) => t('att.fix.eventOption', { ...localParts(e.occurred_at, timeZone), what: kindLabel(e.kind), site: e.site_id ? siteName(sites, e.site_id) : '-' });
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
-    const reason = checkReason(form.reason);
+    const reason = checkReason(reasonText(preset, details));
     if (!reason.ok) { setError(reason.error); return; }
     if (action !== 'add' && !form.eventId) { setError(t('att.fix.pickEvent')); return; }
     const when = action === 'void' ? null : localToIso(form.day, form.time, timeZone);
@@ -214,7 +197,7 @@ export function CorrectionsPanel({ sites, timeZone, today, onChanged }: { sites:
     try {
       await api.addCorrection({ action, reason: reason.value, event_id: form.eventId || undefined, kind: action === 'void' ? undefined : form.kind,
         occurred_at: when ?? undefined, site_id: action === 'void' ? undefined : form.siteId || null });
-      setFlash({ text: t('att.fix.saved') }); setForm((f) => ({ ...f, reason: '', eventId: '' })); await load(); onChanged();
+      setFlash({ text: t('att.fix.saved') }); setForm((f) => ({ ...f, eventId: '' })); setPreset(''); setDetails(''); await load(); onChanged();
     } catch (e) { setError(describeError(e)); } finally { setBusy(false); }
   };
 
@@ -242,22 +225,21 @@ export function CorrectionsPanel({ sites, timeZone, today, onChanged }: { sites:
           <option value="">{t('att.fix.noSite')}</option>
           {sites.filter((s) => !s.archived).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}</select></label>
       </div>}
-      <label className="field"><span>{t('att.fix.reason')}</span><input dir="auto" value={form.reason} maxLength={500} onChange={(e) => setForm({ ...form, reason: e.target.value })} /></label>
+      <div className="attQuickForm"><ReasonFields preset={preset} details={details} onPreset={setPreset} onDetails={setDetails} ids={ids} /></div>
       <FormError id={ids.error} text={error} />
       {flash && <Notice>{flash.text}</Notice>}
       <div className="actions"><button type="submit" disabled={busy}>{busy ? t('att.saving') : t('att.fix.submit')}</button></div>
     </form>
-    <section className="surface cmPanel" aria-labelledby="att-fix-history">
+    <section className="surface cmPanel" role="region" aria-labelledby="att-fix-history">
       <h2 id="att-fix-history">{t('att.fix.history')}</h2>
       {history.kind === 'loading' && <Notice busy>{t('att.fix.loading')}</Notice>}
       {history.kind === 'error' && <LoadError message={t('att.fix.error', { message: history.message })} retry={() => void load()} />}
       {history.kind === 'ready' && (history.value.items.length === 0
         ? <Empty icon={<History aria-hidden="true" />} title={t('att.fix.emptyTitle')} text={t('att.fix.emptyText')} />
-        : <ul className="cmList">{history.value.items.map((c) => <li key={c.id}><div>
-          <strong>{t(`att.fix.did.${c.action}` as MessageKey)}</strong>
-          <small dir="auto">{c.reason}</small>
-          <small>{[c.before ? t('att.fix.before', { what: kindLabel(c.before.kind), when: formatDateTime(c.before.occurred_at) }) : '', c.after ? t('att.fix.after', { what: kindLabel(c.after.kind), when: formatDateTime(c.after.occurred_at) }) : ''].filter(Boolean).join(' · ')}</small>
-        </div><small>{formatDateTime(c.created_at)}</small></li>)}</ul>)}
+        : <>
+          <AuditTrail items={history.value.items} timeZone={timeZone} />
+          {history.value.total > history.value.items.length && <div className="actions"><button type="button" className="secondary" onClick={() => setShown(shown + FIX_PAGE)}>{t('attTeam.c.older')}</button></div>}
+        </>)}
     </section>
   </div>;
 }
