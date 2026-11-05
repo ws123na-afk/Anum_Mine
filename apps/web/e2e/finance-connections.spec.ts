@@ -190,13 +190,13 @@ test('empty, error and denied states', async ({ page }) => {
   await expect(page.getByRole('heading', { name: 'No imports yet' })).toBeVisible();
   await page.unrouteAll({ behavior: 'ignoreErrors' });
   await mockApi(page, { failAccounts: true });
-  await page.goto('/#finance-accounts');
+  await page.goto('about:blank');
   await page.goto('/#finance-connections');
   await expect(page.getByText(/The accounts could not be loaded/)).toBeVisible({ timeout: 20_000 });
   await expect(page.getByRole('button', { name: 'Try again' }).first()).toBeVisible();
   await page.unrouteAll({ behavior: 'ignoreErrors' });
   await mockApi(page, { denied: true });
-  await page.goto('/#finance-accounts');
+  await page.goto('about:blank');
   await page.goto('/#finance-connections');
   await expect(page.locator('#fin-denied').first()).toBeVisible({ timeout: 20_000 });
 });
