@@ -192,3 +192,14 @@ def test_list_rows_links_and_the_newest_change_sort_under_rls(client: TestClient
     assert [r["title"] for r in page["items"]] == ["Lease, renewed"]
     rest = client.get("/api/v1/documents", headers=ALICE, params={"sort": "updated", "limit": 1, "cursor": page["next_cursor"]}).json()
     assert [r["title"] for r in rest["items"]] == ["Workspace contract"]
+
+
+def test_the_next_expiries_sort_in_postgres(client: TestClient) -> None:  # noqa: F811
+    for title, days in (("Late", 200), ("Soon", 5), ("Gone", -3)):
+        created = add(client, PDF + title.encode(), title=title)
+        assert client.patch(f"/api/v1/documents/{created['id']}", headers=ALICE, json={
+            "row_version": created["row_version"], "expiry_date": (date.today() + timedelta(days=days)).isoformat()}).status_code == 200
+    page = client.get("/api/v1/documents", headers=ALICE, params={"sort": "expiry", "limit": 1}).json()
+    assert [d["title"] for d in page["items"]] == ["Soon"]
+    rest = client.get("/api/v1/documents", headers=ALICE, params={"sort": "expiry", "limit": 1, "cursor": page["next_cursor"]}).json()
+    assert [d["title"] for d in rest["items"]] == ["Late"]

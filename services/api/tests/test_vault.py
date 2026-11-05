@@ -606,3 +606,20 @@ def test_the_list_sorts_by_the_newest_change_with_its_own_cursor() -> None:
     rest = client.get("/api/v1/documents", headers=ALICE, params={"sort": "updated", "limit": 2, "cursor": page["next_cursor"]}).json()
     assert [d["title"] for d in rest["items"]] == ["Second"] and rest["next_cursor"] is None
     assert client.get("/api/v1/documents", headers=ALICE, params={"sort": "title"}).status_code == 422
+
+
+def test_the_next_expiries_come_first_and_page_by_day() -> None:
+    def dated(title: str, days: int) -> None:
+        created = add(PDF + title.encode(), title=title, category="insurance").json()
+        assert client.patch(f"/api/v1/documents/{created['id']}", headers=ALICE,
+                            json={"row_version": 1, "expiry_date": (date.today() + timedelta(days=days)).isoformat()}).status_code == 200
+
+    dated("Late", 200)
+    dated("Soon", 5)
+    dated("Gone", -3)
+    dated("Today", 0)
+    add(PDF + b"%none", title="No expiry")
+    page = client.get("/api/v1/documents", headers=ALICE, params={"sort": "expiry", "limit": 2}).json()
+    assert [d["title"] for d in page["items"]] == ["Today", "Soon"]
+    rest = client.get("/api/v1/documents", headers=ALICE, params={"sort": "expiry", "limit": 2, "cursor": page["next_cursor"]}).json()
+    assert [d["title"] for d in rest["items"]] == ["Late"] and rest["next_cursor"] is None  # expired and undated documents are left out

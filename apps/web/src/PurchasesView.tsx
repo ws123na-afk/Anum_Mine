@@ -1,23 +1,24 @@
-// Purchases, deliveries, returns and refunds (docs/purchases.md#web). Overview (what is on the way, late, open returns,
-// spend and refunds per currency, what is due), Purchases (search, status filter, archived, paging, CSV), Returns (open
-// returns across purchases) and Settings (reminders, default currency, the iPhone Shortcut). A purchase opens its own page.
-// Payments and refunds are links to the person's Finance transactions, never new money: the page says so wherever money is shown.
-import { useCallback, useEffect, useState } from 'react';
-import { ChevronLeft, ChevronRight, Download, Lock, PackageOpen, Plus, Smartphone, Undo2 } from 'lucide-react';
-import type { Purchase, PurchaseFilter, PurchaseOverview, PurchasePage, PurchasePreferences, PurchaseReturn } from '@anum/contracts';
+// Purchases and Returns (docs/purchases.md#web), on the shared shell (FinanceShell.tsx): the page head with Import order,
+// Export and Track purchase; tabs Overview (KPIs, the filterable tracker, the delivery and refund task queue), All purchases,
+// Deliveries, Returns and refunds, Warranty and Settings; a row opens the order drawer and the full record. Payments and
+// refunds are links to the person's Finance transactions, never new money, and a refund is never income.
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { ChevronLeft, ChevronRight, CircleAlert, Coins, Download, Lock, PackageOpen, Plus, ShoppingCart, Smartphone, Truck, Undo2, Upload } from 'lucide-react';
+import type { PurchaseOverview, PurchasePage, PurchasePreferences, PurchaseReturn } from '@anum/contracts';
 import * as api from './lib/purchasesApi';
 import {
-  FILTERS, PAGE_SIZE, PURCHASE_TABS, dueLabel, dueText, filterLabel, hashForTab, linkText, moneyList, purchaseName, returnStatusLabel, statusLabel,
-  statusTone, tabFromHash, type PurchaseTab,
+  FILTERS, NO_FILTERS, PAGE_SIZE, PURCHASE_TABS, chipTone, hashForTab, moneyList, reasonLabel, refundMatch, returnStatusLabel, statusLabel, statusTone, tabFromHash,
+  type PurchaseTab, type TrackerFilters,
 } from './lib/purchases';
-import { formatAmount } from './lib/finance';
+import { formatAmount, monthLabel } from './lib/finance';
 import { describeError } from './lib/errors';
-import { t, type MessageKey } from './lib/i18n';
-import { figure, type Figure } from './lib/pageSummary';
+import { formatNumber, t, type MessageKey } from './lib/i18n';
 import { viewLabel } from './lib/shell';
 import { Empty, LoadError, Notice, failed, type Load } from './FinanceParts';
-import { PageHeader, PageSummary, type Crumb } from './PageParts';
+import { FinBanner, FinCard, FinancePageHead, FinanceTabs, KpiCard, KpiRow, StatusChip as ShellChip, tabPanel } from './FinanceShell';
+import { type Crumb } from './PageParts';
 import { PurchaseDetailView, PurchaseForm } from './PurchaseParts';
+import { ImportOrderDialog, PurchaseDrawer, RefundNote, TaskQueue, TrackerCard, TrackerFilterBar, shortDay } from './PurchaseTracker';
 import './commerce.css';
 import './purchases.css';
 
@@ -47,36 +48,73 @@ export function StatusChip({ status, kind = 'purchase' }: { status: string; kind
 export function PurchasesView() {
   const [tab, pick] = usePurchaseTab();
   const [openId, setOpenId] = useState<string | null>(null);
+  const [selected, setSelected] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
+  const [importing, setImporting] = useState(false);
   const [tick, setTick] = useState(0);
   const [denied, setDenied] = useState(false);
+  const [filters, setFilters] = useState<TrackerFilters>(NO_FILTERS);
+  const [message, setMessage] = useState<{ text: string; error?: boolean } | null>(null);
   const refresh = () => setTick((n) => n + 1);
   const crumbs: Crumb[] = [{ label: viewLabel('home'), href: '#home' }, { label: viewLabel('purchases'), href: '#purchases', onClick: () => { setOpenId(null); pick('overview'); } }];
-  if (!openId && tab !== 'overview') crumbs.push({ label: t(`pur.tab.${tab}` as MessageKey) });
-  const header = <PageHeader title={viewLabel('purchases')} subtitle={t('pur.subtitle')} crumbs={openId || tab !== 'overview' ? crumbs : undefined}
-    actions={denied ? undefined : <button type="button" onClick={() => setAdding(true)}><Plus aria-hidden="true" />{t('pur.add')}</button>} />;
-  const added = (purchase: { id: string }) => { setAdding(false); refresh(); setOpenId(purchase.id); };
+  const added = (purchase: { id: string }) => { setAdding(false); refresh(); setSelected(purchase.id); };
   const onDenied = useCallback(() => setDenied(true), []);
-  if (denied) return <div className="cmLayout purLayout">{header}<PurchasesDenied /></div>;
-  return <div className="cmLayout purLayout">
-    {header}
+  const exportCsv = async () => {
+    setMessage(null);
+    try { await api.exportCsv(false); setMessage({ text: t('pur.exported') }); } catch (e) { setMessage({ text: describeError(e), error: true }); }
+  };
+  const openFull = (id: string) => { setSelected(null); setOpenId(id); };
+  const tabs = PURCHASE_TABS.map((id) => ({ id, label: t(`pur.tab.${id}` as MessageKey) }));
+  const actions = denied || openId ? undefined : <>
+    <button type="button" className="secondary" onClick={() => setImporting(true)}><Upload aria-hidden="true" />{t('pur.import.button')}</button>
+    <button type="button" className="secondary" onClick={() => void exportCsv()}><Download aria-hidden="true" />{t('pur.export')}</button>
+    <button type="button" onClick={() => setAdding(true)}><Plus aria-hidden="true" />{t('pur.track')}</button>
+  </>;
+  const head = <FinancePageHead title={t('pur.title')} subtitle={t('pur.subtitle')} crumbs={openId ? crumbs : undefined} actions={actions}
+    tabs={denied || openId ? undefined : <FinanceTabs label={t('pur.tabs')} items={tabs} value={tab} idPrefix="pur" onChange={(next) => { setSelected(null); pick(next); }} />} />;
+  if (denied) return <div className="finPage purLayout">{head}<PurchasesDenied /></div>;
+  const drawer = selected && <PurchaseDrawer key={selected} purchaseId={selected} onClose={() => setSelected(null)} onChanged={refresh} onOpenFull={openFull} />;
+  const bar = <TrackerFilterBar value={filters} onChange={setFilters} label={t('pur.filter.label')}
+    statusChoices={tab === 'deliveries' ? ['', 'ordered', 'confirmed', 'shipped', 'out_for_delivery', 'partially_delivered'] : FILTERS} />;
+  const card = (props: Partial<Parameters<typeof TrackerCard>[0]> & { title: string }) => <TrackerCard filters={filters} selected={selected} onSelect={setSelected}
+    onOpenFull={openFull} onAdd={() => setAdding(true)} tick={tick} onDenied={onDenied} {...props} />;
+  return <div className="finPage purLayout">
+    {head}
+    {message && <Notice error={message.error}>{message.text}</Notice>}
     {adding && <PurchaseForm onClose={() => setAdding(false)} onSaved={added} />}
+    {importing && <ImportOrderDialog onClose={() => setImporting(false)} onImported={(id, text) => { setImporting(false); setMessage({ text }); refresh(); if (id) setSelected(id); }} />}
     {openId ? <PurchaseDetailView key={`${openId}:${tick}`} purchaseId={openId} onBack={() => { setOpenId(null); refresh(); }} onDeleted={() => { setOpenId(null); refresh(); }} />
-      : <>
-        <nav className="settingsTabs cmTabs purTabs" aria-label={t('pur.tabs')}>
-          {PURCHASE_TABS.map((id) => <button key={id} type="button" aria-current={tab === id ? 'page' : undefined} onClick={() => pick(id)}>{t(`pur.tab.${id}` as MessageKey)}</button>)}
-        </nav>
-        {tab === 'overview' && <OverviewPanel key={tick} onOpen={setOpenId} onAdd={() => setAdding(true)} onDenied={onDenied} onList={() => pick('list')} />}
-        {tab === 'list' && <ListPanel key={tick} onOpen={setOpenId} onAdd={() => setAdding(true)} onDenied={onDenied} />}
-        {tab === 'returns' && <ReturnsPanel key={tick} onOpen={setOpenId} onDenied={onDenied} />}
+      : <div {...tabPanel('pur', tab)}>
+        {tab === 'overview' && <OverviewPanel key={tick} onAdd={() => setAdding(true)} onImport={() => setImporting(true)} onDenied={onDenied} onSelect={setSelected}>
+          {bar}
+          <div className={`purWorkspace ${selected ? 'withDrawer' : ''}`}>
+            <div className="purMain">{card({ title: t('pur.tracker.title'), limit: 5, actions: <button type="button" className="linkButton" onClick={() => pick('list')}>{t('pur.allPurchases')}</button> })}</div>
+            {drawer}
+          </div>
+        </OverviewPanel>}
+        {tab === 'list' && <>{bar}<ListWorkspace drawer={drawer} selected={Boolean(selected)} card={card} /></>}
+        {tab === 'deliveries' && <>{bar}<div className={`purWorkspace ${selected ? 'withDrawer' : ''}`}><div className="purMain">
+          {card({ title: t('pur.deliveries.title'), columns: 'deliveries', extra: { status: filters.status || 'awaiting' }, emptyTitle: t('pur.deliveries.empty'), emptyText: t('pur.deliveries.emptyText') })}
+          <FinBanner tone="info" icon={<Truck />}>{t('pur.deliveries.rule')}</FinBanner></div>{drawer}</div></>}
+        {tab === 'returns' && <div className={`purWorkspace ${selected ? 'withDrawer' : ''}`}><div className="purMain"><ReturnsPanel key={tick} onOpen={setSelected} onDenied={onDenied} /><RefundNote /></div>{drawer}</div>}
+        {tab === 'warranty' && <>{bar}<div className={`purWorkspace ${selected ? 'withDrawer' : ''}`}><div className="purMain">
+          {card({ title: t('pur.warranty.title'), columns: 'warranty', extra: { warranty: true }, emptyTitle: t('pur.warranty.empty'), emptyText: t('pur.warranty.emptyText') })}</div>{drawer}</div></>}
         {tab === 'settings' && <SettingsPanel onDenied={onDenied} />}
-      </>}
+      </div>}
   </div>;
+}
+
+function ListWorkspace({ drawer, selected, card }: { drawer: ReactNode; selected: boolean; card: (props: Partial<Parameters<typeof TrackerCard>[0]> & { title: string }) => ReactNode }) {
+  const [archived, setArchived] = useState(false);
+  return <div className={`purWorkspace ${selected ? 'withDrawer' : ''}`}><div className="purMain">
+    {card({ title: archived ? t('pur.list.archivedTitle') : t('pur.list.title'), extra: { archived },
+      actions: <label className="purCheck"><input type="checkbox" checked={archived} onChange={(e) => setArchived(e.target.checked)} />{t('pur.list.showArchived')}</label> })}
+  </div>{drawer}</div>;
 }
 
 // ---- Overview ------------------------------------------------------------------------------------------
 
-function OverviewPanel({ onOpen, onAdd, onDenied, onList }: { onOpen: (id: string) => void; onAdd: () => void; onDenied: () => void; onList: () => void }) {
+function OverviewPanel({ onAdd, onImport, onDenied, onSelect, children }: { onAdd: () => void; onImport: () => void; onDenied: () => void; onSelect: (id: string) => void; children: ReactNode }) {
   const [data, setData] = useState<Load<PurchaseOverview>>({ kind: 'loading' });
   const load = useCallback(async () => {
     setData({ kind: 'loading' });
@@ -84,43 +122,28 @@ function OverviewPanel({ onOpen, onAdd, onDenied, onList }: { onOpen: (id: strin
   }, []);
   useEffect(() => { void load(); }, [load]);
   useEffect(() => { if (data.kind === 'denied') onDenied(); }, [data.kind, onDenied]);
-  const state = data.kind === 'ready' ? 'ready' : data.kind === 'loading' ? 'loading' : 'error';
-  const value = data.kind === 'ready' ? data.value : null;
-  const figures: Figure[] = [
-    figure('awaiting', t('pur.fig.awaiting'), { state }, () => ({ value: String(value!.awaiting_delivery), hint: value!.late ? t('pur.fig.late', { count: value!.late }) : t('pur.fig.awaitingHint'), tone: value!.late ? 'warn' : undefined })),
-    figure('returns', t('pur.fig.returns'), { state }, () => ({ value: String(value!.open_returns), hint: value!.refunds_owed.length ? t('pur.fig.owed', { amount: moneyList(value!.refunds_owed) }) : t('pur.fig.returnsHint') })),
-    figure('spend', t('pur.fig.spend'), { state }, () => ({ value: moneyList(value!.spend), hint: value!.unlinked ? t('pur.fig.unlinked', { count: value!.unlinked }) : t('pur.fig.spendHint') })),
-    figure('refunded', t('pur.fig.refunded'), { state }, () => ({ value: moneyList(value!.refunded), hint: t('pur.fig.refundedHint') })),
-  ];
   if (data.kind === 'error') return <LoadError message={t('pur.error.load', { message: data.message })} retry={() => void load()} />;
   if (data.kind === 'denied') return null;
-  if (value && value.purchases === 0) return <section className="surface cmPanel"><Empty icon={<PackageOpen aria-hidden="true" />} title={t('pur.empty.title')} text={t('pur.empty.text')}
-    action={<button type="button" onClick={onAdd}><Plus aria-hidden="true" />{t('pur.add')}</button>} /></section>;
+  const value = data.kind === 'ready' ? data.value : null;
+  if (value && value.purchases === 0) return <FinCard title={t('pur.tracker.title')}><Empty icon={<PackageOpen aria-hidden="true" />} title={t('pur.empty.title')} text={t('pur.empty.text')}
+    action={<div className="actions"><button type="button" onClick={onAdd}><Plus aria-hidden="true" />{t('pur.track')}</button>
+      <button type="button" className="secondary" onClick={onImport}><Upload aria-hidden="true" />{t('pur.import.button')}</button></div>} /></FinCard>;
+  const loading = <span className="muted">{t('pur.loading')}</span>;
   return <>
-    <PageSummary label={t('pur.summary.label')} figures={figures} onRetry={() => void load()} footer={<p className="muted purNote">{t('pur.noPosting')}</p>} />
-    {data.kind === 'loading' && <Notice busy>{t('pur.loading')}</Notice>}
-    {value && value.needs_review > 0 && <Notice>{t('pur.review.count', { count: value.needs_review })}</Notice>}
-    {value && <div className="purGrid">
-      <section className="surface cmPanel" aria-labelledby="pur-due-title">
-        <h2 id="pur-due-title">{t('pur.due.title')}</h2>
-        {value.due.length === 0 ? <p className="muted">{t('pur.due.none')}</p>
-          : <ul className="cmList purDueList">{value.due.map((item) => <li key={`${item.purchase_id}:${item.kind}:${item.source_id}`}>
-            <div><strong dir="auto">{dueLabel(item)} · <bdi>{purchaseName(item)}</bdi></strong><small>{dueText(item)} · {item.due_on}</small></div>
-            <button type="button" className="secondary" aria-label={t('pur.openLabel', { name: purchaseName(item) })} onClick={() => onOpen(item.purchase_id)}>{t('pur.open')}</button>
-          </li>)}</ul>}
-      </section>
-      <section className="surface cmPanel" aria-labelledby="pur-month-title">
-        <h2 id="pur-month-title">{t('pur.monthly.title')}</h2>
-        {value.monthly.length === 0 ? <p className="muted">{t('pur.monthly.none')}</p>
-          : <div className="purTableWrap"><table className="cmTable purTable"><thead><tr><th scope="col">{t('pur.col.month')}</th><th scope="col" className="num">{t('pur.col.paid')}</th></tr></thead>
-            <tbody>{value.monthly.map((row) => <tr key={`${row.month}:${row.currency}`}><td>{row.month}</td><td className="num" dir="ltr">{formatAmount(row.amount, row.currency)}</td></tr>)}</tbody></table></div>}
-        <dl className="purFacts">
-          <dt>{t('pur.fig.net')}</dt><dd dir="ltr">{moneyList(value.net)}</dd>
-          <dt>{t('pur.fig.owedTitle')}</dt><dd dir="ltr">{moneyList(value.refunds_owed)}</dd>
-        </dl>
-        <button type="button" className="secondary" onClick={onList}>{t('pur.allPurchases')}</button>
-      </section>
-    </div>}
+    <KpiRow label={t('pur.summary.label')}>
+      <KpiCard icon={<ShoppingCart />} label={t('pur.kpi.orders')} value={value ? formatNumber(value.orders_this_month) : loading}
+        hint={value ? t('pur.kpi.ordersHint', { month: monthLabel(value.month) }) : undefined} />
+      <KpiCard icon={<Coins />} label={t('pur.kpi.committed')} value={value ? (value.committed_this_month.length ? moneyList(value.committed_this_month) : '-') : loading}
+        hint={value ? (value.untotalled_this_month ? t('pur.kpi.untotalled', { count: value.untotalled_this_month }) : t('pur.kpi.committedHint')) : undefined} />
+      <KpiCard icon={<Truck />} label={t('pur.kpi.transit')} value={value ? formatNumber(value.in_transit) : loading}
+        hint={value ? (value.late ? t('pur.fig.late', { count: value.late }) : t('pur.kpi.transitHint', { count: value.awaiting_delivery })) : undefined} tone={value?.late ? 'warn' : ''} />
+      <KpiCard icon={<Undo2 />} label={t('pur.kpi.returns')} value={value ? formatNumber(value.open_returns) : loading}
+        hint={value ? (value.refunds_owed.length ? t('pur.fig.owed', { amount: moneyList(value.refunds_owed) }) : t('pur.fig.returnsHint')) : undefined} tone={value?.open_returns ? 'bad' : ''} />
+    </KpiRow>
+    {value && value.needs_review > 0 && <FinBanner tone="warn" icon={<CircleAlert />}>{t('pur.review.count', { count: value.needs_review })}</FinBanner>}
+    {children}
+    {value && <TaskQueue due={value.due} onOpen={onSelect} />}
+    <RefundNote />
   </>;
 }
 
@@ -135,57 +158,6 @@ export function Pager({ total, offset, onChange }: { total: number; offset: numb
   </div>;
 }
 
-function ListPanel({ onOpen, onAdd, onDenied }: { onOpen: (id: string) => void; onAdd: () => void; onDenied: () => void }) {
-  const [q, setQ] = useState('');
-  const [search, setSearch] = useState('');
-  const [status, setStatus] = useState<PurchaseFilter | ''>('');
-  const [archived, setArchived] = useState(false);
-  const [offset, setOffset] = useState(0);
-  const [run, setRun] = useState(0);
-  const [page, setPage] = useState<Load<PurchasePage<Purchase>>>({ kind: 'loading' });
-  const [message, setMessage] = useState<{ text: string; error?: boolean } | null>(null);
-  const load = useCallback(async () => {
-    setPage({ kind: 'loading' });
-    try { setPage({ kind: 'ready', value: await api.listPurchases(search, status, archived, offset, PAGE_SIZE) }); } catch (e) { setPage(failed(e)); }
-  }, [search, status, archived, offset, run]);
-  useEffect(() => { void load(); }, [load]);
-  useEffect(() => { if (page.kind === 'denied') onDenied(); }, [page.kind, onDenied]);
-  const exportCsv = async () => {
-    setMessage(null);
-    try { await api.exportCsv(archived); setMessage({ text: t('pur.exported') }); } catch (e) { setMessage({ text: describeError(e), error: true }); }
-  };
-  const filtered = Boolean(search || status || archived);
-  return <section className="surface cmPanel" aria-labelledby="pur-list-title">
-    <div className="purBar"><h2 id="pur-list-title">{archived ? t('pur.list.archivedTitle') : t('pur.list.title')}</h2>
-      <button type="button" className="secondary" onClick={() => void exportCsv()}><Download aria-hidden="true" />{t('pur.export')}</button></div>
-    <form className="cmFilters purFilters" role="search" onSubmit={(e) => { e.preventDefault(); setOffset(0); setSearch(q.trim()); setRun((n) => n + 1); }}>
-      <label className="cmInline cmSearch"><span>{t('pur.list.search')}</span><input type="search" dir="auto" value={q} maxLength={80} onChange={(e) => setQ(e.target.value)} /></label>
-      <label className="cmInline"><span>{t('pur.list.status')}</span>
-        <select value={status} onChange={(e) => { setOffset(0); setStatus(e.target.value as PurchaseFilter | ''); }}>
-          {FILTERS.map((f) => <option key={f} value={f}>{filterLabel(f)}</option>)}
-        </select></label>
-      <button type="submit" className="secondary">{t('pur.list.find')}</button>
-      <label className="purCheck"><input type="checkbox" checked={archived} onChange={(e) => { setOffset(0); setArchived(e.target.checked); }} />{t('pur.list.showArchived')}</label>
-    </form>
-    {message && <Notice error={message.error}>{message.text}</Notice>}
-    {page.kind === 'loading' && <Notice busy>{t('pur.loading')}</Notice>}
-    {page.kind === 'error' && <LoadError message={t('pur.error.load', { message: page.message })} retry={() => void load()} />}
-    {page.kind === 'ready' && page.value.total === 0 && (filtered
-      ? <p className="muted">{search ? t('pur.list.noMatch', { q: search }) : t('pur.list.noneHere')}</p>
-      : <Empty icon={<PackageOpen aria-hidden="true" />} title={t('pur.empty.title')} text={t('pur.empty.text')} action={<button type="button" onClick={onAdd}><Plus aria-hidden="true" />{t('pur.add')}</button>} />)}
-    {page.kind === 'ready' && page.value.total > 0 && <>
-      <ul className="cmList purList">{page.value.items.map((p) => <li key={p.id}>
-        <div><strong dir="auto"><bdi>{p.merchant}</bdi>{p.order_ref ? <> · <bdi>{p.order_ref}</bdi></> : null}</strong>
-          <small>{[p.ordered_on, p.total ? formatAmount(p.total, p.currency) : '', t(`pur.own.${p.ownership}` as MessageKey), p.mine ? linkText(p.payment) : '',
-            p.due[0] ? `${dueLabel(p.due[0])}: ${dueText(p.due[0])}` : ''].filter(Boolean).join(' · ')}</small>
-          <span className="purChips"><StatusChip status={p.status} />{p.needs_review && <span className="purChip warn">{t('pur.review.chip')}</span>}</span></div>
-        <button type="button" className="secondary" aria-label={t('pur.openLabel', { name: purchaseName(p) })} onClick={() => onOpen(p.id)}>{t('pur.open')}</button>
-      </li>)}</ul>
-      <Pager total={page.value.total} offset={offset} onChange={setOffset} />
-    </>}
-  </section>;
-}
-
 // ---- Returns across purchases ------------------------------------------------------------------------
 
 function ReturnsPanel({ onOpen, onDenied }: { onOpen: (id: string) => void; onDenied: () => void }) {
@@ -198,24 +170,32 @@ function ReturnsPanel({ onOpen, onDenied }: { onOpen: (id: string) => void; onDe
   }, [open, offset]);
   useEffect(() => { void load(); }, [load]);
   useEffect(() => { if (page.kind === 'denied') onDenied(); }, [page.kind, onDenied]);
-  return <section className="surface cmPanel" aria-labelledby="pur-ret-title">
-    <div className="purBar"><h2 id="pur-ret-title">{t('pur.returns.title')}</h2>
-      <label className="purCheck"><input type="checkbox" checked={!open} onChange={(e) => { setOffset(0); setOpen(!e.target.checked); }} />{t('pur.returns.showClosed')}</label></div>
+  return <FinCard title={t('pur.returns.title')} subtitle={page.kind === 'ready' ? t('pur.returns.count', { count: page.value.total }) : undefined}
+    actions={<label className="purCheck"><input type="checkbox" checked={!open} onChange={(e) => { setOffset(0); setOpen(!e.target.checked); }} />{t('pur.returns.showClosed')}</label>}>
     <p className="muted purNote">{t('pur.returns.rule')}</p>
     {page.kind === 'loading' && <Notice busy>{t('pur.loading')}</Notice>}
     {page.kind === 'error' && <LoadError message={t('pur.error.load', { message: page.message })} retry={() => void load()} />}
     {page.kind === 'ready' && page.value.total === 0 && <Empty icon={<Undo2 aria-hidden="true" />} title={t('pur.returns.empty')} text={t('pur.returns.emptyText')} />}
     {page.kind === 'ready' && page.value.total > 0 && <>
-      <ul className="cmList purList">{page.value.items.map((r) => <li key={r.id}>
-        <div><strong dir="auto"><bdi>{r.merchant ?? '-'}</bdi>{r.order_ref ? <> · <bdi>{r.order_ref}</bdi></> : null}</strong>
-          <small>{[r.requested_on, r.amount ? t('pur.ret.amountLine', { amount: formatAmount(r.amount, r.currency) }) : '',
-            Number(r.refunded) > 0 ? t('pur.ret.refundedLine', { amount: formatAmount(r.refunded, r.currency) }) : ''].filter(Boolean).join(' · ')}</small>
-          <span className="purChips"><StatusChip status={r.status} kind="return" /></span></div>
-        <button type="button" className="secondary" aria-label={t('pur.openLabel', { name: r.merchant ?? r.purchase_id })} onClick={() => onOpen(r.purchase_id)}>{t('pur.open')}</button>
-      </li>)}</ul>
+      <div className="finTableWrap"><table className="finGrid purTracker">
+        <caption className="visuallyHidden">{t('pur.returns.title')}</caption>
+        <thead><tr><th scope="col">{t('pur.col.seller')}</th><th scope="col">{t('pur.col.requested')}</th><th scope="col">{t('pur.col.reason')}</th>
+          <th scope="col">{t('pur.col.status')}</th><th scope="col">{t('pur.col.refundMatch')}</th><th scope="col" className="num">{t('pur.col.expectedRefund')}</th>
+          <th scope="col" className="num">{t('pur.col.refunded')}</th></tr></thead>
+        <tbody>{page.value.items.map((r) => <tr key={r.id}>
+          <th scope="row"><button type="button" className="purRowButton" onClick={() => onOpen(r.purchase_id)} aria-label={t('pur.openLabel', { name: r.merchant ?? r.purchase_id })}>
+            <strong dir="auto"><bdi>{r.merchant ?? '-'}</bdi></strong>{r.order_ref ? <small dir="ltr">{r.order_ref}</small> : null}</button></th>
+          <td>{shortDay(r.requested_on)}</td>
+          <td>{reasonLabel(r.reason)}</td>
+          <td><ShellChip tone={chipTone(r.status)}>{returnStatusLabel(r.status)}</ShellChip></td>
+          <td><ShellChip tone={refundMatch(r) === 'matched' ? 'ok' : refundMatch(r) === 'review' ? 'warn' : 'muted'}>{t(`pur.match.${refundMatch(r)}` as MessageKey)}</ShellChip></td>
+          <td className="num" dir="ltr">{r.amount ? formatAmount(r.amount, r.currency) : '-'}</td>
+          <td className="num" dir="ltr">{r.refunded_all.length ? r.refunded_all.map((m) => formatAmount(m.amount, m.currency)).join(', ') : '-'}</td>
+        </tr>)}</tbody>
+      </table></div>
       <Pager total={page.value.total} offset={offset} onChange={setOffset} />
     </>}
-  </section>;
+  </FinCard>;
 }
 
 // ---- Settings ------------------------------------------------------------------------------------------

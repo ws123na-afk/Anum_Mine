@@ -124,8 +124,11 @@ def quota_error(used: int, size: int) -> ApplicationError:
 
 
 def encode_cursor(record: DocumentRecord, sort: str = "created") -> str:
-    stamp = record.updated_at if sort == "updated" else record.created_at
-    raw = f"{stamp.isoformat()}|{record.id}".encode()
+    if sort == "expiry" and record.expiry_date is not None:
+        stamp = record.expiry_date.isoformat()
+    else:
+        stamp = (record.updated_at if sort == "updated" else record.created_at).isoformat()
+    raw = f"{stamp}|{record.id}".encode()
     return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
 
 

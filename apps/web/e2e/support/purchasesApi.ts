@@ -159,10 +159,34 @@ export function purchasesReply(state: PurchasesState, method: string, url: URL, 
     const status = params.get('status') ?? '';
     const groups: Record<string, string[]> = { awaiting: ['ordered', 'confirmed', 'shipped', 'out_for_delivery', 'partially_delivered'],
       returns: ['return_requested', 'return_approved', 'pickup_scheduled', 'returned', 'refund_pending', 'partially_refunded', 'disputed'], closed: ['refunded', 'cancelled'] };
+    const merchant = (params.get('merchant') ?? '').toLowerCase();
+    const from = params.get('from'), to = params.get('to'), payment = params.get('payment'), source = params.get('source');
     const rows = state.purchases.filter((p) => (params.get('archived') === 'true') === Boolean(p.archived_at))
       .filter((p) => !q || `${p.merchant} ${p.order_ref ?? ''} ${p.notes ?? ''}`.toLowerCase().includes(q))
-      .filter((p) => !status || status === 'open' ? true : (groups[status] ?? [status]).includes(String(p.status)));
-    return page(rows.map(view));
+      .filter((p) => !status || status === 'open' ? true : (groups[status] ?? [status]).includes(String(p.status)))
+      .filter((p) => !merchant || String(p.merchant).toLowerCase() === merchant)
+      .filter((p) => (!from || String(p.ordered_on) >= from) && (!to || String(p.ordered_on) <= to))
+      .filter((p) => !source || p.source === source)
+      .filter((p) => !payment || (payment === 'linked' ? (p.payment as Row | null)?.status === 'active' : payment === 'unlinked' ? !p.payment : p.payment_method === payment))
+      .filter((p) => params.get('warranty') !== 'true' || (Boolean(p.warranty_until) && String(p.warranty_until) >= day(0)));
+    return page(rows.map((p) => {
+      const items = p.items as Row[], shipments = p.shipments as Row[];
+      const { items: _i, shipments: _s, returns: _r, events: _e, ...row } = view(p);
+      return { ...row, first_item: items[0]?.description ?? null, item_count: items.length, latest_shipment: shipments.length ? shipments[shipments.length - 1] : null };
+    }));
+  }
+  if (method === 'GET' && sub === '/merchants') return { status: 200, body: { items: [...new Set(state.purchases.filter((p) => !p.archived_at).map((p) => String(p.merchant)))].sort() } };
+  if (method === 'POST' && sub === '/device/share') {
+    const text = String(b.text ?? '');
+    const ref = text.match(/order\s+#?([A-Z0-9-]{3,})/i)?.[1];
+    if (!ref) return refused(422, 'No order number, tracking number or known shop was found in the shared text. Add the purchase by hand.', 'nothing_found');
+    const existing = state.purchases.find((p) => p.order_ref === ref);
+    if (existing) return { status: 200, body: { status: 'updated', purchase_id: existing.id, purchase_status: existing.status, message: 'Updated.' } };
+    const id = `pur_imp_${++state.sequence}`;
+    const created = purchase(id, { merchant: 'Example Import Shop', order_ref: ref, source: 'web', needs_review: true });
+    addEvent(state, created, 'share', null, null, null);
+    state.purchases.unshift(created);
+    return { status: 200, body: { status: 'created', purchase_id: id, purchase_status: 'ordered', message: 'Saved.' } };
   }
   if (method === 'POST' && sub === '') {
     const id = `pur_new_${++state.sequence}`;
@@ -178,12 +202,16 @@ export function purchasesReply(state: PurchasesState, method: string, url: URL, 
     const spend = active.filter((p) => (p.payment as Row | null)?.status === 'active').reduce((s, p) => s + Number((p.payment as Row).amount), 0);
     const refunded = active.reduce((s, p) => s + refundedOf(p.returns as Row[]), 0);
     const rows = (value: number) => (value ? [{ currency: 'SAR', amount: value.toFixed(2) }] : []);
+    const thisMonth = active.filter((p) => String(p.ordered_on).slice(0, 7) === day(0).slice(0, 7) && p.status !== 'cancelled');
     return { status: 200, body: { purchases: active.length, awaiting_delivery: active.filter((p) => ['ordered', 'confirmed', 'shipped', 'out_for_delivery'].includes(String(p.status))).length,
       late: active.filter((p) => p.expected_delivery_on && String(p.expected_delivery_on) < day(0) && p.status === 'shipped').length,
       open_returns: active.reduce((s, p) => s + (p.returns as Row[]).filter((r) => !['refunded', 'rejected', 'cancelled'].includes(String(r.status))).length, 0),
       needs_review: active.filter((p) => p.needs_review).length, unlinked: active.filter((p) => p.mine && !p.payment).length,
       spend: rows(spend), refunded: rows(refunded), net: rows(spend - refunded), refunds_owed: [],
-      monthly: spend ? [{ month: day(0).slice(0, 7), currency: 'SAR', amount: spend.toFixed(2) }] : [], due: active.flatMap((p) => p.due as Row[]) } };
+      monthly: spend ? [{ month: day(0).slice(0, 7), currency: 'SAR', amount: spend.toFixed(2) }] : [], due: active.flatMap((p) => p.due as Row[]),
+      month: day(0).slice(0, 7), orders_this_month: thisMonth.length, untotalled_this_month: thisMonth.filter((p) => !p.total).length,
+      committed_this_month: rows(thisMonth.reduce((s, p) => s + Number(p.total ?? 0), 0)),
+      in_transit: active.reduce((s, p) => s + (p.shipments as Row[]).filter((x) => ['in_transit', 'out_for_delivery'].includes(String(x.status))).length, 0) } };
   }
   if (method === 'GET' && sub === '/reminders') return { status: 200, body: { items: state.purchases.flatMap((p) => p.due as Row[]), lead_days: 3, warranty_days: 30 } };
   if (method === 'GET' && sub === '/preferences') return { status: 200, body: state.preferences };

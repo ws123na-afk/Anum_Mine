@@ -78,7 +78,7 @@ class RowFacts:
     review_pending: bool = False
 
 
-SORTS = ("created", "updated")
+SORTS = ("created", "updated", "expiry")
 
 
 def sort_key(record: DocumentRecord, sort: str) -> tuple[datetime, str]:
@@ -242,6 +242,12 @@ class InMemoryVaultStore:
     def list_documents(self, context: TenantContext, query: DocumentQuery, today: date) -> list[DocumentRecord]:
         with self._lock:
             rows = [d for d in self._scoped_docs(context) if _matches(d, query, today)]
+        if query.sort == "expiry":
+            dated = sorted((d for d in rows if d.expiry_date is not None and d.expiry_date >= today), key=lambda d: (d.expiry_date, d.id))
+            if query.after is not None:
+                after_day, after_id = query.after[0].date(), query.after[1]
+                dated = [d for d in dated if (d.expiry_date, d.id) > (after_day, after_id)]
+            return [d.model_copy(deep=True) for d in dated[: query.limit]]
         rows.sort(key=lambda d: sort_key(d, query.sort), reverse=True)
         if query.after is not None:
             after = query.after
@@ -603,11 +609,19 @@ class SqlVaultStore:
             )
             params["q"] = _like(query.search)
         column = "updated_at" if query.sort == "updated" else "created_at"
+        order = f"{column} desc, id desc"
+        if query.sort == "expiry":
+            column, order = "expiry_date", "expiry_date asc, id asc"
+            where.append("expiry_date >= :today")
         if query.after is not None:
-            where.append(f"({column}, id) < (:after_at, :after_id)")
-            params["after_at"], params["after_id"] = query.after
+            if query.sort == "expiry":
+                where.append("(expiry_date, id) > (:after_at, :after_id)")
+                params["after_at"], params["after_id"] = query.after[0].date(), query.after[1]
+            else:
+                where.append(f"({column}, id) < (:after_at, :after_id)")
+                params["after_at"], params["after_id"] = query.after
         rows = self.session.execute(text(
-            f"select {_DOC_COLUMNS} from vault_documents where {' and '.join(where)} order by {column} desc, id desc limit :limit"),  # nosec B608 - fixed fragments, bound values
+            f"select {_DOC_COLUMNS} from vault_documents where {' and '.join(where)} order by {order} limit :limit"),  # nosec B608 - fixed fragments, bound values
             params).all()
         return [self._doc(row) for row in rows]
 

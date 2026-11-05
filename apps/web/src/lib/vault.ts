@@ -2,16 +2,16 @@
 // categories, expiry and warnings, the edit form's diff and the review form's checks. Pure, so
 // `node --test` covers it without a browser.
 import type {
-  DocumentExpiryState, DocumentExtraction, VaultCategory, VaultDocument, VaultDocumentPatch, VaultMeta,
+  DocumentExpiryState, DocumentExtraction, DocumentLink, VaultCategory, VaultDocument, VaultDocumentPatch, VaultDocumentRow, VaultMeta,
 } from '@anum/contracts';
 import { t, type MessageKey } from './i18n.ts';
 
 export type {
   DocumentExtraction, VaultCategory, VaultDevice, VaultDeviceCreated, VaultDocument, VaultDocumentDetail, VaultDocumentPage, VaultMeta,
-  VaultReviewItem, VaultSettings, VaultVersionPage, DocumentLink, DocumentLinkTarget, DocumentAccessGrant,
+  VaultReviewItem, VaultSettings, VaultVersionPage, DocumentLink, DocumentLinkTarget, DocumentAccessGrant, VaultDocumentRow,
 } from '@anum/contracts';
 
-export const VAULT_TABS = ['overview', 'documents', 'review', 'expiring', 'trash', 'settings'] as const;
+export const VAULT_TABS = ['overview', 'documents', 'review', 'expiring', 'categories', 'access', 'trash', 'settings'] as const;
 export type VaultTab = (typeof VAULT_TABS)[number];
 export const PAGE_SIZE = 50;
 export const CURRENCIES = ['SAR', 'AED', 'USD', 'EUR', 'GBP', 'KWD', 'QAR', 'BHD', 'OMR', 'EGP', 'JOD'] as const;
@@ -21,11 +21,19 @@ export type ReviewField = (typeof RECEIPT_FIELDS)[number] | (typeof DATE_FIELDS)
 
 /** `#vault`, `#vault-review` ...: the tab a link opens. */
 export function tabFromHash(hash: string): VaultTab {
-  const id = hash.replace(/^#/, '');
+  const id = hash.replace(/^#/, '').split('?')[0];
   const tab = id.startsWith('vault-') ? id.slice(6) : 'overview';
   return (VAULT_TABS as readonly string[]).includes(tab) ? tab as VaultTab : 'overview';
 }
 export const hashOf = (tab: VaultTab) => (tab === 'overview' ? '#vault' : `#vault-${tab}`);
+/** A link that opens one document (Purchases links a receipt or proof this way): `#vault-documents?doc=<id>`. */
+export const documentHash = (documentId: string) => `#vault-documents?doc=${encodeURIComponent(documentId)}`;
+export function documentFromHash(hash: string): string | null {
+  const query = hash.split('?')[1];
+  if (!query) return null;
+  const value = new URLSearchParams(query).get('doc');
+  return value && /^[A-Za-z0-9_-]{1,80}$/.test(value) ? value : null;
+}
 
 export function categoryLabel(id: string, categories: readonly VaultCategory[] = []): string {
   const found = categories.find((item) => item.id === id);
@@ -160,12 +168,80 @@ const ACTIVITY = new Set(['upload', 'update', 'view', 'download', 'link', 'link_
   'extraction_rejected', 'reminder_sent', 'retention_trash']);
 export const activityLabel = (action: string) => t(`vault.act.${ACTIVITY.has(action) ? action : 'other'}` as MessageKey);
 
-export function filterQuery(filters: { q: string; category: string; access: string; expiry: string }, status: 'active' | 'deleted' = 'active', cursor?: string | null): string {
-  const params = new URLSearchParams({ limit: String(PAGE_SIZE), status });
+export const SORTS = ['created', 'updated', 'expiry'] as const;
+export type VaultSort = (typeof SORTS)[number];
+
+export function filterQuery(filters: { q: string; category: string; access: string; expiry: string; sort?: VaultSort }, status: 'active' | 'deleted' = 'active',
+  cursor?: string | null, limit = PAGE_SIZE): string {
+  const params = new URLSearchParams({ limit: String(limit), status });
+  if (filters.sort && filters.sort !== 'created') params.set('sort', filters.sort);
   if (filters.q.trim()) params.set('q', filters.q.trim());
   if (filters.category) params.set('category', filters.category);
   if (filters.access) params.set('access_class', filters.access);
   if (filters.expiry) params.set('expiry', filters.expiry);
   if (cursor) params.set('cursor', cursor);
   return params.toString();
+}
+
+// ---- The documents table (docs/documents.md#the-web-page) ---------------------------------------------
+
+/** The status a row shows: expired, a scan to review, expiring soon, restricted (a private identity paper) or valid. */
+export type RowStatus = 'expired' | 'review' | 'soon' | 'restricted' | 'valid';
+export function rowStatus(row: Pick<VaultDocumentRow, 'expiry_state' | 'review_pending' | 'access_class' | 'category'>, categories: readonly VaultCategory[] = []): RowStatus {
+  if (row.expiry_state === 'expired') return 'expired';
+  if (row.review_pending) return 'review';
+  if (row.expiry_state === 'soon') return 'soon';
+  if (row.access_class === 'private' && isIdentity(row.category, categories)) return 'restricted';
+  return 'valid';
+}
+export const rowStatusTone = (status: RowStatus): 'ok' | 'warn' | 'bad' | 'muted' =>
+  status === 'expired' ? 'bad' : status === 'review' || status === 'soon' ? 'warn' : status === 'restricted' ? 'muted' : 'ok';
+
+/** Passports, national IDs, residency and visas (the vault's identity categories). */
+export function isIdentity(category: string, categories: readonly VaultCategory[] = []): boolean {
+  const found = categories.find((c) => c.id === category);
+  return found ? found.identity : ['passport', 'national_id', 'residency', 'visa'].includes(category);
+}
+
+/** Linked records out of all documents, as a whole percentage; null when there are none. */
+export function linkedPercent(summary: Pick<VaultMeta['summary'], 'active' | 'linked'>): number | null {
+  if (!summary.active) return null;
+  return Math.round((summary.linked / summary.active) * 100);
+}
+
+/** What a link points at, in words: its label, else its target. */
+export function linkLabel(link: Pick<DocumentLink, 'label' | 'target_id' | 'target_type'>): string {
+  return link.label || link.target_id;
+}
+
+/** The days of a month as weeks (Sunday first), null for the padding days; for the expiry calendar. */
+export function monthGrid(year: number, month: number): (number | null)[][] {
+  const first = new Date(Date.UTC(year, month, 1)).getUTCDay();
+  const days = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+  const cells: (number | null)[] = [...Array(first).fill(null), ...Array.from({ length: days }, (_, i) => i + 1)];
+  while (cells.length % 7) cells.push(null);
+  return Array.from({ length: cells.length / 7 }, (_, w) => cells.slice(w * 7, w * 7 + 7));
+}
+
+/** Expiry dates of a month, by day: { 18: ["Registration"] }. */
+export function expiriesByDay(rows: readonly Pick<VaultDocument, 'expiry_date' | 'title'>[], year: number, month: number): Record<number, string[]> {
+  const out: Record<number, string[]> = {};
+  const prefix = `${year}-${String(month + 1).padStart(2, '0')}-`;
+  for (const row of rows) {
+    if (!row.expiry_date?.startsWith(prefix)) continue;
+    const day = Number(row.expiry_date.slice(8, 10));
+    (out[day] ??= []).push(row.title);
+  }
+  return out;
+}
+
+/** The suggestions a review card shows first: receipts their shop, amount and date; IDs their dates. */
+export function suggestionFields(extraction: Pick<DocumentExtraction, 'kind' | 'fields'>): { key: ReviewField; value: string }[] {
+  const keys: ReviewField[] = extraction.kind === 'receipt' ? ['merchant', 'total', 'date'] : ['issue_date', 'expiry_date'];
+  return keys.flatMap((key) => {
+    const field = extraction.fields[key];
+    if (!field?.value) return [];
+    const value = key === 'total' && extraction.fields.currency?.value ? `${extraction.fields.currency.value} ${field.value}` : field.value;
+    return [{ key, value }];
+  });
 }

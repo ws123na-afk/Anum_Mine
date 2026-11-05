@@ -281,7 +281,8 @@ def list_documents(
     expiry: Literal["soon", "expired"] | None = Query(default=None, description="soon: within the reminder window; expired: past"),
     tag: str | None = Query(default=None, max_length=40),
     state: Literal["active", "deleted"] = Query(default="active", alias="status"),
-    sort: Literal["created", "updated"] = Query(default="created", description="created: newest added first; updated: newest change first"),
+    sort: Literal["created", "updated", "expiry"] = Query(default="created", description=(
+        "created: newest added first; updated: newest change first; expiry: the next expiry first, only documents that expire today or later")),
     cursor: str | None = Query(default=None, max_length=200),
     limit: int = Query(default=50, ge=1, le=100),
     context: TenantContext = Depends(tenant_context),
