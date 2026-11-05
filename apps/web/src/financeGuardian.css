@@ -103,20 +103,21 @@
 }
 
 /* Privacy, delivery and quiet hours */
-.fgDelivery { border-top: 1px solid var(--d-line); display: grid; gap: var(--d-s4); grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); padding-top: var(--d-s3); }
+.fgDelivery { border-top: 1px solid var(--d-line); container-type: inline-size; display: grid; gap: var(--d-s4); grid-template-columns: minmax(0, 1fr); padding-top: var(--d-s3); }
 .fgDelivery h3 { align-items: center; display: flex; font-size: var(--text-md); gap: var(--d-s2); margin: 0 0 var(--d-s2); }
 .fgDeliveryList ul { display: grid; gap: var(--d-s2); list-style: none; margin: 0; padding: 0; }
 .fgDeliveryList li { align-items: center; display: grid; gap: var(--d-s2); grid-template-columns: auto minmax(0, 1fr) auto; }
 .fgDeliveryList li > div { display: grid; font-size: var(--text-sm); }
 .fgDeliveryIcon { color: var(--d-muted); display: inline-flex; }
 .fgDeliveryIcon svg { height: 18px; width: 18px; }
-.fgQuiet { border-inline-start: 1px solid var(--d-line); display: grid; gap: var(--d-s2); padding-inline-start: var(--d-s4); }
+.fgQuiet { border-top: 1px solid var(--d-line); display: grid; gap: var(--d-s2); padding-top: var(--d-s3); }
 .fgQuiet p { font-size: var(--text-sm); margin: 0; }
 .fgQuietWindow { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); }
 .fgQuiet button { justify-self: start; }
-@media (max-width: 640px) {
-  .fgDelivery { grid-template-columns: minmax(0, 1fr); }
-  .fgQuiet { border-inline-start: 0; border-top: 1px solid var(--d-line); padding-inline-start: 0; padding-top: var(--d-s3); }
+/* A wide card (one column layout) puts quiet hours beside delivery. */
+@media (min-width: 900px) and (max-width: 1199px) {
+  .fgDelivery { grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); }
+  .fgQuiet { border-inline-start: 1px solid var(--d-line); border-top: 0; padding-inline-start: var(--d-s4); padding-top: 0; }
 }
 
 /* Audit log */

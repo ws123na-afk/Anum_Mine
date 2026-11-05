@@ -121,13 +121,13 @@ export function GuardianPage({ base, onOpen }: { base: string; onOpen: (tab: Fin
         <RulesCard guardian={guardian} queue={queue} month={shownMonth}
           onAdd={() => setPicking(true)} onEditAll={() => setEditor({})} onEdit={(kind) => setEditor({ only: kind })} onTest={setTesting}
           onToggle={(kind, paused) => propose(withPaused(rules, kind, paused), paused ? t('fguard.pauseReason') : t('fguard.resumeReason'))} />
+        <AlertsSummary alerts={alerts} hasRules={configuredKinds(rules).length > 0} retry={() => void reloadAlerts()} />
       </div>
       <div className="fgColumn">
         <ReviewQueue queue={queue} tab={queueTab} month={shownMonth} hasActive={monitoring === 'on'} limit={queueLimit}
           onTab={(next) => { setQueueTab(next); setQueueLimit(QUEUE_PAGE); }} onMore={() => setQueueLimit((n) => n + QUEUE_PAGE)}
           onRetry={() => void reloadQueue()} onAdd={() => setPicking(true)} onOpen={onOpen}
           onDecided={(text, error) => { notify(text, error); void reloadQueue(); setAuditKey((k) => k + 1); }} />
-        <AlertsSummary alerts={alerts} hasRules={configuredKinds(rules).length > 0} retry={() => void reloadAlerts()} />
         <FinCard id="fg-privacy" className="fgPrivacy" icon={<Lock />} title={t('fguard.privacy.title')}>
           <p className="muted">{t('fguard.privacy.text')}</p>
           <div className="fgDelivery">
