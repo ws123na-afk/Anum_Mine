@@ -76,12 +76,21 @@ def facts(lines: list[Line], money: re.Pattern[str], order: str) -> Facts:
             if right:
                 labels.append(right[0].text)  # the Arabic label on the right
             above = []
+            closest: tuple[float, str] | None = None
+            centre = (token.x0 + token.x1) / 2
             for other in reversed(lines[max(0, index - 4): index]):
                 if line.top - other.bottom > line.height * 4:
                     break
                 for t in other.tokens:
-                    if t.kind == "text" and min(t.x1, token.x1) - max(t.x0, token.x0) > 0:
+                    if t.kind != "text":
+                        continue
+                    if min(t.x1, token.x1) - max(t.x0, token.x0) > 0:
                         above.append(t.text)
+                    gap = abs((t.x0 + t.x1) / 2 - centre)
+                    if closest is None or gap < closest[0]:
+                        closest = (gap, t.text)
+            if not above and closest is not None and closest[0] < max(token.x1 - token.x0, 20.0) * 2:
+                above.append(closest[1])  # a label set a little to the side of its figure
             if above:
                 labels.append(" ".join(reversed(above)))
             for label in labels:

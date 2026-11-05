@@ -321,9 +321,11 @@ def parse(
                 continue
             if len(date_tokens) >= 2 and not money_tokens:
                 pair = (date_tokens[0].text, date_tokens[1].text)
-                if _PERIOD.search(text) and period is None:
+                between = text[text.find(pair[0]) + len(pair[0]): text.find(pair[1])] if pair[0] in text and pair[1] in text else ""
+                hijri = any((p := dates.split(d)) is not None and p.hijri for d in pair)
+                if _PERIOD.search(text) and period is None and not hijri:
                     period = pair
-                elif period_guess is None:
+                elif period_guess is None and not hijri and re.search(r"-|\bto\b|until|إلى|الى|حتى", between):
                     period_guess = pair
                 skipped += 1
                 continue
@@ -340,6 +342,11 @@ def parse(
         # 3. Every other table line joins the row whose date line is nearest (a wrapped description,
         # a type line printed above the date, amounts printed a line off).
         height = sorted(line.height for line in lines)[len(lines) // 2] or 1.0
+        tops = sorted(a.top for a, _ in anchors)
+        steps = sorted(b - a for a, b in zip(tops, tops[1:]) if b > a)
+        # A line above a date line belongs to it only when it is closer than about half a row's height
+        # (a type line printed above the date); a title or a card holder band further up does not.
+        above_limit = min(height * 2.6, steps[len(steps) // 2] * 0.6) if steps else height * 1.5
         attached: dict[int, list[Line]] = {id(row): [line] for line, row in anchors}
         for line in loose:
             if not anchors:
@@ -350,7 +357,8 @@ def parse(
             # Equally far from two rows: a wrapped line belongs to the row above it.
             near.sort(key=lambda x: (round(x[0], 1), 0 if x[1] < line.top else 1))
             distance, _, target = near[0]
-            if distance > height * 2.6 or (meta.masked_card(line.text) and not any(t.kind == "money" for t in line.tokens)):
+            limit = above_limit if line.top < target.top else height * 2.6
+            if distance > limit or (meta.masked_card(line.text) and not any(t.kind == "money" for t in line.tokens)):
                 skipped += 1
                 continue
             attached[id(target)].append(line)

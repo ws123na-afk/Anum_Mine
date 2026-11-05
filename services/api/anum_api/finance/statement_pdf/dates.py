@@ -110,6 +110,9 @@ def plausible(text: str) -> bool:
 
 def decide_order(values: list[str]) -> tuple[str, bool]:
     """Day first or month first for the whole statement, and whether it was a guess."""
+    kinds = {p.kind for v in values if (p := split(v)) is not None}
+    if kinds == {"ymd"}:
+        return "ymd", False
     day_first = month_first = True
     for value in values:
         parts = split(value)
