@@ -23,7 +23,7 @@ import { viewLabel } from './lib/shell';
 import { ConfirmDialog, Modal } from './Dialog';
 import { Denied, Empty, FormActions, FormError, LoadError, Money, Notice, failed, type Load } from './FinanceParts';
 import { ConnectionsPanel, GuardianPanel, SafeToSpendCard, SafeToSpendPanel, reasonText } from './FinancePlan';
-import { ExecutionPanel, TradingPanel } from './FinanceTrading';
+import { ExecutionPanel } from './FinanceTrading';
 import { IntelPanel } from './FinanceIntel';
 import { PageHeader, PageSummary, useMediaQuery, type Crumb } from './PageParts';
 import './commerce.css';
@@ -37,6 +37,7 @@ const ResearchPanel = lazy(() => import('./FinanceResearch').then((m) => ({ defa
 // iPhone SMS banking and the double-entry ledger (docs/finance-sms.md): one lazy chunk for both tabs.
 const SmsPanel = lazy(() => import('./FinanceSms').then((m) => ({ default: m.SmsPanel })));
 // Holdings (docs/finance.md#holdings) and the paper trading lab are lazy chunks with their charts.
+const LabPage = lazy(() => import('./FinanceLab').then((m) => ({ default: m.LabPage })));
 const HoldingsPage = lazy(() => import('./FinanceHoldings').then((m) => ({ default: m.HoldingsPage })));
 const LedgerPanel = lazy(() => import('./FinanceSms').then((m) => ({ default: m.LedgerPanel })));
 const KINDS: FinanceAccountKind[] = ['bank', 'card', 'cash', 'loan', 'investment'];
@@ -121,7 +122,7 @@ export function FinanceView() {
     {tab === 'safe' && <SafeToSpendPanel onOpen={pick} onChanged={onChanged} />}
     {tab === 'guardian' && <GuardianPanel base={base} />}
     {tab === 'connections' && <ConnectionsPanel />}
-    {tab === 'trading' && <TradingPanel base={base} onOpen={pick} />}
+    {tab === 'trading' && <Suspense fallback={<section className="surface cmPanel"><Notice busy>{t('finance.trading.loading')}</Notice></section>}><LabPage base={base} onOpen={pick} /></Suspense>}
     {tab === 'intel' && <IntelPanel onOpen={pick} />}
     {tab === 'execution' && <ExecutionPanel />}
     {tab === 'ibkr' && <Suspense fallback={<section className="surface cmPanel"><Notice busy>{t('ibkr.loading')}</Notice></section>}><IbkrPanel /></Suspense>}

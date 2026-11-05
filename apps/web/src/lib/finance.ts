@@ -100,6 +100,8 @@ export function tabFromHash(hash: string): FinanceTab {
   const id = hash.replace(/^#finance-?/, '');
   // `#finance-intel-reports` and `#finance-intel-report=<id>` open the daily reports in Trading intelligence.
   if (id.startsWith('intel-report')) return 'intel';
+  // `#finance-trading-orders` and the other lab tabs open Paper trading (docs/finance.md#paper-trading-lab).
+  if (/^trading-[a-z]+$/.test(id)) return 'trading';
   return (FINANCE_TABS as readonly string[]).includes(id) ? id as FinanceTab : 'overview';
 }
 
