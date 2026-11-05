@@ -24,8 +24,8 @@ import { figure, type Figure } from './lib/pageSummary';
 import { viewLabel } from './lib/shell';
 import { ConfirmDialog, Modal } from './Dialog';
 import { Denied, Empty, FormActions, FormError, LoadError, Money, Notice, failed, type Load } from './FinanceParts';
-import { ConnectionsPanel, GuardianPanel, SafeToSpendCard, reasonText } from './FinancePlan';
-import { ExecutionPanel, TradingPanel } from './FinanceTrading';
+import { ConnectionsPanel, SafeToSpendCard, reasonText } from './FinancePlan';
+import { ExecutionPanel } from './FinanceTrading';
 import { IntelPanel } from './FinanceIntel';
 import { PageHeader, PageSummary, useMediaQuery, type Crumb } from './PageParts';
 import { FinanceSectionNav } from './FinanceShell';
@@ -49,6 +49,10 @@ const SafePage = lazy(() => import('./FinanceSafePage').then((m) => ({ default: 
 // Accounts and Transactions and ledger draw their own page head (docs/finance.md#register-and-account-overview).
 const AccountsPage = lazy(() => import('./FinanceAccountsPage').then((m) => ({ default: m.AccountsPage })));
 const TransactionsPage = lazy(() => import('./FinanceTransactionsPage').then((m) => ({ default: m.TransactionsPage })));
+// Holdings (docs/finance.md#holdings) and the paper trading lab (docs/finance.md#paper-trading-lab) draw their own head too.
+const HoldingsPage = lazy(() => import('./FinanceHoldings').then((m) => ({ default: m.HoldingsPage })));
+const LabPage = lazy(() => import('./FinanceLab').then((m) => ({ default: m.LabPage })));
+const GuardianPage = lazy(() => import('./FinanceGuardian').then((m) => ({ default: m.GuardianPage })));
 const KINDS: FinanceAccountKind[] = ['bank', 'card', 'cash', 'loan', 'investment'];
 const CADENCES: FinanceCadence[] = ['monthly', 'weekly', 'quarterly', 'yearly', 'once'];
 const DEBT_KINDS: FinanceDebtKind[] = ['loan', 'card', 'mortgage', 'other'];
@@ -106,6 +110,10 @@ export function FinanceView() {
         {tab === 'transactions' && (accounts.kind === 'loading' ? <Notice busy>{t('finance.loading')}</Notice>
           : <TransactionsPage key={txOpen.key} accounts={accounts.kind === 'ready' ? accounts.value : []} initialAccountId={txOpen.accountId} initialTab={txOpen.tab}
             onChanged={refresh} onAddAccount={() => pick('accounts')} />)}
+        {tab === 'holdings' && <HoldingsPage onOpen={pick} />}
+        {tab === 'trading' && <LabPage base={summary.kind === 'ready' ? summary.value.base_currency : 'AED'} onOpen={pick} />}
+        {/* Until the summary arrives, the settings' default base currency (AED) prefills Test and new limits. */}
+        {tab === 'guardian' && <GuardianPage base={summary.kind === 'ready' ? summary.value.base_currency : 'AED'} onOpen={pick} />}
       </Suspense>
     </div>;
   }
@@ -144,9 +152,7 @@ export function FinanceView() {
     </section>}
     {accounts.kind === 'error' && <LoadError message={t('finance.error.accounts', { message: accounts.message })} retry={() => void loadAccounts()} />}
     {tab === 'overview' && <Overview summary={s} month={month ?? s.month} onMonth={setMonth} onOpen={pick} />}
-    {tab === 'guardian' && <GuardianPanel base={base} />}
     {tab === 'connections' && <ConnectionsPanel />}
-    {tab === 'trading' && <TradingPanel base={base} onOpen={pick} />}
     {tab === 'intel' && <IntelPanel onOpen={pick} />}
     {tab === 'execution' && <ExecutionPanel />}
     {tab === 'ibkr' && <Suspense fallback={<section className="surface cmPanel"><Notice busy>{t('ibkr.loading')}</Notice></section>}><IbkrPanel /></Suspense>}
@@ -157,7 +163,6 @@ export function FinanceView() {
     {tab === 'bills' && <Bills accounts={accountList} base={base} onChanged={onChanged} />}
     {tab === 'debts' && <Debts base={base} onChanged={onChanged} />}
     {tab === 'goals' && <Goals base={base} onChanged={onChanged} />}
-    {tab === 'holdings' && <Holdings accounts={accountList} onChanged={onChanged} onAddAccount={() => pick('accounts')} />}
     {settingsOpen && <SettingsDialog onClose={(saved) => { setSettingsOpen(false); if (saved) refresh(); }} />}
   </div>;
 }
@@ -695,50 +700,6 @@ function GoalForm({ goal, base, onDone }: { goal: FinanceGoal | null; base: stri
       <label className="field"><span>{t('finance.form.monthly', { currency })}</span><input value={monthly} onChange={(e) => setMonthly(e.target.value)} inputMode="decimal" dir="ltr" aria-describedby={monthlyHelp} /></label>
     </div>
     <p id={monthlyHelp} className="muted finHelp">{t('finance.form.monthlyHelp')}</p>
-    <FormError id={errorId} text={error} />
-    <FormActions busy={busy} onCancel={() => onDone(null)} />
-  </form>;
-}
-
-function Holdings({ accounts, onChanged, onAddAccount }: { accounts: FinanceAccount[]; onChanged: () => void; onAddAccount: () => void }) {
-  const [items, load] = useItems<FinanceHolding>(api.listHoldings);
-  const brokers = accounts.filter((a) => a.kind === 'investment');
-  if (brokers.length === 0) return <section className="surface cmPanel" aria-labelledby="fin-holdings"><h2 id="fin-holdings">{t('finance.tab.holdings')}</h2>
-    <Empty icon={<Wallet aria-hidden="true" />} title={t('finance.holdings.needAccount')} text={t('finance.holdings.needAccountText')} action={<button type="button" onClick={onAddAccount}><Plus aria-hidden="true" />{t('finance.accounts.add')}</button>} /></section>;
-  const names = new Map(brokers.map((a) => [a.id, a.name]));
-  return <ItemsPanel<FinanceHolding> id="fin-holdings" title={t('finance.tab.holdings')} addLabel={t('finance.holdings.add')} items={items} load={load} onChanged={onChanged}
-    intro={t('finance.holdings.intro')}
-    emptyIcon={<Wallet aria-hidden="true" />} emptyTitle={t('finance.holdings.empty')} emptyText={t('finance.holdings.emptyText')}
-    render={(h) => <div><strong dir="ltr">{h.symbol}{h.name ? <span dir="auto"> · {h.name}</span> : null}</strong><small>{names.get(h.account_id) ?? ''} · {t('finance.holdings.quantity', { quantity: Number(h.quantity).toString() })} · {t('finance.holdings.cost', { amount: isolate(formatAmount(h.cost_basis, h.currency)) })}</small></div>}
-    form={(h, done) => <HoldingForm holding={h} accounts={brokers} onDone={done} />}
-    remove={(h) => api.deleteHolding(h.id)} />;
-}
-
-function HoldingForm({ holding, accounts, onDone }: { holding: FinanceHolding | null; accounts: FinanceAccount[]; onDone: (message: string | null) => void }) {
-  const [accountId, setAccountId] = useState(holding?.account_id ?? accounts[0]?.id ?? ''), [symbol, setSymbol] = useState(holding?.symbol ?? ''), [name, setName] = useState(holding?.name ?? '');
-  const [quantity, setQuantity] = useState(holding ? String(Number(holding.quantity)) : ''), [cost, setCost] = useState(holding?.cost_basis ?? '');
-  const [error, setError] = useState<string | null>(null), [busy, setBusy] = useState(false);
-  const errorId = useId();
-  const currency = accounts.find((a) => a.id === accountId)?.currency ?? 'AED';
-  async function submit(event: FormEvent) {
-    event.preventDefault();
-    if (!symbol.trim()) { setError(t('finance.error.symbol')); return; }
-    if (!/^\d{1,12}(\.\d{1,8})?$/.test(quantity.trim())) { setError(t('finance.error.quantity')); return; }
-    const paid = parseAmount(cost, currency, { signed: false });
-    if (!paid.ok) { setError(paid.error); return; }
-    setBusy(true); setError(null);
-    const body = { account_id: accountId, symbol: symbol.trim(), name: name.trim() || null, quantity: quantity.trim(), cost_basis: paid.value };
-    try { if (holding) await api.updateHolding(holding.id, body); else await api.createHolding(body); onDone(t('finance.item.saved', { name: body.symbol.toUpperCase() })); }
-    catch (e) { setError(describeError(e)); } finally { setBusy(false); }
-  }
-  return <form className="finForm" onSubmit={(e) => void submit(e)} aria-describedby={error ? errorId : undefined}>
-    <div className="cmFormGrid">
-      <label className="field"><span>{t('finance.col.account')}</span><select value={accountId} onChange={(e) => setAccountId(e.target.value)}>{accounts.map((a) => <option key={a.id} value={a.id}>{a.name} ({a.currency})</option>)}</select></label>
-      <label className="field"><span>{t('finance.form.symbol')}</span><input value={symbol} onChange={(e) => setSymbol(e.target.value)} maxLength={40} dir="ltr" required /></label>
-      <label className="field"><span>{t('finance.form.holdingName')}</span><input value={name} onChange={(e) => setName(e.target.value)} maxLength={120} dir="auto" /></label>
-      <label className="field"><span>{t('finance.form.quantity')}</span><input value={quantity} onChange={(e) => setQuantity(e.target.value)} inputMode="decimal" dir="ltr" required /></label>
-      <label className="field"><span>{t('finance.form.cost', { currency })}</span><input value={cost} onChange={(e) => setCost(e.target.value)} inputMode="decimal" dir="ltr" required /></label>
-    </div>
     <FormError id={errorId} text={error} />
     <FormActions busy={busy} onCancel={() => onDone(null)} />
   </form>;

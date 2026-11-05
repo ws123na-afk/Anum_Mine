@@ -38,7 +38,7 @@ function useLoad<T>(load: () => Promise<T>): [Load<T>, () => Promise<void>] {
 }
 
 /** Every simulated figure says so, with what it assumes and that it promises nothing. */
-function SimulatedNote({ assumptions }: { assumptions?: FinancePortfolio['assumptions'] }) {
+export function SimulatedNote({ assumptions }: { assumptions?: FinancePortfolio['assumptions'] }) {
   return <p className="notice finSimNote" role="note"><FlaskConical aria-hidden="true" />
     <span><strong>{t('finance.trading.simulated')}</strong> {t('finance.trading.simulatedText')}{assumptions ? ` ${assumptionsText(assumptions)}` : ''}</span></p>;
 }
@@ -52,8 +52,10 @@ const orderStatusLabel = (status: FinancePaperOrderStatus) => t(`finance.trading
 
 // ---- Stage 6: the paper trading tab ---------------------------------------------------------------------
 
-export function TradingPanel({ base, onOpen }: { base: string; onOpen: (tab: FinanceTab) => void }) {
-  const [portfolios, reload] = useLoad(api.listPortfolios);
+export function TradingPanel({ base, onOpen, onPortfoliosChanged }: { base: string; onOpen: (tab: FinanceTab) => void; onPortfoliosChanged?: () => void }) {
+  const [portfolios, reloadList] = useLoad(api.listPortfolios);
+  // The paper trading lab keeps its own list for the portfolio picker: tell it when one is made, reset or deleted.
+  const reload = useCallback(async () => { await reloadList(); onPortfoliosChanged?.(); }, [reloadList, onPortfoliosChanged]);
   const [selected, setSelected] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [notice, setNotice] = useState<{ text: string; error?: boolean } | null>(null);
@@ -187,7 +189,7 @@ function PortfolioDetail({ portfolioId, base, onChanged, onDeleted }: { portfoli
       <div><dt>{t('finance.trading.costsPaid')}</dt><dd>{p.fees.length ? t('finance.trading.costsPaidValue', { fees: isolate(formatAmounts(p.fees)), slippage: isolate(formatAmounts(p.slippage)) }) : '-'}</dd></div>
     </dl>
     {p.unpriced.length > 0 && <p className="notice" role="status"><Hourglass aria-hidden="true" />{t('finance.trading.unpriced', { symbols: isolate(p.unpriced.join(', ')), days: p.assumptions.max_price_age_days })}</p>}
-    <Holdings portfolio={p} />
+    <PaperHoldings portfolio={p} />
     {p.mode === 'shadow' && <ShadowCompare portfolio={p} />}
     <OrderForm portfolio={p} base={base} onCreated={(intent) => setReview(intent)} />
     <OrderHistory key={ordersKey} portfolio={p} onChanged={(text) => { setNotice({ text }); changed(); }} />
@@ -200,7 +202,7 @@ function PortfolioDetail({ portfolioId, base, onChanged, onDeleted }: { portfoli
   </section>;
 }
 
-function Holdings({ portfolio: p }: { portfolio: FinancePortfolio }) {
+export function PaperHoldings({ portfolio: p }: { portfolio: FinancePortfolio }) {
   const id = useId();
   return <section aria-labelledby={id} className="finSub">
     <h3 id={id}>{t('finance.trading.holdings')}</h3>
@@ -236,7 +238,7 @@ function ShadowCompare({ portfolio: p }: { portfolio: FinancePortfolio }) {
   </section>;
 }
 
-function OrderForm({ portfolio: p, base, onCreated }: { portfolio: FinancePortfolio; base: string; onCreated: (intent: FinanceIntent) => void }) {
+export function OrderForm({ portfolio: p, base, onCreated }: { portfolio: FinancePortfolio; base: string; onCreated: (intent: FinanceIntent) => void }) {
   const [draft, setDraft] = useState<OrderDraft>({ kind: 'security', symbol: '', currency: p.starting_cash[0]?.currency ?? base, side: 'buy', type: 'market', quantity: '', limit: '' });
   const [key, setKey] = useState(newIdempotencyKey);
   const [error, setError] = useState<string | null>(null), [busy, setBusy] = useState(false);
@@ -423,7 +425,7 @@ function PendingRequests({ modes, onChanged }: { modes: string[]; onChanged: () 
 }
 
 /** The review: what would happen, what the rules say and the code; approving sends that code once. */
-function ReviewIntent({ intent, onClose }: { intent: FinanceIntent; onClose: (message: string | null, error?: boolean) => void }) {
+export function ReviewIntent({ intent, onClose }: { intent: FinanceIntent; onClose: (message: string | null, error?: boolean) => void }) {
   const [busy, setBusy] = useState(false), [error, setError] = useState<string | null>(null);
   const errorId = useId();
   const reasons = 'reasons' in intent.decision ? intent.decision.reasons : [];
@@ -500,7 +502,7 @@ export function ExecutionPanel() {
   </>;
 }
 
-function KillSwitches({ status, onChanged }: { status: FinanceExecutionStatus; onChanged: () => void }) {
+export function KillSwitches({ status, onChanged }: { status: FinanceExecutionStatus; onChanged: () => void }) {
   const [confirm, setConfirm] = useState<{ scope: 'person' | 'global'; engaged: boolean } | null>(null);
   const [busy, setBusy] = useState(false), [notice, setNotice] = useState<{ text: string; error?: boolean } | null>(null);
   async function apply() {

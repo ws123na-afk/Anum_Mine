@@ -12,7 +12,10 @@ import { financePdfEn } from './financePdf.en.ts';
 import { financeRegisterEn } from './financeRegister.en.ts';
 import { financeIntelEn } from './financeIntel.en.ts';
 import { financeEquityEn } from './financeEquity.en.ts';
+import { financeHoldingsEn } from './financeHoldings.en.ts';
+import { financeLabEn } from './financeLab.en.ts';
 import { financeReportsEn } from './financeReports.en.ts';
+import { financeGuardianEn } from './financeGuardian.en.ts';
 import { financeShellEn } from './financeShell.en.ts';
 import { financePagesEn } from './financePages.en.ts';
 import { financeIntelActionsEn } from './financeIntelActions.en.ts';
@@ -113,7 +116,10 @@ export const en = {
   ...financeRegisterEn,
   ...financeIntelEn,
   ...financeEquityEn,
+  ...financeHoldingsEn,
+  ...financeLabEn,
   ...financeReportsEn,
+  ...financeGuardianEn,
   ...financeShellEn,
   ...financePagesEn,
   ...financeIntelActionsEn,
