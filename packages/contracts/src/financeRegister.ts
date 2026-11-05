@@ -46,6 +46,8 @@ export interface FinanceRegisterPage {
   balances: { currency: string; beginning: string; ending: string }[];
   /** Messages waiting in the SMS review queue. */
   review_count: number;
+  /** This workspace's ledger, as set on Finance, iPhone SMS (docs/finance-sms.md#dashboard). */
+  ledger_kind: 'personal' | 'business';
 }
 
 export interface FinanceRegisterSource {
@@ -95,6 +97,7 @@ export interface FinanceAccountsOverview {
   review_count: number;
   last_reconciled_at: string | null;
   base_currency: string;
+  ledger_kind: 'personal' | 'business';
 }
 
 export interface FinanceAccountActivity {

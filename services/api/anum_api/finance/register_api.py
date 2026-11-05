@@ -91,6 +91,7 @@ class RegisterPage(BaseModel):
     totals: RegisterTotals
     balances: list[RegisterBalance]
     review_count: int
+    ledger_kind: Literal["personal", "business"]
 
 
 class SourceView(BaseModel):
@@ -183,6 +184,7 @@ class _Facts:
             self.links: dict[str, list[Any]] = defaultdict(list)
             for link in rows:
                 self.links[link.canonical_id].append(link)
+            self.ledger_kind = sms_settings_for(sms, context).ledger_kind.value
             _messages, self.review_count = sms.list_messages(context, status=MessageStatus.REVIEW.value, limit=1, offset=0)
             self.window = finance.transactions_between(context, window_start or date(1970, 1, 1), window_end or date(9999, 12, 31))
             self.sums = finance.account_sums(context)
@@ -326,7 +328,8 @@ def register(
     )
     today = today_in(facts.settings)
     return RegisterPage(items=rows[offset:offset + limit], total=len(rows), limit=limit, offset=offset, truncated=total_matched > SCAN_LIMIT,
-                        totals=totals, balances=_balances(facts, later, account_id, start, end, today), review_count=facts.review_count)
+                        totals=totals, balances=_balances(facts, later, account_id, start, end, today), review_count=facts.review_count,
+                        ledger_kind=facts.ledger_kind)  # type: ignore[arg-type]
 
 
 def _source_view(message: SmsMessage, now: datetime) -> SourceView:
@@ -398,6 +401,7 @@ class AccountsOverview(BaseModel):
     review_count: int
     last_reconciled_at: datetime | None
     base_currency: str
+    ledger_kind: Literal["personal", "business"]
 
 
 @router.get("/accounts/overview", response_model=AccountsOverview)
@@ -466,7 +470,7 @@ def accounts_overview(context: TenantContext = Depends(tenant_context)) -> Accou
         ))
     stamps = [a.last_reconciled_at for a in out if a.last_reconciled_at]
     return AccountsOverview(accounts=out, review_count=facts.review_count, last_reconciled_at=max(stamps) if stamps else None,
-                            base_currency=facts.settings.base_currency)
+                            base_currency=facts.settings.base_currency, ledger_kind=facts.ledger_kind)  # type: ignore[arg-type]
 
 
 class ActivityDay(BaseModel):
