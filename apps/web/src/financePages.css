@@ -5,7 +5,7 @@
 .finPage { display: grid; gap: var(--d-s4); min-width: 0; }
 .finReportGrid { align-items: start; display: grid; gap: var(--d-s4); min-width: 0; }
 .finReportGridTop { grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr); }
-.finReportGridThree { grid-template-columns: minmax(0, 1.6fr) minmax(240px, 1fr) minmax(240px, 1fr); }
+.finReportGridThree { grid-template-columns: minmax(0, 1.9fr) minmax(220px, 1fr) minmax(220px, 1fr); }
 .finReportGridBottom { grid-template-columns: minmax(0, 1.6fr) minmax(260px, 1fr); }
 .finSafeGridTop { grid-template-columns: minmax(0, 1.7fr) minmax(240px, 1fr) minmax(280px, 1.1fr); }
 .finSafeGridBottom { grid-template-columns: minmax(0, 1.4fr) minmax(240px, 1fr) minmax(280px, 1.1fr); }

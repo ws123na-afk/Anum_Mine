@@ -29,11 +29,17 @@ export function FinanceSectionNav({ tab, onPick }: { tab: FinanceTab; onPick: (n
   useEffect(() => { setSlot(wide ? document.getElementById(FINANCE_NAV_SLOT) : null); }, [wide]);
   // Bring the current section into the sidebar's view (nearest edge only, like Shell.tsx does for views).
   useEffect(() => {
-    const entry = slot?.querySelector<HTMLElement>('[aria-current="page"]'), nav = slot?.closest<HTMLElement>('nav[aria-label]');
-    if (!entry || !nav) return;
-    const box = nav.getBoundingClientRect(), at = entry.getBoundingClientRect();
-    if (at.bottom > box.bottom) nav.scrollTop += at.bottom - box.bottom + 24;
-    else if (at.top < box.top) nav.scrollTop -= box.top - at.top + 24;
+    const reveal = () => {
+      const entry = slot?.querySelector<HTMLElement>('[aria-current="page"]'), nav = slot?.closest<HTMLElement>('nav[aria-label]');
+      if (!entry || !nav) return;
+      const box = nav.getBoundingClientRect(), at = entry.getBoundingClientRect();
+      if (at.bottom > box.bottom) nav.scrollTop += at.bottom - box.bottom + 24;
+      else if (at.top < box.top) nav.scrollTop -= box.top - at.top + 24;
+    };
+    reveal();
+    // Again once late entries (owner-only views) and web fonts have settled the sidebar's layout.
+    const timer = window.setTimeout(reveal, 400);
+    return () => window.clearTimeout(timer);
   }, [slot, tab]);
   const current = groupOf(tab);
   const nav = <nav className={`finNav ${slot ? 'finNavSidebar' : 'finNavStrip'}`} aria-label={t('finance.tabs')}>
