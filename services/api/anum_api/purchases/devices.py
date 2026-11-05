@@ -119,7 +119,8 @@ def _forward(current: str, wanted: str | None) -> str | None:
     return wanted if wanted in TRANSITIONS.get(current, ()) else None
 
 
-def handle(context: TenantContext, device_id: str | None, event: ShareEvent) -> dict[str, Any]:
+def handle(context: TenantContext, device_id: str | None, event: ShareEvent, *, source: str = "iphone") -> dict[str, Any]:
+    """``source``: ``iphone`` for a device-token share, ``web`` for Import order with the person's own sign-in."""
     from .api import _after_shipment as after_shipment
     from .api import add_shipment
 
@@ -155,12 +156,12 @@ def handle(context: TenantContext, device_id: str | None, event: ShareEvent) -> 
                                                 "currency": found.currency, "total": found.amount,
                                                 "expected_delivery_on": found.expected_on if found.expected_on and found.expected_on >= moment.date() else None,
                                                 "ownership": event.ownership},
-                                      now=now, idem_key=key, currency=S.preferences(store, context).default_currency, source="iphone", needs_review=True)
+                                      now=now, idem_key=key, currency=S.preferences(store, context).default_currency, source=source, needs_review=True)
             try:
                 store.add_purchase(purchase)
             except DuplicateError:
                 return {"status": "replayed", "message": "Already saved."}
-            S.add_event(store, context, purchase, "share", to_status="ordered", note="Saved from a shared message", source="iphone", now=now)
+            S.add_event(store, context, purchase, "share", to_status="ordered", note="Saved from a shared message", source=source, now=now)
             created = True
         else:
             purchase = S.get_purchase(store, context, purchase.id, lock=True)
@@ -170,7 +171,7 @@ def handle(context: TenantContext, device_id: str | None, event: ShareEvent) -> 
                 purchase = S.apply_changes(purchase, {"expected_delivery_on": found.expected_on}, now)
                 if store.save_purchase(purchase, purchase.version):
                     purchase.version += 1
-                    S.add_event(store, context, purchase, "share", note=f"Expected delivery {found.expected_on.isoformat()}", source="iphone", now=now)
+                    S.add_event(store, context, purchase, "share", note=f"Expected delivery {found.expected_on.isoformat()}", source=source, now=now)
         ship_status = SHIPMENT_STATUS.get(found.status or "")
         if found.tracking_number or found.carrier:
             existing = store.shipments(context, [purchase.id])
@@ -183,22 +184,22 @@ def handle(context: TenantContext, device_id: str | None, event: ShareEvent) -> 
                                                     "delivered_on": moment.date() if ship_status == "delivered" else same.delivered_on})
                     if store.save_shipment(moved, same.version):
                         S.add_event(store, context, purchase, "shipment", subject_id=same.id, note=f"Shipment {ship_status.replace('_', ' ')}",
-                                    source="iphone", now=now)
+                                    source=source, now=now)
                         after_shipment(store, context, purchase, moved, "iphone")
             elif found.tracking_number or (found.carrier or "").casefold() not in carriers:
                 # A tracking number is added once; a message naming only the carrier adds a shipment only when there is none from it.
                 add_shipment(store, context, purchase, {"carrier": found.carrier, "tracking_number": found.tracking_number,
-                                                        "status": ship_status or "in_transit", "expected_on": found.expected_on}, source="iphone")
+                                                        "status": ship_status or "in_transit", "expected_on": found.expected_on}, source=source)
             purchase = store.get_purchase(context, purchase.id) or purchase
         # With shipments, delivery progress comes from all of them (above); the message alone may only confirm the order.
         has_shipments = bool(store.shipments(context, [purchase.id]))
         target = _forward(purchase.status, found.status) if not has_shipments or found.status in ("ordered", "confirmed") else None
         if target is not None:
-            purchase = S.move(store, context, purchase, target, expected_version=None, note="From a shared message", occurred_at=moment, source="iphone")
+            purchase = S.move(store, context, purchase, target, expected_version=None, note="From a shared message", occurred_at=moment, source=source)
         for note in notes:
-            S.add_event(store, context, purchase, "share", note=note, source="iphone", now=now)
+            S.add_event(store, context, purchase, "share", note=note, source=source, now=now)
         if not created:
-            S.add_event(store, context, purchase, "share", note="Updated from a shared message", subject_id=marker, source="iphone", now=now)
+            S.add_event(store, context, purchase, "share", note="Updated from a shared message", subject_id=marker, source=source, now=now)
         status = purchase.status
     label = purchase.merchant + (f" {purchase.order_ref}" if purchase.order_ref else "")
     message = (f"Saved {label} under Purchases. Check it in ANUM." if created else f"Updated {label}: {status.replace('_', ' ')}.")
@@ -216,7 +217,7 @@ def share(event: ShareEvent, principal: DevicePrincipal = Depends(device_princip
         report_failure(context, principal.device_id, SCOPE, "not_allowed")
         return JSONResponse(status_code=403, content={"detail": "This person can no longer add purchases (their role changed).", "code": "forbidden"})
     try:
-        return handle(context, principal.device_id, event)
+        return handle(context, principal.device_id, event, source="iphone" if principal.via == "device_token" else "web")
     except S.PurchaseError as exc:
         if principal.via == "device_token":
             report_failure(context, principal.device_id, SCOPE, exc.code)

@@ -154,8 +154,16 @@ class DocumentDetailView(DocumentView):
     can_extract: bool
 
 
+class DocumentRow(DocumentView):
+    """A list row: the document, its file, how many links it has (and the first), and whether a scan waits for review."""
+
+    links_count: int = 0
+    first_link: LinkRecord | None = None
+    review_pending: bool = False
+
+
 class DocumentPage(BaseModel):
-    items: list[DocumentView]
+    items: list[DocumentRow]
     next_cursor: str | None
 
 
@@ -227,7 +235,7 @@ def vault_meta(context: TenantContext = Depends(tenant_context)) -> VaultMeta:
     categories += [CategoryView(id=item.id, label=item.label, built_in=False, reads=None, identity=False) for item in custom]
     return VaultMeta(
         summary={"active": summary.active, "private": summary.private, "expiring": summary.expiring, "expired": summary.expired,
-                 "review": summary.review, "trash": summary.trash},
+                 "review": summary.review, "trash": summary.trash, "linked": summary.linked},
         categories=categories, settings=value, ocr_connected=ocr_connected(),
         can_write=has_permission(context, Permission.DOCUMENT_WRITE), can_manage=has_permission(context, Permission.DOCUMENT_MANAGE),
         max_upload_bytes=settings.max_upload_body_bytes, accepted=file_policy.ACCEPTED_SUMMARY,
@@ -278,6 +286,8 @@ def list_documents(
     expiry: Literal["soon", "expired"] | None = Query(default=None, description="soon: within the reminder window; expired: past"),
     tag: str | None = Query(default=None, max_length=40),
     state: Literal["active", "deleted"] = Query(default="active", alias="status"),
+    sort: Literal["created", "updated", "expiry"] = Query(default="created", description=(
+        "created: newest added first; updated: newest change first; expiry: the next expiry first, only documents that expire today or later")),
     cursor: str | None = Query(default=None, max_length=200),
     limit: int = Query(default=50, ge=1, le=100),
     context: TenantContext = Depends(tenant_context),
@@ -286,14 +296,14 @@ def list_documents(
     window = _window(context)
     query = DocumentQuery(
         status=state, search=(q or "").strip() or None, category=category or None, access_class=access_class, tag=(tag or "").strip() or None,
-        expiring_within_days=window if expiry == "soon" else None, expired=True if expiry == "expired" else None, limit=limit + 1,
+        expiring_within_days=window if expiry == "soon" else None, expired=True if expiry == "expired" else None, sort=sort, limit=limit + 1,
         after=service.decode_cursor(cursor) if cursor else None,
     )
-    rows = service.list_documents(context, query)
-    more = len(rows) > limit
-    rows = rows[:limit]
+    rows, more = service.list_rows(context, query, limit)
     today = service.today()
-    return DocumentPage(items=[_view(context, row, today, window) for row in rows], next_cursor=service.encode_cursor(rows[-1]) if more and rows else None)
+    items = [DocumentRow(**_view(context, record, today, window, found).model_dump(), links_count=facts.links, first_link=facts.first_link,
+                         review_pending=facts.review_pending) for record, found, facts in rows]
+    return DocumentPage(items=items, next_cursor=service.encode_cursor(rows[-1][0], sort) if more and rows else None)
 
 
 class ReviewItem(BaseModel):

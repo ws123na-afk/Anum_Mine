@@ -23,6 +23,8 @@ from typing import Any, Literal
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from ..audit import AuditFilter
+from ..audit_log import decode_cursor, encode_cursor, record_view
 from ..repository import AnumRepository
 from ..dependencies import UnitsOfWork, repository_context, tenant_context, units_of_work
 from ..schemas import TenantContext, new_id, utc_now
@@ -45,6 +47,7 @@ from .guardian import (
     GuardianAction,
     GuardianChange,
     GuardianPolicy,
+    GuardianReview,
     GuardianRules,
     gate,
     evaluate,
@@ -53,6 +56,7 @@ from .guardian import (
 )
 from .models import Category, CurrencyBuffer, FxRate, PlanSettings
 from .money import MoneyError, normalize_currency, to_money
+from .guardian_review import ReviewQueue, build_queue, reasons_for, snooze_end
 from .policy import GuardianAlerts, current_rules, ledger_state, month_alerts
 from .safe_to_spend import SafeToSpend, build_safe_to_spend
 from .store import MAX_CONNECTIONS, MAX_FX_RATES, FinanceStore, open_finance_store
@@ -367,6 +371,113 @@ def reject_change(
         store.save_change(change)
     _audit(repository, context, "finance.guardian.reject", change.id, {"proposed_by": change.proposed_by})
     return _change_view(change)
+
+
+# -- the review queue (finance/guardian_review.py) ----------------------------------------------------
+
+
+class ReviewInput(BaseModel):
+    """Your decision on a flagged payment. ``snooze_days`` only with ``snoozed``."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    decision: Literal["expected", "reviewed", "snoozed", "reopen"]
+    snooze_days: Literal[1, 3, 7, 30] | None = None
+
+
+class ReviewView(BaseModel):
+    transaction_id: str
+    state: Literal["awaiting", "expected", "reviewed", "snoozed"]
+    decided_at: datetime | None
+    snoozed_until: datetime | None
+
+
+class ActivityItem(BaseModel):
+    id: str
+    action: str
+    target: str
+    created_at: datetime
+    metadata: dict[str, Any]
+
+
+class ActivityPage(BaseModel):
+    items: list[ActivityItem]
+    next_cursor: str | None
+
+
+@router.get("/guardian/review", response_model=ReviewQueue)
+def guardian_review(
+    month: str | None = Query(default=None, pattern=r"^\d{4}-(0[1-9]|1[0-2])$"),
+    state: Literal["awaiting", "resolved", "snoozed", "all"] = Query(default="awaiting"),
+    limit: int = Query(default=10, ge=1, le=50),
+    offset: int = Query(default=0, ge=0, le=100_000),
+    context: TenantContext = Depends(tenant_context),
+) -> ReviewQueue:
+    """The month's payments your rules flag, with what is typical for each, and your decisions."""
+    _read(context)
+    with open_finance_store(context) as store:
+        return build_queue(store, context, month, state=state, limit=limit, offset=offset, now=utc_now())
+
+
+@router.post("/guardian/review/{transaction_id}", response_model=ReviewView)
+def decide_review(
+    transaction_id: str,
+    body: ReviewInput,
+    context: TenantContext = Depends(tenant_context),
+    repository: AnumRepository = Depends(repository_context),
+) -> ReviewView:
+    """Mark a flagged payment expected or reviewed, snooze it, or put it back in the queue. A note only:
+    nothing is paid, held, approved or sent to a bank."""
+    _manage(context)
+    if (body.decision == "snoozed") != (body.snooze_days is not None):
+        raise _invalid("Snooze needs a number of days (1, 3, 7 or 30), and only snooze takes one.")
+    now = utc_now()
+    with open_finance_store(context) as store:
+        transaction = store.get_transaction(context, transaction_id) if len(transaction_id) <= 80 else None
+        if transaction is None:
+            raise _not_found("Transaction")
+        if transaction.amount >= 0:
+            raise _invalid("Only a payment out can be flagged.")
+        settings = settings_for(store, context)
+        current = next(iter(store.list_reviews(context, [transaction.id])), None)
+        if body.decision == "reopen":
+            if current is None:
+                return ReviewView(transaction_id=transaction.id, state="awaiting", decided_at=None, snoozed_until=None)
+            # Back in the queue: the decision ends now (kept as a snooze that is over, for the audit trail).
+            review = current.model_copy(update={"decision": "snoozed", "snoozed_until": now, "decided_at": now})
+        else:
+            rules, _ = current_rules(store, context)
+            # The same reasons the queue showed: the payment checked after the month's and the day's earlier spend.
+            codes = [r.code for r in reasons_for(store, context, transaction, rules.active(), settings.timezone, now)][:20]
+            review = GuardianReview(
+                id=new_id("fin_grev"), tenant_id=context.tenant_id, workspace_id=context.workspace_id, owner_user_id=context.user_id,
+                transaction_id=transaction.id, decision=body.decision, amount=-transaction.amount, currency=transaction.currency,
+                codes=codes, snoozed_until=snooze_end(now, body.snooze_days, settings.timezone) if body.snooze_days else None, decided_at=now,
+            )
+        store.save_review(review)
+    _audit(repository, context, "finance.guardian.review", transaction.id,
+           {"decision": body.decision, "codes": list(review.codes), **({"days": body.snooze_days} if body.snooze_days else {})})
+    state = review.state(now) or "awaiting"
+    return ReviewView(transaction_id=transaction.id, state=state, decided_at=review.decided_at if state != "awaiting" else None,
+                      snoozed_until=review.snoozed_until if state == "snoozed" else None)
+
+
+@router.get("/guardian/activity", response_model=ActivityPage)
+def guardian_activity(
+    limit: int = Query(default=10, ge=1, le=100),
+    cursor: str | None = Query(default=None, max_length=400),
+    context: TenantContext = Depends(tenant_context),
+    repository: AnumRepository = Depends(repository_context),
+) -> ActivityPage:
+    """Your own Guardian audit records (rule changes and review decisions), newest first. Ids and codes only."""
+    _read(context)
+    after = decode_cursor(cursor) if cursor else None
+    records = repository.list_audit_page(context, AuditFilter(actor=context.user_id, action="finance.guardian.*"), limit=limit + 1, after=after)
+    page = records[:limit]
+    return ActivityPage(
+        items=[ActivityItem(id=r.id, action=r.action, target=r.target, created_at=r.created_at, metadata=record_view(r).metadata) for r in page],
+        next_cursor=encode_cursor(page[-1]) if len(records) > limit and page else None,
+    )
 
 
 def build_action(store: FinanceStore, context: TenantContext, body: EvaluateInput, *, requested_by: Literal["person", "agent"]) -> GuardianAction:

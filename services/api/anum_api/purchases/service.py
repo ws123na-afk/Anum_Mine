@@ -984,6 +984,9 @@ def due_items(purchase: Purchase, returns: list[Return], items: list[Item], *, t
                 add("refund_overdue", item.id, due, return_id=item.id)
         if item.status == "returned" and not item.confirmation_ref and item.returned_on is not None and (today - item.returned_on).days >= 1:
             add("missing_confirmation", item.id, item.returned_on + timedelta(days=1), return_id=item.id)
+        if item.status in REFUND_WAITING and item.proof_document_id is None:
+            # Sent back with no proof of the hand-over (a courier receipt or photo) in the vault: on the task queue only.
+            add("proof_needed", item.id, item.returned_on or item.requested_on, return_id=item.id)
     if purchase.status not in ("returned", "refund_pending"):
         warranties = [(purchase.id, purchase.warranty_until)] + [(i.id, i.warranty_until) for i in items if i.purchase_id == purchase.id]
         for source_id, until in warranties:

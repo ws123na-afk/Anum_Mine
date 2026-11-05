@@ -54,7 +54,7 @@ from .models import (
     normalize_number,
 )
 from .ocr_parse import CURRENCY_CODES, safe_value
-from .store import CategoryInUse, CategoryTaken, StaleDocument, VaultUnit, open_vault_unit
+from .store import CategoryInUse, CategoryTaken, RowFacts, StaleDocument, VaultUnit, open_vault_unit
 
 logger = logging.getLogger("anum_api.vault")
 
@@ -123,8 +123,12 @@ def quota_error(used: int, size: int) -> ApplicationError:
     )
 
 
-def encode_cursor(record: DocumentRecord) -> str:
-    raw = f"{record.created_at.isoformat()}|{record.id}".encode()
+def encode_cursor(record: DocumentRecord, sort: str = "created") -> str:
+    if sort == "expiry" and record.expiry_date is not None:
+        stamp = record.expiry_date.isoformat()
+    else:
+        stamp = (record.updated_at if sort == "updated" else record.created_at).isoformat()
+    raw = f"{stamp}|{record.id}".encode()
     return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
 
 
@@ -382,6 +386,17 @@ def create_document(context: TenantContext, new: NewDocument) -> tuple[DocumentR
 def list_documents(context: TenantContext, query: DocumentQuery) -> list[DocumentRecord]:
     with open_vault_unit(context) as unit:
         return unit.store.list_documents(context, query, today())
+
+
+def list_rows(context: TenantContext, query: DocumentQuery, limit: int) -> tuple[list[tuple[DocumentRecord, FileRecord | None, RowFacts]], bool]:
+    """One page with what each row shows: the file (name, size, version), its links and whether a scan waits for review."""
+    with open_vault_unit(context) as unit:
+        rows = unit.store.list_documents(context, query, today())
+        more = len(rows) > limit
+        rows = rows[:limit]
+        facts = unit.store.row_facts(context, [r.id for r in rows])
+        files = {r.id: unit.files.get(context, r.file_id) for r in rows}
+    return [(r, files[r.id], facts.get(r.id, RowFacts())) for r in rows], more
 
 
 @dataclass

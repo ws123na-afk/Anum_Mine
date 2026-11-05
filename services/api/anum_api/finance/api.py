@@ -834,6 +834,7 @@ def _import_rule_breaks(store: FinanceStore, context: TenantContext, rows: list[
     from .policy import current_rules
 
     rules, _ = current_rules(store, context)
+    rules = rules.active()
     if rules.is_empty():
         return 0
     singles = {limit.currency: limit.amount for limit in rules.max_single}
