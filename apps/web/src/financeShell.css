@@ -120,6 +120,8 @@
 .finGrid .num { font-variant-numeric: tabular-nums; text-align: end; white-space: nowrap; }
 .finGrid tfoot th, .finGrid tfoot td { background: var(--d-glass-1); font-weight: 700; }
 .finTableWrap { margin: 0 calc(var(--d-s5) * -1); overflow-x: auto; padding: 0 var(--d-s5); }
+/* Focusable so a keyboard can scroll a wide table (FinanceShell: `<div className="finTableWrap" tabIndex={0}>`). */
+.finTableWrap:focus-visible { outline-offset: -2px; }
 
 @media (max-width: 1279px) { .finKpis ul { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 760px) {

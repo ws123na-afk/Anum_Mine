@@ -138,9 +138,11 @@ function AvailableNow({ data, currency, summaries, bills, guardian, latest, repo
       <FinCard title={t('fsafe.runway.title', { month: monthLabel(data.month) })} subtitle={t('fsafe.runway.subtitle')} icon={<Gauge />} className="finRunway">
         {summaries.kind === 'loading' || bills.kind === 'loading' ? <Notice busy>{t('finance.safe.loading')}</Notice>
           : summaries.kind !== 'ready' ? <LoadError message={t('fsafe.runway.error', { message: summaries.kind === 'error' || summaries.kind === 'denied' ? summaries.message : '' })} retry={onRefresh} />
+          // Without the bills the projection would overstate the month end: say what failed instead of drawing it.
+          : bills.kind !== 'ready' ? <LoadError message={t('fsafe.runway.billsError', { message: bills.kind === 'error' || bills.kind === 'denied' ? bills.message : '' })} retry={onRefresh} />
           : points.length < 2 ? <p className="muted">{t('fsafe.runway.lastDay')}</p>
           : <Suspense fallback={<Notice busy>{t('finance.safe.loading')}</Notice>}><RunwayChart points={points} currency={currency} perDay={pace ?? '0'} title={t('fsafe.runway.chartTitle', { currency })} /></Suspense>}
-        {pace !== null && <div className="finAssumptions"><strong>{t('fsafe.assume.title')}</strong><ul>
+        {pace !== null && bills.kind === 'ready' && <div className="finAssumptions"><strong>{t('fsafe.assume.title')}</strong><ul>
           <li>{t('fsafe.assume.pace', { amount: isolate(formatAmount(pace, currency)) })}</li>
           <li>{t('fsafe.assume.band', { percent: 10 })}</li>
           <li>{t('fsafe.assume.bills', { count: dueBills.length })}</li>
@@ -166,7 +168,7 @@ function AvailableNow({ data, currency, summaries, bills, guardian, latest, repo
           : bills.kind !== 'ready' ? <LoadError message={bills.message} retry={onRefresh} />
           : dueBills.length === 0 ? <Empty icon={<CalendarClock aria-hidden="true" />} title={t('fsafe.upcoming.none')} text={t('fsafe.upcoming.noneText')}
             action={<button type="button" className="secondary" onClick={() => onOpen('bills')}>{t('fsafe.upcoming.add')}</button>} />
-          : <div className="finTableWrap"><table className="finGrid"><caption className="visuallyHidden">{t('fsafe.upcoming.title')}</caption>
+          : <div className="finTableWrap" tabIndex={0}><table className="finGrid"><caption className="visuallyHidden">{t('fsafe.upcoming.title')}</caption>
             <thead><tr><th scope="col">{t('fsafe.col.date')}</th><th scope="col">{t('fsafe.col.commitment')}</th><th scope="col" className="num">{t('fsafe.col.amount')}</th></tr></thead>
             <tbody>{dueBills.map((b) => <tr key={`${b.id}-${b.due_on}`}><td className="finNoWrap"><bdi>{formatDateTime(`${b.due_on}T12:00:00Z`, { day: 'numeric', month: 'short', timeZone: 'UTC' })}</bdi></td>
               <th scope="row" dir="auto">{b.name}<small className="muted finSub">{categoryLabel(b.category)}</small></th><td className="num"><Money value={b.amount} currency={b.currency} /></td></tr>)}</tbody>
@@ -193,7 +195,7 @@ function Guardrails({ guardian, summaries, currency, month, onOpen }: {
       : guardian.kind === 'error' ? <p className="muted">{t('finance.guardian.error', { message: guardian.message })}</p>
       : rows.length === 0 ? <Empty icon={<Target aria-hidden="true" />} title={t('fsafe.guard.none')} text={t('fsafe.guard.noneText')}
         action={<button type="button" className="secondary" onClick={() => onOpen('guardian')}>{t('fsafe.guard.set')}</button>} />
-      : <div className="finTableWrap"><table className="finGrid"><caption className="visuallyHidden">{t('fsafe.guard.title')}</caption>
+      : <div className="finTableWrap" tabIndex={0}><table className="finGrid"><caption className="visuallyHidden">{t('fsafe.guard.title')}</caption>
         <thead><tr><th scope="col">{t('frep.col.category')}</th><th scope="col" className="num">{t('fsafe.guard.spent')}</th><th scope="col" className="num">{t('fsafe.guard.limit')}</th><th scope="col">{t('fsafe.guard.usage')}</th></tr></thead>
         <tbody>{rows.map((r) => <tr key={r.category}><th scope="row">{categoryLabel(r.category)}</th><td className="num"><Money value={r.spent} currency={currency} /></td>
           <td className="num"><Money value={r.limit} currency={currency} /></td>
@@ -258,7 +260,7 @@ function BusinessScope({ report, retry }: { report: Load<BooksReport>; retry: ()
         : report.kind === 'error' ? <LoadError message={t('frep.error', { message: report.message })} retry={retry} />
         : report.value.budgets.length === 0 ? <Empty icon={<Target aria-hidden="true" />} title={t('fsafe.business.noBudgets')} text={t('fsafe.business.noBudgetsText')}
           action={<a className="finLinkBtn secondary" href="#business-books/budgets">{t('fsafe.business.addBudget')}</a>} />
-        : <div className="finTableWrap"><table className="finGrid"><caption className="visuallyHidden">{t('fsafe.business.budgets')}</caption>
+        : <div className="finTableWrap" tabIndex={0}><table className="finGrid"><caption className="visuallyHidden">{t('fsafe.business.budgets')}</caption>
           <thead><tr><th scope="col">{t('fsafe.business.budget')}</th><th scope="col" className="num">{t('fsafe.guard.spent')}</th><th scope="col" className="num">{t('fsafe.guard.limit')}</th><th scope="col">{t('fsafe.guard.usage')}</th></tr></thead>
           <tbody>{report.value.budgets.map((b) => { const used = b.used_pct === null ? null : Number(b.used_pct); const tone = used === null ? 'ok' : used >= 100 ? 'bad' : used >= 80 ? 'warn' : 'ok';
             return <tr key={b.id}><th scope="row" dir="auto">{b.name}</th><td className="num">{b.actual === null ? '-' : <Money value={b.actual} currency={b.currency} />}</td>

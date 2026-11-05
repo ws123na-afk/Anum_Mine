@@ -114,6 +114,10 @@ export const financePagesAr = {
   'frep.custom.allCategories': 'كل الفئات',
   'frep.custom.invalid': 'اختر تاريخ بداية يسبق تاريخ النهاية أو يساويه.',
   'frep.custom.count': { zero: 'لا معاملات مطابقة', one: 'معاملة مطابقة واحدة', two: 'معاملتان مطابقتان', few: '{count} معاملات مطابقة', many: '{count} معاملة مطابقة', other: '{count} معاملة مطابقة' },
+  'frep.custom.personalOnly': 'التصدير المخصص يغطي دفترك الشخصي',
+  'frep.custom.personalOnlyText': 'يصدّر معاملاتك أنت. أرقام الأعمال في دفاتر الأعمال، وهي تصدّر أرباحها وخسائرها بصيغة CSV.',
+  'frep.custom.toPersonal': 'التبديل إلى شخصي',
+  'fsafe.runway.billsError': 'يحتاج المسار إلى فواتيرك، وتعذر تحميلها: {message}',
   'frep.custom.noneMatch': 'لا شيء للتنزيل',
 
   'fsafe.subtitle': 'تقدير للتخطيط من حساباتك وفواتيرك وأهدافك واحتياطك.',
