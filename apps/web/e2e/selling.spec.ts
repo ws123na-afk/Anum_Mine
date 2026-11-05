@@ -197,6 +197,8 @@ test('a Stripe payment is refunded through Stripe with one idempotency key and a
 
 for (const locale of ['en', 'ar'] as const) {
   test(`the console's new tabs fit every size in ${locale}`, async ({ page }) => {
+    // Five sizes, each a fresh load with four tabs and four axe scans: more than the 30s default on a busy runner.
+    test.setTimeout(150_000);
     await mockWorkspaceApi(page);
     await mockBilling(page);
     await mockSelling(page, { companySet: true, provider: 'stripe', stripeOn: true });
