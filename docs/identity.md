@@ -332,7 +332,7 @@ The workspace in the top bar opens the switcher. The button shows display names,
 
 ### Flutter
 
-`apps/mobile` uses `flutter_appauth` (pinned `12.1.0`), which runs the login in the system browser and applies PKCE, state and nonce. Configuration is by `--dart-define`:
+`apps/mobile` uses `flutter_appauth` (pinned `13.0.0`; its Android plugin is Java only, so it builds with `android.builtInKotlin=false`, and it needs iOS 15, the app's deployment target), which runs the login in the system browser and applies PKCE, state and nonce. Configuration is by `--dart-define`:
 
 | Define | Value |
 | --- | --- |
