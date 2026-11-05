@@ -29,6 +29,7 @@ This policy is written to describe our processing in the terms used by the Saudi
 | Workspace content | Tasks, runs, approvals, files, memories and notes, knowledge collections, reports, calendar events, contacts, leads, campaigns and the other records your workspace creates. | You and your colleagues. |
 | Assistant conversations and voice | What you type or say to the assistant and its answers. Voice is turned into text on your device or, if the deployment configures one, by a speech service; ANUM stores text, not voice recordings of the assistant. | You. |
 | Connected services | If your workspace connects them: email metadata (sender, recipients, subject, snippet, labels; email bodies are never stored by ANUM), WhatsApp messages, phone call logs, notes, transcripts and recordings, meeting transcripts, social media and sales channel data. Access tokens for these services are stored encrypted. | The services your workspace connects. |
+| Billing | The billing contact and address of your organization, invoices, credit notes, payments and refunds. If you pay by card, you type the card details on the payment provider's own page (Moyasar or Stripe, whichever we have turned on); we never see or store card numbers and keep only the provider's payment id, the amount and the status. | Your organization's billing administrator and the payment provider. |
 | Phone push | The push token of each phone you register, platform and a label. | Your phone. |
 | Preferences | Language, theme, notification and chat memory settings. | You. |
 | Security and technical records | Audit records (who did what, when, with ids and counts, not your content), request logs with ids, times and error codes, and error reports if the deployment turns error reporting on (with user identity, request bodies, query strings and cookies removed). | Our servers. |
@@ -42,6 +43,7 @@ We do not sell personal data, do not use advertising identifiers and do not trac
 | Provide the Service you or your organization signed up for | Account, membership, workspace content, connected services | {{LEGAL_BASIS_CONTRACT}} |
 | Keep the Service secure: sign-in, two-factor, permissions, approvals, audit records, abuse prevention | Account, security records | {{LEGAL_BASIS_SECURITY}} |
 | Answer support requests | What you send us | {{LEGAL_BASIS_SUPPORT}} |
+| Bill your organization and keep accounting records | Billing | {{LEGAL_BASIS_BILLING}} |
 | Meet legal obligations | What the law requires | Legal obligation |
 
 We use workspace content only to provide the Service to that workspace. We do not use it to train AI models, and the AI providers we use are configured through their business APIs, whose terms are listed in the [Subprocessor list](subprocessors.md).
@@ -58,7 +60,7 @@ AI actions that send something to another person or change something outside ANU
 
 Our production servers run on {{HOSTING_PROVIDER_AND_REGION}}. Workspace files and encrypted backups are stored with Backblaze B2 in {{FILE_STORAGE_REGION}}. The full list of service providers, what each receives and where, is in the [Subprocessor list](subprocessors.md).
 
-Some of these locations may be outside the Kingdom of Saudi Arabia or the United Arab Emirates. {{CROSS_BORDER_TRANSFER_STATEMENT}}
+Some of these locations may be outside the Kingdom of Saudi Arabia or the United Arab Emirates. When personal data leaves the country where it was collected, we transfer it only as the applicable law allows (the Saudi PDPL's Regulation on Personal Data Transfer outside the Kingdom and the UAE PDPL's rules on cross-border transfers): {{CROSS_BORDER_TRANSFER_STATEMENT}}
 
 ## Who receives it
 
@@ -83,6 +85,8 @@ Some of these locations may be outside the Kingdom of Saudi Arabia or the United
 | Workspace records (tasks, approvals, files, shared notes and the rest) | For as long as the workspace keeps them. |
 | Error reports, if turned on | {{ERROR_REPORT_RETENTION_DAYS}} days (the self-hosted default is 30). |
 | Backups | Nightly database backups are kept on the server for {{LOCAL_BACKUP_DAYS}} days (default 7) and the encrypted off-site copies for {{OFFSITE_BACKUP_DAYS}} days (the configured bucket rule is 35). Data you delete stays in backups until they expire. |
+| Meeting transcripts and visitor records | For the period a workspace owner sets under Settings → Workspace → How long records are kept (standard 90 days for meeting transcripts and 365 days for visitor records). |
+| Invoices, credit notes, payments and refunds | {{BILLING_RECORD_RETENTION}} |
 | Account | Until your administrator removes it. |
 
 ## Your rights
@@ -95,9 +99,13 @@ In ANUM, under **Settings → Privacy**, every signed-in user can:
 - download their data as one JSON file;
 - delete their private data: conversations, private memories, voice transcripts, preferences, registered phones, command history, what ANUM learned from them, imported meetings, logged calls, private mailboxes and their own finance records, among others.
 
-Records the whole workspace relies on (tasks, approvals, shared notes, files, workspace mailboxes) are kept and are counted on that page; a workspace owner can remove them. Your sign-in account itself is closed by your organization's administrator. For anything else, including correcting your details or a request you cannot make in the app, contact {{PRIVACY_CONTACT_EMAIL}}. We answer within {{RESPONSE_DAYS}} days.
+Records the whole workspace relies on (tasks, approvals, shared notes, files, workspace mailboxes) are kept and are counted on that page; a workspace owner can remove them. An organization administrator can download everything the organization holds, or schedule the organization's deletion, under Settings → Workspace → Data export and deletion; the deletion waits {{DELETION_COOLING_OFF_HOURS}} hours so it can be cancelled. Your sign-in account itself is closed by your organization's administrator. For anything else, including correcting your details or a request you cannot make in the app, contact {{PRIVACY_CONTACT_EMAIL}}. We answer within {{RESPONSE_DAYS}} days.
 
 If you are not satisfied with our answer you may complain to the authority that supervises us, for example the Saudi Data and Artificial Intelligence Authority (SDAIA) or the UAE Data Office, as applicable: {{SUPERVISORY_AUTHORITY}}.
+
+## Personal data breaches
+
+If a breach of personal data is likely to harm you, we will tell the competent authority (for example SDAIA in Saudi Arabia or the UAE Data Office) and, where the law requires it, you, without undue delay and within the time the applicable law sets. We will say what happened, what data is affected, what we are doing and what you can do. Organizations that use ANUM are told within {{BREACH_NOTICE_HOURS}} hours, as our [Data Processing Addendum](data-processing-addendum.md) says.
 
 ## Security
 

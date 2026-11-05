@@ -4,10 +4,10 @@
 import { t, type MessageKey } from './i18n.ts';
 
 export type View =
-  | 'home' | 'command' | 'assistant' | 'agents' | 'voice' | 'call' | 'calls' | 'automation' | 'tasks' | 'meetings' | 'calendar' | 'team' | 'assistants' | 'integrations' | 'tyre' | 'commerce' | 'finance' | 'marketing' | 'business' | 'files' | 'memory' | 'knowledge' | 'reports' | 'skills'
+  | 'home' | 'command' | 'assistant' | 'agents' | 'voice' | 'call' | 'calls' | 'automation' | 'tasks' | 'meetings' | 'calendar' | 'team' | 'assistants' | 'integrations' | 'tyre' | 'commerce' | 'finance' | 'marketing' | 'business' | 'files' | 'vault' | 'memory' | 'knowledge' | 'reports' | 'skills'
   | 'favorites' | 'email' | 'inbox' | 'whatsapp' | 'learning' | 'approvals' | 'activity' | 'autonomy' | 'settings'
   | 'governance' | 'setup' | 'enterprise' | 'members' | 'audit' | 'budgets' | 'agentControls' | 'policy' | 'suppressions' | 'developer' | 'organisations'
-  | 'platformBilling' | 'office' | 'executive';
+  | 'platformBilling' | 'office' | 'executive' | 'attendance' | 'vehicles' | 'purchases';
 
 export type NavGroup = 'main' | 'more' | 'admin';
 
@@ -25,13 +25,14 @@ export type NavGroup = 'main' | 'more' | 'admin';
  * and its render line in main.tsx.
  */
 export const NAV: readonly { group: NavGroup; views: readonly View[] }[] = [
-  { group: 'main', views: ['home', 'command', 'assistant', 'agents', 'voice', 'call', 'automation', 'tasks', 'email', 'calls', 'meetings', 'calendar', 'team', 'assistants', 'integrations', 'tyre', 'commerce', 'finance', 'marketing', 'business', 'files', 'memory', 'reports', 'skills', 'office', 'executive'] },
-  { group: 'more', views: ['favorites', 'inbox', 'whatsapp', 'learning', 'approvals', 'activity', 'autonomy', 'settings'] },
+  { group: 'main', views: ['home', 'command', 'assistant', 'agents', 'voice', 'call', 'automation', 'tasks', 'email', 'calls', 'meetings', 'calendar', 'team', 'assistants', 'integrations', 'tyre', 'commerce', 'finance', 'marketing', 'business', 'files', 'vault', 'memory', 'reports', 'skills', 'office', 'executive', 'attendance', 'vehicles', 'purchases'] },
+  { group: 'more', views: ['favorites', 'whatsapp', 'learning', 'approvals', 'activity', 'autonomy', 'settings'] },
   { group: 'admin', views: ['governance', 'setup', 'enterprise', 'members', 'audit', 'budgets', 'agentControls', 'policy', 'suppressions', 'developer', 'organisations', 'platformBilling'] },
 ];
 
 /** Views reached as a tab of a sidebar entry: they open by link and light up their parent entry. */
-export const TABS_OF: Readonly<Partial<Record<View, View>>> = { knowledge: 'memory' };
+// One Email module (docs/email.md#one-email-module): the provider inbox (`#inbox`) opens inside Email.
+export const TABS_OF: Readonly<Partial<Record<View, View>>> = { knowledge: 'memory', inbox: 'email' };
 /** The sidebar entry a view belongs to (itself, or the entry it is a tab of). */
 export const navParent = (view: View): View => TABS_OF[view] ?? view;
 /** Every view a link can open, sidebar entries first. */
@@ -45,8 +46,8 @@ export const OPERATOR_ONLY: ReadonlySet<View> = new Set(['organisations', 'platf
  * and the working pages whose one header row carries their actions (PageParts.tsx PageHeader).
  */
 export const OWN_HEADER: ReadonlySet<View> = new Set([
-  'home', 'command', 'voice', 'assistant', 'files', 'email', 'inbox', 'whatsapp', 'meetings', 'marketing', 'business',
-  'tasks', 'commerce', 'finance', 'team', 'assistants', 'call', 'calls', 'calendar', 'organisations', 'enterprise', 'skills', 'favorites', 'activity', 'autonomy', 'learning', 'office', 'executive',
+  'home', 'command', 'voice', 'assistant', 'files', 'vault', 'email', 'inbox', 'whatsapp', 'meetings', 'marketing', 'business',
+  'tasks', 'commerce', 'finance', 'team', 'assistants', 'call', 'calls', 'calendar', 'organisations', 'enterprise', 'skills', 'favorites', 'activity', 'autonomy', 'learning', 'office', 'executive', 'attendance', 'vehicles', 'purchases',
 ]);
 
 export function isView(value: string): value is View {
@@ -63,6 +64,8 @@ export function viewFromHash(hash: string): View {
   if (id === 'privacy' || id === 'language' || id === 'appearance' || id === 'notifications') return 'settings';
   // Settings > Billing and its sections (#billing-plans, #billing-contact, docs/billing.md).
   if (id === 'billing' || id.startsWith('billing-')) return 'settings';
+  // Settings > Integrations > iPhone (docs/iphone-integrations.md).
+  if (id === 'iphone') return 'settings';
   // Connection setup lives at the top of Integrations (docs/integrations-setup.md).
   if (id === 'connections') return 'integrations';
   // The ANUM MINE headquarters: #office-preview is the original link and stays valid (docs/ANUM_MINE_HQ_EXTENSION_POINTS.md).
@@ -74,14 +77,26 @@ export function viewFromHash(hash: string): View {
   if (id.startsWith('agents/')) return 'agents';
   // A Marketing tab opened by link (#marketing-calendar, docs/marketing.md).
   if (id.startsWith('marketing-')) return 'marketing';
+  // A pane of the one Email page (#email/all, #email/connections, #email/mailbox/<ref>, docs/email.md#one-email-module).
+  if (id.startsWith('email/')) return 'email';
+  // A WhatsApp conversation or a WhatsApp lead's sales tools (#whatsapp/<id>, #whatsapp/sales/<id>, docs/business.md#whatsapp-leads).
+  if (id.startsWith('whatsapp/')) return 'whatsapp';
   // A Business tab or record opened by link (#business-leads/<id>, docs/business.md).
   if (id.startsWith('business-')) return 'business';
   // A Finance tab opened by link (#finance-transactions, docs/finance.md).
   if (id.startsWith('finance-')) return 'finance';
   // A Phone calls tab opened by link (#calls-contacts, docs/calls.md).
   if (id.startsWith('calls-') || id.startsWith('calls?')) return 'calls';
+  // A Document vault tab opened by link (#vault-review, docs/documents.md#the-web-page).
+  if (id.startsWith('vault-')) return 'vault';
   // A Commerce tab opened by link (#commerce-orders, docs/commerce.md).
   if (id.startsWith('commerce-')) return 'commerce';
+  // An Attendance tab opened by link (#attendance-reports, docs/attendance.md#web).
+  if (id.startsWith('attendance-')) return 'attendance';
+  // A Vehicles tab opened by link (#vehicles-list, docs/vehicles.md#web).
+  if (id.startsWith('vehicles-')) return 'vehicles';
+  // A Purchases tab opened by link (#purchases-returns, docs/purchases.md#web).
+  if (id.startsWith('purchases-')) return 'purchases';
   return isView(id) ? id : 'home';
 }
 

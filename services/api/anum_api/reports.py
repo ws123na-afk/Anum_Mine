@@ -26,6 +26,8 @@ charts. ``POST /{id}/files`` saves the CSV in the workspace's files with a share
 
 from __future__ import annotations
 
+import asyncio
+
 import csv
 import io
 import json
@@ -42,7 +44,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from .authorization import Permission
-from .dependencies import has_permission, repository_context as _repository_context, require_permission, tenant_context
+from .dependencies import UnitsOfWork, has_permission, repository_context as _repository_context, require_permission, run_in_unit, tenant_context, units_of_work
 from .schemas import TenantContext, new_id, utc_now
 from .scoped_store import open_scoped_store
 
@@ -1029,7 +1031,7 @@ def _get_or_404(context: TenantContext, report_id: str) -> Report:
 
 
 @router.get("", response_model=ReportPage)
-async def list_reports(
+def list_reports(
     type: str | None = Query(default=None, max_length=60),
     q: str | None = Query(default=None, max_length=200),
     created_by_kind: CreatedByKind | None = Query(default=None),
@@ -1079,7 +1081,7 @@ async def get_report(report_id: str, context: TenantContext = Depends(tenant_con
 
 
 @router.patch("/{report_id}", response_model=ReportView)
-async def update_report(
+def update_report(
     report_id: str, payload: ReportUpdate, context: TenantContext = Depends(tenant_context)
 ) -> ReportView:
     require_permission(context, Permission.TASK_READ)
@@ -1100,7 +1102,7 @@ async def update_report(
 
 
 @router.delete("/{report_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_report(report_id: str, context: TenantContext = Depends(tenant_context)) -> Response:
+def delete_report(report_id: str, context: TenantContext = Depends(tenant_context)) -> Response:
     require_permission(context, Permission.TASK_READ)
     report = _get_or_404(context, report_id)
     if not _can_manage(report, context):
@@ -1189,18 +1191,24 @@ def report_digest(report: Report, limit: int = 6000) -> str:
 async def save_to_files(
     report_id: str,
     context: TenantContext = Depends(tenant_context),
-    repository: Any = Depends(_repository_context),
+    units: UnitsOfWork = Depends(units_of_work),
 ) -> FilesResult:
-    """Save the report's CSV in the workspace's files and return a short-lived share link."""
+    """Save the report's CSV in the workspace's files and return a short-lived share link.
+    The file is stored with no transaction open; the audit runs in its own short unit."""
     require_permission(context, Permission.TASK_READ)
     if not has_permission(context, Permission.FILE_UPLOAD):
         raise HTTPException(status.HTTP_403_FORBIDDEN, FILES_DENIED)
-    report = _get_or_404(context, report_id)
+    report = await asyncio.to_thread(_get_or_404, context, report_id)
     from .files import file_link, save_generated_file
 
     view = await save_generated_file(context, f"{file_stem(report)}.csv", ("\ufeff" + render_csv(report)).encode("utf-8"))
-    link = file_link(context, view)
-    _audit(repository, context, "report.saved_to_files", report_id, {"file_id": view.id})
+
+    def linked(repository: Any) -> Any:
+        link = file_link(context, view)
+        _audit(repository, context, "report.saved_to_files", report_id, {"file_id": view.id})
+        return link
+
+    link = await run_in_unit(units, context, linked)
     return FilesResult(file=view.model_dump(mode="json"), link=link.model_dump(mode="json"))
 
 
@@ -1291,7 +1299,7 @@ class ShareResult(BaseModel):
 
 
 @router.post("/{report_id}/share/email", response_model=ShareResult)
-async def share_by_email(
+def share_by_email(
     report_id: str,
     payload: EmailShare,
     context: TenantContext = Depends(tenant_context),
@@ -1336,7 +1344,7 @@ async def share_by_email(
     )
     with email_inbox.open_email_store(context) as store:
         store.add_draft(draft)
-    response = await email_api.request_send_approval(draft.id, context, repository)
+    response = email_api.request_send_approval(draft.id, context, repository)
     return ShareResult(
         channel="email",
         status="awaiting_approval",
@@ -1351,19 +1359,21 @@ async def share_by_whatsapp(
     report_id: str,
     payload: WhatsAppShare,
     context: TenantContext = Depends(tenant_context),
-    repository: Any = Depends(_repository_context),
+    units: UnitsOfWork = Depends(units_of_work),
 ) -> ShareResult:
     """Send the report's key figures as a WhatsApp reply in an open conversation.
 
     Free-form WhatsApp text always waits for approval and needs the customer-service
-    window, exactly as a reply typed in the WhatsApp inbox (docs/whatsapp.md).
+    window, exactly as a reply typed in the WhatsApp inbox (docs/whatsapp.md). The send
+    opens its own short units of work; none is held while Meta answers
+    (docs/realtime.md#event-loop).
     """
     require_permission(context, Permission.TASK_READ)
-    report = _get_or_404(context, report_id)
+    report = await asyncio.to_thread(_get_or_404, context, report_id)
     from . import whatsapp
 
     text = share_text(report, payload.note, max_chars=min(SHARE_TEXT_CHARS, whatsapp.MAX_TEXT))
-    result = await whatsapp.send(payload.conversation_id, whatsapp.SendRequest(text=text), context, repository)
+    result = await whatsapp.send(payload.conversation_id, whatsapp.SendRequest(text=text), context, units)
     return ShareResult(
         channel="whatsapp",
         status=result.outcome,

@@ -29,10 +29,10 @@ export function BillboardCard(props: {
       <div className="hqBbTop">
       <button
         type="button" className="hqBbHead" aria-pressed={props.selected} title={m.name}
-        aria-label={t('hqBillboard.headAria', { name: m.name, summary: m.summary })} onClick={props.onActivate}
+        aria-label={t('hqBillboard.headAria', { name: m.name, summary: m.kindText && m.kindText !== m.summary ? `${m.kindText}. ${m.summary}` : m.summary })} onClick={props.onActivate}
       >
         <span className="hqBbGlyph" aria-hidden="true" />
-        <span className="hqBbTitle" aria-hidden="true"><strong dir="auto">{m.name}</strong><small dir="auto">{m.kindText ?? m.summary}</small></span>
+        <span className="hqBbTitle" aria-hidden="true"><strong dir="auto">{m.name}</strong>{' '}<small dir="auto">{m.kindText ?? m.summary}</small></span>
         <span className="hqStatusDot" data-status={m.status} aria-hidden="true" />
       </button>
       {/* A focused card always has its own Close (Escape does the same): it lets go of the building, so the card and its details close.

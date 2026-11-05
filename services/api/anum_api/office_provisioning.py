@@ -278,8 +278,8 @@ TEMPLATES: tuple[Template, ...] = (
             "and what you could not check.",
             "present a guess as a fact, cite a source you did not read, or act on a finding"),
         icon="search", color="#6d28d9", model_route="capable",
-        tools=("web.fetch_page", "search_email", "read_email", "summarize_mail"),
-        skills=("anum.email", "anum.document-drafting"),
+        tools=("web.fetch_page", "web.browse_page", "search_email", "read_email", "summarize_mail"),
+        skills=("anum.email", "anum.document-drafting", "anum.browser-research"),
         missing=(
             Need("web_search", "Web search across the open web (needs a search service connected)",
                  "بحث على الويب (يتطلب ربط خدمة بحث)", ("web_search", "web.search*", "search.web*")),

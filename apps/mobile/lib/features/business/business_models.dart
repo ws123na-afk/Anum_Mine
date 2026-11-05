@@ -107,11 +107,16 @@ class BusinessLead {
     this.productId,
     this.contactId,
     this.nextStep = '',
+    this.channel,
   });
   final String id, title, state, accountName;
   final int scoreTotal, scoreKnown;
   final String? productName, blockReason, accountId, productId, contactId;
   final String nextStep;
+
+  /// `whatsapp` when the lead came from the WhatsApp sales desk (one lead
+  /// list, docs/business.md#whatsapp-leads); null otherwise.
+  final String? channel;
 
   factory BusinessLead.fromJson(JsonReader r) => BusinessLead(
         id: r.string('id'),
@@ -126,6 +131,7 @@ class BusinessLead {
         productId: r.optString('product_id'),
         contactId: r.optString('contact_id'),
         nextStep: r.optString('next_step') ?? '',
+        channel: r.optString('channel'),
       );
 }
 

@@ -539,6 +539,8 @@ class AnumLocalizations {
     'waApproved': 'Approved. The message status shows whether it was sent.',
     'waRejected': 'Rejected. The reply will not be sent.',
     'inbox': 'Inbox',
+    'emailMenu.provider': 'Email: Gmail, Outlook, Zoho',
+    'emailMenu.server': 'Email: own server',
     'inboxLoading': 'Loading the inbox',
     'inboxDeniedTitle': 'Email is for workspace owners and members',
     'inboxDeniedText':
@@ -1960,6 +1962,8 @@ class AnumLocalizations {
     'waApproved': 'تمت الموافقة. تُظهر حالة الرسالة ما إذا أُرسلت.',
     'waRejected': 'رُفض. لن يُرسل الرد.',
     'inbox': 'البريد',
+    'emailMenu.provider': 'البريد: Gmail وOutlook وZoho',
+    'emailMenu.server': 'البريد: خادمنا',
     'inboxLoading': 'جارٍ تحميل البريد',
     'inboxDeniedTitle': 'البريد لمالكي مساحة العمل وأعضائها',
     'inboxDeniedText':

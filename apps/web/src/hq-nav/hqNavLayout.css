@@ -37,11 +37,4 @@
 
 @media (prefers-reduced-motion: reduce) { .hqNav * { transition: none !important; } }
 
-/* With the rail beside the scene the floor arrows and menu are a second way to the same floors: they stay for the keyboard
-   and screen readers (and show whole while focused) but give the row back to the scene. "All floors" stays visible. */
-.hqNav:is([data-rail="full"], [data-rail="slim"]) .hqFloorControl > button,
-.hqNav:is([data-rail="full"], [data-rail="slim"]) .hqFloorControl .compactSelect { clip-path: inset(50%); height: 1px; overflow: hidden; position: absolute; width: 1px; }
-.hqNav:is([data-rail="full"], [data-rail="slim"]) .hqFloorControl:has(> button:focus-visible, .compactSelect :focus-visible) > button,
-.hqNav:is([data-rail="full"], [data-rail="slim"]) .hqFloorControl:has(> button:focus-visible, .compactSelect :focus-visible) .compactSelect { clip-path: none; height: auto; overflow: visible; position: static; width: auto; }
-
 .hqNavDockBelow .hqPaDock { max-width: none; min-width: 0; }

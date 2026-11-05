@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import inspect
 import json
 import logging
 from collections.abc import Callable, Coroutine
@@ -45,6 +46,8 @@ from .authorization import Permission
 from .dependencies import _unit_of_work, has_permission, is_organization_admin, require_owner_or_org_admin, tenant_context
 from .schemas import TenantContext, new_id, utc_now
 from .setup_plan_checks import CheckResult, CheckResultUpdate, CheckStatus, open_check_store
+from .setup_plan_checklist import Checklist, build_checklist
+from .setup_plan_extras import PlanExtras
 from .setup_plan_ledger import TENANT_SCOPE, LedgerEntry, LedgerOrigin, LedgerState, open_setup_plan_ledger
 
 logger = logging.getLogger(__name__)
@@ -269,6 +272,13 @@ class BlueprintNote(_Strict):
     title: str
     detail: str | None = None
     reason: str | None = None
+    # The live checklist check that reads this step's real state (setup_plan_checklist.CHECKS).
+    check: str | None = None
+
+
+class BlueprintLoopLimits(_Strict):
+    max_runs_per_task: int = Field(ge=1, le=20)
+    max_step_attempts: int = Field(ge=1, le=10)
 
 
 class Blueprint(_Strict):
@@ -281,6 +291,15 @@ class Blueprint(_Strict):
     business_hours: str
     languages: list[str]
     aed_per_usd: float
+    # Plan version 4 (2 Nov 2026): the parts the newer features made possible.
+    approval_reminder_hours: int = Field(ge=1, le=23)
+    loop_limits: BlueprintLoopLimits
+    require_marketing_consent: bool
+    home_sections: list[str]
+    # The plan's department to the headquarters office unit it sits in (office staffing).
+    department_units: dict[str, str]
+    # The plan's business code to the workspace key its agents may also be placed in.
+    business_workspaces: dict[str, str]
     pilot_agents: list[str]
     weeks: list[BlueprintWeek]
     workspaces: list[BlueprintNamed]
@@ -353,6 +372,10 @@ class Section(StrEnum):
     ASSISTANTS = "assistants"
     COMMANDS = "commands"
     AUTOMATIONS = "automations"
+    CONTROLS = "controls"
+    HOME = "home"
+    OFFICES = "offices"
+    BUSINESS_AGENTS = "business_agents"
     MANUAL = "manual"
     UNSUPPORTED = "unsupported"
 
@@ -430,10 +453,23 @@ class CallerAccess(BaseModel):
     notes: list[str]
 
 
+class PlanOptions(_Strict):
+    """What the person chose on the page; the preview and the apply take the same options."""
+
+    # Also make the plan's business agents in Fleet Consulting, Tyre Pulse and ANUM 360 Gallery
+    # (whole plan only; each workspace is checked for the caller's own rights there).
+    business_workspaces: bool = False
+    # New automations run as the plan's agent for them (its tools, autonomy, caps and loop limits).
+    run_automations_as_agents: bool = False
+    # Seat each agent at a free desk of its headquarters office, where one exists.
+    seat_in_offices: bool = True
+
+
 class PlanPreview(BaseModel):
     plan: PlanSummary
     phase: Phase
     overwrite_edited: bool
+    options: PlanOptions = Field(default_factory=PlanOptions)
     access: CallerAccess
     budget_aed: float
     budget_usd: float
@@ -443,7 +479,7 @@ class PlanPreview(BaseModel):
     memory_rules: list[SupportNote]
 
 
-class ApplyRequest(_Strict):
+class ApplyRequest(PlanOptions):
     phase: Phase = Phase.PILOT
     overwrite_edited: bool = False
     # The plan version the person previewed: a newer checked-in plan answers 409 instead of
@@ -474,9 +510,10 @@ def fingerprint(value: Any) -> str:
     return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(",", ":"), default=str).encode()).hexdigest()
 
 
-def _run(awaitable: Coroutine[Any, Any, T]) -> T:
-    """Run an ``async def`` route function from this worker thread (never on the event loop)."""
-    return asyncio.run(awaitable)
+def _run(awaitable: Coroutine[Any, Any, T] | T) -> T:
+    """Run an ``async def`` route function from this worker thread (never on the event loop).
+    A plain ``def`` route has already run when it is called: its value is returned as is."""
+    return asyncio.run(awaitable) if inspect.iscoroutine(awaitable) else awaitable  # type: ignore[return-value]
 
 
 def _error_text(exc: Exception) -> str:
@@ -503,6 +540,9 @@ class Planned:
     ledger_key: str
     tenant_level: bool
     run: Callable[[], Applied] | None = None
+    # Another workspace's context (the plan's agents in a business workspace): its ledger row
+    # is written there, in that workspace's RLS scope.
+    context: TenantContext | None = None
 
 
 NEEDS_ORG_ADMIN = (
@@ -520,10 +560,12 @@ RENAME_TEXT_ONLY = "Its instructions get the agents' new names. Nothing else abo
 # --------------------------------------------------------------------------- planning
 
 
-class Planner:
+class Planner(PlanExtras):
     """Reads the current state once, in the caller's scope, and plans every blueprint item."""
 
-    def __init__(self, blueprint: Blueprint, context: TenantContext, phase: Phase, overwrite_edited: bool) -> None:
+    def __init__(self, blueprint: Blueprint, context: TenantContext, phase: Phase, overwrite_edited: bool,
+                 options: PlanOptions | None = None) -> None:
+        self.options = options or PlanOptions()
         self.bp = blueprint
         self.context = context
         self.phase = phase
@@ -574,11 +616,18 @@ class Planner:
         planned += self.governance()
         planned += self.knowledge()
         planned += self.budget()
+        planned += self.consent_rule()
         planned += self.skills()
-        planned += self.agents()
+        agents = self.agents()
+        planned += agents
+        by_agent = {step.ledger_key: step for step in agents}
+        planned += self.agent_controls(by_agent)
+        planned += self.offices(by_agent)
+        planned += self.business_agents()
         planned += self.assistants()
         planned += self.commands()
         planned += self.automations()
+        planned += self.home_layout()
         planned += [Planned(self.item(n.key, Section.MANUAL, "manual", n.title, ItemAction.MANUAL, "manual", n.detail or ""), n.key, False)
                     for n in self.bp.manual_steps]
         planned += [Planned(self.item(n.key, Section.UNSUPPORTED, "unsupported", n.title, ItemAction.UNSUPPORTED, "unsupported", n.reason or ""), n.key, False)
@@ -942,7 +991,7 @@ class Planner:
         }
         return fields, dropped, [u.label for u in agent.unmapped_tools]
 
-    def agents(self) -> list[Planned]:
+    def agents(self, only: set[str] | None = None) -> list[Planned]:
         from .agent_profiles import (
             AgentProfileCreate,
             AgentProfileUpdate,
@@ -960,6 +1009,8 @@ class Planner:
         compare = ("name", "icon", "color", "category", "department", "description", "instructions", "model_route",
                    "allowed_skills", "allowed_tools", "autonomy", "knowledge_mode", "sharing")
         for agent in self.bp.agents:
+            if only is not None and agent.key not in only:
+                continue
             fields, dropped, unmapped = self._agent_fields(agent)
             active = agent.key in self.active_agents
             facts = [
@@ -974,6 +1025,9 @@ class Planner:
                 facts.append(f"Left out here: {'; '.join(dropped)}.")
             for item in agent.unmapped_tools:
                 facts.append(f"'{item.label}' in the plan is not something an agent can use: {item.reason}")
+            office = self.office_fact(agent)
+            if office:
+                facts.append(office)
             entry = self._existing(agent.key)
             current = by_id.get(entry.target_id) if entry and entry.target_id else None
             by_name = next((p for p in profiles if p.name.casefold() in _known_as(agent.name, agent.former_names)), None)
@@ -1224,6 +1278,9 @@ class Planner:
             kind = trigger.get("type")
             agent = self.bp.agent(automation.agent)
             base_facts = [f"#{automation.number} · for {agent.name}"]
+            if kind == "setting":
+                out.append(self.approval_reminder(automation))
+                continue
             if kind in {"builtin", "unsupported", "manual_step", "covered"}:
                 action = {"builtin": ItemAction.BUILTIN, "unsupported": ItemAction.UNSUPPORTED, "manual_step": ItemAction.MANUAL,
                           "covered": ItemAction.BUILTIN}[kind]
@@ -1242,16 +1299,22 @@ class Planner:
                 facts.append(f"Starts when {trigger['source']} sends a message. Set that up in Automations > Triggers; its secret is shown only once.")
             elif kind == "manual":
                 facts.append(str(trigger.get("reason", "Run it by hand from Automations.")))
-            facts.append("It runs as the person who owns the automation, with that person's access, budget and approvals.")
+            if self.options.run_automations_as_agents:
+                facts.append(f"Its task runs as {agent.name}: that agent's tools, freedom to act, monthly cap and loop limits apply, "
+                             "with the access and approvals of the person who owns the automation.")
+            else:
+                facts.append("It runs as the person who owns the automation, with that person's access, budget and approvals. "
+                             f"Turn on 'Run automations as their agent' to run it as {agent.name}.")
             entry = self._existing(automation.key)
             current = by_id.get(entry.target_id) if entry and entry.target_id else None
             by_name = next((w for w in workflows if w.name.casefold() in _known_as(automation.name, automation.former_names)), None)
 
             def create(automation: BlueprintAutomation = automation) -> Applied:
+                agent_id = self._run_as(automation)
                 payload = auto.WorkflowCreate(
                     name=automation.name,
                     description=f"Setup plan automation #{automation.number}. Created turned off: run it by hand, check the result, then turn it on.",
-                    steps=[_automation_step(automation.name, automation.prompt)],
+                    steps=[_automation_step(automation.name, automation.prompt, agent_id)],
                     overlap_policy=auto.OverlapPolicy.SKIP,
                 )
                 workflow = auto.create_workflow(payload, self.context)
@@ -1271,11 +1334,52 @@ class Planner:
                 if renamed is not None:
                     out.append(renamed)
                     continue
+                run_as = self._automation_run_as(automation, current, entry, facts, link)
+                if run_as is not None:
+                    out.append(run_as)
+                    continue
             out.append(self._workspace_object(automation.key, Section.AUTOMATIONS, "automation", automation.name, entry,
                                               current.id if current else None, by_name.id if by_name else None, link, facts, allowed,
                                               "You need permission to manage automations.", create,
                                               "Made turned off. Its schedule or trigger is off too.", week=automation.week))
         return out
+
+    def _run_as(self, automation: BlueprintAutomation) -> str | None:
+        """The agent the automation's task runs as, when the person asked for it and the agent exists here."""
+        if not self.options.run_automations_as_agents:
+            return None
+        from .agent_profiles import load_agent
+        from .setup_plan_extras import _ledger_target
+
+        agent_id = _ledger_target(self.context, self.bp.id, automation.agent)
+        return agent_id if agent_id and load_agent(self.context, agent_id) is not None else None
+
+    def _automation_run_as(self, automation: BlueprintAutomation, current: Any, entry: LedgerEntry, facts: list[str], link: Link) -> Planned | None:
+        """An untouched plan automation gets its agent when the person turns on 'Run automations as their agent'."""
+        from . import automation as auto
+
+        if not self.options.run_automations_as_agents:
+            return None
+        agent_entry = self._existing(automation.agent)
+        if agent_entry is None or not agent_entry.target_id:
+            return None
+        plain = _automation_step(automation.name, automation.prompt).model_dump()
+        if [step.model_dump() for step in current.steps] != [plain] or current.version != entry.target_version:
+            return None
+        agent = self.bp.agent(automation.agent)
+
+        def update() -> Applied:
+            agent_id = self._run_as(automation)
+            if agent_id is None:
+                raise HTTPException(status_code=409, detail=f"{agent.name} is not here or you cannot see it, so the automation keeps running as you.")
+            updated = auto.update_workflow(current.id, auto.WorkflowUpdate(
+                name=current.name, description=current.description, overlap_policy=current.overlap_policy,
+                steps=[_automation_step(automation.name, automation.prompt, agent_id)]), self.context)
+            return Applied(target_id=updated.id, target_version=updated.version, details=dict(entry.details or {}))
+
+        return Planned(self.item(automation.key, Section.AUTOMATIONS, "automation", automation.name, ItemAction.UPDATE, "will_run_as_agent",
+                                 f"Its task will run as {agent.name}. It stays turned off.", link=link, facts=facts, week=automation.week),
+                       automation.key, False, update)
 
     def _automation_rename(self, automation: BlueprintAutomation, current: Any, entry: LedgerEntry, facts: list[str], link: Link) -> Planned | None:
         """New wording for an automation the plan made: its name, its task step, its schedule and
@@ -1346,11 +1450,14 @@ def _agent_update_reason(changes: dict[str, Any], current_name: str) -> tuple[st
     return "will_update", f"The plan updates its {words}."
 
 
-def _automation_step(name: str, prompt: str | None) -> Any:
-    """The one task step the plan gives an automation."""
+def _automation_step(name: str, prompt: str | None, agent_id: str | None = None) -> Any:
+    """The one task step the plan gives an automation; with ``agent_id`` the task runs as that agent."""
     from .automation import WorkflowStep
 
-    return WorkflowStep(id="task", name=name, action="task.create", input={"title": name, "prompt": prompt or name, "run": True})
+    step_input: dict[str, Any] = {"title": name, "prompt": prompt or name, "run": True}
+    if agent_id:
+        step_input["agent_id"] = agent_id
+    return WorkflowStep(id="task", name=name, action="task.create", input=step_input)
 
 
 def _plain(value: Any) -> Any:
@@ -1417,12 +1524,14 @@ def _access(context: TenantContext) -> CallerAccess:
     return CallerAccess(owner=owner, organization_admin=org_admin, can_apply=True, notes=notes)
 
 
-def build_preview(blueprint: Blueprint, context: TenantContext, phase: Phase, overwrite_edited: bool) -> tuple[PlanPreview, list[Planned]]:
-    planned = Planner(blueprint, context, phase, overwrite_edited).plan()
+def build_preview(blueprint: Blueprint, context: TenantContext, phase: Phase, overwrite_edited: bool,
+                  options: PlanOptions | None = None) -> tuple[PlanPreview, list[Planned]]:
+    options = options or PlanOptions()
+    planned = Planner(blueprint, context, phase, overwrite_edited, options).plan()
     items = [p.item for p in planned]
     aed = blueprint.budget_aed(phase)
     preview = PlanPreview(
-        plan=_summary(blueprint, context), phase=phase, overwrite_edited=overwrite_edited, access=_access(context),
+        plan=_summary(blueprint, context), phase=phase, overwrite_edited=overwrite_edited, options=options, access=_access(context),
         budget_aed=aed, budget_usd=round(aed / blueprint.aed_per_usd, 2), items=items, sections=_sections(items),
         approval_thresholds=blueprint.approval_thresholds, memory_rules=blueprint.memory_governance.rules,
     )
@@ -1431,6 +1540,7 @@ def build_preview(blueprint: Blueprint, context: TenantContext, phase: Phase, ov
 
 def _ledger_entry(blueprint: Blueprint, context: TenantContext, planned: Planned, state: LedgerState, applied: Applied | None = None) -> LedgerEntry:
     now = utc_now()
+    context = planned.context or context
     return LedgerEntry(
         tenant_id=context.tenant_id, workspace_id=TENANT_SCOPE if planned.tenant_level else context.workspace_id,
         plan_id=blueprint.id, item_key=planned.ledger_key, kind=planned.item.kind, state=state,
@@ -1442,9 +1552,15 @@ def _ledger_entry(blueprint: Blueprint, context: TenantContext, planned: Planned
 
 
 def apply_plan(blueprint: Blueprint, context: TenantContext, request: ApplyRequest) -> ApplyResult:
-    preview, planned = build_preview(blueprint, context, request.phase, request.overwrite_edited)
-    with open_setup_plan_ledger(context) as ledger:
-        recorded = {e.item_key: e for e in ledger.entries(context, blueprint.id) if e.state == LedgerState.APPLIED}
+    options = PlanOptions(**request.model_dump(include=set(PlanOptions.model_fields)))
+    preview, planned = build_preview(blueprint, context, request.phase, request.overwrite_edited, options)
+    recorded_by_scope: dict[str, dict[str, LedgerEntry]] = {}
+
+    def recorded_in(scope: TenantContext) -> dict[str, LedgerEntry]:
+        if scope.workspace_id not in recorded_by_scope:
+            with open_setup_plan_ledger(scope) as ledger:
+                recorded_by_scope[scope.workspace_id] = {e.item_key: e for e in ledger.entries(scope, blueprint.id) if e.state == LedgerState.APPLIED}
+        return recorded_by_scope[scope.workspace_id]
     outcomes: dict[str, int] = {}
     for step in planned:
         item = step.item
@@ -1454,13 +1570,14 @@ def apply_plan(blueprint: Blueprint, context: TenantContext, request: ApplyReque
             }.get(item.action, Outcome.NOT_APPLIED)
         else:
             creating = item.action in {ItemAction.CREATE, ItemAction.PRESENT}
+            scope = step.context or context
             claim = _ledger_entry(blueprint, context, step, LedgerState.CLAIMED)
             # Creating again over an applied row (a removed object, a cleared budget) takes that row
             # over with a compare-and-set, so a concurrent apply cannot create it a second time.
-            previous = recorded.get(step.ledger_key) if creating else None
+            previous = recorded_in(scope).get(step.ledger_key) if creating else None
             try:
                 if creating:
-                    with open_setup_plan_ledger(context) as ledger:
+                    with open_setup_plan_ledger(scope) as ledger:
                         claimed = ledger.reclaim(claim, previous) if previous is not None else ledger.claim(claim)
                     if not claimed:
                         item.outcome = Outcome.BUSY
@@ -1468,11 +1585,13 @@ def apply_plan(blueprint: Blueprint, context: TenantContext, request: ApplyReque
                         outcomes[item.outcome.value] = outcomes.get(item.outcome.value, 0) + 1
                         continue
                 applied = step.run()
-                with open_setup_plan_ledger(context) as ledger:
+                with open_setup_plan_ledger(scope) as ledger:
                     ledger.save(_ledger_entry(blueprint, context, step, LedgerState.APPLIED, applied))
                 item.outcome = (Outcome.PRESENT if item.action == ItemAction.PRESENT
                                 else Outcome.UPDATED if item.action == ItemAction.UPDATE else Outcome.CREATED)
-                if applied.target_id and item.link is not None and item.link.id is None and item.kind not in {"model_budget", "saved_command"}:
+                if (applied.target_id and item.link is not None and item.link.id is None
+                        and item.kind not in {"model_budget", "saved_command", "agent_cap", "agent_loop_limit", "approval_reminder",
+                                              "home_layout", "consent_rule", "office_seat"}):
                     item.link = item.link.model_copy(update={"id": applied.target_id})
                 elif applied.target_id and item.link is None:
                     item.link = _default_link(item.kind, applied.target_id)
@@ -1480,7 +1599,7 @@ def apply_plan(blueprint: Blueprint, context: TenantContext, request: ApplyReque
                 logger.warning("setup_plan_item_failed", extra={"anum_plan": blueprint.id, "anum_item": item.key, "anum_error_class": type(exc).__name__})
                 if creating:
                     try:
-                        with open_setup_plan_ledger(context) as ledger:
+                        with open_setup_plan_ledger(scope) as ledger:
                             # Put the applied row back, so a removed object stays "removed", not "new".
                             ledger.release(claim) if previous is None else ledger.save(previous)
                     except Exception:  # pragma: no cover - the stale claim is retaken after CLAIM_STALE_AFTER
@@ -1494,7 +1613,8 @@ def apply_plan(blueprint: Blueprint, context: TenantContext, request: ApplyReque
             id=new_id("audit"), tenant_id=context.tenant_id, workspace_id=context.workspace_id, actor=context.user_id,
             action="setup_plan.applied", target=f"setup_plan:{blueprint.id}", outcome="success" if not outcomes.get("failed") else "partial",
             correlation_id=new_id("correlation"), created_at=now,
-            metadata={"plan_version": blueprint.version, "phase": request.phase.value, "overwrite_edited": request.overwrite_edited, "outcomes": outcomes},
+            metadata={"plan_version": blueprint.version, "phase": request.phase.value, "overwrite_edited": request.overwrite_edited,
+                      "options": options.model_dump(), "outcomes": outcomes},
         ))
     items = [step.item for step in planned]
     return ApplyResult(
@@ -1530,11 +1650,15 @@ def preview_setup_plan(
     plan_id: str,
     phase: Phase = Query(default=Phase.PILOT),
     overwrite_edited: bool = Query(default=False),
+    business_workspaces: bool = Query(default=False),
+    run_automations_as_agents: bool = Query(default=False),
+    seat_in_offices: bool = Query(default=True),
     context: TenantContext = Depends(tenant_context),
 ) -> PlanPreview:
     """What applying the plan would do here, per item. Read-only: nothing is created or audited."""
     _require_access(context)
-    preview, _ = build_preview(blueprint_or_404(plan_id), context, phase, overwrite_edited)
+    options = PlanOptions(business_workspaces=business_workspaces, run_automations_as_agents=run_automations_as_agents, seat_in_offices=seat_in_offices)
+    preview, _ = build_preview(blueprint_or_404(plan_id), context, phase, overwrite_edited, options)
     return preview
 
 
@@ -1605,3 +1729,13 @@ def record_pilot_check(plan_id: str, check_id: str, payload: CheckResultUpdate, 
             metadata={"status": payload.status.value, "has_note": bool(payload.note), "has_evidence": bool(payload.evidence)},
         ))
     return _checks_view(blueprint, context)
+
+
+# --------------------------------------------------------------------------- live checklist
+
+
+@router.get("/{plan_id}/checklist", response_model=Checklist)
+def get_setup_checklist(plan_id: str, context: TenantContext = Depends(tenant_context)) -> Checklist:
+    """The plan's steps for you to do by hand, each read from real state (docs/setup-plan.md#your-checklist)."""
+    _require_access(context)
+    return build_checklist(blueprint_or_404(plan_id), context)

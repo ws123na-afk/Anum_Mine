@@ -500,8 +500,30 @@ def test_the_send_tool_refuses_a_changed_invoice() -> None:
 # -- audit walk -------------------------------------------------------------------------------------------
 
 
-def test_every_state_changing_invoice_route_is_audited_without_content() -> None:
+def test_every_state_changing_invoice_route_is_audited_without_content(monkeypatch: pytest.MonkeyPatch) -> None:
+    import httpx
     from audit_probe import AuditProbe
+    from datetime import timedelta
+
+    from anum_api import main as app_main
+    from anum_api.agent_tools import ToolDefinition, ToolResult
+    from anum_api.billing import moyasar
+    from anum_api.billing.rows import memory_db
+    from anum_api.schemas import RiskLevel, TenantContext
+    from test_business import TENANT
+    from test_selling_readiness import MOYASAR_KEY, WEBHOOK_TOKEN, FakeMoyasar
+
+    async def send_email(call, context):  # type: ignore[no-untyped-def]
+        return ToolResult(status="succeeded", summary="sent")
+
+    app_main.tool_registry.register(ToolDefinition(name="test.audit_email", description="fake", risk_level=RiskLevel.HIGH, delivery_channel="email"), send_email)
+    fake = FakeMoyasar()
+    monkeypatch.setattr(moyasar, "transport", httpx.MockTransport(fake.handler))
+    monkeypatch.setattr(settings, "web_app_url", "https://app.example")
+    monkeypatch.setattr(settings, "billing_issuer_tenant_id", TENANT)
+    memory_db.clear()
+    ok(client.put("/api/v1/platform/billing/providers/moyasar", headers={**OWNER, "x-user-roles": "owner,platform_operator"},
+                  json={"enabled": True, "secret_key": MOYASAR_KEY, "webhook_secret": WEBHOOK_TOKEN}))
 
     project = make_project(total=3000, tax=15)
     sent_text = ["Pay by Friday", "PO-AUDIT-1", "TRX-AUDIT-9", "billing@anum.example", "IBAN: SA00 0000 0000 0000 0000 0000", "Office 12, Riyadh",
@@ -524,7 +546,16 @@ def test_every_state_changing_invoice_route_is_audited_without_content() -> None
     call("POST", f"/invoices/{first['id']}/payment-notices/{refused['id']}/reject", json={"reason": "Nothing arrived"})
     credited = call("POST", f"/invoices/{first['id']}/credit-notes", json={"amount": 10, "reason": "Price correction"}).json()
     call("POST", f"/invoices/{first['id']}/credit-notes/{credited['credit_notes'][0]['id']}/void", json={"reason": "Entered twice"})
+    call("POST", f"/invoices/{first['id']}/email", json={"to": "billing@anum.example", "language": "ar"})
+    call("POST", f"/invoices/{first['id']}/payment-link")
+    scoped = business_store.scoped(TenantContext(tenant_id=OWNER["x-tenant-id"], workspace_id=OWNER["x-workspace-id"], user_id="t", roles=["owner"]))
+    late = scoped.get("invoices", first["id"])
+    scoped.save("invoices", late.model_copy(update={"due_date": utc_now().date() - timedelta(days=3)}))
+    call("POST", f"/invoices/{first['id']}/reminders", json={})
     call("POST", f"/invoices/{first['id']}/void", json={"reason": "Reissue"})
     spare = call("POST", "/invoices", json={"project_id": project["id"], "milestone_ids": milestone_ids(project)[:1]}).json()
     call("DELETE", f"/invoices/{spare['id']}")
+    app_main.tool_registry._definitions.pop("test.audit_email")
+    app_main.tool_registry._handlers.pop("test.audit_email")
+    memory_db.clear()
     probe.assert_covered()

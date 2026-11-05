@@ -3,7 +3,7 @@
 // criteria score, evidence kept apart from inferences, research, drafts that are never sent, the
 // activity trail, do-not-contact and the step to an opportunity).
 import { useCallback, useEffect, useId, useRef, useState, type FormEvent } from 'react';
-import { Ban, ExternalLink, FileUp, Plus, Search, Sparkles, Trash2 } from 'lucide-react';
+import { Ban, ExternalLink, FileUp, MessageCircle, Plus, Search, Sparkles, Trash2 } from 'lucide-react';
 import type {
   BusinessDuplicate, BusinessLead, BusinessLeadDetail, BusinessProduct, BusinessSetup, ConsentBasis, Criterion, DraftChannel, ImportResult, LeadState,
 } from '@anum/contracts';
@@ -17,6 +17,8 @@ import * as b from './lib/businessApi';
 import { Drawer, Modal } from './Dialog';
 import { Badge, Empty, Note, Pager, ReasonDialog, day, failure, when } from './BusinessParts';
 import { PortalAccessBlock } from './BusinessPortalAdmin';
+import { DuplicatePairs, SourceBadge, WhatsAppWaiting } from './BusinessLeadSources';
+import { conversationHref, salesToolsHref } from './lib/leadSources';
 
 type Load = { kind: 'loading' } | { kind: 'ready' } | { kind: 'denied'; text: string } | { kind: 'error'; text: string };
 
@@ -26,34 +28,35 @@ export function LeadsTab({ setup, products, openLeadId, onOpenLead, onOpenOpport
 }) {
   const [items, setItems] = useState<BusinessLead[]>([]), [total, setTotal] = useState(0), [load, setLoad] = useState<Load>({ kind: 'loading' });
   const [q, setQ] = useState(''), [search, setSearch] = useState(''), [states, setStates] = useState<LeadState[]>([]), [sort, setSort] = useState('updated');
+  const [channel, setChannel] = useState<'' | 'whatsapp' | 'other'>('');
   const [more, setMore] = useState<{ busy: boolean; error: string | null }>({ busy: false, error: null });
   const [creating, setCreating] = useState(false), [importing, setImporting] = useState(false);
   const request = useRef(0);
-  const ids = { q: useId(), state: useId(), sort: useId() };
+  const ids = { q: useId(), state: useId(), sort: useId(), channel: useId() };
 
   const fetchFirst = useCallback(async () => {
     const id = ++request.current;
     setLoad({ kind: 'loading' });
     try {
-      const page = await b.listLeads({ q: search, state: states, sort, limit: PAGE_SIZE, offset: 0 });
+      const page = await b.listLeads({ q: search, state: states, sort, channel: channel || undefined, limit: PAGE_SIZE, offset: 0 });
       if (id !== request.current) return;
       setItems(page.items); setTotal(page.total); setLoad({ kind: 'ready' }); setMore({ busy: false, error: null });
     } catch (error) {
       if (id !== request.current) return;
       setLoad(isPermissionDenied(error) ? { kind: 'denied', text: describeError(error) } : { kind: 'error', text: describeError(error) });
     }
-  }, [search, states, sort]);
+  }, [search, states, sort, channel]);
   useEffect(() => { void fetchFirst(); }, [fetchFirst]);
 
   async function loadMore() {
     setMore({ busy: true, error: null });
     try {
-      const page = await b.listLeads({ q: search, state: states, sort, limit: PAGE_SIZE, offset: items.length });
+      const page = await b.listLeads({ q: search, state: states, sort, channel: channel || undefined, limit: PAGE_SIZE, offset: items.length });
       setItems((current) => [...current, ...page.items]); setTotal(page.total); setMore({ busy: false, error: null });
     } catch (error) { setMore({ busy: false, error: failure(error, t('biz.leads.loadMore')) }); }
   }
   const changed = () => { void fetchFirst(); onChanged(); };
-  const filtered = Boolean(search || states.length);
+  const filtered = Boolean(search || states.length || channel);
 
   return <section className="bzSection" aria-labelledby="bz-leads-title">
     <div className="bzToolbar">
@@ -67,6 +70,10 @@ export function LeadsTab({ setup, products, openLeadId, onOpenLead, onOpenOpport
         <select id={ids.state} value={states[0] ?? ''} onChange={(event) => setStates(event.target.value ? [event.target.value as LeadState] : [])}>
           <option value="">{t('biz.leads.allStates')}</option>{LEAD_STATES.map((state) => <option key={state} value={state}>{stateLabel(state)}</option>)}
         </select></label>
+      <label className="bzCompact" htmlFor={ids.channel}><span>{t('bizw.source.label')}</span>
+        <select id={ids.channel} value={channel} onChange={(event) => setChannel(event.target.value as '' | 'whatsapp' | 'other')}>
+          <option value="">{t('bizw.source.all')}</option><option value="whatsapp">{t('bizw.source.whatsapp')}</option><option value="other">{t('bizw.source.other')}</option>
+        </select></label>
       <label className="bzCompact" htmlFor={ids.sort}><span>{t('biz.leads.sort')}</span>
         <select id={ids.sort} value={sort} onChange={(event) => setSort(event.target.value)}>
           <option value="updated">{t('biz.leads.sortUpdated')}</option><option value="score">{t('biz.leads.sortScore')}</option><option value="created">{t('biz.leads.sortCreated')}</option>
@@ -76,11 +83,13 @@ export function LeadsTab({ setup, products, openLeadId, onOpenLead, onOpenOpport
         <button type="button" onClick={() => setCreating(true)}><Plus aria-hidden="true" />{t('biz.leads.new')}</button>
       </div>}
     </div>
+    <WhatsAppWaiting setup={setup} onChanged={changed} onOpenLead={onOpenLead} />
+    <DuplicatePairs key={`dupes-${total}`} setup={setup} onChanged={changed} onOpenLead={onOpenLead} />
     {load.kind === 'loading' && <Note>{t('biz.leads.loading')}</Note>}
     {load.kind === 'denied' && <Note error>{t('biz.denied', { message: load.text })}</Note>}
     {load.kind === 'error' && <Note error>{t('biz.failed', { what: t('biz.tab.leads'), message: load.text })} <button type="button" className="secondary" onClick={() => void fetchFirst()}>{t('common.tryAgain')}</button></Note>}
     {load.kind === 'ready' && items.length === 0 && (filtered
-      ? <Empty title={t('biz.leads.noMatch')} text={t('biz.leads.noMatchText')} action={<button type="button" className="secondary" onClick={() => { setQ(''); setSearch(''); setStates([]); }}>{t('biz.clearFilters')}</button>} />
+      ? <Empty title={t('biz.leads.noMatch')} text={t('biz.leads.noMatchText')} action={<button type="button" className="secondary" onClick={() => { setQ(''); setSearch(''); setStates([]); setChannel(''); }}>{t('biz.clearFilters')}</button>} />
       : <Empty title={t('biz.leads.emptyTitle')} text={t('biz.leads.emptyText')} action={setup.permissions.write ? <button type="button" onClick={() => setCreating(true)}><Plus aria-hidden="true" />{t('biz.leads.new')}</button> : undefined} />)}
     {load.kind === 'ready' && items.length > 0 && <>
       <p className="bzCount" role="status">{t('biz.leads.count', { count: total })}</p>
@@ -90,7 +99,7 @@ export function LeadsTab({ setup, products, openLeadId, onOpenLead, onOpenOpport
         <tbody>{items.map((lead) => {
           const score = scoreText(lead);
           return <tr key={lead.id} className={lead.id === openLeadId ? 'selected' : undefined}>
-            <th scope="row"><button type="button" className="linkButton" onClick={() => onOpenLead(lead.id)}><span dir="auto">{lead.account_name}</span></button>{lead.block_reason && <small className="bzBlocked"><Ban aria-hidden="true" className="bzInlineIcon" />{t('biz.leads.doNotContact')}</small>}</th>
+            <th scope="row"><button type="button" className="linkButton" onClick={() => onOpenLead(lead.id)}><span dir="auto">{lead.account_name}</span></button><SourceBadge channel={lead.channel} />{lead.block_reason && <small className="bzBlocked"><Ban aria-hidden="true" className="bzInlineIcon" />{t('biz.leads.doNotContact')}</small>}</th>
             <td className="bzHideSm"><span dir="auto">{lead.title}</span></td>
             <td><Badge tone={stateTone(lead.state)}>{stateLabel(lead.state)}</Badge></td>
             <td className="num">{score.total}<small>{score.known}</small></td>
@@ -217,6 +226,12 @@ function LeadDrawer({ setup, leadId, products, onClose, onChanged, onOpenOpportu
         <span className="bzScore">{scoreText(lead).total} <small>{scoreText(lead).known}</small></span>
         <span className="muted" dir="auto">{lead.title}</span>
       </div>
+      {lead.channel === 'whatsapp' && <section className="bzFromChannel" aria-label={t('bizw.drawer.title')}>
+        <p><MessageCircle aria-hidden="true" className="bzInlineIcon" /><strong>{t('bizw.drawer.title')}</strong>{lead.channel_phone && <> <bdi dir="ltr">{lead.channel_phone}</bdi></>}</p>
+        <p className="muted">{t('bizw.drawer.text')}</p>
+        <div className="bzInline"><a className="bzLinkButton" href={conversationHref(lead.channel_conversation_id)}>{t('bizw.conversation')}</a>
+          {lead.sales_lead_id && <a className="bzLinkButton" href={salesToolsHref(lead.sales_lead_id)}>{t('bizw.drawer.tools')}</a>}</div>
+      </section>}
       {lead.block_reason && <Note error>{lead.block_reason}</Note>}
       {(lead.lost_reason || lead.suppressed_reason) && <p className="muted">{lead.lost_reason || lead.suppressed_reason}</p>}
       {notice && <Note>{notice}</Note>}

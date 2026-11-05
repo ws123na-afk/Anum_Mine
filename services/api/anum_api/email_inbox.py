@@ -42,6 +42,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from .agent_tools import ToolCall, ToolDefinition, ToolRegistry, ToolResult
 from .autonomy import AutonomyFacts, normalize_recipient
+from .current_time import language_of, time_line_async, with_time_line
 from .email_providers import (
     EmailProvider,
     GmailClient,
@@ -809,24 +810,30 @@ async def access_token(account: EmailAccount, context: TenantContext) -> str:
         except SecretDecryptionError:
             pass
     if not account.refresh_token_enc:
-        _mark_reauth(account, context, "No refresh token is stored; connect the mailbox again.")
+        await asyncio.to_thread(_mark_reauth, account, context, "No refresh token is stored; connect the mailbox again.")
         raise EmailError(409, "This mailbox needs to be connected again (no refresh token).")
     try:
         refresh = cipher.decrypt(account.refresh_token_enc)
     except SecretDecryptionError:
-        _mark_reauth(account, context, "The stored token could not be decrypted (was ANUM_SECRETS_KEY changed?).")
+        await asyncio.to_thread(_mark_reauth, account, context, "The stored token could not be decrypted (was ANUM_SECRETS_KEY changed?).")
         raise EmailError(409, "The stored mailbox token could not be decrypted; connect the mailbox again.") from None
     try:
         grant = await provider_client(account.provider).refresh(refresh)
     except MailProviderError as exc:
         if exc.reauth:
-            _mark_reauth(account, context, exc.message)
+            await asyncio.to_thread(_mark_reauth, account, context, exc.message)
         raise _provider_failure(exc) from None
     account.access_token_enc = cipher.encrypt(grant.access_token)
     if grant.refresh_token and grant.refresh_token != refresh:
         account.refresh_token_enc = cipher.encrypt(grant.refresh_token)
     account.access_expires_at = grant.expires_at
     account.updated_at = utc_now()
+    await asyncio.to_thread(_store_tokens, account, context)
+    return grant.access_token
+
+
+def _store_tokens(account: EmailAccount, context: TenantContext) -> None:
+    """Keep a refreshed grant (a worker-thread step of ``access_token``)."""
     with open_email_store(context) as store:
         stored = store.get_account(account.id)
         if stored is not None:
@@ -835,7 +842,6 @@ async def access_token(account: EmailAccount, context: TenantContext) -> str:
             stored.access_expires_at = account.access_expires_at
             stored.updated_at = account.updated_at
             store.save_account(stored)
-    return grant.access_token
 
 
 def _mark_reauth(account: EmailAccount, context: TenantContext, reason: str) -> None:
@@ -859,16 +865,23 @@ async def sync_account(account_id: str, context: TenantContext, *, force: bool =
     and ``reauth_required`` when the provider no longer accepts the grant.
     """
     now = utc_now()
-    with open_email_store(context) as store:
-        account = store.get_account(account_id)
-        if account is None:
-            raise EmailError(404, "Mailbox not found.")
-        if not force and account.last_sync_at and (now - account.last_sync_at).total_seconds() < 15:
-            return account
-        if not store.claim_sync(account_id, now, now + SYNC_LEASE):
-            return account
+
+    # Every store step below runs in a worker thread in its own short unit of work; only the
+    # provider calls wait on the event loop, with nothing open (docs/realtime.md#event-loop).
+    def claim() -> tuple[EmailAccount, bool]:
+        with open_email_store(context) as store:
+            account = store.get_account(account_id)
+            if account is None:
+                raise EmailError(404, "Mailbox not found.")
+            if not force and account.last_sync_at and (now - account.last_sync_at).total_seconds() < 15:
+                return account, False
+            return account, store.claim_sync(account_id, now, now + SYNC_LEASE)
+
+    account, claimed = await asyncio.to_thread(claim)
+    if not claimed:
+        return account
     try:
-        if not provider_enabled_here(account.provider, context):
+        if not await asyncio.to_thread(provider_enabled_here, account.provider, context):
             raise EmailError(409, f"{PROVIDER_NAMES[account.provider]} is turned off or not set up for this workspace.")
         token = await access_token(account, context)
         result = await provider_client(account.provider).sync(
@@ -881,19 +894,23 @@ async def sync_account(account_id: str, context: TenantContext, *, force: bool =
     except (EmailError, MailProviderError) as exc:
         message = exc.message if isinstance(exc, (EmailError, MailProviderError)) else str(exc)
         reauth = isinstance(exc, MailProviderError) and exc.reauth
-        with open_email_store(context) as store:
-            stored = store.get_account(account_id)
-            if stored is not None:
-                stored.sync_lease_until = None
-                stored.last_sync_status = "error"
-                stored.last_error = message[:500]
-                if reauth:
-                    stored.status = AccountStatus.REAUTH_REQUIRED
-                elif stored.status != AccountStatus.REAUTH_REQUIRED:
-                    stored.status = AccountStatus.ERROR
-                stored.updated_at = utc_now()
-                store.save_account(stored)
-                account = stored
+
+        def record_failure() -> EmailAccount | None:
+            with open_email_store(context) as store:
+                stored = store.get_account(account_id)
+                if stored is not None:
+                    stored.sync_lease_until = None
+                    stored.last_sync_status = "error"
+                    stored.last_error = message[:500]
+                    if reauth:
+                        stored.status = AccountStatus.REAUTH_REQUIRED
+                    elif stored.status != AccountStatus.REAUTH_REQUIRED:
+                        stored.status = AccountStatus.ERROR
+                    stored.updated_at = utc_now()
+                    store.save_account(stored)
+                return stored
+
+        account = await asyncio.to_thread(record_failure) or account
         logger.warning(
             "email_sync_failed provider=%s",
             account.provider.value,
@@ -901,58 +918,68 @@ async def sync_account(account_id: str, context: TenantContext, *, force: bool =
         )
         return account
     except BaseException:
-        with open_email_store(context) as store:
-            stored = store.get_account(account_id)
-            if stored is not None:
-                stored.sync_lease_until = None
-                store.save_account(stored)
+
+        def release() -> None:
+            with open_email_store(context) as store:
+                stored = store.get_account(account_id)
+                if stored is not None:
+                    stored.sync_lease_until = None
+                    store.save_account(stored)
+
+        await asyncio.to_thread(release)
         raise
     finished = utc_now()
-    with open_email_store(context) as store:
-        stored = store.get_account(account_id)
-        if stored is None:  # disconnected meanwhile
-            raise EmailError(404, "Mailbox not found.")
-        incoming = [message_from_meta(meta, stored, finished) for meta in result.upserts]
-        try:
-            arrived = _arrived_for_routing(store, stored, incoming)
-        except Exception as exc:  # routing is best effort; the sync itself goes on
-            logger.warning("email_auto_route_skipped error_class=%s", type(exc).__name__,
-                           extra={"anum_email": {"event": "auto_route_skipped",
-                                                  "account_id": account_id.replace("\r", "").replace("\n", "")}})
-            arrived = []
-        # Only an incremental sync announces new mail; the first sync of a mailbox does not.
-        fresh = (
-            [m for m in incoming if store.get_by_provider_id(account_id, m.provider_message_id) is None]
-            if stored.sync_cursor
-            else []
-        )
-        store.upsert_messages(incoming)
-        if result.removed:
-            store.apply_changes(account_id, {pid: (None, True) for pid in result.removed})
-        if result.changes:
-            store.apply_changes(account_id, result.changes)
-        if result.deleted:
-            store.delete_provider_messages(account_id, result.deleted)
-        stored.sync_cursor = result.cursor or stored.sync_cursor
-        stored.last_sync_at = finished
-        stored.last_sync_status = "ok"
-        stored.last_error = None
-        stored.status = AccountStatus.CONNECTED
-        stored.sync_lease_until = None
-        stored.updated_at = finished
-        store.save_account(stored)
+
+    def keep() -> tuple[EmailAccount, list[Any], list[EmailMessage]]:
+        with open_email_store(context) as store:
+            stored = store.get_account(account_id)
+            if stored is None:  # disconnected meanwhile
+                raise EmailError(404, "Mailbox not found.")
+            incoming = [message_from_meta(meta, stored, finished) for meta in result.upserts]
+            try:
+                arrived = _arrived_for_routing(store, stored, incoming)
+            except Exception as exc:  # routing is best effort; the sync itself goes on
+                logger.warning("email_auto_route_skipped error_class=%s", type(exc).__name__,
+                               extra={"anum_email": {"event": "auto_route_skipped",
+                                                      "account_id": account_id.replace("\r", "").replace("\n", "")}})
+                arrived = []
+            # Only an incremental sync announces new mail; the first sync of a mailbox does not.
+            fresh = (
+                [m for m in incoming if store.get_by_provider_id(account_id, m.provider_message_id) is None]
+                if stored.sync_cursor
+                else []
+            )
+            store.upsert_messages(incoming)
+            if result.removed:
+                store.apply_changes(account_id, {pid: (None, True) for pid in result.removed})
+            if result.changes:
+                store.apply_changes(account_id, result.changes)
+            if result.deleted:
+                store.delete_provider_messages(account_id, result.deleted)
+            stored.sync_cursor = result.cursor or stored.sync_cursor
+            stored.last_sync_at = finished
+            stored.last_sync_status = "ok"
+            stored.last_error = None
+            stored.status = AccountStatus.CONNECTED
+            stored.sync_lease_until = None
+            stored.updated_at = finished
+            store.save_account(stored)
+        return stored, arrived, fresh
+
+    stored, arrived, fresh = await asyncio.to_thread(keep)
     if arrived:
         from .assistants import auto_route_inbound
 
         await asyncio.to_thread(auto_route_inbound, stored.tenant_id, stored.workspace_id, "email", arrived)
     inbound = [m for m in fresh if m.from_address.lower() != stored.address.lower() and not m.is_archived]
-    _record_unsubscribes(context, [m for m in fresh if m.from_address.lower() != stored.address.lower()])
+    await asyncio.to_thread(_record_unsubscribes, context, [m for m in fresh if m.from_address.lower() != stored.address.lower()])
     await _note_business_replies(context, stored, [m for m in fresh if m.from_address.lower() != stored.address.lower()])
     if inbound:
         from .automation_triggers import record_inbound_events
 
         private = stored.visibility == Visibility.PRIVATE
-        record_inbound_events(
+        await asyncio.to_thread(
+            record_inbound_events,
             context,
             [
                 (
@@ -1094,7 +1121,7 @@ def load_message(context: TenantContext, message_id: str) -> tuple[EmailAccount,
 
 
 async def fetch_body(context: TenantContext, account: EmailAccount, message: EmailMessage) -> BodyView:
-    if not provider_enabled_here(account.provider, context):
+    if not await asyncio.to_thread(provider_enabled_here, account.provider, context):
         raise EmailError(409, f"{PROVIDER_NAMES[account.provider]} is turned off or not set up for this workspace.")
     token = await access_token(account, context)
     try:
@@ -1126,7 +1153,7 @@ async def fetch_attachment(context: TenantContext, message_id: str, attachment_i
     """Bytes, safe filename and content type of one attachment (size-capped)."""
     if not valid_provider_id(attachment_id):
         raise EmailError(422, "This attachment id is not valid.")
-    account, message = load_message(context, message_id)
+    account, message = await asyncio.to_thread(load_message, context, message_id)
     body = await fetch_body(context, account, message)
     found = next((item for item in body.attachments if item["id"] == attachment_id), None)
     if found is None:
@@ -1218,6 +1245,8 @@ async def triage_with_model(context: TenantContext, message: EmailMessage, body:
     """One budgeted model call; a malformed answer falls back to the rules triage."""
     gateway = _gateway_for(context)
     prompt = with_untrusted_rules(TRIAGE_INSTRUCTIONS, email_block(message, body.text, body.truncated))
+    # "Reply by Friday" in the email is read against the user's real today (current_time.py).
+    prompt = with_time_line(prompt, await time_line_async(context, language_of(body.text)))
     response = await gateway.generate_text(prompt)
     parsed = _parse_json_object(response.text) or {}
     rules_category, rules_priority = rules_triage(message)
@@ -1244,19 +1273,23 @@ async def triage_with_model(context: TenantContext, message: EmailMessage, body:
 
 
 async def analyze_message(context: TenantContext, message_id: str) -> tuple[EmailMessage, TriageResult]:
-    account, message = load_message(context, message_id)
+    account, message = await asyncio.to_thread(load_message, context, message_id)
     body = await fetch_body(context, account, message)
     result = await triage_with_model(context, message, body)
-    with open_email_store(context) as store:
-        stored = store.get_message(message_id)
-        if stored is None:
-            raise EmailError(404, "Message not found.")
-        stored.category, stored.priority, stored.summary = result.category, result.priority, result.summary
-        stored.triage_source = "model"
-        stored.triage_model = f"{result.model_provider}/{result.model_name}"[:160]
-        stored.triaged_at = stored.updated_at = utc_now()
-        store.save_message(stored)
-    return stored, result
+
+    def keep() -> EmailMessage:
+        with open_email_store(context) as store:
+            stored = store.get_message(message_id)
+            if stored is None:
+                raise EmailError(404, "Message not found.")
+            stored.category, stored.priority, stored.summary = result.category, result.priority, result.summary
+            stored.triage_source = "model"
+            stored.triage_model = f"{result.model_provider}/{result.model_name}"[:160]
+            stored.triaged_at = stored.updated_at = utc_now()
+            store.save_message(stored)
+        return stored
+
+    return await asyncio.to_thread(keep), result
 
 
 async def model_reply(context: TenantContext, message: EmailMessage, body: BodyView, instructions: str | None) -> tuple[str, str, str]:
@@ -1265,7 +1298,10 @@ async def model_reply(context: TenantContext, message: EmailMessage, body: BodyV
     guidance = DRAFT_INSTRUCTIONS
     if instructions:
         guidance += f"\nThe owner's instructions for this reply: {instructions.strip()[:MAX_INSTRUCTIONS]}"
-    response = await gateway.generate_text(with_untrusted_rules(guidance, email_block(message, body.text, body.truncated)))
+    prompt = with_untrusted_rules(guidance, email_block(message, body.text, body.truncated))
+    # "Say we will deliver next Tuesday": the date line lets the draft name the real day.
+    prompt = with_time_line(prompt, await time_line_async(context, language_of(instructions or body.text)))
+    response = await gateway.generate_text(prompt)
     text = response.text.strip()
     parsed = _parse_json_object(text)
     if parsed and isinstance(parsed.get("reply"), str):
@@ -1332,7 +1368,7 @@ async def create_draft(
     instructions: str | None,
 ) -> tuple[EmailDraft, str | None]:
     """A reply draft: the given body, or one written by the model from the email."""
-    account, message = load_message(context, message_id)
+    account, message = await asyncio.to_thread(load_message, context, message_id)
     if account.status == AccountStatus.REAUTH_REQUIRED:
         raise EmailError(409, "Reconnect this mailbox before drafting replies.")
     now = utc_now()
@@ -1361,9 +1397,13 @@ async def create_draft(
         if not draft.body:
             raise EmailError(502, "The model returned an empty reply; try again or write the reply yourself.")
     draft.provider_draft_id, warning = await save_provider_draft(context, account, draft, message)
+    await asyncio.to_thread(_add_draft, context, draft)
+    return draft, warning
+
+
+def _add_draft(context: TenantContext, draft: EmailDraft) -> None:
     with open_email_store(context) as store:
         store.add_draft(draft)
-    return draft, warning
 
 
 async def create_new_draft(
@@ -1380,13 +1420,12 @@ async def create_new_draft(
 
     Written by a person, never by the model; it sends nothing. Sending is the same
     ``send_email`` approval as a reply (docs/email.md#composing-a-new-message)."""
-    with open_email_store(context) as store:
-        account = store.get_account(account_id)
-    if account is None or not can_see(account, context):
+    account = await asyncio.to_thread(_visible_account, context, account_id)
+    if account is None:
         raise EmailError(404, "Mailbox not found.")
     if account.status == AccountStatus.REAUTH_REQUIRED:
         raise EmailError(409, "Reconnect this mailbox before writing from it.")
-    if not provider_enabled_here(account.provider, context):
+    if not await asyncio.to_thread(provider_enabled_here, account.provider, context):
         raise EmailError(409, f"{PROVIDER_NAMES[account.provider]} is turned off or not set up for this workspace.")
     to_list, cc_list, bcc_list = valid_addresses(to), valid_addresses(cc), valid_addresses(bcc)
     if len(to_list) + len(cc_list) + len(bcc_list) > 50:
@@ -1410,9 +1449,14 @@ async def create_new_draft(
         updated_at=now,
     )
     draft.provider_draft_id, warning = await save_provider_draft(context, account, draft, None)
-    with open_email_store(context) as store:
-        store.add_draft(draft)
+    await asyncio.to_thread(_add_draft, context, draft)
     return draft, warning
+
+
+def _visible_account(context: TenantContext, account_id: str) -> EmailAccount | None:
+    with open_email_store(context) as store:
+        account = store.get_account(account_id)
+    return account if account is not None and can_see(account, context) else None
 
 
 def load_draft(context: TenantContext, draft_id: str) -> tuple[EmailAccount, EmailDraft, EmailMessage | None]:
@@ -1476,9 +1520,12 @@ async def search_email(call: ToolCall, context: TenantContext) -> ToolResult:
         limit = max(1, min(TOOL_SEARCH_LIMIT, int(args.get("limit") or 10)))
     except (TypeError, ValueError):
         limit = 10
-    with open_email_store(context) as store:
-        accounts = visible_accounts(store, context)
-        items = store.list_messages([a.id for a in accounts], filters, limit=limit, before=None)
+    def search() -> tuple[list[EmailAccount], list[EmailMessage]]:
+        with open_email_store(context) as store:
+            accounts = visible_accounts(store, context)
+            return accounts, store.list_messages([a.id for a in accounts], filters, limit=limit, before=None)
+
+    accounts, items = await asyncio.to_thread(search)
     audit = {"tool": SEARCH_TOOL, "query_length": len(query or ""), "result_count": len(items), "accounts": len(accounts)}
     if not accounts:
         return ToolResult(
@@ -1510,7 +1557,7 @@ async def search_email(call: ToolCall, context: TenantContext) -> ToolResult:
 async def read_email(call: ToolCall, context: TenantContext) -> ToolResult:
     message_id = str(call.arguments.get("message_id") or "")
     try:
-        account, message = load_message(context, message_id)
+        account, message = await asyncio.to_thread(load_message, context, message_id)
         body = await fetch_body(context, account, message)
     except EmailError as exc:
         return _failed(exc.message)
@@ -1529,15 +1576,14 @@ async def mark_email_read(call: ToolCall, context: TenantContext) -> ToolResult:
     read = _bool(call.arguments.get("read"))
     read = True if read is None else read
     try:
-        account, message = load_message(context, message_id)
+        account, message = await asyncio.to_thread(load_message, context, message_id)
         token = await access_token(account, context)
         await provider_client(account.provider).mark_read(token, message.meta(), read, account_ref=account.provider_account_id)
     except EmailError as exc:
         return _failed(exc.message)
     except MailProviderError as exc:
         return _failed(_provider_failure(exc).message)
-    with open_email_store(context) as store:
-        store.apply_changes(account.id, {message.provider_message_id: (read, None)})
+    await asyncio.to_thread(_apply_changes, context, account.id, {message.provider_message_id: (read, None)})
     output: dict[str, Any] = {"message_id": message.id, "is_read": read}
     if message.is_read != read:
         # Undo (docs/autonomy.md): set the read state back to what it was.
@@ -1553,7 +1599,7 @@ async def mark_email_read(call: ToolCall, context: TenantContext) -> ToolResult:
 async def archive_email(call: ToolCall, context: TenantContext) -> ToolResult:
     message_id = str(call.arguments.get("message_id") or "")
     try:
-        account, message = load_message(context, message_id)
+        account, message = await asyncio.to_thread(load_message, context, message_id)
         token = await access_token(account, context)
         client = provider_client(account.provider)
         await client.archive(token, message.meta(), account_ref=account.provider_account_id)
@@ -1561,8 +1607,7 @@ async def archive_email(call: ToolCall, context: TenantContext) -> ToolResult:
         return _failed(exc.message)
     except MailProviderError as exc:
         return _failed(_provider_failure(exc).message)
-    with open_email_store(context) as store:
-        store.apply_changes(account.id, {message.provider_message_id: (None, True)})
+    await asyncio.to_thread(_apply_changes, context, account.id, {message.provider_message_id: (None, True)})
     output: dict[str, Any] = {"message_id": message.id, "is_archived": True}
     if client.supports_unarchive and not message.is_archived:
         # Undo (docs/autonomy.md): move it back to the inbox. Not offered for Outlook,
@@ -1580,8 +1625,8 @@ async def unarchive_email(call: ToolCall, context: TenantContext) -> ToolResult:
     """Move an archived email back to the inbox (the undo of ``archive_email``)."""
     message_id = str(call.arguments.get("message_id") or "")
     try:
-        account, message = load_message(context, message_id)
-        if not provider_enabled_here(account.provider, context):
+        account, message = await asyncio.to_thread(load_message, context, message_id)
+        if not await asyncio.to_thread(provider_enabled_here, account.provider, context):
             raise EmailError(409, f"{PROVIDER_NAMES[account.provider]} is turned off or not set up for this workspace.")
         token = await access_token(account, context)
         await provider_client(account.provider).unarchive(token, message.meta(), account_ref=account.provider_account_id)
@@ -1589,14 +1634,18 @@ async def unarchive_email(call: ToolCall, context: TenantContext) -> ToolResult:
         return _failed(exc.message)
     except MailProviderError as exc:
         return _failed(_provider_failure(exc).message)
-    with open_email_store(context) as store:
-        store.apply_changes(account.id, {message.provider_message_id: (None, False)})
+    await asyncio.to_thread(_apply_changes, context, account.id, {message.provider_message_id: (None, False)})
     return ToolResult(
         status="succeeded",
         summary=f"Moved back to the inbox: {message.subject or '(no subject)'}",
         output={"message_id": message.id, "is_archived": False},
         audit_metadata={"tool": UNARCHIVE_TOOL, "message_id": message.id},
     )
+
+
+def _apply_changes(context: TenantContext, account_id: str, changes: dict[str, tuple[bool | None, bool | None]]) -> None:
+    with open_email_store(context) as store:
+        store.apply_changes(account_id, changes)
 
 
 def _address_list(value: Any) -> list[str]:
@@ -1680,7 +1729,7 @@ async def send_email(call: ToolCall, context: TenantContext) -> ToolResult:
     args = call.arguments
     draft_id = str(args.get("draft_id") or "")
     try:
-        account, draft, original = load_draft(context, draft_id)
+        account, draft, original = await asyncio.to_thread(load_draft, context, draft_id)
     except EmailError as exc:
         return _failed(f"Not sent: {exc.message}")
     if draft.status == DraftStatus.SENT:
@@ -1718,16 +1767,16 @@ async def send_email(call: ToolCall, context: TenantContext) -> ToolResult:
             store.save_draft(stored)
 
     try:
-        if not provider_enabled_here(account.provider, context):
+        if not await asyncio.to_thread(provider_enabled_here, account.provider, context):
             raise EmailError(409, f"{PROVIDER_NAMES[account.provider]} is turned off or not set up for this workspace.")
         token = await access_token(account, context)
         client = provider_client(account.provider)
         await client.send(token, outgoing, account_ref=account.provider_account_id)
     except (EmailError, MailProviderError) as exc:
         reason = exc.message if isinstance(exc, EmailError) else _provider_failure(exc).message
-        record(DraftStatus.FAILED, reason[:500])
+        await asyncio.to_thread(record, DraftStatus.FAILED, reason[:500])
         return _failed(f"Not sent: {reason}", draft_id=draft.id)
-    record(DraftStatus.SENT, None)
+    await asyncio.to_thread(record, DraftStatus.SENT, None)
     if draft.provider_draft_id:
         try:
             await client.delete_draft(token, draft.provider_draft_id, account_ref=account.provider_account_id)

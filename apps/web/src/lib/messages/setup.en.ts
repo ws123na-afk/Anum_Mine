@@ -47,6 +47,8 @@ export const setupEn = {
   'setup.kind.object_storage': 'Stores uploaded files and exports.',
   'setup.kind.search': 'Private web search behind the web_search agent tool.',
   'setup.kind.tool': 'Your own system that approved agent actions call.',
+  'setup.service.browser-research': 'A sandboxed, read-only browser behind the web.browse_page agent tool.',
+  'setup.service.action-browser': 'A sandboxed browser that does tasks on sites for you (web.act) and asks before anything binding.',
   'setup.kind.email': 'Mail provider the unified inbox talks to.',
   'setup.endpoint': 'Address',
   'setup.checkedAt': 'Last checked',

@@ -52,7 +52,7 @@
 .inboxChecks { align-items: center; display: flex; flex-wrap: wrap; gap: 0 var(--d-s3); }
 .inboxChecks button { margin-inline-start: auto; }
 .inboxQueue { border-top: 1px solid var(--d-line); min-width: 0; padding-top: var(--d-s2); }
-.inboxQueue summary { align-items: center; cursor: pointer; display: flex; font-size: var(--text-md); font-weight: 650; gap: var(--d-s2); list-style: none; min-height: 36px; }
+.inboxQueue summary { align-items: center; cursor: pointer; display: flex; font-size: var(--text-md); font-weight: 600; gap: var(--d-s2); list-style: none; min-height: 36px; }
 .inboxQueue summary::-webkit-details-marker { display: none; }
 .inboxQueue summary svg { color: var(--d-violet); height: 16px; width: 16px; }
 .inboxQueue > p { font-size: var(--text-sm); padding: var(--d-s1) 0; }
@@ -104,7 +104,7 @@
 .inboxRowTop { align-items: baseline; display: flex; gap: var(--d-s2); justify-content: space-between; min-width: 0; }
 .inboxRowTop strong { font-size: var(--text-md); font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .inboxRowTop time { color: var(--d-faint); flex: none; font-size: var(--text-xs); }
-.inboxRow.unread .inboxRowTop strong, .inboxRow.unread .inboxRowSubject { font-weight: 700; }
+.inboxRow.unread .inboxRowTop strong, .inboxRow.unread .inboxRowSubject { font-weight: 600; }
 .inboxRowSubject { align-items: center; display: flex; font-size: var(--text-md); gap: var(--d-s2); min-width: 0; overflow-wrap: anywhere; }
 .inboxUnreadDot { background: var(--d-sky); border-radius: 50%; flex: none; height: 8px; width: 8px; }
 .inboxRowSnippet { color: var(--d-muted); display: -webkit-box; font-size: var(--text-sm); overflow: hidden; overflow-wrap: anywhere; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }

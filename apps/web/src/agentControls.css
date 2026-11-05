@@ -56,3 +56,9 @@
   .capRow { grid-template-columns: minmax(0, 1fr); }
   .heldRow { grid-template-columns: minmax(0, 1fr); }
 }
+
+/* ==== Redesign (docs/web-design-system.md#pages): the stop leads ==== */
+.agentControlsIntro { align-items: center; margin-bottom: var(--d-s4); }
+.agentControlsIntro p:not(.eyebrow) { color: var(--d-muted); max-width: 72ch; }
+.stopCard { border-inline-start: 3px solid var(--d-ok); }
+.stopCard.engaged { border-inline-start-color: var(--d-stop); }

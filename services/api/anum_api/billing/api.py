@@ -17,7 +17,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from .. import delivery
 from ..audit import AuditRecord
 from ..authorization import Permission
-from ..dependencies import repository_context, require_owner_or_org_admin, require_permission, tenant_context
+from ..dependencies import UnitsOfWork, repository_context, require_owner_or_org_admin, require_permission, run_in_unit, tenant_context, units_of_work
 from ..repository import AnumRepository
 from ..schemas import TenantContext, new_id, utc_now
 from ..settings import settings
@@ -25,7 +25,7 @@ from . import readers
 from . import service as svc
 from .enforce import clear_cache
 from .pdf import invoice_filename, render_invoice
-from .providers import ProviderError, SignatureError, StripeProvider, key_mode, verify_stripe_signature
+from .providers import REFUND_DONE, REFUND_FAILED, ProviderError, SignatureError, StripeProvider, StripeRefund, key_mode, verify_stripe_signature
 from .rows import RowConflict, Rows, open_billing
 from .usage import measure
 from .views import (
@@ -304,7 +304,9 @@ def overview(context: TenantContext = Depends(tenant_context)) -> dict[str, Any]
         "currency": sub["currency"] if sub else "SAR",
         "payment": {
             "bank_transfer": bank_details(issuer or {}),
-            "card_enabled": bool(issuer and issuer["stripe_enabled"] and issuer["stripe_secret_ciphertext"]),
+            "card_enabled": bool(issuer and ((issuer["stripe_enabled"] and issuer["stripe_secret_ciphertext"])
+                                             or (issuer.get("moyasar_enabled") and issuer.get("moyasar_secret_ciphertext")))),
+            "card_provider": _card_provider(issuer) if issuer else None,
         },
         "issuer": {"name": (issuer or {}).get("issuer_name") or "", "email": (issuer or {}).get("issuer_email") or ""},
     }
@@ -468,6 +470,26 @@ def _stripe_secret(issuer: dict[str, Any], field: str) -> str | None:
     return secret_cipher().decrypt(ciphertext)
 
 
+def stripe_for(issuer: dict[str, Any]) -> StripeProvider | None:
+    """The issuer's Stripe adapter when it is turned on with a secret key, else ``None``."""
+    secret = _stripe_secret(issuer, "stripe_secret_ciphertext")
+    return StripeProvider(secret) if secret else None
+
+
+def stripe_ready(issuer: dict[str, Any]) -> bool:
+    """Stripe can take a payment and confirm it: on, with the secret key and the webhook signing secret."""
+    return bool(issuer.get("stripe_enabled") and issuer.get("stripe_secret_ciphertext") and issuer.get("stripe_webhook_secret_ciphertext"))
+
+
+def _card_provider(issuer: dict[str, Any]) -> str | None:
+    """Which card provider takes payments: Moyasar (Saudi, mada) when on, else Stripe, else none."""
+    if issuer.get("moyasar_enabled") and issuer.get("moyasar_secret_ciphertext"):
+        return "moyasar"
+    if issuer.get("stripe_enabled") and issuer.get("stripe_secret_ciphertext"):
+        return "stripe"
+    return None
+
+
 @router.post("/invoices/{invoice_id}/checkout")
 def checkout(invoice_id: str, context: TenantContext = Depends(tenant_context), repository: AnumRepository = Depends(repository_context)) -> dict[str, Any]:
     _admin(context, manage=True)
@@ -476,20 +498,30 @@ def checkout(invoice_id: str, context: TenantContext = Depends(tenant_context), 
         issuer = svc.issuer_settings(rows, invoice["issuer_tenant_id"])
     if invoice["status"] != "open" or int(invoice["amount_due_minor"]) <= 0:
         raise HTTPException(status_code=409, detail=f"Invoice {invoice['number']} has nothing left to pay.")
-    secret = _stripe_secret(issuer, "stripe_secret_ciphertext")
-    if secret is None:
+    provider_name = _card_provider(issuer)
+    if provider_name is None:
         raise HTTPException(status_code=409, detail="Card payments are not turned on; pay by bank transfer with the details on the invoice.")
     base = (settings.web_app_url or "").rstrip("/")
     if not base:
         raise HTTPException(status_code=409, detail="Card payments need ANUM_WEB_APP_URL set on the server; pay by bank transfer for now.")
+    success_url, cancel_url = f"{base}/#settings/billing?paid={invoice_id}", f"{base}/#settings/billing?invoice={invoice_id}"
     try:
-        session = StripeProvider(secret).create_checkout(
-            invoice=invoice, success_url=f"{base}/#settings/billing?paid={invoice_id}", cancel_url=f"{base}/#settings/billing?invoice={invoice_id}",
-        )
+        if provider_name == "moyasar":
+            from .selling import moyasar_for
+
+            provider = moyasar_for(issuer)
+            if provider is None:
+                raise ProviderError("Moyasar is not set up; pay by bank transfer for now.")
+            session = provider.create_checkout(invoice=invoice, success_url=success_url, cancel_url=cancel_url)
+        else:
+            secret = _stripe_secret(issuer, "stripe_secret_ciphertext")
+            if secret is None:
+                raise ProviderError("Stripe is not set up; pay by bank transfer for now.")
+            session = StripeProvider(secret).create_checkout(invoice=invoice, success_url=success_url, cancel_url=cancel_url)
     except ProviderError as exc:
         raise HTTPException(status_code=502, detail=str(exc)) from None
-    _audit(repository, context, "billing.checkout.create", invoice_id, {"provider": "stripe", "amount_minor": invoice["amount_due_minor"]})
-    return {"url": session.url, "session_id": session.session_id}
+    _audit(repository, context, "billing.checkout.create", invoice_id, {"provider": provider_name, "amount_minor": invoice["amount_due_minor"]})
+    return {"url": session.url, "session_id": session.session_id, "provider": provider_name}
 
 
 # ----------------------------------------------------------------------------- onboarding checklist
@@ -569,7 +601,7 @@ def _customer_account(context: TenantContext, tenant_id: str, rows: Rows) -> dic
 def get_settings(context: TenantContext = Depends(tenant_context)) -> dict[str, Any]:
     _operator(context)
     with open_billing(context.tenant_id) as rows:
-        return settings_view(svc.issuer_settings(rows, context.tenant_id))
+        return settings_view(svc.issuer_settings(rows, context.tenant_id), context.tenant_id)
 
 
 @console.put("/settings")
@@ -602,7 +634,7 @@ def put_settings(payload: SettingsInput, context: TenantContext = Depends(tenant
             rows.insert("billing_settings", {**{k: v for k, v in svc.DEFAULT_SETTINGS.items()}, **values, "tenant_id": context.tenant_id})
         else:
             rows.update("billing_settings", {"tenant_id": context.tenant_id}, values)
-        view = settings_view(svc.issuer_settings(rows, context.tenant_id))
+        view = settings_view(svc.issuer_settings(rows, context.tenant_id), context.tenant_id)
     _audit(repository, context, "billing.settings.update", context.tenant_id, {
         "stripe_enabled": payload.stripe_enabled, "stripe_key_changed": payload.stripe_secret_key is not None,
         "webhook_secret_changed": payload.stripe_webhook_secret is not None, "tax_rules": values["tax_rules"],
@@ -885,13 +917,13 @@ def _email_text(invoice: dict[str, Any], reminder: int = 0) -> tuple[str, str]:
 
 
 async def request_invoice_email(
-    context: TenantContext, repository: AnumRepository, tenant_id: str, invoice: dict[str, Any], to: str, *, channel: str = "email", reminder: int = 0,
+    context: TenantContext, units: UnitsOfWork, tenant_id: str, invoice: dict[str, Any], to: str, *, channel: str = "email", reminder: int = 0,
 ) -> delivery.DeliveryOutcome:
     """Plan the invoice email as a delivery: it waits in Approvals and nothing is sent before someone approves it."""
     reference = await asyncio.to_thread(delivery.attachment_reference, INVOICE_ATTACHMENT_KIND, f"{tenant_id}:{invoice['id']}", "pdf", context)
     subject, text = _email_text(invoice, reminder)
     return await delivery.request_delivery(
-        context, repository, channel=channel, to=to, subject=subject, text=text, attachments=[reference],
+        context, units, channel=channel, to=to, subject=subject, text=text, attachments=[reference],
         title=f"Send invoice {invoice['number']}" if not reminder else f"Send reminder for invoice {invoice['number']}",
     )
 
@@ -899,23 +931,25 @@ async def request_invoice_email(
 @console.post("/organizations/{tenant_id}/invoices/{invoice_id}/email")
 async def email_invoice(
     tenant_id: str, invoice_id: str, payload: EmailInput, context: TenantContext = Depends(tenant_context),
-    repository: AnumRepository = Depends(repository_context),
+    units: UnitsOfWork = Depends(units_of_work),
 ) -> dict[str, Any]:
     _operator(context)
 
-    def load() -> tuple[dict[str, Any], dict[str, Any]]:
+    def load(_repository: AnumRepository) -> tuple[dict[str, Any], dict[str, Any]]:
         with open_billing(tenant_id) as rows:
             account = _customer_account(context, tenant_id, rows)
             return account, _invoice_or_404(rows, invoice_id)
 
-    account, invoice = await asyncio.to_thread(load)
+    # Each store step in its own short unit of work in a worker thread; the delivery tool
+    # runs with no transaction open (docs/realtime.md#event-loop).
+    account, invoice = await run_in_unit(units, context, load)
     if invoice["status"] in ("draft", "void"):
         raise HTTPException(status_code=409, detail=f"Invoice {invoice['number'] or invoice_id} is {invoice['status']}; only issued invoices are emailed.")
     to = (payload.to or account["contact_email"] or "").strip()
     if not is_email(to):
         raise HTTPException(status_code=422, detail="Enter the email address to send to, or add a billing contact email to the organisation.")
     try:
-        outcome = await request_invoice_email(context, repository, tenant_id, invoice, to, channel=payload.channel)
+        outcome = await request_invoice_email(context, units, tenant_id, invoice, to, channel=payload.channel)
     except delivery.DeliveryUnavailableError as exc:
         raise HTTPException(status_code=409, detail=str(exc)) from None
     entry = {"status": outcome.status, "approval_id": outcome.approval_id, "task_id": outcome.task_id, "requested_at": utc_now().isoformat(),
@@ -926,7 +960,8 @@ async def email_invoice(
             rows.update("billing_invoices", {"id": invoice_id}, {"last_email": entry, "updated_at": utc_now()})
 
     await asyncio.to_thread(remember)
-    _audit(repository, context, "billing.invoice.email_requested", invoice_id, {"tenant": tenant_id, "status": outcome.status, "task_id": outcome.task_id})
+    await run_in_unit(units, context, _audit, context, "billing.invoice.email_requested", invoice_id,
+                      {"tenant": tenant_id, "status": outcome.status, "task_id": outcome.task_id})
     message = {"waiting_approval": "The email waits for an approval: approve it in Approvals and it will be sent.", "sent": "Sent."}.get(
         outcome.status, outcome.summary or "Not sent.")
     return {"status": outcome.status, "approval_id": outcome.approval_id, "payload_hash": outcome.payload_hash, "task_id": outcome.task_id, "message": message}
@@ -975,33 +1010,149 @@ async def stripe_webhook(issuer_tenant_id: str, request: Request) -> dict[str, A
     return await asyncio.to_thread(handle_stripe_event, issuer_tenant_id, payload, signature)
 
 
+# Events that mean a refund of a payment changed (made from ANUM, or in the Stripe dashboard).
+STRIPE_REFUND_EVENTS = ("charge.refunded", "charge.refund.updated", "refund.created", "refund.updated", "refund.failed")
+
+
 def handle_stripe_event(issuer_tenant_id: str, payload: bytes, signature: str | None, *, now: datetime | None = None) -> dict[str, Any]:
+    """A signed Stripe delivery. No transaction is open while Stripe's API is asked anything.
+
+    1. In one short transaction: the issuer's webhook secret, and whether the event was seen.
+    2. With no transaction open: for a refund event, the payment's metadata and every refund
+       Stripe holds for it (the truth refunds are reconciled against); for a Payment Link
+       payment without ANUM metadata on the session, the link's metadata.
+    3. In one transaction: the event id is stored (a repeat answers ``duplicate``) and applied.
+    """
     now = now or utc_now()
     with open_billing(issuer_tenant_id) as rows:
         issuer = svc.issuer_settings(rows, issuer_tenant_id)
-        secret = _stripe_secret(issuer, "stripe_webhook_secret_ciphertext")
-        if secret is None:
-            raise HTTPException(status_code=404, detail="Not found.")
-        try:
-            verify_stripe_signature(payload, signature, secret, now=now.timestamp())
-        except SignatureError:
-            logger.warning("billing_stripe_signature_rejected", extra={"anum_billing": {"issuer": issuer_tenant_id}})
-            raise HTTPException(status_code=400, detail="The signature does not verify.") from None
-        try:
-            event = json.loads(payload)
-            event_id, event_type = str(event["id"]), str(event["type"])
-        except (ValueError, KeyError, TypeError):
-            raise HTTPException(status_code=400, detail="The event is not valid JSON.") from None
+    secret = _stripe_secret(issuer, "stripe_webhook_secret_ciphertext")
+    if secret is None:
+        raise HTTPException(status_code=404, detail="Not found.")
+    try:
+        verify_stripe_signature(payload, signature, secret, now=now.timestamp())
+    except SignatureError:
+        logger.warning("billing_stripe_signature_rejected", extra={"anum_billing": {"issuer": issuer_tenant_id}})
+        raise HTTPException(status_code=400, detail="The signature does not verify.") from None
+    try:
+        event = json.loads(payload)
+        event_id, event_type = str(event["id"]), str(event["type"])
+        obj = (event.get("data") or {}).get("object") or {}
+        if not isinstance(obj, dict):
+            raise TypeError
+    except (ValueError, KeyError, TypeError, AttributeError):
+        raise HTTPException(status_code=400, detail="The event is not valid JSON.") from None
+    with open_billing(issuer_tenant_id) as rows:
+        if rows.select("billing_webhook_events", {"provider": "stripe", "event_id": event_id[:200]}, limit=1):
+            return {"received": True, "duplicate": True}
+    paid = event_type == "checkout.session.completed" and obj.get("payment_status") == "paid"
+    metadata = {str(k): str(v) for k, v in (obj.get("metadata") or {}).items()} if isinstance(obj.get("metadata"), dict) else {}
+    refunds: list[StripeRefund] | None = None
+    payment_intent = str(obj.get("payment_intent") or "") if isinstance(obj.get("payment_intent"), str) else ""
+    provider = stripe_for(issuer)
+    try:
+        if event_type in STRIPE_REFUND_EVENTS and payment_intent.startswith("pi_") and provider is not None:
+            metadata = provider.payment_intent_metadata(payment_intent)
+            refunds = provider.refunds_of(payment_intent)
+        elif paid and not metadata.get("anum_invoice_id") and not metadata.get("anum_business_invoice_id") and obj.get("payment_link") and provider is not None:
+            metadata = provider.payment_link_metadata(str(obj.get("payment_link")))
+    except ProviderError as exc:
+        # Not stored as seen: Stripe retries the delivery and the next one asks again.
+        logger.warning("billing_stripe_lookup_failed", extra={"anum_billing": {"issuer": issuer_tenant_id}})
+        raise HTTPException(status_code=502, detail=str(exc)) from None
+    outcome = "ignored"
+    if paid and metadata.get("anum_business_invoice_id"):
+        # A customer of the issuer's own Business desk paid a Stripe Payment Link (docs/business.md#payment-links).
+        from ..business.invoice_send import apply_card_payment
+
+        outcome = apply_card_payment("stripe", issuer_tenant_id, metadata, payment_intent or str(obj.get("id") or ""), "paid",
+                                     int(obj.get("amount_total") or 0), str(obj.get("currency") or ""), now)
+    with open_billing(issuer_tenant_id) as rows:
         fresh = rows.insert_ignore("billing_webhook_events", {
             "tenant_id": issuer_tenant_id, "provider": "stripe", "event_id": event_id[:200], "event_type": event_type[:100], "received_at": now,
         })
         if not fresh:
             return {"received": True, "duplicate": True}
-        outcome = "ignored"
-        obj = (event.get("data") or {}).get("object") or {}
-        if event_type == "checkout.session.completed" and obj.get("payment_status") == "paid":
-            outcome = _apply_checkout(rows, issuer_tenant_id, obj, now)
+        if paid and not metadata.get("anum_business_invoice_id"):
+            outcome = _apply_checkout(rows, issuer_tenant_id, {**obj, "metadata": metadata}, now)
+        elif refunds is not None:
+            outcome = _sync_stripe_refunds(rows, issuer_tenant_id, metadata, payment_intent, refunds, now)
     return {"received": True, "duplicate": False, "outcome": outcome}
+
+
+def _sync_stripe_refunds(rows: Rows, issuer_tenant_id: str, metadata: dict[str, str], payment_intent: str, refunds: list[StripeRefund],
+                         now: datetime) -> str:
+    """Make ANUM's refunds of a Stripe payment match what Stripe's API says (docs/billing.md#stripe-refunds).
+
+    A pending ANUM refund that Stripe reports succeeded is booked (credit note); one Stripe reports
+    failed or cancelled is marked failed and its amount is free again. A refund made in the Stripe
+    dashboard (no ANUM refund id in its metadata) is recorded once, keyed by Stripe's refund id,
+    with its credit note.
+    """
+    tenant_id, invoice_id = metadata.get("anum_tenant_id", ""), metadata.get("anum_invoice_id", "")
+    if not tenant_id or not invoice_id or not re.fullmatch(r"[a-z0-9][a-z0-9_-]{2,79}", tenant_id):
+        return "ignored"
+    outcome = "unchanged"
+    with rows.as_tenant(tenant_id):
+        account = svc.account_of(rows)
+        if account is None or account["issuer_tenant_id"] != issuer_tenant_id:
+            logger.warning("billing_stripe_foreign_refund", extra={"anum_billing": {"issuer": issuer_tenant_id}})
+            return "ignored"
+        found = rows.select("billing_payments", {"provider": "stripe", "provider_payment_id": payment_intent[:200]}, limit=1)
+        if not found or found[0]["invoice_id"] != invoice_id:
+            return "ignored"
+        ours = found[0]
+        for item in reversed(refunds):  # Stripe lists the newest first; book the oldest first
+            if item.payment_intent and item.payment_intent != payment_intent:
+                continue
+            if item.currency and item.currency != str(ours["currency"]).upper():
+                logger.warning("billing_stripe_refund_currency_mismatch", extra={"anum_billing": {"issuer": issuer_tenant_id}})
+                continue
+            known = rows.select("billing_refunds", {"payment_id": ours["id"]})
+            match = next((r for r in known if r["id"] == item.metadata.get("anum_refund_id")
+                          or (r.get("provider") == "stripe" and r.get("provider_refund_id") == item.id)), None)
+            if match is not None:
+                match = rows.get("billing_refunds", for_update=True, id=match["id"]) or match
+                if match["status"] == "pending" and item.status in REFUND_DONE and item.amount_minor == int(match["amount_minor"]):
+                    rows.update("billing_refunds", {"id": match["id"]}, {"provider_refund_id": item.id[:200], "updated_at": now})
+                    try:
+                        svc.apply_refund(rows, match, now=now, actor="system:stripe")
+                        outcome = "refund_confirmed"
+                    except svc.BillingError:
+                        rows.update("billing_refunds", {"id": match["id"]}, {"status": "failed", "failure": "More than the invoice allows; check it by hand.", "updated_at": now})
+                        outcome = "refund_needs_review"
+                elif match["status"] == "pending" and item.status in REFUND_FAILED:
+                    rows.update("billing_refunds", {"id": match["id"], "status": "pending"}, {
+                        "status": "failed", "provider_refund_id": item.id[:200], "updated_at": now,
+                        "failure": f"Stripe did not refund the card (status {item.status}).",
+                    })
+                    outcome = "refund_failed"
+                elif match["status"] == "succeeded" and item.status in REFUND_FAILED:
+                    # Booked, then Stripe could not return the money: the credit note stands, so a person checks it.
+                    logger.warning("billing_stripe_refund_failed_after_booking", extra={"anum_billing": {"issuer": issuer_tenant_id}})
+                    outcome = "refund_needs_review"
+                continue
+            if item.metadata.get("anum_refund_id") or item.status not in REFUND_DONE or item.amount_minor <= 0:
+                continue  # another ANUM refund we do not hold, or not refunded yet
+            amount = min(item.amount_minor, svc.refundable(rows, ours))
+            if amount <= 0:
+                continue
+            refund = {
+                "id": new_id("refund"), "tenant_id": tenant_id, "issuer_tenant_id": issuer_tenant_id, "invoice_id": invoice_id,
+                "payment_id": ours["id"], "amount_minor": amount, "currency": ours["currency"], "provider": "stripe",
+                "provider_refund_id": item.id[:200], "status": "pending", "reason": "Refunded in the Stripe dashboard",
+                "idempotency_key": f"stripe:{item.id}"[:120], "credit_note_id": None, "failure": None, "requested_by": "system:stripe",
+                "created_at": now, "updated_at": now,
+            }
+            if rows.insert_ignore("billing_refunds", refund):
+                try:
+                    svc.apply_refund(rows, refund, now=now, actor="system:stripe")
+                    outcome = "external_refund_recorded"
+                except svc.BillingError:
+                    rows.update("billing_refunds", {"id": refund["id"]}, {"status": "failed", "failure": "More than the invoice allows; check it by hand.", "updated_at": now})
+                    outcome = "external_refund_needs_review"
+    clear_cache(tenant_id)
+    return outcome
 
 
 def _credit_overpayment(rows: Rows, amount_minor: int, now: datetime) -> None:
@@ -1035,6 +1186,9 @@ def _apply_checkout(rows: Rows, issuer_tenant_id: str, session: dict[str, Any], 
             return "duplicate_payment"
         invoice = svc.get_invoice(rows, invoice_id)
         if invoice is None:
+            return "ignored"
+        if str(session.get("currency") or invoice["currency"]).upper() != str(invoice["currency"]).upper():
+            logger.warning("billing_stripe_currency_mismatch", extra={"anum_billing": {"issuer": issuer_tenant_id}})
             return "ignored"
         if invoice["status"] != "open":
             # Paid another way meanwhile: what Stripe collected is not dropped, it becomes credit.

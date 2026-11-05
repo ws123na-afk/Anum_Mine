@@ -150,6 +150,19 @@ def check_deployment(values: dict[str, str], *, strict: bool) -> tuple[list[str]
             )
         else:
             seen[key] = name
+    # The action browser (docs/action-browser.md#setting-it-up): the API refuses to start with it
+    # on and no browser service, so say so before anything restarts.
+    if values.get("ANUM_ACTION_BROWSER_ENABLED", "").strip().lower() in {"1", "true", "yes", "on"}:
+        if not values.get("ANUM_BROWSER_RESEARCH_URL", "").strip():
+            problems.append(
+                "ANUM_ACTION_BROWSER_ENABLED=true needs the browser service: add browser to COMPOSE_PROFILES and set "
+                "ANUM_BROWSER_RESEARCH_URL=http://browser:8090 (docs/action-browser.md#setting-it-up)"
+            )
+        if values.get("ANUM_BROWSER_ACTION_MODE", "").strip() not in {"1", "true"}:
+            warnings.append(
+                "ANUM_ACTION_BROWSER_ENABLED=true but ANUM_BROWSER_ACTION_MODE is not 1: web.act will answer "
+                "\"Not available on this server\" until the browser service runs in action mode"
+            )
     try:
         networks = admin_allow_list(values.get(ADMIN_ALLOWED_IPS, ""))
     except ValueError as error:

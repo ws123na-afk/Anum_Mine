@@ -21,6 +21,8 @@ def test_verified_read_only_provider_is_not_live():
     facts = BrokerReadiness(
         regulated_provider_verified=True,
         account_in_owner_name=True,
+        broker_country_eligibility_verified=True,
+        asset_permissions_verified=True,
         funding_only_at_broker=True,
         market_data_terms_accepted=True,
         data_freshness_verified=True,
@@ -51,3 +53,14 @@ def test_unverified_broker_cannot_be_called_connected():
 def test_unknown_fields_rejected_including_potential_secrets():
     with pytest.raises(ValidationError):
         BrokerReadiness(api_secret="must-not-be-accepted")
+
+
+def test_country_and_asset_eligibility_are_data_requirements():
+    """Ported from the live preflight: without them the broker is not even read-only ready."""
+    facts = BrokerReadiness(
+        regulated_provider_verified=True, account_in_owner_name=True, funding_only_at_broker=True,
+        market_data_terms_accepted=True, data_freshness_verified=True, read_only_access_verified=True,
+    )
+    result = evaluate_broker_readiness(facts)
+    assert result.stage is IntegrationStage.NOT_CONNECTED
+    assert result.missing_data_requirements == ["broker_country_eligibility_verified", "asset_permissions_verified"]

@@ -28,6 +28,7 @@ WALKS = {
     "business_support": "test_business_support.py",
     "business_invoices": "test_business_invoices.py",
     "business_portal": "test_business_portal.py",
+    "business_books": "test_business_books.py",
     "portal": "test_business_portal.py",
     "autonomy": "test_autonomy.py",
     "developer": "test_developer.py",
@@ -36,6 +37,8 @@ WALKS = {
     "mail": "test_mail_center.py",
     "mail_ai": "test_mail_ai.py",
     "whatsapp": "test_whatsapp.py",
+    "contact_consents": "test_setup_plan_gaps.py",
+    "approval_reminders": "test_setup_plan_gaps.py",
 }
 
 

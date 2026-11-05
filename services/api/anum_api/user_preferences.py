@@ -156,7 +156,7 @@ async def my_preferences(context: TenantContext = Depends(tenant_context)) -> Us
 
 
 @router.put("/me/preferences", response_model=UserPreferencesView)
-async def set_my_preferences(
+def set_my_preferences(
     payload: UserPreferencesUpdate,
     context: TenantContext = Depends(tenant_context),
 ) -> UserPreferencesView:

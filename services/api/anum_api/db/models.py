@@ -812,10 +812,14 @@ class WorkspaceFileRecord(Base, WorkspaceScopedMixin):
     # The current version number (migration 0090_file_versions); older versions live in
     # workspace_file_versions.
     version: Mapped[int] = mapped_column(Integer, nullable=False, server_default="1", default=1)
+    # Document vault (migration 0133_document_vault, docs/documents.md#storage-and-isolation): null for
+    # an ordinary file; `hidden` rows are invisible unless the unit of work set anum.vault (row policy).
+    vault: Mapped[str | None] = mapped_column(String(10))
 
     __table_args__ = (
         _workspace_fk("workspace_files"),
         CheckConstraint("scan_status is null or scan_status in ('clean', 'infected')", name="ck_workspace_files_scan_status"),
+        CheckConstraint("vault is null or vault in ('hidden', 'assistant')", name="ck_workspace_files_vault"),
         Index("ix_workspace_files_scope_created", "tenant_id", "workspace_id", "created_at"),
         # Keyset paging by name and by size (migration 0029_file_management).
         Index("ix_workspace_files_scope_name", "tenant_id", "workspace_id", text('(lower(name) collate "C")'), "id"),
@@ -1672,6 +1676,14 @@ class AgentMemoryRecord(Base, WorkspaceScopedMixin):
     task_id: Mapped[str | None] = mapped_column(String(80))
     created_by: Mapped[str] = mapped_column(String(160), nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    # Migration 0128_agent_memory_facts: kind, source, date, edits and retention.
+    kind: Mapped[str | None] = mapped_column(String(20))
+    source_label: Mapped[str | None] = mapped_column(String(200))
+    source_date: Mapped[date | None] = mapped_column(Date)
+    source_file_id: Mapped[str | None] = mapped_column(String(80))
+    updated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    updated_by: Mapped[str | None] = mapped_column(String(160))
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     __table_args__ = (
         ForeignKeyConstraint(
@@ -1680,7 +1692,9 @@ class AgentMemoryRecord(Base, WorkspaceScopedMixin):
             name="fk_agent_memories_agent",
             ondelete="CASCADE",
         ),
-        CheckConstraint("source in ('manual', 'task')", name="ck_agent_memories_source"),
+        CheckConstraint("source in ('manual', 'task', 'file')", name="ck_agent_memories_source"),
+        CheckConstraint("kind is null or kind in ('fact', 'decision')", name="ck_agent_memories_kind"),
+        CheckConstraint("source <> 'file' or source_file_id is not null", name="ck_agent_memories_file_source"),
         Index("ix_agent_memories_agent", "tenant_id", "workspace_id", "agent_id", text("created_at DESC")),
     )
 

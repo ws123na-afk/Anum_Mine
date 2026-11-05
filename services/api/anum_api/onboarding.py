@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
@@ -7,7 +8,7 @@ import hashlib
 import hmac
 import secrets
 from threading import RLock
-from typing import Protocol
+from typing import Any, Protocol
 
 import httpx
 from fastapi import APIRouter, Depends, Header, HTTPException, Response, status
@@ -556,7 +557,7 @@ async def switch_local_workspace(
 
 
 @router.post("/auth/local/tenant/switch", response_model=LocalSessionResponse)
-async def switch_local_tenant(
+def switch_local_tenant(
     payload: TenantSwitch,
     authorization: str | None = Header(default=None),
     identity: AuthenticatedIdentity = Depends(authenticated_identity),
@@ -647,18 +648,24 @@ async def set_model_config(payload: ModelConfigWrite, context: TenantContext = D
         await validate_model_base_url(payload.base_url)
     except UnsafeModelEndpointError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    try:
+    base_url = payload.base_url
+
+    def save() -> Any:
         with open_model_config_store(context) as store:
-            config = store.save(
+            return store.save(
                 context,
                 provider=payload.provider,
                 model=payload.model,
-                base_url=payload.base_url,
+                base_url=base_url,
                 api_key=payload.api_key.get_secret_value() if payload.api_key else None,
                 updated_at=utc_now(),
                 routing=payload.routing(),
                 keep_api_key=keep_api_key,
             )
+
+    try:
+        # In a worker thread, never on the event loop (docs/realtime.md#event-loop).
+        config = await asyncio.to_thread(save)
     except StoredKeyNotReusableError as exc:
         detail = (
             "api_key is required: the provider or base URL changed, and a saved key is only "
@@ -676,13 +683,18 @@ async def set_model_config(payload: ModelConfigWrite, context: TenantContext = D
 
 
 @router.get("/model-config", response_model=ModelConfigView)
-async def get_model_config(context: TenantContext = Depends(tenant_context)) -> ModelConfigView:
+def get_model_config(context: TenantContext = Depends(tenant_context)) -> ModelConfigView:
     require_permission(context, Permission.ORGANIZATION_READ)
     with open_model_config_store(context) as store:
         config = store.get(context, include_secret=False)
     if config is None:
         raise HTTPException(status_code=404, detail="Model configuration not found")
     return _config_view(config)
+
+
+def _stored_model_config(context: TenantContext) -> Any:
+    with open_model_config_store(context) as store:
+        return store.get(context)
 
 
 def _test_client_factory() -> httpx.AsyncClient | None:
@@ -699,8 +711,7 @@ async def test_model_config(
     context: TenantContext = Depends(tenant_context),
 ) -> ModelConnectionTest:
     require_permission(context, Permission.ORGANIZATION_MANAGE)
-    with open_model_config_store(context) as store:
-        config = store.get(context)
+    config = await asyncio.to_thread(_stored_model_config, context)
     if config is None:
         raise HTTPException(status_code=404, detail="Model configuration not found")
     routes = _workspace_routes(config)
@@ -740,12 +751,12 @@ async def test_model_config(
 
 
 @router.get("/notification-preferences", response_model=NotificationPreferences)
-async def get_notification_preferences(context: TenantContext = Depends(tenant_context)) -> NotificationPreferences:
+def get_notification_preferences(context: TenantContext = Depends(tenant_context)) -> NotificationPreferences:
     with open_notification_preference_store(context) as store:
         return store.get(context) or NotificationPreferences()
 
 
 @router.put("/notification-preferences", response_model=NotificationPreferences)
-async def set_notification_preferences(payload: NotificationPreferences, context: TenantContext = Depends(tenant_context)) -> NotificationPreferences:
+def set_notification_preferences(payload: NotificationPreferences, context: TenantContext = Depends(tenant_context)) -> NotificationPreferences:
     with open_notification_preference_store(context) as store:
         return store.save(context, payload)

@@ -67,10 +67,17 @@
   /* List-row cards: a raised surface of the same theme (they were light cards on dark before). */
   --l-card: #1a1e28; --l-card-hover: #212633; --l-text: var(--d-text); --l-muted: var(--d-muted); --l-line: var(--d-line);
   --l-ok: var(--d-ok); --l-warn: var(--d-warn); --l-stop: var(--d-stop); --l-info: var(--d-accent);
-  --d-r-panel: 12px; --d-r-control: 8px; --d-radius: var(--d-r-panel);
+  /* Radii by hierarchy (docs/web-design-system.md#token-layers): an inner radius is the outer one minus its padding. */
+  --d-r-panel: 12px; --d-r-control: 8px; --d-r-sm: 6px; --d-r-pill: 999px; --d-radius: var(--d-r-panel);
   --d-s1: 4px; --d-s2: 8px; --d-s3: 12px; --d-s4: 16px; --d-s5: 24px; --d-s6: 32px; --d-s7: 48px;
-  /* Motion: state changes only, 150 to 200ms, ease-out. */
-  --d-ease: cubic-bezier(.2, .7, .2, 1); --d-fast: 150ms; --d-base: 180ms;
+  /* Controls: one height scale, and the quiet surface every secondary control shares (never a grey fill). */
+  --d-control-h: 40px; --d-control-h-sm: 36px; --d-control-h-xs: 32px;
+  --d-control-bg: #191d26; --d-control-bg-hover: #212633; --d-control-shadow: 0 1px 0 rgba(255, 255, 255, .04) inset;
+  /* Motion: state changes only. 100, 150, 200 and 300ms; ease-out to enter, ease-in to leave. */
+  --d-ease: cubic-bezier(.2, .7, .2, 1); --d-ease-in: cubic-bezier(.7, 0, .84, 0);
+  --d-instant: 100ms; --d-fast: 150ms; --d-base: 200ms; --d-slow: 300ms;
+  /* Layers: sticky chrome, popovers, dialogs and toasts. */
+  --z-sticky: 20; --z-popover: 40; --z-dialog: 60; --z-toast: 70;
   /* Short aliases used by view stylesheets. */
   --line: var(--d-line); --muted: var(--d-muted); --text: var(--d-text); --danger: var(--d-stop);
   --d-font: Inter, "Noto Sans Arabic", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
@@ -95,9 +102,11 @@
   --d-notice-text: #0b4a40; --d-error-text: #8a1c2b; --d-accent-text: #095e51; --d-accent-soft: #09685a; --d-violet-text: #095e51;
   --d-on-primary-soft: #d7f5ee;
   --d-glow: 0 0 0 1px rgb(var(--c-accent) / .3);
-  --d-button-shadow: 0 1px 0 rgba(255, 255, 255, .18) inset, 0 1px 2px rgba(18, 21, 28, .14);
+  /* Light shadows stay under 8 % alpha (docs/web-design-system.md): soft, tinted to the graphite. */
+  --d-button-shadow: 0 1px 0 rgba(255, 255, 255, .18) inset, 0 1px 2px rgba(18, 21, 28, .07);
   --d-elev-1: 0 1px 2px rgba(18, 21, 28, .05), 0 0 0 1px rgba(18, 21, 28, .02);
-  --d-elev-2: 0 12px 32px rgba(18, 21, 28, .12), 0 2px 6px rgba(18, 21, 28, .06);
+  --d-elev-2: 0 12px 32px rgba(18, 21, 28, .07), 0 2px 6px rgba(18, 21, 28, .04);
+  --d-control-bg: #ffffff; --d-control-bg-hover: #f4f5f8; --d-control-shadow: 0 1px 2px rgba(18, 21, 28, .05);
   --d-ring: 0 0 0 3px rgb(var(--c-accent) / .22);
   --d-field: #ffffff; --d-well: #f1f3f6; --d-well-inset: 0 1px 1px rgba(18, 21, 28, .05) inset;
   --d-chrome: rgba(255, 255, 255, .88); --d-chip: #ffffff; --d-scrim: rgba(18, 21, 28, .38);
@@ -119,12 +128,15 @@ h1, h2, h3, strong { color: var(--d-text); }
 /* Type scale: --text-* tokens in typography.css (docs/design/visual-identity.md#type) */
 /* Display setting for headings: Inter's optical sizes, tighter tracking, balanced lines. */
 h1, h2, h3 { font-optical-sizing: auto; text-wrap: balance; }
-h1 { font-size: var(--text-5xl); font-weight: 650; letter-spacing: -.026em; line-height: 1.15; }
+h1 { font-size: var(--text-5xl); font-weight: 600; letter-spacing: -.026em; line-height: 1.15; }
 h2 { font-size: var(--text-xl); font-weight: 600; letter-spacing: -.014em; line-height: 1.3; }
 h3 { font-size: var(--text-base); font-weight: 600; letter-spacing: -.006em; line-height: 1.35; }
 p { text-wrap: pretty; }
 code { font-family: var(--d-mono); }
 a { color: var(--d-sky); }
+/* Underlined links and link buttons: a thin line set a little below the text that firms up on hover. */
+:where(a, .linkButton) { text-decoration-color: rgb(var(--c-accent) / .5); text-decoration-thickness: 1px; text-underline-offset: 3px; }
+:where(a, .linkButton):hover { text-decoration-color: currentColor; }
 
 /* Keyboard focus: one visible ring everywhere, never removed. */
 :focus-visible { outline: 2px solid var(--d-accent); outline-offset: 2px; }
@@ -144,7 +156,7 @@ button:focus-visible, a:focus-visible, summary:focus-visible { outline: 2px soli
   position: absolute; width: 248px; z-index: 0;
 }
 .sidebar {
-  backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px); color: var(--d-text); display: flex; flex-direction: column;
+  color: var(--d-text); display: flex; flex-direction: column;
   height: 100vh; height: 100dvh; min-height: 0; overflow: hidden; padding: var(--d-s5) var(--d-s3) var(--d-s4); position: sticky; top: 0; z-index: 1;
 }
 /* The sidebar is one window tall: the brand stays at the top and the stream status at the bottom,
@@ -161,20 +173,20 @@ button:focus-visible, a:focus-visible, summary:focus-visible { outline: 2px soli
 @media (min-width: 761px) and (max-height: 1000px) {
   .sidebar { padding-block: var(--d-s4) var(--d-s3); }
   .sidebar .brand { padding-bottom: var(--d-s3); }
-  .sidebar .navItem { min-height: 36px; padding-block: 6px; }
+  .sidebar .navItem { min-height: var(--d-control-h-sm); padding-block: 6px; }
   .sidebar .navGroup { margin-top: var(--d-s2); padding-top: var(--d-s1); }
   .sidebar .navGroupToggle { min-height: 32px; }
   .sidebar .systemState { padding-top: var(--d-s3); }
 }
-.brand { align-items: center; display: flex; font-size: var(--text-xl); font-weight: 750; gap: var(--d-s3); letter-spacing: -.01em; padding: 0 var(--d-s2) var(--d-s5); }
+.brand { align-items: center; display: flex; font-size: var(--text-xl); font-weight: 700; gap: var(--d-s3); letter-spacing: -.01em; padding: 0 var(--d-s2) var(--d-s5); }
 .brandMark { flex: none; }
-.brandName { display: block; font-size: var(--text-2xl); font-weight: 800; letter-spacing: -.01em; line-height: 1.15; }
+.brandName { display: block; font-size: var(--text-2xl); font-weight: 700; letter-spacing: -.01em; line-height: 1.15; }
 .brand small { color: var(--d-faint); display: block; font-size: var(--text-xs); font-weight: 500; letter-spacing: 0; }
 nav { display: grid; gap: 2px; }
 .navList { display: grid; gap: 2px; list-style: none; margin: 0; padding: 0; }
 .navItem {
   align-items: center; background: transparent; border: 1px solid transparent; border-radius: var(--d-r-control); color: var(--d-muted);
-  display: grid; font-size: var(--text-md); gap: var(--d-s3); grid-template-columns: 20px 1fr auto; min-height: 44px; padding: var(--d-s2) var(--d-s3); position: relative; text-align: start;
+  display: grid; font-size: var(--text-md); gap: var(--d-s3); grid-template-columns: 20px 1fr auto; min-height: var(--d-control-h); padding: 6px var(--d-s3); position: relative; text-align: start;
   transition: background var(--d-fast) var(--d-ease), color var(--d-fast) var(--d-ease); width: 100%;
 }
 .navItem svg { height: 18px; width: 18px; }
@@ -185,10 +197,10 @@ nav { display: grid; gap: 2px; }
 .navItem.active { background: var(--d-glass-3); border-color: var(--d-line); color: var(--d-text); font-weight: 600; }
 .navItem.active::before { background: var(--d-accent); border-radius: 2px; content: ""; height: 16px; inset-inline-start: -1px; position: absolute; top: 50%; transform: translateY(-50%); width: 3px; }
 .navItem.active svg { color: var(--d-accent); }
-.navCount { align-items: center; background: var(--d-stop); border-radius: 999px; color: var(--d-on-stop); display: flex; font-size: var(--text-2xs); font-weight: 700; height: 20px; justify-content: center; min-width: 20px; padding: 0 6px; }
+.navCount { align-items: center; background: var(--d-stop); border-radius: 999px; color: var(--d-on-stop); display: flex; font-size: var(--text-xs); font-weight: 600; height: 20px; justify-content: center; min-width: 20px; padding: 0 6px; }
 .navGroup { border-top: 1px solid var(--d-line); margin-top: var(--d-s3); padding-top: var(--d-s2); }
 .navGroupToggle {
-  align-items: center; background: none; border: 0; border-radius: var(--d-r-control); color: var(--d-faint); display: flex; font-size: var(--text-sm); font-weight: 600;
+  align-items: center; background: none; border: 0; border-radius: var(--d-r-control); color: var(--d-faint); display: flex; font-size: var(--text-sm); font-weight: 500;
   justify-content: space-between; min-height: 36px; padding: 0 var(--d-s3); width: 100%;
 }
 .navGroupToggle:hover { color: var(--d-text); }
@@ -199,7 +211,7 @@ nav { display: grid; gap: 2px; }
 .workspaceItem > span:nth-child(2) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .workspaceItem.current { background: var(--d-glass-2); border-color: var(--d-line-strong); color: var(--d-text); font-weight: 600; }
 .workspaceItem:disabled { cursor: progress; opacity: .6; }
-.workspaceDot { align-items: center; border-radius: 6px; color: #fff; display: inline-flex; font-size: var(--text-2xs); font-weight: 800; height: 20px; justify-content: center; width: 20px; }
+.workspaceDot { align-items: center; border-radius: var(--d-r-sm); color: #fff; display: inline-flex; font-size: var(--text-xs); font-weight: 600; height: 20px; justify-content: center; width: 20px; }
 .workspaceDot.tone0 { background: #2563eb; } .workspaceDot.tone1 { background: #6d28d9; } .workspaceDot.tone2 { background: #047857; }
 .workspaceDot.tone3 { background: #b91c1c; } .workspaceDot.tone4 { background: #a21caf; }
 .workspaceNote { color: var(--d-faint); font-size: var(--text-2xs); }
@@ -218,36 +230,41 @@ nav { display: grid; gap: 2px; }
 .topbar { align-items: center; display: flex; gap: var(--d-s4); justify-content: space-between; margin-bottom: var(--d-s5); min-height: 56px; }
 .searchTrigger {
   align-items: center; background: var(--d-chrome); border: 1px solid var(--d-line-strong); border-radius: var(--d-r-control); color: var(--d-faint);
-  display: flex; flex: 1 1 auto; font-size: var(--text-md); gap: var(--d-s3); max-width: 520px; min-height: 44px; min-width: 0; padding: 0 var(--d-s3); text-align: start;
+  box-shadow: var(--d-control-shadow); display: flex; flex: 1 1 auto; font-size: var(--text-md); gap: var(--d-s3); max-width: 520px; min-height: var(--d-control-h); min-width: 0;
+  padding: 0 var(--d-s3); text-align: start; transition: border-color var(--d-fast) var(--d-ease), color var(--d-fast) var(--d-ease);
 }
 .searchTrigger:hover { border-color: var(--d-line-hover); color: var(--d-muted); }
 .searchTrigger svg { flex: none; height: 18px; width: 18px; }
 .searchTrigger span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-kbd { background: var(--d-glass-2); border: 1px solid var(--d-line-strong); border-radius: 6px; color: var(--d-muted); font-family: var(--d-font); font-size: var(--text-xs); padding: 1px 6px; white-space: nowrap; }
+kbd { background: var(--d-glass-1); border: 1px solid var(--d-line); border-bottom-width: 2px; border-radius: var(--d-r-sm); color: var(--d-muted); font-family: var(--d-font); font-size: var(--text-xs); font-weight: 500; line-height: 1.4; padding: 0 6px; white-space: nowrap; }
 .topActions .workspaceSwitch { max-width: min(46vw, 280px); overflow: hidden; }
 .topActions { min-width: 0; align-items: center; display: flex; flex-wrap: nowrap; gap: var(--d-s2); justify-content: flex-end; }
-.pageHead { margin-bottom: var(--d-s5); padding-bottom: var(--d-s4); position: relative; }
-/* The one aurora rule on every page: a short lit line under the title. */
-.pageHead::after { background: var(--d-line); bottom: 0; content: ""; height: 1px; left: 0; position: absolute; right: 0; }
+.pageHead { margin-bottom: var(--d-s5); position: relative; }
+/* No rule under the title: section tabs and panels draw their own edge, and two hairlines stacked read as noise. */
 .pageHead h1 { margin-top: var(--d-s1); }
-.tenant { background: var(--d-glass-1); border: 1px solid var(--d-line); border-radius: 999px; color: var(--d-muted); font-size: var(--text-sm); font-weight: 600; padding: var(--d-s2) var(--d-s3); }
+.tenant { background: var(--d-control-bg); border: 1px solid var(--d-line); border-radius: 999px; color: var(--d-muted); font-size: var(--text-sm); font-weight: 600; padding: var(--d-s2) var(--d-s3); }
 .iconButton {
-  align-items: center; background: var(--d-glass-1); border: 1px solid var(--d-line); border-radius: var(--d-r-control); color: var(--d-text);
-  display: inline-grid; flex: none; height: 44px; place-items: center; position: relative; transition: background 160ms var(--d-ease), border-color 160ms var(--d-ease); width: 44px;
+  align-items: center; background: var(--d-control-bg); border: 1px solid var(--d-line-strong); border-radius: var(--d-r-control); box-shadow: var(--d-control-shadow); color: var(--d-text);
+  display: inline-grid; flex: none; height: var(--d-control-h); place-items: center; position: relative;
+  transition: background var(--d-fast) var(--d-ease), border-color var(--d-fast) var(--d-ease); width: var(--d-control-h);
 }
-.iconButton:hover { background: var(--d-glass-2); border-color: var(--d-line-strong); }
+.iconButton:hover { background: var(--d-control-bg-hover); border-color: var(--d-line-hover); }
 .iconButton svg { height: 18px; width: 18px; }
-.iconButton.small { height: 36px; width: 36px; }
+.iconButton.small { height: var(--d-control-h-sm); width: var(--d-control-h-sm); }
+/* The count is drawn from data-count so the button's spoken name (its aria-label) holds all of its visible text. */
+.bellCount::before { content: attr(data-count); }
 .bellCount {
-  background: #e11d48; border: 2px solid var(--d-bg); border-radius: 999px; color: #fff; font-size: var(--text-2xs); font-weight: 800; inset-block-start: -6px; inset-inline-end: -6px;
+  background: var(--d-danger); border: 2px solid var(--d-bg); border-radius: 999px; color: #fff; font-size: var(--text-xs); font-weight: 600; inset-block-start: -7px; inset-inline-end: -7px;
   line-height: 16px; min-width: 20px; padding: 0 4px; position: absolute; text-align: center;
 }
 .popoverRoot { position: relative; }
 .popover {
-  background: var(--d-glass); backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px); border: 1px solid var(--d-line-strong); border-radius: var(--d-r-panel);
-  box-shadow: var(--d-elev-2); display: grid; gap: var(--d-s2); inset-inline-end: 0; max-height: min(70vh, 520px); overflow: auto; padding: var(--d-s4);
-  position: absolute; top: calc(100% + var(--d-s2)); width: min(360px, calc(100vw - 32px)); z-index: 40;
+  animation: popIn var(--d-fast) var(--d-ease); background: var(--d-surface-2); border: 1px solid var(--d-line-strong); border-radius: var(--d-r-panel);
+  box-shadow: var(--d-elev-2); display: grid; gap: var(--d-s2); inset-inline-end: 0; max-height: min(70vh, 520px); overflow: auto; padding: var(--d-s3);
+  position: absolute; top: calc(100% + var(--d-s2)); width: min(360px, calc(100vw - 32px)); z-index: var(--z-popover);
 }
+/* Opening a menu is a state change: a short drop from its trigger (off with reduced motion, below). */
+@keyframes popIn { from { opacity: 0; transform: translateY(-4px); } }
 .popover h2 { font-size: var(--text-base); }
 /* On phones the bell is not at the screen edge, so the menu spans the top bar instead of hanging off the bell, on a solid surface. */
 @media (max-width: 560px) {
@@ -258,7 +275,7 @@ kbd { background: var(--d-glass-2); border: 1px solid var(--d-line-strong); bord
 .popoverList { display: grid; gap: 2px; list-style: none; margin: 0; padding: 0; }
 .popoverList button {
   align-items: flex-start; background: transparent; border: 0; border-radius: var(--d-r-control); color: var(--d-text); display: flex; gap: var(--d-s3);
-  min-height: 44px; padding: var(--d-s2); text-align: start; width: 100%;
+  min-height: var(--d-control-h); padding: var(--d-s2); text-align: start; transition: background var(--d-fast) var(--d-ease); width: 100%;
 }
 .popoverList button:hover { background: var(--d-glass-2); }
 .popoverList svg { color: var(--d-blue); flex: none; height: 18px; margin-top: 2px; width: 18px; }
@@ -267,17 +284,17 @@ kbd { background: var(--d-glass-2); border: 1px solid var(--d-line-strong); bord
 .popoverList small { color: var(--d-muted); font-size: var(--text-xs); overflow-wrap: anywhere; }
 .userButton {
   align-items: center; background: transparent; border: 1px solid transparent; border-radius: var(--d-r-control); color: var(--d-text); display: flex; gap: var(--d-s2);
-  min-height: 44px; padding: 2px var(--d-s2); text-align: start;
+  min-height: var(--d-control-h); padding: 2px var(--d-s2); text-align: start; transition: background var(--d-fast) var(--d-ease), border-color var(--d-fast) var(--d-ease);
 }
 .userButton:hover { background: var(--d-glass-1); border-color: var(--d-line); }
 .userButton > svg { color: var(--d-faint); height: 16px; width: 16px; }
 .userText { display: grid; justify-items: start; line-height: 1.25; max-width: 160px; min-width: 0; }
 .userText strong { font-size: var(--text-md); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.planPill { background: rgb(var(--c-violet) / .2); border: 1px solid rgb(var(--c-violet) / .45); border-radius: 999px; color: var(--d-violet-text); font-size: var(--text-xs); font-weight: 650; margin-top: 2px; padding: 0 8px; }
+.planPill { background: rgb(var(--c-violet) / .12); border: 1px solid rgb(var(--c-violet) / .3); border-radius: 999px; color: var(--d-violet-text); font-size: var(--text-xs); font-weight: 600; line-height: 1.4; margin-top: 1px; padding: 0 7px; }
 .planPill::first-letter { text-transform: uppercase; }
 .avatar {
-  align-items: center; background: var(--d-primary-grad); border: 2px solid rgba(255, 255, 255, .18); border-radius: 50%; color: #fff; display: inline-flex; flex: none;
-  font-size: var(--text-sm); font-weight: 800; height: 38px; justify-content: center; width: 38px;
+  align-items: center; background: var(--d-primary); border: 0; border-radius: 50%; box-shadow: 0 0 0 1px rgb(var(--c-hi) / .08) inset; color: #fff; display: inline-flex; flex: none;
+  font-size: var(--text-sm); font-weight: 600; height: 32px; justify-content: center; letter-spacing: .01em; width: 32px;
 }
 .avatar.large { font-size: var(--text-lg); height: 48px; width: 48px; }
 .userSummary { align-items: center; border-bottom: 1px solid var(--d-line); display: flex; gap: var(--d-s3); padding-bottom: var(--d-s3); }
@@ -289,12 +306,14 @@ kbd { background: var(--d-glass-2); border: 1px solid var(--d-line-strong); bord
 .paletteInput { align-items: center; border-bottom: 1px solid var(--d-line); display: flex; gap: var(--d-s3); padding: var(--d-s3) var(--d-s4); }
 .paletteInput svg { color: var(--d-faint); flex: none; height: 20px; width: 20px; }
 .paletteInput input { background: transparent; border: 0; font-size: var(--text-lg); min-height: 44px; padding: 0; }
-.paletteInput input:focus-visible { outline: none; }
+/* The palette is the field: no ring inside it; its edge under the input turns jade while it has focus. */
+.paletteInput input:focus-visible { border: 0; box-shadow: none; outline: none; }
+.paletteInput:focus-within { box-shadow: inset 0 -2px 0 var(--d-accent); }
 .paletteResults { max-height: min(60vh, 480px); overflow: auto; padding: var(--d-s2); }
 .paletteGroup + .paletteGroup { border-top: 1px solid var(--d-line); margin-top: var(--d-s1); padding-top: var(--d-s1); }
-.paletteGroupTitle { color: var(--d-faint); font-size: var(--text-xs); font-weight: 650; padding: var(--d-s2) var(--d-s3) var(--d-s1); }
+.paletteGroupTitle { color: var(--d-faint); font-size: var(--text-xs); font-weight: 600; padding: var(--d-s2) var(--d-s3) var(--d-s1); }
 .paletteNote, .paletteEmpty { color: var(--d-muted); font-size: var(--text-sm); padding: var(--d-s2) var(--d-s3); }
-.paletteOption { align-items: center; border-radius: var(--d-r-control); cursor: pointer; display: flex; gap: var(--d-s3); min-height: 44px; padding: var(--d-s2) var(--d-s3); }
+.paletteOption { align-items: center; border-radius: var(--d-r-control); cursor: pointer; display: flex; gap: var(--d-s3); min-height: var(--d-control-h); padding: var(--d-s2) var(--d-s3); }
 .paletteOption.active { background: var(--d-glass-3); box-shadow: inset 2px 0 0 var(--d-accent); color: var(--d-text); }
 [dir="rtl"] .paletteOption.active { box-shadow: inset -2px 0 0 var(--d-accent); }
 .paletteIcon { display: inline-flex; flex: none; }
@@ -320,7 +339,7 @@ kbd { background: var(--d-glass-2); border: 1px solid var(--d-line-strong); bord
 .metricTop { align-items: center; color: var(--d-muted); display: flex; font-size: var(--text-md); font-weight: 500; justify-content: space-between; }
 .metricIcon { color: var(--d-sky); display: grid; height: 20px; place-items: center; }
 .metricIcon svg { height: 20px; width: 20px; }
-.metric > strong { font-size: var(--text-5xl); font-variant-numeric: tabular-nums; font-weight: 650; letter-spacing: -.024em; line-height: 1.15; margin-top: var(--d-s2); }
+.metric > strong { font-size: var(--text-5xl); font-variant-numeric: tabular-nums; font-weight: 600; letter-spacing: -.024em; line-height: 1.15; margin-top: var(--d-s2); }
 .metric small, .muted { color: var(--d-muted); font-size: var(--text-sm); }
 
 .taskLayout { align-items: start; display: grid; gap: var(--d-s5); grid-template-columns: minmax(0, 1.6fr) minmax(300px, 1fr); }
@@ -331,11 +350,15 @@ kbd { background: var(--d-glass-2); border: 1px solid var(--d-line-strong); bord
 
 /* ---------- Forms ---------- */
 .field { display: grid; gap: var(--d-s2); margin-top: var(--d-s4); min-width: 0; }
-.field > span { color: var(--d-muted); font-size: var(--text-sm); font-weight: 600; }
+.field > span { color: var(--d-muted); font-size: var(--text-sm); font-weight: 500; }
 textarea, input, select {
   background: var(--d-field); border: 1px solid var(--d-line-strong); border-radius: var(--d-r-control); color: var(--d-text);
-  min-height: 44px; padding: 10px var(--d-s3); width: 100%;
+  min-height: var(--d-control-h); padding: 8px var(--d-s3); width: 100%;
 }
+/* Desktop fields read at the UI size; phones keep 16 px so the browser never zooms into a field. */
+@media (min-width: 761px) { textarea, input, select { font-size: var(--text-md); } }
+/* An error edge only after the person has used the field (:user-invalid), never while typing into an empty one. */
+:where(textarea, input, select):user-invalid { border-color: rgb(var(--c-stop) / .7); }
 textarea { min-height: 120px; resize: vertical; }
 textarea::placeholder, input::placeholder { color: var(--d-faint); }
 textarea, input, select { transition: border-color var(--d-fast) var(--d-ease), box-shadow var(--d-fast) var(--d-ease); }
@@ -343,6 +366,7 @@ textarea:hover:not(:focus), input:hover:not(:focus), select:hover:not(:focus) { 
 /* Fields take a soft jade ring on focus; the transparent outline keeps a visible edge in forced colours. */
 textarea:focus-visible, input:focus-visible, select:focus-visible { border-color: var(--d-accent); box-shadow: var(--d-ring); outline: 2px solid transparent; outline-offset: 1px; }
 option { background: var(--d-surface-2); color: var(--d-text); }
+textarea { padding-block: 10px; }
 .formGrid { display: grid; gap: 0 var(--d-s4); grid-template-columns: minmax(180px, .7fr) minmax(0, 1.3fr); }
 .settingsForm .formGrid { grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); }
 
@@ -350,14 +374,16 @@ option { background: var(--d-surface-2); color: var(--d-text); }
 .actions { display: flex; flex-wrap: wrap; gap: var(--d-s2); margin-top: var(--d-s5); }
 .actions button, .moduleIntro > button, .approvalActions button, .uploadButton, .integration > button, .catalogRow button, .phoneRow > button, .moduleIntro .actions button {
   align-items: center; background: var(--d-primary-grad); border: 1px solid transparent; border-radius: var(--d-r-control);
-  box-shadow: var(--d-button-shadow); color: #fff; cursor: pointer; display: inline-flex; font-size: var(--text-md); font-weight: 650; gap: var(--d-s2);
-  justify-content: center; min-height: 40px; padding: 8px var(--d-s4); transition: background var(--d-fast) var(--d-ease), box-shadow var(--d-fast) var(--d-ease), transform var(--d-fast) var(--d-ease);
+  box-shadow: var(--d-button-shadow); color: #fff; cursor: pointer; display: inline-flex; font-size: var(--text-md); font-weight: 600; gap: var(--d-s2);
+  justify-content: center; min-height: var(--d-control-h); padding: 8px var(--d-s4); transition: background var(--d-fast) var(--d-ease), border-color var(--d-fast) var(--d-ease), box-shadow var(--d-fast) var(--d-ease), transform var(--d-instant) var(--d-ease);
 }
 .actions button:hover:not(:disabled), .moduleIntro > button:hover, .approvalActions button:hover:not(:disabled), .uploadButton:hover, .integration > button:hover, .catalogRow button:hover { background: var(--d-primary-grad-hover); }
+/* Secondary: the quiet control surface with a hairline, never a grey fill (docs/web-design-system.md#shared-components). */
 button.secondary, .actions button.secondary, .approvalActions button.secondary, .moduleIntro .actions button.secondary {
-  background: var(--d-glass-2); border: 1px solid var(--d-line-strong); box-shadow: none; color: var(--d-text);
+  background: var(--d-control-bg); border: 1px solid var(--d-line-strong); box-shadow: var(--d-control-shadow); color: var(--d-text);
+  transition: background var(--d-fast) var(--d-ease), border-color var(--d-fast) var(--d-ease), transform var(--d-instant) var(--d-ease);
 }
-button.secondary:hover:not(:disabled) { background: var(--d-glass-3); }
+button.secondary:hover:not(:disabled) { background: var(--d-control-bg-hover); border-color: var(--d-line-hover); }
 /* The default button is the primary one: a button with no class (an empty-state action, a toolbar's
    main action) gets the primary look wherever it sits, instead of the browser's grey default. :where
    keeps it at zero specificity, so every component and variant rule still wins. Containers that
@@ -378,23 +404,28 @@ button.secondary:hover:not(:disabled) { background: var(--d-glass-3); }
   .voiceActionLinks, .voiceConfirm, .voiceLangSwitch, .voiceSpace, .waClosed, .wizardSteps, .workspaceOption, .workspacePanel
 ) button)) {
   align-items: center; background: var(--d-primary-grad); border: 1px solid transparent; border-radius: var(--d-r-control); box-shadow: var(--d-button-shadow);
-  color: var(--d-on-primary); display: inline-flex; font-size: var(--text-md); font-weight: 650; gap: var(--d-s2); justify-content: center; min-height: 40px; padding: 0 var(--d-s4);
+  color: var(--d-on-primary); display: inline-flex; font-size: var(--text-md); font-weight: 600; gap: var(--d-s2); justify-content: center; min-height: var(--d-control-h); padding: 0 var(--d-s4);
   &:where(:hover:not(:disabled)) { background: var(--d-primary-grad-hover); }
 }
 /* A secondary or danger button outside a styled group still gets the control shape instead of the
    browser's default; :where keeps this at zero specificity so every component rule still wins. */
 :where(button.secondary, button.danger) {
   align-items: center; border-radius: var(--d-r-control); display: inline-flex; font-size: var(--text-md); font-weight: 600; gap: var(--d-s2);
-  justify-content: center; min-height: 40px; padding: 0 var(--d-s3);
+  justify-content: center; min-height: var(--d-control-h); padding: 0 var(--d-s3);
 }
 :where(button.danger) { border: 1px solid transparent; color: #fff; }
 button.danger, .actions button.danger, .approvalActions button.danger { background: var(--d-danger); box-shadow: none; }
-.smallButton { align-items: center; border-radius: var(--d-r-control); display: inline-flex; font-size: var(--text-sm); font-weight: 650; gap: var(--d-s1); min-height: 36px; padding: 0 var(--d-s3); }
-button.secondary { color: var(--d-text); }
+.smallButton { align-items: center; border-radius: var(--d-r-control); display: inline-flex; font-size: var(--text-sm); font-weight: 600; gap: var(--d-s1); min-height: var(--d-control-h-sm); padding: 0 var(--d-s3); }
+/* One size for secondary buttons: `font: inherit` above would otherwise give them the 16 px body size. */
+button.secondary { color: var(--d-text); font-size: var(--text-md); font-weight: 500; }
 button.danger:hover:not(:disabled) { background: var(--d-danger-hover); }
 /* "secondary danger" (a destructive secondary action) keeps white text on the red in both themes. */
 button.secondary.danger { color: #fff; }
 button:disabled { cursor: not-allowed; opacity: .5; }
+/* Filled buttons get a two-tone ring: a gap in the page colour, then the accent, so focus shows on jade and on red. */
+:is(button:not([class]), button[class=""], button.danger, .actions button:not(.secondary), .approvalActions button:not(.secondary), .pageHeaderActions button:not(.secondary, .chipButton, .iconButton)):focus-visible {
+  box-shadow: 0 0 0 2px var(--d-bg), 0 0 0 4px var(--d-accent); outline: 2px solid transparent;
+}
 .notice svg, button svg, .uploadButton svg { flex: none; height: 18px; width: 18px; }
 .uploadButton input { display: none; }
 .uploadButton:focus-within { outline: 2px solid var(--d-sky); outline-offset: 2px; }
@@ -408,6 +439,11 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .notice svg { color: var(--d-sky); margin-top: 2px; }
 .errorNotice { background: rgb(var(--c-stop) / .09); border-color: rgb(var(--c-stop) / .32); color: var(--d-error-text); margin-bottom: var(--d-s4); }
 .errorNotice svg { color: var(--d-stop); }
+.modelPlaceholderNotice { background: rgb(var(--c-warn) / .1); border-color: var(--d-warn); }
+.modelPlaceholderNotice svg { color: var(--d-warn); }
+.modelPlaceholderNotice p { margin: 0; }
+.modelPlaceholderActions { display: flex; flex-wrap: wrap; gap: var(--d-s2); margin-top: var(--d-s2) !important; }
+.modelPlaceholderActions button { margin: 0 !important; }
 
 /* ---------- Lists and records ---------- */
 .compactList { grid-template-columns: minmax(0, 1fr); display: grid; gap: var(--d-s1); margin-top: var(--d-s4); max-height: 340px; overflow: auto; }
@@ -425,21 +461,29 @@ button:disabled { cursor: not-allowed; opacity: .5; }
 .settingsForm .muted { display: block; margin-top: var(--d-s3); }
 .settingsStack { display: grid; gap: var(--d-s5); max-width: 880px; }
 /* Settings sections (Workspace, Privacy): pill switcher above the stack. */
-.settingsTabs { display: flex; flex-wrap: wrap; gap: var(--d-s2); margin-bottom: var(--d-s5); }
-.settingsTabs button {
-  background: var(--d-glass-1); border: 1px solid var(--d-line); border-radius: 999px; color: var(--d-muted);
-  font-size: var(--text-md); font-weight: 600; min-height: 44px; padding: 0 var(--d-s4);
+/* Section tabs (a module's sections): one underlined row on a hairline, the current tab in the text
+   colour with a jade bar under it. One row at every width; it scrolls sideways when it does not fit. */
+.settingsTabs {
+  border-bottom: 1px solid var(--d-line); display: flex; flex-wrap: nowrap; gap: var(--d-s1); margin-bottom: var(--d-s5); max-width: 100%; min-width: 0;
+  overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain; scrollbar-width: none;
 }
-.settingsTabs button[aria-current="page"] { background: var(--d-surface-3); border-color: var(--d-line-strong); box-shadow: var(--d-elev-1); color: var(--d-text); }
-.settingsTabs button:hover { color: var(--d-text); }
+.settingsTabs::-webkit-scrollbar { display: none; }
+.settingsTabs button {
+  background: transparent; border: 0; border-radius: var(--d-r-control) var(--d-r-control) 0 0; box-shadow: inset 0 -2px 0 transparent; color: var(--d-muted); flex: none;
+  font-size: var(--text-md); font-weight: 500; min-height: var(--d-control-h); padding: 0 var(--d-s3); transition: color var(--d-fast) var(--d-ease), box-shadow var(--d-fast) var(--d-ease), background var(--d-fast) var(--d-ease);
+  white-space: nowrap;
+}
+.settingsTabs button[aria-current="page"], .settingsTabs button[aria-selected="true"] { box-shadow: inset 0 -2px 0 var(--d-accent); color: var(--d-text); font-weight: 600; }
+.settingsTabs button:hover { background: var(--d-glass-1); color: var(--d-text); }
+.settingsTabs button:focus-visible { outline-offset: -2px; }
 .taskSummary dl, .agentRow dl, .inlineDetails { display: grid; gap: var(--d-s3); margin: var(--d-s5) 0 0; }
 dl div { min-width: 0; }
 dt { color: var(--d-faint); font-size: var(--text-xs); font-weight: 600; }
 dd { color: var(--d-text); font-size: var(--text-md); font-weight: 600; margin: 2px 0 0; overflow-wrap: anywhere; }
 
 .statusBadge, .riskBadge { flex: none;
-  border: 1px solid transparent; border-radius: 999px; display: inline-flex; font-size: var(--text-xs); font-weight: 650; line-height: 1.4;
-  padding: 3px 10px; white-space: nowrap;
+  border: 1px solid transparent; border-radius: 999px; display: inline-flex; font-size: var(--text-xs); font-weight: 600; line-height: 1.4;
+  padding: 2px 8px; white-space: nowrap;
 }
 .statusBadge::first-letter { text-transform: uppercase; }
 .statusBadge.neutral { background: var(--d-glass-2); border-color: var(--d-line); color: var(--d-muted); }
@@ -453,13 +497,13 @@ dd { color: var(--d-text); font-size: var(--text-md); font-weight: 600; margin: 
 .timelineRail { align-items: center; display: flex; flex-direction: column; }
 .stepDot {
   align-items: center; background: var(--d-surface-3); border: 1px solid var(--d-line-strong); border-radius: 50%; color: var(--d-text);
-  display: flex; flex: none; font-size: var(--text-xs); font-variant-numeric: tabular-nums; font-weight: 700; height: 28px; justify-content: center; width: 28px;
+  display: flex; flex: none; font-size: var(--text-xs); font-variant-numeric: tabular-nums; font-weight: 600; height: 28px; justify-content: center; width: 28px;
 }
 .railLine { background: var(--d-line-strong); flex: 1; min-height: 32px; width: 1px; }
 .timelineBody { border-bottom: 1px solid var(--d-line); margin-bottom: var(--d-s3); padding: 3px 0 var(--d-s4); }
 .timelineRow:last-child .timelineBody { border-bottom: 0; margin-bottom: 0; }
 .timelineTitle { align-items: baseline; display: flex; flex-wrap: wrap; gap: var(--d-s2); justify-content: space-between; }
-.timelineTitle strong { font-size: var(--text-md); font-weight: 650; }
+.timelineTitle strong { font-size: var(--text-md); font-weight: 600; }
 .timelineTitle strong::first-letter { text-transform: uppercase; }
 .timelineTitle time { color: var(--d-faint); font-size: var(--text-xs); font-variant-numeric: tabular-nums; }
 .timelineBody p { color: var(--d-muted); font-size: var(--text-md); margin-top: var(--d-s1); }
@@ -525,7 +569,7 @@ dd { color: var(--d-text); font-size: var(--text-md); font-weight: 600; margin: 
 .approvalActions { display: flex; flex-wrap: wrap; gap: var(--d-s2); }
 .emptyState { color: var(--d-muted); display: grid; gap: var(--d-s2); justify-items: center; padding: var(--d-s7) var(--d-s5); text-align: center; }
 /* Empty states: the icon sits in a quiet tile, the copy says what to do next. */
-.emptyState svg { background: var(--d-glass-2); border: 1px solid var(--d-line); border-radius: var(--d-r-panel); box-sizing: content-box; color: var(--d-accent); height: 22px; margin-bottom: var(--d-s1); padding: 11px; width: 22px; }
+.emptyState svg { background: var(--d-glass-1); border: 1px solid var(--d-line); border-radius: var(--d-r-panel); box-sizing: content-box; color: var(--d-accent); height: 22px; margin-bottom: var(--d-s1); padding: 11px; width: 22px; }
 .emptyState h2, .emptyState h3 { color: var(--d-text); }
 .emptyState p { max-width: 42ch; }
 
@@ -621,9 +665,9 @@ dd { color: var(--d-text); font-size: var(--text-md); font-weight: 600; margin: 
 .approvalSuppressed svg, .approvalReadOnly svg { flex: none; margin-top: 2px; }
 /* Approval routing: who may approve this item and why (docs/approvals-and-risk.md#approval-routing). */
 .approvalToolbar { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s3); }
-.approvalSearch { align-items: center; background: var(--d-glass-1); border: 1px solid var(--d-line); border-radius: var(--d-r-control); color: var(--d-muted); display: flex; flex: 1 1 220px; gap: var(--d-s2); max-width: 420px; min-height: 40px; min-width: 0; padding: 0 var(--d-s3); }
+.approvalSearch { align-items: center; background: var(--d-field); border: 1px solid var(--d-line-strong); border-radius: var(--d-r-control); color: var(--d-muted); display: flex; flex: 1 1 220px; gap: var(--d-s2); max-width: 420px; min-height: 40px; min-width: 0; padding: 0 var(--d-s3); }
 .approvalSearch input { background: transparent; border: 0; color: var(--d-text); flex: 1; min-height: 38px; min-width: 0; outline: none; padding: 0; }
-.approvalSearch:focus-within { outline: 2px solid var(--d-sky); outline-offset: 1px; }
+.approvalSearch:focus-within { border-color: var(--d-accent); box-shadow: var(--d-ring); outline: 2px solid transparent; }
 .approvalMore { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s3); justify-content: space-between; }
 .approvalMore small { color: var(--d-muted); }
 .approvalRulesLink { align-items: center; color: var(--d-muted); display: flex; flex-wrap: wrap; font-size: var(--text-sm); gap: var(--d-s1); margin: 0; }
@@ -850,6 +894,8 @@ code { unicode-bidi: isolate; }
 @media (max-width: 420px) {
   /* Phones: refresh gives way so the brand keeps its name (the browser's pull to refresh reloads the page). */
   .topActions > .refreshButton { display: none; }
+  /* The brand row is tight beside five 40 px buttons: a closer mark keeps the name clear of them. */
+  .brand { gap: var(--d-s2); }
 }
 @media (max-width: 360px) {
   .brandName { clip: rect(0 0 0 0); height: 1px; margin: -1px; overflow: hidden; position: absolute; white-space: nowrap; width: 1px; }
@@ -860,3 +906,89 @@ code { unicode-bidi: isolate; }
 .channelHint.warning { color: var(--d-warn); }
 .channelHint.ok { color: var(--d-ok); }
 .channelHint.neutral { color: var(--d-muted); }
+
+/* ==== Redesign (docs/web-design-system.md#pages) ==== */
+/* Summary figures (.metrics): one strip with hairlines between cells instead of separate cards. The
+   grid's background is the hairline colour, so the lines stay right however the cells wrap. */
+.metrics { background: var(--d-line); border: 1px solid var(--d-line); border-radius: var(--d-r-panel); box-shadow: var(--d-elev-1); gap: 1px; overflow: hidden; }
+.metrics > .metric { border: 0; border-radius: 0; box-shadow: none; padding: var(--d-s4) var(--d-s5); }
+.metrics > .metric > strong { font-size: var(--text-4xl); letter-spacing: -.02em; margin-top: var(--d-s1); }
+.metrics .metricTop { font-size: var(--text-sm); }
+.metrics .metricIcon, .metrics .metricIcon svg { color: var(--d-faint); height: 16px; width: 16px; }
+
+/* Approvals: a review queue. On wide screens an index of what waits sits beside the requests; each
+   request reads top to bottom (what it calls, why, exactly what it sends, who may decide) and ends in
+   one decision bar. The card's start edge carries the risk colour; the words are in its meta line. */
+.approvalQueue { display: grid; gap: var(--d-s4); min-width: 0; }
+@media (min-width: 1100px) {
+  .approvalQueue.withIndex { align-items: start; grid-template-columns: minmax(220px, 280px) minmax(0, 1fr); }
+}
+.approvalQueueIndex {
+  background: var(--d-surface-1); border: 1px solid var(--d-line); border-radius: var(--d-r-panel); box-shadow: var(--d-elev-1); display: none; max-height: calc(100dvh - 120px);
+  overflow: auto; padding: var(--d-s2); position: sticky; top: var(--d-s4);
+}
+@media (min-width: 1100px) { .approvalQueueIndex { display: block; } }
+.approvalQueueIndexTitle { color: var(--d-muted); font-size: var(--text-sm); font-weight: 500; padding: var(--d-s2) var(--d-s2) var(--d-s1); }
+.approvalQueueIndex ol { display: grid; gap: 2px; list-style: none; margin: 0; padding: 0; }
+.approvalQueueItem {
+  background: transparent; border: 0; border-inline-start: 3px solid var(--d-line-strong); border-radius: 0 var(--d-r-control) var(--d-r-control) 0; color: var(--d-text);
+  display: grid; gap: 2px; min-height: var(--d-control-h); padding: var(--d-s2) var(--d-s3); text-align: start; transition: background var(--d-fast) var(--d-ease); width: 100%;
+}
+[dir="rtl"] .approvalQueueItem { border-radius: var(--d-r-control) 0 0 var(--d-r-control); }
+.approvalQueueItem:hover { background: var(--d-glass-1); }
+.approvalQueueItem:focus-visible { outline-offset: -2px; }
+.approvalQueueItem strong { font-family: var(--d-mono); font-size: var(--text-sm); font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.approvalQueueItem small { color: var(--d-muted); font-size: var(--text-xs); }
+.approvalQueueItem.risk-high { border-inline-start-color: var(--d-stop); }
+.approvalQueueItem.risk-medium { border-inline-start-color: var(--d-warn); }
+.approvalQueue .approvalTable { display: grid; gap: var(--d-s4); padding: 0; background: none; border: 0; box-shadow: none; }
+.approvalQueue .approvalDetail {
+  background: var(--d-surface-1); border: 1px solid var(--d-line); border-inline-start: 3px solid var(--d-accent); border-radius: var(--d-r-panel); box-shadow: var(--d-elev-1);
+  column-gap: var(--d-s4); grid-template-areas: "icon body" "actions actions"; grid-template-columns: 40px minmax(0, 1fr); margin: 0; padding: var(--d-s5) var(--d-s5) 0;
+  scroll-margin-top: var(--d-s4);
+}
+.approvalQueue .approvalDetail[data-risk="high"] { border-inline-start-color: var(--d-stop); }
+.approvalQueue .approvalDetail[data-risk="medium"] { border-inline-start-color: var(--d-warn); }
+.approvalQueue .approvalDetail:focus-visible { outline-offset: 2px; }
+.approvalQueue .approvalIcon { grid-area: icon; height: 40px; width: 40px; }
+.approvalQueue .approvalBody { display: grid; gap: var(--d-s2); grid-area: body; }
+.approvalQueue .approvalBody h3 { font-size: var(--text-xl); font-weight: 600; letter-spacing: -.012em; }
+.approvalQueue .approvalSubhead { color: var(--d-muted); font-size: var(--text-sm); font-weight: 600; margin-top: var(--d-s2); }
+/* The decision bar closes the card: the reason above it, Approve and Reject at the end. */
+.approvalQueue .approvalActions {
+  border-top: 1px solid var(--d-line); grid-area: actions; justify-content: flex-end; margin: var(--d-s4) calc(var(--d-s5) * -1) 0; padding: var(--d-s3) var(--d-s5);
+  background: var(--d-glass-1); border-end-end-radius: var(--d-r-panel); border-end-start-radius: var(--d-r-panel);
+}
+.approvalQueue .approvalTable > :is(.emptyState, .panelEmpty, .paneEmpty) { background: var(--d-surface-1); border: 1px solid var(--d-line); border-radius: var(--d-r-panel); }
+@media (max-width: 760px) {
+  .approvalQueue .approvalDetail { grid-template-areas: "body" "actions"; grid-template-columns: minmax(0, 1fr); padding: var(--d-s4) var(--d-s4) 0; }
+  .approvalQueue .approvalIcon { display: none; }
+  .approvalQueue .approvalActions { margin-inline: calc(var(--d-s4) * -1); padding-inline: var(--d-s4); }
+  .approvalQueue .approvalActions button { flex: 1 1 0; }
+}
+@media (max-width: 480px) {
+  .metrics, .metrics.three { gap: 1px; }
+  .metrics.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .metrics.three > :last-child { grid-column: auto; }
+  .metrics > .metric { padding: var(--d-s3); }
+  .metrics > .metric > strong { font-size: var(--text-2xl); }
+  .metrics.three .metricIcon { display: none; }
+}
+
+/* Settings: on wide screens the sections are a vertical list beside the open section, so the page
+   reads like a settings app (one place to pick, one place to change); narrower screens keep the
+   underlined row above the section. */
+.settingsPage { display: grid; gap: var(--d-s5); min-width: 0; }
+.settingsPageBody { display: grid; gap: var(--d-s5); min-width: 0; }
+.settingsPageBody > * { margin-top: 0; }
+@media (min-width: 1100px) {
+  .settingsPage { align-items: start; grid-template-columns: 200px minmax(0, 1fr); }
+  .settingsTabs.settingsSectionNav {
+    border-bottom: 0; display: grid; gap: 2px; margin: 0; overflow: visible; position: sticky; top: var(--d-s4);
+  }
+  .settingsTabs.settingsSectionNav button {
+    border-radius: var(--d-r-control); box-shadow: none; justify-content: flex-start; min-height: var(--d-control-h-sm); padding: 0 var(--d-s3); position: relative; text-align: start;
+  }
+  .settingsTabs.settingsSectionNav button[aria-current="page"] { background: var(--d-glass-2); box-shadow: inset 3px 0 0 var(--d-accent); }
+  [dir="rtl"] .settingsTabs.settingsSectionNav button[aria-current="page"] { box-shadow: inset -3px 0 0 var(--d-accent); }
+}

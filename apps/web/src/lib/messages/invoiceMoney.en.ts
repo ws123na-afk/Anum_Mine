@@ -6,7 +6,7 @@ import type { Message } from './types.ts';
 export const invoiceMoneyEn = {
   // the invoice PDF
   'inv.pdf.button': 'Download PDF',
-  'inv.pdf.help': 'A PDF file made by the server with the figures as stored. It covers Latin text only: Arabic text prints as "?". Use Print for an Arabic copy.',
+  'inv.pdf.help': 'A PDF file made by the server with the figures as stored, labelled in English and Arabic. Arabic names and lines print in Arabic.',
   'inv.pdf.working': 'Preparing the PDF...',
   'inv.pdf.saved': 'Saved {name}.',
 

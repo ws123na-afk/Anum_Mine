@@ -29,6 +29,7 @@ import base64
 import binascii
 import logging
 from datetime import datetime
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import Response, StreamingResponse
@@ -219,9 +220,8 @@ async def transcribe_turn(
             status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
             detail="Send the turn as audio/webm, audio/ogg, audio/wav, audio/mp4 or audio/mpeg.",
         )
-    with open_voice_store(context) as store:
-        session = _session_or_404(store, session_id, context, active=True)
-        locale = session.locale
+    # Store reads and writes run in worker threads (docs/realtime.md#event-loop).
+    locale = await asyncio.to_thread(_active_locale, context, session_id)
     audio = await _read_limited(request, MAX_AUDIO_BYTES)
     if not audio:
         raise HTTPException(status_code=422, detail="The recording was empty.")
@@ -235,17 +235,26 @@ async def transcribe_turn(
         raise HTTPException(status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, detail=str(exc)) from exc
     if not text:
         raise HTTPException(status_code=422, detail="No words were heard in that turn.")
+
+    def keep() -> TranscriptSegment:
+        with open_voice_store(context) as store:
+            session = _session_or_404(store, session_id, context, active=True, lock=True)
+            try:
+                return store.add_segment(
+                    session,
+                    TranscriptSegmentCreate(
+                        role=TranscriptRole.USER, text=text[:8000], is_final=True, client_sequence=client_sequence
+                    ),
+                )
+            except ValueError as exc:
+                raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+
+    return await asyncio.to_thread(keep)
+
+
+def _active_locale(context: TenantContext, session_id: str) -> str:
     with open_voice_store(context) as store:
-        session = _session_or_404(store, session_id, context, active=True, lock=True)
-        try:
-            return store.add_segment(
-                session,
-                TranscriptSegmentCreate(
-                    role=TranscriptRole.USER, text=text[:8000], is_final=True, client_sequence=client_sequence
-                ),
-            )
-        except ValueError as exc:
-            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+        return _session_or_404(store, session_id, context, active=True).locale
 
 
 @call_router.post("/sessions/{session_id}/speech")
@@ -256,9 +265,7 @@ async def speak_sentence(
 ) -> Response:
     """One or two sentences of a reply in the server voice for the session's language."""
     require_permission(context, Permission.TASK_READ)
-    with open_voice_store(context) as store:
-        session = _session_or_404(store, session_id, context, active=True)
-        locale = session.locale
+    locale = await asyncio.to_thread(_active_locale, context, session_id)
     try:
         audio, media_type = await synthesize(context, payload.text, locale)
     except (SpeechEngineUnavailable, SpeechEngineFailed) as exc:
@@ -378,9 +385,14 @@ async def summarize_call(
     transcript as a conversation the user can reopen, search and delete. Call it before
     ``/complete``: a session-only transcript is erased when the session closes."""
     require_permission(context, Permission.TASK_CREATE)
-    with open_voice_store(context) as store:
-        session = _session_or_404(store, session_id, context, active=True)
-        segments = [item for item in store.list_transcript(session) if item.is_final and item.text.strip()]
+
+    def load() -> tuple[Any, list[Any]]:
+        with open_voice_store(context) as store:
+            session = _session_or_404(store, session_id, context, active=True)
+            return session, [item for item in store.list_transcript(session) if item.is_final and item.text.strip()]
+
+    # Store reads and writes run in worker threads; only the model call waits on the loop.
+    session, segments = await asyncio.to_thread(load)
     if not segments:
         raise HTTPException(
             status_code=422,
@@ -403,14 +415,19 @@ async def summarize_call(
         return CallSummary(summary=summary, source=source, duration_seconds=payload.duration_seconds)
     kept = segments[-MAX_SAVED_TURNS:]
     heading = "ملخص المكالمة" if arabic else "Call summary"
-    with open_conversation_store(context) as conversations:
-        conversation = conversations.create(
-            ConversationCreate(title=_title(session.assistant_name, utc_now(), payload.duration_seconds)), context
-        )
-        for item in kept:
-            role = TurnRole.USER if item.role == TranscriptRole.USER else TurnRole.ASSISTANT
-            conversations.add_turn(conversation, role, item.text.strip(), TurnStatus.COMPLETE)
-        conversations.add_turn(conversation, TurnRole.ASSISTANT, f"{heading}\n\n{summary}", TurnStatus.COMPLETE)
+
+    def save() -> Any:
+        with open_conversation_store(context) as conversations:
+            conversation = conversations.create(
+                ConversationCreate(title=_title(session.assistant_name, utc_now(), payload.duration_seconds)), context
+            )
+            for item in kept:
+                role = TurnRole.USER if item.role == TranscriptRole.USER else TurnRole.ASSISTANT
+                conversations.add_turn(conversation, role, item.text.strip(), TurnStatus.COMPLETE)
+            conversations.add_turn(conversation, TurnRole.ASSISTANT, f"{heading}\n\n{summary}", TurnStatus.COMPLETE)
+        return conversation
+
+    conversation = await asyncio.to_thread(save)
     return CallSummary(
         summary=summary,
         source=source,

@@ -82,7 +82,7 @@ export const mailShareAr: Record<keyof typeof mailShareEn, Message> = {
   'mails.contacts.edit': 'تعديل',
   'mails.contacts.editFor': 'تعديل {name}',
   'mails.contacts.write': 'كتابة',
-  'mails.contacts.writeTo': 'الكتابة إلى {name}',
+  'mails.contacts.writeTo': 'كتابة إلى {name}',
   'mails.contacts.delete': 'حذف',
   'mails.contacts.deleteFor': 'حذف {name}',
   'mails.contacts.deleteConfirm': 'حذف {name} من جهات اتصالك؟',

@@ -8,6 +8,8 @@ approval with the payload hash.
 
 from __future__ import annotations
 
+import asyncio
+
 import json
 import logging
 from datetime import timedelta
@@ -41,7 +43,7 @@ from .calendar_sync import (
     sync_connection,
     web_url,
 )
-from .dependencies import has_permission, repository_context, require_permission, tenant_context
+from .dependencies import UnitsOfWork, has_permission, repository_context, require_permission, run_in_unit, tenant_context, units_of_work
 from .email_providers import MailProviderError, pkce_pair
 from .repository import AnumRepository
 from .schemas import Approval, TenantContext, new_id, utc_now
@@ -187,7 +189,7 @@ def _state_token(pending: CalendarOAuthPending) -> str:
 
 
 @router.get("", response_model=SyncSetup)
-async def get_sync(context: TenantContext = Depends(tenant_context)) -> SyncSetup:
+def get_sync(context: TenantContext = Depends(tenant_context)) -> SyncSetup:
     """Which providers the operator set up (never a secret), what is missing and the connections."""
     _require(context, Permission.CALENDAR_READ, READ_DENIED)
     providers = []
@@ -208,7 +210,7 @@ async def get_sync(context: TenantContext = Depends(tenant_context)) -> SyncSetu
 
 
 @router.post("/oauth/{provider}/start", response_model=ConnectStartResponse)
-async def start_connect(
+def start_connect(
     provider: CalendarProvider,
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
@@ -249,7 +251,7 @@ def _web_return(**params: str) -> RedirectResponse:
 
 
 @router.get("/oauth/callback", include_in_schema=True)
-async def oauth_callback(
+def oauth_callback(
     state: str = Query(default="", max_length=2000),
     code: str | None = Query(default=None, max_length=4000),
     error: str | None = Query(default=None, max_length=200),
@@ -286,28 +288,35 @@ async def oauth_callback(
 async def complete_connect(
     payload: ConnectComplete,
     context: TenantContext = Depends(tenant_context),
-    repository: AnumRepository = Depends(repository_context),
+    units: UnitsOfWork = Depends(units_of_work),
 ) -> ConnectionView:
     _require(context, Permission.CALENDAR_MANAGE, MANAGE_DENIED)
     from .secret_box import secret_cipher
 
     cipher = secret_cipher()
-    with open_sync_store(context) as store:
-        pending = store.get_pending(payload.connection)
-        if pending is None:
-            raise HTTPException(status_code=404, detail="This connection request was not found or was already used. Start again.")
-        if pending.user_id != context.user_id:
-            raise HTTPException(status_code=403, detail="This connection was started by someone else; start your own.")
-        if pending.code_enc is None and pending.error is None:
-            raise HTTPException(status_code=409, detail="The provider has not sent you back yet. Finish the sign-in in the provider's window.")
-        # Single use: consumed before the code is exchanged.
-        store.delete_pending(pending.nonce)
+
+    def claim(_repository: AnumRepository) -> Any:
+        with open_sync_store(context) as store:
+            pending = store.get_pending(payload.connection)
+            if pending is None:
+                raise HTTPException(status_code=404, detail="This connection request was not found or was already used. Start again.")
+            if pending.user_id != context.user_id:
+                raise HTTPException(status_code=403, detail="This connection was started by someone else; start your own.")
+            if pending.code_enc is None and pending.error is None:
+                raise HTTPException(status_code=409, detail="The provider has not sent you back yet. Finish the sign-in in the provider's window.")
+            # Single use: consumed before the code is exchanged.
+            store.delete_pending(pending.nonce)
+        return pending
+
+    # Database work runs in worker threads, each step in its own short unit of work, and no
+    # transaction stays open while the provider answers (docs/realtime.md#event-loop).
+    pending = await run_in_unit(units, context, claim)
     provider = pending.provider
     name = PROVIDER_NAMES[provider]
     if pending.expires_at < utc_now():
         raise HTTPException(status_code=410, detail="The connection request expired. Start again.")
     if pending.error:
-        _audit(repository, context, "calendar.connect.denied", pending.nonce, "denied", {"provider": provider.value})
+        await run_in_unit(units, context, _audit, context, "calendar.connect.denied", pending.nonce, "denied", {"provider": provider.value})
         raise HTTPException(status_code=400, detail=f"{name} did not grant access: {pending.error}")
     client = provider_client(provider)
     try:
@@ -317,7 +326,7 @@ async def complete_connect(
         )
         account = await client.account(grant.access_token)
     except MailProviderError as exc:
-        _audit(repository, context, "calendar.connect.failed", pending.nonce, "failure", {"provider": provider.value, "status": exc.status})
+        await run_in_unit(units, context, _audit, context, "calendar.connect.failed", pending.nonce, "failure", {"provider": provider.value, "status": exc.status})
         raise HTTPException(status_code=502, detail=f"Connecting failed: {exc.message}") from None
     if not grant.refresh_token:
         raise HTTPException(
@@ -328,32 +337,41 @@ async def complete_connect(
             ),
         )
     now = utc_now()
-    with open_sync_store(context) as store:
-        connection = store.find_connection(provider, account.email)
-        created = connection is None
-        if connection is None:
-            connection = CalendarConnection(
-                id=new_id("cal"), tenant_id=context.tenant_id, workspace_id=context.workspace_id, provider=provider,
-                email=account.email, connected_by=context.user_id, created_at=now, updated_at=now,
-            )
-            store.add_connection(connection)
-        connection.display_name = account.display_name
-        connection.scopes = list(grant.scopes or client.scopes)
-        connection.access_token_enc = cipher.encrypt(grant.access_token)
-        connection.refresh_token_enc = cipher.encrypt(grant.refresh_token)
-        connection.access_expires_at = grant.expires_at
-        connection.status = ConnectionStatus.CONNECTED
-        connection.last_error = None
-        connection.updated_at = now
-        store.save_connection(connection)
-    _audit(
-        repository, context, "calendar.connection.created" if created else "calendar.connection.reconnected", connection.id,
-        metadata={"provider": provider.value},
-    )
+
+    def keep(repository: AnumRepository) -> CalendarConnection:
+        with open_sync_store(context) as store:
+            connection = store.find_connection(provider, account.email)
+            created = connection is None
+            if connection is None:
+                connection = CalendarConnection(
+                    id=new_id("cal"), tenant_id=context.tenant_id, workspace_id=context.workspace_id, provider=provider,
+                    email=account.email, connected_by=context.user_id, created_at=now, updated_at=now,
+                )
+                store.add_connection(connection)
+            connection.display_name = account.display_name
+            connection.scopes = list(grant.scopes or client.scopes)
+            connection.access_token_enc = cipher.encrypt(grant.access_token)
+            connection.refresh_token_enc = cipher.encrypt(grant.refresh_token)
+            connection.access_expires_at = grant.expires_at
+            connection.status = ConnectionStatus.CONNECTED
+            connection.last_error = None
+            connection.updated_at = now
+            store.save_connection(connection)
+        _audit(
+            repository, context, "calendar.connection.created" if created else "calendar.connection.reconnected", connection.id,
+            metadata={"provider": provider.value},
+        )
+        return connection
+
+    connection = await run_in_unit(units, context, keep)
     try:
         connection, _ = await sync_connection(connection.id, context, force=True)
     except CalendarSyncError:
         pass
+    return await asyncio.to_thread(_view_counted, context, connection)
+
+
+def _view_counted(context: TenantContext, connection: CalendarConnection) -> ConnectionView:
     with open_calendar_store(context) as events:
         return _view(connection, events.count_linked(connection.id))
 
@@ -370,34 +388,37 @@ def _connection_or_404(context: TenantContext, connection_id: str) -> CalendarCo
 async def sync_now(
     connection_id: str,
     context: TenantContext = Depends(tenant_context),
-    repository: AnumRepository = Depends(repository_context),
+    units: UnitsOfWork = Depends(units_of_work),
 ) -> SyncResult:
     _require(context, Permission.CALENDAR_MANAGE, MANAGE_DENIED)
-    _connection_or_404(context, connection_id)
+    await run_in_unit(units, context, lambda _repository: _connection_or_404(context, connection_id))
     try:
         connection, summary = await sync_connection(connection_id, context, force=True)
     except CalendarSyncError as exc:
-        _audit(repository, context, "calendar.sync.run", connection_id, "failure", {"status": exc.status})
+        await run_in_unit(units, context, _audit, context, "calendar.sync.run", connection_id, "failure", {"status": exc.status})
         raise _http(exc) from None
-    _audit(
-        repository, context, "calendar.sync.run", connection.id,
-        "success" if connection.last_sync_status == "ok" else "failure",
-        {"provider": connection.provider.value, **summary.model_dump()},
-    )
-    with open_calendar_store(context) as events:
-        return SyncResult(connection=_view(connection, events.count_linked(connection.id)), summary=summary.model_dump())
+
+    def finish(repository: AnumRepository) -> SyncResult:
+        _audit(
+            repository, context, "calendar.sync.run", connection.id,
+            "success" if connection.last_sync_status == "ok" else "failure",
+            {"provider": connection.provider.value, **summary.model_dump()},
+        )
+        return SyncResult(connection=_view_counted(context, connection), summary=summary.model_dump())
+
+    return await run_in_unit(units, context, finish)
 
 
 @router.delete("/connections/{connection_id}", response_model=DisconnectResult)
 async def disconnect(
     connection_id: str,
     context: TenantContext = Depends(tenant_context),
-    repository: AnumRepository = Depends(repository_context),
+    units: UnitsOfWork = Depends(units_of_work),
 ) -> DisconnectResult:
     """Revoke ANUM's grant at the provider and delete the connection's tokens. The events
     stay in ANUM as ANUM-only events; nothing is deleted at the provider."""
     _require(context, Permission.CALENDAR_MANAGE, MANAGE_DENIED)
-    connection = _connection_or_404(context, connection_id)
+    connection = await run_in_unit(units, context, lambda _repository: _connection_or_404(context, connection_id))
     revoked = False
     if connection.access_token_enc or connection.refresh_token_enc:
         from .secret_box import SecretDecryptionError, secret_cipher
@@ -407,11 +428,16 @@ async def disconnect(
             revoked = await provider_client(connection.provider).revoke(token)
         except (MailProviderError, SecretDecryptionError, ValueError):
             revoked = False
-    with open_calendar_store(context) as events:
-        kept = events.unlink(connection_id)
-    with open_sync_store(context) as store:
-        store.delete_connection(connection_id)
-    _audit(repository, context, "calendar.connection.deleted", connection_id, metadata={"provider": connection.provider.value, "revoked": revoked, "events_kept": kept})
+
+    def forget(repository: AnumRepository) -> int:
+        with open_calendar_store(context) as events:
+            kept = events.unlink(connection_id)
+        with open_sync_store(context) as store:
+            store.delete_connection(connection_id)
+        _audit(repository, context, "calendar.connection.deleted", connection_id, metadata={"provider": connection.provider.value, "revoked": revoked, "events_kept": kept})
+        return kept
+
+    kept = await run_in_unit(units, context, forget)
     name = PROVIDER_NAMES[connection.provider]
     detail = (
         f"{name} is disconnected and ANUM's access was revoked." if revoked
@@ -424,7 +450,7 @@ async def disconnect(
 
 
 @invitations_router.post("/{event_id}/invitations", response_model=InvitationResult, status_code=status.HTTP_202_ACCEPTED)
-async def request_invitations(
+def request_invitations(
     event_id: str,
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),

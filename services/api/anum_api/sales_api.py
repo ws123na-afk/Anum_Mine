@@ -6,30 +6,29 @@ workflows; quotes and follow-ups are drafts/proposals.
 """
 from __future__ import annotations
 
+import asyncio
 from contextlib import contextmanager
 import hashlib
 import json
 from datetime import datetime
 from decimal import Decimal
-from typing import Iterator
+from typing import Any, Iterator
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
 
 from .authorization import Permission
-from .dependencies import require_permission, tenant_context, repository_context
+from .dependencies import UnitsOfWork, require_permission, tenant_context, units_of_work
 from .db.session import SessionLocal, set_tenant_context
 from .db.sales_repository import SalesCRMStore
 from .marketing_sales_orchestration import plan_inbound_handoff
 from .sales_lead_lifecycle import (
     Lead, LeadStatus, create_lead, edit_lead, transition_lead, draft_quote,
-    propose_follow_up, sales_overview,
+    propose_follow_up,
 )
 from .schemas import TenantContext, utc_now
-from .repository import AnumRepository
 from .whatsapp import SendRequest, send as governed_whatsapp_send
 
 router = APIRouter(prefix="/api/v1/sales", tags=["sales"])
@@ -252,17 +251,13 @@ def create_followup(
 
 @router.get("/overview")
 def overview(context: TenantContext = Depends(tenant_context)) -> dict:
+    """The WhatsApp figures, read from the one lead list (Business leads with the WhatsApp
+    source, docs/business.md#whatsapp-leads), plus the enquiries still waiting to join it.
+    ``quoted`` counts leads in Business's ``offered`` state."""
     require_read(context)
-    with sales_store(context) as store:
-        # Bounded summary until server-side aggregation/paging is implemented.
-        leads = store.list_leads(limit=100)
-        summary = sales_overview(leads, tenant_id=context.tenant_id, workspace_id=context.workspace_id)
-        return {
-            "leads": summary.leads, "qualified": summary.qualified,
-            "quoted": summary.quoted, "won": summary.won, "lost": summary.lost,
-            "by_intent": summary.by_intent,
-            "scope": "latest_100_leads", "revenue_estimate": None,
-        }
+    from .business.whatsapp_leads import whatsapp_overview
+
+    return whatsapp_overview(context)
 
 
 @router.get("/leads/{lead_id}/history")
@@ -315,7 +310,7 @@ def _quote_whatsapp_text(lead: Lead, quote) -> str:
 async def request_quote_whatsapp_delivery(
     lead_id: str, quote_id: str,
     context: TenantContext = Depends(tenant_context),
-    repository: AnumRepository = Depends(repository_context),
+    units: UnitsOfWork = Depends(units_of_work),
 ) -> dict:
     """Request the existing always-approved freeform WhatsApp delivery tool.
 
@@ -324,25 +319,33 @@ async def request_quote_whatsapp_delivery(
     reserved before requesting approval to prevent duplicate requests.
     """
     require_write(context)
-    with sales_store(context) as store:
-        lead = required_lead(store, lead_id)
-        quote = store.get_quote_for_delivery(lead_id=lead.id, quote_id=quote_id)
-        if quote is None:
-            raise HTTPException(status_code=404, detail="Quotation not found")
-        text = _quote_whatsapp_text(lead, quote)
-        if not store.reserve_quote_delivery(lead_id=lead_id, quote_id=quote_id):
-            raise HTTPException(status_code=409, detail="Quotation already has a delivery request")
-        conversation_id = lead.source_conversation_id
 
+    def reserve() -> tuple[str, str]:
+        with sales_store(context) as store:
+            lead = required_lead(store, lead_id)
+            quote = store.get_quote_for_delivery(lead_id=lead.id, quote_id=quote_id)
+            if quote is None:
+                raise HTTPException(status_code=404, detail="Quotation not found")
+            text = _quote_whatsapp_text(lead, quote)
+            if not store.reserve_quote_delivery(lead_id=lead_id, quote_id=quote_id):
+                raise HTTPException(status_code=409, detail="Quotation already has a delivery request")
+            return text, lead.source_conversation_id
+
+    def finish(approval_id: str | None, quote_status: str) -> bool:
+        with sales_store(context) as store:
+            return store.finish_quote_delivery_request(
+                lead_id=lead_id, quote_id=quote_id, approval_id=approval_id, status=quote_status,
+            )
+
+    # Store work in worker threads, never on the event loop (docs/realtime.md#event-loop).
+    text, conversation_id = await asyncio.to_thread(reserve)
     try:
+        # The WhatsApp send opens its own short units of work (docs/realtime.md#event-loop).
         result = await governed_whatsapp_send(
-            conversation_id, SendRequest(text=text), context, repository,
+            conversation_id, SendRequest(text=text), context, units,
         )
     except Exception:
-        with sales_store(context) as store:
-            store.finish_quote_delivery_request(
-                lead_id=lead_id, quote_id=quote_id, approval_id=None, status="draft",
-            )
+        await asyncio.to_thread(finish, None, "draft")
         raise
 
     approval_id = result.approval.id if result.approval else None
@@ -351,15 +354,11 @@ async def request_quote_whatsapp_delivery(
         else "pending_approval" if result.outcome == "awaiting_approval"
         else "draft"
     )
-    with sales_store(context) as store:
-        if not store.finish_quote_delivery_request(
-            lead_id=lead_id, quote_id=quote_id,
-            approval_id=approval_id, status=quote_status,
-        ):
-            raise HTTPException(
-                status_code=409,
-                detail="Delivery request was created but the quotation status could not be reconciled",
-            )
+    if not await asyncio.to_thread(finish, approval_id, quote_status):
+        raise HTTPException(
+            status_code=409,
+            detail="Delivery request was created but the quotation status could not be reconciled",
+        )
     return {
         "quote_id": quote_id,
         "status": quote_status,
@@ -463,24 +462,30 @@ async def approve_sales_followup(
     """An owner authorizes one exact Meta-approved, allowlisted template."""
     require_permission(context, Permission.MARKETING_MANAGE)
     require_permission(context, Permission.APPROVAL_DECIDE)
-    with sales_store(context) as store:
-        lead = required_lead(store, lead_id)
-        followup = store.get_followup(lead_id=lead_id, followup_id=followup_id)
-        if followup is None:
-            raise HTTPException(status_code=404, detail="Follow-up not found")
-        if followup.status != "proposed" or followup.channel != "whatsapp":
-            raise HTTPException(status_code=409, detail="Only proposed WhatsApp follow-ups can be approved")
-        if not lead.marketing_consent:
-            raise HTTPException(status_code=409, detail="Verified marketing consent is required")
     from .whatsapp import templates_for, find_template, template_problem
     from .whatsapp_store import open_whatsapp_store
-    with open_whatsapp_store(context) as wa:
-        account = wa.get_account(include_secrets=True)
-        conversation = wa.get_conversation(lead.source_conversation_id)
-        if account is None or conversation is None or account.access_token is None:
-            raise HTTPException(status_code=409, detail="WhatsApp account and customer conversation must be connected")
-        if payload.template_name not in account.auto_send_templates:
-            raise HTTPException(status_code=409, detail="The owner must allowlist this template in WhatsApp Setup")
+
+    def load() -> tuple[Any, Any, Any, Any]:
+        with sales_store(context) as store:
+            lead = required_lead(store, lead_id)
+            followup = store.get_followup(lead_id=lead_id, followup_id=followup_id)
+            if followup is None:
+                raise HTTPException(status_code=404, detail="Follow-up not found")
+            if followup.status != "proposed" or followup.channel != "whatsapp":
+                raise HTTPException(status_code=409, detail="Only proposed WhatsApp follow-ups can be approved")
+            if not lead.marketing_consent:
+                raise HTTPException(status_code=409, detail="Verified marketing consent is required")
+        with open_whatsapp_store(context) as wa:
+            account = wa.get_account(include_secrets=True)
+            conversation = wa.get_conversation(lead.source_conversation_id)
+            if account is None or conversation is None or account.access_token is None:
+                raise HTTPException(status_code=409, detail="WhatsApp account and customer conversation must be connected")
+            if payload.template_name not in account.auto_send_templates:
+                raise HTTPException(status_code=409, detail="The owner must allowlist this template in WhatsApp Setup")
+        return lead, followup, account, conversation
+
+    # Reads and the approval write run in worker threads; only Meta's template list is awaited.
+    lead, followup, account, conversation = await asyncio.to_thread(load)
     templates = await templates_for(account, refresh=True)
     problem = template_problem(find_template(templates, payload.template_name, payload.template_language),
                                payload.template_name, payload.template_language, payload.parameters)
@@ -494,16 +499,19 @@ async def approve_sales_followup(
         "template": payload.template_name, "language": payload.template_language,
         "parameters": payload.parameters,
     }, ensure_ascii=False, sort_keys=True).encode("utf-8")).hexdigest()
-    with sales_store(context) as store:
-        if not store.approve_followup(
-            lead_id=lead_id, followup_id=followup_id,
-            template_name=payload.template_name,
-            language=payload.template_language,
-            parameters=payload.parameters,
-            approval_hash=approval_hash,
-            actor=context.user_id, now=utc_now(),
-        ):
-            raise HTTPException(status_code=409, detail="Follow-up was modified or approved already")
+    def approve() -> bool:
+        with sales_store(context) as store:
+            return store.approve_followup(
+                lead_id=lead_id, followup_id=followup_id,
+                template_name=payload.template_name,
+                language=payload.template_language,
+                parameters=payload.parameters,
+                approval_hash=approval_hash,
+                actor=context.user_id, now=utc_now(),
+            )
+
+    if not await asyncio.to_thread(approve):
+        raise HTTPException(status_code=409, detail="Follow-up was modified or approved already")
     return {"id": followup_id, "status": "approved", "payload_hash": approval_hash,
             "delivery": "scheduled_under_owner_policy"}
 

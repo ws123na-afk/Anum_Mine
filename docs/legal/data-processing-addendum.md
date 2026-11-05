@@ -37,11 +37,11 @@ Customer Personal Data is stored in the locations shown in the Subprocessor list
 
 ## 7. Assistance with data subject requests
 
-ANUM gives each user self-service access, export and deletion of their own data under Settings → Privacy. Workspace owners can remove shared records through their pages. For requests the Service cannot fulfil by itself we will help you, taking into account the nature of the processing, within {{DSR_ASSISTANCE_DAYS}} days of your request. If a data subject contacts us directly about Customer Personal Data, we will refer them to you.
+ANUM gives each user self-service access, export and deletion of their own data under Settings → Privacy, and organization administrators can export or delete the whole organization under Settings → Workspace → Data export and deletion. Workspace owners can remove shared records through their pages. For requests the Service cannot fulfil by itself we will help you, taking into account the nature of the processing, within {{DSR_ASSISTANCE_DAYS}} days of your request. If a data subject contacts us directly about Customer Personal Data, we will refer them to you.
 
 ## 8. Personal data breaches
 
-We will notify you without undue delay, and in any case within {{BREACH_NOTICE_HOURS}} hours, after becoming aware of a personal data breach affecting Customer Personal Data. The notice will describe what happened, the data and people affected as far as known, the likely consequences and what we are doing about it, and we will update it as we learn more. Each workspace's audit log helps establish who did what.
+We will notify you without undue delay, and in any case within {{BREACH_NOTICE_HOURS}} hours, after becoming aware of a personal data breach affecting Customer Personal Data. The notice will describe what happened, the data and people affected as far as known, the likely consequences and what we are doing about it, and we will update it as we learn more. Each workspace's audit log helps establish who did what. Where Data Protection Law requires it, we will also help you notify the competent authority (for example the Saudi Data and Artificial Intelligence Authority, SDAIA, or the UAE Data Office) and the people affected within the time that law sets; counsel must confirm those periods for each jurisdiction.
 
 ## 9. Assessments and consultations
 
@@ -52,7 +52,7 @@ We will give you reasonable information to help with data protection impact asse
 - During the term, users can export their own data and owners can export the workspace audit log.
 - At the end of the Service, at your choice, we will make your data available for export during {{EXPORT_WINDOW}} and then delete Customer Personal Data from the live systems within {{DELETION_DAYS}} days, unless the law requires us to keep it.
 - Copies in backups are not edited; they expire on the backup schedule in Annex 2 (35 days for off-site copies as configured).
-- ANUM does not yet offer a self-service deletion of an entire organization; we perform it as an operator task: {{TENANT_DELETION_PROCEDURE}}.
+- An organization administrator can export the whole organization (one archive of every record and file) and schedule its deletion in ANUM under Settings → Workspace → Data export and deletion. Deletion starts {{DELETION_COOLING_OFF_HOURS}} hours after it is requested, can be cancelled until then, and leaves only a receipt with ids and counts.
 
 ## 11. Audits
 

@@ -372,9 +372,10 @@ Kinds: fleet tyre health, tread wear rates, pressure compliance, cost per km and
 hour (by brand, size and vehicle), scrap and removal reasons, brand performance, tyres
 due for removal, and the purchase plan. A report is generated on demand (**Reports >
 Generate**) for a period, or on a schedule, and its content is frozen when generated.
-Each downloads as CSV (formulas neutralised) or PDF. The PDF uses the built-in PDF
-fonts, which cover Latin text only: Arabic text in the data prints as `?` there; the CSV
-keeps it.
+Each downloads as CSV (formulas neutralised) or PDF. The PDF uses ANUM's shared writer
+(`anum_api/pdf_writer.py`): Latin text in the built-in Helvetica, Arabic text in the data
+(a site or vehicle name) shaped and right to left in the embedded Noto Sans Arabic
+([Business: printing and PDF](business.md#printing-and-pdf)); the CSV keeps every character.
 
 **Schedules.** **Reports > Schedule** creates an automation workflow with one
 `tyre.report` step and a daily, weekly or monthly schedule in a time zone, visible in the

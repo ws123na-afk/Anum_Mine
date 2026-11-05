@@ -141,7 +141,7 @@ const orgAdminEn = <String, String>{
   'oa.plan.notApplied': 'Not applied here yet. {total} items.',
   'oa.plan.applied': '{applied} of {total} items applied, last on {when}.',
   'oa.plan.webOnly':
-      'Applying a plan is done on the web, where you confirm it. Nothing changes from the phone.',
+      'Applying a plan, its options and your live checklist are on the web, where you confirm it. Nothing changes from the phone.',
   'oa.plan.phase.label': 'What to preview',
   'oa.plan.phase.pilot': 'Pilot',
   'oa.plan.phase.pilotHint':
@@ -196,7 +196,11 @@ const orgAdminEn = <String, String>{
   'oa.plan.section.commands': 'Saved commands',
   'oa.plan.section.automations': 'Automations',
   'oa.plan.section.manual': 'For you to do',
-  'oa.plan.section.unsupported': 'Not supported yet',
+  'oa.plan.section.unsupported': 'Not supported or not planned',
+  'oa.plan.section.controls': 'Agent caps and limits',
+  'oa.plan.section.offices': 'Offices and desks',
+  'oa.plan.section.business_agents': 'Agents in business workspaces',
+  'oa.plan.section.home': 'Home priorities',
   'oa.plan.action.create': 'Will create',
   'oa.plan.action.update': 'Will change',
   'oa.plan.action.present': 'Already here',
@@ -405,7 +409,7 @@ const orgAdminAr = <String, String>{
   'oa.plan.notApplied': 'لم تُطبّق هنا بعد. عدد العناصر: {total}.',
   'oa.plan.applied': 'طُبّق {applied} من {total} عنصراً، آخرها في {when}.',
   'oa.plan.webOnly':
-      'تطبيق الخطة يتم على الويب حيث تؤكده. لا يتغير شيء من الهاتف.',
+      'تطبيق الخطة وخياراتها وقائمة مهامك الحية على الويب حيث تؤكده. لا يتغير شيء من الهاتف.',
   'oa.plan.phase.label': 'ما تريد معاينته',
   'oa.plan.phase.pilot': 'تجريبية',
   'oa.plan.phase.pilotHint':
@@ -458,7 +462,11 @@ const orgAdminAr = <String, String>{
   'oa.plan.section.commands': 'الأوامر المحفوظة',
   'oa.plan.section.automations': 'الأتمتة',
   'oa.plan.section.manual': 'مهام لك',
-  'oa.plan.section.unsupported': 'غير مدعوم بعد',
+  'oa.plan.section.unsupported': 'غير مدعوم أو غير مخطط له',
+  'oa.plan.section.controls': 'حدود الوكلاء وسقوفهم',
+  'oa.plan.section.offices': 'المكاتب ومقاعد العمل',
+  'oa.plan.section.business_agents': 'الوكلاء في مساحات عمل الأنشطة',
+  'oa.plan.section.home': 'أولويات الصفحة الرئيسية',
   'oa.plan.action.create': 'سيُنشأ',
   'oa.plan.action.update': 'سيتغير',
   'oa.plan.action.present': 'موجود مسبقاً',

@@ -29,9 +29,9 @@ type Load = { kind: 'loading' } | { kind: 'denied' } | { kind: 'error'; message:
 
 const time = (value: string) => formatDateTime(value, { dateStyle: 'medium', timeStyle: 'short' });
 
-export function WhatsAppView({ onOpenApprovals, onOpenBudgets, focusConversationId = null }: { onOpenApprovals?: () => void; onOpenBudgets?: () => void; focusConversationId?: string | null } = {}) {
+export function WhatsAppView({ onOpenApprovals, onOpenBudgets, focusConversationId = null, focusSalesLeadId = null }: { onOpenApprovals?: () => void; onOpenBudgets?: () => void; focusConversationId?: string | null; focusSalesLeadId?: string | null } = {}) {
   const [load, setLoad] = useState<Load>({ kind: 'loading' });
-  const [tab, setTab] = useState<Tab>('inbox');
+  const [tab, setTab] = useState<Tab>(focusSalesLeadId ? 'sales' : 'inbox');
   const owner = useIsOwner();
 
   const refresh = useCallback(async () => {
@@ -62,7 +62,7 @@ export function WhatsAppView({ onOpenApprovals, onOpenBudgets, focusConversation
     {tab === 'inbox' && (account.configured
       ? <InboxView account={account} owner={owner === true} onOpenApprovals={onOpenApprovals} onOpenBudgets={onOpenBudgets} onOpenTemplates={() => setTab('templates')} focusConversationId={focusConversationId} />
       : <NotConnected account={account} onSetup={() => setTab('setup')} />)}
-    {tab === 'sales' && <SalesDashboard />}
+    {tab === 'sales' && <SalesDashboard focusLeadId={focusSalesLeadId} />}
     {tab === 'templates' && (account.configured
       ? <TemplatesView account={account} onSaved={(next) => setLoad({ kind: 'ready', account: next })} />
       : <NotConnected account={account} onSetup={() => setTab('setup')} />)}
@@ -74,7 +74,7 @@ export function WhatsAppView({ onOpenApprovals, onOpenBudgets, focusConversation
 function StatusChip({ account, onSetup }: { account: WaAccount; onSetup?: () => void }) {
   const tone = !account.configured ? 'neutral' : account.status === 'connected' ? 'success' : account.status === 'error' ? 'dangerTone' : 'warning';
   if (!onSetup) return <span className={`statusBadge ${tone}`}>{account.configured ? t(`wa.state.${account.status ?? 'unverified'}`) : t('wa.state.notConnected')}{account.display_phone_number && <> · <bdi dir="ltr">{account.display_phone_number}</bdi></>}</span>;
-  return <button type="button" className={`chipButton ${tone} waTabStatus`} onClick={onSetup} aria-label={t('pages.wa.chipLabel', { state: account.configured ? t(`wa.state.${account.status ?? 'unverified'}`) : t('wa.state.notConnected') })}>
+  return <button type="button" className={`chipButton ${tone} waTabStatus`} onClick={onSetup} aria-label={t('pages.wa.chipLabel', { state: `${account.configured ? t(`wa.state.${account.status ?? 'unverified'}`) : t('wa.state.notConnected')}${account.display_phone_number ? ` \u00B7 ${account.display_phone_number}` : ''}` })}>
     <span className="chipDot" aria-hidden="true" />
     <span>{account.configured ? t(`wa.state.${account.status ?? 'unverified'}`) : t('wa.state.notConnected')}{account.display_phone_number && <> · <bdi dir="ltr">{account.display_phone_number}</bdi></>}</span>
   </button>;

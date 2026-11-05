@@ -34,7 +34,7 @@ export const filesVersionsAr = {
   'files.ver.confirmDelete': 'تحذف الإصدار {version}؟ يوفّر ذلك مساحته ولا يمكن التراجع عنه.',
   'files.ver.confirmDeleteOf': 'احذف الإصدار {version} نهائيًا',
   'files.ver.keep': 'أبقِه',
-  'files.ver.keepOf': 'أبقِ الإصدار {version}',
+  'files.ver.keepOf': 'أبقِه (الإصدار {version})',
   'files.ver.deleted': 'حُذف الإصدار {version}.',
   'files.ver.deleteFailed': 'لم يُحذف الإصدار {version}: {message}',
   'files.ver.quarantined': 'في الحجر: وجد الماسح ضد البرمجيات الخبيثة {signature}، فلا يمكن تنزيله ولا استعادته. احذفه.',

@@ -22,6 +22,7 @@ import { useNow } from './hq-nav/useNow';
 import type { NameMap } from './lib/hqHistoryText';
 import { formatDateTime, t } from './lib/i18n';
 import { useLocale } from './useLocale';
+import { openAssign } from './lib/hqAssign';
 import './hqHistory.css';
 
 export interface HistoryRoom extends PickOption { deskIds: readonly string[] }
@@ -313,7 +314,7 @@ export function HqHistoryPanel(props: HqHistoryPanelProps) {
                       <h3>{t('hqHist.empty.title')}</h3>
                       <p>{scope.kind !== 'office' && scope.kind !== 'correlation' ? t('hqHist.empty.scoped') : filtered ? t('hqHist.empty.filtered') : t('hqHist.empty.plain')}</p>
                       {filtered ? <button type="button" className="hqGhost" onClick={reset}>{t('hqHist.empty.clear')}</button>
-                        : <button type="button" className="hqGhost" onClick={() => props.onNavigate?.('#tasks')}>{t('hqHist.empty.openTasks')}</button>}
+                        : <button type="button" className="hqGhost" onClick={() => { if (!openAssign({ source: 'other' })) props.onNavigate?.('#tasks'); }}>{t('hqHist.empty.assign')}</button>}
                     </div>
                   )}
                   {state.items.length > 0 && (

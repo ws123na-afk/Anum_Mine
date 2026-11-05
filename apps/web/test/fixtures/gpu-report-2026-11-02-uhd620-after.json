@@ -1,0 +1,212 @@
+{
+  "schema": "anum.hq.gpu-report/1",
+  "generatedAt": "2026-11-02T12:07:16.562Z",
+  "gpu": {
+    "webglVersion": 2,
+    "renderer": "ANGLE (Intel, Intel(R) UHD Graphics 620 (0x00005917) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+    "vendor": "Google Inc. (Intel)",
+    "unmasked": true,
+    "software": false,
+    "maxTextureSize": 16384,
+    "maxCubeMapSize": 16384,
+    "maxAnisotropy": 16,
+    "maxVertexUniformVectors": 4096,
+    "maxFragmentUniformVectors": 1024,
+    "extensions": [
+      "EXT_clip_control",
+      "EXT_color_buffer_float",
+      "EXT_color_buffer_half_float",
+      "EXT_conservative_depth",
+      "EXT_depth_clamp",
+      "EXT_disjoint_timer_query_webgl2",
+      "EXT_float_blend",
+      "EXT_polygon_offset_clamp",
+      "EXT_render_snorm",
+      "EXT_texture_compression_bptc",
+      "EXT_texture_compression_rgtc",
+      "EXT_texture_filter_anisotropic",
+      "EXT_texture_mirror_clamp_to_edge",
+      "EXT_texture_norm16",
+      "KHR_parallel_shader_compile",
+      "NV_shader_noperspective_interpolation",
+      "OES_draw_buffers_indexed",
+      "OES_sample_variables",
+      "OES_shader_multisample_interpolation",
+      "OES_texture_float_linear",
+      "OVR_multiview2",
+      "WEBGL_blend_func_extended",
+      "WEBGL_clip_cull_distance",
+      "WEBGL_compressed_texture_s3tc",
+      "WEBGL_compressed_texture_s3tc_srgb",
+      "WEBGL_debug_renderer_info",
+      "WEBGL_debug_shaders",
+      "WEBGL_lose_context",
+      "WEBGL_multi_draw",
+      "WEBGL_polygon_mode",
+      "WEBGL_provoking_vertex",
+      "WEBGL_stencil_texturing"
+    ],
+    "used": {
+      "EXT_color_buffer_float": true,
+      "EXT_color_buffer_half_float": true,
+      "OES_texture_float_linear": true,
+      "EXT_texture_filter_anisotropic": true,
+      "WEBGL_debug_renderer_info": true,
+      "KHR_parallel_shader_compile": true,
+      "EXT_disjoint_timer_query_webgl2": true
+    },
+    "dpr": 1.13,
+    "viewport": {
+      "width": 1707,
+      "height": 960
+    },
+    "cores": 8,
+    "deviceMemoryGb": 8,
+    "browser": "Chrome 156",
+    "os": "Windows"
+  },
+  "quality": {
+    "tier": "low",
+    "reason": "pinned",
+    "governorStep": 0,
+    "governorSteps": 4,
+    "dprScale": 1,
+    "shadowSize": 0,
+    "bloom": false,
+    "lean": false,
+    "pinned": "low"
+  },
+  "tiers": [
+    {
+      "tier": 0,
+      "key": "low",
+      "frames": {
+        "count": 109,
+        "medianMs": 33.4,
+        "p95Ms": 51.3,
+        "worstMs": 749.4,
+        "meanMs": 45.54,
+        "droppedFrames": 93,
+        "fps": 22
+      },
+      "drawCalls": 160,
+      "triangles": 179275,
+      "dpr": 1.13,
+      "shadowSize": 0,
+      "bloom": false,
+      "memoryEstimateMb": 35.6,
+      "floorChange": false,
+      "warmupMs": 887,
+      "gpu": {
+        "medianMs": 23.57,
+        "p95Ms": 25.4,
+        "samples": 110
+      },
+      "hitches": {
+        "count": 23,
+        "compile": 0,
+        "buffers": 0
+      }
+    },
+    {
+      "tier": 1,
+      "key": "medium",
+      "frames": {
+        "count": 96,
+        "medianMs": 33.4,
+        "p95Ms": 68.1,
+        "worstMs": 733.6,
+        "meanMs": 50.15,
+        "droppedFrames": 83,
+        "fps": 19.9
+      },
+      "drawCalls": 160,
+      "triangles": 179275,
+      "dpr": 1.13,
+      "shadowSize": 1024,
+      "bloom": false,
+      "memoryEstimateMb": 39.6,
+      "floorChange": false,
+      "warmupMs": 1770,
+      "gpu": {
+        "medianMs": 29.56,
+        "p95Ms": 30.52,
+        "samples": 97
+      },
+      "hitches": {
+        "count": 26,
+        "compile": 0,
+        "buffers": 0
+      }
+    },
+    {
+      "tier": 2,
+      "key": "high",
+      "frames": {
+        "count": 81,
+        "medianMs": 49.3,
+        "p95Ms": 67.6,
+        "worstMs": 899.3,
+        "meanMs": 61.69,
+        "droppedFrames": 70,
+        "fps": 16.2
+      },
+      "drawCalls": 160,
+      "triangles": 179275,
+      "dpr": 1.13,
+      "shadowSize": 1024,
+      "bloom": false,
+      "memoryEstimateMb": 39.6,
+      "floorChange": false,
+      "warmupMs": 1792,
+      "gpu": {
+        "medianMs": 27.66,
+        "p95Ms": 30.11,
+        "samples": 82
+      },
+      "hitches": {
+        "count": 23,
+        "compile": 0,
+        "buffers": 0
+      }
+    },
+    {
+      "tier": 3,
+      "key": "ultra",
+      "frames": {
+        "count": 119,
+        "medianMs": 33.4,
+        "p95Ms": 66.8,
+        "worstMs": 73.2,
+        "meanMs": 41.99,
+        "droppedFrames": 113,
+        "fps": 23.8
+      },
+      "drawCalls": 160,
+      "triangles": 179275,
+      "dpr": 1.13,
+      "shadowSize": 2048,
+      "bloom": false,
+      "memoryEstimateMb": 51.6,
+      "floorChange": false,
+      "warmupMs": 745,
+      "gpu": {
+        "medianMs": 29.28,
+        "p95Ms": 29.98,
+        "samples": 119
+      },
+      "hitches": {
+        "count": 26,
+        "compile": 0,
+        "buffers": 0
+      }
+    }
+  ],
+  "verdict": {
+    "kind": "poor",
+    "tier": 0,
+    "fps": 22,
+    "tierKey": "low"
+  },
+  "notes": []
+}

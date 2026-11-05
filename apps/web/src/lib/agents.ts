@@ -2,7 +2,7 @@
 // its create/edit wizard and detail tabs. The helpers take no DOM, so `pnpm test:unit` runs them.
 import type {
   AgentAutonomy, AgentAutonomyLevel, AgentCatalog, AgentCatalogSkill, AgentCatalogTool, AgentCategory, AgentKnowledgeMode,
-  AgentKnowledgeSource, AgentMemory, AgentMemoryPage, AgentModelRoute, AgentPage, AgentProfile, AgentProfileFields,
+  AgentKnowledgeSource, AgentMemory, AgentMemoryCreate, AgentMemoryKind, AgentMemoryPage, AgentMemoryUpdate, AgentModelRoute, AgentPage, AgentProfile, AgentProfileFields,
   AgentProfileUpdate, AgentSharing, AgentSkillLoadout, AgentSkillState, AgentSkillStateName, AgentSkillTool, AgentStatus,
   AgentTemplate, AgentToolCategory, SkillUsage, SkillUsagePage,
 } from '@anum/contracts';
@@ -10,7 +10,7 @@ import type { MessageKey } from './i18n.ts';
 
 export type {
   AgentAutonomy, AgentAutonomyLevel, AgentCatalog, AgentCatalogSkill, AgentCatalogTool, AgentCategory, AgentKnowledgeMode,
-  AgentKnowledgeSource, AgentMemory, AgentMemoryPage, AgentModelRoute, AgentPage, AgentProfile, AgentProfileFields,
+  AgentKnowledgeSource, AgentMemory, AgentMemoryCreate, AgentMemoryKind, AgentMemoryPage, AgentMemoryUpdate, AgentModelRoute, AgentPage, AgentProfile, AgentProfileFields,
   AgentProfileUpdate, AgentSharing, AgentSkillLoadout, AgentSkillState, AgentSkillStateName, AgentSkillTool, AgentStatus,
   AgentTemplate, AgentToolCategory, SkillUsage, SkillUsagePage,
 };
@@ -176,11 +176,49 @@ export function agentListPath(filter: { category: CategoryFilter; q: string; sta
   return `/api/v1/agents?${query}`;
 }
 
-export function memoryListPath(agentId: string, q: string, cursor?: string | null): string {
+export function memoryListPath(agentId: string, q: string, cursor?: string | null, kind?: AgentMemoryKind | null): string {
   const query = new URLSearchParams({ limit: String(MEMORY_PAGE_SIZE) });
   if (q.trim()) query.set('q', q.trim());
+  if (kind) query.set('kind', kind);
   if (cursor) query.set('cursor', cursor);
   return `/api/v1/agents/${encodeURIComponent(agentId)}/memories?${query}`;
+}
+
+export const SOURCE_LABEL_MAX = 200;
+/** A memory form: text, kind, where it comes from and the date it holds from (YYYY-MM-DD or empty). */
+export interface MemoryForm { content: string; kind: AgentMemoryKind; source_label: string; source_date: string }
+export const emptyMemoryForm = (): MemoryForm => ({ content: '', kind: 'fact', source_label: '', source_date: '' });
+export const memoryFormOf = (m: AgentMemory): MemoryForm => ({
+  content: m.content, kind: m.kind ?? 'fact', source_label: m.source_label ?? '', source_date: m.source_date ?? '',
+});
+
+/** What is wrong with a memory form before anything is sent, as message keys; empty when it can be saved. */
+export function memoryProblems(form: MemoryForm, today: string): MessageKey[] {
+  const out: MessageKey[] = [];
+  if (!form.content.trim()) out.push('agents.memory.err.content');
+  if (form.content.length > MEMORY_MAX) out.push('agents.memory.err.contentLong');
+  if (form.source_label.length > SOURCE_LABEL_MAX) out.push('agents.memory.err.sourceLong');
+  if (form.source_date && (!/^\d{4}-\d{2}-\d{2}$/.test(form.source_date) || Number.isNaN(Date.parse(form.source_date)))) out.push('agents.memory.err.date');
+  else if (form.source_date && form.source_date > today) out.push('agents.memory.err.future');
+  return out;
+}
+
+export function memoryCreateBody(form: MemoryForm): AgentMemoryCreate {
+  return {
+    content: form.content.trim(), kind: form.kind,
+    source_label: form.source_label.trim() || null, source_date: form.source_date || null,
+  };
+}
+
+/** Only the fields that changed, or null when nothing did. */
+export function memoryChanges(before: AgentMemory, form: MemoryForm): AgentMemoryUpdate | null {
+  const now = memoryCreateBody(form);
+  const out: AgentMemoryUpdate = {};
+  if (now.content !== before.content) out.content = now.content;
+  if ((now.kind ?? 'fact') !== (before.kind ?? 'fact')) out.kind = now.kind;
+  if ((now.source_label ?? null) !== (before.source_label ?? null)) out.source_label = now.source_label ?? '';
+  if ((now.source_date ?? null) !== (before.source_date ?? null)) out.source_date = now.source_date ?? null;
+  return Object.keys(out).length ? out : null;
 }
 
 export function recentTasksPath(agentId: string, limit = 10): string {
@@ -284,8 +322,9 @@ export function agentsApi(request: Requester, requestVoid: VoidRequester) {
     create: (body: AgentProfileFields) => request<AgentProfile>('/api/v1/agents', { method: 'POST', body: JSON.stringify(body) }),
     update: (id: string, body: AgentProfileUpdate) => request<AgentProfile>(`/api/v1/agents/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(body) }),
     remove: (id: string) => requestVoid(`/api/v1/agents/${encodeURIComponent(id)}`, { method: 'DELETE' }),
-    memories: (id: string, q: string, cursor?: string | null) => request<AgentMemoryPage>(memoryListPath(id, q, cursor), { method: 'GET' }),
-    addMemory: (id: string, content: string) => request<AgentMemory>(`/api/v1/agents/${encodeURIComponent(id)}/memories`, { method: 'POST', body: JSON.stringify({ content }) }),
+    memories: (id: string, q: string, cursor?: string | null, kind?: AgentMemoryKind | null) => request<AgentMemoryPage>(memoryListPath(id, q, cursor, kind), { method: 'GET' }),
+    addMemory: (id: string, body: string | AgentMemoryCreate) => request<AgentMemory>(`/api/v1/agents/${encodeURIComponent(id)}/memories`, { method: 'POST', body: JSON.stringify(typeof body === 'string' ? { content: body } : body) }),
+    updateMemory: (id: string, memoryId: string, body: AgentMemoryUpdate) => request<AgentMemory>(`/api/v1/agents/${encodeURIComponent(id)}/memories/${encodeURIComponent(memoryId)}`, { method: 'PATCH', body: JSON.stringify(body) }),
     skills: (id: string) => request<AgentSkillLoadout>(`/api/v1/agents/${encodeURIComponent(id)}/skills`, { method: 'GET' }),
     skillUsage: () => request<SkillUsagePage>('/api/v1/agents/skills/usage', { method: 'GET' }),
     removeMemory: (id: string, memoryId: string) => requestVoid(`/api/v1/agents/${encodeURIComponent(id)}/memories/${encodeURIComponent(memoryId)}`, { method: 'DELETE' }),

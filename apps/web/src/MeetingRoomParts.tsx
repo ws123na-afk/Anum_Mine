@@ -5,6 +5,7 @@ import * as api from './lib/api';
 import { t, type MessageKey } from './lib/i18n';
 import { isModelDraft, type OutputKind, type RoomMessage, type RoomOutput, type RoomState, type WorkKind, type WorkLink } from './lib/liveMeeting';
 import { DecisionLinks } from './MeetingSummaryParts';
+import { inHqClick } from './lib/hqWorkPanels';
 
 export interface Draft { kind: OutputKind; body: string; seq: number | null; label?: string }
 
@@ -105,7 +106,7 @@ export function OutputsCard({ state, owner, busy, draft, setDraft, onSave, onDec
         {o.state === 'draft' && <><button type="button" disabled={busy} onClick={() => void onDecide(o, 'confirmed')}>{t('meetingRoom.confirm')}</button>
           <button type="button" className="secondary" disabled={busy} onClick={() => void onDecide(o, 'dismissed')}>{t('meetingRoom.dismiss')}</button></>}
         {o.kind === 'action_item' && o.state === 'confirmed' && <button type="button" disabled={busy} onClick={() => void onTask(o)}>{t('meetingRoom.createTask')}</button>}</div>}
-      {o.task_id && <p className="mrRow"><span className="mrChip mrState-confirmed">{t('meetingRoom.taskCreated')}</span><a href="#tasks">{t('meetingRoom.openTasks')}</a></p>}
+      {o.task_id && <p className="mrRow"><span className="mrChip mrState-confirmed">{t('meetingRoom.taskCreated')}</span><a href="#tasks" onClick={inHqClick({ kind: 'task', id: o.task_id })}>{t('meetingRoom.openTasks')}</a></p>}
       <DecisionLinks output={o} links={state.links} owner={owner} busy={busy} onLink={(kind, id) => onLink(o, kind, id)} onUnlink={onUnlink} />
     </li>)}</ul>
     {owner && items.some((o) => o.kind === 'action_item' && o.state === 'confirmed' && !o.task_id) && <p className="muted mrHint">{t('meetingRoom.taskNote')}</p>}

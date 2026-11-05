@@ -4,10 +4,11 @@
  * Every number is a stored count; a source that did not answer says "Not connected", never zero.
  */
 import type { OfficeFlowSnapshot, OfficeFlowStage } from '@anum/contracts';
-import { ArrowLeft, Building2, Layers } from 'lucide-react';
+import { ArrowLeft, Building2, ChevronLeft, ChevronRight, Layers } from 'lucide-react';
 import type { CampusTotals, StatusKey } from './lib/campusModel.ts';
 import { floorNameParts } from './lib/hqLabelModel.ts';
 import { t, type MessageKey } from './lib/i18n.ts';
+import { useEffect, useRef } from 'react';
 
 export type BackTone = 'ok' | 'stop' | 'faint';
 
@@ -59,16 +60,35 @@ export function BuildingFacts(props: { kindLabel: string; totals: CampusTotals |
 }
 
 
-export function FloorSelector(props: { floors: ReadonlyArray<{ id: string; name: string }>; activeId: string; stacked: boolean; onPick: (id: string) => void; onStack: (on: boolean) => void }) {
+/**
+ * The one floor control of a building (docs/ANUM_MINE_HQ_LABELS.md, "Declutter"): floor below, one button per floor, floor above and the
+ * stacked view switch. It is drawn at every width (the buttons scroll sideways on a narrow scene); the floor list with thumbnails is a toggle.
+ */
+export function FloorSelector(props: {
+  floors: ReadonlyArray<{ id: string; name: string }>; activeId: string; stacked: boolean; onPick: (id: string) => void; onStack: (on: boolean) => void;
+  onStep?: (dir: 1 | -1) => void; canDown?: boolean; canUp?: boolean;
+}) {
+  // On a narrow scene the floor buttons scroll sideways: keep the open floor's button in view (the row only, never the page).
+  const row = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const box = row.current;
+    const on = box?.querySelector<HTMLElement>('button[aria-pressed="true"]');
+    if (!box || !on || box.scrollWidth <= box.clientWidth) return;
+    const left = on.offsetLeft - box.offsetLeft, right = left + on.offsetWidth;
+    if (left < box.scrollLeft) box.scrollLeft = left;
+    else if (right > box.scrollLeft + box.clientWidth) box.scrollLeft = right - box.clientWidth;
+  }, [props.activeId]);
   return (
     <div className="hqFloorSelector" role="group" aria-label={t('hqLabels.selector.label')}>
-      <div className="hqFloorButtons">
+      {props.onStep && <button type="button" className="hqFloorStep" disabled={!props.canDown} onClick={() => props.onStep!(-1)} aria-label={t('hq.floor.down')} title={t('hq.floor.down')}><ChevronLeft aria-hidden="true" className="flip" /></button>}
+      <div className="hqFloorButtons" ref={row}>
         {props.floors.map((f) => (
           <button key={f.id} type="button" data-active={f.id === props.activeId && !props.stacked} aria-pressed={f.id === props.activeId} aria-label={t('hqLabels.selector.aria', { name: f.name })} title={f.name} onClick={() => props.onPick(f.id)}>
             {floorNameParts(f.name).short}
           </button>
         ))}
       </div>
+      {props.onStep && <button type="button" className="hqFloorStep" disabled={!props.canUp} onClick={() => props.onStep!(1)} aria-label={t('hq.floor.up')} title={t('hq.floor.up')}><ChevronRight aria-hidden="true" className="flip" /></button>}
       <button type="button" className="hqFloorStack" aria-pressed={props.stacked} aria-label={props.stacked ? t('hqLabels.selector.unstack') : t('hqLabels.selector.stack')} title={props.stacked ? t('hqLabels.selector.unstack') : t('hqLabels.selector.stack')} onClick={() => props.onStack(!props.stacked)}>
         <Layers aria-hidden="true" />
       </button>

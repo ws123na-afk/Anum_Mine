@@ -1,5 +1,6 @@
 import asyncio
 from collections.abc import Callable, Sequence
+from contextlib import AbstractContextManager
 from datetime import datetime, timedelta
 
 from .agent_planning import AgentPlanner, PlanResult
@@ -13,6 +14,7 @@ from .agent_tools import (
     ToolRegistry,
     ToolResult,
     default_tool_registry,
+    running_in,
 )
 from .approval_integrity import display_arguments, is_expired, payload_hash
 from .autonomy import (
@@ -162,14 +164,26 @@ class AgentRuntime:
         if decision.outcome == ToolPolicyOutcome.BLOCK:
             return decision
         hits = suppressed_for_call(context, call.name, call.arguments, definition)
-        if not hits:
+        if hits:
+            audit_refusal(context, call.name, hits, "policy")
+            return ToolPolicyDecision(
+                outcome=ToolPolicyOutcome.BLOCK,
+                reason=refusal_reason(hits),
+                risk_level=RiskLevel.BLOCKED,
+                governance_rules=[*decision.governance_rules, "contact_suppression"],
+            )
+        # Marketing sends also need consent (docs/privacy.md#consent-records-for-campaigns).
+        from .contact_consent import audit_consent_refusal, consent_refusal_reason, consent_refusals_for_call
+
+        refusals = consent_refusals_for_call(context, call.name, call.arguments, definition)
+        if not refusals:
             return decision
-        audit_refusal(context, call.name, hits, "policy")
+        audit_consent_refusal(context, call.name, refusals, "policy")
         return ToolPolicyDecision(
             outcome=ToolPolicyOutcome.BLOCK,
-            reason=refusal_reason(hits),
+            reason=consent_refusal_reason(refusals),
             risk_level=RiskLevel.BLOCKED,
-            governance_rules=[*decision.governance_rules, "contact_suppression"],
+            governance_rules=[*decision.governance_rules, "contact_consent"],
         )
 
     def _with_autonomy(
@@ -235,10 +249,19 @@ class AgentRuntime:
                 else self._agent_memory_blocks(run, context, agent)
             )
             blocks = memory_blocks + blocks
+        inputs = (
+            await asyncio.to_thread(self._command_inputs, task, run, context) if offload else self._command_inputs(task, run, context)
+        )
+        blocks = inputs + blocks
         learned = (
             await asyncio.to_thread(self._learned_block, task, context) if offload else self._learned_block(task, context)
         )
-        planned = await self.planner.plan(task, context_blocks=blocks, learned_block=learned, agent=agent)
+        time_line = (
+            await asyncio.to_thread(self._time_line, task, context) if offload else self._time_line(task, context)
+        )
+        planned = await self.planner.plan(
+            task, context_blocks=blocks, learned_block=learned, agent=agent, time_line=time_line
+        )
         return planned, learned
 
     def apply_plan(
@@ -305,6 +328,43 @@ class AgentRuntime:
             return approval
         return None
 
+    def _command_inputs(self, task: Task, run: AgentRun, context: TenantContext) -> list[str]:
+        """For an ANUM Command step that builds on earlier steps: their results as labeled,
+        untrusted blocks (docs/command.md#steps-that-build-on-each-other). The run step
+        records which steps were used, never their text."""
+        from .commands import step_inputs
+
+        try:
+            blocks, positions = step_inputs(task, context)
+        except Exception:  # the run goes on without them; the step says so
+            blocks, positions = [], []
+            run.steps.append(AgentRunStep(
+                id=new_id("step"), type="command_input", created_at=utc_now(),
+                summary="The results of the earlier command steps could not be read; this step ran without them.",
+                metadata={"status": "failed"},
+            ))
+        if positions:
+            listed = ", ".join(str(position) for position in positions)
+            run.steps.append(AgentRunStep(
+                id=new_id("step"), type="command_input", created_at=utc_now(),
+                summary=f"Used the results of command step {listed} as labeled, untrusted context.",
+                metadata={"status": "used", "steps": positions},
+            ))
+        return blocks
+
+    def _time_line(self, task: Task, context: TenantContext) -> str | None:
+        """The current date and time in the user's zone for the planner (current_time.py).
+
+        None for the mock provider: it repeats the start of its prompt as the plan, and
+        it has no use for a date.
+        """
+        if getattr(getattr(self.planner, "model_gateway", None), "provider", "") == "mock":
+            return None
+        from .current_time import time_line_for
+        from .voice_figures import is_arabic
+
+        return time_line_for(context, "ar" if is_arabic(task.prompt) else "en")
+
     def _learned_block(self, task: Task, context: TenantContext) -> str | None:
         """The user's learned style and preferences, for drafting tasks only (docs/learning.md)."""
         selected = self.skills.select(task.prompt, self.tools.names)
@@ -355,7 +415,7 @@ class AgentRuntime:
         )
         return [
             label_untrusted(
-                str(getattr(memory, "content", "")),
+                memory.for_prompt() if hasattr(memory, "for_prompt") else str(getattr(memory, "content", "")),
                 source=Provenance.MEMORY,
                 origin=f"agent-memory/{getattr(memory, 'id', 'unknown')}",
                 max_chars=2000,
@@ -519,9 +579,13 @@ class AgentRuntime:
         call: ToolCall,
         approval_id: str | None = None,
     ) -> AgentRun:
-        """Execute ``call`` through the tool registry and complete the run."""
+        """Execute ``call`` through the tool registry and complete the run.
+
+        The run is settled through the runtime's repository in a worker thread, never on the
+        event loop (docs/realtime.md#event-loop). A caller that must not keep a transaction
+        open while the tool works uses :func:`finish_execution_in_units` instead."""
         result = await self._execute_tool(call, task, run, context)
-        return self._settle(task, run, context, result, approval_id)
+        return await asyncio.to_thread(self._settle, task, run, context, result, approval_id)
 
     async def recover_interrupted_execution(
         self, task: Task, run: AgentRun, context: TenantContext
@@ -556,7 +620,7 @@ class AgentRuntime:
         )
         run.checkpoint.version += 1
         result = await self._execute_tool(call, task, run, context)
-        return self._settle(task, run, context, result)
+        return await asyncio.to_thread(self._settle, task, run, context, result)
 
     async def resume_after_approval(
         self,
@@ -770,23 +834,27 @@ class AgentRuntime:
         context: TenantContext,
         call: ToolCall,
         decision: ToolPolicyDecision,
+        *,
+        reason: str | None = None,
+        ttl_seconds: int | None = None,
     ) -> tuple[AgentRun, Approval]:
         created_at = utc_now()
         definition = self.tools.definition(call.name)
+        ttl = self.approval_ttl if ttl_seconds is None else min(self.approval_ttl, timedelta(seconds=ttl_seconds))
         approval = Approval(
             id=new_id("approval"),
             task_id=task.id,
             action=call.name,
             risk_level=decision.risk_level,
             status=ApprovalStatus.PENDING,
-            reason=f"{decision.reason} Proposed action: {task.prompt[:240]}",
+            reason=(f"{reason[:400]} ({decision.reason})" if reason else f"{decision.reason} Proposed action: {task.prompt[:240]}"),
             created_at=created_at,
             run_id=run.id,
             step_id=run.checkpoint.last_step_id,
             arguments=display_arguments(call.arguments),
             payload_hash=self.checkpoint_payload_hash(task, run)
             or payload_hash(call, task_id=task.id, run_id=run.id, step_id=run.checkpoint.last_step_id),
-            expires_at=created_at + self.approval_ttl,
+            expires_at=created_at + ttl,
             requested_by=context.user_id,
             target=definition.target if definition is not None else None,
         )
@@ -829,9 +897,11 @@ class AgentRuntime:
         When the tool reports ``audit_metadata`` (counts and outcomes, never content),
         it is recorded as a ``tool.call`` audit record in the caller's tenant scope.
         """
-        result = await self.tools.execute(call, context)
+        with running_in(task.id, run.id):
+            result = await self.tools.execute(call, context)
         if result.audit_metadata:
-            self._audit(
+            await asyncio.to_thread(
+                self._audit,
                 context,
                 "tool.call",
                 call.name,
@@ -849,12 +919,80 @@ class AgentRuntime:
         result: ToolResult,
         approval_id: str | None = None,
     ) -> AgentRun:
-        """Complete the run, or fail it when the tool itself reported a failure."""
+        """Complete the run, or fail it when the tool itself reported a failure, or pause it
+        for the continuation a tool asked for (``ToolResult.continuation``)."""
+        if result.status == "paused" and result.continuation is not None:
+            return self._continue(task, run, context, result, approval_id)
         if result.status in {"failed", "blocked"}:
             run.result = result.summary
             self._fail(task, run, context, result.summary, approval_id)
             return run
         return self._complete(task, run, context, result, approval_id)
+
+    def _continue(
+        self,
+        task: Task,
+        run: AgentRun,
+        context: TenantContext,
+        result: ToolResult,
+        approval_id: str | None = None,
+    ) -> AgentRun:
+        """A tool paused part way: checkpoint its continuation and wait for a person.
+
+        The continuation is evaluated like any planned call: a block fails the run, and
+        otherwise the run pauses for an approval whose payload hash binds exactly that call
+        to this run and its new proposal step. A continuation is never executed without an
+        approval, even when policy would allow it, so a tool cannot use it to skip a person.
+        """
+        call = result.continuation
+        if call is None:
+            raise ValueError("A paused result needs a continuation")
+        run.steps.append(
+            AgentRunStep(
+                id=new_id("step"),
+                type="tool_result",
+                summary=result.summary,
+                created_at=utc_now(),
+                metadata={"status": result.status, "truncated": result.truncated, "paused": True},
+            )
+        )
+        decision = self.evaluate(call, context, task, run)
+        proposal_step = AgentRunStep(
+            id=new_id("step"),
+            type="tool_proposal",
+            summary=f"Proposed tool call: {call.name}",
+            created_at=utc_now(),
+            metadata={
+                "tool": call.name,
+                "risk_level": decision.risk_level.value,
+                "policy_outcome": decision.outcome.value,
+                "governance_rules": list(decision.governance_rules),
+                "continuation": True,
+                **({"after_approval_id": approval_id} if approval_id else {}),
+            },
+        )
+        run.steps.append(proposal_step)
+        run.checkpoint.autonomy = None
+        run.checkpoint.phase = RunPhase.TOOL_READY
+        run.checkpoint.version += 1
+        run.checkpoint.tool_call = call.model_dump(mode="json")
+        run.checkpoint.last_step_id = proposal_step.id
+        run.result = result.summary
+        if decision.outcome == ToolPolicyOutcome.BLOCK:
+            self._fail(task, run, context, decision.reason, approval_id)
+            return run
+        if decision.outcome != ToolPolicyOutcome.REQUIRE_APPROVAL:
+            definition = self.tools.definition(call.name)
+            decision = ToolPolicyDecision(
+                outcome=ToolPolicyOutcome.REQUIRE_APPROVAL,
+                reason="The tool paused for a person.",
+                risk_level=definition.risk_level if definition is not None else RiskLevel.HIGH,
+            )
+        self._pause_for_approval(
+            task, run, context, call, decision,
+            reason=result.continuation_reason, ttl_seconds=result.continuation_ttl_seconds,
+        )
+        return run
 
     def _complete(
         self,
@@ -1034,6 +1172,58 @@ class AgentRuntime:
             correlation_id=correlation_id,
         )
         self.repository.record_event(envelope.event)
+
+
+class _NoUnitOpen:
+    """The runtime's repository while no unit of work is open: any use is a bug."""
+
+    def __getattr__(self, name: str) -> object:
+        raise RuntimeError(f"repository.{name} used while no unit of work is open")
+
+
+async def finish_execution_in_units(
+    runtime_factory: Callable[[AnumRepository], "AgentRuntime"],
+    unit_of_work: Callable[[TenantContext], AbstractContextManager[AnumRepository]],
+    task: Task,
+    run: AgentRun,
+    context: TenantContext,
+    call: ToolCall,
+    approval_id: str | None = None,
+) -> AgentRun:
+    """``finish_execution`` for a caller that committed the ``executing`` checkpoint in an
+    earlier unit of work: the tool runs with no transaction open, then the audit record and
+    the run's outcome are written in a new short unit in a worker thread
+    (docs/realtime.md#event-loop). A tool that raises fails the run (saved) and re-raises."""
+    tools = runtime_factory(_NoUnitOpen()).tools  # type: ignore[arg-type]
+    try:
+        with running_in(task.id, run.id):
+            result = await tools.execute(call, context)
+    except Exception as exc:
+        reason = f"The action stopped with an error ({type(exc).__name__}); it may not have finished."
+
+        def failed() -> None:
+            with unit_of_work(context) as repository:
+                runtime_factory(repository)._fail(task, run, context, reason, approval_id)
+                repository.save_task(task)
+                repository.save_run(run)
+
+        await asyncio.to_thread(failed)
+        raise
+
+    def settle() -> None:
+        with unit_of_work(context) as repository:
+            runtime = runtime_factory(repository)
+            if result.audit_metadata:
+                runtime._audit(
+                    context, "tool.call", call.name, result.status, task.id,
+                    {**result.audit_metadata, "tool": call.name, "task_id": task.id, "run_id": run.id},
+                )
+            runtime._settle(task, run, context, result, approval_id)
+            repository.save_task(task)
+            repository.save_run(run)
+
+    await asyncio.to_thread(settle)
+    return run
 
 
 def with_workspace_autonomy(

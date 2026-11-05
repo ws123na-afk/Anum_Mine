@@ -2,6 +2,7 @@ import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 import { campusFixture, mockHq } from './support/hqCampusApi';
 import { useSavedLocale } from './support/workspaceApi';
+import { officeMenuItem } from './support/hqScene';
 
 // ANUM MINE headquarters navigation layer (docs/ANUM_MINE_HQ_EXTENSION_POINTS.md, "Navigation layer"):
 // the floor rail, the quick-view strip, the campus cards, the floor plan with people and the quick moves.
@@ -19,6 +20,9 @@ test.describe.configure({ timeout: 240_000 });
 
 async function openOffice(page: Page, size = { width: 1440, height: 900 }, options: Parameters<typeof mockHq>[1] = { campus: 'api', commerce: 'connected', meetings: 'live' }) {
   await page.addInitScript(() => { try { localStorage.setItem('anum.hq.light', 'day'); } catch { /* storage blocked */ } });
+  // This spec reads the floor list and the side column docked beside the scene: a person who docked them (the Floors button and Show the
+  // side panel). By default the floor selector in the scene is the one floor control and the side column docks from 1600 px (hq-declutter.spec.ts).
+  await page.addInitScript(() => { try { if (!sessionStorage.getItem('hq-nav-seeded')) { sessionStorage.setItem('hq-nav-seeded', '1'); localStorage.setItem('anum.hq.nav.rail', 'open'); localStorage.setItem('anum.hq.nav.side', 'open'); } } catch { /* storage blocked */ } });
   await mockHq(page, options);
   await page.setViewportSize(size);
   await page.goto('/#office-preview');
@@ -91,8 +95,9 @@ test('the people list shows only assigned agents with their real state', async (
   await openOffice(page);
   await enterFleetBuilding(page);
   const people = hq(page).getByRole('region', { name: 'People at their posts' });
-  await expect(people.getByRole('button', { name: /^Open Fleet Planner\. Working\./ })).toBeVisible({ timeout: 30_000 });
-  await expect(people.getByRole('button', { name: /^Open WhatsApp Concierge\. In meetings\./ })).toBeVisible();
+  // The name holds every word the button shows: the agent, its role and room, then its state.
+  await expect(people.getByRole('button', { name: /^Open Fleet Planner\. Operations and warehouse, in Tyre Analysis\. Working\./ })).toBeVisible({ timeout: 30_000 });
+  await expect(people.getByRole('button', { name: /^Open WhatsApp Concierge\. Customer Care, in Customer Care\. In meetings\./ })).toBeVisible();
   // Another person's agent keeps its desk and loses its name.
   await expect(people.getByRole('button', { name: /^Open Private agent\./ })).toBeDisabled();
   // Desks without an assignment are not people.
@@ -192,36 +197,40 @@ for (const [width, height] of [[1440, 900], [1366, 768], [1024, 768]] as const) 
     await expect(rail(page)).toBeVisible({ timeout: 60_000 });
     const stage = hq(page).locator('.hqBuilding .hqStage');
     const before = (await stage.boundingBox())!.width;
-    const toggle = hq(page).getByRole('button', { name: 'Hide side panels' });
+    // Hide side panels moved into the Office tools menu.
+    const toggle = await officeMenuItem(page, 'Hide side panels');
     await expect(toggle).toHaveAttribute('aria-expanded', 'true');
     await toggle.click();
-    const show = hq(page).getByRole('button', { name: 'Show side panels' });
+    const show = await officeMenuItem(page, 'Show side panels');
     await expect(show).toHaveAttribute('aria-expanded', 'false');
+    await page.keyboard.press('Escape');
     await expect(rail(page)).toHaveCount(0);
     await expect(hq(page).getByRole('complementary', { name: 'Floor plan, people and quick moves' })).toHaveCount(0);
     await expect.poll(async () => (await stage.boundingBox())!.width).toBeGreaterThan(before + (width >= 1280 ? 150 : 40));
     await noOverflow(page);
-    // Nothing essential is hidden with them: the floor menu and the quick views are still there.
-    await expect(hq(page).getByLabel('Choose a floor')).toBeVisible();
+    // Nothing essential is hidden with them: the floor selector in the scene and the quick views are still there.
+    await expect(hq(page).getByRole('group', { name: 'Floors of this building' })).toBeVisible();
     await expect(strip(page)).toBeVisible();
     await page.reload();
-    await expect(hq(page).getByRole('button', { name: 'Show side panels' })).toHaveAttribute('aria-expanded', 'false');
-    await hq(page).getByRole('button', { name: 'Show side panels' }).click();
-    await expect(hq(page).getByRole('button', { name: 'Hide side panels' })).toHaveAttribute('aria-expanded', 'true');
+    await expect(await officeMenuItem(page, 'Show side panels')).toHaveAttribute('aria-expanded', 'false');
+    await (await officeMenuItem(page, 'Show side panels')).click();
+    await expect(await officeMenuItem(page, 'Hide side panels')).toHaveAttribute('aria-expanded', 'true');
   });
 }
 
 test('the fold control is absent where the panels are already drawers, and reads Arabic in RTL', async ({ page }) => {
   await openOffice(page, { width: 768, height: 1024 });
-  await expect(hq(page).getByRole('button', { name: 'Hide side panels' })).toHaveCount(0);
+  await expect(await officeMenuItem(page, 'Hide side panels')).toHaveCount(0);
+  await page.keyboard.press('Escape');
   await noOverflow(page);
   const ar = await page.context().newPage();
   await useSavedLocale(ar, 'ar');
   await openOffice(ar, { width: 1440, height: 900 });
   await expect(ar.locator('html')).toHaveAttribute('dir', 'rtl');
-  await expect(hq(ar).getByRole('button', { name: 'إخفاء اللوحات الجانبية' })).toHaveAttribute('aria-expanded', 'true');
-  await hq(ar).getByRole('button', { name: 'إخفاء اللوحات الجانبية' }).click();
-  await expect(hq(ar).getByRole('button', { name: 'إظهار اللوحات الجانبية' })).toHaveAttribute('aria-expanded', 'false');
+  await expect(await officeMenuItem(ar, 'إخفاء اللوحات الجانبية')).toHaveAttribute('aria-expanded', 'true');
+  await (await officeMenuItem(ar, 'إخفاء اللوحات الجانبية')).click();
+  await expect(await officeMenuItem(ar, 'إظهار اللوحات الجانبية')).toHaveAttribute('aria-expanded', 'false');
+  await ar.keyboard.press('Escape');
   await noOverflow(ar);
 });
 
@@ -345,6 +354,8 @@ for (const locale of ['en', 'ar'] as const) {
       await page.addInitScript(() => { try { localStorage.setItem('anum.hq.light', 'day'); } catch { /* storage blocked */ } });
       await useSavedLocale(page, locale);
       await page.addInitScript((value) => { try { localStorage.setItem('anum.theme', value); } catch { /* storage blocked */ } }, theme);
+      // The floor list and the side column docked (a person's choice), as in openOffice.
+      await page.addInitScript(() => { try { localStorage.setItem('anum.hq.nav.rail', 'open'); localStorage.setItem('anum.hq.nav.side', 'open'); } catch { /* storage blocked */ } });
       await mockHq(page, { campus: 'api', commerce: 'connected', meetings: 'live' });
       await page.setViewportSize({ width: 1440, height: 900 });
       await page.goto('/#office-preview');

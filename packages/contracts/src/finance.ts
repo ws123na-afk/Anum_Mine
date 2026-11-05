@@ -137,6 +137,10 @@ export interface FinanceImport {
   created_at: string;
   /** Stage 4: imported rows that break a Guardian rule (on a confirmed import). */
   rule_breaks?: number;
+  /** Rows that reported a payment already recorded (SMS, Apple Pay, by hand): attached, not added (docs/finance-sms.md#reconciliation). */
+  reconciled?: number;
+  /** Rows that could match more than one recorded payment: waiting in Finance, iPhone SMS, Review. */
+  held_for_review?: number;
 }
 
 export interface FinanceBill {
@@ -733,6 +737,52 @@ export interface FinanceLive {
 }
 
 export interface FinanceLiveChangeInput { limits: FinanceLiveLimits; opt_in?: boolean; reason?: string | null }
+
+// ---- Live eligibility preflight, read only (docs/finance.md#live-eligibility-preflight) --------------
+// POST /api/v1/finance/broker/readiness. Ticked facts are the person's own notes, not evidence:
+// whatever is sent, live trading stays off and no order is sent.
+
+export type FinanceBrokerKind = 'alpaca' | 'interactive_brokers' | 'other';
+export type FinanceBrokerAsset = 'stock' | 'crypto';
+export type FinanceBrokerStage = 'not_connected' | 'paper_only' | 'read_only' | 'live_blocked';
+
+/** The person's checklist, in the server's three groups (finance/broker_readiness.py). */
+export type FinancePreflightDataFact =
+  | 'regulated_provider_verified' | 'account_in_owner_name' | 'broker_country_eligibility_verified' | 'asset_permissions_verified'
+  | 'funding_only_at_broker' | 'market_data_terms_accepted' | 'data_freshness_verified' | 'read_only_access_verified';
+export type FinancePreflightResearchFact = 'historical_data_tests_passed' | 'paper_testing_passed' | 'guardian_regression_passed';
+export type FinancePreflightReviewFact =
+  | 'reconciliation_tests_passed' | 'independent_security_review_passed' | 'written_live_approval' | 'withdrawal_scope_absent'
+  | 'credentials_in_secret_store' | 'order_idempotency_verified' | 'emergency_stop_verified';
+export type FinancePreflightFact = FinancePreflightDataFact | FinancePreflightResearchFact | FinancePreflightReviewFact;
+
+export interface FinanceBrokerProfile { broker: FinanceBrokerKind; country_of_residence: string; assets: FinanceBrokerAsset[] }
+
+export interface FinancePreflightInput { facts: Partial<Record<FinancePreflightFact, boolean>>; profile: FinanceBrokerProfile | null }
+
+export interface FinancePreflightNote { code: string; source: string }
+
+export interface FinancePreflight {
+  stage: FinanceBrokerStage;
+  missing_data_requirements: FinancePreflightFact[];
+  missing_research_requirements: FinancePreflightFact[];
+  missing_live_review_requirements: FinancePreflightFact[];
+  system_preconditions: FinanceLivePrecondition[];
+  /** For Interactive Brokers: the IBKR connector's own live gates for this person (docs/finance-live-trading.md#locks). */
+  broker_gates?: FinanceLivePrecondition[];
+  notes: FinancePreflightNote[];
+  broker: FinanceBrokerKind | null;
+  assets: FinanceBrokerAsset[];
+  /** Always false: the checklist is not evidence. */
+  eligibility_confirmed: false;
+  /** Always false: live trading is off. */
+  live_trading_enabled: false;
+  credentials_connected: false;
+  deposits_into_anum_supported: false;
+  /** Always 0: the preflight sends nothing. */
+  orders_sent: 0;
+  explanation: string;
+}
 
 // ---- Stage 9: wider live use, framework only and OFF (docs/finance.md#wider-live) ----------------
 

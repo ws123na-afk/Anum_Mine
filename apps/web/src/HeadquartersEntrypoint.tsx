@@ -15,6 +15,7 @@ export function HeadquartersEntrypoint(props:HeadquartersProps={}){
  const [mode,setMode]=useState<HeadquartersMode>('live');
  const exit=()=>{window.location.hash='#home'};
  // The switch stays visibly separate from the office: authenticated records on one side, the old illustrative tour on the other.
+ // In the live office the concept preview is a choice of the Office tools menu (it is rarely used); the preview itself shows this switch to come back.
  const switcher=<div className="hqModeSwitcher" role="group" aria-label="Office presentation mode">
    <button type="button" aria-pressed={mode==='live'} onClick={()=>setMode('live')}>
     Authenticated office
@@ -24,6 +25,6 @@ export function HeadquartersEntrypoint(props:HeadquartersProps={}){
    </button>
   </div>;
  return <div className="hqEntrypoint" data-mode={mode}>
-  {mode==='live'?<HeadquartersLive onClose={exit} {...props} headerExtra={switcher}/>:<>{switcher}<Suspense fallback={<p role="status">{t('shell.loadingView')}</p>}><OfficeTourView/></Suspense></>}
+  {mode==='live'?<HeadquartersLive onClose={exit} {...props} onConceptPreview={()=>setMode('concept')}/>:<>{switcher}<Suspense fallback={<p role="status">{t('shell.loadingView')}</p>}><OfficeTourView/></Suspense></>}
  </div>;
 }

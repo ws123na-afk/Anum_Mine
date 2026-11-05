@@ -4,7 +4,7 @@
  * the only navigation; this file adds only what is specific to the scene.
  */
 import { Box, DoorOpen, ChevronLeft, ChevronRight, Crosshair, LayoutGrid, List, Map as MapIcon, Maximize2, Minimize2, Moon, Plus, Minus, RotateCcw, RotateCw, Sun, Sunset, Maximize } from 'lucide-react';
-import { useId, useRef, useState, useSyncExternalStore, type ReactElement, type ReactNode } from 'react';
+import { useEffect, useId, useRef, useState, useSyncExternalStore, type ReactElement, type ReactNode } from 'react';
 import { readNightPreset, subscribeNightPreset, writeNightPreset } from './lib/hqLightPreset.ts';
 import { footprintRect } from './lib/campusFacing.ts';
 import { arcPath, donutArcs, STATUS_ORDER, STATUS_TONE, type CampusTotals, type Placement, type StatusKey } from './lib/campusModel.ts';
@@ -17,10 +17,14 @@ import { tierById } from './lib/hqQualityTiers.ts';
 
 export type HqView = '3d' | 'top' | 'list';
 
+const linkKey = (link: PresenceLink) => (link === 'live' ? 'live' : link === 'reconnecting' ? 'reconnecting' : link === 'polling' ? 'polling' : link === 'connecting' ? 'connecting' : link === 'denied' ? 'denied' : 'offline');
+const linkTone = (link: PresenceLink): Tone => (link === 'live' ? 'ok' : link === 'polling' || link === 'reconnecting' || link === 'connecting' ? 'warn' : 'stop');
+type Tone = 'ok' | 'warn' | 'stop';
+
 /** Whether the people on the scene are updating by themselves: Live, Reconnecting, Polling, or Not connected. */
 export function PresenceLinkChip({ link }: { link: PresenceLink }) {
-  const key = link === 'live' ? 'live' : link === 'reconnecting' ? 'reconnecting' : link === 'polling' ? 'polling' : link === 'connecting' ? 'connecting' : link === 'denied' ? 'denied' : 'offline';
-  const tone = link === 'live' ? 'ok' : link === 'polling' || link === 'reconnecting' || link === 'connecting' ? 'warn' : 'stop';
+  const key = linkKey(link);
+  const tone = linkTone(link);
   return (
     <span className={`hqConn hqLink tone-${tone}`} role="status" data-testid="hq-live-link" data-link={link} title={t(`hq.live.${key}.hint` as MessageKey)}>
       {t(`hq.live.${key}` as MessageKey)}
@@ -38,6 +42,48 @@ export function GraphicsChip({ onOpen }: { onOpen: () => void }) {
       title={reasonText(state)} aria-label={`${chipLabel(state)}. ${t('hqGpu.chip.open')}`} onClick={onOpen}>
       {chipLabel(state)}
     </button>
+  );
+}
+
+/**
+ * The one status chip of the page header (docs/ANUM_MINE_HQ_PAGE_LAYOUT.md, "Header"): it names the most pressing of the people link
+ * (Live, Checking, Not connected), the office data read (Connected, Updating, Connection problem) and the graphics tier, in that tone, and
+ * opens a small panel with all three, each in its own words. Nothing is hidden: a problem is the chip's own word, and the panel lists the rest.
+ */
+export function StatusChip(props: { link: PresenceLink; data: { tone: Tone; text: string }; graphics: ReactNode }) {
+  const [open, setOpen] = useState(false);
+  const id = useId();
+  const button = useRef<HTMLButtonElement>(null);
+  const wrap = useRef<HTMLDivElement>(null);
+  const gpu = useSyncExternalStore(subscribeGpuState, getGpuState, getGpuState);
+  const people = { tone: linkTone(props.link), text: t(`hq.live.${linkKey(props.link)}` as MessageKey) };
+  const rank = (tone: Tone) => (tone === 'stop' ? 2 : tone === 'warn' ? 1 : 0);
+  // The word on the chip: a stopped link first, then a slow or changing one (people before the data read), else the people link (Live).
+  const lead = rank(props.data.tone) > rank(people.tone) ? props.data : people;
+  const gpuTone: Tone = gpu && isReduced(gpu) ? 'warn' : 'ok';
+  const tone: Tone = [lead.tone, props.data.tone, people.tone, gpuTone].reduce<Tone>((a, b) => (rank(b) > rank(a) ? b : a), 'ok');
+  const summary = [people.text, props.data.text, gpu ? chipLabel(gpu) : null].filter(Boolean).join(', ');
+  useEffect(() => {
+    if (!open) return undefined;
+    const onDown = (e: PointerEvent) => { if (!wrap.current?.contains(e.target as Node)) setOpen(false); };
+    document.addEventListener('pointerdown', onDown);
+    return () => document.removeEventListener('pointerdown', onDown);
+  }, [open]);
+  return (
+    <div className="hqStatusWrap" ref={wrap} onKeyDown={(e) => { if (e.key === 'Escape' && open) { e.stopPropagation(); setOpen(false); button.current?.focus(); } }}>
+      <button type="button" ref={button} className={`hqConn hqStatusChip tone-${tone}`} data-testid="hq-status-chip" data-tone={tone} aria-expanded={open} aria-controls={id}
+        aria-label={t('hq.statusChip.aria', { summary })} title={summary} onClick={() => setOpen((v) => !v)}>
+        {lead.text}
+      </button>
+      <p className="hqSrOnly" role="status" aria-live="polite">{lead.text}</p>
+      <div className="hqStatusPanel" id={id} role="group" aria-label={t('hq.statusChip.label')} hidden={!open}>
+        <dl>
+          <div><dt>{t('hq.statusChip.people')}</dt><dd><PresenceLinkChip link={props.link} /></dd></div>
+          <div><dt>{t('hq.statusChip.data')}</dt><dd><span className={`hqConn tone-${props.data.tone}`} data-testid="hq-data-status">{props.data.text}</span></dd></div>
+          {props.graphics && <div><dt>{t('hq.statusChip.graphics')}</dt><dd>{props.graphics}</dd></div>}
+        </dl>
+      </div>
+    </div>
   );
 }
 
@@ -60,36 +106,22 @@ export function ViewSwitch({ view, onChange }: { view: HqView; onChange: (view: 
   );
 }
 
-export function CameraTools(props: {
-  yaw: number; night: boolean; onNight: (night: boolean) => void;
-  onZoomIn: () => void; onZoomOut: () => void; onReset: () => void; onNorth: () => void;
-  /** One more button at the end of the corner rail (the campus map toggle). */
-  extra?: ReactNode;
-}) {
-  const preset = useSyncExternalStore(subscribeNightPreset, readNightPreset, () => 'night' as const);
+/** The compass face of the Face north button: it turns with the camera. */
+function Compass({ yaw }: { yaw: number }) {
   return (
-    <div className="hqTools" role="group" aria-label={t('hq.cam.label')}>
-      <button type="button" className="hqCompass" onClick={props.onNorth} aria-label={t('hq.cam.north')} title={t('hq.cam.north')}>
-        <svg viewBox="0 0 40 40" aria-hidden="true" style={{ transform: `rotate(${props.yaw}deg)` }}>
-          <circle cx="20" cy="20" r="18" className="ring" />
-          <path d="M20 5 L25 21 L20 18 L15 21 Z" className="north" />
-          <path d="M20 35 L15 19 L20 22 L25 19 Z" className="south" />
-        </svg>
-        <span className="hqCompassN" aria-hidden="true">N</span>
-      </button>
-      <button type="button" onClick={props.onZoomIn} data-draws="" aria-label={t('hq.cam.zoomIn')} title={t('hq.cam.zoomIn')}><Plus aria-hidden="true" /></button>
-      <button type="button" onClick={props.onZoomOut} data-draws="" aria-label={t('hq.cam.zoomOut')} title={t('hq.cam.zoomOut')}><Minus aria-hidden="true" /></button>
-      <button type="button" onClick={props.onReset} data-draws="" aria-label={t('hq.cam.reset')} title={t('hq.cam.reset')}><Crosshair aria-hidden="true" /></button>
-      <div className="hqToolsSplit" role="group" aria-label={t('hq.cam.light')}>
-        <button type="button" aria-pressed={!props.night} onClick={() => props.onNight(false)} aria-label={t('hq.cam.day')} title={t('hq.cam.day')}><Sun aria-hidden="true" /></button>
-        <button type="button" aria-pressed={props.night && preset === 'dusk'} onClick={() => { writeNightPreset('dusk'); props.onNight(true); }} aria-label={t('hq.cam.dusk')} title={t('hq.cam.dusk')}><Sunset aria-hidden="true" /></button>
-        <button type="button" aria-pressed={props.night && preset === 'night'} onClick={() => { writeNightPreset('night'); props.onNight(true); }} aria-label={t('hq.cam.night')} title={t('hq.cam.night')}><Moon aria-hidden="true" /></button>
-      </div>
-      {props.extra && <div className="hqToolsSplit">{props.extra}</div>}
-    </div>
+    <svg viewBox="0 0 40 40" aria-hidden="true" className="hqCompassFace" style={{ transform: `rotate(${yaw}deg)` }}>
+      <circle cx="20" cy="20" r="18" className="ring" />
+      <path d="M20 5 L25 21 L20 18 L15 21 Z" className="north" />
+      <path d="M20 35 L15 19 L20 22 L25 19 Z" className="south" />
+    </svg>
   );
 }
 
+/**
+ * The one camera group of a scene (docs/ANUM_MINE_HQ_LABELS.md, "Declutter"): rotate, the floor or building steps, Inside, Floor overview,
+ * Pan, zoom, Reset view, an optional extra (the campus map), More camera options (Face north and the light) and Full screen. It fades
+ * while the scene is idle and comes back on hover, focus or touch (`useIdleFade`).
+ */
 export function BottomToolbar(props: {
   onRotateLeft: () => void; onRotateRight: () => void; onPrev?: () => void; onNext?: () => void; prevDisabled?: boolean; nextDisabled?: boolean;
   prevLabel?: string; nextLabel?: string; fullscreen: boolean; onFullscreen: () => void;
@@ -100,9 +132,32 @@ export function BottomToolbar(props: {
   overview?: { active: boolean; onToggle: () => void };
   /** Dragging moves the scene sideways while on (the mock's Pan). */
   pan?: { active: boolean; onToggle: () => void };
+  /** Back to the home framing. */
+  onReset?: () => void;
+  /** Face north (the compass turns with the camera) and the light presets, under More camera options. */
+  north?: { yaw: number; onNorth: () => void };
+  light?: { night: boolean; onNight: (night: boolean) => void };
+  /** One more button before More camera options (the campus map toggle). */
+  extra?: ReactNode;
+  /** The scene is idle: the group fades (hover, focus and touch bring it back). */
+  idle?: boolean;
 }) {
+  const preset = useSyncExternalStore(subscribeNightPreset, readNightPreset, () => 'night' as const);
+  const moreId = useId();
+  const [more, setMore] = useState(false);
+  const moreButton = useRef<HTMLButtonElement>(null);
+  const closeMore = (focus: boolean) => { setMore(false); if (focus) moreButton.current?.focus(); };
+  // A press anywhere outside the group closes the options.
+  useEffect(() => {
+    if (!more) return undefined;
+    const onDown = (e: PointerEvent) => { if (!moreButton.current?.parentElement?.contains(e.target as Node)) setMore(false); };
+    document.addEventListener('pointerdown', onDown);
+    return () => document.removeEventListener('pointerdown', onDown);
+  }, [more]);
   return (
-    <div className="hqToolbar" role="toolbar" aria-label={t('hq.tool.label')}>
+    <div className="hqToolbar hqCamGroup" role="toolbar" aria-label={t('hq.tool.label')} data-idle={props.idle === true}
+      onKeyDown={(e) => { if (e.key === 'Escape' && more) { e.stopPropagation(); closeMore(true); } }}
+      onBlur={(e) => { if (more && !e.currentTarget.contains(e.relatedTarget as Node | null)) setMore(false); }}>
       <button type="button" onClick={props.onRotateLeft} data-draws="" aria-label={t('hq.tool.rotateLeft')} title={t('hq.tool.rotateLeft')}><RotateCcw aria-hidden="true" /><span>{t('hq.tool.rotateLeft')}</span></button>
       {props.onPrev && <button type="button" disabled={props.prevDisabled} onClick={props.onPrev} aria-label={props.prevLabel ?? t('hq.tool.prev')} title={props.prevLabel ?? t('hq.tool.prev')}><ChevronLeft aria-hidden="true" className="flip" /></button>}
       {props.onNext && <button type="button" disabled={props.nextDisabled} onClick={props.onNext} aria-label={props.nextLabel ?? t('hq.tool.next')} title={props.nextLabel ?? t('hq.tool.next')}><ChevronRight aria-hidden="true" className="flip" /></button>}
@@ -127,6 +182,25 @@ export function BottomToolbar(props: {
       <span className="hqToolbarSep" aria-hidden="true" />
       <button type="button" onClick={props.onZoomOut} data-draws="" aria-label={t('hq.cam.zoomOut')} title={t('hq.cam.zoomOut')}><Minus aria-hidden="true" /></button>
       <button type="button" onClick={props.onZoomIn} data-draws="" aria-label={t('hq.cam.zoomIn')} title={t('hq.cam.zoomIn')}><Plus aria-hidden="true" /></button>
+      {props.onReset && <button type="button" onClick={props.onReset} data-draws="" aria-label={t('hq.cam.reset')} title={t('hq.cam.reset')}><Crosshair aria-hidden="true" /></button>}
+      {props.extra}
+      {(props.north || props.light) && (
+        <span className="hqCamMore">
+          <button type="button" ref={moreButton} aria-expanded={more} aria-controls={moreId} aria-label={t('hq.cam.more')} title={t('hq.cam.more')} data-testid="hq-cam-more" onClick={() => setMore((v) => !v)}>
+            {props.north ? <Compass yaw={props.north.yaw} /> : <Sun aria-hidden="true" />}
+          </button>
+          <span className="hqCamMorePanel" id={moreId} role="group" aria-label={t('hq.cam.more')} hidden={!more}>
+            {props.north && <button type="button" className="hqCompass" onClick={() => { props.north!.onNorth(); closeMore(true); }} aria-label={t('hq.cam.north')} title={t('hq.cam.north')}><Compass yaw={props.north.yaw} /><span>{t('hq.cam.north')}</span></button>}
+            {props.light && (
+              <span className="hqToolsSplit" role="group" aria-label={t('hq.cam.light')}>
+                <button type="button" aria-pressed={!props.light.night} onClick={() => props.light!.onNight(false)} aria-label={t('hq.cam.day')} title={t('hq.cam.day')}><Sun aria-hidden="true" /><span>{t('hq.cam.day')}</span></button>
+                <button type="button" aria-pressed={props.light.night && preset === 'dusk'} onClick={() => { writeNightPreset('dusk'); props.light!.onNight(true); }} aria-label={t('hq.cam.dusk')} title={t('hq.cam.dusk')}><Sunset aria-hidden="true" /><span>{t('hq.cam.dusk')}</span></button>
+                <button type="button" aria-pressed={props.light.night && preset === 'night'} onClick={() => { writeNightPreset('night'); props.light!.onNight(true); }} aria-label={t('hq.cam.night')} title={t('hq.cam.night')}><Moon aria-hidden="true" /><span>{t('hq.cam.night')}</span></button>
+              </span>
+            )}
+          </span>
+        </span>
+      )}
       <button type="button" onClick={props.onFullscreen} aria-pressed={props.fullscreen} aria-label={props.fullscreen ? t('hq.tool.exitFullscreen') : t('hq.tool.fullscreen')} title={props.fullscreen ? t('hq.tool.exitFullscreen') : t('hq.tool.fullscreen')}>
         {props.fullscreen ? <Minimize2 aria-hidden="true" /> : <Maximize2 aria-hidden="true" />}
         <span>{props.fullscreen ? t('hq.tool.exitFullscreen') : t('hq.tool.fullscreen')}</span>

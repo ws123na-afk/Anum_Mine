@@ -26,6 +26,9 @@ class TenantTable:
     domain: str
     workspace_column: str | None = "workspace_id"
     storage_key_column: str | None = None
+    # A second column naming a workspace whose deletion also removes the row (rows one workspace made in
+    # another, such as an owner's business allocations: docs/finance-links.md#storage-privacy-and-deletion).
+    origin_workspace_column: str | None = None
 
 
 # The job table of this feature: never exported, never purged by the purge role (the
@@ -53,9 +56,13 @@ _TENANT_WIDE = frozenset(
         "billing_number_sequences",
         "billing_webhook_events",
         "billing_signups",
+        "billing_refunds",
+        "billing_company_profiles",
         "approval_rules",
         "autonomy_guardrails",
         "contact_suppressions",
+        "contact_consents",
+        "contact_consent_settings",
         "finance_exec_global",
         "home_profiles",
         "marketplace_packages",
@@ -76,6 +83,7 @@ _TENANT_WIDE = frozenset(
 )
 
 _DOMAINS = (
+    ("attendance_", "attendance"),
     ("app_call", "calls"),
     ("call_", "calls"),
     ("mail_", "mail"),
@@ -87,6 +95,12 @@ _DOMAINS = (
     ("marketing_", "marketing"),
     ("sales_", "sales"),
     ("contact_suppressions", "marketing"),
+    ("contact_consent", "marketing"),
+    ("agent_loop_limits", "agents"),
+    ("action_browser_", "agents"),
+    ("vault_", "documents"),
+    ("vehicle", "vehicles"),
+    ("purchase", "purchases"),
     ("commerce_", "commerce"),
     ("tyre_", "tyre"),
     ("office_", "office"),
@@ -155,6 +169,7 @@ def domain_of(table: str) -> str:
 
 # Children before parents. Keep every tenant table here (the tests check it).
 _ORDER = (
+    "billing_refunds",
     "billing_invoice_lines",
     "billing_credit_notes",
     "billing_payments",
@@ -168,6 +183,7 @@ _ORDER = (
     "billing_number_sequences",
     "billing_webhook_events",
     "billing_signups",
+    "billing_company_profiles",
     "app_call_signals",
     "app_calls",
     "call_ai_requests",
@@ -187,6 +203,19 @@ _ORDER = (
     "mail_identities",
     "mail_account_grants",
     "mail_accounts",
+    "finance_links",
+    "finance_device_events",
+    "business_ledger_allocations",
+    "finance_postings",
+    "finance_journal_entries",
+    "finance_sms_rules",
+    "finance_sms_messages",
+    "finance_sms_devices",
+    "finance_sms_settings",
+    "finance_broker_events",
+    "finance_broker_orders",
+    "finance_broker_connections",
+    "finance_broker_settings",
     "finance_agent_decisions",
     "finance_strategy_runs",
     "finance_strategies",
@@ -221,6 +250,8 @@ _ORDER = (
     "business_outreach_settings",
     "business_portal_decisions",
     "business_portal_access",
+    "business_invoice_messages",
+    "business_invoice_payment_links",
     "business_payment_notices",
     "business_credit_notes",
     "business_invoice_payments",
@@ -240,6 +271,7 @@ _ORDER = (
     "business_activities",
     "business_inferences",
     "business_evidence",
+    "business_lead_pair_decisions",
     "business_leads",
     "business_contacts",
     "business_accounts",
@@ -255,6 +287,8 @@ _ORDER = (
     "brevo_campaign_drafts",
     "brevo_connections",
     "contact_suppressions",
+    "contact_consents",
+    "contact_consent_settings",
     "commerce_order_lines",
     "commerce_orders",
     "commerce_listings",
@@ -320,6 +354,24 @@ _ORDER = (
     "favorites",
     "user_notifications",
     "team_activity",
+    "attendance_daily_reports", "attendance_day_totals", "attendance_corrections", "attendance_events", "attendance_sites", "attendance_profiles", "attendance_shares",
+    "vehicle_reminders", "vehicle_service_records", "vehicle_trips", "vehicle_fuel_entries", "vehicle_odometer_readings", "vehicle_preferences",
+    "vehicles",
+    "purchase_reminders", "purchase_events", "purchase_returns", "purchase_shipments", "purchase_items", "purchase_preferences",
+    "purchases",
+    "business_book_bill_payments", "business_book_bills", "business_book_allocation_tags", "business_book_budgets", "business_book_adjustments",
+    "business_book_intercompany", "business_book_rates", "business_book_vendors", "business_book_cost_centres", "business_book_settings",
+    "vault_access_log",
+    "vault_extractions",
+    "vault_document_links",
+    "vault_document_access",
+    "vault_documents",
+    "vault_devices",
+    "vault_categories",
+    "vault_settings",
+    "action_browser_steps",
+    "action_browser_sessions",
+    "action_browser_credentials",
     "work_item_attachments",
     "work_item_checklist",
     "work_item_comments",
@@ -334,6 +386,7 @@ _ORDER = (
     "marketing_preferences",
     "agent_usage_monthly",
     "agent_cost_caps",
+    "agent_loop_limits",
     "agent_emergency_stops",
     "agent_memories",
     "setup_plan_checks",
@@ -392,6 +445,8 @@ _ORDER = (
     "memories",
     "domain_events",
     "approval_approvers",
+    "approval_reminders",
+    "approval_reminder_settings",
     "approvals",
     "agent_run_steps",
     "agent_runs",
@@ -409,6 +464,11 @@ _STORAGE_KEYS = {
 }
 
 
+_ORIGIN_COLUMNS = {
+    "business_ledger_allocations": "source_workspace_id",
+}
+
+
 def _entry(name: str) -> TenantTable:
     if name == "workspaces":
         workspace_column: str | None = "id"
@@ -416,7 +476,7 @@ def _entry(name: str) -> TenantTable:
         workspace_column = None
     else:
         workspace_column = "workspace_id"
-    return TenantTable(name, domain_of(name), workspace_column, _STORAGE_KEYS.get(name))
+    return TenantTable(name, domain_of(name), workspace_column, _STORAGE_KEYS.get(name), _ORIGIN_COLUMNS.get(name))
 
 
 TENANT_TABLES: tuple[TenantTable, ...] = tuple(_entry(name) for name in _ORDER)

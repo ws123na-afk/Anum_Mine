@@ -399,6 +399,7 @@ def test_every_state_changing_route_is_audited_without_content() -> None:
     probe = AuditProbe(client, "agent_controls")
     probe.call("PUT", "/api/v1/agent-controls/emergency-stop", ORG_ADMIN, json={"engaged": True, "reason": "Audit walk"})
     probe.call("PUT", f"/api/v1/agent-controls/agent-caps/{agent['id']}", OWNER, json={"monthly_cost_limit_usd": 3})
+    probe.call("PUT", f"/api/v1/agent-controls/loop-limits/{agent['id']}", OWNER, json={"max_runs_per_task": 5, "max_step_attempts": 3})
     probe.assert_covered()
 
 

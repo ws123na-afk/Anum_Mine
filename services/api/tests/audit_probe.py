@@ -39,6 +39,7 @@ MODULE_PREFIXES = {
     "business_support": "/api/v1/business/support",
     "business_invoices": "/api/v1/business/invoices",
     "business_portal": "/api/v1/business/portal",
+    "business_books": "/api/v1/business/books",
     "portal": "/api/v1/portal",
     "autonomy": "/api/v1/autonomy",
     "developer": "/api/v1/developer",
@@ -47,6 +48,8 @@ MODULE_PREFIXES = {
     "mail": "/api/v1/mail",
     "mail_ai": "/api/v1/mail/ai",
     "whatsapp": "/api/v1/whatsapp",
+    "contact_consents": "/api/v1/contact-consents",
+    "approval_reminders": "/api/v1/approval-reminders",
 }
 _CALL_WEBHOOK = (
     "The voice provider's signed delivery during a call, not a person's action; call starts, ends, "
@@ -56,6 +59,10 @@ EXEMPT: dict[tuple[str, str], str] = {
     ("POST", "/api/v1/billing/webhooks/stripe/{issuer_tenant_id}"): (
         "Stripe's signed delivery, not a person's action; each event id is stored once and the payment it "
         "records carries the provider id and the system:stripe actor."
+    ),
+    ("POST", "/api/v1/billing/webhooks/moyasar/{issuer_tenant_id}"): (
+        "Moyasar's delivery, checked by its secret token and read back from Moyasar's API, not a person's action; "
+        "each event id is stored once and the payment or refund it records carries the provider id and the system:moyasar actor."
     ),
     ("POST", "/api/v1/calls/webhooks/twilio/{route_id}/voice"): _CALL_WEBHOOK,
     ("POST", "/api/v1/calls/webhooks/twilio/{route_id}/dial/{call_id}"): _CALL_WEBHOOK,

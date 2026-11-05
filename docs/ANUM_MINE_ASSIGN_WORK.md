@@ -44,7 +44,9 @@ Fields: agent (searchable, paged, shows who sits in the room, paused agents mark
 
 Before sending the dialog shows what the agent can do, read from the agent record and the tool catalogue: for read, write and external tools whether it acts by itself, asks first or is off (never looser than the workspace floor), the tools it holds, the high risk ones, tools no longer provided, and that an approval stops the run and only a person can decide it. If the catalogue cannot be read the dialog says tool risk is not shown.
 
-States: agents loading, error with retry, no agents (link to Agents), paused ("turn it on first", with a Turn it on button when the person may edit the agent), no permission or agent not shared (who to ask), agent gone, offline (sending disabled), validation (per field and a summary), server refusal (text is kept; a refusal because the agent was paused offers the fix), run not started (task exists, reason shown), waiting for approval (link to Approvals), done. Escape closes it and focus returns to the opener. The layout is a bottom sheet under 580 px. English and Arabic with right to left.
+Assign to: **An agent** (a task, as below) or **A person** (a Team work item through `POST /api/v1/work-items`, the Team page's own route and `draftBody`; only people the API marks assignable are offered; states: people loading, error with retry, no permission, nobody assignable with a link to Members, refusal keeps the text, done with a full page link to Team).
+
+States: agents loading, error with retry, no agents (link to Agents), paused ("turn it on first", with a Turn it on button when the person may edit the agent), no permission or agent not shared (who to ask), agent gone, offline (sending disabled), validation (per field and a summary), server refusal (text is kept; a refusal because the agent was paused offers the fix), run not started (task exists, reason shown), waiting for approval (Review the approval opens it in a drawer in the office), done. Escape closes it and focus returns to the opener. The layout is a bottom sheet under 580 px. English and Arabic with right to left.
 
 ### The route
 
@@ -58,7 +60,44 @@ It adds no rules of its own. It calls `main.create_task` (the body of `POST /tas
 - The database work runs in a worker thread with its own loop, not on the server's loop.
 - PostgreSQL only (503 otherwise).
 
-After assigning, a toast links to the task; "Open the task" shows it in a side panel (title, status, instructions, latest run, result, steps) with a link to Tasks. It never navigates unless the person clicks that link.
+After assigning, the flow, the desks and the open side panel read again at once, and when the agent's desk is on the open floor its workstation panel opens beside the scene with the new task in its work list. A toast links to the task; "Open the task" shows it in a drawer (see below). It never navigates unless the person clicks "Open full page".
+
+## Work inside the office
+
+Owner, 2 November 2026: "why any task I want to give goes back to other modules, not live inside ANUM (the HQ)". Every piece of work given or followed from the office now opens in a drawer over the scene (`src/hq-assign/WorkDrawer.tsx`), one at a time, at the inline end (full width under 580 px). Each drawer is a lazy chunk; Escape or the close button closes it and focus goes back to what opened it, or to the scene when that is gone. Each has an "Open full page" link to the module for the rare deep task; it is never the default. English and Arabic (right to left).
+
+| Drawer | What it shows and does | Same code and rules as |
+|---|---|---|
+| Task (`TaskPanel.tsx`) | Title, status, instructions, the latest run's phase, result and steps; read again on every workspace event (`live`); Run, Retry, Resume, Cancel by `taskActions` and `roleAllows`; a task waiting for a person offers Review the approval; Show history. A history run record opens the task it belongs to | Tasks page (`lib/tasks.ts`, `lib/tasksApi.ts`) |
+| Approval or approvals (`ApprovalPanel.tsx`) | One approval, the pending ones of a task, or the whole pending queue (paged). The cards are the Approvals page's own `PendingApproval` (exact tool, target, every argument, payload hash, routing, progress, expiry, reason field); decided ones show the decision, arguments and hash | Approvals page: `api.approveTask` / `api.rejectTask` send back the payload hash shown; the server keeps routing, the two person rule, expiry and audit |
+| Meeting (`MeetingPanel.tsx`) | The Meetings module's `MeetingRoomPanel` (join, leave, hand, agenda, transcript, notes, summary), or its picker without an id, with Start a meeting (the office's own agent meetings panel) | Meetings module |
+| Agent work (`AgentWorkPanel.tsx`) | The agent record and the tasks run as it, newest first, paged (`GET /api/v1/tasks?agent_id=`), each opening its task drawer; Assign work | Tasks list route and permission |
+
+States in every drawer: loading, empty with a next action, error with Try again, permission denied (who can), record gone. No new API route.
+
+### Places that used to leave the office
+
+| Place | Before | Now |
+|---|---|---|
+| Desk work (`HqWorkstationWork.tsx`): a task | link to `#tasks` | Open task: task drawer |
+| Desk work: approvals | link to `#approvals` | Review here per approval: approval drawer |
+| Agent card (`HqPanels.tsx`) | only Open agent profile (`#agents/team/...`) | Work and results: agent drawer; the profile link stays as the full page |
+| Team panel card (`HqTeamPanel.tsx`) | Open agent: `#agents` | Work and results of {name}: agent drawer; the member's current task opens its drawer |
+| Room with a live meeting (`HqPanels.tsx`, `HqRoomModule.tsx`) | `#office/meeting/<id>` page | Open the meeting here, and the module link: meeting drawer (the href stays for a new tab) |
+| Meeting room's module link | `#meetings` | meeting picker drawer |
+| Office room whose module is Tasks | `#tasks` | the live flow dock filtered to that room |
+| Live flow dock: Decide the approval | `#approvals` | approvals drawer of that task |
+| Live flow dock: Resume the agent | `#agents` | agent drawer |
+| History record (`HqHistoryDetail.tsx`): task, run, approval, meeting | only Open in the full page | Open the ... here: its drawer; the full page button stays |
+| History empty state | Open tasks: `#tasks` | Assign work: the assign dialog |
+| Assign dialog done: waiting for approval | `#approvals` | Review the approval: approval drawer |
+| Missing roles proposal done (`ProposalDialog.tsx`) | Open Agents: `#agents` | Show the team: the office's team panel |
+| Assistant dock (`main.tsx`, `ExecutivePanel.tsx`): open a task, Approvals, Meetings, Tasks, Agents, a briefing approval or meeting line | the module page | task drawer, approvals drawer, meeting picker, live flow, team panel, that approval or meeting |
+| Meeting room links to a created task or linked work (`MeetingRoomParts.tsx`, `MeetingSummaryParts.tsx`) | `#tasks`, `#approvals` | in the office: that task or approval drawer (on the Meetings page they still navigate) |
+
+Kept as full page links on purpose (setup, not work): no agents yet (Agents), nobody assignable (Members), Documents, calendar quick move, office staffing connections and the Executive desk, the workstation evidence overlay's agent profile.
+
+Extension: any code calls `openHqPanel({ kind: 'task' | 'run' | 'approval' | 'approvals' | 'meeting' | 'agent', ... })` or `openViewInHq(view)` from `lib/hqWorkPanels.ts`; both return false when no headquarters is mounted, and the caller navigates as before. Ids are checked (`validPanel`) before anything opens. Tests: `test/hqWorkPanels.test.ts`, `e2e/hq-stay-inside.spec.ts` (assign from a desk and see it on the desk and in the flow, task drawer with Escape and focus, approval decided in place with the payload hash, flow dock approvals, agent work log, a meeting joined in place, five sizes in English and Arabic with axe), `e2e/hq-live-flow.spec.ts`.
 
 ## Add a building by asking
 
@@ -94,3 +133,6 @@ Assign: press **Assign work** on a room, team card, agent card or flow item; the
 - The assignment key is generated per dialog attempt in the browser; two different browsers retrying the same text make two tasks.
 - Floors and rooms use fixed templates; a custom layout is edited afterwards in the office builder.
 - The assistant opens the dialog only while the headquarters is open. On the Executive desk page it keeps its confirm card.
+- Work given to a person is a Team work item: it has no drawer in the office yet (its done view links to Team), and people have no desks in the scene.
+- A drawer replaced by another (approval, then its task) returns focus to the scene, not to the first opener.
+- The 3D desk screens are drawn by the renderer from presence; this change re-reads presence after an assignment but does not change how screens draw.

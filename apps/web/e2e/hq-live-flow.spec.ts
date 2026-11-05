@@ -1,6 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
 import { hqRegistry, openHq, TENANT_A } from './support/hqApi';
 import { flowItems, mockFlow, type FlowMock } from './support/hqFlowApi';
+import { sceneSettled } from './support/hqScene';
 
 // Live flow, stuck work and office teams in the headquarters (docs/ANUM_MINE_HQ_LIVE_FLOW.md).
 // Everything shown comes from the mocked /office/flow, /office/team and event stream; the tests
@@ -38,8 +39,10 @@ test('the dock summarises real records and lists what is stuck with a reason and
   await expect(stuck).toContainText('A new lead has had no owner for 5 h. The limit is 4 h.');
   await expect(stuck).toContainText('No owner yet, so no office');
   await expect(dock(page).getByText('Commerce orders: Not connected.')).toBeVisible();
+  // The approval opens beside the office, not on the Approvals page (the office is never left for it).
   await stuck.getByRole('button', { name: 'Decide the approval' }).click();
-  await expect(page).toHaveURL(/#approvals$/);
+  await expect(page.getByRole('complementary', { name: 'Approvals waiting' })).toBeVisible();
+  await expect(page).toHaveURL(/#office-preview$/);
 });
 
 test('rooms carry a badge with the real counts and selecting it filters the dock to that office', async ({ page }) => {
@@ -182,6 +185,9 @@ for (const [width, height] of sizes) {
   test(`fits ${width}x${height} with the dock open and no horizontal overflow`, async ({ page }) => {
     await page.setViewportSize({ width, height });
     await open(page);
+    // The layout is measured once the page has its final shape: the scene and the strips that arrive with it sit above the dock,
+    // so a measure taken while they load reads the dock pushed below the fold by the late content, not the dock's own layout.
+    await sceneSettled(page);
     await page.getByRole('button', { name: /Live flow/ }).first().click();
     await expect(dock(page).getByRole('list', { name: 'Stuck work' })).toBeVisible();
     const issues = await page.evaluate(() => {

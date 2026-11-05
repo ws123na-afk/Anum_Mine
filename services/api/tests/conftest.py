@@ -11,6 +11,7 @@ import pytest
 from alembic import command
 from alembic.config import Config
 from sqlalchemy import Engine, create_engine, text
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 from sqlalchemy.pool import NullPool
 
@@ -33,6 +34,8 @@ TABLES_IN_DELETE_ORDER = (
     "agent_usage_monthly",
     "agent_cost_caps",
     "agent_emergency_stops",
+    "billing_refunds",
+    "billing_company_profiles",
     "billing_invoice_lines",
     "billing_credit_notes",
     "billing_payments",
@@ -69,6 +72,19 @@ TABLES_IN_DELETE_ORDER = (
     "mail_identities",
     "mail_account_grants",
     "mail_accounts",
+    "finance_links",
+    "finance_device_events",
+    "business_ledger_allocations",
+    "finance_postings",
+    "finance_journal_entries",
+    "finance_sms_rules",
+    "finance_sms_messages",
+    "finance_sms_devices",
+    "finance_sms_settings",
+    "finance_broker_events",
+    "finance_broker_orders",
+    "finance_broker_connections",
+    "finance_broker_settings",
     "finance_agent_decisions",
     "finance_strategy_runs",
     "finance_strategies",
@@ -97,6 +113,8 @@ TABLES_IN_DELETE_ORDER = (
     "finance_settings",
     "business_portal_decisions",
     "business_portal_access",
+    "business_invoice_messages",
+    "business_invoice_payment_links",
     "business_payment_notices",
     "business_credit_notes",
     "business_invoice_payments",
@@ -253,6 +271,22 @@ def pytest_collection_modifyitems(config: pytest.Config, items: list[pytest.Item
             config.hook.pytest_deselected(items=live)
             items[:] = [item for item in items if "live_model" not in item.keywords]
 
+    # Real-browser tests need Playwright and Chromium: they run only when the -m expression
+    # names them (the "Browser research kernel" CI job), deselected otherwise, never skipped.
+    if "browser" not in (config.getoption("markexpr", "") or ""):
+        driven = [item for item in items if "browser" in item.keywords]
+        if driven:
+            config.hook.pytest_deselected(items=driven)
+            items[:] = [item for item in items if "browser" not in item.keywords]
+
+    # The document vault's OCR tests need the tesseract binary with eng and ara data: they run
+    # only when the -m expression names them (the "Document OCR" CI job), deselected otherwise.
+    if "ocr" not in (config.getoption("markexpr", "") or ""):
+        scanned = [item for item in items if "ocr" in item.keywords]
+        if scanned:
+            config.hook.pytest_deselected(items=scanned)
+            items[:] = [item for item in items if "ocr" not in item.keywords]
+
     if os.getenv("ANUM_TEST_DATABASE_URL"):
         return
 
@@ -321,14 +355,45 @@ def test_database_url() -> str:
     return value
 
 
+# One test run per database at a time. A second pytest session on the same database
+# (two agents or terminals sharing one local cluster) downgrades the schema to base and
+# truncates every table under the first one: its tests then fail with "relation ... does
+# not exist", foreign-key violations on rows that were just seeded, deadlocks, or hang on
+# locks the other run holds. The session holds this advisory lock until it ends.
+TEST_DATABASE_LOCK_KEY = "anum-api-tests:database"
+
+
+@contextmanager
+def exclusive_test_database(database_url: str) -> Iterator[None]:
+    wait_seconds = int(os.getenv("ANUM_TEST_DATABASE_LOCK_WAIT_SECONDS", "1800"))
+    engine = create_engine(database_url, poolclass=NullPool)
+    connection = engine.connect().execution_options(isolation_level="AUTOCOMMIT")
+    try:
+        connection.execute(text(f"set lock_timeout = '{wait_seconds}s'"))
+        try:
+            connection.execute(text("select pg_advisory_lock(hashtextextended(:key, 0))"), {"key": TEST_DATABASE_LOCK_KEY})
+        except OperationalError as exc:
+            raise pytest.UsageError(
+                f"Another test run has used this database for over {wait_seconds} s. Database tests drop "
+                "and rebuild the whole schema, so two runs cannot share one database: wait for the other "
+                "run, or point ANUM_TEST_DATABASE_URL at a database of your own."
+            ) from exc
+        connection.execute(text("reset lock_timeout"))
+        yield
+    finally:
+        connection.close()  # ends the session, which releases the advisory lock
+        engine.dispose()
+
+
 @pytest.fixture(scope="session")
 def database_engine(test_database_url: str) -> Iterator[Engine]:
-    run_migration(test_database_url, "downgrade", "base")
-    run_migration(test_database_url, "upgrade", "head")
-    engine = create_engine(test_database_url, poolclass=NullPool, pool_pre_ping=True)
-    grant_app_role(engine)
-    yield engine
-    engine.dispose()
+    with exclusive_test_database(test_database_url):
+        run_migration(test_database_url, "downgrade", "base")
+        run_migration(test_database_url, "upgrade", "head")
+        engine = create_engine(test_database_url, poolclass=NullPool, pool_pre_ping=True)
+        grant_app_role(engine)
+        yield engine
+        engine.dispose()
 
 
 def _clean_database(engine: Engine) -> None:

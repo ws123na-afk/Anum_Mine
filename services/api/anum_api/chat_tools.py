@@ -47,7 +47,10 @@ if TYPE_CHECKING:
 logger = logging.getLogger("anum.chat_tools")
 
 ChatCategory = Literal["email", "whatsapp", "commerce", "tyre", "finance", "web", "files", "action"]
-CardState = Literal["running", "results", "approval", "failed", "cancelled", "denied"]
+# ``unavailable``: the capability the request needs is off or not connected here (the reason and
+# where to turn it on, docs/conversations.md#what-anum-can-do); ``needs_input``: ANUM can do it
+# but needs one more detail from the user's own words (a website task's https address).
+CardState = Literal["running", "results", "approval", "failed", "cancelled", "denied", "unavailable", "needs_input"]
 ItemKind = Literal["email", "whatsapp", "web", "file", "memory", "order", "listing", "tyre"]
 
 MAX_CARD_ITEMS = 10
@@ -132,11 +135,19 @@ _TOOL_CATEGORIES: dict[str, ChatCategory] = {
     "request_mail_action": "email",
     "external.action": "action",
     "web_search": "web",
+    "web.browse_page": "web",
+    # The action browser (docs/action-browser.md): an errand on a website, as a governed task.
+    "web.act": "action",
 }
 
 
 def chat_intent(question: str, skills: "SkillRegistry", tool_names: set[str]) -> ChatCategory | None:
-    """What the question needs, from the user's own words; ``None`` for plain conversation.
+    """What the question needs, from the user's own words; ``None`` for plain conversation."""
+    return chat_route(question, skills, tool_names)[0]
+
+
+def chat_route(question: str, skills: "SkillRegistry", tool_names: set[str]) -> tuple[ChatCategory | None, str]:
+    """``(category, tool)`` for the question, from the user's own words.
 
     The tool is the one a task with this prompt would plan
     (``agent_planning.choose_tool_call``), so chat, tasks and the command preview agree.
@@ -146,23 +157,23 @@ def chat_intent(question: str, skills: "SkillRegistry", tool_names: set[str]) ->
     selected = skills.select(question, tool_names)
     call = choose_tool_call(question, selected, "", tool_names)
     if call.name in _TOOL_CATEGORIES:
-        return _TOOL_CATEGORIES[call.name]
+        return _TOOL_CATEGORIES[call.name], call.name
     if call.name.startswith("commerce.") or (
         # A change request without channel, SKU or value: the commerce skill explains what to say.
         call.name == "anum.respond" and "text" in call.arguments and call.arguments["text"]
         and any(skill.id == "anum.commerce" for skill in selected)
     ):
-        return "commerce"
+        return "commerce", call.name
     if call.name in TYRE_READ_TOOLS:
-        return "tyre"
+        return "tyre", call.name
     if call.name in FINANCE_CHAT_TOOLS:
         # The caller's own ledger, read only, or a rule proposal (docs/finance.md#assistant).
-        return "finance"
+        return "finance", call.name
     if call.name == "anum.respond" and _words(question) & FILE_WORDS:
-        return "files"
+        return "files", call.name
     # Anything else (plain conversation, a team assignment handled by its own chat path)
     # stays a conversation.
-    return None
+    return None, call.name
 
 
 # -- configuration (set by main.py) ----------------------------------------------------------
@@ -276,6 +287,25 @@ def _web_items(output: dict[str, Any]) -> list[ChatCardItem]:
                 url=url[:2000],
             )
         )
+    return items
+
+
+def _browse_items(output: dict[str, Any]) -> list[ChatCardItem]:
+    """The page that was read, then its https links: every row is a source link."""
+    final = str(output.get("final_url") or output.get("url") or "")
+    if not final.lower().startswith("https://"):
+        return []
+    host = final[len("https://"):].split("/", 1)[0]
+    items = [ChatCardItem(kind="web", title=_clip(output.get("title"), TITLE_CHARS) or final, subtitle=_clip(host, TITLE_CHARS),
+                          detail=_clip(output.get("text"), DETAIL_CHARS), url=final[:2000], badges=["source"])]
+    for row in output.get("links") or []:
+        if len(items) >= MAX_CARD_ITEMS:
+            break
+        url = str(row.get("url") or "") if isinstance(row, dict) else ""
+        if not url.lower().startswith("https://"):
+            continue
+        items.append(ChatCardItem(kind="web", title=_clip(row.get("text"), TITLE_CHARS) or url,
+                                  subtitle=_clip(url[len("https://"):].split("/", 1)[0], TITLE_CHARS), url=url[:2000], badges=["link"]))
     return items
 
 
@@ -446,6 +476,7 @@ COMMERCE_READ_TOOLS = frozenset({"commerce.sales_summary", "commerce.list_orders
 FINANCE_READ_TOOLS = frozenset({
     "finance.summary", "finance.transactions.search", "finance.bills.upcoming",
     "finance.safe_to_spend", "finance.guardian.rules", "finance.guardian.check", "finance.paper.portfolios",
+    "finance.research",  # docs/finance-research.md#assistant: figures with their sources, read only
 })
 # A Guardian proposal only waits for the person's own confirmation in Finance, Guardian; a
 # SIMULATED paper order only waits for the person's own approval in Finance, Paper trading.
@@ -479,6 +510,8 @@ def items_from_result(tool: str | None, result: "ToolResult | None") -> list[Cha
         return _whatsapp_items(result.output)
     if tool == "web_search":
         return _web_items(result.output)
+    if tool == "web.browse_page":
+        return _browse_items(result.output)
     return []
 
 
@@ -850,14 +883,16 @@ def summary_messages(
     *,
     target: str | None = None,
     learned_block: str | None = None,
+    time_line: str | None = None,
 ) -> list["ChatMessage"]:
     """The prompt for the short answer above a results card.
 
     The tool output is serialized and wrapped by ``tool_output_prompt_block`` (provenance
     label, random-nonce markers) after the untrusted-data rules; the question is the only
-    user message.
+    user message. ``time_line`` (the current date and time) ends the system text.
     """
     from .agent_tools import tool_output_prompt_block
+    from .current_time import with_time_line
     from .prompt_provenance import with_untrusted_rules
 
     instructions = SUMMARY_PROMPT.format(tool=call.name)
@@ -865,14 +900,21 @@ def summary_messages(
         instructions = f"{instructions}\n\n{learned_block}"
     block = tool_output_prompt_block(call, result, target=target, max_chars=8000)
     return [
-        {"role": "system", "content": with_untrusted_rules(instructions, block)},
+        {"role": "system", "content": with_time_line(with_untrusted_rules(instructions, block), time_line)},
         {"role": "user", "content": question},
     ]
 
 
+# Research answers are written from the gathered data only (docs/finance-research.md#assistant): no free
+# model answer above the card, because a streamed answer could state a number that is not in the data.
+DATA_ONLY_TOOLS = frozenset({"finance.research"})
+
+
 def needs_summary(card: ChatCard, result: "ToolResult | None") -> bool:
+    if card.tool in DATA_ONLY_TOOLS:
+        return False
     return card.state == "results" and result is not None and result.status == "succeeded" and (
-        card.tool in {"search_email", "list_whatsapp_conversations", "web_search"}
+        card.tool in {"search_email", "list_whatsapp_conversations", "web_search", "web.browse_page"}
         or card.tool in COMMERCE_READ_TOOLS
         or card.tool in TYRE_READ_TOOLS
         or card.tool in FINANCE_READ_TOOLS
@@ -888,7 +930,7 @@ def turn_text(card: ChatCard) -> str:
         )
     if card.state == "running":
         return "The task is running in the background; this card updates when it finishes."
-    if card.state == "denied":
+    if card.state in {"denied", "unavailable", "needs_input"}:
         return card.summary
     return card.summary or "Done."
 
@@ -903,6 +945,16 @@ def denied_card(category: ChatCategory) -> ChatCard:
         ),
         error_code="task_run_denied",
     )
+
+
+def unavailable_card(category: ChatCategory, capability: str, summary: str) -> ChatCard:
+    """The request needs a capability that is off here: no task is created (capabilities.py)."""
+    return ChatCard(state="unavailable", category=category, summary=summary, error_code=f"capability_off:{capability}")
+
+
+def needs_input_card(category: ChatCategory, summary: str) -> ChatCard:
+    """ANUM can do it, but the user's own words must name what is missing (a site's address)."""
+    return ChatCard(state="needs_input", category=category, summary=summary, error_code="needs_site")
 
 
 def failed_card(category: ChatCategory, task_id: str | None, summary: str, code: str) -> ChatCard:

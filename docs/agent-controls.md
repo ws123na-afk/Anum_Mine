@@ -41,6 +41,17 @@ Before each call the agent's usage this UTC month is compared with its caps; onc
 
 Owners see the default assistant and every agent they can see (shared agents and their own private ones); another member's private agent is invisible to them and keeps only the workspace budget.
 
+## Loop and retry limits
+
+A workspace owner may also give each agent two limits (`services/api/anum_api/agent_loop_limits.py`, table `agent_loop_limits`, migration `0129_setup_plan_gaps`):
+
+- **Runs per task** (1 to 20): the most runs one task as this agent may have, the first run included. Once a task has that many runs, `POST /api/v1/tasks/{id}/retry` answers `409` ("... has reached its loop limit ... A workspace owner can raise it under Agent controls, or start a new task.").
+- **Step attempts** (1 to 10): the most attempts an automation step that runs as the agent may make ([Run as an agent](automation.md#run-as-an-agent)); the lower of this and the step's own `max_attempts` applies.
+
+Empty means no limit of the agent's own (the platform's limits apply). Limits only tighten. `GET /api/v1/agent-controls/loop-limits?q=&limit=&offset=` (owners and the organization administrator) lists every agent the caller can see with its limits; `PUT /api/v1/agent-controls/loop-limits/{agent_id}` `{max_runs_per_task, max_step_attempts}` (workspace owners; nulls clear) is audited as `agent_controls.loop_limit.update`. The web shows them under Agent controls, below the caps (`apps/web/src/AgentLoopLimitsPanel.tsx`), with search, paging, owner-only editing and the empty, error and permission states. The setup plan sets 5 runs per task and 3 step attempts for each of its agents ([Setup plan](setup-plan.md)).
+
+Owners also get in-app alerts at 50, 75, 90 and 100 percent of an agent's monthly cap ([Budget alerts](model-gateway.md#budget-alerts)).
+
 ## API
 
 | Route | Who | What |
@@ -50,6 +61,8 @@ Owners see the default assistant and every agent they can see (shared agents and
 | `GET /api/v1/agent-controls/held?limit=&offset=` | owners and the organization administrator | `{engaged, total, limit, offset, items: [{kind, id, title, detail, at, by}]}` |
 | `GET /api/v1/agent-controls/agent-caps?q=&limit=&offset=` | owners and the organization administrator | `{period_start, resets_on, can_manage, total, items: [{agent_id, name, is_default, status, sharing, monthly_cost_limit_usd, monthly_token_limit, usage, total_tokens, percent_used, token_percent_used, exceeded, updated_by, updated_at}]}` |
 | `PUT /api/v1/agent-controls/agent-caps/{agent_id}` `{monthly_cost_limit_usd, monthly_token_limit}` | workspace owners | The agent's caps and usage; `assistant` is the default assistant; audited as `agent_controls.agent_cap.update` |
+| `GET /api/v1/agent-controls/loop-limits?q=&limit=&offset=` | owners and the organization administrator | `{can_manage, total, items: [{agent_id, name, status, max_runs_per_task, max_step_attempts, updated_by, updated_at}]}` |
+| `PUT /api/v1/agent-controls/loop-limits/{agent_id}` `{max_runs_per_task, max_step_attempts}` | workspace owners | The agent's loop and retry limits; audited as `agent_controls.loop_limit.update` |
 
 ## Storage
 

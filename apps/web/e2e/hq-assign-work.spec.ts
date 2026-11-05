@@ -58,8 +58,11 @@ test('assign from an agent card in the team panel: no navigation, one governed r
   await expect(side).toContainText('Count every spare tyre in the yard.');
   await expect(side).toContainText('Planning the work');
   await stayed(page);
-  await page.keyboard.press('Escape'); // the side panel closes with Escape
+  await page.keyboard.press('Escape'); // the side panel closes with Escape, and only it
   await expect(side).toHaveCount(0);
+  await expect(page.getByRole('dialog', { name: 'Team' })).toBeVisible();
+  await page.keyboard.press('Escape'); // the next Escape closes the team panel under it
+  await expect(page.getByRole('dialog', { name: 'Team' })).toHaveCount(0);
   await page.getByRole('button', { name: /Live flow/ }).first().click();
   await expect(page.locator('.hqFlowDock').getByRole('listitem').filter({ hasText: 'Count spare tyres' })).toBeVisible({ timeout: 10000 });
 });

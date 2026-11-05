@@ -27,18 +27,22 @@ dependencies = [
   "opentelemetry-sdk==1.45.1",
   "psycopg[binary]==3.3.6",
   "pydantic-settings==2.16.1",
-  "pypdf==6.21.2",
+  "pypdf==6.21.4",
   "Pillow==13.0.0",
   "PyJWT[crypto]==2.15.1",
   "redis==8.1.0",
   "sentry-sdk==2.73.0",
   "sqlalchemy==2.1.5",
   "starlette==1.8.0",
-  "temporalio==1.34.0",
+  "temporalio==1.35.0",
   "uvicorn[standard]==0.54.0"
 ]
 
 [project.optional-dependencies]
+# Only the browser image installs it (docs/browser-research.md#the-browser-image).
+browser = [
+  "playwright==1.56.0"
+]
 test = [
   "moto[s3]==5.2.4",
   "pytest==9.1.1"
@@ -52,8 +56,9 @@ exclude = ["migrations*", "tests*"]
 [tool.setuptools.package-data]
 # The coding workflow developer mode installs in target repositories (docs/developer-mode.md).
 # The checked-in setup plan blueprints (docs/setup-plan.md).
+# The Arabic font the PDF writer embeds, with its licence (anum_api/pdf_fonts/SOURCE.txt).
 # The trading knowledge library, read at startup (docs/finance-trading-intel.md#skills-and-tools).
-anum_api = ["workflow_templates/*.yml", "blueprints/*.json", "finance/intel/skills/*/SKILL.md", "finance/intel/skills/*/tools.json", "finance/intel/skills/*/references/*.md"]
+anum_api = ["pdf_fonts/*.ttf", "pdf_fonts/*.txt", "workflow_templates/*.yml", "blueprints/*.json", "finance/intel/skills/*/SKILL.md", "finance/intel/skills/*/tools.json", "finance/intel/skills/*/references/*.md"]
 
 [tool.pytest.ini_options]
 addopts = "--strict-markers"
@@ -66,7 +71,9 @@ markers = [
   "s3: tests that require an S3-compatible endpoint such as SeaweedFS (ANUM_TEST_S3_ENDPOINT)",
   "clamav: tests that require a reachable ClamAV clamd (ANUM_TEST_CLAMD_HOST, ANUM_TEST_CLAMD_PORT)",
   "temporal: tests that require a Temporal server (ANUM_TEST_TEMPORAL_TARGET or a downloadable test server)",
-  "live_model: calls the real hosted model API (ANTHROPIC_API_KEY); deselected unless -m names live_model"
+  "live_model: calls the real hosted model API (ANTHROPIC_API_KEY); deselected unless -m names live_model",
+  "browser: drives a real Chromium through Playwright (ANUM_TEST_CHROMIUM_PATH or an installed browser); deselected unless -m names browser",
+  "ocr: runs the real Tesseract (with eng and ara data) of the document vault's OCR service; deselected unless -m names ocr"
 ]
 
 [tool.ruff]

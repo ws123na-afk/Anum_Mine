@@ -67,9 +67,17 @@ export interface PrivacyPrivateCounts {
   private_agents?: number;
   private_agent_memories?: number;
   finance_records?: number;
+  /** The caller's attendance and daily reports (docs/attendance.md#privacy). Absent from older servers. */
+  attendance_records?: number;
+  vehicle_records?: number;
+  /** The caller's purchases, deliveries and returns (docs/purchases.md#privacy). Absent from older servers. */
+  purchase_records?: number;
   // In-app calls (docs/in-app-calls.md#privacy).
   app_calls?: number;
   app_call_signals?: number;
+  /** Document vault: the caller's private documents (with their files) and iPhone Shortcut devices (docs/documents.md#privacy). Absent from older servers. */
+  vault_private_documents?: number;
+  vault_devices?: number;
   /** Email Center mailboxes (never their password) and messages written in ANUM (docs/email.md#email-center). */
   mail_mailboxes?: number;
   mail_messages_written?: number;
@@ -106,6 +114,8 @@ export interface PrivacySharedCounts {
   /** Agents the caller owns and shared with the workspace, and their memories (kept). Absent from older servers. */
   shared_agents_owned?: number;
   shared_agent_memories?: number;
+  /** Document vault documents the caller added for the whole workspace (kept). Absent from older servers. */
+  vault_workspace_documents?: number;
 }
 
 export interface PrivacyRetention {

@@ -46,12 +46,12 @@ Inter for Latin and Noto Sans Arabic for Arabic, both self-hosted variable fonts
 
 | Role | Token (size) and weight |
 |---|---|
-| Page title (`h1`) | `--text-5xl` (28 px), 650, tracking -0.026 em (26 px on phones and in page headers) |
+| Page title (`h1`) | `--text-5xl` (28 px), 600, tracking -0.026 em (26 px on phones and in page headers) |
 | Section title (`h2`) | `--text-xl` (18 px), 600 |
 | Card title (`h3`) | `--text-base` (15 px), 600 |
 | Body | `--text-md` to `--text-base` (14 to 15 px), 400, line height 1.5 |
 | Labels and meta | `--text-xs` to `--text-sm` (12 to 13 px), 500 |
-| Figures | `--text-3xl` to `--text-5xl` (22 to 28 px), 650, tabular numbers |
+| Figures | `--text-3xl` to `--text-5xl` (22 to 28 px), 600, tabular numbers |
 
 ### Type tokens
 
@@ -67,33 +67,33 @@ A distinct display face with Arabic support (for example IBM Plex Sans Arabic be
 
 ## Shape, space and depth
 
-- Radii by hierarchy: panels 12 px (`--d-r-panel`), controls 8 px (`--d-r-control`), pills 999 px for chips and badges.
+- Radii by hierarchy: panels 12 px (`--d-r-panel`), controls 8 px (`--d-r-control`), small inner pieces 6 px (`--d-r-sm`), pills 999 px (`--d-r-pill`) for chips and badges. A radius inside a padded container is the outer radius minus the padding.
 - Spacing on a 4 px base: 4, 8, 12, 16, 24, 32, 48 (`--d-s1` to `--d-s7`).
-- Depth: `--d-elev-1` (a hairline and a 1 to 2 px shadow) for panels, `--d-elev-2` (a 12 to 32 px soft shadow) for menus, dialogs and sheets. Shadows are tinted to the graphite, not black.
+- Depth: `--d-elev-1` (a hairline and a 1 to 2 px shadow) for panels, `--d-elev-2` (a 12 to 32 px soft shadow) for menus, dialogs and sheets. Shadows are tinted to the graphite, not black, and stay under 8 % alpha in the light theme. Menus and popovers are opaque: no backdrop blur on the sidebar, menus or data surfaces.
 
 ## Components
 
 | Component | Rule |
 |---|---|
-| Primary button | Flat jade, white text, 40 px tall, 8 px radius. A button with no class is primary by default. |
-| Secondary button | A quiet glass fill with a hairline; text colour. |
+| Primary button | Flat jade, white text, 40 px tall, 8 px radius, 600 weight. A button with no class is primary by default. Keyboard focus is a two-tone ring (page colour gap, then jade). |
+| Secondary button | The control surface (`--d-control-bg`: white on light, raised graphite on dark) with a hairline; text colour, 14 px, 500 weight. Never a grey fill ([web design system](../web-design-system.md#shared-components)). |
 | Danger button | `--d-danger`, white text. |
 | Pressed | Buttons settle 1 px on press. |
 | Fields | `--d-field` with a strong hairline; hover darkens the hairline; focus turns it jade with a 3 px soft ring (`--d-ring`) and keeps a transparent outline for forced colours. Checkboxes and radios use the accent. |
 | Focus | A 2 px jade outline, 2 px offset, on every focusable element. |
 | Navigation | The current view is a raised row with a 3 px jade marker at its start (a raised pill in the phone strip); icons of the current view are jade. |
-| Section tabs | Pills; the current tab is the raised surface with a hairline and a soft shadow. One scrolling row on phones. |
+| Section tabs | One underlined row on a hairline; the current tab is in the text colour with a 2 px jade bar under it. One row at every width, scrolling sideways when it does not fit. Filters and view switches use the segmented control (a well with the chosen option raised). |
 | Badges | Pills with a 12 % tint of their status colour and the status in words. |
 | Summary figures | Text colour; a status figure marks its label with a small dot. |
 | Empty states | The icon sits in a quiet 44 px tile, then a title and the next action. |
 | Loading | `LoadingSkeleton` (`PageParts.tsx`): bars shaped like a panel's heading and lines with a slow pulse, and a screen-reader label, instead of a "Loading..." sentence. The shell's view loader and Governance use it. |
-| Dialogs and drawers | Open with a 180 ms lift while the scrim fades in; the panel never fades, so its text is at full contrast from the first frame. |
+| Dialogs and drawers | Open with a 200 ms lift (a drawer slides from its edge) while the scrim fades in; the panel never fades, so its text is at full contrast from the first frame. A destructive confirmation opens with Cancel focused. |
 | Toasts | The message toast slides and fades in; tokens give it the panel surface. |
 | Tables | Dense rows on the panel surface, a sticky header, hairline row separators. |
 
 ## Motion
 
-Only state changes move: hover, press, focus, opening and closing. 150 ms (`--d-fast`) or 180 ms (`--d-base`) with an ease-out curve (`--d-ease`). Nothing loops except loading skeletons and live voice states. `prefers-reduced-motion` turns transitions and animations off (the global rule in `styles.css` and per-component rules for dialogs and skeletons).
+Only state changes move: hover, press, focus, opening and closing. 100 ms (`--d-instant`), 150 ms (`--d-fast`), 200 ms (`--d-base`) or 300 ms (`--d-slow`), with an ease-out curve (`--d-ease`) to enter and `--d-ease-in` to leave. Nothing loops except loading skeletons and live voice states. `prefers-reduced-motion` turns transitions and animations off (the global rule in `styles.css` and per-component rules for dialogs and skeletons).
 
 ## The logo mark and the orb
 

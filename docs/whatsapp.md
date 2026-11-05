@@ -4,6 +4,10 @@ ANUM connects a workspace to one WhatsApp Business number through Meta's officia
 
 Code: `services/api/anum_api/whatsapp.py` (routes, webhook, tools), `whatsapp_graph.py` (Meta calls), `whatsapp_store.py` and `db/whatsapp_repository.py` (storage), `whatsapp_triage.py` (sorting and drafts), migration `0033_whatsapp`; web `apps/web/src/WhatsAppView.tsx`; Flutter `apps/mobile/lib/features/whatsapp/`.
 
+## Sales leads live in Business
+
+The WhatsApp Sales CRM (`/api/v1/sales`, [Sales CRM API](sales-crm-api.md)) still records enquiries, quotation drafts, follow-up proposals and consent, but its leads are listed in one place: **Business, Leads**, marked **WhatsApp**, with the link back to the conversation ([Business: WhatsApp leads](business.md#whatsapp-leads)). The **Sales CRM** tab keeps the WhatsApp figures, campaign conversions, the operations queue and automation settings; it no longer lists leads or changes a lead's stage (Business's state machine does). A lead's quotes, follow-ups and consent open from its Business drawer (**Quotes and follow-ups**, `#whatsapp/sales/<sales lead id>`); a conversation opens by link at `#whatsapp/<conversation id>`. A new enquiry joins Business, Leads as soon as it is ingested; one whose number is already on an open lead waits under **WhatsApp leads** for the owner's answer and is never merged on its own. The **Sales CRM** figures count those Business leads ([the contract step](business.md#whatsapp-leads)).
+
 ## Owner setup
 
 Values are entered once, by a workspace owner, in **WhatsApp > Setup** in the web app. Never paste them into a chat. The API stores the access token and the app secret encrypted with `ANUM_SECRETS_KEY` and the verify token only as a SHA-256 hash; none of them is ever shown again.

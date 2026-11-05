@@ -5,7 +5,7 @@ export const hqLabelsAr = {
   'hqLabels.desks': { one: 'مكتب واحد', two: 'مكتبان', few: '{count} مكاتب', many: '{count} مكتبًا', other: '{count} مكتب' } as Message,
   'hqLabels.working': { one: 'واحد يعمل', two: 'اثنان يعملان', few: '{count} يعملون', many: '{count} يعملون', other: '{count} يعملون' } as Message,
   'hqLabels.roomAria': '{name}. {sub}. يفتح لوحة الغرفة.',
-  'hqLabels.floorTagAria': '{name}. اعرض هذا الطابق.',
+  'hqLabels.floorTagAria': '{name}. {rooms}. اعرض هذا الطابق.',
   'hqLabels.floorTagRooms': { one: 'غرفة واحدة', two: 'غرفتان', few: '{count} غرف', many: '{count} غرفة', other: '{count} غرفة' } as Message,
   'hqLabels.agentAria': '{name}، {role}، {status}. يفتح لوحة الوكيل.',
   'hqLabels.agentNoRole': 'لا يوجد دور محدد',

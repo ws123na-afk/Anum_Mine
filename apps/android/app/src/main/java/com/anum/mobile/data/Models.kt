@@ -2,6 +2,8 @@ package com.anum.mobile.data
 
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonPrimitive
 
 @Serializable data class TaskCreate(val title: String, val prompt: String)
 
@@ -69,7 +71,16 @@ data class Approval(
     @SerialName("payload_hash") val payloadHash: String? = null,
     @SerialName("expires_at") val expiresAt: String? = null,
     @SerialName("decided_by") val decidedBy: String? = null,
-)
+    /** The exact arguments, secret-looking values redacted by the API. */
+    val arguments: Map<String, JsonElement> = emptyMap(),
+) {
+    /**
+     * An action browser step that types a card's security code. ANUM never saves the code: the owner types it on
+     * the web approval card, so the app does not approve it (docs/action-browser.md#the-card-security-code).
+     */
+    val needsCardCodeOnWeb: Boolean
+        get() = action == "web.act" && (arguments["cvc"] as? JsonPrimitive)?.let { it.isString && it.content == "entered at approval" } == true
+}
 
 @Serializable data class RunTaskResponse(val task: Task, val run: AgentRun, val approval: Approval? = null)
 @Serializable data class ApprovalDecisionRequest(@SerialName("payload_hash") val payloadHash: String)

@@ -49,8 +49,9 @@ export const doneCommand = () => ({
 export const previewPlan = (text: string) => ({
   text, language: 'en',
   steps: [
-    { position: 1, title: 'Check my emails, find today\'s urgent items', instruction: 'Check my emails, find today\'s urgent items', agent: { id: 'email', name: 'Email agent' }, skills: [], tool: { name: 'search_email', description: 'Search the inbox', category: 'email', action_kind: 'read', target: null }, risk_level: 'low', approval: 'none', approval_reason: 'The tool is low risk.', connected: true, note: null },
-    { position: 2, title: 'Schedule a meeting with the team tomorrow at 10 AM', instruction: 'Schedule a meeting with the team tomorrow at 10 AM', agent: { id: 'calendar', name: 'Calendar agent' }, skills: [], tool: null, risk_level: 'medium', approval: 'required', approval_reason: 'Sending invitations needs approval.', connected: false, note: 'No calendar is connected yet, so ANUM drafts the meeting for you to send.' },
+    { position: 1, title: 'Check my emails, find today\'s urgent items', instruction: 'Check my emails, find today\'s urgent items', agent: { id: 'email', name: 'Email agent' }, skills: [], tool: { name: 'search_email', description: 'Search the inbox', category: 'email', action_kind: 'read', target: null }, risk_level: 'low', approval: 'none', approval_reason: 'The tool is low risk.', connected: true, note: null, depends_on: [] },
+    // "... then schedule ..." makes the meeting wait for the email step, as the API plans it (docs/command.md).
+    { position: 2, title: 'Schedule a meeting with the team tomorrow at 10 AM', instruction: 'Schedule a meeting with the team tomorrow at 10 AM', agent: { id: 'calendar', name: 'Calendar agent' }, skills: [], tool: null, risk_level: 'medium', approval: 'required', approval_reason: 'Sending invitations needs approval.', connected: false, note: 'No calendar is connected yet, so ANUM drafts the meeting for you to send.', depends_on: /\bthen\b/i.test(text) ? [1] : [] },
   ],
   agents: [{ id: 'email', name: 'Email agent' }, { id: 'calendar', name: 'Calendar agent' }],
   approvals_required: 1, blocked: 0,
@@ -88,10 +89,28 @@ export function createHomeMock() {
     if (path === '/api/v1/commands' && method === 'POST') {
       const request = body();
       state.created.push(request);
-      const steps = (request.steps as { instruction: string }[]).map((s, i) => step(i + 1, s.instruction, i === 0 ? 'email' : 'calendar', 'created'));
+      const steps = (request.steps as { instruction: string; depends_on?: number[] }[]).map((s, i) => step(i + 1, s.instruction, i === 0 ? 'email' : 'calendar', 'created', { depends_on: s.depends_on ?? [], waiting_for: s.depends_on ?? [], blocked_by: [] }));
       const command = { ...doneCommand(), id: 'cmd_new', text: request.text, source: request.source, status: 'ready', progress: 0, step_count: steps.length, completed_steps: 0, steps, created_at: iso(), updated_at: iso(), finished_at: null, duration_seconds: null };
       state.commands.unshift(command);
       return json(command, 201);
+    }
+    // POST /commands/{id}/start: one pass, like the API when an earlier step is still running on the durable
+    // worker: steps with nothing left to wait for complete; the others wait, and the page calls start again.
+    const start = /^\/api\/v1\/commands\/([^/]+)\/start$/.exec(path);
+    if (start && method === 'POST') {
+      const command = state.commands.find((c) => c.id === start[1]);
+      if (!command) return json({ detail: 'Command not found' }, 404);
+      const before = command.steps as Record<string, unknown>[];
+      const doneBefore = new Set(before.filter((s) => s.status === 'completed').map((s) => s.position as number));
+      const ready = before.filter((s) => s.status === 'created' && ((s.depends_on as number[] | undefined) ?? []).every((p) => doneBefore.has(p)));
+      const results: Record<number, string> = { 1: 'Three urgent emails today.', 2: 'Meeting drafted for tomorrow at 10:00.' };
+      const steps = before.map((s) => ready.includes(s) ? { ...s, status: 'completed', progress: 1, run_id: `run_${s.task_id as string}`, result: results[s.position as number] ?? 'Done.' } : s);
+      const doneNow = new Set(steps.filter((s) => s.status === 'completed').map((s) => s.position as number));
+      const withWaits = steps.map((s) => ({ ...s, waiting_for: ((s.depends_on as number[] | undefined) ?? []).filter((p) => !doneNow.has(p)) }));
+      state.runs.push(...ready.map((s) => s.task_id as string));
+      const done = doneNow.size;
+      Object.assign(command, { steps: withWaits, completed_steps: done, progress: done / steps.length, status: done === steps.length ? 'completed' : 'running' });
+      return json({ started: ready.map((s) => s.task_id), refused: {}, command });
     }
     const run = /^\/api\/v1\/tasks\/(task_cmd_\d+)\/run$/.exec(path);
     if (run && method === 'POST') {

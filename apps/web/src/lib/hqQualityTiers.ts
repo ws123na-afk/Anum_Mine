@@ -16,14 +16,36 @@ export type TierSpec = Readonly<{
   boardCell: 512 | 256;
   /** The billboards' posts, frame and lamps take one flat unlit material (no lighting, no shadows) instead of the lit kit materials. */
   boardUnlit: boolean;
+  /**
+   * The most device pixels the scene is drawn with on a GPU that shares the laptop's memory (integrated, phone, unknown or software): the pixel
+   * ratio is lowered until the canvas fits (docs/ANUM_MINE_HQ_GPU_CHECK.md, "Render scale"). Null: the full pixel ratio. A discrete or Apple M
+   * chip keeps its full ratio on High and Ultra (`pixelBudget`).
+   */
+  maxPixels: number | null;
 }>;
 
 export const HQ_TIERS: readonly TierSpec[] = [
-  { id: 0, key: 'low', shadowSize: 0, bloom: false, boardCell: 256, boardUnlit: true },
-  { id: 1, key: 'medium', shadowSize: 1024, bloom: false, boardCell: 512, boardUnlit: false },
-  { id: 2, key: 'high', shadowSize: 1024, bloom: true, boardCell: 512, boardUnlit: false },
-  { id: 3, key: 'ultra', shadowSize: 2048, bloom: true, boardCell: 512, boardUnlit: false },
+  { id: 0, key: 'low', shadowSize: 0, bloom: false, boardCell: 256, boardUnlit: true, maxPixels: 1_000_000 },
+  { id: 1, key: 'medium', shadowSize: 1024, bloom: false, boardCell: 512, boardUnlit: false, maxPixels: 1_400_000 },
+  { id: 2, key: 'high', shadowSize: 1024, bloom: true, boardCell: 512, boardUnlit: false, maxPixels: 1_800_000 },
+  { id: 3, key: 'ultra', shadowSize: 2048, bloom: true, boardCell: 512, boardUnlit: false, maxPixels: null },
 ];
+
+/**
+ * The device pixel budget for a tier on a GPU class (null: no budget). Low and Medium are budgets everywhere (they are the cheap tiers); High
+ * only on GPUs without their own memory, where the first owner report measured 28 ms of GPU time a frame at 2.1 million pixels.
+ */
+export function pixelBudget(tier: TierSpec, gpu: string): number | null {
+  if (tier.maxPixels === null) return null;
+  const own = gpu === 'discrete' || gpu === 'apple';
+  return own && tier.id >= 2 ? null : tier.maxPixels;
+}
+
+/** The pixel ratio for a canvas of `cssPixels` CSS pixels: the device ratio, lowered to fit `budget` device pixels, never under `floor`. */
+export function budgetedDpr(deviceDpr: number, cssPixels: number, budget: number | null, floor = 0.6): number {
+  if (budget === null || !(cssPixels > 0)) return deviceDpr;
+  return Math.max(Math.min(floor, deviceDpr), Math.min(deviceDpr, Math.sqrt(budget / cssPixels)));
+}
 
 /** The browser storage key a person (or the Graphics check) pins a tier with. */
 export const QUALITY_PIN_KEY = 'anum.hq.quality';
@@ -82,3 +104,23 @@ export type QualityState = Readonly<{
   /** The governor is allowed to change the picture (false when pinned, on a software rasteriser, or during a benchmark). */
   governed: boolean;
 }>;
+
+/** One shader variant of the scene materials: with or without the sun's shadow, and drawn to the canvas or into the night glow pass's render target. */
+export type ProgramVariant = Readonly<{ shadows: boolean; glow: boolean }>;
+
+/**
+ * The shader variants a set of rungs draws with (the warm-up compiles them before they are needed, `hqWarmup.ts`). three.js keys a program on
+ * whether shadows are on and on whether it draws into a render target, so a switch between shadows on and off, or the first glow frame of the
+ * evening, compiles every scene material again unless these were compiled first. The simple materials are other material objects (the last
+ * rung builds them), so lean rungs are left out. `glow` false leaves out the render target variants (a daytime benchmark never draws them).
+ */
+export function programVariants(steps: readonly StepSettings[], glow = true): ProgramVariant[] {
+  const out: ProgramVariant[] = [];
+  const add = (v: ProgramVariant) => { if (!out.some((o) => o.shadows === v.shadows && o.glow === v.glow)) out.push(v); };
+  for (const s of steps) {
+    if (s.lean) continue;
+    add({ shadows: s.shadowSize > 0, glow: false });
+    if (glow && s.bloom) add({ shadows: s.shadowSize > 0, glow: true });
+  }
+  return out;
+}

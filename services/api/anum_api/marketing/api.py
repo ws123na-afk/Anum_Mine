@@ -9,6 +9,8 @@ that an owner decides in the ordinary approvals flow.
 
 from __future__ import annotations
 
+import asyncio
+
 from datetime import date, datetime, timedelta
 from typing import Any, Literal
 
@@ -17,7 +19,7 @@ from pydantic import BaseModel, Field
 
 from .. import cron
 from ..authorization import Permission
-from ..dependencies import repository_context, require_permission, tenant_context
+from ..dependencies import UnitsOfWork, repository_context, require_permission, run_in_unit, tenant_context, units_of_work
 from ..repository import AnumRepository
 from ..schemas import Approval, ApprovalStatus, TenantContext, new_id, utc_now
 from . import analytics, assist, publisher, report_delivery
@@ -166,7 +168,7 @@ async def get_setup(context: TenantContext = Depends(tenant_context)) -> Marketi
 
 
 @router.get("/accounts", response_model=list[SocialAccountView])
-async def list_accounts(context: TenantContext = Depends(tenant_context)) -> list[SocialAccountView]:
+def list_accounts(context: TenantContext = Depends(tenant_context)) -> list[SocialAccountView]:
     _read(context)
     with open_marketing_store(context) as store:
         return [SocialAccountView.of(account) for account in store.list_accounts(context)]
@@ -188,10 +190,10 @@ async def oauth_start(payload: OAuthStart, context: TenantContext = Depends(tena
 async def oauth_callback(
     payload: OAuthCallback,
     context: TenantContext = Depends(tenant_context),
-    repository: AnumRepository = Depends(repository_context),
+    units: UnitsOfWork = Depends(units_of_work),
 ) -> list[SocialAccountView]:
     _manage(context)
-    return [SocialAccountView.of(account) for account in await finish_oauth(context, payload.code, payload.state, repository)]
+    return [SocialAccountView.of(account) for account in await finish_oauth(context, payload.code, payload.state, units)]
 
 
 @router.post("/accounts/{account_id}/check", response_model=SocialAccountView)
@@ -205,11 +207,11 @@ async def check(account_id: str, context: TenantContext = Depends(tenant_context
 async def disconnect(
     account_id: str,
     context: TenantContext = Depends(tenant_context),
-    repository: AnumRepository = Depends(repository_context),
+    units: UnitsOfWork = Depends(units_of_work),
 ) -> SocialAccountView:
     """Revoke at the platform (where it offers that) and forget the tokens; queued posts go back to draft."""
     _manage(context)
-    return SocialAccountView.of(await revoke_account(context, account_id, repository))
+    return SocialAccountView.of(await revoke_account(context, account_id, units))
 
 
 # -- preferences --------------------------------------------------------------------------------
@@ -222,7 +224,7 @@ async def get_preferences(context: TenantContext = Depends(tenant_context)) -> M
 
 
 @router.put("/preferences", response_model=MarketingPreferences)
-async def put_preferences(payload: PreferencesUpdate, context: TenantContext = Depends(tenant_context)) -> MarketingPreferences:
+def put_preferences(payload: PreferencesUpdate, context: TenantContext = Depends(tenant_context)) -> MarketingPreferences:
     _manage(context)
     try:
         cron.zone(payload.timezone)
@@ -269,7 +271,7 @@ def _dates(start: date | None, end: date | None) -> None:
 
 
 @router.get("/campaigns", response_model=list[CampaignView])
-async def list_campaigns(
+def list_campaigns(
     campaign_status: CampaignStatus | None = Query(default=None, alias="status"),
     q: str | None = Query(default=None, max_length=200),
     limit: int = Query(default=20, ge=1, le=MAX_PAGE),
@@ -288,7 +290,7 @@ async def list_campaigns(
 
 
 @router.post("/campaigns", response_model=CampaignView, status_code=status.HTTP_201_CREATED)
-async def create_campaign(
+def create_campaign(
     payload: CampaignCreate,
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
@@ -306,7 +308,7 @@ async def create_campaign(
 
 
 @router.get("/campaigns/{campaign_id}", response_model=CampaignView)
-async def get_campaign(campaign_id: str, context: TenantContext = Depends(tenant_context), repository: AnumRepository = Depends(repository_context)) -> CampaignView:
+def get_campaign(campaign_id: str, context: TenantContext = Depends(tenant_context), repository: AnumRepository = Depends(repository_context)) -> CampaignView:
     _read(context)
     with open_marketing_store(context) as store:
         campaign = _campaign_or_404(store, context, campaign_id)
@@ -315,7 +317,7 @@ async def get_campaign(campaign_id: str, context: TenantContext = Depends(tenant
 
 
 @router.put("/campaigns/{campaign_id}", response_model=CampaignView)
-async def update_campaign(
+def update_campaign(
     campaign_id: str,
     payload: CampaignUpdate,
     context: TenantContext = Depends(tenant_context),
@@ -339,7 +341,7 @@ async def update_campaign(
 
 
 @router.delete("/campaigns/{campaign_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_campaign(campaign_id: str, context: TenantContext = Depends(tenant_context), repository: AnumRepository = Depends(repository_context)) -> Response:
+def delete_campaign(campaign_id: str, context: TenantContext = Depends(tenant_context), repository: AnumRepository = Depends(repository_context)) -> Response:
     """Delete a campaign; its posts stay (without a campaign). Refused while posts are queued."""
     _write(context)
     with open_marketing_store(context) as store:
@@ -354,7 +356,7 @@ async def delete_campaign(campaign_id: str, context: TenantContext = Depends(ten
 
 
 @router.post("/campaigns/{campaign_id}/auto-post", response_model=CampaignView)
-async def set_auto_post(
+def set_auto_post(
     campaign_id: str,
     payload: AutoPostRequest,
     context: TenantContext = Depends(tenant_context),
@@ -408,7 +410,7 @@ async def set_auto_post(
 
 
 @router.get("/posts", response_model=list[PostView])
-async def list_posts(
+def list_posts(
     post_status: list[PostStatus] = Query(default_factory=list, alias="status"),
     campaign_id: str | None = Query(default=None, max_length=80),
     platform: Platform | None = None,
@@ -451,7 +453,7 @@ def _view_one(context: TenantContext, post_id: str, repository: AnumRepository) 
 
 
 @router.post("/posts", response_model=list[PostView], status_code=status.HTTP_201_CREATED)
-async def create_posts(
+def create_posts(
     payload: PostCreate,
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
@@ -498,7 +500,7 @@ async def get_post(post_id: str, context: TenantContext = Depends(tenant_context
 
 
 @router.put("/posts/{post_id}", response_model=PostView)
-async def update_post(
+def update_post(
     post_id: str,
     payload: PostUpdate,
     context: TenantContext = Depends(tenant_context),
@@ -535,7 +537,7 @@ async def update_post(
 
 
 @router.delete("/posts/{post_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_post(post_id: str, context: TenantContext = Depends(tenant_context), repository: AnumRepository = Depends(repository_context)) -> Response:
+def delete_post(post_id: str, context: TenantContext = Depends(tenant_context), repository: AnumRepository = Depends(repository_context)) -> Response:
     """Remove a post from ANUM. A published post stays on the platform (delete it there)."""
     _write(context)
     with open_marketing_store(context) as store:
@@ -549,7 +551,7 @@ async def delete_post(post_id: str, context: TenantContext = Depends(tenant_cont
 
 
 @router.post("/posts/{post_id}/schedule", response_model=PostView)
-async def schedule(
+def schedule(
     post_id: str,
     payload: PostSchedule,
     context: TenantContext = Depends(tenant_context),
@@ -558,11 +560,11 @@ async def schedule(
     """Ask to publish at ``scheduled_at`` (now when empty). Waits for an owner's approval
     unless the post's campaign has an approved auto-post for this account."""
     _write(context)
-    return await schedule_post(context, post_id, payload.scheduled_at, repository)
+    return schedule_post(context, post_id, payload.scheduled_at, repository)
 
 
 @router.post("/posts/{post_id}/reschedule", response_model=PostView)
-async def reschedule(
+def reschedule(
     post_id: str,
     payload: PostReschedule,
     context: TenantContext = Depends(tenant_context),
@@ -592,7 +594,7 @@ async def reschedule(
 
 
 @router.post("/posts/{post_id}/cancel", response_model=PostView)
-async def cancel(post_id: str, context: TenantContext = Depends(tenant_context), repository: AnumRepository = Depends(repository_context)) -> PostView:
+def cancel(post_id: str, context: TenantContext = Depends(tenant_context), repository: AnumRepository = Depends(repository_context)) -> PostView:
     """Stop a scheduled or pending post; it stays as a cancelled post that can be scheduled again."""
     _write(context)
     with open_marketing_store(context) as store:
@@ -608,25 +610,36 @@ async def cancel(post_id: str, context: TenantContext = Depends(tenant_context),
 
 
 @router.post("/posts/{post_id}/publish", response_model=PostView)
-async def publish_now(post_id: str, context: TenantContext = Depends(tenant_context), repository: AnumRepository = Depends(repository_context)) -> PostView:
+async def publish_now(post_id: str, context: TenantContext = Depends(tenant_context), units: UnitsOfWork = Depends(units_of_work)) -> PostView:
     """Publish an already approved (scheduled) post right away instead of at its time."""
     _write(context)
-    with open_marketing_store(context) as store:
-        post = get_post_or_404(store, context, post_id, for_update=True)
-        if post.status != PostStatus.SCHEDULED or not post.approved_hash:
-            raise http_error(409, "Only approved, scheduled posts can be published now. Schedule it first to ask for approval.")
-        post.scheduled_at = utc_now()
-        post.next_attempt_at = None
-        store.save_post(post)
+
+    def due_now() -> None:
+        with open_marketing_store(context) as store:
+            post = get_post_or_404(store, context, post_id, for_update=True)
+            if post.status != PostStatus.SCHEDULED or not post.approved_hash:
+                raise http_error(409, "Only approved, scheduled posts can be published now. Schedule it first to ask for approval.")
+            post.scheduled_at = utc_now()
+            post.next_attempt_at = None
+            store.save_post(post)
+
+    # Store work in worker threads; only the platform call waits on the loop (docs/realtime.md#event-loop).
+    await asyncio.to_thread(due_now)
     await publisher.publish(context, post_id)
-    return _view_one(context, post_id, repository)
+    return await run_in_unit(units, context, lambda repository: _view_one(context, post_id, repository))
 
 
 @router.post("/posts/{post_id}/retry", response_model=PostView)
-async def retry(post_id: str, context: TenantContext = Depends(tenant_context), repository: AnumRepository = Depends(repository_context)) -> PostView:
+async def retry(post_id: str, context: TenantContext = Depends(tenant_context), units: UnitsOfWork = Depends(units_of_work)) -> PostView:
     """Try a failed post again. The approval still covers it if the content is unchanged;
     otherwise it has to be scheduled (and approved) again."""
     _write(context)
+    await run_in_unit(units, context, lambda repository: _reschedule_failed(context, post_id, repository))
+    await publisher.publish(context, post_id)
+    return await run_in_unit(units, context, lambda repository: _view_one(context, post_id, repository))
+
+
+def _reschedule_failed(context: TenantContext, post_id: str, repository: AnumRepository) -> None:
     with open_marketing_store(context) as store:
         post = get_post_or_404(store, context, post_id, for_update=True)
         if post.status != PostStatus.FAILED and not publisher.stale(post):
@@ -639,8 +652,6 @@ async def retry(post_id: str, context: TenantContext = Depends(tenant_context), 
         post.attempts = 0
         store.save_post(post)
     audit(repository, context, "marketing.post.retried", post_id)
-    await publisher.publish(context, post_id)
-    return _view_one(context, post_id, repository)
 
 
 # -- media ------------------------------------------------------------------------------------------
@@ -656,7 +667,7 @@ class MediaFile(BaseModel):
 
 
 @router.get("/media", response_model=list[MediaFile])
-async def list_media(
+def list_media(
     q: str | None = Query(default=None, max_length=200),
     limit: int = Query(default=100, ge=1, le=500),
     context: TenantContext = Depends(tenant_context),
@@ -678,7 +689,7 @@ async def list_media(
 
 
 @router.get("/media/{link}", include_in_schema=True)
-async def public_media(link: str) -> Response:
+def public_media(link: str) -> Response:
     """A file behind a signed, expiring link, for platforms that fetch media by URL (Instagram).
 
     No sign-in: the link itself is the credential (encrypted with ``ANUM_SECRETS_KEY``,
@@ -727,13 +738,19 @@ async def utm(payload: UtmRequest, context: TenantContext = Depends(tenant_conte
 async def assist_ideas(payload: AssistIdeas, context: TenantContext = Depends(tenant_context)) -> assist.IdeasResult:
     """Post ideas with English and Arabic copy and hashtags, through the budgeted model gateway."""
     _write(context)
-    prefs = preferences(context)
-    if payload.campaign_id:
+
+    def load() -> tuple[Any, AssistIdeas]:
+        prefs = preferences(context)
+        if not payload.campaign_id:
+            return prefs, payload
         with open_marketing_store(context) as store:
             campaign = _campaign_or_404(store, context, payload.campaign_id)
-        payload = payload.model_copy(update={
+        return prefs, payload.model_copy(update={
             "brief": payload.brief or campaign.brief, "product": payload.product or campaign.product,
         })
+
+    # The reads run in a worker thread; only the model call waits on the loop.
+    prefs, payload = await asyncio.to_thread(load)
     if not (payload.brief.strip() or payload.product.strip() or payload.feature.strip()):
         raise http_error(422, "Describe what to promote: a brief, a product or a feature.")
     return await assist.ideas(
@@ -784,7 +801,7 @@ async def analytics_best_times(platform: Platform | None = None, context: Tenant
 
 
 @router.get("/reports/weekly", response_model=analytics.WeeklyReport)
-async def weekly_report(
+def weekly_report(
     week_start: date | None = None,
     language: Language = Language.EN,
     context: TenantContext = Depends(tenant_context),
@@ -804,11 +821,11 @@ async def deliver_weekly_report(
     week_start: date | None = None,
     language: Language = Language.EN,
     context: TenantContext = Depends(tenant_context),
-    repository: AnumRepository = Depends(repository_context),
+    units: UnitsOfWork = Depends(units_of_work),
 ) -> report_delivery.DeliveryResult:
     """Ask to send the weekly report by email and/or WhatsApp. Each channel waits for approval."""
-    report = await weekly_report(week_start=week_start, language=language, context=context)
-    return await report_delivery.deliver(context, repository, report, payload)
+    report = await asyncio.to_thread(weekly_report, week_start=week_start, language=language, context=context)
+    return await report_delivery.deliver(context, units, report, payload)
 
 
 class AssistantAsk(BaseModel):

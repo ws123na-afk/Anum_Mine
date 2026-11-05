@@ -7,13 +7,13 @@
  * a record behind it reads "Presence unavailable" or "Not connected".
  * Extension points are documented in docs/ANUM_MINE_HQ_EXTENSION_POINTS.md.
  */
-import { AlertTriangle, Building2, CheckCircle2, Compass, DoorOpen, Gauge, History, Layers, LayoutGrid, Lock, RefreshCcw, Users, Wrench } from 'lucide-react';
+import { AlertTriangle, Building2, CheckCircle2, Compass, DoorOpen, Eye, Gauge, History, Layers, LayoutGrid, Lock, RefreshCcw, Users, Wrench } from 'lucide-react';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { BuildingView, type AgentStyleInfo } from './BuildingView';
 import { CampusListView } from './CampusListView';
 import { BuildingDetail, CampusView } from './CampusView';
 import { HqPlanFallback } from './HqPlanFallback';
-import { GraphicsChip, PresenceLinkChip, ViewSwitch, type HqView } from './HqChrome';
+import { GraphicsChip, StatusChip, ViewSwitch, type HqView } from './HqChrome';
 import { AgentPanel, RoomPanel } from './HqPanels';
 import { activeShiftKey, applyShifts, offShiftKeys } from './lib/hqShifts.ts';
 import { roomMove } from './hq-nav/navModel.ts';
@@ -48,7 +48,8 @@ import { useVisitorSummary } from './useVisitorSummary';
 import { HqCameraBridge } from './hq-nav/cameraBridge.ts';
 import { HqNavigation, type HqNavHandles } from './hq-nav/HqNavigation';
 import { ThumbCapture } from './hq-nav/thumbs.ts';
-import { AssignHost } from './hq-assign/AssignHost';
+import { AssignHost, type AssignedInfo } from './hq-assign/AssignHost';
+import { HQ_SCENE_PANEL_EVENT, type HqScenePanel } from './lib/hqWorkPanels.ts';
 // Loaded only when the owner opens it, so its code and styles stay out of the headquarters chunk (e2e/hq-performance.spec.ts budget).
 // Rarely opened, so kept out of the headquarters chunk (its size budget is tight).
 const OfficeSpaceLiveManager = lazy(() => import('./OfficeSpaceLiveManager').then((m) => ({ default: m.OfficeSpaceLiveManager })));
@@ -65,6 +66,7 @@ const GreenConcreteDialog = lazy(() => import('./hq-green-concrete/GreenConcrete
 const StaffDesksDialog = lazy(() => import('./hq-staff-desks/StaffDesksDialog').then((m) => ({ default: m.StaffDesksDialog })));
 // Office tools overlays (missing roles with the proposal dialog, workstations, agent meetings, the guided visit): each opens on a click, never
 // for the first campus frame, so each is its own chunk (docs/ANUM_MINE_HQ_PERFORMANCE_BUDGET.md, budget headroom pass).
+const OfficeStaffingCard = lazy(() => import('./hq-staffing/OfficeStaffingCard'));
 const OrgGapsPanel = lazy(() => import('./hq-provisioning/OrgGapsPanel').then((m) => ({ default: m.OrgGapsPanel })));
 const OfficeWorkstations = lazy(() => import('./OfficeWorkstations').then((m) => ({ default: m.OfficeWorkstations })));
 const AgentMeetingSessions = lazy(() => import('./AgentMeetingSessions').then((m) => ({ default: m.AgentMeetingSessions })));
@@ -91,7 +93,8 @@ export type HeadquartersProps = HqCallbacks & HqSlots & Readonly<{
   /** The state of the shell's one workspace event stream (the Executive assistant's results arrive on it). */
   streamState?: 'connecting' | 'live' | 'offline';
   /** Extra controls in the header row (the entrypoint puts its presentation switch here). */
-  headerExtra?: ReactNode;
+  /** Opens the concept preview (the old illustrative tour), from the Office tools menu. */
+  onConceptPreview?: () => void;
 }>;
 
 type Overlay = 'none' | 'spaces' | 'workstations' | 'tour' | 'agentMeetings' | 'teams' | 'gaps';
@@ -111,6 +114,21 @@ export function HeadquartersLive(props: HeadquartersProps) {
   const [state, setState] = useState<OfficeState | null>(null);
   const [overlay, setOverlay] = useState<Overlay>('none');
   const [toolsOpen, setToolsOpen] = useState(false);
+  const toolsButton = useRef<HTMLButtonElement>(null);
+  const toolsMenu = useRef<HTMLUListElement>(null);
+  // The menu closes on Escape (focus back on Office tools) and on a press outside it.
+  useEffect(() => {
+    if (!toolsOpen) return undefined;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') { setToolsOpen(false); toolsButton.current?.focus(); } };
+    const onDown = (e: PointerEvent) => { if (!toolsButton.current?.parentElement?.contains(e.target as Node)) setToolsOpen(false); };
+    // A native listener: the panel switches are portalled in from the navigation layer, so React events from them do not reach this menu.
+    const menu = toolsMenu.current;
+    const onPick = (e: MouseEvent) => { if ((e.target as HTMLElement).closest('button')) window.setTimeout(() => { setToolsOpen(false); toolsButton.current?.focus(); }, 0); };
+    window.addEventListener('keydown', onKey);
+    document.addEventListener('pointerdown', onDown);
+    menu?.addEventListener('click', onPick);
+    return () => { window.removeEventListener('keydown', onKey); document.removeEventListener('pointerdown', onDown); menu?.removeEventListener('click', onPick); };
+  }, [toolsOpen]);
   const [starterOpen, setStarterOpen] = useState(false);
   // Floor overview (docs/ANUM_MINE_FLOOR_OVERVIEW.md): the whole active floor from above, every room labelled.
   const [overview, setOverview] = useState(false);
@@ -460,6 +478,27 @@ export function HeadquartersLive(props: HeadquartersProps) {
   // Opening the flow from a room shows that room's work only; the dock says so and clears the filter with one button.
   const openFlowFor = useCallback((rid?: string) => { if (rid) setRoomFilter(rid); setFlowOpen(true); }, []);
   const goTo = useCallback((hash: string) => { window.location.hash = hash; }, []);
+  // Work given or decided in a drawer: the flow, the desks and the open side panel read again at once (the event
+  // stream confirms it a moment later). A new task's agent is shown at its desk when that desk is on the open floor.
+  const floorRef = useRef(floor);
+  floorRef.current = floor;
+  const onWorkChanged = useCallback(() => { void flow.reload(); void controller.refresh(); }, [flow.reload, controller]); // eslint-disable-line react-hooks/exhaustive-deps
+  const onAssigned = useCallback((info: AssignedInfo) => {
+    onWorkChanged();
+    const desk = floorRef.current?.desks.find((d) => d.agentId === info.agentId);
+    if (desk) selectAgent(info.agentId, desk);
+  }, [onWorkChanged, selectAgent]);
+  // The assistant dock and other cards ask for the live flow, the team or a new meeting without leaving the office.
+  useEffect(() => {
+    const open = (e: Event) => {
+      const which = (e as CustomEvent<HqScenePanel>).detail;
+      if (which === 'flow') { setRoomFilter(null); setFlowOpen(true); }
+      else if (which === 'team') setOverlay('teams');
+      else if (which === 'meetings') setOverlay('agentMeetings');
+    };
+    window.addEventListener(HQ_SCENE_PANEL_EVENT, open);
+    return () => window.removeEventListener(HQ_SCENE_PANEL_EVENT, open);
+  }, []);
 
   // Navigation commands from the executive assistant.
   const navScene = useMemo(() => {
@@ -561,7 +600,8 @@ export function HeadquartersLive(props: HeadquartersProps) {
         ? props.renderRoomPanel(roomRef(roomPanelRoom), ctx)
         : <><RoomPanel room={roomPanelRoom} desks={roomDesks} presence={presenceIndex} onClose={closePanels} onOpenAgent={(id, desk) => selectAgent(id, desk)} buildingKind={moduleBuildingKind(currentBuilding)} canManage={canManage} onOpenFlow={openFlowFor} onOpenGaps={() => setOverlay('gaps')} onOpenReception={openReception} visitors={visitorCounts?.get(roomPanelRoom.id)} wall={isOperationsRoom(roomPanelRoom) ? wallModel : null} onReloadWall={() => void flow.reload()}
           meeting={liveMeetingByRoom.get(roomPanelRoom.id) ?? null} meetingsKnown={meetings !== null} onStartMeeting={() => { setMeetingRoomId(roomPanelRoom.id); setOverlay('agentMeetings'); }}
-          shifts={registryBuilding?.shifts ?? null} /><Suspense fallback={null}><HqTeamPanel flowState={flowState} onAvatarChanged={() => void controller.refresh()} onHistory={openMemberHistory} roomId={roomPanelRoom.id} refreshKey={flow.snapshot?.as_of ?? 0} onNavigate={goTo} onOpenSpaces={() => setOverlay('spaces')} /></Suspense></>)}
+          shifts={registryBuilding?.shifts ?? null} /><Suspense fallback={null}><HqTeamPanel flowState={flowState} onAvatarChanged={() => void controller.refresh()} onHistory={openMemberHistory} roomId={roomPanelRoom.id} refreshKey={flow.snapshot?.as_of ?? 0} onNavigate={goTo} onOpenSpaces={() => setOverlay('spaces')} /></Suspense>
+          <Suspense fallback={null}><OfficeStaffingCard buildingId={registryBuilding?.id ?? null} refreshKey={state?.updatedAt ?? null} onNavigate={goTo} /></Suspense></>)}
         <HistoryLauncher label={t('hqHist.launch.room')} onClick={() => openHistory({ kind: 'room', roomId: roomPanelRoom.id, label: roomName(roomPanelRoom, locale), deskIds: roomPanelRoom.deskIds }, 'timeline')} /></>
       : null;
 
@@ -593,19 +633,21 @@ export function HeadquartersLive(props: HeadquartersProps) {
         </div>
         <div className="hqHeadTools">
           <div className="hqHeadStatus">
-            {props.headerExtra}
-            <PresenceLinkChip link={livePresence.link} />
-            <span className={`hqConn tone-${status === 'ready' ? 'ok' : status === 'error' ? 'stop' : 'warn'}`} role="status">{connection}</span>
-            {webglOk && <GraphicsChip onOpen={() => setGpuOpen(true)} />}
+            <StatusChip link={livePresence.link} data={{ tone: status === 'ready' ? 'ok' : status === 'error' ? 'stop' : 'warn', text: connection }}
+              graphics={webglOk ? <GraphicsChip onOpen={() => setGpuOpen(true)} /> : null} />
           </div>
           <div className="hqHeadActions">
           <button type="button" className="hqIconButton" onClick={retry} disabled={state?.busy} aria-label={t('hq.refresh')} title={t('hq.refresh')}><RefreshCcw aria-hidden="true" /></button>
           <ViewSwitch view={effectiveView} onChange={(v) => { if (v === "3d" && !webglOk) return; setView(v); }} />
           <span className="hqHeadSlot" />
           <div className="hqMenuWrap">
-            <button type="button" className="hqGhost" aria-expanded={toolsOpen} onClick={() => setToolsOpen((v) => !v)}><Wrench aria-hidden="true" />{t('hq.tools')}</button>
+            <button type="button" ref={toolsButton} className="hqGhost" aria-expanded={toolsOpen} onClick={() => setToolsOpen((v) => !v)}><Wrench aria-hidden="true" />{t('hq.tools')}</button>
             {toolsOpen && (
-              <ul className="hqMenu">
+              // One menu for the rarely used header items too: the panel switches (portalled into hqMenuSlot by the navigation layer) and the
+              // concept preview. Any choice closes the menu and gives focus back to Office tools.
+              <ul className="hqMenu" ref={toolsMenu}>
+                <li className="hqMenuGroup"><ul className="hqMenuSlot" /></li>
+                {props.onConceptPreview && <li><button type="button" onClick={props.onConceptPreview}><Eye aria-hidden="true" />{t('hq.menu.concept')}</button></li>}
                 <li><button type="button" aria-pressed={flowOpen} onClick={() => { setFlowOpen((v) => !v); setToolsOpen(false); }}><Layers aria-hidden="true" />{t('hqFlow.open')}</button></li>
                 <li><button type="button" onClick={() => { setStarterOpen(true); setToolsOpen(false); }}><Building2 aria-hidden="true" />{t('hqSc.open')}</button></li>
                 <li><button type="button" onClick={() => { setGreenOpen(true); setToolsOpen(false); }}><Building2 aria-hidden="true" />{t('hqGc.open')}</button></li>
@@ -670,7 +712,7 @@ export function HeadquartersLive(props: HeadquartersProps) {
           presenceLink={livePresence.link} presenceAsOf={livePresence.asOf} flowState={flowState}
           scene={<div className="hqSceneHost">
           {showFirstRun && <Suspense fallback={null}><FirstRunPanel onCreated={onCampusCreated} onKeep={setFirstRunKeep} onClose={() => setFirstRunKeep(false)} onManageSpaces={() => setOverlay('spaces')} /></Suspense>}
-          {loading && <div className="hqLoading" role="status" aria-busy="true"><span className="hqSpinner" aria-hidden="true" />{t('hq.loading')}</div>}
+          {loading && <div className={webglOk && effectiveView !== 'list' ? 'hqLoading hqLoadingStage' : 'hqLoading'} role="status" aria-busy="true"><span className="hqSpinner" aria-hidden="true" />{t('hq.loading')}</div>}
           {campus && effectiveView === 'list' && (
             <CampusListView
               campus={campus} currentWorkspaceId={scope.workspaceId} detail={projection?.buildings ?? []}
@@ -740,7 +782,7 @@ export function HeadquartersLive(props: HeadquartersProps) {
           onChanged={visitors.reload} onClose={() => setReception(null)} /></Suspense>
       )}
 
-      <AssignHost onAssigned={() => void flow.reload()} onNavigate={goTo}
+      <AssignHost onAssigned={onAssigned} onChanged={onWorkChanged} live={`${props.live ?? 0}:${flow.snapshot?.as_of ?? 0}`}
         seatedAgentIds={(rid) => new Set((registryBuilding?.floors ?? []).flatMap((f) => f.desks).filter((d) => d.roomId === rid && d.agentId).map((d) => d.agentId as string))} />
       {starterOpen && <Suspense fallback={null}><StarterCampusDialog onClose={() => setStarterOpen(false)}
         onCreated={() => { void controller.refresh(); void flow.reload(); void gaps.reload(); }} onOpenGaps={() => setOverlay('gaps')}

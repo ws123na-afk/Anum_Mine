@@ -176,9 +176,13 @@ const setupPlanSections = [
   'budget',
   'skills',
   'agents',
+  'controls',
+  'offices',
+  'business_agents',
   'assistants',
   'commands',
   'automations',
+  'home',
   'manual',
   'unsupported',
 ];

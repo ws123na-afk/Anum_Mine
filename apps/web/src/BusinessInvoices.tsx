@@ -1,9 +1,11 @@
 // Business invoices (docs/business.md#invoices): the money tiles per currency, the list, the new
 // invoice flow built from milestones, billable costs, an offer and manual lines, and the invoice
 // drawer with the actions the API allows (`can`): edit a draft, ask an owner to approve sending,
-// record payments by hand or from a customer's report, credit notes, void, print or download a PDF. Sending is never done from here: an owner approves it
-// in Approvals with the hash they were shown, and only then does the invoice get its number.
+// record payments by hand or from a customer's report (with a receipt PDF each), credit notes (with their PDF), void, print or download a PDF,
+// ask for the invoice email or a payment reminder, and a card payment link (BusinessInvoiceSend.tsx). Sending is never done from here: an owner
+// approves it in Approvals with the hash they were shown, and only then does the invoice get its number or the email go out.
 import { useCallback, useEffect, useId, useState, type FormEvent } from 'react';
+import { PaymentLinkBlock, SendBlock } from './BusinessInvoiceSend';
 import { Download, Plus, Printer, Search, Send, Trash2 } from 'lucide-react';
 import type {
   Billable, BusinessAccountRow, BusinessCurrency, BusinessInvoice, BusinessProject, BusinessSetup, CreditNote, InvoiceSummary, PaymentMethod, PaymentNotice,
@@ -13,7 +15,7 @@ import { CURRENCIES, formatMoney, formatPct } from './lib/business';
 import {
   INVOICE_STATUSES, LINE_KINDS, PAYMENT_METHODS, PRINT_LANGUAGES, createBody, creditBody, creditNoteTone, defaultInvoiceFilters, emptyCredit, emptyFields, emptyManualLine,
   emptyNewInvoice, emptyPayment, invoiceFiltersActive, invoiceQuery, invoiceStatusLabel, invoiceTitle, invoiceTone, lineKindLabel, listDate, noticeStatusLabel, noticeTone,
-  overdueText, paymentBody, paymentMethodLabel, paymentStateLabel, summaryTiles, today, updateBody, type FieldsDraft, type InvoiceFilters, type ManualLineDraft, type NewInvoiceDraft, type PrintLanguage,
+  newPaymentKey, overdueText, paymentBody, paymentMethodLabel, paymentStateLabel, summaryTiles, today, updateBody, type FieldsDraft, type InvoiceFilters, type ManualLineDraft, type NewInvoiceDraft, type PrintLanguage,
 } from './lib/invoices';
 import { shortHash } from './lib/approvals';
 import * as b from './lib/businessApi';
@@ -350,9 +352,11 @@ export function InvoiceDrawer({ setup, id, onClose, onChanged }: { setup: Busine
         <p className="muted bzHint" role="status">{printNote || pdfNote}</p>
       </section>
 
-      <PaymentsBlock invoice={invoice} canRemove={can.remove_payment} busy={busy} onRemove={(paymentId) => setAsking({ payment: paymentId })} />
+      <SendBlock invoice={invoice} write={setup.permissions.write} onChanged={(next, message) => { setItem(next); setNotice(message); onChanged(); }} />
+      <PaymentLinkBlock invoice={invoice} write={setup.permissions.write} onChanged={(next, message) => { setItem(next); setNotice(message); onChanged(); }} />
+      <PaymentsBlock invoice={invoice} canRemove={can.remove_payment} busy={busy} onRemove={(paymentId) => setAsking({ payment: paymentId })} onSaved={setPdfNote} onError={setProblem} />
       <NoticesBlock invoice={invoice} canDecide={can.decide_notice} busy={busy} onConfirm={(notice) => setAsking({ confirm: notice })} onReject={(notice) => setAsking({ reject: notice })} />
-      <CreditNotesBlock invoice={invoice} manage={setup.permissions.manage} busy={busy} onIssue={() => setAsking('credit')} onVoid={(note) => setAsking({ voidCredit: note })} />
+      <CreditNotesBlock invoice={invoice} manage={setup.permissions.manage} busy={busy} onIssue={() => setAsking('credit')} onVoid={(note) => setAsking({ voidCredit: note })} onSaved={setPdfNote} onError={setProblem} />
     </div>
 
     {asking === 'void' && <ReasonDialog title={t('inv.void.title', { number: invoice.number ?? '' })} label={t('inv.void.reason')} confirm={t('inv.void')} onCancel={() => setAsking(null)}
@@ -444,14 +448,25 @@ function EditForm({ invoice, onCancel, onSaved }: { invoice: BusinessInvoice; on
 
 // ---- payments ----------------------------------------------------------------------------------
 
-function PaymentsBlock({ invoice, canRemove, busy, onRemove }: { invoice: BusinessInvoice; canRemove: boolean; busy: boolean; onRemove: (paymentId: string) => void }) {
+type FileNotes = { onSaved: (note: string) => void; onError: (problem: string) => void };
+
+async function saveTo(fn: () => Promise<string>, what: string, { onSaved, onError }: FileNotes) {
+  onSaved(t('inv.pdf.working'));
+  try { onSaved(t('inv.receipt.saved', { name: await fn() })); } catch (error) { onSaved(''); onError(failure(error, what)); }
+}
+
+function PaymentsBlock({ invoice, canRemove, busy, onRemove, onSaved, onError }: { invoice: BusinessInvoice; canRemove: boolean; busy: boolean; onRemove: (paymentId: string) => void } & FileNotes) {
   if (invoice.status === 'draft' || invoice.status === 'pending_approval') return null;
   return <section className="bzBlock" aria-labelledby={`pay-${invoice.id}`}>
     <h3 id={`pay-${invoice.id}`}>{t('inv.pay.title')}</h3>
     {invoice.payments.length === 0 ? <p className="muted">{t('inv.pay.none')}</p>
       : <ul className="bzTrail">{invoice.payments.map((payment) => <li key={payment.id}>
         <div className="bzInline"><strong>{money(payment.amount, invoice.currency)}</strong><span>{day(payment.paid_on)}</span><span className="muted">{paymentMethodLabel(payment.method)}</span>
+          <button type="button" className="secondary" onClick={() => void saveTo(() => inv.downloadReceipt(invoice.id, payment.id), t('inv.receipt.button'), { onSaved, onError })}>
+            <Download aria-hidden="true" />{t('inv.receipt.button')}</button>
           {canRemove && <button type="button" className="secondary" disabled={busy} onClick={() => onRemove(payment.id)}>{t('inv.pay.remove')}</button>}</div>
+        {payment.provider === 'moyasar' && <small>{t('inv.pay.viaMoyasar')}</small>}
+        {payment.provider === 'stripe' && <small>{t('inv.pay.viaStripe')}</small>}
         <small dir="auto">{[payment.reference, payment.note].filter(Boolean).join(' / ')}</small>
         <small>{t('inv.pay.recordedBy', { by: payment.recorded_by })}</small></li>)}</ul>}
   </section>;
@@ -459,12 +474,14 @@ function PaymentsBlock({ invoice, canRemove, busy, onRemove }: { invoice: Busine
 
 function PaymentDialog({ invoice, onCancel, onSaved }: { invoice: BusinessInvoice; onCancel: () => void; onSaved: (next: BusinessInvoice) => void }) {
   const [draft, setDraft] = useState(() => emptyPayment(invoice.balance, today())), [problem, setProblem] = useState<string | null>(null), [busy, setBusy] = useState(false);
+  // One key for this form: a retried submit (a lost answer, a double click) records the money once.
+  const [paymentKey] = useState(() => newPaymentKey());
   async function submit(event: FormEvent) {
     event.preventDefault();
     const body = paymentBody(draft, invoice.balance, invoice.currency);
     if (!body.ok) { setProblem(body.error); return; }
     setBusy(true); setProblem(null);
-    try { onSaved(await inv.recordPayment(invoice.id, body.value)); } catch (error) { setProblem(failure(error, t('inv.pay.record'))); setBusy(false); }
+    try { onSaved(await inv.recordPayment(invoice.id, body.value, paymentKey)); } catch (error) { setProblem(failure(error, t('inv.pay.record'))); setBusy(false); }
   }
   const set = (key: keyof typeof draft) => (event: { target: { value: string } }) => setDraft({ ...draft, [key]: event.target.value });
   return <Modal title={t('inv.pay.record')} className="formDialog" onClose={onCancel}>
@@ -485,7 +502,7 @@ function PaymentDialog({ invoice, onCancel, onSaved }: { invoice: BusinessInvoic
 
 // ---- credit notes ------------------------------------------------------------------------------
 
-function CreditNotesBlock({ invoice, manage, busy, onIssue, onVoid }: { invoice: BusinessInvoice; manage: boolean; busy: boolean; onIssue: () => void; onVoid: (note: CreditNote) => void }) {
+function CreditNotesBlock({ invoice, manage, busy, onIssue, onVoid, onSaved, onError }: { invoice: BusinessInvoice; manage: boolean; busy: boolean; onIssue: () => void; onVoid: (note: CreditNote) => void } & FileNotes) {
   if (invoice.status === 'draft' || invoice.status === 'pending_approval') return null;
   if (invoice.status === 'void' && invoice.credit_notes.length === 0) return null;
   const c = invoice.currency;
@@ -495,6 +512,8 @@ function CreditNotesBlock({ invoice, manage, busy, onIssue, onVoid }: { invoice:
       : <ul className="bzTrail">{invoice.credit_notes.map((note) => <li key={note.id}>
         <div className="bzInline"><strong dir="auto">{note.number}</strong><span>{money(note.amount, c)}</span><span>{dayText(note.issue_date)}</span>
           {note.status === 'void' && <Badge tone={creditNoteTone(note.status)}>{t('inv.credit.voidTag')}</Badge>}
+          <button type="button" className="secondary" onClick={() => void saveTo(() => inv.downloadCreditNotePdf(invoice.id, note.id), t('inv.credit.pdf'), { onSaved, onError })}>
+            <Download aria-hidden="true" />{t('inv.credit.pdf')}</button>
           {invoice.can.void_credit_note && note.status === 'issued' && <button type="button" className="secondary" disabled={busy} onClick={() => onVoid(note)}>{t('inv.credit.void')}</button>}</div>
         <small dir="auto">{note.reason}</small>
         <small>{t('inv.credit.split', { subtotal: money(note.subtotal, c), tax: money(note.tax, c) })}</small>

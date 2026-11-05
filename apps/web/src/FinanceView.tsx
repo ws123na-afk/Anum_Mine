@@ -2,7 +2,7 @@
 // summary band, the month's spend by category, accounts, transactions with search and paging, CSV
 // statement import with a mapping preview, bills, debts, goals and manual holdings. Nothing here
 // moves money: there is no pay, transfer or trade button anywhere, by design (Stage 2).
-import { useCallback, useEffect, useId, useMemo, useState, type FormEvent, type ReactNode } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useId, useMemo, useState, type FormEvent, type ReactNode } from 'react';
 import {
   ArrowDownLeft, ArrowUpRight, CalendarClock, ChevronLeft, ChevronRight, CircleDot, Download, FileUp, Flag, Landmark, Lock, Pencil, PiggyBank,
   Plus, RefreshCw, Search, Settings2, Trash2, Undo2, Wallet,
@@ -30,6 +30,13 @@ import './commerce.css';
 import './finance.css';
 
 const PAGE = 25;
+// IBKR trading is its own lazy chunk (docs/finance-live-trading.md): it loads only when its tab opens.
+const IbkrPanel = lazy(() => import('./FinanceIbkr').then((m) => ({ default: m.IbkrPanel })));
+// Fund research (docs/finance-research.md) is its own lazy chunk too.
+const ResearchPanel = lazy(() => import('./FinanceResearch').then((m) => ({ default: m.ResearchPanel })));
+// iPhone SMS banking and the double-entry ledger (docs/finance-sms.md): one lazy chunk for both tabs.
+const SmsPanel = lazy(() => import('./FinanceSms').then((m) => ({ default: m.SmsPanel })));
+const LedgerPanel = lazy(() => import('./FinanceSms').then((m) => ({ default: m.LedgerPanel })));
 const KINDS: FinanceAccountKind[] = ['bank', 'card', 'cash', 'loan', 'investment'];
 const CADENCES: FinanceCadence[] = ['monthly', 'weekly', 'quarterly', 'yearly', 'once'];
 const DEBT_KINDS: FinanceDebtKind[] = ['loan', 'card', 'mortgage', 'other'];
@@ -115,6 +122,10 @@ export function FinanceView() {
     {tab === 'trading' && <TradingPanel base={base} onOpen={pick} />}
     {tab === 'intel' && <IntelPanel onOpen={pick} />}
     {tab === 'execution' && <ExecutionPanel />}
+    {tab === 'ibkr' && <Suspense fallback={<section className="surface cmPanel"><Notice busy>{t('ibkr.loading')}</Notice></section>}><IbkrPanel /></Suspense>}
+    {tab === 'research' && <Suspense fallback={<section className="surface cmPanel"><Notice busy>{t('fresearch.loading')}</Notice></section>}><ResearchPanel /></Suspense>}
+    {tab === 'sms' && <Suspense fallback={<section className="surface cmPanel"><Notice busy>{t('fsms.loading')}</Notice></section>}><SmsPanel /></Suspense>}
+    {tab === 'ledger' && <Suspense fallback={<section className="surface cmPanel"><Notice busy>{t('fsms.loading')}</Notice></section>}><LedgerPanel /></Suspense>}
     {tab === 'transactions' && <Transactions accounts={accountList} onChanged={onChanged} onImport={() => pick('import')} />}
     {tab === 'accounts' && <Accounts accounts={accounts} base={base} onChanged={onChanged} />}
     {tab === 'import' && <Import accounts={accountList} onChanged={onChanged} onAddAccount={() => pick('accounts')} onDone={() => pick('transactions')} />}
@@ -485,7 +496,9 @@ function Import({ accounts, onChanged, onAddAccount, onDone }: { accounts: Finan
     setBusy(true); setError(null);
     try {
       const result = await api.confirmImport(body());
-      setNotice(t('finance.import.done', { imported: result.imported_count, duplicates: result.duplicate_count, errors: result.error_count }));
+      const matched = (result.reconciled ?? 0) || (result.held_for_review ?? 0)
+        ? ` ${t('fsms.import.reconciled', { reconciled: result.reconciled ?? 0, review: result.held_for_review ?? 0 })}` : '';
+      setNotice(t('finance.import.done', { imported: result.imported_count, duplicates: result.duplicate_count, errors: result.error_count }) + matched);
       setPreview(null); setFile(null); setMapping(null); onChanged(); void loadHistory();
     } catch (e) { setError(describeError(e)); } finally { setBusy(false); }
   }

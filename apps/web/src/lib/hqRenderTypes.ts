@@ -58,6 +58,8 @@ export type RenderScene = Readonly<{
 
 export type RenderStats = {
   frames: number; lastDrawMs: number; avgDrawMs: number; drawn: number; culled: number; triangles: number; dpr: number;
+  /** Uploads of a live atlas (billboards, screens) that was already on the GPU: each one is the whole canvas, so they happen only when its drawing changed. */
+  uploads?: number;
   /** Shadow map size in pixels (0 = off) and whether the night glow pass is on. */
   shadowSize: number; bloom: boolean;
   /** Ambient parts in the scene, and whether they are moving right now (false under reduced motion, in a hidden tab, or at the lowest quality). */

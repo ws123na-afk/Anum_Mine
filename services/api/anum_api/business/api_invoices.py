@@ -6,8 +6,10 @@ orders add, or the unbilled share of a contract without milestones), billable cl
 from the usage ledger, an active catalog offer and manual lines. Members and owners draft
 one; sending it is ``business.send_invoice`` in the ordinary approvals flow: an owner
 approves it with the hash they were shown, and only then does it get a number and appear in
-the customer's portal. Payments are recorded by hand. ANUM sends no e-mail and takes no
-payment. A sent invoice never changes; a mistake is voided and issued again.
+the customer's portal. Payments are recorded by hand (idempotent per ``Idempotency-Key``), or
+arrive from a Moyasar payment link (``invoice_send.py``); emailing the invoice and payment
+reminders wait for an owner's approval of each send (``api_invoice_send.py``). A sent invoice
+never changes; a mistake is voided and issued again.
 """
 
 from __future__ import annotations
@@ -16,7 +18,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, Query as Q, Response, status
+from fastapi import APIRouter, Depends, Header, Query as Q, Response, status
 from pydantic import BaseModel, Field
 
 from ..authorization import Permission
@@ -29,17 +31,26 @@ from .common import Page, Reason, get_or_404, manage, page_bounds, read, write
 from .invoice_models import (
     OPEN_INVOICE_STATES,
     CreditNote,
-    CreditNoteStatus,
     Invoice,
     InvoiceLine,
     InvoicePayment,
     InvoiceStatus,
     LineSource,
     PaymentMethod,
+    InvoiceMessage,
+    PaymentLink,
     PaymentNotice,
     PaymentNoticeStatus,
 )
-from .invoice_pdf import invoice_filename, render_invoice_pdf
+from .invoice_pdf import (
+    credit_note_filename,
+    invoice_filename,
+    receipt_filename,
+    render_credit_note_pdf,
+    render_invoice_pdf,
+    render_receipt_pdf,
+)
+from .invoice_send import next_reminder_due, open_link, open_link_url, payment_by_key, refresh_messages
 from .invoice_print import render_invoice
 from .invoice_service import (
     apply_payment,
@@ -126,6 +137,11 @@ class Can(BaseModel):
     credit_enabled: bool
     void_credit_note: bool
     decide_notice: bool
+    # Ask for the invoice email or a payment reminder (each waits for an owner's approval).
+    email: bool
+    remind: bool
+    # Make a Moyasar payment page for the balance (needs the owner's Moyasar on).
+    payment_link: bool
 
 
 class InvoiceListItem(BaseModel):
@@ -167,6 +183,12 @@ class InvoiceView(Invoice):
     approval: Approval | None = None
     # Why a draft cannot be sent for approval yet.
     issues: list[str] = Field(default_factory=list)
+    # Invoice emails and payment reminders asked for, with their approval status.
+    messages: list[InvoiceMessage] = Field(default_factory=list)
+    # The reminder the schedule says is due now, if any.
+    next_reminder: int | None = None
+    # The open Moyasar payment page for the current balance, if one was made.
+    payment_link: PaymentLink | None = None
     can: Can
 
 
@@ -199,6 +221,10 @@ def _can(context: TenantContext, invoice: Invoice) -> Can:
         credit_enabled=settings.business_credit_notes_enabled,
         void_credit_note=owner and invoice.status in {InvoiceStatus.SENT, InvoiceStatus.PAID},
         decide_notice=writer and invoice.status in {InvoiceStatus.SENT, InvoiceStatus.PAID},
+        email=writer and invoice.status in {InvoiceStatus.SENT, InvoiceStatus.PAID},
+        remind=writer and invoice.status == InvoiceStatus.SENT and invoice.balance_due() > 0 and invoice.due_date is not None
+        and invoice.due_date < utc_now().date(),
+        payment_link=writer and invoice.status == InvoiceStatus.SENT and invoice.balance_due() > 0,
     )
 
 
@@ -223,7 +249,9 @@ def invoice_view(store: BusinessStore, repository: AnumRepository, context: Tena
     profile = store.get_settings().billing
     account_name, project_name = _names(store, invoice)
     checked = invoice.model_copy(update={"seller": invoice.seller or profile})
+    messages = refresh_messages(store, repository, context, invoice.id)
     return InvoiceView(
+        messages=messages, next_reminder=next_reminder_due(invoice, messages, utc_now().date()), payment_link=open_link(store, invoice),
         **invoice.model_dump(), account_name=account_name, project_name=project_name, payments=payments_of(store, invoice.id),
         credit_notes=credit_notes_of(store, invoice.id), payment_notices=notices_of(store, invoice.id),
         approval_state=state, approval=approval if state == "pending" else None,
@@ -784,15 +812,30 @@ class PaymentCreate(BaseModel):
 
 
 @router.post("/invoices/{invoice_id}/payments", response_model=InvoiceView, status_code=status.HTTP_201_CREATED)
-def record_payment(invoice_id: str, payload: PaymentCreate, context: TenantContext = Depends(tenant_context), repository: AnumRepository = Depends(repository_context)) -> InvoiceView:
+def record_payment(
+    invoice_id: str, payload: PaymentCreate, response: Response, context: TenantContext = Depends(tenant_context),
+    repository: AnumRepository = Depends(repository_context),
+    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key", min_length=8, max_length=80, pattern=r"^[A-Za-z0-9_-]+$"),
+) -> InvoiceView:
     """Money that arrived outside ANUM. When the balance reaches zero the invoice is paid and its
-    milestones are marked paid (cash collected)."""
+    milestones are marked paid (cash collected). With an ``Idempotency-Key`` a repeat of the same
+    submit finds the first payment (200) instead of recording the money twice."""
     write(context)
     now = utc_now()
+    reference, note = _clean(payload.reference, 120), _clean(payload.note, 300)
     with open_business_store(context) as store:
         invoice = get_or_404(store, "invoices", invoice_id, "Invoice", for_update=True)
+        if idempotency_key:
+            earlier = payment_by_key(store, invoice.id, idempotency_key)
+            if earlier is not None:
+                same = (earlier.amount == money(payload.amount) and earlier.paid_on == payload.paid_on and earlier.method == payload.method
+                        and earlier.reference == reference)
+                if not same:
+                    raise http_error(409, "This form was already used for a different payment. Reload the invoice and enter the payment again.")
+                response.status_code = status.HTTP_200_OK
+                return invoice_view(store, repository, context, invoice)
         invoice, payment = apply_payment(store, context, invoice, amount=payload.amount, paid_on=payload.paid_on, method=payload.method,
-                                         reference=_clean(payload.reference, 120), note=_clean(payload.note, 300), now=now)
+                                         reference=reference, note=note, now=now, idempotency_key=idempotency_key)
         record_activity(store, context, "invoice_payment_recorded", f"Payment of {invoice.currency.value} {payload.amount} recorded on invoice {invoice.number}.",
                         account_id=invoice.account_id, project_id=invoice.project_id, metadata={"invoice_id": invoice.id, "payment_id": payment.id})
         view = invoice_view(store, repository, context, invoice)
@@ -853,9 +896,42 @@ def pdf_response(invoice: Invoice, content: bytes) -> Response:
 
 @router.get("/invoices/{invoice_id}/pdf")
 def invoice_pdf(invoice_id: str, context: TenantContext = Depends(tenant_context)) -> Response:
-    """The invoice as a PDF file made on the server (Latin text only; the printable page covers Arabic). A draft says so on every page."""
+    """The invoice as a PDF file made on the server, labelled in English and Arabic (Arabic text prints as Arabic). A draft says so on every page."""
     read(context)
     with open_business_store(context) as store:
         invoice = get_or_404(store, "invoices", invoice_id, "Invoice")
-        content = render_invoice_pdf(invoice, payments_of(store, invoice.id), credit_notes_of(store, invoice.id), store.get_settings().billing)
+        content = render_invoice_pdf(invoice, payments_of(store, invoice.id), credit_notes_of(store, invoice.id), store.get_settings().billing,
+                                     payment_link=open_link_url(store, invoice))
     return pdf_response(invoice, content)
+
+
+def file_response(filename: str, content: bytes) -> Response:
+    return Response(content=content, media_type="application/pdf", headers={
+        "Content-Disposition": f'attachment; filename="{filename}"', "X-Content-Type-Options": "nosniff", "Cache-Control": "no-store",
+    })
+
+
+@router.get("/invoices/{invoice_id}/payments/{payment_id}/receipt")
+def payment_receipt(invoice_id: str, payment_id: str, context: TenantContext = Depends(tenant_context)) -> Response:
+    """A receipt PDF for one recorded payment (English and Arabic)."""
+    read(context)
+    with open_business_store(context) as store:
+        invoice = get_or_404(store, "invoices", invoice_id, "Invoice")
+        payment = store.get("invoice_payments", payment_id)
+        if payment is None or payment.invoice_id != invoice.id:
+            raise http_error(404, "Payment not found")
+        content = render_receipt_pdf(invoice, payment, store.get_settings().billing)
+    return file_response(receipt_filename(invoice, payment), content)
+
+
+@router.get("/invoices/{invoice_id}/credit-notes/{credit_note_id}/pdf")
+def credit_note_pdf(invoice_id: str, credit_note_id: str, context: TenantContext = Depends(tenant_context)) -> Response:
+    """A credit note as a PDF file (English and Arabic); a void one says so."""
+    read(context)
+    with open_business_store(context) as store:
+        invoice = get_or_404(store, "invoices", invoice_id, "Invoice")
+        note = store.get("credit_notes", credit_note_id)
+        if note is None or note.invoice_id != invoice.id:
+            raise http_error(404, "Credit note not found")
+        content = render_credit_note_pdf(invoice, note, store.get_settings().billing)
+    return file_response(credit_note_filename(note), content)

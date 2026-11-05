@@ -33,7 +33,7 @@ TABLES = (
     "business_inferences", "business_activities", "business_opportunities", "business_proposals", "business_proposal_versions", "business_projects",
     "business_milestones", "business_drafts", "business_research_runs", "business_change_orders", "business_usage_ledger",
     "business_invoices", "business_invoice_payments", "business_invoice_counters", "business_portal_access", "business_portal_decisions",
-    "business_credit_notes", "business_payment_notices",
+    "business_credit_notes", "business_payment_notices", "business_invoice_messages", "business_invoice_payment_links",
 )
 
 
@@ -446,3 +446,123 @@ def test_credit_notes_and_customer_payment_notices_under_rls(db: Engine) -> None
             with connection.begin():
                 _scoped(connection, TENANT_A, WORKSPACE_A)
                 connection.execute(text("update business_invoices set status = 'paid', paid_at = now() where id = :i"), {"i": sent["id"]})
+
+
+def test_invoice_emails_payment_links_and_idempotent_payments_under_rls(db: Engine, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Migration 0126 as the app role: an invoice email waits for approval in its own row, a repeated payment
+    submit records one payment, a Moyasar payment is recorded once, and every new row stays in its workspace."""
+    import json as _json
+
+    import httpx
+
+    from anum_api import main as app_main
+    from anum_api.agent_tools import ToolDefinition, ToolResult
+    from anum_api.billing import moyasar
+    from anum_api.schemas import RiskLevel
+    from test_selling_readiness import MOYASAR_KEY, WEBHOOK_TOKEN, FakeMoyasar
+
+    sent_mail: list[str] = []
+
+    async def send_email(call, context):  # type: ignore[no-untyped-def]
+        sent_mail.append(call.arguments["to"])
+        return ToolResult(status="succeeded", summary="sent")
+
+    app_main.tool_registry.register(ToolDefinition(name="test.pg_invoice_email", description="fake", risk_level=RiskLevel.HIGH, delivery_channel="email"), send_email)
+    fake = FakeMoyasar()
+    monkeypatch.setattr(moyasar, "transport", httpx.MockTransport(fake.handler))
+    monkeypatch.setattr(settings, "web_app_url", "https://app.example")
+    monkeypatch.setattr(settings, "billing_issuer_tenant_id", TENANT_A)
+    try:
+        path = main_path(A)
+        pending = ok(client.post(f"{BASE}/proposals/{path['proposal']['id']}/request-acceptance", headers=MEMBER_A))
+        assert ok(client.post(f"/api/v1/approvals/{pending['approval']['id']}/approve", headers=A, json={"payload_hash": pending["approval"]["payload_hash"]}))
+        project = ok(client.post(f"{BASE}/projects", headers=A, json={"proposal_id": path["proposal"]["id"]}), 201)
+        ok(client.put(f"{BASE}/billing-profile", headers=A, json={"legal_name": "شركة أنوم للتقنية", "tax_number": "300000000000003", "invoice_prefix": "INV"}))
+        milestones = [item["id"] for item in project["milestones"]]
+        draft = ok(client.post(f"{BASE}/invoices", headers=MEMBER_A, json={"project_id": project["id"], "milestone_ids": milestones[:1]}), 201)
+        waiting = ok(client.post(f"{BASE}/invoices/{draft['id']}/request-approval", headers=MEMBER_A))
+        assert ok(client.post(f"/api/v1/approvals/{waiting['approval']['id']}/approve", headers=A, json={"payload_hash": waiting["approval"]["payload_hash"]}))
+        sent = ok(client.get(f"{BASE}/invoices/{draft['id']}", headers=A))
+
+        # The PDF carries the Arabic seller name as Arabic.
+        from io import BytesIO
+
+        from pypdf import PdfReader
+
+        pdf = client.get(f"{BASE}/invoices/{sent['id']}/pdf", headers=A)
+        assert "شركة أنوم للتقنية" in "".join(page.extract_text() for page in PdfReader(BytesIO(pdf.content)).pages)
+
+        # An invoice email is a row waiting for an owner; nothing is sent before the approval.
+        asked = ok(client.post(f"{BASE}/invoices/{sent['id']}/email", headers=MEMBER_A, json={"to": "huda@sunrise-bakery.example"}), 201)
+        assert asked["message"]["status"] == "waiting_approval" and sent_mail == []
+        approval_id = asked["message"]["approval_id"]
+        assert ok(client.post(f"/api/v1/approvals/{approval_id}/approve", headers=A, json={"payload_hash": asked["payload_hash"]}))
+        assert sent_mail == ["huda@sunrise-bakery.example"]
+        assert [item["status"] for item in ok(client.get(f"{BASE}/invoices/{sent['id']}/messages", headers=A))] == ["sent"]
+
+        # A repeated payment submit records the money once (the unique index backs the check).
+        body = {"amount": 100, "paid_on": sent["issue_date"], "reference": "TRX-PG"}
+        first = client.post(f"{BASE}/invoices/{sent['id']}/payments", headers={**MEMBER_A, "Idempotency-Key": "pg-submit-0001"}, json=body)
+        again = client.post(f"{BASE}/invoices/{sent['id']}/payments", headers={**MEMBER_A, "Idempotency-Key": "pg-submit-0001"}, json=body)
+        assert (first.status_code, again.status_code) == (201, 200) and again.json()["amount_paid"] == 100.0
+        receipt = client.get(f"{BASE}/invoices/{sent['id']}/payments/{first.json()['payments'][0]['id']}/receipt", headers=A)
+        assert receipt.status_code == 200 and receipt.content.startswith(b"%PDF")
+
+        # The owner's Moyasar: a payment link for the balance, paid once through the webhook.
+        operator = {**A, "x-user-roles": "owner,platform_operator"}
+        ok(client.put("/api/v1/platform/billing/providers/moyasar", headers=operator,
+                      json={"enabled": True, "secret_key": MOYASAR_KEY, "webhook_secret": WEBHOOK_TOKEN}))
+        linked = ok(client.post(f"{BASE}/invoices/{sent['id']}/payment-link", headers=MEMBER_A), 201)
+        link = linked["payment_link"]
+        assert link["amount"] == 800.0
+        fake.pay(link["provider_invoice_id"], payment_id="pay_pg_1")
+        delivery = lambda event_id: client.post(f"/api/v1/billing/webhooks/moyasar/{TENANT_A}", content=_json.dumps({  # noqa: E731
+            "id": event_id, "type": "payment_paid", "secret_token": WEBHOOK_TOKEN, "data": {"id": "pay_pg_1"}}).encode())
+        assert ok(delivery("evt_pg_1"))["outcome"] == "paid"
+        assert ok(delivery("evt_pg_2"))["outcome"] == "duplicate_payment"
+        paid = ok(client.get(f"{BASE}/invoices/{sent['id']}", headers=A))
+        assert paid["status"] == "paid" and paid["amount_paid"] == 900.0 and len(paid["payments"]) == 2
+
+        for other in (A2, B):
+            assert client.get(f"{BASE}/invoices/{sent['id']}/messages", headers=other).status_code == 404
+            assert client.post(f"{BASE}/invoices/{sent['id']}/payment-link", headers=other).status_code == 404
+
+        with db.connect() as connection:
+            with connection.begin():
+                _scoped(connection, TENANT_B, WORKSPACE_B)
+                for table in ("business_invoice_messages", "business_invoice_payment_links"):
+                    assert connection.execute(text(f"select count(*) from {table}")).scalar() == 0  # nosec B608 - fixed names
+            with connection.begin():
+                _scoped(connection, TENANT_A, WORKSPACE_A)
+                assert connection.execute(text("select count(*) from business_invoice_messages")).scalar() == 1
+                assert connection.execute(text("select count(*) from business_invoice_payments where idempotency_key = 'pg-submit-0001'")).scalar() == 1
+            # The same idempotency key or Moyasar payment cannot be recorded twice, even by a direct insert.
+            for column, value in (("idempotency_key", "pg-submit-0001"), ("provider_payment_id", "pay_pg_1")):
+                with pytest.raises(DBAPIError):
+                    with connection.begin():
+                        _scoped(connection, TENANT_A, WORKSPACE_A)
+                        extra = ", provider" if column == "provider_payment_id" else ""
+                        extra_value = ", 'moyasar'" if column == "provider_payment_id" else ""
+                        connection.execute(text(
+                            f"insert into business_invoice_payments (id, tenant_id, workspace_id, invoice_id, amount, paid_on, method, reference, note, recorded_by, {column}{extra}) "
+                            f"values ('binpay_dup', :t, :w, :i, 1, current_date, 'cash', '', '', 'u', :v{extra_value})"),  # nosec B608 - fixed columns
+                            {"t": TENANT_A, "w": WORKSPACE_A, "i": sent["id"], "v": value})
+            # Tenant B cannot point a message at tenant A's invoice (scoped foreign key).
+            with pytest.raises(DBAPIError):
+                with connection.begin():
+                    _scoped(connection, TENANT_B, WORKSPACE_B)
+                    connection.execute(text(
+                        "insert into business_invoice_messages (id, tenant_id, workspace_id, invoice_id, kind, language, to_email, subject, status, requested_by) "
+                        "values ('binmsg_x', :t, :w, :i, 'invoice', 'en', 'a@b.example', 'S', 'failed', 'u')"),
+                        {"t": TENANT_B, "w": WORKSPACE_B, "i": sent["id"]})
+            # A waiting message must name its approval; a link must be https.
+            with pytest.raises(DBAPIError):
+                with connection.begin():
+                    _scoped(connection, TENANT_A, WORKSPACE_A)
+                    connection.execute(text(
+                        "insert into business_invoice_messages (id, tenant_id, workspace_id, invoice_id, kind, language, to_email, subject, status, requested_by) "
+                        "values ('binmsg_y', :t, :w, :i, 'invoice', 'en', 'a@b.example', 'S', 'waiting_approval', 'u')"),
+                        {"t": TENANT_A, "w": WORKSPACE_A, "i": sent["id"]})
+    finally:
+        app_main.tool_registry._definitions.pop("test.pg_invoice_email", None)
+        app_main.tool_registry._handlers.pop("test.pg_invoice_email", None)

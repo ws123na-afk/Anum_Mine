@@ -40,7 +40,7 @@ from pydantic import BaseModel, Field, field_validator
 
 from .audit import AuditRecord
 from .authorization import Permission
-from .dependencies import has_permission, require_permission, tenant_context
+from .dependencies import has_permission, tenant_context
 from .schemas import TenantContext, new_id, utc_now
 from .scoped_store import open_scoped_store
 

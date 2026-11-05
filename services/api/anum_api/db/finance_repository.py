@@ -41,6 +41,8 @@ from anum_api.finance.trading import PaperOrder, Portfolio, PriceRecord
 from anum_api.finance.wider import Incident, Widening
 from anum_api.schemas import TenantContext
 
+from .ibkr_repository import RECORDS as IBKR_RECORDS
+from .sms_repository import RECORDS as SMS_RECORDS
 from .models import Base
 from .scope import require_workspace
 
@@ -1287,7 +1289,7 @@ class SqlAlchemyFinanceStore:
     # privacy ------------------------------------------------------------------------------
 
     _ALL = (
-        FinanceAgentDecisionRecord, FinanceStrategyRunRecord, FinanceStrategyRecord, FinanceMarketBarRecord, FinanceInstrumentRecord,
+        *SMS_RECORDS, *IBKR_RECORDS, FinanceAgentDecisionRecord, FinanceStrategyRunRecord, FinanceStrategyRecord, FinanceMarketBarRecord, FinanceInstrumentRecord,
         FinanceLiveIncidentRecord, FinanceLiveWideningRecord, FinancePaperOrderRecord, FinancePaperPortfolioRecord, FinancePriceRecord, FinanceExecIntentRecord, FinanceExecSettingsRecord,
         FinanceTransactionRecord, FinanceImportRecord, FinanceHoldingRecord, FinanceBillRecord, FinanceDebtRecord,
         FinanceGoalRecord, FinanceFxRateRecord, FinanceConnectionRecord, FinanceGuardianChangeRecord,
@@ -1295,13 +1297,18 @@ class SqlAlchemyFinanceStore:
     )
 
     def count_everything(self, context: TenantContext) -> int:
-        return sum(
+        from .finance_links_repository import SqlAlchemyLinkStore
+
+        return SqlAlchemyLinkStore(self.session).count_everything(context) + sum(
             int(self.session.scalar(select(func.count()).select_from(record).where(*self._mine(record, context))) or 0)
             for record in self._ALL
         )
 
     def delete_everything(self, context: TenantContext) -> int:
-        removed = 0
+        from .finance_links_repository import SqlAlchemyLinkStore
+
+        # Links, device events and the allocation rows this person made in business workspaces (docs/finance-links.md#privacy).
+        removed = SqlAlchemyLinkStore(self.session).delete_everything(context)
         for record in self._ALL:
             removed += int(self.session.execute(delete(record).where(*self._mine(record, context))).rowcount or 0)
         return removed

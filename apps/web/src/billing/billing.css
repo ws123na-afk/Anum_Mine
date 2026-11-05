@@ -21,7 +21,7 @@
 .blEmpty { margin: 0; }
 
 /* Links drawn as buttons (an <a> that navigates). */
-.blLink { align-items: center; background: var(--d-glass-2); border: 1px solid var(--d-line-strong); border-radius: var(--d-r-control); color: var(--d-text); display: inline-flex; font-size: var(--text-md); font-weight: 650; gap: var(--d-s2); justify-content: center; min-height: 40px; padding: 0 var(--d-s3); text-decoration: none; }
+.blLink { align-items: center; background: var(--d-glass-2); border: 1px solid var(--d-line-strong); border-radius: var(--d-r-control); color: var(--d-text); display: inline-flex; font-size: var(--text-md); font-weight: 600; gap: var(--d-s2); justify-content: center; min-height: 40px; padding: 0 var(--d-s3); text-decoration: none; }
 .blLink:hover { background: var(--d-glass-3); }
 .blLink.primary { background: var(--d-primary-grad); border-color: transparent; color: var(--d-on-primary); }
 .blLink.primary:hover { background: var(--d-primary-grad-hover); }
@@ -31,7 +31,7 @@
 .blPlanNow { display: grid; gap: var(--d-s2); }
 .blPlanName { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); }
 .blPlanName h3 { font-size: var(--text-2xl); overflow-wrap: anywhere; }
-.blPrice { font-size: var(--text-lg); font-variant-numeric: tabular-nums; font-weight: 650; margin: 0; }
+.blPrice { font-size: var(--text-lg); font-variant-numeric: tabular-nums; font-weight: 600; margin: 0; }
 .blFacts { display: grid; gap: var(--d-s2) var(--d-s4); grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); margin: 0; }
 .blFacts dt { color: var(--d-muted); font-size: var(--text-xs); }
 .blFacts dd { margin: 0; overflow-wrap: anywhere; }
@@ -97,7 +97,7 @@
 .blTotals div { display: flex; gap: var(--d-s3); justify-content: space-between; }
 .blTotals dt { color: var(--d-muted); }
 .blTotals dd { font-variant-numeric: tabular-nums; margin: 0; white-space: nowrap; }
-.blTotals .blGrand { border-top: 1px solid var(--d-line); font-weight: 700; padding-top: var(--d-s1); }
+.blTotals .blGrand { border-top: 1px solid var(--d-line); font-weight: 600; padding-top: var(--d-s1); }
 .blTotals .blGrand dt { color: var(--d-text); }
 .blList { display: grid; gap: var(--d-s2); list-style: none; margin: 0; padding: 0; }
 .blList li { border: 1px solid var(--d-line); border-radius: var(--d-r-control); display: flex; flex-wrap: wrap; gap: var(--d-s1) var(--d-s3); padding: var(--d-s2) var(--d-s3); }
@@ -129,7 +129,8 @@
 
 /* Console. */
 .blConsoleBar { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s3); justify-content: space-between; }
-.blTabs { margin: 0; }
+.blTabs { margin: 0; max-inline-size: 100%; min-inline-size: 0; }
+.blConsole { grid-template-columns: minmax(0, 1fr); }
 
 /* Onboarding checklist and the shared refusal notice. */
 .blChecklist { display: grid; gap: var(--d-s3); margin-block-end: var(--d-s4); padding: var(--d-s4) var(--d-s5); }
@@ -156,6 +157,41 @@
 .blChosen svg { block-size: 18px; color: var(--d-ok); flex: none; inline-size: 18px; }
 .blHeroIcon { block-size: 32px; color: var(--d-sky); inline-size: 32px; }
 .blSignupForm .consent { margin-top: var(--d-s4); }
+
+/* Ready to sell (docs/selling-readiness.md): Moyasar, company and legal facts, the checklist, refunds. */
+.blCopy { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); margin: var(--d-s1) 0; }
+.blCopy code { flex: 1 1 260px; min-inline-size: 0; }
+.blCopy code, .blRecord { background: var(--d-glass-2); border-radius: var(--d-r-control); display: block; font-family: var(--d-mono); font-size: var(--text-sm); max-inline-size: 100%; overflow-wrap: anywhere; padding: var(--d-s1) var(--d-s2); }
+.blDocs { display: grid; gap: var(--d-s2); list-style: none; margin: 0; padding: 0; }
+.blDocs li { align-items: center; border-bottom: 1px solid var(--d-line); display: flex; flex-wrap: wrap; gap: var(--d-s2) var(--d-s4); padding-bottom: var(--d-s2); }
+.blDocs a { align-items: center; display: inline-flex; font-weight: 600; gap: var(--d-s1); min-inline-size: 0; }
+.blDocs a svg { block-size: 16px; inline-size: 16px; }
+.blDocs .blCheck { margin-inline-start: auto; }
+.blTerms { display: grid; gap: var(--d-s3); grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr)); }
+.blTerms .field > span { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); }
+.blGenerated summary { cursor: pointer; font-weight: 600; min-block-size: 32px; }
+.blGenerated .blFacts { margin-top: var(--d-s2); }
+.blGenerated dd { overflow-wrap: anywhere; }
+.blReady { display: grid; gap: var(--d-s3); list-style: none; margin: 0; padding: 0; }
+.blReadyItem { border: 1px solid var(--d-line); border-radius: var(--d-r-control); display: grid; gap: var(--d-s3); grid-template-columns: auto minmax(0, 1fr); padding: var(--d-s3) var(--d-s4); }
+.blReadyItem h3 { align-items: center; display: flex; flex-wrap: wrap; font-size: var(--text-lg); gap: var(--d-s2); margin: 0 0 var(--d-s1); }
+.blReadyItem p { margin: 0 0 var(--d-s1); }
+.blReadyItem > div > button, .blReadyItem .blLinkButton { margin-top: var(--d-s2); }
+.blReadyIcon { block-size: 22px; inline-size: 22px; margin-top: 2px; }
+.blReadyItem.done .blReadyIcon { color: var(--d-ok); }
+.blReadyItem.warning .blReadyIcon { color: var(--d-warn); }
+.blReadyItem.missing .blReadyIcon { color: var(--d-stop); }
+.blReadyItem.unknown .blReadyIcon { color: var(--d-muted); }
+.blLinkButton { align-items: center; border: 1px solid var(--d-line); border-radius: var(--d-r-control); color: var(--d-text); display: inline-flex; font-weight: 600; gap: var(--d-s2); min-block-size: 40px; padding: var(--d-s2) var(--d-s4); text-decoration: none; }
+.blLinkButton:hover { background: var(--d-glass-2); }
+.blInlineForm { align-items: end; display: flex; flex-wrap: wrap; gap: var(--d-s3); }
+.blInlineForm .field { flex: 1 1 240px; }
+.blDns { display: grid; gap: var(--d-s2); }
+.blDns h3 { align-items: center; display: flex; gap: var(--d-s2); margin: var(--d-s2) 0 0; }
+.blCheck input[type="radio"] { accent-color: var(--d-violet); flex: none; height: 18px; margin: 0; min-height: 0; padding: 0; width: 18px; }
+.blList li .cellActions { display: inline-flex; flex-wrap: wrap; gap: var(--d-s1); margin-inline-start: auto; }
+.blRadios { border: 0; display: grid; gap: var(--d-s2); margin: 0 0 var(--d-s3); padding: 0; }
+.blRadios legend { font-weight: 600; margin-bottom: var(--d-s1); }
 
 @media (max-width: 1100px) {
   .blTable .optional { display: none; }

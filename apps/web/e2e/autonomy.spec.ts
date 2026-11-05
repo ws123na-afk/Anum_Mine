@@ -111,7 +111,7 @@ test('the activity feed lists what ANUM did, undoes it, tightens it and accepts 
   await expect(feed.getByText('Undone by user_local')).toBeVisible();
   expect(calls.find((c) => c.path === '/api/v1/autonomy/actions/auto_1/undo')?.body).toEqual({ undo_token: 'undo_token_auto_1' });
 
-  await page.getByRole('button', { name: 'Always ask before anum.respond' }).click();
+  await page.getByRole('button', { name: 'Always ask for this: anum.respond' }).click();
   await expect(page.getByText('ANUM will ask before anum.respond from now on.')).toBeVisible();
   await expect(feed.getByText('Asks from now on')).toBeVisible();
 

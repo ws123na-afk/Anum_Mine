@@ -6,6 +6,9 @@ import type { Message } from './types.ts';
 import { commerceAr } from './commerce.ar.ts';
 import { financeAr } from './finance.ar.ts';
 import { financeTradingAr } from './financeTrading.ar.ts';
+import { financeIbkrAr } from './financeIbkr.ar.ts';
+import { financeResearchAr } from './financeResearch.ar.ts';
+import { financeSmsAr } from './financeSms.ar.ts';
 import { financeIntelAr } from './financeIntel.ar.ts';
 import { financeEquityAr } from './financeEquity.ar.ts';
 import { financeReportsAr } from './financeReports.ar.ts';
@@ -23,6 +26,8 @@ import { hqGpuAr } from './hqGpu.ar.ts';
 import { hqLiveAr } from './hqLive.ar.ts';
 import { hqPanelsAr } from './hqPanels.ar.ts';
 import { hqProvisioningAr } from './hqProvisioning.ar.ts';
+import { officeStaffingAr } from './officeStaffing.ar.ts';
+import { greenConcreteKitAr } from './greenConcreteKit.ar.ts';
 import { hqNavAr } from './hqNav.ar.ts';
 import { hqAssignAr } from './hqAssign.ar.ts';
 import { hqStarterCampusAr } from './hqStarterCampus.ar.ts';
@@ -44,6 +49,7 @@ import { businessPipelineAr } from './businessPipeline.ar.ts';
 import { businessSupportAr } from './businessSupport.ar.ts';
 import { filesVersionsAr } from './filesVersions.ar.ts';
 import { invoiceMoneyAr } from './invoiceMoney.ar.ts';
+import { invoiceSendAr } from './invoiceSend.ar.ts';
 import { invoicesAr } from './invoices.ar.ts';
 import { portalAr } from './portal.ar.ts';
 import { brevoAr } from './brevo.ar.ts';
@@ -51,6 +57,12 @@ import { agentControlsAr } from './agentControls.ar.ts';
 import { billingAr } from './billing.ar.ts';
 import { lifecycleAr } from './lifecycle.ar.ts';
 import { recordRetentionAr } from './recordRetention.ar.ts';
+import { attendanceAr } from './attendance.ar.ts';
+import { vehiclesAr } from './vehicles.ar.ts';
+import { purchasesAr } from './purchases.ar.ts';
+import { businessBooksAr } from './businessBooks.ar.ts';
+import { iphoneAr } from './iphone.ar.ts';
+import { vaultAr } from './vault.ar.ts';
 import { helpAr } from './help.ar.ts';
 import { publicSiteAr } from './publicSite.ar.ts';
 import { ownerAr } from './ar.owner.ts';
@@ -69,6 +81,8 @@ import { mailOutgoingAr } from './mailOutgoing.ar.ts';
 import { mailAiAr } from './mailAi.ar.ts';
 import { mailShareAr } from './mailShare.ar.ts';
 import { mailAllAr } from './mailAll.ar.ts';
+import { emailHubAr } from './emailHub.ar.ts';
+import { leadSourcesAr } from './leadSources.ar.ts';
 import { inboxComposeAr } from './inboxCompose.ar.ts';
 import { mailRulesAr } from './mailRules.ar.ts';
 import { mailOpsAr } from './mailOps.ar.ts';
@@ -89,6 +103,9 @@ export const ar: Record<MessageKey, Message> = {
   // ---- Finance (finance.ar.ts) ----
   ...financeAr,
   ...financeTradingAr,
+  ...financeIbkrAr,
+  ...financeResearchAr,
+  ...financeSmsAr,
   ...financeIntelAr,
   ...financeEquityAr,
   ...financeReportsAr,
@@ -102,12 +119,19 @@ export const ar: Record<MessageKey, Message> = {
   ...filesVersionsAr,
   ...invoicesAr,
   ...invoiceMoneyAr,
+  ...invoiceSendAr,
   ...portalAr,
   ...brevoAr,
   ...agentControlsAr,
   ...billingAr,
   ...lifecycleAr,
   ...recordRetentionAr,
+  ...attendanceAr,
+  ...vehiclesAr,
+  ...purchasesAr,
+  ...businessBooksAr,
+  ...iphoneAr,
+  ...vaultAr,
   ...helpAr,
   ...publicSiteAr,
   ...agentSkillsAr,
@@ -120,6 +144,8 @@ export const ar: Record<MessageKey, Message> = {
   ...mailAiAr,
   ...mailShareAr,
   ...mailAllAr,
+  ...emailHubAr,
+  ...leadSourcesAr,
   ...inboxComposeAr,
   ...mailRulesAr,
   ...mailOpsAr,
@@ -406,6 +432,11 @@ export const ar: Record<MessageKey, Message> = {
 
   // ---- Model gateway ----
   'model.ownerOnly': 'يتطلب اختيار النموذج وحفظ مفتاح واجهته البرمجية واختبار الاتصال دور المالك في هذه المؤسسة. اطلب من المالك تغيير النموذج أو تغيير دورك.',
+  'model.placeholder.server': 'إجابات الذكاء الاصطناعي نصوص مؤقتة: لم يُضبط نموذج ذكاء اصطناعي على الخادم.',
+  'model.placeholder.workspace': 'إجابات الذكاء الاصطناعي نصوص مؤقتة: مساحة العمل هذه مضبوطة على النموذج المؤقت.',
+  'model.placeholder.fix': 'يختار المالك نموذجا حقيقيا من الإعدادات، في قسم بوابة النماذج. ويمكن لمشغل الخادم أيضا ضبط ANUM_MODEL_PROVIDER لكل مساحات العمل.',
+  'model.placeholder.openSettings': 'فتح الإعدادات',
+  'model.placeholder.help': 'طريقة الإعداد',
   'model.ownerRequired': 'يلزم وصول المالك',
   'model.apiAnswered': 'ردّت واجهة البرمجة: {detail}',
   'model.saveConflict': '{reason} أكمل "تهيئة مساحة العمل" أعلاه، ثم احفظ مرة أخرى.',
@@ -676,6 +707,8 @@ export const ar: Record<MessageKey, Message> = {
   'chatCard.failed.title': 'لم تكتمل المهمة',
   'chatCard.cancelled': 'توقّف قبل اكتمال المهمة. لم يتغير شيء.',
   'chatCard.denied.title': 'دورك لا يسمح بتشغيل المهام',
+  'chatCard.unavailable.title': 'غير مفعل هنا بعد',
+  'chatCard.needsInput.title': 'يستطيع ANUM تنفيذ هذا: تنقص معلومة واحدة',
   'chatCard.stillRunning': 'لا تزال تعمل في الخلفية. افتح المهمة لمتابعتها؛ تتحدث هذه البطاقة عند فتح المحادثة مجددًا.',
   'chatCard.running.commerce': 'أقرأ بيانات متجرك…',
   'chatCard.running.tyre': 'أقرأ بيانات الإطارات…',
@@ -690,6 +723,9 @@ export const ar: Record<MessageKey, Message> = {
   'chatCard.openItem.tyre': 'فتح في تخطيط الإطارات: {title}',
   'chatCard.badge.unshipped': 'لم يُشحن',
   'chatCard.badge.low_stock': 'مخزون منخفض',
+  'chatCard.badge.source': 'الصفحة المقروءة',
+  'chatCard.badge.link': 'رابط في الصفحة',
+  'chatCard.running.browse': 'أقرأ الصفحة…',
   'chat.connectionDropped': 'انقطع الاتصال قبل اكتمال الإجابة.',
 
   // ---- Tasks ----
@@ -714,6 +750,7 @@ export const ar: Record<MessageKey, Message> = {
   'tasks.stream.offline': 'التحديثات غير متصلة',
   'tasks.instructions': 'تعليمات المهمة',
   'tasks.instructionsPlaceholder': 'صف النتيجة التي يجب أن ينتجها الوكيل',
+  'tasks.instructionsRequired': 'اكتب ما يجب أن تفعله المهمة، ثم شغّلها.',
   'tasks.running': 'جارٍ التشغيل...',
   'tasks.run': 'تشغيل المهمة',
   'tasks.cancel': 'إلغاء',
@@ -990,6 +1027,8 @@ export const ar: Record<MessageKey, Message> = {
 
   // ---- Approvals ----
   'approvals.pendingHeading': 'بانتظار القرار',
+  'approvals.queueIndex': 'قائمة الانتظار',
+  'approvals.queueIndexCount': '{count} بانتظار القرار',
   'approvals.queueClear': 'لا شيء في الانتظار',
   'approvals.queueClearText': 'لا توجد إجراءات تحتاج إلى موافقة.',
   'approvals.metric.pending': 'معلّقة',
@@ -1244,14 +1283,14 @@ export const ar: Record<MessageKey, Message> = {
   'files.sortLabel': 'ترتيب الملفات',
   'files.loading': 'جارٍ تحميل الملفات...',
   'files.list': 'الملفات',
-  'files.showDetails': 'عرض تفاصيل {name}',
+  'files.showDetailsHint': 'عرض تفاصيل',
   'files.rowMeta': '{type} · {size} · {uploader} · ',
   'files.download': 'تنزيل',
   'files.downloadOf': 'تنزيل {name}',
   'files.deleteOf': 'حذف {name}',
   'files.confirmDeletePrompt': 'حذف {name}؟ لا يمكن التراجع عن ذلك.',
   'files.confirmDeleteOf': 'تأكيد حذف {name}',
-  'files.keepOf': 'الإبقاء على {name}',
+  'files.keepOf': 'إبقاء {name}',
   'files.keep': 'إبقاء',
   'files.deleteFailed': 'تعذّر حذف {name}: {message}',
   'files.downloadFailed': 'تعذّر تنزيل {name}: {message}',
@@ -1422,6 +1461,12 @@ export const ar: Record<MessageKey, Message> = {
   'integrations.tool.available': 'أداة الوكيل web_search: متاحة.',
   'integrations.tool.degraded': 'أداة الوكيل web_search: تفشل الطلبات حتى تستجيب خدمة البحث.',
   'integrations.tool.unavailable': 'أداة الوكيل web_search: غير متاحة هنا.',
+  'integrations.act.available': 'أداة الوكيل web.act: متاحة. تبقى متوقفة في مساحة العمل حتى يشغلها المالك أدناه، وتسأل قبل أي خطوة ملزمة.',
+  'integrations.act.degraded': 'أداة الوكيل web.act: خدمة المتصفح تجيب لكنها ليست في وضع الإجراءات، أو لم تجب.',
+  'integrations.act.unavailable': 'أداة الوكيل web.act: غير متاحة هنا.',
+  'integrations.browse.available': 'أداة الوكيل web.browse_page: متاحة. تبقى متوقفة في مساحة العمل حتى يشغلها المالك أدناه.',
+  'integrations.browse.degraded': 'أداة الوكيل web.browse_page: لا يمكن قراءة الصفحات حتى تستجيب خدمة المتصفح.',
+  'integrations.browse.unavailable': 'أداة الوكيل web.browse_page: غير متاحة هنا. تجيب بأنها غير متاحة على هذا الخادم أو متوقفة لمساحة العمل.',
 
   // ---- Skills ----
   'skills.eyebrow': 'قدرات محكومة',
@@ -1723,6 +1768,29 @@ export const ar: Record<MessageKey, Message> = {
   'agents.memory.manual': 'أضيفت يدويًا',
   'agents.memory.deleteNamed': 'حذف الذكرى: {text}',
   'agents.memory.deleteTitle': 'حذف هذه الذكرى؟',
+  'agents.memory.kind': 'النوع',
+  'agents.memory.kind.fact': 'حقيقة',
+  'agents.memory.kind.decision': 'قرار',
+  'agents.memory.source': 'المصدر',
+  'agents.memory.sourcePlaceholder': 'مثلا: إجراء الإطارات، الإصدار 3',
+  'agents.memory.date': 'صحيح منذ',
+  'agents.memory.err.content': 'اكتب ما يجب أن يتذكره الوكيل.',
+  'agents.memory.err.contentLong': 'اجعل الذكرى أقل من 2000 حرف.',
+  'agents.memory.err.sourceLong': 'اجعل المصدر أقل من 200 حرف.',
+  'agents.memory.err.date': 'أدخل التاريخ كيوم كامل.',
+  'agents.memory.err.future': 'لا يمكن أن يكون التاريخ في المستقبل.',
+  'agents.memory.filter': 'عرض',
+  'agents.memory.filter.all': 'الحقائق والقرارات',
+  'agents.memory.emptyEdit': 'لا ذكريات بعد. أضف حقيقة أو قرارا أعلاه مع مصدره.',
+  'agents.memory.editText': 'الذكرى',
+  'agents.memory.saveEdit': 'حفظ التغييرات',
+  'agents.memory.fromFile': 'من مستند',
+  'agents.memory.asOf': 'صحيح منذ {date}',
+  'agents.memory.edited': 'معدّلة',
+  'agents.memory.expires': 'تحذف في {date} (قواعد الذاكرة)',
+  'agents.memory.kept': 'تبقى حتى تحذف',
+  'agents.memory.edit': 'تعديل',
+  'agents.memory.editNamed': 'تعديل الذكرى: {text}',
   'agents.owner': 'أنشأه',
   'agents.you': 'أنت',
   'agents.createdAt': 'أُنشئ',
@@ -2053,6 +2121,11 @@ export const ar: Record<MessageKey, Message> = {
   'auto.field.attempts': 'المحاولات',
   'auto.field.retryDelay': 'الانتظار قبل إعادة المحاولة (بالثواني، يتضاعف كل مرة)',
   'auto.field.runTask': 'تشغيل المهمة (ألغِ التحديد لإنشائها فقط ضمن المهام)',
+  'auto.field.runAs': "تشغيل باسم",
+  'auto.field.runAsHint': "شغّل المهمة باسم وكيل: تنطبق أدواته وحريته في التصرف وسقفه الشهري وحدود تكراره. اتركها باسمك لتستخدم صلاحياتك فقط.",
+  'auto.field.runAsOwner': "أنت (مالك الأتمتة)",
+  'auto.field.runAsUnknown': "وكيل لا يمكنك رؤيته الآن",
+  'auto.field.runAsPaused': "{name} (متوقف)",
   'auto.field.mailbox': 'الإرسال من',
   'auto.field.chooseMailbox': 'اختر صندوق بريد',
   'auto.field.noMailbox': 'لا يوجد صندوق بريد متصل. اربط واحدًا من قسم البريد أولًا.',
@@ -2657,7 +2730,7 @@ export const ar: Record<MessageKey, Message> = {
   'activity.undone': 'تم التراجع: {summary}',
   'activity.undoneShort': 'تم التراجع.',
   'activity.tighten': 'اسأل دائماً عن هذا',
-  'activity.tightenLabel': 'اسأل دائماً قبل {pattern}',
+  'activity.tightenLabel': 'اسأل دائماً عن هذا: {pattern}',
   'activity.tightened': 'سيسأل أنوم قبل {pattern} من الآن فصاعداً.',
   'activity.loadMore': 'تحميل المزيد',
   'activity.noticesLabel': 'إجراءات نفّذها أنوم',
@@ -3269,6 +3342,8 @@ export const ar: Record<MessageKey, Message> = {
   ...hqLiveAr,
   ...hqPanelsAr,
   ...hqProvisioningAr,
+  ...officeStaffingAr,
+  ...greenConcreteKitAr,
   ...hqNavAr,
   ...hqAssignAr,
   ...hqStarterCampusAr,
@@ -3372,7 +3447,7 @@ export const ar: Record<MessageKey, Message> = {
   "meetings.allStatuses": "كل الحالات",
   "meetings.loading": "جارٍ تحميل الاجتماعات...",
   "meetings.list": "الاجتماعات",
-  "meetings.open": "فتح {title}",
+  "meetings.openHint": "فتح",
   "meetings.pages": "صفحات الاجتماعات",
   "meetings.previous": "السابق",
   "meetings.next": "التالي",

@@ -1,5 +1,6 @@
 import { expect, test, type Page } from '@playwright/test';
 import { hqRegistry, openHq, TENANT_A } from './support/hqApi';
+import { officeMenuItem } from './support/hqScene';
 
 // Rooms open the module of their STORED department (docs/ANUM_MINE_HQ_EXTENSION_POINTS.md, "Room modules"),
 // and the live office never shows the invented reception simulation. Names are plainly fake test data.
@@ -144,7 +145,7 @@ for (const locale of ['en', 'ar'] as const) {
 // S-11: the Concept preview has no reception simulation, and its example staff are labelled as examples.
 test('the concept preview has no reception simulation and labels its example staff', async ({ page }) => {
   await openHq(page, { registry: registry() });
-  await page.getByRole('button', { name: 'Concept preview' }).click();
+  await (await officeMenuItem(page, 'Concept preview')).click(); // a choice of the Office tools menu
   await expect(page.locator('.anumOfficeTour')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Reception Operations' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Office Space Management' })).toBeVisible();
