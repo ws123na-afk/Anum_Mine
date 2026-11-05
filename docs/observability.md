@@ -19,7 +19,7 @@ Prompts, memory contents, file contents, credentials, and personal data must not
 
 ## Implementation
 
-`services/api/anum_api/telemetry.py` wires the OpenTelemetry SDK into the API and the Temporal worker. Packages are pinned in `services/api/pyproject.toml` (`opentelemetry-api`/`-sdk`/`-exporter-otlp-proto-http` 1.45.1, `opentelemetry-instrumentation-fastapi`/`-httpx`/`-sqlalchemy` 0.66b1).
+`services/api/anum_api/telemetry.py` wires the OpenTelemetry SDK into the API and the Temporal worker. Packages are pinned in `services/api/pyproject.toml` (`opentelemetry-api`/`-sdk`/`-exporter-otlp-proto-http` 1.45.2, `opentelemetry-instrumentation-fastapi`/`-httpx`/`-sqlalchemy` 0.66b2; the SDK and the instrumentations move together, since each SDK release pins its semantic conventions).
 
 ### Turning export on
 

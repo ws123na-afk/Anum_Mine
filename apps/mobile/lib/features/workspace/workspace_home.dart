@@ -57,6 +57,12 @@ import '../../src/widgets/navigation.dart';
 import '../automations/automation_repository.dart';
 import '../automations/automations_controller.dart';
 import 'api_workspace_repository.dart';
+import '../attendance/attendance_strings.dart';
+import '../books/books_strings.dart';
+import '../purchases/purchases_strings.dart';
+import '../records_kit/record_module_routes.dart';
+import '../vault/vault_strings.dart';
+import '../vehicles/vehicles_strings.dart';
 import 'approvals_screen.dart';
 import 'automations_screen.dart';
 import 'destinations.dart';
@@ -993,6 +999,40 @@ class _WorkspaceHomeState extends State<WorkspaceHome> with RestorationMixin {
                 'financeMenu',
                 Icons.account_balance_wallet_outlined,
                 _openFinance,
+              ),
+            // Record modules (docs/mobile.md#record-modules), named routes.
+            for (final (route, icon, label) in [
+              (
+                RecordModuleRoutes.vault,
+                Icons.folder_special_outlined,
+                VaultStrings.of(context).t('title')
+              ),
+              (
+                RecordModuleRoutes.attendance,
+                Icons.badge_outlined,
+                AttendanceStrings.of(context).t('title')
+              ),
+              (
+                RecordModuleRoutes.vehicles,
+                Icons.directions_car_outlined,
+                VehiclesStrings.of(context).t('title')
+              ),
+              (
+                RecordModuleRoutes.purchases,
+                Icons.shopping_bag_outlined,
+                PurchasesStrings.of(context).t('title')
+              ),
+              (
+                RecordModuleRoutes.books,
+                Icons.menu_book_outlined,
+                BooksStrings.of(context).t('title')
+              ),
+            ])
+              AnumMenuEntry(
+                key: Key('menu-${route.substring(1).replaceAll('/', '-')}'),
+                icon: icon,
+                label: label,
+                onTap: () => go(() => Navigator.of(context).pushNamed(route)),
               ),
             if (_showDeveloper)
               destination(
