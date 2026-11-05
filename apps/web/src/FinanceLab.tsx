@@ -105,6 +105,7 @@ function Overview({ portfolios, current, base, onTab, onOpen, onChanged }: {
   portfolios: FinancePortfolioSummary[]; current: FinancePortfolioSummary | null; base: string; onTab: (tab: LabTab) => void; onOpen: (tab: FinanceTab) => void; onChanged: () => void;
 }) {
   const [intel, reloadIntel] = useLoad(api.getIntelOverview);
+  const [ibkr, reloadIbkr] = useLoad<IbkrOverview>(ibkrApi.getOverview);
   const [ordersKey, setOrdersKey] = useState(0);
   const strategyCounts = intel.kind === 'ready' ? intel.value.strategies : [];
   const count = (state: string) => strategyCounts.find((s) => s.state === state)?.count ?? 0;
@@ -130,7 +131,7 @@ function Overview({ portfolios, current, base, onTab, onOpen, onChanged }: {
       {portfolios.length > 1 && <p className="muted finCardNote">{t('flab.portfolios', { count: portfolios.length })}</p>}
       <div className="finPair">
         <ResearchBrief onTab={onTab} />
-        <BrokerStatus onTab={onTab} />
+        <BrokerStatus state={ibkr} reload={() => void reloadIbkr()} onTab={onTab} />
       </div>
       <Backtest onTab={onTab} />
     </div>
@@ -138,7 +139,7 @@ function Overview({ portfolios, current, base, onTab, onOpen, onChanged }: {
       <StrategyLab onTab={onTab} />
       <RiskCaps intel={intel} retry={() => void reloadIntel()} onOpen={onOpen} />
       <KillSwitchCard />
-      <LiveLocked onTab={onTab} />
+      <LiveLocked state={ibkr} reload={() => void reloadIbkr()} onTab={onTab} />
       <div className="finLinks">
         <button type="button" className="finLinkCard" onClick={() => onOpen('execution')}><FileClock aria-hidden="true" /><span><strong>{t('flab.audit')}</strong><small>{t('flab.auditText')}</small></span><ChevronRight aria-hidden="true" className="cmFlip" /></button>
         <button type="button" className="finLinkCard" onClick={() => onOpen('guardian')}><ShieldCheck aria-hidden="true" /><span><strong>{t('flab.riskReview')}</strong><small>{t('flab.riskReviewText')}</small></span><ChevronRight aria-hidden="true" className="cmFlip" /></button>
@@ -240,7 +241,7 @@ function LabHoldings({ portfolioId }: { portfolioId: string }) {
 
 function ResearchBrief({ onTab }: { onTab: (tab: LabTab) => void }) {
   const [symbols, reload] = useLoad(researchApi.listSymbols);
-  const [report, setReport] = useState<Load<ResearchReport> | null>(null);
+  const [report, setReport] = useState<Load<ResearchReport> | null>(null), [attempt, setAttempt] = useState(0);
   const first = symbols.kind === 'ready' ? symbols.value.symbols[0]?.symbol ?? null : null;
   useEffect(() => {
     if (!first) return;
@@ -248,13 +249,13 @@ function ResearchBrief({ onTab }: { onTab: (tab: LabTab) => void }) {
     setReport({ kind: 'loading' });
     researchApi.getResearch(first).then((value) => { if (live) setReport({ kind: 'ready', value }); }, (e) => { if (live) setReport(failed(e)); });
     return () => { live = false; };
-  }, [first]);
+  }, [first, attempt]);
   const id = useId();
   return <FinCard title={t('flab.research')} icon={<BookOpenCheck />}>
     <CardState state={symbols} retry={() => void reload()} what={t('flab.researchWord')} />
     {symbols.kind === 'ready' && !first && <Empty icon={<BookOpenCheck aria-hidden="true" />} title={t('flab.researchNone')} text={t('flab.researchNoneText')}
       action={<button type="button" className="secondary" onClick={() => onTab('brokers')}>{t('flab.openBrokers')}</button>} />}
-    {report && report.kind !== 'ready' && <CardState state={report} retry={() => void reload()} what={t('flab.researchWord')} />}
+    {report && report.kind !== 'ready' && <CardState state={report} retry={() => setAttempt((n) => n + 1)} what={t('flab.researchWord')} />}
     {report?.kind === 'ready' && <Brief report={report.value} symbols={symbols.kind === 'ready' ? symbols.value : null} />}
     <button type="button" className="cmLinkButton finCardMore" onClick={() => onTab('research')}>{t('flab.researchOpen')}</button>
   </FinCard>;
@@ -274,15 +275,14 @@ function Brief({ report: r, symbols }: { report: ResearchReport; symbols: Resear
   </>;
 }
 
-function BrokerStatus({ onTab }: { onTab: (tab: LabTab) => void }) {
-  const [state, reload] = useLoad(ibkrApi.getOverview);
+function BrokerStatus({ state, reload, onTab }: { state: Load<IbkrOverview>; reload: () => void; onTab: (tab: LabTab) => void }) {
   const [busy, setBusy] = useState(false), [notice, setNotice] = useState<{ text: string; error?: boolean } | null>(null);
   const id = useId();
   const paper = state.kind === 'ready' ? connectionFor(state.value, 'paper') : null;
   async function test() {
     if (!paper) return;
     setBusy(true);
-    try { const c = await ibkrApi.checkConnection(paper.id); setNotice({ text: t('flab.brokerChecked', { status: t(`ibkr.session.${c.session}` as MessageKey) }) }); void reload(); }
+    try { const c = await ibkrApi.checkConnection(paper.id); setNotice({ text: t('flab.brokerChecked', { status: t(`ibkr.session.${c.session}` as MessageKey) }) }); reload(); }
     catch (e) { setNotice({ text: describeError(e), error: true }); } finally { setBusy(false); }
   }
   const ok = paper?.session === 'authenticated';
@@ -364,8 +364,7 @@ function Backtest({ onTab }: { onTab: (tab: LabTab) => void }) {
   </FinCard>;
 }
 
-function LiveLocked({ onTab }: { onTab: (tab: LabTab) => void }) {
-  const [state, reload] = useLoad<IbkrOverview>(ibkrApi.getOverview);
+function LiveLocked({ state, reload, onTab }: { state: Load<IbkrOverview>; reload: () => void; onTab: (tab: LabTab) => void }) {
   const id = useId();
   const gates = state.kind === 'ready' ? state.value.live_gates : [];
   const open = state.kind === 'ready' && state.value.mode === 'live';
