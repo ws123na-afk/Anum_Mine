@@ -430,3 +430,34 @@ def test_wider_live_reads_and_steps_down_on_postgres(client: TestClient, app_ses
     assert client.post(f"{API}/execution/wider/widenings", headers=ME, json={"limits": {}}).status_code == 409
     assert client.post(f"{API}/execution/wider/review", headers=ME).json()["frozen"] is False
     assert len(client.get("/api/v1/privacy/export", headers=ME).json()["finance"]["live_incidents"]) == 1
+
+
+# -- the Guardian review queue (migration 0139_finance_guardian_reviews) ----------------------------
+
+
+def test_review_decisions_persist_one_per_payment_and_stay_private(
+    client: TestClient, app_session: Callable[..., Iterator[Session]], database_engine: Engine
+) -> None:
+    with database_engine.connect() as connection:
+        forced = connection.execute(
+            text("select relrowsecurity and relforcerowsecurity from pg_class where relname = 'finance_guardian_reviews'")
+        ).scalar_one()
+        policies = dict(connection.execute(text("select policyname, permissive from pg_policies where tablename = 'finance_guardian_reviews'")).all())
+    assert forced and policies.get("owner_only_finance_guardian_reviews") == "RESTRICTIVE"
+    assert policies.get("tenant_isolation_finance_guardian_reviews") == "PERMISSIVE" and "lifecycle_purge_finance_guardian_reviews" in policies
+    change = client.post(f"{API}/guardian/changes", headers=ME, json={"rules": {"max_single": [{"currency": "AED", "amount": "10"}]}}).json()
+    client.post(f"{API}/guardian/changes/{change['id']}/confirm", headers=ME, json={"payload_hash": change["payload_hash"]})
+    account_id = client.post(f"{API}/accounts", headers=ME, json={"name": "Cash", "kind": "cash"}).json()["id"]
+    today = client.get(f"{API}/summary", headers=ME).json()["today"]
+    paid = client.post(f"{API}/transactions", headers=ME, json={"account_id": account_id, "posted_on": today, "amount": "-50", "description": "KIOSK"}).json()["id"]
+    assert client.get(f"{API}/guardian/review", headers=ME).json()["counts"]["awaiting"] == 1
+    assert client.post(f"{API}/guardian/review/{paid}", headers=ME, json={"decision": "snoozed", "snooze_days": 3}).json()["state"] == "snoozed"
+    assert client.post(f"{API}/guardian/review/{paid}", headers=ME, json={"decision": "expected"}).json()["state"] == "expected"
+    assert _count(app_session, "finance_guardian_reviews", "user_test") == 1
+    assert _count(app_session, "finance_guardian_reviews", "user_owner") == 0
+    counts = client.get(f"{API}/guardian/review?state=all", headers=ME).json()["counts"]
+    assert counts == {"flagged": 1, "awaiting": 0, "resolved": 1, "snoozed": 0}
+    assert client.post(f"{API}/guardian/review/{paid}", headers=OWNER, json={"decision": "reviewed"}).status_code == 404
+    assert client.get(f"{API}/guardian/activity", headers=ME).json()["items"][0]["action"] == "finance.guardian.review"
+    assert client.post("/api/v1/privacy/delete", headers=ME, json={"confirm": "DELETE MY DATA"}).status_code == 200
+    assert _count(app_session, "finance_guardian_reviews", "user_test") == 0

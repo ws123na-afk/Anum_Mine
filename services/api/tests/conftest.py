@@ -100,6 +100,7 @@ TABLES_IN_DELETE_ORDER = (
     "finance_prices",
     "finance_fx_rates",
     "finance_connections",
+    "finance_guardian_reviews",
     "finance_guardian_changes",
     "finance_guardian_versions",
     "finance_plans",

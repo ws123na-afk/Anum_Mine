@@ -273,6 +273,8 @@ def _describe_rules(rules: Any) -> list[str]:
         lines.append(f"Quiet hours {rules.quiet_hours.start} to {rules.quiet_hours.end}.")
     if rules.cooling_off:
         lines.append(f"Cooling off {rules.cooling_off.hours} hours for large amounts.")
+    if rules.paused:
+        lines.append("Paused, not applied until you resume them: " + ", ".join(k.replace("_", " ") for k in rules.paused) + ".")
     return lines
 
 

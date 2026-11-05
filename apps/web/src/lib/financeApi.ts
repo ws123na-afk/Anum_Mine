@@ -5,7 +5,7 @@ import type {
   FinanceGoal, FinanceGoalInput, FinanceHolding, FinanceHoldingInput, FinanceImport, FinanceImportInput, FinanceImportPreview, FinancePage,
   FinanceSettings, FinanceSummary, FinanceTransaction, FinanceTransactionInput, FinanceUpcomingBill,
   FinanceConnection, FinanceConnectionInput, FinanceEvaluateInput, FinanceEvaluation, FinanceFxRate, FinanceFxRateInput, FinanceGuardian,
-  FinanceGuardianAlerts, FinanceGuardianChange, FinanceGuardianRules, FinanceGuardianVersion, FinancePlan, FinancePlanInput, FinanceProvider,
+  FinanceGuardianActivityPage, FinanceGuardianAlerts, FinanceGuardianChange, FinanceGuardianReviewDecision, FinanceGuardianReviewQueue, FinanceGuardianReviewResult, FinanceGuardianRules, FinanceGuardianVersion, FinancePlan, FinancePlanInput, FinanceProvider,
   FinanceSafeToSpend, FinanceSyncReport,
   FinanceExecutionStatus, FinanceIntent, FinanceIntentInput, FinanceIntentStatus, FinanceLive, FinanceLiveChangeInput, FinancePaperOrder,
   FinancePaperOrderStatus, FinanceWider, FinanceWidening, FinanceWideningInput, FinancePortfolio, FinancePortfolioInput, FinancePortfolioSummary, FinancePrice, FinancePriceInput, FinancePriceSaved,
@@ -96,6 +96,11 @@ export const proposeRules = (rules: FinanceGuardianRules, reason?: string) => se
 export const confirmChange = (changeId: string, payloadHash: string) => send<FinanceGuardian>('POST', `/guardian/changes/${id(changeId)}/confirm`, { payload_hash: payloadHash });
 export const rejectChange = (changeId: string) => send<FinanceGuardianChange>('POST', `/guardian/changes/${id(changeId)}/reject`);
 export const evaluateAction = (body: FinanceEvaluateInput) => send<FinanceEvaluation>('POST', '/guardian/evaluate', body);
+export const guardianReview = (params: { month?: string; state?: 'awaiting' | 'resolved' | 'snoozed' | 'all'; limit?: number; offset?: number }) =>
+  get<FinanceGuardianReviewQueue>(`/guardian/review${query(params)}`);
+export const decideReview = (transactionId: string, decision: FinanceGuardianReviewDecision, snoozeDays?: 1 | 3 | 7 | 30) =>
+  send<FinanceGuardianReviewResult>('POST', `/guardian/review/${id(transactionId)}`, { decision, snooze_days: snoozeDays ?? null });
+export const guardianActivity = (limit: number, cursor?: string | null) => get<FinanceGuardianActivityPage>(`/guardian/activity${query({ limit, cursor: cursor ?? undefined })}`);
 
 // ---- Stage 5: read-only connectors ----
 export const listProviders = () => get<FinanceProvider[]>('/connectors');
