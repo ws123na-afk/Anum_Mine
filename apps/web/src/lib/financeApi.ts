@@ -12,7 +12,7 @@ import type {
   FinanceAgentDecision, FinanceEquity, FinanceIntelAgent, FinanceIntelOverview, FinanceStrategy, FinanceStrategyRun, FinanceStrategyState,
   FinanceIntelBarsInput, FinanceIntelBarsResult, FinanceIntelCycle, FinanceIntelInstrument, FinanceIntelInstrumentInput, FinanceIntelPhase,
   FinanceIntelRule, FinanceStrategyInput, FinanceDailyReport, FinanceDailyReportItem, FinancePreflight, FinancePreflightInput,
-  FinancePdfImportInput, FinancePdfRole, FinancePdfStatement,
+  FinancePdfImportInput, FinancePdfRole, FinancePdfStatement, FinancePdfTemplate,
 } from '@anum/contracts';
 import { apiBaseUrl, apiRequest, apiRequestVoid, authHeaders } from './api';
 import { apiErrorFromResponse } from './errors';
@@ -66,6 +66,8 @@ export async function readPdfStatement(file: Blob, options: PdfReadOptions, pass
 }
 
 export const importPdfStatement = (body: FinancePdfImportInput) => send<FinanceImport>('POST', '/imports/pdf', body);
+export const listPdfTemplates = () => get<FinancePdfTemplate[]>('/imports/pdf/templates');
+export const deletePdfTemplate = (templateId: string) => remove(`/imports/pdf/templates/${id(templateId)}`);
 
 export const listBills = () => get<FinanceBill[]>('/bills');
 export const upcomingBills = (days = 30) => get<FinanceUpcomingBill[]>(`/bills/upcoming${query({ days })}`);

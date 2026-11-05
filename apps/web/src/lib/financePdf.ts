@@ -2,12 +2,14 @@
 // The API reads the PDF and checks its balances; while the person edits or drops rows, this file
 // repeats that check in whole minor units (never floating point) so the warning follows every edit.
 // The API checks again when the rows are imported.
-import type { FinancePdfImportInput, FinancePdfRole, FinancePdfRow, FinancePdfStatement } from '@anum/contracts';
+import type { FinancePdfCheck, FinancePdfImportInput, FinancePdfRole, FinancePdfRow, FinancePdfStatement } from '@anum/contracts';
 import { PDF_STATEMENT_MAX_BYTES, minorDigits, parseAmount } from './finance.ts';
 import { t, type MessageKey } from './i18n.ts';
 
 export const PDF_MAX_BYTES = PDF_STATEMENT_MAX_BYTES;
-export const PDF_ROLES: readonly FinancePdfRole[] = ['date', 'description', 'debit', 'credit', 'amount', 'balance', 'reference', 'skip'];
+export const PDF_ROLES: readonly FinancePdfRole[] = ['date', 'description', 'debit', 'credit', 'amount', 'balance', 'reference', 'currency',
+  'foreign_amount', 'fx_rate', 'fee', 'vat', 'skip'];
+export const LOW_CONFIDENCE = 0.6;
 export const PDF_PAGE_SIZE = 25;
 
 export function isPdf(file: { name: string; type?: string }): boolean {
@@ -25,14 +27,29 @@ export interface ReviewRow {
   amount: string;
   balance: string | null;
   reference: string | null;
+  currency: string | null;
+  time: string | null;
+  kind: string | null;
+  counterparty: string | null;
+  parent_line: number | null;
+  original_amount: string | null;
+  original_currency: string | null;
+  fx_rate: string | null;
+  fee: string | null;
+  vat: string | null;
+  confidence: number;
   duplicate: boolean;
   flags: string[];
 }
 
 export function reviewRows(view: Pick<FinancePdfStatement, 'rows'>): ReviewRow[] {
   return view.rows.map((row: FinancePdfRow) => ({
-    key: `${row.page}:${row.line}`, line: row.line, page: row.page, include: true, posted_on: row.posted_on ?? '', description: row.description,
-    amount: row.amount ?? '', balance: row.balance, reference: row.reference, duplicate: row.duplicate, flags: row.flags,
+    key: `${row.page}:${row.line}`, line: row.line, page: row.page,
+    // A row in another currency than the account's cannot be imported into it: left out until the owner decides.
+    include: !row.flags.includes('foreign_currency'), posted_on: row.posted_on ?? '', description: row.description,
+    amount: row.amount ?? '', balance: row.balance, reference: row.reference, currency: row.currency, time: row.time, kind: row.kind,
+    counterparty: row.counterparty, parent_line: row.parent_line, original_amount: row.original_amount, original_currency: row.original_currency,
+    fx_rate: row.fx_rate, fee: row.fee, vat: row.vat, confidence: row.confidence, duplicate: row.duplicate, flags: row.flags,
   }));
 }
 
@@ -107,16 +124,17 @@ export function liveCheck(rows: readonly ReviewRow[], opening: string, closing: 
 
 /** The import request for the included rows, amounts in the API's wire form. */
 export function importBody(view: FinancePdfStatement, accountId: string, rows: readonly ReviewRow[], opening: string, closing: string,
-  acceptMismatch: boolean): FinancePdfImportInput {
+  acceptMismatch: boolean, layout: FinancePdfImportInput['layout'] = null): FinancePdfImportInput {
   const currency = view.currency;
   const wire = (value: string) => { const units = toMinor(value, currency); return units === null ? null : fromMinor(units, currency); };
   return {
     account_id: accountId, filename: view.filename, file_sha256: view.file_sha256, source: view.source,
     rows: rows.filter((row) => row.include).map((row) => ({
       posted_on: row.posted_on, description: row.description.trim(), amount: wire(row.amount) ?? row.amount,
-      balance: row.balance, reference: row.reference,
+      balance: row.balance, reference: row.reference, currency: row.currency, time: row.time,
     })),
     opening_balance: opening.trim() ? wire(opening) : null, closing_balance: closing.trim() ? wire(closing) : null, accept_mismatch: acceptMismatch,
+    layout,
   };
 }
 
@@ -132,7 +150,8 @@ export function roleLabel(role: FinancePdfRole): string {
 }
 
 export function flagLabel(flag: string): string | null {
-  const known = ['sign_unsure', 'sign_from_balance', 'date_unreadable', 'amount_missing', 'amount_zero'];
+  const known = ['sign_unsure', 'sign_from_balance', 'date_unreadable', 'amount_missing', 'amount_zero', 'hijri_date', 'balance_break',
+    'foreign_currency', 'columns_swapped', 'low_confidence'];
   return known.includes(flag) ? t(`fpdf.flag.${flag}` as MessageKey) : null;
 }
 
@@ -143,12 +162,41 @@ export function pdfErrorCode(error: unknown): string | null {
   return found?.type ? found.type.slice(4) : null;
 }
 
+export type SummaryLine = FinancePdfCheck['summary'][number];
+
+/** The statement's own counts and totals against the included rows, as the owner edits them. */
+export function liveSummary(stated: readonly SummaryLine[], rows: readonly ReviewRow[], opening: string, currency: string): SummaryLine[] {
+  const amounts = rows.filter((row) => row.include).map((row) => toMinor(row.amount, currency)).filter((v): v is bigint => v !== null);
+  const credits = amounts.filter((v) => v > 0n), debits = amounts.filter((v) => v < 0n);
+  const sum = (values: bigint[]) => values.reduce((a, b) => a + b, 0n);
+  return stated.map((item) => {
+    let found: string;
+    if (item.name === 'deposits_count') found = String(credits.length);
+    else if (item.name === 'withdrawals_count') found = String(debits.length);
+    else if (item.name === 'deposits_total') found = fromMinor(sum(credits), currency);
+    else if (item.name === 'withdrawals_total') found = fromMinor(-sum(debits), currency);
+    else found = fromMinor(-(toMinor(opening, currency) ?? 0n) - sum(amounts), currency); // card: previous balance plus charges
+    const ok = item.name.endsWith('_count') ? found === String(Number(item.stated)) : toMinor(found, currency) === toMinor(item.stated, currency);
+    return { ...item, found, ok };
+  });
+}
+
+/** "USD 200.00 at 3.75, fee 15.00, VAT 2.25" from a card row's printed details, or null. */
+export function foreignDetail(row: Pick<ReviewRow, 'original_amount' | 'original_currency' | 'fx_rate' | 'fee' | 'vat'>): string | null {
+  const parts: string[] = [];
+  if (row.original_amount) parts.push(t('fpdf.detail.original', { amount: `${row.original_currency ?? ''} ${row.original_amount}`.trim() }));
+  if (row.fx_rate) parts.push(t('fpdf.detail.rate', { rate: row.fx_rate }));
+  if (row.fee) parts.push(t('fpdf.detail.fee', { fee: row.fee }));
+  if (row.vat) parts.push(t('fpdf.detail.vat', { vat: row.vat }));
+  return parts.length ? parts.join(', ') : null;
+}
+
 /** Roles for a re-read: exactly one date and at least one money column, or a message saying what to fix. */
 export function checkRoles(roles: readonly FinancePdfRole[]): string | null {
   if (roles.filter((role) => role === 'date').length !== 1) return t('fpdf.mapping.oneDate');
   if (!roles.some((role) => role === 'debit' || role === 'credit' || role === 'amount' || role === 'balance')) return t('fpdf.mapping.money');
   if (roles.includes('amount') && (roles.includes('debit') || roles.includes('credit'))) return t('fpdf.mapping.either');
-  for (const role of ['description', 'balance', 'reference', 'amount', 'debit', 'credit'] as const) {
+  for (const role of ['description', 'balance', 'reference', 'amount', 'debit', 'credit', 'currency', 'foreign_amount', 'fx_rate', 'fee', 'vat'] as const) {
     if (roles.filter((r) => r === role).length > 1) return t('fpdf.mapping.once');
   }
   return null;
