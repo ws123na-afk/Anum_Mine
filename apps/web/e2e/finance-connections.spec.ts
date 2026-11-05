@@ -79,9 +79,9 @@ async function mockApi(page: Page, options: Mock = {}) {
 test('connected accounts show their real source and figures, never a bank sync', async ({ page }) => {
   await mockApi(page);
   await page.goto('/#finance-connections');
-  await expect(page.getByRole('heading', { name: 'Connections and data capture', level: 2 })).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByRole('heading', { name: 'Connections and data capture', level: 1 })).toBeVisible({ timeout: 20_000 });
   await expect(page.getByRole('tab', { name: 'Connected accounts' })).toHaveAttribute('aria-selected', 'true');
-  const kpis = page.getByRole('list', { name: 'Data capture at a glance' });
+  const kpis = page.getByRole('region', { name: 'Data capture at a glance' });
   await expect(kpis.getByRole('listitem').filter({ hasText: 'Accounts in ANUM' })).toContainText('2');
   await expect(kpis.getByRole('listitem').filter({ hasText: 'Shortcut routes' })).toContainText('Working, of 3 available');
   await expect(kpis.getByRole('listitem').filter({ hasText: 'Records awaiting review' })).toContainText('2');
@@ -143,10 +143,10 @@ test('SMS capture: the endpoint copies, the token is only a hint and rotates onc
 test('work scope labels the ledger as business or personal', async ({ page }) => {
   const { sent } = await mockApi(page);
   await page.goto('/#finance-connections');
-  const scope = page.getByRole('group', { name: 'Work scope:' });
-  await expect(scope.getByRole('button', { name: 'Personal' })).toHaveAttribute('aria-pressed', 'true', { timeout: 20_000 });
-  await scope.getByRole('button', { name: 'Business' }).click();
-  await expect(scope.getByRole('button', { name: 'Business' })).toHaveAttribute('aria-pressed', 'true');
+  const scope = page.getByRole('radiogroup', { name: 'Work scope:' });
+  await expect(scope.getByRole('radio', { name: 'Personal' })).toHaveAttribute('aria-checked', 'true', { timeout: 20_000 });
+  await scope.getByRole('radio', { name: 'Business' }).click();
+  await expect(scope.getByRole('radio', { name: 'Business' })).toHaveAttribute('aria-checked', 'true');
   expect(sent.find((s) => s.path.endsWith('/sms/settings') && s.method === 'PUT')?.body).toMatchObject({ ledger_kind: 'business' });
 });
 
@@ -201,7 +201,7 @@ for (const locale of ['en', 'ar'] as const) {
       if (locale === 'ar') await useSavedLocale(page, 'ar');
       await mockApi(page);
       await page.goto('/#finance-connections');
-      await expect(page.getByRole('heading', { name: locale === 'ar' ? 'الاتصالات والتقاط البيانات' : 'Connections and data capture', level: 2 })).toBeVisible({ timeout: 20_000 });
+      await expect(page.getByRole('heading', { name: locale === 'ar' ? 'الاتصالات والتقاط البيانات' : 'Connections and data capture', level: 1 })).toBeVisible({ timeout: 20_000 });
       await expect(page.locator('.fconnAccount').first()).toBeVisible();
       await expect(page.locator('.fconnTable').first()).toBeVisible();
       const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
@@ -209,7 +209,7 @@ for (const locale of ['en', 'ar'] as const) {
       for (const control of await page.locator('.fconn button:visible').all()) {
         const box = await control.boundingBox();
         if (!box) continue;
-        if (await control.evaluate((el) => !!el.closest('.fconnTabs, .cmTableWrap'))) continue;
+        if (await control.evaluate((el) => !!el.closest('.finTabs, .cmTableWrap'))) continue;
         expect(box.x).toBeGreaterThanOrEqual(-0.5);
         expect(box.x + box.width).toBeLessThanOrEqual(width + 0.5);
       }

@@ -6,7 +6,7 @@
 // revealed), recent messages and the review policy. Tabs: Connected accounts, SMS capture (the full
 // SMS tools), iPhone Shortcuts (Settings, Integrations, iPhone), Import history (CSV and PDF) and
 // Permissions. Nothing here moves money.
-import { Suspense, lazy, useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   ArrowRight, Banknote, Briefcase, ChevronDown, Clock, Copy, CreditCard, FileText, FileUp, HandCoins, History, Info, Landmark, Layers, Lock,
   MessageSquareText, Pause, Pencil, Play, Plus, RefreshCw, ScrollText, Search, ShieldCheck, Smartphone, Trash2, TrendingUp, User, Workflow,
@@ -31,6 +31,8 @@ import { formatDateTime, t, type MessageKey } from './lib/i18n';
 import { ConfirmDialog, Modal } from './Dialog';
 import { Denied, Empty, LoadError, Money, Notice, failed, type Load } from './FinanceParts';
 import { ConnectionsPanel } from './FinancePlan';
+import { FinBanner, FinanceTabs, FinancePageHead, KpiCard, KpiRow, StatusChip, tabPanel } from './FinanceShell';
+import { viewLabel } from './lib/shell';
 import { SmsPanel, TokenDialog } from './FinanceSms';
 import './financeSms.css';
 import './financeConnections.css';
@@ -69,33 +71,16 @@ export function ConnectionsPage({ from, onOpen }: { from: FinanceTab; onOpen: (t
   const [overview, reloadOverview] = useLoad(iphone.overview);
   const reload = useCallback(() => { reloadStatus(); reloadSettings(); reloadAccounts(); reloadImports(); reloadOverview(); },
     [reloadStatus, reloadSettings, reloadAccounts, reloadImports, reloadOverview]);
-  const tabsId = useId();
-  const tabRefs = useRef<Record<string, HTMLButtonElement | null>>({});
-  const keyNav = (event: ReactKeyboardEvent, index: number) => {
-    const step = event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0;
-    if (!step && event.key !== 'Home' && event.key !== 'End') return;
-    event.preventDefault();
-    const rtl = document.documentElement.dir === 'rtl';
-    const next = event.key === 'Home' ? 0 : event.key === 'End' ? CONNECTIONS_TABS.length - 1 : (index + (rtl ? -step : step) + CONNECTIONS_TABS.length) % CONNECTIONS_TABS.length;
-    setTab(CONNECTIONS_TABS[next]); tabRefs.current[CONNECTIONS_TABS[next]]?.focus();
-  };
   if (status.kind === 'denied' || accounts.kind === 'denied') return <Denied />;
-  const icons: Record<ConnectionsTab, ReactNode> = {
-    accounts: <Landmark aria-hidden="true" />, sms: <MessageSquareText aria-hidden="true" />, shortcuts: <Layers aria-hidden="true" />,
-    imports: <FileUp aria-hidden="true" />, permissions: <ShieldCheck aria-hidden="true" />,
-  };
+  const review = ready(status)?.review_count ?? 0;
+  const items = CONNECTIONS_TABS.map((id) => ({ id, label: t(`fconn.tab.${id}` as MessageKey), badge: id === 'sms' && review > 0 ? review : undefined }));
+  const crumbs = [{ label: viewLabel('home'), href: '#home' }, { label: viewLabel('finance'), href: '#finance', onClick: () => onOpen('overview') }, { label: t('fconn.title') }];
   return <div className="fconn">
-    <header className="fconnHead">
-      <div><h2 className="fconnTitle">{t('fconn.title')}</h2><p className="muted">{t('fconn.subtitle')}</p></div>
-      <WorkScope settings={ready(settings)} onSaved={reloadSettings} />
-    </header>
-    <div className="fconnTabs" role="tablist" aria-label={t('fconn.tabs')}>
-      {CONNECTIONS_TABS.map((id, index) => <button key={id} ref={(el) => { tabRefs.current[id] = el; }} type="button" role="tab" id={`${tabsId}-${id}`}
-        aria-selected={tab === id} aria-controls={`${tabsId}-panel`} tabIndex={tab === id ? 0 : -1} onKeyDown={(e) => keyNav(e, index)} onClick={() => setTab(id)}>
-        {icons[id]}{t(`fconn.tab.${id}` as MessageKey)}{id === 'sms' && (ready(status)?.review_count ?? 0) > 0 ? <span className="fconnCount">{ready(status)?.review_count}</span> : null}</button>)}
-    </div>
+    <FinancePageHead title={t('fconn.title')} subtitle={t('fconn.subtitle')} crumbs={crumbs}
+      actions={<WorkScope settings={ready(settings)} onSaved={reloadSettings} />}
+      tabs={<FinanceTabs label={t('fconn.tabs')} items={items} value={tab} onChange={setTab} idPrefix="fconn" />} />
     <Kpis status={status} accounts={accounts} imports={imports} connections={connections} overview={overview} onReview={() => setTab('sms')} />
-    <div role="tabpanel" id={`${tabsId}-panel`} aria-labelledby={`${tabsId}-${tab}`} className="fconnPanel">
+    <div {...tabPanel('fconn', tab)}>
       {tab === 'accounts' && <>
         <div className="fconnGrid">
           <AccountsCard accounts={accounts} settings={ready(settings)} imports={ready(imports)?.items ?? []} reload={reloadAccounts} onOpen={onOpen} onTab={setTab} />
@@ -125,10 +110,10 @@ function WorkScope({ settings, onSaved }: { settings: FinanceSmsSettings | null;
     try { await sms.saveSmsSettings({ version: settings.version, ledger_kind: kind }); onSaved(); }
     catch (e) { setError(describeError(e)); } finally { setBusy(false); }
   };
-  return <div className="fconnScope">
-    <span id={labelId}>{t('fconn.scope')}</span>
-    <div className="fconnSegment" role="group" aria-labelledby={labelId}>
-      {(['business', 'personal'] as const).map((kind) => <button key={kind} type="button" aria-pressed={settings?.ledger_kind === kind} disabled={!settings || busy}
+  return <div className="finControl fconnScope">
+    <span id={labelId} className="finControlLabel">{t('fconn.scope')}</span>
+    <div className="finSegmented" role="radiogroup" aria-labelledby={labelId}>
+      {(['business', 'personal'] as const).map((kind) => <button key={kind} type="button" role="radio" aria-checked={settings?.ledger_kind === kind} disabled={!settings || busy}
         onClick={() => void pick(kind)}>{kind === 'business' ? <Briefcase aria-hidden="true" /> : <User aria-hidden="true" />}{t(`fsms.ledgerKind.${kind}` as MessageKey)}</button>)}
     </div>
     {error && <p className="cmFieldError" role="alert">{error}</p>}
@@ -145,7 +130,7 @@ function Kpis({ status, accounts, imports, connections, overview, onReview }: {
     ? lastActivity(status.value, imports.value.items, connections.kind === 'ready' ? connections.value : []) : undefined;
   const pending = t('fconn.kpi.loading');
   const review = status.kind === 'ready' ? status.value.review_count : null;
-  return <ul className="fconnKpis" aria-label={t('fconn.kpis')}>
+  return <KpiRow label={t('fconn.kpis')}>
     <Kpi icon={<Landmark aria-hidden="true" />} label={t('fconn.kpi.sources')} value={live === null ? '-' : String(live.length)}
       hint={live === null ? (accounts.kind === 'loading' ? pending : t('fconn.kpi.unavailable')) : t('fconn.kpi.sourcesHint')} />
     <Kpi icon={<Layers aria-hidden="true" />} label={t('fconn.kpi.routes')} value={routes === null ? '-' : String(routes.live)}
@@ -155,12 +140,11 @@ function Kpis({ status, accounts, imports, connections, overview, onReview }: {
       action={review ? <button type="button" className="cmLinkButton" onClick={onReview}>{t('fconn.kpi.reviewOpen')}</button> : undefined} />
     <Kpi icon={<RefreshCw aria-hidden="true" />} label={t('fconn.kpi.last')} value={last === undefined ? '-' : last ? formatDateTime(last.at, { timeStyle: 'short' }) : '-'}
       hint={last === undefined ? pending : last ? `${formatDateTime(last.at, { dateStyle: 'medium' })} · ${t(`fconn.kpi.last.${last.source}` as MessageKey)}` : t('fconn.kpi.lastNone')} />
-  </ul>;
+  </KpiRow>;
 }
 
 function Kpi({ icon, label, value, hint, tone, action }: { icon: ReactNode; label: string; value: string; hint?: string; tone?: 'warn'; action?: ReactNode }) {
-  return <li className={`fconnKpi ${tone ?? ''}`}><span className="fconnKpiIcon">{icon}</span>
-    <div><strong dir="ltr">{value}</strong><span>{label}</span>{hint && <small>{hint}</small>}{action}</div></li>;
+  return <KpiCard icon={icon} label={label} value={<bdi dir="ltr">{value}</bdi>} tone={tone ?? ''} hint={hint || action ? <>{hint}{action}</> : undefined} />;
 }
 
 // ---- connected accounts ----------------------------------------------------------------------
@@ -176,7 +160,7 @@ function AccountsCard({ accounts, settings, imports, reload, onOpen, onTab }: {
   const shown = searchAccounts(list, search);
   const lastImport = useMemo(() => lastImportByAccount(imports), [imports]);
   return <section className="surface cmPanel fconnCard" aria-labelledby="fconn-accounts">
-    <p className="fconnReadOnly"><Info aria-hidden="true" />{t('fconn.readOnly')}</p>
+    <FinBanner tone="ok" icon={<Info />} title={t('fconn.readOnly')} />
     <div className="sectionHeader"><h2 id="fconn-accounts">{t('fconn.accounts.title', { count: list.length })}</h2>
       <AddSourceMenu onOpen={onOpen} onTab={onTab} /></div>
     <p className="muted fconnNote">{t('fconn.accounts.noBankLink')}</p>
@@ -209,7 +193,7 @@ function AccountRow({ account: a, sources, lastImport, onOpen, onTab }: {
       <div className="fconnAccountName"><strong id={titleId} dir="auto">{a.name}{a.institution ? <span className="muted"> · <bdi>{a.institution}</bdi></span> : null}</strong>
         <small>{t(`finance.kind.${a.kind}` as MessageKey)}{a.last4 ? <> · <bdi dir="ltr">•••• {a.last4}</bdi></> : null}</small></div>
       <div className="fconnChips">
-        {sources.map((s) => <span key={s} className={`statusBadge ${s === 'manual' ? 'neutral' : 'success'}`}>{sourceLabel(s)}</span>)}
+        {sources.map((s) => <StatusChip key={s} tone={s === 'manual' ? 'muted' : 'ok'}>{sourceLabel(s)}</StatusChip>)}
         <span className="fconnChip"><Lock aria-hidden="true" />{t('fconn.readOnlyChip')}</span>
       </div>
     </div>
@@ -264,8 +248,8 @@ function CapturePanel({ status, settings, reload, onTab }: {
     <div className="fconnCaptureHead">
       <span className="fconnAccountIcon"><Smartphone aria-hidden="true" /></span>
       <div><h2 id="fconn-capture">{t('fconn.capture.title')}</h2><p className="muted">{t('fconn.capture.subtitle')}</p></div>
-      {status.kind === 'ready' && <span className={`statusBadge ${status.value.enabled ? 'success' : status.value.ready ? 'neutral' : 'warning'}`}>
-        {status.value.enabled ? t('fconn.capture.active') : status.value.ready ? t('fconn.capture.off') : t('fconn.capture.needsCheck')}</span>}
+      {status.kind === 'ready' && <StatusChip tone={status.value.enabled ? 'ok' : status.value.ready ? 'muted' : 'warn'}>
+        {status.value.enabled ? t('fconn.capture.active') : status.value.ready ? t('fconn.capture.off') : t('fconn.capture.needsCheck')}</StatusChip>}
     </div>
     {status.kind === 'loading' && <Notice busy>{t('fconn.loading')}</Notice>}
     {status.kind === 'error' && <LoadError message={t('fsms.error.load', { message: status.message })} retry={refresh} />}
@@ -341,12 +325,12 @@ function DeviceControls({ status, devices, reload, onTab }: { status: FinanceSms
     {devices.kind === 'error' && <LoadError message={devices.message} retry={reload} />}
     {devices.kind === 'ready' && (device ? <>
       <dl className="fconnDeviceFacts">
-        <div><dt>{t('fconn.scopeLabel')}</dt><dd className="fconnChips">{device.scopes.map((s) => <span key={s} className="statusBadge success">{scopeLabel(s)}</span>)}</dd></div>
+        <div><dt>{t('fconn.scopeLabel')}</dt><dd className="fconnChips">{device.scopes.map((s) => <StatusChip key={s} tone="ok">{scopeLabel(s)}</StatusChip>)}</dd></div>
         <div><dt><label htmlFor={deviceId}>{t('fconn.device')}</label></dt><dd>{usable.length > 1
           ? <select id={deviceId} value={device.id} onChange={(e) => setChosen(e.target.value)}>{usable.map((d) => <option key={d.id} value={d.id}>{d.name}</option>)}</select>
           : <span id={deviceId} dir="auto"><Smartphone aria-hidden="true" className="cmInlineIcon" />{device.name}</span>}</dd></div>
         <div><dt>{t('fconn.lastCheckIn')}</dt><dd>{short(device.last_seen_at)}</dd></div>
-        <div><dt>{t('fconn.deviceStatus')}</dt><dd><span className={`statusBadge ${device.status === 'active' ? 'success' : 'warning'}`}>{t(`fsms.device.${device.status}` as MessageKey)}</span></dd></div>
+        <div><dt>{t('fconn.deviceStatus')}</dt><dd><StatusChip tone={device.status === 'active' ? 'ok' : 'warn'}>{t(`fsms.device.${device.status}` as MessageKey)}</StatusChip></dd></div>
       </dl>
       <div className="fconnActions">
         {device.status === 'active'
@@ -394,7 +378,7 @@ function SecurityLog({ devices, onClose }: { devices: FinanceSmsDevice[]; onClos
   </Modal>;
 }
 
-const STATUS_TONE: Record<string, string> = { posted: 'success', attached: 'success', review: 'warning', failed: 'danger', duplicate: 'neutral', dismissed: 'neutral', rejected: 'neutral' };
+const STATUS_TONE: Record<string, 'ok' | 'warn' | 'bad' | 'muted'> = { posted: 'ok', attached: 'ok', review: 'warn', failed: 'bad', duplicate: 'muted', dismissed: 'muted', rejected: 'muted' };
 
 function RecentMessages({ onTab }: { onTab: (tab: ConnectionsTab) => void }) {
   const [page, reload] = useLoad(useCallback(() => sms.smsMessages('', RECENT_MESSAGES, 0), []));
@@ -408,7 +392,7 @@ function RecentMessages({ onTab }: { onTab: (tab: ConnectionsTab) => void }) {
         <thead><tr><th scope="col">{t('fconn.recent.status')}</th><th scope="col">{t('fconn.recent.merchant')}</th><th scope="col">{t('fconn.recent.when')}</th>
           <th scope="col" className="num">{t('fconn.recent.amount')}</th><th scope="col">{t('fconn.recent.reading')}</th></tr></thead>
         <tbody>{page.value.items.map((m: FinanceSmsMessage) => <tr key={m.id}>
-          <td><span className={`statusBadge ${STATUS_TONE[m.status] ?? 'neutral'}`}>{t(`fsms.status.${m.status}` as MessageKey)}</span></td>
+          <td><StatusChip tone={STATUS_TONE[m.status] ?? 'muted'}>{t(`fsms.status.${m.status}` as MessageKey)}</StatusChip></td>
           <td><strong dir="auto">{m.parsed.merchant || m.sender}</strong>{m.parsed.merchant && <small className="muted" dir="ltr">{m.sender}</small>}</td>
           <td>{short(m.received_at)}</td>
           <td className="num">{m.parsed.amount && m.parsed.currency ? <Money value={m.parsed.amount} currency={m.parsed.currency} /> : '-'}</td>
@@ -475,7 +459,7 @@ function ImportHistory({ accounts, onOpen, onChanged }: { accounts: FinanceAccou
             <th scope="col" className="num">{t('fconn.imports.reconciled')}</th><th scope="col" className="num">{t('fconn.imports.review')}</th><th scope="col"><span className="visuallyHidden">{t('fconn.imports.actions')}</span></th></tr></thead>
           <tbody>{page.value.items.map((i) => <tr key={i.id}>
             <td><strong dir="auto">{i.filename}</strong>{i.error_count > 0 && <small className="finLoosens">{t('fconn.imports.errors', { count: i.error_count })}</small>}</td>
-            <td><span className={`statusBadge ${i.preset.startsWith('pdf') ? 'success' : 'neutral'}`}>{importFormat(i.preset)}</span></td>
+            <td><StatusChip tone={i.preset.startsWith('pdf') ? 'info' : 'muted'}>{importFormat(i.preset)}</StatusChip></td>
             <td dir="auto">{names[i.account_id] ?? '-'}</td>
             <td>{when(i.created_at)}</td>
             <td className="num" dir="ltr">{i.imported_count}/{i.row_count}</td>
@@ -501,7 +485,7 @@ function Permissions({ settings, overview, onTab }: { settings: Load<FinanceSmsS
   return <div className="fconnPerms">
     <section className="surface cmPanel" aria-labelledby="fconn-can">
       <h2 id="fconn-can"><ShieldCheck aria-hidden="true" className="cmInlineIcon" />{t('fconn.perm.title')}</h2>
-      <p className="fconnReadOnly"><Info aria-hidden="true" />{t('fconn.readOnly')}</p>
+      <FinBanner tone="ok" icon={<Info />} title={t('fconn.readOnly')} />
       <ul className="fconnPermList">
         {(['read', 'manage', 'own', 'bank', 'ai', 'retention'] as const).map((key) => <li key={key}>
           <strong>{t(`fconn.perm.${key}` as MessageKey)}</strong>

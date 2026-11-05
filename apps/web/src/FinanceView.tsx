@@ -13,7 +13,7 @@ import type {
 } from '@anum/contracts';
 import * as api from './lib/financeApi';
 import {
-  FINANCE_TABS, PDF_STATEMENT_MAX_BYTES, amountTone, isolate, categoryLabel, checkFile, dueLabel, formatAmount, formatAmounts, hashForTab, isLast4, monthLabel, parseAmount, pickAmount,
+  PDF_STATEMENT_MAX_BYTES, amountTone, isolate, categoryLabel, checkFile, dueLabel, formatAmount, formatAmounts, hashForTab, isLast4, monthLabel, parseAmount, pickAmount,
   rangeLabel, shiftMonth, spendBars, spendCurrencies, tabFromHash, type FinanceTab,
 } from './lib/finance';
 import { describeError, isPermissionDenied } from './lib/errors';
@@ -28,6 +28,8 @@ import { GuardianPanel, SafeToSpendCard, SafeToSpendPanel, reasonText } from './
 import { ExecutionPanel, TradingPanel } from './FinanceTrading';
 import { IntelPanel } from './FinanceIntel';
 import { PageHeader, PageSummary, useMediaQuery, type Crumb } from './PageParts';
+import { OWN_HEAD_TABS } from './lib/financeNav';
+import { FinanceSectionNav } from './FinanceShell';
 import './commerce.css';
 import './finance.css';
 
@@ -108,12 +110,12 @@ export function FinanceView() {
     figure('debts', t('finance.figure.debts'), { state: 'ready' }, () => ({ value: s.debt_count ? formatAmounts(s.debts) : '-', hint: s.debt_count ? t('finance.figure.minimum', { amount: formatAmounts(s.minimum_payments) }) : t('finance.figure.debtsNone') })),
   ];
   const onChanged = refresh;
+  // A section that draws its own head (OWN_HEAD_TABS) gets neither Finance's header nor its summary band.
+  const ownHead = OWN_HEAD_TABS.has(tab);
   return <div className="cmLayout finLayout">
-    {header}
-    <PageSummary label={t('finance.summary.label')} figures={figures} footer={<p className="muted finReadOnly">{t('finance.readOnly')}</p>} />
-    <nav className="settingsTabs cmTabs" aria-label={t('finance.tabs')}>
-      {FINANCE_TABS.map((id) => <button key={id} type="button" aria-current={tab === id ? 'page' : undefined} onClick={() => pick(id)}>{t(`finance.tab.${id}` as MessageKey)}</button>)}
-    </nav>
+    {!ownHead && header}
+    {!ownHead && <PageSummary label={t('finance.summary.label')} figures={figures} footer={<p className="muted finReadOnly">{t('finance.readOnly')}</p>} />}
+    <FinanceSectionNav tab={tab} onPick={pick} />
     {noAccounts && tab !== 'accounts' && <section className="surface cmPanel cmWelcome" aria-labelledby="fin-welcome">
       <Wallet aria-hidden="true" />
       <div><h2 id="fin-welcome">{t('finance.welcome.title')}</h2><p className="muted">{t('finance.welcome.text')}</p>
