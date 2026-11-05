@@ -313,6 +313,7 @@ export const financeEn = {
 
   // ---- Stage 3: safe-to-spend ----
   'finance.tab.safe': 'Safe to spend',
+  'finance.tab.advisor': 'Money advisor',
   'finance.tab.guardian': 'Guardian',
   'finance.tab.connections': 'Connections',
   'finance.safe.loading': 'Working out what is safe to spend...',
