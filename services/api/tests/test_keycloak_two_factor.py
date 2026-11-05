@@ -523,7 +523,7 @@ def test_shared_and_running_realms_get_password_rules_and_a_sign_in_lockout(keyc
         assert keycloak.realm[key] == value, key
 
 def test_development_realm_stays_password_only() -> None:
-    # Local compose runs Keycloak 25 and the authenticated journey posts the password
+    # Local compose runs Keycloak 26.8 and the authenticated journey posts the password
     # form alone (services/api/scripts/journey.py): no 2FA in the development realm.
     realm = json.loads(REALM.read_text(encoding="utf-8"))
     assert not any(key.startswith(("otpPolicy", "webAuthnPolicy")) for key in realm)
