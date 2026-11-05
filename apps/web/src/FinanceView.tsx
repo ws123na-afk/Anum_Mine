@@ -13,20 +13,23 @@ import type {
 } from '@anum/contracts';
 import * as api from './lib/financeApi';
 import {
-  amountTone, isolate, categoryLabel, checkFile, dueLabel, formatAmount, formatAmounts, hashForTab, isLast4, monthLabel, parseAmount, pickAmount,
+  PDF_STATEMENT_MAX_BYTES, amountTone, isolate, categoryLabel, checkFile, dueLabel, formatAmount, formatAmounts, hashForTab, isLast4, monthLabel, parseAmount, pickAmount,
   rangeLabel, shiftMonth, spendBars, spendCurrencies, tabFromHash, type FinanceTab,
 } from './lib/finance';
 import { describeError, isPermissionDenied } from './lib/errors';
+import { isPdf } from './lib/financePdf';
+import type { PdfImported } from './FinancePdfImport';
 import { formatDateTime, t, type MessageKey } from './lib/i18n';
 import { figure, type Figure } from './lib/pageSummary';
 import { viewLabel } from './lib/shell';
 import { ConfirmDialog, Modal } from './Dialog';
 import { Denied, Empty, FormActions, FormError, LoadError, Money, Notice, failed, type Load } from './FinanceParts';
-import { ConnectionsPanel, GuardianPanel, SafeToSpendCard, SafeToSpendPanel, reasonText } from './FinancePlan';
+import { ConnectionsPanel, GuardianPanel, SafeToSpendCard, reasonText } from './FinancePlan';
 import { ExecutionPanel, TradingPanel } from './FinanceTrading';
 import { IntelPanel } from './FinanceIntel';
 import { PageHeader, PageSummary, useMediaQuery, type Crumb } from './PageParts';
 import { FinanceSectionNav } from './FinanceShell';
+import { OWN_HEAD_TABS } from './lib/financeNav';
 import './commerce.css';
 import './finance.css';
 
@@ -38,6 +41,11 @@ const ResearchPanel = lazy(() => import('./FinanceResearch').then((m) => ({ defa
 // iPhone SMS banking and the double-entry ledger (docs/finance-sms.md): one lazy chunk for both tabs.
 const SmsPanel = lazy(() => import('./FinanceSms').then((m) => ({ default: m.SmsPanel })));
 const LedgerPanel = lazy(() => import('./FinanceSms').then((m) => ({ default: m.LedgerPanel })));
+const PdfStatementImport = lazy(() => import('./FinancePdfImport').then((m) => ({ default: m.PdfStatementImport })));
+const PdfTemplates = lazy(() => import('./FinancePdfImport').then((m) => ({ default: m.PdfTemplates })));
+// Pages with their own head (lib/financeNav.ts OWN_HEAD_TABS, docs/finance.md#finance-shell), each its own lazy chunk.
+const ReportsPage = lazy(() => import('./FinanceReportsPage').then((m) => ({ default: m.FinanceReportsPage })));
+const SafePage = lazy(() => import('./FinanceSafePage').then((m) => ({ default: m.FinanceSafePage })));
 const KINDS: FinanceAccountKind[] = ['bank', 'card', 'cash', 'loan', 'investment'];
 const CADENCES: FinanceCadence[] = ['monthly', 'weekly', 'quarterly', 'yearly', 'once'];
 const DEBT_KINDS: FinanceDebtKind[] = ['loan', 'card', 'mortgage', 'other'];
@@ -81,6 +89,16 @@ export function FinanceView() {
   useEffect(() => { void loadAccounts(); }, [loadAccounts]);
   const refresh = () => { void loadSummary(); void loadAccounts(); };
 
+  if (OWN_HEAD_TABS.has(tab)) {
+    return <div className="cmLayout finLayout finOwnHead">
+      <FinanceSectionNav tab={tab} onPick={pick} />
+      <Suspense fallback={<Notice busy>{t('finance.loading')}</Notice>}>
+        {tab === 'reports' && <ReportsPage onOpen={pick} />}
+        {tab === 'safe' && <SafePage onOpen={pick} onChanged={refresh} />}
+      </Suspense>
+    </div>;
+  }
+
   const crumbs: Crumb[] = [{ label: viewLabel('home'), href: '#home' }, { label: viewLabel('finance'), href: '#finance', onClick: () => pick('overview') }];
   if (tab !== 'overview') crumbs.push({ label: t(`finance.tab.${tab}` as MessageKey) });
   const header = <PageHeader title={viewLabel('finance')} subtitle={t('finance.subtitle')} crumbs={tab === 'overview' ? undefined : crumbs} actions={summary.kind === 'ready' ? <>
@@ -115,7 +133,6 @@ export function FinanceView() {
     </section>}
     {accounts.kind === 'error' && <LoadError message={t('finance.error.accounts', { message: accounts.message })} retry={() => void loadAccounts()} />}
     {tab === 'overview' && <Overview summary={s} month={month ?? s.month} onMonth={setMonth} onOpen={pick} />}
-    {tab === 'safe' && <SafeToSpendPanel onOpen={pick} onChanged={onChanged} />}
     {tab === 'guardian' && <GuardianPanel base={base} />}
     {tab === 'connections' && <ConnectionsPanel />}
     {tab === 'trading' && <TradingPanel base={base} onOpen={pick} />}
@@ -459,6 +476,9 @@ function Import({ accounts, onChanged, onAddAccount, onDone }: { accounts: Finan
   const [formats, setFormats] = useState<Load<FinanceFormats>>({ kind: 'loading' });
   const [accountId, setAccountId] = useState(accounts.find((a) => !a.archived && a.kind !== 'investment')?.id ?? accounts[0]?.id ?? '');
   const [file, setFile] = useState<{ name: string; content: string } | null>(null);
+  // A PDF statement is read by the API, not here: the picked file is kept as is until it is reviewed.
+  const [pdf, setPdf] = useState<File | null>(null), [pdfOpen, setPdfOpen] = useState(false), [inputKey, setInputKey] = useState(0);
+  const [templatesRefresh, setTemplatesRefresh] = useState(0);
   const [preset, setPreset] = useState(''), [dateFormat, setDateFormat] = useState('');
   const [mapping, setMapping] = useState<{ date: string; description: string; amount: string; debit: string; credit: string } | null>(null);
   const [preview, setPreview] = useState<FinanceImportPreview | null>(null);
@@ -472,20 +492,23 @@ function Import({ accounts, onChanged, onAddAccount, onDone }: { accounts: Finan
   if (accounts.length === 0) return <section className="surface cmPanel" aria-labelledby="fin-import"><h2 id="fin-import">{t('finance.tab.import')}</h2>
     <Empty icon={<Landmark aria-hidden="true" />} title={t('finance.import.needAccount')} text={t('finance.import.needAccountText')} action={<button type="button" onClick={onAddAccount}><Plus aria-hidden="true" />{t('finance.accounts.add')}</button>} /></section>;
   const maxBytes = formats.kind === 'ready' ? formats.value.limits.max_bytes : 2_000_000;
+  const selected = accounts.find((a) => a.id === accountId) ?? null;
   const body = () => ({
     account_id: accountId, filename: file?.name ?? 'statement.csv', content: file?.content ?? '', preset: preset || null, date_format: dateFormat || null,
     mapping: mapping ? { date: mapping.date, description: mapping.description, amount: mapping.amount || null, debit: mapping.debit || null, credit: mapping.credit || null } : null,
   });
   async function pickFile(list: FileList | null) {
-    setPreview(null); setNotice(null); setError(null); setMapping(null);
+    setPreview(null); setNotice(null); setError(null); setMapping(null); setPdf(null); setPdfOpen(false);
     const picked = list?.[0];
     if (!picked) { setFile(null); return; }
     const checked = checkFile(picked, maxBytes);
     if (!checked.ok) { setFile(null); setError(checked.error); return; }
+    if (isPdf(picked)) { setFile(null); setPdf(picked); return; }
     setFile({ name: picked.name, content: await picked.text() });
   }
   async function runPreview(event?: FormEvent) {
     event?.preventDefault();
+    if (pdf) { setError(null); setNotice(null); setPdfOpen(true); return; }
     if (!file) { setError(t('finance.import.error.noFile')); return; }
     setBusy(true); setError(null); setNotice(null);
     try { const result = await api.previewImport(body()); setPreview(result); setMapping({ date: result.mapping.date, description: result.mapping.description, amount: result.mapping.amount ?? '', debit: result.mapping.debit ?? '', credit: result.mapping.credit ?? '' }); }
@@ -501,6 +524,13 @@ function Import({ accounts, onChanged, onAddAccount, onDone }: { accounts: Finan
       setPreview(null); setFile(null); setMapping(null); onChanged(); void loadHistory();
     } catch (e) { setError(describeError(e)); } finally { setBusy(false); }
   }
+  function pdfImported({ result, vault }: PdfImported) {
+    const matched = (result.reconciled ?? 0) || (result.held_for_review ?? 0)
+      ? ` ${t('fsms.import.reconciled', { reconciled: result.reconciled ?? 0, review: result.held_for_review ?? 0 })}` : '';
+    setNotice(t('finance.import.done', { imported: result.imported_count, duplicates: result.duplicate_count, errors: result.error_count }) + matched + (vault ? ` ${vault}` : ''));
+    setPdf(null); setPdfOpen(false); setInputKey((k) => k + 1); setTemplatesRefresh((n) => n + 1); onChanged(); void loadHistory();
+  }
+  function pdfCancelled() { setPdf(null); setPdfOpen(false); setInputKey((k) => k + 1); }
   async function undo() {
     if (!undoing) return;
     setBusy(true);
@@ -513,20 +543,23 @@ function Import({ accounts, onChanged, onAddAccount, onDone }: { accounts: Finan
   return <>
     <section className="surface cmPanel" aria-labelledby="fin-import">
       <h2 id="fin-import">{t('finance.import.title')}</h2>
-      <p className="muted">{t('finance.import.intro', { mb: Math.floor(maxBytes / 1_000_000) })}</p>
+      <p className="muted">{t('finance.import.intro', { mb: Math.floor(maxBytes / 1_000_000), pdfMb: PDF_STATEMENT_MAX_BYTES / 1_000_000 })}</p>
       <form className="finForm" onSubmit={(e) => void runPreview(e)} aria-describedby={error ? errorId : undefined}>
         <div className="cmFormGrid">
           <label className="field"><span>{t('finance.col.account')}</span><select value={accountId} onChange={(e) => { setAccountId(e.target.value); setPreview(null); }}>{accounts.filter((a) => !a.archived).map((a) => <option key={a.id} value={a.id}>{a.name} ({a.currency})</option>)}</select></label>
-          <label className="field" htmlFor={fileId}><span>{t('finance.import.file')}</span><input id={fileId} type="file" accept=".csv,.txt,text/csv" onChange={(e) => void pickFile(e.target.files)} /></label>
-          <label className="field"><span>{t('finance.import.layout')}</span><select value={preset} onChange={(e) => { setPreset(e.target.value); setMapping(null); setPreview(null); }}><option value="">{t('finance.import.detect')}</option>{formats.kind === 'ready' && formats.value.presets.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}</select></label>
-          <label className="field"><span>{t('finance.import.dateFormat')}</span><select value={dateFormat} onChange={(e) => { setDateFormat(e.target.value); setPreview(null); }}><option value="">{t('finance.import.detect')}</option>{formats.kind === 'ready' && formats.value.date_formats.map((f) => <option key={f} value={f}>{f}</option>)}</select></label>
+          <label className="field" htmlFor={fileId}><span>{t('finance.import.file')}</span><input key={inputKey} id={fileId} type="file" accept=".csv,.txt,.pdf,text/csv,application/pdf" onChange={(e) => void pickFile(e.target.files)} /></label>
+          {!pdf && <><label className="field"><span>{t('finance.import.layout')}</span><select value={preset} onChange={(e) => { setPreset(e.target.value); setMapping(null); setPreview(null); }}><option value="">{t('finance.import.detect')}</option>{formats.kind === 'ready' && formats.value.presets.map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}</select></label>
+          <label className="field"><span>{t('finance.import.dateFormat')}</span><select value={dateFormat} onChange={(e) => { setDateFormat(e.target.value); setPreview(null); }}><option value="">{t('finance.import.detect')}</option>{formats.kind === 'ready' && formats.value.date_formats.map((f) => <option key={f} value={f}>{f}</option>)}</select></label></>}
         </div>
         <FormError id={errorId} text={error} />
-        <div className="actions"><button type="submit" disabled={busy || !file}>{busy && !preview ? t('finance.import.reading') : t('finance.import.preview')}</button></div>
+        <div className="actions"><button type="submit" disabled={busy || (!file && !pdf) || (pdf !== null && pdfOpen)}>{busy && !preview ? t('finance.import.reading') : t('finance.import.preview')}</button></div>
       </form>
       {notice && <Notice>{notice}</Notice>}
       {notice && <div className="actions"><button type="button" className="secondary" onClick={onDone}>{t('finance.import.seeTransactions')}</button></div>}
     </section>
+    {pdf && pdfOpen && selected && <Suspense fallback={<Notice busy>{t('fpdf.reading')}</Notice>}>
+      <PdfStatementImport file={pdf} account={selected} onImported={pdfImported} onCancel={pdfCancelled} />
+    </Suspense>}
     {preview && <section className="surface cmPanel" aria-labelledby="fin-preview" aria-live="polite">
       <h2 id="fin-preview">{t('finance.import.previewTitle', { file: preview.filename })}</h2>
       <p>{t('finance.import.previewText', { rows: preview.row_count, valid: preview.valid_count, fresh: preview.new_count, duplicates: preview.duplicate_count, errors: preview.error_count })}</p>
@@ -564,6 +597,7 @@ function Import({ accounts, onChanged, onAddAccount, onDone }: { accounts: Finan
         <button type="button" className="secondary" onClick={() => setUndoing(item)}><Undo2 aria-hidden="true" />{t('finance.import.undo')}</button>
       </li>)}</ul>)}
     </section>
+    <Suspense fallback={null}><PdfTemplates refresh={templatesRefresh} /></Suspense>
     {undoing && <ConfirmDialog title={t('finance.import.undoTitle')} confirmLabel={t('finance.import.undo')} danger busy={busy} onConfirm={() => void undo()} onCancel={() => setUndoing(null)}>
       <p dir="auto">{t('finance.import.undoText', { file: undoing.filename, count: undoing.imported_count })}</p>
     </ConfirmDialog>}

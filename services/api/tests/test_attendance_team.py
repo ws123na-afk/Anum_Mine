@@ -140,8 +140,8 @@ def test_team_is_read_only_paged_and_refused_to_viewers() -> None:
 
 
 def test_submit_migration_is_expand_only_and_chained() -> None:
-    text = (Path(__file__).parents[1] / "migrations" / "versions" / "0139_attendance_report_submit.py").read_text(encoding="utf-8")
-    assert 'revision = "0139_attendance_report_submit"' in text and 'down_revision = "0138_books_v2"' in text
+    text = (Path(__file__).parents[1] / "migrations" / "versions" / "0141_attendance_report_submit.py").read_text(encoding="utf-8")
+    assert 'revision = "0141_attendance_report_submit"' in text and 'down_revision = "0139_finance_pdf_templates"' in text
     upgrade = text.split("def upgrade", 1)[1].split("def downgrade", 1)[0]
     assert 'op.add_column("attendance_daily_reports", sa.Column("submitted_at", sa.DateTime(timezone=True), nullable=True))' in upgrade
     assert "drop" not in upgrade.lower()

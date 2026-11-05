@@ -88,7 +88,7 @@ test('transactions search, filter and page; a row is edited and deleted; tabs ar
 test('a statement is previewed with its column mapping, then imported; the import can be undone', async ({ page }) => {
   const { sent } = await mockApi(page);
   await page.goto('/#finance-import');
-  await page.getByLabel('CSV file').setInputFiles({ name: 'november.csv', mimeType: 'text/csv', buffer: Buffer.from('Transaction Date,Narration,Debit,Credit\n01/11/2026,SPINNEYS,60.00,\n') });
+  await page.getByLabel('Statement file (CSV or PDF)').setInputFiles({ name: 'november.csv', mimeType: 'text/csv', buffer: Buffer.from('Transaction Date,Narration,Debit,Credit\n01/11/2026,SPINNEYS,60.00,\n') });
   await page.getByRole('button', { name: 'Preview' }).click();
   const preview = page.getByRole('region', { name: 'Preview of november.csv' });
   await expect(preview).toContainText('4 rows: 3 read, 2 new, 1 already imported, 1 could not be read.');

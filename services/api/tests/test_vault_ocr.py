@@ -105,8 +105,12 @@ def test_identity_dates_skip_birth_and_never_keep_the_line() -> None:
 
 def test_tsv_lines_keep_order_and_mean_confidence() -> None:
     tsv = "level\tpage_num\tblock_num\tpar_num\tline_num\tword_num\tleft\ttop\twidth\theight\tconf\ttext\n"
-    tsv += "5\t1\t1\t1\t1\t1\t0\t0\t1\t1\t90\tTotal\n5\t1\t1\t1\t1\t2\t0\t0\t1\t1\t80\t10.00\n5\t1\t1\t1\t2\t1\t0\t0\t1\t1\t-1\t \n"
-    assert lines_from_tsv(tsv) == [{"text": "Total 10.00", "confidence": 85.0}]
+    tsv += "5\t1\t1\t1\t1\t1\t10\t20\t50\t12\t90\tTotal\n5\t1\t1\t1\t1\t2\t300\t21\t40\t12\t80\t10.00\n5\t1\t1\t1\t2\t1\t0\t0\t1\t1\t-1\t \n"
+    # Each line also carries its words' boxes (pixels), which the statement reader lays out by position.
+    assert lines_from_tsv(tsv) == [{"text": "Total 10.00", "confidence": 85.0, "words": [
+        {"text": "Total", "confidence": 90.0, "left": 10, "top": 20, "width": 50, "height": 12},
+        {"text": "10.00", "confidence": 80.0, "left": 300, "top": 21, "width": 40, "height": 12},
+    ]}]
 
 
 def test_the_service_refuses_without_its_token_and_refuses_non_images() -> None:

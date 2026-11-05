@@ -143,6 +143,139 @@ export interface FinanceImport {
   held_for_review?: number;
 }
 
+/** PDF statements (docs/finance.md#pdf-statements): one role per column the reader found. */
+export type FinancePdfRole = 'date' | 'description' | 'debit' | 'credit' | 'amount' | 'balance' | 'reference' | 'currency' | 'foreign_amount'
+  | 'fx_rate' | 'fee' | 'vat' | 'skip';
+
+export interface FinancePdfRow {
+  line: number;
+  page: number;
+  posted_on: string | null;
+  description: string;
+  amount: string | null;
+  debit: string | null;
+  credit: string | null;
+  balance: string | null;
+  reference: string | null;
+  /** A currency printed on the row; a row in another currency than the account's cannot be imported. */
+  currency: string | null;
+  /** Card statements: the amount in the currency spent, its rate, fees and VAT, as printed. */
+  original_amount: string | null;
+  original_currency: string | null;
+  fx_rate: string | null;
+  fee: string | null;
+  vat: string | null;
+  /** From a "<type>Time:HH:MM:SS**Note:<details>" description: the type, the time and the other party. */
+  kind: string | null;
+  time: string | null;
+  counterparty: string | null;
+  /** A charge row's payment ("Transaction Charges" after its transfer): the line it belongs to. */
+  parent_line: number | null;
+  /** 0 to 1: OCR quality, how the sign was found, whether the balance agrees. */
+  confidence: number;
+  category: string;
+  /** Already in the ledger (same hash as a CSV import): importing it again adds nothing. */
+  duplicate: boolean;
+  /** `sign_unsure`, `sign_from_balance`, `date_unreadable`, `amount_missing`, `amount_zero`, `hijri_date`, `balance_break`,
+   *  `foreign_currency`, `columns_swapped`, `low_confidence`. */
+  flags: string[];
+}
+
+export interface FinancePdfCheck {
+  status: 'matched' | 'mismatch' | 'unknown';
+  opening: string | null;
+  closing: string | null;
+  rows_total: string;
+  expected_closing: string | null;
+  difference: string | null;
+  opening_source: 'statement' | 'rows' | 'none';
+  closing_source: 'statement' | 'rows' | 'none';
+  /** Rows after which the running balance does not agree with the printed balance. */
+  breaks: number[];
+  /** Pages whose balance brought forward is not the balance the page before ended with. */
+  page_breaks: number[];
+  /** The statement's own counts and totals against the rows read. */
+  summary: { name: 'deposits_count' | 'withdrawals_count' | 'deposits_total' | 'withdrawals_total' | 'total_due'; stated: string; found: string; ok: boolean }[];
+}
+
+/** What `POST /imports/pdf/read` found. Nothing is saved until the reviewed rows are imported. */
+export interface FinancePdfStatement {
+  account_id: string;
+  currency: string;
+  filename: string;
+  file_sha256: string;
+  source: 'text' | 'ocr';
+  page_count: number;
+  layout: 'table' | 'columns' | 'lines';
+  columns: { index: number; label: string; role: FinancePdfRole }[];
+  roles: FinancePdfRole[];
+  /** The layout's fingerprint and the taught template it was read with, if any. */
+  fingerprint: string | null;
+  template_id: string | null;
+  confidence: number;
+  /** A current account (running balance) or a credit card (charges against an amount due). */
+  kind: 'account' | 'card';
+  statement_date: string | null;
+  due_date: string | null;
+  skipped_pages: { page: number; reason: 'not_transactions' | 'no_text' }[];
+  date_format: string;
+  date_formats: string[];
+  date_format_ambiguous: boolean;
+  period_start: string | null;
+  period_end: string | null;
+  /** Only the last four digits of the account or card number; never more. */
+  account_last4: string | null;
+  account_last4_matches: boolean | null;
+  statement_currency: string | null;
+  opening_balance: string | null;
+  closing_balance: string | null;
+  check: FinancePdfCheck;
+  row_count: number;
+  duplicate_count: number;
+  skipped_lines: number;
+  /** `currency_differs`, `no_rows`, `page_breaks`, `summary_differs`, `low_confidence`, `debit_credit_swapped`, `columns_from_content`. */
+  warnings: string[];
+  rows: FinancePdfRow[];
+}
+
+export interface FinancePdfImportRow {
+  posted_on: string;
+  description: string;
+  amount: string;
+  balance?: string | null;
+  reference?: string | null;
+  currency?: string | null;
+  time?: string | null;
+}
+
+/** A statement layout taught by the owner (Finance, Import): the mapping kept against the layout's fingerprint. */
+export interface FinancePdfTemplate {
+  id: string;
+  labels: string[];
+  roles: FinancePdfRole[];
+  date_format: string | null;
+  uses: number;
+  created_at: string;
+  updated_at: string;
+  last_used_at: string | null;
+}
+
+export interface FinancePdfImportInput {
+  account_id: string;
+  filename: string;
+  file_sha256: string;
+  source: 'text' | 'ocr';
+  rows: FinancePdfImportRow[];
+  opening_balance?: string | null;
+  closing_balance?: string | null;
+  /** Import even though the rows do not add up to the closing balance (the owner confirmed it). */
+  accept_mismatch?: boolean;
+  /** The layout the rows were read with; kept as a template when `remember` is true. */
+  layout?: { fingerprint: string; labels: string[]; roles: FinancePdfRole[]; date_format: string | null; remember: boolean } | null;
+  /** The statement's printed counts and totals from the read; rows that disagree need `accept_mismatch`. */
+  summary?: { name: FinancePdfCheck['summary'][number]['name']; stated: string }[];
+}
+
 export interface FinanceBill {
   id: string;
   name: string;

@@ -55,7 +55,7 @@ them; daily reports only when the share includes them. A share never allows a wr
   follow-up date, notes, attachments (ids of files in Files, uploaded with Files' own checks, limits and malware scan),
   and whether an AI draft was used. Saved with a version. A report is a **draft** until the person submits it
   (`submit: true` on the save, which sets `submitted_at` once; later edits keep it submitted). Migration
-  `0139_attendance_report_submit` adds the column.
+  `0141_attendance_report_submit` adds the column.
 
 ## Time engine
 

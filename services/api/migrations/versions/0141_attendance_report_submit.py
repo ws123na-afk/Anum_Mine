@@ -8,14 +8,14 @@ The existing forced RLS policies, grants and purge cover the new column: it is o
 written only by the owner and read by the owner and a viewer whose active share includes reports.
 
 Expand only: one new nullable column. The previous release never writes it and ignores it, so every
-report it saves stays a draft. Chained after ``0138_books_v2``.
+report it saves stays a draft. Chained after ``0139_finance_pdf_templates`` (``0140`` is reserved for Guardian; repoint once it lands).
 """
 
 import sqlalchemy as sa
 from alembic import op
 
-revision = "0139_attendance_report_submit"
-down_revision = "0138_books_v2"
+revision = "0141_attendance_report_submit"
+down_revision = "0139_finance_pdf_templates"
 branch_labels = None
 depends_on = None
 

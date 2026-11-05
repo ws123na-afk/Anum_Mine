@@ -174,6 +174,8 @@ from .finance.intel_api import router as finance_intel_router
 from .finance.broker_api import router as finance_broker_router
 from .finance.sms_api import router as finance_sms_router
 from .finance.links_api import router as finance_links_router
+from .finance.pdf_api import router as finance_pdf_router
+from .finance.statement_pdf import MAX_PDF_BYTES as PDF_STATEMENT_MAX_BYTES
 from .finance.ibkr_api import router as finance_ibkr_router
 from .finance.research_api import router as finance_research_router
 from .finance.sync import build_finance_scheduler
@@ -427,6 +429,8 @@ install_hardening(
         BodyLimitRule("POST", f"{meetings_router.prefix}/transcripts", settings.meeting_transcript_max_bytes + 1024),
         # Document vault uploads, versions and the iPhone Shortcut (docs/documents.md): the Files limit.
         BodyLimitRule("POST", vault_router.prefix, settings.max_upload_body_bytes),
+        # PDF bank statements (docs/finance-statements.md): the reader's own cap, checked again there.
+        BodyLimitRule("POST", "/api/v1/finance/imports/pdf/read", PDF_STATEMENT_MAX_BYTES + 1024),
     ),
 )
 app.add_middleware(
@@ -447,6 +451,8 @@ app.add_middleware(
         # File uploads (docs/files.md): the name and the optional checksum of the body.
         "x-file-name",
         "x-content-sha256",
+        # A bank statement PDF's password (docs/finance.md#pdf-statements): used in memory, never stored or logged.
+        "x-statement-password",
         CORRELATION_ID_HEADER,
     ],
     # Content-Disposition: the file name of a download (privacy and audit exports).
@@ -571,6 +577,7 @@ app.include_router(finance_intel_router)
 app.include_router(finance_broker_router)
 app.include_router(finance_sms_router)
 app.include_router(finance_links_router)
+app.include_router(finance_pdf_router)
 app.include_router(finance_ibkr_router)
 app.include_router(finance_research_router)
 app.include_router(finance_intel_control_router)
