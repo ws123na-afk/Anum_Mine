@@ -253,6 +253,17 @@ Tool output is untrusted data (descriptions come from statements): in chat it re
 - **Market prices:** a market data provider whose licence allows storing prices for personal use, and an API key. Until then paper orders use prices the person records.
 - **Live execution (stages 8 and 9):** see [What the owner must provide before live](#what-the-owner-must-provide-before-live). Nothing can be switched on without it.
 
+## Holdings
+
+Finance, Holdings (`#finance-holdings`, `apps/web/src/FinanceHoldings.tsx`, a lazy chunk with its charts in `FinanceCharts.tsx`; pure valuation in `apps/web/src/lib/financeHoldings.ts`, chart geometry in `lib/financeCharts.ts`) values the person's manual holdings with the prices they record (`GET /prices?symbol=`, the same `finance_prices` the paper simulator uses). No new API: it reads `/accounts`, `/holdings` and `/prices`, and writes only through `POST, PATCH, DELETE /holdings`, `POST /prices` and `DELETE /prices/{id}`.
+
+- **Controls**: portfolio (all investment accounts or one), currency (only when holdings are in more than one; figures are never converted or summed across currencies), period for the value line (3, 6 or 12 months, or every recorded price) and Add holding.
+- **Summary**: portfolio value (positions with a price in their own currency), change since each position's previous recorded price (there is no daily price feed, so this is not a "day change"), unrealised gain against the cost of the priced positions, cash (the balance of the investment accounts in that currency); the value line (today's quantities at each recorded price, a day before some position has any price is a gap, hover or arrow keys for a crosshair, a table view); allocation as a donut with a legend (five fixed series colours checked for colour blindness, the rest folded into Other); the top five positions; recent activity (positions added or edited and prices recorded, all marked Manual); data quality (positions without a price, prices older than 3 days, the oldest price) with Review prices and Record a price; the not-advice notice.
+- **Positions**: search by symbol, name or account, sort by asset, quantity, value or gain, 25 a page, a sparkline of the last 12 recorded prices, and per row Record a price, Edit and Delete (with a confirmation).
+- **Performance**: the figures, a taller value line and the gain of each position against what was paid.
+- **Valuation settings**: how values are worked out, the latest price of each position with Record a price, and the recorded prices of held symbols (delete with a confirmation).
+- Not shown because ANUM has no source for them: allocation targets and drift, corporate actions (splits, dividends), a broker-reconciled audit status, a Personal or Business scope (holdings belong to the person), and a market-price day change.
+
 ## Paper and shadow trading
 
 Stage 6 (`finance/trading.py`). **SIMULATED**: nothing is bought, sold, paid or sent, and no real account is used. Every screen, tool answer and result says so, with the assumptions used, and says nothing certain about what a real order would earn or lose.
