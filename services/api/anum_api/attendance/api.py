@@ -464,6 +464,122 @@ def today(person: str | None = None, context: TenantContext = Depends(tenant_con
                          profile_saved=found is not None)
 
 
+# ---- team today (docs/attendance.md#team-attendance) ---------------------------------------------
+#
+# The caller's own row plus one row per colleague whose active share names the caller. Nobody else
+# appears: a person who never shared, or stopped sharing, is not listed and cannot be probed. A
+# report's status and summary appear only for the caller and for shares that include reports.
+
+class TeamBreak(BaseModel):
+    start: datetime
+    end: datetime | None
+
+
+class TeamReport(BaseModel):
+    status: Literal["none", "draft", "submitted"]
+    updated_at: datetime | None = None
+    submitted_at: datetime | None = None
+    summary: str | None = None
+
+
+class TeamRow(BaseModel):
+    user_id: str
+    me: bool
+    day: date
+    time_zone: str
+    role_title: str | None
+    status: TodayStatus | None
+    site_names: list[str]
+    first_check_in: datetime | None
+    first_check_in_source: EventSource | None
+    breaks: list[TeamBreak]
+    break_seconds: int
+    worked_seconds: int
+    presence_seconds: int
+    remote_seconds: int
+    scheduled_seconds: int
+    open: bool
+    flags: list[str]
+    reports_shared: bool
+    report: TeamReport | None
+
+
+class TeamView(BaseModel):
+    day: date | None
+    generated_at: datetime
+    rows: list[TeamRow]
+    total: int
+
+
+TEAM_PAGE = 100
+
+
+def _report_summary(report: DailyReport) -> str | None:
+    text = "; ".join(report.tasks_done) or report.project or report.notes or "; ".join(report.tasks_pending)
+    text = " ".join((text or "").split())
+    return (text[:157] + "...") if len(text) > 160 else (text or None)
+
+
+def _team_row(store: AttendanceStore, context: TenantContext, owner: str, reports: bool, day: date | None, now: datetime) -> TeamRow:
+    found = store.get_profile(context, owner)
+    profile = found or S.default_profile(context, owner)
+    today = S.today_for(profile, now)
+    wanted = day or today
+    days = S.compute_days(store, context, owner, wanted, wanted, now, profile=profile)
+    view = days[-1] if days and days[-1].day == wanted else None
+    status_view = view
+    # Like /today: a shift begun yesterday and still open after midnight is what the person is doing now.
+    if wanted == today and not (view and any(s.end_kind == "open" for s in view.segments)):
+        earlier = S.compute_days(store, context, owner, wanted - timedelta(days=1), wanted - timedelta(days=1), now, profile=profile)
+        if earlier and any(s.end_kind == "open" for s in earlier[-1].segments):
+            status_view = earlier[-1]
+            if view is None or not any(s.kind in ("site", "remote") for s in view.segments):
+                view = earlier[-1]
+    names = {s.id: s.name for s in store.list_sites(context, owner)}
+    working = [s for s in (view.segments if view else []) if s.kind in ("site", "remote")]
+    first = min(working, key=lambda s: s.start) if working else None
+    source: EventSource | None = None
+    if first is not None:
+        event = store.get_event(context, owner, first.start_event_id)
+        source = event.source if event else None
+    report: TeamReport | None = None
+    if reports or owner == context.user_id:
+        saved = store.get_report(context, owner, wanted)
+        report = TeamReport(status="none") if saved is None else TeamReport(
+            status="submitted" if saved.submitted_at else "draft", updated_at=saved.updated_at, submitted_at=saved.submitted_at,
+            summary=_report_summary(saved))
+    return TeamRow(
+        user_id=owner, me=owner == context.user_id, day=wanted, time_zone=profile.time_zone, role_title=profile.role_title,
+        status=_status(status_view) if wanted == today else None,
+        site_names=[names.get(i, "") for i in (view.site_ids if view else []) if names.get(i)],
+        first_check_in=first.start if first else None, first_check_in_source=source,
+        breaks=[TeamBreak(start=s.start, end=s.end) for s in (view.segments if view else []) if s.kind == "break"],
+        break_seconds=view.break_seconds if view else 0, worked_seconds=view.worked_seconds if view else 0,
+        presence_seconds=view.presence_seconds if view else 0, remote_seconds=view.remote_seconds if view else 0,
+        scheduled_seconds=view.scheduled_seconds if view else 0,
+        open=bool(view and view.open_seconds), flags=view.flags if view else [],
+        reports_shared=reports or owner == context.user_id, report=report,
+    )
+
+
+@router.get("/team", response_model=TeamView)
+def team(day: date | None = Query(default=None, alias="date"), limit: int = Query(default=50, ge=1, le=TEAM_PAGE),
+         offset: int = Query(default=0, ge=0), context: TenantContext = Depends(tenant_context)) -> TeamView:
+    """The caller's own day and each colleague's day that colleague shares with the caller, read only."""
+    _use(context)
+    now = utc_now()
+    with open_attendance_store(context) as store:
+        people: list[tuple[str, bool]] = [(context.user_id, True)]
+        people += [(s.owner_user_id, s.include_reports) for s in store.list_shares(context)
+                   if s.viewer_user_id == context.user_id and s.owner_user_id != context.user_id and s.revoked_at is None]
+        page = people[offset:offset + limit]
+        try:
+            rows = [_team_row(store, context, owner, reports, day, now) for owner, reports in page]
+        except S.AttendanceError as error:
+            raise _fail(error) from None
+    return TeamView(day=day, generated_at=now, rows=rows, total=len(people))
+
+
 @router.get("/days", response_model=list[S.DayView])
 def list_days(start: date | None = Query(default=None, alias="from"), end: date | None = Query(default=None, alias="to"),
               person: str | None = None, context: TenantContext = Depends(tenant_context)) -> list[S.DayView]:
@@ -587,6 +703,8 @@ class ReportInput(BaseModel):
     file_ids: list[str] = Field(default_factory=list, max_length=20)
     drafted_with_ai: bool = False
     expected_version: int | None = Field(default=None, ge=1)
+    # True submits the report (it stays submitted after later edits); false keeps a draft a draft.
+    submit: bool = False
 
     @field_validator("tasks_done", "tasks_pending")
     @classmethod
@@ -655,6 +773,7 @@ def save_report(day: date, body: ReportInput, response: Response, context: Tenan
             time_spent_minutes=body.time_spent_minutes, priority=body.priority, follow_up_on=body.follow_up_on,
             notes=(body.notes or "").strip() or None, file_ids=list(dict.fromkeys(body.file_ids)), drafted_with_ai=body.drafted_with_ai,
             version=(current.version + 1) if current else 1, created_at=current.created_at if current else now, updated_at=now,
+            submitted_at=(current.submitted_at if current and current.submitted_at else (now if body.submit else None)),
         )
         try:
             saved = store.save_report(report, body.expected_version)
@@ -664,7 +783,8 @@ def save_report(day: date, body: ReportInput, response: Response, context: Tenan
             raise HTTPException(status.HTTP_409_CONFLICT, "This report changed in another tab or device. Reload it and try again.")
     response.status_code = status.HTTP_200_OK if current else status.HTTP_201_CREATED
     _audit(repository, context, "attendance.report.save", report.id,
-           {"version": report.version, "files": len(report.file_ids), "ai": report.drafted_with_ai})
+           {"version": report.version, "files": len(report.file_ids), "ai": report.drafted_with_ai,
+            "submitted": report.submitted_at is not None})
     return report
 
 
