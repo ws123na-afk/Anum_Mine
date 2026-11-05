@@ -55,13 +55,15 @@ export function PurchasesView() {
   const [denied, setDenied] = useState(false);
   const [filters, setFilters] = useState<TrackerFilters>(NO_FILTERS);
   const [message, setMessage] = useState<{ text: string; error?: boolean } | null>(null);
+  // The All purchases list's "Show archived": Export follows what that list shows.
+  const [archived, setArchived] = useState(false);
   const refresh = () => setTick((n) => n + 1);
   const crumbs: Crumb[] = [{ label: viewLabel('home'), href: '#home' }, { label: viewLabel('purchases'), href: '#purchases', onClick: () => { setOpenId(null); pick('overview'); } }];
   const added = (purchase: { id: string }) => { setAdding(false); refresh(); setSelected(purchase.id); };
   const onDenied = useCallback(() => setDenied(true), []);
   const exportCsv = async () => {
     setMessage(null);
-    try { await api.exportCsv(false); setMessage({ text: t('pur.exported') }); } catch (e) { setMessage({ text: describeError(e), error: true }); }
+    try { await api.exportCsv(tab === 'list' && archived); setMessage({ text: t('pur.exported') }); } catch (e) { setMessage({ text: describeError(e), error: true }); }
   };
   const openFull = (id: string) => { setSelected(null); setOpenId(id); };
   const tabs = PURCHASE_TABS.map((id) => ({ id, label: t(`pur.tab.${id}` as MessageKey) }));
@@ -92,7 +94,7 @@ export function PurchasesView() {
             {drawer}
           </div>
         </OverviewPanel>}
-        {tab === 'list' && <>{bar}<ListWorkspace drawer={drawer} selected={Boolean(selected)} card={card} /></>}
+        {tab === 'list' && <>{bar}<ListWorkspace drawer={drawer} selected={Boolean(selected)} card={card} archived={archived} onArchived={setArchived} /></>}
         {tab === 'deliveries' && <>{bar}<div className={`purWorkspace ${selected ? 'withDrawer' : ''}`}><div className="purMain">
           {card({ title: t('pur.deliveries.title'), columns: 'deliveries', extra: { status: filters.status || 'awaiting' }, emptyTitle: t('pur.deliveries.empty'), emptyText: t('pur.deliveries.emptyText') })}
           <FinBanner tone="info" icon={<Truck />}>{t('pur.deliveries.rule')}</FinBanner></div>{drawer}</div></>}
@@ -104,8 +106,9 @@ export function PurchasesView() {
   </div>;
 }
 
-function ListWorkspace({ drawer, selected, card }: { drawer: ReactNode; selected: boolean; card: (props: Partial<Parameters<typeof TrackerCard>[0]> & { title: string }) => ReactNode }) {
-  const [archived, setArchived] = useState(false);
+function ListWorkspace({ drawer, selected, card, archived, onArchived: setArchived }: {
+  drawer: ReactNode; selected: boolean; card: (props: Partial<Parameters<typeof TrackerCard>[0]> & { title: string }) => ReactNode; archived: boolean; onArchived: (value: boolean) => void;
+}) {
   return <div className={`purWorkspace ${selected ? 'withDrawer' : ''}`}><div className="purMain">
     {card({ title: archived ? t('pur.list.archivedTitle') : t('pur.list.title'), extra: { archived },
       actions: <label className="purCheck"><input type="checkbox" checked={archived} onChange={(e) => setArchived(e.target.checked)} />{t('pur.list.showArchived')}</label> })}

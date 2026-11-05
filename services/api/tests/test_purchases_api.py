@@ -518,7 +518,7 @@ def test_a_shared_order_and_delivery_messages_become_purchase_data_never_finance
     assert created.status_code == 200 and created.json()["status"] == "created", created.text
     purchase_id = created.json()["purchase_id"]
     got = detail(purchase_id)
-    assert got["merchant"] == "Amazon" and got["order_ref"] == "406-1234567-7654321" and got["needs_review"] is True and got["source"] == "iphone"
+    assert got["merchant"] == "Amazon" and got["order_ref"] == "406-1234567-7654321" and got["needs_review"] is True and got["source"] == "web"  # sent with the sign-in (Import order); a device token gives "iphone"
     assert got["total"] == "199.00" and got["status"] == "ordered"
     assert client.post(url, headers=OWNER, json={"text": SHARED_ORDER}).json()["status"] == "replayed"
     shipped = client.post(url, headers=OWNER, json={"text": SHARED_SHIPPED}).json()
@@ -804,3 +804,24 @@ def test_a_return_sent_back_without_proof_is_on_the_task_queue_but_never_notifie
     proof = client.patch(f"{API}/returns/{ret['id']}", headers=OWNER, json={"version": sent.json()["version"], "proof_document_id": None})
     assert proof.status_code == 200  # clearing nothing keeps it on the queue until a proof is attached
     assert any(d["kind"] == "proof_needed" for d in client.get(f"{API}/overview", headers=OWNER).json()["due"])
+
+
+def test_import_order_from_the_web_is_a_web_purchase_and_a_device_token_share_is_iphone() -> None:
+    """Import order on the web uses the shared reader with the person's sign-in: the purchase and its history say web, not iPhone."""
+    web = client.post(PD.INGEST_PATH, headers=OWNER, json={"text": SHARED_ORDER, "idempotency_key": "import-web-1"})
+    assert web.status_code == 200 and web.json()["status"] == "created", web.text
+    purchase_id = web.json()["purchase_id"]
+    assert detail(purchase_id)["source"] == "web"
+    assert {e["source"] for e in detail(purchase_id)["events"]} == {"web"}
+    assert [p["id"] for p in client.get(API, headers=OWNER, params={"source": "web"}).json()["items"]] == [purchase_id]
+    assert client.get(API, headers=OWNER, params={"source": "iphone"}).json()["items"] == []
+    shipped = client.post(PD.INGEST_PATH, headers=OWNER, json={"text": SHARED_SHIPPED})
+    assert shipped.status_code == 200 and shipped.json()["status"] == "updated"
+    assert {e["source"] for e in detail(purchase_id)["events"]} == {"web"}
+    # The same message from an iPhone with a device token stays an iPhone share.
+    created = client.post("/api/v1/integrations/iphone/devices", headers=OWNER, json={"name": "Phone", "scopes": ["purchases"]}).json()
+    assert client.put("/api/v1/integrations/iphone/integrations/purchases.share", headers=OWNER, json={"enabled": True}).status_code == 200
+    phone = client.post(PD.INGEST_PATH, headers={"Authorization": f"Bearer {created['token']}"},
+                        json={"text": SHARED_ORDER.replace("406-1234567-7654321", "406-7654321-1234567")})
+    assert phone.status_code == 200 and phone.json()["status"] == "created", phone.text
+    assert detail(phone.json()["purchase_id"])["source"] == "iphone"

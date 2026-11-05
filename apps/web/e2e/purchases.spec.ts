@@ -305,3 +305,16 @@ test('tracker: seller filter, import order, and the drawer with a carrier update
   await expect(drawer.getByText('••••Q9AB')).toBeVisible();
   await noSeriousAxe(page);
 });
+
+test('Export follows the list: with archived shown it exports the archived purchases', async ({ page }) => {
+  await mockApi(page);
+  await page.goto('/#purchases-list');
+  await expect(page.locator('.purTracker tbody tr').first()).toBeVisible();
+  let request = page.waitForRequest((r) => r.url().includes('/api/v1/purchases/export.csv'));
+  await page.getByRole('button', { name: 'Export CSV' }).click();
+  expect(new URL((await request).url()).searchParams.get('archived')).toBeNull();
+  await page.getByLabel('Show archived').check();
+  request = page.waitForRequest((r) => r.url().includes('/api/v1/purchases/export.csv'));
+  await page.getByRole('button', { name: 'Export CSV' }).click();
+  expect(new URL((await request).url()).searchParams.get('archived')).toBe('true');
+});
