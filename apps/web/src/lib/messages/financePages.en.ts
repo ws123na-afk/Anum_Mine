@@ -114,6 +114,10 @@ export const financePagesEn = {
   'frep.custom.allCategories': 'All categories',
   'frep.custom.invalid': 'Choose a start date on or before the end date.',
   'frep.custom.count': { zero: 'No matching transactions', one: '{count} matching transaction', other: '{count} matching transactions' },
+  'frep.custom.personalOnly': 'Custom exports cover your personal ledger',
+  'frep.custom.personalOnlyText': 'They export your own transactions. The business figures are in the business books, which export their P&L as CSV.',
+  'frep.custom.toPersonal': 'Switch to Personal',
+  'fsafe.runway.billsError': 'The runway needs your bills, and they could not be loaded: {message}',
   'frep.custom.noneMatch': 'Nothing to download',
 
   'fsafe.subtitle': 'A planning estimate from your accounts, bills, goals and buffer.',

@@ -4,8 +4,8 @@
 :root[data-theme="light"] { --fin-chart-income: #007a55; --fin-chart-expense: #4cb88a; }
 .finFigure { display: grid; gap: var(--d-s2); grid-template-columns: minmax(0, 1fr); margin: 0; min-width: 0; }
 .finPlot { position: relative; }
-.finPlot { min-width: 0; }
-.finPlot svg { display: block; overflow: visible; }
+.finPlot { min-width: 0; overflow: hidden; }
+.finPlot svg { display: block; max-width: 100%; overflow: visible; }
 .finLegend { display: flex; flex-wrap: wrap; gap: var(--d-s1) var(--d-s4); justify-content: flex-end; list-style: none; margin: 0; padding: 0; }
 .finLegend li { align-items: center; color: var(--d-muted); display: inline-flex; font-size: var(--text-xs); gap: 6px; }
 .finSwatch { border-radius: 3px; display: inline-block; height: 10px; width: 14px; }

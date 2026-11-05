@@ -268,7 +268,7 @@ Every Finance page uses the same shell (`apps/web/src/FinanceShell.tsx`, styles 
 - `PeriodPicker({ month, onChange, max?, min? })`: previous, the month, next.
 - `FinanceTabs({ label, items, value, onChange, idPrefix })` with `tabPanel(idPrefix, value)` for the panel: WAI-ARIA tabs with the green underline and arrow keys (mirrored in Arabic).
 - `KpiRow({ label })` with `KpiCard({ icon, label, value, hint?, delta?, deltaText?, tone? })` and `DeltaChip`: `delta(current, previous, higherIsBetter)` from `lib/financeNav.ts` gives the direction, the percentage (none from a zero base, never an invented one) and green or red.
-- `FinCard({ title, icon?, subtitle?, actions? })`, `FinBanner({ tone: 'warn' | 'ok' | 'info', title?, action? })` and `StatusChip({ tone })`, plus the `finGrid` table class (light header row) inside `finTableWrap`.
+- `FinCard({ title, icon?, subtitle?, actions? })`, `FinBanner({ tone: 'warn' | 'ok' | 'info', title?, action? })` and `StatusChip({ tone })`, plus the `finGrid` table class (light header row) inside `<div className="finTableWrap" tabIndex={0}>` (focusable, so a keyboard can scroll a wide table).
 
 Props only gain optional members, so pages built on the shell keep working. Labels are in `lib/messages/financeShell.{en,ar}.ts`.
 

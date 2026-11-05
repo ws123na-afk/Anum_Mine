@@ -319,6 +319,15 @@ class PdfImportRow(BaseModel):
     time: str | None = Field(default=None, pattern=r"^\d{2}:\d{2}(:\d{2})?$", description="The time the statement prints for the row")
 
 
+class PdfStatedFact(BaseModel):
+    """One of the statement's printed counts or totals, checked again against the rows imported."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    name: Literal["deposits_count", "withdrawals_count", "deposits_total", "withdrawals_total", "total_due"]
+    stated: Decimal
+
+
 class PdfLayout(BaseModel):
     """The layout the rows were read with, kept as a template when ``remember`` is true."""
 
@@ -353,8 +362,9 @@ class PdfImportInput(BaseModel):
     rows: list[PdfImportRow] = Field(min_length=1, max_length=csv_import.MAX_ROWS)
     opening_balance: Decimal | None = None
     closing_balance: Decimal | None = None
-    accept_mismatch: bool = Field(default=False, description="Import even though the rows do not add up to the closing balance")
+    accept_mismatch: bool = Field(default=False, description="Import even though the rows do not add up or disagree with the statement's summary")
     layout: PdfLayout | None = None
+    summary: list[PdfStatedFact] = Field(default_factory=list, max_length=8, description="The statement's printed counts and totals, from the read")
 
     @field_validator("rows")
     @classmethod
@@ -399,6 +409,14 @@ def import_pdf_statement(
         except MoneyError as exc:
             raise _invalid(str(exc)) from None
         check = pdf.verify([(i, amount, balance) for i, (_, amount, _, balance, _, _) in enumerate(items, start=1)], opening, closing)
+        failed = _summary_failures(body.summary, [amount for _, amount, _, _, _, _ in items], opening, currency)
+        if failed and not body.accept_mismatch:
+            raise ApplicationError(
+                ErrorCode.VALIDATION_ERROR,
+                "The rows do not match the statement's own counts or totals. Fix the rows, or confirm that you want to import them anyway.",
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                details=[ErrorDetail(type="pdf_summary_mismatch", message=",".join(failed))],
+            )
         if check.status == "mismatch" and not body.accept_mismatch:
             raise ApplicationError(
                 ErrorCode.VALIDATION_ERROR,
@@ -441,6 +459,24 @@ def import_pdf_statement(
         "template": template_id,
     })
     return ImportView(**_view(record), rule_breaks=breaks, reconciled=reconciled.attached, held_for_review=reconciled.review)
+
+
+def _summary_failures(stated: list[PdfStatedFact], amounts: list[Decimal], opening: Decimal | None, currency: str) -> list[str]:
+    """The names of the statement's printed counts and totals the rows do not give (the reader's ``_summary``)."""
+    credits = [a for a in amounts if a > 0]
+    debits = [-a for a in amounts if a < 0]
+    found = {
+        "deposits_count": Decimal(len(credits)), "withdrawals_count": Decimal(len(debits)),
+        "deposits_total": sum(credits, Decimal(0)), "withdrawals_total": sum(debits, Decimal(0)),
+        # A card: the previous balance (owed, read as a minus opening) plus the charges is the amount due.
+        "total_due": -(opening or Decimal(0)) - sum(amounts, Decimal(0)),
+    }
+    failed = []
+    for fact in stated:
+        expected = abs(fact.stated) if fact.name != "total_due" else fact.stated
+        if quantize(found[fact.name], currency) != quantize(expected, currency):
+            failed.append(fact.name)
+    return failed
 
 
 def _remember(context: TenantContext, layout: PdfLayout) -> str | None:

@@ -272,6 +272,8 @@ export interface FinancePdfImportInput {
   accept_mismatch?: boolean;
   /** The layout the rows were read with; kept as a template when `remember` is true. */
   layout?: { fingerprint: string; labels: string[]; roles: FinancePdfRole[]; date_format: string | null; remember: boolean } | null;
+  /** The statement's printed counts and totals from the read; rows that disagree need `accept_mismatch`. */
+  summary?: { name: FinancePdfCheck['summary'][number]['name']; stated: string }[];
 }
 
 export interface FinanceBill {

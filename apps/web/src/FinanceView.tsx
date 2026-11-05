@@ -41,14 +41,14 @@ const ResearchPanel = lazy(() => import('./FinanceResearch').then((m) => ({ defa
 // iPhone SMS banking and the double-entry ledger (docs/finance-sms.md): one lazy chunk for both tabs.
 const SmsPanel = lazy(() => import('./FinanceSms').then((m) => ({ default: m.SmsPanel })));
 const LedgerPanel = lazy(() => import('./FinanceSms').then((m) => ({ default: m.LedgerPanel })));
+const PdfStatementImport = lazy(() => import('./FinancePdfImport').then((m) => ({ default: m.PdfStatementImport })));
+const PdfTemplates = lazy(() => import('./FinancePdfImport').then((m) => ({ default: m.PdfTemplates })));
 // Pages with their own head (lib/financeNav.ts OWN_HEAD_TABS, docs/finance.md#finance-shell), each its own lazy chunk.
 const ReportsPage = lazy(() => import('./FinanceReportsPage').then((m) => ({ default: m.FinanceReportsPage })));
 const SafePage = lazy(() => import('./FinanceSafePage').then((m) => ({ default: m.FinanceSafePage })));
 // Accounts and Transactions and ledger draw their own page head (docs/finance.md#register-and-account-overview).
 const AccountsPage = lazy(() => import('./FinanceAccountsPage').then((m) => ({ default: m.AccountsPage })));
 const TransactionsPage = lazy(() => import('./FinanceTransactionsPage').then((m) => ({ default: m.TransactionsPage })));
-const PdfStatementImport = lazy(() => import('./FinancePdfImport').then((m) => ({ default: m.PdfStatementImport })));
-const PdfTemplates = lazy(() => import('./FinancePdfImport').then((m) => ({ default: m.PdfTemplates })));
 const KINDS: FinanceAccountKind[] = ['bank', 'card', 'cash', 'loan', 'investment'];
 const CADENCES: FinanceCadence[] = ['monthly', 'weekly', 'quarterly', 'yearly', 'once'];
 const DEBT_KINDS: FinanceDebtKind[] = ['loan', 'card', 'mortgage', 'other'];

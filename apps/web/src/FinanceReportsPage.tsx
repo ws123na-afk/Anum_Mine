@@ -2,7 +2,7 @@
 // come from the month summaries (GET /finance/summary?month=), business figures from the business books
 // report (GET /business/books/report). Nothing is invented: a widget without data says so and offers
 // the next step. Read only; the downloads are the API's own CSV exports.
-import { Suspense, lazy, useCallback, useEffect, useId, useMemo, useState, type ReactNode } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   ArrowDownLeft, ArrowUpRight, BarChart3, Briefcase, CircleCheck, Download, ExternalLink, FileSpreadsheet, Info, Landmark, Percent, PieChart, Receipt,
   Scale, ShieldCheck, TrendingUp, TriangleAlert, Wallet,
@@ -46,24 +46,31 @@ export function FinanceReportsPage({ onOpen }: { onOpen: (tab: FinanceTab) => vo
   const [personal, setPersonal] = useState<Load<Personal>>({ kind: 'loading' });
   const [business, setBusiness] = useState<Load<Business>>({ kind: 'loading' });
 
+  // Each load carries a generation number: an answer for a month (or a retry) that is no longer the
+  // latest request is dropped, so a slow older month never replaces the month on screen.
+  const personalRun = useRef(0), businessRun = useRef(0);
   const loadPersonal = useCallback(async () => {
+    const run = ++personalRun.current;
+    const current = () => run === personalRun.current;
     setPersonal({ kind: 'loading' });
     try {
       const first = await api.getSummary(month ?? undefined);
+      if (!current()) return;
       if (!month) { setMonth(first.month); setToday(first.today); return; }
       const others = await Promise.all(monthsEnding(month, MONTHS).slice(0, -1).map((m) => api.getSummary(m)));
-      const months = [...others, first];
+      if (!current()) return;
       setToday(first.today);
-      setPersonal({ kind: 'ready', value: { months, current: first, previous: others[others.length - 1] ?? null } });
-    } catch (e) { setPersonal(failed(e)); }
+      setPersonal({ kind: 'ready', value: { months: [...others, first], current: first, previous: others[others.length - 1] ?? null } });
+    } catch (e) { if (current()) setPersonal(failed(e)); }
   }, [month]);
   const loadBusiness = useCallback(async () => {
     if (!month) return;
+    const run = ++businessRun.current;
     setBusiness({ kind: 'loading' });
     try {
       const [current, previous] = await Promise.all([books.getReport(monthRange(month)), books.getReport(monthRange(shiftMonth(month, -1))).catch(() => null)]);
-      setBusiness({ kind: 'ready', value: { current, previous } });
-    } catch (e) { setBusiness(failed(e)); }
+      if (run === businessRun.current) setBusiness({ kind: 'ready', value: { current, previous } });
+    } catch (e) { if (run === businessRun.current) setBusiness(failed(e)); }
   }, [month]);
   useEffect(() => { void loadPersonal(); }, [loadPersonal]);
   useEffect(() => { void loadBusiness(); }, [loadBusiness]);
@@ -106,7 +113,7 @@ export function FinanceReportsPage({ onOpen }: { onOpen: (tab: FinanceTab) => vo
   else if (view && month) {
     const ctx = { scope, month, view, personal: p, business: business, onOpen, onScope: setScope, retryBusiness: () => void loadBusiness() };
     body = tab === 'pnl' ? <ProfitAndLoss {...ctx} /> : tab === 'cashflow' ? <CashFlow {...ctx} /> : tab === 'spending' ? <Spending {...ctx} />
-      : tab === 'networth' ? <NetWorth {...ctx} /> : tab === 'tax' ? <Tax {...ctx} /> : <Custom month={month} onOpen={onOpen} />;
+      : tab === 'networth' ? <NetWorth {...ctx} /> : tab === 'tax' ? <Tax {...ctx} /> : scope === 'business' ? <CustomBusiness onPersonal={() => setScope('personal')} /> : <Custom month={month} onOpen={onOpen} />;
   }
   return <div className="finPage finReportsPage">
     {head}
@@ -217,7 +224,7 @@ function Expenses({ ctx }: { ctx: Ctx }) {
   return <FinCard title={t('frep.exp.title')} subtitle={monthLabel(ctx.month)} icon={<Receipt />} className="finExpenses">
     {rows.length === 0 ? <Empty icon={<Receipt aria-hidden="true" />} title={t('frep.exp.none')} text={t('frep.exp.noneText')}
       action={<button type="button" className="secondary" onClick={() => ctx.onOpen('transactions')}>{t('frep.openTransactions')}</button>} /> : <>
-      <div className="finTableWrap"><table className="finGrid">
+      <div className="finTableWrap" tabIndex={0}><table className="finGrid">
         <caption className="visuallyHidden">{t('frep.exp.title')}</caption>
         <thead><tr><th scope="col">{t('frep.col.category')}</th><th scope="col" className="num">{monthLabel(ctx.month)}</th><th scope="col" className="num">{monthLabel(shiftMonth(ctx.month, -1))}</th>
           <th scope="col" className="num">{t('frep.col.change')}</th><th scope="col" className="num">{t('frep.col.share')}</th></tr></thead>
@@ -287,7 +294,7 @@ function Compare({ personal, business, month, currency }: { personal: Personal |
     rows.push({ key: 'p', icon: <Wallet aria-hidden="true" />, label: t('frep.compare.personal'), currency, income: flows.income, expenses: flows.expenses, net: flows.net, margin: percentOf(flows.net, flows.income) });
   }
   return <FinCard title={t('frep.compare.title')} subtitle={monthLabel(month)} icon={<Scale />} className="finCompare">
-    {rows.length === 0 ? <p className="muted">{t('frep.compare.none')}</p> : <div className="finTableWrap"><table className="finGrid">
+    {rows.length === 0 ? <p className="muted">{t('frep.compare.none')}</p> : <div className="finTableWrap" tabIndex={0}><table className="finGrid">
       <caption className="visuallyHidden">{t('frep.compare.title')}</caption>
       <thead><tr><th scope="col">{t('fshell.scope')}</th><th scope="col" className="num">{t('frep.kpi.income')}</th><th scope="col" className="num">{t('frep.kpi.expenses')}</th>
         <th scope="col" className="num">{t('frep.kpi.net')}</th><th scope="col" className="num">{t('frep.compare.margin')}</th></tr></thead>
@@ -305,16 +312,17 @@ function CashFlow(ctx: Ctx) {
   const { view, scope, business } = ctx;
   const net = add(view.currency, ...view.flows.map((f) => f.net));
   return <>
-    <FinCard title={t('frep.cash.title')} subtitle={t('frep.chart.subtitle', { count: view.flows.length })} icon={<Landmark />}>
-      {view.flows.length === 0 ? <p className="muted">{t('frep.chart.none')}</p> : <div className="finTableWrap"><table className="finGrid">
+    {/* Business: only the books' cash movements. Their trend is accrual profit, never shown as money in and out. */}
+    {scope !== 'business' && <FinCard title={t('frep.cash.title')} subtitle={t('frep.chart.subtitle', { count: view.flows.length })} icon={<Landmark />}>
+      {view.flows.length === 0 ? <p className="muted">{t('frep.chart.none')}</p> : <div className="finTableWrap" tabIndex={0}><table className="finGrid">
         <caption className="visuallyHidden">{t('frep.cash.title')}</caption>
         <thead><tr><th scope="col">{t('frep.col.month')}</th><th scope="col" className="num">{t('frep.cash.in')}</th><th scope="col" className="num">{t('frep.cash.out')}</th><th scope="col" className="num">{t('frep.kpi.net')}</th></tr></thead>
         <tbody>{view.flows.map((f) => <tr key={f.month}><th scope="row">{monthLabel(f.month)}</th><td className="num"><Money value={f.income} currency={view.currency} /></td>
           <td className="num"><Money value={f.expenses} currency={view.currency} /></td><td className="num"><Money value={f.net} currency={view.currency} signed /></td></tr>)}</tbody>
         <tfoot><tr><th scope="row" colSpan={3}>{t('frep.cash.total', { count: view.flows.length })}</th><td className="num"><Money value={net} currency={view.currency} signed /></td></tr></tfoot>
       </table></div>}
-      {scope !== 'business' && <p className="muted finFoot">{t('frep.cash.personalNote')}</p>}
-    </FinCard>
+      <p className="muted finFoot">{t('frep.cash.personalNote')}</p>
+    </FinCard>}
     {scope === 'business' && business.kind === 'ready' && <FinCard title={t('books.cash.title')} subtitle={monthLabel(ctx.month)} icon={<Briefcase />}>
       <p className="muted">{t('books.cash.help')}</p>
       {Object.keys(business.value.current.cash_flow.lines).length === 0 ? <p className="muted">{t('books.cash.none')}</p> : <dl className="finStatement">
@@ -361,7 +369,7 @@ function NetWorth(ctx: Ctx) {
     <FinCard title={t('frep.worth.title')} subtitle={t('frep.worth.today')} icon={<Scale />}>
       {rows.length === 0 ? <Empty icon={<Wallet aria-hidden="true" />} title={t('frep.worth.none')} text={t('frep.worth.noneText')}
         action={<button type="button" className="secondary" onClick={() => ctx.onOpen('accounts')}>{t('finance.accounts.add')}</button>} />
-        : <div className="finTableWrap"><table className="finGrid"><caption className="visuallyHidden">{t('frep.worth.title')}</caption>
+        : <div className="finTableWrap" tabIndex={0}><table className="finGrid"><caption className="visuallyHidden">{t('frep.worth.title')}</caption>
           <thead><tr><th scope="col">{t('finance.form.currency')}</th><th scope="col" className="num">{t('frep.worth.accounts')}</th><th scope="col" className="num">{t('frep.worth.debts')}</th><th scope="col" className="num">{t('frep.worth.net')}</th></tr></thead>
           <tbody>{rows.map((r) => <tr key={r.currency}><th scope="row">{r.currency}</th><td className="num"><Money value={r.assets} currency={r.currency} signed /></td>
             <td className="num"><Money value={r.debts} currency={r.currency} /></td><td className="num"><strong><Money value={r.net} currency={r.currency} signed /></strong></td></tr>)}</tbody>
@@ -385,7 +393,7 @@ function Tax(ctx: Ctx) {
   if (ctx.business.kind !== 'ready') return null;
   const tax = ctx.business.value.current.tax;
   return <FinCard title={tax.label ? t('books.tax.titleNamed', { label: tax.label }) : t('books.tax.title')} subtitle={monthLabel(ctx.month)} icon={<FileSpreadsheet />}>
-    {tax.by_currency.length === 0 ? <p className="muted">{t('books.tax.none')}</p> : <div className="finTableWrap"><table className="finGrid">
+    {tax.by_currency.length === 0 ? <p className="muted">{t('books.tax.none')}</p> : <div className="finTableWrap" tabIndex={0}><table className="finGrid">
       <caption className="visuallyHidden">{t('books.tax.title')}</caption>
       <thead><tr><th scope="col">{t('finance.form.currency')}</th><th scope="col" className="num">{t('books.tax.output')}</th><th scope="col" className="num">{t('books.tax.input')}</th><th scope="col" className="num">{t('books.tax.net')}</th></tr></thead>
       <tbody>{tax.by_currency.map((r) => <tr key={r.currency}><th scope="row">{r.currency}</th><td className="num"><Money value={r.output} currency={r.currency} /></td>
@@ -393,6 +401,15 @@ function Tax(ctx: Ctx) {
     </table></div>}
     {tax.allocations_without_tax_split > 0 && <p className="muted">{t('books.tax.untracked', { count: tax.allocations_without_tax_split })}</p>}
     <FinBanner icon={<Info />}>{t('books.tax.disclaimer')}</FinBanner>
+  </FinCard>;
+}
+
+/** Custom exports read the personal ledger only; in Business scope the page says so instead of exporting personal records. */
+function CustomBusiness({ onPersonal }: { onPersonal: () => void }) {
+  return <FinCard title={t('frep.custom.title')} icon={<FileSpreadsheet />}>
+    <Empty icon={<FileSpreadsheet aria-hidden="true" />} title={t('frep.custom.personalOnly')} text={t('frep.custom.personalOnlyText')}
+      action={<div className="actions"><button type="button" onClick={onPersonal}>{t('frep.custom.toPersonal')}</button>
+        <a className="finLinkBtn secondary" href="#business-books">{t('frep.openBooks')}</a></div>} />
   </FinCard>;
 }
 

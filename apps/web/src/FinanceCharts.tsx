@@ -2,7 +2,7 @@
 // and Safe to spend pages. One y axis each; a legend, a hover and focus tooltip, and the same figures as
 // a table for screen readers and print. Colours come from --fin-chart-* (financeShell.css), validated
 // for colour vision deficiency in both themes.
-import { useEffect, useId, useRef, useState, type ReactNode, type RefObject } from 'react';
+import { useId, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { formatAmount, monthLabel } from './lib/finance';
 import type { MonthFlow, RunwayPoint } from './lib/financeStatements';
 import { formatDateTime, t } from './lib/i18n';
@@ -14,9 +14,12 @@ const H = 260, PAD = { top: 16, right: 16, bottom: 30, left: 64 };
 function useWidth(): [RefObject<HTMLDivElement | null>, number] {
   const ref = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(720);
-  useEffect(() => {
+  useLayoutEffect(() => {
     const el = ref.current;
-    if (!el || typeof ResizeObserver === 'undefined') return undefined;
+    if (!el) return undefined;
+    // Measure before the first paint, so the chart never draws wider than its card.
+    setWidth(Math.max(300, Math.round(el.getBoundingClientRect().width)));
+    if (typeof ResizeObserver === 'undefined') return undefined;
     const observer = new ResizeObserver(([entry]) => setWidth(Math.max(300, Math.round(entry.contentRect.width))));
     observer.observe(el);
     return () => observer.disconnect();

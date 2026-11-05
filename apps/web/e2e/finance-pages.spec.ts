@@ -32,7 +32,9 @@ function booksReport(from: string) {
   };
 }
 
-async function mockApi(page: Page, { booksDenied = false, empty = false }: { booksDenied?: boolean; empty?: boolean } = {}) {
+async function mockApi(page: Page, { booksDenied = false, empty = false, failBills = false }: { booksDenied?: boolean; empty?: boolean; failBills?: boolean } = {}) {
+  // A month whose answers the spec slows down once the page has loaded (set `control.slowMonth`).
+  const control: { slowMonth: string | null } = { slowMonth: null };
   const state = financeState({ empty });
   const sent: { method: string; path: string; search: string }[] = [];
   await page.route('http://localhost:8000/**', async (route) => {
@@ -47,6 +49,10 @@ async function mockApi(page: Page, { booksDenied = false, empty = false }: { boo
     if (path === '/api/v1/workspaces/current') return json({ id: 'workspace_foundation', tenant_id: 'tenant_local', name: 'Foundation', created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:00:00Z', archived_at: null, archived_by: null });
     if (path === '/api/v1/me/workspace-memberships') return json([{ tenant_id: 'tenant_local', workspace_id: 'workspace_foundation', role: 'member', active: true }]);
     if (path === '/api/v1/tasks' || path === '/api/v1/approvals' || path === '/api/v1/conversations') return json([]);
+    // A slow answer for one month: a later choice must not be overwritten by it.
+    const slowMonth = control.slowMonth;
+    if (slowMonth && (url.searchParams.get('month') === slowMonth || url.searchParams.get('from') === `${slowMonth}-01`)) await new Promise((done) => setTimeout(done, 4000));
+    if (failBills && path === '/api/v1/finance/bills/upcoming') return json({ error: { code: 'internal_error', message: 'The database is not reachable.', correlation_id: 'c', details: [] } }, 503);
     if (path === '/api/v1/business/books/report') {
       if (booksDenied) return json({ error: { code: 'forbidden', message: 'Business is for workspace owners and members.', correlation_id: 'c', details: [] } }, 403);
       return json(booksReport(url.searchParams.get('from') ?? `${month}-01`));
@@ -57,7 +63,7 @@ async function mockApi(page: Page, { booksDenied = false, empty = false }: { boo
     if (reply) return reply.status === 204 ? route.fulfill({ status: 204 }) : json(reply.body, reply.status);
     return route.abort();
   });
-  return { state, sent };
+  return { state, sent, control };
 }
 
 async function shot(page: Page, name: string) {
@@ -194,6 +200,84 @@ test('reports and safe to spend read in Arabic, right to left', async ({ page })
   await page.getByRole('navigation', { name: 'أقسام المالية' }).getByRole('button', { name: 'المتاح للصرف' }).click();
   await expect(page.getByRole('region', { name: 'الحساب بوضوح' })).toBeVisible();
   await shot(page, 'safe-ar');
+});
+
+const previous = (() => { const d = new Date(now.getFullYear(), now.getMonth() - 1, 1); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}`; })();
+const monthName = (m: string) => new Intl.DateTimeFormat('en', { month: 'long', year: 'numeric', timeZone: 'UTC' }).format(new Date(`${m}-01T00:00:00Z`));
+
+test('reports: a slow answer for a month left behind never replaces the month on screen', async ({ page }) => {
+  const { control, sent } = await mockApi(page);
+  await page.goto('/#finance-reports');
+  const kpis = page.getByRole('region', { name: `Figures for ${monthName(month)}` });
+  await expect(kpis).toBeVisible({ timeout: 15_000 });
+  const leaveAndReturn = async () => {
+    // The answers for last month are held back 4 seconds; this month's come at once.
+    control.slowMonth = previous;
+    const before = sent.length;
+    await page.getByRole('button', { name: 'Previous month' }).click();
+    await expect.poll(() => sent.slice(before).some((r) => r.search.includes(`month=${previous}`) || r.search.includes(`from=${previous}-01`))).toBe(true);
+    control.slowMonth = null;
+    await page.getByRole('button', { name: 'Next month' }).click();
+  };
+  await page.getByRole('radio', { name: 'Business' }).click();
+  await expect(kpis).toContainText('Operating margin', { timeout: 15_000 });
+  await leaveAndReturn();
+  await expect(kpis).toContainText('31,280.00', { timeout: 15_000 });
+  await page.waitForTimeout(5000);
+  await expect(kpis).toContainText('31,280.00');
+  await expect(page.getByRole('region', { name: /Business P&L/ })).toContainText(monthName(month));
+  await page.getByRole('radio', { name: 'Personal' }).click();
+  await leaveAndReturn();
+  await expect(page.getByRole('region', { name: `Figures for ${monthName(month)}` })).toContainText('45,000.00', { timeout: 15_000 });
+  await page.waitForTimeout(5000);
+  await expect(page.getByRole('region', { name: `Figures for ${monthName(month)}` })).toContainText('45,000.00');
+  await expect(page.getByRole('region', { name: `Figures for ${monthName(previous)}` })).toHaveCount(0);
+});
+
+test('reports: business cash flow shows the books\' cash movements, not profit as money in and out', async ({ page }) => {
+  await mockApi(page);
+  await page.goto('/#finance-reports');
+  await page.getByRole('radio', { name: 'Business' }).click();
+  await page.getByRole('tab', { name: 'Cash flow' }).click();
+  const panel = page.getByRole('tabpanel');
+  await expect(panel).toContainText('Customers paid');
+  await expect(panel).toContainText('28,000.00');
+  await expect(panel).not.toContainText('Money in');
+});
+
+test('reports: Custom is the personal ledger, so in Business scope it says so instead of exporting personal records', async ({ page }) => {
+  const { sent } = await mockApi(page);
+  await page.goto('/#finance-reports');
+  await page.getByRole('radio', { name: 'Business' }).click();
+  await page.getByRole('tab', { name: 'Custom' }).click();
+  const panel = page.getByRole('tabpanel');
+  await expect(panel).toContainText('Custom exports cover your personal ledger');
+  await expect(panel.getByRole('button', { name: 'Download CSV' })).toHaveCount(0);
+  await panel.getByRole('button', { name: 'Switch to Personal' }).click();
+  await expect(page.getByRole('radio', { name: 'Personal' })).toHaveAttribute('aria-checked', 'true');
+  await expect(panel.getByRole('button', { name: 'Download CSV' })).toBeVisible();
+  expect(sent.some((r) => r.path === '/api/v1/finance/transactions/export.csv')).toBe(false);
+});
+
+test('safe to spend: without the bills there is no runway, only what failed and a retry', async ({ page }) => {
+  await mockApi(page, { failBills: true });
+  await page.goto('/#finance-safe');
+  const runway = page.getByRole('region', { name: /Runway to the end of/ });
+  await expect(runway).toContainText('The runway needs your bills');
+  await expect(runway.getByRole('button', { name: 'Try again' })).toBeVisible();
+  await expect(page.getByRole('img', { name: /Estimated balance by day/ })).toHaveCount(0);
+});
+
+test('the sidebar keeps Finance and its current section in view at 1440 (phones: the section strip)', async ({ page, isMobile }) => {
+  await mockApi(page);
+  if (!isMobile) await page.setViewportSize({ width: 1440, height: 900 });
+  for (const hash of ['finance-reports', 'finance-connections', 'finance-ibkr', 'finance']) {
+    await page.goto(`/#${hash}`);
+    if (isMobile) { await expect(page.getByRole('navigation', { name: 'Finance sections' }).locator('[aria-current="page"]')).toBeVisible(); continue; }
+    const primary = page.getByRole('navigation', { name: 'Primary' });
+    await expect(primary.getByRole('button', { name: 'Finance', exact: true })).toBeInViewport();
+    await expect(primary.getByRole('navigation', { name: 'Finance sections' }).locator('[aria-current="page"]')).toBeInViewport();
+  }
 });
 
 const SIZES = [[1440, 900], [1366, 768], [1024, 768], [768, 1024], [390, 844]] as const;
