@@ -274,7 +274,13 @@ def suggest_bills(store: FinanceStore, context: TenantContext, *, now: datetime 
     settings = settings_for(store, context)
     today = today_in(settings, now)
     rows = store.transactions_between(context, today - timedelta(days=400), today)
-    known = {_payee(b.name) for b in store.list_items(context, "bill") if isinstance(b, Bill)}
+    known = [b.name for b in store.list_items(context, "bill") if isinstance(b, Bill)]
+    return detect_recurring(rows, today, known)
+
+
+def detect_recurring(rows: list[Transaction], today: date, known_names: list[str]) -> list[BillSuggestion]:
+    """Pure: money out with the same payee at a steady interval and amount, not yet a bill."""
+    known = {_payee(name) for name in known_names}
     groups: dict[tuple[str, str, str], list[Transaction]] = {}
     for t in rows:
         if t.amount >= 0 or t.category in NOT_SPEND:
@@ -310,4 +316,4 @@ def suggest_bills(store: FinanceStore, context: TenantContext, *, now: datetime 
     return sorted(found, key=lambda s: (s.next_due_on, s.name.lower()))[:50]
 
 
-__all__ = ["BillSource", "build_summary", "month_range", "settings_for", "suggest_bills", "today_in", "upcoming_bills"]
+__all__ = ["BillSource", "build_summary", "detect_recurring", "month_range", "settings_for", "suggest_bills", "today_in", "upcoming_bills"]

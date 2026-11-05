@@ -1168,6 +1168,31 @@ def finance_export(finance: Any, context: TenantContext) -> dict[str, Any]:
         "agent_decisions": [d.model_dump(mode="json", exclude=hidden) for d in finance.list_agent_decisions(context, limit=20_000, offset=0)[0]],
         # iPhone SMS, Apple Wallet and the journal (docs/finance-sms.md#privacy-and-deletion): device token hashes are never exported.
         **_sms_export(finance, context, hidden),
+        # The weekly Money advisor's notes and switches (docs/finance.md#money-advisor).
+        **_advisor_export(finance, context, hidden),
+    }
+
+
+def _advisor_export(finance: Any, context: TenantContext, hidden: set[str]) -> dict[str, Any]:
+    session = getattr(finance, "session", None)
+    if session is not None:
+        from .db.advisor_repository import SqlAlchemyAdvisorStore
+
+        advisor: Any = SqlAlchemyAdvisorStore(session)
+    else:
+        from .finance.advisor_store import advisor_memory_store
+
+        advisor = advisor_memory_store
+    reports: list[Any] = []
+    while True:
+        page, total = advisor.list_reports(context, limit=100, offset=len(reports))
+        reports.extend(page)
+        if not page or len(reports) >= total:
+            break
+    settings = advisor.get_settings(context)
+    return {
+        "advisor_settings": settings.model_dump(mode="json") if settings is not None else None,
+        "advisor_notes": [r.model_dump(mode="json", exclude=hidden) for r in reports],
     }
 
 

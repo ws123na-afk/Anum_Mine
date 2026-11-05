@@ -76,6 +76,8 @@ TABLES_IN_DELETE_ORDER = (
     "finance_device_events",
     "business_ledger_allocations",
     "finance_statement_templates",
+    "finance_advisor_reports",
+    "finance_advisor_settings",
     "finance_postings",
     "finance_journal_entries",
     "finance_sms_rules",
