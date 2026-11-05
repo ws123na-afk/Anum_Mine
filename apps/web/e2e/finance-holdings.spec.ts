@@ -131,6 +131,7 @@ test('loading, a failed load with retry, no account, no holdings and permission 
   await expect(page.getByRole('heading', { name: 'Add an investment account first' })).toBeVisible();
   await page.getByRole('button', { name: 'Add account' }).last().click();
   await expect(page).toHaveURL(/#finance-accounts$/);
+  await expect(page.getByRole('heading', { name: 'Accounts', exact: true })).toBeVisible();
 
   await page.unrouteAll();
   await mockApi(page, { empty: true });
