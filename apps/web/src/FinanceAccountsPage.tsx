@@ -288,7 +288,7 @@ export function ActivityChart({ activity }: { activity: FinanceAccountActivity }
   const labelEvery = Math.ceil(bars.length / 7);
   return <figure className="facctChart">
     <div className="facctLegend" aria-hidden="true"><span className="in" />{t('facct.activity.inflow')}<span className="out" />{t('facct.activity.outflow')}</div>
-    <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={t('facct.activity.aria', { count: bars.length, currency: activity.currency })} preserveAspectRatio="none">
+    <svg viewBox={`0 0 ${width} ${height}`} role="img" aria-label={t('facct.activity.aria', { count: bars.length, currency: activity.currency })}>
       {ticks.map((tick) => <g key={tick}><line x1={left} x2={width} y1={y(tick)} y2={y(tick)} className="grid" />
         <text x={left - 4} y={y(tick) + 3} textAnchor="end" className="tick">{compact(tick, locale)}</text></g>)}
       {bars.map((b, i) => {

@@ -140,7 +140,7 @@
 .facctChart { display: grid; gap: var(--d-s2); margin: 0; }
 .facctChart svg { height: 170px; overflow: visible; width: 100%; }
 .facctChart .grid { stroke: var(--d-line); stroke-width: 1; }
-.facctChart .tick { fill: var(--d-faint); font-size: 9px; }
+.facctChart .tick { fill: var(--d-faint); font-size: var(--text-xs); }
 .facctChart rect.in { fill: var(--d-ok); }
 .facctChart rect.out { fill: rgb(var(--c-warn)); }
 .facctLegend { align-items: center; color: var(--d-muted); display: flex; font-size: var(--text-xs); gap: var(--d-s2); }
