@@ -692,3 +692,25 @@ def test_the_daily_trading_report_pushes_its_own_text_in_the_phones_language(sen
     announce(CanonicalEventName.NOTIFICATION_CREATED, "ntf_report_2",
              {"recipient": "viewer_v", "kind": "finance_daily_report", "work_item_id": None})
     assert deliver().sent == 0 and sender.messages == []
+
+
+def test_the_weekly_money_note_pushes_its_own_text_and_only_to_someone_who_reads_finance(sender: FakeSender) -> None:
+    # docs/finance.md#money-advisor: fixed text (no figure, no name), Arabic on an Arabic phone, never "Team work".
+    member("owner_a", "owner")
+    member("viewer_v", "viewer")
+    register("owner_a", "owner", PHONE_A)
+    arabic = client.post("/api/v1/me/devices", headers=headers("owner_a", "owner"),
+                         json={"platform": "android", "token": PHONE_B, "label": "Phone", "language": "ar"})
+    assert arabic.status_code == 201
+    announce(CanonicalEventName.NOTIFICATION_CREATED, "ntf_advice",
+             {"recipient": "owner_a", "kind": "finance_weekly_advice", "work_item_id": None})
+    assert deliver().sent == 2
+    by_token = {m.token: m for m in sender.messages}
+    assert (by_token[PHONE_A].title, by_token[PHONE_A].body) == push.TEXT[push.PushKind.FINANCE_ADVICE]
+    assert (by_token[PHONE_B].title, by_token[PHONE_B].body) == push.TEXT_AR[push.PushKind.FINANCE_ADVICE]
+    assert by_token[PHONE_A].data["anum_kind"] == "finance_advice" and "never moves money" in by_token[PHONE_A].body
+    sender.messages.clear()
+    register("viewer_v", "viewer", PHONE_M)
+    announce(CanonicalEventName.NOTIFICATION_CREATED, "ntf_advice_2",
+             {"recipient": "viewer_v", "kind": "finance_weekly_advice", "work_item_id": None})
+    assert deliver().sent == 0 and sender.messages == []

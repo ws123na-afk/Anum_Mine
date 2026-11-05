@@ -66,6 +66,12 @@ void main() {
       })!;
       expect(report.kind, PushDestinationKind.financeReport);
       expect(report.route, '/finance/intel');
+      final advice = PushDestination.fromData({
+        'anum_kind': 'finance_advice',
+        'workspace_id': 'workspace_test',
+      })!;
+      expect(advice.kind, PushDestinationKind.financeAdvice);
+      expect(advice.route, '/finance');
       expect(PushDestination.fromData({'anum_kind': 'task_completed'}), isNull);
       expect(
           PushDestination.fromData(

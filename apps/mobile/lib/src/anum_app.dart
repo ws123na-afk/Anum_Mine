@@ -130,6 +130,10 @@ abstract final class AnumRoutes {
   /// Finance, Trading intelligence (docs/finance-trading-intel.md#daily-report):
   /// where the daily trading report push opens.
   static const financeIntel = '/finance/intel';
+
+  /// Finance (docs/finance.md#money-advisor): where the weekly money note
+  /// push opens. The full note is on the web, Finance, Money advisor.
+  static const finance = '/finance';
   static const command = '/command';
 
   /// In-app calls with teammates (docs/in-app-calls.md); call pushes open it.
@@ -398,6 +402,15 @@ class _AnumAppState extends State<AnumApp> {
     // intelligence, where the daily reports are listed.
     NotificationsScreen.openers['finance_daily_report'] = (context) async {
       final loading = finance.select(FinanceSection.intel);
+      await Navigator.push(
+          context,
+          MaterialPageRoute<void>(
+              builder: (_) => FinanceScreen(controller: finance)));
+      await loading;
+    };
+    // The weekly money note opens Finance (docs/finance.md#money-advisor).
+    NotificationsScreen.openers['finance_weekly_advice'] = (context) async {
+      final loading = finance.select(FinanceSection.overview);
       await Navigator.push(
           context,
           MaterialPageRoute<void>(
@@ -785,6 +798,14 @@ class _AnumAppState extends State<AnumApp> {
       AnumRoutes.developer => WorkspaceDestination.developer,
       _ => null,
     };
+    if (name == AnumRoutes.finance) {
+      unawaited(finance.select(FinanceSection.overview));
+      return MaterialPageRoute<void>(
+        settings: settings,
+        builder: (_) => _AuthenticatedDestination(
+            auth: auth, child: FinanceScreen(controller: finance)),
+      );
+    }
     if (name == AnumRoutes.financeIntel) {
       unawaited(finance.select(FinanceSection.intel));
       return MaterialPageRoute<void>(

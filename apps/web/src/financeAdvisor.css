@@ -1,0 +1,52 @@
+/* Finance, Money advisor (docs/finance.md#money-advisor). Layout only; colours and spacing from the shared tokens. */
+.finAdvisorGridTop { grid-template-columns: minmax(0, 1.4fr) minmax(300px, 1fr); }
+.finAdvisorGridMiddle { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+.finAdvisorGridBottom { grid-template-columns: minmax(0, 1.6fr) minmax(260px, 1fr); }
+.finAdvisorSteps { display: grid; gap: 0; list-style: none; margin: 0; padding: 0; }
+.finAdvisorSteps li { align-items: start; border-bottom: 1px solid var(--d-line); display: grid; gap: var(--d-s2) var(--d-s3); grid-template-columns: auto minmax(0, 1fr) auto; padding: var(--d-s2) 0; }
+.finAdvisorSteps li:last-child { border-bottom: 0; }
+.finAdvisorSteps p { margin: 0; overflow-wrap: anywhere; }
+.finAdvisorSteps button { white-space: nowrap; }
+.finAdvisorLiquid { font-weight: 600; margin: 0 0 var(--d-s2); }
+.finScenarios { display: grid; gap: var(--d-s2); list-style: none; margin: 0 0 var(--d-s3); padding: 0; }
+.finScenario { align-items: center; background: var(--d-glass-1); border: 1px solid var(--d-line); border-inline-start-width: 4px; border-radius: var(--d-r-control); display: flex; gap: var(--d-s3); justify-content: space-between; padding: var(--d-s2) var(--d-s3); }
+.finScenario.good { border-inline-start-color: var(--d-ok); }
+.finScenario.warn { border-inline-start-color: var(--d-warn); }
+.finScenario.bad { border-inline-start-color: var(--d-stop); }
+.finScenario > div { display: grid; gap: 2px; min-width: 0; }
+.finScenario small { color: var(--d-muted); font-size: var(--text-xs); }
+.finScenarioFigure { justify-items: end; text-align: end; }
+.finScenarioFigure strong { font-size: var(--text-lg); }
+.finAdvisorPeriods { display: grid; gap: var(--d-s3); grid-template-columns: repeat(2, minmax(0, 1fr)); margin-bottom: var(--d-s3); }
+.finAdvisorPeriod { min-width: 0; background: var(--d-glass-1); border: 1px solid var(--d-line); border-radius: var(--d-r-control); display: grid; gap: var(--d-s1); padding: var(--d-s2) var(--d-s3); }
+.finAdvisorPeriod > strong .finMoney { font-size: var(--text-xl); font-weight: 700; }
+.finAdvisorDeltas { display: flex; flex-wrap: wrap; gap: var(--d-s2); min-width: 0; }
+.finAdvisorDeltas .finDelta { max-width: 100%; white-space: normal; }
+.finAdvisorSub { font-size: var(--text-sm); margin: 0 0 var(--d-s2); }
+.finAdvisorSpikes { margin-bottom: var(--d-s3); }
+.finAdvisorSplit { display: grid; gap: var(--d-s4); grid-template-columns: minmax(0, 1.5fr) minmax(0, 1fr); }
+.finAdvisorPayees { display: grid; gap: var(--d-s3); align-content: start; }
+.finAdvisorComing li { flex-wrap: wrap; }
+.finAdvisorCards { display: grid; gap: var(--d-s3); list-style: none; margin: 0; padding: 0; }
+.finAdvisorCards > li { border-bottom: 1px solid var(--d-line); display: grid; gap: var(--d-s1); padding-bottom: var(--d-s3); }
+.finAdvisorCards > li:last-child { border-bottom: 0; padding-bottom: 0; }
+.finAdvisorBad { color: var(--d-stop); font-weight: 600; }
+.finAdvisorSettings { align-items: center; display: grid; gap: var(--d-s2) var(--d-s3); grid-template-columns: auto minmax(0, 1fr); }
+.finAdvisorSettings .finAdvisorCheck, .finAdvisorSettings .actions { grid-column: 1 / -1; }
+.finAdvisorCheck { align-items: center; display: flex; gap: var(--d-s2); justify-self: start; }
+.finAdvisorCheck input[type='checkbox'] { block-size: 20px; flex: none; inline-size: 20px; margin: 0; min-height: 0; padding: 0; }
+.finAdvisorPayees .finMoveList li, .finAdvisorComing li { font-size: var(--text-sm); }
+.finAdvisorPager { align-items: center; justify-content: space-between; margin-top: var(--d-s2); }
+@media (max-width: 1199px) {
+  .finAdvisorGridTop, .finAdvisorGridMiddle, .finAdvisorGridBottom, .finAdvisorSplit { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 1023px) {
+  .finAdvisorPeriods { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 760px) {
+  .finAdvisorPeriods { grid-template-columns: minmax(0, 1fr); }
+  .finAdvisorSteps li { grid-template-columns: minmax(0, 1fr); }
+  .finAdvisorSteps button, .finAdvisorSteps .finChip { justify-self: start; }
+  .finScenario { align-items: flex-start; flex-direction: column; }
+  .finScenarioFigure { justify-items: start; text-align: start; }
+}

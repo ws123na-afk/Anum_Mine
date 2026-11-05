@@ -314,6 +314,7 @@ export const financeAr: Record<keyof typeof financeEn, Message> = {
 
   // ---- المرحلة 3: المتاح للصرف ----
   'finance.tab.safe': 'المتاح للصرف',
+  'finance.tab.advisor': 'مستشار المال',
   'finance.tab.guardian': 'الحارس',
   'finance.tab.connections': 'الاتصالات',
   'finance.safe.loading': 'نحسب المبلغ المتاح للصرف...',

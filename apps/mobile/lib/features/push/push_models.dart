@@ -72,6 +72,7 @@ enum PushDestinationKind {
   tyreAlerts,
   automation,
   financeReport,
+  financeAdvice,
   teamCalls,
 }
 
@@ -113,6 +114,7 @@ class PushDestination {
       'automation_failed' =>
         PushDestinationKind.automation,
       'finance_report' => PushDestinationKind.financeReport,
+      'finance_advice' => PushDestinationKind.financeAdvice,
       _ => null,
     };
     if (kind == null || workspaceId == null) return null;
@@ -136,6 +138,7 @@ class PushDestination {
         PushDestinationKind.tyreAlerts => '/tyres/alerts',
         PushDestinationKind.automation => '/automations',
         PushDestinationKind.financeReport => '/finance/intel',
+        PushDestinationKind.financeAdvice => '/finance',
         PushDestinationKind.teamCalls => '/team-calls',
       };
 }
