@@ -27,6 +27,7 @@ import { ExecutionPanel } from './FinanceTrading';
 import { IntelPanel } from './FinanceIntel';
 import { PageHeader, PageSummary, useMediaQuery, type Crumb } from './PageParts';
 import { FinanceSectionNav } from './FinanceShell';
+import { OWN_HEAD_TABS } from './lib/financeNav';
 import './commerce.css';
 import './finance.css';
 
@@ -107,9 +108,11 @@ export function FinanceView() {
     figure('debts', t('finance.figure.debts'), { state: 'ready' }, () => ({ value: s.debt_count ? formatAmounts(s.debts) : '-', hint: s.debt_count ? t('finance.figure.minimum', { amount: formatAmounts(s.minimum_payments) }) : t('finance.figure.debtsNone') })),
   ];
   const onChanged = refresh;
+  // A section that draws its own head (OWN_HEAD_TABS) gets no generic header or summary band (docs/finance.md#finance-shell).
+  const ownHead = OWN_HEAD_TABS.has(tab);
   return <div className="cmLayout finLayout">
-    {header}
-    <PageSummary label={t('finance.summary.label')} figures={figures} footer={<p className="muted finReadOnly">{t('finance.readOnly')}</p>} />
+    {!ownHead && header}
+    {!ownHead && <PageSummary label={t('finance.summary.label')} figures={figures} footer={<p className="muted finReadOnly">{t('finance.readOnly')}</p>} />}
     <FinanceSectionNav tab={tab} onPick={pick} />
     {noAccounts && tab !== 'accounts' && <section className="surface cmPanel cmWelcome" aria-labelledby="fin-welcome">
       <Wallet aria-hidden="true" />

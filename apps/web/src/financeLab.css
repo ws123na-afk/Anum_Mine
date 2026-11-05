@@ -10,43 +10,13 @@
 
 .finPage { display: grid; gap: var(--d-s4); grid-template-columns: minmax(0, 1fr); min-width: 0; }
 .finPage > .notice { margin: 0; }
-.finPageBar { align-items: flex-end; display: flex; flex-wrap: wrap; gap: var(--d-s3) var(--d-s5); justify-content: space-between; }
-.finPageBarTitle { min-width: 0; }
-.finPageBarTitle h2 { font-size: var(--text-2xl); margin: 0; }
-.finPageBarTitle p { margin: 2px 0 0; }
-.finPageControls { align-items: flex-end; display: flex; flex-wrap: wrap; gap: var(--d-s3); }
-.finControl { display: grid; gap: 2px; min-width: 0; }
-.finControl > span { color: var(--d-faint); font-size: var(--text-xs); font-weight: 600; }
-.finControl select { min-height: var(--d-control-h-sm); min-width: 9rem; }
-.finPageAction { min-height: var(--d-control-h-sm); }
-.finSubTabs { margin-bottom: 0; }
 
-.finGrid { align-items: start; display: grid; gap: var(--d-s4); grid-template-columns: minmax(0, 1fr) minmax(300px, 380px); }
+.finCols { align-items: start; display: grid; gap: var(--d-s4); grid-template-columns: minmax(0, 1fr) minmax(300px, 380px); }
 .finMain, .finSide, .finStack { display: grid; gap: var(--d-s4); grid-template-columns: minmax(0, 1fr); min-width: 0; }
 
-.finCard { border-radius: var(--d-r-panel); display: grid; gap: var(--d-s3); grid-template-columns: minmax(0, 1fr); min-width: 0; padding: var(--d-s4); }
-.finCard > * { margin: 0; }
-.finCardHead { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); justify-content: space-between; }
-.finCardHead h3 { align-items: center; display: inline-flex; font-size: var(--text-lg); gap: var(--d-s2); margin: 0; }
 .finCardMeta, .finCardNote { font-size: var(--text-sm); }
-.finCardActions { display: grid; gap: var(--d-s2); grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
-.finCard .emptyState { padding: var(--d-s4) var(--d-s2); }
 .finCard .cmTableWrap { margin: 0; position: relative; }
 
-.finKpis { background: var(--d-surface-1); border: 1px solid var(--d-line); border-radius: var(--d-r-panel); box-shadow: var(--d-elev-1); display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); overflow: hidden; container-type: inline-size; }
-.finKpi { align-items: flex-start; display: flex; gap: var(--d-s3); min-width: 0; padding: var(--d-s4) var(--d-s3); }
-.finKpi + .finKpi { border-inline-start: 1px solid var(--d-line); }
-.finKpi > div { display: grid; gap: 2px; min-width: 0; }
-.finKpiIcon { align-items: center; background: rgb(var(--c-accent) / .1); border-radius: var(--d-r-control); color: var(--d-accent); display: inline-flex; flex: none; height: 36px; justify-content: center; width: 36px; }
-.finKpiIcon svg { height: 18px; width: 18px; }
-.finKpiLabel { color: var(--d-muted); font-size: var(--text-sm); }
-.finKpiValue { font-size: clamp(1rem, 3.1cqi, 1.625rem); font-variant-numeric: tabular-nums; font-weight: 700; line-height: 1.25; white-space: nowrap; }
-.finKpiValue.up, .finGain.up, .finKpiValue.up span { color: var(--d-ok); }
-.finKpiValue.down, .finGain.down { color: var(--d-stop); }
-.finKpiHint { color: var(--d-faint); font-size: var(--text-xs); }
-.finChip { background: var(--d-glass-2); border-radius: var(--d-r-pill); font-size: var(--text-xs); font-weight: 600; justify-self: start; padding: 1px var(--d-s2); }
-.finChip.up { background: rgb(var(--c-ok) / .14); color: var(--d-ok); }
-.finChip.down { background: rgb(var(--c-stop) / .14); color: var(--d-stop); }
 
 .finInfo { align-items: flex-start; background: var(--d-glass-1); border: 1px solid var(--d-line); border-radius: var(--d-r-control); color: var(--d-muted); display: flex; font-size: var(--text-sm); gap: var(--d-s2); margin: 0; padding: var(--d-s2) var(--d-s3); }
 .finInfo svg { color: var(--d-accent); flex: none; height: 16px; margin-top: 2px; width: 16px; }
@@ -61,7 +31,7 @@
 .finLineSvg { display: block; max-width: 100%; overflow: visible; touch-action: pan-y; }
 .finLineSvg:focus-visible { border-radius: var(--d-r-sm); outline: 2px solid var(--d-accent); outline-offset: 2px; }
 .finLineGrid line { stroke: var(--d-line); stroke-width: 1; }
-.finLineGrid text { fill: var(--d-faint); font-size: 11px; font-variant-numeric: tabular-nums; }
+.finLineGrid text { fill: var(--d-faint); font-size: var(--text-2xs); font-variant-numeric: tabular-nums; }
 .finLineArea { fill: rgb(var(--c-accent) / .12); }
 .finLineLine { fill: none; stroke: var(--d-accent); stroke-linecap: round; stroke-linejoin: round; stroke-width: 2; }
 .finLineCross { stroke: var(--d-line-hover); stroke-dasharray: 3 3; stroke-width: 1; }
@@ -121,22 +91,74 @@ path.finSeries { stroke: var(--d-surface-1); stroke-width: 2; }
 .finBarValue { font-variant-numeric: tabular-nums; font-weight: 600; text-align: end; }
 
 @media (max-width: 1180px) {
-  .finGrid { grid-template-columns: minmax(0, 1fr); }
-}
-@media (max-width: 900px) {
-  .finKpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-  .finKpi:nth-child(3) { border-inline-start: 0; }
-  .finKpi:nth-child(n+3) { border-top: 1px solid var(--d-line); }
+  .finCols { grid-template-columns: minmax(0, 1fr); }
 }
 @media (max-width: 560px) {
-  .finPageControls { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); width: 100%; }
-  .finControl select { min-width: 0; width: 100%; }
-  .finPageAction { grid-column: 1 / -1; justify-content: center; }
-  .finKpis { grid-template-columns: minmax(0, 1fr); }
-  .finKpi + .finKpi { border-inline-start: 0; border-top: 1px solid var(--d-line); }
   .finBars li { grid-template-columns: minmax(0, 1fr) 72px; }
   .finBarTrack { grid-column: 1 / -1; grid-row: 2; }
 }
 .finPositions tbody th, .finActivity tbody th, .finOrders tbody th { border-top: 1px solid var(--d-line); color: var(--d-text); font-size: var(--text-md); font-weight: 500; white-space: normal; }
 .finPositions thead th, .finActivity thead th, .finOrders thead th { background: var(--d-glass-1); }
 .finPositions tbody th { min-width: 150px; }
+
+/* Additions on top of the shared shell (financeShell.css) */
+.finCard .emptyState { padding: var(--d-s4) var(--d-s2); }
+.finCardButtons { display: grid; gap: var(--d-s2); grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
+.finCardMore { justify-self: start; }
+.finHeadControls .finControl select { min-height: var(--d-control-h-sm); min-width: 10rem; }
+.finKpiValue.up, .finKpiValue .up { color: var(--d-ok); }
+.finKpiValue.down, .finKpiValue .down { color: var(--d-stop); }
+.finGain.up { color: var(--d-ok); }
+.finGain.down { color: var(--d-stop); }
+.finPage .finCard { grid-template-columns: minmax(0, 1fr); }
+
+/* Paper trading lab */
+.finPair { display: grid; gap: var(--d-s4); grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.finPairWide { grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); }
+.finLineCompare { fill: none; stroke: var(--d-muted); stroke-dasharray: 5 4; stroke-linecap: round; stroke-width: 2; }
+.finLineLegend { display: flex; flex-wrap: wrap; font-size: var(--text-xs); gap: var(--d-s1) var(--d-s4); list-style: none; margin: 0; padding: 0; }
+.finLineLegend li { align-items: center; color: var(--d-muted); display: inline-flex; gap: var(--d-s2); }
+.finKeyLine, .finKeyDash { border-top: 2px solid var(--d-accent); display: inline-block; width: 22px; }
+.finKeyDash { border-top: 2px dashed var(--d-muted); }
+.finStrategyList, .finRiskList, .finEvidence { display: grid; gap: var(--d-s2); list-style: none; margin: 0; padding: 0; }
+.finStrategy { align-items: center; background: var(--d-glass-1); border: 1px solid var(--d-line); border-radius: var(--d-r-control); box-shadow: none; color: var(--d-text); display: grid; gap: var(--d-s2); grid-template-columns: minmax(0, 1fr) auto auto; min-height: 52px; padding: var(--d-s2) var(--d-s3); text-align: start; width: 100%; }
+.finStrategy:hover { background: var(--d-glass-2); }
+.finStrategy > span:first-child { display: grid; min-width: 0; }
+.finStrategy strong { font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.finStrategy small { color: var(--d-faint); font-size: var(--text-xs); }
+.finStrategy > svg { color: var(--d-faint); height: 16px; width: 16px; }
+.finRiskList li { border-bottom: 1px solid var(--d-line); font-size: var(--text-sm); padding-bottom: var(--d-s2); }
+.finRiskList li:last-child { border-bottom: 0; padding-bottom: 0; }
+.finEvidence { display: flex; flex-wrap: wrap; gap: var(--d-s2) var(--d-s4); }
+.finEvidence a { align-items: center; display: inline-flex; font-size: var(--text-sm); gap: 4px; }
+.finEvidence svg { height: 14px; width: 14px; }
+.finBriefMeta { align-items: center; display: flex; flex-wrap: wrap; font-size: var(--text-sm); gap: var(--d-s1) var(--d-s2); }
+.finBriefText { font-size: var(--text-sm); }
+.finStatusLine { align-items: center; border-radius: var(--d-r-control); display: flex; font-size: var(--text-sm); font-weight: 600; gap: var(--d-s2); padding: var(--d-s2) var(--d-s3); }
+.finStatusLine svg { flex: none; height: 18px; width: 18px; }
+.finStatusLine.ok { background: rgb(var(--c-ok) / .1); color: var(--d-ok); }
+.finStatusLine.warn { background: rgb(var(--c-stop) / .1); color: var(--d-stop); }
+.finMetrics { display: grid; gap: var(--d-s2) var(--d-s4); grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); margin: 0; }
+.finMetrics dd { font-variant-numeric: tabular-nums; }
+.finGates { counter-reset: gate; display: grid; gap: var(--d-s2); list-style: none; margin: 0; padding: 0; }
+.finGates li { align-items: flex-start; color: var(--d-muted); display: flex; font-size: var(--text-sm); gap: var(--d-s2); }
+.finGates li svg { color: var(--d-stop); flex: none; height: 16px; margin-top: 2px; width: 16px; }
+.finGates li.ok { color: var(--d-text); }
+.finGates li.ok svg { color: var(--d-ok); }
+.finLinks { display: grid; gap: var(--d-s3); grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.finLinkCard { align-items: center; background: var(--d-surface-1); border: 1px solid var(--d-line); border-radius: var(--d-r-panel); box-shadow: var(--d-elev-1); color: var(--d-text); display: grid; gap: var(--d-s2); grid-template-columns: auto minmax(0, 1fr) auto; min-height: 64px; padding: var(--d-s3); text-align: start; }
+.finLinkCard:hover { background: var(--d-surface-3); }
+.finLinkCard > svg { color: var(--d-accent); height: 20px; width: 20px; }
+.finLinkCard > svg:last-child { color: var(--d-faint); height: 16px; width: 16px; }
+.finLinkCard span { display: grid; min-width: 0; }
+.finLinkCard small { color: var(--d-faint); font-size: var(--text-xs); }
+.finKill > section { margin: 0; }
+.finOrderSide-buy { color: var(--d-ok); font-weight: 600; }
+.finOrderSide-sell { color: var(--d-stop); font-weight: 600; }
+@media (max-width: 1180px) {
+  .finPairWide { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 760px) {
+  .finPair, .finLinks { grid-template-columns: minmax(0, 1fr); }
+}
+.finCard .finControl select { max-width: 14rem; }

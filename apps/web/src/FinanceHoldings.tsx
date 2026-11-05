@@ -19,7 +19,10 @@ import { describeError } from './lib/errors';
 import { formatDateTime, t, type MessageKey } from './lib/i18n';
 import { ConfirmDialog, Modal } from './Dialog';
 import { Denied, Empty, FormActions, FormError, LoadError, Notice, failed, type Load } from './FinanceParts';
-import { Donut, Kpi, LineChart, Sparkline } from './FinanceCharts';
+import { Donut, LineChart, Sparkline } from './FinanceCharts';
+import { FinBanner, FinCard, FinanceTabs, FinancePageHead, KpiCard, KpiRow, StatusChip, tabPanel } from './FinanceShell';
+import { delta } from './lib/financeNav';
+import { viewLabel } from './lib/shell';
 import './financeLab.css';
 
 type HoldingsTab = 'summary' | 'positions' | 'performance' | 'valuation';
@@ -66,24 +69,25 @@ export function HoldingsPage({ onOpen }: { onOpen: (tab: FinanceTab) => void }) 
     catch (e) { setNotice({ text: describeError(e), error: true }); setRemoving(null); } finally { setBusy(false); }
   }
 
-  const head = <div className="finPageBar">
-    <div className="finPageBarTitle"><h2 id="fin-holdings">{t('finance.tab.holdings')}</h2><p className="muted">{t('fholdings.subtitle')}</p></div>
-    {data && brokers.length > 0 && <div className="finPageControls">
-      <label className="finControl" htmlFor={ids.account}><span>{t('fholdings.portfolio')}</span>
-        <select id={ids.account} value={accountId} onChange={(e) => setAccountId(e.target.value)}>
-          <option value="">{t('fholdings.allAccounts')}</option>{brokers.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</select></label>
-      {currencies.length > 1 && <label className="finControl" htmlFor={ids.currency}><span>{t('finance.form.currency')}</span>
-        <select id={ids.currency} value={cur} onChange={(e) => setCurrency(e.target.value)}>{currencies.map((c) => <option key={c} value={c}>{c}</option>)}</select></label>}
-      <label className="finControl" htmlFor={ids.period}><span>{t('fholdings.period')}</span>
-        <select id={ids.period} value={period} onChange={(e) => setPeriod(Number(e.target.value) as Period)}>
-          {PERIODS.map((p) => <option key={p} value={p}>{p ? t('fholdings.months', { count: p }) : t('fholdings.allTime')}</option>)}</select></label>
-      <button type="button" className="cmPrimary finPageAction" onClick={() => setEditing('new')}><Plus aria-hidden="true" />{t('finance.holdings.add')}</button>
-    </div>}
-  </div>;
+  const crumbs = [{ label: viewLabel('home'), href: '#home' }, { label: viewLabel('finance'), href: '#finance', onClick: () => onOpen('overview') }, { label: t('finance.tab.holdings') }];
+  const controls = data && brokers.length > 0 ? <>
+    <label className="finControl" htmlFor={ids.account}><span className="finControlLabel">{t('fholdings.portfolio')}</span>
+      <select id={ids.account} value={accountId} onChange={(e) => setAccountId(e.target.value)}>
+        <option value="">{t('fholdings.allAccounts')}</option>{brokers.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</select></label>
+    {currencies.length > 1 && <label className="finControl" htmlFor={ids.currency}><span className="finControlLabel">{t('finance.form.currency')}</span>
+      <select id={ids.currency} value={cur} onChange={(e) => setCurrency(e.target.value)}>{currencies.map((c) => <option key={c} value={c}>{c}</option>)}</select></label>}
+    <label className="finControl" htmlFor={ids.period}><span className="finControlLabel">{t('fholdings.period')}</span>
+      <select id={ids.period} value={period} onChange={(e) => setPeriod(Number(e.target.value) as Period)}>
+        {PERIODS.map((p) => <option key={p} value={p}>{p ? t('fholdings.months', { count: p }) : t('fholdings.allTime')}</option>)}</select></label>
+  </> : undefined;
+  const showTabs = Boolean(data && brokers.length > 0 && data.holdings.length > 0);
+  const head = <FinancePageHead title={t('finance.tab.holdings')} subtitle={t('fholdings.subtitle')} crumbs={crumbs} controls={controls}
+    actions={controls ? <button type="button" className="cmPrimary" onClick={() => setEditing('new')}><Plus aria-hidden="true" />{t('finance.holdings.add')}</button> : undefined}
+    tabs={showTabs ? <FinanceTabs label={t('fholdings.tabs')} idPrefix="fholdings" value={tab} onChange={setTab} items={TABS.map((id) => ({ id, label: t(`fholdings.tab.${id}` as MessageKey) }))} /> : undefined} />;
 
-  if (state.kind === 'loading') return <section className="finPage" aria-labelledby="fin-holdings">{head}<Notice busy>{t('fholdings.loading')}</Notice></section>;
+  if (state.kind === 'loading') return <section className="finPage" aria-labelledby="view-title">{head}<Notice busy>{t('fholdings.loading')}</Notice></section>;
   if (state.kind === 'denied') return <Denied />;
-  if (state.kind === 'error') return <section className="finPage" aria-labelledby="fin-holdings">{head}<LoadError message={t('fholdings.error', { message: state.message })} retry={() => void load()} /></section>;
+  if (state.kind === 'error') return <section className="finPage" aria-labelledby="view-title">{head}<LoadError message={t('fholdings.error', { message: state.message })} retry={() => void load()} /></section>;
   const d = state.value;
   const changed = (text: string) => { setNotice({ text }); void load(); };
   const dialogs = <>
@@ -95,7 +99,7 @@ export function HoldingsPage({ onOpen }: { onOpen: (tab: FinanceTab) => void }) 
       <p>{t('finance.item.deleteText')}</p></ConfirmDialog>}
   </>;
 
-  if (brokers.length === 0) return <section className="finPage" aria-labelledby="fin-holdings">{head}
+  if (brokers.length === 0) return <section className="finPage" aria-labelledby="view-title">{head}
     <div className="surface cmPanel"><Empty icon={<Landmark aria-hidden="true" />} title={t('finance.holdings.needAccount')} text={t('finance.holdings.needAccountText')}
       action={<button type="button" onClick={() => onOpen('accounts')}><Plus aria-hidden="true" />{t('finance.accounts.add')}</button>} /></div></section>;
 
@@ -109,48 +113,46 @@ export function HoldingsPage({ onOpen }: { onOpen: (tab: FinanceTab) => void }) 
   const chartPoints = series.map((p) => ({ label: shortDate(p.day), short: formatDateTime(`${p.day}T12:00:00Z`, { day: 'numeric', month: 'short', timeZone: 'UTC' }), value: p.value }));
   const axis = (v: number) => new Intl.NumberFormat(undefined, { notation: 'compact', maximumFractionDigits: 1 }).format(v);
 
-  const kpis = <div className="finKpis" role="group" aria-label={t('fholdings.figures')}>
-    <Kpi label={t('fholdings.kpi.value')} value={<span dir="ltr">{fmt(sum.value)}</span>}
+  const pricedCost = sum.value !== null && sum.gain !== null ? Number(sum.value) - Number(sum.gain) : null;
+  const gainDelta = sum.value === null ? null : delta(sum.value, pricedCost);
+  const changeDelta = sum.change === null || sum.value === null ? null : delta(sum.value, Number(sum.value) - Number(sum.change));
+  const kpis = <KpiRow label={t('fholdings.figures')}>
+    <KpiCard icon={<Wallet />} label={t('fholdings.kpi.value')} value={<span dir="ltr">{fmt(sum.value)}</span>}
       hint={sum.value === null ? t('fholdings.kpi.valueNone') : sum.unpriced ? t('fholdings.kpi.valueSome', { count: sum.unpriced }) : t('fholdings.kpi.valueAsOf', { date: shortDate(sum.oldestPrice ?? day) })} />
-    <Kpi label={t('fholdings.kpi.change')} value={<span dir="ltr">{signed(sum.change)}</span>} tone={tone(sum.change)} chip={percent(sum.changePercent)}
+    <KpiCard icon={<TrendingUp />} label={t('fholdings.kpi.change')} value={<span dir="ltr" className={tone(sum.change)}>{signed(sum.change)}</span>} delta={changeDelta}
       hint={sum.change === null ? t('fholdings.kpi.changeNone') : t('fholdings.kpi.changeHint')} />
-    <Kpi label={t('fholdings.kpi.gain')} value={<span dir="ltr">{signed(sum.gain)}</span>} tone={tone(sum.gain)} chip={percent(sum.gainPercent)}
+    <KpiCard icon={<BadgeCheck />} label={t('fholdings.kpi.gain')} value={<span dir="ltr" className={tone(sum.gain)}>{signed(sum.gain)}</span>} delta={gainDelta}
       hint={sum.gain === null ? t('fholdings.kpi.gainNone') : t('fholdings.kpi.gainHint', { cost: isolate(fmt(sum.cost)) })} />
-    <Kpi label={t('fholdings.kpi.cash')} value={<span dir="ltr">{fmt(sum.cash)}</span>} hint={sum.cash === null ? t('fholdings.kpi.cashNone', { currency: cur }) : t('fholdings.kpi.cashHint')} />
-  </div>;
+    <KpiCard icon={<Landmark />} label={t('fholdings.kpi.cash')} value={<span dir="ltr">{fmt(sum.cash)}</span>} hint={sum.cash === null ? t('fholdings.kpi.cashNone', { currency: cur }) : t('fholdings.kpi.cashHint')} />
+  </KpiRow>;
 
-  const chart = (big: boolean) => <section className="surface finCard" aria-labelledby="fh-value">
-    <div className="finCardHead"><h3 id="fh-value">{t('fholdings.chart.title')}</h3><span className="muted finCardMeta">{period ? t('fholdings.months', { count: period }) : t('fholdings.allTime')}</span></div>
+  const chart = (big: boolean) => <FinCard title={t('fholdings.chart.title')} icon={<TrendingUp />} subtitle={period ? t('fholdings.months', { count: period }) : t('fholdings.allTime')}>
     <p className="muted finCardNote">{t('fholdings.chart.note')}</p>
     {chartPoints.filter((p) => p.value !== null).length < 2
       ? <Empty icon={<TrendingUp aria-hidden="true" />} title={t('fholdings.chart.empty')} text={t('fholdings.chart.emptyText')}
         action={rows[0] ? <button type="button" className="secondary" onClick={() => actions.onPrice(rows[0].holding)}><Tag aria-hidden="true" />{t('fholdings.recordPrice')}</button> : undefined} />
       : <LineChart points={chartPoints} format={(v) => formatAmount(String(v), cur)} axis={axis} label={t('fholdings.chart.label', { currency: cur })} height={big ? 300 : 220}
         tableCaption={t('fholdings.chart.caption', { currency: cur })} testId="holdings-value-chart" />}
-  </section>;
+  </FinCard>;
 
   const slices = foldSlices(allocation(valued, cur, sum.cash, t('fholdings.kpi.cash')), 5, t('fholdings.allocation.other'));
-  const allocationCard = <section className="surface finCard" aria-labelledby="fh-alloc">
-    <div className="finCardHead"><h3 id="fh-alloc">{t('fholdings.allocation.title')}</h3></div>
+  const allocationCard = <FinCard title={t('fholdings.allocation.title')} icon={<PieChart />}>
     {slices.length === 0 ? <Empty icon={<PieChart aria-hidden="true" />} title={t('fholdings.allocation.empty')} text={t('fholdings.allocation.emptyText')} />
       : <Donut slices={slices} total={formatAmount(String(slices.reduce((a, s) => a + s.value, 0)), cur)} totalLabel={t('fholdings.allocation.total')}
         format={(s) => formatAmount(String(s.value), cur)} label={t('fholdings.allocation.label', { currency: cur })} />}
-  </section>;
+  </FinCard>;
 
   const quality = <DataQuality sum={sum} rows={rows} onReview={() => setTab('valuation')} onPrice={() => rows[0] && actions.onPrice((rows.find((r) => r.stale || !r.price) ?? rows[0]).holding)} />;
 
-  return <section className="finPage" aria-labelledby="fin-holdings">
+  return <section className="finPage" aria-labelledby="view-title">
     {head}
-    <nav className="settingsTabs finSubTabs" aria-label={t('fholdings.tabs')}>
-      {TABS.map((id) => <button key={id} type="button" aria-current={tab === id ? 'page' : undefined} onClick={() => setTab(id)}>{t(`fholdings.tab.${id}` as MessageKey)}</button>)}
-    </nav>
     {notice && <Notice error={notice.error}>{notice.text}</Notice>}
     {d.holdings.length === 0 ? <div className="surface cmPanel"><Empty icon={<Wallet aria-hidden="true" />} title={t('finance.holdings.empty')} text={t('finance.holdings.emptyText')}
-      action={<button type="button" onClick={() => setEditing('new')}><Plus aria-hidden="true" />{t('finance.holdings.add')}</button>} /></div> : <>
-      {tab === 'summary' && <div className="finGrid">
+      action={<button type="button" onClick={() => setEditing('new')}><Plus aria-hidden="true" />{t('finance.holdings.add')}</button>} /></div> : <div {...tabPanel('fholdings', tab)}>
+      {tab === 'summary' && <div className="finCols">
         <div className="finMain">
           {kpis}
-          <p className="finInfo" role="note"><Info aria-hidden="true" />{t('fholdings.estimates')}</p>
+          <FinBanner tone="info" icon={<Info />}>{t('fholdings.estimates')}</FinBanner>
           {allocationCard}
           <Positions rows={rows} cur={cur} actions={actions} compact onAll={() => setTab('positions')} />
           <ActivityCard holdings={shown} prices={d.prices} />
@@ -158,13 +160,13 @@ export function HoldingsPage({ onOpen }: { onOpen: (tab: FinanceTab) => void }) 
         <aside className="finSide" aria-label={t('fholdings.side')}>
           {chart(false)}
           {quality}
-          <p className="finInfo finAdvice" role="note"><Info aria-hidden="true" />{t('fholdings.notAdvice')}</p>
+          <FinBanner tone="info" icon={<Info />}>{t('fholdings.notAdvice')}</FinBanner>
         </aside>
       </div>}
       {tab === 'positions' && <Positions rows={valued} cur={null} actions={actions} />}
       {tab === 'performance' && <div className="finStack">{kpis}{chart(true)}<Performance rows={rows} cur={cur} /></div>}
       {tab === 'valuation' && <Valuation rows={valued} prices={d.prices} onPrice={actions.onPrice} onOpen={onOpen} />}
-    </>}
+    </div>}
     {dialogs}
   </section>;
 }
@@ -181,13 +183,12 @@ function Positions({ rows, cur, actions, compact, onAll }: { rows: ValuedHolding
   const by = (key: SortKey) => { if (sort === key) setDescending((v) => !v); else { setSort(key); setDescending(key !== 'asset'); } setOffset(0); };
   const sortHead = (key: SortKey, label: string, num = false) => <th scope="col" className={num ? 'num' : undefined} aria-sort={sort === key ? (descending ? 'descending' : 'ascending') : 'none'}>
     {compact ? label : <button type="button" className="finSortButton" onClick={() => by(key)}>{label}<ArrowDownUp aria-hidden="true" /></button>}</th>;
-  return <section className="surface finCard" aria-labelledby={headingId}>
-    <div className="finCardHead"><h3 id={headingId}>{t('fholdings.positions.title')}</h3>
-      {compact && rows.length > 5 && onAll && <button type="button" className="cmLinkButton" onClick={onAll}>{t('fholdings.positions.all', { count: rows.length })}</button>}</div>
+  return <FinCard title={t('fholdings.positions.title')} id={headingId}
+    actions={compact && rows.length > 5 && onAll ? <button type="button" className="cmLinkButton" onClick={onAll}>{t('fholdings.positions.all', { count: rows.length })}</button> : undefined}>
     {!compact && <div className="cmFilters finSearch"><label className="cmInline" htmlFor={searchId}><Search aria-hidden="true" /><span className="visuallyHidden">{t('fholdings.positions.search')}</span>
       <input id={searchId} type="search" value={search} placeholder={t('fholdings.positions.search')} onChange={(e) => { setSearch(e.target.value); setOffset(0); }} dir="auto" /></label></div>}
     {page.length === 0 ? <p className="muted">{search ? t('fholdings.positions.noMatch') : t('fholdings.positions.none')}</p>
-      : <div className="cmTableWrap" tabIndex={0}><table className="cmTable finTable finPositions">
+      : <div className="cmTableWrap" tabIndex={0}><table className="cmTable finTable finGrid finPositions">
         <caption className="visuallyHidden">{t('fholdings.positions.caption')}</caption>
         <thead><tr>{sortHead('asset', t('fholdings.col.asset'))}{!compact && <th scope="col">{t('finance.col.account')}</th>}{sortHead('quantity', t('finance.form.quantity'), true)}
           {!compact && <th scope="col" className="num">{t('fholdings.col.average')}</th>}<th scope="col" className="num">{t('fholdings.col.price')}</th>{sortHead('value', t('fholdings.col.value'), true)}
@@ -199,7 +200,7 @@ function Positions({ rows, cur, actions, compact, onAll }: { rows: ValuedHolding
       <span className="muted" aria-live="polite">{rangeLabel(offset, page.length, all.length)}</span>
       <button type="button" className="secondary" disabled={offset + page.length >= all.length} onClick={() => setOffset(offset + POSITIONS_PAGE)}>{t('finance.page.next')}<ChevronRight aria-hidden="true" className="cmFlip" /></button>
     </nav>}
-  </section>;
+  </FinCard>;
 }
 
 function PositionRow({ v, actions, showCurrency, compact }: { v: ValuedHolding; actions: RowActions; showCurrency: boolean; compact?: boolean }) {
@@ -228,40 +229,37 @@ function PositionRow({ v, actions, showCurrency, compact }: { v: ValuedHolding; 
 
 function DataQuality({ sum, rows, onReview, onPrice }: { sum: ReturnType<typeof totals>; rows: ValuedHolding[]; onReview: () => void; onPrice: () => void }) {
   const problems = sum.unpriced + sum.stale;
-  return <section className="surface finCard" aria-labelledby="fh-quality">
-    <div className="finCardHead"><h3 id="fh-quality">{t('fholdings.quality.title')}</h3></div>
+  return <FinCard title={t('fholdings.quality.title')}>
     <p className="finQualityLine">{problems === 0 ? <BadgeCheck aria-hidden="true" className="finOk" /> : <CircleAlert aria-hidden="true" className="finWarnIcon" />}
       <span>{t('fholdings.quality.manual', { count: rows.length })} · {sum.oldestPrice ? t('fholdings.quality.oldest', { date: shortDate(sum.oldestPrice) }) : t('fholdings.quality.noPrices')}</span></p>
-    {sum.stale > 0 && <p className="finWarnBand" role="status"><CircleAlert aria-hidden="true" />{t('fholdings.quality.stale', { count: sum.stale, days: STALE_DAYS })}</p>}
-    {sum.unpriced > 0 && <p className="finWarnBand" role="status"><CircleAlert aria-hidden="true" />{t('fholdings.quality.unpriced', { count: sum.unpriced })}</p>}
+    {sum.stale > 0 && <FinBanner tone="warn" icon={<CircleAlert />} title={t('fholdings.quality.stale', { count: sum.stale, days: STALE_DAYS })} />}
+    {sum.unpriced > 0 && <FinBanner tone="warn" icon={<CircleAlert />} title={t('fholdings.quality.unpriced', { count: sum.unpriced })} />}
     <p className="muted finCardNote">{t('fholdings.quality.note')}</p>
-    <div className="finCardActions">
+    <div className="finCardButtons">
       <button type="button" onClick={onReview}>{t('fholdings.quality.review')}</button>
       <button type="button" className="secondary" onClick={onPrice} disabled={rows.length === 0}><Plus aria-hidden="true" />{t('fholdings.recordPrice')}</button>
     </div>
-  </section>;
+  </FinCard>;
 }
 
 function ActivityCard({ holdings, prices }: { holdings: FinanceHolding[]; prices: FinancePrice[] }) {
   const items = recentActivity(holdings, prices);
-  return <section className="surface finCard" aria-labelledby="fh-activity">
-    <div className="finCardHead"><h3 id="fh-activity">{t('fholdings.activity.title')}</h3></div>
-    {items.length === 0 ? <p className="muted">{t('fholdings.activity.none')}</p> : <div className="cmTableWrap" tabIndex={0}><table className="cmTable finTable finActivity">
+  return <FinCard title={t('fholdings.activity.title')}>
+    {items.length === 0 ? <p className="muted">{t('fholdings.activity.none')}</p> : <div className="cmTableWrap" tabIndex={0}><table className="cmTable finTable finGrid finActivity">
       <caption className="visuallyHidden">{t('fholdings.activity.caption')}</caption>
       <thead><tr><th scope="col">{t('fholdings.chart.date')}</th><th scope="col">{t('fholdings.activity.what')}</th><th scope="col">{t('fholdings.col.asset')}</th>
         <th scope="col" className="num">{t('fholdings.col.price')}</th><th scope="col">{t('fholdings.activity.source')}</th></tr></thead>
       <tbody>{items.map((a) => <tr key={a.id}><td>{formatDateTime(a.at, { dateStyle: 'medium' })}</td><td>{t(`fholdings.activity.${a.kind}` as MessageKey)}</td>
         <th scope="row" dir="auto">{a.label}</th><td className="num" dir="ltr">{a.detail ? formatAmount(Number(a.detail).toFixed(4), a.currency) : '-'}</td>
-        <td><span className="statusBadge neutral">{t('fholdings.activity.manual')}</span></td></tr>)}</tbody>
+        <td><StatusChip tone="muted">{t('fholdings.activity.manual')}</StatusChip></td></tr>)}</tbody>
     </table></div>}
-  </section>;
+  </FinCard>;
 }
 
 function Performance({ rows, cur }: { rows: ValuedHolding[]; cur: string }) {
   const id = useId();
   const sorted = [...rows].sort((a, b) => (b.gainPercent ?? -Infinity) - (a.gainPercent ?? -Infinity));
-  return <section className="surface finCard" aria-labelledby={id}>
-    <div className="finCardHead"><h3 id={id}>{t('fholdings.performance.title')}</h3></div>
+  return <FinCard title={t('fholdings.performance.title')}>
     <p className="muted finCardNote">{t('fholdings.performance.note', { currency: cur })}</p>
     <ul className="finBars">{sorted.map((v) => {
       const pct = v.gainPercent, width = pct === null ? 0 : Math.min(100, Math.abs(pct));
@@ -269,7 +267,7 @@ function Performance({ rows, cur }: { rows: ValuedHolding[]; cur: string }) {
         <span className="finBarTrack" aria-hidden="true"><span className={`finBarFill ${pct !== null && pct < 0 ? 'down' : 'up'}`} style={{ inlineSize: `${width}%` }} /></span>
         <span className="finBarValue" dir="ltr">{pct === null ? t('fholdings.noPrice') : percent(pct)}</span></li>;
     })}</ul>
-  </section>;
+  </FinCard>;
 }
 
 function Valuation({ rows, prices, onPrice, onOpen }: { rows: ValuedHolding[]; prices: FinancePrice[]; onPrice: (h: FinanceHolding) => void; onOpen: (tab: FinanceTab) => void }) {
@@ -282,8 +280,7 @@ function Valuation({ rows, prices, onPrice, onOpen }: { rows: ValuedHolding[]; p
     try { await api.deletePrice(removing.id); setGone((g) => [...g, removing.id]); setNotice(t('finance.prices.deleted')); } catch (e) { setNotice(describeError(e)); } finally { setRemoving(null); }
   }
   return <div className="finStack">
-    <section className="surface finCard" aria-labelledby={id}>
-      <div className="finCardHead"><h3 id={id}>{t('fholdings.valuation.title')}</h3></div>
+    <FinCard title={t('fholdings.valuation.title')}>
       <ul className="finRules">
         <li>{t('fholdings.valuation.rule1')}</li><li>{t('fholdings.valuation.rule2', { days: STALE_DAYS })}</li><li>{t('fholdings.valuation.rule3')}</li>
       </ul>
@@ -292,15 +289,14 @@ function Valuation({ rows, prices, onPrice, onOpen }: { rows: ValuedHolding[]; p
         <small>{r.price ? t('fholdings.valuation.latest', { price: isolate(formatAmount(Number(r.price.price).toFixed(4), r.holding.currency)), date: shortDate(r.price.as_of) }) : t('fholdings.noPrice')}
           {r.stale ? ` · ${t('fholdings.stale')}` : ''}</small></div>
         <div className="finItemEnd"><button type="button" className="secondary" onClick={() => onPrice(r.holding)}><Tag aria-hidden="true" />{t('fholdings.recordPrice')}</button></div></li>)}</ul>
-    </section>
-    <section className="surface finCard" aria-labelledby={`${id}-p`}>
-      <div className="finCardHead"><h3 id={`${id}-p`}>{t('fholdings.valuation.history')}</h3></div>
+    </FinCard>
+    <FinCard title={t('fholdings.valuation.history')}>
       {notice && <Notice>{notice}</Notice>}
       {list.length === 0 ? <p className="muted">{t('finance.prices.none')}</p> : <ul className="cmList finItems">{list.slice(0, 50).map((p) => <li key={p.id}><div>
         <strong><bdi dir="ltr">{p.symbol}</bdi> <span dir="ltr">{formatDecimal(p.price)}</span> {p.currency}</strong>
         <small>{t('finance.prices.line', { date: isolate(p.as_of), source: p.source === 'manual' ? t('finance.prices.manual') : p.source })}</small></div>
         <div className="finItemEnd"><button type="button" className="iconButton" onClick={() => setRemoving(p)} aria-label={t('finance.prices.deleteNamed', { symbol: p.symbol, date: p.as_of })}><Trash2 aria-hidden="true" /></button></div></li>)}</ul>}
-    </section>
+    </FinCard>
     {removing && <ConfirmDialog title={t('finance.prices.deleteTitle')} confirmLabel={t('finance.delete')} danger onConfirm={() => void remove()} onCancel={() => setRemoving(null)}>
       <p>{t('finance.prices.deleteText', { symbol: removing.symbol, date: removing.as_of })}</p></ConfirmDialog>}
   </div>;

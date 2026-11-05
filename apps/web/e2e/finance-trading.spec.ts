@@ -32,10 +32,10 @@ async function mockApi(page: Page, options: Parameters<typeof financeState>[0] =
 
 test('a simulated order runs only after the person reviews it and approves the code shown', async ({ page }) => {
   const { sent, state } = await mockApi(page);
-  await page.goto('/#finance-trading');
+  await page.goto('/#finance-trading-orders');
   await expect(page.getByRole('heading', { name: 'Paper trading', level: 2 })).toBeVisible();
-  await expect(page.getByRole('note').first()).toContainText('SIMULATED');
-  await expect(page.getByRole('note').first()).toContainText('say nothing certain');
+  await expect(page.getByRole('note').filter({ hasText: 'say nothing certain' }).first()).toContainText('SIMULATED');
+  await expect(page.getByRole('note').filter({ hasText: 'say nothing certain' }).first()).toContainText('say nothing certain');
   const detail = page.getByRole('region', { name: /Practice/ });
   await expect(detail.getByRole('table', { name: 'Simulated positions in Practice' })).toContainText('EXMPL');
   await expect(detail).toContainText('fee 0.10% of the order value');
@@ -66,7 +66,7 @@ test('a simulated order runs only after the person reviews it and approves the c
 
 test('rules that block an order are shown and the order cannot be approved', async ({ page }) => {
   await mockApi(page);
-  await page.goto('/#finance-trading');
+  await page.goto('/#finance-trading-orders');
   const detail = page.getByRole('region', { name: /Practice/ });
   await detail.getByLabel('Symbol').fill('BLOCKED');
   await detail.getByLabel('Quantity').fill('1');
@@ -83,7 +83,7 @@ test('rules that block an order are shown and the order cannot be approved', asy
 
 test('an assistant proposal waits for the person, who can reject it', async ({ page }) => {
   await mockApi(page, { agentProposal: true });
-  await page.goto('/#finance-trading');
+  await page.goto('/#finance-trading-orders');
   const waiting = page.getByRole('region', { name: '1 request waits for your approval' });
   await expect(waiting).toContainText('Proposed by an assistant');
   await waiting.getByRole('button', { name: 'Review' }).click();
@@ -96,7 +96,7 @@ test('an assistant proposal waits for the person, who can reject it', async ({ p
 
 test('prices are recorded, a portfolio is created and reset, and waiting orders can be cancelled', async ({ page }) => {
   const { sent } = await mockApi(page, { empty: true });
-  await page.goto('/#finance-trading');
+  await page.goto('/#finance-trading-orders');
   await expect(page.getByRole('heading', { name: 'No practice portfolio yet' })).toBeVisible();
   await expect(page.getByText('No prices recorded yet.')).toBeVisible();
   await page.getByRole('button', { name: 'New portfolio' }).first().click();
@@ -182,7 +182,7 @@ test('an owner can stop the whole organisation', async ({ page }) => {
 
 test('errors, permission denied and Arabic', async ({ page }) => {
   await mockApi(page, { failTrading: true });
-  await page.goto('/#finance-trading');
+  await page.goto('/#finance-trading-orders');
   await expect(page.getByRole('alert')).toContainText('Paper trading could not be loaded');
   await expect(page.getByRole('button', { name: 'Try again' })).toBeVisible();
 
@@ -195,7 +195,7 @@ test('errors, permission denied and Arabic', async ({ page }) => {
   await page.unrouteAll();
   await useSavedLocale(page, 'ar');
   await mockApi(page);
-  await page.goto('/#finance-trading');
+  await page.goto('/#finance-trading-orders');
   await page.reload();
   await expect(page.locator('html')).toHaveAttribute('dir', 'rtl');
   await expect(page.getByRole('heading', { name: 'التداول التجريبي', level: 2 })).toBeVisible();
