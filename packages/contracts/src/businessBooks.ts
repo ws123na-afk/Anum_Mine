@@ -10,8 +10,8 @@ export type BooksBasis = 'accrual' | 'cash';
 export type BooksRecurrence = 'monthly' | 'quarterly' | 'yearly';
 export type BooksPaymentKind = 'recorded' | 'allocation';
 export type BooksPaymentMethod = 'allocation' | 'bank_transfer' | 'cash' | 'card' | 'cheque' | 'other';
-export type BooksPaymentState = 'unpaid' | 'partly_paid' | 'paid' | 'void';
-export type BooksBillFilter = 'open' | 'unpaid' | 'partly_paid' | 'paid' | 'overdue' | 'void' | 'recurring';
+export type BooksPaymentState = 'unpaid' | 'partly_paid' | 'paid' | 'void' | 'draft';
+export type BooksBillFilter = 'open' | 'unpaid' | 'partly_paid' | 'paid' | 'overdue' | 'void' | 'recurring' | 'draft';
 export type BooksAdjustmentKind =
   | 'accrual' | 'prepayment' | 'capital_item' | 'loan_received' | 'loan_repayment' | 'loan_interest'
   | 'owner_contribution' | 'owner_drawing' | 'owner_reimbursement';
@@ -23,7 +23,12 @@ export const BOOKS_SECTIONS: BooksSection[] = ['cost_of_sales', 'operating_expen
 export const BOOKS_BASES: BooksBasis[] = ['accrual', 'cash'];
 export const BOOKS_RECURRENCES: BooksRecurrence[] = ['monthly', 'quarterly', 'yearly'];
 export const BOOKS_PAYMENT_METHODS: BooksPaymentMethod[] = ['bank_transfer', 'cash', 'card', 'cheque', 'other'];
-export const BOOKS_BILL_FILTERS: BooksBillFilter[] = ['open', 'overdue', 'unpaid', 'partly_paid', 'paid', 'recurring', 'void'];
+export const BOOKS_BILL_FILTERS: BooksBillFilter[] = ['open', 'overdue', 'unpaid', 'partly_paid', 'paid', 'recurring', 'draft', 'void'];
+/** How often a recurring bill repeats: monthly, quarterly, yearly, or every N days, weeks or months. */
+export type BooksFrequency = 'monthly' | 'quarterly' | 'yearly' | 'days' | 'weeks' | 'months';
+export const BOOKS_FREQUENCIES: BooksFrequency[] = ['monthly', 'quarterly', 'yearly', 'days', 'weeks', 'months'];
+export type BooksTemplateStatus = 'active' | 'paused' | 'ended';
+export type BooksRateOrigin = 'manual' | 'ecb';
 export const BOOKS_ADJUSTMENT_KINDS: BooksAdjustmentKind[] = [
   'accrual', 'prepayment', 'capital_item', 'loan_received', 'loan_repayment', 'loan_interest', 'owner_contribution', 'owner_drawing', 'owner_reimbursement',
 ];
@@ -151,7 +156,7 @@ export interface BooksBill {
   project_id: string | null;
   recurrence: BooksRecurrence | null;
   useful_life_months: number | null;
-  status: 'open' | 'void';
+  status: 'open' | 'void' | 'draft';
   version: number;
   created_by: string;
   created_at: string;
@@ -159,12 +164,15 @@ export interface BooksBill {
   voided_by: string | null;
   voided_at: string | null;
   void_reason: string;
+  /** Made by a recurring bill, for this period. */
+  template_id: string | null;
+  period_date: string | null;
   amount_paid: string;
   balance: string;
   payment_state: BooksPaymentState;
   overdue: boolean;
   days_overdue: number;
-  can: { edit: boolean; edit_money: boolean; pay: boolean; void: boolean };
+  can: { edit: boolean; edit_money: boolean; pay: boolean; void: boolean; approve: boolean };
   payments?: BooksBillPayment[];
   replayed?: boolean;
 }
@@ -267,6 +275,8 @@ export interface BooksRate {
   source: string;
   created_by: string;
   created_at: string;
+  /** Typed by an owner, or fetched from the ECB by the daily job. */
+  origin: BooksRateOrigin;
 }
 
 export interface BooksRateInput {
@@ -444,9 +454,12 @@ export interface BooksReport {
     used_pct: string | null; comparable: boolean; unconverted?: boolean;
   }[];
   recurring: {
-    items: { bill_id: string; vendor_id: string; vendor_name: string; category: string; recurrence: BooksRecurrence | null; currency: string; amount: string;
-      per_month: string; last_bill_date: string }[];
+    /** A recurring bill (``template_id``) or the newest bill only marked recurring (``bill_id``), with its cost per month. */
+    items: { bill_id: string | null; template_id: string | null; vendor_id: string; vendor_name: string; category: string;
+      recurrence: BooksFrequency | null; interval: number; currency: string; amount: string; per_month: string; last_bill_date: string | null;
+      next_date: string | null; status: BooksTemplateStatus | null }[];
     per_month: BooksAmount[];
+    upcoming: BooksUpcomingBill[];
   };
   allocations_in_review: number;
   conversions: BooksConversion[];
@@ -468,4 +481,150 @@ export interface BooksProjectRow {
 export interface BooksProjectPage extends BooksPage<BooksProjectRow> {
   base_currency: string;
   period: { from: string; to: string; basis: BooksBasis };
+}
+
+// ---- recurring bills ----------------------------------------------------------------------------------------------------
+
+export interface BooksUpcomingBill {
+  template_id: string;
+  vendor_name: string;
+  description: string;
+  bill_date: string;
+  due_date: string;
+  currency: string;
+  total: string;
+  create_as: 'open' | 'draft';
+}
+
+export interface BooksTemplate {
+  id: string;
+  vendor_id: string;
+  vendor_name: string;
+  reference: string;
+  description: string;
+  currency: string;
+  subtotal: string;
+  tax: string;
+  total: string;
+  category: string;
+  section: BooksSection;
+  cost_centre_id: string | null;
+  project_id: string | null;
+  useful_life_months: number | null;
+  frequency: BooksFrequency;
+  interval: number;
+  start_date: string;
+  due_days: number;
+  end_date: string | null;
+  max_count: number | null;
+  create_as: 'open' | 'draft';
+  status: BooksTemplateStatus;
+  anchor_date: string;
+  next_index: number;
+  next_date: string | null;
+  created_count: number;
+  last_period: string | null;
+  end_reason: '' | 'owner' | 'end_date' | 'count';
+  ended_at: string | null;
+  version: number;
+  created_by: string;
+  updated_by: string;
+  created_at: string;
+  updated_at: string;
+  per_month: string;
+  upcoming: string[];
+  can: { edit: boolean; pause: boolean; resume: boolean; end: boolean };
+  bills?: BooksBill[];
+  bills_total?: number;
+}
+
+export interface BooksTemplatePage extends BooksPage<BooksTemplate> {
+  upcoming: BooksUpcomingBill[];
+}
+
+export interface BooksTemplateInput {
+  vendor_id: string;
+  reference: string;
+  description: string;
+  currency: string;
+  subtotal: string;
+  tax: string;
+  category: string | null;
+  section: BooksSection | null;
+  cost_centre_id: string | null;
+  project_id: string | null;
+  useful_life_months: number | null;
+  frequency: BooksFrequency;
+  interval: number;
+  start_date: string;
+  due_days: number;
+  end_date: string | null;
+  max_count: number | null;
+  create_as: 'open' | 'draft';
+}
+
+// ---- automatic exchange rates ---------------------------------------------------------------------------------------------
+
+export interface BooksRateFeed {
+  id?: string;
+  enabled: boolean;
+  currencies: string[];
+  /** The currencies the job stores a rate for: the ones chosen and the base currency (never EUR, the rates are per euro). */
+  followed: string[];
+  last_attempt_at: string | null;
+  last_success_at: string | null;
+  last_as_of: string | null;
+  last_error: string;
+  unavailable: string[];
+  version: number | null;
+  source: string;
+  source_url: string;
+  can_manage: boolean;
+  added?: number;
+}
+
+// ---- consolidated books ---------------------------------------------------------------------------------------------------
+
+export type BooksGroupPnlRow = 'revenue' | 'cost_of_sales' | 'gross_profit' | 'operating_expenses' | 'operating_profit' | 'other_income' | 'finance_costs'
+  | 'fx_differences' | 'net_profit';
+export type BooksGroupBalanceRow = 'receivables' | 'payables' | 'owed_to_members' | 'debt' | 'intercompany_receivable' | 'intercompany_payable';
+
+export interface BooksGroupRow {
+  key: string;
+  /** Workspace id to the amount in the reporting currency. */
+  businesses: Record<string, string>;
+  eliminations: string;
+  total: string;
+}
+
+export interface BooksGroupMissing {
+  /** The business, or null for what the total still lacks. */
+  workspace_id: string | null;
+  row: string;
+  currency: string;
+  amount: string;
+}
+
+export interface BooksGroupBusiness {
+  workspace_id: string;
+  name: string;
+  base_currency: string;
+  notes?: string[];
+}
+
+export interface BooksGroup {
+  enough: boolean;
+  businesses: BooksGroupBusiness[];
+  skipped: { workspace_id: string; name: string; reason: 'books_not_set_up' }[];
+  available: { workspace_id: string; name: string }[];
+  period?: { from: string; to: string; basis: BooksBasis };
+  currency?: string;
+  as_of?: string;
+  pnl?: BooksGroupRow[];
+  balances?: BooksGroupRow[];
+  cash_flow?: BooksGroupRow[];
+  not_converted?: { pnl: BooksGroupMissing[]; balances: BooksGroupMissing[]; cash: BooksGroupMissing[] };
+  complete?: boolean;
+  conversions?: (BooksConversion & { workspace_id: string })[];
+  eliminated?: boolean;
 }

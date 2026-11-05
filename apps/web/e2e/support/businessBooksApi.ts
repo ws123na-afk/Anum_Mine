@@ -7,7 +7,7 @@ import { mockBusiness } from './businessApi';
 // its refusals (403 for a member's owner-only action, 409 for an allocation already paying a bill).
 type Json = Record<string, unknown>;
 type Role = 'owner' | 'member' | 'viewer';
-export interface BooksOptions { role?: Role; setUp?: boolean; empty?: boolean; failReport?: number; bills?: number }
+export interface BooksOptions { role?: Role; setUp?: boolean; empty?: boolean; failReport?: number; bills?: number; group?: 'two' | 'one' | 'fail'; feedFails?: boolean }
 export interface BooksMock { calls: { method: string; path: string; body: unknown; key: string | null }[]; state: BooksState }
 
 const at = '2026-11-01T09:00:00Z';
@@ -28,6 +28,10 @@ export interface BooksState {
   failReport: number;
   empty: boolean;
   counter: number;
+  templates: Json[];
+  feed: Json;
+  group: 'two' | 'one' | 'fail';
+  feedFails: boolean;
 }
 
 function settings(): Json {
@@ -38,7 +42,9 @@ function settings(): Json {
 export function booksState(options: BooksOptions = {}): BooksState {
   const state: BooksState = {
     role: options.role ?? 'owner', settings: options.setUp === false ? null : settings(), vendors: [], bills: [], payments: [], allocations: [], budgets: [], adjustments: [],
-    intercompany: [], rates: [], centres: [], failReport: options.failReport ?? 0, empty: Boolean(options.empty), counter: 0,
+    intercompany: [], rates: [], centres: [], failReport: options.failReport ?? 0, empty: Boolean(options.empty), counter: 0, templates: [],
+    feed: { enabled: false, currencies: [], last_attempt_at: null, last_success_at: null, last_as_of: null, last_error: '', unavailable: [], version: null },
+    group: options.group ?? 'two', feedFails: Boolean(options.feedFails),
   };
   if (options.empty || options.setUp === false) return state;
   state.centres.push({ id: 'bcc_ops', code: 'OPS', name: 'Operations', archived: false, version: 1, created_by: 'user_local', updated_at: at, ...scope });
@@ -59,6 +65,9 @@ export function booksState(options: BooksOptions = {}): BooksState {
   state.rates.push({ id: 'brate_usd', base: 'USD', quote: 'SAR', rate: '3.75', as_of: '2026-10-30', source: 'Synthetic central bank reference', created_by: 'user_local', ...scope });
   state.budgets.push({ id: 'bbud_rent', name: 'Office rent', period_start: '2026-11-01', months: 1, currency: 'SAR', amount: '1200.00', section: null, category: 'office_rent',
     project_id: null, cost_centre_id: null, version: 1, created_by: 'user_local', updated_at: at, ...scope });
+  state.rates.push({ id: 'brate_ecb', base: 'EUR', quote: 'SAR', rate: '4.10', as_of: '2026-11-03', source: 'ECB', created_by: 'system:books', origin: 'ecb', ...scope });
+  state.templates.push(template(state, { vendor_id: 'bven_landlord', description: 'Office rent', subtotal: '1000.00', tax: '150.00', category: 'office_rent', frequency: 'monthly',
+    start_date: '2026-10-01', next_date: '2026-12-01', created_count: 2, last_period: '2026-11-01' }));
   return state;
 }
 
@@ -69,19 +78,73 @@ function bill(state: BooksState, fields: Json): Json {
     subtotal: subtotal.toFixed(2), tax: tax.toFixed(2), total: (subtotal + tax).toFixed(2) };
 }
 
+function template(state: BooksState, fields: Json): Json {
+  const subtotal = Number(fields.subtotal), tax = Number(fields.tax ?? 0);
+  return { id: `btpl_${++state.counter}`, reference: '', currency: 'SAR', section: 'operating_expense', cost_centre_id: null, project_id: null, useful_life_months: null,
+    interval: 1, due_days: 10, end_date: null, max_count: null, create_as: 'open', status: 'active', anchor_date: fields.start_date, next_index: 0, next_date: fields.start_date,
+    created_count: 0, last_period: null, end_reason: '', ended_at: null, version: 1, created_by: 'user_local', updated_by: 'user_local', updated_at: at, ...scope, ...fields,
+    subtotal: subtotal.toFixed(2), tax: tax.toFixed(2), total: (subtotal + tax).toFixed(2) };
+}
+
+const plusMonth = (value: string, months = 1) => { const [y, m, d] = value.split('-').map(Number); const index = y * 12 + m - 1 + months; return `${Math.floor(index / 12)}-${String(index % 12 + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`; };
+
+function templateView(state: BooksState, item: Json, detail = false): Json {
+  const write = state.role !== 'viewer';
+  const upcoming = item.status === 'active' && item.next_date ? [item.next_date as string, plusMonth(item.next_date as string), plusMonth(item.next_date as string, 2)] : [];
+  const bills = state.bills.filter((b) => b.template_id === item.id).map((b) => billView(state, b));
+  return { ...item, vendor_name: state.vendors.find((v) => v.id === item.vendor_id)?.name ?? '', per_month: Number(item.subtotal).toFixed(2), upcoming,
+    can: { edit: write && item.status !== 'ended', pause: write && item.status === 'active', resume: write && item.status === 'paused', end: write && item.status !== 'ended' },
+    ...(detail ? { bills, bills_total: bills.length } : {}) };
+}
+
+function upcomingBills(state: BooksState): Json[] {
+  return state.templates.filter((t) => t.status === 'active').flatMap((t) => [t.next_date as string, plusMonth(t.next_date as string), plusMonth(t.next_date as string, 2)]
+    .map((date) => ({ template_id: t.id, vendor_name: state.vendors.find((v) => v.id === t.vendor_id)?.name ?? '', description: t.description, bill_date: date,
+      due_date: date, currency: t.currency, total: t.total, create_as: t.create_as }))).sort((a, b) => a.bill_date.localeCompare(b.bill_date));
+}
+
+function group(state: BooksState, url: URL): Json {
+  const businesses = [{ workspace_id: 'ws_anum', name: 'Example ANUM Business', base_currency: 'SAR', notes: [] }, { workspace_id: 'ws_tyre', name: 'Example Tyre Business', base_currency: 'AED', notes: ['not_converted'] }];
+  if (state.group === 'one') {
+    return { enough: false, businesses: businesses.slice(0, 1), skipped: [{ workspace_id: 'ws_tyre', name: 'Example Tyre Business', reason: 'books_not_set_up' }],
+      available: [{ workspace_id: 'ws_anum', name: 'Example ANUM Business' }, { workspace_id: 'ws_tyre', name: 'Example Tyre Business' }] };
+  }
+  const row = (key: string, a: string, b: string, elim: string, total: string) => ({ key, businesses: { ws_anum: a, ws_tyre: b }, eliminations: elim, total });
+  return {
+    enough: true, businesses, skipped: [], available: businesses.map((item) => ({ workspace_id: item.workspace_id, name: item.name })),
+    period: { from: url.searchParams.get('from') ?? '2026-01-01', to: url.searchParams.get('to') ?? '2026-12-31', basis: url.searchParams.get('basis') ?? 'accrual' },
+    currency: url.searchParams.get('currency') ?? 'SAR', as_of: '2026-12-31',
+    pnl: [row('revenue', '19900.00', '8000.00', '0.00', '27900.00'), row('cost_of_sales', '4500.00', '2000.00', '0.00', '6500.00'),
+      row('gross_profit', '15400.00', '6000.00', '0.00', '21400.00'), row('operating_expenses', '11575.00', '4040.00', '-2000.00', '13615.00'),
+      row('operating_profit', '3825.00', '1960.00', '2000.00', '7785.00'), row('other_income', '2000.00', '0.00', '-2000.00', '0.00'),
+      row('finance_costs', '120.00', '0.00', '0.00', '120.00'), row('fx_differences', '15.00', '0.00', '0.00', '15.00'), row('net_profit', '5720.00', '1960.00', '0.00', '7680.00')],
+    balances: [row('receivables', '4235.00', '1020.00', '0.00', '5255.00'), row('payables', '1300.00', '510.00', '0.00', '1810.00'),
+      row('owed_to_members', '80.00', '0.00', '0.00', '80.00'), row('debt', '10000.00', '0.00', '0.00', '10000.00'),
+      row('intercompany_receivable', '5000.00', '0.00', '-5000.00', '0.00'), row('intercompany_payable', '0.00', '5000.00', '-5000.00', '0.00')],
+    cash_flow: [row('customers_paid', '15000.00', '6000.00', '0.00', '21000.00'), row('intercompany_lent', '3000.00', '0.00', '-3000.00', '0.00'),
+      row('intercompany_borrowed', '0.00', '3000.00', '-3000.00', '0.00'), row('net', '17000.00', '9000.00', '0.00', '26000.00'), row('paid_by_members', '150.00', '0.00', '0.00', '150.00')],
+    not_converted: { pnl: [{ workspace_id: 'ws_tyre', row: 'operating_expenses', currency: 'EUR', amount: '90.00' }, { workspace_id: null, row: 'operating_expenses', currency: 'EUR', amount: '90.00' }],
+      balances: [], cash: [] },
+    complete: false, eliminated: true,
+    conversions: [{ workspace_id: 'ws_tyre', from_currency: 'AED', to_currency: 'SAR', rate: '1.0211', as_of: '2026-11-03', source: 'Synthetic central bank reference', via: null, figures: 6 }],
+  };
+}
+
 function billView(state: BooksState, item: Json, detail = false): Json {
   const payments = state.payments.filter((p) => p.bill_id === item.id);
   const live = payments.filter((p) => !p.voided_at);
   const paid = live.reduce((sum, p) => sum + Number(p.amount), 0);
   const total = Number(item.total);
   const balance = item.status === 'void' ? 0 : total - paid;
-  const payment_state = item.status === 'void' ? 'void' : paid <= 0 ? 'unpaid' : paid >= total ? 'paid' : 'partly_paid';
+  const payment_state = item.status === 'void' ? 'void' : item.status === 'draft' ? 'draft' : paid <= 0 ? 'unpaid' : paid >= total ? 'paid' : 'partly_paid';
   const open = payment_state === 'unpaid' || payment_state === 'partly_paid';
   const overdue = open && String(item.due_date) < '2026-11-04';
   const write = state.role !== 'viewer', manage = state.role === 'owner';
   return {
     ...item, vendor_name: state.vendors.find((v) => v.id === item.vendor_id)?.name ?? '', amount_paid: paid.toFixed(2), balance: balance.toFixed(2), payment_state, overdue,
-    days_overdue: overdue ? 20 : 0, can: { edit: write && item.status === 'open', edit_money: live.length === 0 && item.status === 'open', pay: write && open, void: manage && item.status === 'open' && live.length === 0 },
+    days_overdue: overdue ? 20 : 0, can: { edit: write && item.status !== 'void', edit_money: live.length === 0 && item.status !== 'void', pay: write && open,
+      approve: write && item.status === 'draft', void: manage && item.status !== 'void' && live.length === 0 },
+    template_id: item.template_id ?? null, period_date: item.period_date ?? null,
     ...(detail ? { payments: payments.map((p) => ({ ...p, counts: !p.voided_at, allocation_removed: false })) } : {}),
   };
 }
@@ -95,7 +158,7 @@ function report(state: BooksState, basis: string): Json {
       tax: { label: 'VAT', country: 'SA', by_currency: [], allocations_without_tax_split: 0 }, cash_flow: { lines: {}, net: [], paid_by_members: {} },
       balances: { as_of: '2026-12-31', aged_on: '2026-11-04', receivables: [], outstanding_invoices: [], outstanding_invoices_count: 0, payables: [], unpaid_bills: [], unpaid_bills_count: 0,
         owed_to_members: [], debt: [], intercompany: [] }, equity: { contributions: [], drawings: [] }, trend: [], customers: [], projects: [], cost_centres: [], budgets: [],
-      recurring: { items: [], per_month: [] }, allocations_in_review: 0, conversions: [], notes: [], truncated: false };
+      recurring: { items: [], per_month: [], upcoming: [] }, allocations_in_review: 0, conversions: [], notes: [], truncated: false };
   }
   const trend = Array.from({ length: 12 }, (_, index) => {
     const month = `2026-${String(index + 1).padStart(2, '0')}`;
@@ -135,8 +198,9 @@ function report(state: BooksState, basis: string): Json {
     cost_centres: [{ id: 'bcc_ops', name: 'OPS Operations', revenue: '0.00', costs: '1150.00', margin: '-1150.00', margin_pct: null }],
     budgets: [{ id: 'bbud_rent', name: 'Office rent', period_start: '2026-11-01', period_end: '2026-11-30', currency: 'SAR', budget: '1200.00', actual: '1000.00', variance: '200.00',
       used_pct: '83.3', comparable: true, unconverted: false }],
-    recurring: { items: [{ bill_id: 'bill_1', vendor_id: 'bven_landlord', vendor_name: 'Example Landlord', category: 'office_rent', recurrence: 'monthly', currency: 'SAR', amount: '1000.00',
-      per_month: '1000.00', last_bill_date: '2026-10-01' }], per_month: [{ currency: 'SAR', amount: '1000.00' }] },
+    recurring: { items: [{ bill_id: null, template_id: 'btpl_rent', vendor_id: 'bven_landlord', vendor_name: 'Example Landlord', category: 'office_rent', recurrence: 'monthly',
+      interval: 1, currency: 'SAR', amount: '1000.00', per_month: '1000.00', last_bill_date: '2026-11-01', next_date: '2026-12-01', status: 'active' }],
+    per_month: [{ currency: 'SAR', amount: '1000.00' }], upcoming: upcomingBills(state) },
     allocations_in_review: 1,
     conversions: [{ from_currency: 'USD', to_currency: 'SAR', rate: '3.75', as_of: '2026-10-30', source: 'Synthetic central bank reference', via: null, figures: 1 }],
     notes: ['allocations_in_review', 'not_converted'], truncated: false,
@@ -222,6 +286,7 @@ export function booksReply(state: BooksState, method: string, url: URL, body: Js
     if (!item) return refuse(404, 'bill_not_found', 'Bill not found.');
     const rest = billMatch[2] ?? '';
     if (method === 'GET' && !rest) return ok(billView(state, item, true));
+    if (method === 'POST' && rest === '/approve') { Object.assign(item, { status: 'open', version: (item.version as number) + 1 }); return ok(billView(state, item, true)); }
     if (method === 'PATCH' && !rest) { Object.assign(item, bill(state, { ...item, ...body }), { id: item.id, version: (item.version as number) + 1 }); return ok(billView(state, item, true)); }
     if (method === 'POST' && rest === '/void') {
       if (!owner) return ownersOnly();
@@ -279,8 +344,56 @@ export function booksReply(state: BooksState, method: string, url: URL, body: Js
   const budgetMatch = path.match(/^\/budgets\/([^/]+)$/);
   if (budgetMatch && method === 'DELETE') { state.budgets = state.budgets.filter((b) => b.id !== budgetMatch[1]); return { status: 204, body: null }; }
   if (budgetMatch && method === 'PATCH') { const budget = state.budgets.find((b) => b.id === budgetMatch[1]); Object.assign(budget ?? {}, body); return ok(budget); }
+  if (path === '/group' && method === 'GET') {
+    if (!owner) return refuse(403, 'forbidden', 'Only workspace owners can do this (settings, exchange rates, adjustments, voiding and intercompany entries).');
+    if (state.group === 'fail') { state.group = 'two'; return refuse(500, 'error', 'The combined books could not be read.'); }
+    return ok(group(state, url));
+  }
+  if (path === '/recurring') {
+    if (method === 'GET') {
+      const status = url.searchParams.get('status');
+      return ok({ ...page(state.templates.filter((t) => !status || t.status === status).map((t) => templateView(state, t)), url), upcoming: upcomingBills(state) });
+    }
+    const created = template(state, { ...body, category: body?.category ?? 'other', section: body?.section ?? 'operating_expense' });
+    state.templates.unshift(created);
+    if (String(created.start_date) <= '2026-11-04') {
+      state.bills.push(bill(state, { vendor_id: created.vendor_id, description: created.description, subtotal: created.subtotal, tax: created.tax, category: created.category,
+        section: created.section, bill_date: created.start_date, due_date: created.start_date, status: created.create_as === 'draft' ? 'draft' : 'open', template_id: created.id,
+        period_date: created.start_date }));
+      Object.assign(created, { created_count: 1, last_period: created.start_date, next_date: plusMonth(created.start_date as string) });
+    }
+    return ok(templateView(state, created, true), 201);
+  }
+  const templateMatch = path.match(/^\/recurring\/([^/]+)(\/(pause|resume|end))?$/);
+  if (templateMatch) {
+    const item = state.templates.find((t) => t.id === templateMatch[1]);
+    if (!item) return refuse(404, 'template_not_found', 'Recurring bill not found.');
+    if (method === 'GET') return ok(templateView(state, item, true));
+    if (body?.version !== item.version) return refuse(409, 'stale', 'Someone changed this since you opened it. Reload and try again.');
+    const action = templateMatch[3];
+    if (method === 'PATCH') Object.assign(item, template(state, { ...item, ...body }), { id: item.id, version: (item.version as number) + 1, created_count: item.created_count, next_date: item.next_date });
+    else if (action === 'pause') Object.assign(item, { status: 'paused', version: (item.version as number) + 1 });
+    else if (action === 'resume') Object.assign(item, { status: 'active', version: (item.version as number) + 1 });
+    else if (action === 'end') Object.assign(item, { status: 'ended', next_date: null, end_reason: 'owner', ended_at: at, version: (item.version as number) + 1 });
+    return ok(templateView(state, item, true));
+  }
+  if (path === '/rates/auto') {
+    const view = () => ({ ...state.feed, followed: state.feed.enabled ? ['SAR', ...(state.feed.currencies as string[])].filter((code) => code !== 'EUR') : [], source: 'ECB',
+      source_url: 'https://www.ecb.europa.eu/stats/eurofxref/eurofxref-daily.xml', can_manage: owner });
+    if (method === 'GET') return ok(view());
+    if (!owner) return ownersOnly();
+    state.feed = { ...state.feed, enabled: body?.enabled, currencies: body?.currencies, version: ((state.feed.version as number | null) ?? 0) + 1 };
+    return ok(view());
+  }
+  if (path === '/rates/auto/refresh' && method === 'POST') {
+    if (!owner) return ownersOnly();
+    const failed = state.feedFails;
+    state.feed = { ...state.feed, last_attempt_at: '2026-11-04T08:00:00Z', ...(failed ? { last_error: 'The source answered 503. ANUM will try again later.' }
+      : { last_success_at: '2026-11-04T08:00:00Z', last_as_of: '2026-11-03', last_error: '', unavailable: ['SAR'] }) };
+    return ok({ ...state.feed, followed: ['USD'], source: 'ECB', source_url: '', can_manage: true, added: failed ? 0 : 1 });
+  }
   if (path === '/rates') {
-    if (method === 'GET') return ok(page(state.rates, url));
+    if (method === 'GET') return ok(page(state.rates.filter((r) => !url.searchParams.get('origin') || (r.origin ?? 'manual') === url.searchParams.get('origin')), url));
     if (!owner) return ownersOnly();
     const rate = { id: `brate_${++state.counter}`, ...body, created_by: 'user_local', ...scope };
     state.rates.push(rate);
@@ -333,7 +446,7 @@ export async function mockBooks(page_: Page, options: BooksOptions = {}): Promis
     const body = request.postData() ? request.postDataJSON() as Json : null;
     mock.calls.push({ method: request.method(), path: url.pathname, body, key: request.headers()['idempotency-key'] ?? null });
     if (url.pathname.endsWith('.csv')) {
-      const name = url.pathname.endsWith('bills.csv') ? 'business-bills.csv' : 'business-pnl-2026-01-01-2026-12-31.csv';
+      const name = url.pathname.endsWith('bills.csv') ? 'business-bills.csv' : url.pathname.endsWith('group.csv') ? 'group-pnl-2026-01-01-2026-12-31.csv' : 'business-pnl-2026-01-01-2026-12-31.csv';
       return route.fulfill({ status: 200, contentType: 'text/csv', headers: { 'content-disposition': `attachment; filename="${name}"`, ...CSV_HEADERS }, body: 'section,line,currency,amount\n' });
     }
     const reply = booksReply(state, request.method(), url, body);

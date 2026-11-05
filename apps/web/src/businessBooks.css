@@ -34,3 +34,9 @@
 .bkTotal { align-self: end; font-weight: 600; margin: 0; }
 @media (min-width: 900px) { .bkWideDialog { max-inline-size: 760px; } }
 @media (max-width: 560px) { .bkRow { grid-template-columns: minmax(0, 1fr); } }
+/* Consolidated books: results stand out like the P&L statement; the total column reads as the answer. */
+.bkGroup th[scope="row"] { font-weight: 400; }
+.bkGroup .bk-result th, .bkGroup .bk-result td { border-top: 2px solid var(--d-line); font-weight: 700; }
+.bkGroup .bkTotalCell { font-weight: 600; }
+.bkGroup th, .bkGroup td { white-space: nowrap; }
+.bkChoiceLabel { font-size: var(--text-sm); font-weight: 600; inline-size: 100%; }

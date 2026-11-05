@@ -104,6 +104,8 @@ export const GATE_PAGES: GatePage[] = [
   { hash: 'business-books', view: 'business', mock: (page) => mockBooks(page), ready: '.bkStatement' },
   { hash: 'business-books/bills', view: 'business', mock: (page) => mockBooks(page), ready: '.bzTable tbody tr' },
   { hash: 'business-books/settings', view: 'business', mock: (page) => mockBooks(page), ready: '#bk-rates-set' },
+  { hash: 'business-books/group', view: 'business', mock: (page) => mockBooks(page), ready: '.bkGroup-pnl' },
+  { hash: 'business-books/recurring', view: 'business', mock: (page) => mockBooks(page), ready: '.bzTable tbody tr' },
   { hash: 'files', view: 'files', mock: workspace, ready: '.filesTable tbody tr' },
   { hash: 'vault', view: 'vault', mock: vault, ready: '.vaultMiniList li' },
   { hash: 'vault-documents', view: 'vault', mock: vault, ready: '.vaultRow' },

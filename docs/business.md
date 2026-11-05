@@ -30,7 +30,7 @@ Business is roadmap P1 "Internal sales MVP" ([ANUM OS business and product roadm
 | Invoices | Invoices built from milestones (change order milestones included), the unbilled share of a contract, billable ledger entries, a catalog offer or lines you write; numbered and sent only after an owner approves; payments recorded by hand or from a customer's report; credit notes; void; a printable copy and a PDF file | See [invoices](#invoices) |
 | Customer portal | A link per customer contact: their offers, change orders, invoices and requests, with approving an offer or a change order | See [the customer portal](business-portal.md) |
 | KPI summary | The owner's funnel and money figures for a window of days | See [KPI summary](#kpi-summary) |
-| Books | Vendors, bills, budgets, adjustments, intercompany entries and the P&L | See [Business books](business-books.md) |
+| Books | Vendors, bills and recurring bills, budgets, adjustments, intercompany entries, the P&L, automatic ECB rates and the consolidated books of the businesses an owner owns | See [Business books](business-books.md) |
 | Support | Tickets opened by hand or from an inbound email or WhatsApp conversation, with severity, status, assignee, entitlement, escalation, notes, replies and a working-hours SLA | See [support tickets](#support-tickets) |
 
 ## Permissions
@@ -310,7 +310,7 @@ Every invoice response carries `can` (what the caller may do now) and `issues` (
 
 ## Books: expenses, payables and the P&L
 
-The Books tab extends these records into the business's own books ([Business books](business-books.md)): vendors and vendor bills (payables) with payments, how allocation rows from members' own Finance are counted, budgets, journal adjustments, intercompany entries, and a profit and loss on an accrual or cash basis with tax kept apart, cash flow, receivables and payables. Revenue there is always the invoices, payments and credit notes above; nothing is invoiced or posted a second time.
+The Books tab extends these records into the business's own books ([Business books](business-books.md)): vendors and vendor bills (payables) with payments, how allocation rows from members' own Finance are counted, budgets, journal adjustments, intercompany entries, and a profit and loss on an accrual or cash basis with tax kept apart, cash flow, receivables and payables; recurring bills made once per period by the daily job, automatic ECB exchange rates per business, and for owners of two or more businesses one consolidated P&L, balances and cash flow with intercompany entries eliminated. Revenue there is always the invoices, payments and credit notes above; nothing is invoiced or posted a second time.
 
 ## KPI summary
 

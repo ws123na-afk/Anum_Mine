@@ -2,15 +2,17 @@
 // presets. Pure, so `pnpm --filter @anum/web test:unit` covers it without a browser. The API is the authority: it
 // rounds every amount once, never adds currencies and converts only with a dated rate whose source it lists.
 import type {
-  BooksAdjustmentKind, BooksBasis, BooksBillFilter, BooksBillInput, BooksBudgetInput, BooksIntercompanyInput, BooksPaymentState, BooksReport,
-  BooksSection, BooksSettings, BooksSettingsInput, BooksTagSection,
+  BooksAdjustmentKind, BooksBasis, BooksBillFilter, BooksBillInput, BooksBudgetInput, BooksFrequency, BooksGroup, BooksGroupRow, BooksIntercompanyInput,
+  BooksPaymentState, BooksReport, BooksSection, BooksSettings, BooksSettingsInput, BooksTagSection, BooksTemplate, BooksTemplateInput,
 } from '@anum/contracts';
 import { formatAmount } from './finance.ts';
 import { t, type MessageKey } from './i18n.ts';
 import type { Tone } from './business.ts';
 
-export type BooksTab = 'overview' | 'bills' | 'vendors' | 'allocations' | 'budgets' | 'journal' | 'intercompany' | 'settings';
-export const BOOKS_TABS: readonly BooksTab[] = ['overview', 'bills', 'vendors', 'allocations', 'budgets', 'journal', 'intercompany', 'settings'];
+export type BooksTab = 'overview' | 'group' | 'bills' | 'recurring' | 'vendors' | 'allocations' | 'budgets' | 'journal' | 'intercompany' | 'settings';
+export const BOOKS_TABS: readonly BooksTab[] = ['overview', 'group', 'bills', 'recurring', 'vendors', 'allocations', 'budgets', 'journal', 'intercompany', 'settings'];
+/** Sections only owners see in the navigation (the API refuses everyone else anyway). */
+export const OWNER_TABS: readonly BooksTab[] = ['group'];
 export const BOOKS_PAGE = 25;
 export const BOOK_CURRENCIES = ['SAR', 'AED', 'USD', 'EUR', 'GBP', 'KWD', 'QAR', 'BHD', 'OMR', 'EGP', 'INR', 'PKR'] as const;
 export const COUNTRIES = ['SA', 'AE', 'KW', 'QA', 'BH', 'OM', 'EG', 'GB', 'US'] as const;
@@ -32,7 +34,7 @@ export const billFilterLabel = (filter: BooksBillFilter) => label(`books.billFil
 export const paymentStateLabel = (state: BooksPaymentState) => label(`books.payState.${state}`);
 
 export function paymentStateTone(state: BooksPaymentState, overdue: boolean): Tone {
-  if (state === 'void') return 'neutral';
+  if (state === 'void' || state === 'draft') return 'neutral';
   if (state === 'paid') return 'success';
   return overdue ? 'dangerTone' : 'warning';
 }
@@ -192,3 +194,83 @@ export const newKey = (prefix: string) => `${prefix}-${crypto.randomUUID()}`;
 
 /** A rate typed by a person: above zero, at most ten decimals. */
 export const validRate = (value: string) => /^\d{1,9}(\.\d{1,10})?$/.test(value.trim()) && Number(value) > 0;
+
+// ---- recurring bills --------------------------------------------------------------------------------------------------
+
+/** "Monthly", "Every 2 weeks", "Every 10 days"... */
+export function frequencyLabel(frequency: BooksFrequency, interval: number): string {
+  if (frequency === 'monthly' || frequency === 'quarterly' || frequency === 'yearly') return label(`books.freq.${frequency}`);
+  return t(`books.freq.every.${frequency}` as MessageKey, { count: interval });
+}
+
+export const templateStatusTone = (status: BooksTemplate['status']): Tone => (status === 'active' ? 'success' : status === 'paused' ? 'warning' : 'neutral');
+
+export interface TemplateDraft {
+  vendor_id: string; reference: string; description: string; currency: string; subtotal: string; tax: string; category: string; section: BooksSection | '';
+  cost_centre_id: string; project_id: string; useful_life_months: string; frequency: BooksFrequency; interval: string; start_date: string; due_days: string;
+  ends: 'never' | 'on' | 'after'; end_date: string; max_count: string; create_as: 'open' | 'draft';
+}
+
+export function emptyTemplate(today: string, currency: string): TemplateDraft {
+  return { vendor_id: '', reference: '', description: '', currency, subtotal: '', tax: '0', category: '', section: '', cost_centre_id: '', project_id: '',
+    useful_life_months: '', frequency: 'monthly', interval: '1', start_date: today, due_days: '30', ends: 'never', end_date: '', max_count: '', create_as: 'open' };
+}
+
+export function templateDraftFrom(item: BooksTemplate): TemplateDraft {
+  return { vendor_id: item.vendor_id, reference: item.reference, description: item.description, currency: item.currency, subtotal: item.subtotal, tax: item.tax,
+    category: item.category, section: item.section, cost_centre_id: item.cost_centre_id ?? '', project_id: item.project_id ?? '',
+    useful_life_months: item.useful_life_months ? String(item.useful_life_months) : '', frequency: item.frequency, interval: String(item.interval),
+    start_date: item.start_date, due_days: String(item.due_days), ends: item.end_date ? 'on' : item.max_count ? 'after' : 'never', end_date: item.end_date ?? '',
+    max_count: item.max_count ? String(item.max_count) : '', create_as: item.create_as };
+}
+
+export const frequencyHasInterval = (frequency: BooksFrequency) => frequency === 'days' || frequency === 'weeks' || frequency === 'months';
+const INTERVAL_MAX: Record<string, number> = { days: 366, weeks: 52, months: 24 };
+
+/** The first problem with a recurring bill form, as a message key, or null. */
+export function templateProblem(draft: TemplateDraft): MessageKey | null {
+  if (!draft.vendor_id) return 'books.bill.needVendor';
+  if (draft.description.trim().length < 2) return 'books.bill.needDescription';
+  if (!draft.start_date) return 'books.rec.needStart';
+  if (!validAmount(draft.subtotal, true) || !validAmount(draft.tax || '0', true)) return 'books.amountInvalid';
+  if (Number(draft.subtotal) + Number(draft.tax || '0') <= 0) return 'books.amountInvalid';
+  if (draft.category && !validCategory(normalizeCategory(draft.category))) return 'books.categoryInvalid';
+  if (frequencyHasInterval(draft.frequency)) {
+    const every = Number(draft.interval);
+    if (!/^\d{1,3}$/.test(draft.interval) || every < 1 || every > INTERVAL_MAX[draft.frequency]) return 'books.rec.intervalInvalid';
+  }
+  if (!/^\d{1,3}$/.test(draft.due_days || '0') || Number(draft.due_days || '0') > 366) return 'books.rec.dueInvalid';
+  if (draft.ends === 'on' && (!draft.end_date || draft.end_date < draft.start_date)) return 'books.rec.endInvalid';
+  if (draft.ends === 'after' && (!/^\d{1,4}$/.test(draft.max_count) || Number(draft.max_count) < 1 || Number(draft.max_count) > 1000)) return 'books.rec.countInvalid';
+  if (draft.useful_life_months && (draft.section !== 'capital' || !/^\d{1,3}$/.test(draft.useful_life_months) || Number(draft.useful_life_months) < 1)) {
+    return 'books.bill.lifeNeedsCapital';
+  }
+  return null;
+}
+
+export function templateBody(draft: TemplateDraft): BooksTemplateInput {
+  return {
+    vendor_id: draft.vendor_id, reference: draft.reference.trim(), description: draft.description.trim(), currency: draft.currency, subtotal: draft.subtotal.trim(),
+    tax: (draft.tax || '0').trim(), category: draft.category ? normalizeCategory(draft.category) : null, section: draft.section || null,
+    cost_centre_id: draft.cost_centre_id || null, project_id: draft.project_id || null,
+    useful_life_months: draft.section === 'capital' && draft.useful_life_months ? Number(draft.useful_life_months) : null,
+    frequency: draft.frequency, interval: frequencyHasInterval(draft.frequency) ? Number(draft.interval) : 1, start_date: draft.start_date,
+    due_days: Number(draft.due_days || '0'), end_date: draft.ends === 'on' ? draft.end_date : null, max_count: draft.ends === 'after' ? Number(draft.max_count) : null,
+    create_as: draft.create_as,
+  };
+}
+
+// ---- consolidated books -----------------------------------------------------------------------------------------------
+
+const RESULT_ROWS = new Set(['gross_profit', 'operating_profit', 'net_profit', 'net']);
+export const groupRowLabel = (section: 'pnl' | 'balances' | 'cash_flow', key: string) => label(`books.group.${section}.${key}`);
+export const groupRowIsResult = (key: string) => RESULT_ROWS.has(key);
+
+/** Rows worth showing: results always; other rows only when some column holds money. */
+export function groupRowsShown(rows: BooksGroupRow[] | undefined): BooksGroupRow[] {
+  return (rows ?? []).filter((row) => groupRowIsResult(row.key) || Number(row.total) !== 0 || Number(row.eliminations) !== 0
+    || Object.values(row.businesses).some((amount) => Number(amount) !== 0));
+}
+
+/** The names of the businesses by workspace id, for the column heads and the notes. */
+export const groupNames = (group: BooksGroup) => new Map(group.businesses.map((item) => [item.workspace_id, item.name || item.workspace_id]));
