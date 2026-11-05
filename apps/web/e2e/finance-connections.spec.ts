@@ -157,7 +157,15 @@ test('import history lists CSV and PDF statements and undoes one; permissions sa
   const history = page.getByRole('region', { name: 'Import history' });
   await expect(history.getByRole('row').filter({ hasText: 'card-november.pdf' })).toContainText('PDF', { timeout: 20_000 });
   await expect(history.getByRole('row').filter({ hasText: 'october.csv' })).toContainText('CSV');
-  await history.getByRole('button', { name: 'Undo the import of card-november.pdf' }).click();
+  // The table scrolls inside its own box: the page never widens (on phones a wider page put the KPI row over this list).
+  expect(await page.evaluate(() => innerWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(0);
+  const undo = history.getByRole('button', { name: 'Undo the import of card-november.pdf' });
+  await undo.scrollIntoViewIfNeeded();
+  await expect(undo).toBeInViewport();
+  const box = await undo.boundingBox();
+  expect(await page.evaluate(([x, y]) => document.elementFromPoint(x, y)?.closest('button')?.getAttribute('aria-label') ?? null, [box!.x + box!.width / 2, box!.y + box!.height / 2]))
+    .toBe('Undo the import of card-november.pdf');
+  await undo.click();
   await page.getByRole('alertdialog', { name: 'Undo this import?' }).getByRole('button', { name: 'Undo' }).click();
   await expect(page.getByText(/card-november\.pdf/).first()).toBeVisible();
   expect(sent.some((s) => s.method === 'DELETE' && s.path.endsWith('/imports/fin_imp_pdf'))).toBe(true);
@@ -204,6 +212,12 @@ for (const locale of ['en', 'ar'] as const) {
       await expect(page.getByRole('heading', { name: locale === 'ar' ? 'الاتصالات والتقاط البيانات' : 'Connections and data capture', level: 1 })).toBeVisible({ timeout: 20_000 });
       await expect(page.locator('.fconnAccount').first()).toBeVisible();
       await expect(page.locator('.fconnTable').first()).toBeVisible();
+      // The import history table is the widest content: it must scroll in its box, not widen the page.
+      await page.getByRole('tab', { name: locale === 'ar' ? 'سجل الاستيراد' : 'Import history' }).click();
+      await expect(page.locator('.fconnTable').first()).toBeVisible();
+      expect(await page.evaluate(() => Math.max(innerWidth, document.documentElement.scrollWidth) - document.documentElement.clientWidth)).toBeLessThanOrEqual(0);
+      await page.getByRole('tab', { name: locale === 'ar' ? 'الحسابات المرتبطة' : 'Connected accounts' }).click();
+      await expect(page.locator('.fconnAccount').first()).toBeVisible();
       const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
       expect(overflow).toBeLessThanOrEqual(0);
       for (const control of await page.locator('.fconn button:visible').all()) {

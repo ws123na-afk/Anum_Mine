@@ -127,3 +127,6 @@
   .fconnPermList li { grid-template-columns: minmax(0, 1fr); }
   .fconnPushEnd { margin-inline-start: 0; }
 }
+/* relative: the hidden "Actions" header label (visuallyHidden is absolute) stays inside the table's
+   scroller instead of widening the page, which on phones pushed the KPI row over the import list. */
+.fconn .cmTableWrap { position: relative; }
