@@ -23,13 +23,13 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, time, timedelta
 from decimal import Decimal
 
 from .. import csv_import
 from ..money import minor_digits
-from . import amounts, dates
-from .columns import MONEY_ROLES, ROLES, Column, Line, Token, cluster, fingerprint, fold, header_columns, lines_of, nearest, tokenize
+from . import amounts, dates, meta
+from .columns import DETAIL_ROLES, MONEY_ROLES, ROLES, Column, Line, Token, cluster, fingerprint, fold, header_block, lines_of, nearest, tokenize
 from .errors import PdfStatementError
 from .words import Word
 
@@ -91,6 +91,17 @@ class Row:
     balance: Decimal | None = None
     reference: str | None = None
     currency: str | None = None
+    # Card statements: the amount in the currency spent, its rate, fees and VAT, as printed.
+    original_amount: Decimal | None = None
+    original_currency: str | None = None
+    fx_rate: Decimal | None = None
+    fee: Decimal | None = None
+    vat: Decimal | None = None
+    # A description in "<type>Time:...**Note:..." form, split; a charge row points at the row it belongs to.
+    kind: str | None = None
+    time: time | None = None
+    counterparty: str | None = None
+    parent_line: int | None = None
     flags: list[str] = field(default_factory=list)
     confidence: float = 1.0
     explicit_sign: bool = False
@@ -98,6 +109,15 @@ class Row:
     bottom: float = 0.0
     ocr: float = 100.0
     money: list[Token] = field(default_factory=list)
+    texts: list[tuple[float, Token]] = field(default_factory=list)
+
+
+@dataclass
+class SummaryCheck:
+    name: str  # "closing", "deposits_count", "withdrawals_count", "deposits_total", "withdrawals_total", "total_due"
+    stated: Decimal
+    found: Decimal
+    ok: bool
 
 
 @dataclass
@@ -112,6 +132,7 @@ class Check:
     closing_source: str
     breaks: list[int] = field(default_factory=list)
     page_breaks: list[int] = field(default_factory=list)
+    summary: list[SummaryCheck] = field(default_factory=list)
 
 
 @dataclass
@@ -129,9 +150,13 @@ class Statement:
     opening_balance: Decimal | None
     closing_balance: Decimal | None
     check: Check
+    kind: str = "account"  # "account" (a running balance) or "card" (a credit card: charges against an amount due)
+    statement_date: date | None = None
+    due_date: date | None = None
     fingerprint: str | None = None
     confidence: float = 1.0
     skipped_lines: int = 0
+    skipped_pages: list[tuple[int, str]] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
 
 
@@ -157,6 +182,21 @@ def apply_roles(columns: list[Column], roles: list[str] | None) -> list[Column]:
 # -- parsing ------------------------------------------------------------------------------------
 
 
+_EXAMPLE = re.compile(
+    r"illustrative example|forex example|example of|for illustration|terms and conditions|how (we|to) calculate|"
+    r"مثال توضيحي|مثال|الشروط والأحكام|الشروط و الأحكام",
+    re.IGNORECASE,
+)
+_NOISE = re.compile(
+    r"click to validate|^ref\.? ?no\b|this document is confidential|responsibility of the holder|national address|"
+    r"هذه الوثيقة سرية|العنوان الوطني|please examine your|please read the",
+    re.IGNORECASE,
+)
+_PAYMENT = re.compile(r"payment|refund|reversal|credit adjustment|cashback|سداد|دفعة|استرداد|مرتجع|عكس", re.IGNORECASE)
+_FEE_KIND = re.compile(r"charges?\b|markup|fee\b|commission|رسوم|عمولة", re.IGNORECASE)
+OUTSIDE_PERIOD_DAYS = 62
+
+
 def parse(
     pages: list[list[Word]],
     *,
@@ -166,6 +206,7 @@ def parse(
     positioned: bool = True,
     page_widths: list[float] | None = None,
 ) -> Statement:
+    """Positioned words in, a checked statement out (see the module text for the order of work)."""
     decimals = minor_digits(currency) or 2
     money = amounts.money_pattern(decimals)
     page_lines: list[list[Line]] = []
@@ -176,113 +217,152 @@ def parse(
         page_lines.append(lines)
     every = [line for lines in page_lines for line in lines]
     year = _year_hint(every)
+    all_text = " ".join(line.text for line in every)
 
+    # 1. The table header: of every header-like block, the one with the most rows under it.
     columns: list[Column] = []
     header_page = 0
     if positioned:
+        best: tuple[tuple[int, int, int], list[Column], int] | None = None
         for page_number, lines in enumerate(page_lines):
-            for index, line in enumerate(lines):
-                found = header_columns(line, lines[index + 1] if index + 1 < len(lines) else None)
-                if found:
-                    columns, header_page = found, page_number
-                    break
-            if columns:
-                break
+            for index in range(len(lines)):
+                found = header_block(lines, index)
+                if not found:
+                    continue
+                # Most rows under it wins, then most known columns, then the block of fewer lines (no title glued on top).
+                known = sum(1 for c in found[0] if c.role != "skip")
+                score = (_rows_under(lines[index + found[1]:], found[0]), known, -found[1])
+                if score[0] and (best is None or score > best[0]):
+                    best = (score, found[0], page_number)
+        if best is not None:
+            columns, header_page = best[1], best[2]
     layout = "table" if columns else ("columns" if positioned else "lines")
-    width = (page_widths or [0.0])[header_page] if page_widths and header_page < len(page_widths) else 0.0
+    width = page_widths[header_page] if page_widths and header_page < len(page_widths) else 0.0
     print_ = fingerprint(columns, width) if columns else None
     if layout == "table":
         columns = apply_roles(columns, roles)
     elif roles and layout == "lines":
         raise PdfStatementError("bad_mapping", "No columns were found in this PDF, so there are no columns to map.")
+    header_text = fold(" ".join(c.label for c in columns)) if columns else ""
 
-    header_keys = {fold(" ".join(c.label for c in columns))} if columns else set()
+    # 2. Lines: headers, noise, balances and the anchors (a date in the date column with money).
+    order_guess, _ = dates.decide_order([t.text for line in every for t in line.tokens if t.kind == "date"])
+    info = meta.facts(every, money, order_guess)
+    card = bool(meta.CARD_WORDS.search(all_text)) or ("total_due" in info.values and "closing" not in info.values)
     rows: list[Row] = []
     opening: Decimal | None = None
     closing: Decimal | None = None
     brought: dict[int, Decimal] = {}
     carried: dict[int, Decimal] = {}
     period: tuple[str, str] | None = None
+    period_guess: tuple[str, str] | None = None
     preamble: list[str] = []
+    cards: list[str] = []
     skipped = 0
-    current: Row | None = None
-    in_table = not columns
+    skipped_pages: list[tuple[int, str]] = []
     counter = 0
-    page_columns = columns
-
     for page_number, lines in enumerate(page_lines, start=1):
-        for index, line in enumerate(lines):
+        if not lines:
+            skipped_pages.append((page_number, "no_text"))
+            continue
+        page_text = " ".join(line.text for line in lines)
+        if _EXAMPLE.search(page_text):
+            # Bank boilerplate (an illustrative example, the terms): never transactions.
+            skipped_pages.append((page_number, "not_transactions"))
+            skipped += len(lines)
+            continue
+        page_columns = columns
+        anchors: list[tuple[Line, Row]] = []
+        loose: list[Line] = []
+        in_table = not columns
+        index = 0
+        while index < len(lines):
+            line = lines[index]
             text = line.text.strip()
+            index += 1
             if not text:
                 continue
             if columns:
-                repeat = header_columns(line, lines[index + 1] if index + 1 < len(lines) else None)
-                if repeat and fold(" ".join(c.label for c in repeat)) in header_keys | {fold(" ".join(c.label for c in columns))}:
-                    # The header repeats on this page: take this page's own positions with the owner's roles.
-                    page_columns = [Column(c.index, c.label, columns[i].role if i < len(columns) else c.role, c.x0, c.x1) for i, c in enumerate(repeat)]
-                    current = _finish(current, rows)
+                block = header_block(lines, index - 1)
+                if block and (fold(" ".join(c.label for c in block[0])) == header_text or _rows_under(lines[index - 1 + block[1]:], block[0])):
+                    # The table header (repeated on every page is fine): this page's own positions, the owner's roles.
+                    if len(block[0]) == len(columns):
+                        page_columns = [Column(c.index, c.label, columns[i].role, c.x0, c.x1) for i, c in enumerate(block[0])]
                     in_table = True
-                    continue
-                if repeat or fold(text) in header_keys:
-                    current = _finish(current, rows)
-                    in_table = True
+                    index += block[1] - 1
                     continue
             money_tokens = [t for t in line.tokens if t.kind == "money"]
-            if _OPENING.search(text) and not _CLOSING.search(text):
-                current = _finish(current, rows)
+            date_tokens = [t for t in line.tokens if t.kind == "date"]
+            last4 = meta.masked_card(text) if not date_tokens else None
+            if last4 and not money_tokens:
+                cards.append(last4)  # the card holder band above a card's rows
+                skipped += 1
+                continue
+            if _OPENING.search(text) and not _CLOSING.search(text) and not date_tokens[:1] == line.tokens[:1]:
                 if money_tokens:
                     value = amounts.parse(money_tokens[-1].text)
                     if _BROUGHT.search(text) and value is not None:
                         brought.setdefault(page_number, value)
-                    if opening is None:
+                    if opening is None and not card:
                         opening = value
                 skipped += 1
                 continue
-            if _CLOSING.search(text):
-                current = _finish(current, rows)
+            if _CLOSING.search(text) and not date_tokens[:1] == line.tokens[:1]:
                 if money_tokens:
                     value = amounts.parse(money_tokens[-1].text)
                     if _CARRIED.search(text) and value is not None:
                         carried[page_number] = value
-                    # A page's "carried forward" is the balance so far; the last one, or "closing balance", wins.
-                    closing = value
+                    if not card:
+                        closing = value
                 skipped += 1
                 continue
-            if _FOOTER.search(text) or _TOTAL.search(text):
-                current = _finish(current, rows)
+            if _FOOTER.search(text) or _TOTAL.search(text) or _NOISE.search(text):
                 skipped += 1
                 continue
-            date_tokens = [t for t in line.tokens if t.kind == "date"]
-            starts = line.tokens[0].kind == "date" if line.tokens else False
-            if page_columns and not starts and date_tokens:
-                date_column = next((c for c in page_columns if c.role == "date"), None)
-                starts = date_column is not None and nearest(page_columns, date_tokens[0].x0, date_tokens[0].x1, ("date",)) is date_column and \
-                    date_tokens[0].x0 <= min(t.x0 for t in line.tokens) + line.height * 0.5
-            if period is None and len(date_tokens) >= 2 and not money_tokens and (_PERIOD.search(text) or not starts):
-                period = (date_tokens[0].text, date_tokens[1].text)
+            if len(date_tokens) >= 2 and not money_tokens:
+                pair = (date_tokens[0].text, date_tokens[1].text)
+                if _PERIOD.search(text) and period is None:
+                    period = pair
+                elif period_guess is None:
+                    period_guess = pair
                 skipped += 1
                 continue
-            if starts and (money_tokens or in_table):
-                current = _finish(current, rows)
+            if _is_anchor(line, page_columns, money_tokens, date_tokens, in_table):
                 counter += 1
-                current = Row(line=counter, page=page_number, raw_date=date_tokens[0].text, top=line.top, bottom=line.bottom)
-                _fill(current, line, page_columns, skip_first_date=True)
+                row = Row(line=counter, page=page_number, raw_date=_anchor_date(line, page_columns).text, top=line.top, bottom=line.bottom)
+                anchors.append((line, row))
                 continue
-            if current is not None and not money_tokens and current.page == page_number and line.top - current.bottom < line.height * 2.5:
-                # A wrapped description: the line under a row carries more of it.
-                _fill(current, line, page_columns, skip_first_date=False, text_only=True)
-                current.bottom = line.bottom
-                continue
-            if current is not None and money_tokens and not current.money and current.page == page_number:
-                _fill(current, line, page_columns, skip_first_date=False)
-                current.bottom = line.bottom
-                continue
-            current = _finish(current, rows)
-            if not in_table and not rows:
+            if in_table or anchors:
+                loose.append(line)
+            elif not rows:
                 preamble.append(text)
-            else:
                 skipped += 1
-    _finish(current, rows)
+        # 3. Every other table line joins the row whose date line is nearest (a wrapped description,
+        # a type line printed above the date, amounts printed a line off).
+        height = sorted(line.height for line in lines)[len(lines) // 2] or 1.0
+        attached: dict[int, list[Line]] = {id(row): [line] for line, row in anchors}
+        for line in loose:
+            if not anchors:
+                skipped += 1
+                continue
+            middle = (line.top + line.bottom) / 2
+            near = [(abs(middle - (a.top + a.bottom) / 2), a.top, row) for a, row in anchors]
+            # Equally far from two rows: a wrapped line belongs to the row above it.
+            near.sort(key=lambda x: (round(x[0], 1), 0 if x[1] < line.top else 1))
+            distance, _, target = near[0]
+            if distance > height * 2.6 or (meta.masked_card(line.text) and not any(t.kind == "money" for t in line.tokens)):
+                skipped += 1
+                continue
+            attached[id(target)].append(line)
+        for _, row in anchors:
+            group = sorted(attached[id(row)], key=lambda line: line.top)
+            first = True
+            for line in group:
+                _fill(row, line, page_columns, skip_first_date=line.top == row.top and first)
+                if line.top == row.top:
+                    first = False
+            row.top, row.bottom = min(line.top for line in group), max(line.bottom for line in group)
+            _finish(row, rows)
     if len(rows) > MAX_ROWS:
         raise PdfStatementError("too_many_rows", f"The statement has more than {MAX_ROWS} rows. Import one month at a time.")
 
@@ -295,16 +375,22 @@ def parse(
     else:
         _table_money(rows, columns)
 
-    # Dates: one order for the whole statement.
-    raw = [r.raw_date for r in rows] + (list(period) if period else [])
+    # 4. Dates: one order for the whole statement.
+    raw = [r.raw_date for r in rows] + list(period or period_guess or ())
     order, guessed = dates.decide_order(raw)
     chosen = dates.order_of(date_format) if date_format else None
     if date_format and chosen is None:
         raise PdfStatementError("bad_date_format", "Unknown date format. Pick one of the listed formats.")
     if chosen:
         order, guessed = chosen, False
-    period_start = dates.to_date(period[0], order, year)[0] if period else None
-    period_end = dates.to_date(period[1], order, year)[0] if period else None
+    use = period or period_guess
+    period_start = dates.to_date(use[0], order, year)[0] if use else None
+    period_end = dates.to_date(use[1], order, year)[0] if use else None
+    if period_start and period_end and period_start > period_end:
+        period_start, period_end = period_end, period_start
+    info = meta.facts(every, money, order)
+    if period_end is None and info.statement_date is not None:
+        period_end = info.statement_date
     period_year = period_end.year if period_end else year
     for row in rows:
         row.posted_on, hijri = dates.to_date(row.raw_date, order, period_year)
@@ -313,21 +399,39 @@ def parse(
         if row.posted_on is None:
             row.flags.append("date_unreadable")
         elif period_start and period_end and period_start.month > period_end.month and row.posted_on.month >= period_start.month and \
-                dates.split(row.raw_date) is not None and dates.split(row.raw_date).kind == "short":  # type: ignore[union-attr]
+                (dates.split(row.raw_date) or dates.Parts(0, 0, None, "")).kind == "short":
             row.posted_on = row.posted_on.replace(year=period_start.year)
+    rows = _inside_period(rows, period_start, period_end, skipped_pages)
 
-    # Newest first: put the rows in time order so balances run forward.
+    # Newest first: put the rows in time order so balances run forward. Rows inside a day stay as printed.
     dated = [r.posted_on for r in rows if r.posted_on]
     if len(dated) >= 2 and dated[0] > dated[-1]:
         rows.reverse()
-        for number, row in enumerate(rows, start=1):
-            row.line = number
+    for number, row in enumerate(rows, start=1):
+        row.line = number
+    _details(rows)
 
-    _signs(rows, opening)
-    if layout == "table" and not roles:
-        _maybe_swap(rows, opening, warnings)
+    # 5. Signs and checks.
+    if card:
+        previous = info.money("previous_balance")
+        due = info.money("total_due") if info.money("total_due") is not None else info.money("new_balance")
+        # A card balance is money owed: the ledger reads it as a negative balance.
+        opening = -previous if previous is not None else opening
+        closing = -due if due is not None else closing
+        _card_signs(rows)
+    else:
+        if opening is None:
+            opening = info.money("opening")
+        if closing is None:
+            closing = info.money("closing")
+        _signs(rows, opening)
+        if layout == "table" and not roles:
+            _maybe_swap(rows, opening, warnings)
     check = verify([(r.line, r.amount, r.balance) for r in rows], opening, closing, unsure=any("sign_unsure" in r.flags for r in rows))
     check.page_breaks = _page_breaks(rows, brought, carried)
+    check.summary = _summary(rows, info, card)
+    if check.status == "matched" and any(not s.ok for s in check.summary):
+        check.status = "mismatch"
     statement_currency = _currency_in([line.text for line in every])
     for row in rows:
         if row.currency and row.currency != currency:
@@ -341,35 +445,143 @@ def parse(
         warnings.append("no_rows")
     if check.page_breaks:
         warnings.append("page_breaks")
+    if any(not s.ok for s in check.summary):
+        warnings.append("summary_differs")
     if any(row.confidence < LOW_CONFIDENCE for row in rows):
         warnings.append("low_confidence")
     fmt = dates.FORMATS[order]
+    last4 = cards[0] if cards else _last4(preamble + [line.text for line in every[:80]])
     return Statement(
         columns=columns, layout=layout, rows=rows, date_format=fmt,
         date_formats=[dates.FORMATS["dmy"], dates.FORMATS["mdy"]] if guessed and not chosen else [fmt],
         date_format_ambiguous=guessed and not chosen, period_start=period_start, period_end=period_end,
-        account_last4=_last4(preamble + [line.text for line in every[:80]]), currency=statement_currency, opening_balance=opening,
-        closing_balance=closing, check=check, fingerprint=print_, confidence=min((r.confidence for r in rows), default=0.0),
-        skipped_lines=skipped, warnings=warnings,
+        account_last4=last4, currency=statement_currency, opening_balance=opening, closing_balance=closing, check=check,
+        kind="card" if card else "account", statement_date=info.statement_date, due_date=info.due_date,
+        fingerprint=print_, confidence=min((r.confidence for r in rows), default=0.0), skipped_lines=skipped,
+        skipped_pages=skipped_pages, warnings=warnings,
     )
 
 
-def _finish(current: Row | None, rows: list[Row]) -> None:
-    if current is not None:
-        current.description = mask_numbers(csv_import.clean_text(current.description))
-        if current.reference is None:
-            found = _REFERENCE.search(current.description)
-            if found:
-                current.reference = found.group(1)[:60]
-        rows.append(current)
-    return None
+def _anchor_date(line: Line, columns: list[Column]) -> Token:
+    dated = [t for t in line.tokens if t.kind == "date"]
+    if columns:
+        date_column = next((c for c in columns if c.role == "date"), None)
+        for token in dated:
+            if date_column is not None and nearest(columns, token.x0, token.x1, ROLES) is date_column:
+                return token
+    return dated[0]
 
 
-def _fill(row: Row, line: Line, columns: list[Column], *, skip_first_date: bool, text_only: bool = False) -> None:
+def _is_anchor(line: Line, columns: list[Column], money_tokens: list[Token], date_tokens: list[Token], in_table: bool) -> bool:
+    """A transaction's own line: a date where the date column is (or first, without a header) and money."""
+    if not date_tokens:
+        return False
+    if columns:
+        date_column = next((c for c in columns if c.role == "date"), None)
+        if date_column is None:
+            return False
+        in_column = any(nearest(columns, t.x0, t.x1, ROLES) is date_column for t in date_tokens)
+        return in_column and (bool(money_tokens) or in_table)
+    return line.tokens[0].kind == "date" and (bool(money_tokens) or in_table)
+
+
+def _rows_under(lines: list[Line], columns: list[Column]) -> int:
+    """How many lines under a header candidate read as transactions in its columns."""
+    count = 0
+    for line in lines[:400]:
+        money_tokens = [t for t in line.tokens if t.kind == "money"]
+        date_tokens = [t for t in line.tokens if t.kind == "date"]
+        if money_tokens and _is_anchor(line, columns, money_tokens, date_tokens, True):
+            if any((c := nearest(columns, t.x0, t.x1, MONEY_ROLES)) is not None and _overlaps(t, c) for t in money_tokens):
+                count += 1
+    return count
+
+
+def _overlaps(token: Token, column: Column) -> bool:
+    slack = (column.x1 - column.x0) * 0.5 + 10
+    return token.x1 >= column.x0 - slack and token.x0 <= column.x1 + slack
+
+
+def _inside_period(rows: list[Row], start: date | None, end: date | None, skipped_pages: list[tuple[int, str]]) -> list[Row]:
+    """Rows dated far outside the statement's period are bank examples, never transactions."""
+    if end is None:
+        return rows
+    low = (start or end) - timedelta(days=OUTSIDE_PERIOD_DAYS + (0 if start else 31))
+    high = end + timedelta(days=OUTSIDE_PERIOD_DAYS)
+    kept = [r for r in rows if r.posted_on is None or low <= r.posted_on <= high]
+    dropped_pages = {r.page for r in rows} - {r.page for r in kept}
+    for page in sorted(dropped_pages):
+        skipped_pages.append((page, "not_transactions"))
+    return kept
+
+
+def _details(rows: list[Row]) -> None:
+    """Split "<type>Time:...**Note:..." descriptions and link a charge row to the payment it belongs to."""
+    previous: Row | None = None
+    for row in rows:
+        found = meta.detail(row.description)
+        row.kind, row.time, row.counterparty = found.kind, found.time, found.counterparty
+        if previous is not None and row.kind and _FEE_KIND.search(row.kind) and not _FEE_KIND.search(previous.kind or "") and \
+                row.posted_on == previous.posted_on and ((row.time and row.time == previous.time) or
+                                                          (row.reference and row.reference == previous.reference)):
+            row.parent_line = previous.line
+        previous = row
+
+
+def _card_signs(rows: list[Row]) -> None:
+    """A card statement's rows are charges (money out) unless marked as a payment, refund or CR."""
+    for row in rows:
+        if row.debit is not None or row.credit is not None:
+            row.amount = (row.credit or Decimal(0)) - (row.debit or Decimal(0))
+        elif row.amount is not None and not row.explicit_sign:
+            row.amount = abs(row.amount) if _PAYMENT.search(row.description) else -abs(row.amount)
+        elif row.amount is not None and row.explicit_sign:
+            # On a card statement a plain minus or CR is a payment or refund: money back on the card.
+            row.amount = abs(row.amount) if row.amount < 0 or re.search(r"(?i)cr$|دائن$", row.description) else -abs(row.amount)
+        if row.amount is None:
+            row.flags.append("amount_missing")
+        elif row.amount == 0:
+            row.flags.append("amount_zero")
+
+
+def _summary(rows: list[Row], info: meta.Facts, card: bool) -> list[SummaryCheck]:
+    """The statement's own counts and totals against the rows read."""
+    out: list[SummaryCheck] = []
+    credits = [r.amount for r in rows if r.amount is not None and r.amount > 0]
+    debits = [-r.amount for r in rows if r.amount is not None and r.amount < 0]
+    for key, found in (("deposits_count", Decimal(len(credits))), ("withdrawals_count", Decimal(len(debits)))):
+        stated = info.count(key)
+        if stated is not None:
+            out.append(SummaryCheck(key, Decimal(stated), found, Decimal(stated) == found))
+    for key, found in (("deposits_total", sum(credits, Decimal(0))), ("withdrawals_total", sum(debits, Decimal(0)))):
+        stated_money = info.money(key)
+        if stated_money is not None:
+            out.append(SummaryCheck(key, abs(stated_money), found, abs(stated_money) == found))
+    if card:
+        previous = info.money("previous_balance") or Decimal(0)
+        due = info.money("total_due") if info.money("total_due") is not None else info.money("new_balance")
+        if due is not None:
+            # Previous balance plus purchases, fees and VAT, less payments and refunds, is the amount due.
+            found_due = previous - sum((r.amount for r in rows if r.amount is not None), Decimal(0))
+            out.append(SummaryCheck("total_due", due, found_due, due == found_due))
+    return out
+
+
+def _finish(row: Row, rows: list[Row]) -> None:
+    row.description = mask_numbers(csv_import.clean_text(row.description))
+    if row.reference is None:
+        found = _REFERENCE.search(row.description)
+        if found:
+            row.reference = found.group(1)[:60]
+    rows.append(row)
+
+
+def _fill(row: Row, line: Line, columns: list[Column], *, skip_first_date: bool) -> None:
     """Put a line's tokens into the row: money by column (kept for the money pass), text into the
     description, reference or currency column."""
     first_date = True
     parts: list[str] = []
+    detail_columns = any(c.role == "foreign_amount" for c in columns)
     row.ocr = min(row.ocr, min((t.conf for t in line.tokens), default=100.0))
     for token in line.tokens:
         if token.kind == "date":
@@ -381,18 +593,22 @@ def _fill(row: Row, line: Line, columns: list[Column], *, skip_first_date: bool,
             parts.append(token.text)
             continue
         if token.kind == "money":
-            if not text_only:
-                row.money.append(token)
+            row.money.append(token)
             continue
         if token.kind == "currency":
-            row.currency = row.currency or token.text
+            if detail_columns:
+                row.original_currency = row.original_currency or token.text  # the currency spent, next to its amount
+            else:
+                row.currency = row.currency or token.text
             continue
-        target = nearest(columns, token.x0, token.x1, ("description", "reference", "currency", "skip")) if columns else None
+        target = nearest(columns, token.x0, token.x1, ("description", "reference", "currency", "fx_rate", "skip")) if columns else None
         if target is not None and target.role == "reference":
             row.reference = csv_import.clean_text(token.text, 60)
         elif target is not None and target.role == "currency":
             code = token.text.strip().upper()
             row.currency = code if len(code) == 3 else row.currency
+        elif target is not None and target.role == "fx_rate" and re.fullmatch(r"\d+(\.\d+)?", token.text):
+            row.fx_rate = Decimal(token.text)
         elif target is not None and target.role == "skip" and columns and _is_far(token, columns):
             continue
         else:
@@ -409,11 +625,17 @@ def _is_far(token: Token, columns: list[Column]) -> bool:
 def _table_money(rows: list[Row], columns: list[Column]) -> None:
     for row in rows:
         for token in row.money:
-            column = nearest(columns, token.x0, token.x1, MONEY_ROLES)
+            column = nearest(columns, token.x0, token.x1, MONEY_ROLES + DETAIL_ROLES)
             value = amounts.parse(token.text)
             if column is None or value is None:
                 continue
             _assign(row, column.role, value, token.text)
+        if row.original_amount is not None and row.original_amount == 0:
+            row.original_amount, row.original_currency, row.fx_rate = None, None, None  # a local spend
+        if row.fee == 0:
+            row.fee = None
+        if row.vat == 0:
+            row.vat = None
 
 
 def _assign(row: Row, role: str, value: Decimal, token: str) -> None:
@@ -426,6 +648,14 @@ def _assign(row: Row, role: str, value: Decimal, token: str) -> None:
             row.credit, row.debit = abs(value), None
     elif role == "credit":
         row.credit = abs(value)
+    elif role == "foreign_amount":
+        row.original_amount = value
+    elif role == "fx_rate":
+        row.fx_rate = value
+    elif role == "fee":
+        row.fee = value
+    elif role == "vat":
+        row.vat = value
     else:
         row.amount, row.explicit_sign = value, amounts.explicit_sign(token)
 

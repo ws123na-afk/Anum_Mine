@@ -96,6 +96,18 @@ def split(text: str) -> Parts | None:
     return Parts(ints[0], ints[1], ints[2], "numeric", 1300 <= ints[2] <= 1500)
 
 
+def plausible(text: str) -> bool:
+    """A real calendar date in some order ("0.00" and "45.13" are not)."""
+    parts = split(text)
+    if parts is None:
+        return False
+    if parts.c is not None and not (1300 <= parts.c <= 1500 or 1900 <= parts.c <= 2100 or parts.c < 100):
+        return False
+    if parts.kind in ("named", "ymd"):
+        return 1 <= parts.a <= 31 and 1 <= parts.b <= 12
+    return (1 <= parts.a <= 31 and 1 <= parts.b <= 12) or (1 <= parts.b <= 31 and 1 <= parts.a <= 12)
+
+
 def decide_order(values: list[str]) -> tuple[str, bool]:
     """Day first or month first for the whole statement, and whether it was a guess."""
     day_first = month_first = True
@@ -147,4 +159,4 @@ def to_date(text: str, order: str, year_hint: int | None) -> tuple[date | None, 
     return (found if 1990 <= found.year <= 2100 else None), False
 
 
-__all__ = ["ANY_DATE", "DATE_AT_START", "FORMATS", "WHOLE_DATE", "decide_order", "hijri_to_gregorian", "order_of", "split", "to_date"]
+__all__ = ["ANY_DATE", "DATE_AT_START", "FORMATS", "WHOLE_DATE", "decide_order", "plausible", "hijri_to_gregorian", "order_of", "split", "to_date"]

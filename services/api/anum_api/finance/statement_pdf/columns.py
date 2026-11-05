@@ -22,14 +22,22 @@ from statistics import median
 from . import amounts, dates
 from .words import Word, is_arabic, reorder_rtl
 
-ROLES = ("date", "description", "debit", "credit", "amount", "balance", "reference", "currency", "skip")
+ROLES = ("date", "description", "debit", "credit", "amount", "balance", "reference", "currency", "foreign_amount", "fx_rate", "fee", "vat",
+         "skip")
 MONEY_ROLES = ("debit", "credit", "amount", "balance")
+# Extra figures some statements (credit cards) print on each row: kept on the row, never the posted amount.
+DETAIL_ROLES = ("foreign_amount", "fx_rate", "fee", "vat")
 CURRENCIES = ("AED", "SAR", "USD", "EUR", "GBP", "KWD", "QAR", "BHD", "OMR", "INR", "PKR", "EGP", "JOD")
 _ARABIC_CURRENCY = {"د.إ": "AED", "درهم": "AED", "ر.س": "SAR", "ريال": "SAR"}
 MAX_COLUMNS = 12
 
 # Checked in this order: "Debit Amount" is a debit, "Transaction Date" a date, "Balance" never an amount.
 _ROLE_WORDS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("fx_rate", ("conversion rate", "exchange rate", "fx rate", "rate", "سعر التحويل", "سعر تحويل", "سعر الصرف")),
+    ("foreign_amount", ("international transaction amount", "foreign amount", "original amount", "transaction currency amount",
+                        "مبلغ العملية الدولية", "المبلغ الأصلي", "المبلغ بالعملة الأجنبية")),
+    ("vat", ("vat", "vat amount", "tax", "ضريبة", "قيمة الضريبة", "الضريبة")),
+    ("fee", ("fees", "other fees", "charges", "fee", "الرسوم", "رسوم")),
     ("balance", ("balance", "running balance", "available balance", "book balance", "الرصيد", "رصيد")),
     ("debit", ("debit", "debits", "withdrawal", "withdrawals", "money out", "paid out", "dr", "مدين", "سحب", "مسحوبات", "المدين", "خصم",
                "الخصم", "سحوبات", "المسحوبات")),
@@ -116,7 +124,7 @@ def tokenize(line: Line, money: re.Pattern[str]) -> list[Token]:
     words = line.words
     out: list[Token] = []
     i = 0
-    gap_limit = line.height * 1.2
+    gap_limit = line.height * 0.9
     while i < len(words):
         joined = None
         # "45.50" reads as a day and month too: away from the start of a line, an amount wins.
@@ -124,7 +132,7 @@ def tokenize(line: Line, money: re.Pattern[str]) -> list[Token]:
         for size in (() if money_first else (3, 2, 1)):
             if i + size <= len(words):
                 text = " ".join(w.text for w in words[i: i + size])
-                if dates.WHOLE_DATE.match(text) and dates.split(text) is not None:
+                if dates.WHOLE_DATE.match(text) and dates.plausible(text):
                     joined = (size, text)
                     break
         if joined:
@@ -177,17 +185,55 @@ class Column:
 
 
 def header_columns(line: Line, below: Line | None = None) -> list[Column] | None:
-    """The columns when ``line`` is a table header: a date column, at least one money column, and most
-    cells known words. A header wrapped over two lines ("Transaction" over "Date") is read when every
-    cell of the first line sits over a cell of the second."""
-    found = _header(line.tokens)
-    if found is not None or below is None or below.top - line.bottom >= line.height * 0.8:
-        return found
-    if not line.tokens or not all(any(min(t.x1, b.x1) - max(t.x0, b.x0) > 0 for b in below.tokens) for t in line.tokens):
+    """The columns when ``line`` (optionally with the line under it) is a table header."""
+    found = header_block([line] + ([below] if below is not None else []), 0)
+    return found[0] if found else None
+
+
+def header_block(lines: list[Line], index: int, *, depth: int = 6) -> tuple[list[Column], int] | None:
+    """The table header starting at ``lines[index]``, and how many lines it takes. A header can be one
+    line, or several stacked lines (an Arabic label above its English one, "Transaction" above "Date"):
+    labels that overlap horizontally across those lines form one column."""
+    first = lines[index]
+    if not first.tokens or any(t.kind != "text" for t in first.tokens):
         return None
-    if _header(below.tokens) is not None:
-        return None  # the next line is the header on its own
-    return _header(_merge_two(line.tokens, below.tokens))
+    single = _header(first.tokens)
+    block = [first]
+    for line in lines[index + 1: index + depth]:
+        if line.top - block[-1].bottom >= max(line.height, block[-1].height) * 1.2 or any(t.kind != "text" for t in line.tokens):
+            break
+        if not any(role_of(t.text) for t in line.tokens):
+            break  # the first row's text right under the header ("Internal Transfer"), not more header
+        block.append(line)
+    best: tuple[list[Column], int] | None = (single, 1) if single else None
+    for size in range(2, len(block) + 1):
+        merged = _merge_lines(block[:size])
+        found = _header(merged)
+        if found and (best is None or _known(found) >= _known(best[0])):
+            best = (found, size)
+    return best
+
+
+def _known(columns: list[Column]) -> int:
+    return sum(1 for c in columns if c.role != "skip")
+
+
+def _merge_lines(block: list[Line]) -> list[Token]:
+    """Tokens of stacked lines joined into columns where they overlap horizontally."""
+    merged: list[Token] = []
+    for line in block:
+        for token in line.tokens:
+            hits = [m for m in merged if min(m.x1, token.x1) - max(m.x0, token.x0) > 0]
+            if not hits:
+                merged.append(Token(token.kind, token.text, token.x0, token.x1, token.conf))
+                continue
+            target = hits[0]
+            for other in hits[1:]:
+                target.text, target.x0, target.x1 = f"{target.text} {other.text}", min(target.x0, other.x0), max(target.x1, other.x1)
+                merged.remove(other)
+            target.text, target.x0, target.x1 = f"{target.text} {token.text}", min(target.x0, token.x0), max(target.x1, token.x1)
+    merged.sort(key=lambda t: t.x0)
+    return merged
 
 
 def _header(cells: list[Token]) -> list[Column] | None:
@@ -210,19 +256,6 @@ def _header(cells: list[Token]) -> list[Column] | None:
         seen.add(picked)
         columns.append(Column(index, token.text[:60], picked, token.x0, token.x1))
     return columns
-
-
-def _merge_two(top: list[Token], bottom: list[Token]) -> list[Token]:
-    """A header wrapped over two lines ("Transaction" over "Date"): cells that overlap join."""
-    merged = [Token(t.kind, t.text, t.x0, t.x1, t.conf) for t in top]
-    for token in bottom:
-        target = next((m for m in merged if min(m.x1, token.x1) - max(m.x0, token.x0) > 0), None)
-        if target is None:
-            merged.append(Token(token.kind, token.text, token.x0, token.x1, token.conf))
-        else:
-            target.text, target.x0, target.x1 = f"{target.text} {token.text}", min(target.x0, token.x0), max(target.x1, token.x1)
-    merged.sort(key=lambda t: t.x0)
-    return merged
 
 
 def nearest(columns: list[Column], x0: float, x1: float, roles: tuple[str, ...]) -> Column | None:
