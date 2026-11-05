@@ -143,6 +143,7 @@ class AttendanceDailyReportRecord(Base, _Owned):
     version: Mapped[int] = mapped_column(Integer)
     created_at: Mapped[datetime] = mapped_column(TS)
     updated_at: Mapped[datetime] = mapped_column(TS)
+    submitted_at: Mapped[datetime | None] = mapped_column(TS, nullable=True)  # 0139_attendance_report_submit
 
 
 class AttendanceShareRecord(Base, _Owned):
