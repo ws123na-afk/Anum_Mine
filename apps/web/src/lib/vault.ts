@@ -205,7 +205,7 @@ export function isIdentity(category: string, categories: readonly VaultCategory[
 
 /** Linked records out of all documents, as a whole percentage; null when there are none. */
 export function linkedPercent(summary: Pick<VaultMeta['summary'], 'active' | 'linked'>): number | null {
-  if (!summary.active) return null;
+  if (!summary.active || typeof summary.linked !== 'number') return null;
   return Math.round((summary.linked / summary.active) * 100);
 }
 

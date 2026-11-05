@@ -58,7 +58,7 @@ export async function mockVault(page: Page, options: VaultMockOptions = {}): Pro
   const calls: VaultMock['calls'] = [];
   const meta = () => ({
     summary: { active: docs.length, private: docs.filter((d) => d.access_class === 'private').length, expiring: docs.filter((d) => d.expiry_state === 'soon').length,
-      expired: docs.filter((d) => d.expiry_state === 'expired').length, review: extraction?.status === 'pending' ? 1 : 0, trash: trash.length },
+      expired: docs.filter((d) => d.expiry_state === 'expired').length, review: extraction?.status === 'pending' ? 1 : 0, trash: trash.length, linked: docs.some((d) => d.id === 'vdoc_lease') ? 1 : 0 },
     categories, settings, ocr_connected: options.ocr ?? true, can_write: role !== 'viewer', can_manage: role === 'owner', max_upload_bytes: 26_214_400,
     accepted: 'PDF, images, text', accepted_extensions: ['.pdf', '.png', '.jpg', '.jpeg', '.txt'], link_types: ['vehicle', 'person', 'business', 'purchase'], reminder_window_days: 30,
   });
@@ -96,6 +96,11 @@ export async function mockVault(page: Page, options: VaultMockOptions = {}): Pro
       if (category) rows = rows.filter((d) => d.category === category);
       const expiry = url.searchParams.get('expiry');
       if (expiry) rows = rows.filter((d) => d.expiry_state === (expiry === 'soon' ? 'soon' : 'expired'));
+      const access = url.searchParams.get('access_class');
+      if (access) rows = rows.filter((d) => d.access_class === access);
+      if (url.searchParams.get('sort') === 'expiry') rows = rows.filter((d) => d.expiry_date && String(d.expiry_date) >= day(0)).sort((a, b) => String(a.expiry_date).localeCompare(String(b.expiry_date)));
+      rows = rows.map((d) => ({ ...d, links_count: d.id === 'vdoc_lease' ? 2 : 0, first_link: d.id === 'vdoc_lease' ? { id: 'vlink_1', document_id: d.id, target_type: 'vehicle', target_id: 'KSA 4823', label: 'Example van', status: 'confirmed', created_by: 'user_local', created_at: now } : null,
+        review_pending: d.id === 'vdoc_receipt' && extraction?.status === 'pending' }));
       const cursor = url.searchParams.get('cursor');
       const start = cursor ? Number(cursor) : 0;
       const limit = Number(url.searchParams.get('limit') ?? 50);
