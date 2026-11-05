@@ -19,7 +19,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
 from anum_api.purchases.models import OPEN_RETURN, Event, Item, Ownership, PaymentRef, Preferences, Purchase, ReminderSent, Return, Shipment
-from anum_api.purchases.store import GROUPS, MAX_PURCHASES, DuplicateError, export_records
+from anum_api.purchases.store import GROUPS, MAX_PURCHASES, MERCHANT_LIMIT, DuplicateError, ListFilters, export_records
 from anum_api.schemas import TenantContext
 
 from .models import Base
@@ -213,13 +213,45 @@ class SqlPurchaseStore:
             where.append(PurchaseRecord.status.in_(sorted(group)) if group is not None else PurchaseRecord.status == status)
         return where
 
+    def _extra(self, context: TenantContext, filters: ListFilters | None) -> list[Any]:
+        if filters is None:
+            return []
+        where: list[Any] = []
+        if filters.merchant:
+            where.append(func.lower(PurchaseRecord.merchant) == filters.merchant.lower())
+        if filters.ordered_from:
+            where.append(PurchaseRecord.ordered_on >= filters.ordered_from)
+        if filters.ordered_to:
+            where.append(PurchaseRecord.ordered_on <= filters.ordered_to)
+        if filters.source:
+            where.append(PurchaseRecord.source == filters.source)
+        if filters.payment:
+            active = PurchaseRecord.payment["status"].astext == "active"
+            if filters.payment == "linked":
+                where.append(and_(PurchaseRecord.payment.is_not(None), active))
+            elif filters.payment == "unlinked":
+                where.append(or_(PurchaseRecord.payment.is_(None), PurchaseRecord.payment["status"].astext == "void"))
+            else:
+                where.append(PurchaseRecord.payment_method == filters.payment)
+        if filters.warranty_on is not None:
+            item_under_warranty = select(PurchaseItemRecord.id).where(
+                self._visible(PurchaseItemRecord, context), PurchaseItemRecord.purchase_id == PurchaseRecord.id,
+                PurchaseItemRecord.warranty_until >= filters.warranty_on).exists()
+            where.append(or_(PurchaseRecord.warranty_until >= filters.warranty_on, item_under_warranty))
+        return where
+
     def list_purchases(self, context: TenantContext, *, query: str | None, status: str | None, archived: bool, limit: int,
-                       offset: int) -> tuple[list[Purchase], int]:
-        where = self._filters(context, query, status, archived)
+                       offset: int, filters: ListFilters | None = None) -> tuple[list[Purchase], int]:
+        where = [*self._filters(context, query, status, archived), *self._extra(context, filters)]
         total = self.session.scalar(select(func.count()).select_from(PurchaseRecord).where(*where)) or 0
         rows = self.session.scalars(select(PurchaseRecord).where(*where).order_by(
             PurchaseRecord.ordered_on.desc(), PurchaseRecord.created_at.desc(), PurchaseRecord.id.desc()).limit(limit).offset(offset)).all()
         return [Purchase.model_validate(_row(r)) for r in rows], int(total)
+
+    def merchants(self, context: TenantContext) -> list[str]:
+        names = self.session.scalars(select(PurchaseRecord.merchant).where(self._visible_purchase(context), PurchaseRecord.archived_at.is_(None))
+                                     .group_by(PurchaseRecord.merchant).order_by(func.lower(PurchaseRecord.merchant)).limit(MERCHANT_LIMIT)).all()
+        return list(names)
 
     def all_purchases(self, context: TenantContext) -> list[Purchase]:
         rows, _ = self.list_purchases(context, query=None, status=None, archived=False, limit=MAX_PURCHASES, offset=0)

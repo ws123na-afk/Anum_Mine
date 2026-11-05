@@ -171,3 +171,35 @@ def test_assistant_readable_documents_survive_a_retrieval_reindex_and_follow_new
     current = count_as(database_engine, "select count(*) from retrieval_sources s join workspace_files f on f.tenant_id = s.tenant_id "
                        "and f.workspace_id = s.workspace_id and f.id = s.source_id where s.content_sha256 = f.sha256")
     assert current == 1
+
+
+def test_list_rows_links_and_the_newest_change_sort_under_rls(client: TestClient, database_engine: Engine) -> None:  # noqa: F811
+    """The table's row facts and the linked count come from SQL as the app role; a private document's links stay its owner's."""
+    mine = add(client, PDF + b"%row1", title="Lease")
+    shared = add(client, PDF + b"%row2", title="Workspace contract", access_class="workspace")
+    for target in (("vehicle", "KSA 4823", "Hiace"), ("business", "anum", "ANUM")):
+        response = client.post(f"/api/v1/documents/{mine['id']}/links", headers=ALICE,
+                               json={"target_type": target[0], "target_id": target[1], "label": target[2]})
+        assert response.status_code == 201, response.text
+    rows = {r["id"]: r for r in client.get("/api/v1/documents", headers=ALICE).json()["items"]}
+    assert rows[mine["id"]]["links_count"] == 2 and rows[mine["id"]]["first_link"]["label"] == "Hiace"
+    assert rows[mine["id"]]["file"]["name"] == "doc.pdf" and rows[shared["id"]]["links_count"] == 0
+    assert client.get("/api/v1/documents/meta", headers=ALICE).json()["summary"]["linked"] == 1
+    assert client.get("/api/v1/documents/meta", headers=BOB).json()["summary"]["linked"] == 0
+    assert [r["id"] for r in client.get("/api/v1/documents", headers=BOB).json()["items"]] == [shared["id"]]
+    assert client.patch(f"/api/v1/documents/{mine['id']}", headers=ALICE, json={"row_version": mine["row_version"], "title": "Lease, renewed"}).status_code == 200
+    page = client.get("/api/v1/documents", headers=ALICE, params={"sort": "updated", "limit": 1}).json()
+    assert [r["title"] for r in page["items"]] == ["Lease, renewed"]
+    rest = client.get("/api/v1/documents", headers=ALICE, params={"sort": "updated", "limit": 1, "cursor": page["next_cursor"]}).json()
+    assert [r["title"] for r in rest["items"]] == ["Workspace contract"]
+
+
+def test_the_next_expiries_sort_in_postgres(client: TestClient) -> None:  # noqa: F811
+    for title, days in (("Late", 200), ("Soon", 5), ("Gone", -3)):
+        created = add(client, PDF + title.encode(), title=title)
+        assert client.patch(f"/api/v1/documents/{created['id']}", headers=ALICE, json={
+            "row_version": created["row_version"], "expiry_date": (date.today() + timedelta(days=days)).isoformat()}).status_code == 200
+    page = client.get("/api/v1/documents", headers=ALICE, params={"sort": "expiry", "limit": 1}).json()
+    assert [d["title"] for d in page["items"]] == ["Soon"]
+    rest = client.get("/api/v1/documents", headers=ALICE, params={"sort": "expiry", "limit": 1, "cursor": page["next_cursor"]}).json()
+    assert [d["title"] for d in rest["items"]] == ["Late"]

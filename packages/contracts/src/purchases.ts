@@ -13,7 +13,8 @@ export type PurchaseReturnReason = 'damaged' | 'defective' | 'wrong_item' | 'not
 export type PurchaseShipmentStatus = 'pending' | 'in_transit' | 'out_for_delivery' | 'delivered' | 'failed' | 'returned_to_sender';
 export type PurchasePaymentMethod = 'card' | 'apple_pay' | 'cash' | 'bank_transfer' | 'cash_on_delivery' | 'instalments' | 'gift_card' | 'other';
 export type PurchaseEventKind = 'status' | 'note' | 'shipment' | 'return' | 'payment' | 'refund' | 'share';
-export type PurchaseDueKind = 'delivery_expected' | 'delivery_late' | 'return_window' | 'pickup_due' | 'refund_overdue' | 'warranty' | 'missing_confirmation';
+/** `proof_needed` (a return sent back without proof in the vault) is on the page's task queue only, never a notification. */
+export type PurchaseDueKind = 'delivery_expected' | 'delivery_late' | 'return_window' | 'pickup_due' | 'refund_overdue' | 'warranty' | 'missing_confirmation' | 'proof_needed';
 /** The list filter: one status, or a group. */
 export type PurchaseFilter = PurchaseStatus | 'awaiting' | 'returns' | 'closed' | 'open';
 
@@ -179,6 +180,34 @@ export interface Purchase {
   due: PurchaseDueItem[];
   refunded: PurchaseMoney[];
   items_total?: string | null;
+  /** List rows only: the first item's description, how many items, and the newest shipment. */
+  first_item?: string | null;
+  item_count?: number;
+  latest_shipment?: PurchaseShipment | null;
+}
+
+/** The list's extra filters (`GET /api/v1/purchases`). */
+export interface PurchaseListFilters {
+  q?: string;
+  status?: PurchaseFilter | '';
+  archived?: boolean;
+  merchant?: string;
+  /** Order dates, YYYY-MM-DD, inclusive. */
+  from?: string | null;
+  to?: string | null;
+  /** A payment method, or `linked` / `unlinked`. */
+  payment?: PurchasePaymentMethod | 'linked' | 'unlinked' | '';
+  source?: 'web' | 'iphone' | '';
+  /** Under warranty today (the purchase's or an item's). */
+  warranty?: boolean;
+}
+
+/** `POST /api/v1/purchases/device/share` answer (the iPhone, or Import order on the web). */
+export interface PurchaseShareResult {
+  status: 'created' | 'updated' | 'replayed' | 'test_ok';
+  purchase_id?: string;
+  purchase_status?: string;
+  message: string;
 }
 
 export interface PurchaseDetail extends Purchase {
@@ -282,6 +311,13 @@ export interface PurchaseOverview {
   refunds_owed: PurchaseMoney[];
   monthly: { month: string; currency: string; amount: string }[];
   due: PurchaseDueItem[];
+  /** This month (YYYY-MM, UTC): orders placed (not cancelled) and the shops' totals per currency, a detail, not the ledger. */
+  month: string;
+  orders_this_month: number;
+  committed_this_month: PurchaseMoney[];
+  untotalled_this_month: number;
+  /** Shipments in transit or out for delivery. */
+  in_transit: number;
 }
 
 export interface PurchasePreferences {

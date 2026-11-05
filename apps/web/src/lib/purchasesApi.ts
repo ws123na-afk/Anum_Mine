@@ -2,7 +2,7 @@
 // and finance:manage for linking a payment or a refund; a personal purchase of someone else answers 404.
 import type {
   FinanceAccount, PurchaseCashInput, PurchaseDetail, PurchaseEvent, PurchaseFilter, PurchaseInput, PurchaseLinkInput, PurchaseMoveInput,
-  PurchaseOverview, PurchasePage, PurchasePatch, PurchasePaymentCandidate, PurchasePaymentResult, PurchasePreferences, PurchaseRefundResult,
+  PurchaseListFilters, PurchaseOverview, PurchasePage, PurchasePatch, PurchaseShareResult, PurchasePaymentCandidate, PurchasePaymentResult, PurchasePreferences, PurchaseRefundResult,
   PurchaseReturn, PurchaseReturnInput, PurchaseReturnPatch, PurchaseShipment, PurchaseShipmentInput, Purchase,
 } from '@anum/contracts';
 import { apiBaseUrl, apiRequest, apiRequestVoid, authHeaders } from './api';
@@ -25,6 +25,15 @@ export function query(params: Record<string, string | number | boolean | null | 
 
 export const listPurchases = (q: string, status: PurchaseFilter | '', archived: boolean, offset: number, limit = 20) =>
   get<PurchasePage<Purchase>>(query({ q, status, archived: archived || null, offset, limit }));
+/** The tracker's list: search plus the seller, order dates, payment, source and warranty filters. */
+export const findPurchases = (filters: PurchaseListFilters, offset: number, limit = 20) => get<PurchasePage<Purchase>>(query({
+  q: filters.q, status: filters.status, archived: filters.archived || null, merchant: filters.merchant, from: filters.from, to: filters.to,
+  payment: filters.payment, source: filters.source, warranty: filters.warranty || null, offset, limit,
+}));
+export const merchants = () => get<{ items: string[] }>('/merchants');
+/** Import order: the pasted order or delivery message, read by the same fixed patterns as the iPhone Shortcut (never a model). */
+export const importOrder = (text: string, key: string, ownership: 'personal' | 'business' = 'personal') =>
+  send<PurchaseShareResult>('POST', '/device/share', { action: 'save', text, idempotency_key: key, ownership });
 export const getPurchase = (purchaseId: string) => get<PurchaseDetail>(`/${id(purchaseId)}`);
 export const createPurchase = (body: PurchaseInput, key: string) => send<PurchaseDetail & { replayed: boolean }>('POST', '', body, key);
 export const updatePurchase = (purchaseId: string, body: PurchasePatch) => send<PurchaseDetail>('PATCH', `/${id(purchaseId)}`, body);

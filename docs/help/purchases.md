@@ -12,7 +12,7 @@ Purchases keeps what you ordered online or in a shop: where it is, what you are 
 
 ## Add a purchase
 
-1. Open **Purchases** in the sidebar and click **Add purchase**.
+1. Open **Purchases and Returns** in the sidebar and click **Track purchase** (or **Import order** to paste an order confirmation).
 2. Choose **Personal** (only you see it) or **Business** (members of this workspace see it).
 3. Enter the **Shop or seller**, the **Order number**, the order date and, if you like, the items, the shop total, the expected delivery, a label such as **Home** for where it goes, the return window and the warranty.
 4. Click **Save**. From your iPhone you can instead share the order e-mail to the ANUM Shortcut.
