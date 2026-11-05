@@ -24,11 +24,12 @@ import { figure, type Figure } from './lib/pageSummary';
 import { viewLabel } from './lib/shell';
 import { ConfirmDialog, Modal } from './Dialog';
 import { Denied, Empty, FormActions, FormError, LoadError, Money, Notice, failed, type Load } from './FinanceParts';
-import { ConnectionsPanel, GuardianPanel, SafeToSpendCard, SafeToSpendPanel, reasonText } from './FinancePlan';
+import { ConnectionsPanel, GuardianPanel, SafeToSpendCard, reasonText } from './FinancePlan';
 import { ExecutionPanel, TradingPanel } from './FinanceTrading';
 import { IntelPanel } from './FinanceIntel';
 import { PageHeader, PageSummary, useMediaQuery, type Crumb } from './PageParts';
 import { FinanceSectionNav } from './FinanceShell';
+import { OWN_HEAD_TABS } from './lib/financeNav';
 import './commerce.css';
 import './finance.css';
 
@@ -40,6 +41,9 @@ const ResearchPanel = lazy(() => import('./FinanceResearch').then((m) => ({ defa
 // iPhone SMS banking and the double-entry ledger (docs/finance-sms.md): one lazy chunk for both tabs.
 const SmsPanel = lazy(() => import('./FinanceSms').then((m) => ({ default: m.SmsPanel })));
 const LedgerPanel = lazy(() => import('./FinanceSms').then((m) => ({ default: m.LedgerPanel })));
+// Pages with their own head (lib/financeNav.ts OWN_HEAD_TABS, docs/finance.md#finance-shell), each its own lazy chunk.
+const ReportsPage = lazy(() => import('./FinanceReportsPage').then((m) => ({ default: m.FinanceReportsPage })));
+const SafePage = lazy(() => import('./FinanceSafePage').then((m) => ({ default: m.FinanceSafePage })));
 // Accounts and Transactions and ledger draw their own page head (docs/finance.md#register-and-account-overview).
 const AccountsPage = lazy(() => import('./FinanceAccountsPage').then((m) => ({ default: m.AccountsPage })));
 const TransactionsPage = lazy(() => import('./FinanceTransactionsPage').then((m) => ({ default: m.TransactionsPage })));
@@ -89,29 +93,28 @@ export function FinanceView() {
   useEffect(() => { void loadAccounts(); }, [loadAccounts]);
   const refresh = () => { void loadSummary(); void loadAccounts(); };
 
+  if (OWN_HEAD_TABS.has(tab)) {
+    return <div className="cmLayout finLayout finOwnHead">
+      <FinanceSectionNav tab={tab} onPick={pick} />
+      <Suspense fallback={<Notice busy>{t('finance.loading')}</Notice>}>
+        {tab === 'reports' && <ReportsPage onOpen={pick} />}
+        {tab === 'safe' && <SafePage onOpen={pick} onChanged={refresh} />}
+        {tab === 'accounts' && <AccountsPage accounts={accounts} base={summary.kind === 'ready' ? summary.value.base_currency : 'AED'} onChanged={refresh}
+          onOpenTransactions={(accountId) => { setTxOpen((o) => ({ accountId, key: o.key + 1 })); pick('transactions'); }}
+          onImport={() => { setTxOpen((o) => ({ tab: 'imports', key: o.key + 1 })); pick('transactions'); }} />}
+        {tab === 'transactions' && (accounts.kind === 'loading' ? <Notice busy>{t('finance.loading')}</Notice>
+          : <TransactionsPage key={txOpen.key} accounts={accounts.kind === 'ready' ? accounts.value : []} initialAccountId={txOpen.accountId} initialTab={txOpen.tab}
+            onChanged={refresh} onAddAccount={() => pick('accounts')} />)}
+      </Suspense>
+    </div>;
+  }
+
   const crumbs: Crumb[] = [{ label: viewLabel('home'), href: '#home' }, { label: viewLabel('finance'), href: '#finance', onClick: () => pick('overview') }];
   if (tab !== 'overview') crumbs.push({ label: t(`finance.tab.${tab}` as MessageKey) });
   const header = <PageHeader title={viewLabel('finance')} subtitle={t('finance.subtitle')} crumbs={tab === 'overview' ? undefined : crumbs} actions={summary.kind === 'ready' ? <>
     <button type="button" className="secondary" onClick={() => setSettingsOpen(true)}><Settings2 aria-hidden="true" />{t('finance.settings.open')}</button>
     {tab !== 'import' && <button type="button" onClick={() => pick('import')}><FileUp aria-hidden="true" />{t('finance.import.open')}</button>}
   </> : undefined} />;
-
-  if (tab === 'accounts' || tab === 'transactions') {
-    const list = accounts.kind === 'ready' ? accounts.value : [];
-    const base = summary.kind === 'ready' ? summary.value.base_currency : 'AED';
-    const fallback = <section className="surface cmPanel"><Notice busy>{t('finance.loading')}</Notice></section>;
-    return <div className="cmLayout finLayout">
-      <FinanceSectionNav tab={tab} onPick={pick} />
-      <Suspense fallback={fallback}>
-        {tab === 'accounts' && <AccountsPage accounts={accounts} base={base} onChanged={refresh}
-          onOpenTransactions={(accountId) => { setTxOpen((o) => ({ accountId, key: o.key + 1 })); pick('transactions'); }}
-          onImport={() => { setTxOpen((o) => ({ tab: 'imports', key: o.key + 1 })); pick('transactions'); }} />}
-        {tab === 'transactions' && (accounts.kind === 'loading' ? fallback : <TransactionsPage key={txOpen.key} accounts={list} initialAccountId={txOpen.accountId} initialTab={txOpen.tab}
-          onChanged={refresh} onAddAccount={() => pick('accounts')} />)}
-      </Suspense>
-      {settingsOpen && <SettingsDialog onClose={(saved) => { setSettingsOpen(false); if (saved) refresh(); }} />}
-    </div>;
-  }
 
   if (summary.kind === 'loading' && accounts.kind !== 'denied') return <div className="cmLayout">{header}<Notice busy>{t('finance.loading')}</Notice></div>;
   if (summary.kind === 'denied' || accounts.kind === 'denied') return <div className="cmLayout">{header}<Denied /></div>;
@@ -140,7 +143,6 @@ export function FinanceView() {
     </section>}
     {accounts.kind === 'error' && <LoadError message={t('finance.error.accounts', { message: accounts.message })} retry={() => void loadAccounts()} />}
     {tab === 'overview' && <Overview summary={s} month={month ?? s.month} onMonth={setMonth} onOpen={pick} />}
-    {tab === 'safe' && <SafeToSpendPanel onOpen={pick} onChanged={onChanged} />}
     {tab === 'guardian' && <GuardianPanel base={base} />}
     {tab === 'connections' && <ConnectionsPanel />}
     {tab === 'trading' && <TradingPanel base={base} onOpen={pick} />}

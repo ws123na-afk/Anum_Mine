@@ -39,6 +39,8 @@
 .finHeadControls { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2) var(--d-s5); }
 .finControl { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); min-width: 0; }
 .finControlLabel { color: var(--d-muted); font-size: var(--text-sm); font-weight: 600; }
+.finHeadControls label.finControl { display: flex; flex-direction: row; margin: 0; }
+.finControl select { min-height: 36px; min-width: 96px; width: auto; }
 .finSegmented { background: var(--d-surface-1); border: 1px solid var(--d-line); border-radius: var(--d-r-control); display: inline-flex; padding: 2px; }
 .finSegmented > button {
   background: transparent; border: 0; border-radius: calc(var(--d-r-control) - 2px); color: var(--d-muted); cursor: pointer; font: inherit; font-size: var(--text-sm);
@@ -99,7 +101,7 @@
 .finBanner.warn .finBannerIcon { color: var(--d-warn); }
 .finBanner.ok .finBannerIcon { color: var(--d-ok); }
 .finBannerIcon svg { height: 20px; width: 20px; }
-.finBannerText { display: grid; flex: 1 1 260px; gap: 2px; min-width: 0; }
+.finBannerText { display: grid; flex: 1 1 160px; gap: 2px; min-width: 0; }
 .finBannerText > div { color: var(--d-muted); font-size: var(--text-sm); }
 .finBannerAction { align-self: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); }
 .finChip { align-items: center; border: 1px solid var(--d-line); border-radius: var(--d-r-pill); display: inline-flex; font-size: var(--text-xs); font-weight: 600; gap: 4px; padding: 1px 8px; white-space: nowrap; }
@@ -112,7 +114,8 @@
 
 /* A light-header table for the shell's cards. */
 .finGrid { border-collapse: collapse; font-size: var(--text-sm); width: 100%; }
-.finGrid th, .finGrid td { border-bottom: 1px solid var(--d-line); padding: var(--d-s2) var(--d-s3); text-align: start; }
+.finGrid th, .finGrid td { border-bottom: 1px solid var(--d-line); padding: var(--d-s2); text-align: start; }
+.finGrid tbody th { font-weight: 600; }
 .finGrid thead th { background: var(--d-glass-1); color: var(--d-muted); font-size: var(--text-xs); font-weight: 600; }
 .finGrid .num { font-variant-numeric: tabular-nums; text-align: end; white-space: nowrap; }
 .finGrid tfoot th, .finGrid tfoot td { background: var(--d-glass-1); font-weight: 700; }

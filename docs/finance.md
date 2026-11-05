@@ -270,6 +270,19 @@ Every Finance page uses the same shell (`apps/web/src/FinanceShell.tsx`, styles 
 
 Props only gain optional members, so pages built on the shell keep working. Labels are in `lib/messages/financeShell.{en,ar}.ts`.
 
+### Reports
+
+`#finance-reports` (`apps/web/src/FinanceReportsPage.tsx`, figures in `lib/financeStatements.ts`, charts in `FinanceCharts.tsx`, all lazy chunks). Scope Personal reads six month summaries (`GET /finance/summary?month=`), Business the business books report for the month and the month before (`GET /business/books/report?from&to`); a person who cannot read the books sees Business disabled with the reason and the personal report still works. Views:
+
+- **Profit and loss**: income, expenses, net result and savings rate (personal) or operating margin (business) with the change from last month; income and expenses as bars with the net result as a line over six months (a legend, a hover tooltip and the same figures as a table); the three largest category changes; spending by category this month and last with the change and share; the business P&L card linking to Business Expenses and P&L; report quality (share of spending with a real category, transactions counted; for the books, allocations in review, payments without a tax split, unconverted amounts); business against personal; what the reports leave out.
+- **Cash flow** (money in, out and net per month; the books' cash lines), **Spending** (each category's share), **Net worth** (account balances less tracked debts per currency; the books' receivables, payables and loans), **Tax summary** (the books' tax per currency; personal finance records no tax and says so) and **Custom** (any dates, account and category, the number of matching transactions and their CSV).
+- Downloads are the API's own exports: the transactions CSV (`/finance/transactions/export.csv`) and the books' P&L CSV (`/business/books/report.csv`). Sums and differences are done in thousandths, never in floating point and never across currencies.
+- Not built: saving a report, scheduled exports and a PDF (the mockup's buttons), since no API stores or schedules finance reports.
+
+### Safe to spend page
+
+`#finance-safe` (`apps/web/src/FinanceSafePage.tsx`): the estimate banner; account balance, bills and minimum payments, goals and buffer and the estimated safe amount; the transparent calculation (balance less bills less goals and buffer equals the estimate, from `GET /finance/safe-to-spend`); the runway to the month end (start from the balance after goals and buffer, each bill taken off on its due day from `GET /finance/bills/upcoming`, and the average daily spend of the last 30 days from two month summaries; the band is that pace 10% higher or lower, stated as an assumption); review and assumptions with Edit assumptions (the buffer and currency settings) and Refresh; upcoming commitments; spending guardrails (the Guardian monthly category limits against this month's spending); a stale notice when the newest transaction is more than three days old, with Import a statement; the Guardian rules in words with Review rules and Open Guardian; the full build per currency underneath. Business scope says the estimate is personal (the books hold no bank balances) and shows the business budgets and their use. Rules shows the Guardian rules and this month's alerts. Not built from the mockup: a scenario planner, rule toggles on this page (rules change only through the Guardian review with its code) and per-account selection (the API counts every bank and cash account).
+
 ## Owner actions
 
 - **Exchange rates:** connect the ECB reference rates under Finance, Connections (no account needed). For background refresh set `ANUM_FINANCE_SYNC_ENABLED=true` and allow HTTPS egress to `www.ecb.europa.eu`.
