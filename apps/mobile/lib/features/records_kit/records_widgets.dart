@@ -425,3 +425,27 @@ String recordsDateTime(BuildContext context, String? value) {
 /// room for a list beside its detail.
 bool recordsWide(BuildContext context) =>
     MediaQuery.sizeOf(context).width >= AnumBreakpoints.expanded;
+
+/// A module's English and Arabic catalog with `{name}` placeholders.
+class ModuleStrings {
+  const ModuleStrings(this.arabic, this.en, this.ar);
+  final bool arabic;
+  final Map<String, String> en, ar;
+
+  String t(String key, [Map<String, Object> values = const {}]) {
+    var text = (arabic ? ar : en)[key] ?? en[key] ?? key;
+    values
+        .forEach((name, value) => text = text.replaceAll('{$name}', '$value'));
+    return text;
+  }
+
+  /// A label for an API value (`fuel.petrol_95`), or the value itself.
+  String label(String prefix, String value) {
+    final key = '$prefix.$value';
+    return (arabic ? ar : en)[key] ?? en[key] ?? value.replaceAll('_', ' ');
+  }
+
+  static bool match(Map<String, String> en, Map<String, String> ar) =>
+      en.keys.toSet().difference(ar.keys.toSet()).isEmpty &&
+      ar.keys.toSet().difference(en.keys.toSet()).isEmpty;
+}
