@@ -2,6 +2,7 @@
 // (accessibility, localization and page-layout specs). Synthetic values only: example merchants and
 // round amounts, never real account numbers.
 import { equityBody } from './financeEquity';
+import { planningReply } from './financePlanningApi';
 import { reportDetail, reportList } from './financeReports';
 const now = new Date();
 const pad = (n: number) => String(n).padStart(2, '0');
@@ -464,6 +465,8 @@ export function financeReply(state: FinanceState, method: string, url: URL, body
   const sub = path.slice('/api/v1/finance'.length);
   const stages = financeStagesReply(state, method, sub, body, url);
   if (stages) return stages;
+  const planned = planningReply(state, method, sub, body, url);
+  if (planned) return planned;
   const equity = /^\/intel\/portfolios\/([^/]+)\/equity$/.exec(sub);
   if (equity && method === 'GET') return ok(equityBody(decodeURIComponent(equity[1]), Number(url.searchParams.get('days') ?? 90)));
   if (sub === '/intel/daily-reports' && method === 'GET') {

@@ -1,0 +1,172 @@
+import { expect, test, type Page } from '@playwright/test';
+import { financeReply, financeState } from './support/financeApi';
+import { useSavedLocale } from './support/workspaceApi';
+
+// Finance, Bills and budgets and Debts and goals (docs/finance.md#bills-and-budgets, #debts-and-goals).
+// A bill is a forecast until a recorded payment is matched to its due date; budgets are Guardian caps
+// with an alert threshold each; the payoff plan is worked out from the debts entered. The API is mocked
+// at http://localhost:8000/** like the other Finance specs.
+async function mockApi(page: Page, options: { empty?: boolean; denied?: boolean; failSchedule?: boolean } = {}) {
+  const state = financeState({ empty: options.empty, denied: options.denied });
+  const sent: { method: string; path: string; body: unknown }[] = [];
+  await page.route('http://localhost:8000/**', async (route) => {
+    const request = route.request();
+    const url = new URL(request.url());
+    const path = url.pathname;
+    const json = (body: unknown, status = 200) => route.fulfill({ status, contentType: 'application/json', body: JSON.stringify(body) });
+    if (path === '/api/v1/events/stream') return route.fulfill({ status: 204 });
+    if (path === '/api/v1/auth/local/session') return json({}, 404);
+    if (path === '/api/v1/workspace-memberships/current') return json({ tenant_id: 'tenant_local', workspace_id: 'workspace_foundation', user_id: 'user_local', role: 'member', active: true });
+    if (path === '/api/v1/workspaces/current') return json({ id: 'workspace_foundation', tenant_id: 'tenant_local', name: 'Foundation', created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:00:00Z', archived_at: null, archived_by: null });
+    if (path === '/api/v1/me/workspace-memberships') return json([{ tenant_id: 'tenant_local', workspace_id: 'workspace_foundation', role: 'member', active: true }]);
+    if (path === '/api/v1/tasks' || path === '/api/v1/approvals' || path === '/api/v1/conversations') return json([]);
+    if (options.failSchedule && path === '/api/v1/finance/bill-schedule') {
+      options.failSchedule = false;
+      return json({ error: { code: 'internal_error', message: 'The database is not reachable.', correlation_id: 'c', details: [] } }, 503);
+    }
+    const body = request.postData() ? request.postDataJSON() : null;
+    if (request.method() !== 'GET') sent.push({ method: request.method(), path, body });
+    const reply = financeReply(state, request.method(), url, body);
+    if (reply) return reply.status === 204 ? route.fulfill({ status: 204 }) : json(reply.body, reply.status);
+    return route.abort();
+  });
+  return { sent, state };
+}
+
+test('bills are forecasts until a recorded payment is matched; then the due date is paid', async ({ page }) => {
+  const { sent } = await mockApi(page);
+  await page.goto('/#finance-bills');
+  await expect(page.getByRole('heading', { level: 1, name: 'Bills and budgets' })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Bills and budgets at a glance' }).getByText('Bills this month')).toBeVisible();
+  const upcoming = page.getByRole('region', { name: /Upcoming bills/ });
+  const rent = upcoming.getByRole('row').filter({ hasText: 'Rent' }).first();
+  await expect(rent).toBeVisible();
+  await expect(rent.getByText('Paid')).toHaveCount(0);
+  await expect(upcoming.getByText('Bills are forecasts until matched to a recorded payment.')).toBeVisible();
+  await rent.getByRole('button', { name: 'Match a payment to Rent' }).click();
+  const dialog = page.getByRole('dialog', { name: /Match a payment to Rent/ });
+  await dialog.getByRole('listitem').filter({ hasText: 'RENT TRANSFER' }).getByRole('button', { name: 'Match' }).click();
+  await expect(page.getByText('Payment matched: Rent is paid.')).toBeVisible();
+  await expect(rent.getByText('Paid')).toBeVisible();
+  const match = sent.find((r) => r.method === 'POST' && /\/bills\/fin_bill_rent\/matches$/.test(r.path));
+  expect((match?.body as { canonical_id: string }).canonical_id).toBe('fin_je_rent');
+  await rent.getByRole('button', { name: 'Remove the matched payment from Rent' }).click();
+  await expect(page.getByText('Match removed: Rent is a forecast again.')).toBeVisible();
+  await expect(rent.getByText('Paid')).toHaveCount(0);
+});
+
+test('budgets: health, alert threshold saved, and a new cap confirmed with its code', async ({ page }) => {
+  const { sent } = await mockApi(page);
+  await page.goto('/#finance-budgets');
+  await expect(page.getByRole('tab', { name: 'Budgets' })).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByRole('progressbar', { name: /Dining: \d+% of the budget spent/ }).first()).toBeVisible();
+  const rules = page.getByRole('region', { name: 'Budget rules' });
+  await rules.getByLabel('Alert threshold for Dining').selectOption('90');
+  await expect(page.getByText('Alerts saved.')).toBeVisible();
+  expect(sent.some((r) => r.path.endsWith('/budgets/alerts') && (r.body as { alerts: { alert_percent: number }[] }).alerts[0].alert_percent === 90)).toBe(true);
+  await rules.getByRole('button', { name: 'Add category cap' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Add category cap' });
+  await dialog.getByLabel('Category').selectOption('fuel');
+  await dialog.getByLabel('Monthly cap (AED)').fill('800');
+  await dialog.getByRole('button', { name: 'Review change' }).click();
+  await expect(dialog.getByText('Confirmation code:')).toBeVisible();
+  await dialog.getByRole('button', { name: 'Confirm change' }).click();
+  await expect(page.getByText('Budget saved.')).toBeVisible();
+  await expect(rules.getByRole('rowheader', { name: 'Fuel' })).toBeVisible();
+});
+
+test('recurring and calendar tabs list the bills, and a detected payment is kept as a bill', async ({ page }) => {
+  await mockApi(page);
+  await page.goto('/#finance-bills');
+  await page.getByRole('tab', { name: 'Recurring' }).click();
+  await page.getByRole('button', { name: 'Keep as bill' }).click();
+  await expect(page.getByText('NETFLIX.COM saved as a bill.')).toBeVisible();
+  await page.getByRole('tab', { name: 'Calendar' }).click();
+  await expect(page.getByRole('button', { name: /^Rent, AED/ }).first()).toBeVisible();
+});
+
+test('debts and goals: the payoff plan is saved, a goal paused, a payment matched to a debt', async ({ page }) => {
+  const { sent } = await mockApi(page);
+  await page.goto('/#finance-debts');
+  await expect(page.getByRole('heading', { level: 1, name: 'Debts and goals' })).toBeVisible();
+  await expect(page.getByText(/estimates you entered/)).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Your debts' }).getByText('Rewards card')).toBeVisible();
+  await page.getByRole('radio', { name: /Snowball/ }).click();
+  await expect(page.getByRole('radio', { name: /Snowball/ })).toBeChecked();
+  await expect(page.getByText('Plan saved.')).toBeVisible();
+  expect(sent.some((r) => r.path.endsWith('/debt-plan') && (r.body as { plans: { strategy: string }[] }).plans[0].strategy === 'snowball')).toBe(true);
+  await page.getByLabel('Planned monthly payment (AED)').fill('100');
+  await page.getByRole('button', { name: 'Preview plan' }).click();
+  await expect(page.getByText(/less than the minimum payments together/)).toBeVisible();
+  await page.getByLabel('Planned monthly payment (AED)').fill('600');
+  await page.getByRole('button', { name: 'Preview plan' }).click();
+  await expect(page.getByText(/Paid off in \d+ months/)).toBeVisible();
+
+  await page.getByRole('button', { name: 'Pause Emergency fund' }).click();
+  await expect(page.getByText(/Emergency fund is paused/)).toBeVisible();
+  expect(sent.some((r) => r.method === 'PATCH' && (r.body as { paused?: boolean }).paused === true)).toBe(true);
+
+  await page.getByRole('button', { name: 'More actions for Rewards card' }).click();
+  await page.getByRole('button', { name: 'Match a recorded payment' }).click();
+  await page.getByRole('dialog', { name: /Match a payment to Rewards card/ }).getByRole('listitem').filter({ hasText: 'CARD PAYMENT' }).getByRole('button', { name: 'Match' }).click();
+  await expect(page.getByText('Payment matched.')).toBeVisible();
+  await page.getByRole('tab', { name: 'History' }).click();
+  await expect(page.getByRole('region', { name: 'Debt payment history' }).getByRole('row')).toHaveCount(3);
+});
+
+test('the new plan wizard steps through debts, strategy and payment', async ({ page }) => {
+  const { sent } = await mockApi(page);
+  await page.goto('/#finance-debts');
+  await page.getByRole('button', { name: 'New plan wizard' }).click();
+  const wizard = page.getByRole('dialog', { name: 'New plan (AED)' });
+  await expect(wizard.getByText('Rewards card')).toBeVisible();
+  await wizard.getByRole('button', { name: 'Next' }).click();
+  await wizard.getByRole('radio', { name: /Avalanche/ }).check();
+  await wizard.getByRole('button', { name: 'Next' }).click();
+  await wizard.getByLabel('Planned monthly payment (AED)').fill('500');
+  await wizard.getByRole('button', { name: 'Save plan' }).click();
+  await expect(page.getByText('Plan saved.')).toBeVisible();
+  expect(sent.some((r) => r.path.endsWith('/debt-plan') && Number((r.body as { plans: { monthly_payment: string }[] }).plans[0].monthly_payment) === 500)).toBe(true);
+});
+
+test('empty: no bills and no debts lead to adding one', async ({ page }) => {
+  await mockApi(page, { empty: true });
+  await page.goto('/#finance-bills');
+  await expect(page.getByRole('heading', { name: 'No bills due this month' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'No budgets yet' })).toBeVisible();
+  await page.goto('/#finance-debts');
+  await expect(page.getByRole('heading', { name: 'No debts recorded' })).toBeVisible();
+  await page.getByRole('region', { name: 'Your debts' }).getByRole('button', { name: 'Add debt' }).last().click();
+  await expect(page.getByRole('dialog', { name: 'Add debt' }).getByLabel('Starting balance (AED)')).toBeVisible();
+});
+
+test('a failed load says what failed and retries', async ({ page }) => {
+  await mockApi(page, { failSchedule: true });
+  await page.goto('/#finance-bills');
+  await expect(page.getByText(/Bills could not be loaded: The database is not reachable/)).toBeVisible();
+  await page.getByRole('button', { name: 'Try again' }).click();
+  await expect(page.getByRole('region', { name: /Upcoming bills/ })).toBeVisible();
+});
+
+test('Arabic: the pages read right to left with Arabic labels', async ({ page }) => {
+  await useSavedLocale(page, 'ar');
+  await mockApi(page);
+  await page.goto('/#finance-bills');
+  await expect(page.getByRole('heading', { level: 1, name: 'الفواتير والميزانيات' })).toBeVisible();
+  await expect(page.locator('html')).toHaveAttribute('dir', 'rtl');
+  await page.goto('/#finance-debts');
+  await expect(page.getByRole('heading', { level: 1, name: 'الديون والأهداف' })).toBeVisible();
+});
+
+for (const [width, height] of [[1440, 900], [1366, 768], [1024, 768], [768, 1024], [390, 844]] as const) {
+  test(`no horizontal overflow at ${width}x${height}`, async ({ page }) => {
+    await page.setViewportSize({ width, height });
+    await mockApi(page);
+    for (const hash of ['#finance-bills', '#finance-debts']) {
+      await page.goto(`/${hash}`);
+      await expect(page.locator('.fplPage .finKpis')).toBeVisible();
+      const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+      expect(overflow).toBeLessThanOrEqual(0);
+    }
+  });
+}

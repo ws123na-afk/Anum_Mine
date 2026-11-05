@@ -64,7 +64,8 @@ function LineChart({ title, labels, series, currency, digits, summary }: {
           <line className="fplGrid" x1={pad.start} x2={width - pad.end} y1={y(tick * scale)} y2={y(tick * scale)} />
           <text className="fplAxis" x={rtl ? width - 4 : 4} y={y(tick * scale) + 4} textAnchor={rtl ? 'end' : 'start'}>{axisLabel(tick)}</text>
         </g>)}
-        {labels.map((label, i) => (i % every === 0 || i === labels.length - 1) && <text key={label + i} className="fplAxis" x={x(i)} y={height - 8} textAnchor="middle">{label}</text>)}
+        {labels.map((label, i) => ((i % every === 0 && labels.length - 1 - i >= every / 2) || i === labels.length - 1) && <text key={label + i} className="fplAxis" x={x(i)} y={height - 8}
+          textAnchor={i === 0 ? (rtl ? 'end' : 'start') : i === labels.length - 1 ? (rtl ? 'start' : 'end') : 'middle'}>{label}</text>)}
         {series.map((s) => {
           const path = s.values.map((v, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
           return <g key={s.key} className={s.className}>

@@ -110,6 +110,7 @@ test('a statement is previewed with its column mapping, then imported; the impor
 test('a bill is added, a recurring payment is kept as a bill, and a goal shows its progress', async ({ page }) => {
   const { sent } = await mockApi(page);
   await page.goto('/#finance-bills');
+  await page.getByRole('tab', { name: 'Recurring' }).click();
   await page.getByRole('region', { name: 'Recurring payments found' }).getByRole('button', { name: 'Keep as bill' }).click();
   await expect(page.getByText('NETFLIX.COM saved as a bill.')).toBeVisible();
   expect(sent.some((r) => r.method === 'POST' && (r.body as { source?: string }).source === 'detected')).toBe(true);

@@ -136,8 +136,7 @@ export function BillsBudgetsPage({ initial, accounts, base, today, onOpen, onCha
     {notice && <Notice error={notice.error}>{notice.text}</Notice>}
     <div {...tabPanel('fbb', section)}>
       {section === 'bills' && <>
-        <div className="fplColumns wideStart"><div className="fplColumn">{upcoming}</div><div className="fplColumn">{health}</div></div>
-        <div className="fplColumns wideStart"><div className="fplColumn">{rules}</div><div className="fplColumn">{riskBanner}<LinkPayCard /></div></div>
+        <div className="fplColumns wideStart"><div className="fplColumn">{upcoming}{rules}</div><div className="fplColumn">{health}{riskBanner}<LinkPayCard /></div></div>
       </>}
       {section === 'budgets' && <>{riskBanner}<div className="fplColumns"><div className="fplColumn">{health}</div><div className="fplColumn"><LinkPayCard /></div></div>{rules}</>}
       {section === 'recurring' && <RecurringCard bills={bills} accounts={accounts} retry={() => void loadBills()} onAdd={() => setEditing('new')} onEdit={setEditing}
@@ -195,18 +194,17 @@ function UpcomingCard({ rows, month, today, accounts, onAdd, onMatch, onUnmatch,
       : shown.length === 0 ? <p className="muted">{t('fplan.upcoming.noneOnDay')}</p>
       : <div className="finTableWrap" tabIndex={0}><table className="finGrid fplBills">
         <thead><tr><th scope="col">{t('fplan.col.bill')}</th><th scope="col">{t('finance.col.category')}</th><th scope="col">{t('fplan.col.due')}</th><th scope="col" className="num">{t('fplan.col.expected')}</th>
-          <th scope="col">{t('finance.col.account')}</th><th scope="col">{t('fplan.col.status')}</th><th scope="col">{t('fplan.col.recurring')}</th><th scope="col"><span className="visuallyHidden">{t('finance.col.actions')}</span></th></tr></thead>
+          <th scope="col">{t('finance.col.account')}</th><th scope="col">{t('fplan.col.status')}</th><th scope="col"><span className="visuallyHidden">{t('finance.col.actions')}</span></th></tr></thead>
         <tbody>{shown.map((r) => {
           const account = r.account_id ? names.get(r.account_id) : undefined;
           return <tr key={`${r.bill_id}-${r.due_on}`}>
-            <td><strong dir="auto">{r.name}</strong></td>
+            <td><strong dir="auto">{r.name}</strong><small className="fplSub"><Repeat aria-hidden="true" />{t(`finance.cadence.${r.cadence}` as MessageKey)}</small></td>
             <td><span className="fplTag">{categoryLabel(r.category)}</span></td>
             <td><bdi>{longDate(r.due_on)}</bdi></td>
             <td className="num"><Money value={r.expected} currency={r.currency} /></td>
             <td dir="auto">{account ? `${account.name}${account.last4 ? ` (${account.last4})` : ''}` : <span className="muted">{t('fplan.bill.noAccount')}</span>}</td>
             <td><StatusChip tone={statusTone(r.status)}>{t(`fplan.status.${r.status}` as MessageKey)}</StatusChip>
               {r.status === 'paid' && r.paid_amount !== r.expected && <small className="fplPaid" dir="ltr">{formatAmount(r.paid_amount, r.currency)}</small>}</td>
-            <td><span className="fplTag"><Repeat aria-hidden="true" />{t(`finance.cadence.${r.cadence}` as MessageKey)}</span></td>
             <td className="fplActions">
               {r.status === 'paid' || r.status === 'review'
                 ? <button type="button" className="iconButton small" onClick={() => onUnmatch(r)} aria-label={t('fplan.bill.unmatch', { name: r.name })}><Link2 aria-hidden="true" /></button>

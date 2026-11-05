@@ -339,9 +339,9 @@ function GoalsCard({ goals, today, onAdd, onEdit, onPause, onRemove }: {
             <div className="fplRowMain"><strong dir="auto">{g.name}{g.paused && <StatusChip>{t('fplan.goal.paused')}</StatusChip>}</strong>
               <small dir="ltr">{formatAmount(g.saved_amount, g.currency)} / {formatAmount(g.target_amount, g.currency)}</small></div>
             <strong className="fplPercent">{percent}%</strong>
-            <Progress percent={percent} label={t('finance.goals.progressLabel', { name: g.name, percent })} />
             <RowMenu label={t('fplan.menu', { name: g.name })} items={[{ label: t('finance.item.delete', { name: g.name }), onSelect: () => onRemove(g), danger: true }]} />
           </div>
+          <Progress percent={percent} label={t('finance.goals.progressLabel', { name: g.name, percent })} />
           <div className="fplGoalMeta">
             <span><CalendarDays aria-hidden="true" />{t('fplan.goal.monthly')} <strong>{monthly === null ? t('fplan.goal.noPlan') : formatAmount(fromMinor(monthly, g.currency), g.currency)}</strong></span>
             <span><Flag aria-hidden="true" />{t('fplan.goal.due')} <strong>{g.target_on ? longDate(g.target_on) : '-'}</strong></span>
@@ -377,8 +377,8 @@ function CommitmentsCard({ debts, goals, today, currency }: { debts: FinanceDebt
       return <li key={r.key} className="fplRow compact">
         <span className="fplRowIcon" aria-hidden="true"><Icon /></span>
         <div className="fplRowMain"><strong dir="auto">{r.name}</strong><small>{r.kind}</small></div>
-        <strong className="fplAmount" dir="ltr">{money(r.amount, currency)}</strong>
-        {r.due ? <StatusChip tone={daysBetween(today, r.due) <= 7 ? 'warn' : 'muted'}>{t('fplan.due', { date: shortDate(r.due) })}</StatusChip> : <StatusChip>{t('fplan.debt.noDueDay')}</StatusChip>}
+        <div className="fplRowEnd"><strong className="fplAmount" dir="ltr">{money(r.amount, currency)}</strong>
+          {r.due ? <StatusChip tone={daysBetween(today, r.due) <= 7 ? 'warn' : 'muted'}>{t('fplan.due', { date: shortDate(r.due) })}</StatusChip> : <StatusChip>{t('fplan.debt.noDueDay')}</StatusChip>}</div>
       </li>;
     })}</ul>}
   </FinCard>;

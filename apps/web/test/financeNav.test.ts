@@ -13,7 +13,7 @@ describe('finance section nav', () => {
   });
   it('keeps the mockup order of the Finance group', () => {
     const finance = FINANCE_NAV[0].entries.map((e) => (e.kind === 'tab' ? e.tab : e.id));
-    const order = ['overview', 'transactions', 'accounts', 'bills', 'debts', 'goals', 'reports', 'safe', 'guardian'].filter((id) => finance.includes(id as never));
+    const order = ['overview', 'transactions', 'accounts', 'bills', 'budgets', 'debts', 'goals', 'reports', 'safe', 'guardian'].filter((id) => finance.includes(id as never));
     assert.deepEqual(finance, order);
   });
   it('ends with Business Expenses and P&L, a link to the business books', () => {

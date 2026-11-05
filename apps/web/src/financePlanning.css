@@ -2,7 +2,7 @@
    (financeShell.css) and the shared tokens; content-driven heights, no fixed section heights. */
 .fplPage { display: grid; gap: var(--d-s4); min-width: 0; }
 .fplColumns { align-items: start; display: grid; gap: var(--d-s4); grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr); min-width: 0; }
-.fplColumns.wideStart { grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); }
+.fplColumns.wideStart { grid-template-columns: minmax(0, 2.1fr) minmax(0, 1fr); }
 .fplColumn { display: grid; gap: var(--d-s4); min-width: 0; }
 @media (max-width: 1180px) { .fplColumns, .fplColumns.wideStart { grid-template-columns: minmax(0, 1fr); } }
 
@@ -23,7 +23,6 @@
   .fplRow { grid-template-columns: auto minmax(0, 1fr) auto; }
   .fplRowFigure { border: 0; grid-column: 2; padding: 0; }
   .fplRow.compact { grid-template-columns: auto minmax(0, 1fr) auto; }
-  .fplRow.compact .finChip { grid-column: 2; justify-self: start; }
 }
 
 /* the ⋮ menu */
@@ -72,7 +71,7 @@
 .fplGoals { display: grid; gap: var(--d-s2); list-style: none; margin: 0; padding: 0; }
 .fplGoals > li { border: 1px solid var(--d-line); border-radius: var(--d-r-control); display: grid; gap: var(--d-s2); padding: var(--d-s3); }
 .fplGoals > li.paused { background: var(--d-glass-1); }
-.fplGoalTop { align-items: center; display: grid; gap: var(--d-s2) var(--d-s3); grid-template-columns: auto minmax(0, 1fr) auto minmax(80px, 160px) auto; }
+.fplGoalTop { align-items: center; display: grid; gap: var(--d-s2) var(--d-s3); grid-template-columns: auto minmax(0, 1fr) auto auto; }
 .fplPercent { font-size: var(--text-lg); font-variant-numeric: tabular-nums; }
 .fplGoalMeta { align-items: center; color: var(--d-muted); display: flex; flex-wrap: wrap; font-size: var(--text-sm); gap: var(--d-s2) var(--d-s4); }
 .fplGoalMeta > span { align-items: center; display: inline-flex; gap: var(--d-s1); }
@@ -81,8 +80,6 @@
 .fplGoalButtons { margin-inline-start: auto; }
 .fplGoalButtons button { align-items: center; display: inline-flex; gap: var(--d-s1); min-height: 36px; }
 @media (max-width: 640px) {
-  .fplGoalTop { grid-template-columns: auto minmax(0, 1fr) auto auto; }
-  .fplGoalTop .fplBar { grid-column: 1 / -1; grid-row: 2; }
   .fplGoalButtons { margin-inline-start: 0; }
 }
 
@@ -151,7 +148,7 @@
 .fplChecks label { align-items: center; display: inline-flex; font-size: var(--text-sm); gap: var(--d-s1); white-space: nowrap; }
 .fplChecks input { accent-color: var(--d-primary); }
 .fplRules select { min-height: 36px; }
-.fplLinkSteps { display: grid; gap: var(--d-s2); grid-template-columns: repeat(3, minmax(0, 1fr)); list-style: none; margin: 0; padding: 0; }
+.fplLinkSteps { display: grid; gap: var(--d-s2) var(--d-s4); grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); list-style: none; margin: 0; padding: 0; }
 .fplLinkSteps li { align-items: start; border: 1px solid var(--d-line); border-radius: var(--d-r-control); display: grid; gap: var(--d-s2); padding: var(--d-s3); position: relative; }
 .fplLinkSteps li div { display: grid; gap: 2px; }
 .fplLinkSteps small { color: var(--d-muted); }
@@ -180,3 +177,22 @@
 .fplSteps li[aria-current="step"] { background: var(--d-primary); border-color: var(--d-primary); color: var(--d-on-primary); font-weight: 600; }
 .fplSteps li.done { border-color: rgb(var(--c-ok) / .5); color: var(--d-ok); }
 .fplWizard .fplRadios label { border: 1px solid var(--d-line); border-radius: var(--d-r-control); padding: var(--d-s3); }
+
+/* Cards on these pages keep wide tables inside their own scroll area (a grid column sized to its content would push the page sideways). */
+.fplPage .finCard { grid-template-columns: minmax(0, 1fr); }
+.fplPage .finCard > * { min-width: 0; }
+.fplBills td:nth-child(3), .fplBills td:nth-child(4) { white-space: nowrap; }
+.fplRules select { min-width: 84px; }
+/* Visually hidden header text is absolutely placed: keep it inside the table's scroll area. */
+.fplPage .finTableWrap { position: relative; }
+
+.fplRow.compact { grid-template-columns: auto minmax(0, 1fr) auto; }
+.fplRowEnd { display: grid; gap: 4px; justify-items: end; }
+.fplBills th, .fplBills td { padding-inline: var(--d-s2); }
+.fplBills td:nth-child(5) { max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fplPage .finControl select { width: auto; }
+.fplLinkSteps .fplStepArrow { display: none; }
+
+.fplSub { align-items: center; color: var(--d-muted); display: flex; font-size: var(--text-xs); gap: 4px; }
+.fplSub svg { height: 12px; width: 12px; }
+.fplLinkSteps li { grid-template-columns: auto minmax(0, 1fr); }

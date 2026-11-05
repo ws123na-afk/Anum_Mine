@@ -124,6 +124,29 @@ Rule-based only, no AI and no network (`finance/categories.py`): the person's ow
 
 **One total.** With `combine_currencies` on (`PUT /plan`), the response adds `combined` in the base currency when every currency's figure can be converted with a recorded rate no older than `fx_max_age_days` (default 7): each conversion lists the amount, the rate, its date, its source and the shared base of a cross rate (for example USD to AED through EUR). If a rate is missing the status is `missing_rates` with the pairs, and the page points to Connections. Otherwise every figure stays per currency.
 
+## Bills and budgets
+
+Finance, **Bills and budgets** (`#finance-bills`, `#finance-budgets`; web `FinanceBillsBudgets.tsx`, figures in `lib/financeBills.ts`) has the tabs Bills, Budgets, Recurring and Calendar, the scope (Personal only: Business and All finance point to the business books, where business bills and budgets live), the month and Add bill.
+
+- **A bill is a forecast until it is matched.** Each due date of an active bill in the window (`GET /bill-schedule?from&to`, at most 400 days; dates run forward from `next_due_on` and back from it, never before the bill was added) has a status worked out on every read: `paid` only when a recorded payment is matched to that due date, `review` when the match waits for review (the payment was corrected), else `overdue`, `due_soon` (7 days or less) or `planned`. Nothing else marks a bill paid.
+- **Matching** is a [finance link](finance-links.md) in the `bill` dimension: target `finance_bill_due`, id `<bill id>:<YYYY-MM-DD>`, on the payment's `canonical_id`. `GET /payment-candidates?for=bill|debt&around&amount&currency&q` lists the person's own payments from 60 days before to 15 days after the date (money in is never offered), closest in amount first, with what is left to match. `POST /bills/{id}/matches` (`{canonical_id, due_on, amount?}`, optional `Idempotency-Key`) takes the expected amount, at most what is left of the payment; `DELETE /bills/{id}/matches/{link_id}` voids the link. The journal is never written.
+- **Budgets** are the person's Guardian category caps. `GET /budgets?month` gives each cap with what was spent, what is left, `ok`, `near` or `over`, and for the current month where this month's pace ends (`projected`, `projected_over`), plus the day by day spend of the capped categories against the caps together (the chart). A new or changed cap is proposed and confirmed with its code like every rule ([Guardian](#guardian)); removing one waits in Guardian. `PUT /budgets/alerts` keeps, per cap, the alert threshold (50 to 99 percent, default 80) and whether to alert at it and at 100 percent; Guardian's `cap_near` and `cap_over` alerts follow them.
+- The page shows the KPIs (bills this month, due in 7 days or overdue, active budgets, budget remaining, per currency, never added across currencies), the day strip and the bills table, Budget health with the spend chart (a table behind "Show as a table"), the budget most at risk, Budget rules, the Link and pay explainer, the recurring bills (pause, resume, edit, delete, the detected recurring payments to keep) and the month as a calendar.
+
+## Debts and goals
+
+Finance, **Debts and goals** (`#finance-debts`, `#finance-goals`; web `FinanceDebtsGoals.tsx`, the maths in `lib/financeDebtPlan.ts`) has the tabs Debts, Goals, Plan and History, the scope (Personal only), the currency (one plan per currency, never mixed) and the New plan wizard.
+
+- **The plan** (`GET, PUT /debt-plan`, `{plans: [{currency, strategy, monthly_payment}]}`): avalanche (highest rate first) or snowball (smallest balance first), and the monthly payment for all debts of that currency (empty: the minimums only). Stored with the safe-to-spend settings (`finance_plans.debt_plans`) without changing them.
+- **The maths** is pure and runs on the debts as entered: each month a twelfth of the yearly rate on the balance is added (rounded to the minor unit), every debt gets its minimum, the rest of the payment goes in strategy order, and a paid-off debt frees its minimum for the next. It gives the payoff month with the minimums only and with the plan, the interest, the payoff order, the what-if (an extra amount a month: months sooner and interest saved) and the 12-month outlook of total debt and goal savings. A payment below the minimums together is refused; payments that never cover the interest say so instead of a date. The page says plainly that rates and balances are the person's own estimates.
+- **Payoff progress** needs a starting balance: `finance_debts.original_balance` (filled with today's balance when a debt is added on the web; left out of an edit, it is kept; `""` clears it).
+- **Debt payments** are links in the `debt` dimension (target `finance_debt`): `POST /debts/{id}/payments`, `DELETE /debts/{id}/payments/{link_id}`, `GET /debt-payments?debt_id&limit&offset` (date, account, amount, status and what was paid per debt). The balance stays what the person entered: ANUM does not split a payment into interest and principal.
+- **Goals** show progress, the monthly target (the amount set, else what is left over the months left) and the due date. `finance_goals.paused`: a paused goal keeps what is saved, is not set aside by safe to spend (`goal_paused`, under "Not counted") and is left out of the commitments and the outlook. Upcoming commitments list each debt's next minimum payment and the goal contributions for the month.
+
+Code: `finance/commitments.py` (pure figures and the link targets), `finance/commitments_api.py` (routes); migration `0140_finance_debts_bills` (expand only: `paused`, `original_balance`, the two plan columns and the `bill` and `debt` link dimensions); contracts `packages/contracts/src/financePlanning.ts`. Tests: `tests/test_finance_debts_bills.py`, `tests/test_postgres_finance_debts_bills.py`, web `test/financeDebtPlan.test.ts`, `test/financeBills.test.ts`, `e2e/finance-planning.spec.ts`.
+
+Not built yet: bill reminders a set number of days before the due date (a daily job like the purchase reminders: the mockup's Reminder column is left out until it exists), splitting a debt payment into interest and principal, automatic matching without a person's pick, and business bills and budgets on these pages (they are in the business books).
+
 ## Exchange rates
 
 `finance/fx.py`. ANUM never invents a rate. A rate (`finance_fx_rates`) is either:
@@ -201,6 +224,8 @@ All under `/api/v1/finance`, every route checking permissions on the server:
 | `GET, POST /transactions`; `GET, PATCH, DELETE /transactions/{id}`; `GET /transactions/export.csv` (`q`, `account_id`, `category`, `from`, `to`, `direction`, `limit`, `offset`) | read for GET, manage otherwise |
 | `POST /imports/preview`, `POST /imports`, `GET /imports`, `DELETE /imports/{id}` | manage (GET: read) |
 | `GET /bills/upcoming?days=`, `GET /bills/suggestions` | `finance:read` |
+| `GET /bill-schedule`, `/payment-candidates`, `/debt-payments`, `/debt-plan`, `/budgets` | `finance:read` |
+| `POST, DELETE /bills/{id}/matches`, `/debts/{id}/payments`; `PUT /debt-plan`, `/budgets/alerts` | `finance:manage` |
 | `GET, POST /bills`, `/debts`, `/goals`, `/holdings`; `GET, PATCH, DELETE /<kind>/{id}` | read for GET, manage otherwise |
 | `GET /safe-to-spend`, `GET /plan`; `PUT /plan` | read; manage |
 | `GET /guardian`, `GET /guardian/versions?limit=&offset=`, `GET /guardian/alerts?month=`, `GET /guardian/changes?status=`, `POST /guardian/evaluate` | `finance:read` |
