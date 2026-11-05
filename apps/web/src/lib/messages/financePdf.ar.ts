@@ -41,6 +41,7 @@ export const financePdfAr: Record<keyof typeof financePdfEn, Message> = {
   'fpdf.mapping.title': 'الأعمدة الموجودة في ملف PDF',
   'fpdf.mapping.help': 'إن بدت المبالغ خاطئة، حدّد محتوى كل عمود واقرأ الملف مجددًا.',
   'fpdf.mapping.lines': 'لم يُعثر على عناوين أعمدة (أو أن الصفحات ممسوحة ضوئيًا)، فقرأ ANUM كل سطر: آخر مبلغ هو الرصيد والذي قبله مبلغ المعاملة. صحّح أي صف في الأسفل.',
+  'fpdf.mapping.column': 'العمود {label}',
   'fpdf.mapping.reread': 'اقرأ مجددًا',
   'fpdf.mapping.oneDate': 'اختر عمود تاريخ واحدًا فقط.',
   'fpdf.mapping.money': 'اختر عمودًا واحدًا على الأقل للمبالغ.',

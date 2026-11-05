@@ -41,6 +41,7 @@ export const financePdfEn = {
   'fpdf.mapping.title': 'Columns found in the PDF',
   'fpdf.mapping.help': 'If amounts look wrong, say what each column holds and read the PDF again.',
   'fpdf.mapping.lines': 'No column headers were found (or the pages are scanned), so ANUM read each line: the last amount is the balance and the one before it the transaction. Fix any row below.',
+  'fpdf.mapping.column': 'Column {label}',
   'fpdf.mapping.reread': 'Read again',
   'fpdf.mapping.oneDate': 'Pick exactly one date column.',
   'fpdf.mapping.money': 'Pick at least one money column.',

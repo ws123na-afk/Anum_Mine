@@ -155,7 +155,7 @@ export function PdfStatementImport({ file, account, onImported, onCancel }: {
       <p className="muted">{view.layout === 'table' ? t('fpdf.mapping.help') : t('fpdf.mapping.lines')}</p>
       <div className="cmFilters">
         {view.layout === 'table' && view.columns.map((column, index) => <label key={column.index} className="cmInline"><span dir="auto">{column.label}</span>
-          <select value={roles[index] ?? 'skip'} onChange={(e) => setRoles((current) => current.map((role, i) => (i === index ? e.target.value as FinancePdfRole : role)))}>
+          <select aria-label={t('fpdf.mapping.column', { label: column.label })} value={roles[index] ?? 'skip'} onChange={(e) => setRoles((current) => current.map((role, i) => (i === index ? e.target.value as FinancePdfRole : role)))}>
             {PDF_ROLES.map((role) => <option key={role} value={role}>{roleLabel(role)}</option>)}
           </select></label>)}
         <label className="cmInline"><span>{t('fpdf.dateFormat')}</span>
