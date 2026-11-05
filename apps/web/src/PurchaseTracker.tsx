@@ -122,7 +122,7 @@ export function TrackerTable({ page, selected, onSelect, onOpenFull, caption, co
   columns?: 'tracker' | 'deliveries' | 'warranty';
 }) {
   const [menu, setMenu] = useState<string | null>(null);
-  return <div className="finTableWrap">
+  return <div className="finTableWrap" tabIndex={0}>
     <table className="finGrid purTracker">
       <caption className="visuallyHidden">{caption}<span id="pur-open-hint">{t('pur.row.hint')}</span></caption>
       <thead><tr>

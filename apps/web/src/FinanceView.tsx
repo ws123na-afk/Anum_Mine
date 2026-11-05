@@ -27,10 +27,7 @@ import { ExecutionPanel, TradingPanel } from './FinanceTrading';
 import { IntelPanel } from './FinanceIntel';
 import { PageHeader, PageSummary, useMediaQuery, type Crumb } from './PageParts';
 import { FinanceSectionNav } from './FinanceShell';
-<<<<<<< HEAD
-=======
 import { OWN_HEAD_TABS } from './lib/financeNav';
->>>>>>> origin/main
 import './commerce.css';
 import './finance.css';
 

@@ -177,7 +177,7 @@ function ReturnsPanel({ onOpen, onDenied }: { onOpen: (id: string) => void; onDe
     {page.kind === 'error' && <LoadError message={t('pur.error.load', { message: page.message })} retry={() => void load()} />}
     {page.kind === 'ready' && page.value.total === 0 && <Empty icon={<Undo2 aria-hidden="true" />} title={t('pur.returns.empty')} text={t('pur.returns.emptyText')} />}
     {page.kind === 'ready' && page.value.total > 0 && <>
-      <div className="finTableWrap"><table className="finGrid purTracker">
+      <div className="finTableWrap" tabIndex={0}><table className="finGrid purTracker">
         <caption className="visuallyHidden">{t('pur.returns.title')}</caption>
         <thead><tr><th scope="col">{t('pur.col.seller')}</th><th scope="col">{t('pur.col.requested')}</th><th scope="col">{t('pur.col.reason')}</th>
           <th scope="col">{t('pur.col.status')}</th><th scope="col">{t('pur.col.refundMatch')}</th><th scope="col" className="num">{t('pur.col.expectedRefund')}</th>

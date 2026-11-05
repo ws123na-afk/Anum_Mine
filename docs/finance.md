@@ -254,12 +254,6 @@ Every Finance page uses the same shell (`apps/web/src/FinanceShell.tsx`, styles 
 - `PeriodPicker({ month, onChange, max?, min? })`: previous, the month, next.
 - `FinanceTabs({ label, items, value, onChange, idPrefix })` with `tabPanel(idPrefix, value)` for the panel: WAI-ARIA tabs with the green underline and arrow keys (mirrored in Arabic).
 - `KpiRow({ label })` with `KpiCard({ icon, label, value, hint?, delta?, deltaText?, tone? })` and `DeltaChip`: `delta(current, previous, higherIsBetter)` from `lib/financeNav.ts` gives the direction, the percentage (none from a zero base, never an invented one) and green or red.
-<<<<<<< HEAD
-- `FinCard({ title, icon?, subtitle?, actions? })`, `FinBanner({ tone: 'warn' | 'ok' | 'info', title?, action? })` and `StatusChip({ tone })`, plus the `finGrid` table class (light header row) inside `finTableWrap`.
-
-Props only gain optional members, so pages built on the shell keep working. Labels are in `lib/messages/financeShell.{en,ar}.ts`.
-
-=======
 - `FinCard({ title, icon?, subtitle?, actions? })`, `FinBanner({ tone: 'warn' | 'ok' | 'info', title?, action? })` and `StatusChip({ tone })`, plus the `finGrid` table class (light header row) inside `<div className="finTableWrap" tabIndex={0}>` (focusable, so a keyboard can scroll a wide table).
 
 Props only gain optional members, so pages built on the shell keep working. Labels are in `lib/messages/financeShell.{en,ar}.ts`.
@@ -277,7 +271,6 @@ Props only gain optional members, so pages built on the shell keep working. Labe
 
 `#finance-safe` (`apps/web/src/FinanceSafePage.tsx`): the estimate banner; account balance, bills and minimum payments, goals and buffer and the estimated safe amount; the transparent calculation (balance less bills less goals and buffer equals the estimate, from `GET /finance/safe-to-spend`); the runway to the month end (start from the balance after goals and buffer, each bill taken off on its due day from `GET /finance/bills/upcoming`, and the average daily spend of the last 30 days from two month summaries; the band is that pace 10% higher or lower, stated as an assumption); review and assumptions with Edit assumptions (the buffer and currency settings) and Refresh; upcoming commitments; spending guardrails (the Guardian monthly category limits against this month's spending); a stale notice when the newest transaction is more than three days old, with Import a statement; the Guardian rules in words with Review rules and Open Guardian; the full build per currency underneath. Business scope says the estimate is personal (the books hold no bank balances) and shows the business budgets and their use. Rules shows the Guardian rules and this month's alerts. Not built from the mockup: a scenario planner, rule toggles on this page (rules change only through the Guardian review with its code) and per-account selection (the API counts every bank and cash account).
 
->>>>>>> origin/main
 ## Owner actions
 
 - **Exchange rates:** connect the ECB reference rates under Finance, Connections (no account needed). For background refresh set `ANUM_FINANCE_SYNC_ENABLED=true` and allow HTTPS egress to `www.ecb.europa.eu`.

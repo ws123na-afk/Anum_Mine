@@ -357,7 +357,7 @@ function DocumentsTab({ meta, tick, focus, onFocus, onChanged, onAdd, status, ex
           : filters.sort === 'expiry'
             ? <Empty icon={<CalendarClock aria-hidden="true" />} title={t('vault.sort.expiryNone')} text={t('vault.sort.expiryNoneText')} />
             : <Empty icon={<FileText aria-hidden="true" />} title={t('vault.list.empty')} text={t('vault.list.emptyText')} action={meta?.can_write ? <button type="button" onClick={onAdd}><Plus aria-hidden="true" />{t('vault.add')}</button> : undefined} />)}
-      {load.state === 'ready' && items.length > 0 && <div className="finTableWrap"><table className="finGrid vaultTable">
+      {load.state === 'ready' && items.length > 0 && <div className="finTableWrap" tabIndex={0}><table className="finGrid vaultTable">
         <caption className="visuallyHidden">{title}</caption>
         <thead><tr>
           <th scope="col">{t('vault.col.title')}</th><th scope="col" className="vaultOpt">{t('vault.col.linked')}</th><th scope="col">{t('vault.field.category')}</th>
@@ -867,7 +867,7 @@ function AccessTab({ meta }: { meta: VaultMeta | null }) {
   return <div className="vaultTwo">
     <div className="vaultStack">
       <FinCard title={t('vault.who.title')} icon={<Users />} subtitle={meta.can_manage ? t('vault.who.youOwner') : meta.can_write ? t('vault.who.youMember') : t('vault.who.youViewer')}>
-        <div className="finTableWrap"><table className="finGrid">
+        <div className="finTableWrap" tabIndex={0}><table className="finGrid">
           <caption className="visuallyHidden">{t('vault.who.title')}</caption>
           <thead><tr><th scope="col">{t('vault.who.action')}</th><th scope="col">{t('vault.who.viewer')}</th><th scope="col">{t('vault.who.member')}</th><th scope="col">{t('vault.who.owner')}</th></tr></thead>
           <tbody>{rows.map(([label, ...cells]) => <tr key={label}><th scope="row">{t(label)}</th>{cells.map((c, i) => <td key={i}>{t(c)}</td>)}</tr>)}</tbody>
