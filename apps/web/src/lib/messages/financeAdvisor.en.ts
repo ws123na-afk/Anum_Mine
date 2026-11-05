@@ -12,7 +12,6 @@ export const financeAdvisorEn = {
   'fadv.onlyAdvises.text': 'It never moves money, pays a bill or touches a bank or card. Every figure comes from your own records and is an estimate, not a forecast.',
   'fadv.loading': 'Loading your money note...',
   'fadv.error': 'Your money note could not be loaded: {message}',
-  'fadv.week': 'Week',
   'fadv.weekOf': 'Week of {date}',
   'fadv.generatedAt': 'Worked out {time}',
   'fadv.viewingPast': 'You are looking at the note for the week of {date}.',

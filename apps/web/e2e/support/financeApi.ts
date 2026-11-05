@@ -3,6 +3,7 @@
 // round amounts, never real account numbers.
 import { equityBody } from './financeEquity';
 import { reportDetail, reportList } from './financeReports';
+import { advisorReply, advisorState, type AdvisorState } from './financeAdvisor';
 const now = new Date();
 const pad = (n: number) => String(n).padStart(2, '0');
 const isoDay = (d: Date) => `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
@@ -13,6 +14,8 @@ const stamp = now.toISOString();
 export interface FinanceState {
   /** How many post-close daily reports the mocked API has (none unless a spec sets it). */
   reports?: number;
+  /** The Money advisor's notes and switches (one note unless a spec sets its own). */
+  advisor?: AdvisorState;
   settings: { base_currency: string; timezone: string; category_rules: { match: string; category: string }[]; updated_at: string | null };
   accounts: Record<string, unknown>[];
   transactions: Record<string, unknown>[];
@@ -517,6 +520,7 @@ export function financeReply(state: FinanceState, method: string, url: URL, body
   if (state.denied) return denied;
   const ok = (value: unknown, status = 200) => ({ status, body: value });
   const sub = path.slice('/api/v1/finance'.length);
+  if (sub.startsWith('/advisor')) return advisorReply((state.advisor ??= advisorState(1)), method, url, body);
   const stages = financeStagesReply(state, method, sub, body, url);
   if (stages) return stages;
   const equity = /^\/intel\/portfolios\/([^/]+)\/equity$/.exec(sub);

@@ -66,7 +66,7 @@ export function FinanceAdvisorPage({ onOpen }: { onOpen: (tab: FinanceTab) => vo
     actions={overview.kind === 'ready' ? <button type="button" onClick={() => void generate()} disabled={busy} aria-busy={busy || undefined}>
       <RefreshCw aria-hidden="true" />{busy ? t('fadv.generating') : t('fadv.generate')}</button> : undefined}
     controls={shown ? <>
-      <div className="finControl"><span className="finControlLabel">{t('fadv.week')}</span>
+      <div className="finControl">
         <strong className="finStaticPeriod">{t('fadv.weekOf', { date: isolate(day(shown.week_start)) })}</strong>
         <small className="muted">{t('fadv.generatedAt', { time: formatDateTime(shown.generated_at) })}</small></div>
       {note && note.currencies.length > 1 && <label className="finControl"><span className="finControlLabel">{t('fadv.currency')}</span>
