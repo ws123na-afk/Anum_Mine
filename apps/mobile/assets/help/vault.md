@@ -27,7 +27,7 @@ The Document vault keeps important papers in one place. A new document is **Priv
 
 1. A workspace owner turns scanning on in **Settings**: receipts and invoices, and separately the dates of IDs, passports and insurance.
 2. Add a receipt, or open one and click **Read with scanning**.
-3. Open **To review**. Check each proposed value, correct it if needed, then click **Confirm values** or **Reject**. Nothing is saved until you confirm, and a receipt never adds an expense on its own.
+3. Open **Review queue**. Check each proposed value, correct it if needed, then click **Confirm values** or **Reject**. Nothing is saved until you confirm, and a receipt never adds an expense on its own.
 
 ## Share, link and delete
 
