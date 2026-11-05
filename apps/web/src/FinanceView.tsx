@@ -13,7 +13,7 @@ import type {
 } from '@anum/contracts';
 import * as api from './lib/financeApi';
 import {
-  FINANCE_TABS, amountTone, isolate, categoryLabel, checkFile, dueLabel, formatAmount, formatAmounts, hashForTab, isLast4, monthLabel, parseAmount, pickAmount,
+  amountTone, isolate, categoryLabel, checkFile, dueLabel, formatAmount, formatAmounts, hashForTab, isLast4, monthLabel, parseAmount, pickAmount,
   rangeLabel, shiftMonth, spendBars, spendCurrencies, tabFromHash, type FinanceTab,
 } from './lib/finance';
 import { describeError, isPermissionDenied } from './lib/errors';
@@ -26,6 +26,7 @@ import { ConnectionsPanel, GuardianPanel, SafeToSpendCard, SafeToSpendPanel, rea
 import { ExecutionPanel, TradingPanel } from './FinanceTrading';
 import { IntelPanel } from './FinanceIntel';
 import { PageHeader, PageSummary, useMediaQuery, type Crumb } from './PageParts';
+import { FinanceSectionNav } from './FinanceShell';
 import './commerce.css';
 import './finance.css';
 
@@ -106,9 +107,7 @@ export function FinanceView() {
   return <div className="cmLayout finLayout">
     {header}
     <PageSummary label={t('finance.summary.label')} figures={figures} footer={<p className="muted finReadOnly">{t('finance.readOnly')}</p>} />
-    <nav className="settingsTabs cmTabs" aria-label={t('finance.tabs')}>
-      {FINANCE_TABS.map((id) => <button key={id} type="button" aria-current={tab === id ? 'page' : undefined} onClick={() => pick(id)}>{t(`finance.tab.${id}` as MessageKey)}</button>)}
-    </nav>
+    <FinanceSectionNav tab={tab} onPick={pick} />
     {noAccounts && tab !== 'accounts' && <section className="surface cmPanel cmWelcome" aria-labelledby="fin-welcome">
       <Wallet aria-hidden="true" />
       <div><h2 id="fin-welcome">{t('finance.welcome.title')}</h2><p className="muted">{t('finance.welcome.text')}</p>
