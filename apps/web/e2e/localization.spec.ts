@@ -260,7 +260,8 @@ test('Finance reads in Arabic, right to left, with dates and amounts kept left t
   // Stages 3 to 5: safe to spend, the Guardian rules and connections, also right to left.
   for (const [hash, heading] of [['finance-safe', 'المتاح للصرف'], ['finance-guardian', 'الحارس المالي'], ['finance-connections', 'اتصالاتك'], ['finance-trading', 'التداول التجريبي'], ['finance-execution', 'مفاتيح الإيقاف']] as const) {
     await page.goto(`/#${hash}`);
-    await expect(page.getByRole('heading', { level: 2, name: heading })).toBeVisible();
+    // Guardian now draws its own page head (an h1); the other sections keep their h2.
+    await expect(page.getByRole('heading', { level: hash === 'finance-guardian' ? 1 : 2, name: heading })).toBeVisible();
     expect(await noHorizontalOverflow(page)).toBe(true);
   }
 });
