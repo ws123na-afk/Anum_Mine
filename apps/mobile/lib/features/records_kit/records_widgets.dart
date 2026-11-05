@@ -454,6 +454,21 @@ class ModuleStrings {
     return (arabic ? ar : en)[key] ?? en[key] ?? value.replaceAll('_', ' ');
   }
 
+  /// A count of days with its noun: "1 day", "3 days"; in Arabic
+  /// "يوم واحد", "يومان", "3 أيام", "11 يومًا", "100 يوم".
+  String days(int count) {
+    final n = count.abs();
+    if (!arabic) return n == 1 ? '1 day' : '$n days';
+    return switch (AnumLocalizations.arabicPluralForm(n)) {
+      'zero' => '0 يوم',
+      'one' => 'يوم واحد',
+      'two' => 'يومان',
+      'few' => '$n أيام',
+      'many' => '$n يومًا',
+      _ => '$n يوم',
+    };
+  }
+
   static bool match(Map<String, String> en, Map<String, String> ar) =>
       en.keys.toSet().difference(ar.keys.toSet()).isEmpty &&
       ar.keys.toSet().difference(en.keys.toSet()).isEmpty;

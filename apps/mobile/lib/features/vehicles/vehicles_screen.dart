@@ -298,8 +298,8 @@ String dueLabel(BuildContext context, VehicleDue due) {
     when = days == 0
         ? s.t('dueToday')
         : days < 0
-            ? s.t('dueOverdue', {'days': -days})
-            : s.t('dueIn', {'days': days});
+            ? s.t('dueOverdue', {'days': s.days(-days)})
+            : s.t('dueIn', {'days': s.days(days)});
   } else if (due.kmLeft != null) {
     final km = due.kmLeft!;
     when = km.startsWith('-')

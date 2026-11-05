@@ -21,6 +21,15 @@ String categoryLabel(BuildContext context, VaultMeta? meta, String id) {
   return text == key ? s.t('cat.unknown') : text;
 }
 
+/// "passport (version 1).pdf": an older version's file name, so a saved
+/// copy never overwrites the current one.
+String versionName(String name, int version) {
+  final dot = name.lastIndexOf('.');
+  return dot > 0
+      ? '${name.substring(0, dot)} (version $version)${name.substring(dot)}'
+      : '$name (version $version)';
+}
+
 /// The expiry badge: never by colour alone, the words say it.
 ({String text, AnumTone tone}) expiryBadge(
     BuildContext context, VaultDocument d) {
@@ -28,12 +37,13 @@ String categoryLabel(BuildContext context, VaultMeta? meta, String id) {
   final days = d.daysLeft ?? 0;
   return switch (d.expiryState) {
     'expired' => (
-        text: s.t('state.expired', {'days': days.abs()}),
+        text: s.t('state.expired', {'days': s.days(days.abs())}),
         tone: AnumTone.stop
       ),
     'soon' => (
-        text:
-            days == 0 ? s.t('state.today') : s.t('state.soon', {'days': days}),
+        text: days == 0
+            ? s.t('state.today')
+            : s.t('state.soon', {'days': s.days(days)}),
         tone: AnumTone.warn
       ),
     'valid' => (text: s.t('state.valid'), tone: AnumTone.ok),
@@ -182,20 +192,24 @@ class _VaultList extends StatelessWidget {
           initial: list.query,
           hint: s.t('search'),
           onSearch: (q) => list.load(query: q)),
-      DropdownButtonFormField<String>(
-        key: const Key('vault-category'),
-        initialValue: c.category,
-        isExpanded: true,
-        decoration: InputDecoration(labelText: s.t('category')),
-        items: [
-          DropdownMenuItem(value: '', child: Text(s.t('allCategories'))),
-          for (final category in meta.categories)
-            DropdownMenuItem(
-                value: category.id,
-                child: Text(categoryLabel(context, meta, category.id),
-                    overflow: TextOverflow.ellipsis)),
-        ],
-        onChanged: (value) => c.filterBy(category: value ?? ''),
+      // Keyed by the filter, so clearing the filters resets the field too.
+      KeyedSubtree(
+        key: ValueKey('category-${c.category}'),
+        child: DropdownButtonFormField<String>(
+          key: const Key('vault-category'),
+          initialValue: c.category,
+          isExpanded: true,
+          decoration: InputDecoration(labelText: s.t('category')),
+          items: [
+            DropdownMenuItem(value: '', child: Text(s.t('allCategories'))),
+            for (final category in meta.categories)
+              DropdownMenuItem(
+                  value: category.id,
+                  child: Text(categoryLabel(context, meta, category.id),
+                      overflow: TextOverflow.ellipsis)),
+          ],
+          onChanged: (value) => c.filterBy(category: value ?? ''),
+        ),
       ),
       Wrap(spacing: AnumSpacing.xs, runSpacing: AnumSpacing.xs, children: [
         for (final e in ['', 'soon', 'expired'])
@@ -724,8 +738,10 @@ class _VaultDocumentHostState extends State<VaultDocumentHost> {
                             ? _run(() => _c.restoreVersion(v.id),
                                 s.t('versionRestored'))
                             : _run(
-                                () => _c.repository.save(d.id,
-                                    '${file?.name ?? d.title} (v${v.version})',
+                                () => _c.repository.save(
+                                    d.id,
+                                    versionName(
+                                        file?.name ?? d.title, v.version),
                                     versionId: v.id),
                                 s.t('saved')),
                         itemBuilder: (_) => [

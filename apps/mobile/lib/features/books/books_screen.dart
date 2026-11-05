@@ -411,7 +411,7 @@ class _BillsView extends StatelessWidget {
                   if (bill.reference.isNotEmpty) bill.reference,
                 ].join(' · '),
                 detail: bill.overdue
-                    ? b.t('overdueDays', {'days': bill.daysOverdue})
+                    ? b.t('overdueDays', {'days': b.days(bill.daysOverdue)})
                     : b.t('due', {'date': recordsDate(context, bill.dueDate)}),
                 trailing: const Icon(Icons.chevron_right),
                 onTap: () => _open(context, bill),
@@ -568,7 +568,8 @@ class _BillScreenState extends State<BillScreen> {
                       tone: billTone(bill)),
                   if (bill.overdue)
                     AnumPill(
-                        label: b.t('overdueDays', {'days': bill.daysOverdue}),
+                        label: b.t(
+                            'overdueDays', {'days': b.days(bill.daysOverdue)}),
                         tone: AnumTone.stop),
                   if (bill.recurrence != null)
                     AnumPill(label: b.label('recurrence', bill.recurrence!)),

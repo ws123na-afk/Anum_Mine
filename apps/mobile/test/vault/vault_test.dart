@@ -344,6 +344,8 @@ void main() {
       await tapVisible(tester, find.byKey(const Key('doc-vdoc_1')));
       expect(find.text('•••• 1234'), findsOneWidget);
       expect(find.text('Version 1, 195 KB'), findsOneWidget);
+      expect(const VaultStrings(true).days(2), 'يومان');
+      expect(const VaultStrings(false).days(1), '1 day');
       await tapVisible(tester, find.byKey(const Key('vault-reveal')));
       expect(find.byKey(const Key('vault-number')), findsOneWidget);
       expect(find.text('X1234'), findsOneWidget);
@@ -414,6 +416,8 @@ void main() {
       expect(find.text('Nothing matches'), findsOneWidget);
       await tapVisible(tester, find.text('Clear filters'));
       expect(find.text('Passport'), findsWidgets);
+      expect(find.text('All categories'), findsOneWidget);
+      expect(versionName('passport.pdf', 1), 'passport (version 1).pdf');
     });
 
     testWidgets('empty vault offers to add; an empty trash says so',

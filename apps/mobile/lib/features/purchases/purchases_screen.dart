@@ -33,8 +33,8 @@ String purchaseDue(BuildContext context, PurchaseDue due) {
   final what = s.label('due', due.kind);
   if (due.daysLeft == 0) return s.t('dueToday', {'what': what});
   return due.daysLeft < 0
-      ? s.t('dueLate', {'what': what, 'days': -due.daysLeft})
-      : s.t('dueIn', {'what': what, 'days': due.daysLeft});
+      ? s.t('dueLate', {'what': what, 'days': s.days(-due.daysLeft)})
+      : s.t('dueIn', {'what': what, 'days': s.days(due.daysLeft)});
 }
 
 String moneyLink(BuildContext context, PurchaseMoneyLink? link) {

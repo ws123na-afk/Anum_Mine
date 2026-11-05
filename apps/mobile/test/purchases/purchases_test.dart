@@ -337,7 +337,7 @@ void main() {
       final fake = PurchasesApi();
       await pumpPurchases(tester, fake);
       expect(find.text('Noon'), findsOneWidget);
-      expect(find.textContaining('Delivery expected in 1 days'), findsWidgets);
+      expect(find.textContaining('Delivery expected in 1 day'), findsWidgets);
       await tapVisible(tester, find.byKey(const Key('purchase-pur_1')));
       expect(find.text('2 × Phone case'), findsOneWidget);
       expect(find.text('Ordered → Shipped'), findsOneWidget);
