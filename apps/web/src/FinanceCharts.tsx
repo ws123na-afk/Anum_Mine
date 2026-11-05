@@ -1,115 +1,165 @@
-// Charts for Finance Holdings and the paper trading lab (docs/finance.md#holdings). Plain SVG at the card's real
-// width: a value line with a hover crosshair and a table view, an allocation donut with its legend, and a small
-// sparkline. Lazy with the pages that use them; no chart library.
-import { useEffect, useId, useState, type KeyboardEvent, type PointerEvent } from 'react';
-import { labelIndices, nearest, plot, sparkline as sparkPath, donut as donutPaths, type Box } from './lib/financeCharts';
-import type { Slice } from './lib/financeHoldings';
-import { t } from './lib/i18n';
+// Finance charts (docs/finance.md#reports): plain SVG, no chart library, loaded only with the Reports
+// and Safe to spend pages. One y axis each; a legend, a hover and focus tooltip, and the same figures as
+// a table for screen readers and print. Colours come from --fin-chart-* (financeShell.css), validated
+// for colour vision deficiency in both themes.
+import { useId, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
+import { formatAmount, monthLabel } from './lib/finance';
+import type { MonthFlow, RunwayPoint } from './lib/financeStatements';
+import { formatDateTime, t } from './lib/i18n';
+import './financeCharts.css';
 
-export function useWidth(): [(node: HTMLDivElement | null) => void, number] {
-  const [node, setNode] = useState<HTMLDivElement | null>(null), [width, setWidth] = useState(0);
-  useEffect(() => {
-    if (!node) return undefined;
-    const update = () => setWidth(Math.floor(node.getBoundingClientRect().width));
-    update();
-    const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(update) : null;
-    observer?.observe(node);
-    return () => observer?.disconnect();
-  }, [node]);
-  return [setNode, width];
+const H = 260, PAD = { top: 16, right: 16, bottom: 30, left: 64 };
+
+/** The plot's width in CSS pixels, so text keeps its size on phones (a viewBox would shrink it). */
+function useWidth(): [RefObject<HTMLDivElement | null>, number] {
+  const ref = useRef<HTMLDivElement>(null);
+  const [width, setWidth] = useState(720);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return undefined;
+    // Measure before the first paint, so the chart never draws wider than its card.
+    setWidth(Math.max(300, Math.round(el.getBoundingClientRect().width)));
+    if (typeof ResizeObserver === 'undefined') return undefined;
+    const observer = new ResizeObserver(([entry]) => setWidth(Math.max(300, Math.round(entry.contentRect.width))));
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+  return [ref, width];
 }
 
-export interface LinePoint { label: string; value: number | null; short?: string }
-
-/** One series over time (a single series: the title names it, so no legend box). Hover or arrow keys move the
- * crosshair; "Show as table" lists the same figures. Gaps stay gaps. */
-export function LineChart({ points, format, axis, label, height = 220, tableCaption, testId, compare, seriesLabel }: {
-  points: LinePoint[]; format: (value: number) => string; axis: (value: number) => string; label: string; height?: number; tableCaption: string; testId?: string;
-  /** An optional second series on the same scale (dashed), named in a legend; one axis only. */
-  compare?: { values: (number | null)[]; label: string }; seriesLabel?: string;
-}) {
-  const [ref, width] = useWidth();
-  const [active, setActive] = useState<number | null>(null), [table, setTable] = useState(false);
-  const descId = useId();
-  const axisWidth = Math.max(44, ...points.filter((p) => p.value !== null).map((p) => axis(p.value as number).length * 7 + 8));
-  const box: Box = { width: Math.max(width, 200), height, left: axisWidth, right: 12, top: 12, bottom: 28 };
-  const plotted = plot(points.map((p) => p.value), box, compare?.values ?? []);
-  const second = compare && compare.values.some((v) => v !== null) ? plot(compare.values, box, points.map((p) => p.value)) : null;
-  const hover = active === null ? null : plotted.points.find((p) => p.index === active) ?? null;
-  const last = plotted.points[plotted.points.length - 1] ?? null;
-  const move = (event: PointerEvent<SVGSVGElement>) => {
-    const rect = event.currentTarget.getBoundingClientRect();
-    const x = ((event.clientX - rect.left) / rect.width) * box.width;
-    setActive(nearest(plotted.points, x)?.index ?? null);
-  };
-  const keys = (event: KeyboardEvent<SVGSVGElement>) => {
-    if (!plotted.points.length) return;
-    const at = plotted.points.findIndex((p) => p.index === active);
-    const forward = event.key === 'ArrowRight' ? 1 : event.key === 'ArrowLeft' ? -1 : 0;
-    if (!forward) return;
-    event.preventDefault();
-    const step = forward;
-    const next = at < 0 ? (step > 0 ? 0 : plotted.points.length - 1) : Math.min(plotted.points.length - 1, Math.max(0, at + step));
-    setActive(plotted.points[next].index);
-  };
-  const xLabels = labelIndices(points.length, Math.max(2, Math.min(6, Math.floor((box.width - box.left - box.right) / 96))));
-  const known = points.filter((p) => p.value !== null);
-  const summary = known.length ? t('fholdings.chart.summary', { first: known[0].label, last: known[known.length - 1].label, from: format(known[0].value as number), to: format(known[known.length - 1].value as number) }) : '';
-  return <div className="finLine" data-testid={testId}>
-    <div ref={ref} className="finLinePlot" dir="ltr">
-      {width > 0 && <svg width={box.width} height={box.height} viewBox={`0 0 ${box.width} ${box.height}`} role="img" aria-label={label} aria-describedby={descId} tabIndex={0}
-        onPointerMove={move} onPointerLeave={() => setActive(null)} onKeyDown={keys} onBlur={() => setActive(null)} className="finLineSvg">
-        <desc id={descId}>{summary}</desc>
-        <g className="finLineGrid" aria-hidden="true">
-          {plotted.ticks.map((tick) => <g key={tick.value}><line x1={box.left} x2={box.width - box.right} y1={tick.y} y2={tick.y} />
-            <text x={box.left - 8} y={tick.y} dy="0.32em" textAnchor="end">{axis(tick.value)}</text></g>)}
-          {xLabels.map((i) => {
-            const x = points.length <= 1 ? (box.left + box.width - box.right) / 2 : box.left + (i * (box.width - box.left - box.right)) / (points.length - 1);
-            const anchor = i === 0 ? 'start' : i === points.length - 1 ? 'end' : 'middle';
-            return <text key={i} x={x} y={box.height - 8} textAnchor={anchor}>{points[i].short ?? points[i].label}</text>;
-          })}
-        </g>
-        <path d={plotted.area} className="finLineArea" aria-hidden="true" />
-        {second && <path d={second.line} className="finLineCompare" aria-hidden="true" data-testid="lab-benchmark-line" />}
-        <path d={plotted.line} className="finLineLine" aria-hidden="true" />
-        {last && !hover && <circle cx={last.x} cy={last.y} r={4} className="finLineDot" aria-hidden="true" />}
-        {hover && <g aria-hidden="true"><line x1={hover.x} x2={hover.x} y1={box.top} y2={plotted.baseY} className="finLineCross" /><circle cx={hover.x} cy={hover.y} r={5} className="finLineDot" /></g>}
-      </svg>}
-      {hover && width > 0 && <div className="finLineTip" role="status" style={{ insetInlineStart: `${Math.min(Math.max(hover.x - 70, 0), box.width - 150)}px` }}>
-        <span>{points[hover.index].label}</span><strong dir="ltr">{format(hover.value)}</strong>
-        {second && compare && compare.values[hover.index] !== null && <span>{compare.label}: <bdi dir="ltr">{format(compare.values[hover.index] as number)}</bdi></span>}</div>}
-    </div>
-    {second && compare && <ul className="finLineLegend"><li><span className="finKeyLine" aria-hidden="true" />{seriesLabel ?? label}</li><li><span className="finKeyDash" aria-hidden="true" />{compare.label}</li></ul>}
-    <button type="button" className="cmLinkButton finLineToggle" aria-expanded={table} onClick={() => setTable((v) => !v)}>{t(table ? 'fholdings.chart.hideTable' : 'fholdings.chart.showTable')}</button>
-    {table && <div className="cmTableWrap finLineTable" tabIndex={0}><table className="cmTable finTable">
-      <caption className="visuallyHidden">{tableCaption}</caption>
-      <thead><tr><th scope="col">{t('fholdings.chart.date')}</th><th scope="col" className="num">{seriesLabel ?? t('fholdings.chart.value')}</th>{compare && <th scope="col" className="num">{compare.label}</th>}</tr></thead>
-      <tbody>{points.map((p, i) => <tr key={`${p.label}-${i}`}><th scope="row">{p.label}</th><td className="num" dir="ltr">{p.value === null ? '-' : format(p.value)}</td>
-        {compare && <td className="num" dir="ltr">{compare.values[i] === null || compare.values[i] === undefined ? '-' : format(compare.values[i] as number)}</td>}</tr>)}</tbody>
-    </table></div>}
-  </div>;
+/** Round axis ticks that cover [min, max], zero included. */
+export function ticks(min: number, max: number, count = 5): number[] {
+  const lo = Math.min(0, min), hi = Math.max(0, max);
+  if (lo === hi) return [0, 1];
+  const raw = (hi - lo) / count;
+  const power = 10 ** Math.floor(Math.log10(raw));
+  const step = [1, 2, 2.5, 5, 10].map((m) => m * power).find((s) => s >= raw) ?? raw;
+  const out: number[] = [];
+  for (let v = Math.floor(lo / step) * step; v <= hi + step * 0.001; v += step) out.push(Math.round(v * 1e6) / 1e6);
+  if (out[out.length - 1] < hi) out.push(out[out.length - 1] + step);
+  return out;
 }
 
-/** Allocation: a donut (the centre shows the total) and a legend with each share, so colour is never alone. */
-export function Donut({ slices, total, totalLabel, format, label }: { slices: Slice[]; total: string; totalLabel: string; format: (slice: Slice) => string; label: string }) {
-  const size = 168, paths = donutPaths(slices.map((s) => s.value), size / 2, size / 2, size / 2 - 2, size / 2 - 30);
-  return <div className="finDonut">
-    <div className="finDonutRing">
-      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} role="img" aria-label={label}>
-        {paths.map((d, i) => <path key={slices[i].key} d={d} className={`finSeries finSeries-${slices[i].key === 'other' ? 'other' : i + 1}`} />)}
+const compact = (value: number, currency: string) => {
+  const abs = Math.abs(value);
+  const text = abs >= 1_000_000 ? `${Math.round(value / 100_000) / 10}M` : abs >= 1000 ? `${Math.round(value / 100) / 10}K` : String(Math.round(value));
+  return `${currency} ${text}`;
+};
+
+function Legend({ items }: { items: { key: string; label: string; swatch: 'income' | 'expense' | 'net' | 'band' | 'pace' }[] }) {
+  return <ul className="finLegend">{items.map((item) => <li key={item.key}><span className={`finSwatch ${item.swatch}`} aria-hidden="true" />{item.label}</li>)}</ul>;
+}
+
+function Tooltip({ at, width, children }: { at: { x: number; y: number } | null; width: number; children: ReactNode }) {
+  if (!at) return null;
+  return <div className="finTooltip" role="status" style={{ left: `${Math.min(Math.max(at.x, 80), width - 80)}px`, top: `${at.y}px` }}>{children}</div>;
+}
+
+/** Income and expenses as bars per month with the net result as a line, on one money axis. */
+export function FlowChart({ rows, currency, title, highlight }: { rows: readonly MonthFlow[]; currency: string; title: string; highlight?: string }) {
+  const [active, setActive] = useState<number | null>(null);
+  const [plotRef, W] = useWidth();
+  const tableId = useId();
+  const values = rows.flatMap((r) => [Number(r.income), Number(r.expenses), Number(r.net)]);
+  const axis = ticks(Math.min(...values, 0), Math.max(...values, 0));
+  const lo = axis[0], hi = axis[axis.length - 1];
+  const plotW = W - PAD.left - PAD.right, plotH = H - PAD.top - PAD.bottom;
+  const y = (v: number) => PAD.top + plotH - ((v - lo) / (hi - lo)) * plotH;
+  const band = plotW / Math.max(1, rows.length);
+  const barW = Math.min(36, band * 0.3);
+  const cx = (i: number) => PAD.left + band * i + band / 2;
+  const netPath = rows.map((r, i) => `${i ? 'L' : 'M'}${cx(i)},${y(Number(r.net))}`).join(' ');
+  const bar = (v: number, x: number, cls: string) => {
+    const top = Math.min(y(v), y(0)), height = Math.max(1, Math.abs(y(v) - y(0)));
+    return <rect className={cls} x={x} y={top} width={barW} height={height} rx={Math.min(4, barW / 2)} />;
+  };
+  const r = active === null ? null : rows[active];
+  return <figure className="finFigure">
+    <Legend items={[{ key: 'i', label: t('frep.chart.income'), swatch: 'income' }, { key: 'e', label: t('frep.chart.expenses'), swatch: 'expense' }, { key: 'n', label: t('frep.chart.net'), swatch: 'net' }]} />
+    <div className="finPlot" ref={plotRef}>
+      <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} role="img" aria-label={title} aria-describedby={tableId} onMouseLeave={() => setActive(null)}>
+        {axis.map((v) => <g key={v}><line className={v === 0 ? 'finAxisZero' : 'finGridLine'} x1={PAD.left} x2={W - PAD.right} y1={y(v)} y2={y(v)} />
+          <text className="finTick" x={PAD.left - 8} y={y(v) + 4} textAnchor="end" direction="ltr">{compact(v, currency)}</text></g>)}
+        {rows.map((row, i) => <g key={row.month} className={`finBarGroup ${active === i ? 'active' : ''} ${highlight === row.month ? 'current' : ''}`}>
+          {highlight === row.month && <rect className="finBandHighlight" x={cx(i) - band / 2 + 4} y={PAD.top} width={band - 8} height={plotH} rx={6} />}
+          {bar(Number(row.income), cx(i) - barW - 1, 'finBarIncome')}
+          {bar(Number(row.expenses), cx(i) + 1, 'finBarExpense')}
+          <text className="finTick finMonthTick" x={cx(i)} y={H - 10} textAnchor="middle">{formatDateTime(`${row.month}-15T12:00:00Z`, { month: W < 560 ? 'short' : 'long', timeZone: 'UTC' })}</text>
+          <rect className="finHit" x={cx(i) - band / 2} y={PAD.top} width={band} height={plotH} onMouseEnter={() => setActive(i)} />
+        </g>)}
+        <path className="finNetLine" d={netPath} />
+        {rows.map((row, i) => <circle key={row.month} className="finNetDot" cx={cx(i)} cy={y(Number(row.net))} r={4} />)}
       </svg>
-      <div className="finDonutCenter"><strong dir="ltr">{total}</strong><small>{totalLabel}</small></div>
+      <Tooltip width={W} at={r && active !== null ? { x: cx(active), y: PAD.top } : null}>{r && <>
+        <strong>{monthLabel(r.month)}</strong>
+        <span>{t('frep.chart.income')}: <bdi>{formatAmount(r.income, currency)}</bdi></span>
+        <span>{t('frep.chart.expenses')}: <bdi>{formatAmount(r.expenses, currency)}</bdi></span>
+        <span>{t('frep.chart.net')}: <bdi>{formatAmount(r.net, currency)}</bdi></span>
+      </>}</Tooltip>
     </div>
-    <ul className="finLegend" aria-label={t('fholdings.allocation.legend')}>
-      {slices.map((s, i) => <li key={s.key}><span className={`finSwatch finSeries-${s.key === 'other' ? 'other' : i + 1}`} aria-hidden="true" />
-        <span className="finLegendName"><bdi>{s.label}</bdi></span><span className="finLegendValue" dir="ltr">{s.share.toFixed(1)}%</span>
-        <span className="visuallyHidden">{format(s)}</span></li>)}
-    </ul>
-  </div>;
+    <details className="finChartTable"><summary>{t('frep.chart.table')}</summary>
+      <table id={tableId} className="finGrid"><caption className="visuallyHidden">{title}</caption>
+        <thead><tr><th scope="col">{t('frep.col.month')}</th><th scope="col" className="num">{t('frep.chart.income')}</th><th scope="col" className="num">{t('frep.chart.expenses')}</th><th scope="col" className="num">{t('frep.chart.net')}</th></tr></thead>
+        <tbody>{rows.map((row) => <tr key={row.month}><th scope="row">{monthLabel(row.month)}</th><td className="num"><bdi>{formatAmount(row.income, currency)}</bdi></td>
+          <td className="num"><bdi>{formatAmount(row.expenses, currency)}</bdi></td><td className="num"><bdi>{formatAmount(row.net, currency)}</bdi></td></tr>)}</tbody>
+      </table>
+    </details>
+  </figure>;
 }
 
-export function Sparkline({ values, tone, label }: { values: number[]; tone: 'up' | 'down' | 'flat'; label: string }) {
-  const d = sparkPath(values, 72, 24);
-  if (!d) return <span className="muted finSparkNone">-</span>;
-  return <svg width={72} height={24} viewBox="0 0 72 24" className={`finSpark finSpark-${tone}`} role="img" aria-label={label}><path d={d} /></svg>;
+/**
+ * The month's runway: the estimated balance day by day (a line), a band for spending 10% above or
+ * below the daily pace, each bill marked on its due day with its name and amount, and the month-end
+ * estimate labelled. One money axis.
+ */
+export function RunwayChart({ points, currency, perDay, title, variability = 0.1 }: { points: readonly RunwayPoint[]; currency: string; perDay: string; title: string; variability?: number }) {
+  const [active, setActive] = useState<number | null>(null);
+  const [plotRef, W] = useWidth();
+  const tableId = useId();
+  const pace = Number(perDay);
+  const spread = (i: number) => pace * i * variability;
+  const values = points.flatMap((p, i) => [Number(p.balance) - spread(i), Number(p.balance) + spread(i)]);
+  const axis = ticks(Math.min(...values), Math.max(...values));
+  const lo = axis[0], hi = axis[axis.length - 1];
+  const plotW = W - PAD.left - PAD.right, plotH = H - PAD.top - PAD.bottom;
+  const x = (i: number) => PAD.left + (points.length > 1 ? (plotW * i) / (points.length - 1) : plotW / 2);
+  const y = (v: number) => PAD.top + plotH - ((v - lo) / (hi - lo)) * plotH;
+  const line = points.map((p, i) => `${i ? 'L' : 'M'}${x(i)},${y(Number(p.balance))}`).join(' ');
+  const bandPath = points.length ? `${points.map((p, i) => `${i ? 'L' : 'M'}${x(i)},${y(Number(p.balance) + spread(i))}`).join(' ')} ${[...points].reverse().map((p, k) => {
+    const i = points.length - 1 - k; return `L${x(i)},${y(Number(p.balance) - spread(i))}`;
+  }).join(' ')} Z` : '';
+  const labelEvery = Math.max(1, Math.ceil(points.length / 6));
+  const last = points[points.length - 1];
+  const p = active === null ? null : points[active];
+  return <figure className="finFigure">
+    <Legend items={[{ key: 'b', label: t('fsafe.chart.balance'), swatch: 'income' }, { key: 'u', label: t('fsafe.chart.band', { percent: Math.round(variability * 100) }), swatch: 'band' }]} />
+    <div className="finPlot" ref={plotRef}>
+      <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} role="img" aria-label={title} aria-describedby={tableId} onMouseLeave={() => setActive(null)}>
+        {axis.map((v) => <g key={v}><line className={v === 0 ? 'finAxisZero' : 'finGridLine'} x1={PAD.left} x2={W - PAD.right} y1={y(v)} y2={y(v)} />
+          <text className="finTick" x={PAD.left - 8} y={y(v) + 4} textAnchor="end" direction="ltr">{compact(v, currency)}</text></g>)}
+        <path className="finRunwayBand" d={bandPath} />
+        <path className="finRunwayLine" d={line} />
+        {points.map((pt, i) => <g key={pt.day}>
+          {i % labelEvery === 0 && <text className="finTick" x={x(i)} y={H - 10} textAnchor="middle">{formatDateTime(`${pt.day}T12:00:00Z`, { day: 'numeric', month: 'short', timeZone: 'UTC' })}</text>}
+          {pt.bills.length > 0 && <><circle className="finBillDot" cx={x(i)} cy={y(Number(pt.balance))} r={5} />
+            <text className="finBillLabel" x={x(i)} y={Math.max(12, y(Number(pt.balance)) - 10)} textAnchor="middle">{pt.bills.map((b) => b.name).join(', ').slice(0, 24)}</text></>}
+          <rect className="finHit" x={x(i) - plotW / Math.max(2, points.length) / 2} y={PAD.top} width={plotW / Math.max(1, points.length)} height={plotH} onMouseEnter={() => setActive(i)} />
+        </g>)}
+        {last && <><circle className="finNetDot" cx={x(points.length - 1)} cy={y(Number(last.balance))} r={4} />
+          <text className="finEndLabel" x={x(points.length - 1) - 6} y={y(Number(last.balance)) + 18} textAnchor="end" direction="ltr">{formatAmount(last.balance, currency)}</text></>}
+      </svg>
+      <Tooltip width={W} at={p && active !== null ? { x: x(active), y: PAD.top } : null}>{p && <>
+        <strong>{formatDateTime(`${p.day}T12:00:00Z`, { day: 'numeric', month: 'long', timeZone: 'UTC' })}</strong>
+        <span>{t('fsafe.chart.balance')}: <bdi>{formatAmount(p.balance, currency)}</bdi></span>
+        {p.bills.map((b) => <span key={b.name}>{b.name}: <bdi>{formatAmount(b.amount, currency)}</bdi></span>)}
+      </>}</Tooltip>
+    </div>
+    <details className="finChartTable"><summary>{t('frep.chart.table')}</summary>
+      <table id={tableId} className="finGrid"><caption className="visuallyHidden">{title}</caption>
+        <thead><tr><th scope="col">{t('fsafe.col.day')}</th><th scope="col" className="num">{t('fsafe.chart.balance')}</th><th scope="col">{t('fsafe.col.bills')}</th></tr></thead>
+        <tbody>{points.map((pt) => <tr key={pt.day}><th scope="row"><bdi>{pt.day}</bdi></th><td className="num"><bdi>{formatAmount(pt.balance, currency)}</bdi></td>
+          <td>{pt.bills.map((b) => `${b.name} ${formatAmount(b.amount, currency)}`).join(', ') || '-'}</td></tr>)}</tbody>
+      </table>
+    </details>
+  </figure>;
 }

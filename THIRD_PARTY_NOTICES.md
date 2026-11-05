@@ -13,7 +13,7 @@ Apps: `api` services/api (FastAPI image, also the worker), `browser` services/ap
 
 ## Python packages (PyPI)
 
-74 components.
+75 components.
 
 | Component | License | Used in | Source |
 |---|---|---|---|
@@ -59,6 +59,7 @@ Apps: `api` services/api (FastAPI image, also the worker), `browser` services/ap
 | opentelemetry-semantic-conventions | Apache-2.0 | api, browser | <https://github.com/open-telemetry/opentelemetry-python> |
 | opentelemetry-util-http | Apache-2.0 | api, browser | <https://github.com/open-telemetry/opentelemetry-python-contrib> |
 | packaging | Apache-2.0 OR BSD-2-Clause | api, browser | <https://github.com/pypa/packaging> |
+| pdfminer-six | MIT | api, browser | <https://github.com/pdfminer/pdfminer.six> |
 | pillow | MIT-CMU | api, browser | <https://github.com/python-pillow/Pillow> |
 | playwright | Apache-2.0 | browser | <https://github.com/Microsoft/playwright-python> |
 | protobuf | BSD-3-Clause | api, browser | <https://developers.google.com/protocol-buffers> |

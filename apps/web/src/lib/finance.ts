@@ -7,7 +7,7 @@ import type {
 import { getLocale, intlLocale, t, type Locale, type MessageKey } from './i18n.ts';
 
 export type FinanceTab = 'overview' | 'ledger' | 'safe' | 'reports' | 'transactions' | 'accounts' | 'import' | 'bills' | 'debts' | 'goals' | 'holdings' | 'guardian' | 'connections' | 'trading' | 'intel' | 'execution' | 'ibkr' | 'research' | 'sms';
-export const FINANCE_TABS: readonly FinanceTab[] = ['overview', 'ledger', 'safe', 'transactions', 'accounts', 'import', 'bills', 'debts', 'goals', 'holdings', 'guardian', 'connections', 'sms', 'trading', 'intel', 'execution', 'ibkr', 'research'];
+export const FINANCE_TABS: readonly FinanceTab[] = ['overview', 'ledger', 'safe', 'transactions', 'accounts', 'import', 'bills', 'debts', 'goals', 'reports', 'holdings', 'guardian', 'connections', 'sms', 'trading', 'intel', 'execution', 'ibkr', 'research'];
 
 const THREE = new Set(['BHD', 'IQD', 'JOD', 'KWD', 'LYD', 'OMR', 'TND']);
 const ZERO = new Set(['JPY', 'KRW', 'VND', 'CLP', 'ISK', 'UGX', 'XAF', 'XOF']);
@@ -109,9 +109,14 @@ export function hashForTab(tab: FinanceTab): string {
   return tab === 'overview' ? '#finance' : `#finance-${tab}`;
 }
 
-/** Read a picked file as text, refusing anything over the API's size limit before it is sent. */
+/** The API's cap on a statement PDF (docs/finance.md#pdf-statements). */
+export const PDF_STATEMENT_MAX_BYTES = 10_000_000;
+
+/** Check a picked statement before it is sent: a CSV within the API's limit, or a PDF within its own. */
 export function checkFile(file: { name: string; size: number }, maxBytes: number): Checked<true> {
+  const pdf = /\.pdf$/i.test(file.name);
   if (file.size === 0) return { ok: false, error: t('finance.import.error.empty') };
+  if (pdf) return file.size > PDF_STATEMENT_MAX_BYTES ? { ok: false, error: t('fpdf.error.size', { mb: PDF_STATEMENT_MAX_BYTES / 1_000_000 }) } : { ok: true, value: true };
   if (file.size > maxBytes) return { ok: false, error: t('finance.import.error.size', { mb: Math.floor(maxBytes / 1_000_000) }) };
   if (!/\.(csv|txt)$/i.test(file.name)) return { ok: false, error: t('finance.import.error.type') };
   return { ok: true, value: true };

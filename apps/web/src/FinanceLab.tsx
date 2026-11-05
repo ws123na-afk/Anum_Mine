@@ -27,7 +27,7 @@ import { Modal } from './Dialog';
 import { Denied, Empty, LoadError, Notice, failed, type Load } from './FinanceParts';
 import { IntelPanel } from './FinanceIntel';
 import { KillSwitches, OrderForm, PaperHoldings, ReviewIntent, TradingPanel } from './FinanceTrading';
-import { Donut, LineChart } from './FinanceCharts';
+import { Donut, LineChart } from './FinanceLabCharts';
 import { benchmarkValues } from './lib/financeEquity';
 import { FinBanner, FinCard, FinanceTabs, FinancePageHead, KpiCard, KpiRow, StatusChip, tabPanel } from './FinanceShell';
 import { viewLabel } from './lib/shell';

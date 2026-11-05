@@ -19,7 +19,7 @@ import { describeError } from './lib/errors';
 import { formatDateTime, t, type MessageKey } from './lib/i18n';
 import { ConfirmDialog, Modal } from './Dialog';
 import { Denied, Empty, FormActions, FormError, LoadError, Notice, failed, type Load } from './FinanceParts';
-import { Donut, LineChart, Sparkline } from './FinanceCharts';
+import { Donut, LineChart, Sparkline } from './FinanceLabCharts';
 import { FinBanner, FinCard, FinanceTabs, FinancePageHead, KpiCard, KpiRow, StatusChip, tabPanel } from './FinanceShell';
 import { delta } from './lib/financeNav';
 import { viewLabel } from './lib/shell';
