@@ -113,8 +113,12 @@ test('assign from a desk: the URL stays in the office and the new task appears o
   await expect(d).toContainText('Task created: Check the spare tyres');
   expect(assign.posts('/api/v1/office/assignments')[0].body).toMatchObject({ agent_id: 'agent_fleet', source: 'desk', run: true });
   await stayed(page);
+  // The confirmation toast waits for the dialog: on a phone the dialog is a bottom sheet and the toast covered its Close button.
+  const toast = page.locator('.hqAsToast');
+  await expect(toast).toHaveCount(0);
   // The desk's own work record (read again after the assignment) lists it in the side panel, beside the scene.
   await d.getByRole('button', { name: 'Close' }).last().click();
+  await expect(toast).toContainText('Check the spare tyres');
   await expect(hq(page).locator('.hqSide .hqTaskList').first()).toContainText('Check the spare tyres', { timeout: 10_000 });
   await page.getByRole('button', { name: /Live flow/ }).first().click();
   await expect(page.locator('.hqFlowDock').getByRole('listitem').filter({ hasText: 'Check the spare tyres' })).toBeVisible({ timeout: 10_000 });

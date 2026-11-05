@@ -50,7 +50,10 @@ export function AssignHost({ seatedAgentIds, onAssigned, onChanged, live }: Assi
       setAssignHostMounted(false);
     };
   }, [show]);
-  useEffect(() => { if (!toast) return; const id = setTimeout(() => setToast(null), 12000); return () => clearTimeout(id); }, [toast]);
+  // The dialog shows the same confirmation with its own "Open the task" while it is open, and on a phone it is a bottom sheet the toast would
+  // cover (its Close button sat under the toast): the toast waits for the dialog to close, and its 12 s start only once it is on screen.
+  const toastShown = toast !== null && prefill === null;
+  useEffect(() => { if (!toastShown) return; const id = setTimeout(() => setToast(null), 12000); return () => clearTimeout(id); }, [toastShown, toast]);
 
   const closeDialog = useCallback(() => setPrefill(null), []);
   const closePanel = useCallback(() => setPanel(null), []);
@@ -71,7 +74,7 @@ export function AssignHost({ seatedAgentIds, onAssigned, onChanged, live }: Assi
       {panel.kind === 'meeting' && <MeetingPanel key={key} meetingId={panel.id} roomId={panel.roomId} onClose={closePanel} />}
       {panel.kind === 'agent' && <AgentWorkPanel key={key} agentId={panel.id} name={panel.name} live={live} onClose={closePanel} />}
     </Suspense>}
-    {toast && createPortal(<div className="hqAsToast" dir={locale === 'ar' ? 'rtl' : 'ltr'} role="status">
+    {toast && toastShown && createPortal(<div className="hqAsToast" dir={locale === 'ar' ? 'rtl' : 'ltr'} role="status">
       <span dir="auto">{t('hqAssign.toast', { title: toast.title, name: toast.name })}</span>
       <button type="button" onClick={() => { show({ kind: 'task', id: toast.taskId }, toast.name); setToast(null); }}>{t('hqAssign.done.openTask')}</button>
       <button type="button" className="hqAsX" aria-label={t('hqAssign.toast.dismiss')} onClick={() => setToast(null)}><X size={14} aria-hidden="true" /></button>

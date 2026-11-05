@@ -236,7 +236,7 @@ export function HqStage(props: Props) {
           if (modelsChanged) lastModelSig.current = modelSig;
           if (s && (s.frames === 1 || s.frames % 10 === 0 || modelsChanged || s.glassPlan !== (canvas.current?.dataset.glassPlan ?? '')) && canvas.current) {
             canvas.current.dataset.drawMs = s.avgDrawMs.toFixed(2);
-            canvas.current.dataset.triangles = String(Math.round(s.triangles));
+            canvas.current.dataset.triangles = String(Math.round(s.triangles - (s.shadowTriangles ?? 0)));
             canvas.current.dataset.drawn = String(s.drawn);
             canvas.current.dataset.culled = String(s.culled);
             canvas.current.dataset.dpr = s.dpr.toFixed(2);
@@ -261,11 +261,12 @@ export function HqStage(props: Props) {
             canvas.current.dataset.modelLoadMs = String(s.models.loadMs);
             canvas.current.dataset.modelFallbacks = s.models.fallbacks.join(',');
           }
-          // What this frame drew, on every frame where it changed: `data-triangles` is never an earlier frame's count, and `data-scene-settled`
+          // What this frame drew, on every frame where it changed: `data-triangles` is never an earlier frame's count (and leaves out a shadow map
+          // refresh, which only some frames of the same scene draw, so two reads of one scene agree), and `data-scene-settled`
           // is true from the first frame that draws the final scene (no lazy part pending in the view, the scene effect chunks loaded, and the
           // scene the view holds now is the one handed to the renderer).
           if (s && canvas.current) {
-            const tri = String(Math.round(s.triangles));
+            const tri = String(Math.round(s.triangles - (s.shadowTriangles ?? 0)));
             if (canvas.current.dataset.triangles !== tri) canvas.current.dataset.triangles = tri;
             const settled = String(propsRef.current.sceneSettled !== false && s.sceneFx === 'ready' && propsRef.current.scene !== null && shownScene.current === propsRef.current.scene);
             if (canvas.current.dataset.sceneSettled !== settled) canvas.current.dataset.sceneSettled = settled;

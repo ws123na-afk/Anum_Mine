@@ -60,33 +60,42 @@ for (const [w, h] of SIZES) {
   });
 }
 
-test('the quality pin sets the tier; a pinned software rasteriser gets baked occlusion but no campus detail; a bad pin is ignored', async ({ page }) => {
-  await page.setViewportSize({ width: 800, height: 600 });
-  await open(page, '3');
-  await expect.poll(() => tier(page), { timeout: 180_000 }).toBe('3');
-  await expect.poll(() => fx(page), { timeout: 180_000 }).toContain('ao');
-  expect(await canvas(page).getAttribute('data-shadow')).toBe('2048');
-  // Roof detail and contact discs are for hardware: a software rasteriser never draws them, pinned or not.
-  expect(await fx(page)).not.toMatch(/contact|gtao|pbr|agx/);
-  // The first builds are temporary (the campus plan kit, the billboards and the effect chunks come later): compare the settled scenes only.
-  await sceneSettled(page, 180_000);
-  const withAo = Number(await canvas(page).getAttribute('data-triangles'));
+test.describe('quality pin', () => {
+  // The pin, the tier and the baked occlusion do not depend on the pixel ratio, and the check sets a desktop size itself. A pinned Ultra tier
+  // draws at the full ratio with shadows and glow: the mobile project's ratio 2 (Pixel 7) is four times the pixels on a software rasteriser,
+  // where every frame then held the page for seconds and the test, and the workers beside it, ran out of time in CI.
+  test.use({ deviceScaleFactor: 1 });
+  test('the quality pin sets the tier; a pinned software rasteriser gets baked occlusion but no campus detail; a bad pin is ignored', async ({ page }) => {
+    await page.setViewportSize({ width: 800, height: 600 });
+    await open(page, '3');
+    await expect.poll(() => tier(page), { timeout: 180_000 }).toBe('3');
+    await expect.poll(() => fx(page), { timeout: 180_000 }).toContain('ao');
+    expect(await canvas(page).getAttribute('data-shadow')).toBe('2048');
+    // Roof detail and contact discs are for hardware: a software rasteriser never draws them, pinned or not.
+    expect(await fx(page)).not.toMatch(/contact|gtao|pbr|agx/);
+    // The first builds are temporary (the campus plan kit, the billboards and the effect chunks come later): compare the settled scenes only.
+    await sceneSettled(page, 180_000);
+    const withAo = Number(await canvas(page).getAttribute('data-triangles'));
+    // Let go of this page's WebGL context before the next campus is built: a pinned Ultra tier keeps drawing, and two such scenes on one
+    // software rasteriser slow the second build and every worker beside it.
+    await page.goto('about:blank');
 
-  const second = await page.context().newPage();
-  await second.setViewportSize({ width: 800, height: 600 });
-  await open(second, '3', 'ao');
-  await expect.poll(() => tier(second), { timeout: 180_000 }).toBe('3');
-  expect(await fx(second)).not.toMatch(/ao/);
-  await sceneSettled(second, 180_000);
-  // Baked occlusion cuts the wide walls, so the same scene has more triangles with it.
-  expect(Number(await canvas(second).getAttribute('data-triangles'))).toBeLessThan(withAo);
-  await second.close();
+    const second = await page.context().newPage();
+    await second.setViewportSize({ width: 800, height: 600 });
+    await open(second, '3', 'ao');
+    await expect.poll(() => tier(second), { timeout: 180_000 }).toBe('3');
+    expect(await fx(second)).not.toMatch(/ao/);
+    await sceneSettled(second, 180_000);
+    // Baked occlusion cuts the wide walls, so the same scene has more triangles with it.
+    expect(Number(await canvas(second).getAttribute('data-triangles'))).toBeLessThan(withAo);
+    await second.close();
 
-  const bad = await page.context().newPage();
-  await bad.setViewportSize({ width: 800, height: 600 });
-  await open(bad, 'banana');
-  await expect.poll(() => tier(bad), { timeout: 180_000 }).toBe('0');
-  await bad.close();
+    const bad = await page.context().newPage();
+    await bad.setViewportSize({ width: 800, height: 600 });
+    await open(bad, 'banana');
+    await expect.poll(() => tier(bad), { timeout: 180_000 }).toBe('0');
+    await bad.close();
+  });
 });
 
 test('pin 4 asks for the photographic extension on the ultra tier (checked at its start: the chunk loads, the pin is not read as a bad value)', async ({ page }) => {
