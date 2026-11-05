@@ -13,7 +13,7 @@ import type {
 } from '@anum/contracts';
 import * as api from './lib/financeApi';
 import {
-  FINANCE_TABS, PDF_STATEMENT_MAX_BYTES, amountTone, isolate, categoryLabel, checkFile, dueLabel, formatAmount, formatAmounts, hashForTab, isLast4, monthLabel, parseAmount, pickAmount,
+  PDF_STATEMENT_MAX_BYTES, amountTone, isolate, categoryLabel, checkFile, dueLabel, formatAmount, formatAmounts, hashForTab, isLast4, monthLabel, parseAmount, pickAmount,
   rangeLabel, shiftMonth, spendBars, spendCurrencies, tabFromHash, type FinanceTab,
 } from './lib/finance';
 import { describeError, isPermissionDenied } from './lib/errors';
@@ -24,10 +24,12 @@ import { figure, type Figure } from './lib/pageSummary';
 import { viewLabel } from './lib/shell';
 import { ConfirmDialog, Modal } from './Dialog';
 import { Denied, Empty, FormActions, FormError, LoadError, Money, Notice, failed, type Load } from './FinanceParts';
-import { ConnectionsPanel, GuardianPanel, SafeToSpendCard, SafeToSpendPanel, reasonText } from './FinancePlan';
+import { ConnectionsPanel, GuardianPanel, SafeToSpendCard, reasonText } from './FinancePlan';
 import { ExecutionPanel, TradingPanel } from './FinanceTrading';
 import { IntelPanel } from './FinanceIntel';
 import { PageHeader, PageSummary, useMediaQuery, type Crumb } from './PageParts';
+import { FinanceSectionNav } from './FinanceShell';
+import { OWN_HEAD_TABS } from './lib/financeNav';
 import './commerce.css';
 import './finance.css';
 
@@ -41,6 +43,9 @@ const SmsPanel = lazy(() => import('./FinanceSms').then((m) => ({ default: m.Sms
 const LedgerPanel = lazy(() => import('./FinanceSms').then((m) => ({ default: m.LedgerPanel })));
 const PdfStatementImport = lazy(() => import('./FinancePdfImport').then((m) => ({ default: m.PdfStatementImport })));
 const PdfTemplates = lazy(() => import('./FinancePdfImport').then((m) => ({ default: m.PdfTemplates })));
+// Pages with their own head (lib/financeNav.ts OWN_HEAD_TABS, docs/finance.md#finance-shell), each its own lazy chunk.
+const ReportsPage = lazy(() => import('./FinanceReportsPage').then((m) => ({ default: m.FinanceReportsPage })));
+const SafePage = lazy(() => import('./FinanceSafePage').then((m) => ({ default: m.FinanceSafePage })));
 const KINDS: FinanceAccountKind[] = ['bank', 'card', 'cash', 'loan', 'investment'];
 const CADENCES: FinanceCadence[] = ['monthly', 'weekly', 'quarterly', 'yearly', 'once'];
 const DEBT_KINDS: FinanceDebtKind[] = ['loan', 'card', 'mortgage', 'other'];
@@ -84,6 +89,16 @@ export function FinanceView() {
   useEffect(() => { void loadAccounts(); }, [loadAccounts]);
   const refresh = () => { void loadSummary(); void loadAccounts(); };
 
+  if (OWN_HEAD_TABS.has(tab)) {
+    return <div className="cmLayout finLayout finOwnHead">
+      <FinanceSectionNav tab={tab} onPick={pick} />
+      <Suspense fallback={<Notice busy>{t('finance.loading')}</Notice>}>
+        {tab === 'reports' && <ReportsPage onOpen={pick} />}
+        {tab === 'safe' && <SafePage onOpen={pick} onChanged={refresh} />}
+      </Suspense>
+    </div>;
+  }
+
   const crumbs: Crumb[] = [{ label: viewLabel('home'), href: '#home' }, { label: viewLabel('finance'), href: '#finance', onClick: () => pick('overview') }];
   if (tab !== 'overview') crumbs.push({ label: t(`finance.tab.${tab}` as MessageKey) });
   const header = <PageHeader title={viewLabel('finance')} subtitle={t('finance.subtitle')} crumbs={tab === 'overview' ? undefined : crumbs} actions={summary.kind === 'ready' ? <>
@@ -110,9 +125,7 @@ export function FinanceView() {
   return <div className="cmLayout finLayout">
     {header}
     <PageSummary label={t('finance.summary.label')} figures={figures} footer={<p className="muted finReadOnly">{t('finance.readOnly')}</p>} />
-    <nav className="settingsTabs cmTabs" aria-label={t('finance.tabs')}>
-      {FINANCE_TABS.map((id) => <button key={id} type="button" aria-current={tab === id ? 'page' : undefined} onClick={() => pick(id)}>{t(`finance.tab.${id}` as MessageKey)}</button>)}
-    </nav>
+    <FinanceSectionNav tab={tab} onPick={pick} />
     {noAccounts && tab !== 'accounts' && <section className="surface cmPanel cmWelcome" aria-labelledby="fin-welcome">
       <Wallet aria-hidden="true" />
       <div><h2 id="fin-welcome">{t('finance.welcome.title')}</h2><p className="muted">{t('finance.welcome.text')}</p>
@@ -120,7 +133,6 @@ export function FinanceView() {
     </section>}
     {accounts.kind === 'error' && <LoadError message={t('finance.error.accounts', { message: accounts.message })} retry={() => void loadAccounts()} />}
     {tab === 'overview' && <Overview summary={s} month={month ?? s.month} onMonth={setMonth} onOpen={pick} />}
-    {tab === 'safe' && <SafeToSpendPanel onOpen={pick} onChanged={onChanged} />}
     {tab === 'guardian' && <GuardianPanel base={base} />}
     {tab === 'connections' && <ConnectionsPanel />}
     {tab === 'trading' && <TradingPanel base={base} onOpen={pick} />}

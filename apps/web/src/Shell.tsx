@@ -92,7 +92,8 @@ export function Sidebar({ view, views, pendingApprovals, stream, lastEvent, work
     {ICONS[id]}<span>{viewLabel(id)}</span>
     {id === 'approvals' && pendingApprovals > 0 && <span className="navCount" aria-label={t('nav.pendingCount', { count: pendingApprovals })}>{pendingApprovals}</span>}
     {id === 'email' && mailUnreadCount > 0 && <span className="navCount" aria-label={t('mailc.unreadBadge', { count: mailUnreadCount })}>{badgeText(mailUnreadCount)}</span>}
-  </button></li>;
+  </button>{/* Finance renders its sections here while it is open (FinanceShell.tsx FinanceSectionNav, docs/finance.md#finance-shell). */}
+    {id === 'finance' && view === 'finance' && <div id="nav-sub-finance" className="navSub" />}</li>;
   const group = (name: NavGroup | 'workspaces', label: MessageKey, body: ReactNode) => {
     const open = !folds[name];
     const listId = `nav-group-${name}`;
