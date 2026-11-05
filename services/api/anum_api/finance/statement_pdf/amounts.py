@@ -39,9 +39,21 @@ def explicit_sign(token: str) -> bool:
     return bool(re.search(r"(?i)(cr|dr|دائن|مدين)$", text) or text.startswith(("-", "(", "+")) or text.endswith("-"))
 
 
+def mark(token: str) -> str | None:
+    """How a figure's sign was printed: "cr", "dr", "minus" (a minus or brackets) or None."""
+    text = token.strip()
+    if re.search(r"(?i)cr$|دائن$", text):
+        return "cr"
+    if re.search(r"(?i)dr$|مدين$", text):
+        return "dr"
+    if text.startswith(("-", "(")) or text.endswith("-"):
+        return "minus"
+    return None
+
+
 def is_money(text: str, pattern: re.Pattern[str]) -> bool:
     found = pattern.fullmatch(text.strip())
     return bool(found)
 
 
-__all__ = ["explicit_sign", "is_money", "money_pattern", "parse"]
+__all__ = ["explicit_sign", "is_money", "mark", "money_pattern", "parse"]

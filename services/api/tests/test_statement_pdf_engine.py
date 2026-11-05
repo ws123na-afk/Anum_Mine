@@ -505,3 +505,35 @@ def test_a_foreign_currency_row_is_refused_at_import() -> None:
             "rows": [{"posted_on": "2026-11-01", "description": "SHOP", "amount": "-10.00", "currency": "USD"}]}
     refused = client.post(f"{API}/imports/pdf", headers=OWNER, json=body)
     assert refused.status_code == 422 and "USD" in refused.text
+
+
+# -- review findings ------------------------------------------------------------------------------
+
+
+def test_card_rows_keep_their_cr_and_dr_markers() -> None:
+    """A card statement with one amount column and CR/DR: CR is a refund (money back), DR a charge."""
+    cells: list[Cell] = [(40, 820, "SYNTHETIC Credit Card Statement"), (40, 800, "Date"), (110, 800, "Description"), (330, 800, "Amount"),
+                         (40, 786, "01/11/2026"), (110, 786, "EXAMPLE REFUND"), (0, 786, "12.00 CR", 380),
+                         (40, 772, "02/11/2026"), (110, 772, "EXAMPLE SHOP"), (0, 772, "30.00 DR", 380),
+                         (40, 758, "03/11/2026"), (110, 758, "EXAMPLE PAYMENT THANK YOU"), (0, 758, "-50.00", 380),
+                         (40, 744, "04/11/2026"), (110, 744, "EXAMPLE CAFE"), (0, 744, "8.00", 380)]
+    statement = read(draw([cells]))
+    assert statement.kind == "card"
+    assert [r.amount for r in statement.rows] == [Decimal("12.00"), Decimal("-30.00"), Decimal("50.00"), Decimal("-8.00")]
+
+
+def test_values_in_a_skipped_column_are_dropped_not_moved_to_the_next_money_column() -> None:
+    cells: list[Cell] = [(40, 820, "SYNTHETIC Example Bank statement"), (40, 800, "Date"), (110, 800, "Description"), (300, 800, "Amount"),
+                         (420, 800, "Foreign amount"),
+                         (40, 786, "01/11/2026"), (110, 786, "EXAMPLE SHOP"), (0, 786, "-100.00", 340), (0, 786, "25.00", 480)]
+    statement = read(draw([cells]), "AED", roles=["date", "description", "amount", "skip"])
+    assert [r.amount for r in statement.rows] == [Decimal("-100.00")]
+
+
+def test_a_statement_pdf_over_one_mebibyte_reaches_the_reader() -> None:
+    """The request body limit allows a statement PDF up to the reader's own cap, like vault uploads."""
+    account = _account()
+    padded = card_statement() + b"\n%" + b"0" * 2_000_000 + b"\n"
+    response = _read(account["id"], padded)
+    assert response.status_code == 200, response.text[:200]
+    assert len(response.json()["rows"]) == 5
