@@ -537,3 +537,23 @@ def test_a_statement_pdf_over_one_mebibyte_reaches_the_reader() -> None:
     response = _read(account["id"], padded)
     assert response.status_code == 200, response.text[:200]
     assert len(response.json()["rows"]) == 5
+
+
+def test_an_import_whose_rows_disagree_with_the_statement_summary_needs_confirmation() -> None:
+    """Balances that add up are not enough: the statement's own counts and totals are checked again at import."""
+    account = _account(last4="0001")
+    view = _read(account["id"], account_statement()).json()
+    assert view["check"]["status"] == "matched"
+    rows = [{"posted_on": r["posted_on"], "description": r["description"], "amount": r["amount"], "balance": r["balance"]} for r in view["rows"]]
+    summary = [{"name": s["name"], "stated": s["stated"]} for s in view["check"]["summary"]]
+    body = {"account_id": account["id"], "filename": "a.pdf", "file_sha256": view["file_sha256"], "source": "text",
+            "opening_balance": view["check"]["opening"], "closing_balance": view["check"]["closing"], "summary": summary}
+    # The charge row dropped and the closing balance edited to match: the balances agree, the withdrawals count does not.
+    edited = [r for r in rows if r["amount"] != "-0.58"]
+    refused = client.post(f"{API}/imports/pdf", headers=OWNER, json={**body, "rows": [{**r, "balance": None} for r in edited],
+                                                                     "closing_balance": "1251.00"})
+    assert refused.status_code == 422 and refused.json()["error"]["details"][0]["type"] == "pdf_summary_mismatch"
+    accepted = client.post(f"{API}/imports/pdf", headers=OWNER, json={**body, "rows": [{**r, "balance": None} for r in edited],
+                                                                      "closing_balance": "1251.00", "accept_mismatch": True})
+    assert accepted.status_code == 201, accepted.text
+    assert client.post(f"{API}/imports/pdf", headers=OWNER, json={**body, "rows": rows}).status_code == 201

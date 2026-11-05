@@ -135,6 +135,8 @@ export function importBody(view: FinancePdfStatement, accountId: string, rows: r
     })),
     opening_balance: opening.trim() ? wire(opening) : null, closing_balance: closing.trim() ? wire(closing) : null, accept_mismatch: acceptMismatch,
     layout,
+    // The statement's printed counts and totals: the server checks the rows against them again.
+    summary: view.check.summary.map((item) => ({ name: item.name, stated: item.stated })),
   };
 }
 

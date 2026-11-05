@@ -104,9 +104,18 @@ describe('PDF statement review', () => {
     assert.equal(importBody(view(), 'a', rows, '2000', '13579.50', false).rows[2].time, '07:46:19');
   });
 
-  test('a row in another currency starts left out', () => {
+  test('a row in another currency starts left out, keeps its currency and sends it, so the server can refuse it', () => {
     const foreign = { ...view(), rows: [{ ...view().rows[0], currency: 'USD', flags: ['foreign_currency'] }] };
-    assert.equal(reviewRows(foreign)[0].include, false);
+    const rows = reviewRows(foreign);
+    assert.equal(rows[0].include, false);
+    assert.equal(rows[0].currency, 'USD');
+    const body = importBody(foreign, 'a', rows.map((row) => ({ ...row, include: true })), '2000', '13579.50', false);
+    assert.equal(body.rows[0].currency, 'USD');
+  });
+
+  test('the import sends the statement summary so the server checks it again', () => {
+    assert.deepEqual(importBody(view(), 'a', reviewRows(view()), '2000', '13579.50', false).summary,
+      [{ name: 'deposits_count', stated: '1' }, { name: 'withdrawals_total', stated: '420.50' }]);
   });
 
   test('search, mapping checks and error codes', () => {
