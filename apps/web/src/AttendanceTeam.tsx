@@ -226,8 +226,10 @@ export function ReportFields({ report }: { report: AttendanceDailyReport }) {
 const RANGES = [7, 30, 90] as const;
 const PER_PERSON = 100;
 
-export function ReportsTable({ rows, people, anchor, compact, contributor, onContributor, onEdit, onView }: {
+export function ReportsTable({ rows, people, anchor, compact, contributor, onContributor, onEdit, onView, refreshKey = 0 }: {
   rows: AttendanceTeamRow[]; people: TeamPerson[]; anchor: string; compact?: boolean; contributor: string; onContributor: (userId: string) => void;
+  /** Bumped after any report is saved, submitted or deleted, so the table reads the list again. */
+  refreshKey?: number;
   onEdit: (day: string) => void; onView: (item: ContributorReport) => void;
 }) {
   const [range, setRange] = useState<typeof RANGES[number]>(7);
@@ -247,7 +249,7 @@ export function ReportsTable({ rows, people, anchor, compact, contributor, onCon
       const pages = await Promise.all(wanted.map(async (r) => ({ userId: r.user_id, me: r.me, page: await api.listReports({ from, to: anchor, q: search || undefined, limit: PER_PERSON, offset: 0, person: r.me ? null : r.user_id }) })));
       setLoad({ kind: 'ready', value: { items: mergeReports(pages.map((p) => ({ userId: p.userId, me: p.me, items: p.page.items }))), capped: pages.some((p) => p.page.total > p.page.items.length) } });
     } catch (e) { setLoad(failed(e)); }
-  }, [key, contributor, range, anchor, search]);
+  }, [key, contributor, range, anchor, search, refreshKey]);
   useEffect(() => { void fetchAll(); }, [fetchAll]);
   useEffect(() => { setShown(compact ? 5 : 10); }, [compact, contributor, range, status, search]);
   const items = load.kind === 'ready' ? filterReports(load.value.items, status) : [];

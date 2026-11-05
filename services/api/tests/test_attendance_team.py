@@ -145,3 +145,19 @@ def test_submit_migration_is_expand_only_and_chained() -> None:
     upgrade = text.split("def upgrade", 1)[1].split("def downgrade", 1)[0]
     assert 'op.add_column("attendance_daily_reports", sa.Column("submitted_at", sa.DateTime(timezone=True), nullable=True))' in upgrade
     assert "drop" not in upgrade.lower()
+
+
+def test_an_overnight_shift_still_open_after_midnight_shows_as_present(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Checked in at 22:00 Dubai, still working at 00:30: the roster shows them on site, like /today does."""
+    from anum_api.attendance import api as attendance_api
+
+    office = site(AIMAL)
+    arrived = datetime(2026, 11, 4, 18, 0, tzinfo=UTC)  # 22:00 in Dubai on 4 Nov
+    monkeypatch.setattr(attendance_api, "utc_now", lambda: datetime(2026, 11, 4, 20, 30, tzinfo=UTC))  # 00:30 on 5 Nov
+    add(AIMAL, "arrive", arrived, office)
+    share(AIMAL, ME, reports=False)
+    row = next(r for r in team(ME).json()["rows"] if r["user_id"] == AIMAL["x-user-id"])
+    assert row["day"] == "2026-11-05"
+    assert row["status"]["at_site"] is True
+    assert row["first_check_in"] is not None and row["first_check_in"].startswith("2026-11-04T18:00")
+    assert row["site_names"] == ["Riyadh Office"] and row["open"] is True

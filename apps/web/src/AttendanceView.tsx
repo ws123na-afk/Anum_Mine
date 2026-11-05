@@ -70,6 +70,9 @@ export function AttendanceView() {
   const [exportOpen, setExportOpen] = useState(false);
   const [message, setMessage] = useState<{ text: string; error?: boolean } | null>(null);
   const [tick, setTick] = useState(0);
+  const [reportsTick, setReportsTick] = useState(0);
+  // The signed-in person's own day and zone: personal forms never take a viewed colleague's.
+  const [own, setOwn] = useState<{ day: string; zone: string } | null>(null);
   const readOnly = person !== null;
   const ids = { date: useId(), site: useId(), menu: useId() };
 
@@ -78,6 +81,7 @@ export function AttendanceView() {
     const [s, d] = await Promise.allSettled([api.listSites(person), api.getToday(person)]);
     setSites(s.status === 'fulfilled' ? { kind: 'ready', value: s.value } : failed(s.reason));
     setToday(d.status === 'fulfilled' ? { kind: 'ready', value: d.value } : failed(d.reason));
+    if (person === null && d.status === 'fulfilled') setOwn({ day: d.value.day, zone: d.value.time_zone });
   }, [person]);
   const loadTeam = useCallback(async () => {
     setRefreshing(true);
@@ -89,6 +93,8 @@ export function AttendanceView() {
   useEffect(() => { void loadAll(); }, [loadAll, tick]);
   useEffect(() => { void loadTeam(); }, [loadTeam, tick]);
   useEffect(() => { void loadShares(); }, [loadShares]);
+  // Leaving a colleague's timesheet (any tab, the back button or a link) returns to the signed-in person's own record.
+  useEffect(() => { if (tab !== 'timesheet') setViewing(null); }, [tab]);
   useEffect(() => { void (async () => { try { setPeople(await api.listPeople()); } catch { setPeople([]); } })(); }, []);
   // Live: today's roster refreshes every minute while the page is visible.
   useEffect(() => {
@@ -106,8 +112,10 @@ export function AttendanceView() {
     } catch (e) { setMessage({ text: t('attTeam.error', { message: describeError(e) }), error: true }); } finally { setRefreshing(false); }
   };
 
-  const myToday = today.kind === 'ready' && !readOnly ? today.value.day : null;
-  const zone = today.kind === 'ready' ? today.value.time_zone : 'Asia/Dubai';
+  const myToday = own?.day ?? null;
+  const zone = own?.zone ?? 'Asia/Dubai';
+  const reportsChanged = () => { setReportsTick((n) => n + 1); void loadTeam(); };
+
   const anchor = date || myToday || dayIn(zone);
   const rows = team.kind === 'ready' ? team.value.rows : [];
   const me = rows.find((r) => r.me);
@@ -187,7 +195,7 @@ export function AttendanceView() {
             <RosterCard team={teamReady} rows={shown} people={people} site={site} live={!date} refreshing={refreshing} onRefresh={() => void loadTeam()}
               onMore={teamReady.total > teamReady.rows.length ? () => void more() : null}
               actions={{ timesheet: openPerson, reports: openReports, correct: () => { setViewing(null); pick('corrections'); } }} />
-            <ReportsTable compact rows={rows} people={people} anchor={anchor} contributor={contributor} onContributor={setContributor}
+            <ReportsTable compact refreshKey={reportsTick} rows={rows} people={people} anchor={anchor} contributor={contributor} onContributor={setContributor}
               onEdit={editReport} onView={(item) => viewReport(item.userId, item.me, item.report.day)} />
           </div>
           <div className="attSideCol">
@@ -195,7 +203,7 @@ export function AttendanceView() {
             <ReportStatusCard rows={shown} people={people} onEdit={editReport} onView={(row) => viewReport(row.user_id, row.me, row.day)} />
           </div>
           <div className="attPair">
-            <QuickReportCard key={anchor} day={anchor} myName={myName} onSaved={() => void loadTeam()} />
+            <QuickReportCard key={anchor} day={anchor} myName={myName} onSaved={reportsChanged} />
             <QuickCorrectionCard today={myToday ?? anchor} timeZone={zone} onChanged={refresh} onOpenCorrections={() => pick('corrections')} />
           </div>
         </div>}
@@ -209,11 +217,11 @@ export function AttendanceView() {
         <ReportsPanel person={person} sites={siteRows} timeZone={today.value.time_zone} />
       </>}
       {tab === 'daily' && <DailyPanel key={reportDay ?? anchor} initialDay={reportDay ?? anchor} sites={siteRows} today={myToday ?? anchor}
-        table={teamReady ? <ReportsTable rows={rows} people={people} anchor={anchor} contributor={contributor} onContributor={setContributor}
+        table={teamReady ? <ReportsTable refreshKey={reportsTick} rows={rows} people={people} anchor={anchor} contributor={contributor} onContributor={setContributor}
           onEdit={(day) => setReportDay(day)} onView={(item) => viewReport(item.userId, item.me, item.report.day)} /> : team.kind === 'error'
           ? <LoadError message={t('attTeam.error', { message: team.message })} retry={() => void loadTeam()} /> : <Notice busy>{t('attTeam.loading')}</Notice>}
-        onSaved={() => void loadTeam()} />}
-      {tab === 'corrections' && !readOnly && <CorrectionsPanel sites={siteRows} timeZone={today.value.time_zone} today={today.value.day} onChanged={refresh} />}
+        onSaved={reportsChanged} />}
+      {tab === 'corrections' && !readOnly && <CorrectionsPanel sites={siteRows} timeZone={zone} today={myToday ?? today.value.day} onChanged={refresh} />}
       {tab === 'settings' && !readOnly && <SettingsPanel sites={siteRows} shares={shares} onChanged={() => { refresh(); void loadShares(); }} />}
     </div>
     {dialog && <ReportDialog {...dialog} onClose={() => setDialog(null)} />}

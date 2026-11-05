@@ -201,9 +201,13 @@ test('team attendance lists only people who share, reports only when shared, and
   await page.getByLabel('Blocker (if any)').fill('Waiting for a quote');
   await page.getByRole('button', { name: 'Save draft' }).click();
   await expect(page.getByText('Draft saved.')).toBeVisible();
+  // The reports table shows the new draft at once, without a reload.
+  const reportsTable = page.getByRole('table', { name: 'Daily reports' });
+  await expect(reportsTable.getByRole('row', { name: /Fleet readiness checks/ }).getByText('Draft')).toBeVisible();
   await page.getByRole('button', { name: 'Review and submit' }).click();
   await page.getByRole('alertdialog').getByRole('button', { name: 'Submit report' }).click();
   await expect(page.getByText('Report submitted.')).toBeVisible();
+  await expect(reportsTable.getByRole('row', { name: /Fleet readiness checks/ }).getByText('Submitted')).toBeVisible();
   const puts = sent.filter((r) => r.method === 'PUT').map((r) => r.body as { submit: boolean; tasks_done: string[]; issues: string });
   expect(puts.map((b) => b.submit)).toEqual([false, true]);
   expect(puts[1].tasks_done).toEqual(['Fleet readiness checks']);
@@ -216,7 +220,7 @@ test('team attendance lists only people who share, reports only when shared, and
   await noSeriousAxe(page);
 });
 
-test('the row menu opens a colleague timesheet read only, and Arabic team view is right to left', async ({ page }) => {
+test('the row menu opens a colleague timesheet read only, and leaving it returns to my own record', async ({ page }) => {
   await mockApi(page);
   await page.goto('/#attendance');
   await page.getByRole('button', { name: 'More for Layla Manager' }).click();
@@ -224,11 +228,21 @@ test('the row menu opens a colleague timesheet read only, and Arabic team view i
   await expect(page.getByRole('tab', { name: "Layla Manager's timesheet", selected: true })).toBeVisible();
   await expect(page.getByText(/It is read only/)).toBeVisible();
   await expect(page.getByRole('tab', { name: 'Corrections' })).toHaveCount(0);
+  // Leaving the colleague's timesheet: my own correction form uses my own time zone, never theirs.
+  await page.getByRole('tab', { name: 'Team attendance' }).click();
+  await expect(page.getByText('Departure time (Asia/Dubai)')).toBeVisible();
+  await expect(page.getByText(/Asia\/Karachi/)).toHaveCount(0);
+  await expect(page.getByRole('tab', { name: 'My timesheet' })).toBeVisible();
+  await page.getByRole('button', { name: 'More for Layla Manager' }).click();
+  await page.getByRole('menuitem', { name: 'Open timesheet' }).click();
   await page.getByRole('button', { name: 'Back to my timesheet' }).click();
   await expect(page.getByRole('tab', { name: 'My timesheet', selected: true })).toBeVisible();
+});
+
+test('the Arabic team view is right to left', async ({ page }) => {
   await useSavedLocale(page, 'ar');
+  await mockApi(page);
   await page.goto('/#attendance');
-  await page.reload();
   await expect(page.locator('html')).toHaveAttribute('dir', 'rtl');
   await expect(page.getByRole('tab', { name: 'حضور الفريق', selected: true })).toBeVisible();
   await expect(page.getByRole('table', { name: 'قائمة الحضور' })).toBeVisible();

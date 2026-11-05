@@ -527,6 +527,14 @@ def _team_row(store: AttendanceStore, context: TenantContext, owner: str, report
     wanted = day or today
     days = S.compute_days(store, context, owner, wanted, wanted, now, profile=profile)
     view = days[-1] if days and days[-1].day == wanted else None
+    status_view = view
+    # Like /today: a shift begun yesterday and still open after midnight is what the person is doing now.
+    if wanted == today and not (view and any(s.end_kind == "open" for s in view.segments)):
+        earlier = S.compute_days(store, context, owner, wanted - timedelta(days=1), wanted - timedelta(days=1), now, profile=profile)
+        if earlier and any(s.end_kind == "open" for s in earlier[-1].segments):
+            status_view = earlier[-1]
+            if view is None or not any(s.kind in ("site", "remote") for s in view.segments):
+                view = earlier[-1]
     names = {s.id: s.name for s in store.list_sites(context, owner)}
     working = [s for s in (view.segments if view else []) if s.kind in ("site", "remote")]
     first = min(working, key=lambda s: s.start) if working else None
@@ -542,7 +550,7 @@ def _team_row(store: AttendanceStore, context: TenantContext, owner: str, report
             summary=_report_summary(saved))
     return TeamRow(
         user_id=owner, me=owner == context.user_id, day=wanted, time_zone=profile.time_zone, role_title=profile.role_title,
-        status=_status(view) if wanted == today else None,
+        status=_status(status_view) if wanted == today else None,
         site_names=[names.get(i, "") for i in (view.site_ids if view else []) if names.get(i)],
         first_check_in=first.start if first else None, first_check_in_source=source,
         breaks=[TeamBreak(start=s.start, end=s.end) for s in (view.segments if view else []) if s.kind == "break"],

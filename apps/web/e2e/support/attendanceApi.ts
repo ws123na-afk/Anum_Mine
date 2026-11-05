@@ -121,7 +121,11 @@ function attendanceOwnReply(state: AttendanceState, method: string, url: URL, bo
   if (state.denied) return { status: 403, body: { error: { code: 'forbidden', message: 'Attendance is for workspace owners and members. Ask a workspace owner to change your role from viewer to member.', details: [] } } };
   const sub = path.slice('/api/v1/attendance'.length);
   const b = (body ?? {}) as Row;
-  if (method === 'GET' && sub === '/today') return state.failToday ? { status: 503, body: { error: { code: 'unavailable', message: 'The database is not answering.', details: [] } } } : { status: 200, body: today(state) };
+  if (method === 'GET' && sub === '/today') {
+    if (state.failToday) return { status: 503, body: { error: { code: 'unavailable', message: 'The database is not answering.', details: [] } } };
+    // A colleague's shared record keeps their own time zone (here Karachi), unlike the signed-in person's Dubai.
+    return { status: 200, body: url.searchParams.get('person') ? { ...today(state), time_zone: 'Asia/Karachi' } : today(state) };
+  }
   if (method === 'GET' && sub === '/team') {
     const t = today(state) as { status: Row; totals: Row | null; events: Row[] };
     const mineToday = state.reports.find((r) => r.day === dubaiDay(0));
