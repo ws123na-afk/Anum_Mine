@@ -164,7 +164,7 @@ export function HoldingsPage({ onOpen }: { onOpen: (tab: FinanceTab) => void }) 
       </div></>}
       {tab === 'positions' && <Positions rows={valued} cur={null} actions={actions} />}
       {tab === 'performance' && <div className="finStack">{kpis}{chart(true)}<Performance rows={rows} cur={cur} /></div>}
-      {tab === 'valuation' && <Valuation rows={valued} prices={d.prices} onPrice={actions.onPrice} onOpen={onOpen} />}
+      {tab === 'valuation' && <Valuation rows={valued} prices={d.prices} onPrice={actions.onPrice} onOpen={onOpen} onDeleted={() => void load()} />}
     </div>}
     {dialogs}
   </section>;
@@ -269,14 +269,14 @@ function Performance({ rows, cur }: { rows: ValuedHolding[]; cur: string }) {
   </FinCard>;
 }
 
-function Valuation({ rows, prices, onPrice, onOpen }: { rows: ValuedHolding[]; prices: FinancePrice[]; onPrice: (h: FinanceHolding) => void; onOpen: (tab: FinanceTab) => void }) {
+function Valuation({ rows, prices, onPrice, onOpen, onDeleted }: { rows: ValuedHolding[]; prices: FinancePrice[]; onPrice: (h: FinanceHolding) => void; onOpen: (tab: FinanceTab) => void; onDeleted: () => void }) {
   const id = useId();
   const [removing, setRemoving] = useState<FinancePrice | null>(null), [notice, setNotice] = useState<string | null>(null), [gone, setGone] = useState<string[]>([]);
   const keys = new Set(rows.map((r) => `${r.holding.symbol.toUpperCase()}|${r.holding.currency}`));
   const list = prices.filter((p) => keys.has(`${p.symbol}|${p.currency}`) && !gone.includes(p.id)).sort((a, b) => b.as_of.localeCompare(a.as_of) || b.recorded_at.localeCompare(a.recorded_at));
   async function remove() {
     if (!removing) return;
-    try { await api.deletePrice(removing.id); setGone((g) => [...g, removing.id]); setNotice(t('finance.prices.deleted')); } catch (e) { setNotice(describeError(e)); } finally { setRemoving(null); }
+    try { await api.deletePrice(removing.id); setGone((g) => [...g, removing.id]); setNotice(t('finance.prices.deleted')); onDeleted(); } catch (e) { setNotice(describeError(e)); } finally { setRemoving(null); }
   }
   return <div className="finStack">
     <FinCard title={t('fholdings.valuation.title')}>

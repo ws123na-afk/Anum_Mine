@@ -52,8 +52,10 @@ const orderStatusLabel = (status: FinancePaperOrderStatus) => t(`finance.trading
 
 // ---- Stage 6: the paper trading tab ---------------------------------------------------------------------
 
-export function TradingPanel({ base, onOpen }: { base: string; onOpen: (tab: FinanceTab) => void }) {
-  const [portfolios, reload] = useLoad(api.listPortfolios);
+export function TradingPanel({ base, onOpen, onPortfoliosChanged }: { base: string; onOpen: (tab: FinanceTab) => void; onPortfoliosChanged?: () => void }) {
+  const [portfolios, reloadList] = useLoad(api.listPortfolios);
+  // The paper trading lab keeps its own list for the portfolio picker: tell it when one is made, reset or deleted.
+  const reload = useCallback(async () => { await reloadList(); onPortfoliosChanged?.(); }, [reloadList, onPortfoliosChanged]);
   const [selected, setSelected] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [notice, setNotice] = useState<{ text: string; error?: boolean } | null>(null);

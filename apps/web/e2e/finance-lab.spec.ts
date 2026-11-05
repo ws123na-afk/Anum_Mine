@@ -104,6 +104,50 @@ test('no broker, no strategies, a failed overview with retry, errors and permiss
   await expect(page.getByText(/viewer to member/).first()).toBeVisible();
 });
 
+test('switching portfolios clears the old figures and a slower, superseded answer never wins', async ({ page }) => {
+  const { delays } = await mockLabApi(page, { second: true });
+  await page.goto('/#finance-trading');
+  const lab = page.getByRole('region', { name: 'Paper trading and portfolio lab' });
+  const figures = lab.getByRole('region', { name: 'Simulated portfolio figures' });
+  await expect(figures).toContainText('USD 9,998.50');
+  const picker = lab.getByRole('combobox', { name: /^Portfolio/ });
+  delays['/api/v1/finance/paper/portfolios/fin_port_second'] = [1200];
+  await picker.selectOption('fin_port_second');
+  // While Second loads, nothing of Practice is shown and no order can be started for it.
+  await expect(figures).toHaveCount(0);
+  await expect(lab.getByRole('button', { name: 'New simulated order' })).toHaveCount(0);
+  await expect(figures).toContainText('USD 10,000.00');
+  // Practice answers late; Second is picked again meanwhile: Second must stay.
+  delays['/api/v1/finance/paper/portfolios/fin_port_practice'] = [1500];
+  await picker.selectOption('fin_port_practice');
+  await picker.selectOption('fin_port_second');
+  await expect(figures).toContainText('USD 10,000.00');
+  await page.waitForTimeout(1800);
+  await expect(figures).toContainText('USD 10,000.00');
+  await expect(lab.getByRole('region', { name: 'Simulated orders' })).toContainText('No simulated orders yet');
+});
+
+test('a portfolio made or deleted under Paper orders shows on the overview', async ({ page }) => {
+  await mockLabApi(page, { empty: true });
+  await page.goto('/#finance-trading-orders');
+  const lab = page.getByRole('region', { name: 'Paper trading and portfolio lab' });
+  await lab.getByRole('button', { name: 'New portfolio' }).first().click();
+  const dialog = page.getByRole('dialog', { name: 'New portfolio' });
+  await dialog.getByLabel('Name').fill('Fresh');
+  await dialog.getByRole('button', { name: 'Create portfolio' }).click();
+  await expect(page.getByText('Portfolio created.')).toBeVisible();
+  await lab.getByRole('tab', { name: 'Overview' }).click();
+  await expect(lab.getByRole('region', { name: 'Simulated portfolio figures' })).toContainText('starting cash of AED 10,000.00');
+  await expect(lab.getByRole('combobox', { name: /^Portfolio/ })).toHaveValue('fin_port_1');
+
+  await lab.getByRole('tab', { name: 'Paper orders' }).click();
+  await lab.getByRole('button', { name: 'Delete Fresh' }).click();
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Delete' }).click();
+  await expect(page.getByText('Portfolio deleted with its simulated orders.')).toBeVisible();
+  await lab.getByRole('tab', { name: 'Overview' }).click();
+  await expect(lab.getByRole('heading', { name: 'No practice portfolio yet' })).toBeVisible();
+});
+
 test('Arabic, right to left', async ({ page }) => {
   await useSavedLocale(page, 'ar');
   await mockLabApi(page);

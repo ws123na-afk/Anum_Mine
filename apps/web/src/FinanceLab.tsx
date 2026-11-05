@@ -3,7 +3,7 @@
 // the IBKR connection, strategies and their runs, Guardian limits, kill switches, the live gates) and the tabs open
 // each of them in full. Nothing here sends a real order: paper orders still run only after the person approves the
 // code shown, and live trading stays locked exactly as docs/finance-live-trading.md says. Lazy chunk.
-import { Suspense, lazy, useCallback, useEffect, useId, useState } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useId, useRef, useState } from 'react';
 import {
   ArrowDownUp, BookOpenCheck, Briefcase, ChartLine, ChevronRight, CircleCheck, CircleX, ExternalLink, FileClock, FlaskConical, Layers, Link2, Lock, Play, Plus,
   ShieldCheck, TriangleAlert, Wallet,
@@ -36,14 +36,20 @@ import './financeLab.css';
 const ResearchPanel = lazy(() => import('./FinanceResearch').then((m) => ({ default: m.ResearchPanel })));
 const IbkrPanel = lazy(() => import('./FinanceIbkr').then((m) => ({ default: m.IbkrPanel })));
 
+/** Loads with `load`. A new `load` (another portfolio) clears what was shown, so nothing of the previous one stays
+ * on screen or actionable while it loads, and only the newest request may set the state: a slower, superseded
+ * answer is dropped. A reload of the same `load` keeps the figures until the fresh ones arrive. */
 function useLoad<T>(load: () => Promise<T>): [Load<T>, () => Promise<void>] {
   const [state, setState] = useState<Load<T>>({ kind: 'loading' });
-  const run = useCallback(async () => {
-    setState((current) => (current.kind === 'ready' ? current : { kind: 'loading' }));
-    try { setState({ kind: 'ready', value: await load() }); } catch (e) { setState(failed(e)); }
+  const latest = useRef(0);
+  const run = useCallback(async (clear = false) => {
+    const ticket = ++latest.current;
+    setState((current) => (!clear && current.kind === 'ready' ? current : { kind: 'loading' }));
+    try { const value = await load(); if (ticket === latest.current) setState({ kind: 'ready', value }); }
+    catch (e) { if (ticket === latest.current) setState(failed(e)); }
   }, [load]);
-  useEffect(() => { void run(); }, [run]);
-  return [state, run];
+  useEffect(() => { void run(true); }, [run]);
+  return [state, useCallback(() => run(false), [run])];
 }
 
 function useLabTab(): [LabTab, (next: LabTab) => void] {
@@ -86,7 +92,7 @@ export function LabPage({ base, onOpen }: { base: string; onOpen: (tab: FinanceT
         : portfolios.kind === 'error' ? <div className="surface cmPanel"><LoadError message={t('finance.trading.error.load', { message: portfolios.message })} retry={() => void reload()} /></div>
           : <Notice busy>{t('finance.trading.loading')}</Notice>)}
     {tab === 'holdings' && (current ? <LabHoldings key={current.id} portfolioId={current.id} /> : <NoPortfolio onTab={pick} />)}
-    {tab === 'orders' && <TradingPanel base={base} onOpen={onOpen} />}
+    {tab === 'orders' && <TradingPanel base={base} onOpen={onOpen} onPortfoliosChanged={() => void reload()} />}
     {tab === 'strategies' && <IntelPanel onOpen={onOpen} />}
     {tab === 'research' && <Suspense fallback={<Notice busy>{t('fresearch.loading')}</Notice>}><ResearchPanel /></Suspense>}
     {tab === 'brokers' && <Suspense fallback={<Notice busy>{t('ibkr.loading')}</Notice>}><IbkrPanel /></Suspense>}

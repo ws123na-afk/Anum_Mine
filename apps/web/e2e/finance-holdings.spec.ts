@@ -100,6 +100,23 @@ test('positions sort and page; performance and valuation settings use the same r
   await expect(holdings.getByRole('region', { name: 'Recorded prices' })).toContainText('BRDETF');
 });
 
+test('deleting a recorded price updates the valuation everywhere and stays deleted', async ({ page }) => {
+  await mockApi(page);
+  await page.goto('/#finance-holdings');
+  const holdings = page.getByRole('region', { name: 'Holdings' });
+  await expect(holdings.getByRole('region', { name: 'Portfolio figures' })).toContainText('23,920.00');
+  await holdings.getByRole('tab', { name: 'Valuation settings' }).click();
+  const recorded = holdings.getByRole('region', { name: 'Recorded prices' });
+  await recorded.getByRole('button', { name: /^Delete the GOLDX price/ }).first().click();
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Delete' }).click();
+  await expect(recorded.getByRole('button', { name: /^Delete the GOLDX price/ })).toHaveCount(1);
+  // GOLDX falls back to its older price of 97: 12,000 + 7,720 + 42 x 97.
+  await holdings.getByRole('tab', { name: 'Summary' }).click();
+  await expect(holdings.getByRole('region', { name: 'Portfolio figures' })).toContainText('23,794.00');
+  await holdings.getByRole('tab', { name: 'Valuation settings' }).click();
+  await expect(holdings.getByRole('region', { name: 'Recorded prices' }).getByRole('button', { name: /^Delete the GOLDX price/ })).toHaveCount(1);
+});
+
 test('loading, a failed load with retry, no account, no holdings and permission denied', async ({ page }) => {
   await mockApi(page, { fail: true, slow: true });
   await page.goto('/#finance-holdings');

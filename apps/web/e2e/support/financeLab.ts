@@ -5,7 +5,7 @@ import type { Page } from '@playwright/test';
 import { NO_RULES, financeReply, financeState } from './financeApi';
 
 const stamp = '2026-11-04T15:00:00Z';
-export interface LabOptions { connected?: boolean; empty?: boolean; failIntel?: boolean; denied?: boolean; failTrading?: boolean }
+export interface LabOptions { connected?: boolean; empty?: boolean; failIntel?: boolean; denied?: boolean; failTrading?: boolean; second?: boolean }
 
 const strategy = (id: string, name: string, state: string) => ({
   id, lineage_id: `lin_${id}`, key: 'trend_sma', code_version: '1.0.0', name, version: 1, state, symbols: ['EXMPL'], params: { fast: 20, slow: 50 }, reason: 'First idea.',
@@ -48,6 +48,9 @@ export async function mockLabApi(page: Page, o: LabOptions = {}) {
   const state = financeState({ empty: o.empty, failTrading: o.failTrading, denied: o.denied, role: o.denied ? 'viewer' : 'member' });
   const role = o.denied ? 'viewer' : 'member';
   const sent: { method: string; path: string; body: unknown }[] = [];
+  if (o.second) state.trading.portfolios.push({ ...state.trading.portfolios[0], id: 'fin_port_second', name: 'Second' });
+  /** Per path, the delays (ms) the next answers wait, for stale-response tests. */
+  const delays: Record<string, number[]> = {};
   const strategies = o.empty ? [] : [strategy('s1', 'Trend filter', 'PAPER_ACTIVE'), strategy('s2', 'Rebalancing rules', 'DRAFT'), strategy('s3', 'Momentum', 'PAPER_SUSPENDED')];
   await page.route('http://localhost:8000/**', async (route) => {
     const request = route.request();
@@ -82,9 +85,11 @@ export async function mockLabApi(page: Page, o: LabOptions = {}) {
     if (path === '/api/v1/finance/ibkr/connections/fin_ibkr_1/check') return json({ ...ibkrOverview(true).connections[0], session: 'authenticated' });
     if (path === '/api/v1/finance/research/symbols') return o.denied ? denied() : json({ mode: 'paper', symbols: o.connected === false ? [] : [{ symbol: 'SPUS', name: 'SP Funds', allowed: true, shariah: report().shariah }], etfs: {}, shariah_etfs: [], limits: { max_order: '10', max_capital: '50' }, summary: { daily_limit: 10 }, disclaimer: 'Research for your own decisions. It is not financial advice.', plans: [] });
     if (path === '/api/v1/finance/research/symbols/SPUS') return json(report());
+    const wait = delays[path]?.shift();
+    if (wait) await new Promise((resolve) => setTimeout(resolve, wait));
     const reply = financeReply(state, request.method(), url, body);
-    if (reply) return reply.status === 204 ? route.fulfill({ status: 204 }) : json(reply.body, reply.status);
+    if (reply) return reply.status === 204 ? route.fulfill({ status: 204 }).catch(() => undefined) : json(reply.body, reply.status).catch(() => undefined);
     return route.abort();
   });
-  return { state, sent };
+  return { state, sent, delays };
 }
