@@ -310,7 +310,7 @@ function probeGpu(): string {
 
 
 export class HqRenderer {
-  readonly stats: RenderStats = { frames: 0, lastDrawMs: 0, avgDrawMs: 0, drawn: 0, culled: 0, triangles: 0, dpr: 1, uploads: 0, shadowSize: 0, bloom: false, ambient: 0, ambientMoving: false, tier: 0, fx: '', sceneFx: 'loading', scenery: { level: 0, frames: 0, clock: 0, vehicles: 0 }, models: { placed: 0, figures: 0, loaded: 0, asked: 0, bytes: 0, loadMs: 0, fallbacks: [], looks: [] } };
+  readonly stats: RenderStats = { frames: 0, lastDrawMs: 0, avgDrawMs: 0, drawn: 0, culled: 0, triangles: 0, shadowTriangles: 0, dpr: 1, uploads: 0, shadowSize: 0, bloom: false, ambient: 0, ambientMoving: false, tier: 0, fx: '', sceneFx: 'loading', scenery: { level: 0, frames: 0, clock: 0, vehicles: 0 }, models: { placed: 0, figures: 0, loaded: 0, asked: 0, bytes: 0, loadMs: 0, fallbacks: [], looks: [] } };
   private readonly renderer: WebGLRenderer;
   private readonly scene = new Scene();
   private readonly camera = new PerspectiveCamera(40, 1, 0.2, 1000);
@@ -359,6 +359,8 @@ export class HqRenderer {
   private selected: string | null = null;
   private shadowRegion: { center: { x: number; y: number; z: number }; radius: number } | null = null;
   private shadowDirty = true;
+  /** Triangles the shadow map refresh drew since `info` was last reset (see the constructor). */
+  private shadowPassTriangles = 0;
   /** '' marks the shadow camera dirty; `sunKey` holds the region, sun and map size it was last placed for. */
   private lastSunKey = '';
   private readonly sunKey = new Float64Array(6);
@@ -457,6 +459,15 @@ export class HqRenderer {
     renderer.debug.onShaderError = (gl, program) => this.shaderFault(String(gl.getProgramInfoLog(program) ?? ''));
     renderer.shadowMap.type = PCFShadowMap;
     renderer.shadowMap.autoUpdate = false;
+    // `info` counts every pass of a frame (autoReset is off for the glow composer), the shadow map refresh included: note what the refresh drew,
+    // so the reported count can leave it out (`RenderStats.shadowTriangles`).
+    const shadowMap = renderer.shadowMap;
+    const drawShadows = shadowMap.render.bind(shadowMap);
+    shadowMap.render = (lights, scene, camera) => {
+      const before = renderer.info.render.triangles;
+      drawShadows(lights, scene, camera);
+      this.shadowPassTriangles += renderer.info.render.triangles - before;
+    };
     this.scene.fog = this.fog;
     this.scene.add(this.sun, this.sun.target, this.hemi, new AmbientLight(0xffffff, 0.04));
     this.sun.castShadow = true;
@@ -1320,6 +1331,7 @@ export class HqRenderer {
       this.stepAmbient();
       if (this.shadowDirty && this.renderer.shadowMap.enabled) { this.renderer.shadowMap.needsUpdate = true; this.shadowDirty = false; }
       this.renderer.info.reset();
+      this.shadowPassTriangles = 0;
       const vp = viewProjection(cs, aspect);
       let usePhoto = this.photoActive();
       const wantBloom = !usePhoto && this.applied.bloom && !this.reducedMotion && this.night > 0.04;
@@ -1349,6 +1361,7 @@ export class HqRenderer {
       if (this.level > 0) this.stats.scenery.frames += 1;
       if (this.layer) Object.assign(this.stats.models, this.layer.stats);
       this.stats.triangles = this.renderer.info.render.triangles;
+      this.stats.shadowTriangles = this.shadowPassTriangles;
       this.stats.drawn = this.renderer.info.render.calls;
       let hidden = 0;
       for (const m of this.meshes) if (!m.visible) hidden += 1;

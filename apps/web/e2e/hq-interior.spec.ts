@@ -30,7 +30,14 @@ async function openBuilding(page: Page, name: string, ambient?: 'on' | 'off') {
   await mockHq(page, { campus: 'api', layout: 'starter-full', commerce: 'connected', meetings: 'live' });
   await page.goto('/#office-preview');
   await expect(canvas(page)).toHaveAttribute('data-engine', /three/, { timeout: 60_000 });
-  await hq(page).getByRole('button', { name: new RegExp(`^${name}\\.`) }).first().click({ force: true });
+  // The card is a label that follows its building on screen, so the tap is forced (no stability wait) and lands where the card was when it
+  // was planned. One unchecked tap left CI (a loaded software rasteriser) waiting for a panel that never opened: tap until the building is
+  // selected, only while it is not (a tap on the selected card opens the building), then open it from its panel.
+  const card = hq(page).getByRole('button', { name: new RegExp(`^${name}\\.`) }).first();
+  await expect(async () => {
+    if ((await card.getAttribute('aria-pressed')) !== 'true') await card.click({ force: true });
+    await expect(card).toHaveAttribute('aria-pressed', 'true', { timeout: 5_000 });
+  }).toPass({ timeout: 60_000 });
   await hq(page).getByRole('button', { name: `Open ${name}` }).click();
   await expect(hq(page).getByRole('heading', { level: 2, name })).toBeVisible();
 }
