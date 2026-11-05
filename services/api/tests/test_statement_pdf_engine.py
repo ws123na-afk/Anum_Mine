@@ -505,3 +505,55 @@ def test_a_foreign_currency_row_is_refused_at_import() -> None:
             "rows": [{"posted_on": "2026-11-01", "description": "SHOP", "amount": "-10.00", "currency": "USD"}]}
     refused = client.post(f"{API}/imports/pdf", headers=OWNER, json=body)
     assert refused.status_code == 422 and "USD" in refused.text
+
+
+# -- review findings ------------------------------------------------------------------------------
+
+
+def test_card_rows_keep_their_cr_and_dr_markers() -> None:
+    """A card statement with one amount column and CR/DR: CR is a refund (money back), DR a charge."""
+    cells: list[Cell] = [(40, 820, "SYNTHETIC Credit Card Statement"), (40, 800, "Date"), (110, 800, "Description"), (330, 800, "Amount"),
+                         (40, 786, "01/11/2026"), (110, 786, "EXAMPLE REFUND"), (0, 786, "12.00 CR", 380),
+                         (40, 772, "02/11/2026"), (110, 772, "EXAMPLE SHOP"), (0, 772, "30.00 DR", 380),
+                         (40, 758, "03/11/2026"), (110, 758, "EXAMPLE PAYMENT THANK YOU"), (0, 758, "-50.00", 380),
+                         (40, 744, "04/11/2026"), (110, 744, "EXAMPLE CAFE"), (0, 744, "8.00", 380)]
+    statement = read(draw([cells]))
+    assert statement.kind == "card"
+    assert [r.amount for r in statement.rows] == [Decimal("12.00"), Decimal("-30.00"), Decimal("50.00"), Decimal("-8.00")]
+
+
+def test_values_in_a_skipped_column_are_dropped_not_moved_to_the_next_money_column() -> None:
+    cells: list[Cell] = [(40, 820, "SYNTHETIC Example Bank statement"), (40, 800, "Date"), (110, 800, "Description"), (300, 800, "Amount"),
+                         (420, 800, "Foreign amount"),
+                         (40, 786, "01/11/2026"), (110, 786, "EXAMPLE SHOP"), (0, 786, "-100.00", 340), (0, 786, "25.00", 480)]
+    statement = read(draw([cells]), "AED", roles=["date", "description", "amount", "skip"])
+    assert [r.amount for r in statement.rows] == [Decimal("-100.00")]
+
+
+def test_a_statement_pdf_over_one_mebibyte_reaches_the_reader() -> None:
+    """The request body limit allows a statement PDF up to the reader's own cap, like vault uploads."""
+    account = _account()
+    padded = card_statement() + b"\n%" + b"0" * 2_000_000 + b"\n"
+    response = _read(account["id"], padded)
+    assert response.status_code == 200, response.text[:200]
+    assert len(response.json()["rows"]) == 5
+
+
+def test_an_import_whose_rows_disagree_with_the_statement_summary_needs_confirmation() -> None:
+    """Balances that add up are not enough: the statement's own counts and totals are checked again at import."""
+    account = _account(last4="0001")
+    view = _read(account["id"], account_statement()).json()
+    assert view["check"]["status"] == "matched"
+    rows = [{"posted_on": r["posted_on"], "description": r["description"], "amount": r["amount"], "balance": r["balance"]} for r in view["rows"]]
+    summary = [{"name": s["name"], "stated": s["stated"]} for s in view["check"]["summary"]]
+    body = {"account_id": account["id"], "filename": "a.pdf", "file_sha256": view["file_sha256"], "source": "text",
+            "opening_balance": view["check"]["opening"], "closing_balance": view["check"]["closing"], "summary": summary}
+    # The charge row dropped and the closing balance edited to match: the balances agree, the withdrawals count does not.
+    edited = [r for r in rows if r["amount"] != "-0.58"]
+    refused = client.post(f"{API}/imports/pdf", headers=OWNER, json={**body, "rows": [{**r, "balance": None} for r in edited],
+                                                                     "closing_balance": "1251.00"})
+    assert refused.status_code == 422 and refused.json()["error"]["details"][0]["type"] == "pdf_summary_mismatch"
+    accepted = client.post(f"{API}/imports/pdf", headers=OWNER, json={**body, "rows": [{**r, "balance": None} for r in edited],
+                                                                      "closing_balance": "1251.00", "accept_mismatch": True})
+    assert accepted.status_code == 201, accepted.text
+    assert client.post(f"{API}/imports/pdf", headers=OWNER, json={**body, "rows": rows}).status_code == 201

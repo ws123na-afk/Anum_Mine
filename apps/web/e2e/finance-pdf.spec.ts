@@ -18,13 +18,16 @@ function statement(roles = ['date', 'description', 'debit', 'credit', 'balance']
     ...Array.from({ length: 30 }, (_, i) => ({
       line: 4 + i, page: 2, posted_on: '2026-11-05', description: `COFFEE ${i + 1}`, amount: sign('-1.00'), balance: (13578.5 - i).toFixed(2), reference: null, category: 'dining', duplicate: false, flags: [],
     })),
-  ].map((row) => ({ debit: null, credit: null, ...row }));
+  ].map((row) => ({ debit: null, credit: null, currency: null, original_amount: null, original_currency: null, fx_rate: null, fee: null, vat: null,
+    kind: null, time: null, counterparty: null, parent_line: null, confidence: 1, ...row }));
   return {
     account_id: 'fin_acct_current', currency: 'AED', filename: 'november.pdf', file_sha256: 'a'.repeat(64), source: 'text', page_count: 2, layout: 'table',
     columns: ['Date', 'Description', 'Debit', 'Credit', 'Balance'].map((label, index) => ({ index, label, role: roles[index] })), roles,
     date_format: '%d/%m/%Y', date_formats: ['%d/%m/%Y'], date_format_ambiguous: false, period_start: '2026-11-01', period_end: '2026-11-30',
     account_last4: '1234', account_last4_matches: true, statement_currency: 'AED', opening_balance: '2000.00', closing_balance: '13549.50',
-    check: { status: swapped ? 'mismatch' : 'matched', opening: '2000.00', closing: '13549.50', rows_total: '11549.50', expected_closing: '13549.50', difference: '0.00', opening_source: 'statement', closing_source: 'statement', breaks: [] },
+    check: { status: swapped ? 'mismatch' : 'matched', opening: '2000.00', closing: '13549.50', rows_total: '11549.50', expected_closing: '13549.50', difference: '0.00', opening_source: 'statement', closing_source: 'statement', breaks: [], page_breaks: [],
+      summary: [{ name: 'withdrawals_count', stated: '32', found: '32', ok: true }] },
+    fingerprint: 'f'.repeat(32), template_id: null, confidence: 1, kind: 'account', statement_date: null, due_date: null, skipped_pages: [{ page: 3, reason: 'not_transactions' }],
     row_count: rows.length, duplicate_count: 1, skipped_lines: 4, warnings: [], rows,
   };
 }
@@ -33,6 +36,7 @@ async function mockApi(page: Page, options: { password?: boolean; ocrDown?: bool
   const state = financeState({});
   const reads: { headers: Record<string, string>; search: URLSearchParams }[] = [];
   const imports: unknown[] = [];
+  const templates: Record<string, unknown>[] = [];
   await page.route('http://localhost:8000/**', async (route) => {
     const request = route.request();
     const url = new URL(request.url());
@@ -54,9 +58,13 @@ async function mockApi(page: Page, options: { password?: boolean; ocrDown?: bool
       }
       return json(statement(url.searchParams.get('roles')?.split(',')));
     }
+    if (path === '/api/v1/finance/imports/pdf/templates') return json(templates);
+    if (path.startsWith('/api/v1/finance/imports/pdf/templates/') && request.method() === 'DELETE') { templates.splice(0, 1); return route.fulfill({ status: 204 }); }
     const body = request.postData() ? request.postDataJSON() : null;
     if (path === '/api/v1/finance/imports/pdf') {
       imports.push(body);
+      const layout = (body as { layout?: { remember: boolean; labels: string[]; roles: string[] } }).layout;
+      if (layout?.remember) templates.push({ id: 'fin_tpl_1', labels: layout.labels, roles: layout.roles, date_format: null, uses: 1, created_at: '2026-11-05T10:00:00Z', updated_at: '2026-11-05T10:00:00Z', last_used_at: '2026-11-05T10:00:00Z' });
       const created = { id: `fin_imp_${state.imports.length + 1}`, account_id: 'fin_acct_current', filename: 'november.pdf', preset: 'pdf', date_format: 'pdf', row_count: 33, imported_count: 31, duplicate_count: 2, error_count: 0, created_at: '2026-11-05T10:00:00Z', reconciled: 1, held_for_review: 0 };
       state.imports.unshift(created);
       return json(created, 201);
@@ -65,7 +73,7 @@ async function mockApi(page: Page, options: { password?: boolean; ocrDown?: bool
     if (reply) return reply.status === 204 ? route.fulfill({ status: 204 }) : json(reply.body, reply.status);
     return route.abort();
   });
-  return { reads, imports };
+  return { reads, imports, templates };
 }
 
 test('a protected PDF is opened with its password, reviewed, fixed and imported; the import can be undone', async ({ page }) => {
@@ -73,7 +81,7 @@ test('a protected PDF is opened with its password, reviewed, fixed and imported;
   await page.goto('/#finance-import');
   await page.getByLabel('Statement file (CSV or PDF)').setInputFiles(PDF);
   // A PDF has no CSV layout to pick.
-  await expect(page.getByLabel('Layout')).toHaveCount(0);
+  await expect(page.getByLabel('Layout', { exact: true })).toHaveCount(0);
   await page.getByRole('button', { name: 'Preview' }).click();
   const locked = page.getByRole('region', { name: 'This PDF is protected with a password' });
   await locked.getByRole('button', { name: 'Open the PDF' }).click();
@@ -89,6 +97,8 @@ test('a protected PDF is opened with its password, reviewed, fixed and imported;
   await expect(review).toContainText('ending 1234');
   await expect(review).toContainText('33 found, 1 already imported');
   await expect(review.getByText(/The rows add up/)).toBeVisible();
+  await expect(review.getByText('Page 3 skipped: not transactions (bank examples or terms).')).toBeVisible();
+  await expect(review.getByText('Number of withdrawals: the statement says 32, the rows give 32.')).toBeVisible();
   // The password went in a header, never the URL.
   const last = reads.at(-1)!;
   expect(last.headers['x-statement-password']).toBe('example');
@@ -129,8 +139,8 @@ test('a protected PDF is opened with its password, reviewed, fixed and imported;
   await expect(page.getByText('The import of november.pdf was undone.')).toBeVisible();
 });
 
-test('the owner fixes the column mapping and the PDF is read again with it', async ({ page }) => {
-  const { reads } = await mockApi(page);
+test('the owner fixes the column mapping, the PDF is read again with it, and the layout is remembered', async ({ page }) => {
+  const { reads, imports } = await mockApi(page);
   await page.goto('/#finance-import');
   await page.getByLabel('Statement file (CSV or PDF)').setInputFiles(PDF);
   await page.getByRole('button', { name: 'Preview' }).click();
@@ -144,6 +154,17 @@ test('the owner fixes the column mapping and the PDF is read again with it', asy
   await mapping.getByRole('button', { name: 'Read again' }).click();
   await expect.poll(() => reads.at(-1)?.search.get('roles')).toBe('date,description,credit,debit,balance');
   await expect(review.getByLabel('Amount of row 1', { exact: true })).toHaveValue('-12000.00');
+  // A corrected layout is offered to be remembered for that bank; then it is listed and can be forgotten.
+  await expect(review.getByLabel('Remember this layout for the next statement from this bank')).toBeChecked();
+  await review.getByLabel('The rows do not add up and I want to import them anyway').check();
+  await review.getByRole('button', { name: /^Import \d+ rows$/ }).click();
+  await expect.poll(() => (imports.at(-1) as { layout?: { remember: boolean; roles: string[] } } | undefined)?.layout?.roles?.[2]).toBe('credit');
+  const taught = page.getByRole('region', { name: 'Statement layouts you taught' });
+  await expect(taught.getByText('Date · Description · Debit · Credit · Balance')).toBeVisible();
+  await taught.getByRole('button', { name: 'Forget: Date · Description · Debit · Credit · Balance' }).click();
+  await page.getByRole('alertdialog', { name: 'Forget this layout?' }).getByRole('button', { name: 'Forget' }).click();
+  await expect(taught.getByText('The layout was forgotten.')).toBeVisible();
+  await expect(taught.getByText(/None yet/)).toBeVisible();
 });
 
 test('a scan that cannot be read says why and offers another try', async ({ page }) => {
@@ -166,7 +187,7 @@ test('the PDF review reads in Arabic, right to left', async ({ page }) => {
   await page.getByRole('button', { name: 'معاينة' }).click();
   const review = page.getByRole('region', { name: /^مراجعة / });
   await expect(page.locator('html')).toHaveAttribute('dir', 'rtl');
-  await expect(page.getByRole('region', { name: 'مطابقة الرصيد' }).getByRole('status')).toContainText('الصفوف متطابقة');
+  await expect(page.getByRole('region', { name: 'مطابقة الرصيد' }).getByRole('status').filter({ hasText: 'الصفوف متطابقة' })).toHaveCount(1);
   await expect(page.getByRole('group', { name: 'الأعمدة الموجودة في ملف PDF' })).toBeVisible();
   await expect(review).toContainText('ينتهي بـ 1234');
 });

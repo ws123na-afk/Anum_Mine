@@ -4,7 +4,8 @@ import { afterEach, describe, test } from 'node:test';
 import type { FinancePdfStatement } from '@anum/contracts';
 import { checkFile } from '../src/lib/finance.ts';
 import {
-  PDF_MAX_BYTES, checkRoles, filterRows, flagLabel, fromMinor, importBody, isPdf, liveCheck, pdfErrorCode, reviewRows, roleLabel, rowProblem, toMinor,
+  PDF_MAX_BYTES, checkRoles, filterRows, flagLabel, foreignDetail, fromMinor, importBody, isPdf, liveCheck, liveSummary, pdfErrorCode, reviewRows, roleLabel,
+  rowProblem, toMinor,
 } from '../src/lib/financePdf.ts';
 import { placeholdersOf, setLocale } from '../src/lib/i18n.ts';
 import { financePdfAr } from '../src/lib/messages/financePdf.ar.ts';
@@ -18,12 +19,14 @@ const view = (): FinancePdfStatement => ({
   columns: [], roles: ['date', 'description', 'debit', 'credit', 'balance'], date_format: '%d/%m/%Y', date_formats: ['%d/%m/%Y'], date_format_ambiguous: false,
   period_start: '2026-11-01', period_end: '2026-11-30', account_last4: '5678', account_last4_matches: true, statement_currency: 'AED',
   opening_balance: '2000.00', closing_balance: '13579.50',
-  check: { status: 'matched', opening: '2000.00', closing: '13579.50', rows_total: '11579.50', expected_closing: '13579.50', difference: '0.00', opening_source: 'statement', closing_source: 'statement', breaks: [] },
+  check: { status: 'matched', opening: '2000.00', closing: '13579.50', rows_total: '11579.50', expected_closing: '13579.50', difference: '0.00', opening_source: 'statement', closing_source: 'statement', breaks: [], page_breaks: [],
+    summary: [{ name: 'deposits_count', stated: '1', found: '1', ok: true }, { name: 'withdrawals_total', stated: '420.50', found: '420.50', ok: true }] },
+  fingerprint: 'f'.repeat(32), template_id: null, confidence: 1, kind: 'account', statement_date: null, due_date: null, skipped_pages: [],
   row_count: 3, duplicate_count: 1, skipped_lines: 4, warnings: [],
   rows: [
-    { line: 1, page: 1, posted_on: '2026-11-01', description: 'SALARY NOVEMBER', amount: '12000.00', debit: null, credit: '12000.00', balance: '14000.00', reference: null, category: 'income', duplicate: true, flags: [] },
-    { line: 2, page: 1, posted_on: '2026-11-02', description: 'POS PANDA', amount: '-120.50', debit: '120.50', credit: null, balance: '13879.50', reference: null, category: 'groceries', duplicate: false, flags: [] },
-    { line: 3, page: 2, posted_on: '2026-11-04', description: 'STC BILL', amount: '-300.00', debit: '300.00', credit: null, balance: '13579.50', reference: '77AA01', category: 'utilities', duplicate: false, flags: ['sign_unsure'] },
+    { line: 1, page: 1, posted_on: '2026-11-01', description: 'SALARY NOVEMBER', amount: '12000.00', debit: null, credit: '12000.00', balance: '14000.00', reference: null, currency: null, original_amount: null, original_currency: null, fx_rate: null, fee: null, vat: null, kind: null, time: null, counterparty: null, parent_line: null, confidence: 1, category: 'income', duplicate: true, flags: [] },
+    { line: 2, page: 1, posted_on: '2026-11-02', description: 'POS PANDA', amount: '-120.50', debit: '120.50', credit: null, balance: '13879.50', reference: null, currency: null, original_amount: null, original_currency: null, fx_rate: null, fee: null, vat: null, kind: null, time: null, counterparty: null, parent_line: null, confidence: 1, category: 'groceries', duplicate: false, flags: [] },
+    { line: 3, page: 2, posted_on: '2026-11-04', description: 'STC BILL', amount: '-300.00', debit: '300.00', credit: null, balance: '13579.50', reference: '77AA01', currency: null, original_amount: '20.00', original_currency: 'USD', fx_rate: '3.75', fee: '1.50', vat: '0.23', kind: null, time: '07:46:19', counterparty: null, parent_line: null, confidence: 1, category: 'utilities', duplicate: false, flags: ['sign_unsure'] },
   ],
 });
 
@@ -79,10 +82,40 @@ describe('PDF statement review', () => {
     const rows = reviewRows(view()).map((row) => (row.line === 2 ? { ...row, amount: '-1,120.5' } : row.line === 3 ? { ...row, include: false } : row));
     const body = importBody(view(), 'fin_acct_current', rows, '2,000', '13579.50', true);
     assert.equal(body.rows.length, 2);
-    assert.deepEqual(body.rows[1], { posted_on: '2026-11-02', description: 'POS PANDA', amount: '-1120.50', balance: '13879.50', reference: null });
+    assert.deepEqual(body.rows[1], { posted_on: '2026-11-02', description: 'POS PANDA', amount: '-1120.50', balance: '13879.50', reference: null, currency: null, time: null });
     assert.equal(body.opening_balance, '2000.00');
     assert.equal(body.accept_mismatch, true);
     assert.equal(body.file_sha256, 'a'.repeat(64));
+  });
+
+  test('the statement summary follows the edits, and card details read as one line', () => {
+    const rows = reviewRows(view());
+    assert.deepEqual(liveSummary(view().check.summary, rows, '2000.00', 'AED').map((s) => [s.name, s.found, s.ok]), [
+      ['deposits_count', '1', true], ['withdrawals_total', '420.50', true]]);
+    const dropped = rows.map((row) => (row.line === 3 ? { ...row, include: false } : row));
+    assert.deepEqual(liveSummary(view().check.summary, dropped, '2000.00', 'AED').map((s) => s.ok), [true, false]);
+    // A card: previous balance (owed, as a minus) plus the charges is the amount due.
+    const due = liveSummary([{ name: 'total_due', stated: '420.50', found: '0', ok: false }], rows.filter((r) => r.line > 1), '0.00', 'AED');
+    assert.deepEqual([due[0].found, due[0].ok], ['420.50', true]);
+    assert.equal(foreignDetail(rows[2]), 'spent USD 20.00, rate 3.75, fee 1.50, VAT 0.23');
+    assert.equal(foreignDetail(rows[0]), null);
+    const layout = { fingerprint: 'f'.repeat(32), labels: ['Date'], roles: ['date' as const], date_format: null, remember: true };
+    assert.deepEqual(importBody(view(), 'a', rows, '2000', '13579.50', false, layout).layout, layout);
+    assert.equal(importBody(view(), 'a', rows, '2000', '13579.50', false).rows[2].time, '07:46:19');
+  });
+
+  test('a row in another currency starts left out, keeps its currency and sends it, so the server can refuse it', () => {
+    const foreign = { ...view(), rows: [{ ...view().rows[0], currency: 'USD', flags: ['foreign_currency'] }] };
+    const rows = reviewRows(foreign);
+    assert.equal(rows[0].include, false);
+    assert.equal(rows[0].currency, 'USD');
+    const body = importBody(foreign, 'a', rows.map((row) => ({ ...row, include: true })), '2000', '13579.50', false);
+    assert.equal(body.rows[0].currency, 'USD');
+  });
+
+  test('the import sends the statement summary so the server checks it again', () => {
+    assert.deepEqual(importBody(view(), 'a', reviewRows(view()), '2000', '13579.50', false).summary,
+      [{ name: 'deposits_count', stated: '1' }, { name: 'withdrawals_total', stated: '420.50' }]);
   });
 
   test('search, mapping checks and error codes', () => {

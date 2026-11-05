@@ -8,12 +8,13 @@ import { financeTradingEn } from './financeTrading.en.ts';
 import { financeIbkrEn } from './financeIbkr.en.ts';
 import { financeResearchEn } from './financeResearch.en.ts';
 import { financeSmsEn } from './financeSms.en.ts';
-import { financeConnectionsEn } from './financeConnections.en.ts';
 import { financePdfEn } from './financePdf.en.ts';
+import { financeConnectionsEn } from './financeConnections.en.ts';
 import { financeIntelEn } from './financeIntel.en.ts';
 import { financeEquityEn } from './financeEquity.en.ts';
 import { financeReportsEn } from './financeReports.en.ts';
 import { financeShellEn } from './financeShell.en.ts';
+import { financePagesEn } from './financePages.en.ts';
 import { financeIntelActionsEn } from './financeIntelActions.en.ts';
 import { tyreEn } from './tyre.en.ts';
 import { hqEn } from './hq.en.ts';
@@ -108,12 +109,13 @@ export const en = {
   ...financeIbkrEn,
   ...financeResearchEn,
   ...financeSmsEn,
-  ...financeConnectionsEn,
   ...financePdfEn,
+  ...financeConnectionsEn,
   ...financeIntelEn,
   ...financeEquityEn,
   ...financeReportsEn,
   ...financeShellEn,
+  ...financePagesEn,
   ...financeIntelActionsEn,
   ...teamEn,
   ...appCallsEn,

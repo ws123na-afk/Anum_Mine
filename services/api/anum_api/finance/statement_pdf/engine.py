@@ -105,6 +105,8 @@ class Row:
     flags: list[str] = field(default_factory=list)
     confidence: float = 1.0
     explicit_sign: bool = False
+    # How the amount's sign was printed: "cr", "dr", "minus" (a minus or brackets) or None.
+    mark: str | None = None
     top: float = 0.0
     bottom: float = 0.0
     ocr: float = 100.0
@@ -541,11 +543,14 @@ def _card_signs(rows: list[Row]) -> None:
     for row in rows:
         if row.debit is not None or row.credit is not None:
             row.amount = (row.credit or Decimal(0)) - (row.debit or Decimal(0))
-        elif row.amount is not None and not row.explicit_sign:
+        elif row.amount is not None and row.mark == "cr":
+            row.amount = abs(row.amount)  # CR: a payment or refund, money back on the card
+        elif row.amount is not None and row.mark == "dr":
+            row.amount = -abs(row.amount)  # DR: a charge
+        elif row.amount is not None and row.mark == "minus":
+            row.amount = abs(row.amount)  # on a card statement a printed minus is a payment or refund
+        elif row.amount is not None:
             row.amount = abs(row.amount) if _PAYMENT.search(row.description) else -abs(row.amount)
-        elif row.amount is not None and row.explicit_sign:
-            # On a card statement a plain minus or CR is a payment or refund: money back on the card.
-            row.amount = abs(row.amount) if row.amount < 0 or re.search(r"(?i)cr$|دائن$", row.description) else -abs(row.amount)
         if row.amount is None:
             row.flags.append("amount_missing")
         elif row.amount == 0:
@@ -633,7 +638,13 @@ def _is_far(token: Token, columns: list[Column]) -> bool:
 def _table_money(rows: list[Row], columns: list[Column]) -> None:
     for row in rows:
         for token in row.money:
-            column = nearest(columns, token.x0, token.x1, MONEY_ROLES + DETAIL_ROLES)
+            # The column the figure sits in, among all columns: a figure under a column the owner
+            # ignores is dropped, never moved to the next money column.
+            column = nearest(columns, token.x0, token.x1, ROLES)
+            if column is not None and column.role == "skip":
+                continue
+            if column is not None and column.role not in MONEY_ROLES + DETAIL_ROLES:
+                column = nearest(columns, token.x0, token.x1, MONEY_ROLES + DETAIL_ROLES)  # printed a little off its column
             value = amounts.parse(token.text)
             if column is None or value is None:
                 continue
@@ -665,7 +676,7 @@ def _assign(row: Row, role: str, value: Decimal, token: str) -> None:
     elif role == "vat":
         row.vat = value
     else:
-        row.amount, row.explicit_sign = value, amounts.explicit_sign(token)
+        row.amount, row.explicit_sign, row.mark = value, amounts.explicit_sign(token), amounts.mark(token)
 
 
 def _line_money(row: Row) -> None:
@@ -674,10 +685,10 @@ def _line_money(row: Row) -> None:
     values = [(t, v) for t, v in values if v is not None]
     if len(values) >= 2:
         token, value = values[-2]
-        row.amount, row.explicit_sign = value, amounts.explicit_sign(token.text)
+        row.amount, row.explicit_sign, row.mark = value, amounts.explicit_sign(token.text), amounts.mark(token.text)
         row.balance = values[-1][1]
     elif values:
-        row.amount, row.explicit_sign = values[0][1], amounts.explicit_sign(values[0][0].text)
+        row.amount, row.explicit_sign, row.mark = values[0][1], amounts.explicit_sign(values[0][0].text), amounts.mark(values[0][0].text)
 
 
 def _content_columns(rows: list[Row], roles: list[str] | None, warnings: list[str]) -> list[Column]:

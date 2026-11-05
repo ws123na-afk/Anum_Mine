@@ -24,12 +24,12 @@ import { figure, type Figure } from './lib/pageSummary';
 import { viewLabel } from './lib/shell';
 import { ConfirmDialog, Modal } from './Dialog';
 import { Denied, Empty, FormActions, FormError, LoadError, Money, Notice, failed, type Load } from './FinanceParts';
-import { GuardianPanel, SafeToSpendCard, SafeToSpendPanel, reasonText } from './FinancePlan';
+import { GuardianPanel, SafeToSpendCard, reasonText } from './FinancePlan';
 import { ExecutionPanel, TradingPanel } from './FinanceTrading';
 import { IntelPanel } from './FinanceIntel';
 import { PageHeader, PageSummary, useMediaQuery, type Crumb } from './PageParts';
-import { OWN_HEAD_TABS } from './lib/financeNav';
 import { FinanceSectionNav } from './FinanceShell';
+import { OWN_HEAD_TABS } from './lib/financeNav';
 import './commerce.css';
 import './finance.css';
 
@@ -40,10 +40,14 @@ const IbkrPanel = lazy(() => import('./FinanceIbkr').then((m) => ({ default: m.I
 const ResearchPanel = lazy(() => import('./FinanceResearch').then((m) => ({ default: m.ResearchPanel })));
 // iPhone SMS banking and the double-entry ledger (docs/finance-sms.md): one lazy chunk for both tabs.
 const LedgerPanel = lazy(() => import('./FinanceSms').then((m) => ({ default: m.LedgerPanel })));
-// Connections and data capture (docs/finance.md#connections-and-data-capture): accounts, SMS capture,
-// iPhone Shortcuts, import history and permissions in one lazy chunk; `#finance-sms` opens its SMS tab.
-const ConnectionsPage = lazy(() => import('./FinanceConnections').then((m) => ({ default: m.ConnectionsPage })));
 const PdfStatementImport = lazy(() => import('./FinancePdfImport').then((m) => ({ default: m.PdfStatementImport })));
+const PdfTemplates = lazy(() => import('./FinancePdfImport').then((m) => ({ default: m.PdfTemplates })));
+// Pages with their own head (lib/financeNav.ts OWN_HEAD_TABS, docs/finance.md#finance-shell), each its own lazy chunk.
+const ReportsPage = lazy(() => import('./FinanceReportsPage').then((m) => ({ default: m.FinanceReportsPage })));
+const SafePage = lazy(() => import('./FinanceSafePage').then((m) => ({ default: m.FinanceSafePage })));
+// Connections and data capture (docs/finance.md#connections-and-data-capture): accounts, SMS capture,
+// iPhone Shortcuts, import history and permissions; `#finance-sms` opens its SMS capture tab.
+const ConnectionsPage = lazy(() => import('./FinanceConnections').then((m) => ({ default: m.ConnectionsPage })));
 const KINDS: FinanceAccountKind[] = ['bank', 'card', 'cash', 'loan', 'investment'];
 const CADENCES: FinanceCadence[] = ['monthly', 'weekly', 'quarterly', 'yearly', 'once'];
 const DEBT_KINDS: FinanceDebtKind[] = ['loan', 'card', 'mortgage', 'other'];
@@ -87,6 +91,17 @@ export function FinanceView() {
   useEffect(() => { void loadAccounts(); }, [loadAccounts]);
   const refresh = () => { void loadSummary(); void loadAccounts(); };
 
+  if (OWN_HEAD_TABS.has(tab)) {
+    return <div className="cmLayout finLayout finOwnHead">
+      <FinanceSectionNav tab={tab} onPick={pick} />
+      <Suspense fallback={<Notice busy>{t('finance.loading')}</Notice>}>
+        {tab === 'reports' && <ReportsPage onOpen={pick} />}
+        {tab === 'safe' && <SafePage onOpen={pick} onChanged={refresh} />}
+        {(tab === 'connections' || tab === 'sms') && <ConnectionsPage from={tab} onOpen={pick} />}
+      </Suspense>
+    </div>;
+  }
+
   const crumbs: Crumb[] = [{ label: viewLabel('home'), href: '#home' }, { label: viewLabel('finance'), href: '#finance', onClick: () => pick('overview') }];
   if (tab !== 'overview') crumbs.push({ label: t(`finance.tab.${tab}` as MessageKey) });
   const header = <PageHeader title={viewLabel('finance')} subtitle={t('finance.subtitle')} crumbs={tab === 'overview' ? undefined : crumbs} actions={summary.kind === 'ready' ? <>
@@ -110,11 +125,9 @@ export function FinanceView() {
     figure('debts', t('finance.figure.debts'), { state: 'ready' }, () => ({ value: s.debt_count ? formatAmounts(s.debts) : '-', hint: s.debt_count ? t('finance.figure.minimum', { amount: formatAmounts(s.minimum_payments) }) : t('finance.figure.debtsNone') })),
   ];
   const onChanged = refresh;
-  // A section that draws its own head (OWN_HEAD_TABS) gets neither Finance's header nor its summary band.
-  const ownHead = OWN_HEAD_TABS.has(tab);
   return <div className="cmLayout finLayout">
-    {!ownHead && header}
-    {!ownHead && <PageSummary label={t('finance.summary.label')} figures={figures} footer={<p className="muted finReadOnly">{t('finance.readOnly')}</p>} />}
+    {header}
+    <PageSummary label={t('finance.summary.label')} figures={figures} footer={<p className="muted finReadOnly">{t('finance.readOnly')}</p>} />
     <FinanceSectionNav tab={tab} onPick={pick} />
     {noAccounts && tab !== 'accounts' && <section className="surface cmPanel cmWelcome" aria-labelledby="fin-welcome">
       <Wallet aria-hidden="true" />
@@ -123,9 +136,7 @@ export function FinanceView() {
     </section>}
     {accounts.kind === 'error' && <LoadError message={t('finance.error.accounts', { message: accounts.message })} retry={() => void loadAccounts()} />}
     {tab === 'overview' && <Overview summary={s} month={month ?? s.month} onMonth={setMonth} onOpen={pick} />}
-    {tab === 'safe' && <SafeToSpendPanel onOpen={pick} onChanged={onChanged} />}
     {tab === 'guardian' && <GuardianPanel base={base} />}
-    {(tab === 'connections' || tab === 'sms') && <Suspense fallback={<section className="surface cmPanel"><Notice busy>{t('fconn.loading')}</Notice></section>}><ConnectionsPage from={tab} onOpen={pick} /></Suspense>}
     {tab === 'trading' && <TradingPanel base={base} onOpen={pick} />}
     {tab === 'intel' && <IntelPanel onOpen={pick} />}
     {tab === 'execution' && <ExecutionPanel />}
@@ -468,6 +479,7 @@ function Import({ accounts, onChanged, onAddAccount, onDone }: { accounts: Finan
   const [file, setFile] = useState<{ name: string; content: string } | null>(null);
   // A PDF statement is read by the API, not here: the picked file is kept as is until it is reviewed.
   const [pdf, setPdf] = useState<File | null>(null), [pdfOpen, setPdfOpen] = useState(false), [inputKey, setInputKey] = useState(0);
+  const [templatesRefresh, setTemplatesRefresh] = useState(0);
   const [preset, setPreset] = useState(''), [dateFormat, setDateFormat] = useState('');
   const [mapping, setMapping] = useState<{ date: string; description: string; amount: string; debit: string; credit: string } | null>(null);
   const [preview, setPreview] = useState<FinanceImportPreview | null>(null);
@@ -517,7 +529,7 @@ function Import({ accounts, onChanged, onAddAccount, onDone }: { accounts: Finan
     const matched = (result.reconciled ?? 0) || (result.held_for_review ?? 0)
       ? ` ${t('fsms.import.reconciled', { reconciled: result.reconciled ?? 0, review: result.held_for_review ?? 0 })}` : '';
     setNotice(t('finance.import.done', { imported: result.imported_count, duplicates: result.duplicate_count, errors: result.error_count }) + matched + (vault ? ` ${vault}` : ''));
-    setPdf(null); setPdfOpen(false); setInputKey((k) => k + 1); onChanged(); void loadHistory();
+    setPdf(null); setPdfOpen(false); setInputKey((k) => k + 1); setTemplatesRefresh((n) => n + 1); onChanged(); void loadHistory();
   }
   function pdfCancelled() { setPdf(null); setPdfOpen(false); setInputKey((k) => k + 1); }
   async function undo() {
@@ -586,6 +598,7 @@ function Import({ accounts, onChanged, onAddAccount, onDone }: { accounts: Finan
         <button type="button" className="secondary" onClick={() => setUndoing(item)}><Undo2 aria-hidden="true" />{t('finance.import.undo')}</button>
       </li>)}</ul>)}
     </section>
+    <Suspense fallback={null}><PdfTemplates refresh={templatesRefresh} /></Suspense>
     {undoing && <ConfirmDialog title={t('finance.import.undoTitle')} confirmLabel={t('finance.import.undo')} danger busy={busy} onConfirm={() => void undo()} onCancel={() => setUndoing(null)}>
       <p dir="auto">{t('finance.import.undoText', { file: undoing.filename, count: undoing.imported_count })}</p>
     </ConfirmDialog>}
