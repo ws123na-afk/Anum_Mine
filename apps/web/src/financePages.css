@@ -1,0 +1,95 @@
+/* Finance reports and Safe to spend (FinanceReportsPage.tsx, FinanceSafePage.tsx). Shared tokens only. */
+:root { --fin-chart-income: #22ad81; --fin-chart-expense: #127757; }
+:root[data-theme="light"] { --fin-chart-income: #007a55; --fin-chart-expense: #4cb88a; }
+.finOwnHead { gap: var(--d-s4); }
+.finPage { display: grid; gap: var(--d-s4); min-width: 0; }
+.finReportGrid { align-items: start; display: grid; gap: var(--d-s4); min-width: 0; }
+.finReportGridTop { grid-template-columns: minmax(0, 2fr) minmax(280px, 1fr); }
+.finReportGridThree { grid-template-columns: minmax(0, 1.6fr) minmax(240px, 1fr) minmax(240px, 1fr); }
+.finReportGridBottom { grid-template-columns: minmax(0, 1.6fr) minmax(260px, 1fr); }
+.finSafeGridTop { grid-template-columns: minmax(0, 1.7fr) minmax(240px, 1fr) minmax(280px, 1.1fr); }
+.finSafeGridBottom { grid-template-columns: minmax(0, 1.4fr) minmax(240px, 1fr) minmax(280px, 1.1fr); }
+.finNoWrap { white-space: nowrap; }
+.finSafeGridRules { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.finFoot { font-size: var(--text-xs); margin: 0; }
+.finSub { display: block; font-size: var(--text-xs); font-weight: 400; }
+.finRowLabel { align-items: center; display: inline-flex; gap: var(--d-s2); }
+.finRowLabel svg { color: var(--d-accent); height: 16px; width: 16px; }
+.finLinkBtn {
+  align-items: center; background: var(--d-primary); border: 1px solid transparent; border-radius: var(--d-r-control); color: var(--d-on-primary); display: inline-flex;
+  font-size: var(--text-md); font-weight: 600; gap: var(--d-s2); justify-content: center; min-height: 40px; padding: 0 var(--d-s4); text-decoration: none;
+}
+.finLinkBtn:hover { background: var(--d-primary-hover); }
+.finLinkBtn.secondary { background: var(--d-control-bg); border-color: var(--d-line); color: var(--d-text); }
+.finLinkBtn.secondary:hover { background: var(--d-control-bg-hover); }
+.finLinkBtn svg { height: 18px; width: 18px; }
+.finCardButtons { display: grid; gap: var(--d-s2); grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); }
+.finCardButtons > :is(button, a) { align-items: center; display: inline-flex; gap: var(--d-s2); justify-content: center; min-height: 40px; }
+.finCardButtons svg { height: 16px; width: 16px; }
+.finCardLink { align-items: center; color: var(--d-accent-text); display: inline-flex; font-size: var(--text-sm); font-weight: 600; gap: var(--d-s2); min-height: 32px; }
+.finCardLink svg { height: 16px; width: 16px; }
+
+/* Key movements and the quality list: an icon, the words, a chip at the end. */
+.finMoveList, .finQualityList, .finRuleLines, .finShareList { display: grid; gap: 0; list-style: none; margin: 0; padding: 0; }
+.finMoveList li, .finQualityList li { align-items: center; border-bottom: 1px solid var(--d-line); display: flex; gap: var(--d-s3); justify-content: space-between; padding: var(--d-s2) 0; }
+.finMoveList li:last-child, .finQualityList li:last-child { border-bottom: 0; }
+.finMoveList li > div, .finQualityList li > div { display: grid; flex: 1 1 auto; gap: 2px; min-width: 0; }
+.finMoveList small, .finQualityList small { color: var(--d-muted); font-size: var(--text-xs); }
+.finQualityList li { justify-content: flex-start; }
+.finQualityList li > svg { flex: none; height: 20px; width: 20px; }
+.finQualityList li.ok > svg { color: var(--d-ok); }
+.finQualityList li.warn > svg { color: var(--d-warn); }
+.finRuleLines li { align-items: flex-start; border-bottom: 1px solid var(--d-line); display: flex; font-size: var(--text-sm); gap: var(--d-s2); padding: var(--d-s2) 0; }
+.finRuleLines li:last-child { border-bottom: 0; }
+.finRuleLines svg { color: var(--d-accent); flex: none; height: 16px; margin-top: 2px; width: 16px; }
+.finRuleLines li.over svg { color: var(--d-stop); }
+.finRuleLines li.near svg { color: var(--d-warn); }
+
+/* A small statement: label and figure per row, totals on a tinted band. */
+.finStatement { display: grid; margin: 0; }
+.finStatement > div { align-items: baseline; border-bottom: 1px solid var(--d-line); display: flex; gap: var(--d-s3); justify-content: space-between; padding: var(--d-s2) 0; }
+.finStatement dt { color: var(--d-muted); }
+.finStatement dd { display: flex; flex-wrap: wrap; gap: var(--d-s2); justify-content: flex-end; margin: 0; }
+.finStatementTotal { background: var(--d-glass-1); font-weight: 700; padding-inline: var(--d-s2) !important; }
+.finStatementTotal dt { color: var(--d-text); }
+
+.finShareList li { display: grid; gap: 4px; padding: var(--d-s2) 0; }
+.finShareHead { align-items: baseline; display: flex; gap: var(--d-s3); justify-content: space-between; }
+.finShareList .finFill, .finUsage .finFill { background: var(--fin-chart-income, var(--d-primary)); }
+.finUsage { align-items: center; display: grid; gap: var(--d-s2); grid-template-columns: minmax(60px, 1fr) auto; min-width: 120px; }
+.finUsage small { font-size: var(--text-xs); font-variant-numeric: tabular-nums; }
+.finUsage.warn .finFill { background: var(--d-warn); }
+.finUsage.bad .finFill { background: var(--d-stop); }
+.finCustomCount { margin: 0; }
+
+/* Safe to spend: the transparent calculation strip. */
+.finStaticPeriod { font-size: var(--text-md); }
+.finCalc { align-items: center; background: var(--d-surface-1); border: 1px solid var(--d-line); border-radius: var(--d-r-panel); display: flex; flex-wrap: wrap; gap: var(--d-s2) var(--d-s4); padding: var(--d-s3) var(--d-s4); }
+.finCalcTitle { font-size: var(--text-md); }
+.finCalcSteps { align-items: stretch; display: flex; flex: 1 1 auto; flex-wrap: wrap; gap: var(--d-s2); list-style: none; margin: 0; padding: 0; }
+.finCalcSteps li:not(.op) { background: var(--d-glass-1); border: 1px solid var(--d-line); border-radius: var(--d-r-control); display: grid; gap: 2px; min-width: 130px; padding: var(--d-s2) var(--d-s3); text-align: center; }
+.finCalcSteps li span { color: var(--d-muted); font-size: var(--text-xs); }
+.finCalcSteps li .finMoney { font-size: var(--text-lg); font-weight: 700; }
+.finCalcSteps li.op { align-self: center; color: var(--d-muted); font-size: var(--text-xl); font-weight: 700; }
+.finCalcSteps li.result { background: rgb(var(--c-ok) / .1); border-color: rgb(var(--c-ok) / .4); }
+.finCalcSteps li.result.short { background: rgb(var(--c-stop) / .1); border-color: rgb(var(--c-stop) / .4); }
+.finCalcMeta { color: var(--d-muted); font-size: var(--text-xs); }
+.finAssumptions { background: var(--d-glass-1); border-radius: var(--d-r-control); font-size: var(--text-sm); padding: var(--d-s2) var(--d-s3); }
+.finAssumptions ul { color: var(--d-muted); margin: var(--d-s1) 0 0; padding-inline-start: var(--d-s5); }
+.finReadOnlyLine { align-items: center; display: flex; gap: var(--d-s2); }
+.finReadOnlyLine svg { color: var(--d-accent); height: 16px; width: 16px; }
+
+/* Below 1400 px the first card of a three-card row takes the full width, the other two share the next row. */
+@media (max-width: 1399px) {
+  .finReportGridThree, .finSafeGridTop, .finSafeGridBottom { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .finReportGridThree > :first-child, .finSafeGridTop > :first-child, .finSafeGridBottom > :first-child { grid-column: 1 / -1; }
+}
+@media (max-width: 1023px) {
+  .finReportGridTop, .finReportGridBottom, .finSafeGridRules { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 760px) {
+  .finReportGridThree, .finSafeGridTop, .finSafeGridBottom { grid-template-columns: minmax(0, 1fr); }
+  .finCalcSteps { display: grid; grid-template-columns: minmax(0, 1fr); }
+  .finCalcSteps li.op { justify-self: center; }
+}
+.finReview .finQualityList strong { font-size: var(--text-md); font-weight: 600; }

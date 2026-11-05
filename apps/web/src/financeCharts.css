@@ -1,0 +1,35 @@
+/* Finance charts (FinanceCharts.tsx). Series colours validated with the dataviz checks (lightness,
+   chroma, colour-vision separation) on each theme's surface; text never wears a series colour. */
+:root { --fin-chart-income: #22ad81; --fin-chart-expense: #127757; }
+:root[data-theme="light"] { --fin-chart-income: #007a55; --fin-chart-expense: #4cb88a; }
+.finFigure { display: grid; gap: var(--d-s2); grid-template-columns: minmax(0, 1fr); margin: 0; min-width: 0; }
+.finPlot { position: relative; }
+.finPlot { min-width: 0; }
+.finPlot svg { display: block; overflow: visible; }
+.finLegend { display: flex; flex-wrap: wrap; gap: var(--d-s1) var(--d-s4); justify-content: flex-end; list-style: none; margin: 0; padding: 0; }
+.finLegend li { align-items: center; color: var(--d-muted); display: inline-flex; font-size: var(--text-xs); gap: 6px; }
+.finSwatch { border-radius: 3px; display: inline-block; height: 10px; width: 14px; }
+.finSwatch.income { background: var(--fin-chart-income); }
+.finSwatch.expense { background: var(--fin-chart-expense); }
+.finSwatch.net { background: var(--d-text); border-radius: 1px; height: 2px; }
+.finSwatch.band { background: color-mix(in srgb, var(--fin-chart-income) 22%, transparent); }
+.finGridLine { stroke: var(--d-line); stroke-width: 1; }
+.finAxisZero { stroke: var(--d-line-strong); stroke-width: 1; }
+.finTick { fill: var(--d-muted); font-size: var(--text-2xs); font-variant-numeric: tabular-nums; }
+.finBarIncome { fill: var(--fin-chart-income); }
+.finBarExpense { fill: var(--fin-chart-expense); }
+.finBandHighlight { fill: var(--d-glass-2); }
+.finBarGroup.active .finBarIncome, .finBarGroup.active .finBarExpense { filter: brightness(1.12); }
+.finHit { fill: transparent; }
+.finNetLine { fill: none; stroke: var(--d-text); stroke-linejoin: round; stroke-width: 2; }
+.finNetDot { fill: var(--d-surface-1); stroke: var(--d-text); stroke-width: 2; }
+.finRunwayLine { fill: none; stroke: var(--fin-chart-income); stroke-linejoin: round; stroke-width: 2.5; }
+.finRunwayBand { fill: color-mix(in srgb, var(--fin-chart-income) 18%, transparent); }
+.finBillDot { fill: var(--d-surface-1); stroke: var(--d-text); stroke-width: 2; }
+.finBillLabel { fill: var(--d-text); font-size: var(--text-2xs); font-weight: 600; }
+.finEndLabel { fill: var(--d-text); font-size: var(--text-xs); font-weight: 700; }
+.finTooltip {
+  background: var(--d-surface-3); border: 1px solid var(--d-line-strong); border-radius: var(--d-r-control); box-shadow: var(--d-elev-2); display: grid; font-size: var(--text-xs);
+  gap: 2px; min-width: 150px; padding: var(--d-s2) var(--d-s3); pointer-events: none; position: absolute; transform: translate(-50%, 0); z-index: 2;
+}
+.finChartTable summary { color: var(--d-accent-text); cursor: pointer; font-size: var(--text-sm); min-height: 32px; }
