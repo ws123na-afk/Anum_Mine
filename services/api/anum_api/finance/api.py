@@ -759,13 +759,38 @@ def confirm_import(
 ) -> ImportView:
     """Import the statement previewed with the same choices; duplicates are skipped."""
     _manage(context)
+
+    def build(store: FinanceStore, account: Account) -> csv_import.ParsedFile:
+        return _parse(store, context, body)[1]
+
+    record, rows_added, breaks, reconciled = record_import(context, body.account_id, _clean(body.filename, 200) or "statement.csv", build)
+    _audit(repository, context, "finance.import.create", record.id, {"imported": rows_added, "duplicates": record.duplicate_count, "rule_breaks": breaks,
+                                                                     "reconciled": reconciled.attached, "review": reconciled.review})
+    return ImportView(**_view(record), rule_breaks=breaks, reconciled=reconciled.attached, held_for_review=reconciled.review)
+
+
+def record_import(
+    context: TenantContext,
+    account_id: str,
+    filename: str,
+    build: Any,
+    *,
+    references: dict[str, str] | None = None,
+    times: dict[str, Any] | None = None,
+) -> tuple[ImportRecord, int, int, Any]:
+    """The one import path for every statement format (CSV and PDF): under the owner's lock, skip rows
+    already in the ledger, attach rows that report a payment already recorded (SMS, Apple Pay, by hand),
+    hold ambiguous ones for review, journal the rest as ``statement`` entries and keep the import so it
+    can be undone. ``build(store, account)`` returns the parsed rows."""
     from .ledger import EntrySource
     from .sms_service import owner_lock, reconcile_rows, record_plain
     from .sms_store import open_sms_stores
 
     with owner_lock(context), open_sms_stores(context) as (store, sms):
         sms.lock_owner(context)
-        account, parsed, existing = _parse(store, context, body)
+        account = _own_account(store, context, account_id)
+        parsed: csv_import.ParsedFile = build(store, account)
+        existing = store.existing_hashes(context, account.id, [row.dedupe_hash for row in parsed.rows])
         fresh = [row for row in parsed.rows if row.dedupe_hash not in existing]
         if not parsed.rows:
             raise _invalid("No row of this file could be read. Check the column mapping and the date format.")
@@ -773,7 +798,7 @@ def confirm_import(
         now = utc_now()
         record = ImportRecord(
             id=new_id("fin_imp"), tenant_id=context.tenant_id, workspace_id=context.workspace_id, owner_user_id=context.user_id,
-            account_id=account.id, filename=_clean(body.filename, 200) or "statement.csv", preset=parsed.preset,
+            account_id=account.id, filename=filename, preset=parsed.preset,
             date_format=parsed.date_format, row_count=parsed.row_count, imported_count=0,
             duplicate_count=len(parsed.rows) - len(fresh), error_count=len(parsed.errors), file_sha256=parsed.file_sha256,
             created_at=now,
@@ -792,7 +817,7 @@ def confirm_import(
             )
         # A row that reports a payment an SMS, Apple Pay or the person already recorded is attached to that
         # transaction instead of creating another; a row that could be more than one waits for review.
-        rows, reconciled = reconcile_rows(store, sms, context, account, rows, record.id, now=now)
+        rows, reconciled = reconcile_rows(store, sms, context, account, rows, record.id, now=now, references=references, times=times)
         added = store.add_transactions(rows)
         for row in rows:
             record_plain(sms, context, row, account, EntrySource.STATEMENT, now=now)
@@ -800,9 +825,7 @@ def confirm_import(
         record.duplicate_count += reconciled.attached
         store.save_import(record)
         breaks = _import_rule_breaks(store, context, rows)
-    _audit(repository, context, "finance.import.create", record.id, {"imported": added, "duplicates": record.duplicate_count, "rule_breaks": breaks,
-                                                                     "reconciled": reconciled.attached, "review": reconciled.review})
-    return ImportView(**_view(record), rule_breaks=breaks, reconciled=reconciled.attached, held_for_review=reconciled.review)
+    return record, added, breaks, reconciled
 
 
 def _import_rule_breaks(store: FinanceStore, context: TenantContext, rows: list[Transaction]) -> int:

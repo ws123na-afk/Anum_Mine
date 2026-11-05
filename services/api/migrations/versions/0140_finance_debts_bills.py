@@ -15,7 +15,7 @@
 
 Row level security is unchanged: the tables already have their forced owner policies. Expand only:
 new nullable columns, columns with defaults and a widened check. The previous release ignores the
-new columns and never writes a ``bill`` or ``debt`` link. Chained after ``0138_books_v2``.
+new columns and never writes a ``bill`` or ``debt`` link. Chained after ``0139_finance_pdf_templates``.
 """
 
 import sqlalchemy as sa
@@ -23,7 +23,7 @@ from alembic import op
 from sqlalchemy.dialects import postgresql
 
 revision = "0140_finance_debts_bills"
-down_revision = "0138_books_v2"
+down_revision = "0139_finance_pdf_templates"
 branch_labels = None
 depends_on = None
 

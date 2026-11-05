@@ -119,7 +119,7 @@ class FinanceStrings {
     'listFailed': 'This list could not be loaded: {message}',
     'welcome': 'Start with an account',
     'welcomeText':
-        'Add the bank account or card a statement comes from, then import the statement as a CSV file on the web.',
+        'Add the bank account or card a statement comes from, then import the statement (CSV or PDF) on the web.',
     'addAccount': 'Add account',
     'noAccounts': 'No accounts yet',
     'noAccountsText':
@@ -376,7 +376,7 @@ class FinanceStrings {
     'listFailed': 'تعذّر تحميل هذه القائمة: {message}',
     'welcome': 'ابدأ بحساب',
     'welcomeText':
-        'أضف الحساب البنكي أو البطاقة التي يأتي منها الكشف، ثم استورد الكشف كملف CSV من الويب.',
+        'أضف الحساب البنكي أو البطاقة التي يأتي منها الكشف، ثم استورد الكشف (CSV أو PDF) من الويب.',
     'addAccount': 'أضف حسابًا',
     'noAccounts': 'لا حسابات بعد',
     'noAccountsText':

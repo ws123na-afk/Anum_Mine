@@ -13,14 +13,14 @@ Checked before building (4 November 2026), so nothing is duplicated:
 | Area | Existed | Added here |
 |---|---|---|
 | Ledger | Stage 2 single-entry ledger: accounts (bank, card, cash, loan, investment, last four digits only), signed transactions, CSV statement import with dedupe, categories, bills, debts, goals, holdings, per person and workspace under owner-only RLS ([Finance](finance.md#data-model)) | A double-entry journal (`finance_journal_entries`, `finance_postings`) on top of it; every posting on a finance account is also a stage 2 transaction, so the summary, safe-to-spend, Guardian, exports and the Flutter app keep working unchanged |
-| Statements | CSV import (generic and UAE presets), undo | Reconciliation of an import against SMS-recorded transactions |
+| Statements | CSV import (generic and UAE presets), undo | Reconciliation of an import against SMS-recorded transactions; PDF statements since 5 November 2026 ([PDF bank statements](finance-statements.md)) |
 | Money and FX | `Decimal`, one rounding rule, per-currency totals, ECB and typed rates | FX kept on the entry: original amount and currency, the actual rate from the message, the fee |
 | Credentials | Fernet vault for connector secrets; hashed link tokens for the customer portal (`business/portal_auth.py`); HMAC-signed automation webhooks | Device tokens in the portal's pattern: ids plus a 256-bit secret, SHA-256 at rest, shown once, rotatable, revocable |
 | Approvals, audit, notifications | Payload-hash approvals; audit log; in-app notifications with email and push preferences | Audit rows for every device, settings, message and rule change and every ingest outcome (ids and codes only); in-app notices for review, duplicates, failures and unusual spending |
 | SMS | Nothing: no SMS or bank-message API, model or screen existed | Everything on this page |
 | Business invoicing | `docs/business.md`, separate tables | Untouched: personal and business books are never mixed |
 
-Still not built (stated plainly): PDF statement import, bank APIs (Open Finance providers stay owner actions, [Finance](finance.md#owner-actions)), a Flutter screen for SMS review, and real bank formats (none are available to validate).
+Still not built (stated plainly): bank APIs (Open Finance providers stay owner actions, [Finance](finance.md#owner-actions)), a Flutter screen for SMS review, and real bank formats (none are available to validate).
 
 ## How a message travels
 
@@ -57,7 +57,7 @@ Other modules link to a canonical transaction instead of posting again, and thei
 
 ## Reconciliation on import
 
-Importing a CSV statement **reconciles instead of creating** (`sms_service.reconcile_rows`, under the owner's lock): each new row is compared with the recorded transactions on that account (same direction, amount and currency, within 2 days). When exactly one matches with an agreeing merchant (or the entry's own words, such as "Salary") or reference, the row is attached to it as a `statement` source and the entry is marked reconciled; nothing is added. When it could be more than one, or only the amount, account and dates agree, the row waits in Review (`ambiguous_match`) and is not added: the person records it there or dismisses it. Everything else is imported as before. The import answers `reconciled` and `held_for_review`. An SMS or Apple Pay report that arrives after the statement attaches to the statement's transaction the same way.
+Importing a CSV or PDF statement ([PDF bank statements](finance-statements.md)) **reconciles instead of creating** (`sms_service.reconcile_rows`, under the owner's lock): each new row is compared with the recorded transactions on that account (same direction, amount and currency, within 2 days). When exactly one matches with an agreeing merchant (or the entry's own words, such as "Salary") or reference, the row is attached to it as a `statement` source and the entry is marked reconciled; nothing is added. When it could be more than one, or only the amount, account and dates agree, the row waits in Review (`ambiguous_match`) and is not added: the person records it there or dismisses it. Everything else is imported as before. The import answers `reconciled` and `held_for_review`. An SMS or Apple Pay report that arrives after the statement attaches to the statement's transaction the same way. A PDF row also carries the bank's reference (an agreeing reference confirms a match, a conflicting one rules it out) and its printed time, which picks between candidates when the day alone leaves more than one; the time never turns a day match into a new transaction.
 
 ## Parsing
 

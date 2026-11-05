@@ -187,6 +187,13 @@ def _links_memory():  # type: ignore[no-untyped-def]
     return links_memory_store
 
 
+def _templates_memory():  # type: ignore[no-untyped-def]
+    """PDF statement layouts the person taught (``pdf_templates``), deleted and counted with the rest of finance."""
+    from .pdf_templates import template_memory_store
+
+    return template_memory_store
+
+
 def _sms_memory():  # type: ignore[no-untyped-def]
     """The in-memory SMS and journal store (``sms_store``), deleted and counted with the rest of finance."""
     from .sms_store import sms_memory_store
@@ -852,7 +859,8 @@ class InMemoryFinanceStore:
             rows = sum(1 for table in self._tables() for v in table.values() if mine(v, context))
             keyed = (self.settings, self.plans, self.planning, self.exec_settings)
             return (rows + sum(int(self._key(context) in table) for table in keyed) + _ibkr_memory().count_everything(context)
-                    + _sms_memory().count_everything(context) + _links_memory().count_everything(context))
+                    + _sms_memory().count_everything(context) + _links_memory().count_everything(context)
+                    + _templates_memory().count_everything(context))
 
     def delete_everything(self, context: TenantContext) -> int:
         with self._lock:
@@ -865,7 +873,7 @@ class InMemoryFinanceStore:
                 if keyed.pop(self._key(context), None) is not None:
                     removed += 1
             return (removed + _ibkr_memory().delete_everything(context) + _sms_memory().delete_everything(context)
-                    + _links_memory().delete_everything(context))
+                    + _links_memory().delete_everything(context) + _templates_memory().delete_everything(context))
 
 
 finance_store = InMemoryFinanceStore()

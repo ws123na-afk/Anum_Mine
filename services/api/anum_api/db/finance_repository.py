@@ -45,6 +45,7 @@ from anum_api.schemas import TenantContext
 from .ibkr_repository import RECORDS as IBKR_RECORDS
 from .sms_repository import RECORDS as SMS_RECORDS
 from .models import Base
+from .pdf_template_repository import FinanceStatementTemplateRecord
 from .scope import require_workspace
 
 TS = DateTime(timezone=True)
@@ -550,6 +551,7 @@ def _model(record: Any, model: type[BaseModel]) -> Any:
 
 def _owner(item: Any) -> TenantContext:
     return TenantContext(tenant_id=item.tenant_id, workspace_id=item.workspace_id, user_id=item.owner_user_id)
+
 
 
 class SqlAlchemyFinanceStore:
@@ -1320,7 +1322,7 @@ class SqlAlchemyFinanceStore:
         FinanceLiveIncidentRecord, FinanceLiveWideningRecord, FinancePaperOrderRecord, FinancePaperPortfolioRecord, FinancePriceRecord, FinanceExecIntentRecord, FinanceExecSettingsRecord,
         FinanceTransactionRecord, FinanceImportRecord, FinanceHoldingRecord, FinanceBillRecord, FinanceDebtRecord,
         FinanceGoalRecord, FinanceFxRateRecord, FinanceConnectionRecord, FinanceGuardianChangeRecord,
-        FinanceGuardianVersionRecord, FinancePlanRecord, FinanceAccountRecord, FinanceSettingsRecord,
+        FinanceGuardianVersionRecord, FinancePlanRecord, FinanceAccountRecord, FinanceSettingsRecord, FinanceStatementTemplateRecord,
     )
 
     def count_everything(self, context: TenantContext) -> int:

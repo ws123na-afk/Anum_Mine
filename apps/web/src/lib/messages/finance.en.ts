@@ -177,8 +177,8 @@ export const financeEn = {
 
   'finance.import.open': 'Import statement',
   'finance.import.title': 'Import a statement',
-  'finance.import.intro': 'Export a statement from your bank as CSV (up to {mb} MB), pick it here and check the preview. Nothing is saved until you confirm, and rows already in your ledger are skipped.',
-  'finance.import.file': 'CSV file',
+  'finance.import.intro': 'Pick a statement from your bank: a CSV export (up to {mb} MB) or the PDF statement (up to {pdfMb} MB, password protected or scanned too). Check the preview; nothing is saved until you confirm, and rows already in your ledger are skipped.',
+  'finance.import.file': 'Statement file (CSV or PDF)',
   'finance.import.layout': 'Layout',
   'finance.import.dateFormat': 'Date format',
   'finance.import.detect': 'Detect automatically',
@@ -213,10 +213,10 @@ export const financeEn = {
   'finance.import.undone': 'The import of {file} was undone.',
   'finance.import.needAccount': 'Add an account first',
   'finance.import.needAccountText': 'A statement is imported into one of your accounts. Add the account it comes from.',
-  'finance.import.error.noFile': 'Pick a CSV file first.',
+  'finance.import.error.noFile': 'Pick a CSV or PDF file first.',
   'finance.import.error.empty': 'The file is empty.',
   'finance.import.error.size': 'The file is larger than {mb} MB. Export one month at a time.',
-  'finance.import.error.type': 'Pick a .csv file exported from your bank.',
+  'finance.import.error.type': 'Pick a .csv or .pdf statement from your bank.',
 
   'finance.cadence.weekly': 'Weekly',
   'finance.cadence.monthly': 'Monthly',

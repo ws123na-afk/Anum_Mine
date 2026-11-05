@@ -178,8 +178,8 @@ export const financeAr: Record<keyof typeof financeEn, Message> = {
 
   'finance.import.open': 'استورد كشفًا',
   'finance.import.title': 'استيراد كشف',
-  'finance.import.intro': 'صدّر كشفًا من بنكك بصيغة CSV (حتى {mb} ميغابايت)، واختره هنا وراجع المعاينة. لا يُحفظ شيء حتى تؤكد، وتُتخطى الصفوف الموجودة في سجلك.',
-  'finance.import.file': 'ملف CSV',
+  'finance.import.intro': 'اختر كشفًا من بنكك: ملف CSV مصدّرًا (حتى {mb} ميغابايت) أو كشف PDF (حتى {pdfMb} ميغابايت، ولو كان محميًا بكلمة مرور أو ممسوحًا ضوئيًا). راجع المعاينة؛ لا يُحفظ شيء حتى تؤكد، وتُتخطى الصفوف الموجودة في سجلك.',
+  'finance.import.file': 'ملف الكشف (CSV أو PDF)',
   'finance.import.layout': 'التنسيق',
   'finance.import.dateFormat': 'صيغة التاريخ',
   'finance.import.detect': 'اكتشاف تلقائي',
@@ -214,10 +214,10 @@ export const financeAr: Record<keyof typeof financeEn, Message> = {
   'finance.import.undone': 'تم التراجع عن استيراد {file}.',
   'finance.import.needAccount': 'أضف حسابًا أولًا',
   'finance.import.needAccountText': 'يُستورد الكشف إلى أحد حساباتك. أضف الحساب الذي يأتي منه.',
-  'finance.import.error.noFile': 'اختر ملف CSV أولًا.',
+  'finance.import.error.noFile': 'اختر ملف CSV أو PDF أولًا.',
   'finance.import.error.empty': 'الملف فارغ.',
   'finance.import.error.size': 'الملف أكبر من {mb} ميغابايت. صدّر شهرًا واحدًا في كل مرة.',
-  'finance.import.error.type': 'اختر ملف .csv مصدّرًا من بنكك.',
+  'finance.import.error.type': 'اختر كشفًا بصيغة .csv أو .pdf من بنكك.',
 
   'finance.cadence.weekly': 'أسبوعيًا',
   'finance.cadence.monthly': 'شهريًا',

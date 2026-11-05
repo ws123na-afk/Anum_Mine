@@ -32,9 +32,14 @@ export function FinanceSectionNav({ tab, onPick }: { tab: FinanceTab; onPick: (n
     const reveal = () => {
       const entry = slot?.querySelector<HTMLElement>('[aria-current="page"]'), nav = slot?.closest<HTMLElement>('nav[aria-label]');
       if (!entry || !nav) return;
+      // Keep the Finance entry itself in view too when Finance and the current section fit together.
+      const parent = slot?.parentElement?.querySelector<HTMLElement>('.navItem');
       const box = nav.getBoundingClientRect(), at = entry.getBoundingClientRect();
+      const top = parent && at.bottom - parent.getBoundingClientRect().top <= box.height - 32 ? parent.getBoundingClientRect().top : at.top;
       if (at.bottom > box.bottom) nav.scrollTop += at.bottom - box.bottom + 24;
-      else if (at.top < box.top) nav.scrollTop -= box.top - at.top + 24;
+      else if (top < box.top) nav.scrollTop -= box.top - top + 8;
+      const after = parent?.getBoundingClientRect();
+      if (after && after.top < box.top && at.bottom - after.top <= box.height - 32) nav.scrollTop -= box.top - after.top + 8;
     };
     reveal();
     // Again once late entries (owner-only views) and web fonts have settled the sidebar's layout.
