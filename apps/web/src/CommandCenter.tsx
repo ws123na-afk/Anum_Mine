@@ -26,7 +26,7 @@ import {
 } from './lib/commandCenter';
 import {
   HISTORY_PAGE, MAX_ATTACHMENTS, MAX_REQUEST_CHARS, QUICK_CATEGORIES, canDelete, canStart, commandLocale, commandTone, isLive, moveStep, quickTitle, removeStep,
-  stoppableTasks, unstartedTasks,
+  stoppableTasks, confirmedDependencies, readyToContinue,
 } from './lib/commands';
 import { ACTIVE_STATUSES } from './lib/tasks';
 import * as commandApi from './lib/commandApi';
@@ -144,13 +144,23 @@ export function CommandCenter({ userName, role, initialText, live, onGo, onOpenT
   useEffect(() => { if (live > 0) { loadHistory(true); void loadTasks(); loadSignals(); } }, [live]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ---- the command the tracker follows: refreshed every few seconds while it runs, and on workspace events
+  // A step that waited for earlier steps starts once they completed (after an approval, or a run on the
+  // durable worker): the server starts only what is ready, so one call per command at a time is enough.
+  const continuing = useRef(new Set<string>());
   const refreshDetail = useCallback((id: string, quiet = true) => {
     if (!quiet) setDetail({ state: 'loading' });
     commandApi.getCommand(id).then((value) => {
       setDetail({ state: 'ready', value });
+      if (!viewer && readyToContinue(value) && !continuing.current.has(id)) {
+        continuing.current.add(id);
+        void commandApi.startCommand(id).then((next) => setDetail({ state: 'ready', value: next }), (e: unknown) => {
+          if (isBudgetExceeded(e)) onBudget(budgetMessage(e));
+          setStartError(t('cmd.start.someFailed', { reason: describeError(e) }));
+        }).finally(() => continuing.current.delete(id));
+      }
       setHistory((h) => ({ ...h, items: h.items.map((item) => item.id === value.id ? { ...item, status: value.status, progress: value.progress, completedSteps: value.completedSteps, pendingApprovals: value.pendingApprovals } : item) }));
     }).catch((e: unknown) => { if (!quiet) setDetail(isPermissionDenied(e) ? { state: 'denied' } : { state: 'error', message: describeError(e) }); });
-  }, []);
+  }, [viewer]); // eslint-disable-line react-hooks/exhaustive-deps
   const status = detail?.state === 'ready' ? detail.value.status : null;
   useEffect(() => {
     if (!selected || !status || !isLive(status)) return;
@@ -223,14 +233,14 @@ export function CommandCenter({ userName, role, initialText, live, onGo, onOpenT
     const kind = source.kind === 'voice' && heard.current?.trim() !== plan.text ? 'typed' : source.kind;
     try {
       const created = await commandApi.createCommand({
-        text: plan.text, steps: plan.steps.map((s) => s.instruction), source: kind, locale: commandLocale(plan.text, getLocale()),
+        text: plan.text, steps: plan.steps.map((s) => s.instruction), dependsOn: confirmedDependencies(plan.steps), source: kind, locale: commandLocale(plan.text, getLocale()),
         attachments: attachments.map((a) => a.id), quickCommandId: source.quickId,
       });
       setSelected(created.id);
       setDetail({ state: 'ready', value: created });
       setHistory((h) => ({ ...h, state: h.state === 'loading' ? 'ready' : h.state, items: [created, ...h.items.filter((x) => x.id !== created.id)] }));
       setPlan({ state: 'idle' }); setDraft(''); setAttachments([]); setVoiceNote(null); heard.current = null; setSource({ kind: 'typed', quickId: null });
-      try { await commandApi.startSteps(unstartedTasks(created)); } catch (e) {
+      try { await commandApi.startCommand(created.id); } catch (e) {
         if (isBudgetExceeded(e)) onBudget(budgetMessage(e));
         setStartError(t('cmd.start.someFailed', { reason: describeError(e) }));
       }
@@ -494,7 +504,7 @@ function PlanPanel({ plan, starting, error, attachments, onChange, onEdit, onSta
       <p className="planSummary">{t('cmd.plan.summary', { steps: plan.steps.length, approvals: plan.approvals })}{attachments > 0 && <> · {t('cmd.plan.attachments', { count: attachments })}</>}</p>
       {plan.steps.length === 0
         ? <EmptyPanel icon={<Bot />} title={t('cmd.plan.emptyTitle')} text={t('cmd.plan.emptyText')} action={t('cmd.plan.edit')} onAction={onEdit} />
-        : <ol className="planSteps">{plan.steps.map((step, index) => <li key={`${step.position}-${step.instruction}`} className={`planStep ${step.approval}`}>
+        : <ol className="planSteps">{(() => { const deps = confirmedDependencies(plan.steps); return plan.steps.map((step, index) => <li key={`${step.position}-${step.instruction}`} className={`planStep ${step.approval}`}>
           <span className="planNumber" aria-hidden="true">{index + 1}</span>
           <div className="planBody">
             <strong dir="auto">{step.title}</strong>
@@ -506,13 +516,14 @@ function PlanPanel({ plan, starting, error, attachments, onChange, onEdit, onSta
             </div>
             {step.approval !== 'none' && <small dir="auto">{step.approvalReason}</small>}
             {step.note && <small className="planNote" dir="auto">{step.note}</small>}
+            {deps[index].length > 0 && <small className="planDepends">{t('cmd.plan.waitsFor', { steps: deps[index].join(', ') })}</small>}
           </div>
           <div className="planTools">
             <button type="button" className="iconButton small" disabled={index === 0} aria-label={t('cmd.plan.up', { position: index + 1 })} title={t('cmd.plan.upShort')} onClick={() => onChange(moveStep(plan.steps, index, -1))}><ArrowUp aria-hidden="true" /></button>
             <button type="button" className="iconButton small" disabled={index === plan.steps.length - 1} aria-label={t('cmd.plan.down', { position: index + 1 })} title={t('cmd.plan.downShort')} onClick={() => onChange(moveStep(plan.steps, index, 1))}><ArrowDown aria-hidden="true" /></button>
             <button type="button" className="iconButton small" disabled={plan.steps.length === 1} aria-label={t('cmd.plan.remove', { position: index + 1 })} title={t('cmd.plan.removeShort')} onClick={() => onChange(removeStep(plan.steps, index))}><Trash2 aria-hidden="true" /></button>
           </div>
-        </li>)}</ol>}
+        </li>); })()}</ol>}
       {plan.steps.some((s) => s.approval === 'blocked') && <p className="approvalWarning" role="alert">{t('cmd.plan.blocked')}</p>}
       {error && <PanelError message={error} />}
       <div className="planActions">
@@ -590,6 +601,8 @@ function TrackerPanel({ detail, historyLoading, viewer, onRetry, onOpenTask, onO
           <div className="phaseText">
             <strong dir="auto">{step.title}</strong>
             <small><Bot aria-hidden="true" />{step.agent.name}{step.tool && <> · <code dir="ltr">{step.tool}</code></>} · {step.status === 'missing' ? t('cmd.step.missing') : t(`command.stepState.${state}` as MessageKey)}</small>
+            {step.status === 'created' && step.blockedBy.length > 0 && <small className="trackerDepends blocked">{t('cmd.step.blockedBy', { steps: step.blockedBy.join(', ') })}</small>}
+            {step.status === 'created' && step.blockedBy.length === 0 && step.waitingFor.length > 0 && <small className="trackerDepends">{t('cmd.step.waitingFor', { steps: step.waitingFor.join(', ') })}</small>}
             {state === 'active' && <span className="progress mini" role="progressbar" aria-label={t('cmd.step.progress', { position: step.position })} aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(step.progress * 100)}><span style={{ width: `${Math.round(step.progress * 100)}%` }} /></span>}
             {step.result && <div className="trackerResult"><AiAnswer text={step.result} /></div>}
             {step.status !== 'missing' && <button type="button" className="linkButton" onClick={() => onOpenTask(step.taskId)}>{t('cmd.step.open')}</button>}

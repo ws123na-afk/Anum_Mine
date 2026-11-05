@@ -701,6 +701,7 @@ def default_integration_registry(settings: Settings) -> IntegrationRegistry:
             ),
             searxng_integration(settings),
             browser_research_integration(settings),
+            action_browser_integration(settings),
             external_webhook_integration(settings),
             *email_integrations(),
         ]
@@ -814,6 +815,49 @@ def browser_research_integration(settings: Settings) -> IntegrationDefinition:
         remediation=(
             "Check that the browser service answers <ANUM_BROWSER_RESEARCH_URL>/healthz on the internal network; "
             "a 503 there means Chromium is not installed in its image (docs/browser-research.md#setting-it-up)."
+        ),
+        default_enabled=False,
+    )
+
+
+def action_browser_integration(settings: Settings) -> IntegrationDefinition:
+    """The browser service in action mode behind ``web.act`` (docs/action-browser.md).
+
+    Off in every workspace until an owner turns it on (``default_enabled=False``). Unavailable,
+    with the reason, until the operator has set up the browser service and turned the action
+    browser on; the health check asks the service whether it runs in action mode.
+    """
+    from .action_browser import ACTION_INTEGRATION_ID
+    from .action_browser.tool import UNAVAILABLE_MODE, UNAVAILABLE_SERVICE, UNAVAILABLE_SWITCH
+    from .browser_research.tool import normalize_service_url, service_problem
+
+    problem: str | None = UNAVAILABLE_SERVICE if service_problem(settings.browser_research_url, settings.browser_research_token) else None
+    if problem is None and not settings.action_browser_enabled:
+        problem = UNAVAILABLE_SWITCH
+    base = None if problem else normalize_service_url(settings.browser_research_url)
+
+    async def probe() -> None:
+        if base is None:
+            raise RuntimeError("the action browser is not configured")
+        async with httpx.AsyncClient(timeout=2) as client:
+            response = await client.get(f"{base}/healthz")
+            response.raise_for_status()
+            if response.json().get("action_mode") is not True:
+                raise RuntimeError(UNAVAILABLE_MODE)
+
+    return IntegrationDefinition(
+        id=ACTION_INTEGRATION_ID,
+        name="Action browser",
+        kind=IntegrationKind.TOOL,
+        endpoint=base or "not configured",
+        configured=base is not None,
+        disabled_detail=problem,
+        credentials=CredentialMetadata(configured=base is not None, source="environment" if base else "none", scopes=["web.act:write"]),
+        probe=probe,
+        environment_variable="ANUM_ACTION_BROWSER_ENABLED",
+        remediation=(
+            "Check that the browser service answers <ANUM_BROWSER_RESEARCH_URL>/healthz with action_mode true "
+            "(ANUM_BROWSER_ACTION_MODE=1 on the browser service; docs/action-browser.md#setting-it-up)."
         ),
         default_enabled=False,
     )

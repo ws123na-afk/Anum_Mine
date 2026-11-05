@@ -232,6 +232,9 @@ for (const [width, height] of sizes) {
     await page.goto('/#audit'); await page.reload();
     await page.getByRole('table', { name: 'Audit records' }).getByRole('button').first().click();
     const drawer = page.getByRole('dialog', { name: 'Audit record' });
+    await expect(drawer).toBeVisible();
+    // The drawer slides in 24 px from its edge (#356, dialog.css drawerIn): measure where it rests, not a frame of the slide.
+    await drawer.evaluate((el) => Promise.all(el.getAnimations({ subtree: true }).map((a) => a.finished)));
     const box = await drawer.boundingBox();
     expect(box && box.x >= 0 && box.x + box.width <= width + 1).toBe(true);
   });

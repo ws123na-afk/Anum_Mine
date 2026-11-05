@@ -12,7 +12,7 @@
 /* ---- Shared buttons */
 .primaryButton {
   align-items: center; background: var(--d-primary-grad); border: 1px solid transparent; border-radius: var(--d-r-control); box-shadow: var(--d-button-shadow);
-  color: var(--d-on-primary); display: inline-flex; font-size: var(--text-md); font-weight: 650; gap: var(--d-s2); justify-content: center; min-height: 40px; padding: 0 var(--d-s4);
+  color: var(--d-on-primary); display: inline-flex; font-size: var(--text-md); font-weight: 600; gap: var(--d-s2); justify-content: center; min-height: 40px; padding: 0 var(--d-s4);
   transition: background var(--d-fast) var(--d-ease), transform var(--d-fast) var(--d-ease);
 }
 .primaryButton.smallButton { font-size: var(--text-sm); min-height: 36px; padding: 0 var(--d-s3); }
@@ -23,7 +23,7 @@
 /* ---- Header: title, promise and the mode tabs */
 .commandHeader { align-items: flex-start; display: flex; flex-wrap: wrap; gap: var(--d-s3) var(--d-s4); justify-content: space-between; }
 .commandHeader > div:first-child { flex: 1 1 420px; max-width: 72ch; min-width: 0; }
-.commandHeader h1 { font-size: var(--text-6xl); font-weight: 800; }
+.commandHeader h1 { font-size: var(--text-6xl); font-weight: 600; }
 .commandHeader p { color: var(--d-muted); font-size: var(--text-base); margin-top: var(--d-s1); }
 .modeTabs { background: var(--d-chrome); border: 1px solid var(--d-line-strong); border-radius: 16px; display: inline-flex; gap: var(--d-s1); padding: var(--d-s1); }
 .modeTabs button {
@@ -78,7 +78,7 @@
 .orbWave i:nth-child(12) { transform: scaleY(.7); }
 .commandOrb.listening .orbWave i { animation: orbWave 900ms ease-in-out infinite; animation-delay: calc(var(--i) * -73ms); }
 .commandOrb.working .orbWave i { animation: orbWave 1600ms ease-in-out infinite; animation-delay: calc(var(--i) * -110ms); }
-.orbTitle { font-size: var(--text-xl); font-weight: 700; margin-top: var(--d-s1); }
+.orbTitle { font-size: var(--text-xl); font-weight: 600; margin-top: var(--d-s1); }
 .orbCaption { color: #c3cbe0; font-size: var(--text-sm); max-width: 176px; overflow: hidden; text-align: center; text-overflow: ellipsis; white-space: nowrap; }
 @keyframes orbWave { 0%, 100% { transform: scaleY(.18); } 50% { transform: scaleY(1); } }
 
@@ -144,7 +144,7 @@
 .panelHead h2 > svg { color: var(--d-accent-soft); height: 18px; width: 18px; }
 .panelHead h2:focus { outline: none; }
 .panelHead .linkButton { font-size: var(--text-sm); min-height: 36px; }
-.countPill, .activePill { border-radius: 999px; font-size: var(--text-xs); font-weight: 700; padding: 1px 8px; }
+.countPill, .activePill { border-radius: 999px; font-size: var(--text-xs); font-weight: 600; padding: 1px 8px; }
 .countPill { background: var(--d-glass-3); color: var(--d-text); }
 .activePill { background: rgb(var(--c-blue) / .16); color: var(--d-accent-text); }
 .panelEmpty { color: var(--d-muted); display: grid; gap: var(--d-s1); justify-items: center; padding: var(--d-s3) var(--d-s2); text-align: center; }
@@ -165,7 +165,7 @@
 .skeletonRow.tiny { border-radius: 8px; height: 28px; width: 48px; }
 @keyframes skeletonPulse { 50% { opacity: .45; } }
 .partNote { color: var(--d-warn); font-size: var(--text-sm); }
-.stopButton { align-items: center; background: rgb(var(--c-danger) / .14); border: 1px solid rgb(var(--c-stop) / .5); border-radius: 999px; color: var(--d-error-text); display: inline-flex; font-size: var(--text-sm); font-weight: 650; gap: var(--d-s1); min-height: 36px; padding: 0 var(--d-s3); }
+.stopButton { align-items: center; background: rgb(var(--c-danger) / .14); border: 1px solid rgb(var(--c-stop) / .5); border-radius: 999px; color: var(--d-error-text); display: inline-flex; font-size: var(--text-sm); font-weight: 600; gap: var(--d-s1); min-height: 36px; padding: 0 var(--d-s3); }
 .stopButton svg { height: 14px; width: 14px; }
 .trackerResult { background: var(--d-field); border: 1px solid var(--d-line); border-radius: var(--d-r-control); max-height: 240px; overflow: auto; padding: var(--d-s3); }
 .trackerResult p { color: var(--d-text); font-size: var(--text-md); overflow-wrap: anywhere; white-space: pre-wrap; }
@@ -232,6 +232,7 @@
 .phaseText strong { font-size: var(--text-md); font-weight: 600; overflow-wrap: anywhere; }
 .phase.todo .phaseText strong { color: var(--d-muted); }
 .phaseText small { align-items: center; color: var(--d-faint); display: inline-flex; flex-wrap: wrap; font-size: var(--text-xs); gap: 4px; }
+.phaseText small.trackerDepends.blocked { color: var(--d-error-text); }
 .phaseText small svg { color: var(--d-accent-soft); height: 13px; width: 13px; }
 .phaseText small code { background: var(--d-glass-2); border-radius: 6px; font-size: var(--text-xs); padding: 0 5px; }
 .phase.active .phaseText small { color: var(--d-accent-soft); }
@@ -278,11 +279,12 @@
 .planStep { align-items: start; background: var(--d-glass-1); border: 1px solid var(--d-line); border-radius: var(--d-r-control); display: grid; gap: var(--d-s3); grid-template-columns: 28px minmax(0, 1fr) auto; padding: var(--d-s3); }
 .planStep.required { border-color: rgb(var(--c-warn) / .4); }
 .planStep.blocked { border-color: rgb(var(--c-stop) / .55); }
-.planNumber { align-items: center; background: var(--d-primary-grad); border-radius: 50%; color: #fff; display: inline-flex; flex: none; font-size: var(--text-sm); font-weight: 700; height: 28px; justify-content: center; width: 28px; }
+.planNumber { align-items: center; background: var(--d-primary-grad); border-radius: 50%; color: #fff; display: inline-flex; flex: none; font-size: var(--text-sm); font-weight: 600; height: 28px; justify-content: center; width: 28px; }
 .planBody { display: grid; gap: var(--d-s1); min-width: 0; }
 .planBody strong { font-size: var(--text-md); overflow-wrap: anywhere; }
 .planBody small { color: var(--d-muted); font-size: var(--text-xs); }
 .planBody .planNote { color: var(--d-sky); }
+.planBody .planDepends { color: var(--d-muted); }
 .planTags { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s1) var(--d-s2); }
 .planTags code, .stepMeta code { background: var(--d-glass-2); border-radius: 6px; font-size: var(--text-xs); padding: 1px 6px; }
 .planAgent { align-items: center; color: var(--d-text); display: inline-flex; font-size: var(--text-sm); font-weight: 600; gap: var(--d-s1); }
@@ -379,3 +381,25 @@
 .trackerPanel .planActions { justify-content: flex-start; }
 .trackerPanel .nextSteps .quickChips { gap: var(--d-s1) var(--d-s2); }
 .phaseText .trackerResult { max-height: 180px; }
+
+/* ==== Redesign (docs/web-design-system.md#pages): ANUM Command puts the order first ====
+   A smaller orb stage, so the composer (the page's job) sits higher; the capability tiles become one
+   quiet row of labelled shortcuts; panels below read as one surface each. */
+.commandHeader h1 { font-size: var(--text-5xl); letter-spacing: -.028em; }
+.commandHeader p { font-size: var(--text-md); }
+.commandStage { gap: var(--d-s3); }
+.commandStage::before { height: 280px; }
+.commandOrb { height: 176px; width: 176px; }
+.orbChips { gap: var(--d-s2); }
+.orbChip { border-radius: var(--d-r-control); font-size: var(--text-sm); gap: var(--d-s2); min-height: 40px; }
+.chipIcon { border-radius: var(--d-r-sm); height: 26px; width: 26px; }
+.chipIcon svg { height: 16px; width: 16px; }
+.commandComposer { box-shadow: var(--d-elev-2); border-color: rgb(var(--c-accent) / .35); }
+.composerRow textarea { border-radius: var(--d-r-control); font-size: var(--text-base); }
+.tiles { gap: var(--d-s2); grid-auto-columns: max-content; }
+.tile { align-content: center; border-radius: var(--d-r-control); display: inline-flex; flex-direction: row; min-width: 0; gap: var(--d-s2); min-height: 40px; padding: 0 var(--d-s3) 0 var(--d-s2); }
+.tileIcon { background: none; height: 24px; width: 24px; }
+.tileIcon svg { height: 18px; width: 18px; }
+@media (max-width: 760px) {
+  .commandOrb { height: 156px; width: 156px; }
+}

@@ -812,10 +812,14 @@ class WorkspaceFileRecord(Base, WorkspaceScopedMixin):
     # The current version number (migration 0090_file_versions); older versions live in
     # workspace_file_versions.
     version: Mapped[int] = mapped_column(Integer, nullable=False, server_default="1", default=1)
+    # Document vault (migration 0133_document_vault, docs/documents.md#storage-and-isolation): null for
+    # an ordinary file; `hidden` rows are invisible unless the unit of work set anum.vault (row policy).
+    vault: Mapped[str | None] = mapped_column(String(10))
 
     __table_args__ = (
         _workspace_fk("workspace_files"),
         CheckConstraint("scan_status is null or scan_status in ('clean', 'infected')", name="ck_workspace_files_scan_status"),
+        CheckConstraint("vault is null or vault in ('hidden', 'assistant')", name="ck_workspace_files_vault"),
         Index("ix_workspace_files_scope_created", "tenant_id", "workspace_id", "created_at"),
         # Keyset paging by name and by size (migration 0029_file_management).
         Index("ix_workspace_files_scope_name", "tenant_id", "workspace_id", text('(lower(name) collate "C")'), "id"),

@@ -95,7 +95,11 @@ async function benchAndSave(page, o, label, log) {
 }
 
 async function lighting(page, name) {
-  await page.locator('.hqLive').getByRole('group', { name: 'Lighting' }).getByRole('button', { name }).click();
+  // Day, Blue hour and Night sit under More camera options (the decluttered toolbar), which closes when the scene is rebuilt.
+  const live = page.locator('.hqLive');
+  const more = live.getByTestId('hq-cam-more').first();
+  if ((await more.getAttribute('aria-expanded')) !== 'true') await more.click();
+  await live.getByRole('group', { name: 'Lighting' }).getByRole('button', { name }).click();
   await page.waitForTimeout(1500);
 }
 

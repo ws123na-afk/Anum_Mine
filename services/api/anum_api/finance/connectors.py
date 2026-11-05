@@ -31,7 +31,7 @@ from enum import StrEnum
 from typing import Any
 
 import httpx
-from pydantic import BaseModel, Field
+from pydantic import Field
 
 from ..secret_box import secret_cipher
 from . import fx

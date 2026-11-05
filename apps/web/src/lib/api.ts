@@ -11,6 +11,7 @@ import type { SkillVerification } from './skillSigning';
 import * as workspaces from './workspaces';
 import * as capabilities from './capabilities';
 import type { ModelConfig, ModelConfigBody, ModelConnectionTest } from './modelConfig';
+import type { ModelStatus } from './modelStatus';
 import * as chatMemory from './chatMemory';
 import * as push from './push';
 import { parseSourceNames, type SourceName } from './retrieval';
@@ -158,8 +159,8 @@ export async function cancelTask(taskId: string): Promise<Task> {
 }
 
 /** Approve exactly what was displayed: the request carries the approval's payload hash. */
-export async function approveTask(approval: Approval, reason?: string): Promise<ApprovalDecisionResult> {
-  return decideApproval(approval, 'approve', reason);
+export async function approveTask(approval: Approval, reason?: string, securityCode?: string): Promise<ApprovalDecisionResult> {
+  return decideApproval(approval, 'approve', reason, securityCode);
 }
 
 // task_id is null for a memory remembered from a chat; owner_user_id marks it private to its owner.
@@ -190,6 +191,7 @@ export async function getSignInOptions(): Promise<SignInOptions> {
 export async function getOnboarding(): Promise<OnboardingStatus> { return request('/api/v1/onboarding', { method: 'GET' }); }
 export async function completeOnboarding(organizationName: string, workspaceName: string): Promise<OnboardingStatus> { return request('/api/v1/onboarding', { method: 'PUT', body: JSON.stringify({ organization_name: organizationName, workspace_name: workspaceName }) }); }
 export async function getModelConfig(): Promise<ModelConfig> { return request('/api/v1/model-config', { method: 'GET' }); }
+export async function getModelStatus(): Promise<ModelStatus> { return request('/api/v1/model-status', { method: 'GET' }); }
 /** PUT /api/v1/model-config with a full body (Claude's routing fields included; src/lib/modelConfig.ts). */
 export async function saveModelConfigBody(body: ModelConfigBody): Promise<ModelConfig> { return request('/api/v1/model-config', { method: 'PUT', body: JSON.stringify(body) }); }
 export async function testModelConfig(): Promise<ModelConnectionTest> { return request('/api/v1/model-config/test', { method: 'POST' }); }
@@ -402,8 +404,10 @@ async function decideApproval(
   approval: Approval,
   decision: 'approve' | 'reject',
   reason?: string,
+  securityCode?: string,
 ): Promise<ApprovalDecisionResult> {
-  const body = decisionBody(approval, reason);
+  // The security code goes only with an approve, only when the step asks for it, and is never kept.
+  const body = decisionBody(approval, reason, decision === 'approve' ? securityCode : undefined);
   const result = await request<ApiApprovalDecisionResponse>(`/api/v1/approvals/${encodeURIComponent(approval.id)}/${decision}`, {
     method: 'POST',
     ...(body ? { body: JSON.stringify(body) } : {}),

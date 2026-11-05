@@ -1,6 +1,8 @@
 import asyncio
 import json
-from collections.abc import Awaitable, Callable, Iterable
+from contextvars import ContextVar
+from collections.abc import Awaitable, Callable, Iterable, Iterator
+from contextlib import contextmanager
 from enum import StrEnum
 from typing import Any
 
@@ -45,6 +47,10 @@ class ToolDefinition(BaseModel):
     # "platform:operate"), checked whenever the call is planned or decided. A workspace role
     # never grants it; the tool's handler checks it again when it runs.
     required_organization_permission: str | None = None
+    # A tool whose call works for minutes and pauses for people between its steps (the action
+    # browser, docs/action-browser.md): after an approval on the inline path it runs in the
+    # background, so the approve request answers at once and the task drawer follows it live.
+    long_running: bool = False
 
 
 def holds_organization_permission(context: TenantContext, permission: str) -> bool:
@@ -77,6 +83,15 @@ class ToolResult(BaseModel):
     # What the runtime records in the audit log for this call (``tool.call``). Tools
     # that set it keep it to counts and outcomes: never query text, results or secrets.
     audit_metadata: dict[str, Any] = Field(default_factory=dict)
+    # A tool that must stop for a person part way (docs/action-browser.md#one-task-step-by-step)
+    # answers ``status="paused"`` with the next call it needs. The runtime records this result,
+    # checkpoints the continuation as the run's next tool call, evaluates it like any planned
+    # call and pauses for an approval bound to it by the payload hash (``runtime._settle``).
+    # ``continuation_reason`` opens the approval's reason; ``continuation_ttl_seconds`` can
+    # only shorten the approval's expiry.
+    continuation: ToolCall | None = None
+    continuation_reason: str | None = None
+    continuation_ttl_seconds: int | None = Field(default=None, ge=30, le=86_400)
 
 
 class ToolPolicyOutcome(StrEnum):
@@ -99,6 +114,20 @@ class ToolPolicyDecision(BaseModel):
 
 
 ToolHandler = Callable[[ToolCall, TenantContext], Awaitable[ToolResult]]
+# The task and run a tool call belongs to, while its handler runs (set by ``running_in`` around
+# the calls the runtime makes). Tools that keep their own per-run records read it (the action
+# browser); a call outside a run sees None.
+CURRENT_RUN: ContextVar[tuple[str, str] | None] = ContextVar("anum_current_run", default=None)
+
+
+@contextmanager
+def running_in(task_id: str, run_id: str) -> Iterator[None]:
+    """Mark the task and run of the tool call made inside the ``with`` block (``CURRENT_RUN``)."""
+    token = CURRENT_RUN.set((task_id, run_id))
+    try:
+        yield
+    finally:
+        CURRENT_RUN.reset(token)
 # What a connector knows about one call for autonomy (returns ``autonomy.AutonomyFacts``).
 AutonomyFactsProvider = Callable[[ToolCall, TenantContext], Any]
 

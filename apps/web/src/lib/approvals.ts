@@ -64,14 +64,29 @@ export function normalizeReason(reason: string | null | undefined): string | und
 export interface DecisionBody {
   payload_hash?: string;
   reason?: string;
+  /** Only for an action browser step that types a card's security code: used once, never stored. */
+  security_code?: string;
+}
+
+/** The marker an action browser step carries when the owner must type the card security code to approve it. */
+export const CARD_CODE_MARKER = 'entered at approval';
+
+/** Whether approving needs the card security code typed on the approval card (docs/action-browser.md#the-card-security-code). */
+export function needsCardCode(approval: Pick<Approval, 'action' | 'arguments'>): boolean {
+  return approval.action === 'web.act' && approval.arguments?.cvc === CARD_CODE_MARKER;
+}
+
+export function cardCodeValid(code: string | undefined): boolean {
+  return /^\d{3,4}$/.test(code ?? '');
 }
 
 /** The decision body: the payload hash exactly as it was displayed, and the optional reason. */
-export function decisionBody(approval: Approval, reason?: string | null): DecisionBody | undefined {
+export function decisionBody(approval: Approval, reason?: string | null, securityCode?: string): DecisionBody | undefined {
   const body: DecisionBody = {};
   if (approval.payloadHash) body.payload_hash = approval.payloadHash;
   const normalized = normalizeReason(reason);
   if (normalized) body.reason = normalized;
+  if (securityCode && needsCardCode(approval)) body.security_code = securityCode;
   return Object.keys(body).length ? body : undefined;
 }
 

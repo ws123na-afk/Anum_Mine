@@ -175,3 +175,21 @@ def test_blueprint_route_returns_every_role_resolved() -> None:
     role = next(r for r in body["roles"] if r["key"] == "orders_desk")
     assert role["rules"]["autonomy"]["external"] == "off" and role["rules"]["never"]
     assert all(t["risk"] in ("low", "medium") for t in role["tools"])
+
+
+def test_source_probe_binds_the_tenant_and_quotes_the_table_name() -> None:
+    """The Connected probe is built by SQLAlchemy, never by formatting a string (bandit B608)."""
+    from sqlalchemy.dialects import postgresql
+
+    from anum_api import office_staffing_api as api
+
+    for source in bp.SOURCES:
+        for name in source.tables:
+            compiled = api._row_probe(name, {"t": "tenant-1", "w": "ws-1"}).compile(dialect=postgresql.dialect())
+            sql = str(compiled)
+            assert f"FROM {name}" in sql
+            assert "tenant-1" not in sql and "ws-1" not in sql
+            assert {"tenant-1", "ws-1"} <= set(compiled.params.values())
+            assert "LIMIT" in sql
+    hostile = api._row_probe("x; drop table y", {"t": "t", "w": "w"}).compile(dialect=postgresql.dialect())
+    assert 'FROM "x; drop table y"' in str(hostile)

@@ -73,6 +73,8 @@ Not included: audit records (the workspace's security log, ids and counts only; 
 
 **Size cap.** The export is built in memory, section by section, and refused with `413` once it passes `ANUM_PRIVACY_EXPORT_MAX_BYTES` (default 25 MiB, between 64 KiB and 512 MiB). It is never truncated: a partial export would look complete. The `413` message says how to fix it (delete old conversations, or the administrator raises the limit).
 
+Document vault: a `documents` section with the caller's own vault documents (masked number, never the ciphertext), who their private documents are shared with, links and iPhone Shortcut devices without token hashes ([Document vault](documents.md#privacy)).
+
 ## What deletion removes and keeps
 
 Removed, in one transaction (after the mailbox revocations below):
@@ -87,6 +89,9 @@ Removed, in one transaction (after the mailbox revocations below):
 - the meetings the caller imported, with their transcript lines and recording files (rows in the transaction, bytes after it commits), and the caller's Zoom and Teams connections (migration `0043_meetings`, [Calls & Meetings](meetings.md#privacy)); meetings other members imported are kept;
 - the phone calls the caller logged or placed, with their notes, summaries, transcripts and recording files (counted as `calls_logged`, [Phone calls](calls.md#privacy)); contacts they added are the workspace's shared address book and stay, and AI call opt-outs stay because they protect the person who opted out;
 - the caller's favorites, private knowledge collections (with their items) and private reports (migration `0042_library`; counted as `favorites`, `private_collections` and `private_reports`). Notes in a private collection are private memories and go with them; shared collections and reports stay;
+- the caller's work attendance: profile, sites, arrival and departure events (raw events 90 days, then day totals), corrections with their reasons, day totals, daily reports and the shares they gave (migration `0132_work_attendance`, counted as `attendance_records`, exported as the `attendance` section, [Work attendance](attendance.md#privacy)); no coordinates are ever stored;
+- the caller's vehicles: their personal vehicles with every reading, fuel entry, trip and service record, their own records on business vehicles, their reminders and vehicle settings (migration `0135_vehicles`, counted as `vehicle_records`, exported as the `vehicles` section, [Vehicles](vehicles.md#storage-privacy-and-deletion)); business vehicles they added stay with the business;
+- the caller's purchases: their personal purchases with every item, history event, shipment, return and reminder, the status changes, shipments and returns they made on business purchases, and their purchase settings (migration `0136_purchases`, counted as `purchase_records`, exported as the `purchases` section, [Purchases](purchases.md#storage-privacy-and-deletion)); business purchases they added stay with the business, with their items;
 - the caller's whole finance ledger: settings, accounts, transactions, imports, bills, debts, goals and holdings (migration `0056_finance_ledger`, counted as `finance_records`, exported as the `finance` section), and from Finance stages 3 to 5 the safe-to-spend settings, every Guardian rule version and proposed change, the read-only connections (without their credentials, which are never exported, not even encrypted) and the recorded exchange rates (migration `0057_finance_plan_guard_conn`), and from Finance stages 6 to 9 the recorded prices, the SIMULATED paper and shadow portfolios and their orders, every execution request with its approval, the person's own execution settings (kill switch, live limits, opt-in, wider-live tier), wider-live proposals and incidents (migrations `0058_finance_paper_exec` and `0059_finance_wider_live`), and from trading intelligence the instruments and daily bars, strategy versions, their SIMULATED evaluation runs and the agents' decisions (migration `0065_finance_intel`; the organisation's kill switch is not personal data and is not exported). Every finance row is private to its owner ([Finance](finance.md#privacy));
 - the caller's Home data: pinned apps and insight states in this workspace and their tenant-wide greeting name (`home_pins`, `home_insight_states`, `home_profiles`, migration `0046_home`; counted as `home_items`);
 - the caller's `user_preferences` row (migration `0025_user_preferences`). It is per user and tenant, not per workspace, so deleting from any workspace resets it everywhere in that organization; the defaults apply again ("Remember things from my chats" back on);
@@ -108,6 +113,8 @@ Kept, and counted in the response and on the page:
 - custom agents the caller owns and shared with the workspace, with their memories (`shared_agents_owned`, `shared_agent_memories`): other members use them, like a shared collection. The caller (or a workspace owner) deletes such an agent on its page;
 - audit records: they are the workspace's security record and hold ids and counts, not content;
 - the Keycloak account: ANUM does not delete identity accounts. The page says to ask the workspace owner or organization administrator, who removes the user in Keycloak and deactivates the membership.
+
+Document vault: the caller's private documents (rows, file rows, every version's bytes) are deleted and their iPhone Shortcut devices disconnected; workspace documents they added are kept, like workspace files ([Document vault](documents.md#privacy)).
 
 ## Contact suppression
 

@@ -47,7 +47,7 @@ KEYCLOAK_ADMIN_VARS = {
     "KC_BOOTSTRAP_ADMIN_USERNAME",
     "KC_BOOTSTRAP_ADMIN_PASSWORD",
 }
-LONG_RUNNING = {"caddy", "postgres", "api", "web", "keycloak", "valkey", "ollama", "searxng", "clamd", "beszel", "beszel-agent", "glitchtip", "coturn", "browser"}
+LONG_RUNNING = {"caddy", "postgres", "api", "web", "keycloak", "valkey", "ollama", "searxng", "clamd", "beszel", "beszel-agent", "glitchtip", "coturn", "browser", "ocr"}
 MONITORING = {"beszel", "beszel-agent", "glitchtip"}
 ONE_SHOT = {"db-init", "migrate", "retention", "backup", "restore-tools", "backup-upload", "ollama-pull"}
 API_REQUIRED = {
@@ -164,6 +164,8 @@ def test_compose_has_the_expected_services_and_profiles() -> None:
     assert profiles["beszel-agent"] == ("monitoring-agent",)
     # The TURN relay for in-app calls is off unless calls.sh enable adds its profile.
     assert profiles["coturn"] == ("calls",)
+    # Document vault OCR is off unless its profile is added (docs/documents.md#the-ocr-service).
+    assert profiles["ocr"] == ("ocr",)
     for name in ("caddy", "postgres", "db-init", "migrate", "api", "web", "keycloak", "valkey"):
         assert profiles[name] == (), name
 
@@ -336,6 +338,7 @@ def test_env_example_holds_placeholders_only() -> None:
         "SEARXNG_SECRET",
         "ANUM_TURN_SECRET",
         "ANUM_BROWSER_TOKEN",
+        "ANUM_OCR_TOKEN",
     }
     owner = {key for key, value in example.items() if OWNER_PLACEHOLDER in value}
     assert {"ANUM_WEB_HOST", "ANUM_API_HOST", "ANUM_AUTH_HOST", "ACME_EMAIL"} <= owner
@@ -705,6 +708,17 @@ def test_configure_env_check_refuses_bad_hosts_and_allow_lists(overrides: dict[s
     assert any(fragment in problem for problem in problems), problems
 
 
+def test_configure_env_check_refuses_the_action_browser_without_the_browser_service() -> None:
+    """docs/action-browser.md#setting-it-up: the API would refuse to start, so update.sh stops first."""
+    module = _configure_env_module()
+    problems, _ = module.check_deployment({**HOSTS_OK, "ANUM_ACTION_BROWSER_ENABLED": "true"}, strict=False)
+    assert any("ANUM_ACTION_BROWSER_ENABLED=true needs the browser service" in problem for problem in problems)
+    ready = {**HOSTS_OK, "ANUM_ACTION_BROWSER_ENABLED": "true", "ANUM_BROWSER_RESEARCH_URL": "http://browser:8090"}
+    problems, warnings = module.check_deployment(ready, strict=False)
+    assert not problems and any("ANUM_BROWSER_ACTION_MODE" in warning for warning in warnings)
+    assert module.check_deployment({**ready, "ANUM_BROWSER_ACTION_MODE": "1"}, strict=True) == ([], [])
+
+
 def test_configure_env_check_accepts_good_values_and_flags_a_world_open_console(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
@@ -844,7 +858,12 @@ def test_the_browser_service_is_isolated_and_off_by_default() -> None:
     assert not browser.get("ports") and not browser.get("expose")
     assert "browser:8090" not in CADDYFILE.read_text(encoding="utf-8")
     # Only the token: no database URL, secrets key or provider key reaches Chromium's container.
-    assert set(_env(browser)) == {"ANUM_BROWSER_SERVICE_TOKEN", "ANUM_BROWSER_CONCURRENCY"}
+    assert set(_env(browser)) == {
+        "ANUM_BROWSER_SERVICE_TOKEN", "ANUM_BROWSER_CONCURRENCY",
+        # Action mode (docs/action-browser.md): switches and limits, no secrets.
+        "ANUM_BROWSER_ACTION_MODE", "ANUM_BROWSER_ACTION_SESSIONS", "ANUM_BROWSER_ACTION_IDLE_SECONDS", "ANUM_BROWSER_ACTION_MAX_SECONDS",
+    }
+    assert _env(browser)["ANUM_BROWSER_ACTION_MODE"] == "${ANUM_BROWSER_ACTION_MODE:-0}"
     assert _env(browser)["ANUM_BROWSER_SERVICE_TOKEN"].startswith("${ANUM_BROWSER_TOKEN:?")
     assert browser["read_only"] is True and browser["cap_drop"] == ["ALL"]
     assert "no-new-privileges:true" in browser["security_opt"]
@@ -858,6 +877,7 @@ def test_the_browser_service_is_isolated_and_off_by_default() -> None:
     api = _env(services["api"])
     assert api["ANUM_BROWSER_RESEARCH_URL"] == "${ANUM_BROWSER_RESEARCH_URL:-}"
     assert api["ANUM_BROWSER_RESEARCH_TOKEN"] == "${ANUM_BROWSER_TOKEN:-}"
+    assert api["ANUM_ACTION_BROWSER_ENABLED"] == "${ANUM_ACTION_BROWSER_ENABLED:-false}"
 
 
 def test_searxng_is_private_and_only_the_api_uses_it() -> None:
@@ -1234,3 +1254,17 @@ def test_anum_services_drop_capabilities_and_privilege_gain() -> None:
         assert "docker.sock" not in str(service.get("volumes", [])), name
     # Only Caddy publishes ports.
     assert {name for name, service in services.items() if service.get("ports")} == {"caddy"}
+
+
+def test_the_ocr_service_is_isolated_and_off_until_its_profile() -> None:
+    """Document vault OCR (docs/documents.md#the-ocr-service): no ANUM secrets, no internet, opt-in."""
+    compose = _compose()
+    ocr = compose["services"]["ocr"]
+    assert ocr["profiles"] == ["ocr"] and ocr["build"]["args"] == {"ANUM_OCR": "1"}
+    assert ocr["networks"] == ["ocr"] and compose["networks"]["ocr"]["internal"] is True
+    assert set(_env(ocr)) == {"ANUM_OCR_SERVICE_TOKEN", "ANUM_OCR_CONCURRENCY"}
+    assert _env(ocr)["ANUM_OCR_SERVICE_TOKEN"].startswith("${ANUM_OCR_TOKEN:?")
+    assert ocr["read_only"] is True and ocr["cap_drop"] == ["ALL"] and "ports" not in ocr
+    api = _env(compose["services"]["api"])
+    assert api["ANUM_OCR_SERVICE_URL"] == "${ANUM_OCR_SERVICE_URL:-}" and api["ANUM_OCR_SERVICE_TOKEN"] == "${ANUM_OCR_TOKEN:-}"
+    assert "ocr" in compose["services"]["api"]["networks"]

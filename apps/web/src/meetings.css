@@ -75,7 +75,7 @@
 .mailboxField { margin: 0; min-width: min(100%, 240px); }
 .meetingSection textarea { min-height: 160px; resize: vertical; width: 100%; }
 .buttonLink { align-items: center; border-radius: var(--d-r-control); color: var(--d-text); display: inline-flex; font-size: var(--text-md); font-weight: 650; gap: var(--d-s2); min-height: 44px; padding: 10px var(--d-s4); text-decoration: none; }
-.buttonLink.secondary { background: var(--d-glass-2); border: 1px solid var(--d-line-strong); }
+.buttonLink.secondary { background: var(--d-control-bg); border: 1px solid var(--d-line-strong); }
 .buttonLink:hover { background: var(--d-glass-3); }
 .buttonLink svg { height: 18px; width: 18px; }
 

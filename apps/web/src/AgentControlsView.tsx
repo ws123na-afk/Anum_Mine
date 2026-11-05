@@ -40,9 +40,10 @@ export function AgentControlsView({ onOpenAgents, onStopChanged }: { onOpenAgent
   useEffect(() => { void refresh(); }, [refresh]);
   const changed = (next: AgentControls) => { setControls(next); onStopChanged?.(next.emergency_stop.engaged); };
   return <>
-    <section className="moduleIntro">
-      <div><p className="eyebrow">{t('agentControls.eyebrow')}</p><h2>{t('agentControls.title')}</h2><p>{t('agentControls.intro')}</p></div>
-      <button type="button" onClick={() => { setLoad({ kind: 'loading' }); void refresh(); }}><RefreshCw aria-hidden="true" />{t('admin.refresh')}</button>
+    {/* The page title above already names the page, so the section title is for screen readers only; Refresh is a quiet action, the stop is the page's main one. */}
+    <section className="moduleIntro agentControlsIntro">
+      <div><p className="eyebrow">{t('agentControls.eyebrow')}</p><h2 className="visuallyHidden">{t('agentControls.title')}</h2><p>{t('agentControls.intro')}</p></div>
+      <button type="button" className="secondary" onClick={() => { setLoad({ kind: 'loading' }); void refresh(); }}><RefreshCw aria-hidden="true" />{t('admin.refresh')}</button>
     </section>
     {load.kind === 'loading' && !controls && <Notice>{t('agentControls.loading')}</Notice>}
     {load.kind === 'error' && <div className="agentControlsRetry"><Notice error>{t('agentControls.error', { message: load.detail })}</Notice>

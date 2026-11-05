@@ -8,6 +8,7 @@ import { financeAr } from './finance.ar.ts';
 import { financeTradingAr } from './financeTrading.ar.ts';
 import { financeIbkrAr } from './financeIbkr.ar.ts';
 import { financeResearchAr } from './financeResearch.ar.ts';
+import { financeSmsAr } from './financeSms.ar.ts';
 import { financeIntelAr } from './financeIntel.ar.ts';
 import { financeEquityAr } from './financeEquity.ar.ts';
 import { financeReportsAr } from './financeReports.ar.ts';
@@ -56,6 +57,12 @@ import { agentControlsAr } from './agentControls.ar.ts';
 import { billingAr } from './billing.ar.ts';
 import { lifecycleAr } from './lifecycle.ar.ts';
 import { recordRetentionAr } from './recordRetention.ar.ts';
+import { attendanceAr } from './attendance.ar.ts';
+import { vehiclesAr } from './vehicles.ar.ts';
+import { purchasesAr } from './purchases.ar.ts';
+import { businessBooksAr } from './businessBooks.ar.ts';
+import { iphoneAr } from './iphone.ar.ts';
+import { vaultAr } from './vault.ar.ts';
 import { helpAr } from './help.ar.ts';
 import { publicSiteAr } from './publicSite.ar.ts';
 import { ownerAr } from './ar.owner.ts';
@@ -98,6 +105,7 @@ export const ar: Record<MessageKey, Message> = {
   ...financeTradingAr,
   ...financeIbkrAr,
   ...financeResearchAr,
+  ...financeSmsAr,
   ...financeIntelAr,
   ...financeEquityAr,
   ...financeReportsAr,
@@ -118,6 +126,12 @@ export const ar: Record<MessageKey, Message> = {
   ...billingAr,
   ...lifecycleAr,
   ...recordRetentionAr,
+  ...attendanceAr,
+  ...vehiclesAr,
+  ...purchasesAr,
+  ...businessBooksAr,
+  ...iphoneAr,
+  ...vaultAr,
   ...helpAr,
   ...publicSiteAr,
   ...agentSkillsAr,
@@ -418,6 +432,11 @@ export const ar: Record<MessageKey, Message> = {
 
   // ---- Model gateway ----
   'model.ownerOnly': 'يتطلب اختيار النموذج وحفظ مفتاح واجهته البرمجية واختبار الاتصال دور المالك في هذه المؤسسة. اطلب من المالك تغيير النموذج أو تغيير دورك.',
+  'model.placeholder.server': 'إجابات الذكاء الاصطناعي نصوص مؤقتة: لم يُضبط نموذج ذكاء اصطناعي على الخادم.',
+  'model.placeholder.workspace': 'إجابات الذكاء الاصطناعي نصوص مؤقتة: مساحة العمل هذه مضبوطة على النموذج المؤقت.',
+  'model.placeholder.fix': 'يختار المالك نموذجا حقيقيا من الإعدادات، في قسم بوابة النماذج. ويمكن لمشغل الخادم أيضا ضبط ANUM_MODEL_PROVIDER لكل مساحات العمل.',
+  'model.placeholder.openSettings': 'فتح الإعدادات',
+  'model.placeholder.help': 'طريقة الإعداد',
   'model.ownerRequired': 'يلزم وصول المالك',
   'model.apiAnswered': 'ردّت واجهة البرمجة: {detail}',
   'model.saveConflict': '{reason} أكمل "تهيئة مساحة العمل" أعلاه، ثم احفظ مرة أخرى.',
@@ -688,6 +707,8 @@ export const ar: Record<MessageKey, Message> = {
   'chatCard.failed.title': 'لم تكتمل المهمة',
   'chatCard.cancelled': 'توقّف قبل اكتمال المهمة. لم يتغير شيء.',
   'chatCard.denied.title': 'دورك لا يسمح بتشغيل المهام',
+  'chatCard.unavailable.title': 'غير مفعل هنا بعد',
+  'chatCard.needsInput.title': 'يستطيع ANUM تنفيذ هذا: تنقص معلومة واحدة',
   'chatCard.stillRunning': 'لا تزال تعمل في الخلفية. افتح المهمة لمتابعتها؛ تتحدث هذه البطاقة عند فتح المحادثة مجددًا.',
   'chatCard.running.commerce': 'أقرأ بيانات متجرك…',
   'chatCard.running.tyre': 'أقرأ بيانات الإطارات…',
@@ -729,6 +750,7 @@ export const ar: Record<MessageKey, Message> = {
   'tasks.stream.offline': 'التحديثات غير متصلة',
   'tasks.instructions': 'تعليمات المهمة',
   'tasks.instructionsPlaceholder': 'صف النتيجة التي يجب أن ينتجها الوكيل',
+  'tasks.instructionsRequired': 'اكتب ما يجب أن تفعله المهمة، ثم شغّلها.',
   'tasks.running': 'جارٍ التشغيل...',
   'tasks.run': 'تشغيل المهمة',
   'tasks.cancel': 'إلغاء',
@@ -1005,6 +1027,8 @@ export const ar: Record<MessageKey, Message> = {
 
   // ---- Approvals ----
   'approvals.pendingHeading': 'بانتظار القرار',
+  'approvals.queueIndex': 'قائمة الانتظار',
+  'approvals.queueIndexCount': '{count} بانتظار القرار',
   'approvals.queueClear': 'لا شيء في الانتظار',
   'approvals.queueClearText': 'لا توجد إجراءات تحتاج إلى موافقة.',
   'approvals.metric.pending': 'معلّقة',
@@ -1437,6 +1461,9 @@ export const ar: Record<MessageKey, Message> = {
   'integrations.tool.available': 'أداة الوكيل web_search: متاحة.',
   'integrations.tool.degraded': 'أداة الوكيل web_search: تفشل الطلبات حتى تستجيب خدمة البحث.',
   'integrations.tool.unavailable': 'أداة الوكيل web_search: غير متاحة هنا.',
+  'integrations.act.available': 'أداة الوكيل web.act: متاحة. تبقى متوقفة في مساحة العمل حتى يشغلها المالك أدناه، وتسأل قبل أي خطوة ملزمة.',
+  'integrations.act.degraded': 'أداة الوكيل web.act: خدمة المتصفح تجيب لكنها ليست في وضع الإجراءات، أو لم تجب.',
+  'integrations.act.unavailable': 'أداة الوكيل web.act: غير متاحة هنا.',
   'integrations.browse.available': 'أداة الوكيل web.browse_page: متاحة. تبقى متوقفة في مساحة العمل حتى يشغلها المالك أدناه.',
   'integrations.browse.degraded': 'أداة الوكيل web.browse_page: لا يمكن قراءة الصفحات حتى تستجيب خدمة المتصفح.',
   'integrations.browse.unavailable': 'أداة الوكيل web.browse_page: غير متاحة هنا. تجيب بأنها غير متاحة على هذا الخادم أو متوقفة لمساحة العمل.',

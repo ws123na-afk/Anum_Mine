@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEve
 import {
   ArrowDown, CircleDot, Download, FileText, MessageSquarePlus, PanelRight, Pencil, Pin, PinOff, RefreshCw, RotateCcw, Search, Send, Sparkles, Square, Trash2, WifiOff, X,
 } from 'lucide-react';
+import { ModelPlaceholderBanner } from './ModelPlaceholderBanner';
 import { AnswerFeedback, type Rating } from './AnswerFeedback';
 import { getRatings } from './lib/learningApi';
 import {
@@ -445,6 +446,7 @@ export function ChatView({ onOpenBudgets, onOpenDeveloper, onOpenTarget, initial
         {active && <ActionMenu className="iconButton" label={t('chat.conversationActions')} items={conversationMenu} />}
         {page && !railShown && <button type="button" className="iconButton chatRailToggle" aria-label={t('pages.chat.rail.open')} title={t('pages.chat.rail.open')} aria-haspopup="dialog" onClick={() => setRailOpen(true)}><PanelRight aria-hidden="true" /></button>}
       </header>
+      <ModelPlaceholderBanner />
       <div className="chatLog" ref={log} onScroll={onScroll} role="log" aria-live="polite" aria-busy={streaming || opening} tabIndex={0} aria-label={t('chat.messages')}>
         {(opening || (listState === 'loading' && turns.length === 0 && !query)) && <p className="chatLoading" role="status">{t('chat.loadingMessages')}</p>}
         {showEmpty && <div className="chatEmpty">

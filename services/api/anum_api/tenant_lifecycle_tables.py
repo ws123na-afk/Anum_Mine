@@ -26,6 +26,9 @@ class TenantTable:
     domain: str
     workspace_column: str | None = "workspace_id"
     storage_key_column: str | None = None
+    # A second column naming a workspace whose deletion also removes the row (rows one workspace made in
+    # another, such as an owner's business allocations: docs/finance-links.md#storage-privacy-and-deletion).
+    origin_workspace_column: str | None = None
 
 
 # The job table of this feature: never exported, never purged by the purge role (the
@@ -80,6 +83,7 @@ _TENANT_WIDE = frozenset(
 )
 
 _DOMAINS = (
+    ("attendance_", "attendance"),
     ("app_call", "calls"),
     ("call_", "calls"),
     ("mail_", "mail"),
@@ -93,6 +97,10 @@ _DOMAINS = (
     ("contact_suppressions", "marketing"),
     ("contact_consent", "marketing"),
     ("agent_loop_limits", "agents"),
+    ("action_browser_", "agents"),
+    ("vault_", "documents"),
+    ("vehicle", "vehicles"),
+    ("purchase", "purchases"),
     ("commerce_", "commerce"),
     ("tyre_", "tyre"),
     ("office_", "office"),
@@ -195,6 +203,15 @@ _ORDER = (
     "mail_identities",
     "mail_account_grants",
     "mail_accounts",
+    "finance_links",
+    "finance_device_events",
+    "business_ledger_allocations",
+    "finance_postings",
+    "finance_journal_entries",
+    "finance_sms_rules",
+    "finance_sms_messages",
+    "finance_sms_devices",
+    "finance_sms_settings",
     "finance_broker_events",
     "finance_broker_orders",
     "finance_broker_connections",
@@ -337,6 +354,24 @@ _ORDER = (
     "favorites",
     "user_notifications",
     "team_activity",
+    "attendance_daily_reports", "attendance_day_totals", "attendance_corrections", "attendance_events", "attendance_sites", "attendance_profiles", "attendance_shares",
+    "vehicle_reminders", "vehicle_service_records", "vehicle_trips", "vehicle_fuel_entries", "vehicle_odometer_readings", "vehicle_preferences",
+    "vehicles",
+    "purchase_reminders", "purchase_events", "purchase_returns", "purchase_shipments", "purchase_items", "purchase_preferences",
+    "purchases",
+    "business_book_bill_payments", "business_book_bills", "business_book_allocation_tags", "business_book_budgets", "business_book_adjustments",
+    "business_book_intercompany", "business_book_rates", "business_book_vendors", "business_book_cost_centres", "business_book_settings",
+    "vault_access_log",
+    "vault_extractions",
+    "vault_document_links",
+    "vault_document_access",
+    "vault_documents",
+    "vault_devices",
+    "vault_categories",
+    "vault_settings",
+    "action_browser_steps",
+    "action_browser_sessions",
+    "action_browser_credentials",
     "work_item_attachments",
     "work_item_checklist",
     "work_item_comments",
@@ -429,6 +464,11 @@ _STORAGE_KEYS = {
 }
 
 
+_ORIGIN_COLUMNS = {
+    "business_ledger_allocations": "source_workspace_id",
+}
+
+
 def _entry(name: str) -> TenantTable:
     if name == "workspaces":
         workspace_column: str | None = "id"
@@ -436,7 +476,7 @@ def _entry(name: str) -> TenantTable:
         workspace_column = None
     else:
         workspace_column = "workspace_id"
-    return TenantTable(name, domain_of(name), workspace_column, _STORAGE_KEYS.get(name))
+    return TenantTable(name, domain_of(name), workspace_column, _STORAGE_KEYS.get(name), _ORIGIN_COLUMNS.get(name))
 
 
 TENANT_TABLES: tuple[TenantTable, ...] = tuple(_entry(name) for name in _ORDER)

@@ -93,6 +93,7 @@ The **Security scans** job in `.github/workflows/ci.yml` fails the build on:
 
 Other jobs:
 
+- **Licenses and SBOMs**: every shipped dependency (API, web, desktop, Flutter, Android) against the license policy in `scripts/licenses/policy.toml` (GPL, AGPL, SSPL, BUSL and unknown licenses fail; LGPL and other weak copyleft need a reviewed exception), a check that `THIRD_PARTY_NOTICES.md` matches the scan, and one CycloneDX SBOM per app as the `sbom` artifact. Details: [Third-party licenses](licenses.md).
 - **Docker images**: Trivy (`aquasec/trivy:0.75.0`, pinned by digest) scans the built `anum-api`, `anum-web` and `anum-backup` images (every image a deploy workflow pushes) with `--scanners vuln,secret --severity HIGH,CRITICAL --ignore-unfixed`, so any high or critical vulnerability that has a fixed version, and any secret in a layer, fails the job. Fix findings in the Dockerfile (base image bump, `apt-get upgrade` / `apk upgrade`, removing unneeded packages); an unavoidable exception goes in a `.trivyignore` at the repository root with a row below. There is no `.trivyignore` today.
 - **Flutter mobile**: `flutter analyze --fatal-infos --fatal-warnings` (the `flutter_lints` set plus the rules and the `strict-casts`, `strict-inference` and `strict-raw-types` language modes in `apps/mobile/analysis_options.yaml`) is the Dart static analysis, and OSV-Scanner checks the `pubspec.lock` that `flutter pub get` resolves.
 - **Tauri desktop**: `cargo clippy --locked --all-targets -- -D warnings` is the Rust static analysis (on the Windows runner, which already builds the crate).
@@ -164,6 +165,12 @@ Agents must not receive raw unrestricted access to user accounts, files, or inte
 ### Browser research
 
 `web.browse_page` runs a page's JavaScript in Chromium, so it is the riskiest read-only tool. Its controls ([Browser research](browser-research.md)): the browser runs in its own container with no ANUM secrets and no route to PostgreSQL, Valkey or the other services; Chromium cannot reach the network itself; every request goes through a gate that allows GET reads of public https addresses only, resolves each host once, refuses any non-public answer (private, loopback, link-local, metadata, unique-local, reserved) and dials the checked address (no DNS rebinding), checks every redirect hop, passes no cookies and refuses downloads, frames and forms. Off per workspace until an owner turns it on; audit records hold addresses and counts, never page content. Threat model row T9.
+
+`web.act`, the [Action browser](action-browser.md), uses the same container in action mode to do browser tasks for the owner. It keeps cookies only for one task, reaches the internet only through a CONNECT proxy that dials checked public addresses on port 443, never shows saved passwords or cards to the model (handles, decrypted at the moment of typing), and stops for the owner's approval, bound to the payload hash and re-checked against the page, before anything that pays, sends, submits, signs, posts or deletes. Captchas and codes go to the owner. Threat model rows T10 to T14.
+
+### Document vault
+
+Identity papers, contracts and receipts ([Document vault](documents.md)): vault files are hidden from every unit of work but the vault's own by a restrictive row policy on `workspace_files`, and a private document is visible only to its owner and the people it is shared with (restrictive policy `vault_documents_private`, checked again in the API); identity and account numbers are Fernet-encrypted and listed as the last four only; every read is in the document's access log. Scanned text is untrusted data: it is matched against fixed patterns only, never sent to a model, values are validated and wait for the person to confirm them, and instruction-like text is dropped and flagged. The OCR service runs local Tesseract in its own container with no secrets but its token, no internet and no database. iPhone Shortcut tokens carry the `documents` scope only, are stored as SHA-256, re-check the owner's membership and role on every upload and can be disconnected.
 
 ## Data Protection
 

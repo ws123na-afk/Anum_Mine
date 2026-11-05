@@ -49,6 +49,7 @@ export const setupAr: Record<keyof typeof setupEn, Message> = {
   'setup.kind.search': 'بحث ويب خاص خلف أداة الوكيل web_search.',
   'setup.kind.tool': 'نظامك الخاص الذي تستدعيه إجراءات الوكلاء المعتمدة.',
   'setup.service.browser-research': 'متصفح معزول للقراءة فقط خلف أداة الوكيل web.browse_page.',
+  'setup.service.action-browser': 'متصفح معزول ينجز مهام في المواقع نيابة عنك (web.act) ويسأل قبل أي خطوة ملزمة.',
   'setup.kind.email': 'مزوّد البريد الذي يتصل به صندوق الوارد الموحّد.',
   'setup.endpoint': 'العنوان',
   'setup.checkedAt': 'آخر فحص',
