@@ -98,6 +98,8 @@ function intentFor(input: Record<string, unknown>): Record<string, unknown> {
 }
 
 export function financeState({ empty = false, denied = false, failSummary = false, failSafe = false, agentProposal = false, failTrading = false, role = 'member' }: { empty?: boolean; denied?: boolean; failSummary?: boolean; failSafe?: boolean; agentProposal?: boolean; failTrading?: boolean; role?: 'owner' | 'member' | 'viewer' } = {}): FinanceState {
+  // Each test starts from a fresh state: counters shared by the spec files a worker runs must not carry over.
+  changeCount = 0; intentCount = 0;
   const account = { id: 'fin_acct_current', name: 'Everyday account', kind: 'bank', currency: 'AED', institution: 'Example Bank', last4: '1234', opening_balance: '1000.00', balance: '15349.50', archived: false, transaction_count: 64, created_at: stamp, updated_at: stamp };
   const card = { ...account, id: 'fin_acct_card', name: 'Rewards card', kind: 'card', last4: '9876', opening_balance: '0.00', balance: '-2450.00', transaction_count: 12 };
   const merchants = [
