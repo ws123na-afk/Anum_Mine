@@ -365,7 +365,8 @@ function reviewQueue(state: FinanceState, url: URL) {
     month: url.searchParams.get('month') ?? month, version: state.guardian.version, timezone: 'Asia/Dubai',
     counts: { flagged: items.length, awaiting: items.filter((i) => i.state === 'awaiting').length, resolved: items.filter((i) => ['expected', 'reviewed'].includes(i.state as string)).length, snoozed: items.filter((i) => i.state === 'snoozed').length },
     rules: kinds.map((kind) => ({ kind, count: kind === 'category_caps' ? items.length : 0, last: kind === 'category_caps' && items[0] ? items[0].posted_on : null })),
-    items: chosen.slice(0, Number(url.searchParams.get('limit') ?? 10)), total: chosen.length, limit: 10, offset: 0,
+    items: chosen.slice(Number(url.searchParams.get('offset') ?? 0), Number(url.searchParams.get('offset') ?? 0) + Number(url.searchParams.get('limit') ?? 10)), total: chosen.length,
+    limit: Number(url.searchParams.get('limit') ?? 10), offset: Number(url.searchParams.get('offset') ?? 0),
   };
 }
 
@@ -405,7 +406,11 @@ function financeStagesReply(state: FinanceState, method: string, sub: string, bo
     state.activity.unshift({ id: `audit_c${state.activity.length}`, action: 'finance.guardian.confirm', target: change.id, created_at: stamp, metadata: { version: state.guardian.version, loosens: change.loosens, proposed_by: change.proposed_by } });
     return ok(guardianView());
   }
-  if (sub === '/guardian/review' && method === 'GET') return ok(reviewQueue(state, url));
+  if (sub === '/guardian/review' && method === 'GET') {
+    // The API refuses a page above 50 (plan_api.py), like the real one.
+    if (Number(url.searchParams.get('limit') ?? 10) > 50) return { status: 422, body: { error: { code: 'validation_error', message: 'limit: at most 50', correlation_id: 'c', details: [] } } };
+    return ok(reviewQueue(state, url));
+  }
   const decide = /^\/guardian\/review\/([^/]+)$/.exec(sub);
   if (decide && method === 'POST') {
     const input = body as { decision: string; snooze_days: number | null };

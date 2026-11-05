@@ -225,3 +225,18 @@ def test_privacy_exports_and_deletes_review_decisions() -> None:
     assert [r["transaction_id"] for r in export["guardian_reviews"]] == [paid] and "owner_user_id" not in export["guardian_reviews"][0]
     assert client.post("/api/v1/privacy/delete", headers=OWNER, json={"confirm": "DELETE MY DATA"}).status_code == 200
     assert finance_store.reviews == {}
+
+
+def test_a_decision_keeps_the_cumulative_reasons_the_queue_showed() -> None:
+    from anum_api.dependencies import memory_repository
+
+    account, today = _ledger()
+    _apply({"category_caps": [{"category": "dining", "currency": "AED", "amount": "100"}],
+            "max_daily_total": [{"currency": "AED", "amount": "110"}]})
+    _pay(account, today, "-80", "CAFE", "dining")
+    over = _pay(account, today, "-40", "CAFE", "dining")
+    shown = next(i for i in client.get(f"{API}/guardian/review", headers=OWNER).json()["items"] if i["transaction_id"] == over)
+    assert {r["code"] for r in shown["reasons"]} == {"over_category_cap", "over_daily_total"}
+    assert client.post(f"{API}/guardian/review/{over}", headers=OWNER, json={"decision": "expected"}).status_code == 200
+    record = next(r for r in memory_repository.store.audit_records if r.action == "finance.guardian.review")
+    assert sorted(record.metadata["codes"]) == ["over_category_cap", "over_daily_total"]

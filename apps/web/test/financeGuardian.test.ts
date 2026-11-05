@@ -102,3 +102,35 @@ describe('audit log and reasons', () => {
     assert.equal(activityCells({ id: 'e', action: 'finance.guardian.reject', target: 'x', created_at: at, metadata: {} }).action, 'رفضت تغييرًا');
   });
 });
+
+describe('review queue loading', () => {
+  test('show more asks for the next bounded page, never more than the API allows', async () => {
+    const { QUEUE_PAGE, MAX_QUEUE_PAGE, nextQueuePage, appendPage } = await import('../src/lib/financeGuardian.ts');
+    assert.ok(QUEUE_PAGE <= MAX_QUEUE_PAGE && MAX_QUEUE_PAGE === 50);
+    let loaded: { transaction_id: string }[] = [];
+    const total = 137;
+    const seen: { offset: number; limit: number }[] = [];
+    for (let page = nextQueuePage(loaded.length, total); page; page = nextQueuePage(loaded.length, total)) {
+      seen.push(page);
+      assert.ok(page.limit >= 1 && page.limit <= MAX_QUEUE_PAGE);
+      const items = Array.from({ length: Math.min(page.limit, total - page.offset) }, (_, i) => ({ transaction_id: `t${page.offset + i}` }));
+      loaded = appendPage(loaded, items);
+    }
+    assert.equal(loaded.length, total);
+    assert.equal(new Set(loaded.map((i) => i.transaction_id)).size, total);
+    assert.deepEqual(seen[0], { offset: 0, limit: QUEUE_PAGE });
+    // A repeated item (the queue moved under the page) is not shown twice.
+    assert.equal(appendPage([{ transaction_id: 'a' }], [{ transaction_id: 'a' }, { transaction_id: 'b' }]).length, 2);
+  });
+
+  test('only the newest request may update the page, so an older month never overwrites a newer one', async () => {
+    const { latestOnly } = await import('../src/lib/financeGuardian.ts');
+    const guard = latestOnly();
+    let resolveOld: (v: string) => void = () => undefined;
+    const old = guard(new Promise<string>((r) => { resolveOld = r; }));
+    const fresh = guard(Promise.resolve('november'));
+    assert.deepEqual(await fresh, { current: true, value: 'november' });
+    resolveOld('october');
+    assert.deepEqual(await old, { current: false, value: 'october' });
+  });
+});

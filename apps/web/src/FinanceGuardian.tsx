@@ -18,7 +18,7 @@ import {
   shiftMonth, shortHash, type FinanceTab, type RulesDraft,
 } from './lib/finance';
 import {
-  RULE_KINDS, activityCells, reasonText, configuredKinds, draftAdding, isPaused, isSet, lastTriggered, monitoringState, testPrefill,
+  QUEUE_PAGE, RULE_KINDS, activityCells, appendPage, latestOnly, nextQueuePage, reasonText, configuredKinds, draftAdding, isPaused, isSet, lastTriggered, monitoringState, testPrefill,
   thresholdLines, withAllPaused, withPaused, type TestPrefill,
 } from './lib/financeGuardian';
 import { describeError } from './lib/errors';
@@ -39,15 +39,19 @@ const KIND_ICON: Record<FinanceGuardianRuleKind, ReactNode> = {
   approval_above: <CircleCheck aria-hidden="true" />, quiet_hours: <Moon aria-hidden="true" />, cooling_off: <Hourglass aria-hidden="true" />,
 };
 const SNOOZE_DAYS = [1, 3, 7, 30] as const;
-const QUEUE_PAGE = 10;
 const AUDIT_PAGE = 5;
 
+/** Loads with ``load``; when ``load`` changes (another month or tab) an older answer is dropped, never shown. */
 function useLoad<T>(load: () => Promise<T>): [Load<T>, () => Promise<void>] {
   const [state, setState] = useState<Load<T>>({ kind: 'loading' });
+  const [guard] = useState(latestOnly);
   const run = useCallback(async () => {
     setState((current) => (current.kind === 'ready' ? current : { kind: 'loading' }));
-    try { setState({ kind: 'ready', value: await load() }); } catch (e) { setState(failed(e)); }
-  }, [load]);
+    try {
+      const answer = await guard(load());
+      if (answer.current) setState({ kind: 'ready', value: answer.value });
+    } catch (e) { setState(failed(e)); }
+  }, [load, guard]);
   useEffect(() => { void run(); }, [run]);
   return [state, run];
 }
@@ -57,6 +61,35 @@ const day = (iso: string) => formatDateTime(`${iso}T00:00:00Z`, { dateStyle: 'me
 
 type Notify = (text: string, error?: boolean) => void;
 
+/**
+ * The review queue for a month and tab: the first bounded page, then "Show more" appends the next
+ * page by offset. A month or tab change starts again; answers for an earlier month or tab are dropped.
+ */
+function useQueue(month: string | null, tab: 'awaiting' | 'resolved' | 'snoozed'): [Load<FinanceGuardianReviewQueue>, () => Promise<void>, () => Promise<void>] {
+  const [state, setState] = useState<Load<FinanceGuardianReviewQueue>>({ kind: 'loading' });
+  const [guard] = useState(latestOnly);
+  const fetchPage = useCallback((offset: number, limit: number) => api.guardianReview({ month: month ?? undefined, state: tab, offset, limit }), [month, tab]);
+  const reload = useCallback(async () => {
+    setState((current) => (current.kind === 'ready' ? current : { kind: 'loading' }));
+    try {
+      const answer = await guard(fetchPage(0, QUEUE_PAGE));
+      if (answer.current) setState({ kind: 'ready', value: answer.value });
+    } catch (e) { setState(failed(e)); }
+  }, [fetchPage, guard]);
+  const more = useCallback(async () => {
+    if (state.kind !== 'ready') return;
+    const page = nextQueuePage(state.value.items.length, state.value.total);
+    if (!page) return;
+    try {
+      const answer = await guard(fetchPage(page.offset, page.limit));
+      if (answer.current) setState((current) => (current.kind === 'ready'
+        ? { kind: 'ready', value: { ...answer.value, items: appendPage(current.value.items, answer.value.items) } } : current));
+    } catch (e) { setState(failed(e)); }
+  }, [state, fetchPage, guard]);
+  useEffect(() => { setState({ kind: 'loading' }); void reload(); }, [reload]);
+  return [state, reload, more];
+}
+
 // ---- the page --------------------------------------------------------------------------------------
 
 export function GuardianPage({ base, onOpen }: { base: string; onOpen: (tab: FinanceTab) => void }) {
@@ -64,9 +97,7 @@ export function GuardianPage({ base, onOpen }: { base: string; onOpen: (tab: Fin
   const thisMonth = useMemo(() => new Date().toISOString().slice(0, 7), []);
   const [month, setMonth] = useState<string | null>(null);
   const [queueTab, setQueueTab] = useState<'awaiting' | 'resolved' | 'snoozed'>('awaiting');
-  const [queueLimit, setQueueLimit] = useState(QUEUE_PAGE);
-  const loadQueue = useCallback(() => api.guardianReview({ month: month ?? undefined, state: queueTab, limit: queueLimit }), [month, queueTab, queueLimit]);
-  const [queue, reloadQueue] = useLoad(loadQueue);
+  const [queue, reloadQueue, moreQueue] = useQueue(month, queueTab);
   const loadAlerts = useCallback(() => api.guardianAlerts(month ?? undefined), [month]);
   const [alerts, reloadAlerts] = useLoad(loadAlerts);
   const [auditKey, setAuditKey] = useState(0);
@@ -124,8 +155,8 @@ export function GuardianPage({ base, onOpen }: { base: string; onOpen: (tab: Fin
         <AlertsSummary alerts={alerts} hasRules={configuredKinds(rules).length > 0} retry={() => void reloadAlerts()} />
       </div>
       <div className="fgColumn">
-        <ReviewQueue queue={queue} tab={queueTab} month={shownMonth} hasActive={monitoring === 'on'} limit={queueLimit}
-          onTab={(next) => { setQueueTab(next); setQueueLimit(QUEUE_PAGE); }} onMore={() => setQueueLimit((n) => n + QUEUE_PAGE)}
+        <ReviewQueue queue={queue} tab={queueTab} month={shownMonth} hasActive={monitoring === 'on'}
+          onTab={setQueueTab} onMore={() => void moreQueue()}
           onRetry={() => void reloadQueue()} onAdd={() => setPicking(true)} onOpen={onOpen}
           onDecided={(text, error) => { notify(text, error); void reloadQueue(); setAuditKey((k) => k + 1); }} />
         <FinCard id="fg-privacy" className="fgPrivacy" icon={<Lock />} title={t('fguard.privacy.title')}>
@@ -433,8 +464,8 @@ function CheckSpend({ base, prefill }: { base: string; prefill: TestPrefill }) {
 
 // ---- review queue ----------------------------------------------------------------------------------
 
-function ReviewQueue({ queue, tab, month, hasActive, limit, onTab, onMore, onRetry, onAdd, onOpen, onDecided }: {
-  queue: Load<FinanceGuardianReviewQueue>; tab: 'awaiting' | 'resolved' | 'snoozed'; month: string | null; hasActive: boolean; limit: number;
+function ReviewQueue({ queue, tab, month, hasActive, onTab, onMore, onRetry, onAdd, onOpen, onDecided }: {
+  queue: Load<FinanceGuardianReviewQueue>; tab: 'awaiting' | 'resolved' | 'snoozed'; month: string | null; hasActive: boolean;
   onTab: (tab: 'awaiting' | 'resolved' | 'snoozed') => void; onMore: () => void; onRetry: () => void; onAdd: () => void;
   onOpen: (tab: FinanceTab) => void; onDecided: Notify;
 }) {
@@ -468,7 +499,7 @@ function ReviewQueue({ queue, tab, month, hasActive, limit, onTab, onMore, onRet
         </button>
       </li>)}</ul>
     </div>}
-    {data && data.total > items.length && items.length >= limit && <button type="button" className="secondary" onClick={onMore}>{t('fguard.queue.more')}</button>}
+    {data && nextQueuePage(items.length, data.total) && <button type="button" className="secondary" onClick={onMore}>{t('fguard.queue.more')}</button>}
   </FinCard>;
 }
 

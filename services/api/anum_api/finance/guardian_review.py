@@ -192,6 +192,14 @@ def build_queue(store: FinanceStore, context: TenantContext, month: str | None, 
                        items=chosen[offset:offset + limit], total=len(chosen), limit=limit, offset=offset)
 
 
+def reasons_for(store: FinanceStore, context: TenantContext, transaction: Transaction, rules: GuardianRules, timezone: str,
+                now: datetime) -> list[Reason]:
+    """The reasons the queue shows for one payment: checked with the month's and the day's spend before it."""
+    start = transaction.posted_on.replace(day=1)
+    rows = [t for t in store.transactions_between(context, start, transaction.posted_on) if t.id != transaction.id] + [transaction]
+    return next((reasons for t, reasons in flag(rows, rules, timezone, now) if t.id == transaction.id), [])
+
+
 def snooze_end(now: datetime, days: int, timezone: str) -> datetime:
     """Snoozed until the start of the day ``days`` days from now, in the person's time zone."""
     local = now.astimezone(zone(timezone))

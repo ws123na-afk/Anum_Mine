@@ -141,3 +141,34 @@ export function reasonText(reason: FinanceGuardianReason): string {
   });
   return text === key ? reason.message : text;
 }
+
+// ---- review queue loading ----------------------------------------------------------------------------
+
+/** The first page of the review queue, and the most one request may ask for (plan_api.py: le=50). */
+export const QUEUE_PAGE = 10;
+export const MAX_QUEUE_PAGE = 50;
+
+/** The next page to fetch after ``loaded`` of ``total`` items, or null when all are shown. */
+export function nextQueuePage(loaded: number, total: number): { offset: number; limit: number } | null {
+  if (loaded >= total) return null;
+  return { offset: loaded, limit: loaded === 0 ? QUEUE_PAGE : Math.min(MAX_QUEUE_PAGE, total - loaded) };
+}
+
+/** ``page`` added after ``items``, skipping any payment already shown (the queue may move between pages). */
+export function appendPage<T extends { transaction_id: string }>(items: readonly T[], page: readonly T[]): T[] {
+  const seen = new Set(items.map((i) => i.transaction_id));
+  return [...items, ...page.filter((i) => !seen.has(i.transaction_id))];
+}
+
+/**
+ * Wraps each request so the caller can tell whether it is still the newest one: a slow answer for
+ * an earlier month or tab arrives with ``current: false`` and must not replace what is shown.
+ */
+export function latestOnly(): <T>(request: Promise<T>) => Promise<{ current: boolean; value: T }> {
+  let generation = 0;
+  return async <T,>(request: Promise<T>) => {
+    const mine = ++generation;
+    const value = await request;
+    return { current: mine === generation, value };
+  };
+}

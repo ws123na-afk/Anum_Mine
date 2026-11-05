@@ -56,7 +56,7 @@ from .guardian import (
 )
 from .models import Category, CurrencyBuffer, FxRate, PlanSettings
 from .money import MoneyError, normalize_currency, to_money
-from .guardian_review import ReviewQueue, build_queue, flag, snooze_end
+from .guardian_review import ReviewQueue, build_queue, reasons_for, snooze_end
 from .policy import GuardianAlerts, current_rules, ledger_state, month_alerts
 from .safe_to_spend import SafeToSpend, build_safe_to_spend
 from .store import MAX_CONNECTIONS, MAX_FX_RATES, FinanceStore, open_finance_store
@@ -447,9 +447,8 @@ def decide_review(
             review = current.model_copy(update={"decision": "snoozed", "snoozed_until": now, "decided_at": now})
         else:
             rules, _ = current_rules(store, context)
-            # The codes of the rules that flag this payment on its own (the queue may add month and day totals).
-            flagged = flag([transaction], rules.active(), settings.timezone, now)
-            codes = [r.code for r in flagged[0][1]][:20] if flagged else []
+            # The same reasons the queue showed: the payment checked after the month's and the day's earlier spend.
+            codes = [r.code for r in reasons_for(store, context, transaction, rules.active(), settings.timezone, now)][:20]
             review = GuardianReview(
                 id=new_id("fin_grev"), tenant_id=context.tenant_id, workspace_id=context.workspace_id, owner_user_id=context.user_id,
                 transaction_id=transaction.id, decision=body.decision, amount=-transaction.amount, currency=transaction.currency,
