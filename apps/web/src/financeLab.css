@@ -45,8 +45,8 @@
 .finDonut { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s5); justify-content: center; }
 .finDonutRing { flex: none; height: 168px; position: relative; width: 168px; }
 .finDonutRing svg { display: block; }
-.finDonutCenter { display: grid; inset: 0; place-content: center; position: absolute; text-align: center; }
-.finDonutCenter strong { font-size: var(--text-md); font-variant-numeric: tabular-nums; max-width: 104px; overflow-wrap: anywhere; }
+.finDonutCenter { background: var(--d-surface-1); border-radius: 50%; display: grid; inset: 31px; overflow: hidden; padding: 0 var(--d-s1); place-content: center; position: absolute; text-align: center; }
+.finDonutCenter strong { font-size: var(--text-sm); font-variant-numeric: tabular-nums; max-width: 104px; overflow-wrap: anywhere; }
 .finDonutCenter small { color: var(--d-muted); font-size: var(--text-xs); }
 .finLegend { display: grid; flex: 1 1 200px; gap: var(--d-s2); list-style: none; margin: 0; max-width: 340px; padding: 0; }
 .finLegend li { align-items: center; display: grid; font-size: var(--text-sm); gap: var(--d-s2); grid-template-columns: 12px minmax(0, 1fr) auto; }
