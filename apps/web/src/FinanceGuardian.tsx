@@ -18,7 +18,7 @@ import {
   shiftMonth, shortHash, type FinanceTab, type RulesDraft,
 } from './lib/finance';
 import {
-  ACTION_ONLY_KINDS, RULE_KINDS, activityCells, configuredKinds, draftAdding, isPaused, isSet, lastTriggered, monitoringState, testPrefill,
+  RULE_KINDS, activityCells, reasonText, configuredKinds, draftAdding, isPaused, isSet, lastTriggered, monitoringState, testPrefill,
   thresholdLines, withAllPaused, withPaused, type TestPrefill,
 } from './lib/financeGuardian';
 import { describeError } from './lib/errors';
@@ -26,6 +26,7 @@ import { formatDateTime, t, type MessageKey } from './lib/i18n';
 import { ConfirmDialog, Modal } from './Dialog';
 import { Denied, Empty, FormActions, FormError, LoadError, Notice, failed, type Load } from './FinanceParts';
 import { LimitRows } from './FinancePlan';
+import { FinCard, FinancePageHead, KpiCard, KpiRow, PeriodPicker, ScopeSwitch, StatusChip } from './FinanceShell';
 import './financeGuardian.css';
 
 const CATEGORIES: FinanceCategory[] = [
@@ -60,6 +61,7 @@ type Notify = (text: string, error?: boolean) => void;
 
 export function GuardianPage({ base, onOpen }: { base: string; onOpen: (tab: FinanceTab) => void }) {
   const [state, reload] = useLoad(api.getGuardian);
+  const thisMonth = useMemo(() => new Date().toISOString().slice(0, 7), []);
   const [month, setMonth] = useState<string | null>(null);
   const [queueTab, setQueueTab] = useState<'awaiting' | 'resolved' | 'snoozed'>('awaiting');
   const [queueLimit, setQueueLimit] = useState(QUEUE_PAGE);
@@ -82,52 +84,32 @@ export function GuardianPage({ base, onOpen }: { base: string; onOpen: (tab: Fin
   const guardian = state.value;
   const rules = guardian.rules;
   const monitoring = monitoringState(rules);
-  const shownMonth = queue.kind === 'ready' ? queue.value.month : alerts.kind === 'ready' ? alerts.value.month : month;
+  const shownMonth = month ?? (queue.kind === 'ready' ? queue.value.month : alerts.kind === 'ready' ? alerts.value.month : thisMonth);
   const timezone = queue.kind === 'ready' ? queue.value.timezone : null;
   const propose = (next: FinanceGuardianRules, reason: string) => setProposal({ rules: next, reason });
   const unset = RULE_KINDS.filter((kind) => !isSet(rules, kind));
 
   return <div className="fgPage">
-    <section className="surface fgHead" aria-labelledby="fg-title">
-      <div className="fgHeadTitle">
-        <ShieldCheck aria-hidden="true" className="fgHeadIcon" />
-        <div><h2 id="fg-title">{t('fguard.title')}</h2><p className="muted">{t('fguard.subtitle')}</p></div>
-      </div>
-      <div className="fgHeadControls">
-        <div className="fgControl">
-          <span id="fg-scope" className="fgControlLabel">{t('fguard.scope')}</span>
-          <div className="fgSegmented" role="group" aria-labelledby="fg-scope" aria-describedby="fg-scope-note">
-            <button type="button" aria-pressed="true">{t('fguard.scope.personal')}</button>
-            <button type="button" aria-pressed="false" disabled>{t('fguard.scope.business')}</button>
-            <button type="button" aria-pressed="false" disabled>{t('fguard.scope.all')}</button>
-          </div>
-        </div>
-        <div className="fgControl">
-          <span id="fg-period" className="fgControlLabel">{t('fguard.period')}</span>
-          <div className="fgPeriod" role="group" aria-labelledby="fg-period">
-            <button type="button" className="iconButton" aria-label={t('fguard.prevMonth')} disabled={!shownMonth} onClick={() => shownMonth && setMonth(shiftMonth(shownMonth, -1))}><ChevronLeft aria-hidden="true" className="fgFlip" /></button>
-            <span className="fgPeriodLabel"><CalendarDays aria-hidden="true" />{shownMonth ? monthLabel(shownMonth) : '-'}</span>
-            <button type="button" className="iconButton" aria-label={t('fguard.nextMonth')} disabled={!shownMonth} onClick={() => shownMonth && setMonth(shiftMonth(shownMonth, 1))}><ChevronRight aria-hidden="true" className="fgFlip" /></button>
-          </div>
-        </div>
-        <div className="fgControl fgMonitoring">
+    <FinancePageHead title={t('fguard.title')} subtitle={t('fguard.subtitle')}
+      actions={<>
+        {monitoring === 'on' && <button type="button" onClick={() => propose(withAllPaused(rules, true), t('fguard.pauseReason'))}><Pause aria-hidden="true" />{t('fguard.pause')}</button>}
+        {monitoring === 'off' && <button type="button" onClick={() => propose(withAllPaused(rules, false), t('fguard.resumeReason'))}><Play aria-hidden="true" />{t('fguard.resume')}</button>}
+        {monitoring === 'none' && <button type="button" onClick={() => setPicking(true)}><Plus aria-hidden="true" />{t('fguard.rules.add')}</button>}
+      </>}
+      controls={<>
+        <ScopeSwitch value="personal" onChange={() => undefined} unavailable={{ business: t('fguard.scope.note'), all: t('fguard.scope.note') }} />
+        <PeriodPicker month={shownMonth} onChange={setMonth} max={thisMonth} />
+        <div className="finControl fgMonitoring">
           <label className="fgSwitch">
-            <span className="fgControlLabel">{t('fguard.monitoring')}</span>
+            <span className="finControlLabel">{t('fguard.monitoring')}</span>
             <input type="checkbox" role="switch" checked={monitoring === 'on'} disabled={monitoring === 'none'} aria-label={t('fguard.monitoring.switch')}
               onChange={(e) => propose(withAllPaused(rules, !e.target.checked), e.target.checked ? t('fguard.resumeReason') : t('fguard.pauseReason'))} />
             <span className="fgSwitchState">{t(`fguard.monitoring.${monitoring}` as MessageKey)}</span>
           </label>
-          {monitoring === 'on' && <span className="statusBadge success"><Check aria-hidden="true" />{t('fguard.monitoring.active')}</span>}
-          {monitoring === 'off' && <span className="statusBadge warning"><Pause aria-hidden="true" />{t('fguard.monitoring.paused')}</span>}
+          {monitoring === 'on' && <StatusChip tone="ok"><Check aria-hidden="true" />{t('fguard.monitoring.active')}</StatusChip>}
+          {monitoring === 'off' && <StatusChip tone="warn"><Pause aria-hidden="true" />{t('fguard.monitoring.paused')}</StatusChip>}
         </div>
-        <div className="fgHeadAction">
-          {monitoring === 'on' && <button type="button" onClick={() => propose(withAllPaused(rules, true), t('fguard.pauseReason'))}><Pause aria-hidden="true" />{t('fguard.pause')}</button>}
-          {monitoring === 'off' && <button type="button" onClick={() => propose(withAllPaused(rules, false), t('fguard.resumeReason'))}><Play aria-hidden="true" />{t('fguard.resume')}</button>}
-          {monitoring === 'none' && <button type="button" onClick={() => setPicking(true)}><Plus aria-hidden="true" />{t('fguard.rules.add')}</button>}
-        </div>
-      </div>
-      <p id="fg-scope-note" className="muted fgScopeNote">{t('fguard.scope.note')}</p>
-    </section>
+      </>} />
 
     {notice && <Notice error={notice.error}>{notice.text}</Notice>}
 
@@ -135,7 +117,7 @@ export function GuardianPage({ base, onOpen }: { base: string; onOpen: (tab: Fin
 
     <div className="fgGrid">
       <div className="fgColumn">
-        {guardian.pending.length > 0 && <section className="surface cmPanel"><Pending changes={guardian.pending} current={rules} onDone={(text, error) => { notify(text, error); refresh(); }} /></section>}
+        {guardian.pending.length > 0 && <section className="finCard"><Pending changes={guardian.pending} current={rules} onDone={(text, error) => { notify(text, error); refresh(); }} /></section>}
         <RulesCard guardian={guardian} queue={queue} month={shownMonth}
           onAdd={() => setPicking(true)} onEditAll={() => setEditor({})} onEdit={(kind) => setEditor({ only: kind })} onTest={setTesting}
           onToggle={(kind, paused) => propose(withPaused(rules, kind, paused), paused ? t('fguard.pauseReason') : t('fguard.resumeReason'))} />
@@ -146,14 +128,13 @@ export function GuardianPage({ base, onOpen }: { base: string; onOpen: (tab: Fin
           onRetry={() => void reloadQueue()} onAdd={() => setPicking(true)} onOpen={onOpen}
           onDecided={(text, error) => { notify(text, error); void reloadQueue(); setAuditKey((k) => k + 1); }} />
         <AlertsSummary alerts={alerts} hasRules={configuredKinds(rules).length > 0} retry={() => void reloadAlerts()} />
-        <section className="surface cmPanel fgPrivacy" aria-labelledby="fg-privacy">
-          <Lock aria-hidden="true" className="fgPrivacyIcon" />
-          <div><h2 id="fg-privacy">{t('fguard.privacy.title')}</h2><p className="muted">{t('fguard.privacy.text')}</p></div>
-        </section>
-        <section className="surface cmPanel fgDelivery" aria-label={`${t('fguard.delivery.title')}, ${t('fguard.quiet.title')}`}>
-          <Delivery />
-          <QuietHours rules={rules} timezone={timezone} onEdit={() => setEditor(isSet(rules, 'quiet_hours') ? { only: 'quiet_hours' } : { only: 'quiet_hours', adding: true })} />
-        </section>
+        <FinCard id="fg-privacy" className="fgPrivacy" icon={<Lock />} title={t('fguard.privacy.title')}>
+          <p className="muted">{t('fguard.privacy.text')}</p>
+          <div className="fgDelivery">
+            <Delivery />
+            <QuietHours rules={rules} timezone={timezone} onEdit={() => setEditor(isSet(rules, 'quiet_hours') ? { only: 'quiet_hours' } : { only: 'quiet_hours', adding: true })} />
+          </div>
+        </FinCard>
         <AuditLog key={auditKey} timezone={timezone} />
       </div>
     </div>
@@ -169,28 +150,19 @@ export function GuardianPage({ base, onOpen }: { base: string; onOpen: (tab: Fin
 
 // ---- KPIs ------------------------------------------------------------------------------------------
 
-function Kpis({ queue, rules, month }: { queue: Load<FinanceGuardianReviewQueue>; rules: FinanceGuardianRules; month: string | null }) {
+function Kpis({ queue, rules, month }: { queue: Load<FinanceGuardianReviewQueue>; rules: FinanceGuardianRules; month: string }) {
   const set = configuredKinds(rules);
   const active = set.filter((kind) => !isPaused(rules, kind));
   const counts = queue.kind === 'ready' ? queue.value.counts : null;
   const figure = (value: number | null) => (value === null ? (queue.kind === 'loading' ? '...' : '-') : String(value));
-  const cards: { id: string; icon: ReactNode; label: string; value: string; hint: string; info: string; tone?: string }[] = [
-    { id: 'alerts', icon: <Bell aria-hidden="true" />, label: t('fguard.kpi.alerts'), value: figure(counts?.flagged ?? null), hint: month ? t('fguard.kpi.alertsHint', { month: monthLabel(month) }) : '', info: t('fguard.kpi.alertsInfo') },
-    { id: 'rules', icon: <ShieldCheck aria-hidden="true" />, label: t('fguard.kpi.rules'), value: String(active.length), hint: set.length ? t('fguard.kpi.rulesHint', { active: active.length, total: set.length }) : t('fguard.kpi.rulesNone'), info: t('fguard.kpi.rulesInfo') },
-    { id: 'resolved', icon: <CircleCheck aria-hidden="true" />, label: t('fguard.kpi.resolved'), value: figure(counts?.resolved ?? null), hint: t('fguard.kpi.resolvedHint'), info: t('fguard.kpi.resolvedInfo') },
-    { id: 'awaiting', icon: <AlertTriangle aria-hidden="true" />, label: t('fguard.kpi.awaiting'), value: figure(counts?.awaiting ?? null), hint: t('fguard.kpi.awaitingHint', { count: counts?.snoozed ?? 0 }), info: t('fguard.kpi.awaitingInfo'), tone: counts && counts.awaiting > 0 ? 'warn' : '' },
-  ];
-  return <section className="fgKpis" aria-label={t('fguard.kpi.label')}>
-    {cards.map((card) => <div key={card.id} className={`surface fgKpi ${card.tone ? `fgKpi-${card.tone}` : ''}`}>
-      <span className="fgKpiIcon">{card.icon}</span>
-      <div className="fgKpiBody">
-        <span className="fgKpiLabel">{card.label}</span>
-        <strong className="fgKpiValue" dir="ltr">{card.value}</strong>
-        {card.hint && <small className="muted">{card.hint}</small>}
-      </div>
-      <span className="fgKpiInfo" title={card.info} aria-label={t('fguard.kpi.info', { name: card.label })} role="img"><Info aria-hidden="true" /></span>
-    </div>)}
-  </section>;
+  return <KpiRow label={t('fguard.kpi.label')}>
+    <KpiCard icon={<Bell />} label={t('fguard.kpi.alerts')} value={figure(counts?.flagged ?? null)} hint={t('fguard.kpi.alertsHint', { month: monthLabel(month) })} />
+    <KpiCard icon={<ShieldCheck />} label={t('fguard.kpi.rules')} value={String(active.length)}
+      hint={set.length ? t('fguard.kpi.rulesHint', { active: active.length, total: set.length }) : t('fguard.kpi.rulesNone')} />
+    <KpiCard icon={<CircleCheck />} label={t('fguard.kpi.resolved')} value={figure(counts?.resolved ?? null)} hint={t('fguard.kpi.resolvedHint')} tone={counts && counts.resolved > 0 ? 'good' : ''} />
+    <KpiCard icon={<AlertTriangle />} label={t('fguard.kpi.awaiting')} value={figure(counts?.awaiting ?? null)}
+      hint={t('fguard.kpi.awaitingHint', { count: counts?.snoozed ?? 0 })} tone={counts && counts.awaiting > 0 ? 'warn' : ''} />
+  </KpiRow>;
 }
 
 // ---- monitoring rules ------------------------------------------------------------------------------
@@ -203,14 +175,10 @@ function RulesCard({ guardian, queue, month, onAdd, onEditAll, onEdit, onTest, o
   const kinds = configuredKinds(rules);
   const stats = queue.kind === 'ready' ? queue.value.rules : [];
   const shownMonth = month ? monthLabel(month) : '';
-  return <section className="surface cmPanel fgRules" aria-labelledby="fin-guardian">
-    <div className="sectionHeader">
-      <div><h2 id="fin-guardian">{t('fguard.rules.title')}</h2><p className="muted">{t('fguard.rules.text')}</p></div>
-      <div className="fgRulesActions">
-        <button type="button" className="secondary" onClick={onEditAll}><Pencil aria-hidden="true" />{kinds.length ? t('finance.guardian.change') : t('finance.guardian.set')}</button>
-        <button type="button" onClick={onAdd} disabled={kinds.length === RULE_KINDS.length}><Plus aria-hidden="true" />{t('fguard.rules.add')}</button>
-      </div>
-    </div>
+  return <FinCard id="fin-guardian" className="fgRules" title={t('fguard.rules.title')} subtitle={t('fguard.rules.text')} actions={<>
+    <button type="button" className="secondary" onClick={onEditAll}><Pencil aria-hidden="true" />{kinds.length ? t('finance.guardian.change') : t('finance.guardian.set')}</button>
+    <button type="button" onClick={onAdd} disabled={kinds.length === RULE_KINDS.length}><Plus aria-hidden="true" />{t('fguard.rules.add')}</button>
+  </>}>
     {kinds.length > 0 && <p className="finVersion"><span className="statusBadge neutral">{t('finance.guardian.version', { version: guardian.version })}</span>
       {guardian.confirmed_at && <small className="muted">{t('finance.guardian.confirmedAt', { date: formatDateTime(guardian.confirmed_at) })}</small>}</p>}
     {kinds.length === 0
@@ -229,7 +197,7 @@ function RulesCard({ guardian, queue, month, onAdd, onEditAll, onEdit, onTest, o
             <div className="fgRuleName">
               <span className="fgRuleIcon">{KIND_ICON[kind]}</span>
               <h3 id={nameId}>{name}</h3>
-              <span className={`statusBadge ${paused ? 'neutral' : 'success'}`}>{paused ? t('fguard.rule.paused') : t('fguard.rule.enabled')}</span>
+              <StatusChip tone={paused ? 'muted' : 'ok'}>{paused ? t('fguard.rule.paused') : t('fguard.rule.enabled')}</StatusChip>
             </div>
             <p className="fgRuleWhen"><strong>{t('fguard.rule.when')}</strong> {t(`fguard.when.${kind}` as MessageKey)}</p>
             <p className="fgRuleMeta muted"><span><strong>{t('fguard.rule.scope')}</strong> {t('fguard.scope.personal')}</span>
@@ -250,7 +218,7 @@ function RulesCard({ guardian, queue, month, onAdd, onEditAll, onEdit, onTest, o
           </div>
         </li>;
       })}</ul>}
-  </section>;
+  </FinCard>;
 }
 
 function AddRulePicker({ unset, onPick, onClose }: { unset: FinanceGuardianRuleKind[]; onPick: (kind: FinanceGuardianRuleKind) => void; onClose: () => void }) {
@@ -427,7 +395,7 @@ function TestDialog({ kind, rules, base, onClose }: { kind: FinanceGuardianRuleK
     <p className="muted">{t('fguard.test.title', { name: ruleKindLabel(kind) })}</p>
     {isPaused(rules, kind) && <p className="notice" role="note"><Info aria-hidden="true" />{t('fguard.test.paused')}</p>}
     <CheckSpend base={base} prefill={prefill} />
-    <div className="actions"><button type="button" className="secondary" onClick={onClose}>{t('common.close')}</button></div>
+    <div className="actions"><button type="button" className="secondary" onClick={onClose}>{t('fguard.close')}</button></div>
   </Modal>;
 }
 
@@ -463,19 +431,6 @@ function CheckSpend({ base, prefill }: { base: string; prefill: TestPrefill }) {
   </section>;
 }
 
-/** A Guardian reason in the person's language (the server's English text if a code is new). */
-export function reasonText(reason: FinanceEvaluation['rules_decision']['reasons'][number]): string {
-  const key = `finance.guardian.reason.${reason.code}` as MessageKey;
-  const p = reason.params;
-  const amount = (value: string | undefined) => isolate(formatAmount(value ?? '0', p.currency ?? 'AED'));
-  const text = t(key, {
-    currency: p.currency ?? '', category: p.category ? categoryLabel(p.category as FinanceCategory) : '', merchant: p.merchant ?? '',
-    limit: amount(p.limit), spent: amount(p.spent), start: isolate(p.start ?? ''), end: isolate(p.end ?? ''), until: isolate(p.until ? formatDateTime(p.until) : ''),
-    hours: p.hours ?? '',
-  });
-  return text === key ? reason.message : text;
-}
-
 // ---- review queue ----------------------------------------------------------------------------------
 
 function ReviewQueue({ queue, tab, month, hasActive, limit, onTab, onMore, onRetry, onAdd, onOpen, onDecided }: {
@@ -491,11 +446,8 @@ function ReviewQueue({ queue, tab, month, hasActive, limit, onTab, onMore, onRet
   const tabs = [
     { id: 'awaiting' as const, count: data?.counts.awaiting }, { id: 'resolved' as const, count: data?.counts.resolved }, { id: 'snoozed' as const, count: data?.counts.snoozed },
   ];
-  return <section className="surface cmPanel fgQueue" aria-labelledby="fg-queue">
-    <div className="sectionHeader">
-      <div><h2 id="fg-queue">{t('fguard.queue.title')}</h2><p className="muted">{t('fguard.queue.text')}</p></div>
-      {data && <span className="statusBadge success fgCount">{t('fguard.queue.count', { count: data.counts.awaiting })}</span>}
-    </div>
+  return <FinCard id="fg-queue" className="fgQueue" title={t('fguard.queue.title')} subtitle={t('fguard.queue.text')}
+    actions={data ? <StatusChip tone={data.counts.awaiting ? 'warn' : 'ok'}>{t('fguard.queue.count', { count: data.counts.awaiting })}</StatusChip> : undefined}>
     <div className="fgTabs" role="group" aria-label={t('fguard.queue.tabs')}>
       {tabs.map((item) => <button key={item.id} type="button" aria-pressed={tab === item.id} onClick={() => { onTab(item.id); setSelected(null); }}>
         {t(`fguard.queue.tab.${item.id}` as MessageKey)}{item.count !== undefined && <span className="fgTabCount" dir="ltr">{item.count}</span>}</button>)}
@@ -517,7 +469,7 @@ function ReviewQueue({ queue, tab, month, hasActive, limit, onTab, onMore, onRet
       </li>)}</ul>
     </div>}
     {data && data.total > items.length && items.length >= limit && <button type="button" className="secondary" onClick={onMore}>{t('fguard.queue.more')}</button>}
-  </section>;
+  </FinCard>;
 }
 
 function FlaggedCard({ item, onOpen, onDecided }: { item: FinanceGuardianFlaggedItem; onOpen: (tab: FinanceTab) => void; onDecided: Notify }) {
@@ -540,7 +492,7 @@ function FlaggedCard({ item, onOpen, onDecided }: { item: FinanceGuardianFlagged
         <p className="fgWhy"><strong>{t('fguard.item.why')}:</strong> {item.reasons.map(reasonText).join(' ')}</p>
         <p className="muted fgTypical">{item.typical_amount ? t('fguard.item.typical', { amount: money(item.typical_amount, item.currency), count: item.prior_count }) : t('fguard.item.noTypical')}</p>
       </div>
-      <span className={`statusBadge ${item.state === 'awaiting' ? 'warning' : item.state === 'snoozed' ? 'neutral' : 'success'}`}>{stateText}</span>
+      <StatusChip tone={item.state === 'awaiting' ? 'warn' : item.state === 'snoozed' ? 'muted' : 'ok'}>{stateText}</StatusChip>
     </header>
     <div className="fgItemBody">
       <dl className="fgFacts" aria-label={t('fguard.item.details')}>
@@ -599,8 +551,7 @@ function alertText(alert: FinanceGuardianAlerts['alerts'][number]): string {
 }
 
 function AlertsSummary({ alerts, hasRules, retry }: { alerts: Load<FinanceGuardianAlerts>; hasRules: boolean; retry: () => void }) {
-  return <section className="surface cmPanel fgAlerts" aria-labelledby="fin-alerts">
-    <h2 id="fin-alerts"><AlertTriangle aria-hidden="true" className="cmInlineIcon" />{t('finance.guardian.alerts')}</h2>
+  return <FinCard id="fin-alerts" className="fgAlerts" icon={<AlertTriangle />} title={t('finance.guardian.alerts')}>
     {alerts.kind === 'loading' && <Notice busy>{t('finance.guardian.loading')}</Notice>}
     {(alerts.kind === 'error' || alerts.kind === 'denied') && <LoadError message={alerts.message} retry={retry} />}
     {alerts.kind === 'ready' && (!hasRules ? <p className="muted">{t('finance.guardian.alertsNoRules')}</p>
@@ -609,7 +560,7 @@ function AlertsSummary({ alerts, hasRules, retry }: { alerts: Load<FinanceGuardi
           <div><strong>{alertText(alert)}</strong><small>{ruleKindLabel(alert.rule)}</small></div>
           <span className={`statusBadge ${alert.severity === 'over' ? 'warning' : 'neutral'}`}>{t(`finance.guardian.severity.${alert.severity}` as MessageKey)}</span>
         </li>)}</ul>)}
-  </section>;
+  </FinCard>;
 }
 
 // ---- delivery, quiet hours, audit log --------------------------------------------------------------
@@ -621,11 +572,11 @@ function Delivery() {
     { id: 'sms', icon: <MessageSquare aria-hidden="true" />, label: t('fguard.delivery.sms'), state: t('fguard.delivery.unavailable'), tone: 'neutral', note: t('fguard.delivery.smsNote') },
   ];
   return <div className="fgDeliveryList">
-    <h2 id="fg-delivery">{t('fguard.delivery.title')}</h2>
+    <h3 id="fg-delivery">{t('fguard.delivery.title')}</h3>
     <ul aria-labelledby="fg-delivery">{rows.map((row) => <li key={row.id}>
       <span className="fgDeliveryIcon">{row.icon}</span>
       <div><strong>{row.label}</strong><small className="muted">{row.note}</small></div>
-      <span className={`statusBadge ${row.tone}`}>{row.state}</span>
+      <StatusChip tone={row.tone === 'success' ? 'ok' : 'muted'}>{row.state}</StatusChip>
     </li>)}</ul>
   </div>;
 }
@@ -634,11 +585,11 @@ function QuietHours({ rules, timezone, onEdit }: { rules: FinanceGuardianRules; 
   const quiet = rules.quiet_hours;
   const paused = isPaused(rules, 'quiet_hours');
   return <div className="fgQuiet">
-    <h2 id="fg-quiet"><Moon aria-hidden="true" className="cmInlineIcon" />{t('fguard.quiet.title')}</h2>
+    <h3 id="fg-quiet"><Moon aria-hidden="true" className="cmInlineIcon" />{t('fguard.quiet.title')}</h3>
     <p className="muted">{t('fguard.quiet.text')}</p>
     <p className="fgQuietWindow">
       <strong>{quiet ? t('fguard.quiet.window', { start: isolate(quiet.start), end: isolate(quiet.end) }) : t('fguard.quiet.none')}</strong>
-      {quiet && <span className={`statusBadge ${paused ? 'neutral' : 'success'}`}>{paused ? t('fguard.rule.paused') : t('fguard.rule.enabled')}</span>}
+      {quiet && <StatusChip tone={paused ? 'muted' : 'ok'}>{paused ? t('fguard.rule.paused') : t('fguard.rule.enabled')}</StatusChip>}
     </p>
     {timezone && <p className="muted">{t('fguard.quiet.zone', { zone: isolate(timezone) })}</p>}
     <button type="button" className="secondary" onClick={onEdit}><Pencil aria-hidden="true" />{quiet ? t('fguard.quiet.edit') : t('fguard.quiet.set')}</button>
@@ -660,7 +611,7 @@ function useActivity(limit: number) {
 
 function AuditTable({ items, timezone }: { items: FinanceGuardianActivity[]; timezone: string | null }) {
   const zone = timezone ?? undefined;
-  return <div className="fgTableWrap"><table className="fgTable">
+  return <div className="finTableWrap"><table className="finGrid fgTable">
     <caption className="visuallyHidden">{t('fguard.audit.caption')}</caption>
     <thead><tr>
       <th scope="col">{t('fguard.audit.col.time', { zone: isolate(timezone ?? 'UTC') })}</th><th scope="col">{t('fguard.audit.col.actor')}</th>
@@ -673,28 +624,24 @@ function AuditTable({ items, timezone }: { items: FinanceGuardianActivity[]; tim
         <td>{t('fguard.audit.you')}</td>
         <td>{cells.rule}</td>
         <td><span className={`fgAction fgAction-${cells.tone}`}>{cells.tone === 'warn' ? <AlertTriangle aria-hidden="true" /> : cells.tone === 'ok' ? <Check aria-hidden="true" /> : <Clock aria-hidden="true" />}{cells.action}
-          {cells.loosens && <span className="statusBadge warning">{t('fguard.audit.loosens')}</span>}</span></td>
+          {cells.loosens && <StatusChip tone="warn">{t('fguard.audit.loosens')}</StatusChip>}</span></td>
       </tr>;
     })}</tbody>
   </table></div>;
 }
 
 function AuditLog({ timezone }: { timezone: string | null }) {
-  const { items, cursor, state, message, load } = useActivity(AUDIT_PAGE);
+  const { items, state, message, load } = useActivity(AUDIT_PAGE);
   const [full, setFull] = useState(false);
-  return <section className="surface cmPanel fgAudit" aria-labelledby="fg-audit">
-    <div className="sectionHeader">
-      <div><h2 id="fg-audit"><ListChecks aria-hidden="true" className="cmInlineIcon" />{t('fguard.audit.title')}</h2><p className="muted">{t('fguard.audit.text')}</p></div>
-      {state === 'ready' && items.length > 0 && <button type="button" className="secondary" onClick={() => setFull(true)}><ExternalLink aria-hidden="true" />{t('fguard.audit.full')}</button>}
-    </div>
+  return <FinCard id="fg-audit" className="fgAudit" icon={<ListChecks />} title={t('fguard.audit.title')} subtitle={t('fguard.audit.text')}
+    actions={state === 'ready' && items.length > 0 ? <button type="button" className="secondary" onClick={() => setFull(true)}><ExternalLink aria-hidden="true" />{t('fguard.audit.full')}</button> : undefined}>
     {state === 'loading' && <Notice busy>{t('finance.guardian.loading')}</Notice>}
     {state === 'error' && <LoadError message={t('fguard.audit.error', { message })} retry={() => void load(null)} />}
     {state === 'ready' && (items.length === 0
       ? <Empty icon={<ListChecks aria-hidden="true" />} title={t('fguard.audit.empty')} text={t('fguard.audit.emptyText')} />
       : <AuditTable items={items} timezone={timezone} />)}
     {full && <FullLog timezone={timezone} onClose={() => setFull(false)} />}
-    {cursor === undefined && null}
-  </section>;
+  </FinCard>;
 }
 
 function FullLog({ timezone, onClose }: { timezone: string | null; onClose: () => void }) {
@@ -705,10 +652,8 @@ function FullLog({ timezone, onClose }: { timezone: string | null; onClose: () =
     {state === 'ready' && (items.length === 0 ? <p className="muted">{t('fguard.audit.emptyText')}</p> : <AuditTable items={items} timezone={timezone} />)}
     <div className="actions">
       {cursor && <button type="button" className="secondary" onClick={() => void load(cursor)}>{t('fguard.audit.more')}</button>}
-      <button type="button" className="secondary" onClick={onClose}>{t('common.close')}</button>
+      <button type="button" className="secondary" onClick={onClose}>{t('fguard.close')}</button>
     </div>
   </Modal>;
 }
 
-// For the stage 3 tests that still import the editor's row control from here.
-export { ACTION_ONLY_KINDS };

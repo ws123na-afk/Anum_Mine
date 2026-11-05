@@ -51,7 +51,7 @@ export function groupOf(tabId: FinanceTab, groups: readonly FinanceNavGroup[] = 
  * Sections that draw their own head with <FinancePageHead> (title, scope, period, tabs). Finance's
  * generic header, summary band and breadcrumbs are left out for them, so the page head is never doubled.
  */
-export const OWN_HEAD_TABS: ReadonlySet<FinanceTab> = new Set<FinanceTab>(['reports', 'safe']);
+export const OWN_HEAD_TABS: ReadonlySet<FinanceTab> = new Set<FinanceTab>(['reports', 'safe', 'guardian']);
 
 /** Personal is the person's own ledger (/api/v1/finance), Business the workspace books (/api/v1/business/books). */
 export type FinanceScope = 'personal' | 'business' | 'all';

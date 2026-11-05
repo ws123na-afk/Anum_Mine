@@ -22,7 +22,7 @@ import { figure, type Figure } from './lib/pageSummary';
 import { viewLabel } from './lib/shell';
 import { ConfirmDialog, Modal } from './Dialog';
 import { Denied, Empty, FormActions, FormError, LoadError, Money, Notice, failed, type Load } from './FinanceParts';
-import { ConnectionsPanel, GuardianPanel, SafeToSpendCard, SafeToSpendPanel, reasonText } from './FinancePlan';
+import { ConnectionsPanel, SafeToSpendCard, SafeToSpendPanel, reasonText } from './FinancePlan';
 import { ExecutionPanel, TradingPanel } from './FinanceTrading';
 import { IntelPanel } from './FinanceIntel';
 import { PageHeader, PageSummary, useMediaQuery, type Crumb } from './PageParts';
@@ -34,6 +34,8 @@ const PAGE = 25;
 // IBKR trading is its own lazy chunk (docs/finance-live-trading.md): it loads only when its tab opens.
 const IbkrPanel = lazy(() => import('./FinanceIbkr').then((m) => ({ default: m.IbkrPanel })));
 // Fund research (docs/finance-research.md) is its own lazy chunk too.
+// Finance, Guardian (docs/finance.md#guardian) is its own lazy chunk.
+const GuardianPage = lazy(() => import('./FinanceGuardian').then((m) => ({ default: m.GuardianPage })));
 const ResearchPanel = lazy(() => import('./FinanceResearch').then((m) => ({ default: m.ResearchPanel })));
 // iPhone SMS banking and the double-entry ledger (docs/finance-sms.md): one lazy chunk for both tabs.
 const SmsPanel = lazy(() => import('./FinanceSms').then((m) => ({ default: m.SmsPanel })));
@@ -116,7 +118,7 @@ export function FinanceView() {
     {accounts.kind === 'error' && <LoadError message={t('finance.error.accounts', { message: accounts.message })} retry={() => void loadAccounts()} />}
     {tab === 'overview' && <Overview summary={s} month={month ?? s.month} onMonth={setMonth} onOpen={pick} />}
     {tab === 'safe' && <SafeToSpendPanel onOpen={pick} onChanged={onChanged} />}
-    {tab === 'guardian' && <GuardianPanel base={base} />}
+    {tab === 'guardian' && <Suspense fallback={<section className="surface cmPanel"><Notice busy>{t('fguard.loading')}</Notice></section>}><GuardianPage base={base} onOpen={pick} /></Suspense>}
     {tab === 'connections' && <ConnectionsPanel />}
     {tab === 'trading' && <TradingPanel base={base} onOpen={pick} />}
     {tab === 'intel' && <IntelPanel onOpen={pick} />}

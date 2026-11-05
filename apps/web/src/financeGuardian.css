@@ -1,0 +1,136 @@
+/* Finance, Guardian (FinanceGuardian.tsx, docs/finance.md#guardian). Built on the Finance shell
+   (financeShell.css): shared tokens only, no one-off colours. */
+.fgPage { display: grid; gap: var(--d-s4); min-width: 0; }
+.fgGrid { align-items: start; display: grid; gap: var(--d-s4); grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr); }
+.fgColumn { align-content: start; display: grid; gap: var(--d-s4); min-width: 0; }
+@media (max-width: 1199px) { .fgGrid { grid-template-columns: minmax(0, 1fr); } }
+
+/* The switch: a checkbox with role="switch", drawn with tokens. */
+.fgSwitch { align-items: center; cursor: pointer; display: inline-flex; gap: var(--d-s2); min-height: 44px; }
+.fgSwitch input {
+  appearance: none; background: var(--d-line-strong); block-size: 22px; border: 0; border-radius: var(--d-r-pill); cursor: pointer; flex: none;
+  inline-size: 40px; margin: 0; min-height: 0; padding: 0; position: relative; transition: background var(--d-fast) var(--d-ease);
+}
+.fgSwitch input::after {
+  background: var(--d-surface-1); block-size: 18px; border-radius: 50%; box-shadow: var(--d-elev-1); content: ""; inline-size: 18px;
+  inset-block-start: 2px; inset-inline-start: 2px; position: absolute; transition: translate var(--d-fast) var(--d-ease);
+}
+.fgSwitch input:checked { background: var(--d-primary); }
+.fgSwitch input:checked::after { translate: 18px 0; }
+[dir="rtl"] .fgSwitch input:checked::after { translate: -18px 0; }
+.fgSwitch input:focus-visible { box-shadow: var(--d-ring); outline: none; }
+.fgSwitch input:disabled { cursor: not-allowed; opacity: .5; }
+.fgSwitchState { font-size: var(--text-sm); font-weight: 600; }
+.fgMonitoring { gap: var(--d-s2) var(--d-s3); }
+@media (prefers-reduced-motion: reduce) { .fgSwitch input, .fgSwitch input::after { transition: none; } }
+
+/* Monitoring rules */
+.fgRuleList { display: grid; list-style: none; margin: 0; padding: 0; }
+.fgRule {
+  align-items: start; border-top: 1px solid var(--d-line); display: grid; gap: var(--d-s2) var(--d-s3);
+  grid-template-areas: "switch main threshold" "switch actions actions"; grid-template-columns: auto minmax(0, 1fr) minmax(150px, auto); padding: var(--d-s3) 0;
+}
+.fgRule:first-child { border-top: 0; padding-top: 0; }
+.fgRuleSwitch { grid-area: switch; min-height: 32px; }
+.fgRuleMain { display: grid; gap: 4px; grid-area: main; min-width: 0; }
+.fgRuleName { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); }
+.fgRuleName h3 { font-size: var(--text-md); margin: 0; }
+.fgRuleIcon { color: var(--d-accent); display: inline-flex; }
+.fgRuleIcon svg { height: 18px; width: 18px; }
+.fgRuleWhen, .fgRuleMeta { font-size: var(--text-sm); margin: 0; }
+.fgRuleMeta { display: flex; flex-wrap: wrap; gap: 2px var(--d-s3); }
+.fgRulePaused .fgRuleMain { opacity: .75; }
+.fgThreshold { display: grid; gap: 4px; grid-area: threshold; min-width: 0; }
+.fgThresholdLabel { color: var(--d-muted); font-size: var(--text-xs); font-weight: 600; }
+.fgThresholdField {
+  align-items: center; background: var(--d-field); border: 1px solid var(--d-line); border-radius: var(--d-r-control); display: flex;
+  gap: var(--d-s1); justify-content: space-between; min-height: 36px; padding-inline: var(--d-s3) 2px;
+}
+.fgThresholdValue { font-size: var(--text-sm); font-weight: 600; min-width: 0; overflow-wrap: anywhere; }
+.fgThresholdField .iconButton { min-height: 32px; min-width: 32px; }
+.fgRuleActions { display: flex; flex-wrap: wrap; gap: var(--d-s2); grid-area: actions; }
+.fgRuleActions button { min-height: 36px; padding-inline: var(--d-s3); }
+@media (max-width: 640px) {
+  .fgRule { grid-template-areas: "switch main" "switch threshold" "switch actions"; grid-template-columns: auto minmax(0, 1fr); }
+}
+
+.fgPicker { display: grid; gap: var(--d-s2); list-style: none; margin: 0; padding: 0; }
+.fgPicker button { align-items: flex-start; display: flex; gap: var(--d-s3); justify-content: flex-start; text-align: start; width: 100%; }
+.fgPicker button > span:last-child { display: grid; gap: 2px; }
+
+/* Review queue */
+.fgTabs { display: flex; flex-wrap: wrap; gap: var(--d-s1); }
+.fgTabs button { align-items: center; background: transparent; border: 1px solid var(--d-line); border-radius: var(--d-r-pill); color: var(--d-muted); display: inline-flex; gap: var(--d-s2); min-height: 36px; padding: 0 var(--d-s3); }
+.fgTabs button[aria-pressed="true"] { background: var(--d-primary); border-color: var(--d-primary); color: var(--d-on-primary); font-weight: 600; }
+.fgTabCount { font-size: var(--text-xs); font-variant-numeric: tabular-nums; }
+.fgItem { border: 1px solid var(--d-line); border-radius: var(--d-r-panel); display: grid; gap: var(--d-s3); padding: var(--d-s3) var(--d-s4); }
+.fgItem-awaiting { border-color: rgb(var(--c-warn) / .45); }
+.fgItemHead { align-items: start; display: grid; gap: var(--d-s3); grid-template-columns: auto minmax(0, 1fr) auto; }
+.fgItemHead h3 { font-size: var(--text-md); margin: 0; overflow-wrap: anywhere; }
+.fgItemIcon { color: var(--d-warn); height: 22px; width: 22px; }
+.fgItem-expected .fgItemIcon, .fgItem-reviewed .fgItemIcon { color: var(--d-ok); }
+.fgWhy, .fgTypical { font-size: var(--text-sm); margin: 4px 0 0; }
+.fgItemBody { display: grid; gap: var(--d-s3); grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); }
+.fgFacts { border: 1px solid var(--d-line); border-radius: var(--d-r-control); display: grid; margin: 0; padding: var(--d-s2) var(--d-s3); }
+.fgFacts > div { align-items: center; display: flex; gap: var(--d-s3); justify-content: space-between; min-height: 30px; }
+.fgFacts dt { align-items: center; color: var(--d-muted); display: inline-flex; font-size: var(--text-sm); gap: var(--d-s2); }
+.fgFacts dt svg { height: 16px; width: 16px; }
+.fgFacts dd { font-size: var(--text-sm); font-weight: 600; margin: 0; min-width: 0; overflow-wrap: anywhere; text-align: end; }
+.fgTimeline h4 { align-items: center; display: flex; font-size: var(--text-sm); gap: var(--d-s2); margin: 0 0 var(--d-s2); }
+.fgTimeline h4 svg { height: 16px; width: 16px; }
+.fgTimeline ol { border-inline-start: 2px solid var(--d-line); display: grid; gap: var(--d-s2); list-style: none; margin: 0; padding: 0 0 0 var(--d-s3); padding-inline: var(--d-s3) 0; }
+.fgTimeline li { display: grid; font-size: var(--text-sm); position: relative; }
+.fgTimeline li::before { background: var(--d-surface-1); border: 2px solid var(--d-line-strong); border-radius: 50%; block-size: 10px; content: ""; inline-size: 10px; inset-block-start: 4px; inset-inline-start: calc(var(--d-s3) * -1 - 6px); position: absolute; }
+.fgTimeline li.fgDone::before { background: var(--d-primary); border-color: var(--d-primary); }
+.fgNote { align-items: flex-start; background: rgb(var(--c-warn) / .1); border: 1px solid rgb(var(--c-warn) / .4); border-radius: var(--d-r-control); display: flex; font-size: var(--text-sm); gap: var(--d-s2); margin: 0; padding: var(--d-s2) var(--d-s3); }
+.fgNote svg { color: var(--d-warn); flex: none; height: 18px; margin-top: 1px; width: 18px; }
+.fgItemActions { flex-wrap: wrap; margin: 0; }
+.fgSnooze { position: relative; }
+.fgMenu { background: var(--d-surface-2); border: 1px solid var(--d-line); border-radius: var(--d-r-control); box-shadow: var(--d-elev-2); display: grid; gap: 2px; inset-block-start: calc(100% + 4px); inset-inline-start: 0; list-style: none; margin: 0; min-width: 180px; padding: var(--d-s1); position: absolute; z-index: var(--z-popover); }
+.fgMenu button { justify-content: flex-start; width: 100%; }
+.fgOthers h3 { font-size: var(--text-sm); margin: 0 0 var(--d-s2); }
+.fgOthers .cmList > li { padding: 0; }
+.fgOther { align-items: center; background: transparent; border: 0; color: inherit; display: grid; gap: var(--d-s2); grid-template-columns: auto minmax(0, 1fr) auto auto; min-height: 44px; padding: 0 var(--d-s2); text-align: start; width: 100%; }
+.fgOther svg { color: var(--d-warn); height: 16px; width: 16px; }
+.fgOther > span:nth-child(2) { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fgOtherAmount { font-variant-numeric: tabular-nums; font-weight: 600; }
+@media (max-width: 640px) {
+  .fgItemHead { grid-template-columns: auto minmax(0, 1fr); }
+  .fgItemHead > .finChip { grid-column: 2; justify-self: start; }
+  .fgItemBody { grid-template-columns: minmax(0, 1fr); }
+  .fgOther { grid-template-columns: auto minmax(0, 1fr) auto; }
+  .fgOther small { display: none; }
+}
+
+/* Privacy, delivery and quiet hours */
+.fgDelivery { border-top: 1px solid var(--d-line); display: grid; gap: var(--d-s4); grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); padding-top: var(--d-s3); }
+.fgDelivery h3 { align-items: center; display: flex; font-size: var(--text-md); gap: var(--d-s2); margin: 0 0 var(--d-s2); }
+.fgDeliveryList ul { display: grid; gap: var(--d-s2); list-style: none; margin: 0; padding: 0; }
+.fgDeliveryList li { align-items: center; display: grid; gap: var(--d-s2); grid-template-columns: auto minmax(0, 1fr) auto; }
+.fgDeliveryList li > div { display: grid; font-size: var(--text-sm); }
+.fgDeliveryIcon { color: var(--d-muted); display: inline-flex; }
+.fgDeliveryIcon svg { height: 18px; width: 18px; }
+.fgQuiet { border-inline-start: 1px solid var(--d-line); display: grid; gap: var(--d-s2); padding-inline-start: var(--d-s4); }
+.fgQuiet p { font-size: var(--text-sm); margin: 0; }
+.fgQuietWindow { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); }
+.fgQuiet button { justify-self: start; }
+@media (max-width: 640px) {
+  .fgDelivery { grid-template-columns: minmax(0, 1fr); }
+  .fgQuiet { border-inline-start: 0; border-top: 1px solid var(--d-line); padding-inline-start: 0; padding-top: var(--d-s3); }
+}
+
+/* Audit log */
+.fgTable td { vertical-align: top; }
+.fgTable td:first-child { white-space: nowrap; }
+.fgAction { align-items: center; display: inline-flex; flex-wrap: wrap; gap: var(--d-s1) var(--d-s2); }
+.fgAction svg { height: 16px; width: 16px; }
+.fgAction-ok svg { color: var(--d-ok); }
+.fgAction-warn svg { color: var(--d-warn); }
+.fgAction-neutral svg { color: var(--d-muted); }
+.fgFullLog { max-width: min(880px, calc(100vw - 2 * var(--d-s4))); width: 100%; }
+.fgCheck { display: grid; gap: var(--d-s2); }
+
+/* Guardian rules preview (Safe to spend) */
+.fgPreviewList { display: grid; gap: var(--d-s2); list-style: none; margin: 0; padding: 0; }
+.fgPreviewList li { align-items: center; display: grid; gap: var(--d-s2) var(--d-s3); grid-template-columns: auto minmax(0, 1fr) auto; }
+.fgPreviewList li > div { display: grid; font-size: var(--text-sm); min-width: 0; }

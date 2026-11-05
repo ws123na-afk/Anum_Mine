@@ -1,7 +1,7 @@
 // Finance, Guardian (docs/finance.md#guardian): pure helpers for the monitoring rules page, so
 // `pnpm --filter @anum/web test:unit` covers them. Every figure comes from the API; nothing here moves money.
 import type {
-  FinanceAmountLimit, FinanceCategory, FinanceGuardianActivity, FinanceGuardianRuleKind, FinanceGuardianRuleStat, FinanceGuardianRules,
+  FinanceAmountLimit, FinanceCategory, FinanceGuardianActivity, FinanceGuardianReason, FinanceGuardianRuleKind, FinanceGuardianRuleStat, FinanceGuardianRules,
 } from '@anum/contracts';
 import { categoryLabel, formatAmount, isolate, ruleKindLabel, type RulesDraft } from './finance.ts';
 import { formatDateTime, t, type MessageKey } from './i18n.ts';
@@ -127,4 +127,17 @@ export function activityCells(item: FinanceGuardianActivity): { rule: string; ac
     }
     default: return { rule: '-', action: t('fguard.audit.action.other'), loosens: false, tone: 'neutral' };
   }
+}
+
+/** A Guardian reason in the person's language (the server's English text if a code is new). */
+export function reasonText(reason: FinanceGuardianReason): string {
+  const key = `finance.guardian.reason.${reason.code}` as MessageKey;
+  const p = reason.params;
+  const amount = (value: string | undefined) => isolate(formatAmount(value ?? '0', p.currency ?? 'AED'));
+  const text = t(key, {
+    currency: p.currency ?? '', category: p.category ? categoryLabel(p.category as FinanceCategory) : '', merchant: p.merchant ?? '',
+    limit: amount(p.limit), spent: amount(p.spent), start: isolate(p.start ?? ''), end: isolate(p.end ?? ''), until: isolate(p.until ? formatDateTime(p.until) : ''),
+    hours: p.hours ?? '',
+  });
+  return text === key ? reason.message : text;
 }

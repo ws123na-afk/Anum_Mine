@@ -28,6 +28,10 @@ export interface FinanceState {
   guardian: { version: number; rules: Record<string, unknown>; confirmed_at: string | null };
   changes: Record<string, unknown>[];
   versions: Record<string, unknown>[];
+  /** Guardian review decisions by transaction id (the review queue). */
+  reviews: Record<string, { decision: string; snoozed_until: string | null; decided_at: string }>;
+  /** Guardian audit records the mocked API returns (newest first). */
+  activity: Record<string, unknown>[];
   connections: Record<string, unknown>[];
   rates: Record<string, unknown>[];
   failSafe: boolean;
@@ -128,6 +132,8 @@ export function financeState({ empty = false, denied = false, failSummary = fals
       created_at: stamp, expires_at: new Date(now.getTime() + 23 * 3_600_000).toISOString(), decided_at: null,
     }] : [],
     versions: empty ? [] : [{ id: 'fin_gpol_1', version: 1, rules: NO_RULES, change_id: 'c0', confirmed_by: 'user_local', created_at: stamp }],
+    reviews: {},
+    activity: empty ? [] : [{ id: 'audit_g1', action: 'finance.guardian.confirm', target: 'c0', created_at: stamp, metadata: { version: 1, loosens: [], proposed_by: 'person' } }],
     connections: [],
     rates: [],
     trading: tradingState({ empty, agentProposal, failTrading, role }),
@@ -337,6 +343,32 @@ function tradingReply(state: TradingState, method: string, sub: string, body: un
   return null;
 }
 
+/** The review queue: the first two dining payments break the dining cap (synthetic, like the rest of the mock). */
+function reviewQueue(state: FinanceState, url: URL) {
+  const rules = state.guardian.rules as { category_caps?: unknown[]; blocked_merchants?: unknown[]; paused?: string[] };
+  const on = state.guardian.version > 0 && !((rules.paused ?? []).includes('category_caps'));
+  const flagged = on ? state.transactions.filter((t) => t.category === 'dining' && Number(t.amount) < 0).slice(0, 2) : [];
+  const items = flagged.map((t) => {
+    const review = state.reviews[t.id as string];
+    const stateName = review ? review.decision : 'awaiting';
+    return {
+      transaction_id: t.id, posted_on: t.posted_on, description: t.description, amount: String(t.amount).replace('-', ''), currency: 'AED', category: 'dining',
+      account_id: t.account_id, account_name: 'Current account', recorded_at: stamp, outcome: 'deny',
+      reasons: [{ code: 'over_category_cap', outcome: 'deny', message: '', rule: 'category_caps', params: { currency: 'AED', category: 'dining', spent: '350.00', limit: '400.00' } }],
+      rules: ['category_caps'], typical_amount: '45.00', prior_count: 3, state: stateName, decided_at: review ? review.decided_at : null, snoozed_until: review?.snoozed_until ?? null,
+    };
+  });
+  const wanted = url.searchParams.get('state') ?? 'awaiting';
+  const chosen = items.filter((i) => wanted === 'all' || (wanted === 'resolved' ? ['expected', 'reviewed'].includes(i.state as string) : i.state === wanted));
+  const kinds = ['category_caps', 'blocked_merchants'].filter((k) => ((rules as Record<string, unknown[] | undefined>)[k] ?? []).length > 0);
+  return {
+    month: url.searchParams.get('month') ?? month, version: state.guardian.version, timezone: 'Asia/Dubai',
+    counts: { flagged: items.length, awaiting: items.filter((i) => i.state === 'awaiting').length, resolved: items.filter((i) => ['expected', 'reviewed'].includes(i.state as string)).length, snoozed: items.filter((i) => i.state === 'snoozed').length },
+    rules: kinds.map((kind) => ({ kind, count: kind === 'category_caps' ? items.length : 0, last: kind === 'category_caps' && items[0] ? items[0].posted_on : null })),
+    items: chosen.slice(0, Number(url.searchParams.get('limit') ?? 10)), total: chosen.length, limit: 10, offset: 0,
+  };
+}
+
 function financeStagesReply(state: FinanceState, method: string, sub: string, body: unknown, url: URL): { status: number; body: unknown } | null {
   const trading = tradingReply(state.trading, method, sub, body, url);
   if (trading) return trading;
@@ -354,6 +386,8 @@ function financeStagesReply(state: FinanceState, method: string, sub: string, bo
     const caps = (input.rules.category_caps as { amount: string }[] | undefined) ?? [];
     const before = (state.guardian.rules.category_caps as { amount: string }[] | undefined) ?? [];
     const loosens = before.length > caps.length || caps.some((c, i) => before[i] && Number(c.amount) > Number(before[i].amount)) ? ['category_caps'] : [];
+    const pausedBefore = (state.guardian.rules.paused as string[] | undefined) ?? [];
+    for (const kind of (input.rules.paused as string[] | undefined) ?? []) if (!pausedBefore.includes(kind) && !loosens.includes(kind)) loosens.push(kind);
     const change = { id: `fin_gchg_${changeCount}`, base_version: state.guardian.version, rules: input.rules, proposed_by: 'person', proposer: 'user_local', reason: input.reason, payload_hash: `${changeCount}`.padEnd(64, 'c'), loosens, status: 'pending', created_at: stamp, expires_at: new Date(now.getTime() + 24 * 3_600_000).toISOString(), decided_at: null };
     state.changes.unshift(change);
     return ok(change, 201);
@@ -368,7 +402,23 @@ function financeStagesReply(state: FinanceState, method: string, sub: string, bo
     state.versions.unshift({ id: `fin_gpol_${state.guardian.version}`, version: state.guardian.version, rules: change.rules, change_id: change.id, confirmed_by: 'user_local', created_at: stamp });
     for (const other of state.changes) if (other.status === 'pending') other.status = other === change ? 'confirmed' : 'superseded';
     change.status = 'confirmed';
+    state.activity.unshift({ id: `audit_c${state.activity.length}`, action: 'finance.guardian.confirm', target: change.id, created_at: stamp, metadata: { version: state.guardian.version, loosens: change.loosens, proposed_by: change.proposed_by } });
     return ok(guardianView());
+  }
+  if (sub === '/guardian/review' && method === 'GET') return ok(reviewQueue(state, url));
+  const decide = /^\/guardian\/review\/([^/]+)$/.exec(sub);
+  if (decide && method === 'POST') {
+    const input = body as { decision: string; snooze_days: number | null };
+    const id = decodeURIComponent(decide[1]);
+    const until = input.decision === 'snoozed' ? new Date(now.getTime() + (input.snooze_days ?? 1) * 86_400_000).toISOString() : null;
+    if (input.decision === 'reopen') delete state.reviews[id]; else state.reviews[id] = { decision: input.decision, snoozed_until: until, decided_at: stamp };
+    state.activity.unshift({ id: `audit_r${state.activity.length}`, action: 'finance.guardian.review', target: id, created_at: stamp, metadata: { decision: input.decision, codes: ['over_category_cap'], ...(input.snooze_days ? { days: input.snooze_days } : {}) } });
+    return ok({ transaction_id: id, state: input.decision === 'reopen' ? 'awaiting' : input.decision, decided_at: input.decision === 'reopen' ? null : stamp, snoozed_until: until });
+  }
+  if (sub === '/guardian/activity') {
+    const limit = Number(url.searchParams.get('limit') ?? 10), offset = Number(url.searchParams.get('cursor') ?? 0);
+    const items = state.activity.slice(offset, offset + limit);
+    return ok({ items, next_cursor: offset + limit < state.activity.length ? String(offset + limit) : null });
   }
   if (sub === '/guardian/evaluate') {
     const input = body as { amount: string; category?: string | null; merchant?: string | null };

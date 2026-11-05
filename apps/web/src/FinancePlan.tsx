@@ -2,27 +2,14 @@
 // connections. Every figure is the person's own and comes from the API; nothing here moves money.
 // A Guardian change applies only when the person confirms it with the payload hash shown.
 import { useCallback, useEffect, useId, useMemo, useState, type FormEvent } from 'react';
-import {
-  AlertTriangle, CalendarClock, Check, Gauge, Landmark, Plug, Plus, RefreshCw, Scale, Settings2, ShieldCheck, Trash2, Unplug, X,
-} from 'lucide-react';
-import type {
-  FinanceCategory, FinanceConnection, FinanceCurrencySafeToSpend, FinanceEvaluation, FinanceFxRate, FinanceGuardian, FinanceGuardianAlerts,
-  FinanceGuardianChange, FinanceGuardianVersion, FinancePlan, FinanceProvider, FinanceSafeLine, FinanceSafeToSpend,
-} from '@anum/contracts';
+import { AlertTriangle, Gauge, Landmark, Plug, Plus, RefreshCw, Scale, Settings2, Trash2, Unplug } from 'lucide-react';
+import type { FinanceConnection, FinanceCurrencySafeToSpend, FinanceFxRate, FinancePlan, FinanceProvider, FinanceSafeLine, FinanceSafeToSpend } from '@anum/contracts';
 import * as api from './lib/financeApi';
-import {
-  SAFE_GROUPS, categoryLabel, describeRules, draftFromRules, expiresLabel, formatAmount, isolate, parseAmount, ruleKindLabel,
-  rulesFromDraft, safeNote, shortHash, type FinanceTab, type LimitDraft, type RulesDraft,
-} from './lib/finance';
+import { SAFE_GROUPS, formatAmount, isolate, parseAmount, safeNote, type FinanceTab, type LimitDraft } from './lib/finance';
 import { describeError } from './lib/errors';
 import { formatDateTime, t, type MessageKey } from './lib/i18n';
 import { ConfirmDialog, Modal } from './Dialog';
 import { Denied, Empty, FormActions, FormError, LoadError, Money, Notice, failed, type Load } from './FinanceParts';
-
-const CATEGORIES: FinanceCategory[] = [
-  'groceries', 'dining', 'transport', 'fuel', 'utilities', 'telecom', 'housing', 'shopping', 'health', 'education', 'entertainment',
-  'subscriptions', 'travel', 'insurance', 'fees', 'cash', 'other',
-];
 
 function useLoad<T>(load: () => Promise<T>): [Load<T>, () => Promise<void>] {
   const [state, setState] = useState<Load<T>>({ kind: 'loading' });
@@ -176,7 +163,7 @@ function PlanDialog({ onClose }: { onClose: (saved: boolean) => void }) {
 }
 
 /** Rows of currency and amount (buffers and the Guardian's per-currency limits). */
-function LimitRows({ rows, onChange, label, addLabel }: { rows: LimitDraft[]; onChange: (rows: LimitDraft[]) => void; label: string; addLabel: string }) {
+export function LimitRows({ rows, onChange, label, addLabel }: { rows: LimitDraft[]; onChange: (rows: LimitDraft[]) => void; label: string; addLabel: string }) {
   return <div className="finLimitRows">
     {rows.map((row, index) => <div key={index} className="cmFilters finLimitRow">
       <label className="cmInline"><span>{t('finance.form.currency')}</span><input value={row.currency} maxLength={3} dir="ltr" className="finCurrencyInput"
@@ -189,252 +176,8 @@ function LimitRows({ rows, onChange, label, addLabel }: { rows: LimitDraft[]; on
   </div>;
 }
 
-// ---- Stage 4: Guardian ----------------------------------------------------------------------------
-
-export function GuardianPanel({ base }: { base: string }) {
-  const [state, reload] = useLoad(api.getGuardian);
-  const [alerts, reloadAlerts] = useLoad(api.guardianAlerts);
-  const [editing, setEditing] = useState(false);
-  const [notice, setNotice] = useState<{ error?: boolean; text: string } | null>(null);
-  const refresh = () => { void reload(); void reloadAlerts(); };
-  if (state.kind === 'loading') return <section className="surface cmPanel"><Notice busy>{t('finance.guardian.loading')}</Notice></section>;
-  if (state.kind === 'denied') return <Denied />;
-  if (state.kind === 'error') return <section className="surface cmPanel"><LoadError message={t('finance.guardian.error', { message: state.message })} retry={() => void reload()} /></section>;
-  const guardian = state.value;
-  const lines = describeRules(guardian.rules);
-  return <>
-    <section className="surface cmPanel" aria-labelledby="fin-guardian">
-      <div className="sectionHeader"><h2 id="fin-guardian"><ShieldCheck aria-hidden="true" className="cmInlineIcon" />{t('finance.guardian.title')}</h2>
-        <button type="button" className="cmPrimary" onClick={() => setEditing(true)}>{lines.length ? t('finance.guardian.change') : t('finance.guardian.set')}</button></div>
-      <p className="muted">{t('finance.guardian.intro')}</p>
-      {notice && <Notice error={notice.error}>{notice.text}</Notice>}
-      {guardian.pending.length > 0 && <Pending changes={guardian.pending} current={guardian.rules} onDone={(text, error) => { setNotice({ text, error }); refresh(); }} />}
-      {lines.length === 0
-        ? <Empty icon={<ShieldCheck aria-hidden="true" />} title={t('finance.guardian.empty')} text={t('finance.guardian.emptyText')}
-          action={<button type="button" onClick={() => setEditing(true)}><Plus aria-hidden="true" />{t('finance.guardian.set')}</button>} />
-        : <>
-          <p className="finVersion"><span className="statusBadge neutral">{t('finance.guardian.version', { version: guardian.version })}</span>
-            {guardian.confirmed_at && <small className="muted">{t('finance.guardian.confirmedAt', { date: formatDateTime(guardian.confirmed_at) })}</small>}</p>
-          <ul className="finRules">{lines.map((line) => <li key={line}><Check aria-hidden="true" />{line}</li>)}</ul>
-        </>}
-      {editing && <RulesEditor rules={guardian.rules} base={base} onClose={(text) => { setEditing(false); if (text) { setNotice({ text }); refresh(); } }} />}
-    </section>
-    <section className="surface cmPanel" aria-labelledby="fin-alerts">
-      <h2 id="fin-alerts"><AlertTriangle aria-hidden="true" className="cmInlineIcon" />{t('finance.guardian.alerts')}</h2>
-      {alerts.kind === 'loading' && <Notice busy>{t('finance.guardian.loading')}</Notice>}
-      {(alerts.kind === 'error' || alerts.kind === 'denied') && <LoadError message={alerts.message} retry={() => void reloadAlerts()} />}
-      {alerts.kind === 'ready' && <AlertList data={alerts.value} hasRules={lines.length > 0} />}
-    </section>
-    <CheckSpend base={base} />
-    <History version={guardian.version} />
-  </>;
-}
-
-function alertText(alert: FinanceGuardianAlerts['alerts'][number]): string {
-  const p = alert.params;
-  const money = (amount: string | undefined) => isolate(formatAmount(amount ?? '0', p.currency ?? 'AED'));
-  switch (alert.code) {
-    case 'cap_over': case 'cap_near':
-      return t(`finance.guardian.alert.${alert.code}`, { category: categoryLabel(p.category as FinanceCategory), spent: money(p.spent), limit: money(p.limit) });
-    case 'merchant_blocked_seen': return t('finance.guardian.alert.merchant', { count: Number(p.count), merchant: p.merchant ?? '' });
-    case 'category_blocked_seen': return t('finance.guardian.alert.category', { count: Number(p.count), category: categoryLabel(p.category as FinanceCategory) });
-    case 'daily_over': return t('finance.guardian.alert.daily', { count: Number(p.count), limit: money(p.limit) });
-    default: return t('finance.guardian.alert.single', { count: Number(p.count), limit: money(p.limit) });
-  }
-}
-
-function AlertList({ data, hasRules }: { data: FinanceGuardianAlerts; hasRules: boolean }) {
-  if (!hasRules) return <p className="muted">{t('finance.guardian.alertsNoRules')}</p>;
-  if (data.alerts.length === 0) return <p className="muted">{t('finance.guardian.alertsNone')}</p>;
-  return <ul className="cmList finAlerts">{data.alerts.map((alert, index) => <li key={`${alert.code}-${index}`} className={alert.severity === 'over' ? 'finAlertOver' : 'finAlertNear'}>
-    <div><strong>{alertText(alert)}</strong><small>{ruleKindLabel(alert.rule)}</small></div>
-    <span className={`statusBadge ${alert.severity === 'over' ? 'warning' : 'neutral'}`}>{t(`finance.guardian.severity.${alert.severity}` as MessageKey)}</span>
-  </li>)}</ul>;
-}
-
-function Pending({ changes, current, onDone }: { changes: FinanceGuardianChange[]; current: FinanceGuardian['rules']; onDone: (text: string, error?: boolean) => void }) {
-  const [reviewing, setReviewing] = useState<FinanceGuardianChange | null>(null), [busy, setBusy] = useState(false);
-  async function reject(change: FinanceGuardianChange) {
-    try { await api.rejectChange(change.id); onDone(t('finance.guardian.rejected')); } catch (e) { onDone(describeError(e), true); }
-  }
-  async function confirm() {
-    if (!reviewing) return;
-    setBusy(true);
-    try { const result = await api.confirmChange(reviewing.id, reviewing.payload_hash); onDone(t('finance.guardian.confirmed', { version: result.version })); }
-    catch (e) { onDone(describeError(e), true); } finally { setBusy(false); setReviewing(null); }
-  }
-  return <section className="finPending" aria-labelledby="fin-pending">
-    <h3 id="fin-pending">{t('finance.guardian.pending', { count: changes.length })}</h3>
-    <ul className="cmList">{changes.map((change) => <li key={change.id}>
-      <div><strong>{change.proposed_by === 'agent' ? t('finance.guardian.byAgent') : t('finance.guardian.byYou')}</strong>
-        <small>{expiresLabel(change.expires_at)}{change.reason ? ` · ` : ''}{change.reason && <span dir="auto">{change.reason}</span>}</small>
-        {change.loosens.length > 0 && <small className="finLoosens">{t('finance.guardian.loosensList', { list: change.loosens.map(ruleKindLabel).join(', ') })}</small>}</div>
-      <div className="finItemEnd">
-        <button type="button" onClick={() => setReviewing(change)}>{t('finance.guardian.review')}</button>
-        <button type="button" className="secondary" onClick={() => void reject(change)}><X aria-hidden="true" />{t('finance.guardian.reject')}</button>
-      </div>
-    </li>)}</ul>
-    {reviewing && <ConfirmDialog title={t('finance.guardian.reviewTitle')} confirmLabel={t('finance.guardian.confirm')} busy={busy} onConfirm={() => void confirm()} onCancel={() => setReviewing(null)}>
-      <ChangeSummary change={reviewing} current={current} />
-    </ConfirmDialog>}
-  </section>;
-}
-
-function ChangeSummary({ change, current }: { change: FinanceGuardianChange; current: FinanceGuardian['rules'] }) {
-  const before = new Set(describeRules(current));
-  const after = describeRules(change.rules);
-  const removed = [...before].filter((line) => !after.includes(line));
-  return <div className="finChange">
-    <p>{t('finance.guardian.reviewText')}</p>
-    {after.length === 0 ? <p className="muted">{t('finance.guardian.noRulesAfter')}</p> : <ul className="finRules">{after.map((line) => <li key={line} className={before.has(line) ? '' : 'finRuleNew'}>
-      <Check aria-hidden="true" />{line}{!before.has(line) && <span className="statusBadge neutral">{t('finance.guardian.new')}</span>}</li>)}</ul>}
-    {removed.length > 0 && <><p className="finLoosens">{t('finance.guardian.removed')}</p><ul className="finRules finRemoved">{removed.map((line) => <li key={line}><X aria-hidden="true" />{line}</li>)}</ul></>}
-    {change.loosens.length > 0 && <p className="notice" role="note"><AlertTriangle aria-hidden="true" />{t('finance.guardian.loosensWarning', { list: change.loosens.map(ruleKindLabel).join(', ') })}</p>}
-    <p className="muted finHash">{t('finance.guardian.code')} <code dir="ltr">{shortHash(change.payload_hash)}</code></p>
-  </div>;
-}
-
-function RulesEditor({ rules, base, onClose }: { rules: FinanceGuardian['rules']; base: string; onClose: (message: string | null) => void }) {
-  const [draft, setDraft] = useState<RulesDraft>(() => draftFromRules(rules));
-  const [reason, setReason] = useState(''), [error, setError] = useState<string | null>(null), [busy, setBusy] = useState(false);
-  const [proposed, setProposed] = useState<FinanceGuardianChange | null>(null);
-  const errorId = useId();
-  const set = <K extends keyof RulesDraft>(key: K, value: RulesDraft[K]) => setDraft((d) => ({ ...d, [key]: value }));
-  async function submit(event: FormEvent) {
-    event.preventDefault();
-    const checked = rulesFromDraft(draft);
-    if (!checked.ok) { setError(checked.error); return; }
-    setBusy(true); setError(null);
-    try { setProposed(await api.proposeRules(checked.value, reason.trim())); } catch (e) { setError(describeError(e)); } finally { setBusy(false); }
-  }
-  async function confirm() {
-    if (!proposed) return;
-    setBusy(true); setError(null);
-    try { const result = await api.confirmChange(proposed.id, proposed.payload_hash); onClose(t('finance.guardian.confirmed', { version: result.version })); }
-    catch (e) { setError(describeError(e)); } finally { setBusy(false); }
-  }
-  if (proposed) {
-    return <Modal title={t('finance.guardian.reviewTitle')} className="formDialog" onClose={() => onClose(t('finance.guardian.left'))}>
-      <ChangeSummary change={proposed} current={rules} />
-      <FormError id={errorId} text={error} />
-      <div className="actions"><button type="button" disabled={busy} onClick={() => void confirm()}><ShieldCheck aria-hidden="true" />{busy ? t('finance.saving') : t('finance.guardian.confirm')}</button>
-        <button type="button" className="secondary" disabled={busy} onClick={() => setProposed(null)}>{t('finance.guardian.back')}</button></div>
-    </Modal>;
-  }
-  const limitSection = (key: 'maxSingle' | 'maxDaily' | 'approvalAbove', legend: string, help: string) => <fieldset className="finMapping">
-    <legend>{legend}</legend><p className="muted finHelp">{help}</p>
-    <LimitRows rows={draft[key]} onChange={(rows) => set(key, rows)} label={t('finance.guardian.amount')} addLabel={t('finance.guardian.addLimit')} />
-  </fieldset>;
-  return <Modal title={t('finance.guardian.editTitle')} className="formDialog finRulesDialog" onClose={() => onClose(null)}>
-    <form className="finForm" onSubmit={(e) => void submit(e)} aria-describedby={error ? errorId : undefined}>
-      <p className="muted">{t('finance.guardian.editIntro')}</p>
-      <fieldset className="finMapping"><legend>{t('finance.guardian.kind.category_caps')}</legend>
-        <p className="muted finHelp">{t('finance.guardian.capsHelp')}</p>
-        {draft.caps.map((cap, index) => <div key={index} className="cmFilters finLimitRow">
-          <label className="cmInline"><span>{t('finance.col.category')}</span><select value={cap.category} onChange={(e) => set('caps', draft.caps.map((c, i) => (i === index ? { ...c, category: e.target.value as FinanceCategory } : c)))}>
-            {CATEGORIES.map((c) => <option key={c} value={c}>{categoryLabel(c)}</option>)}</select></label>
-          <label className="cmInline"><span>{t('finance.form.currency')}</span><input value={cap.currency} maxLength={3} dir="ltr" className="finCurrencyInput" onChange={(e) => set('caps', draft.caps.map((c, i) => (i === index ? { ...c, currency: e.target.value.toUpperCase().slice(0, 3) } : c)))} /></label>
-          <label className="cmInline"><span>{t('finance.guardian.perMonth')}</span><input value={cap.amount} inputMode="decimal" dir="ltr" onChange={(e) => set('caps', draft.caps.map((c, i) => (i === index ? { ...c, amount: e.target.value } : c)))} /></label>
-          <button type="button" className="iconButton" onClick={() => set('caps', draft.caps.filter((_, i) => i !== index))} aria-label={t('finance.guardian.removeCap', { category: categoryLabel(cap.category) })}><Trash2 aria-hidden="true" /></button>
-        </div>)}
-        <button type="button" className="secondary" disabled={draft.caps.length >= 50} onClick={() => set('caps', [...draft.caps, { category: 'dining', currency: base, amount: '' }])}><Plus aria-hidden="true" />{t('finance.guardian.addCap')}</button>
-      </fieldset>
-      {limitSection('maxSingle', t('finance.guardian.kind.max_single'), t('finance.guardian.singleHelp'))}
-      {limitSection('maxDaily', t('finance.guardian.kind.max_daily_total'), t('finance.guardian.dailyHelp'))}
-      {limitSection('approvalAbove', t('finance.guardian.kind.approval_above'), t('finance.guardian.approvalHelp'))}
-      <fieldset className="finMapping"><legend>{t('finance.guardian.kind.blocked_categories')}</legend>
-        <div className="finChecks">{CATEGORIES.map((c) => <label key={c} className="finCheck"><input type="checkbox" checked={draft.blockedCategories.includes(c)}
-          onChange={(e) => set('blockedCategories', e.target.checked ? [...draft.blockedCategories, c] : draft.blockedCategories.filter((x) => x !== c))} />{categoryLabel(c)}</label>)}</div>
-      </fieldset>
-      <label className="field"><span>{t('finance.guardian.kind.blocked_merchants')}</span>
-        <textarea value={draft.blockedMerchants} onChange={(e) => set('blockedMerchants', e.target.value)} rows={3} maxLength={4000} dir="auto" placeholder={t('finance.guardian.merchantsPlaceholder')} /></label>
-      <label className="field"><span>{t('finance.guardian.kind.allowed_currencies')}</span>
-        <input value={draft.allowedCurrencies} onChange={(e) => set('allowedCurrencies', e.target.value.toUpperCase())} dir="ltr" placeholder="AED, USD" /></label>
-      <fieldset className="finMapping"><legend>{t('finance.guardian.kind.quiet_hours')}</legend>
-        <label className="finCheck"><input type="checkbox" checked={draft.quietOn} onChange={(e) => set('quietOn', e.target.checked)} />{t('finance.guardian.quietOn')}</label>
-        {draft.quietOn && <div className="cmFormGrid">
-          <label className="field"><span>{t('finance.guardian.from')}</span><input type="time" value={draft.quietStart} onChange={(e) => set('quietStart', e.target.value)} dir="ltr" /></label>
-          <label className="field"><span>{t('finance.guardian.to')}</span><input type="time" value={draft.quietEnd} onChange={(e) => set('quietEnd', e.target.value)} dir="ltr" /></label>
-        </div>}
-      </fieldset>
-      <fieldset className="finMapping"><legend>{t('finance.guardian.kind.cooling_off')}</legend>
-        <label className="finCheck"><input type="checkbox" checked={draft.coolingOn} onChange={(e) => set('coolingOn', e.target.checked)} />{t('finance.guardian.coolingOn')}</label>
-        {draft.coolingOn && <>
-          <label className="field"><span>{t('finance.guardian.hours')}</span><input type="number" min={1} max={168} value={draft.coolingHours} onChange={(e) => set('coolingHours', e.target.value)} dir="ltr" /></label>
-          <LimitRows rows={draft.coolingAbove} onChange={(rows) => set('coolingAbove', rows)} label={t('finance.guardian.atOrAbove')} addLabel={t('finance.guardian.addLimit')} />
-        </>}
-      </fieldset>
-      <label className="field"><span>{t('finance.guardian.reason')}</span><input value={reason} onChange={(e) => setReason(e.target.value)} maxLength={500} dir="auto" /></label>
-      <FormError id={errorId} text={error} />
-      <FormActions busy={busy} onCancel={() => onClose(null)} label={t('finance.guardian.reviewChange')} />
-    </form>
-  </Modal>;
-}
-
-function CheckSpend({ base }: { base: string }) {
-  const [amount, setAmount] = useState(''), [currency, setCurrency] = useState(base), [category, setCategory] = useState<FinanceCategory | ''>(''), [merchant, setMerchant] = useState('');
-  const [result, setResult] = useState<FinanceEvaluation | null>(null), [error, setError] = useState<string | null>(null), [busy, setBusy] = useState(false);
-  const errorId = useId();
-  async function submit(event: FormEvent) {
-    event.preventDefault();
-    const checked = parseAmount(amount, currency.toUpperCase(), { signed: false, allowZero: false });
-    if (!checked.ok) { setError(checked.error); return; }
-    setBusy(true); setError(null);
-    try { setResult(await api.evaluateAction({ amount: checked.value, currency: currency.toUpperCase(), category: category || null, merchant: merchant.trim() || null })); }
-    catch (e) { setError(describeError(e)); } finally { setBusy(false); }
-  }
-  const outcome = result?.rules_decision.outcome;
-  return <section className="surface cmPanel" aria-labelledby="fin-check">
-    <h2 id="fin-check"><Scale aria-hidden="true" className="cmInlineIcon" />{t('finance.guardian.check')}</h2>
-    <p className="muted">{t('finance.guardian.checkText')}</p>
-    <form className="cmFilters finCheckForm" onSubmit={(e) => void submit(e)} aria-describedby={error ? errorId : undefined}>
-      <label className="cmInline"><span>{t('finance.col.amount')}</span><input value={amount} onChange={(e) => setAmount(e.target.value)} inputMode="decimal" dir="ltr" required /></label>
-      <label className="cmInline"><span>{t('finance.form.currency')}</span><input value={currency} onChange={(e) => setCurrency(e.target.value.toUpperCase().slice(0, 3))} maxLength={3} dir="ltr" className="finCurrencyInput" /></label>
-      <label className="cmInline"><span>{t('finance.col.category')}</span><select value={category} onChange={(e) => setCategory(e.target.value as FinanceCategory | '')}><option value="">{t('finance.guardian.anyCategory')}</option>{CATEGORIES.map((c) => <option key={c} value={c}>{categoryLabel(c)}</option>)}</select></label>
-      <label className="cmInline cmSearch"><span>{t('finance.guardian.merchant')}</span><input value={merchant} onChange={(e) => setMerchant(e.target.value)} maxLength={200} dir="auto" /></label>
-      <button type="submit" className="secondary" disabled={busy}><Scale aria-hidden="true" />{t('finance.guardian.checkButton')}</button>
-    </form>
-    <FormError id={errorId} text={error} />
-    {result && outcome && <div className={`finVerdict finVerdict-${outcome}`} role="status" aria-live="polite">
-      <strong>{t(`finance.guardian.outcome.${outcome}` as MessageKey)}</strong>
-      {result.rules_decision.reasons.length === 0 ? <p>{t('finance.guardian.noRuleApplies')}</p> : <ul>{result.rules_decision.reasons.map((r, i) => <li key={`${r.code}-${i}`}>{reasonText(r)}</li>)}</ul>}
-      <p className="muted">{t('finance.guardian.checkNote')}</p>
-    </div>}
-  </section>;
-}
-
-/** A Guardian reason in the person's language (the server's English text if a code is new). */
-export function reasonText(reason: FinanceEvaluation['rules_decision']['reasons'][number]): string {
-  const key = `finance.guardian.reason.${reason.code}` as MessageKey;
-  const p = reason.params;
-  const money = (amount: string | undefined) => isolate(formatAmount(amount ?? '0', p.currency ?? 'AED'));
-  const text = t(key, {
-    currency: p.currency ?? '', category: p.category ? categoryLabel(p.category as FinanceCategory) : '', merchant: p.merchant ?? '',
-    limit: money(p.limit), spent: money(p.spent), start: isolate(p.start ?? ''), end: isolate(p.end ?? ''), until: isolate(p.until ? formatDateTime(p.until) : ''),
-    hours: p.hours ?? '',
-  });
-  return text === key ? reason.message : text;
-}
-
-function History({ version }: { version: number }) {
-  const [items, setItems] = useState<FinanceGuardianVersion[]>([]), [total, setTotal] = useState(0), [state, setState] = useState<'loading' | 'ready' | 'error'>('loading');
-  const [message, setMessage] = useState('');
-  const load = useCallback(async (offset: number) => {
-    try { const page = await api.guardianVersions(10, offset); setItems((current) => (offset === 0 ? page.items : [...current, ...page.items])); setTotal(page.total); setState('ready'); }
-    catch (e) { setMessage(describeError(e)); setState('error'); }
-  }, []);
-  useEffect(() => { void load(0); }, [load, version]);
-  return <section className="surface cmPanel" aria-labelledby="fin-history">
-    <h2 id="fin-history"><CalendarClock aria-hidden="true" className="cmInlineIcon" />{t('finance.guardian.history')}</h2>
-    {state === 'loading' && <Notice busy>{t('finance.guardian.loading')}</Notice>}
-    {state === 'error' && <LoadError message={message} retry={() => void load(0)} />}
-    {state === 'ready' && (items.length === 0 ? <p className="muted">{t('finance.guardian.historyNone')}</p> : <>
-      <ul className="cmList">{items.map((item) => <li key={item.id}><div><strong>{t('finance.guardian.version', { version: item.version })}</strong>
-        <small>{formatDateTime(item.created_at)} · {t('finance.guardian.ruleCount', { count: describeRules(item.rules).length })}</small></div></li>)}</ul>
-      {items.length < total && <button type="button" className="secondary" onClick={() => void load(items.length)}>{t('finance.guardian.more')}</button>}
-    </>)}
-  </section>;
-}
+// ---- Stage 4: Guardian lives in FinanceGuardian.tsx (a lazy chunk); its reason text is shared here. ----
+export { reasonText } from './lib/financeGuardian';
 
 // ---- Stage 5: read-only connections ----------------------------------------------------------------
 
