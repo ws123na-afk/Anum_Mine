@@ -189,6 +189,17 @@ A sync never holds a database transaction across the network call: it reads the 
 
 The API must be able to reach `www.ecb.europa.eu` over HTTPS (add it to the network policy's `appEgress` where egress is restricted).
 
+## Connections and data capture
+
+The web page `#finance-connections` (`apps/web/src/FinanceConnections.tsx`, its own lazy chunk; helpers `src/lib/financeConnections.ts`, catalogs `messages/financeConnections.{en,ar}.ts`) gathers every way data reaches the ledger. `#finance-sms` opens the same page on its SMS capture tab. It reads only existing routes; nothing on it moves money.
+
+- **Head:** Work scope (Business or Personal) is the ledger's kind (`PUT /sms/settings` `ledger_kind`): a label for this workspace's ledger, since each workspace keeps its own books.
+- **KPI row:** accounts in ANUM (not archived), iPhone Shortcut routes that work now (an integration switched on and carried by an active device, from `GET /integrations/iphone`), records awaiting review (`review_count`), and the last data received (the newest SMS or Apple Pay report, statement import or exchange-rate sync, with which one it was).
+- **Connected accounts:** the read-only notice, then each account with the sources that really feed it: SMS capture (its last four digits are mapped, it is a Wallet card's, the default or the cash account), Statements (it has an import) or Manual; the last statement import, records, currency and balance; Import statement, Map SMS and Edit open the real screens. **ANUM has no live bank connection**, so the page shows no bank sync, sync count, consent expiry, Pause sync or Reconnect; "Add a source" offers an account by hand, a CSV or PDF statement and iPhone SMS, and says Open Finance is an owner action ([Owner actions](#owner-actions)). The exchange-rate connections and sources ([Connectors](#connectors)) follow below.
+- **iPhone SMS capture panel:** status (Active, Off, Safety check needed), the device count, last received, messages received, recorded (posted and attached) and waiting for review; how it works; the endpoint with Copy; the selected device's token as its hint only, with Rotate (the new token is shown once in the usual dialog; a token is never shown again); the device's scopes, a device picker, last check-in and status; Pause or Resume capture, Revoke access and the security log (refused and failed requests per address, `GET /integrations/iphone/integrations/{key}/events`); the five most recent messages (status, merchant or sender, time, amount, the reading's kind and reason); the review policy (Always require review = `auto_post` off; Erase message text = `body_retention_days` 0, switching back keeps 30 days) and the privacy note.
+- **SMS capture:** the full iPhone SMS tools ([iPhone SMS](finance-sms.md)). **iPhone Shortcuts:** Settings, Integrations, iPhone ([iPhone integrations](iphone-integrations.md)). **Import history:** every statement import, CSV, PDF or scanned PDF, with rows added, duplicates, matched and held for review, paged, with Undo. **Permissions:** what ANUM can and cannot do (read, change, own records, no bank connection, AI help, message retention) and the device tokens with their scopes, hint and last check-in.
+- Not backed by data, so not shown: a per-message confidence percentage and a suggested category before recording (the reader gives neither), screenshot attachments, live bank sync.
+
 ## API
 
 All under `/api/v1/finance`, every route checking permissions on the server:

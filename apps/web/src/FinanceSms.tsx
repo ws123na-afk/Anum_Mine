@@ -169,7 +169,7 @@ function Devices({ status, onChanged }: { status: FinanceSmsStatusView; onChange
   </section>;
 }
 
-function TokenDialog({ issued, url, onClose }: { issued: FinanceSmsDeviceToken; url: string | null; onClose: () => void }) {
+export function TokenDialog({ issued, url, onClose }: { issued: FinanceSmsDeviceToken; url: string | null; onClose: () => void }) {
   const [copied, setCopied] = useState(false);
   const full = url ?? ingestUrl(apiBaseUrl, issued.ingest_path) ?? '';
   const copy = async () => {

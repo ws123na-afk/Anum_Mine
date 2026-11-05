@@ -22,7 +22,7 @@ import { figure, type Figure } from './lib/pageSummary';
 import { viewLabel } from './lib/shell';
 import { ConfirmDialog, Modal } from './Dialog';
 import { Denied, Empty, FormActions, FormError, LoadError, Money, Notice, failed, type Load } from './FinanceParts';
-import { ConnectionsPanel, GuardianPanel, SafeToSpendCard, SafeToSpendPanel, reasonText } from './FinancePlan';
+import { GuardianPanel, SafeToSpendCard, SafeToSpendPanel, reasonText } from './FinancePlan';
 import { ExecutionPanel, TradingPanel } from './FinanceTrading';
 import { IntelPanel } from './FinanceIntel';
 import { PageHeader, PageSummary, useMediaQuery, type Crumb } from './PageParts';
@@ -35,8 +35,10 @@ const IbkrPanel = lazy(() => import('./FinanceIbkr').then((m) => ({ default: m.I
 // Fund research (docs/finance-research.md) is its own lazy chunk too.
 const ResearchPanel = lazy(() => import('./FinanceResearch').then((m) => ({ default: m.ResearchPanel })));
 // iPhone SMS banking and the double-entry ledger (docs/finance-sms.md): one lazy chunk for both tabs.
-const SmsPanel = lazy(() => import('./FinanceSms').then((m) => ({ default: m.SmsPanel })));
 const LedgerPanel = lazy(() => import('./FinanceSms').then((m) => ({ default: m.LedgerPanel })));
+// Connections and data capture (docs/finance.md#connections-and-data-capture): accounts, SMS capture,
+// iPhone Shortcuts, import history and permissions in one lazy chunk; `#finance-sms` opens its SMS tab.
+const ConnectionsPage = lazy(() => import('./FinanceConnections').then((m) => ({ default: m.ConnectionsPage })));
 const KINDS: FinanceAccountKind[] = ['bank', 'card', 'cash', 'loan', 'investment'];
 const CADENCES: FinanceCadence[] = ['monthly', 'weekly', 'quarterly', 'yearly', 'once'];
 const DEBT_KINDS: FinanceDebtKind[] = ['loan', 'card', 'mortgage', 'other'];
@@ -118,13 +120,12 @@ export function FinanceView() {
     {tab === 'overview' && <Overview summary={s} month={month ?? s.month} onMonth={setMonth} onOpen={pick} />}
     {tab === 'safe' && <SafeToSpendPanel onOpen={pick} onChanged={onChanged} />}
     {tab === 'guardian' && <GuardianPanel base={base} />}
-    {tab === 'connections' && <ConnectionsPanel />}
+    {(tab === 'connections' || tab === 'sms') && <Suspense fallback={<section className="surface cmPanel"><Notice busy>{t('fconn.loading')}</Notice></section>}><ConnectionsPage from={tab} onOpen={pick} /></Suspense>}
     {tab === 'trading' && <TradingPanel base={base} onOpen={pick} />}
     {tab === 'intel' && <IntelPanel onOpen={pick} />}
     {tab === 'execution' && <ExecutionPanel />}
     {tab === 'ibkr' && <Suspense fallback={<section className="surface cmPanel"><Notice busy>{t('ibkr.loading')}</Notice></section>}><IbkrPanel /></Suspense>}
     {tab === 'research' && <Suspense fallback={<section className="surface cmPanel"><Notice busy>{t('fresearch.loading')}</Notice></section>}><ResearchPanel /></Suspense>}
-    {tab === 'sms' && <Suspense fallback={<section className="surface cmPanel"><Notice busy>{t('fsms.loading')}</Notice></section>}><SmsPanel /></Suspense>}
     {tab === 'ledger' && <Suspense fallback={<section className="surface cmPanel"><Notice busy>{t('fsms.loading')}</Notice></section>}><LedgerPanel /></Suspense>}
     {tab === 'transactions' && <Transactions accounts={accountList} onChanged={onChanged} onImport={() => pick('import')} />}
     {tab === 'accounts' && <Accounts accounts={accounts} base={base} onChanged={onChanged} />}
