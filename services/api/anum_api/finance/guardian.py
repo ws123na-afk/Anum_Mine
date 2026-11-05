@@ -33,11 +33,21 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from .models import Category, _Owned
+from .models import Category, Transaction, _Owned
 from .money import MoneyError, normalize_currency, to_money
 
 MAX_LIST = 50
 PROPOSAL_TTL = timedelta(hours=24)
+
+# The kinds of rule, in the order the evaluator checks them and the page lists them.
+RuleKind = Literal[
+    "allowed_currencies", "max_single", "max_daily_total", "category_caps", "blocked_categories", "blocked_merchants",
+    "approval_above", "quiet_hours", "cooling_off",
+]
+RULE_KINDS: tuple[str, ...] = (
+    "allowed_currencies", "max_single", "max_daily_total", "category_caps", "blocked_categories", "blocked_merchants",
+    "approval_above", "quiet_hours", "cooling_off",
+)
 
 
 class ActionKind(StrEnum):
@@ -141,6 +151,9 @@ class GuardianRules(BaseModel):
     approval_above: list[AmountLimit] = Field(default_factory=list, max_length=MAX_LIST)
     quiet_hours: QuietHours | None = None
     cooling_off: CoolingOff | None = None
+    # Kinds of rule the person paused: kept as they are, but not applied until resumed.
+    # Only kinds that are set can be paused; pausing is a change like any other.
+    paused: list[RuleKind] = Field(default_factory=list, max_length=len(RULE_KINDS))
 
     @field_validator("allowed_currencies")
     @classmethod
@@ -178,10 +191,28 @@ class GuardianRules(BaseModel):
             if len({i.currency for i in limits}) != len(limits):
                 raise ValueError("cooling_off: one amount per currency.")
             self.cooling_off.at_or_above = sorted(limits, key=lambda i: i.currency)
+        # A pause only names a kind that is set, once, in the fixed order.
+        configured = set(self.configured_kinds())
+        self.paused = [kind for kind in RULE_KINDS if kind in set(self.paused) and kind in configured]  # type: ignore[misc]
         return self
 
+    def configured_kinds(self) -> list[str]:
+        """The kinds of rule that are set, paused or not, in the fixed order."""
+        return [kind for kind in RULE_KINDS if getattr(self, kind) not in (None, [])]
+
+    def active_kinds(self) -> list[str]:
+        return [kind for kind in self.configured_kinds() if kind not in self.paused]
+
+    def active(self) -> GuardianRules:
+        """The rules that apply now: every paused kind left out."""
+        if not self.paused:
+            return self
+        cleared: dict[str, Any] = {kind: (None if kind in ("quiet_hours", "cooling_off") else []) for kind in self.paused}
+        return self.model_copy(update={**cleared, "paused": []})
+
     def canonical(self) -> dict[str, Any]:
-        return json.loads(self.model_dump_json())
+        # ``paused`` is left out while empty, so rules saved before pausing existed keep their payload hash.
+        return json.loads(self.model_dump_json(exclude={"paused"} if not self.paused else None))
 
     def is_empty(self) -> bool:
         return self == GuardianRules()
@@ -205,7 +236,19 @@ def _limits(items: list[AmountLimit]) -> dict[str, Decimal]:
 
 
 def loosening(old: GuardianRules, new: GuardianRules) -> list[str]:
-    """Every way ``new`` allows something ``old`` did not. Empty: ``new`` is as strict or stricter."""
+    """Every way ``new`` allows something ``old`` did not. Empty: ``new`` is as strict or stricter.
+
+    Checked twice: on the rules that apply now (pausing a kind loosens it) and on the rules as
+    written, pauses aside (raising a paused limit loosens it too, for when it is resumed).
+    """
+    found = set(_loosening(old.active(), new.active())) | set(
+        _loosening(old.model_copy(update={"paused": []}), new.model_copy(update={"paused": []}))
+    )
+    order = (*RULE_KINDS,)
+    return sorted(found, key=order.index)
+
+
+def _loosening(old: GuardianRules, new: GuardianRules) -> list[str]:
     found: list[str] = []
     if old.allowed_currencies and (not new.allowed_currencies or set(new.allowed_currencies) - set(old.allowed_currencies)):
         found.append("allowed_currencies")
@@ -301,7 +344,8 @@ def _decide(reasons: list[Reason]) -> Decision:
 
 
 def evaluate(action: GuardianAction, rules: GuardianRules, state: LedgerState) -> Decision:
-    """The rules' verdict on one action. Pure and deterministic; reasons in a fixed order."""
+    """The rules' verdict on one action. Pure and deterministic; reasons in a fixed order. Paused kinds do not apply."""
+    rules = rules.active()
     reasons: list[Reason] = []
 
     def add(code: str, outcome: Outcome, message: str, rule: str | None = None, **params: str) -> None:
@@ -457,3 +501,31 @@ class GuardianChange(_Owned):
 
     def lapsed(self, now: datetime) -> bool:
         return self.status == "pending" and now >= self.expires_at
+
+
+# -- the review queue's decisions (finance/guardian_review.py) -----------------------------------
+
+ReviewDecision = Literal["expected", "reviewed", "snoozed"]
+ItemState = Literal["awaiting", "expected", "reviewed", "snoozed"]
+
+
+class GuardianReview(_Owned):
+    """The person's decision on one flagged payment, as it was when they decided."""
+
+    id: str
+    transaction_id: str
+    decision: ReviewDecision
+    amount: Decimal  # the payment's amount out (positive) when decided
+    currency: str
+    codes: list[str] = Field(default_factory=list, max_length=20)
+    snoozed_until: datetime | None = None
+    decided_at: datetime
+
+    def applies_to(self, transaction: Transaction) -> bool:
+        return self.amount == -transaction.amount and self.currency == transaction.currency
+
+    def state(self, now: datetime) -> ItemState | None:
+        """The item's state under this decision, ``None`` once a snooze has ended."""
+        if self.decision == "snoozed":
+            return "snoozed" if self.snoozed_until is not None and now < self.snoozed_until else None
+        return self.decision

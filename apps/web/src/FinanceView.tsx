@@ -24,7 +24,7 @@ import { figure, type Figure } from './lib/pageSummary';
 import { viewLabel } from './lib/shell';
 import { ConfirmDialog, Modal } from './Dialog';
 import { Denied, Empty, FormActions, FormError, LoadError, Money, Notice, failed, type Load } from './FinanceParts';
-import { ConnectionsPanel, GuardianPanel, SafeToSpendCard, reasonText } from './FinancePlan';
+import { ConnectionsPanel, SafeToSpendCard, reasonText } from './FinancePlan';
 import { ExecutionPanel } from './FinanceTrading';
 import { IntelPanel } from './FinanceIntel';
 import { PageHeader, PageSummary, useMediaQuery, type Crumb } from './PageParts';
@@ -49,6 +49,7 @@ const SafePage = lazy(() => import('./FinanceSafePage').then((m) => ({ default: 
 // Holdings (docs/finance.md#holdings) and the paper trading lab (docs/finance.md#paper-trading-lab) draw their own head too.
 const HoldingsPage = lazy(() => import('./FinanceHoldings').then((m) => ({ default: m.HoldingsPage })));
 const LabPage = lazy(() => import('./FinanceLab').then((m) => ({ default: m.LabPage })));
+const GuardianPage = lazy(() => import('./FinanceGuardian').then((m) => ({ default: m.GuardianPage })));
 const KINDS: FinanceAccountKind[] = ['bank', 'card', 'cash', 'loan', 'investment'];
 const CADENCES: FinanceCadence[] = ['monthly', 'weekly', 'quarterly', 'yearly', 'once'];
 const DEBT_KINDS: FinanceDebtKind[] = ['loan', 'card', 'mortgage', 'other'];
@@ -100,6 +101,8 @@ export function FinanceView() {
         {tab === 'safe' && <SafePage onOpen={pick} onChanged={refresh} />}
         {tab === 'holdings' && <HoldingsPage onOpen={pick} />}
         {tab === 'trading' && <LabPage base={summary.kind === 'ready' ? summary.value.base_currency : 'AED'} onOpen={pick} />}
+        {/* Until the summary arrives, the settings' default base currency (AED) prefills Test and new limits. */}
+        {tab === 'guardian' && <GuardianPage base={summary.kind === 'ready' ? summary.value.base_currency : 'AED'} onOpen={pick} />}
       </Suspense>
     </div>;
   }
@@ -138,7 +141,6 @@ export function FinanceView() {
     </section>}
     {accounts.kind === 'error' && <LoadError message={t('finance.error.accounts', { message: accounts.message })} retry={() => void loadAccounts()} />}
     {tab === 'overview' && <Overview summary={s} month={month ?? s.month} onMonth={setMonth} onOpen={pick} />}
-    {tab === 'guardian' && <GuardianPanel base={base} />}
     {tab === 'connections' && <ConnectionsPanel />}
     {tab === 'intel' && <IntelPanel onOpen={pick} />}
     {tab === 'execution' && <ExecutionPanel />}
