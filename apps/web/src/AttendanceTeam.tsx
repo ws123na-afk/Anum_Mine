@@ -271,7 +271,7 @@ export function ReportsTable({ rows, people, anchor, compact, contributor, onCon
       {!compact && <>
         <label htmlFor={ids.search} className="attSearch"><span className="visuallyHidden">{t('att.daily.search')}</span>
           <input id={ids.search} type="search" dir="auto" placeholder={t('att.daily.search')} value={q} maxLength={120} onChange={(e) => setQ(e.target.value)} /></label>
-        <button type="submit" className="secondary attSmall">{t('att.daily.find')}</button>
+        <button type="submit" className="secondary attSmall" disabled={q.trim() === search}>{t('att.daily.find')}</button>
       </>}
     </form>
     {load.kind === 'loading' && <Notice busy>{t('att.daily.loading')}</Notice>}
@@ -448,6 +448,8 @@ export function QuickCorrectionCard({ today, timeZone, onChanged, onOpenCorrecti
   const issues = days.kind === 'ready' ? issuesFrom(days.value) : [];
   const picked = issues.find((i) => i.id === issue) ?? null;
   const reset = () => { setIssue(''); setTime(''); setPreset(''); setDetails(''); setError(null); };
+  // Nothing to clear on an untouched form: the button is disabled then, never a dead click.
+  const dirty = Boolean(issue || time || preset || details || error);
   const submit = async (event: FormEvent) => {
     event.preventDefault();
     if (!picked) { setError(t('attTeam.c.pickIssue')); return; }
@@ -478,7 +480,7 @@ export function QuickCorrectionCard({ today, timeZone, onChanged, onOpenCorrecti
             <FormError id={ids.error} text={error} />
             {flash && <Notice>{flash}</Notice>}
             <div className="actions">
-              <button type="button" className="secondary" disabled={busy} onClick={reset}>{t('attTeam.c.cancel')}</button>
+              <button type="button" className="secondary" disabled={busy || !dirty} onClick={reset}>{t('attTeam.c.cancel')}</button>
               <button type="submit" disabled={busy}>{busy ? t('att.saving') : t('attTeam.c.submit')}</button>
             </div>
           </form>)}
