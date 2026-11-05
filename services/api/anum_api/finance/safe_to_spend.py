@@ -49,7 +49,7 @@ LineKind = Literal["balance", "bill", "minimum_payment", "goal", "buffer"]
 # Why a line is there or not counted; clients show these in the person's language.
 NoteCode = Literal[
     "account_balance", "bill_due", "minimum_due", "minimum_no_day", "minimum_passed", "goal_set", "goal_derived",
-    "goal_no_plan", "goal_reached", "buffer", "account_card", "account_loan", "account_investment", "account_archived",
+    "goal_no_plan", "goal_reached", "goal_paused", "buffer", "account_card", "account_loan", "account_investment", "account_archived",
 ]
 
 
@@ -183,6 +183,10 @@ def compute(
 
     for goal in goals:
         left = goal.target_amount - goal.saved_amount
+        if goal.paused and left > 0:
+            excluded.append(SafeLine(kind="goal", label=goal.name, ref_id=goal.id, currency=goal.currency, amount=Decimal(0),
+                                     note="goal_paused", detail="Goal paused: nothing set aside until you resume it."))
+            continue
         if left <= 0:
             excluded.append(SafeLine(kind="goal", label=goal.name, ref_id=goal.id, currency=goal.currency, amount=Decimal(0),
                                      note="goal_reached", detail="Goal reached: nothing set aside."))

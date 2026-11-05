@@ -175,6 +175,7 @@ from .finance.intel_api import router as finance_intel_router
 from .finance.broker_api import router as finance_broker_router
 from .finance.sms_api import router as finance_sms_router
 from .finance.links_api import router as finance_links_router
+from .finance.commitments_api import router as finance_commitments_router
 from .finance.pdf_api import router as finance_pdf_router
 from .finance.statement_pdf import MAX_PDF_BYTES as PDF_STATEMENT_MAX_BYTES
 from .finance.ibkr_api import router as finance_ibkr_router
@@ -580,6 +581,7 @@ app.include_router(finance_intel_router)
 app.include_router(finance_broker_router)
 app.include_router(finance_sms_router)
 app.include_router(finance_links_router)
+app.include_router(finance_commitments_router)
 app.include_router(finance_pdf_router)
 app.include_router(finance_ibkr_router)
 app.include_router(finance_research_router)
@@ -2949,4 +2951,8 @@ from .purchases.service import plug_finance_links as _plug_purchase_links  # noq
 
 _purchase_devices.register()
 _plug_purchase_links()
+# Bills and debts: the ``bill`` and ``debt`` finance link dimensions (docs/finance.md#bills-and-budgets).
+from .finance.commitments import plug_finance_links as _plug_commitment_links  # noqa: E402
+
+_plug_commitment_links()
 plug_module_authorities()

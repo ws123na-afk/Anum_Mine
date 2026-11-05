@@ -169,6 +169,8 @@ class Debt(_Owned):
     minimum_payment: Decimal = Decimal(0)
     due_day: int | None = Field(default=None, ge=1, le=31)
     account_id: str | None = None
+    # What was owed when the person started tracking it (payoff progress). None: not entered.
+    original_balance: Decimal | None = None
     notes: str | None = None
     created_at: datetime
     updated_at: datetime
@@ -185,6 +187,8 @@ class Goal(_Owned):
     # Stage 3: what the person plans to put aside each month. None: safe-to-spend works it
     # out from the target date (what is left over the months left), or sets nothing aside.
     monthly_contribution: Decimal | None = None
+    # A paused goal keeps what is saved; nothing is set aside for it until it is resumed.
+    paused: bool = False
     notes: str | None = None
     created_at: datetime
     updated_at: datetime
@@ -224,6 +228,37 @@ class PlanSettings(BaseModel):
     # A rate older than this many days is not used for a combined total.
     fx_max_age_days: int = Field(default=7, ge=1, le=60)
     updated_at: datetime | None = None
+
+
+# -- Debts and budgets plan (docs/finance.md#debts-and-goals) ---------------------------------
+
+
+class DebtStrategy(StrEnum):
+    AVALANCHE = "avalanche"  # the highest rate first
+    SNOWBALL = "snowball"  # the smallest balance first
+
+
+class DebtPlan(BaseModel):
+    """Per currency: how extra money goes to the debts and what the person plans to pay each month."""
+
+    currency: str = Field(pattern=r"^[A-Z]{3}$")
+    strategy: DebtStrategy = DebtStrategy.AVALANCHE
+    monthly_payment: Decimal | None = None  # None: the minimum payments only
+
+
+class BudgetAlert(BaseModel):
+    """How one Guardian category cap (a budget) alerts: at ``alert_percent`` of the cap and at 100 percent."""
+
+    category: Category
+    currency: str = Field(pattern=r"^[A-Z]{3}$")
+    alert_percent: int = Field(default=80, ge=50, le=99)
+    alert_near: bool = True
+    alert_over: bool = True
+
+
+class Planning(BaseModel):
+    debt_plans: list[DebtPlan] = Field(default_factory=list, max_length=20)
+    budget_alerts: list[BudgetAlert] = Field(default_factory=list, max_length=100)
 
 
 # -- Stage 5: FX rates ------------------------------------------------------------------------

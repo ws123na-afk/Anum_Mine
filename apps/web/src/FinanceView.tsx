@@ -2,14 +2,14 @@
 // summary band, the month's spend by category, accounts, transactions with search and paging, CSV
 // statement import with a mapping preview, bills, debts, goals and manual holdings. Nothing here
 // moves money: there is no pay, transfer or trade button anywhere, by design (Stage 2).
-import { Suspense, lazy, useCallback, useEffect, useId, useMemo, useState, type FormEvent, type ReactNode } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useId, useMemo, useState, type FormEvent } from 'react';
 import {
-  ArrowDownLeft, ArrowUpRight, CalendarClock, ChevronLeft, ChevronRight, CircleDot, Download, FileUp, Flag, Landmark, Lock, Pencil, PiggyBank,
+  ArrowDownLeft, ArrowUpRight, ChevronLeft, ChevronRight, CircleDot, Download, FileUp, Landmark, Lock, PiggyBank,
   Plus, RefreshCw, Search, Settings2, Trash2, Undo2, Wallet,
 } from 'lucide-react';
 import type {
-  FinanceAccount, FinanceAccountKind, FinanceBill, FinanceBillSuggestion, FinanceCadence, FinanceCategory, FinanceDebt, FinanceDebtKind, FinanceFormats,
-  FinanceGoal, FinanceHolding, FinanceImport, FinanceImportPreview, FinancePage, FinanceSettings, FinanceSummary, FinanceTransaction, FinanceUpcomingBill,
+  FinanceAccount, FinanceAccountKind, FinanceCategory, FinanceFormats,
+  FinanceHolding, FinanceImport, FinanceImportPreview, FinancePage, FinanceSettings, FinanceSummary, FinanceTransaction, FinanceUpcomingBill,
 } from '@anum/contracts';
 import * as api from './lib/financeApi';
 import {
@@ -46,6 +46,10 @@ const PdfTemplates = lazy(() => import('./FinancePdfImport').then((m) => ({ defa
 // Pages with their own head (lib/financeNav.ts OWN_HEAD_TABS, docs/finance.md#finance-shell), each its own lazy chunk.
 const ReportsPage = lazy(() => import('./FinanceReportsPage').then((m) => ({ default: m.FinanceReportsPage })));
 const SafePage = lazy(() => import('./FinanceSafePage').then((m) => ({ default: m.FinanceSafePage })));
+// Bills and budgets, debts and goals (docs/finance.md#bills-and-budgets): two pages in their own lazy chunk.
+const BillsBudgetsPage = lazy(() => import('./FinanceBillsBudgets').then((m) => ({ default: m.BillsBudgetsPage })));
+const DebtsGoalsPage = lazy(() => import('./FinanceDebtsGoals').then((m) => ({ default: m.DebtsGoalsPage })));
+const PLANNING_TABS: ReadonlySet<FinanceTab> = new Set<FinanceTab>(['bills', 'budgets', 'debts', 'goals']);
 // Accounts and Transactions and ledger draw their own page head (docs/finance.md#register-and-account-overview).
 const AccountsPage = lazy(() => import('./FinanceAccountsPage').then((m) => ({ default: m.AccountsPage })));
 const TransactionsPage = lazy(() => import('./FinanceTransactionsPage').then((m) => ({ default: m.TransactionsPage })));
@@ -54,8 +58,6 @@ const HoldingsPage = lazy(() => import('./FinanceHoldings').then((m) => ({ defau
 const LabPage = lazy(() => import('./FinanceLab').then((m) => ({ default: m.LabPage })));
 const GuardianPage = lazy(() => import('./FinanceGuardian').then((m) => ({ default: m.GuardianPage })));
 const KINDS: FinanceAccountKind[] = ['bank', 'card', 'cash', 'loan', 'investment'];
-const CADENCES: FinanceCadence[] = ['monthly', 'weekly', 'quarterly', 'yearly', 'once'];
-const DEBT_KINDS: FinanceDebtKind[] = ['loan', 'card', 'mortgage', 'other'];
 const CATEGORIES: FinanceCategory[] = [
   'groceries', 'dining', 'transport', 'fuel', 'utilities', 'telecom', 'housing', 'shopping', 'health', 'education', 'entertainment',
   'subscriptions', 'travel', 'insurance', 'fees', 'cash', 'transfer', 'income', 'other',
@@ -98,7 +100,8 @@ export function FinanceView() {
   useEffect(() => { void loadAccounts(); }, [loadAccounts]);
   const refresh = () => { void loadSummary(); void loadAccounts(); };
 
-  if (OWN_HEAD_TABS.has(tab)) {
+  // Bills, budgets, debts and goals need the summary and accounts first: they render below with their own head.
+  if (OWN_HEAD_TABS.has(tab) && !PLANNING_TABS.has(tab)) {
     return <div className="cmLayout finLayout finOwnHead">
       <FinanceSectionNav tab={tab} onPick={pick} />
       <Suspense fallback={<Notice busy>{t('finance.loading')}</Notice>}>
@@ -141,9 +144,13 @@ export function FinanceView() {
     figure('debts', t('finance.figure.debts'), { state: 'ready' }, () => ({ value: s.debt_count ? formatAmounts(s.debts) : '-', hint: s.debt_count ? t('finance.figure.minimum', { amount: formatAmounts(s.minimum_payments) }) : t('finance.figure.debtsNone') })),
   ];
   const onChanged = refresh;
-  return <div className="cmLayout finLayout">
-    {header}
-    <PageSummary label={t('finance.summary.label')} figures={figures} footer={<p className="muted finReadOnly">{t('finance.readOnly')}</p>} />
+  // A section with its own page head (lib/financeNav.ts OWN_HEAD_TABS) draws its title, controls and KPIs itself.
+  // Only the pages already built on the shell are switched over here; the others keep the generic head.
+  const ownHead = OWN_HEAD_TABS.has(tab) && PLANNING_TABS.has(tab);
+  const planning = <Notice busy>{t('fplan.loading')}</Notice>;
+  return <div className={`cmLayout finLayout ${ownHead ? 'finOwnHead' : ''}`}>
+    {!ownHead && header}
+    {!ownHead && <PageSummary label={t('finance.summary.label')} figures={figures} footer={<p className="muted finReadOnly">{t('finance.readOnly')}</p>} />}
     <FinanceSectionNav tab={tab} onPick={pick} />
     {noAccounts && <section className="surface cmPanel cmWelcome" aria-labelledby="fin-welcome">
       <Wallet aria-hidden="true" />
@@ -160,9 +167,8 @@ export function FinanceView() {
     {tab === 'sms' && <Suspense fallback={<section className="surface cmPanel"><Notice busy>{t('fsms.loading')}</Notice></section>}><SmsPanel /></Suspense>}
     {tab === 'ledger' && <Suspense fallback={<section className="surface cmPanel"><Notice busy>{t('fsms.loading')}</Notice></section>}><LedgerPanel /></Suspense>}
     {tab === 'import' && <Import accounts={accountList} onChanged={onChanged} onAddAccount={() => pick('accounts')} onDone={() => pick('transactions')} />}
-    {tab === 'bills' && <Bills accounts={accountList} base={base} onChanged={onChanged} />}
-    {tab === 'debts' && <Debts base={base} onChanged={onChanged} />}
-    {tab === 'goals' && <Goals base={base} onChanged={onChanged} />}
+    {(tab === 'bills' || tab === 'budgets') && <Suspense fallback={planning}><BillsBudgetsPage key={tab} initial={tab} accounts={accountList} base={base} today={s.today} onOpen={pick} onChanged={onChanged} /></Suspense>}
+    {(tab === 'debts' || tab === 'goals') && <Suspense fallback={planning}><DebtsGoalsPage key={tab} initial={tab} accounts={accountList} base={base} today={s.today} onOpen={pick} onChanged={onChanged} /></Suspense>}
     {settingsOpen && <SettingsDialog onClose={(saved) => { setSettingsOpen(false); if (saved) refresh(); }} />}
   </div>;
 }
@@ -501,210 +507,6 @@ export function Import({ accounts, onChanged, onAddAccount, onDone }: { accounts
 // ---- Bills, debts, goals, holdings ------------------------------------------------------------
 
 /** Shared list frame for the four record kinds: load, empty with a next action, error, add, edit, delete. */
-function useItems<T>(list: () => Promise<T[]>) {
-  const [state, setState] = useState<Load<T[]>>({ kind: 'loading' });
-  const load = useCallback(async () => { try { setState({ kind: 'ready', value: await list() }); } catch (e) { setState(failed(e)); } }, [list]);
-  useEffect(() => { void load(); }, [load]);
-  return [state, load] as const;
-}
-
-function ItemsPanel<T extends { id: string; name?: string | null; symbol?: string }>({ id, title, addLabel, items, load, emptyIcon, emptyTitle, emptyText, intro, render, form, remove, onChanged, extra }: {
-  id: string; title: string; addLabel: string; items: Load<T[]>; load: () => Promise<void>; emptyIcon: ReactNode; emptyTitle: string; emptyText: string; intro?: string;
-  render: (item: T) => ReactNode; form: (item: T | null, done: (message: string | null) => void) => ReactNode; remove: (item: T) => Promise<void>; onChanged: () => void; extra?: ReactNode;
-}) {
-  const [editing, setEditing] = useState<T | 'new' | null>(null), [removing, setRemoving] = useState<T | null>(null);
-  const [notice, setNotice] = useState<{ error?: boolean; text: string } | null>(null), [busy, setBusy] = useState(false);
-  const nameOf = (item: T) => item.name || item.symbol || '';
-  async function confirmRemove() {
-    if (!removing) return;
-    setBusy(true);
-    try { await remove(removing); setNotice({ text: t('finance.item.deleted', { name: nameOf(removing) }) }); setRemoving(null); await load(); onChanged(); }
-    catch (e) { setNotice({ error: true, text: describeError(e) }); setRemoving(null); } finally { setBusy(false); }
-  }
-  return <section className="surface cmPanel" aria-labelledby={id}>
-    <div className="sectionHeader"><h2 id={id}>{title}</h2><button type="button" className="cmPrimary" onClick={() => setEditing('new')}><Plus aria-hidden="true" />{addLabel}</button></div>
-    {intro && <p className="muted">{intro}</p>}
-    {notice && <Notice error={notice.error}>{notice.text}</Notice>}
-    {extra}
-    {items.kind === 'loading' && <Notice busy>{t('finance.item.loading')}</Notice>}
-    {items.kind === 'denied' && <Denied />}
-    {items.kind === 'error' && <LoadError message={t('finance.error.items', { message: items.message })} retry={() => void load()} />}
-    {items.kind === 'ready' && (items.value.length === 0
-      ? <Empty icon={emptyIcon} title={emptyTitle} text={emptyText} action={<button type="button" onClick={() => setEditing('new')}><Plus aria-hidden="true" />{addLabel}</button>} />
-      : <ul className="cmList finItems">{items.value.map((item) => <li key={item.id}>{render(item)}
-        <div className="finItemActions">
-          <button type="button" className="iconButton small" onClick={() => setEditing(item)} aria-label={t('finance.item.edit', { name: nameOf(item) })}><Pencil aria-hidden="true" /></button>
-          <button type="button" className="iconButton small" onClick={() => setRemoving(item)} aria-label={t('finance.item.delete', { name: nameOf(item) })}><Trash2 aria-hidden="true" /></button>
-        </div>
-      </li>)}</ul>)}
-    {editing && <Modal title={editing === 'new' ? addLabel : t('finance.item.editTitle', { name: nameOf(editing) })} className="formDialog" onClose={() => setEditing(null)}>
-      {form(editing === 'new' ? null : editing, (text) => { setEditing(null); if (text) { setNotice({ text }); void load(); onChanged(); } })}
-    </Modal>}
-    {removing && <ConfirmDialog title={t('finance.item.deleteTitle', { name: nameOf(removing) })} confirmLabel={t('finance.delete')} danger busy={busy} onConfirm={() => void confirmRemove()} onCancel={() => setRemoving(null)}>
-      <p>{t('finance.item.deleteText')}</p>
-    </ConfirmDialog>}
-  </section>;
-}
-
-function Bills({ accounts, base, onChanged }: { accounts: FinanceAccount[]; base: string; onChanged: () => void }) {
-  const [items, load] = useItems<FinanceBill>(api.listBills);
-  const [upcoming, setUpcoming] = useState<Load<FinanceUpcomingBill[]>>({ kind: 'loading' });
-  const [suggestions, setSuggestions] = useState<FinanceBillSuggestion[]>([]);
-  const [saving, setSaving] = useState<string | null>(null), [message, setMessage] = useState<string | null>(null);
-  const loadUpcoming = useCallback(async () => {
-    try { setUpcoming({ kind: 'ready', value: await api.upcomingBills(30) }); } catch (e) { setUpcoming(failed(e)); }
-    try { setSuggestions(await api.billSuggestions()); } catch { setSuggestions([]); }
-  }, []);
-  useEffect(() => { void loadUpcoming(); }, [loadUpcoming, items]);
-  async function keep(s: FinanceBillSuggestion) {
-    setSaving(s.name);
-    try { await api.createBill({ name: s.name, amount: s.amount, currency: s.currency, cadence: s.cadence, next_due_on: s.next_due_on, category: s.category, account_id: s.account_id, source: 'detected' }); setMessage(t('finance.bills.kept', { name: s.name })); await load(); onChanged(); }
-    catch (e) { setMessage(describeError(e)); } finally { setSaving(null); }
-  }
-  return <>
-    <section className="surface cmPanel" aria-labelledby="fin-due">
-      <h2 id="fin-due"><CalendarClock aria-hidden="true" className="cmInlineIcon" />{t('finance.bills.due30')}</h2>
-      {upcoming.kind === 'loading' && <Notice busy>{t('finance.item.loading')}</Notice>}
-      {upcoming.kind === 'error' && <LoadError message={upcoming.message} retry={() => void loadUpcoming()} />}
-      {upcoming.kind === 'ready' && (upcoming.value.length === 0 ? <p className="muted">{t('finance.bills.noneDue')}</p> : <UpcomingList rows={upcoming.value} />)}
-    </section>
-    {suggestions.length > 0 && <section className="surface cmPanel" aria-labelledby="fin-suggest">
-      <h2 id="fin-suggest">{t('finance.bills.suggestions')}</h2>
-      <p className="muted">{t('finance.bills.suggestionsText')}</p>
-      {message && <Notice>{message}</Notice>}
-      <ul className="cmList">{suggestions.map((s) => <li key={`${s.account_id}-${s.name}`}>
-        <div><strong dir="auto">{s.name}</strong><small>{t(`finance.cadence.${s.cadence}` as MessageKey)} · {t('finance.bills.seen', { count: s.occurrences })} · {t('finance.bills.next', { date: isolate(s.next_due_on) })}</small></div>
-        <div className="finItemEnd"><Money value={s.amount} currency={s.currency} /><button type="button" className="secondary" disabled={saving === s.name} onClick={() => void keep(s)}><Plus aria-hidden="true" />{t('finance.bills.keep')}</button></div>
-      </li>)}</ul>
-    </section>}
-    <ItemsPanel<FinanceBill> id="fin-bills" title={t('finance.tab.bills')} addLabel={t('finance.bills.add')} items={items} load={load} onChanged={onChanged}
-      emptyIcon={<CalendarClock aria-hidden="true" />} emptyTitle={t('finance.bills.empty')} emptyText={t('finance.bills.emptyText')}
-      render={(b) => <div><strong dir="auto">{b.name}{!b.active && <span className="statusBadge neutral">{t('finance.bills.paused')}</span>}{b.source === 'detected' && <span className="statusBadge neutral">{t('finance.bills.detected')}</span>}</strong>
-        <small>{t(`finance.cadence.${b.cadence}` as MessageKey)} · {t('finance.bills.next', { date: isolate(b.next_due_on) })} · {categoryLabel(b.category)} · <Money value={b.amount} currency={b.currency} /></small></div>}
-      form={(b, done) => <BillForm bill={b} accounts={accounts} base={base} onDone={done} />}
-      remove={(b) => api.deleteBill(b.id)} />
-  </>;
-}
-
-function BillForm({ bill, accounts, base, onDone }: { bill: FinanceBill | null; accounts: FinanceAccount[]; base: string; onDone: (message: string | null) => void }) {
-  const [name, setName] = useState(bill?.name ?? ''), [amount, setAmount] = useState(bill?.amount ?? ''), [currency, setCurrency] = useState(bill?.currency ?? base);
-  const [cadence, setCadence] = useState<FinanceCadence>(bill?.cadence ?? 'monthly'), [due, setDue] = useState(bill?.next_due_on ?? today());
-  const [category, setCategory] = useState<FinanceCategory>(bill?.category ?? 'utilities'), [accountId, setAccountId] = useState(bill?.account_id ?? '');
-  const [active, setActive] = useState(bill?.active ?? true), [error, setError] = useState<string | null>(null), [busy, setBusy] = useState(false);
-  const errorId = useId();
-  async function submit(event: FormEvent) {
-    event.preventDefault();
-    if (!name.trim()) { setError(t('finance.error.name')); return; }
-    const checked = parseAmount(amount, currency, { signed: false, allowZero: false });
-    if (!checked.ok) { setError(checked.error); return; }
-    setBusy(true); setError(null);
-    const body = { name: name.trim(), amount: checked.value, currency, cadence, next_due_on: due, category, account_id: accountId || null, active, source: bill?.source ?? 'manual' as const };
-    try { if (bill) await api.updateBill(bill.id, body); else await api.createBill(body); onDone(t('finance.item.saved', { name: body.name })); }
-    catch (e) { setError(describeError(e)); } finally { setBusy(false); }
-  }
-  return <form className="finForm" onSubmit={(e) => void submit(e)} aria-describedby={error ? errorId : undefined}>
-    <div className="cmFormGrid">
-      <label className="field"><span>{t('finance.form.name')}</span><input value={name} onChange={(e) => setName(e.target.value)} maxLength={120} required dir="auto" /></label>
-      <label className="field"><span>{t('finance.form.amount', { currency })}</span><input value={amount} onChange={(e) => setAmount(e.target.value)} inputMode="decimal" dir="ltr" required /></label>
-      <label className="field"><span>{t('finance.form.currency')}</span><input value={currency} onChange={(e) => setCurrency(e.target.value.toUpperCase().slice(0, 3))} maxLength={3} dir="ltr" required /></label>
-      <label className="field"><span>{t('finance.form.cadence')}</span><select value={cadence} onChange={(e) => setCadence(e.target.value as FinanceCadence)}>{CADENCES.map((c) => <option key={c} value={c}>{t(`finance.cadence.${c}` as MessageKey)}</option>)}</select></label>
-      <label className="field"><span>{t('finance.form.nextDue')}</span><input type="date" value={due} onChange={(e) => setDue(e.target.value)} required /></label>
-      <label className="field"><span>{t('finance.col.category')}</span><select value={category} onChange={(e) => setCategory(e.target.value as FinanceCategory)}>{CATEGORIES.map((c) => <option key={c} value={c}>{categoryLabel(c)}</option>)}</select></label>
-      <label className="field"><span>{t('finance.form.paidFrom')}</span><select value={accountId} onChange={(e) => setAccountId(e.target.value)}><option value="">{t('finance.form.noAccount')}</option>{accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</select></label>
-      <label className="field finCheck"><input type="checkbox" checked={active} onChange={(e) => setActive(e.target.checked)} /><span>{t('finance.form.active')}</span></label>
-    </div>
-    <FormError id={errorId} text={error} />
-    <FormActions busy={busy} onCancel={() => onDone(null)} />
-  </form>;
-}
-
-function Debts({ base, onChanged }: { base: string; onChanged: () => void }) {
-  const [items, load] = useItems<FinanceDebt>(api.listDebts);
-  return <ItemsPanel<FinanceDebt> id="fin-debts" title={t('finance.tab.debts')} addLabel={t('finance.debts.add')} items={items} load={load} onChanged={onChanged}
-    emptyIcon={<Landmark aria-hidden="true" />} emptyTitle={t('finance.debts.empty')} emptyText={t('finance.debts.emptyText')}
-    render={(d) => <div><strong dir="auto">{d.name}</strong><small>{t(`finance.debtKind.${d.kind}` as MessageKey)} · <Money value={d.balance} currency={d.currency} /> · {t('finance.debts.apr', { apr: Number(d.apr_percent).toString() })} · {t('finance.debts.minimum', { amount: isolate(formatAmount(d.minimum_payment, d.currency)) })}{d.due_day ? ` · ${t('finance.debts.dueDay', { day: d.due_day })}` : ''}</small></div>}
-    form={(d, done) => <DebtForm debt={d} base={base} onDone={done} />}
-    remove={(d) => api.deleteDebt(d.id)} />;
-}
-
-function DebtForm({ debt, base, onDone }: { debt: FinanceDebt | null; base: string; onDone: (message: string | null) => void }) {
-  const [name, setName] = useState(debt?.name ?? ''), [kind, setKind] = useState<FinanceDebtKind>(debt?.kind ?? 'loan'), [currency, setCurrency] = useState(debt?.currency ?? base);
-  const [balance, setBalance] = useState(debt?.balance ?? ''), [apr, setApr] = useState(debt ? String(Number(debt.apr_percent)) : '0'), [minimum, setMinimum] = useState(debt?.minimum_payment ?? '0');
-  const [dueDay, setDueDay] = useState(debt?.due_day ? String(debt.due_day) : ''), [error, setError] = useState<string | null>(null), [busy, setBusy] = useState(false);
-  const errorId = useId();
-  async function submit(event: FormEvent) {
-    event.preventDefault();
-    if (!name.trim()) { setError(t('finance.error.name')); return; }
-    const owed = parseAmount(balance, currency, { signed: false }), min = parseAmount(minimum || '0', currency, { signed: false });
-    if (!owed.ok) { setError(owed.error); return; }
-    if (!min.ok) { setError(min.error); return; }
-    if (!/^\d{1,3}(\.\d{1,4})?$/.test(apr.trim()) || Number(apr) > 100) { setError(t('finance.error.apr')); return; }
-    if (dueDay && !/^([1-9]|[12]\d|3[01])$/.test(dueDay)) { setError(t('finance.error.dueDay')); return; }
-    setBusy(true); setError(null);
-    const body = { name: name.trim(), kind, balance: owed.value, currency, apr_percent: apr.trim(), minimum_payment: min.value, due_day: dueDay ? Number(dueDay) : null };
-    try { if (debt) await api.updateDebt(debt.id, body); else await api.createDebt(body); onDone(t('finance.item.saved', { name: body.name })); }
-    catch (e) { setError(describeError(e)); } finally { setBusy(false); }
-  }
-  return <form className="finForm" onSubmit={(e) => void submit(e)} aria-describedby={error ? errorId : undefined}>
-    <div className="cmFormGrid">
-      <label className="field"><span>{t('finance.form.name')}</span><input value={name} onChange={(e) => setName(e.target.value)} maxLength={120} required dir="auto" /></label>
-      <label className="field"><span>{t('finance.form.kind')}</span><select value={kind} onChange={(e) => setKind(e.target.value as FinanceDebtKind)}>{DEBT_KINDS.map((k) => <option key={k} value={k}>{t(`finance.debtKind.${k}` as MessageKey)}</option>)}</select></label>
-      <label className="field"><span>{t('finance.form.currency')}</span><input value={currency} onChange={(e) => setCurrency(e.target.value.toUpperCase().slice(0, 3))} maxLength={3} dir="ltr" required /></label>
-      <label className="field"><span>{t('finance.form.owed', { currency })}</span><input value={balance} onChange={(e) => setBalance(e.target.value)} inputMode="decimal" dir="ltr" required /></label>
-      <label className="field"><span>{t('finance.form.apr')}</span><input value={apr} onChange={(e) => setApr(e.target.value)} inputMode="decimal" dir="ltr" /></label>
-      <label className="field"><span>{t('finance.form.minimum', { currency })}</span><input value={minimum} onChange={(e) => setMinimum(e.target.value)} inputMode="decimal" dir="ltr" /></label>
-      <label className="field"><span>{t('finance.form.dueDay')}</span><input value={dueDay} onChange={(e) => setDueDay(e.target.value.replace(/\D/g, '').slice(0, 2))} inputMode="numeric" dir="ltr" /></label>
-    </div>
-    <FormError id={errorId} text={error} />
-    <FormActions busy={busy} onCancel={() => onDone(null)} />
-  </form>;
-}
-
-function Goals({ base, onChanged }: { base: string; onChanged: () => void }) {
-  const [items, load] = useItems<FinanceGoal>(api.listGoals);
-  return <ItemsPanel<FinanceGoal> id="fin-goals" title={t('finance.tab.goals')} addLabel={t('finance.goals.add')} items={items} load={load} onChanged={onChanged}
-    emptyIcon={<Flag aria-hidden="true" />} emptyTitle={t('finance.goals.empty')} emptyText={t('finance.goals.emptyText')}
-    render={(g) => {
-      const percent = Number(g.target_amount) > 0 ? Math.max(0, Math.min(100, Math.floor((Number(g.saved_amount) * 100) / Number(g.target_amount)))) : 0;
-      return <div className="finGoal"><strong dir="auto">{g.name}</strong><small>{t('finance.goals.progress', { saved: isolate(formatAmount(g.saved_amount, g.currency)), target: isolate(formatAmount(g.target_amount, g.currency)) })}{g.target_on ? ` · ${t('finance.goals.by', { date: isolate(g.target_on) })}` : ''}{g.monthly_contribution ? ` · ${t('finance.goals.monthly', { amount: isolate(formatAmount(g.monthly_contribution, g.currency)) })}` : ''}</small><Progress percent={percent} label={g.name} /></div>;
-    }}
-    form={(g, done) => <GoalForm goal={g} base={base} onDone={done} />}
-    remove={(g) => api.deleteGoal(g.id)} />;
-}
-
-function GoalForm({ goal, base, onDone }: { goal: FinanceGoal | null; base: string; onDone: (message: string | null) => void }) {
-  const [name, setName] = useState(goal?.name ?? ''), [currency, setCurrency] = useState(goal?.currency ?? base), [target, setTarget] = useState(goal?.target_amount ?? '');
-  const [saved, setSaved] = useState(goal?.saved_amount ?? '0'), [by, setBy] = useState(goal?.target_on ?? ''), [error, setError] = useState<string | null>(null), [busy, setBusy] = useState(false);
-  const [monthly, setMonthly] = useState(goal?.monthly_contribution ?? '');
-  const errorId = useId(), monthlyHelp = useId();
-  async function submit(event: FormEvent) {
-    event.preventDefault();
-    if (!name.trim()) { setError(t('finance.error.name')); return; }
-    const goalAmount = parseAmount(target, currency, { signed: false, allowZero: false }), savedAmount = parseAmount(saved || '0', currency, { signed: false });
-    if (!goalAmount.ok) { setError(goalAmount.error); return; }
-    if (!savedAmount.ok) { setError(savedAmount.error); return; }
-    const monthlyAmount = monthly.trim() ? parseAmount(monthly, currency, { signed: false }) : null;
-    if (monthlyAmount && !monthlyAmount.ok) { setError(monthlyAmount.error); return; }
-    setBusy(true); setError(null);
-    const body = { name: name.trim(), currency, target_amount: goalAmount.value, saved_amount: savedAmount.value, target_on: by || null, monthly_contribution: monthlyAmount?.ok ? monthlyAmount.value : null };
-    try { if (goal) await api.updateGoal(goal.id, body); else await api.createGoal(body); onDone(t('finance.item.saved', { name: body.name })); }
-    catch (e) { setError(describeError(e)); } finally { setBusy(false); }
-  }
-  return <form className="finForm" onSubmit={(e) => void submit(e)} aria-describedby={error ? errorId : undefined}>
-    <div className="cmFormGrid">
-      <label className="field"><span>{t('finance.form.name')}</span><input value={name} onChange={(e) => setName(e.target.value)} maxLength={120} required dir="auto" /></label>
-      <label className="field"><span>{t('finance.form.currency')}</span><input value={currency} onChange={(e) => setCurrency(e.target.value.toUpperCase().slice(0, 3))} maxLength={3} dir="ltr" required /></label>
-      <label className="field"><span>{t('finance.form.target', { currency })}</span><input value={target} onChange={(e) => setTarget(e.target.value)} inputMode="decimal" dir="ltr" required /></label>
-      <label className="field"><span>{t('finance.form.saved', { currency })}</span><input value={saved} onChange={(e) => setSaved(e.target.value)} inputMode="decimal" dir="ltr" /></label>
-      <label className="field"><span>{t('finance.form.by')}</span><input type="date" value={by} onChange={(e) => setBy(e.target.value)} /></label>
-      <label className="field"><span>{t('finance.form.monthly', { currency })}</span><input value={monthly} onChange={(e) => setMonthly(e.target.value)} inputMode="decimal" dir="ltr" aria-describedby={monthlyHelp} /></label>
-    </div>
-    <p id={monthlyHelp} className="muted finHelp">{t('finance.form.monthlyHelp')}</p>
-    <FormError id={errorId} text={error} />
-    <FormActions busy={busy} onCancel={() => onDone(null)} />
-  </form>;
-}
-
 // ---- Settings --------------------------------------------------------------------------------
 
 export function SettingsDialog({ onClose }: { onClose: (saved: boolean) => void }) {

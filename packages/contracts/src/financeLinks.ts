@@ -1,6 +1,6 @@
 // Finance links and business allocations (docs/finance-links.md). Amounts are decimal strings.
 
-export type FinanceLinkDimension = 'vehicle' | 'purchase' | 'document' | 'business' | 'trip' | 'project';
+export type FinanceLinkDimension = 'vehicle' | 'purchase' | 'document' | 'business' | 'trip' | 'project' | 'bill' | 'debt';
 export type FinanceLinkRole = 'payment' | 'refund' | 'deposit' | 'evidence';
 export type FinanceLinkStatus = 'active' | 'needs_review' | 'void';
 export type BusinessAllocationTreatment = 'owner_contribution' | 'reimbursable';

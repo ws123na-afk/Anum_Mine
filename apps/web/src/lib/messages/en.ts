@@ -18,6 +18,7 @@ import { financeReportsEn } from './financeReports.en.ts';
 import { financeGuardianEn } from './financeGuardian.en.ts';
 import { financeShellEn } from './financeShell.en.ts';
 import { financePagesEn } from './financePages.en.ts';
+import { financePlanningEn } from './financePlanning.en.ts';
 import { financeIntelActionsEn } from './financeIntelActions.en.ts';
 import { tyreEn } from './tyre.en.ts';
 import { hqEn } from './hq.en.ts';
@@ -122,6 +123,7 @@ export const en = {
   ...financeGuardianEn,
   ...financeShellEn,
   ...financePagesEn,
+  ...financePlanningEn,
   ...financeIntelActionsEn,
   ...teamEn,
   ...appCallsEn,

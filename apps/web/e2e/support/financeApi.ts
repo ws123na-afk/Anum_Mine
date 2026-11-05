@@ -2,6 +2,7 @@
 // (accessibility, localization and page-layout specs). Synthetic values only: example merchants and
 // round amounts, never real account numbers.
 import { equityBody } from './financeEquity';
+import { planningReply } from './financePlanningApi';
 import { reportDetail, reportList } from './financeReports';
 const now = new Date();
 const pad = (n: number) => String(n).padStart(2, '0');
@@ -97,6 +98,8 @@ function intentFor(input: Record<string, unknown>): Record<string, unknown> {
 }
 
 export function financeState({ empty = false, denied = false, failSummary = false, failSafe = false, agentProposal = false, failTrading = false, role = 'member' }: { empty?: boolean; denied?: boolean; failSummary?: boolean; failSafe?: boolean; agentProposal?: boolean; failTrading?: boolean; role?: 'owner' | 'member' | 'viewer' } = {}): FinanceState {
+  // Each test starts from a fresh state: counters shared by the spec files a worker runs must not carry over.
+  changeCount = 0; intentCount = 0;
   const account = { id: 'fin_acct_current', name: 'Everyday account', kind: 'bank', currency: 'AED', institution: 'Example Bank', last4: '1234', opening_balance: '1000.00', balance: '15349.50', archived: false, transaction_count: 64, created_at: stamp, updated_at: stamp };
   const card = { ...account, id: 'fin_acct_card', name: 'Rewards card', kind: 'card', last4: '9876', opening_balance: '0.00', balance: '-2450.00', transaction_count: 12 };
   const merchants = [
@@ -605,6 +608,8 @@ export function financeReply(state: FinanceState, method: string, url: URL, body
   const sub = path.slice('/api/v1/finance'.length);
   const stages = financeStagesReply(state, method, sub, body, url);
   if (stages) return stages;
+  const planned = planningReply(state, method, sub, body, url);
+  if (planned) return planned;
   const equity = /^\/intel\/portfolios\/([^/]+)\/equity$/.exec(sub);
   if (equity && method === 'GET') return ok(equityBody(decodeURIComponent(equity[1]), Number(url.searchParams.get('days') ?? 90)));
   if (sub === '/intel/daily-reports' && method === 'GET') {

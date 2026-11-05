@@ -342,6 +342,7 @@ export const financeEn = {
   'finance.safe.note.minimum_passed': 'Due on day {day}, already passed this month: taken as paid',
   'finance.safe.note.goal_set': 'The monthly amount you set',
   'finance.safe.note.goal_derived': { one: '{left} left over {count} month', other: '{left} left over {count} months' },
+  'finance.safe.note.goal_paused': 'Goal paused: nothing set aside until you resume it',
   'finance.safe.note.goal_no_plan': 'No monthly amount or target date: nothing set aside',
   'finance.safe.note.goal_reached': 'Goal reached: nothing set aside',
   'finance.safe.note.buffer': 'What you always keep back',

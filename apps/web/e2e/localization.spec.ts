@@ -253,9 +253,9 @@ test('Finance reads in Arabic, right to left, with dates and amounts kept left t
   await mockWorkspaceApi(page);
   await useSavedLocale(page, 'ar');
   await page.goto('/#finance-bills');
-  await expect(page.getByRole('heading', { level: 1, name: 'المالية' })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: 'الفواتير والميزانيات' })).toBeVisible();
   await expect(page.getByRole('navigation', { name: 'أقسام المالية' }).getByRole('button', { name: 'الفواتير' })).toHaveAttribute('aria-current', 'page');
-  await expect(page.getByRole('region', { name: 'الفواتير' })).toContainText('Rent');
+  await expect(page.getByRole('region', { name: /الفواتير القادمة/ })).toContainText('Rent');
   expect(await noHorizontalOverflow(page)).toBe(true);
   // Stages 3 to 5: safe to spend, the Guardian rules and connections, also right to left.
   // Safe to spend and Guardian draw their own page head (docs/finance.md#finance-shell), so their name is the h1.
