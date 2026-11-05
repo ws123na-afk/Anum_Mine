@@ -41,8 +41,11 @@ class ApiException implements Exception {
       (_, final String text) => text,
       _ => 'Request failed',
     };
-    final code = switch (envelope) {
-      {'code': final String value} => value,
+    // Module refusals (vehicles, purchases, business books) answer
+    // `{"detail": "...", "code": "..."}` with the code beside the sentence.
+    final code = switch ((envelope, body?['code'])) {
+      ({'code': final String value}, _) => value,
+      (_, final String value) => value,
       _ => null,
     };
     // A 422's per-field messages (`error.details[].message`), which say how to

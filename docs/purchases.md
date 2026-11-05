@@ -134,6 +134,10 @@ Refusals answer `{"detail": "<plain words>", "code": "<code>"}` with figures whe
 
 Sidebar **Purchases** (`#purchases`, `#purchases-list`, `#purchases-returns`, `#purchases-settings`): **Overview** (on the way and late, open returns and refunds owed, paid and refunded per currency, what is due, paid per month), **Purchases** (search, status filter, archived, paging, Export CSV), **Returns** (open returns across purchases, or all), **Settings** (reminders, lead and warranty days, default currency, the iPhone Shortcut). A purchase opens its page: **Delivery** (status along the machine, shipments), **Items**, **Returns and refunds** (ask, move on, link refunds, edit, remove), **History** (with notes) and **Details** (edit, payment, archive, delete). Every page handles loading, empty with a next action, errors with Try again, the viewer's permission refusal, and paging; English and Arabic, right to left.
 
+## Mobile
+
+Menu, **Purchases** (`/purchases`, `apps/mobile/lib/features/purchases/`, [Record modules](mobile.md#record-modules)): the list with search, the status groups (all, open, awaiting delivery, returns, closed), paging and what is due; a purchase with its status and the moves the server allows (sent with the version on screen; a stale version reloads and says so), its items, shipments with carrier and tracking number, returns, and the timeline (paged `GET /{id}/events`). Adding a purchase, a shipment and **Start a return** (reason, details, amount, return-by date) are real writes; the purchase and the return send an `Idempotency-Key`. **Link the payment** and, on a return, **Link the refund** pick one of the person's own Finance transactions (`GET /payments?kind=payment|refund`); a refund is never income. People who may not change a purchase see why. From 840 px the list and the purchase sit side by side. Tests: `apps/mobile/test/purchases/purchases_test.dart`.
+
 ## Storage, privacy and deletion
 
 Migration `0136_purchases` (expand only, after `0135_vehicles`): `purchases`, `purchase_items`, `purchase_events`, `purchase_shipments`, `purchase_returns`, `purchase_reminders`, `purchase_preferences`. Every table has forced RLS with the tenant policy, the restrictive `purchase_visible_<table>` (business rows to the workspace, personal rows to their owner; the child rows carry the purchase's visibility and owner, copied and checked by the trigger `purchase_child_matches`, so no policy looks another table up), the restrictive `purchase_insert_<table>` (a row is written by the person it names) and `lifecycle_purge_<table>`. `purchase_events_append_only` refuses every update of the history. All are listed in `tenant_lifecycle_tables.py`.
@@ -146,7 +150,7 @@ The privacy export includes the person's own purchases (with their items, events
 
 ## Not built here
 
-- Flutter screens (the iPhone side is the Shortcut; the app has no purchase screens yet).
+- On the phone: editing items, moving a return through its statuses, recording cash, notes, archiving and the CSV export (on the web).
 - "Save as purchase" on a message in the ANUM mailbox: not built; share the e-mail from Mail with the Shortcut instead.
 - Carrier tracking integrations (Aramex, SMSA and others): tracking numbers are typed or shared.
 - Automatic matching of a scanned receipt to its purchase or payment (the document vault's OCR fills the receipt; linking stays a person's choice).

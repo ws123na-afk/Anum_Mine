@@ -166,6 +166,10 @@ void main() {
     await _pump(tester, home!, const Size(390, 844));
     await tester.tap(find.byKey(const Key('nav-menu')));
     await _settle(tester);
+    // Developer sits below the record modules in a long Menu.
+    await tester.scrollUntilVisible(find.text('Developer'), 200,
+        scrollable: find.descendant(
+            of: find.byType(Drawer), matching: find.byType(Scrollable)));
     await tester.tap(find.text('Developer'));
     await _settle(tester);
     expect(find.text('No developer requests yet'), findsOneWidget);

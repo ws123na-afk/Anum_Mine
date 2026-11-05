@@ -24,6 +24,14 @@ updates:
     directory: /
     schedule:
       interval: weekly
+    ignore:
+      # three 0.187 grows the headquarters renderer path past its gzip budget
+      # (apps/web/e2e/hq-performance.spec.ts). Bump three and @types/three by hand
+      # together with the budget work (docs/ANUM_MINE_HQ_PERFORMANCE_BUDGET.md).
+      - dependency-name: three
+        versions: [">=0.185.0"]
+      - dependency-name: "@types/three"
+        versions: [">=0.185.0"]
     groups:
       npm:
         update-types: [minor, patch]
@@ -32,6 +40,10 @@ updates:
     directory: /apps/mobile
     schedule:
       interval: weekly
+    ignore:
+      # Held at 6.3.29, the last Java release: later versions need AGP 9
+      # built-in Kotlin, which apps/mobile turns off (docs/mobile.md, Dependencies).
+      - dependency-name: url_launcher_android
     groups:
       pub:
         update-types: [minor, patch]
