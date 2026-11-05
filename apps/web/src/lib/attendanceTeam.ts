@@ -80,10 +80,11 @@ export function personRole(row: AttendanceTeamRow, people: readonly TeamPerson[]
 
 /** Two letters for the avatar: first and last word's first letter ("Aimal Khan" is "AK"). */
 export function initials(name: string): string {
-  const words = name.replace(/\(.*?\)/g, '').trim().split(/\s+/).filter(Boolean);
+  // Letters only: a translated "(you)" and the bidi isolation marks around names never become an initial.
+  const words = name.replace(/\(.*?\)/g, '').split(/\s+/).map((w) => Array.from(w).filter((c) => /\p{L}/u.test(c))).filter((w) => w.length);
   if (!words.length) return '?';
-  const first = Array.from(words[0])[0] ?? '';
-  const last = words.length > 1 ? Array.from(words[words.length - 1])[0] ?? '' : Array.from(words[0])[1] ?? '';
+  const first = words[0][0];
+  const last = words.length > 1 ? words[words.length - 1][0] : words[0][1] ?? '';
   return (first + last).toUpperCase();
 }
 

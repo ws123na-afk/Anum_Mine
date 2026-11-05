@@ -71,7 +71,7 @@ test('reports show week hours, site visits and flags, export CSV, and tabs are d
   await expect(table.getByRole('cell', { name: 'Head office, Tower B site' })).toBeVisible();
   await expect(table.getByText('Check out missing')).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Site visits' })).toBeVisible();
-  await expect(page.getByText('Tower B site').first()).toBeVisible();
+  await expect(page.getByRole('listitem').filter({ hasText: 'Tower B site' }).first()).toBeVisible();
   await page.getByRole('button', { name: 'CSV' }).click();
   await expect(page.getByText(/Saved attendance-[\w-]+\.csv/)).toBeVisible();
   expect(sent.some((r) => r.path === '/api/v1/attendance/export.csv')).toBe(true);
@@ -102,7 +102,7 @@ test('a daily report is written, an AI draft from own entries is added, and earl
   expect(saved.priority).toBe('urgent');
   // Review and submit: the report is sent with submit, and stays a draft until then.
   await page.getByRole('button', { name: 'Review and submit' }).click();
-  await page.getByRole('dialog').getByRole('button', { name: 'Submit report' }).click();
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Submit report' }).click();
   await expect(page.getByText('Report submitted.')).toBeVisible();
   const submitted = sent.filter((r) => r.method === 'PUT' && r.path.startsWith('/api/v1/attendance/daily-reports/')).at(-1)?.body as { submit: boolean };
   expect(submitted.submit).toBe(true);
@@ -191,7 +191,7 @@ test('team attendance lists only people who share, reports only when shared, and
   await expect(roster.getByRole('row', { name: /Layla Manager/ }).getByText('iPhone')).toBeVisible();
   await expect(page.getByRole('region', { name: 'Attendance today' }).getByText('Present')).toBeVisible();
   // A colleague's report opens read only.
-  await page.getByRole('button', { name: "Review Layla Manager's report" }).click();
+  await page.getByRole('button', { name: "Review Layla Manager's report", exact: true }).click();
   const dialog = page.getByRole('dialog');
   await expect(dialog.getByText('Supplier follow ups')).toBeVisible();
   await expect(dialog.getByText('Shared with you to read. Only the person can change it.')).toBeVisible();
@@ -202,7 +202,7 @@ test('team attendance lists only people who share, reports only when shared, and
   await page.getByRole('button', { name: 'Save draft' }).click();
   await expect(page.getByText('Draft saved.')).toBeVisible();
   await page.getByRole('button', { name: 'Review and submit' }).click();
-  await page.getByRole('dialog').getByRole('button', { name: 'Submit report' }).click();
+  await page.getByRole('alertdialog').getByRole('button', { name: 'Submit report' }).click();
   await expect(page.getByText('Report submitted.')).toBeVisible();
   const puts = sent.filter((r) => r.method === 'PUT').map((r) => r.body as { submit: boolean; tasks_done: string[]; issues: string });
   expect(puts.map((b) => b.submit)).toEqual([false, true]);

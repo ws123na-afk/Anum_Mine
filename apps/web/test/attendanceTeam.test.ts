@@ -62,6 +62,8 @@ describe('team attendance helpers', () => {
     assert.equal(initials('Aimal Khan'), 'AK');
     assert.equal(initials('Aimal Khan (you)'), 'AK');
     assert.equal(initials('Sana'), 'SA');
+    assert.equal(initials('\u2068Shahzeb Rahman\u2069 (\u0623\u0646\u062a)'), 'SR');
+    assert.equal(initials('\u2069'), '?');
     const rows = [row('a', { site_names: ['Riyadh Office'] }), row('b', { site_names: ['riyadh office', 'Depot'] }), row('c')];
     assert.deepEqual(siteOptions(rows), ['Depot', 'Riyadh Office']);
     assert.deepEqual(filterBySite(rows, 'RIYADH OFFICE').map((r) => r.user_id), ['a', 'b']);

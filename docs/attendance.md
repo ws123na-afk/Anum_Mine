@@ -184,12 +184,38 @@ codes only (kind, source, quality, counts), never times, site names or report te
 
 ## Web
 
-Attendance in the sidebar (`#attendance`, tabs `#attendance-reports`, `-daily`, `-corrections`, `-settings`): Today
-(status, check in and out, breaks, remote, attention flags, timeline), Reports (week and month, previous and next,
-figures, day table, site visits, CSV and PDF), Daily report (editor with attachments and AI drafts, search and paging of
-earlier reports), Corrections (add, change, remove with reason; history), Settings (profile and schedule, location
-check in, sites, sharing, Shortcut steps). A colleague's shared record opens read only from the header picker. English
-and Arabic (RTL), every state (loading, empty with a next action, error with retry, denied with who can help).
+**Attendance and Daily Reports** in the sidebar (`#attendance`), built on the shared page shell
+(`FinanceShell.tsx`: page head, tabs, KPI cards, cards, chips) like every module. The head has a **day** picker (the
+team view and the default report day), a **site** picker (filters the roster by the site names in it), **Export**
+(the roster as shown, as a formula-safe CSV made in the browser from what the API returned; my last 7 days as CSV
+or PDF from `/export.csv` and `/export.pdf`) and **Create daily report**. Tabs:
+
+- **Team attendance** (`#attendance`, `AttendanceTeam.tsx`): four KPIs (present x of y, checked in with the latest
+  time, reports submitted x of the reports shared, items to review: my unsubmitted report plus days with attention
+  flags), the **attendance roster** from `GET /team` (member and role, site, first check in and its source Web,
+  iPhone or Manual, break, hours, daily report status, on site, remote, on a break, left or not checked in, and a row
+  menu: open the timesheet read only, open the daily reports when shared, correct my own record), live for today
+  (refreshes every minute while visible, and on Refresh), with paging past 50 people; **Today at a glance** (present,
+  remote, not checked in, each person's worked hours against their own scheduled shift); **Daily report status**
+  (Write or Edit for me, Review read only for a colleague whose share includes reports); the **daily reports** table
+  (range 7, 30 or 90 days, contributor, status; Edit or Review); a **report draft** (completed work, blocker, next
+  plan, mapped onto tasks done, issues and tasks pending of the same report; Save draft, then Review and submit);
+  **correct a record** (the days my record flags with a missing check in or out, the time, a reason from a list
+  plus details, and the audit trail of my latest corrections); a strip of existing tools (timesheet insights,
+  missed check reminders, shift and site rules, AI report drafts) and the privacy and location note.
+- **My timesheet** (`#attendance-timesheet`; old `#attendance-reports` and `#attendance-today` links open it): today
+  (status, check in and out, breaks, remote, attention flags, timeline) and week and month hours with site visits and
+  CSV and PDF. A colleague's shared record opens here read only from the roster.
+- **Daily reports** (`#attendance-daily`): the editor with attachments, AI drafts, Save report and Review and submit,
+  above the same reports table with search.
+- **Corrections** (`#attendance-corrections`): add, change, remove with a reason (a list plus details); the history
+  as an audit trail, paged.
+- **Sites and shifts** (`#attendance-settings`): profile and schedule, location check in, sites, sharing, Shortcut steps.
+
+English and Arabic (RTL), every state (loading, empty with a next action, error with retry, denied with who can help).
+Not shown because Attendance does not have them: leave or absence records, approving someone else's report or
+correction (a share never allows a write), bulk corrections, report templates, and links from a report to a vehicle
+or task.
 
 ## Mobile
 

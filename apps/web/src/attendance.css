@@ -76,17 +76,20 @@
    team layout. Two columns on wide screens (main and a 340 px side column), one column below 1280 px. ---- */
 .attLayout > .finTabPanel { gap: var(--d-s4); }
 .attDate { min-height: 36px; }
+.attLayout > .finTabPanel { container-type: inline-size; }
 .attTeamGrid { display: grid; gap: var(--d-s4); min-width: 0; }
 .attMainCol, .attSideCol { align-content: start; display: grid; gap: var(--d-s4); min-width: 0; }
 .attPair { align-items: start; display: grid; gap: var(--d-s4); min-width: 0; }
-@media (min-width: 1280px) {
+/* Two columns once the panel is wide enough for the eight roster columns beside a 340 px side column. */
+@container (min-width: 1100px) {
   .attTeamGrid { grid-template-columns: minmax(0, 1fr) 340px; }
-  .attPair { grid-column: 1 / -1; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .attPair { grid-column: 1 / -1; }
 }
-@media (min-width: 900px) and (max-width: 1279px) {
-  .attSideCol { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+@container (min-width: 720px) {
+  .attSideCol { grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
   .attPair { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
 }
+@container (min-width: 1100px) { .attSideCol { grid-template-columns: minmax(0, 1fr); } }
 .attSmall { align-items: center; display: inline-flex; gap: var(--d-s1); min-height: 32px; padding: 0 var(--d-s3); white-space: nowrap; }
 .attSmall svg { height: 14px; width: 14px; }
 .attStack { display: grid; gap: 2px; margin: 0; }
@@ -101,8 +104,10 @@
 @keyframes attPulse { 50% { opacity: .35; } }
 
 /* Roster and reports tables */
-.attRosterWrap { min-width: 0; }
+.attRosterWrap { container-type: inline-size; min-width: 0; }
 .attRosterTable th[scope="row"], .attReportsTable th[scope="row"] { font-weight: 600; }
+.attRosterTable :is(th, td), .attReportsTable :is(th, td) { padding: var(--d-s2); }
+.attRosterTable thead th { white-space: normal; }
 .attRosterTable td, .attRosterTable th, .attReportsTable td, .attReportsTable th { vertical-align: middle; }
 .attWho { align-items: center; display: flex; gap: var(--d-s2); min-width: 0; }
 .attWho > span:last-child { display: grid; min-width: 0; }
@@ -123,21 +128,21 @@
 .attMenuList > button { background: transparent; border: 0; border-radius: calc(var(--d-r-control) - 2px); color: var(--d-text); justify-content: flex-start; min-height: 40px; padding: 0 var(--d-s3); text-align: start; }
 .attMenuList > button:hover:not(:disabled) { background: var(--d-glass-1); }
 .attExportMenu > button { align-items: center; display: inline-flex; gap: var(--d-s2); min-height: 40px; }
-.attReportsTable td:nth-child(3), .attReportsTable td:nth-child(4) { min-width: 160px; }
+.attReportsTable td:nth-child(3), .attReportsTable td:nth-child(4) { min-width: 140px; }
 .attFilters { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); }
 .attFilters select, .attFilters input { min-height: 36px; }
 .attSearch { flex: 1 1 180px; }
 .attSearch input { width: 100%; }
 .attTableFoot { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); justify-content: space-between; }
 /* Below 900 px each row is a card: label and value side by side, no sideways scrolling. */
-@media (max-width: 899px) {
+@container (max-width: 679px) {
   .attRosterWrap table, .attRosterWrap tbody, .attRosterWrap tr { display: grid; }
   .attRosterWrap thead { display: none; }
   .attRosterWrap tbody { gap: var(--d-s2); }
   .attRosterWrap tr { border: 1px solid var(--d-line); border-radius: var(--d-r-control); gap: var(--d-s1); padding: var(--d-s2) var(--d-s3); position: relative; }
-  .attRosterWrap td, .attRosterWrap th { border: 0; display: grid; gap: var(--d-s2); grid-template-columns: minmax(0, 9rem) minmax(0, 1fr); padding: 2px 0; text-align: start; }
-  .attRosterWrap td[data-label]::before, .attRosterWrap th[data-label]:not(:first-child)::before { color: var(--d-muted); content: attr(data-label); font-size: var(--text-xs); font-weight: 600; }
-  .attRosterWrap tr > :first-child { display: block; padding-inline-end: 40px; }
+  .attRosterWrap td, .attRosterWrap th { border: 0; display: grid; gap: var(--d-s2); grid-template-columns: minmax(0, 9rem) minmax(0, 1fr); justify-items: start; padding: 2px 0; text-align: start; }
+  .attRosterWrap td[data-label]::before, .attReportsTable th[data-label]::before, .attRosterTable th[data-label]:not(:first-child)::before { color: var(--d-muted); content: attr(data-label); font-size: var(--text-xs); font-weight: 600; }
+  .attRosterTable tr > :first-child { display: block; padding-inline-end: 40px; }
   .attRosterWrap .attMenuCell { display: block; inset-inline-end: var(--d-s2); position: absolute; top: var(--d-s2); width: auto; }
   .attRosterWrap .num { text-align: start; }
 }
@@ -160,14 +165,20 @@
 
 /* Daily report status */
 .attStatusList { display: grid; gap: var(--d-s2); list-style: none; margin: 0; padding: 0; }
-.attStatusList li { align-items: center; border-bottom: 1px solid var(--d-line); display: grid; gap: var(--d-s2); grid-template-columns: auto minmax(0, 1fr) auto auto; padding-bottom: var(--d-s2); }
+.attStatusList li { align-items: center; border-bottom: 1px solid var(--d-line); display: grid; gap: var(--d-s1) var(--d-s2); grid-template-columns: auto minmax(0, 1fr) auto; padding-bottom: var(--d-s2); }
+.attStatusList li > .finChip { grid-column: 3; grid-row: 1; justify-self: end; }
+.attStatusList li > :is(button, .attNoReport) { grid-column: 3; grid-row: 2; justify-self: end; }
+.attStatusList li > .attAvatar { grid-row: 1 / span 2; }
+.attStatusList li > div { grid-row: 1 / span 2; }
 .attStatusList li:last-child { border-bottom: 0; padding-bottom: 0; }
 .attStatusList li > div { display: grid; min-width: 0; }
 .attStatusList small { color: var(--d-muted); font-size: var(--text-xs); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .attNoReport { font-size: var(--text-xs); }
 
 /* Quick report and correction */
-.attQuickForm { display: grid; gap: var(--d-s1) var(--d-s3); grid-template-columns: minmax(0, 9rem) minmax(0, 1fr); min-width: 0; }
+.attQuick, .attQuickFix { container-type: inline-size; }
+.attQuickForm { display: grid; gap: var(--d-s1) var(--d-s3); grid-template-columns: minmax(0, 1fr); min-width: 0; }
+@container (min-width: 460px) { .attQuickForm { grid-template-columns: minmax(0, 9rem) minmax(0, 1fr); } }
 .attQuickForm > label { align-self: center; color: var(--d-muted); font-size: var(--text-sm); font-weight: 600; }
 .attQuickForm > :is(input, select, textarea) { min-height: 36px; min-width: 0; }
 .attQuickForm > :is(.formError, .notice, .actions, .attQuickFoot, [role="alert"], [role="status"]) { grid-column: 1 / -1; }
@@ -175,18 +186,15 @@
 .attQuickFoot { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); justify-content: space-between; }
 .attQuickFoot small { color: var(--d-muted); font-size: var(--text-xs); }
 .attFixGrid { display: grid; gap: var(--d-s4); min-width: 0; }
-@media (min-width: 1100px) { .attFixGrid { grid-template-columns: minmax(0, 1fr) minmax(0, 14rem); } }
-.attTrailBox { border-inline-start: 1px solid var(--d-line); display: grid; gap: var(--d-s2); padding-inline-start: var(--d-s3); }
+@container (min-width: 760px) { .attFixGrid { grid-template-columns: minmax(0, 1fr) minmax(0, 14rem); } }
+.attTrailBox { align-content: start; border-top: 1px solid var(--d-line); display: grid; gap: var(--d-s2); padding-top: var(--d-s3); }
+@container (min-width: 760px) { .attTrailBox { border-inline-start: 1px solid var(--d-line); border-top: 0; padding: 0 0 0 0; padding-inline-start: var(--d-s3); } }
 .attTrailBox h3 { font-size: var(--text-base); margin: 0; }
 .attTrail { display: grid; gap: var(--d-s3); list-style: none; margin: 0; padding: 0; }
 .attTrail li { border-inline-start: 2px solid var(--d-ok); display: grid; gap: 2px; padding-inline-start: var(--d-s3); }
 .attTrail small { color: var(--d-muted); font-size: var(--text-xs); overflow-wrap: anywhere; }
 .attTrail .attApplied { color: var(--d-ok); }
 .attQuickEmpty { display: grid; gap: var(--d-s2); justify-items: start; }
-@media (max-width: 760px) {
-  .attQuickForm { grid-template-columns: minmax(0, 1fr); }
-  .attTrailBox { border-inline-start: 0; border-top: 1px solid var(--d-line); padding: var(--d-s3) 0 0; }
-}
 
 /* Features strip and privacy note */
 .attStrip { align-items: center; background: var(--d-surface-1); border: 1px solid var(--d-line); border-radius: var(--d-r-panel); display: grid; gap: var(--d-s3); padding: var(--d-s3) var(--d-s4); }
@@ -205,3 +213,4 @@
 .attStripIcon svg { height: 20px; width: 20px; }
 .attPrivacy { font-size: var(--text-sm); margin: 0; }
 .attDialog { max-width: 640px; }
+.attStripItem strong { font-size: var(--text-sm); }

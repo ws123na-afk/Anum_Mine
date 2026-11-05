@@ -181,9 +181,9 @@ export function AttendanceView() {
       {tab === 'team' && <>
         {team.kind === 'loading' && <Notice busy>{t('attTeam.loading')}</Notice>}
         {team.kind === 'error' && <LoadError message={t('attTeam.error', { message: team.message })} retry={() => void loadTeam()} />}
+        {teamReady && <TeamKpis rows={shown} />}
         {teamReady && <div className="attTeamGrid">
           <div className="attMainCol">
-            <TeamKpis rows={shown} />
             <RosterCard team={teamReady} rows={shown} people={people} site={site} live={!date} refreshing={refreshing} onRefresh={() => void loadTeam()}
               onMore={teamReady.total > teamReady.rows.length ? () => void more() : null}
               actions={{ timesheet: openPerson, reports: openReports, correct: () => { setViewing(null); pick('corrections'); } }} />
