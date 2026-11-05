@@ -54,7 +54,7 @@ export const financeGuardianAr = {
   'fguard.rule.resume': 'استئناف',
   'fguard.rule.editLabel': 'تعديل {name}',
   'fguard.rule.testLabel': 'اختبار {name}',
-  'fguard.rule.pauseLabel': 'إيقاف {name} مؤقتًا',
+  'fguard.rule.pauseLabel': 'إيقاف مؤقت: {name}',
   'fguard.rule.resumeLabel': 'استئناف {name}',
   'fguard.rule.editThreshold': 'تغيير إعداد {name}',
   'fguard.threshold.allowed_currencies': 'المسموح',

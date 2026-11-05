@@ -83,7 +83,7 @@ export const GATE_PAGES: GatePage[] = [
   { hash: 'tyre', view: 'tyre', mock: tyre, ready: '.tyreMetric' },
   { hash: 'commerce', view: 'commerce', mock: workspace, ready: '.cmChart svg' },
   { hash: 'finance', view: 'finance', mock: workspace, ready: '.finChart svg' },
-  { hash: 'finance-transactions', view: 'finance', mock: workspace, ready: '.finTxTable tbody tr' },
+  { hash: 'finance-transactions', view: 'finance', mock: workspace, ready: '.fregTable tbody tr' },
   { hash: 'finance-import', view: 'finance', mock: workspace, ready: '.finMapping, input[type="file"]' },
   { hash: 'finance-safe', view: 'finance', mock: workspace, ready: '.finBuild' },
   { hash: 'finance-guardian', view: 'finance', mock: workspace, ready: '.fgRuleList' },
