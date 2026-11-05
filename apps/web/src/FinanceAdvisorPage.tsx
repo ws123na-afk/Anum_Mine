@@ -154,7 +154,7 @@ function ScenarioRow({ scenario, currency }: { scenario: FinanceAdvisorScenario;
     <div><strong>{t(`fadv.scenario.${scenario.kind}` as MessageKey)}</strong><small>{t(`fadv.scenario.${scenario.kind}Text` as MessageKey)}</small></div>
     <div className="finScenarioFigure">
       <strong>{days(scenario.days)}</strong>
-      <small>{scenario.runs_out_on ? t('fadv.scenario.until', { date: isolate(day(scenario.runs_out_on)) }) : t('fadv.scenario.never')}</small>
+      <small>{scenario.runs_out_on ? t('fadv.scenario.until', { date: isolate(day(scenario.runs_out_on)) }) : scenario.days === null ? t('fadv.scenario.never') : t('fadv.scenario.beyond')}</small>
       <small>{t('fadv.scenario.perMonth', { amount: isolate(formatAmount(scenario.monthly_outflow, currency)) })}</small>
     </div>
   </li>;

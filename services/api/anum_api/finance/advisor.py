@@ -37,7 +37,7 @@ from pydantic import BaseModel, Field
 from .categories import NOT_SPEND
 from .models import Account, AccountKind, Bill, Cadence, Category, Debt, DebtKind, Transaction
 from .money import minor_digits, quantize
-from .summary import _payee, detect_recurring, due_dates
+from .summary import _payee, detect_recurring, due_dates, next_after
 
 VERSION = 1
 DAYS_PER_MONTH = Decimal("30.4375")  # 365.25 / 12
@@ -98,7 +98,7 @@ class Scenario(BaseModel):
     kind: ScenarioKind
     monthly_outflow: Decimal
     days: int | None  # None: nothing goes out, so the money does not run out on these figures
-    runs_out_on: date | None
+    runs_out_on: date | None  # None also when the day is past the last date the calendar holds
 
 
 class EssentialCategory(BaseModel):
@@ -323,7 +323,9 @@ def scenario(kind: ScenarioKind, liquid: Decimal, outflow: Decimal, today: date,
     if liquid <= 0:
         return Scenario(kind=kind, monthly_outflow=outflow, days=0, runs_out_on=today)
     days = int((liquid * DAYS_PER_MONTH / outflow).to_integral_value(rounding=ROUND_FLOOR))
-    return Scenario(kind=kind, monthly_outflow=outflow, days=days, runs_out_on=today + timedelta(days=days))
+    # A runway past the last date the calendar can hold keeps its day count and has no end date.
+    ends = today + timedelta(days=days) if days <= (date.max - today).days else None
+    return Scenario(kind=kind, monthly_outflow=outflow, days=days, runs_out_on=ends)
 
 
 def _spend(rows: list[Transaction]) -> list[Transaction]:
@@ -347,20 +349,22 @@ def _sum_out(rows: list[Transaction]) -> Decimal:
 
 def interest_at_minimum(owed: Decimal, apr: Decimal, minimum: Decimal, currency: str) -> tuple[Decimal, int | None, Decimal | None, bool]:
     """Next month's interest when only the minimum is paid, then months to clear and the interest paid
-    until then (simple monthly rate, APR / 12, the minimum paid every month). ``never`` when the minimum
-    does not even cover the interest."""
+    until then (simple monthly rate, APR / 12). One order everywhere: each month the minimum is paid
+    first, then interest is charged on what is left. ``never`` when the minimum does not even cover
+    the interest, so the balance never goes down."""
     rate = apr / Decimal(1200)
     first = _ceil(max(owed - minimum, Decimal(0)) * rate, currency)
     if minimum <= 0:
         return first, None, None, True
     remaining, months, paid_interest = owed, 0, Decimal(0)
     while remaining > 0 and months < 600:
-        interest = remaining * rate
-        if interest >= minimum:
-            return first, None, None, True
-        remaining = remaining + interest - minimum
-        paid_interest += interest
+        remaining -= min(minimum, remaining)
         months += 1
+        interest = remaining * rate
+        if remaining > 0 and interest >= minimum:
+            return first, None, None, True
+        remaining += interest
+        paid_interest += interest
     if remaining > 0:
         return first, None, None, True
     return first, months, _ceil(paid_interest, currency), False
@@ -508,11 +512,18 @@ def _coming(today: date, bills: list[Bill], debts: list[Debt], card_debt_ids: se
         if due <= end:
             items.append(ComingPayment(kind=kind, name=debt.name, ref_id=debt.id, amount=amount, due_on=due, days_until=(due - today).days))
     for found in recurring:
-        if found.currency != currency or found.next_due_on > end:
+        if found.currency != currency:
             continue
         subscription = found.category == Category.SUBSCRIPTIONS or bool(_SUBSCRIPTION.search(found.name))
-        items.append(ComingPayment(kind="subscription" if subscription else "recurring", name=found.name, ref_id=None, amount=_q(found.amount, currency),
-                                   due_on=found.next_due_on, days_until=(found.next_due_on - today).days, category=found.category, detected=True))
+        # Every date in the window, by cadence, as saved bills are (a weekly payment counts several times).
+        due: date | None = found.next_due_on
+        anchor = found.next_due_on.day
+        while due is not None and due <= end:
+            if due >= today:
+                items.append(ComingPayment(kind="subscription" if subscription else "recurring", name=found.name, ref_id=None,
+                                           amount=_q(found.amount, currency), due_on=due, days_until=(due - today).days, category=found.category,
+                                           detected=True))
+            due = next_after(due, found.cadence, anchor)
     items.sort(key=lambda i: (i.due_on is None, i.due_on or today, i.name.lower()))
     saved = sum((i.amount for i in items if not i.detected), Decimal(0))
     detected = sum((i.amount for i in items if i.detected), Decimal(0))

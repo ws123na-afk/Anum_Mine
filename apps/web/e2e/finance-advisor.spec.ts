@@ -108,6 +108,8 @@ test('another currency is shown on its own, never mixed', async ({ page }) => {
   const runway = card(page, /If your income stopped/);
   await expect(runway).toContainText(/Money you have: \W*USD\s1,250\.00/);
   await expect(runway.getByRole('listitem').filter({ hasText: 'Bare minimum' })).toContainText('Nothing goes out on these figures');
+  // A runway past the last date the calendar holds keeps its days and shows no end date.
+  await expect(runway.getByRole('listitem').filter({ hasText: 'Essentials' }).first()).toContainText('No end date: further ahead than the calendar goes');
   await expect(card(page, /Coming payments/)).toContainText('No bills, minimums or recurring payments found');
 });
 

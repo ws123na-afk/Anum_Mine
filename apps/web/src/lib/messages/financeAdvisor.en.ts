@@ -56,6 +56,7 @@ export const financeAdvisorEn = {
   'fadv.scenario.perMonth': '{amount} a month',
   'fadv.scenario.until': 'until {date}',
   'fadv.scenario.never': 'Nothing goes out on these figures',
+  'fadv.scenario.beyond': 'No end date: further ahead than the calendar goes',
   'fadv.runway.history': 'Not enough history yet',
   'fadv.runway.historyText': { one: 'You have {count} day of records. With at least 30 days ANUM can show how long your money lasts at your usual spending; until then only the bare minimum is shown, nothing is guessed.', other: 'You have {count} days of records. With at least 30 days ANUM can show how long your money lasts at your usual spending; until then only the bare minimum is shown, nothing is guessed.' },
   'fadv.runway.noRecords': 'No records in this currency yet: only the bare minimum is shown.',

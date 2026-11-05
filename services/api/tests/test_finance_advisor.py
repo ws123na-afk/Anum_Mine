@@ -162,6 +162,25 @@ def test_interest_of_paying_only_the_minimum() -> None:
     assert A.interest_at_minimum(D(10000), D(36), D(250), "AED")[3] is True
 
 
+
+def test_payment_first_then_interest_in_both_figures() -> None:
+    # Review finding: the payoff used to charge interest before the payment while the next-month figure paid first.
+    assert A.interest_at_minimum(D(100), D(36), D(100), "AED") == (D("0.00"), 1, D("0.00"), False)
+    first, months, total, never = A.interest_at_minimum(D(300), D(12), D(100), "AED")
+    # Pay 100, 2.00 interest on 200; pay 100, 1.02 on 102; pay 100, 0.0302 on 3.02; month 4 clears. 3.0502 rounds up to 3.06.
+    assert first == D("2.00") and months == 4 and total == D("3.06") and not never
+
+
+def test_a_huge_runway_keeps_its_days_and_has_no_end_date() -> None:
+    # Review finding: 100,000 against a yearly bill of 12 is about 3 million days, past the last date Python can hold.
+    huge = A.scenario("bare", D(100000), D(1), TODAY, "AED")
+    assert huge.days == 3043750 and huge.runs_out_on is None
+    note = A.build_note(inputs(accounts=[account("bank", opening="100000")], bills=[bill("Domain", "12", date(2027, 1, 5), Cadence.YEARLY)]))
+    bare = note.currencies[0].runway.scenarios[0]
+    assert bare.days is not None and bare.days > 3_000_000 and bare.runs_out_on is None
+    assert A.scenario("bare", D(1000), D(100), TODAY, "AED").runs_out_on == TODAY + timedelta(days=304)
+
+
 # -- pure: the note -------------------------------------------------------------------------------
 
 
@@ -304,6 +323,16 @@ def test_coming_payments_in_the_next_30_days() -> None:
     assert coming.total == coming.saved_total + coming.detected_total
     assert {"subscriptions_review", "save_recurring", "debt_add_due_day", "bill_due"} <= set(codes(note))
     assert next(a for a in note.actions if a.code == "bill_due").text_en == "Maid (AED 100.00) is due on 2026-11-06, in 1 days."
+
+
+def test_a_weekly_payment_found_in_the_records_counts_every_week_of_the_window() -> None:
+    # Review finding: detected recurring payments used to add only their next date.
+    rows = steady_ledger() + [txn(TODAY - timedelta(days=7 * k), "-80", "HOME CLEANERS LLC", Category.OTHER) for k in range(1, 9)]
+    coming = A.build_note(inputs(rows=rows)).currencies[0].coming
+    cleaners = [i for i in coming.items if i.name == "HOME CLEANERS LLC"]
+    assert [i.due_on for i in cleaners] == [TODAY + timedelta(days=7 * k) for k in range(5) if 7 * k <= 30]
+    assert all(i.detected and i.kind == "recurring" for i in cleaners)
+    assert coming.detected_total >= D(80) * len(cleaners)
 
 
 def test_where_money_went_compares_week_month_and_average_and_flags_spikes() -> None:

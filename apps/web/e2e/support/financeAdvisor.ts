@@ -69,7 +69,7 @@ export function advisorNote(weekStart = '2026-11-08', o: { noAccounts?: boolean;
         currency: 'USD',
         runway: { status: 'ok', history_days: 120, first_record_on: '2026-07-10', basis: 'months', months: ['2026-08', '2026-09', '2026-10'], liquid: '1250.00', accounts_counted: 1,
           bills_monthly: '0.00', minimums_monthly: '0.00', essential_spending_monthly: '0.00', total_spending_monthly: '40.00', essential_categories: [],
-          scenarios: [{ kind: 'bare', monthly_outflow: '0.00', days: null, runs_out_on: null }, { kind: 'essential', monthly_outflow: '0.00', days: null, runs_out_on: null },
+          scenarios: [{ kind: 'bare', monthly_outflow: '0.00', days: null, runs_out_on: null }, { kind: 'essential', monthly_outflow: '0.01', days: 3805468, runs_out_on: null },
             { kind: 'full', monthly_outflow: '40.00', days: 951, runs_out_on: '2029-06-16' }] },
         card_available: null, income_month: '0.00', spend_month: '0.00',
         spending: {
