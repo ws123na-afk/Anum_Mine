@@ -102,7 +102,7 @@ How Harvey's pieces map onto ANUM:
 ### Keycloak (keep existing)
 
 - **Repository:** https://github.com/keycloak/keycloak, `main`, commit `2827b3fa10f9` (17 Oct 2026). `LICENSE.txt`: Apache-2.0.
-- **Decision:** keep. Realm as code in `infra/keycloak/anum-realm.json`; Keycloak 25 in compose and on the VM. The journey proves PKCE (S256) is required for the web client. Hardening items stay in [Identity](../identity.md) and [Deploying on Oracle](../deploy-oracle.md#keycloak).
+- **Decision:** keep. Realm as code in `infra/keycloak/anum-realm.json`; Keycloak 26.8 in compose, 26.4 on the VM and on Render (`infra/render/keycloak.Dockerfile`). The journey proves PKCE (S256) is required for the web client. Hardening items stay in [Identity](../identity.md) and [Deploying on Oracle](../deploy-oracle.md#keycloak).
 
 ### Playwright (keep existing)
 

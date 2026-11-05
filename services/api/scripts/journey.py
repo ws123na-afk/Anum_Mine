@@ -132,6 +132,12 @@ def sign_in(issuer: str, client_id: str, redirect_uri: str, username: str, passw
         )
         action = _login_form_action(authorize.text)
         expect(action is not None, "Keycloak login page has no kc-form-login form")
+        # Keycloak 26 marks its auth-session cookies Secure. Browsers send them to
+        # http://localhost (a secure context); httpx does not, and the post then fails
+        # with cookie_not_found. Send them back as a browser would on localhost.
+        if urlparse(action).hostname in {"localhost", "127.0.0.1"}:
+            for cookie in browser.cookies.jar:
+                cookie.secure = False
 
         login = browser.post(
             action,

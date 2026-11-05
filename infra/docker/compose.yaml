@@ -54,7 +54,7 @@ services:
       - temporal
 
   keycloak:
-    image: quay.io/keycloak/keycloak:25.0
+    image: quay.io/keycloak/keycloak:26.8
     # Imports the `anum` realm from infra/keycloak on first start (existing realms are skipped).
     # Admin credentials and the realm's `dev` user password are DEV-ONLY placeholders.
     # Never copy this block to a shared Keycloak: outside local the API refuses to start
@@ -62,8 +62,10 @@ services:
     # credentials in its values (docs/security.md#startup-policy).
     command: ["start-dev", "--import-realm"]
     environment:
-      KEYCLOAK_ADMIN: admin
-      KEYCLOAK_ADMIN_PASSWORD: admin
+      # Keycloak 26 names the one-time master realm admin KC_BOOTSTRAP_ADMIN_*
+      # (KEYCLOAK_ADMIN* are deprecated).
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
       # Pin the token issuer to http://localhost:8080/realms/anum even when other containers
       # reach Keycloak as http://keycloak:8080 (they should set ANUM_OIDC_JWKS_URL instead).
       KC_HOSTNAME: http://localhost:8080
@@ -72,10 +74,9 @@ services:
       - "8080:8080"
     volumes:
       - ../keycloak/anum-realm.json:/opt/keycloak/data/import/anum-realm.json:ro
-      # The ANUM login theme (loginTheme "anum" in the realm) is a child of keycloak.v2, which
-      # Keycloak 25 does not have: this local server keeps the default look. To preview the theme
-      # on a server, raise the image to 26.4 and mount ../keycloak/themes/anum at
-      # /opt/keycloak/themes/anum, or use infra/keycloak/preview/preview.sh (docs/identity.md#login-theme).
+      # The ANUM login theme (loginTheme "anum" in the realm), a child of keycloak.v2
+      # (docs/identity.md#login-theme).
+      - ../keycloak/themes/anum:/opt/keycloak/themes/anum:ro
 
   s3:
     # S3-compatible object storage (SeaweedFS). MinIO no longer publishes community
