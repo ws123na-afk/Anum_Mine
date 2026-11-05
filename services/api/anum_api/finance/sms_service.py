@@ -1016,16 +1016,19 @@ class StatementOutcome:
 
 
 def reconcile_rows(finance: FinanceStore, store: SmsStore, context: TenantContext, account: Account, rows: list[Transaction],
-                   import_id: str, *, now: datetime) -> tuple[list[Transaction], StatementOutcome]:
+                   import_id: str, *, now: datetime, references: dict[str, str] | None = None) -> tuple[list[Transaction], StatementOutcome]:
     """Statement rows that report a payment already recorded from an SMS, Apple Pay or by hand are attached
     to that transaction instead of creating another; a row that could be more than one waits for review.
-    Returns the rows to import as new transactions. The caller holds the owner's lock."""
+    Returns the rows to import as new transactions. The caller holds the owner's lock. ``references`` (by
+    ``dedupe_hash``) carries a PDF statement row's bank reference: an agreeing reference confirms a match and a
+    conflicting one rules it out, as for SMS."""
     outcome = StatementOutcome()
     fresh: list[Transaction] = []
     for row in rows:
         fp = plain_fingerprint(row.amount, row.currency, account.id)
         day = datetime.combine(row.posted_on, datetime.min.time()).replace(hour=12, tzinfo=now.tzinfo)
-        report = W.Report(source="statement", when=day, precise=False, merchant=row.description, reference=None)
+        reference = (references or {}).get(row.dedupe_hash) or None
+        report = W.Report(source="statement", when=day, precise=False, merchant=row.description, reference=reference)
         found = [c for c in candidates(store, context, fp)]
         decision, picked = W.choose(report, found)
         if decision == "new" or (decision == "attach" and picked is None):
@@ -1035,6 +1038,8 @@ def reconcile_rows(finance: FinanceStore, store: SmsStore, context: TenantContex
         parsed: dict[str, object] = {"kind": (P.Kind.DEPOSIT if row.amount > 0 else P.Kind.CARD_PURCHASE).value, "amount": str(abs(row.amount)),
                                      "currency": row.currency, "occurred_on": row.posted_on.isoformat(), "merchant": row.description[:60],
                                      "account_id": account.id, "import_id": import_id, "dedupe_hash": row.dedupe_hash}
+        if reference:
+            parsed["reference"] = reference[:60]
         message = SmsMessage(
             id=new_id("fin_sms"), tenant_id=context.tenant_id, workspace_id=context.workspace_id, owner_user_id=context.user_id,
             device_id=None, source="statement", idem_key=key, received_at=now, sender="statement", body_masked="", status=MessageStatus.REVIEW,
