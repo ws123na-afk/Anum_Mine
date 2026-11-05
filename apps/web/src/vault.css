@@ -206,3 +206,4 @@
 .vaultCatList small { font-size: var(--text-xs); }
 @media (max-width: 520px) { .vaultSelect { flex: 1 1 140px; } .vaultSelect select { max-width: none; width: 100%; } }
 .vaultTable th[scope="row"] { min-width: 230px; }
+@media (max-width: 640px) { .vaultTable .vaultOpt { display: none; } .vaultTable { min-width: 420px; } }

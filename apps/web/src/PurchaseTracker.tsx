@@ -227,7 +227,7 @@ export function TaskQueue({ due, onOpen }: { due: PurchaseDueItem[]; onOpen: (pu
         return <li key={`${item.purchase_id}:${item.kind}:${item.source_id}`}>
           <span className="purTaskIcon">{TASK_ICONS[action]}</span>
           <StatusChip tone={overdue ? 'bad' : 'warn'}>{dueLabel(item)}</StatusChip>
-          <span className="purTaskText"><strong dir="auto"><bdi>{purchaseName(item)}</bdi></strong><small>{t(`pur.task.text.${item.kind}` as MessageKey)}</small></span>
+          <span className="purTaskText"><strong><bdi>{purchaseName(item)}</bdi></strong><small>{t(`pur.task.text.${item.kind}` as MessageKey)}</small></span>
           <span className={`purTaskDue ${overdue ? 'purBad' : ''}`}>{dueWhen(item, shortDay)}</span>
           <button type="button" className="secondary" aria-label={`${t(`pur.task.action.${action}` as MessageKey)}: ${purchaseName(item)}`}
             onClick={() => onOpen(item.purchase_id)}>{t(`pur.task.action.${action}` as MessageKey)}</button>

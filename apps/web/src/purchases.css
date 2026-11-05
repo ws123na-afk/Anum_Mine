@@ -208,3 +208,4 @@
 @media (max-width: 1679px) { .purWorkspace.withDrawer .purOptional { display: none; } }
 .purLayout > *, .purWorkspace > * { min-width: 0; }
 .purTracker { position: relative; } /* keeps its visually hidden labels inside the scrolling wrapper */
+@media (max-width: 640px) { .purTracker .purOptional { display: none; } .purTracker { min-width: 460px; } }
