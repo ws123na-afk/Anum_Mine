@@ -104,7 +104,6 @@ export const financeGuardianAr = {
   'fguard.queue.empty.snoozedText': 'تعود الدفعة المؤجلة للمراجعة عند انتهاء التأجيل.',
   'fguard.queue.addRule': 'إضافة قاعدة',
   'fguard.queue.other': 'مدفوعات مُعلّمة أخرى',
-  'fguard.queue.select': 'عرض {merchant}، {amount}',
   'fguard.queue.more': 'عرض المزيد',
   'fguard.item.title': '{merchant}: {amount}',
   'fguard.item.state.awaiting': 'بانتظار المراجعة',

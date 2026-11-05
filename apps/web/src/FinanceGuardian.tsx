@@ -494,7 +494,7 @@ function ReviewQueue({ queue, tab, month, hasActive, onTab, onMore, onRetry, onA
     {items.length > 1 && <div className="fgOthers">
       <h3>{t('fguard.queue.other')}</h3>
       <ul className="cmList">{items.filter((i) => i !== current).map((item) => <li key={item.transaction_id}>
-        <button type="button" className="fgOther" aria-label={t('fguard.queue.select', { merchant: item.description, amount: formatAmount(item.amount, item.currency) })} onClick={() => setSelected(item.transaction_id)}>
+        <button type="button" className="fgOther" onClick={() => setSelected(item.transaction_id)}>
           <AlertTriangle aria-hidden="true" /><span dir="auto">{item.description}</span><span className="fgOtherAmount" dir="ltr">{formatAmount(item.amount, item.currency)}</span><small className="muted">{day(item.posted_on)}</small>
         </button>
       </li>)}</ul>

@@ -105,7 +105,6 @@ export const financeGuardianEn = {
   'fguard.queue.empty.snoozedText': 'A snoozed payment comes back for review when the snooze ends.',
   'fguard.queue.addRule': 'Add a rule',
   'fguard.queue.other': 'Other flagged payments',
-  'fguard.queue.select': 'Show {merchant}, {amount}',
   'fguard.queue.more': 'Show more',
   'fguard.item.title': '{merchant}: {amount}',
   'fguard.item.state.awaiting': 'Awaiting review',
