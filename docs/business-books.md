@@ -94,6 +94,10 @@ CSV cells that start with `=`, `+`, `-`, `@` and similar are escaped.
 
 Business, tab **Books** (`#business-books`, sections `#business-books/<section>`): **Profit and loss** (period presets on the financial year, custom dates, accrual or cash, Export CSV; the summary band, the statement, not converted figures, tax, cash flow with what members paid, what is owed and its age, outstanding invoices linked to Invoices, the 12-month trend, customers, projects linked to Projects, cost centres, budget against actual, recurring costs, rates used and notes), **Bills** (search, filter, paging, Export CSV, new bill, the bill drawer with payments by hand or with an allocation, edit, void), **Vendors**, **Allocations** (classify each row), **Budgets**, **Journal** (adjustments, void with a reason), **Intercompany** and **Settings** (settings, category map, cost centres, exchange rates). Every section handles loading, empty with a next action, errors with Try again, a member's read-only view of owner actions, and paging; English and Arabic, right to left. Tables that do not fit scroll sideways inside a focusable region.
 
+## Mobile
+
+Menu, **Business books** (`/business/books`, `apps/mobile/lib/features/books/`, [Record modules](mobile.md#record-modules)): **Profit and loss**, read only (the financial year the API proposes, this month or last month, accrual or cash; revenue, gross, operating and net profit with margins, the statement lines, figures not converted for lack of a rate, what is owed on the last day and the notes) and **Bills** (search, the bill filters, open and overdue totals per currency, paging; a bill with its figures and payments). A member or owner records a payment made outside ANUM (`POST /bills/{id}/payments`, kind `recorded`, at most the balance, with an `Idempotency-Key`). Voiding a bill or a payment is offered only when the API says the caller may (`can.void`, owners) and always asks for a reason; members read who can. Until an owner saves the settings the screen shows the setup step, which an owner can complete on the phone (base currency, country, first month, basis). Adjustments, rates, budgets, vendors, allocations, new bills and the CSV exports stay on the web. Tests: `apps/mobile/test/books/books_test.dart`.
+
 ## Storage, privacy and deletion
 
 Migration `0137_business_books` (expand only, after `0136_purchases`): `business_book_settings`, `business_book_cost_centres`, `business_book_vendors`, `business_book_bills`, `business_book_bill_payments`, `business_book_allocation_tags`, `business_book_budgets`, `business_book_rates`, `business_book_adjustments`, `business_book_intercompany`. Every table has forced RLS with `tenant_isolation_<table>` and `lifecycle_purge_<table>` (the 0079 grants), and is listed in `tenant_lifecycle_tables.py` for the organisation export, workspace deletion and purge. References between book tables are composite foreign keys on `(tenant_id, workspace_id, id)`. Checks keep totals equal to net plus tax, positive amounts, valid currencies, a void naming who voided it, one allocation per live bill payment; the adjustments trigger keeps the trail.
@@ -106,7 +110,7 @@ These are **business records** of the workspace, like invoices: they hold ids of
 
 ## Not built here
 
-- Flutter screens: the books are web only in this release.
+- On the phone: new or edited bills, vendors, allocations, budgets, rates, adjustments, intercompany entries and exports (on the web); the phone has the P&L, bills and payments.
 - A business bank ledger visible to members (owner decision 1: allocations, not a workspace-visible ledger); payments from the business's own account are recorded by hand on the bill. Business card liabilities are not modelled.
 - Consolidation across related businesses and intercompany elimination.
 - Automatic exchange rates: rates are recorded by an owner with their source (Finance's ECB connector stays personal).
