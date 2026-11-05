@@ -12,6 +12,7 @@ import { financeSmsAr } from './financeSms.ar.ts';
 import { financeIntelAr } from './financeIntel.ar.ts';
 import { financeEquityAr } from './financeEquity.ar.ts';
 import { financeReportsAr } from './financeReports.ar.ts';
+import { financeGuardianAr } from './financeGuardian.ar.ts';
 import { financeIntelActionsAr } from './financeIntelActions.ar.ts';
 import { tyreAr } from './tyre.ar.ts';
 import { hqAr } from './hq.ar.ts';
@@ -109,6 +110,7 @@ export const ar: Record<MessageKey, Message> = {
   ...financeIntelAr,
   ...financeEquityAr,
   ...financeReportsAr,
+  ...financeGuardianAr,
   ...financeIntelActionsAr,
   ...teamAr,
   ...appCallsAr,

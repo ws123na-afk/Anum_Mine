@@ -2,7 +2,7 @@
 // Amounts arrive as decimal strings next to their currency. The view formats them for display only;
 // it never adds amounts of different currencies and never does arithmetic that the API should do.
 import type {
-  FinanceAmountLimit, FinanceCategory, FinanceCategoryCap, FinanceCurrencyAmount, FinanceGuardianRules, FinanceSafeLine, FinanceSummary,
+  FinanceAmountLimit, FinanceCategory, FinanceCategoryCap, FinanceCurrencyAmount, FinanceGuardianRuleKind, FinanceGuardianRules, FinanceSafeLine, FinanceSummary,
 } from '@anum/contracts';
 import { getLocale, intlLocale, t, type Locale, type MessageKey } from './i18n.ts';
 
@@ -173,6 +173,8 @@ export interface RulesDraft {
   coolingOn: boolean;
   coolingHours: string;
   coolingAbove: LimitDraft[];
+  /** Kinds kept but not applied (Guardian, Pause). Carried through an edit unchanged. */
+  paused: FinanceGuardianRuleKind[];
 }
 
 export const EMPTY_RULES: FinanceGuardianRules = {
@@ -190,6 +192,7 @@ export function draftFromRules(rules: FinanceGuardianRules): RulesDraft {
     blockedCategories: [...rules.blocked_categories], blockedMerchants: rules.blocked_merchants.join('\n'),
     quietOn: rules.quiet_hours !== null, quietStart: rules.quiet_hours?.start ?? '22:00', quietEnd: rules.quiet_hours?.end ?? '07:00',
     coolingOn: rules.cooling_off !== null, coolingHours: String(rules.cooling_off?.hours ?? 24), coolingAbove: limits(rules.cooling_off?.at_or_above ?? []),
+    paused: [...(rules.paused ?? [])],
   };
 }
 
@@ -237,6 +240,7 @@ export function rulesFromDraft(draft: RulesDraft): Checked<FinanceGuardianRules>
       blocked_merchants: [...new Set(merchants)],
       quiet_hours: draft.quietOn ? { start: draft.quietStart, end: draft.quietEnd } : null,
       cooling_off: draft.coolingOn ? { hours, at_or_above: cooling.ok ? cooling.value : [] } : null,
+      ...(draft.paused.length ? { paused: [...draft.paused] } : {}),
     },
   };
 }
@@ -257,6 +261,7 @@ export function describeRules(rules: FinanceGuardianRules): string[] {
     const at = rules.cooling_off.at_or_above.map(money).join(', ');
     lines.push(at ? t('finance.guardian.rule.cooling', { count: rules.cooling_off.hours, amount: at }) : t('finance.guardian.rule.coolingAll', { count: rules.cooling_off.hours }));
   }
+  if (rules.paused?.length) lines.push(t('finance.guardian.rule.paused', { list: rules.paused.map(ruleKindLabel).join(', ') }));
   return lines;
 }
 
