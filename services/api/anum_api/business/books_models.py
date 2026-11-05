@@ -38,6 +38,7 @@ class Basis(StrEnum):
 class BillStatus(StrEnum):
     OPEN = "open"
     VOID = "void"
+    DRAFT = "draft"  # made by a recurring bill set to "draft": not counted until a member approves it (migration 0138)
 
 
 class Recurrence(StrEnum):
@@ -47,6 +48,28 @@ class Recurrence(StrEnum):
 
 
 RECURRENCE_MONTHS = {Recurrence.MONTHLY: 1, Recurrence.QUARTERLY: 3, Recurrence.YEARLY: 12}
+
+
+class Frequency(StrEnum):
+    """How often a recurring bill repeats (docs/business-books.md#recurring-bills)."""
+
+    MONTHLY = "monthly"
+    QUARTERLY = "quarterly"
+    YEARLY = "yearly"
+    DAYS = "days"  # every ``interval`` days
+    WEEKS = "weeks"  # every ``interval`` weeks
+    MONTHS = "months"  # every ``interval`` months
+
+
+class TemplateStatus(StrEnum):
+    ACTIVE = "active"
+    PAUSED = "paused"
+    ENDED = "ended"
+
+
+class RateOrigin(StrEnum):
+    MANUAL = "manual"  # typed by an owner with its source
+    ECB = "ecb"  # fetched by the daily job from the European Central Bank (docs/business-books.md#automatic-exchange-rates)
 
 
 class PaymentKind(StrEnum):
@@ -154,6 +177,60 @@ class Bill(_Scoped):
     voided_by: str | None = None
     voided_at: datetime | None = None
     void_reason: str = ""
+    # A bill made by a recurring bill: the template and the period it is for (one bill per template and period).
+    template_id: str | None = None
+    period_date: date | None = None
+
+
+class BillTemplate(_Scoped):
+    """A recurring bill: the daily job makes one normal bill per period (docs/business-books.md#recurring-bills)."""
+
+    vendor_id: str
+    reference: str = ""
+    description: str
+    currency: str
+    subtotal: Decimal
+    tax: Decimal
+    total: Decimal
+    category: str
+    section: Section = Section.OPERATING_EXPENSE
+    cost_centre_id: str | None = None
+    project_id: str | None = None
+    useful_life_months: int | None = None
+    frequency: Frequency
+    interval: int = 1
+    start_date: date
+    due_days: int = 0
+    end_date: date | None = None
+    max_count: int | None = None
+    create_as: str = "open"  # "open" or "draft"
+    status: TemplateStatus = TemplateStatus.ACTIVE
+    anchor_date: date  # the schedule counts from here (the start, or the first period after an edit or a resume)
+    next_index: int = 0
+    next_date: date | None = None  # None once ended
+    created_count: int = 0
+    last_period: date | None = None
+    end_reason: str = ""  # "owner", "end_date" or "count"
+    ended_at: datetime | None = None
+    version: int = 1
+    created_by: str
+    updated_by: str
+    updated_at: datetime
+
+
+class RateFeed(_Scoped):
+    """A business's opt-in to automatic ECB rates, and how the last fetch went."""
+
+    enabled: bool = False
+    currencies: list[str] = Field(default_factory=list)
+    last_attempt_at: datetime | None = None
+    last_success_at: datetime | None = None
+    last_as_of: date | None = None
+    last_error: str = ""
+    unavailable: list[str] = Field(default_factory=list)  # chosen currencies the ECB does not publish
+    version: int = 1
+    updated_by: str
+    updated_at: datetime
 
 
 class BillPayment(_Scoped):
@@ -205,6 +282,7 @@ class Rate(_Scoped):
     as_of: date
     source: str
     created_by: str
+    origin: RateOrigin = RateOrigin.MANUAL
 
 
 class Adjustment(_Scoped):
@@ -255,6 +333,8 @@ KINDS: dict[str, type[BaseModel]] = {
     "rates": Rate,
     "adjustments": Adjustment,
     "intercompany": Intercompany,
+    "templates": BillTemplate,
+    "rate_feeds": RateFeed,
 }
 
 TABLES: dict[str, str] = {
@@ -267,6 +347,8 @@ TABLES: dict[str, str] = {
     "rates": "business_book_rates",
     "adjustments": "business_book_adjustments",
     "intercompany": "business_book_intercompany",
+    "templates": "business_book_bill_templates",
+    "rate_feeds": "business_book_rate_feeds",
 }
 
 

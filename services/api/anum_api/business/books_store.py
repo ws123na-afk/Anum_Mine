@@ -53,7 +53,10 @@ def plain(value: Any) -> Any:
 def matches(item: BaseModel, where: dict[str, Any]) -> bool:
     for name, wanted in where.items():
         actual = plain(getattr(item, name))
-        if isinstance(wanted, (set, frozenset, list, tuple)):
+        if isinstance(wanted, AtLeast):
+            if actual is None or actual < wanted.value:
+                return False
+        elif isinstance(wanted, (set, frozenset, list, tuple)):
             if actual not in {plain(value) for value in wanted}:
                 return False
         elif actual != plain(wanted):
@@ -61,7 +64,14 @@ def matches(item: BaseModel, where: dict[str, Any]) -> bool:
     return True
 
 
-# The unique keys the database enforces (migration 0137), repeated for the in-memory store.
+class AtLeast:
+    """A ``where`` value: the column is on or after ``value`` (``find(..., where={"as_of": AtLeast(day)})``)."""
+
+    def __init__(self, value: Any) -> None:
+        self.value = value
+
+
+# The unique keys the database enforces (migrations 0137 and 0138), repeated for the in-memory store.
 _UNIQUE: dict[str, Callable[[Any], tuple[Any, ...] | None]] = {
     "cost_centres": lambda r: ("code", r.code.lower()),
     "vendors": lambda r: ("name", r.name_key),
@@ -71,9 +81,11 @@ _UNIQUE: dict[str, Callable[[Any], tuple[Any, ...] | None]] = {
     "rates": lambda r: ("day", r.base, r.quote, r.as_of),
     "adjustments": lambda r: ("idem", r.idem_key) if r.idem_key else None,
     "intercompany": lambda r: ("pair", r.pair_id),
+    "rate_feeds": lambda r: ("feed",),
 }
 _SECOND_UNIQUE: dict[str, Callable[[Any], tuple[Any, ...] | None]] = {
     "bill_payments": lambda r: ("idem", r.bill_id, r.idem_key) if r.idem_key else None,
+    "bills": lambda r: ("period", r.template_id, r.period_date) if r.template_id else None,
 }
 
 
@@ -208,6 +220,7 @@ def open_books_store(context: TenantContext) -> Iterator[BooksStore]:
 __all__ = [
     "MAX_PAGE",
     "MAX_SCAN",
+    "AtLeast",
     "BooksStore",
     "DuplicateError",
     "InMemoryBooksStore",

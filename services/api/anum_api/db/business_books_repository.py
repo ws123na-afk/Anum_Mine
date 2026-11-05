@@ -1,4 +1,4 @@
-"""PostgreSQL store for the business books (migration ``0137_business_books``, docs/business-books.md#storage).
+"""PostgreSQL store for the business books (migrations ``0137_business_books`` and ``0138_books_v2``, docs/business-books.md#storage).
 
 The session carries the tenant and workspace RLS context (``open_scoped_store``); every query
 also filters on the scope explicitly. The tables are described from the record models, so a
@@ -40,7 +40,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from anum_api.business.books_models import KINDS, TABLES, BookSettings
-from anum_api.business.books_store import DuplicateError, plain
+from anum_api.business.books_store import AtLeast, DuplicateError, plain
 from anum_api.schemas import TenantContext
 
 from .scope import require_workspace
@@ -52,7 +52,7 @@ def _sql_type(annotation: Any) -> Any:
     if isinstance(annotation, types.UnionType) or typing.get_origin(annotation) is typing.Union:
         inner = [arg for arg in typing.get_args(annotation) if arg is not type(None)]
         return _sql_type(inner[0])
-    if typing.get_origin(annotation) is dict or annotation is dict:
+    if typing.get_origin(annotation) in (dict, list) or annotation in (dict, list):
         return JSONB()
     if isinstance(annotation, type):
         if issubclass(annotation, bool):
@@ -147,7 +147,9 @@ class SqlBooksStore:
         clauses = []
         for name, wanted in where.items():
             column = table.c[name]
-            if isinstance(wanted, (set, frozenset, list, tuple)):
+            if isinstance(wanted, AtLeast):
+                clauses.append(column >= wanted.value)
+            elif isinstance(wanted, (set, frozenset, list, tuple)):
                 clauses.append(column.in_([plain(value) for value in wanted]))
             elif wanted is None:
                 clauses.append(column.is_(None))

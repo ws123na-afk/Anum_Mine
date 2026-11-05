@@ -603,6 +603,27 @@ def test_every_state_changing_books_route_is_audited_without_amounts_or_text() -
     entry = call("POST", "/intercompany", json={"workspace_id": OTHER, "kind": "loan", "direction": "receivable", "entry_date": today().isoformat(),
                                                 "currency": "SAR", "amount": "10", "description": secret}).json()
     call("POST", f"/intercompany/{entry['id']}/void", json={"reason": secret})
+    # Recurring bills (and the draft bills they make), automatic ECB rates (docs/business-books.md, second release).
+    template = call("POST", "/recurring", json={"vendor_id": seller["id"], "description": secret, "currency": "SAR", "subtotal": "100", "tax": "0",
+                                                "category": "rent", "frequency": "monthly", "start_date": today().isoformat(), "create_as": "draft"}).json()
+    draft = template["bills"][0]
+    call("POST", f"/bills/{draft['id']}/approve", json={"version": draft["version"]})
+    template = call("PATCH", f"/recurring/{template['id']}", json={"vendor_id": seller["id"], "description": secret, "currency": "SAR", "subtotal": "120",
+                                                                    "tax": "0", "category": "rent", "frequency": "monthly", "start_date": today().isoformat(),
+                                                                    "create_as": "draft", "version": template["version"]}).json()
+    template = call("POST", f"/recurring/{template['id']}/pause", json={"version": template["version"]}).json()
+    template = call("POST", f"/recurring/{template['id']}/resume", json={"version": template["version"]}).json()
+    call("POST", f"/recurring/{template['id']}/end", json={"version": template["version"]})
+    call("PUT", "/rates/auto", json={"enabled": True, "currencies": ["USD"], "version": None})
+    import httpx
+
+    from anum_api.finance import connectors
+
+    xml = (f"<Cube><Cube time='{today().isoformat()}'><Cube currency='USD' rate='1.1000'/><Cube currency='JPY' rate='160.00'/>"
+           "<Cube currency='GBP' rate='0.8500'/><Cube currency='INR' rate='92.000'/><Cube currency='CHF' rate='0.9500'/></Cube></Cube>")
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(connectors, "finance_transport", httpx.MockTransport(lambda request: httpx.Response(200, text=xml)))
+        call("POST", "/rates/auto/refresh")
     probe.assert_covered()
 
 

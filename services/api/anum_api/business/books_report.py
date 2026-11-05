@@ -47,8 +47,11 @@ from .books_models import (
     IntercompanyKind,
     PaymentKind,
     Rate,
+    RateOrigin,
     Section,
 )
+from .books_schedule import per_month as template_per_month
+from .books_schedule import upcoming as template_upcoming
 
 ZERO = Decimal(0)
 REVENUE = "revenue"
@@ -82,6 +85,7 @@ class Inputs:
     accounts: dict[str, str] = field(default_factory=dict)  # id -> name
     vendors: dict[str, str] = field(default_factory=dict)  # id -> name
     cost_centres: dict[str, str] = field(default_factory=dict)  # id -> "code name"
+    templates: list[Any] = field(default_factory=list)  # books_models.BillTemplate (recurring bills)
     truncated: bool = False
 
 
@@ -98,6 +102,7 @@ class Entry:
     account_id: str | None = None
     cost_centre_id: str | None = None
     category: str | None = None
+    counterparty: str | None = None  # the other business of an intercompany entry (eliminated in a consolidation)
 
 
 # -- dates -------------------------------------------------------------------------------------------
@@ -145,7 +150,7 @@ class Converter:
     def __init__(self, rates: list[Rate], base: str, max_age_days: int) -> None:
         self.base = base
         self.max_age = max_age_days
-        self.rates = rates
+        self.rates = prefer_manual(rates)
         self.cache: dict[tuple[str, date], Any] = {}
         self.used: dict[tuple[str, str, str, str], dict[str, Any]] = {}
 
@@ -177,6 +182,14 @@ class Converter:
 
     def conversions(self) -> list[dict[str, Any]]:
         return sorted(self.used.values(), key=lambda item: (item["from_currency"], item["as_of"]))
+
+
+def prefer_manual(rates: list[Rate]) -> list[Rate]:
+    """A rate an owner typed always wins over a fetched one for the same pair (either way round) and day: the fetched one is
+    dropped. (The database already keeps one rate per pair and day; this covers the inverse pair.)"""
+    typed = {(frozenset((rate.base, rate.quote)), rate.as_of) for rate in rates if getattr(rate, "origin", RateOrigin.MANUAL) == RateOrigin.MANUAL}
+    return [rate for rate in rates if getattr(rate, "origin", RateOrigin.MANUAL) == RateOrigin.MANUAL
+            or (frozenset((rate.base, rate.quote)), rate.as_of) not in typed]
 
 
 def _s(amount: Decimal, currency: str) -> str:
@@ -326,7 +339,8 @@ def entries(book: Book, basis: Basis, start: date, end: date, converter: Convert
     for item in book.intercompany:
         if item.kind == IntercompanyKind.RECHARGE:
             group = OTHER_INCOME if item.direction == Direction.RECEIVABLE else OPERATING
-            add(Entry(item.entry_date, group, "intercompany", item.currency, item.amount, category="intercompany"))
+            add(Entry(item.entry_date, group, "intercompany", item.currency, item.amount, category="intercompany",
+                      counterparty=item.counterparty_workspace_id))
     if any(item.kind == IntercompanyKind.RECHARGE for item in book.intercompany) and basis == Basis.CASH:
         notes.add("intercompany_on_entry_date")
 
@@ -468,13 +482,28 @@ def tax_summary(book: Book, basis: Basis, start: date, end: date) -> dict[str, A
     }
 
 
-def cash_flow(book: Book, start: date, end: date) -> dict[str, Any]:
-    """Business money in and out per currency; what members paid from their own money is shown apart."""
-    lines: dict[str, dict[str, Decimal]] = defaultdict(lambda: defaultdict(Decimal))
+@dataclass(frozen=True)
+class Flow:
+    """One movement of business money (or, with ``line`` ``paid_by_members:<treatment>``, money a member paid)."""
 
-    def put(line: str, currency: str, amount: Decimal, on: date) -> None:
+    on: date
+    line: str
+    currency: str
+    amount: Decimal
+    counterparty: str | None = None  # the other business of an intercompany settlement or loan
+
+
+CASH_IN = ("customers_paid", "loans_received", "owner_contributions", "intercompany_in", "intercompany_borrowed")
+MEMBERS = "paid_by_members:"
+
+
+def cash_flows(book: Book, start: date, end: date) -> list[Flow]:
+    """Every movement in ``start``..``end``, dated, so a consolidation can convert each on its own day."""
+    out: list[Flow] = []
+
+    def put(line: str, currency: str, amount: Decimal, on: date, counterparty: str | None = None) -> None:
         if start <= on <= end:
-            lines[line][currency] += amount
+            out.append(Flow(on, line, currency, amount, counterparty))
 
     for payment in book.payments:
         put("customers_paid", _cur(book.invoices[payment.invoice_id]), Decimal(payment.amount), payment.paid_on)
@@ -492,16 +521,29 @@ def cash_flow(book: Book, start: date, end: date) -> dict[str, Any]:
             put(flows[item.kind], item.currency, item.amount, item.entry_date)
     for item in book.intercompany:
         if item.kind == IntercompanyKind.SETTLEMENT:
-            put("intercompany_in" if item.direction == Direction.RECEIVABLE else "intercompany_out", item.currency, item.amount, item.entry_date)
+            put("intercompany_in" if item.direction == Direction.RECEIVABLE else "intercompany_out", item.currency, item.amount, item.entry_date,
+                item.counterparty_workspace_id)
         elif item.kind == IntercompanyKind.LOAN:
-            put("intercompany_lent" if item.direction == Direction.RECEIVABLE else "intercompany_borrowed", item.currency, item.amount, item.entry_date)
-    paid_by_members: dict[str, dict[str, Decimal]] = defaultdict(lambda: defaultdict(Decimal))
+            put("intercompany_lent" if item.direction == Direction.RECEIVABLE else "intercompany_borrowed", item.currency, item.amount, item.entry_date,
+                item.counterparty_workspace_id)
     for allocation in book.live_allocations.values():
-        if start <= allocation.posted_on <= end:
-            paid_by_members[allocation.treatment][allocation.currency] += Decimal(allocation.amount)
-    inflow = ("customers_paid", "loans_received", "owner_contributions", "intercompany_in", "intercompany_borrowed")
+        put(MEMBERS + allocation.treatment, allocation.currency, Decimal(allocation.amount), allocation.posted_on)
+    return out
+
+
+def cash_flow(book: Book, start: date, end: date) -> dict[str, Any]:
+    """Business money in and out per currency; what members paid from their own money is shown apart."""
+    lines: dict[str, dict[str, Decimal]] = defaultdict(lambda: defaultdict(Decimal))
+    paid_by_members: dict[str, dict[str, Decimal]] = defaultdict(lambda: defaultdict(Decimal))
+    for flow in cash_flows(book, start, end):
+        if flow.line.startswith(MEMBERS):
+            paid_by_members[flow.line[len(MEMBERS):]][flow.currency] += flow.amount
+        else:
+            lines[flow.line][flow.currency] += flow.amount
+    inflow = CASH_IN
     currencies = sorted({c for values in lines.values() for c in values})
-    net = {c: sum((lines[k][c] for k in inflow), ZERO) - sum((v[c] for k, v in lines.items() if k not in inflow), ZERO) for c in currencies}
+    net = {c: sum((lines[k].get(c, ZERO) for k in inflow if k in lines), ZERO) - sum((v.get(c, ZERO) for k, v in lines.items() if k not in inflow), ZERO)
+           for c in currencies}
     return {
         "lines": {key: _per_currency(values) for key, values in sorted(lines.items())},
         "net": _per_currency(net),
@@ -711,29 +753,62 @@ def budget_vs_actual(book: Book, basis: Basis, start: date, end: date, converter
 
 
 def recurring_costs(book: Book) -> list[dict[str, Any]]:
-    """The newest bill of each recurring cost (vendor, category, currency) and its cost per month."""
+    """Each recurring cost and its cost per month: every recurring bill that still runs (active or paused), and the newest
+    bill of each cost only marked recurring (vendor, category, currency) that no recurring bill covers."""
+    rows: list[dict[str, Any]] = []
+    covered: set[tuple[str, str, str]] = set()
+    for template in book.inputs.templates:
+        if template.status == "ended":
+            continue
+        covered.add((template.vendor_id, template.category, template.currency))
+        rows.append({"bill_id": None, "template_id": template.id, "vendor_id": template.vendor_id, "vendor_name": book.inputs.vendors.get(template.vendor_id, ""),
+                     "category": template.category, "recurrence": template.frequency.value, "interval": template.interval, "currency": template.currency,
+                     "amount": _s(template.subtotal, template.currency), "per_month": _s(template_per_month(template), template.currency),
+                     "last_bill_date": template.last_period.isoformat() if template.last_period else None,
+                     "next_date": template.next_date.isoformat() if template.next_date and template.status == "active" else None,
+                     "status": template.status.value})
     latest: dict[tuple[str, str, str], Bill] = {}
     for bill in book.bills.values():
-        if bill.recurrence is None:
+        if bill.recurrence is None or bill.template_id is not None:
             continue
         key = (bill.vendor_id, bill.category, bill.currency)
         if key not in latest or (bill.bill_date, bill.created_at) > (latest[key].bill_date, latest[key].created_at):
             latest[key] = bill
-    rows = []
     for (vendor, category, currency), bill in latest.items():
+        if (vendor, category, currency) in covered:
+            continue
         months = RECURRENCE_MONTHS[bill.recurrence]  # type: ignore[index]
-        rows.append({"bill_id": bill.id, "vendor_id": vendor, "vendor_name": book.inputs.vendors.get(vendor, ""), "category": category,
-                     "recurrence": bill.recurrence.value if bill.recurrence else None, "currency": currency, "amount": _s(bill.subtotal, currency),
-                     "per_month": _s(bill.subtotal / months, currency), "last_bill_date": bill.bill_date.isoformat()})
+        rows.append({"bill_id": bill.id, "template_id": None, "vendor_id": vendor, "vendor_name": book.inputs.vendors.get(vendor, ""), "category": category,
+                     "recurrence": bill.recurrence.value if bill.recurrence else None, "interval": 1, "currency": currency,
+                     "amount": _s(bill.subtotal, currency), "per_month": _s(bill.subtotal / months, currency), "last_bill_date": bill.bill_date.isoformat(),
+                     "next_date": None, "status": None})
     rows.sort(key=lambda row: (row["currency"], -Decimal(row["per_month"])))
     return rows
 
 
 def recurring_totals(rows: list[dict[str, Any]]) -> list[dict[str, str]]:
+    """What recurring costs come to per month, per currency (a paused recurring bill makes nothing, so it is left out)."""
     per_month: dict[str, Decimal] = defaultdict(Decimal)
     for row in rows:
-        per_month[row["currency"]] += Decimal(row["per_month"])
+        if row.get("status") != "paused":
+            per_month[row["currency"]] += Decimal(row["per_month"])
     return _per_currency(per_month)
+
+
+UPCOMING_DAYS = 90
+
+
+def upcoming_bills(templates: list[Any], vendors: dict[str, str], today: date, days: int = UPCOMING_DAYS, limit: int = 30) -> list[dict[str, Any]]:
+    """The bills active recurring bills will make in the next ``days`` days (and any period already due), soonest first."""
+    until = today + timedelta(days=days)
+    out = []
+    for template in templates:
+        for day in template_upcoming(template, until):
+            out.append({"template_id": template.id, "vendor_name": vendors.get(template.vendor_id, ""), "description": template.description,
+                        "bill_date": day.isoformat(), "due_date": (day + timedelta(days=template.due_days)).isoformat(), "currency": template.currency,
+                        "total": _s(template.total, template.currency), "create_as": template.create_as})
+    out.sort(key=lambda row: (row["bill_date"], row["vendor_name"], row["template_id"]))
+    return out[:limit]
 
 
 # -- the whole report ----------------------------------------------------------------------------------------
@@ -771,7 +846,7 @@ def report(inputs: Inputs, start: date, end: date, basis: Basis, cost_centres: d
         "projects": breakdown(items, quiet, "project_id", project_names),
         "cost_centres": breakdown(items, quiet, "cost_centre_id", cost_centres if cost_centres is not None else inputs.cost_centres),
         "budgets": budget_vs_actual(book, basis, start, end, quiet),
-        "recurring": {"items": recurring, "per_month": recurring_totals(recurring)},
+        "recurring": {"items": recurring, "per_month": recurring_totals(recurring), "upcoming": upcoming_bills(inputs.templates, inputs.vendors, today or end)},
         "allocations_in_review": len(review),
         "conversions": converter.conversions(),
         "notes": sorted(notes),
