@@ -6,8 +6,8 @@ import type {
 } from '@anum/contracts';
 import { getLocale, intlLocale, t, type Locale, type MessageKey } from './i18n.ts';
 
-export type FinanceTab = 'overview' | 'ledger' | 'safe' | 'advisor' | 'reports' | 'transactions' | 'accounts' | 'import' | 'bills' | 'debts' | 'goals' | 'holdings' | 'guardian' | 'connections' | 'trading' | 'intel' | 'execution' | 'ibkr' | 'research' | 'sms';
-export const FINANCE_TABS: readonly FinanceTab[] = ['overview', 'ledger', 'safe', 'advisor', 'transactions', 'accounts', 'import', 'bills', 'debts', 'goals', 'reports', 'holdings', 'guardian', 'connections', 'sms', 'trading', 'intel', 'execution', 'ibkr', 'research'];
+export type FinanceTab = 'overview' | 'ledger' | 'safe' | 'advisor' | 'reports' | 'transactions' | 'accounts' | 'import' | 'bills' | 'budgets' | 'debts' | 'goals' | 'holdings' | 'guardian' | 'connections' | 'trading' | 'intel' | 'execution' | 'ibkr' | 'research' | 'sms';
+export const FINANCE_TABS: readonly FinanceTab[] = ['overview', 'ledger', 'safe', 'advisor', 'transactions', 'accounts', 'import', 'bills', 'budgets', 'debts', 'goals', 'reports', 'holdings', 'guardian', 'connections', 'sms', 'trading', 'intel', 'execution', 'ibkr', 'research'];
 
 const THREE = new Set(['BHD', 'IQD', 'JOD', 'KWD', 'LYD', 'OMR', 'TND']);
 const ZERO = new Set(['JPY', 'KRW', 'VND', 'CLP', 'ISK', 'UGX', 'XAF', 'XOF']);
@@ -100,6 +100,8 @@ export function tabFromHash(hash: string): FinanceTab {
   const id = hash.replace(/^#finance-?/, '');
   // `#finance-intel-reports` and `#finance-intel-report=<id>` open the daily reports in Trading intelligence.
   if (id.startsWith('intel-report')) return 'intel';
+  // `#finance-trading-orders` and the other lab tabs open Paper trading (docs/finance.md#paper-trading-lab).
+  if (/^trading-[a-z]+$/.test(id)) return 'trading';
   return (FINANCE_TABS as readonly string[]).includes(id) ? id as FinanceTab : 'overview';
 }
 

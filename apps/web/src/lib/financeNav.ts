@@ -26,7 +26,7 @@ const tab = (id: FinanceTab): FinanceNavEntry => ({ kind: 'tab', tab: id });
  * connections) and Business Expenses and P&L, which opens the business books.
  */
 const ALL_GROUPS: readonly FinanceNavGroup[] = [
-  { id: 'finance', entries: [tab('overview'), tab('transactions'), tab('accounts'), tab('bills'), tab('debts'), tab('goals'), tab('reports'), tab('safe'), tab('advisor'), tab('guardian')] },
+  { id: 'finance', entries: [tab('overview'), tab('transactions'), tab('accounts'), tab('bills'), tab('budgets'), tab('debts'), tab('goals'), tab('reports'), tab('safe'), tab('advisor'), tab('guardian')] },
   { id: 'capture', entries: [tab('connections'), tab('sms'), tab('import'), tab('ledger')] },
   { id: 'invest', entries: [tab('holdings'), tab('research')] },
   { id: 'trading', entries: [tab('trading'), tab('intel'), tab('execution'), tab('ibkr')] },
@@ -51,7 +51,7 @@ export function groupOf(tabId: FinanceTab, groups: readonly FinanceNavGroup[] = 
  * Sections that draw their own head with <FinancePageHead> (title, scope, period, tabs). Finance's
  * generic header, summary band and breadcrumbs are left out for them, so the page head is never doubled.
  */
-export const OWN_HEAD_TABS: ReadonlySet<FinanceTab> = new Set<FinanceTab>(['reports', 'safe', 'guardian', 'advisor']);
+export const OWN_HEAD_TABS: ReadonlySet<FinanceTab> = new Set<FinanceTab>(['reports', 'safe', 'guardian', 'holdings', 'trading', 'accounts', 'transactions', 'bills', 'budgets', 'debts', 'goals', 'advisor']);
 
 /** Personal is the person's own ledger (/api/v1/finance), Business the workspace books (/api/v1/business/books). */
 export type FinanceScope = 'personal' | 'business' | 'all';

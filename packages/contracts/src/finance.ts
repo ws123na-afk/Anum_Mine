@@ -337,6 +337,8 @@ export interface FinanceDebt {
   minimum_payment: FinanceMoney;
   due_day: number | null;
   account_id: string | null;
+  /** What was owed when tracking started (payoff progress); null when not entered. */
+  original_balance?: FinanceMoney | null;
   notes: string | null;
   created_at: string;
   updated_at: string;
@@ -351,6 +353,8 @@ export interface FinanceDebtInput {
   minimum_payment?: FinanceMoney;
   due_day?: number | null;
   account_id?: string | null;
+  /** Left out: kept as it is; "" clears it. */
+  original_balance?: FinanceMoney | null;
   notes?: string | null;
 }
 
@@ -364,6 +368,8 @@ export interface FinanceGoal {
   account_id: string | null;
   /** Stage 3: what is put aside each month; null works it out from the target date. */
   monthly_contribution: FinanceMoney | null;
+  /** A paused goal is not set aside by safe to spend (docs/finance.md#debts-and-goals). */
+  paused?: boolean;
   notes: string | null;
   created_at: string;
   updated_at: string;
@@ -377,6 +383,8 @@ export interface FinanceGoalInput {
   target_on?: string | null;
   account_id?: string | null;
   monthly_contribution?: FinanceMoney | null;
+  /** Left out: kept as it is. */
+  paused?: boolean | null;
   notes?: string | null;
 }
 
@@ -447,7 +455,7 @@ export interface FinancePlanInput {
 export type FinanceSafeLineKind = 'balance' | 'bill' | 'minimum_payment' | 'goal' | 'buffer';
 export type FinanceSafeNote =
   | 'account_balance' | 'bill_due' | 'minimum_due' | 'minimum_no_day' | 'minimum_passed' | 'goal_set' | 'goal_derived'
-  | 'goal_no_plan' | 'goal_reached' | 'buffer' | 'account_card' | 'account_loan' | 'account_investment' | 'account_archived';
+  | 'goal_no_plan' | 'goal_reached' | 'goal_paused' | 'buffer' | 'account_card' | 'account_loan' | 'account_investment' | 'account_archived';
 
 /** One line of the figure: positive for money you have, negative for a deduction. */
 export interface FinanceSafeLine {

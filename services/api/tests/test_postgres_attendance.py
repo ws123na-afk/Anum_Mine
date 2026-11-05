@@ -161,6 +161,31 @@ def test_sharing_widens_reading_only_and_reports_only_when_included(client: Test
     assert count(app_session, "attendance_events", boss, workspace_id=WORKSPACE_A2) == 0
 
 
+def test_team_view_lists_only_sharers_and_report_status_only_when_included(client: TestClient, database_engine: Engine) -> None:
+    """GET /team under RLS (docs/attendance.md#team-attendance): the caller plus active sharers, read only."""
+    members(database_engine, (TENANT_A, WORKSPACE_A, ME["x-user-id"], "member"), (TENANT_A, WORKSPACE_A, BOSS["x-user-id"], "owner"),
+            (TENANT_A, WORKSPACE_A, "user_third", "member"))
+    third = headers("user_third")
+    seed(client)
+    seed(client, third)
+    me, boss = ME["x-user-id"], BOSS["x-user-id"]
+    today = date.today().isoformat()
+    # Submitting keeps the time through later edits, in PostgreSQL too.
+    submitted = client.put(f"{API}/daily-reports/{today}", json={"tasks_done": ["Private work"], "expected_version": 1, "submit": True}, headers=ME)
+    assert submitted.status_code == 200 and submitted.json()["submitted_at"]
+    assert [r["user_id"] for r in client.get(f"{API}/team", headers=BOSS).json()["rows"]] == [boss]
+    assert client.post(f"{API}/shares", json={"viewer_user_id": boss}, headers=third).status_code == 201
+    assert client.post(f"{API}/shares", json={"viewer_user_id": boss, "include_reports": True}, headers=ME).status_code == 201
+    rows = {r["user_id"]: r for r in client.get(f"{API}/team", params={"date": today}, headers=BOSS).json()["rows"]}
+    assert set(rows) == {boss, me, "user_third"}
+    assert rows[me]["report"]["status"] == "submitted" and rows[me]["report"]["summary"] == "Private work"
+    assert rows["user_third"]["report"] is None and rows["user_third"]["reports_shared"] is False
+    # The third member sees only their own row: sharing with the boss shares nothing with anyone else.
+    assert [r["user_id"] for r in client.get(f"{API}/team", headers=third).json()["rows"]] == ["user_third"]
+    # Another workspace sees none of it.
+    assert [r["user_id"] for r in client.get(f"{API}/team", headers=headers(boss, workspace_id=WORKSPACE_A2)).json()["rows"]] == [boss]
+
+
 def test_device_retries_store_one_row_under_the_unique_key(client: TestClient, app_session) -> None:  # type: ignore[no-untyped-def]
     client.post(f"{API}/sites", json={"name": "Head office", "kind": "workplace"}, headers=ME)
     client.post(f"{API}/tracking", json={"action": "consent"}, headers=ME)

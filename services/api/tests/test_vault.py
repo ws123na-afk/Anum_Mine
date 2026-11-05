@@ -570,3 +570,56 @@ def test_reminders_reach_every_due_document_past_expired_ones_and_across_pages(m
         client.patch(f"/api/v1/documents/{soon['id']}", headers=ALICE, json={"row_version": 1, "expiry_date": (date.today() + timedelta(days=3 + index)).isoformat()})
     assert jobs.run()["reminders"] == 3
     assert jobs.run()["reminders"] == 0
+
+
+# --------------------------------------------------------------------------- the documents table (docs/documents.md#the-web-page)
+
+
+def test_a_list_row_carries_its_file_links_and_review_state(monkeypatch: pytest.MonkeyPatch) -> None:
+    _ocr(monkeypatch, RECEIPT_LINES)
+    receipt = add(png(31), name="fuel.png", category="receipt", title="Fuel receipt").json()
+    contract = add(PDF + b"%row", name="lease.pdf", title="Office lease").json()
+    client.post(f"/api/v1/documents/{contract['id']}/links", headers=ALICE, json={"target_type": "vehicle", "target_id": "KSA 4823", "label": "Hiace"})
+    client.post(f"/api/v1/documents/{contract['id']}/links", headers=ALICE, json={"target_type": "business", "target_id": "anum", "label": "ANUM"})
+    assert client.post(f"/api/v1/documents/{receipt['id']}/extract", headers=ALICE).json()["status"] == "pending"
+    rows = {r["id"]: r for r in client.get("/api/v1/documents", headers=ALICE).json()["items"]}
+    assert rows[contract["id"]]["links_count"] == 2 and rows[contract["id"]]["first_link"]["label"] == "Hiace"
+    assert rows[contract["id"]]["file"]["name"] == "lease.pdf" and rows[contract["id"]]["file"]["size_bytes"] > 0
+    assert rows[contract["id"]]["review_pending"] is False
+    assert rows[receipt["id"]]["review_pending"] is True and rows[receipt["id"]]["links_count"] == 0 and rows[receipt["id"]]["first_link"] is None
+    summary = client.get("/api/v1/documents/meta", headers=ALICE).json()["summary"]
+    assert summary["active"] == 2 and summary["linked"] == 1
+    # Another member sees neither private document, nor counts its links.
+    assert client.get("/api/v1/documents", headers=BOB).json()["items"] == []
+    assert client.get("/api/v1/documents/meta", headers=BOB).json()["summary"]["linked"] == 0
+
+
+def test_the_list_sorts_by_the_newest_change_with_its_own_cursor() -> None:
+    first = add(PDF + b"%a", title="First").json()
+    add(PDF + b"%b", title="Second")
+    add(PDF + b"%c", title="Third")
+    assert client.patch(f"/api/v1/documents/{first['id']}", headers=ALICE, json={"row_version": 1, "title": "First, renewed"}).status_code == 200
+    newest = [d["title"] for d in client.get("/api/v1/documents", headers=ALICE).json()["items"]]
+    assert newest == ["Third", "Second", "First, renewed"]
+    page = client.get("/api/v1/documents", headers=ALICE, params={"sort": "updated", "limit": 2}).json()
+    assert [d["title"] for d in page["items"]] == ["First, renewed", "Third"]
+    rest = client.get("/api/v1/documents", headers=ALICE, params={"sort": "updated", "limit": 2, "cursor": page["next_cursor"]}).json()
+    assert [d["title"] for d in rest["items"]] == ["Second"] and rest["next_cursor"] is None
+    assert client.get("/api/v1/documents", headers=ALICE, params={"sort": "title"}).status_code == 422
+
+
+def test_the_next_expiries_come_first_and_page_by_day() -> None:
+    def dated(title: str, days: int) -> None:
+        created = add(PDF + title.encode(), title=title, category="insurance").json()
+        assert client.patch(f"/api/v1/documents/{created['id']}", headers=ALICE,
+                            json={"row_version": 1, "expiry_date": (date.today() + timedelta(days=days)).isoformat()}).status_code == 200
+
+    dated("Late", 200)
+    dated("Soon", 5)
+    dated("Gone", -3)
+    dated("Today", 0)
+    add(PDF + b"%none", title="No expiry")
+    page = client.get("/api/v1/documents", headers=ALICE, params={"sort": "expiry", "limit": 2}).json()
+    assert [d["title"] for d in page["items"]] == ["Today", "Soon"]
+    rest = client.get("/api/v1/documents", headers=ALICE, params={"sort": "expiry", "limit": 2, "cursor": page["next_cursor"]}).json()
+    assert [d["title"] for d in rest["items"]] == ["Late"] and rest["next_cursor"] is None  # expired and undated documents are left out

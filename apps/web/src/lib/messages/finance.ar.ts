@@ -344,6 +344,7 @@ export const financeAr: Record<keyof typeof financeEn, Message> = {
   'finance.safe.note.minimum_passed': 'مستحقة في اليوم {day}، وقد مضى هذا الشهر: تُعدّ مدفوعة',
   'finance.safe.note.goal_set': 'المبلغ الشهري الذي حددته',
   'finance.safe.note.goal_derived': { zero: 'بقي {left}', one: 'بقي {left} على شهر واحد', two: 'بقي {left} على شهرين', few: 'بقي {left} على {count} أشهر', many: 'بقي {left} على {count} شهرًا', other: 'بقي {left} على {count} شهر' },
+  'finance.safe.note.goal_paused': 'الهدف متوقف مؤقتا: لا شيء يُدّخر حتى تستأنفه',
   'finance.safe.note.goal_no_plan': 'لا مبلغ شهري ولا تاريخ مستهدف: لا شيء مدّخر',
   'finance.safe.note.goal_reached': 'تحقق الهدف: لا شيء مدّخر',
   'finance.safe.note.buffer': 'ما تحتفظ به دائمًا',

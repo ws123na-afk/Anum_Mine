@@ -177,11 +177,44 @@ export interface AttendanceDailyReport {
   version: number;
   created_at: string;
   updated_at: string;
+  /** Set once when the person submits the report; empty means a draft. */
+  submitted_at?: string | null;
 }
 
-export type AttendanceDailyReportInput = Omit<AttendanceDailyReport, 'id' | 'day' | 'version' | 'created_at' | 'updated_at'> & {
+export type AttendanceDailyReportInput = Omit<AttendanceDailyReport, 'id' | 'day' | 'version' | 'created_at' | 'updated_at' | 'submitted_at'> & {
   expected_version: number | null;
+  /** True submits the report (it stays submitted after later edits). */
+  submit?: boolean;
 };
+
+/** GET /attendance/team (docs/attendance.md#team-attendance): the caller and each colleague who shares with them. */
+export type AttendanceReportStatus = 'none' | 'draft' | 'submitted';
+
+export interface AttendanceTeamRow {
+  user_id: string;
+  me: boolean;
+  day: string;
+  time_zone: string;
+  role_title: string | null;
+  /** What the person is doing now; null for a day other than their today. */
+  status: AttendanceToday['status'] | null;
+  site_names: string[];
+  first_check_in: string | null;
+  first_check_in_source: AttendanceEventSource | null;
+  breaks: { start: string; end: string | null }[];
+  break_seconds: number;
+  worked_seconds: number;
+  presence_seconds: number;
+  remote_seconds: number;
+  scheduled_seconds: number;
+  open: boolean;
+  flags: AttendanceFlag[];
+  reports_shared: boolean;
+  /** Null when the person's share does not include reports. */
+  report: { status: AttendanceReportStatus; updated_at: string | null; submitted_at: string | null; summary: string | null } | null;
+}
+
+export interface AttendanceTeam { day: string | null; generated_at: string; rows: AttendanceTeamRow[]; total: number }
 
 export interface AttendanceShare {
   id: string;

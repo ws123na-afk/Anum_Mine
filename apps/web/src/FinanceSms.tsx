@@ -282,7 +282,7 @@ function SettingsForm({ settings, accounts, onSaved }: { settings: FinanceSmsSet
   </section>;
 }
 
-function Review({ accounts, aiOn, onChanged }: { accounts: FinanceAccount[]; aiOn: boolean; onChanged: () => void }) {
+export function Review({ accounts, aiOn, onChanged }: { accounts: FinanceAccount[]; aiOn: boolean; onChanged: () => void }) {
   const [status, setStatus] = useState<FinanceSmsStatus | ''>('review');
   const [offset, setOffset] = useState(0);
   const [page, setPage] = useState<Load<FinanceSmsMessagePage>>({ kind: 'loading' });

@@ -108,7 +108,14 @@ export interface VaultDocumentDetail extends VaultDocument {
   can_extract: boolean;
 }
 
-export interface VaultDocumentPage { items: VaultDocument[]; next_cursor: string | null }
+/** A list row: the document, its file, how many links (and the first) and whether a scan waits for review. */
+export interface VaultDocumentRow extends VaultDocument {
+  links_count: number;
+  first_link: DocumentLink | null;
+  review_pending: boolean;
+}
+
+export interface VaultDocumentPage { items: VaultDocumentRow[]; next_cursor: string | null }
 
 export interface VaultSettings {
   reminder_days: number;
@@ -122,7 +129,7 @@ export interface VaultSettings {
 export interface VaultCategory { id: string; label: string | null; built_in: boolean; reads: DocumentExtractionKind | null; identity: boolean }
 
 export interface VaultMeta {
-  summary: { active: number; private: number; expiring: number; expired: number; review: number; trash: number };
+  summary: { active: number; private: number; expiring: number; expired: number; review: number; trash: number; linked: number };
   categories: VaultCategory[];
   settings: VaultSettings;
   ocr_connected: boolean;

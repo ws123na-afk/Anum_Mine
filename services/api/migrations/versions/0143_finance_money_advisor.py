@@ -26,7 +26,7 @@ from alembic import op
 from sqlalchemy.dialects import postgresql
 
 revision = "0143_finance_money_advisor"
-down_revision = "0140_finance_guardian_reviews"
+down_revision = "0142_finance_debts_bills"
 branch_labels = None
 depends_on = None
 

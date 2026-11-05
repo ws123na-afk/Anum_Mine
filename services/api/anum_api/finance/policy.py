@@ -102,13 +102,19 @@ def month_alerts(store: FinanceStore, context: TenantContext, month: str | None 
     for t in rows:
         by_cat[(t.category, t.currency)] = by_cat.get((t.category, t.currency), Decimal(0)) - t.amount
         by_day[(t.posted_on, t.currency)] = by_day.get((t.posted_on, t.currency), Decimal(0)) - t.amount
+    budget_alerts = store.get_planning(context).budget_alerts
     for cap in rules.category_caps:
         spent = by_cat.get((cap.category, cap.currency), Decimal(0))
         params = {"category": cap.category.value, "currency": cap.currency, "spent": str(spent), "limit": str(cap.amount)}
+        # Each budget's own threshold and switches (docs/finance.md#bills-and-budgets); 80 percent and both on by default.
+        setting = next((a for a in budget_alerts if a.category == cap.category and a.currency == cap.currency), None)
+        near = Decimal(setting.alert_percent) / 100 if setting else NEAR
         if spent > cap.amount:
+            if setting is not None and not setting.alert_over:
+                continue
             alerts.append(GuardianAlert(code="cap_over", severity="over", rule="category_caps", params=params,
                                         message=f"{cap.category.value}: {cap.currency} {spent} spent, over your cap of {cap.currency} {cap.amount}."))
-        elif spent >= cap.amount * NEAR:
+        elif spent >= cap.amount * near and (setting is None or setting.alert_near):
             alerts.append(GuardianAlert(code="cap_near", severity="near", rule="category_caps", params=params,
                                         message=f"{cap.category.value}: {cap.currency} {spent} spent, near your cap of {cap.currency} {cap.amount}."))
     for phrase in rules.blocked_merchants:

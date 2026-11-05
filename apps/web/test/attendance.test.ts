@@ -87,9 +87,13 @@ describe('attendance helpers', () => {
   });
 
   test('tabs are deep-linkable and keys are fresh per press', () => {
-    assert.equal(tabFromHash('#attendance-reports'), 'reports');
-    assert.equal(tabFromHash('#attendance'), 'today');
-    assert.equal(tabFromHash('#attendance-nope'), 'today');
+    assert.equal(tabFromHash('#attendance'), 'team');
+    assert.equal(tabFromHash('#attendance-timesheet'), 'timesheet');
+    // Links made before the redesign still open the same records.
+    assert.equal(tabFromHash('#attendance-reports'), 'timesheet');
+    assert.equal(tabFromHash('#attendance-today'), 'timesheet');
+    assert.equal(tabFromHash('#attendance-nope'), 'team');
+    assert.equal(hashForTab('team'), '#attendance');
     assert.equal(hashForTab('daily'), '#attendance-daily');
     assert.equal(viewFromHash('#attendance-settings'), 'attendance');
     assert.notEqual(newKey(), newKey());

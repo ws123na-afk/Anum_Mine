@@ -518,7 +518,7 @@ def test_a_shared_order_and_delivery_messages_become_purchase_data_never_finance
     assert created.status_code == 200 and created.json()["status"] == "created", created.text
     purchase_id = created.json()["purchase_id"]
     got = detail(purchase_id)
-    assert got["merchant"] == "Amazon" and got["order_ref"] == "406-1234567-7654321" and got["needs_review"] is True and got["source"] == "iphone"
+    assert got["merchant"] == "Amazon" and got["order_ref"] == "406-1234567-7654321" and got["needs_review"] is True and got["source"] == "web"  # sent with the sign-in (Import order); a device token gives "iphone"
     assert got["total"] == "199.00" and got["status"] == "ordered"
     assert client.post(url, headers=OWNER, json={"text": SHARED_ORDER}).json()["status"] == "replayed"
     shipped = client.post(url, headers=OWNER, json={"text": SHARED_SHIPPED}).json()
@@ -724,3 +724,104 @@ def test_an_inferred_return_amount_keeps_the_purchase_currency() -> None:
     assert client.post(f"{API}/returns/{ret['id']}/refunds", headers=OWNER, json={"canonical_id": refund}).status_code == 201
     got = detail(created["id"])
     assert got["returns"][0]["status"] == "partially_refunded" and got["status"] == "partially_refunded"
+
+
+# -- the purchase tracker (docs/purchases.md#web): filters, row extras, the month's figures, the task queue ------------------------------
+
+
+def test_the_tracker_filters_by_seller_dates_payment_source_and_warranty() -> None:
+    old_day = (utc_now().date() - timedelta(days=40)).isoformat()
+    amazon = purchase(payment_method="card", warranty_until=(utc_now().date() + timedelta(days=200)).isoformat())
+    noon = purchase(merchant="noon", order_ref="N-1", ordered_on=old_day, payment_method="cash")
+    item_warranty = purchase(merchant="Jarir", order_ref="J-1", items=[{"description": "Laptop", "warranty_until": (utc_now().date() + timedelta(days=30)).isoformat()}])
+    expired = purchase(merchant="Extra", order_ref="E-1", warranty_until=(utc_now().date() - timedelta(days=1)).isoformat())
+
+    def ids(**params: Any) -> list[str]:
+        response = client.get(API, headers=OWNER, params=params)
+        assert response.status_code == 200, response.text
+        return [p["id"] for p in response.json()["items"]]
+
+    assert ids(merchant="NOON") == [noon["id"]]  # a shop matches whatever the case
+    assert set(ids(**{"from": today()})) == {amazon["id"], item_warranty["id"], expired["id"]}
+    assert ids(to=old_day) == [noon["id"]]
+    assert ids(payment="cash") == [noon["id"]]
+    assert len(ids(payment="unlinked")) == 4 and ids(payment="linked") == []
+    assert ids(source="iphone") == [] and len(ids(source="web")) == 4
+    assert set(ids(warranty="true")) == {amazon["id"], item_warranty["id"]}  # an item's warranty counts; an ended one does not
+    bad = client.get(API, headers=OWNER, params={"from": today(), "to": old_day})
+    assert bad.status_code == 422 and bad.json()["code"] == "bad_range"
+    assert client.get(API, headers=OWNER, params={"payment": "bitcoin"}).status_code == 422
+    sellers = client.get(f"{API}/merchants", headers=OWNER).json()["items"]
+    assert sellers == ["Amazon", "Extra", "Jarir", "noon"]
+    assert client.get(f"{API}/merchants", headers=VIEWER).status_code == 403
+
+
+def test_a_personal_purchase_never_shows_in_another_members_seller_list() -> None:
+    purchase(merchant="Secret shop")
+    purchase(merchant="Office supplier", ownership="business")
+    assert client.get(f"{API}/merchants", headers=MEMBER).json()["items"] == ["Office supplier"]
+
+
+def test_a_tracker_row_carries_its_first_item_and_newest_shipment() -> None:
+    created = purchase()
+    client.post(f"{API}/{created['id']}/shipments", headers=OWNER, json={"carrier": "Aramex", "tracking_number": "TRK0000001"})
+    client.post(f"{API}/{created['id']}/shipments", headers=OWNER, json={"carrier": "DHL", "tracking_number": "DHL0000002", "status": "in_transit"})
+    row = client.get(API, headers=OWNER).json()["items"][0]
+    assert row["first_item"] == "Headphones" and row["item_count"] == 2
+    assert row["latest_shipment"]["carrier"] == "DHL" and row["latest_shipment"]["status"] == "in_transit"
+    bare = purchase(merchant="Bare", order_ref="B-1", items=[])
+    row = next(p for p in client.get(API, headers=OWNER).json()["items"] if p["id"] == bare["id"])
+    assert row["first_item"] is None and row["item_count"] == 0 and row["latest_shipment"] is None
+
+
+def test_the_overview_counts_this_months_orders_commitments_and_shipments_in_transit() -> None:
+    purchase(total="100")
+    purchase(merchant="USD shop", order_ref="U-1", currency="USD", total="20")
+    purchase(merchant="No total", order_ref="X-1", total=None)
+    purchase(merchant="Old", order_ref="O-1", ordered_on=(utc_now().date().replace(day=1) - timedelta(days=1)).isoformat(), total="999")
+    cancelled = purchase(merchant="Cancelled", order_ref="C-1", total="50")
+    assert move(cancelled["id"], "cancelled", cancelled["version"]).status_code == 200
+    shipped = purchase(merchant="Shipped", order_ref="S-1", total="10")
+    client.post(f"{API}/{shipped['id']}/shipments", headers=OWNER, json={"carrier": "SMSA", "tracking_number": "SM0000001", "status": "in_transit"})
+    figures = client.get(f"{API}/overview", headers=OWNER).json()
+    assert figures["month"] == utc_now().strftime("%Y-%m")
+    assert figures["orders_this_month"] == 4  # the cancelled order and last month's are left out
+    assert figures["committed_this_month"] == [{"currency": "SAR", "amount": "110.00"}, {"currency": "USD", "amount": "20.00"}]
+    assert figures["untotalled_this_month"] == 1
+    assert figures["in_transit"] == 1
+
+
+def test_a_return_sent_back_without_proof_is_on_the_task_queue_but_never_notified() -> None:
+    created = delivered()
+    ret = open_return(created["id"]).json()
+    sent = client.post(f"{API}/returns/{ret['id']}/status", headers=OWNER, json={"to": "returned", "version": 1})
+    assert sent.status_code == 200, sent.text
+    due = client.get(f"{API}/overview", headers=OWNER).json()["due"]
+    assert any(d["kind"] == "proof_needed" and d["return_id"] == ret["id"] for d in due)
+    result = J.run_person(TENANT, WORKSPACE, "owner_pur")
+    assert result.failed == 0
+    assert not [r for r in purchase_memory_store.reminders.values() if r.kind == "proof_needed"]
+    proof = client.patch(f"{API}/returns/{ret['id']}", headers=OWNER, json={"version": sent.json()["version"], "proof_document_id": None})
+    assert proof.status_code == 200  # clearing nothing keeps it on the queue until a proof is attached
+    assert any(d["kind"] == "proof_needed" for d in client.get(f"{API}/overview", headers=OWNER).json()["due"])
+
+
+def test_import_order_from_the_web_is_a_web_purchase_and_a_device_token_share_is_iphone() -> None:
+    """Import order on the web uses the shared reader with the person's sign-in: the purchase and its history say web, not iPhone."""
+    web = client.post(PD.INGEST_PATH, headers=OWNER, json={"text": SHARED_ORDER, "idempotency_key": "import-web-1"})
+    assert web.status_code == 200 and web.json()["status"] == "created", web.text
+    purchase_id = web.json()["purchase_id"]
+    assert detail(purchase_id)["source"] == "web"
+    assert {e["source"] for e in detail(purchase_id)["events"]} == {"web"}
+    assert [p["id"] for p in client.get(API, headers=OWNER, params={"source": "web"}).json()["items"]] == [purchase_id]
+    assert client.get(API, headers=OWNER, params={"source": "iphone"}).json()["items"] == []
+    shipped = client.post(PD.INGEST_PATH, headers=OWNER, json={"text": SHARED_SHIPPED})
+    assert shipped.status_code == 200 and shipped.json()["status"] == "updated"
+    assert {e["source"] for e in detail(purchase_id)["events"]} == {"web"}
+    # The same message from an iPhone with a device token stays an iPhone share.
+    created = client.post("/api/v1/integrations/iphone/devices", headers=OWNER, json={"name": "Phone", "scopes": ["purchases"]}).json()
+    assert client.put("/api/v1/integrations/iphone/integrations/purchases.share", headers=OWNER, json={"enabled": True}).status_code == 200
+    phone = client.post(PD.INGEST_PATH, headers={"Authorization": f"Bearer {created['token']}"},
+                        json={"text": SHARED_ORDER.replace("406-1234567-7654321", "406-7654321-1234567")})
+    assert phone.status_code == 200 and phone.json()["status"] == "created", phone.text
+    assert detail(phone.json()["purchase_id"])["source"] == "iphone"

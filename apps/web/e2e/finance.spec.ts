@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import AxeBuilder from '@axe-core/playwright';
 import { financeReply, financeState } from './support/financeApi';
 import { useSavedLocale } from './support/workspaceApi';
 
@@ -49,40 +50,138 @@ test('the overview shows the month per currency, the spend chart, bills due and 
   await expect(page.getByRole('group', { name: 'Month' })).not.toContainText(new Date().toLocaleString('en', { month: 'long' }) + ' ' + new Date().getFullYear());
 });
 
-test('transactions search, filter and page; a row is edited and deleted; tabs are deep links with Back and the breadcrumb', async ({ page }) => {
+test('transactions and ledger: period, search, server filters and paging; the drawer shows the masked SMS, a possible duplicate and saves the category', async ({ page }) => {
   const { sent } = await mockApi(page);
   await page.goto('/#finance-transactions');
-  await expect(page.getByRole('navigation', { name: 'Breadcrumb' })).toContainText('Transactions');
-  const table = page.locator('.finTxTable');
+  await expect(page.getByRole('heading', { name: 'Transactions and ledger', level: 1 })).toBeVisible();
+  await expect(tab(page, 'Transactions')).toHaveAttribute('aria-current', 'page');
+  await expect(page.getByRole('radio', { name: 'Personal', exact: true })).toBeChecked();
+  await expect(page.getByRole('radio', { name: /^Business/ })).toBeDisabled();
+  await page.getByRole('combobox', { name: 'Period', exact: true }).selectOption({ label: 'All dates' });
+  const table = page.locator('.fregTable');
   await expect(table.locator('tbody tr')).toHaveCount(25);
+  await expect(page.getByText('1 to 25 of 64')).toBeVisible();
   // Untrusted statement text is shown as text, never run.
   await expect(table.getByText('=HYPERLINK(example)')).toBeVisible();
+  const kpis = page.getByRole('region', { name: 'This period' });
+  await expect(kpis).toContainText('Transactions');
+  await expect(kpis).toContainText('64');
+  await expect(page.getByRole('region', { name: /^Reconciliation/ })).toContainText('Waiting in review');
   await page.getByRole('button', { name: 'Next' }).click();
   await expect(page.getByText('26 to 50 of 64')).toBeVisible();
-  await page.getByRole('searchbox', { name: 'Search descriptions and notes' }).fill('talabat');
+  await page.getByLabel('Source', { exact: true }).selectOption('sms');
   await page.getByRole('button', { name: 'Search', exact: true }).click();
-  await expect(page.getByText(/1 to \d+ of \d+/)).toBeVisible();
-  await expect(table.locator('tbody tr').first()).toContainText('TALABAT ORDER');
-  await page.getByRole('button', { name: 'Edit TALABAT ORDER' }).first().click();
-  const dialog = page.getByRole('dialog', { name: 'Edit transaction' });
-  await dialog.getByLabel('Category').selectOption('entertainment');
-  await dialog.getByRole('button', { name: 'Save' }).click();
-  await expect(page.getByText('Transaction saved.')).toBeVisible();
+  await expect(page.getByText('1 to 16 of 16')).toBeVisible();
+  expect(sent.some((r) => r.path === '/api/v1/finance/register')).toBe(true);
+  await expect(table.locator('tbody tr').first()).toContainText('SMS');
+  // No live bank connection is ever claimed.
+  await expect(page.getByText(/synced|connected bank/i)).toHaveCount(0);
+
+  await page.getByRole('button', { name: 'Clear filters' }).click();
+  await page.getByRole('searchbox', { name: 'Search merchant or reference' }).fill('talabat');
+  await page.getByRole('button', { name: 'Search', exact: true }).click();
+  await table.locator('tbody tr').first().click();
+  const drawer = page.locator('.fregDrawer');
+  await expect(drawer.getByText('Original SMS (masked)')).toBeVisible();
+  await expect(drawer).toContainText('***1234');
+  await drawer.getByLabel('Choose category').selectOption('entertainment');
+  await drawer.getByRole('button', { name: 'Save category' }).click();
+  await expect(drawer.getByText('Saved as Entertainment.')).toBeVisible();
   expect(sent.some((r) => r.method === 'PATCH' && (r.body as { category?: string }).category === 'entertainment')).toBe(true);
-  await page.getByRole('button', { name: 'Delete TALABAT ORDER' }).first().click();
-  await page.getByRole('alertdialog', { name: 'Delete this transaction?' }).getByRole('button', { name: 'Delete' }).click();
-  await expect(page.getByText('Transaction deleted.')).toBeVisible();
+  await drawer.getByRole('button', { name: 'Close details' }).click();
+
+  await page.getByRole('searchbox', { name: 'Search merchant or reference' }).fill('');
+  await page.getByLabel('Status', { exact: true }).selectOption('duplicate_candidate');
+  await page.getByRole('button', { name: 'Search', exact: true }).click();
+  await table.locator('tbody tr').first().getByRole('button', { name: /^Details for/ }).click();
+  await expect(drawer.getByText('Possible duplicate').first()).toBeVisible();
+  await drawer.getByRole('button', { name: 'View match' }).click();
+  await expect(drawer).toContainText('DEWA UTILITY');
+  await drawer.getByRole('button', { name: 'Close details' }).click();
+  await expect(drawer).toHaveCount(0);
 
   await tab(page, 'Bills').click();
   await expect(page).toHaveURL(/#finance-bills$/);
   await page.goBack();
   await expect(page).toHaveURL(/#finance-transactions$/);
   await expect(tab(page, 'Transactions')).toHaveAttribute('aria-current', 'page');
-  await page.getByRole('navigation', { name: 'Breadcrumb' }).getByRole('link', { name: 'Finance' }).click();
-  await expect(tab(page, 'Overview')).toHaveAttribute('aria-current', 'page');
-  await tab(page, 'Accounts').click();
-  await page.getByRole('navigation', { name: 'Breadcrumb' }).getByRole('link', { name: 'Home' }).click();
-  await expect(page).toHaveURL(/#home$/);
+});
+
+test('a receipt is attached from the drawer to the vault and linked to the payment; SMS review and Imports open the existing flows', async ({ page }) => {
+  const { state } = await mockApi(page);
+  const vault: string[] = [];
+  await page.route('http://localhost:8000/api/v1/documents**', async (route) => {
+    const url = new URL(route.request().url());
+    vault.push(`${route.request().method()} ${url.pathname}`);
+    if (url.pathname === '/api/v1/documents') return route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify({ id: 'doc_new' }) });
+    state.receipts = [...(state.receipts ?? []), 'fin_txn_2'];
+    return route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify({ id: 'vlnk_1', target_type: 'finance_transaction', status: 'confirmed' }) });
+  });
+  await page.goto('/#finance-transactions');
+  await page.getByRole('combobox', { name: 'Period', exact: true }).selectOption({ label: 'All dates' });
+  await page.getByRole('searchbox', { name: 'Search merchant or reference' }).fill('talabat');
+  await page.getByLabel('Evidence status').selectOption('missing');
+  await page.getByRole('button', { name: 'Search', exact: true }).click();
+  await page.locator('.fregTable tbody tr').filter({ hasText: 'TALABAT' }).first().click();
+  const drawer = page.locator('.fregDrawer');
+  await drawer.locator('input[type=file]').setInputFiles({ name: 'talabat.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4 SYNTHETIC') });
+  await expect(drawer.getByText('Receipt saved in your vault and linked to this payment.')).toBeVisible();
+  expect(vault).toEqual(['POST /api/v1/documents', 'POST /api/v1/documents/doc_new/links']);
+  await drawer.getByRole('button', { name: 'Done' }).click();
+
+  await page.getByRole('tab', { name: /SMS review/ }).click();
+  await expect(page.getByRole('tab', { name: /SMS review/ })).toContainText('2');
+  await expect(page.getByRole('link', { name: 'SMS capture settings' })).toHaveAttribute('href', '#finance-sms');
+  await page.getByRole('button', { name: 'Import statement' }).click();
+  await expect(page.getByRole('tab', { name: 'Imports' })).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByLabel('Statement file (CSV or PDF)')).toBeVisible();
+});
+
+test('accounts: groups, sources, masked numbers, actions, the register with running balances, rules and activity', async ({ page }) => {
+  const { sent } = await mockApi(page);
+  await page.goto('/#finance-accounts');
+  await expect(page.getByRole('heading', { name: 'Accounts', level: 1 })).toBeVisible();
+  const kpis = page.getByRole('region', { name: 'Accounts at a glance' });
+  await expect(kpis).toContainText('Total available');
+  await expect(kpis).toContainText('15,349.50');
+  const card = page.locator('.facctCard').first();
+  await expect(card).toContainText('Everyday account');
+  await expect(card).toContainText('Statement');
+  await expect(card).not.toContainText('1234');
+  await card.getByRole('button', { name: 'Show the last four digits of Everyday account' }).click();
+  await expect(card).toContainText('•••• 1234');
+  await expect(page.getByText('This account is read from the statements you import.')).toBeVisible();
+  const register = page.getByRole('region', { name: 'Account register: Everyday account' }).first();
+  await expect(register.locator('tbody tr')).toHaveCount(10);
+  await expect(register).toContainText('Showing 10 of 64 transactions');
+  await expect(register.locator('tbody tr').first().locator('td').last()).toContainText('142,959.50');
+  await expect(page.getByRole('img', { name: /Money in and out over 14 days, in AED/ })).toBeVisible();
+  await page.getByLabel('Range').selectOption('30');
+  await expect(page.getByRole('img', { name: /over 30 days/ })).toBeVisible();
+
+  await page.getByRole('tab', { name: /Cards/ }).click();
+  const visa = page.locator('.facctCard').first();
+  await expect(visa).toContainText('Rewards card');
+  await expect(visa).toContainText('SMS');
+  await expect(visa).toContainText('20,000.00');
+  await expect(visa).toContainText('Payment due');
+
+  await page.getByRole('tab', { name: /Cash and bank/ }).click();
+  await page.getByRole('button', { name: 'Set opening balance' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Opening balance of Everyday account' });
+  await dialog.getByLabel('Opening balance (AED)').fill('1200');
+  await dialog.getByRole('button', { name: 'Save' }).click();
+  await expect(page.getByText('Opening balance of Everyday account saved.')).toBeVisible();
+  expect(sent.some((r) => r.method === 'PATCH' && Number((r.body as { opening_balance?: string }).opening_balance) === 1200)).toBe(true);
+  await page.getByRole('button', { name: 'Archive' }).click();
+  await expect(page.getByText('Everyday account is archived.')).toBeVisible();
+
+  await page.getByRole('tab', { name: 'Data sources' }).click();
+  await expect(page.getByText('Open banking is not connected.', { exact: false })).toBeVisible();
+  await page.getByRole('tab', { name: /Archived/ }).click();
+  await page.getByRole('button', { name: 'View all transactions' }).click();
+  await expect(page).toHaveURL(/#finance-transactions$/);
+  await expect(page.getByRole('combobox', { name: 'Account', exact: true })).toHaveValue('fin_acct_current');
 });
 
 test('a statement is previewed with its column mapping, then imported; the import can be undone', async ({ page }) => {
@@ -110,6 +209,7 @@ test('a statement is previewed with its column mapping, then imported; the impor
 test('a bill is added, a recurring payment is kept as a bill, and a goal shows its progress', async ({ page }) => {
   const { sent } = await mockApi(page);
   await page.goto('/#finance-bills');
+  await page.getByRole('tab', { name: 'Recurring' }).click();
   await page.getByRole('region', { name: 'Recurring payments found' }).getByRole('button', { name: 'Keep as bill' }).click();
   await expect(page.getByText('NETFLIX.COM saved as a bill.')).toBeVisible();
   expect(sent.some((r) => r.method === 'POST' && (r.body as { source?: string }).source === 'detected')).toBe(true);
@@ -160,7 +260,42 @@ test('Finance reads in Arabic, right to left, with Western digits', async ({ pag
   await useSavedLocale(page, 'ar');
   await page.goto('/#finance-transactions');
   await expect(page.locator('html')).toHaveAttribute('dir', 'rtl');
-  await expect(page.getByRole('heading', { name: 'المالية', level: 1 })).toBeVisible();
-  await expect(page.getByRole('navigation', { name: 'مسار التنقل' })).toContainText('المعاملات');
-  await expect(page.locator('.finTxTable tbody tr').first()).toContainText('AED');
+  await expect(page.getByRole('heading', { name: 'المعاملات والدفتر', level: 1 })).toBeVisible();
+  await page.getByRole('combobox', { name: 'الفترة', exact: true }).selectOption({ label: 'كل التواريخ' });
+  await expect(page.locator('.fregTable tbody tr').first()).toContainText('AED');
+  await page.goto('/#finance-accounts');
+  await expect(page.getByRole('heading', { name: 'الحسابات', level: 1 })).toBeVisible();
+  await expect(page.getByText('ANUM غير متصل بأي بنك.', { exact: false })).toBeVisible();
 });
+
+const VIEWPORTS = [[1440, 900], [1366, 768], [1024, 768], [768, 1024], [390, 844]] as const;
+for (const locale of ['en', 'ar'] as const) {
+  for (const [width, height] of VIEWPORTS) {
+    for (const view of ['transactions', 'accounts'] as const) {
+      test(`responsive @gate: ${view} fits with no sideways scroll at ${width}x${height} (${locale})`, async ({ page }) => {
+        await page.setViewportSize({ width, height });
+        if (locale === 'ar') await useSavedLocale(page, 'ar');
+        await mockApi(page);
+        await page.goto(`/#finance-${view}`);
+        if (view === 'transactions') {
+          await page.getByRole('combobox', { name: locale === 'ar' ? 'الفترة' : 'Period', exact: true }).selectOption('');
+          await page.locator('.fregTable tbody tr').nth(2).click();
+          await expect(page.locator('.fregDrawer .fregFacts')).toBeVisible();
+        } else {
+          await expect(page.locator('.facctRegister tbody tr').first()).toBeVisible();
+        }
+        const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+        expect(overflow).toBeLessThanOrEqual(0);
+        for (const control of await page.locator('.fregPage button:visible').all()) {
+          if (await control.evaluate((el) => Boolean(el.closest('.finTableWrap, .finTabs')))) continue;
+          const box = await control.boundingBox();
+          if (!box) continue;
+          expect(box.x).toBeGreaterThanOrEqual(-0.5);
+          expect(box.x + box.width).toBeLessThanOrEqual(width + 0.5);
+        }
+        const serious = (await new AxeBuilder({ page }).include('main').analyze()).violations.filter((v) => v.impact === 'critical' || v.impact === 'serious');
+        expect(serious).toEqual([]);
+      });
+    }
+  }
+}

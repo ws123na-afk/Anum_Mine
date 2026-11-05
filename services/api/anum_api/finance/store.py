@@ -37,6 +37,7 @@ from .models import (
     Holding,
     ImportRecord,
     PlanSettings,
+    Planning,
     Transaction,
 )
 from .trading import PaperOrder, Portfolio, PriceRecord
@@ -97,6 +98,9 @@ class FinanceStore(Protocol):
     # Stage 3: safe-to-spend settings
     def get_plan(self, context: TenantContext) -> PlanSettings | None: ...
     def save_plan(self, context: TenantContext, plan: PlanSettings) -> PlanSettings: ...
+    # Debt plans and budget alerts (docs/finance.md#debts-and-goals)
+    def get_planning(self, context: TenantContext) -> Planning: ...
+    def save_planning(self, context: TenantContext, planning: Planning) -> Planning: ...
     # Stage 4: Guardian rule versions and proposed changes
     def get_policy(self, context: TenantContext) -> GuardianPolicy | None: ...
     def list_policies(self, context: TenantContext, *, limit: int, offset: int) -> tuple[list[GuardianPolicy], int]: ...
@@ -265,6 +269,7 @@ class InMemoryFinanceStore:
         self.imports: dict[str, ImportRecord] = {}
         self.items: dict[str, dict[str, BaseModel]] = {kind: {} for kind in ITEM_TYPES}
         self.plans: dict[tuple[str, str, str], PlanSettings] = {}
+        self.planning: dict[tuple[str, str, str], Planning] = {}
         self.policies: dict[str, GuardianPolicy] = {}
         self.changes: dict[str, GuardianChange] = {}
         self.reviews: dict[str, GuardianReview] = {}
@@ -454,6 +459,16 @@ class InMemoryFinanceStore:
         with self._lock:
             self.plans[self._key(context)] = plan.model_copy(deep=True)
             return plan
+
+    def get_planning(self, context: TenantContext) -> Planning:
+        with self._lock:
+            found = self.planning.get(self._key(context))
+            return found.model_copy(deep=True) if found else Planning()
+
+    def save_planning(self, context: TenantContext, planning: Planning) -> Planning:
+        with self._lock:
+            self.planning[self._key(context)] = planning.model_copy(deep=True)
+            return planning
 
     # Stage 4: Guardian -------------------------------------------------------------------
 
@@ -869,7 +884,7 @@ class InMemoryFinanceStore:
     def count_everything(self, context: TenantContext) -> int:
         with self._lock:
             rows = sum(1 for table in self._tables() for v in table.values() if mine(v, context))
-            keyed = (self.settings, self.plans, self.exec_settings)
+            keyed = (self.settings, self.plans, self.planning, self.exec_settings)
             return (rows + sum(int(self._key(context) in table) for table in keyed) + _ibkr_memory().count_everything(context)
                     + _sms_memory().count_everything(context) + _links_memory().count_everything(context)
                     + _templates_memory().count_everything(context) + _advisor_memory().count_everything(context))
@@ -881,7 +896,7 @@ class InMemoryFinanceStore:
                 for key in [k for k, v in table.items() if mine(v, context)]:
                     del table[key]
                     removed += 1
-            for keyed in (self.settings, self.plans, self.exec_settings):
+            for keyed in (self.settings, self.plans, self.planning, self.exec_settings):
                 if keyed.pop(self._key(context), None) is not None:
                     removed += 1
             return (removed + _ibkr_memory().delete_everything(context) + _sms_memory().delete_everything(context)

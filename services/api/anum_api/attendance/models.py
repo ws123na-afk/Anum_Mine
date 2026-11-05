@@ -169,6 +169,8 @@ class DailyReport(Owned):
     version: int = 1
     created_at: datetime
     updated_at: datetime
+    # Set once when the person submits the report (docs/attendance.md#records); until then it is a draft.
+    submitted_at: datetime | None = None
 
 
 class Share(BaseModel):

@@ -8,6 +8,12 @@ const at = (offset: number, hour: number) => new Date(`${dubaiDay(offset)}T${pad
 const stamp = now.toISOString();
 
 type Row = Record<string, unknown>;
+const H = 3600;
+function teamRow(userId: string, extra: Row = {}): Row {
+  return { user_id: userId, me: false, day: dubaiDay(0), time_zone: 'Asia/Dubai', role_title: null, status: { at_site: false, site_id: null, on_break: false, remote: false, since: null },
+    site_names: [], first_check_in: null, first_check_in_source: null, breaks: [], break_seconds: 0, worked_seconds: 0, presence_seconds: 0, remote_seconds: 0,
+    scheduled_seconds: 0, open: false, flags: [], reports_shared: false, report: null, ...extra };
+}
 export interface AttendanceState {
   profile: Row;
   sites: Row[];
@@ -18,6 +24,9 @@ export interface AttendanceState {
   denied: boolean;
   failToday: boolean;
   aiText: string | null;
+  /** Colleagues who share their record with the signed-in person (read only), with their reports when shared. */
+  colleagues: Row[];
+  colleagueReports: Record<string, Row[]>;
 }
 
 const site = (id: string, name: string, kind = 'workplace') => ({ id, name, kind, address_label: null, radius_m: 150, archived: false, created_at: stamp, updated_at: stamp });
@@ -51,10 +60,18 @@ export function attendanceState({ empty = false, denied = false, failToday = fal
     shares: { mine: [], with_me: [] },
     denied, failToday,
     aiText: 'Checked the pumps and signed the delivery note on Tower B. Valves still need ordering.',
+    colleagues: empty ? [] : [
+      teamRow('user_manager', { role_title: 'Operations lead', status: { at_site: true, site_id: 'x', on_break: false, remote: false, since: at(0, 8) }, site_names: ['Head office'],
+        first_check_in: at(0, 8), first_check_in_source: 'device', breaks: [{ start: at(0, 12), end: at(0, 13) }], break_seconds: H, worked_seconds: 3 * H, presence_seconds: 4 * H,
+        scheduled_seconds: 8 * H, reports_shared: true, report: { status: 'submitted', updated_at: at(0, 9), submitted_at: at(0, 9), summary: 'Supplier follow ups' } }),
+      teamRow('user_field', { role_title: 'Field coordinator', scheduled_seconds: 8 * H }),
+    ],
+    colleagueReports: empty ? {} : { user_manager: [{ id: 'att_rep_m1', day: dubaiDay(0), project: null, tasks_done: ['Supplier follow ups'], tasks_pending: ['Vendor meeting'],
+      site_visits: [], issues: 'Waiting for a quote', time_spent_minutes: null, priority: 'normal', follow_up_on: null, notes: null, file_ids: [], drafted_with_ai: false,
+      version: 1, created_at: stamp, updated_at: stamp, submitted_at: at(0, 9) }] },
   };
 }
 
-const H = 3600;
 function dayRow(day: string, worked: number, extra: Row = {}) {
   return { day, time_zone: 'Asia/Dubai', presence_seconds: worked, remote_seconds: 0, break_seconds: 0, worked_seconds: worked, verified_seconds: worked,
     estimated_seconds: 0, open_seconds: 0, scheduled_seconds: 9 * H, overtime_seconds: Math.max(0, worked - 8 * H), first_arrival: null, last_departure: null,
@@ -96,6 +113,7 @@ export function attendanceReply(state: AttendanceState, method: string, url: URL
 export const ATTENDANCE_PEOPLE = [
     { user_id: 'user_local', role: 'member', display_name: 'You', has_profile: false, email: null, department: null, job_title: null, capacity_hours: null, timezone: 'Asia/Dubai', assignable: true },
     { user_id: 'user_manager', role: 'owner', display_name: 'Layla Manager', has_profile: false, email: null, department: null, job_title: null, capacity_hours: null, timezone: 'Asia/Dubai', assignable: true },
+    { user_id: 'user_field', role: 'member', display_name: 'Omar Field', has_profile: false, email: null, department: null, job_title: null, capacity_hours: null, timezone: 'Asia/Dubai', assignable: true },
 ];
 
 function attendanceOwnReply(state: AttendanceState, method: string, url: URL, body: unknown): { status: number; body: unknown } {
@@ -103,7 +121,22 @@ function attendanceOwnReply(state: AttendanceState, method: string, url: URL, bo
   if (state.denied) return { status: 403, body: { error: { code: 'forbidden', message: 'Attendance is for workspace owners and members. Ask a workspace owner to change your role from viewer to member.', details: [] } } };
   const sub = path.slice('/api/v1/attendance'.length);
   const b = (body ?? {}) as Row;
-  if (method === 'GET' && sub === '/today') return state.failToday ? { status: 503, body: { error: { code: 'unavailable', message: 'The database is not answering.', details: [] } } } : { status: 200, body: today(state) };
+  if (method === 'GET' && sub === '/today') {
+    if (state.failToday) return { status: 503, body: { error: { code: 'unavailable', message: 'The database is not answering.', details: [] } } };
+    // A colleague's shared record keeps their own time zone (here Karachi), unlike the signed-in person's Dubai.
+    return { status: 200, body: url.searchParams.get('person') ? { ...today(state), time_zone: 'Asia/Karachi' } : today(state) };
+  }
+  if (method === 'GET' && sub === '/team') {
+    const t = today(state) as { status: Row; totals: Row | null; events: Row[] };
+    const mineToday = state.reports.find((r) => r.day === dubaiDay(0));
+    const first = t.events.find((e) => e.kind === 'arrive');
+    const me = teamRow('user_local', { me: true, role_title: state.profile.role_title, status: t.status, site_names: first ? ['Head office'] : [],
+      first_check_in: first?.occurred_at ?? null, first_check_in_source: first?.source ?? null, worked_seconds: Number(t.totals?.worked_seconds ?? 0),
+      scheduled_seconds: state.profile.schedule && (state.profile.schedule as Row[]).length ? 9 * H : 0, reports_shared: true,
+      report: mineToday ? { status: mineToday.submitted_at ? 'submitted' : 'draft', updated_at: mineToday.updated_at, submitted_at: mineToday.submitted_at ?? null, summary: (mineToday.tasks_done as string[]).join('; ') } : { status: 'none', updated_at: null, submitted_at: null, summary: null } });
+    const rows = [me, ...state.colleagues];
+    return { status: 200, body: { day: url.searchParams.get('date'), generated_at: new Date().toISOString(), rows, total: rows.length } };
+  }
   if (method === 'GET' && sub === '/profile') return { status: 200, body: state.profile };
   if (method === 'PUT' && sub === '/profile') {
     state.profile = { ...state.profile, ...b, version: Number(state.profile.version) + 1, saved: true };
@@ -149,6 +182,14 @@ function attendanceOwnReply(state: AttendanceState, method: string, url: URL, bo
     state.corrections.unshift(created);
     return { status: 201, body: created };
   }
+  const person = url.searchParams.get('person');
+  if (method === 'GET' && person && sub.startsWith('/daily-reports')) {
+    const theirs = state.colleagueReports[person];
+    if (!theirs) return { status: 404, body: { error: { code: 'not_found', message: 'Not found. This person has not shared their attendance with you, or stopped sharing it.', details: [] } } };
+    if (sub === '/daily-reports') return { status: 200, body: { items: theirs, total: theirs.length } };
+    const found = theirs.find((r) => r.day === decodeURIComponent(sub.split('/')[2]));
+    return found ? { status: 200, body: found } : { status: 404, body: { error: { code: 'not_found', message: 'No daily report for that day yet.', details: [] } } };
+  }
   if (method === 'GET' && sub === '/daily-reports') {
     const q = (url.searchParams.get('q') ?? '').toLowerCase();
     const items = state.reports.filter((r) => !q || JSON.stringify(r).toLowerCase().includes(q));
@@ -160,7 +201,9 @@ function attendanceOwnReply(state: AttendanceState, method: string, url: URL, bo
     const found = state.reports.find((r) => r.day === day);
     if (method === 'GET') return found ? { status: 200, body: found } : { status: 404, body: { error: { code: 'not_found', message: 'No daily report for that day yet.', details: [] } } };
     if (method === 'PUT') {
-      const saved = { ...(found ?? { id: `att_rep_${state.reports.length + 2}`, created_at: stamp }), ...b, day, version: found ? Number(found.version) + 1 : 1, updated_at: stamp };
+      const { submit, ...fields } = b;
+      const saved = { ...(found ?? { id: `att_rep_${state.reports.length + 2}`, created_at: stamp, submitted_at: null }), ...fields, day, version: found ? Number(found.version) + 1 : 1, updated_at: stamp,
+        submitted_at: found?.submitted_at ?? (submit ? new Date().toISOString() : null) };
       state.reports = [saved, ...state.reports.filter((r) => r.day !== day)];
       return { status: found ? 200 : 201, body: saved };
     }
