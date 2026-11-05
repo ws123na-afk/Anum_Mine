@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../src/localization/money_format.dart';
 import '../../src/theme/anum_theme.dart';
 import '../../src/widgets/depth.dart';
+import '../records_kit/payment_picker.dart';
 import '../records_kit/records_form.dart';
 import '../records_kit/records_kit.dart';
 import '../records_kit/records_widgets.dart';
@@ -551,17 +552,38 @@ class _VehicleDetailHostState extends State<VehicleDetailHost> {
 
   Future<void> _link(VehicleRecordKind kind, VehicleRecord record) async {
     final s = VehiclesStrings.of(context);
+    final around = switch (record) {
+      VehicleFuel(:final filledAt) => filledAt.substring(0, 10),
+      VehicleService(:final serviceOn) => serviceOn,
+      _ => null,
+    };
     final linked = await showRecordsSheet<bool>(
       context,
-      (_) => _LinkPaymentSheet(
-        repository: _c.repository,
-        costKind: kind.costKind!,
-        recordId: record.id,
-        around: switch (record) {
-          VehicleFuel(:final filledAt) => filledAt.substring(0, 10),
-          VehicleService(:final serviceOn) => serviceOn,
-          _ => null,
-        },
+      (_) => PaymentPickerSheet(
+        text: PaymentPickerText(
+          title: s.t('linkTitle'),
+          help: s.t('linkHelp'),
+          search: s.t('linkSearch'),
+          empty: s.t('linkEmpty'),
+          remaining: s.t('linkRemaining'),
+          already: s.t('linkAlready'),
+        ),
+        load: (query) async => [
+          for (final c in await _c.repository
+              .paymentCandidates(query: query, around: around))
+            PaymentChoice(
+              id: c.canonicalId,
+              postedOn: c.postedOn,
+              merchant: c.merchant,
+              amount: c.amount,
+              currency: c.currency,
+              remaining: c.remaining,
+              alreadyLinked: c.linkedToVehicle,
+            ),
+        ],
+        link: (choice, key) => _c.repository.linkPayment(
+            kind.costKind!, record.id,
+            canonicalId: choice.id, idempotencyKey: key),
       ),
     );
     if (linked ?? false) {
@@ -855,125 +877,6 @@ class _RecordRow extends StatelessWidget {
                       child: Text(s.t('deleteRecord'))),
               ],
             ),
-    );
-  }
-}
-
-class _LinkPaymentSheet extends StatefulWidget {
-  const _LinkPaymentSheet({
-    required this.repository,
-    required this.costKind,
-    required this.recordId,
-    this.around,
-  });
-  final VehiclesRepository repository;
-  final String costKind, recordId;
-  final String? around;
-
-  @override
-  State<_LinkPaymentSheet> createState() => _LinkPaymentSheetState();
-}
-
-class _LinkPaymentSheetState extends State<_LinkPaymentSheet> {
-  RecordsPhase _phase = RecordsPhase.loading;
-  RecordsFailure? _failure;
-  List<VehiclePaymentCandidate> _items = const [];
-  String _query = '';
-  String? _linking;
-  String? _error;
-  // One key per attempt to link this record.
-  final _key = newIdempotencyKey('vpay');
-
-  @override
-  void initState() {
-    super.initState();
-    _load();
-  }
-
-  Future<void> _load() async {
-    setState(() => _phase = RecordsPhase.loading);
-    try {
-      _items = await widget.repository
-          .paymentCandidates(query: _query, around: widget.around);
-      _phase = RecordsPhase.ready;
-    } on Object catch (error) {
-      _failure = RecordsFailure.from(error);
-      _phase = _failure!.denied ? RecordsPhase.denied : RecordsPhase.error;
-    }
-    if (mounted) setState(() {});
-  }
-
-  Future<void> _pick(VehiclePaymentCandidate candidate) async {
-    setState(() {
-      _linking = candidate.canonicalId;
-      _error = null;
-    });
-    try {
-      await widget.repository.linkPayment(widget.costKind, widget.recordId,
-          canonicalId: candidate.canonicalId, idempotencyKey: _key);
-      if (mounted) Navigator.of(context).pop(true);
-    } on Object catch (error) {
-      if (mounted) {
-        setState(() {
-          _linking = null;
-          _error = RecordsFailure.from(error).message;
-        });
-      }
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final s = VehiclesStrings.of(context);
-    final locale = Localizations.localeOf(context);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Semantics(
-            header: true,
-            child: Text(s.t('linkTitle'),
-                style: Theme.of(context).textTheme.titleLarge)),
-        const SizedBox(height: AnumSpacing.xs),
-        Text(s.t('linkHelp'), style: TextStyle(color: context.palette.muted)),
-        const SizedBox(height: AnumSpacing.sm),
-        RecordsSearchField(
-          initial: _query,
-          hint: s.t('linkSearch'),
-          onSearch: (q) {
-            _query = q.trim();
-            _load();
-          },
-        ),
-        const SizedBox(height: AnumSpacing.sm),
-        if (_error != null)
-          Text(_error!,
-              key: const Key('link-error'),
-              style: TextStyle(color: context.palette.stop)),
-        if (_phase != RecordsPhase.ready)
-          RecordsStateView(phase: _phase, failure: _failure, onRetry: _load)
-        else if (_items.isEmpty)
-          Text(s.t('linkEmpty'), key: const Key('link-empty'))
-        else
-          for (final item in _items)
-            AnumRow(
-              key: Key('candidate-${item.canonicalId}'),
-              icon: Icons.payments_outlined,
-              title: '${item.merchant} · '
-                  '${formatMoneyText(item.amount, item.currency, locale: locale)}',
-              subtitle: recordsDate(context, item.postedOn),
-              detail: item.linkedToVehicle
-                  ? s.t('linkAlready')
-                  : s.t('linkRemaining', {
-                      'amount': formatMoneyText(item.remaining, item.currency,
-                          locale: locale)
-                    }),
-              trailing: _linking == item.canonicalId
-                  ? const SizedBox.square(
-                      dimension: 24, child: CircularProgressIndicator())
-                  : const Icon(Icons.link),
-              onTap: _linking == null ? () => _pick(item) : null,
-            ),
-      ],
     );
   }
 }
