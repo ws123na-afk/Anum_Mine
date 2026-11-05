@@ -100,7 +100,7 @@ test('a scanned receipt is reviewed: the warning shows, a wrong value is refused
 
 test('trash: restore, and delete for good after confirming', async ({ page }) => {
   const mock = await open(page, 'vault-trash');
-  await page.getByRole('button', { name: 'Delete Old visa for good' }).click();
+  await page.getByRole('button', { name: 'Delete for good: Old visa' }).click();
   const dialog = page.getByRole('alertdialog', { name: 'Delete Old visa for good?' });
   await dialog.getByRole('button', { name: 'Delete for good' }).click();
   await expect(page.getByText('Deleted Old visa for good.')).toBeVisible();

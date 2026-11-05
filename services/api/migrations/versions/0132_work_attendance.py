@@ -83,7 +83,7 @@ def _workspace_fk(table: str) -> sa.ForeignKeyConstraint:
 def _shared(table: str, *, reports: bool) -> str:
     extra = " and s.include_reports" if reports else ""
     return (
-        f"exists (select 1 from attendance_shares s where s.tenant_id = {table}.tenant_id "  # nosec B608 - fixed table names in a policy
+        f"exists (select 1 from attendance_shares s where s.tenant_id = {table}.tenant_id "  # nosec B608: fixed table name
         f"and s.workspace_id = {table}.workspace_id and s.owner_user_id = {table}.owner_user_id "
         f"and s.viewer_user_id = {ME} and s.revoked_at is null{extra})"
     )
