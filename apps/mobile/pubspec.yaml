@@ -26,7 +26,7 @@ dependencies:
   speech_to_text: ^7.4.0
   flutter_tts: ^4.2.5
   permission_handler: ^13.0.1
-  flutter_appauth: 12.1.0
+  flutter_appauth: 13.0.0
   # Opens pull request and run links in the browser (Developer screen).
   # url_launcher_android is held at 6.3.29, the last Java release: 6.3.30+
   # keep Kotlin sources and rely on AGP 9 built-in Kotlin (docs/mobile.md, Dependencies).
