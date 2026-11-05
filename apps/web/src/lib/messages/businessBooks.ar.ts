@@ -642,4 +642,5 @@ export const businessBooksAr = {
   'books.feed.failed': "فشل الجلب: {error} ما زالت الأسعار المخزنة مستخدمة.",
   'books.group.rateLine': "{name}: {line}",
   'books.group.missingLine': "{name}: {row}، {amount}",
+  'books.group.excluded': "يتسع العرض الواحد لـ {limit} من الأعمال. غير مشمولة: {names}. اختر ما تريده أعلاه.",
 } satisfies Record<string, Message>;

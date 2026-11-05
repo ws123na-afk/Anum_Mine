@@ -616,6 +616,10 @@ export interface BooksGroup {
   enough: boolean;
   businesses: BooksGroupBusiness[];
   skipped: { workspace_id: string; name: string; reason: 'books_not_set_up' }[];
+  /** Businesses with books left out of a default view because more exist than one view holds (``limit``); the owner chooses. */
+  excluded: { workspace_id: string; name: string; reason: 'limit' }[];
+  limit: number;
+  /** Every business the caller owns whose books are set up (the choices). */
   available: { workspace_id: string; name: string }[];
   period?: { from: string; to: string; basis: BooksBasis };
   currency?: string;

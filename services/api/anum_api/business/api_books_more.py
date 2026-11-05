@@ -56,6 +56,12 @@ def _candidates(context: TenantContext) -> list[tuple[str, str]]:
     return out
 
 
+def _has_books(context: TenantContext, workspace_id: str) -> bool:
+    """Whether a business the caller owns has its book settings (read in that business's own RLS scope)."""
+    with open_books_store(context.model_copy(update={"workspace_id": workspace_id})) as store:
+        return store.get_settings() is not None
+
+
 def _group(context: TenantContext, start: date | None, end: date | None, basis: Basis | None, currency: str | None,
            chosen: list[str] | None) -> dict[str, Any]:
     _manage(context)
@@ -63,13 +69,25 @@ def _group(context: TenantContext, start: date | None, end: date | None, basis: 
     allowed = dict(candidates)
     if chosen:
         wanted = list(dict.fromkeys(chosen))
-        if len(wanted) > MAX_GROUP or any(workspace not in allowed for workspace in wanted):
+        if any(workspace not in allowed for workspace in wanted):
             # The same answer for a business that does not exist, is in another organisation or that the caller cannot manage.
             raise S.BooksError(403, NOT_ALLOWED, "workspace_not_allowed")
-        candidates = [(workspace, allowed[workspace]) for workspace in wanted]
+        if len(wanted) > MAX_GROUP:
+            raise S.BooksError(422, f"Choose at most {MAX_GROUP} businesses for one view.", "too_many_businesses", limit=MAX_GROUP)
+    # Only businesses with books count towards the limit; the ones without are listed apart.
+    ready = [(workspace, name) for workspace, name in candidates if _has_books(context, workspace)]
+    ready_ids = {workspace for workspace, _ in ready}
+    skipped: list[dict[str, str]] = [{"workspace_id": w, "name": n, "reason": "books_not_set_up"} for w, n in candidates if w not in ready_ids]
+    excluded: list[dict[str, str]] = []
+    if chosen:
+        selected = [(workspace, allowed[workspace]) for workspace in wanted if workspace in ready_ids]
+        skipped = [item for item in skipped if item["workspace_id"] in wanted]
+    else:
+        # Never a silent cut: what does not fit in one view is named, and the owner chooses.
+        selected = ready[:MAX_GROUP]
+        excluded = [{"workspace_id": w, "name": n, "reason": "limit"} for w, n in ready[MAX_GROUP:]]
     members: list[G.Member] = []
-    skipped: list[dict[str, str]] = []
-    for workspace, name in candidates[:MAX_GROUP]:
+    for workspace, name in selected:
         scoped = context.model_copy(update={"workspace_id": workspace})
         try:
             inputs = S.gather(scoped, rates_since(start, end))
@@ -81,8 +99,7 @@ def _group(context: TenantContext, start: date | None, end: date | None, basis: 
         members.append(G.Member(workspace_id=workspace, name=name, inputs=inputs))
     anchor = next((m for m in members if m.workspace_id == context.workspace_id), members[0] if members else None)
     choices = {"businesses": [{"workspace_id": m.workspace_id, "name": m.name, "base_currency": m.inputs.settings.base_currency} for m in members],
-               "skipped": skipped, "available": [{"workspace_id": w, "name": n} for w, n in _candidates(context)] if chosen else
-               [{"workspace_id": w, "name": n} for w, n in candidates]}
+               "skipped": skipped, "excluded": excluded, "limit": MAX_GROUP, "available": [{"workspace_id": w, "name": n} for w, n in ready]}
     if len(members) < 2 or anchor is None:
         return {"enough": False, **choices}
     reporting = S.currency_of(currency) if currency else anchor.inputs.settings.base_currency
@@ -100,7 +117,7 @@ def _group(context: TenantContext, start: date | None, end: date | None, basis: 
 @refusals
 def get_group(start: date | None = Query(default=None, alias="from"), end: date | None = Query(default=None, alias="to"), basis: Basis | None = None,
               currency: str | None = Query(default=None, pattern=r"^[A-Za-z]{3}$"),
-              workspace: list[str] | None = Query(default=None, max_length=MAX_GROUP),
+              workspace: list[str] | None = Query(default=None, max_length=200),
               context: TenantContext = Depends(tenant_context)) -> Any:
     """One P&L, the balances and the cash flow of the caller's businesses in a reporting currency, with eliminations."""
     _manage(context)
@@ -111,7 +128,7 @@ def get_group(start: date | None = Query(default=None, alias="from"), end: date 
 @refusals
 def export_group(start: date | None = Query(default=None, alias="from"), end: date | None = Query(default=None, alias="to"), basis: Basis | None = None,
                  currency: str | None = Query(default=None, pattern=r"^[A-Za-z]{3}$"),
-                 workspace: list[str] | None = Query(default=None, max_length=MAX_GROUP),
+                 workspace: list[str] | None = Query(default=None, max_length=200),
                  context: TenantContext = Depends(tenant_context)) -> Response:
     _manage(context)
     data = _group(context, start, end, basis, currency, workspace)
@@ -125,6 +142,8 @@ def export_group(start: date | None = Query(default=None, alias="from"), end: da
         for row in data[section]:
             rows.append([section, row["key"], *[row["businesses"][w] for w in ids], row["eliminations"], row["total"], data["currency"]])
     by_id = dict(zip(ids, names, strict=True))
+    for item in data["excluded"]:
+        rows.append(["excluded", item["workspace_id"], *[""] * len(ids), "", f"{item['name']}: more businesses than one view holds ({data['limit']})", ""])
     for section, items in data["not_converted"].items():
         for item in items:
             rows.append(["not_converted", f"{section} {item['row']}", *[item["amount"] if item["workspace_id"] == w else "" for w in ids], "",

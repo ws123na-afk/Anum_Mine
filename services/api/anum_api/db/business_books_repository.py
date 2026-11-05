@@ -40,7 +40,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from anum_api.business.books_models import KINDS, TABLES, BookSettings
-from anum_api.business.books_store import AtLeast, DuplicateError, plain
+from anum_api.business.books_store import After, AtLeast, AtMost, DuplicateError, plain
 from anum_api.schemas import TenantContext
 
 from .scope import require_workspace
@@ -149,6 +149,10 @@ class SqlBooksStore:
             column = table.c[name]
             if isinstance(wanted, AtLeast):
                 clauses.append(column >= wanted.value)
+            elif isinstance(wanted, AtMost):
+                clauses.append(column <= wanted.value)
+            elif isinstance(wanted, After):
+                clauses.append(column > wanted.value)
             elif isinstance(wanted, (set, frozenset, list, tuple)):
                 clauses.append(column.in_([plain(value) for value in wanted]))
             elif wanted is None:

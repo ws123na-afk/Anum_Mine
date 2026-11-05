@@ -51,7 +51,8 @@ export function GroupSection({ setup }: { setup: BooksSetup }) {
   const choose = (value: PeriodPreset | '') => { setPreset(value); if (value) setPeriod(presetPeriod(value, new Date(), settings.fiscal_year_start_month)); };
   const group = load.state === 'ready' ? load.value : null;
   const available = group?.available ?? [];
-  const included = new Set(chosen ?? available.map((item) => item.workspace_id));
+  const included = new Set(chosen ?? (group?.businesses ?? []).map((item) => item.workspace_id));
+  const limit = group?.limit ?? 20;
   const toggle = (workspace: string) => {
     const next = new Set(included);
     if (next.has(workspace)) next.delete(workspace); else next.add(workspace);
@@ -81,7 +82,7 @@ export function GroupSection({ setup }: { setup: BooksSetup }) {
     </div>
     {available.length > 1 && <fieldset className="bkChoice bkBusinesses"><legend>{t('books.group.included')}</legend>
       {available.map((item) => <label key={item.workspace_id} className="bzCheck"><input type="checkbox" checked={included.has(item.workspace_id)}
-        disabled={included.has(item.workspace_id) && included.size <= 2} onChange={() => toggle(item.workspace_id)} /><span dir="auto">{item.name || item.workspace_id}</span></label>)}
+        disabled={included.has(item.workspace_id) ? included.size <= 2 : included.size >= limit} onChange={() => toggle(item.workspace_id)} /><span dir="auto">{item.name || item.workspace_id}</span></label>)}
     </fieldset>}
     {exporting && <Note error={exporting.error}>{exporting.text}</Note>}
     {load.state === 'loading' && <Note>{t('books.reading')}</Note>}
@@ -89,6 +90,7 @@ export function GroupSection({ setup }: { setup: BooksSetup }) {
     {load.state === 'error' && <Failed text={load.message} onRetry={() => void fetchGroup()} />}
     {group && !group.enough && <Empty title={t('books.group.notEnoughTitle')} text={group.skipped.length > 0 ? t('books.group.notEnoughSetup') : t('books.group.notEnoughOwner')}
       action={<button type="button" className="secondary" onClick={() => void fetchGroup()}>{t('books.group.checkAgain')}</button>} />}
+    {group && (group.excluded ?? []).length > 0 && <Note>{t('books.group.excluded', { limit, names: group.excluded.map((item) => item.name || item.workspace_id).join(', ') })}</Note>}
     {group && group.skipped.length > 0 && <Note>{t('books.group.skipped', { names: group.skipped.map((item) => item.name || item.workspace_id).join(', ') })}</Note>}
     {group && group.enough && <GroupBody group={group} />}
   </>;

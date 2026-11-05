@@ -56,6 +56,12 @@ def matches(item: BaseModel, where: dict[str, Any]) -> bool:
         if isinstance(wanted, AtLeast):
             if actual is None or actual < wanted.value:
                 return False
+        elif isinstance(wanted, AtMost):
+            if actual is None or actual > wanted.value:
+                return False
+        elif isinstance(wanted, After):
+            if actual is None or actual <= wanted.value:
+                return False
         elif isinstance(wanted, (set, frozenset, list, tuple)):
             if actual not in {plain(value) for value in wanted}:
                 return False
@@ -66,6 +72,20 @@ def matches(item: BaseModel, where: dict[str, Any]) -> bool:
 
 class AtLeast:
     """A ``where`` value: the column is on or after ``value`` (``find(..., where={"as_of": AtLeast(day)})``)."""
+
+    def __init__(self, value: Any) -> None:
+        self.value = value
+
+
+class AtMost:
+    """A ``where`` value: the column is on or before ``value``."""
+
+    def __init__(self, value: Any) -> None:
+        self.value = value
+
+
+class After:
+    """A ``where`` value: the column is strictly after ``value`` (keyset paging by id)."""
 
     def __init__(self, value: Any) -> None:
         self.value = value
@@ -220,7 +240,9 @@ def open_books_store(context: TenantContext) -> Iterator[BooksStore]:
 __all__ = [
     "MAX_PAGE",
     "MAX_SCAN",
+    "After",
     "AtLeast",
+    "AtMost",
     "BooksStore",
     "DuplicateError",
     "InMemoryBooksStore",

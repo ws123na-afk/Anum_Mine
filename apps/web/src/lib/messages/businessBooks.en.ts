@@ -642,4 +642,5 @@ export const businessBooksEn = {
   'books.feed.failed': "The fetch failed: {error} The rates already stored are still used.",
   'books.group.rateLine': "{name}: {line}",
   'books.group.missingLine': "{name}: {row}, {amount}",
+  'books.group.excluded': "One view holds {limit} businesses. Not included: {names}. Tick the ones you want above.",
 } satisfies Record<string, Message>;

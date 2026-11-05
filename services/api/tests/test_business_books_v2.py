@@ -483,3 +483,46 @@ def test_templates_in_memory_follow_the_status_rules() -> None:
     assert BillTemplate.model_fields["create_as"].default == "open"
     assert books_rates_auto.followed(RateFeed(id="f", tenant_id="t", workspace_id="w", created_at=utc_now(), currencies=["EUR", "usd", "USD"],
                                                                updated_by="u", updated_at=utc_now()), "AED") == ["AED", "USD"]
+
+
+# -- review fixes ---------------------------------------------------------------------------------------------------------
+
+
+def test_the_job_reaches_a_due_recurring_bill_behind_more_than_500_that_are_not_due() -> None:
+    setup_books()
+    landlord = vendor()
+    later = today() + timedelta(days=200)
+    future = make_template(vendor_id=landlord["id"], start_date=later.isoformat())
+    stored = books_memory_store.rows["templates"][future["id"]]
+    old = utc_now() - timedelta(days=30)
+    for index in range(520):  # older and not due: a first page of 500 never reaches the due one
+        clone = stored.model_copy(update={"id": f"btpl_wait_{index:04d}", "created_at": old + timedelta(seconds=index)})
+        books_memory_store.rows["templates"][clone.id] = clone
+    due = make_template(vendor_id=landlord["id"], start_date=(today() + timedelta(days=1)).isoformat())
+    result = books_jobs.run(now=utc_now() + timedelta(days=1))
+    assert result["bills_made"] == 1 and result["failed"] == 0, result
+    assert client.get(f"{API}/recurring/{due['id']}", headers=OWNER).json()["created_count"] == 1
+
+
+def test_more_businesses_than_one_view_holds_are_listed_as_excluded_never_dropped_silently() -> None:
+    from anum_api.business.api_books_more import MAX_GROUP
+
+    setup_books()
+    now = utc_now()
+    extra = [f"ws_books_extra_{index:02d}" for index in range(MAX_GROUP + 1)]
+    for workspace in extra:
+        memory_repository.store.memberships[(TENANT, workspace, "owner_books")] = WorkspaceMembership(
+            tenant_id=TENANT, workspace_id=workspace, user_id="owner_books", role="owner", active=True, created_at=now, updated_at=now)
+        setup_books({**OWNER, "x-workspace-id": workspace})
+    data = group()
+    included = [b["workspace_id"] for b in data["businesses"]]
+    excluded = [b["workspace_id"] for b in data["excluded"]]
+    assert len(included) == MAX_GROUP and BUSINESS in included
+    # Every business with books is either in the view or named as left out; ones without books are skipped, never counted.
+    assert sorted(included + excluded) == sorted([BUSINESS, *extra]) and all(b["reason"] == "limit" for b in data["excluded"])
+    assert {item["workspace_id"] for item in data["available"]} == {BUSINESS, *extra}
+    assert PERSONAL not in included + excluded and any(item["workspace_id"] == PERSONAL for item in data["skipped"])
+    rows = list(csv.reader(io.StringIO(client.get(f"{API}/group.csv", headers=OWNER).text)))
+    assert sorted(r[1] for r in rows if r[0] == "excluded") == sorted(excluded)
+    too_many = client.get(f"{API}/group", headers=OWNER, params={"workspace": [BUSINESS, *extra]})
+    assert too_many.status_code == 422 and too_many.json()["code"] == "too_many_businesses"

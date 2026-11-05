@@ -68,6 +68,20 @@ test('combined books: one business only, a failure and Try again, and a member n
   await expect(page.getByText('Only workspace owners see the combined books of the businesses they own.')).toBeVisible();
 });
 
+test('more businesses than one view holds: the left-out one is named and can be chosen instead', async ({ page }) => {
+  const mock = await mockBooks(page, { group: 'many' });
+  await page.goto('/#business-books/group');
+  await expect(page.getByText('One view holds 3 businesses. Not included: Example Store Business. Tick the ones you want above.')).toBeVisible();
+  await expect(page.getByRole('checkbox', { name: 'Example Store Business' })).not.toBeChecked();
+  await expect(page.getByRole('checkbox', { name: 'Example Store Business' })).toBeDisabled();
+  await page.getByRole('checkbox', { name: 'Example Parts Business' }).uncheck();
+  await page.getByRole('checkbox', { name: 'Example Store Business' }).check();
+  await expect(page.locator('.bkGroup-pnl').getByRole('columnheader', { name: 'Example Store Business' })).toBeVisible();
+  await expect(page.getByText(/Not included: Example Store Business/)).toHaveCount(0);
+  const last = mock.calls.filter((c) => c.path.endsWith('/group')).at(-1);
+  expect(last).toBeTruthy();
+});
+
 test('a recurring bill is made, its first bill appears, and it is paused, resumed and ended', async ({ page }) => {
   const mock = await mockBooks(page);
   await page.goto('/#business-books/recurring');

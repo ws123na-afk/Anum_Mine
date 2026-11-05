@@ -25,7 +25,9 @@ from ..schemas import TenantContext, utc_now
 from ..settings import settings
 from . import books_rates_auto as auto
 from .books_recurring import SYSTEM_ACTOR, materialize
-from .books_store import books_memory_store, open_books_store
+from .books_store import After, AtMost, books_memory_store, open_books_store
+
+PAGE = 200  # due recurring bills read per page
 
 logger = logging.getLogger("anum_api.business.books_jobs")
 
@@ -118,16 +120,22 @@ def run_templates(result: BooksJobResult, *, now: datetime, dry_run: bool) -> No
             if _archived(context):
                 continue
             result.businesses += 1
-            with open_books_store(context) as store:
-                due, _ = store.find("templates", where={"status": "active"}, order_by="created_at", descending=False, limit=500)
-                ids = [t.id for t in due if t.next_date is not None and t.next_date <= today]
-            for template_id in ids:
-                if dry_run:
-                    continue
-                # One short unit of work per template: its row is locked only while its bills are made.
+            # Every due template, in pages keyed by id (a page never starves the ones after it).
+            last = ""
+            while True:
                 with open_books_store(context) as store:
-                    _, made = materialize(store, template_id, today=today, now=now)
-                result.bills_made += len(made)
+                    page, _ = store.find("templates", where={"status": "active", "next_date": AtMost(today), "id": After(last)}, order_by="id",
+                                         descending=False, limit=PAGE)
+                for template in page:
+                    if dry_run:
+                        continue
+                    # One short unit of work per template: its row is locked only while its bills are made.
+                    with open_books_store(context) as store:
+                        _, made = materialize(store, template.id, today=today, now=now)
+                    result.bills_made += len(made)
+                if len(page) < PAGE:
+                    break
+                last = page[-1].id
         except Exception as exc:  # noqa: BLE001 - counts only; the next run tries again
             logger.warning("books_recurring_business_failed error_class=%s", type(exc).__name__)
             result.failed += 1

@@ -7,7 +7,7 @@ import { mockBusiness } from './businessApi';
 // its refusals (403 for a member's owner-only action, 409 for an allocation already paying a bill).
 type Json = Record<string, unknown>;
 type Role = 'owner' | 'member' | 'viewer';
-export interface BooksOptions { role?: Role; setUp?: boolean; empty?: boolean; failReport?: number; bills?: number; group?: 'two' | 'one' | 'fail'; feedFails?: boolean }
+export interface BooksOptions { role?: Role; setUp?: boolean; empty?: boolean; failReport?: number; bills?: number; group?: 'two' | 'one' | 'fail' | 'many'; feedFails?: boolean }
 export interface BooksMock { calls: { method: string; path: string; body: unknown; key: string | null }[]; state: BooksState }
 
 const at = '2026-11-01T09:00:00Z';
@@ -30,7 +30,7 @@ export interface BooksState {
   counter: number;
   templates: Json[];
   feed: Json;
-  group: 'two' | 'one' | 'fail';
+  group: 'two' | 'one' | 'fail' | 'many';
   feedFails: boolean;
 }
 
@@ -107,11 +107,21 @@ function group(state: BooksState, url: URL): Json {
   const businesses = [{ workspace_id: 'ws_anum', name: 'Example ANUM Business', base_currency: 'SAR', notes: [] }, { workspace_id: 'ws_tyre', name: 'Example Tyre Business', base_currency: 'AED', notes: ['not_converted'] }];
   if (state.group === 'one') {
     return { enough: false, businesses: businesses.slice(0, 1), skipped: [{ workspace_id: 'ws_tyre', name: 'Example Tyre Business', reason: 'books_not_set_up' }],
-      available: [{ workspace_id: 'ws_anum', name: 'Example ANUM Business' }, { workspace_id: 'ws_tyre', name: 'Example Tyre Business' }] };
+      excluded: [], limit: 20, available: [{ workspace_id: 'ws_anum', name: 'Example ANUM Business' }] };
+  }
+  const chosen = url.searchParams.getAll('workspace');
+  const many = state.group === 'many' && !chosen.length;
+  if (state.group === 'many') {
+    businesses.push({ workspace_id: 'ws_parts', name: 'Example Parts Business', base_currency: 'SAR', notes: [] });
+    if (chosen.length) businesses.splice(0, businesses.length, ...[...businesses, { workspace_id: 'ws_store', name: 'Example Store Business', base_currency: 'SAR', notes: [] }]
+      .filter((item) => chosen.includes(item.workspace_id)));
   }
   const row = (key: string, a: string, b: string, elim: string, total: string) => ({ key, businesses: { ws_anum: a, ws_tyre: b }, eliminations: elim, total });
   return {
-    enough: true, businesses, skipped: [], available: businesses.map((item) => ({ workspace_id: item.workspace_id, name: item.name })),
+    enough: true, businesses, skipped: [], limit: state.group === 'many' ? 3 : 20,
+    excluded: many ? [{ workspace_id: 'ws_store', name: 'Example Store Business', reason: 'limit' }] : [],
+    available: state.group === 'many' ? ['ws_anum', 'ws_tyre', 'ws_parts', 'ws_store'].map((id) => ({ workspace_id: id, name: { ws_anum: 'Example ANUM Business', ws_tyre: 'Example Tyre Business', ws_parts: 'Example Parts Business', ws_store: 'Example Store Business' }[id]! }))
+      : businesses.map((item) => ({ workspace_id: item.workspace_id, name: item.name })),
     period: { from: url.searchParams.get('from') ?? '2026-01-01', to: url.searchParams.get('to') ?? '2026-12-31', basis: url.searchParams.get('basis') ?? 'accrual' },
     currency: url.searchParams.get('currency') ?? 'SAR', as_of: '2026-12-31',
     pnl: [row('revenue', '19900.00', '8000.00', '0.00', '27900.00'), row('cost_of_sales', '4500.00', '2000.00', '0.00', '6500.00'),
