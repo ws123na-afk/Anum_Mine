@@ -110,7 +110,7 @@ export const GATE_PAGES: GatePage[] = [
   { hash: 'vault', view: 'vault', mock: vault, ready: '.vaultNextList li' },
   { hash: 'vault-documents', view: 'vault', mock: vault, ready: '.vaultTable tbody tr' },
   { hash: 'vault-review', view: 'vault', mock: vault, ready: '.vaultReviewCard input' },
-  { hash: 'vault-trash', view: 'vault', mock: vault, ready: '.vaultTrashRow' },
+  { hash: 'vault-trash', view: 'vault', mock: vault, ready: '.vaultTrashRow, .vaultEmpty' },
   { hash: 'vault-categories', view: 'vault', mock: vault, ready: '.vaultCatList li' },
   { hash: 'vault-access', view: 'vault', mock: vault, ready: '.vaultDevices form' },
   { hash: 'vault-settings', view: 'vault', mock: vault, ready: '.vaultSettings form input' },
