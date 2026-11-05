@@ -1,0 +1,68 @@
+# PDF bank statements
+
+The owner uploads the PDF statement their bank gives them (current account or credit card, UAE or Saudi, English, Arabic or both) on Finance, Import. ANUM reads it in memory, shows every row with the checks it ran, lets the owner fix what it misread, and records the rows through the same path as a CSV import ([Finance, statement import](finance.md#csv-import)): duplicates are skipped, payments already recorded from an SMS or Apple Pay are attached instead of added ([Reconciliation on import](finance-sms.md#reconciliation-on-import)), and the import can be undone.
+
+Code: `services/api/anum_api/finance/statement_pdf/` (the reader), `finance/pdf_api.py` (routes), `finance/pdf_templates.py` and `db/pdf_template_repository.py` (taught layouts, migration `0139_finance_pdf_templates`); web `apps/web/src/FinancePdfImport.tsx`, `src/lib/financePdf.ts`; contracts `packages/contracts/src/finance.ts` (`FinancePdfStatement`).
+
+**No bank's layout is built in or verified.** The repository holds no real statements and none may be committed. The reader is generic; the owner checked it locally against two real statements (a Saudi credit card statement and a Saudi current account statement, 5 November 2026: every row read, every check passed), and the committed tests use generated statements that mimic those layouts with invented values. The owner's first statements from other banks validate it further, and a corrected mapping is kept as a [template](#templates).
+
+## How a statement travels
+
+1. **Upload.** `POST /api/v1/finance/imports/pdf/read?account_id=...` with the PDF as the body (up to 10 MB and 60 pages; a scan up to 20 pages). A password, when the bank protected the file, goes in the `X-Statement-Password` header, never the URL. It opens the file in memory and is dropped with the request: never stored, logged, audited or echoed (the telemetry exporter redacts any header with `password` in its name). Without it the answer is 422 `pdf_password_required`; a wrong one 422 `pdf_password_wrong`.
+2. **Read** ([the reader](#the-reader)), off the event loop. Nothing is saved: the answer has the rows, the period, the account's last four digits (never more of the number), the statement facts and every check.
+3. **Review** on the web: the owner checks the rows against the PDF, fixes a date, description or amount, unticks a row to leave it out, says what a column holds and reads again, picks another account. The balance check follows every edit.
+4. **Import.** `POST /api/v1/finance/imports/pdf` with the reviewed rows. The server checks the balances again: rows that do not add up are refused (422 `pdf_balance_mismatch`) unless the owner ticked "import anyway" (`accept_mismatch`). The rows then take the CSV import's path (`api.record_import`): one dedupe hash for both formats, so a PDF and a CSV of the same statement never double count.
+5. **Keep the file?** Only if the owner ticks "Also keep this PDF in my Document vault"; the web then uploads it as a private `bank_statement` document. Otherwise ANUM keeps nothing of the file.
+
+Both routes need `finance:manage`; the account must be the caller's own. Audit rows hold ids and codes only (`finance.import.pdf_read` with the outcome, source, page and row counts, check status and layout; `finance.import.create` with counts), never amounts, text or the password.
+
+## The reader
+
+Five layers, each a module with its own tests (`tests/test_statement_pdf_engine.py`, `tests/test_finance_pdf_statements.py`).
+
+### Extraction
+
+`extract.py`. The file is checked and opened with pypdf (caps, password). For a text PDF, pdfminer.six (MIT, pure Python) gives every character's box. Characters are turned into the page's reading orientation from the text direction in their own matrix, so a page stored sideways or with `/Rotate` reads upright; characters drawn at another angle (a watermark) are left out. Characters group into lines by their vertical middle and into words at spaces and gaps. Arabic is drawn right to left with presentation forms: each word is put back in reading order and folded with NFKC, and the words of an Arabic run reverse while Latin words and numbers inside it keep their order (`words.reorder_rtl`). pdfminer's own debug log (which would print page text) is silenced.
+
+A PDF with almost no text is a scan: its page images go to OCR. A text PDF's page that is only a picture (a scanned page inside it, or a bank's printed example) is also sent to OCR when OCR is connected, and otherwise listed as unread.
+
+### Scanned pages
+
+`ocr.py`. The document vault's OCR service (local Tesseract, English and Arabic, [Documents](documents.md#scanning-and-extraction)) now answers each word's box (`left`, `top`, `width`, `height`, confidence) next to its lines, so a scan goes through the same geometry. An older OCR service without boxes still works: each line is read with the line rules (the last amount is the balance when there are two). Without OCR the answer is 503 `pdf_ocr_unavailable` with the reason.
+
+### Columns and rows
+
+`columns.py` and `engine.py`.
+
+- **Header.** Lines whose words name columns, in English and Arabic: date, description, debit, credit, amount, balance, reference, currency, and on card statements the international (foreign) amount, conversion rate, other fees and VAT. Stacked header lines (an Arabic label above its English one, "Transaction" above "Date") merge where they overlap horizontally. Of every header-like block, the one with the most transaction lines under it wins, so a block of account facts with a date and an amount above the table is not taken for it. The header may repeat on every page; each page uses its own positions with the same roles.
+- **No header.** Columns come from the content: the right edges of every row's amounts cluster into money columns, and the reader tests which reading (debit, credit, balance; or signed amount and balance) makes the running balance agree.
+- **Rows** are rebuilt around their date line (a date where the date column is, with money). Every other line in the table joins the row whose date line is nearest: a description wrapped onto the next line, a transaction type printed above the date, amounts printed a few points off the date's baseline. A line above a date line joins it only when it is closer than about half a row's height, so a title or a card holder band does not. This is what line-by-line text extraction gets wrong on real statements; the running balance check catches any row that is still misassembled.
+- **Skipped**, never rows: page headers and footers, "page n of m", "CLICK TO VALIDATE", reference numbers, address blocks, the closing confidentiality note, totals, balances brought or carried forward (kept for the checks), the statement period, a card holder band (its masked card number gives the last four digits). A page of bank examples ("Illustrative Example", "مثال توضيحي", terms and conditions) is skipped whole, and so are rows dated more than about two months outside the statement period; the preview lists each skipped page and why.
+- **Details.** A description in `<type>Time:HH:MM:SS**Note:<details>` form splits into the type, the time and the other party. A charge row ("... Transaction Charges", "... Markup") with the same date and time (or reference) as the row before it is linked to it (`parent_line`); both still post their own amounts, so the balance holds. Card statements keep each row's original amount and currency, rate, fee and VAT; the amount in the account's currency is what is recorded. Long numbers in descriptions are cut to `***` and their last four digits.
+
+### Dates and amounts
+
+`dates.py`, `amounts.py`. A statement uses one date layout, so the order is decided once from all of its dates: one "13/01" settles day first; when every date fits both, day first wins (the Gulf convention) and the preview says so. Read: `/`, `-`, `.` and space separators, year first (`2026/05/10`), two or four digit years, English and Arabic month names, dates without a year (the period gives it, also across December and January), Hijri dates (a year from 1300 to 1500 or a Hijri month name; converted with the tabular calendar, which can differ from Umm al-Qura by a day, so such rows are marked for checking). Amounts: either decimal mark, thousands separators, a minus before or after, brackets, `CR`/`DR` and دائن/مدين, a currency code beside the number, Arabic-Indic digits; a token is money only with the currency's decimal places, so references and dates are not read as amounts.
+
+### Signs, confidence and checks
+
+- **Signs**: debit and credit columns; an explicit minus, brackets or CR/DR; otherwise the running balance (previous balance plus or minus the amount must give the printed balance). When debit and credit are read the wrong way round and only the swapped reading makes every printed balance agree, they are swapped and the preview says so. On a card statement rows are charges unless marked as a payment or refund.
+- **Statement type.** A credit card statement (by its words, or a "Total Amount Due" without a closing balance) has no running balance: previous balance plus charges less payments must equal the total amount due. A current account is checked by its running balance.
+- **Checks**: opening balance plus every row equals the closing balance; every printed balance follows from the row before, in document order (rows inside a day are never re-sorted); a page's balance brought forward equals the previous page's last balance; and the statement's own facts, read beside or under their labels (`meta.py`): number and total of deposits and withdrawals, previous balance and amount due, statement date and payment due date. A check that fails marks the statement `mismatch` with the reason, and the rows or pages involved.
+- **Confidence** per row from 0 to 1: OCR word confidence, a guessed sign, a printed balance that does not follow, a Hijri date, columns found from the content, an ambiguous date order. Below 0.6 the row is marked `low_confidence`.
+
+Nothing that fails a check is imported silently: the preview shows it and the import needs the owner's "import anyway".
+
+## Templates
+
+When the owner corrects the column mapping or the date format and imports with "Remember this layout", ANUM keeps the mapping against the layout's fingerprint: a hash of the header words and where the columns sit (in 5 % steps of the page width), nothing personal. The next statement with the same fingerprint is read with it (`template_id` in the answer). Templates are the owner's own: `finance_statement_templates` is under forced RLS with an owner-only policy, like the SMS rules. `GET /api/v1/finance/imports/pdf/templates` lists them and `DELETE /api/v1/finance/imports/pdf/templates/{id}` forgets one; Finance, Import shows them with a delete button. At most 100 per person.
+
+## Reconciliation with SMS
+
+Statement rows go through `sms_service.reconcile_rows` like CSV rows. A PDF row also carries its bank reference (an agreeing reference confirms a match and a conflicting one rules it out) and its printed time: when the day alone leaves more than one recorded payment, the one within the precise time window is picked. The time never turns a day match into a new transaction.
+
+## Not built (stated plainly)
+
+- Asking a model to propose a column mapping when confidence is low. The reader's checks already decide between readings; a model's mapping would need the same checks and the owner's review, and no local model is wired to Finance. Left out.
+- Bank-specific templates shipped with ANUM: none, by design (no real statements to verify them).
+- A Flutter screen for PDF statements: the app points to the web for imports.

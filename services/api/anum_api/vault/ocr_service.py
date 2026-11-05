@@ -103,8 +103,9 @@ def prepare_image(data: bytes) -> bytes:
 
 
 def lines_from_tsv(tsv: str) -> list[dict[str, Any]]:
-    """Tesseract TSV to lines with their mean word confidence (0 to 100)."""
-    lines: dict[tuple[str, str, str, str], list[tuple[str, float]]] = {}
+    """Tesseract TSV to lines with their mean word confidence (0 to 100) and their words' boxes
+    (pixels: ``left``, ``top``, ``width``, ``height``), which the statement reader lays out by position."""
+    lines: dict[tuple[str, str, str, str], list[tuple[str, float, tuple[int, int, int, int]]]] = {}
     order: list[tuple[str, str, str, str]] = []
     for row in tsv.splitlines()[1:]:
         parts = row.split("\t")
@@ -115,17 +116,23 @@ def lines_from_tsv(tsv: str) -> list[dict[str, Any]]:
             continue
         try:
             confidence = float(parts[10])
+            box = (int(parts[6]), int(parts[7]), int(parts[8]), int(parts[9]))
         except ValueError:
             continue
         key = (parts[1], parts[2], parts[3], parts[4])
         if key not in lines:
             lines[key] = []
             order.append(key)
-        lines[key].append((word, max(0.0, confidence)))
+        lines[key].append((word, max(0.0, confidence), box))
     out = []
     for key in order:
         words = lines[key]
-        out.append({"text": " ".join(word for word, _ in words)[:500], "confidence": round(sum(c for _, c in words) / len(words), 1)})
+        out.append({
+            "text": " ".join(word for word, _, _ in words)[:500],
+            "confidence": round(sum(c for _, c, _ in words) / len(words), 1),
+            "words": [{"text": word[:120], "confidence": round(c, 1), "left": b[0], "top": b[1], "width": b[2], "height": b[3]}
+                      for word, c, b in words[:80]],
+        })
     return out[:400]
 
 

@@ -57,6 +57,9 @@ from .store import Summary, open_vault_unit
 
 logger = logging.getLogger("anum_api.vault")
 
+# The stand-in for a Settings, Integrations, iPhone token: it has no vault device row of its own.
+_SHARED_DEVICE = "-"
+
 router = APIRouter(prefix="/api/v1/documents", tags=["documents"])
 
 READ_DENIED = "The document vault needs a member or owner role in this workspace. Viewers do not see documents. Ask a workspace owner."
@@ -442,7 +445,7 @@ def _device_context(authorization: str | None) -> tuple[TenantContext, DeviceRec
         raise DeviceRefused(exc.status_code, str(exc.detail), getattr(exc, "code", "refused"), getattr(exc, "retry_after", None)) from None
     if principal is not None:
         return principal.context, DeviceRecord(id=principal.device_id or "shared", owner_user_id=principal.context.user_id, name="iPhone",
-                                               token_hash="-", hint="-", created_at=utc_now())
+                                               token_hash=_SHARED_DEVICE, hint="-", created_at=utc_now())
     parsed = parse_token(authorization.split(" ", 1)[1])
     if parsed is None:
         raise DeviceRefused(401, "This device token is not valid.", "invalid_token")
@@ -472,7 +475,7 @@ def _device_seen(context: TenantContext, device_id: str, *, error: str | None, u
 
 def _shared_failed(context: TenantContext, device: DeviceRecord, code: str) -> None:
     """A Settings, Integrations, iPhone token's failed upload shows under the integration's failed events."""
-    if device.token_hash == "-":
+    if device.token_hash == _SHARED_DEVICE:
         from ..finance.devices import report_failure
 
         report_failure(context, device.id, SCOPE, code)

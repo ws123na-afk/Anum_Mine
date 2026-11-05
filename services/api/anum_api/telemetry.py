@@ -64,7 +64,7 @@ _REDACTED_KEYS = frozenset(
         "http.client_ip",
     }
 )
-_SECRET_HEADER_FRAGMENTS = ("authorization", "cookie", "api-key", "api_key", "token", "secret")
+_SECRET_HEADER_FRAGMENTS = ("authorization", "cookie", "api-key", "api_key", "token", "secret", "password")
 
 
 # --------------------------------------------------------------------------- outbox gauges
