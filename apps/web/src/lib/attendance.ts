@@ -6,14 +6,18 @@ import type {
 } from '@anum/contracts';
 import { formatNumber, t, type MessageKey } from './i18n.ts';
 
-export const ATTENDANCE_TABS = ['today', 'reports', 'daily', 'corrections', 'settings'] as const;
+export const ATTENDANCE_TABS = ['team', 'timesheet', 'daily', 'corrections', 'settings'] as const;
 export type AttendanceTab = typeof ATTENDANCE_TABS[number];
+
+/** Links made before the redesign keep working: Today and Reports are both in My timesheet now. */
+const LEGACY_TABS: Record<string, AttendanceTab> = { today: 'timesheet', reports: 'timesheet' };
 
 export function tabFromHash(hash: string): AttendanceTab {
   const id = hash.replace(/^#attendance-?/, '');
-  return (ATTENDANCE_TABS as readonly string[]).includes(id) ? id as AttendanceTab : 'today';
+  if ((ATTENDANCE_TABS as readonly string[]).includes(id)) return id as AttendanceTab;
+  return LEGACY_TABS[id] ?? 'team';
 }
-export const hashForTab = (tab: AttendanceTab): string => (tab === 'today' ? '#attendance' : `#attendance-${tab}`);
+export const hashForTab = (tab: AttendanceTab): string => (tab === 'team' ? '#attendance' : `#attendance-${tab}`);
 
 /** "7 h 30 min", "45 min", "0 min"; "-" for no value. Never rounds a part day up to an hour. */
 export function hours(seconds: number | null | undefined): string {
