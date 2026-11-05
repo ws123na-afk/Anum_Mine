@@ -13,7 +13,7 @@ import type {
 import { BOOKS_ADJUSTMENT_KINDS, BOOKS_BILL_FILTERS } from '@anum/contracts';
 import * as api from './lib/businessBooksApi';
 import {
-  BOOKS_PAGE, BOOKS_TABS, PERIOD_PRESETS, adjustmentLabel, basisLabel, billFilterLabel, booksTabFromId, booksTabLabel, isNegative, lineLabel, money,
+  BOOKS_PAGE, BOOKS_TABS, OWNER_TABS, PERIOD_PRESETS, adjustmentLabel, basisLabel, billFilterLabel, booksTabFromId, booksTabLabel, isNegative, lineLabel, money,
   moneyList, paymentStateLabel, paymentStateTone, pct, presetPeriod, reportIsEmpty, sectionLabel, statementRows, type BooksTab, type PeriodPreset,
 } from './lib/businessBooks';
 import { describeError, isPermissionDenied } from './lib/errors';
@@ -26,6 +26,7 @@ import { ListState, usePaged } from './BusinessDeals';
 import {
   AdjustmentDialog, BillDialog, BillDrawer, BudgetDialog, IntercompanyDialog, SettingsSection, TagDialog, VendorDialog,
 } from './BusinessBooksForms';
+import { GroupSection, RateFeedCard, Recurring, Upcoming } from './BusinessBooksMore';
 import './businessBooks.css';
 
 type SetupLoad = { kind: 'loading' } | { kind: 'ready'; setup: BooksSetup } | { kind: 'denied'; text: string } | { kind: 'error'; text: string };
@@ -46,19 +47,21 @@ export function BooksTab({ section, onSection }: { section: string | null; onSec
   const setup = load.setup;
   const ready = Boolean(setup.settings);
   return <section className="bzSection bkBooks" aria-label={t('biz.tab.books')}>
-    <nav className="bkNav" aria-label={t('books.sections')}>{BOOKS_TABS.map((item) => <button key={item} type="button" className="secondary"
-      aria-current={tab === item ? 'page' : undefined} onClick={() => onSection(item)}>{booksTabLabel(item)}</button>)}</nav>
+    <nav className="bkNav" aria-label={t('books.sections')}>{BOOKS_TABS.filter((item) => setup.permissions.manage || !OWNER_TABS.includes(item)).map((item) =>
+      <button key={item} type="button" className="secondary" aria-current={tab === item ? 'page' : undefined} onClick={() => onSection(item)}>{booksTabLabel(item)}</button>)}</nav>
     <p className="muted bzHint">{t('books.noPosting')}</p>
     {!ready && tab !== 'settings' && <Empty title={t('books.setupTitle')} text={setup.permissions.manage ? t('books.setupText') : t('books.setupMember')}
       action={setup.permissions.manage ? <button type="button" onClick={() => onSection('settings')}>{t('books.setupAction')}</button> : undefined} />}
     {ready && tab === 'overview' && <Overview setup={setup} onSection={onSection} />}
+    {ready && tab === 'group' && (setup.permissions.manage ? <GroupSection setup={setup} /> : <Denied text={t('books.group.ownersOnly')} />)}
     {ready && tab === 'bills' && <Bills setup={setup} />}
+    {ready && tab === 'recurring' && <Recurring setup={setup} />}
     {ready && tab === 'vendors' && <Vendors setup={setup} />}
     {ready && tab === 'allocations' && <Allocations setup={setup} />}
     {ready && tab === 'budgets' && <Budgets setup={setup} />}
     {ready && tab === 'journal' && <Journal setup={setup} />}
     {ready && tab === 'intercompany' && <Intercompany setup={setup} />}
-    {tab === 'settings' && <SettingsSection setup={setup} onSaved={() => void reload()} />}
+    {tab === 'settings' && <SettingsSection setup={setup} onSaved={() => void reload()} extra={ready ? <RateFeedCard setup={setup} /> : null} />}
   </section>;
 }
 
@@ -199,9 +202,12 @@ function ReportBody({ report, setup, period }: { report: BooksReport; setup: Boo
 
     <section className="surface bzCard" aria-labelledby="bk-recurring"><h2 id="bk-recurring">{t('books.recurring.title')}</h2>
       {report.recurring.items.length === 0 ? <p className="muted">{t('books.recurring.none')}</p> : <>
-        <ul className="bkList">{report.recurring.items.slice(0, 12).map((row) => <li key={row.bill_id}><span dir="auto">{row.vendor_name} <small>{lineLabel(row.category)}</small></span>
-          <span>{t('books.recurring.perMonth', { amount: money(row.per_month, row.currency) })}</span></li>)}</ul>
+        <ul className="bkList">{report.recurring.items.slice(0, 12).map((row) => <li key={row.template_id ?? row.bill_id}><span dir="auto">{row.vendor_name} <small>{lineLabel(row.category)}</small>
+          {row.status === 'paused' && <small>{t('books.rec.status.paused')}</small>}</span>
+          <span>{t('books.recurring.perMonth', { amount: money(row.per_month, row.currency) })}{row.next_date && <small>{t('books.rec.nextOn', { day: dayText(row.next_date) })}</small>}</span></li>)}</ul>
         <p className="bzHint"><strong>{t('books.recurring.total', { amount: moneyList(report.recurring.per_month) })}</strong></p></>}
+      <h3 className="bkSub">{t('books.rec.upcomingTitle')}</h3>
+      <Upcoming items={report.recurring.upcoming ?? []} limit={5} />
     </section>
 
     <section className="surface bzCard bkWide" aria-labelledby="bk-rates"><h2 id="bk-rates">{t('books.rates.used')}</h2>
@@ -308,7 +314,8 @@ function Bills({ setup }: { setup: BooksSetup }) {
         <tbody>{list.items.map((bill: BooksBill) => <tr key={bill.id} className={bill.id === openId ? 'selected' : undefined}>
           <th scope="row"><button type="button" className="linkButton" onClick={() => setOpenId(bill.id)}><span dir="auto">{bill.vendor_name}</span></button>
             <small dir="auto">{bill.reference ? `${bill.reference}, ` : ''}{bill.description}</small></th>
-          <td><Badge tone={paymentStateTone(bill.payment_state, bill.overdue)}>{paymentStateLabel(bill.payment_state)}</Badge>{bill.overdue && <> <Badge tone="dangerTone">{t('books.daysLate', { days: bill.days_overdue })}</Badge></>}</td>
+          <td><Badge tone={paymentStateTone(bill.payment_state, bill.overdue)}>{paymentStateLabel(bill.payment_state)}</Badge>{bill.overdue && <> <Badge tone="dangerTone">{t('books.daysLate', { days: bill.days_overdue })}</Badge></>}
+            {bill.template_id && <> <Badge tone="neutral">{t('books.rec.badge')}</Badge></>}</td>
           <td className="num">{money(bill.total, bill.currency)}</td><td className="num">{bill.status === 'void' ? '-' : money(bill.balance, bill.currency)}</td>
           <td className="bzHideMd nowrap">{dayText(bill.due_date)}</td></tr>)}</tbody></table></div>
       <Pager shown={list.items.length} total={list.total} busy={list.more.busy} error={list.more.error} onMore={() => void list.loadMore()} />

@@ -31,7 +31,7 @@ from .books_models import (
     Section,
 )
 from .books_report import Inputs
-from .books_store import MAX_SCAN, BooksStore, open_books_store
+from .books_store import MAX_SCAN, AtLeast, BooksStore, open_books_store
 
 CATEGORY = re.compile(r"^[a-z][a-z0-9_]{0,39}$")
 SAFE_ID = re.compile(r"^[A-Za-z0-9_.:-]{1,80}$")
@@ -178,6 +178,8 @@ def paid_amount(payments: list[BillPayment]) -> Decimal:
 def payment_state(bill: Bill, paid: Decimal) -> str:
     if bill.status == BillStatus.VOID:
         return "void"
+    if bill.status == BillStatus.DRAFT:
+        return "draft"
     if paid <= 0:
         return "unpaid"
     return "paid" if paid >= bill.total else "partly_paid"
@@ -249,6 +251,8 @@ def pay_bill(context: TenantContext, store: BooksStore, bill_id: str, *, kind: P
             return earlier, True
     if bill.status == BillStatus.VOID:
         raise BooksError(409, "This bill is void.", "bill_void")
+    if bill.status == BillStatus.DRAFT:
+        raise BooksError(409, "This bill is a draft. Approve it first, then record its payment.", "bill_draft")
     allocations = allocations_by_id(context)
     holding = live_payments(store, bill.id, set(allocations))
     if len(holding) >= MAX_LIVE_PAYMENTS:
@@ -403,8 +407,14 @@ def intercompany_pair(context: TenantContext, payload: dict[str, Any], other_nam
 # -- the report's inputs ------------------------------------------------------------------------------------
 
 
-def gather(context: TenantContext) -> Inputs:
-    """Every record one business's figures are made from: three short reads, no transaction held across them."""
+RATE_SCAN = 20_000  # automatic rates add a few rows a business day, so rates have their own, larger window
+
+
+def gather(context: TenantContext, rates_since: date | None = None) -> Inputs:
+    """Every record one business's figures are made from: three short reads, no transaction held across them.
+
+    ``rates_since``: read only the exchange rates dated on or after this day (a report needs the rates of its own
+    period and a margin before it; automatic rates grow by a few rows every business day)."""
     from .invoice_models import InvoiceStatus
     from .store import Query, open_business_store
 
@@ -412,11 +422,14 @@ def gather(context: TenantContext) -> Inputs:
     with open_books_store(context) as store:
         settings = settings_or_409(store)
         found: dict[str, list[Any]] = {}
-        for kind in ("bills", "bill_payments", "adjustments", "intercompany", "budgets", "rates", "allocation_tags", "vendors", "cost_centres"):
+        for kind in ("bills", "bill_payments", "adjustments", "intercompany", "budgets", "allocation_tags", "vendors", "cost_centres", "templates"):
             # Voided bill payments never count, so they are not read (and never crowd out the ones that do).
             rows, total = store.find(kind, where={"voided_at": None} if kind == "bill_payments" else None, limit=MAX_SCAN)
             truncated = truncated or total > MAX_SCAN
             found[kind] = rows
+        rows, total = store.find("rates", where={"as_of": AtLeast(rates_since)} if rates_since else None, order_by="as_of", limit=RATE_SCAN)
+        truncated = truncated or total > RATE_SCAN
+        found["rates"] = rows
     with open_business_store(context) as business:
         invoices, total = business.find("invoices", Query(where={"status": {InvoiceStatus.SENT, InvoiceStatus.PAID}}, order_by="created_at", limit=MAX_SCAN))
         truncated = truncated or total > MAX_SCAN
@@ -433,7 +446,8 @@ def gather(context: TenantContext) -> Inputs:
         tags={tag.allocation_id: tag for tag in found["allocation_tags"]}, bills=found["bills"], bill_payments=found["bill_payments"],
         adjustments=found["adjustments"], intercompany=found["intercompany"], budgets=found["budgets"], rates=found["rates"],
         projects={p.id: (p.name, p.account_id) for p in projects}, accounts={a.id: a.name for a in accounts},
-        vendors={v.id: v.name for v in found["vendors"]}, cost_centres={c.id: f"{c.code} {c.name}" for c in found["cost_centres"]}, truncated=truncated,
+        vendors={v.id: v.name for v in found["vendors"]}, cost_centres={c.id: f"{c.code} {c.name}" for c in found["cost_centres"]},
+        templates=found["templates"], truncated=truncated,
     )
 
 

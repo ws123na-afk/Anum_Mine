@@ -21,7 +21,7 @@ import csv
 import functools
 import io
 from collections.abc import Callable
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from typing import Any, Literal
 
@@ -52,6 +52,7 @@ from .books_models import (
     PaymentKind,
     PaymentMethod,
     Rate,
+    RateOrigin,
     Recurrence,
     Section,
     Vendor,
@@ -374,6 +375,10 @@ class VoidInput(BaseModel):
     reason: str = Field(min_length=3, max_length=300)
 
 
+class VersionInput(BaseModel):
+    version: int
+
+
 def bill_view(context: TenantContext, bill: Bill, payments: list[Any], live: set[str], vendors: dict[str, str], today: date,
               *, detail: bool = False, holding: set[str] | None = None) -> dict[str, Any]:
     """``live``: active allocation rows (what counts as paid); ``holding``: every allocation row that still exists (an
@@ -384,13 +389,15 @@ def bill_view(context: TenantContext, bill: Bill, payments: list[Any], live: set
     balance = bill.total - paid if bill.status == BillStatus.OPEN else Decimal(0)
     state = S.payment_state(bill, paid)
     data = dump(bill)
+    live_bill = bill.status in (BillStatus.OPEN, BillStatus.DRAFT)
     data.update({
         "vendor_name": vendors.get(bill.vendor_id, ""), "amount_paid": str(paid), "balance": str(balance), "payment_state": state,
         "overdue": state in ("unpaid", "partly_paid") and bill.due_date < today, "days_overdue": max(0, (today - bill.due_date).days) if state in ("unpaid", "partly_paid") else 0,
-        "can": {"edit": has_permission(context, Permission.BUSINESS_WRITE) and bill.status == BillStatus.OPEN,
-                "edit_money": not held and bill.status == BillStatus.OPEN,
+        "can": {"edit": has_permission(context, Permission.BUSINESS_WRITE) and live_bill,
+                "edit_money": not held and live_bill,
                 "pay": has_permission(context, Permission.BUSINESS_WRITE) and state in ("unpaid", "partly_paid"),
-                "void": has_permission(context, Permission.BUSINESS_MANAGE) and bill.status == BillStatus.OPEN and not [p for p in payments if p.voided_at is None]},
+                "approve": has_permission(context, Permission.BUSINESS_WRITE) and bill.status == BillStatus.DRAFT,
+                "void": has_permission(context, Permission.BUSINESS_MANAGE) and live_bill and not [p for p in payments if p.voided_at is None]},
     })
     if detail:
         data["payments"] = [{**dump(p), "counts": p in counted, "allocation_removed": p.kind == PaymentKind.ALLOCATION and p.allocation_id not in live
@@ -403,7 +410,7 @@ def _vendor_names(store: BooksStore) -> dict[str, str]:
     return {row.id: row.name for row in rows}
 
 
-BILL_FILTERS = ("unpaid", "partly_paid", "paid", "void", "overdue", "open", "recurring")
+BILL_FILTERS = ("unpaid", "partly_paid", "paid", "void", "overdue", "open", "recurring", "draft")
 
 
 @router.get("/bills")
@@ -451,7 +458,7 @@ def _bills_filtered(context: TenantContext, q: str | None, status_filter: str | 
     elif status_filter == "open":
         views = [v for v in views if v["payment_state"] in ("unpaid", "partly_paid")]
     elif status_filter == "recurring":
-        views = [v for v in views if v["recurrence"] and v["status"] == "open"]
+        views = [v for v in views if (v["recurrence"] or v["template_id"]) and v["status"] != "void"]
     elif status_filter is not None:
         views = [v for v in views if v["payment_state"] == status_filter]
     summary = {"open": [{"currency": c, "amount": str(a)} for c, a in sorted(open_balance.items())],
@@ -522,6 +529,25 @@ def update_bill(bill_id: str, payload: BillUpdate, context: TenantContext = Depe
     return _bill_detail(context, bill_id)
 
 
+@router.post("/bills/{bill_id}/approve")
+@refusals
+def approve_bill(bill_id: str, payload: VersionInput, context: TenantContext = Depends(tenant_context),
+                 repository: AnumRepository = Depends(repository_context)) -> Any:
+    """A draft bill (made by a recurring bill set to drafts) becomes a normal open bill: it counts from now on."""
+    _write(context)
+    with open_books_store(context) as store:
+        current = _found(store, "bills", bill_id, "Bill", for_update=True)
+        if current.version != payload.version:
+            raise _stale()
+        if current.status != BillStatus.DRAFT:
+            raise S.BooksError(409, "Only a draft bill is approved.", "not_draft")
+        item = current.model_copy(update={"status": BillStatus.OPEN, "version": current.version + 1, "updated_at": utc_now()})
+        if not store.save("bills", item, expected_version=current.version):
+            raise _stale()
+    _audit(repository, context, "bill_approved", bill_id)
+    return _bill_detail(context, bill_id)
+
+
 @router.post("/bills/{bill_id}/void")
 @refusals
 def void_bill(bill_id: str, payload: VoidInput, context: TenantContext = Depends(tenant_context),
@@ -530,7 +556,7 @@ def void_bill(bill_id: str, payload: VoidInput, context: TenantContext = Depends
     with open_books_store(context) as store:
         current = _found(store, "bills", bill_id, "Bill", for_update=True)
         if current.status == BillStatus.VOID:
-            raise S.BooksError(409, "This bill is already void.", "bill_void")
+            raise S.BooksError(409, "This bill is already void.", "bill_void")  # a draft may be voided: it was never counted
         if S.live_payments(store, current.id, None):  # every payment not voided, an allocation in review included
             raise S.BooksError(409, "Void this bill's payments first.", "has_payments")
         now = utc_now()
@@ -761,11 +787,12 @@ class RateInput(BaseModel):
 
 @router.get("/rates")
 @refusals
-def list_rates(limit: int = Query(default=50, ge=1, le=MAX_PAGE), offset: int = Query(default=0, ge=0),
+def list_rates(limit: int = Query(default=50, ge=1, le=MAX_PAGE), offset: int = Query(default=0, ge=0), origin: RateOrigin | None = None,
                context: TenantContext = Depends(tenant_context)) -> Any:
+    """Newest first; ``origin`` keeps the rates typed by owners (``manual``) or fetched from the ECB (``ecb``)."""
     _read(context)
     with open_books_store(context) as store:
-        rows, total = store.find("rates", order_by="as_of", limit=limit, offset=offset)
+        rows, total = store.find("rates", where={"origin": origin.value} if origin else None, order_by="as_of", limit=limit, offset=offset)
     return _page([dump(r) for r in rows], total, limit, offset)
 
 
@@ -786,10 +813,16 @@ def create_rate(payload: RateInput, context: TenantContext = Depends(tenant_cont
         raise S.BooksError(422, "Say where the rate comes from, for example the central bank and the day.", "source_required")
     S.not_future(payload.as_of, _today(), "rate date")
     item = Rate(id=new_id("brate"), tenant_id=context.tenant_id, workspace_id=context.workspace_id, created_at=utc_now(), base=base, quote=quote,
-                rate=value, as_of=payload.as_of, source=source, created_by=context.user_id)
+                rate=value, as_of=payload.as_of, source=source, created_by=context.user_id, origin=RateOrigin.MANUAL)
+    replaced = None
     with open_books_store(context) as store:
+        # A rate typed by an owner always wins: a fetched (ECB) rate for the same pair and day makes way for it.
+        fetched = store.first("rates", base=base, quote=quote, as_of=payload.as_of, origin=RateOrigin.ECB.value)
+        if fetched is not None:
+            store.delete("rates", fetched.id)
+            replaced = fetched.id
         store.add("rates", item)
-    _audit(repository, context, "rate_recorded", item.id, {"pair": f"{base}{quote}"})
+    _audit(repository, context, "rate_recorded", item.id, {"pair": f"{base}{quote}", **({"replaced": replaced} if replaced else {})})
     return dump(item)
 
 
@@ -960,8 +993,16 @@ def _period(store_settings: BookSettings, start: date | None, end: date | None) 
     return start, end
 
 
+def rates_since(start: date | None, end: date | None) -> date:
+    """The oldest rate a report can use: three years before the trend, the budgets and the period start (a payment's
+    exchange difference looks back to its invoice's date)."""
+    first = start or (_today() - timedelta(days=MAX_SPAN_DAYS))
+    last = end or _today()
+    return min(first, last - timedelta(days=366)) - timedelta(days=MAX_SPAN_DAYS)
+
+
 def _report(context: TenantContext, start: date | None, end: date | None, basis: Basis | None) -> dict[str, Any]:
-    inputs = S.gather(context)
+    inputs = S.gather(context, rates_since(start, end))
     first, last = _period(inputs.settings, start, end)
     return R.report(inputs, first, last, basis or inputs.settings.basis, inputs.cost_centres, _today())
 
@@ -1017,7 +1058,7 @@ def list_projects(limit: int = Query(default=25, ge=1, le=100), offset: int = Qu
     from .store import Query as BusinessQuery
     from .store import open_business_store
 
-    inputs = S.gather(context)
+    inputs = S.gather(context, rates_since(start, end))
     first, last = _period(inputs.settings, start, end)
     data = R.report(inputs, first, last, inputs.settings.basis)
     figures = {row["id"]: row for row in data["projects"]}

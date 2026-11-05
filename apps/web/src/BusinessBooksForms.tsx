@@ -2,7 +2,7 @@
 // bills and their payments (by hand, or with an allocation a member made from their own Finance ledger), how an
 // allocation is counted, budgets, journal adjustments and intercompany entries. Each form checks what it can before
 // sending; the server checks everything again and its refusal is shown as it says it.
-import { useCallback, useEffect, useId, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useId, useState, type FormEvent, type ReactNode } from 'react';
 import { Plus, Trash2 } from 'lucide-react';
 import type {
   BooksAdjustmentInput, BooksAdjustmentKind, BooksAllocation, BooksBasis, BooksBill, BooksBudget, BooksBudgetInput, BooksCostCentre, BooksCounterparty,
@@ -25,29 +25,29 @@ import { Badge, Note, ReasonDialog, day, failure } from './BusinessParts';
 const label = (key: string) => t(key as MessageKey);
 const dayText = (value: string | null | undefined) => (value ? day(value) : '-');
 
-function Actions({ busy, save, onCancel }: { busy: boolean; save: string; onCancel: () => void }) {
+export function Actions({ busy, save, onCancel }: { busy: boolean; save: string; onCancel: () => void }) {
   return <div className="actions"><button type="submit" disabled={busy}>{busy ? t('dialog.working') : save}</button><button type="button" className="secondary" onClick={onCancel}>{t('common.cancel')}</button></div>;
 }
 
-function useProjects() {
+export function useProjects() {
   const [projects, setProjects] = useState<BusinessProject[]>([]);
   useEffect(() => { api.businessProjects().then((page) => setProjects(page.items), () => setProjects([])); }, []);
   return projects;
 }
 
-function CurrencySelect({ id, value, onChange, disabled }: { id: string; value: string; onChange: (value: string) => void; disabled?: boolean }) {
+export function CurrencySelect({ id, value, onChange, disabled }: { id: string; value: string; onChange: (value: string) => void; disabled?: boolean }) {
   const options = BOOK_CURRENCIES.includes(value as never) ? BOOK_CURRENCIES : [value, ...BOOK_CURRENCIES];
   return <select id={id} value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)}>{options.map((code) => <option key={code} value={code}>{code}</option>)}</select>;
 }
 
-function CentreSelect({ id, setup, value, onChange }: { id: string; setup: BooksSetup; value: string; onChange: (value: string) => void }) {
+export function CentreSelect({ id, setup, value, onChange }: { id: string; setup: BooksSetup; value: string; onChange: (value: string) => void }) {
   return <select id={id} value={value} onChange={(event) => onChange(event.target.value)}><option value="">{t('books.none')}</option>
     {setup.cost_centres.map((item) => <option key={item.id} value={item.id}>{item.code} {item.name}</option>)}</select>;
 }
 
 // ---- settings, cost centres and rates --------------------------------------------------------------------------------
 
-export function SettingsSection({ setup, onSaved }: { setup: BooksSetup; onSaved: () => void }) {
+export function SettingsSection({ setup, onSaved, extra }: { setup: BooksSetup; onSaved: () => void; extra?: ReactNode }) {
   const current = setup.settings;
   const manage = setup.permissions.manage;
   const [form, setForm] = useState(() => ({
@@ -99,6 +99,7 @@ export function SettingsSection({ setup, onSaved }: { setup: BooksSetup; onSaved
     </section>
     {current && <CostCentres setup={setup} onChanged={onSaved} />}
     {current && <Rates setup={setup} />}
+    {extra}
   </div>;
 }
 
@@ -142,7 +143,7 @@ function Rates({ setup }: { setup: BooksSetup }) {
   const manage = setup.permissions.manage;
   const load = useCallback(async () => {
     setError(null);
-    try { const page = await api.listRates(0, 50); setRates(page.items); setTotal(page.total); } catch (caught) { setError(describeError(caught)); }
+    try { const page = await api.listRates(0, 50, 'manual'); setRates(page.items); setTotal(page.total); } catch (caught) { setError(describeError(caught)); }
   }, []);
   useEffect(() => { void load(); }, [load]);
   async function add(event: FormEvent) {
@@ -300,10 +301,16 @@ export function BillDialog({ setup, bill, onClose, onSaved }: { setup: BooksSetu
 
 export function BillDrawer({ setup, billId, onClose, onChanged }: { setup: BooksSetup; billId: string; onClose: () => void; onChanged: () => void }) {
   const [bill, setBill] = useState<BooksBill | null>(null), [error, setError] = useState<string | null>(null), [message, setMessage] = useState<string | null>(null);
-  const [mode, setMode] = useState<'pay' | 'edit' | 'void' | { voidPayment: string } | null>(null);
+  const [mode, setMode] = useState<'pay' | 'edit' | 'void' | { voidPayment: string } | null>(null), [approving, setApproving] = useState(false);
   const load = useCallback(async () => { setError(null); try { setBill(await api.getBill(billId)); } catch (caught) { setError(describeError(caught)); } }, [billId]);
   useEffect(() => { void load(); }, [load]);
   const changed = (next: BooksBill, text: string) => { setBill(next); setMode(null); setMessage(text); onChanged(); };
+  async function approve() {
+    if (!bill) return;
+    setApproving(true);
+    try { changed(await api.approveBill(bill.id, bill.version), t('books.bills.approved')); }
+    catch (caught) { setMessage(failure(caught, t('books.bills.approve'))); } finally { setApproving(false); }
+  }
   return <Drawer title={bill ? `${bill.vendor_name}${bill.reference ? `, ${bill.reference}` : ''}` : t('books.bills.title')} onClose={onClose}>
     {error && <Note error>{error} <button type="button" className="secondary" onClick={() => void load()}>{t('common.tryAgain')}</button></Note>}
     {!bill && !error && <Note>{t('books.reading')}</Note>}
@@ -323,7 +330,9 @@ export function BillDrawer({ setup, billId, onClose, onChanged }: { setup: Books
         {bill.useful_life_months && <div><dt>{t('books.bills.life')}</dt><dd>{bill.useful_life_months}</dd></div>}
         {bill.status === 'void' && <div><dt>{t('books.void')}</dt><dd dir="auto">{bill.void_reason}</dd></div>}
       </dl>
+      {bill.template_id && <p className="muted bzHint">{t(bill.status === 'draft' ? 'books.bills.draftHelp' : 'books.bills.fromRecurring', { day: dayText(bill.period_date) })}</p>}
       <div className="bzInline">
+        {bill.can.approve && <button type="button" disabled={approving} onClick={() => void approve()}>{approving ? t('dialog.working') : t('books.bills.approve')}</button>}
         {bill.can.pay && <button type="button" onClick={() => setMode('pay')}>{t('books.pay.action')}</button>}
         {bill.can.edit && <button type="button" className="secondary" onClick={() => setMode('edit')}>{t('books.bills.edit')}</button>}
         {bill.can.void && <button type="button" className="secondary danger" onClick={() => setMode('void')}>{t('books.bills.void')}</button>}

@@ -4,7 +4,8 @@ import { describe, test } from 'node:test';
 import type { BooksReport } from '@anum/contracts';
 import {
   BOOKS_TABS, billBody, billProblem, booksTabFromId, budgetProblem, emptyBill, intercompanyProblem, lineLabel, moneyList, normalizeCategory, presetPeriod,
-  reportIsEmpty, sectionLabel, settingsBody, statementRows, validAmount, validRate,
+  reportIsEmpty, sectionLabel, settingsBody, statementRows, validAmount, validRate, emptyTemplate, frequencyLabel, groupRowsShown, paymentStateTone,
+  templateBody, templateDraftFrom, templateProblem,
 } from '../src/lib/businessBooks.ts';
 import { TABS, tabFromHash } from '../src/lib/business.ts';
 import { setLocale } from '../src/lib/i18n.ts';
@@ -23,7 +24,7 @@ function report(extra: Partial<BooksReport> = {}): BooksReport {
     cash_flow: { lines: {}, net: [], paid_by_members: {} },
     balances: { as_of: '2026-12-31', aged_on: '2026-11-04', receivables: [], outstanding_invoices: [], outstanding_invoices_count: 0, payables: [], unpaid_bills: [],
       unpaid_bills_count: 0, owed_to_members: [], debt: [], intercompany: [] },
-    equity: { contributions: [], drawings: [] }, trend: [], customers: [], projects: [], cost_centres: [], budgets: [], recurring: { items: [], per_month: [] },
+    equity: { contributions: [], drawings: [] }, trend: [], customers: [], projects: [], cost_centres: [], budgets: [], recurring: { items: [], per_month: [], upcoming: [] },
     allocations_in_review: 0, conversions: [], notes: [], truncated: false, ...extra,
   };
 }
@@ -149,5 +150,56 @@ describe('a quiet period still shows what is carried', () => {
     assert.ok(!reportIsEmpty({ ...zero, balances: { ...zero.balances, owed_to_members: [{ currency: 'SAR', amount: '80.00' }] } }));
     assert.ok(!reportIsEmpty({ ...zero, balances: { ...zero.balances, intercompany: [{ workspace_id: 'w', name: 'Other', currency: 'SAR', amount: '-50.00' }] } }));
     assert.ok(!reportIsEmpty({ ...zero, equity: { contributions: [], drawings: [{ currency: 'SAR', amount: '5.00' }] } }));
+  });
+});
+
+describe('books second release: recurring bills and the consolidated books', () => {
+  test('a schedule reads as people say it, in English and Arabic', () => {
+    setLocale('en');
+    assert.equal(frequencyLabel('monthly', 1), 'Monthly');
+    assert.equal(frequencyLabel('weeks', 1), 'Every week');
+    assert.equal(frequencyLabel('weeks', 2), 'Every 2 weeks');
+    assert.equal(frequencyLabel('days', 10), 'Every 10 days');
+    setLocale('ar');
+    assert.equal(frequencyLabel('months', 2), 'كل شهرين');
+    setLocale('en');
+  });
+
+  test('a recurring bill form is checked before it is sent and becomes the API body', () => {
+    const draft = { ...emptyTemplate('2026-11-05', 'SAR'), vendor_id: 'bven_1', description: 'Office rent', subtotal: '1000', tax: '150' };
+    assert.equal(templateProblem(draft), null);
+    assert.equal(templateProblem({ ...draft, vendor_id: '' }), 'books.bill.needVendor');
+    assert.equal(templateProblem({ ...draft, frequency: 'weeks', interval: '60' }), 'books.rec.intervalInvalid');
+    assert.equal(templateProblem({ ...draft, frequency: 'days', interval: '0' }), 'books.rec.intervalInvalid');
+    assert.equal(templateProblem({ ...draft, due_days: '400' }), 'books.rec.dueInvalid');
+    assert.equal(templateProblem({ ...draft, ends: 'on', end_date: '2026-10-01' }), 'books.rec.endInvalid');
+    assert.equal(templateProblem({ ...draft, ends: 'after', max_count: '0' }), 'books.rec.countInvalid');
+    assert.equal(templateProblem({ ...draft, useful_life_months: '12' }), 'books.bill.lifeNeedsCapital');
+    const body = templateBody({ ...draft, frequency: 'monthly', interval: '7', ends: 'after', max_count: '12', end_date: '2027-01-01', category: 'Office Rent' });
+    assert.equal(body.interval, 1, 'monthly has no interval');
+    assert.equal(body.max_count, 12);
+    assert.equal(body.end_date, null, 'only the chosen ending is sent');
+    assert.equal(body.category, 'office_rent');
+    assert.equal(body.due_days, 30);
+    const back = templateDraftFrom({ ...body, id: 'btpl_1', vendor_name: 'Landlord', total: '1150.00', section: 'operating_expense', status: 'active', anchor_date: '2026-11-05',
+      next_index: 0, next_date: '2026-11-05', created_count: 0, last_period: null, end_reason: '', ended_at: null, version: 1, created_by: 'u', updated_by: 'u',
+      created_at: '', updated_at: '', per_month: '1000.00', upcoming: [], can: { edit: true, pause: true, resume: false, end: true } } as never);
+    assert.equal(back.ends, 'after');
+    assert.equal(back.max_count, '12');
+  });
+
+  test('a draft bill reads as neutral, and the group shows results and rows that hold money only', () => {
+    assert.equal(paymentStateTone('draft', false), 'neutral');
+    const rows = groupRowsShown([
+      { key: 'revenue', businesses: { a: '0.00', b: '0.00' }, eliminations: '0.00', total: '0.00' },
+      { key: 'other_income', businesses: { a: '100.00', b: '0.00' }, eliminations: '-100.00', total: '0.00' },
+      { key: 'net_profit', businesses: { a: '0.00', b: '0.00' }, eliminations: '0.00', total: '0.00' },
+    ]);
+    assert.deepEqual(rows.map((row) => row.key), ['other_income', 'net_profit']);
+  });
+
+  test('the new sections are part of the Books navigation and every new message has an Arabic twin', () => {
+    assert.ok(BOOKS_TABS.includes('group') && BOOKS_TABS.includes('recurring'));
+    for (const key of Object.keys(businessBooksEn)) assert.ok(key in businessBooksAr, key);
   });
 });

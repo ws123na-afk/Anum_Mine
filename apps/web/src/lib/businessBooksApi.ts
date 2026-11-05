@@ -4,7 +4,8 @@ import type {
   BooksAdjustment, BooksAdjustmentInput, BooksAdjustmentKind, BooksAllocation, BooksAllocationFilter, BooksAllocationTag, BooksBasis, BooksBill,
   BooksBillFilter, BooksBillInput, BooksBillPage, BooksBudget, BooksBudgetInput, BooksCostCentre, BooksCounterparty, BooksIntercompany,
   BooksIntercompanyInput, BooksPage, BooksPaymentInput, BooksProjectPage, BooksRate, BooksRateInput, BooksReport, BooksSettings, BooksSettingsInput,
-  BooksSetup, BooksTagSection, BooksVendor, BooksVendorInput, BusinessPage, BusinessProject,
+  BooksSetup, BooksTagSection, BooksVendor, BooksVendorInput, BusinessPage, BusinessProject, BooksGroup, BooksRateFeed, BooksRateOrigin, BooksTemplate,
+  BooksTemplateInput, BooksTemplatePage, BooksTemplateStatus,
 } from '@anum/contracts';
 import { apiBaseUrl, apiRequest, apiRequestVoid, authHeaders } from './api';
 import { apiErrorFromResponse } from './errors';
@@ -44,6 +45,7 @@ export const listBills = (q: string, status: BooksBillFilter | '', offset: numbe
 export const getBill = (billId: string) => get<BooksBill>(`/bills/${id(billId)}`);
 export const createBill = (body: BooksBillInput, key: string) => send<BooksBill>('POST', '/bills', body, key);
 export const updateBill = (billId: string, body: BooksBillInput & { version: number }) => send<BooksBill>('PATCH', `/bills/${id(billId)}`, body);
+export const approveBill = (billId: string, version: number) => send<BooksBill>('POST', `/bills/${id(billId)}/approve`, { version });
 export const voidBill = (billId: string, reason: string) => send<BooksBill>('POST', `/bills/${id(billId)}/void`, { reason });
 export const payBill = (billId: string, body: BooksPaymentInput, key: string) => send<BooksBill>('POST', `/bills/${id(billId)}/payments`, body, key);
 export const voidPayment = (billId: string, paymentId: string, reason: string) => send<BooksBill>('POST', `/bills/${id(billId)}/payments/${id(paymentId)}/void`, { reason });
@@ -58,7 +60,7 @@ export const createBudget = (body: BooksBudgetInput) => send<BooksBudget>('POST'
 export const updateBudget = (budgetId: string, body: BooksBudgetInput & { version: number }) => send<BooksBudget>('PATCH', `/budgets/${id(budgetId)}`, body);
 export const deleteBudget = (budgetId: string) => apiRequestVoid(`${BASE}/budgets/${id(budgetId)}`, { method: 'DELETE' });
 
-export const listRates = (offset: number, limit = 25) => get<BooksPage<BooksRate>>(`/rates${query({ offset, limit })}`);
+export const listRates = (offset: number, limit = 25, origin: BooksRateOrigin | '' = '') => get<BooksPage<BooksRate>>(`/rates${query({ offset, limit, origin })}`);
 export const createRate = (body: BooksRateInput) => send<BooksRate>('POST', '/rates', body);
 export const deleteRate = (rateId: string) => apiRequestVoid(`${BASE}/rates/${id(rateId)}`, { method: 'DELETE' });
 
@@ -72,6 +74,28 @@ export const listIntercompany = (includeVoid: boolean, offset: number, limit = 2
 export const createIntercompany = (body: BooksIntercompanyInput) => send<BooksIntercompany>('POST', '/intercompany', body);
 export const voidIntercompany = (entryId: string, reason: string) => send<BooksIntercompany>('POST', `/intercompany/${id(entryId)}/void`, { reason });
 
+export type GroupQuery = Period & { currency?: string; workspaces?: string[] };
+function groupQuery(params: GroupQuery): string {
+  const search = new URLSearchParams(query({ from: params.from, to: params.to, basis: params.basis, currency: params.currency }).slice(1));
+  for (const workspace of params.workspaces ?? []) search.append('workspace', workspace);
+  const text = search.toString();
+  return text ? `?${text}` : '';
+}
+/** The consolidated books of the businesses the caller owns (owners only). */
+export const getGroup = (params: GroupQuery) => get<BooksGroup>(`/group${groupQuery(params)}`);
+
+export const listTemplates = (status: BooksTemplateStatus | '', q: string, offset: number, limit = 25) =>
+  get<BooksTemplatePage>(`/recurring${query({ status, q, offset, limit })}`);
+export const getTemplate = (templateId: string) => get<BooksTemplate>(`/recurring/${id(templateId)}`);
+export const createTemplate = (body: BooksTemplateInput) => send<BooksTemplate>('POST', '/recurring', body);
+export const updateTemplate = (templateId: string, body: BooksTemplateInput & { version: number }) => send<BooksTemplate>('PATCH', `/recurring/${id(templateId)}`, body);
+export const templateAction = (templateId: string, action: 'pause' | 'resume' | 'end', version: number) =>
+  send<BooksTemplate>('POST', `/recurring/${id(templateId)}/${action}`, { version });
+
+export const getRateFeed = () => get<BooksRateFeed>('/rates/auto');
+export const saveRateFeed = (body: { enabled: boolean; currencies: string[]; version: number | null }) => send<BooksRateFeed>('PUT', '/rates/auto', body);
+export const refreshRateFeed = () => send<BooksRateFeed>('POST', '/rates/auto/refresh');
+
 /** The business's projects for the project pickers (the Business projects list). */
 export const businessProjects = () => apiRequest<BusinessPage<BusinessProject>>(`/api/v1/business/projects${query({ limit: 100, offset: 0 })}`, { method: 'GET' });
 
@@ -83,5 +107,7 @@ async function download(path: string, fallback: string): Promise<void> {
 
 /** Download the P&L, tax, cash flow and the rates used as CSV. */
 export const exportReport = (period: Period) => download(`/report.csv${query(period)}`, 'business-pnl.csv');
+/** Download the consolidated P&L, balances and cash flow as CSV (a column per business, eliminations and the total). */
+export const exportGroup = (params: GroupQuery) => download(`/group.csv${groupQuery(params)}`, 'group-pnl.csv');
 /** Download every bill as CSV. */
 export const exportBills = () => download('/bills.csv', 'business-bills.csv');

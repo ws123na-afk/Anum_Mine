@@ -113,6 +113,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     from .purchases.jobs import run as run_purchases
 
     report["purchases"] = run_purchases(dry_run=args.dry_run)
+    # Business books: automatic ECB rates and recurring bills (docs/business-books.md#daily-job).
+    from .business.books_jobs import run as run_books
+
+    report["business_books"] = run_books(dry_run=args.dry_run)
     print(json.dumps(report, indent=2))
     return 0
 
