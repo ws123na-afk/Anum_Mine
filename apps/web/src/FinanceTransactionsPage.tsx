@@ -1,0 +1,357 @@
+// Finance, Transactions and ledger (docs/finance.md#register-and-account-overview): every transaction with
+// where it came from (an SMS, Apple Pay, a CSV or PDF statement, or typed by hand), its receipt, a possible
+// duplicate and the category, filtered and paged on the server. The details drawer shows the masked SMS only
+// while the retention setting keeps it, attaches a receipt from the document vault and saves the category.
+// Nothing here moves money; ANUM has no live bank connection, so no row ever claims one.
+import { Suspense, lazy, useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
+import {
+  AlertTriangle, CheckCircle2, Copy, Download, FileText, Landmark, MessageSquare, MoreHorizontal, Paperclip, PenLine, Plus, ReceiptText,
+  Scale, Search, Smartphone, Tags, Upload, X,
+} from 'lucide-react';
+import type { FinanceAccount, FinanceCategory, FinanceRegisterDetail, FinanceRegisterPage, FinanceRegisterRow, FinanceSmsSettings } from '@anum/contracts';
+import * as api from './lib/financeApi';
+import { getRegister, getRegisterDetail } from './lib/financeRegisterApi';
+import { NO_REGISTER_FILTERS, ORIGINS, ROW_STATUSES, monthBounds, narrowed, percentOf, statusTone, type RegisterFilters } from './lib/financeRegister';
+import { categoryLabel, formatAmount, formatAmounts, isolate, monthLabel, rangeLabel, shiftMonth } from './lib/finance';
+import { describeError } from './lib/errors';
+import { formatDateTime, t, type MessageKey } from './lib/i18n';
+import { smsSettings } from './lib/financeSmsApi';
+import { upload as uploadToVault, addLink as linkDocument } from './lib/vaultApi';
+import { ConfirmDialog, Modal } from './Dialog';
+import { Denied, Empty, LoadError, Money, Notice, failed, type Load } from './FinanceParts';
+import { FinBanner, FinCard, FinancePageHead, FinanceTabs, KpiCard, KpiRow, ScopeSwitch, StatusChip, tabPanel } from './FinanceShell';
+import { Import, TransactionForm } from './FinanceView';
+import { useMediaQuery } from './PageParts';
+import './financeRegister.css';
+
+const SmsReview = lazy(() => import('./FinanceSms').then((m) => ({ default: m.Review })));
+const LedgerPanel = lazy(() => import('./FinanceSms').then((m) => ({ default: m.LedgerPanel })));
+
+const PAGE = 25;
+export type TxTab = 'transactions' | 'ledger' | 'sms' | 'imports';
+const CATEGORIES: FinanceCategory[] = [
+  'groceries', 'dining', 'transport', 'fuel', 'utilities', 'telecom', 'housing', 'shopping', 'health', 'education', 'entertainment',
+  'subscriptions', 'travel', 'insurance', 'fees', 'cash', 'transfer', 'income', 'other',
+];
+
+/** The months the period picker offers: this one and the 23 before it. */
+function recentMonths(today: string): string[] {
+  const out = [today];
+  for (let i = 1; i < 24; i += 1) out.push(shiftMonth(today, -i));
+  return out;
+}
+
+const SOURCE_ICON = { sms: MessageSquare, apple_pay: Smartphone, statement: FileText, manual: PenLine } as const;
+
+export function SourceLabel({ row }: { row: Pick<FinanceRegisterRow, 'origin' | 'statement_format'> }) {
+  const Icon = SOURCE_ICON[row.origin];
+  const label = row.origin === 'statement' && row.statement_format
+    ? t(`freg.source.statement.${row.statement_format}` as MessageKey) : t(`freg.source.${row.origin}` as MessageKey);
+  return <span className="fregSource"><Icon aria-hidden="true" />{label}</span>;
+}
+
+export function StatusLabel({ row }: { row: Pick<FinanceRegisterRow, 'status'> }) {
+  return <StatusChip tone={statusTone(row.status)}>{t(`freg.status.${row.status}` as MessageKey)}</StatusChip>;
+}
+
+export function CategoryChip({ category }: { category: FinanceCategory }) {
+  return <span className={`fregCat cat-${category}`}>{categoryLabel(category)}</span>;
+}
+
+function Evidence({ row }: { row: FinanceRegisterRow }) {
+  if (row.evidence === 'linked') return <span className="fregEvidence ok"><Paperclip aria-hidden="true" />{t('freg.evidence.linked')}</span>;
+  if (row.evidence === 'missing') return <span className="fregEvidence warn"><AlertTriangle aria-hidden="true" />{t('freg.evidence.missing')}</span>;
+  return <span className="muted" aria-label={t('freg.evidence.notNeeded')}>-</span>;
+}
+
+export function TransactionsPage({ accounts, initialAccountId, initialTab, onChanged, onAddAccount }: {
+  accounts: FinanceAccount[]; initialAccountId?: string; initialTab?: TxTab; onChanged: () => void; onAddAccount: () => void;
+}) {
+  const thisMonth = useMemo(() => new Date().toISOString().slice(0, 7), []);
+  const [tab, setTab] = useState<TxTab>(initialTab ?? 'transactions');
+  const [period, setPeriod] = useState<string>(thisMonth);
+  const [accountId, setAccountId] = useState(initialAccountId ?? '');
+  const [draft, setDraft] = useState<RegisterFilters>(NO_REGISTER_FILTERS);
+  const [applied, setApplied] = useState<RegisterFilters>(NO_REGISTER_FILTERS);
+  const [offset, setOffset] = useState(0);
+  const [page, setPage] = useState<Load<FinanceRegisterPage>>({ kind: 'loading' });
+  const [selected, setSelected] = useState<string | null>(null);
+  const [recording, setRecording] = useState(false);
+  const [notice, setNotice] = useState<{ error?: boolean; text: string } | null>(null);
+  const [sms, setSms] = useState<FinanceSmsSettings | null>(null);
+  const wide = useMediaQuery('(min-width: 1280px)');
+  const filters = useMemo<RegisterFilters>(() => ({ ...applied, account_id: accountId, ...(period ? monthBounds(period) : { from: '', to: '' }) }), [applied, accountId, period]);
+  const load = useCallback(async () => {
+    setPage((current) => current.kind === 'ready' ? current : { kind: 'loading' });
+    try { setPage({ kind: 'ready', value: await getRegister(filters, PAGE, offset) }); } catch (e) { setPage(failed(e)); }
+  }, [filters, offset]);
+  useEffect(() => { void load(); }, [load]);
+  useEffect(() => { void smsSettings().then(setSms, () => setSms(null)); }, []);
+  const changed = () => { void load(); onChanged(); };
+  const account = accounts.find((a) => a.id === accountId) ?? null;
+  const months = recentMonths(thisMonth);
+
+  async function download() {
+    try { await api.downloadTransactions({ q: applied.q, account_id: accountId, category: applied.category, from: filters.from, to: filters.to }); setNotice({ text: t('finance.transactions.exported') }); }
+    catch (e) { setNotice({ error: true, text: describeError(e) }); }
+  }
+
+  const ready = page.kind === 'ready' ? page.value : null;
+  const ledgerKind = ready?.ledger_kind ?? sms?.ledger_kind ?? 'personal';
+  const reviewCount = ready?.review_count ?? 0;
+  const head = <FinancePageHead title={t('freg.tx.title')} subtitle={t('freg.tx.subtitle')}
+    actions={<>
+      <button type="button" className="secondary" onClick={() => setTab('imports')}><Upload aria-hidden="true" />{t('freg.tx.import')}</button>
+      <button type="button" className="secondary" disabled={!ready || ready.total === 0} onClick={() => void download()}><Download aria-hidden="true" />{t('freg.tx.download')}</button>
+      <button type="button" disabled={accounts.length === 0} onClick={() => setRecording(true)}><Plus aria-hidden="true" />{t('freg.tx.record')}</button>
+    </>}
+    controls={<>
+      <label className="finControl"><span className="finControlLabel">{t('fshell.period')}</span>
+        <select value={period} onChange={(e) => { setPeriod(e.target.value); setOffset(0); }}>
+          {months.map((m) => <option key={m} value={m}>{monthLabel(m)}</option>)}<option value="">{t('freg.period.all')}</option></select></label>
+      <label className="finControl"><span className="finControlLabel">{t('finance.col.account')}</span>
+        <select value={accountId} onChange={(e) => { setAccountId(e.target.value); setOffset(0); }}>
+          <option value="">{t('finance.filter.allAccounts')}</option>{accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}</select></label>
+      <LedgerScope kind={ledgerKind} />
+    </>}
+    tabs={<FinanceTabs idPrefix="ftx" label={t('freg.tx.tabs')} value={tab} onChange={setTab} items={[
+      { id: 'transactions', label: t('freg.tab.transactions') }, { id: 'ledger', label: t('freg.tab.ledger') },
+      { id: 'sms', label: t('freg.tab.sms'), badge: reviewCount > 0 ? reviewCount : undefined }, { id: 'imports', label: t('freg.tab.imports') },
+    ]} />} />;
+
+  return <div className="cmLayout finLayout fregPage">
+    {head}
+    <div {...tabPanel('ftx', tab)}>
+      {notice && <Notice error={notice.error}>{notice.text}</Notice>}
+      {tab === 'transactions' && <>
+        {page.kind === 'denied' && <Denied />}
+        {page.kind === 'error' && <LoadError message={t('finance.error.transactions', { message: page.message })} retry={() => void load()} />}
+        {page.kind === 'loading' && <Notice busy>{t('finance.transactions.loading')}</Notice>}
+        {ready && <>
+          <Reconciliation page={ready} account={account} period={period} />
+          <Kpis page={ready} />
+          <div className={`fregWork ${selected && wide ? 'withDrawer' : ''}`}>
+            <FinCard title={t('freg.tx.listTitle')} className="fregTableCard">
+              <form className="fregFilters" role="search" aria-label={t('finance.transactions.filters')} onSubmit={(e) => { e.preventDefault(); setOffset(0); setApplied({ ...draft }); }}>
+                <label className="cmSearch fregSearch"><span className="visuallyHidden">{t('freg.filter.search')}</span><Search aria-hidden="true" />
+                  <input type="search" value={draft.q} maxLength={200} placeholder={t('freg.filter.search')} onChange={(e) => setDraft({ ...draft, q: e.target.value })} /></label>
+                <FilterSelect label={t('finance.col.category')} value={draft.category} all={t('finance.filter.allCategories')} onChange={(v) => setDraft({ ...draft, category: v as FinanceCategory | '' })}
+                  options={CATEGORIES.map((c) => [c, categoryLabel(c)])} />
+                <FilterSelect label={t('freg.filter.evidence')} value={draft.evidence} all={t('freg.filter.anyEvidence')} onChange={(v) => setDraft({ ...draft, evidence: v as RegisterFilters['evidence'] })}
+                  options={[['linked', t('freg.evidence.linked')], ['missing', t('freg.evidence.missing')]]} />
+                <FilterSelect label={t('freg.filter.source')} value={draft.origin} all={t('freg.filter.anySource')} onChange={(v) => setDraft({ ...draft, origin: v as RegisterFilters['origin'] })}
+                  options={ORIGINS.map((o) => [o, t(`freg.source.${o}` as MessageKey)])} />
+                <FilterSelect label={t('freg.filter.status')} value={draft.status} all={t('freg.filter.anyStatus')} onChange={(v) => setDraft({ ...draft, status: v as RegisterFilters['status'] })}
+                  options={ROW_STATUSES.map((s) => [s, t(`freg.status.${s}` as MessageKey)])} />
+                <button type="submit" className="secondary"><Search aria-hidden="true" />{t('common.search')}</button>
+                {narrowed(applied) && <button type="button" className="secondary" onClick={() => { setDraft(NO_REGISTER_FILTERS); setApplied(NO_REGISTER_FILTERS); setOffset(0); }}>{t('finance.filter.clear')}</button>}
+              </form>
+              {ready.truncated && <FinBanner tone="warn" icon={<AlertTriangle />}>{t('freg.tx.truncated')}</FinBanner>}
+              {ready.items.length === 0
+                ? <Empty icon={<ReceiptText aria-hidden="true" />}
+                  title={narrowed(applied) ? t('finance.transactions.noMatch') : period ? t('freg.tx.emptyMonth', { month: monthLabel(period) }) : t('finance.transactions.empty')}
+                  text={narrowed(applied) ? t('finance.transactions.noMatchText') : t('freg.tx.emptyText')}
+                  action={narrowed(applied) ? undefined : <div className="actions">
+                    {period && <button type="button" className="secondary" onClick={() => setPeriod('')}>{t('freg.period.showAll')}</button>}
+                    <button type="button" onClick={() => setTab('imports')}><Upload aria-hidden="true" />{t('freg.tx.import')}</button></div>} />
+                : <RegisterTable page={ready} accounts={accounts} selected={selected} onOpen={setSelected} onPage={setOffset} />}
+            </FinCard>
+            {selected && (wide
+              ? <TransactionDrawer key={selected} id={selected} accounts={accounts} onClose={() => setSelected(null)} onOpen={setSelected} onChanged={changed} />
+              : <Modal title={t('freg.drawer.title')} titleHidden className="fregDrawerModal" onClose={() => setSelected(null)}>
+                <TransactionDrawer key={selected} id={selected} accounts={accounts} onClose={() => setSelected(null)} onOpen={setSelected} onChanged={changed} inModal />
+              </Modal>)}
+          </div>
+        </>}
+      </>}
+      {tab === 'ledger' && <Suspense fallback={<Notice busy>{t('fsms.loading')}</Notice>}><LedgerPanel /></Suspense>}
+      {tab === 'sms' && <>
+        <FinBanner icon={<MessageSquare />}>{t('freg.sms.intro')} <a href="#finance-sms">{t('freg.sms.settings')}</a></FinBanner>
+        <Suspense fallback={<Notice busy>{t('fsms.loading')}</Notice>}><SmsReview accounts={accounts} aiOn={Boolean(sms?.ai.enabled)} onChanged={changed} /></Suspense>
+      </>}
+      {tab === 'imports' && <Import accounts={accounts} onChanged={changed} onAddAccount={onAddAccount} onDone={() => { setTab('transactions'); void load(); }} />}
+    </div>
+    {recording && <Modal title={t('finance.transactions.add')} className="formDialog" onClose={() => setRecording(false)}>
+      <TransactionForm accounts={accounts} transaction={null} onDone={(text) => { setRecording(false); if (text) { setNotice({ text }); changed(); } }} />
+    </Modal>}
+  </div>;
+}
+
+/** The workspace's ledger kind. Business and all-finance views of one ledger do not exist, so those options say where to go instead. */
+export function LedgerScope({ kind }: { kind: 'personal' | 'business' }) {
+  const other = kind === 'personal' ? 'business' : 'personal';
+  return <ScopeSwitch value={kind} onChange={() => undefined} unavailable={{ [other]: t(`freg.scope.not.${other}` as MessageKey), all: t('freg.scope.notAll') }} />;
+}
+
+function FilterSelect({ label, value, all, options, onChange }: { label: string; value: string; all: string; options: [string, string][]; onChange: (value: string) => void }) {
+  return <label className="fregFilter"><span className="visuallyHidden">{label}</span>
+    <select value={value} onChange={(e) => onChange(e.target.value)} aria-label={label}><option value="">{all}</option>{options.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select></label>;
+}
+
+function Reconciliation({ page, account, period }: { page: FinanceRegisterPage; account: FinanceAccount | null; period: string }) {
+  const where = account ? account.name : t('finance.filter.allAccounts');
+  const when = period ? monthLabel(period) : t('freg.period.all');
+  return <section className="fregRecon" aria-labelledby="freg-recon">
+    <div className="fregReconHead"><Landmark aria-hidden="true" />
+      <div><h2 id="freg-recon">{t('freg.recon.title', { where: isolate(where), when })}</h2><p className="muted">{t('freg.recon.subtitle')}</p></div></div>
+    <dl className="fregReconFigures">
+      <div><dt>{t('freg.recon.beginning')}</dt><dd>{page.balances.length ? page.balances.map((b) => <Money key={b.currency} value={b.beginning} currency={b.currency} />) : '-'}</dd></div>
+      <div><dt>{t('freg.recon.matched')}</dt><dd className="ok">{page.totals.matched}</dd></div>
+      <div><dt>{t('freg.recon.unmatched')}</dt><dd className={page.review_count ? 'warn' : ''}>{page.review_count}</dd></div>
+      <div><dt>{t('freg.recon.ending')}</dt><dd>{page.balances.length ? page.balances.map((b) => <Money key={b.currency} value={b.ending} currency={b.currency} />) : '-'}</dd></div>
+    </dl>
+    <p className="fregReconNote"><Scale aria-hidden="true" /><span>{t('freg.recon.explainer')}</span></p>
+  </section>;
+}
+
+function Kpis({ page }: { page: FinanceRegisterPage }) {
+  const totals = page.totals;
+  const share = percentOf(totals.categorized, totals.count);
+  return <KpiRow label={t('freg.kpi.label')}>
+    <KpiCard icon={<ReceiptText />} label={t('freg.kpi.transactions')} value={totals.count} />
+    <KpiCard icon={<Download className="fregDown" />} label={t('freg.kpi.outflow')} value={totals.outflow.length ? formatAmounts(totals.outflow) : '-'} tone={totals.outflow.length ? 'bad' : ''} />
+    <KpiCard icon={<CheckCircle2 />} label={share === null ? t('freg.kpi.categorizedNone') : t('freg.kpi.categorized', { count: totals.categorized, total: totals.count })} value={share === null ? '-' : `${share}%`} tone={share !== null && share >= 90 ? 'good' : ''} />
+    <KpiCard icon={<Paperclip />} label={t('freg.kpi.receiptsMissing')} value={totals.receipts_missing} tone={totals.receipts_missing ? 'warn' : ''} />
+  </KpiRow>;
+}
+
+function RegisterTable({ page, accounts, selected, onOpen, onPage }: { page: FinanceRegisterPage; accounts: FinanceAccount[]; selected: string | null; onOpen: (id: string) => void; onPage: (offset: number) => void }) {
+  const names = useMemo(() => new Map(accounts.map((a) => [a.id, a.name])), [accounts]);
+  return <>
+    <div className="finTableWrap" tabIndex={0} role="region" aria-label={t('freg.tx.listTitle')}>
+      <table className="finGrid fregTable">
+        <thead><tr>
+          <th scope="col">{t('finance.col.date')}</th><th scope="col">{t('freg.col.merchant')}</th><th scope="col">{t('finance.col.category')}</th>
+          <th scope="col" className="fregHideMd">{t('finance.col.account')}</th><th scope="col" className="fregHideMd">{t('freg.col.receipt')}</th>
+          <th scope="col" className="fregHideSm">{t('freg.col.source')}</th><th scope="col" className="num">{t('finance.col.amount')}</th>
+          <th scope="col">{t('freg.col.status')}</th><th scope="col"><span className="visuallyHidden">{t('finance.col.actions')}</span></th>
+        </tr></thead>
+        <tbody>{page.items.map((row) => <tr key={row.id} className={selected === row.id ? 'selected' : undefined} onClick={() => onOpen(row.id)}>
+          <td className="fregDate"><bdi dir="ltr">{row.posted_on}</bdi></td>
+          <td className="fregDesc"><strong dir="auto">{row.description}</strong>{row.notes && <small dir="auto">{row.notes}</small>}</td>
+          <td><CategoryChip category={row.category} /></td>
+          <td className="fregHideMd" dir="auto">{names.get(row.account_id) ?? '-'}</td>
+          <td className="fregHideMd"><Evidence row={row} /></td>
+          <td className="fregHideSm"><SourceLabel row={row} /></td>
+          <td className="num"><Money value={row.amount} currency={row.currency} signed /></td>
+          <td><StatusLabel row={row} /></td>
+          <td><button type="button" className="iconButton small" aria-label={t('freg.row.open', { description: row.description })} onClick={(e) => { e.stopPropagation(); onOpen(row.id); }}><MoreHorizontal aria-hidden="true" /></button></td>
+        </tr>)}</tbody>
+      </table>
+    </div>
+    <Pager page={page} onPage={onPage} />
+  </>;
+}
+
+function Pager({ page, onPage }: { page: FinanceRegisterPage; onPage: (offset: number) => void }) {
+  if (page.total <= page.limit && page.offset === 0) return <p className="muted cmPagerText">{rangeLabel(page.offset, page.items.length, page.total)}</p>;
+  return <nav className="cmPager" aria-label={t('finance.transactions.pages')}>
+    <button type="button" className="secondary" disabled={page.offset === 0} onClick={() => onPage(Math.max(0, page.offset - page.limit))}>{t('finance.page.previous')}</button>
+    <span className="muted" aria-live="polite">{rangeLabel(page.offset, page.items.length, page.total)}</span>
+    <button type="button" className="secondary" disabled={page.offset + page.items.length >= page.total} onClick={() => onPage(page.offset + page.limit)}>{t('finance.page.next')}</button>
+  </nav>;
+}
+
+// ---- Details drawer ----------------------------------------------------------------------------
+
+function TransactionDrawer({ id, accounts, onClose, onOpen, onChanged, inModal }: {
+  id: string; accounts: FinanceAccount[]; onClose: () => void; onOpen: (id: string) => void; onChanged: () => void; inModal?: boolean;
+}) {
+  const [state, setState] = useState<Load<FinanceRegisterDetail>>({ kind: 'loading' });
+  const [category, setCategory] = useState<FinanceCategory | ''>('');
+  const [busy, setBusy] = useState<'' | 'category' | 'receipt' | 'delete'>('');
+  const [notice, setNotice] = useState<{ error?: boolean; text: string } | null>(null);
+  const [removing, setRemoving] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const headingId = useId(), categoryId = useId();
+  const load = useCallback(async () => {
+    try { const value = await getRegisterDetail(id); setState({ kind: 'ready', value }); setCategory(value.row.category_source === 'none' ? value.suggested_category : value.row.category); }
+    catch (e) { setState(failed(e)); }
+  }, [id]);
+  useEffect(() => { void load(); }, [load]);
+
+  async function saveCategory(row: FinanceRegisterRow) {
+    if (!category) return;
+    setBusy('category'); setNotice(null);
+    try { await api.updateTransaction(row.id, { category }); setNotice({ text: t('freg.drawer.categorySaved', { category: categoryLabel(category) }) }); await load(); onChanged(); }
+    catch (e) { setNotice({ error: true, text: describeError(e) }); } finally { setBusy(''); }
+  }
+  async function attach(row: FinanceRegisterRow, file: File | undefined) {
+    if (!file || !row.canonical_id) return;
+    setBusy('receipt'); setNotice(null);
+    try {
+      const doc = await uploadToVault(file, { title: file.name.replace(/\.[^.]+$/, '') || row.description, category: 'receipt', access_class: 'private' });
+      await linkDocument(doc.id, { target_type: 'finance_transaction', target_id: row.canonical_id, label: row.description.slice(0, 200) });
+      setNotice({ text: t('freg.drawer.receiptAttached') }); await load(); onChanged();
+    } catch (e) { setNotice({ error: true, text: describeError(e) }); } finally { setBusy(''); if (fileRef.current) fileRef.current.value = ''; }
+  }
+  async function remove(row: FinanceRegisterRow) {
+    setBusy('delete');
+    try { await api.deleteTransaction(row.id); setRemoving(false); onChanged(); onClose(); }
+    catch (e) { setNotice({ error: true, text: describeError(e) }); setRemoving(false); } finally { setBusy(''); }
+  }
+
+  // A plain function, not a component: a component made here would remount the drawer on every render.
+  const frame = (children: ReactNode) => inModal
+    ? <div className="fregDrawer inModal">{children}</div>
+    : <aside className="fregDrawer" aria-labelledby={headingId}>{children}</aside>;
+  const close = <button type="button" className="iconButton" onClick={onClose} aria-label={t('freg.drawer.close')}><X aria-hidden="true" /></button>;
+  if (state.kind !== 'ready') return frame(<><div className="fregDrawerHead"><h2 id={headingId}>{t('freg.drawer.title')}</h2>{close}</div>
+    {state.kind === 'loading' && <Notice busy>{t('freg.drawer.loading')}</Notice>}
+    {state.kind === 'denied' && <Denied />}
+    {state.kind === 'error' && <LoadError message={state.message} retry={() => void load()} />}</>);
+  const d = state.value, row = d.row;
+  const sms = d.sources.find((s) => s.kind === 'sms');
+  const smsGone = d.sources.some((s) => s.kind === 'sms' && !s.text);
+  const counterparty = d.merchant || row.description;
+  return frame(<>
+    <div className="fregDrawerHead"><h2 id={headingId}>{t(`freg.drawer.titleFor.${row.origin}` as MessageKey)}</h2>{close}</div>
+    <div className="fregDrawerAmount">
+      <span className="fregDrawerIcon" aria-hidden="true">{(() => { const Icon = SOURCE_ICON[row.origin]; return <Icon />; })()}</span>
+      <div><strong><Money value={row.amount} currency={row.currency} signed /></strong> <StatusLabel row={row} />
+        <p dir="auto">{counterparty}</p><small className="muted">{t(Number(row.amount) >= 0 ? 'freg.drawer.in' : 'freg.drawer.out')}{d.kind ? ` · ${d.kind.replace(/_/g, ' ')}` : ''}</small></div>
+    </div>
+    <dl className="fregFacts">
+      <div><dt>{t('finance.col.date')}</dt><dd><bdi dir="ltr">{row.posted_on}</bdi></dd></div>
+      <div><dt>{t('freg.drawer.account')}</dt><dd dir="auto">{d.account_name || '-'}</dd></div>
+      <div><dt>{t('freg.col.source')}</dt><dd><SourceLabel row={row} /></dd></div>
+      {d.reference && <div><dt>{t('freg.drawer.reference')}</dt><dd dir="ltr">{d.reference}</dd></div>}
+      <div><dt>{t('freg.drawer.suggested')}</dt><dd><CategoryChip category={d.suggested_category} /> <small className="muted">{t(`freg.suggestedBy.${d.suggested_by}` as MessageKey)}</small></dd></div>
+      <div><dt>{t('freg.drawer.statement')}</dt><dd>{row.reconciled ? <StatusChip tone="ok">{t('freg.drawer.reconciled')}</StatusChip> : t('freg.drawer.notReconciled')}</dd></div>
+    </dl>
+    {sms?.text && <section className="fregSms" aria-label={t('freg.drawer.sms')}>
+      <h3><MessageSquare aria-hidden="true" />{t('freg.drawer.sms')}</h3>
+      <p dir="auto">{sms.text}</p>
+      <small className="muted">{t('freg.drawer.smsKept', { date: sms.kept_until ? formatDateTime(sms.kept_until) : '-' })}</small>
+    </section>}
+    {smsGone && <p className="muted fregSmsGone">{t('freg.drawer.smsGone')}</p>}
+    {d.duplicate && <FinBanner tone="warn" icon={<Copy />} title={t('freg.drawer.duplicate')}
+      action={<button type="button" className="cmLinkButton" onClick={() => onOpen(d.duplicate!.id)}>{t('freg.drawer.viewMatch')}</button>}>
+      {t('freg.drawer.duplicateText', { amount: isolate(formatAmount(d.duplicate.amount, d.duplicate.currency)), date: d.duplicate.posted_on, description: d.duplicate.description })}
+    </FinBanner>}
+    {row.links_need_review > 0 && <FinBanner tone="warn" icon={<AlertTriangle />}>{t('freg.drawer.linksReview', { count: row.links_need_review })}</FinBanner>}
+    <div className="fregAttach">
+      <div><strong><Paperclip aria-hidden="true" />{t('freg.drawer.receipt')}</strong>
+        <small className="muted">{row.receipts ? t('freg.drawer.receipts', { count: row.receipts }) : row.canonical_id ? t('freg.drawer.receiptHint') : t('freg.drawer.receiptNeedsSave')}</small></div>
+      {row.canonical_id && <label className={`secondary fregFileButton ${busy ? 'disabled' : ''}`}>{busy === 'receipt' ? t('freg.drawer.attaching') : t('freg.drawer.attach')}
+        <input ref={fileRef} type="file" className="visuallyHidden" accept="application/pdf,image/jpeg,image/png" disabled={Boolean(busy)} onChange={(e) => void attach(row, e.target.files?.[0])} /></label>}
+    </div>
+    {row.receipts > 0 && <p className="fregReceiptsLink"><a href="#vault">{t('freg.drawer.openVault')}</a></p>}
+    <div className="fregCategory">
+      <label htmlFor={categoryId}>{t('freg.drawer.chooseCategory')}</label>
+      <select id={categoryId} value={category} onChange={(e) => setCategory(e.target.value as FinanceCategory)}>
+        {CATEGORIES.map((c) => <option key={c} value={c}>{c === d.suggested_category ? t('freg.drawer.suggestedOption', { category: categoryLabel(c) }) : categoryLabel(c)}</option>)}
+      </select>
+    </div>
+    {notice && <Notice error={notice.error}>{notice.text}</Notice>}
+    <div className="fregDrawerActions">
+      <button type="button" disabled={Boolean(busy) || !category || (category === row.category && row.category_source === 'manual')} onClick={() => void saveCategory(row)}>
+        <Tags aria-hidden="true" />{busy === 'category' ? t('finance.saving') : t('freg.drawer.saveCategory')}</button>
+      {d.duplicate && <button type="button" className="secondary danger" disabled={Boolean(busy)} onClick={() => setRemoving(true)}>{t('freg.drawer.deleteCopy')}</button>}
+      <button type="button" className="secondary" onClick={onClose}>{t('freg.drawer.done')}</button>
+    </div>
+    {removing && <ConfirmDialog title={t('finance.transactions.deleteTitle')} confirmLabel={t('finance.delete')} danger busy={busy === 'delete'} onConfirm={() => void remove(row)} onCancel={() => setRemoving(false)}>
+      <p dir="auto">{t('finance.transactions.deleteText', { description: row.description, amount: isolate(formatAmount(row.amount, row.currency)) })}</p>
+    </ConfirmDialog>}
+  </>);
+}
