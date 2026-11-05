@@ -6,8 +6,9 @@ Every message here is SYNTHETIC: written for these tests, labelled, and not the 
 from __future__ import annotations
 
 from collections.abc import Iterator
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import pytest
 from fastapi.testclient import TestClient
@@ -16,6 +17,7 @@ from anum_api import main
 from anum_api.finance import links as K
 from anum_api.finance import sms_service as svc
 from anum_api.finance.links_store import links_memory_store
+from anum_api.finance.models import DEFAULT_TIMEZONE
 from anum_api.finance.sms_store import sms_memory_store
 from anum_api.finance.store import finance_store
 from anum_api.schemas import utc_now
@@ -54,7 +56,9 @@ def account(**body: object) -> dict:
 
 
 def txn(account_id: str, amount: str, description: str, days_ago: int = 0, **body: Any) -> dict:
-    posted = (utc_now().date() - timedelta(days=days_ago)).isoformat()
+    # Days are the person's Finance days (their time zone, Asia/Dubai by default), as the register and activity count them,
+    # so the test does not depend on the UTC hour it runs at.
+    posted = (datetime.now(ZoneInfo(DEFAULT_TIMEZONE)).date() - timedelta(days=days_ago)).isoformat()
     response = client.post(f"{API}/transactions", headers=OWNER,
                            json={"account_id": account_id, "posted_on": posted, "amount": amount, "description": description, **body})
     assert response.status_code == 201, response.text
