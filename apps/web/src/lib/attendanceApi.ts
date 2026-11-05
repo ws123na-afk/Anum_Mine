@@ -3,7 +3,7 @@
 import type {
   AttendanceCorrection, AttendanceCorrectionInput, AttendanceDailyReport, AttendanceDailyReportInput, AttendanceDay, AttendanceDraft,
   AttendanceEvent, AttendanceEventKind, AttendancePage, AttendancePeriod, AttendanceProfile, AttendanceProfileInput, AttendanceRecordResult,
-  AttendanceShare, AttendanceShares, AttendanceSite, AttendanceSiteInput, AttendanceSiteVisit, AttendanceToday, TeamPerson,
+  AttendanceShare, AttendanceShares, AttendanceSite, AttendanceSiteInput, AttendanceSiteVisit, AttendanceTeam, AttendanceToday, TeamPerson,
 } from '@anum/contracts';
 import { apiBaseUrl, apiRequest, apiRequestVoid, authHeaders } from './api';
 import { apiErrorFromResponse } from './errors';
@@ -67,3 +67,6 @@ export async function downloadReport(format: 'csv' | 'pdf', from: string, to: st
   const name = fileNameFromDisposition(response.headers.get('content-disposition'), `attendance-${from}-${to}.${format}`);
   return saveBlob(await response.blob(), name);
 }
+
+/** The caller and each colleague who shares their record with them (docs/attendance.md#team-attendance). */
+export const getTeam = (date?: string | null, limit = 50, offset = 0) => get<AttendanceTeam>(`/team${query({ date, limit, offset })}`);

@@ -337,6 +337,8 @@ export interface FinanceDebt {
   minimum_payment: FinanceMoney;
   due_day: number | null;
   account_id: string | null;
+  /** What was owed when tracking started (payoff progress); null when not entered. */
+  original_balance?: FinanceMoney | null;
   notes: string | null;
   created_at: string;
   updated_at: string;
@@ -351,6 +353,8 @@ export interface FinanceDebtInput {
   minimum_payment?: FinanceMoney;
   due_day?: number | null;
   account_id?: string | null;
+  /** Left out: kept as it is; "" clears it. */
+  original_balance?: FinanceMoney | null;
   notes?: string | null;
 }
 
@@ -364,6 +368,8 @@ export interface FinanceGoal {
   account_id: string | null;
   /** Stage 3: what is put aside each month; null works it out from the target date. */
   monthly_contribution: FinanceMoney | null;
+  /** A paused goal is not set aside by safe to spend (docs/finance.md#debts-and-goals). */
+  paused?: boolean;
   notes: string | null;
   created_at: string;
   updated_at: string;
@@ -377,6 +383,8 @@ export interface FinanceGoalInput {
   target_on?: string | null;
   account_id?: string | null;
   monthly_contribution?: FinanceMoney | null;
+  /** Left out: kept as it is. */
+  paused?: boolean | null;
   notes?: string | null;
 }
 
@@ -447,7 +455,7 @@ export interface FinancePlanInput {
 export type FinanceSafeLineKind = 'balance' | 'bill' | 'minimum_payment' | 'goal' | 'buffer';
 export type FinanceSafeNote =
   | 'account_balance' | 'bill_due' | 'minimum_due' | 'minimum_no_day' | 'minimum_passed' | 'goal_set' | 'goal_derived'
-  | 'goal_no_plan' | 'goal_reached' | 'buffer' | 'account_card' | 'account_loan' | 'account_investment' | 'account_archived';
+  | 'goal_no_plan' | 'goal_reached' | 'goal_paused' | 'buffer' | 'account_card' | 'account_loan' | 'account_investment' | 'account_archived';
 
 /** One line of the figure: positive for money you have, negative for a deduction. */
 export interface FinanceSafeLine {
@@ -519,7 +527,14 @@ export interface FinanceGuardianRules {
   approval_above: FinanceAmountLimit[];
   quiet_hours: { start: string; end: string } | null;
   cooling_off: { hours: number; at_or_above: FinanceAmountLimit[] } | null;
+  /** Kinds the person paused: kept, but not applied until resumed. Absent on rules saved before pausing existed. */
+  paused?: FinanceGuardianRuleKind[];
 }
+
+/** The kinds of rule, in the order the evaluator checks them and the page lists them. */
+export type FinanceGuardianRuleKind =
+  | 'allowed_currencies' | 'max_single' | 'max_daily_total' | 'category_caps' | 'blocked_categories' | 'blocked_merchants'
+  | 'approval_above' | 'quiet_hours' | 'cooling_off';
 
 export type FinanceGuardianOutcome = 'allow' | 'needs_approval' | 'deny';
 export interface FinanceGuardianReason { code: string; outcome: FinanceGuardianOutcome; message: string; rule: string | null; params: Record<string, string> }
@@ -564,6 +579,46 @@ export interface FinanceGuardianAlert {
 }
 
 export interface FinanceGuardianAlerts { month: string; version: number; alerts: FinanceGuardianAlert[] }
+
+// The review queue (docs/finance.md#review-queue): payments a rule flags and the person's decisions. A note only.
+export type FinanceGuardianItemState = 'awaiting' | 'expected' | 'reviewed' | 'snoozed';
+export interface FinanceGuardianFlaggedItem {
+  transaction_id: string;
+  posted_on: string;
+  description: string;
+  /** Money out, positive. */
+  amount: string;
+  currency: string;
+  category: FinanceCategory;
+  account_id: string;
+  account_name: string | null;
+  recorded_at: string;
+  outcome: 'needs_approval' | 'deny';
+  reasons: FinanceGuardianReason[];
+  rules: FinanceGuardianRuleKind[];
+  /** Median of earlier payments with the same description and currency, up to a year back. */
+  typical_amount: string | null;
+  prior_count: number;
+  state: FinanceGuardianItemState;
+  decided_at: string | null;
+  snoozed_until: string | null;
+}
+export interface FinanceGuardianRuleStat { kind: FinanceGuardianRuleKind; count: number; last: string | null }
+export interface FinanceGuardianReviewQueue {
+  month: string;
+  version: number;
+  timezone: string;
+  counts: { flagged: number; awaiting: number; resolved: number; snoozed: number };
+  rules: FinanceGuardianRuleStat[];
+  items: FinanceGuardianFlaggedItem[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+export type FinanceGuardianReviewDecision = 'expected' | 'reviewed' | 'snoozed' | 'reopen';
+export interface FinanceGuardianReviewResult { transaction_id: string; state: FinanceGuardianItemState; decided_at: string | null; snoozed_until: string | null }
+export interface FinanceGuardianActivity { id: string; action: string; target: string; created_at: string; metadata: Record<string, unknown> }
+export interface FinanceGuardianActivityPage { items: FinanceGuardianActivity[]; next_cursor: string | null }
 
 export type FinanceActionKind = 'spend' | 'bill_payment' | 'transfer' | 'trade' | 'record';
 

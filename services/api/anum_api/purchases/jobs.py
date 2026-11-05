@@ -24,7 +24,7 @@ from sqlalchemy import text
 from ..schemas import TenantContext, new_id, utc_now
 from ..settings import settings
 from . import service as S
-from .models import CLOSED, ReminderSent
+from .models import CLOSED, REMINDER_KINDS, ReminderSent
 from .store import open_purchase_store, purchase_memory_store
 
 logger = logging.getLogger("anum_api.purchases.jobs")
@@ -123,6 +123,8 @@ def run_person(tenant_id: str, workspace_id: str, user_id: str, *, now: datetime
         for purchase in mine:
             for item in S.due_items(purchase, [r for r in returns if r.purchase_id == purchase.id], [i for i in items if i.purchase_id == purchase.id],
                                     today=today, lead_days=prefs.lead_days, warranty_days=prefs.warranty_days):
+                if item["kind"] not in REMINDER_KINDS:
+                    continue  # shown on the page's task queue only (proof_needed), never a notification
                 step = step_for(item["kind"], item["days_left"], prefs.lead_days, prefs.warranty_days)
                 if step is None:
                     continue

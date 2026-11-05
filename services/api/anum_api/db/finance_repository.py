@@ -20,7 +20,7 @@ from sqlalchemy.orm import Mapped, Session, mapped_column
 
 from anum_api.finance.connectors import Connection
 from anum_api.finance.execution import ExecSettings, GlobalSwitch, Intent, IntentStatus
-from anum_api.finance.guardian import GuardianChange, GuardianPolicy
+from anum_api.finance.guardian import GuardianChange, GuardianPolicy, GuardianReview
 from anum_api.finance.intel.marketdata import Instrument, StoredCandle
 from anum_api.finance.intel.records import AgentDecision, StrategyConfig, StrategyRun
 from anum_api.finance.models import (
@@ -33,6 +33,7 @@ from anum_api.finance.models import (
     Holding,
     ImportRecord,
     PlanSettings,
+    Planning,
     Transaction,
 )
 from anum_api.finance.money import quantize
@@ -148,6 +149,7 @@ class FinanceDebtRecord(Base, _Owned):
     minimum_payment: Mapped[Decimal] = mapped_column(MONEY)
     due_day: Mapped[int | None] = mapped_column(Integer, nullable=True)
     account_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    original_balance: Mapped[Decimal | None] = mapped_column(MONEY, nullable=True)
     notes: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     created_at: Mapped[datetime] = mapped_column(TS)
     updated_at: Mapped[datetime] = mapped_column(TS)
@@ -164,6 +166,7 @@ class FinanceGoalRecord(Base, _Owned):
     target_on: Mapped[date | None] = mapped_column(Date, nullable=True)
     account_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
     monthly_contribution: Mapped[Decimal | None] = mapped_column(MONEY, nullable=True)
+    paused: Mapped[bool] = mapped_column(Boolean)
     notes: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     created_at: Mapped[datetime] = mapped_column(TS)
     updated_at: Mapped[datetime] = mapped_column(TS)
@@ -193,6 +196,8 @@ class FinancePlanRecord(Base):
     buffers: Mapped[list[dict[str, Any]]] = mapped_column(JSONB)
     combine_currencies: Mapped[bool] = mapped_column(Boolean)
     fx_max_age_days: Mapped[int] = mapped_column(Integer)
+    debt_plans: Mapped[list[dict[str, Any]]] = mapped_column(JSONB)
+    budget_alerts: Mapped[list[dict[str, Any]]] = mapped_column(JSONB)
     updated_at: Mapped[datetime] = mapped_column(TS)
 
 
@@ -222,6 +227,19 @@ class FinanceGuardianChangeRecord(Base, _Owned):
     created_at: Mapped[datetime] = mapped_column(TS)
     expires_at: Mapped[datetime] = mapped_column(TS)
     decided_at: Mapped[datetime | None] = mapped_column(TS, nullable=True)
+
+
+class FinanceGuardianReviewRecord(Base, _Owned):
+    __tablename__ = "finance_guardian_reviews"
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    transaction_id: Mapped[str] = mapped_column(String(80))
+    decision: Mapped[str] = mapped_column(String(12))
+    amount: Mapped[Decimal] = mapped_column(MONEY)
+    currency: Mapped[str] = mapped_column(String(3))
+    codes: Mapped[list[str]] = mapped_column(JSONB)
+    snoozed_until: Mapped[datetime | None] = mapped_column(TS, nullable=True)
+    decided_at: Mapped[datetime] = mapped_column(TS)
 
 
 class FinanceConnectionRecord(Base, _Owned):
@@ -527,7 +545,7 @@ def _fields(model: BaseModel) -> dict[str, Any]:
 
 
 MONEY_FIELDS = frozenset({
-    "amount", "opening_balance", "balance", "minimum_payment", "target_amount", "saved_amount", "cost_basis", "monthly_contribution",
+    "amount", "opening_balance", "balance", "minimum_payment", "target_amount", "saved_amount", "cost_basis", "monthly_contribution", "original_balance",
     "notional", "fee", "slippage",
 })
 
@@ -796,6 +814,28 @@ class SqlAlchemyFinanceStore:
         self.session.execute(statement.on_conflict_do_update(index_elements=["tenant_id", "workspace_id", "owner_user_id"], set_=values))
         return plan
 
+    # Debt plans and budget alerts: two more columns of the same row (migration 0140) --------
+
+    def get_planning(self, context: TenantContext) -> Planning:
+        found = self.session.scalar(select(FinancePlanRecord).where(*self._mine(FinancePlanRecord, context)))
+        if found is None:
+            return Planning()
+        return Planning.model_validate({"debt_plans": found.debt_plans or [], "budget_alerts": found.budget_alerts or []})
+
+    def save_planning(self, context: TenantContext, planning: Planning) -> Planning:
+        require_workspace(self.session, context.tenant_id, context.workspace_id)
+        values = {
+            "debt_plans": [p.model_dump(mode="json") for p in planning.debt_plans],
+            "budget_alerts": [a.model_dump(mode="json") for a in planning.budget_alerts],
+        }
+        # A new row keeps the safe-to-spend defaults (no buffer, no combined total, rates up to 7 days old).
+        statement = insert(FinancePlanRecord).values(
+            tenant_id=context.tenant_id, workspace_id=context.workspace_id, owner_user_id=context.user_id,
+            buffers=[], combine_currencies=False, fx_max_age_days=7, updated_at=datetime.now().astimezone(), **values,
+        )
+        self.session.execute(statement.on_conflict_do_update(index_elements=["tenant_id", "workspace_id", "owner_user_id"], set_=values))
+        return planning
+
     # Stage 4: Guardian --------------------------------------------------------------------
 
     @staticmethod
@@ -858,6 +898,28 @@ class SqlAlchemyFinanceStore:
                 setattr(existing, key, value)
         self.session.flush()
         return change
+
+    def list_reviews(self, context: TenantContext, transaction_ids: list[str]) -> list[GuardianReview]:
+        if not transaction_ids:
+            return []
+        rows = self.session.scalars(
+            select(FinanceGuardianReviewRecord).where(
+                *self._mine(FinanceGuardianReviewRecord, context), FinanceGuardianReviewRecord.transaction_id.in_(transaction_ids)
+            )
+        )
+        return [GuardianReview.model_validate({name: getattr(row, name) for name in GuardianReview.model_fields}) for row in rows]
+
+    def save_review(self, review: GuardianReview) -> GuardianReview:
+        """One decision per person and payment: a new one replaces the last (the audit log keeps them all)."""
+        self._require(review)
+        values = {**_fields(review), "codes": list(review.codes)}
+        update_values = {k: v for k, v in values.items() if k not in ("id", "tenant_id", "workspace_id", "owner_user_id", "transaction_id")}
+        self.session.execute(
+            insert(FinanceGuardianReviewRecord).values(**values)
+            .on_conflict_do_update(constraint="uq_finance_guardian_reviews_transaction", set_=update_values)
+        )
+        self.session.flush()
+        return review
 
     # Stage 5: connections and rates -------------------------------------------------------
 
@@ -1294,7 +1356,7 @@ class SqlAlchemyFinanceStore:
         *SMS_RECORDS, *IBKR_RECORDS, FinanceAgentDecisionRecord, FinanceStrategyRunRecord, FinanceStrategyRecord, FinanceMarketBarRecord, FinanceInstrumentRecord,
         FinanceLiveIncidentRecord, FinanceLiveWideningRecord, FinancePaperOrderRecord, FinancePaperPortfolioRecord, FinancePriceRecord, FinanceExecIntentRecord, FinanceExecSettingsRecord,
         FinanceTransactionRecord, FinanceImportRecord, FinanceHoldingRecord, FinanceBillRecord, FinanceDebtRecord,
-        FinanceGoalRecord, FinanceFxRateRecord, FinanceConnectionRecord, FinanceGuardianChangeRecord,
+        FinanceGoalRecord, FinanceFxRateRecord, FinanceConnectionRecord, FinanceGuardianReviewRecord, FinanceGuardianChangeRecord,
         FinanceGuardianVersionRecord, FinancePlanRecord, FinanceAccountRecord, FinanceSettingsRecord, FinanceStatementTemplateRecord,
     )
 

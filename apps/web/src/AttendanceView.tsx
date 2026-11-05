@@ -1,28 +1,35 @@
-// Work attendance and daily reports (docs/attendance.md#web): the signed-in person's own log. Today (check in and
-// out, breaks, remote, timeline), Reports (week and month hours, site history, CSV and PDF), Daily report, Corrections
-// and Settings (profile, schedule, sites, location check in, sharing, iPhone Shortcuts). A colleague's shared record
-// opens read only. A personal log, never an employer-certified timesheet: the page says so.
-import { useCallback, useEffect, useState } from 'react';
-import { ChevronLeft, ChevronRight, Clock3, Coffee, Download, Eye, House, LogIn, LogOut, MapPin, RefreshCw, Wifi } from 'lucide-react';
-import type { AttendanceEventKind, AttendancePeriod, AttendanceShares, AttendanceSite, AttendanceToday } from '@anum/contracts';
+// Attendance and Daily Reports (docs/attendance.md#web): Team attendance (the person and the colleagues who share
+// their record with them, read only), My timesheet (today, check in and out, week and month hours, exports), Daily
+// reports, Corrections and Sites and shifts. Built on the shared shell (FinanceShell.tsx: page head, tabs, KPI cards).
+// A personal log, never an employer-certified timesheet: the page says so.
+import { useCallback, useEffect, useId, useState } from 'react';
+import { ChevronLeft, ChevronRight, Clock3, Coffee, Download, Eye, House, LogIn, LogOut, MapPin, Plus, RefreshCw, Wifi } from 'lucide-react';
+import type { AttendanceEventKind, AttendancePeriod, AttendanceSite, AttendanceShares, AttendanceTeam, AttendanceTeamRow, AttendanceToday, TeamPerson } from '@anum/contracts';
 import * as api from './lib/attendanceApi';
 import {
   ATTENDANCE_TABS, ATTENTION, clock, dayIn, decimalHours, flagLabel, hashForTab, hours, kindLabel, newKey, nextActions, shiftDay, siteName,
   statusText, tabFromHash, timeline, type AttendanceTab,
 } from './lib/attendance';
+import { filterBySite, personName, rosterCsv, siteOptions } from './lib/attendanceTeam';
 import { describeError } from './lib/errors';
+import { saveBlob } from './lib/fileSave';
 import { t, type MessageKey } from './lib/i18n';
 import { figure, type Figure } from './lib/pageSummary';
 import { viewLabel } from './lib/shell';
 import { Empty, LoadError, Notice, failed, type Load } from './FinanceParts';
-import { PageHeader, PageSummary, type Crumb } from './PageParts';
+import { PageSummary, type Crumb } from './PageParts';
+import { FinancePageHead, FinanceTabs, tabPanel } from './FinanceShell';
 import { CorrectionsPanel, DailyPanel, SettingsPanel } from './AttendanceParts';
+import {
+  FeatureStrip, GlanceCard, PrivacyNote, QuickCorrectionCard, QuickReportCard, ReportDialog, ReportStatusCard, ReportsTable, RosterCard, TeamKpis,
+} from './AttendanceTeam';
 import './commerce.css';
 import './attendance.css';
 
 const ICONS: Record<AttendanceEventKind, typeof LogIn> = {
   arrive: LogIn, leave: LogOut, break_start: Coffee, break_end: Coffee, remote_start: House, remote_end: House,
 };
+const TEAM_PAGE = 50;
 
 function useAttendanceTab(): [AttendanceTab, (next: AttendanceTab) => void] {
   const [tab, setTab] = useState<AttendanceTab>(() => tabFromHash(typeof location === 'undefined' ? '' : location.hash));
@@ -43,44 +50,128 @@ export function AttendanceDenied() {
   return <section className="surface cmPanel cmDenied" aria-labelledby="att-denied"><Eye aria-hidden="true" /><div><h2 id="att-denied">{t('att.denied.title')}</h2><p className="muted">{t('att.denied.text')}</p></div></section>;
 }
 
+type Viewing = { userId: string; name: string } | null;
+
 export function AttendanceView() {
   const [tab, pick] = useAttendanceTab();
-  const [person, setPerson] = useState<string | null>(null);
+  const [viewing, setViewing] = useState<Viewing>(null);
+  const person = viewing?.userId ?? null;
+  const [date, setDate] = useState('');
+  const [site, setSite] = useState('');
+  const [contributor, setContributor] = useState('');
+  const [reportDay, setReportDay] = useState<string | null>(null);
+  const [dialog, setDialog] = useState<{ userId: string; me: boolean; day: string; name: string } | null>(null);
   const [shares, setShares] = useState<Load<AttendanceShares>>({ kind: 'loading' });
   const [sites, setSites] = useState<Load<AttendanceSite[]>>({ kind: 'loading' });
   const [today, setToday] = useState<Load<AttendanceToday>>({ kind: 'loading' });
+  const [team, setTeam] = useState<Load<AttendanceTeam>>({ kind: 'loading' });
+  const [people, setPeople] = useState<TeamPerson[]>([]);
+  const [refreshing, setRefreshing] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
+  const [message, setMessage] = useState<{ text: string; error?: boolean } | null>(null);
   const [tick, setTick] = useState(0);
+  const [reportsTick, setReportsTick] = useState(0);
+  // The signed-in person's own day and zone: personal forms never take a viewed colleague's.
+  const [own, setOwn] = useState<{ day: string; zone: string } | null>(null);
   const readOnly = person !== null;
+  const ids = { date: useId(), site: useId(), menu: useId() };
 
   const loadAll = useCallback(async () => {
     setToday((current) => current.kind === 'ready' ? current : { kind: 'loading' });
     const [s, d] = await Promise.allSettled([api.listSites(person), api.getToday(person)]);
     setSites(s.status === 'fulfilled' ? { kind: 'ready', value: s.value } : failed(s.reason));
     setToday(d.status === 'fulfilled' ? { kind: 'ready', value: d.value } : failed(d.reason));
+    if (person === null && d.status === 'fulfilled') setOwn({ day: d.value.day, zone: d.value.time_zone });
   }, [person]);
+  const loadTeam = useCallback(async () => {
+    setRefreshing(true);
+    try { setTeam({ kind: 'ready', value: await api.getTeam(date || null, TEAM_PAGE, 0) }); } catch (e) { setTeam(failed(e)); } finally { setRefreshing(false); }
+  }, [date]);
   const loadShares = useCallback(async () => {
     try { setShares({ kind: 'ready', value: await api.listShares() }); } catch (e) { setShares(failed(e)); }
   }, []);
   useEffect(() => { void loadAll(); }, [loadAll, tick]);
+  useEffect(() => { void loadTeam(); }, [loadTeam, tick]);
   useEffect(() => { void loadShares(); }, [loadShares]);
+  // Leaving a colleague's timesheet (any tab, the back button or a link) returns to the signed-in person's own record.
+  useEffect(() => { if (tab !== 'timesheet') setViewing(null); }, [tab]);
+  useEffect(() => { void (async () => { try { setPeople(await api.listPeople()); } catch { setPeople([]); } })(); }, []);
+  // Live: today's roster refreshes every minute while the page is visible.
+  useEffect(() => {
+    if (date || tab !== 'team') return undefined;
+    const timer = window.setInterval(() => { if (document.visibilityState === 'visible') void loadTeam(); }, 60_000);
+    return () => window.clearInterval(timer);
+  }, [date, tab, loadTeam]);
   const refresh = () => setTick((n) => n + 1);
+  const more = async () => {
+    if (team.kind !== 'ready') return;
+    setRefreshing(true);
+    try {
+      const next = await api.getTeam(date || null, TEAM_PAGE, team.value.rows.length);
+      setTeam({ kind: 'ready', value: { ...next, rows: [...team.value.rows, ...next.rows] } });
+    } catch (e) { setMessage({ text: t('attTeam.error', { message: describeError(e) }), error: true }); } finally { setRefreshing(false); }
+  };
 
-  const sharedWithMe = shares.kind === 'ready' ? shares.value.with_me : [];
-  const crumbs: Crumb[] = [{ label: viewLabel('home'), href: '#home' }, { label: viewLabel('attendance'), href: '#attendance', onClick: () => pick('today') }];
-  if (tab !== 'today') crumbs.push({ label: t(`att.tab.${tab}` as MessageKey) });
-  const header = <PageHeader title={viewLabel('attendance')} subtitle={t('att.subtitle')} crumbs={tab === 'today' ? undefined : crumbs} actions={sharedWithMe.length > 0 ? <label className="cmInline attPerson">
-    <span>{t('att.person.label')}</span>
-    <select value={person ?? ''} onChange={(e) => { setPerson(e.target.value || null); if (e.target.value && (tab === 'settings' || tab === 'corrections')) pick('today'); }}>
-      <option value="">{t('att.person.me')}</option>
-      {sharedWithMe.map((s) => <option key={s.id} value={s.owner_user_id}>{s.owner_user_id}</option>)}
-    </select>
-  </label> : undefined} />;
+  const myToday = own?.day ?? null;
+  const zone = own?.zone ?? 'Asia/Dubai';
+  const reportsChanged = () => { setReportsTick((n) => n + 1); void loadTeam(); };
 
-  if (today.kind === 'denied' || sites.kind === 'denied') return <div className="cmLayout">{header}<AttendanceDenied /></div>;
-  if (today.kind === 'loading') return <div className="cmLayout">{header}<Notice busy>{t('att.loading')}</Notice></div>;
-  if (today.kind === 'error') return <div className="cmLayout">{header}<LoadError message={t('att.error.load', { message: today.message })} retry={refresh} /></div>;
-  if (today.kind !== 'ready') return <div className="cmLayout">{header}</div>;
-  const siteList = sites.kind === 'ready' ? sites.value : [];
+  const anchor = date || myToday || dayIn(zone);
+  const rows = team.kind === 'ready' ? team.value.rows : [];
+  const me = rows.find((r) => r.me);
+  const myName = me ? personName(me.user_id, people, true) : t('attTeam.me');
+  const openPerson = (row: AttendanceTeamRow) => {
+    setViewing(row.me ? null : { userId: row.user_id, name: personName(row.user_id, people, false) });
+    pick('timesheet');
+  };
+  const openReports = (row: AttendanceTeamRow) => { setContributor(row.user_id); pick('daily'); };
+  const editReport = (day: string) => { setViewing(null); setReportDay(day); pick('daily'); };
+  const viewReport = (userId: string, mine: boolean, day: string) => setDialog({ userId, me: mine, day, name: personName(userId, people, mine) });
+  const exportRoster = () => {
+    setExportOpen(false);
+    if (team.kind !== 'ready') return;
+    const name = saveBlob(new Blob([rosterCsv(filterBySite(rows, site), people)], { type: 'text/csv' }), `attendance-team-${anchor}.csv`);
+    setMessage({ text: t('att.reports.saved', { name }) });
+  };
+  const exportMine = async (format: 'csv' | 'pdf') => {
+    setExportOpen(false); setMessage(null);
+    try { setMessage({ text: t('att.reports.saved', { name: await api.downloadReport(format, shiftDay(anchor, -6), anchor, null) }) }); }
+    catch (error) { setMessage({ text: t('att.reports.exportFailed', { message: describeError(error) }), error: true }); }
+  };
+
+  const crumbs: Crumb[] | undefined = tab === 'team' ? undefined
+    : [{ label: viewLabel('home'), href: '#home' }, { label: t('attTeam.title'), href: '#attendance', onClick: () => pick('team') }, { label: t(`att.tab.${tab}` as MessageKey) }];
+  const actions = <>
+    <div className="attMenu attExportMenu">
+      <button type="button" className="secondary" aria-haspopup="menu" aria-expanded={exportOpen} aria-controls={ids.menu} onClick={() => setExportOpen(!exportOpen)}
+        onKeyDown={(e) => { if (e.key === 'Escape') setExportOpen(false); }}><Download aria-hidden="true" />{t('attTeam.export')}</button>
+      {exportOpen && <div id={ids.menu} role="menu" className="attMenuList" onKeyDown={(e) => { if (e.key === 'Escape') setExportOpen(false); }}>
+        <button type="button" role="menuitem" disabled={team.kind !== 'ready'} onClick={exportRoster}>{t('attTeam.export.roster')}</button>
+        <button type="button" role="menuitem" onClick={() => void exportMine('csv')}>{t('attTeam.export.csv')}</button>
+        <button type="button" role="menuitem" onClick={() => void exportMine('pdf')}>{t('attTeam.export.pdf')}</button>
+      </div>}
+    </div>
+    <button type="button" onClick={() => editReport(anchor)}><Plus aria-hidden="true" />{t('attTeam.create')}</button>
+  </>;
+  const siteList = siteOptions(rows);
+  const controls = <>
+    <div className="finControl"><label className="finControlLabel" htmlFor={ids.date}>{t('attTeam.day')}</label>
+      <input id={ids.date} type="date" className="attDate" value={anchor} max={myToday ?? undefined}
+        onChange={(e) => { const v = e.target.value; setDate(!v || v === myToday ? '' : v); }} /></div>
+    {tab === 'team' && <div className="finControl"><label className="finControlLabel" htmlFor={ids.site}>{t('attTeam.site')}</label>
+      <select id={ids.site} value={site} onChange={(e) => setSite(e.target.value)} disabled={siteList.length === 0}>
+        <option value="">{t('attTeam.allSites')}</option>{siteList.map((n) => <option key={n} value={n}>{n}</option>)}</select></div>}
+  </>;
+  const visibleTabs = ATTENDANCE_TABS.filter((id) => !readOnly || (id !== 'settings' && id !== 'corrections'));
+  const tabs = <FinanceTabs idPrefix="att" label={t('att.tabs')} value={tab} onChange={pick}
+    items={visibleTabs.map((id) => ({ id, label: id === 'timesheet' && viewing ? t('attTeam.tab.theirs', { name: viewing.name }) : t(`att.tab.${id}` as MessageKey) }))} />;
+  const header = <FinancePageHead title={t('attTeam.title')} subtitle={t('attTeam.subtitle')} crumbs={crumbs} actions={actions} controls={controls} tabs={tabs} />;
+
+  if (today.kind === 'denied' || sites.kind === 'denied' || team.kind === 'denied') return <div className="cmLayout attLayout">{header}<AttendanceDenied /></div>;
+  if (today.kind === 'loading') return <div className="cmLayout attLayout">{header}<Notice busy>{t('att.loading')}</Notice></div>;
+  if (today.kind === 'error') return <div className="cmLayout attLayout">{header}<LoadError message={t('att.error.load', { message: today.message })} retry={refresh} /></div>;
+  if (today.kind !== 'ready') return <div className="cmLayout attLayout">{header}</div>;
+  const siteRows = sites.kind === 'ready' ? sites.value : [];
   const totals = today.value.totals;
   const figures: Figure[] = [
     figure('worked', t('att.figure.worked'), { state: 'ready' }, () => ({ value: hours(totals?.worked_seconds ?? 0), hint: totals?.open_seconds ? t('att.figure.ongoing') : t('att.figure.today') })),
@@ -88,20 +179,52 @@ export function AttendanceView() {
     figure('presence', t('att.figure.presence'), { state: 'ready' }, () => ({ value: hours(totals?.presence_seconds ?? 0), hint: totals?.remote_seconds ? t('att.figure.remote', { time: hours(totals.remote_seconds) }) : t('att.figure.onSite') })),
     figure('scheduled', t('att.figure.scheduled'), { state: 'ready' }, () => ({ value: totals?.scheduled_seconds ? hours(totals.scheduled_seconds) : '-', hint: totals?.scheduled_seconds ? t('att.figure.scheduledHint') : t('att.figure.noSchedule') })),
   ];
-  const visibleTabs = ATTENDANCE_TABS.filter((id) => !readOnly || (id !== 'settings' && id !== 'corrections'));
+  const shown = filterBySite(rows, site);
+  const teamReady = team.kind === 'ready' ? team.value : null;
   return <div className="cmLayout attLayout">
     {header}
-    {readOnly && <Notice>{t('att.person.viewing', { person: person ?? '' })}</Notice>}
-    <PageSummary label={t('att.summary.label')} figures={figures} footer={<p className="muted attNote">{t('att.notCertified')}</p>} />
-    <nav className="settingsTabs cmTabs" aria-label={t('att.tabs')}>
-      {visibleTabs.map((id) => <button key={id} type="button" aria-current={tab === id ? 'page' : undefined} onClick={() => pick(id)}>{t(`att.tab.${id}` as MessageKey)}</button>)}
-    </nav>
+    {message && <Notice error={message.error}>{message.text}</Notice>}
     {sites.kind === 'error' && <LoadError message={t('att.error.sites', { message: sites.message })} retry={refresh} />}
-    {tab === 'today' && <TodayPanel today={today.value} sites={siteList} readOnly={readOnly} onChanged={refresh} onSettings={() => pick('settings')} onCorrect={() => pick('corrections')} />}
-    {tab === 'reports' && <ReportsPanel person={person} sites={siteList} timeZone={today.value.time_zone} />}
-    {tab === 'daily' && <DailyPanel person={person} sites={siteList} today={today.value.day} readOnly={readOnly} />}
-    {tab === 'corrections' && !readOnly && <CorrectionsPanel sites={siteList} timeZone={today.value.time_zone} today={today.value.day} onChanged={refresh} />}
-    {tab === 'settings' && !readOnly && <SettingsPanel sites={siteList} shares={shares} onChanged={() => { refresh(); void loadShares(); }} />}
+    <div {...tabPanel('att', tab)}>
+      {tab === 'team' && <>
+        {team.kind === 'loading' && <Notice busy>{t('attTeam.loading')}</Notice>}
+        {team.kind === 'error' && <LoadError message={t('attTeam.error', { message: team.message })} retry={() => void loadTeam()} />}
+        {teamReady && <TeamKpis rows={shown} />}
+        {teamReady && <div className="attTeamGrid">
+          <div className="attMainCol">
+            <RosterCard team={teamReady} rows={shown} people={people} site={site} live={!date} refreshing={refreshing} onRefresh={() => void loadTeam()}
+              onMore={teamReady.total > teamReady.rows.length ? () => void more() : null}
+              actions={{ timesheet: openPerson, reports: openReports, correct: () => { setViewing(null); pick('corrections'); } }} />
+            <ReportsTable compact refreshKey={reportsTick} rows={rows} people={people} anchor={anchor} contributor={contributor} onContributor={setContributor}
+              onEdit={editReport} onView={(item) => viewReport(item.userId, item.me, item.report.day)} />
+          </div>
+          <div className="attSideCol">
+            <GlanceCard rows={shown} people={people} />
+            <ReportStatusCard rows={shown} people={people} onEdit={editReport} onView={(row) => viewReport(row.user_id, row.me, row.day)} />
+          </div>
+          <div className="attPair">
+            <QuickReportCard key={anchor} day={anchor} myName={myName} onSaved={reportsChanged} />
+            <QuickCorrectionCard today={myToday ?? anchor} timeZone={zone} onChanged={refresh} onOpenCorrections={() => pick('corrections')} />
+          </div>
+        </div>}
+        <FeatureStrip onTimesheet={() => { setViewing(null); pick('timesheet'); }} onSettings={() => pick('settings')} onDaily={() => editReport(anchor)} />
+        <PrivacyNote onSettings={() => pick('settings')} />
+      </>}
+      {tab === 'timesheet' && <>
+        {viewing && <Notice>{t('att.person.viewing', { person: viewing.name })} <button type="button" className="cmLinkButton" onClick={() => setViewing(null)}>{t('attTeam.backToMine')}</button></Notice>}
+        <PageSummary label={t('att.summary.label')} figures={figures} footer={<p className="muted attNote">{t('att.notCertified')}</p>} />
+        <TodayPanel today={today.value} sites={siteRows} readOnly={readOnly} onChanged={refresh} onSettings={() => pick('settings')} onCorrect={() => pick('corrections')} />
+        <ReportsPanel person={person} sites={siteRows} timeZone={today.value.time_zone} />
+      </>}
+      {tab === 'daily' && <DailyPanel key={reportDay ?? anchor} initialDay={reportDay ?? anchor} sites={siteRows} today={myToday ?? anchor}
+        table={teamReady ? <ReportsTable refreshKey={reportsTick} rows={rows} people={people} anchor={anchor} contributor={contributor} onContributor={setContributor}
+          onEdit={(day) => setReportDay(day)} onView={(item) => viewReport(item.userId, item.me, item.report.day)} /> : team.kind === 'error'
+          ? <LoadError message={t('attTeam.error', { message: team.message })} retry={() => void loadTeam()} /> : <Notice busy>{t('attTeam.loading')}</Notice>}
+        onSaved={reportsChanged} />}
+      {tab === 'corrections' && !readOnly && <CorrectionsPanel sites={siteRows} timeZone={zone} today={myToday ?? today.value.day} onChanged={refresh} />}
+      {tab === 'settings' && !readOnly && <SettingsPanel sites={siteRows} shares={shares} onChanged={() => { refresh(); void loadShares(); }} />}
+    </div>
+    {dialog && <ReportDialog {...dialog} onClose={() => setDialog(null)} />}
   </div>;
 }
 

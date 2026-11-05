@@ -18,30 +18,44 @@ async function open(page: import('@playwright/test').Page, hash = 'vault', optio
 test('the overview shows real counts, what expires next and what waits for review', async ({ page }) => {
   await open(page);
   const summary = page.getByRole('region', { name: 'Document vault figures' });
-  await expect(summary.getByText('Documents')).toBeVisible();
+  await expect(summary.getByText('Documents', { exact: true })).toBeVisible();
   await expect(summary.getByText('4', { exact: true }).first()).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Expiring next' })).toBeVisible();
-  await expect(page.locator('.vaultMiniList').first().getByRole('button', { name: 'Passport' })).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Waiting for your review' })).toBeVisible();
-  await page.locator('.vaultMiniList').first().getByRole('button', { name: 'Passport' }).click();
+  await expect(summary.getByText('25%')).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Next expiries' })).toBeVisible();
+  const next = page.locator('.vaultNextList');
+  await expect(next.getByRole('button', { name: /Passport/ })).toBeVisible();
+  await expect(next.getByRole('button', { name: /Iqama/ })).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: /Scan review queue \(1\)/ })).toBeVisible();
+  await expect(page.getByText(/never becomes a Finance transaction by itself/)).toBeVisible();
+  await expect(page.getByRole('heading', { name: /Security and versions/ })).toBeVisible();
+  await expect(page.getByText(/ANUM cannot read/)).toBeVisible();
+  await next.getByRole('button', { name: /Passport/ }).click();
   await expect(page.getByRole('heading', { level: 2, name: 'Passport' })).toBeVisible();
 });
 
 test('documents: search, filter, open the detail, reveal the number, share and edit', async ({ page }) => {
   const mock = await open(page, 'vault-documents');
-  const list = page.getByRole('region', { name: 'Documents' });
-  await expect(list.locator('.vaultRow')).toHaveCount(4);
+  const list = page.getByRole('region', { name: /^Documents/ });
+  const rows = list.locator('.vaultTable tbody tr');
+  await expect(rows).toHaveCount(4);
   await expect(list.getByText('•••• 4567').first()).toBeVisible();
+  await expect(rows.filter({ hasText: 'Iqama' }).getByText('Expired')).toBeVisible();
+  await expect(rows.filter({ has: page.locator('strong', { hasText: /^Passport$/ }) }).getByText('Sensitive identity')).toBeVisible();
+  await expect(rows.filter({ hasText: 'Fuel receipt' }).getByText('Review needed')).toBeVisible();
+  // The linked record column is left out on phones (the detail pane lists every link); it is in the row either way.
+  await expect(rows.filter({ hasText: 'Flat lease' }).getByText('Example van')).toHaveCount(1);
   await list.getByRole('searchbox', { name: 'Search' }).fill('iqama');
-  await list.getByRole('button', { name: 'Find' }).click();
-  await expect(list.locator('.vaultRow')).toHaveCount(1);
-  await expect(list.getByText('Expired 3 days ago')).toBeVisible();
+  await list.getByRole('searchbox', { name: 'Search' }).press('Enter');
+  await expect(rows).toHaveCount(1);
   await list.getByRole('button', { name: 'Clear' }).click();
   await list.getByLabel('Category').selectOption('contract');
-  await list.getByRole('button', { name: 'Find' }).click();
-  await expect(list.locator('.vaultRow')).toHaveCount(1);
+  await expect(rows).toHaveCount(1);
   await list.getByRole('button', { name: 'Clear' }).click();
-  await list.locator('.vaultRow', { hasText: 'Passport' }).click();
+  await list.getByLabel('Sort').selectOption('expiry');
+  await expect(rows).toHaveCount(2);
+  expect(mock.calls.some((c) => c.query.includes('sort=expiry'))).toBe(true);
+  await list.getByLabel('Sort').selectOption('created');
+  await list.locator('.vaultRowButton').filter({ has: page.locator('strong', { hasText: /^Passport$/ }) }).click();
   const detail = page.getByRole('region', { name: 'Passport' });
   await expect(detail.getByText('Ministry of Interior')).toBeVisible();
   await detail.getByRole('button', { name: 'Show number' }).click();
@@ -64,7 +78,7 @@ test('documents: search, filter, open the detail, reveal the number, share and e
 
 test('adding a document, and a duplicate offers the existing one', async ({ page }) => {
   const mock = await open(page, 'vault-documents');
-  await page.getByRole('button', { name: 'Add document' }).click();
+  await page.getByRole('button', { name: 'Upload file' }).click();
   const dialog = page.getByRole('dialog', { name: 'Add a document' });
   await dialog.getByLabel('File').setInputFiles({ name: 'duplicate.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4 sample') });
   await dialog.getByRole('button', { name: 'Add', exact: true }).click();
@@ -119,9 +133,13 @@ test('settings: an owner saves scanning switches, adds a category and makes an i
   await form.getByRole('button', { name: 'Save' }).click();
   await expect(page.getByText('Saved the vault settings.')).toBeVisible();
   expect(mock.calls.find((c) => c.method === 'PUT')?.body).toEqual({ reminder_days: 14, trash_days: 30, ocr_receipts: true, ocr_identity_dates: true });
+  await page.getByRole('tab', { name: 'Categories' }).click();
+  await expect(page.getByText('Identity paper: sensitive, private by default').first()).toBeVisible();
   await page.getByLabel('Category name').fill('Medical');
   await page.getByRole('button', { name: 'Add category' }).click();
   await expect(page.getByText('Added the category.')).toBeVisible();
+  await page.getByRole('tab', { name: 'Access and devices' }).click();
+  await expect(page.getByRole('heading', { name: /Who can do what/ })).toBeVisible();
   await page.getByRole('button', { name: 'Make a token' }).click();
   await expect(page.getByText(/Copy this token now/)).toBeVisible();
   await expect(page.locator('.vaultToken code')).toContainText('anumdoc.');
@@ -136,7 +154,8 @@ test('members see settings read only; viewers are told who can see the vault; fa
   await page.unrouteAll({ behavior: 'ignoreErrors' });
   await open(page, 'vault', { role: 'viewer' });
   await expect(page.getByRole('heading', { name: 'The vault is for members and owners' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Add document' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Upload file' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Scan document' })).toHaveCount(0);
 
   await page.unrouteAll({ behavior: 'ignoreErrors' });
   await open(page, 'vault', { metaStatus: 500 });
@@ -150,9 +169,9 @@ test('members see settings read only; viewers are told who can see the vault; fa
 
 test('a long list pages with Show more', async ({ page }) => {
   const mock = await open(page, 'vault-documents', { manyDocuments: 60 });
-  await expect(page.locator('.vaultRow')).toHaveCount(50);
+  await expect(page.locator('.vaultTable tbody tr')).toHaveCount(50);
   await page.getByRole('button', { name: 'Show more' }).click();
-  await expect(page.locator('.vaultRow')).toHaveCount(64);
+  await expect(page.locator('.vaultTable tbody tr')).toHaveCount(64);
   expect(mock.calls.some((c) => c.query.includes('cursor=50'))).toBe(true);
 });
 
@@ -163,16 +182,31 @@ test('Arabic: the vault reads right to left with translated labels', async ({ pa
   await page.goto('/#vault-documents');
   await expect(page.locator('html')).toHaveAttribute('dir', 'rtl');
   await expect(page.getByRole('heading', { level: 1, name: 'خزنة المستندات' })).toBeVisible();
-  await expect(page.locator('.vaultRow').first()).toBeVisible();
-  await expect(page.getByText('انتهى منذ 3 أيام')).toBeVisible();
+  await expect(page.locator('.vaultTable tbody tr').first()).toBeVisible();
+  await expect(page.getByText('منتهٍ', { exact: true })).toBeVisible();
+  await expect(page.getByRole('tab', { name: /قائمة المراجعة/ })).toBeVisible();
 });
 
-for (const hash of ['vault', 'vault-documents', 'vault-review', 'vault-settings']) {
+for (const hash of ['vault', 'vault-documents', 'vault-review', 'vault-categories', 'vault-access', 'vault-settings']) {
   test(`axe finds no violations on #${hash}`, async ({ page }) => {
     await open(page, hash);
     await page.waitForLoadState('networkidle');
-    if (hash === 'vault-documents') await page.locator('.vaultRow', { hasText: 'Passport' }).click();
+    if (hash === 'vault-documents') await page.locator('.vaultRowButton').filter({ has: page.locator('strong', { hasText: /^Passport$/ }) }).click();
     const results = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']).analyze();
     expect(results.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(' ')).join(', ')}`)).toEqual([]);
   });
 }
+
+test('scan document saves a photo privately and reads it now, waiting for review', async ({ page }) => {
+  const mock = await open(page, 'vault');
+  await page.getByRole('button', { name: 'Scan document' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Scan a document' });
+  await expect(dialog.getByLabel('Photo or scan')).toHaveAttribute('capture', 'environment');
+  await expect(dialog.getByLabel('Category')).toHaveValue('receipt');
+  await dialog.getByLabel('Photo or scan').setInputFiles({ name: 'receipt.png', mimeType: 'image/png', buffer: Buffer.from('89504e470d0a1a0a', 'hex') });
+  await dialog.getByRole('button', { name: 'Save and read' }).click();
+  await expect(page.getByText(/was saved|Added|Scanning/).first()).toBeVisible();
+  const post = mock.calls.filter((c) => c.method === 'POST' && c.path === '/').at(-1);
+  expect(post?.query).toContain('access_class=private');
+  expect(post?.query).toContain('category=receipt');
+});

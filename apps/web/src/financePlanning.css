@@ -1,0 +1,197 @@
+/* Bills and budgets, Debts and goals (docs/finance.md#bills-and-budgets). Built on the Finance shell
+   (financeShell.css) and the shared tokens; content-driven heights, no fixed section heights. */
+.fplPage { display: grid; gap: var(--d-s4); min-width: 0; }
+.fplColumns { align-items: start; display: grid; gap: var(--d-s4); grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr); min-width: 0; }
+.fplColumns.wideStart { grid-template-columns: minmax(0, 2.1fr) minmax(0, 1fr); }
+.fplColumn { display: grid; gap: var(--d-s4); min-width: 0; }
+@media (max-width: 1180px) { .fplColumns, .fplColumns.wideStart { grid-template-columns: minmax(0, 1fr); } }
+
+/* rows: debts, commitments */
+.fplRows { display: grid; gap: var(--d-s2); list-style: none; margin: 0; padding: 0; }
+.fplRow { align-items: center; border: 1px solid var(--d-line); border-radius: var(--d-r-control); display: grid; gap: var(--d-s2) var(--d-s3);
+  grid-template-columns: auto minmax(0, 1fr) auto auto auto; padding: var(--d-s2) var(--d-s3); }
+.fplRow.compact { grid-template-columns: auto minmax(0, 1fr) auto auto; }
+.fplRowIcon { align-items: center; background: var(--d-glass-2); border-radius: var(--d-r-control); color: var(--d-accent); display: inline-flex; height: 40px; justify-content: center; width: 40px; }
+.fplRowIcon svg { height: 20px; width: 20px; }
+.fplRowMain { display: grid; gap: 2px; min-width: 0; }
+.fplRowMain strong { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); }
+.fplRowMain small { color: var(--d-muted); }
+.fplRowFigure { border-inline-start: 1px solid var(--d-line); display: grid; gap: 2px; padding-inline-start: var(--d-s3); }
+.fplRowFigure span { color: var(--d-muted); font-size: var(--text-xs); }
+.fplRowFigure .finMoney, .fplAmount { font-size: var(--text-lg); font-weight: 700; font-variant-numeric: tabular-nums; }
+@media (max-width: 640px) {
+  .fplRow { grid-template-columns: auto minmax(0, 1fr) auto; }
+  .fplRowFigure { border: 0; grid-column: 2; padding: 0; }
+  .fplRow.compact { grid-template-columns: auto minmax(0, 1fr) auto; }
+}
+
+/* the ⋮ menu */
+.fplMenu { position: relative; }
+.fplMenuList { background: var(--d-surface-1); border: 1px solid var(--d-line); border-radius: var(--d-r-control); box-shadow: var(--d-elev-2, var(--d-elev-1));
+  inset-inline-end: 0; list-style: none; margin: 4px 0 0; min-width: 200px; padding: var(--d-s1); position: absolute; top: 100%; z-index: 20; }
+.fplMenuList button { background: transparent; border: 0; border-radius: calc(var(--d-r-control) - 2px); color: var(--d-text); cursor: pointer; font: inherit;
+  min-height: 36px; padding: 0 var(--d-s3); text-align: start; width: 100%; }
+.fplMenuList button:hover { background: var(--d-glass-1); }
+.fplMenuList button.danger { color: var(--d-stop); }
+
+/* progress bars */
+.fplBar { background: var(--d-glass-2); border-radius: var(--d-r-pill); display: block; height: 8px; min-width: 60px; overflow: hidden; width: 100%; }
+.fplBar > span { background: var(--d-accent); border-radius: inherit; display: block; height: 100%; }
+.fplBar.warn > span { background: var(--d-warn); }
+.fplBar.bad > span { background: var(--d-stop); }
+.fplBarRow { align-items: center; display: grid; gap: var(--d-s2); grid-template-columns: minmax(0, 1fr) auto; }
+
+/* strategy */
+.fplStrategy { border: 1px solid var(--d-line); border-radius: var(--d-r-control); display: grid; gap: var(--d-s3) var(--d-s4); grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr); padding: var(--d-s3) var(--d-s4); }
+@media (max-width: 640px) { .fplStrategy { grid-template-columns: minmax(0, 1fr); } }
+.fplRadios { border: 0; display: grid; gap: var(--d-s2); margin: 0; min-width: 0; padding: 0; }
+.fplRadios legend { font-weight: 600; margin-bottom: var(--d-s1); padding: 0; }
+.fplRadios label { align-items: flex-start; cursor: pointer; display: flex; gap: var(--d-s2); }
+.fplRadios input { accent-color: var(--d-primary); height: 18px; margin-top: 2px; width: 18px; }
+.fplPayoff { border-inline-start: 1px solid var(--d-line); display: grid; gap: var(--d-s1); padding-inline-start: var(--d-s4); }
+@media (max-width: 640px) { .fplPayoff { border: 0; padding: 0; } }
+.fplPayoff h3 { font-size: var(--text-md); margin: 0; }
+.fplFrom { color: var(--d-muted); margin: 0; }
+.fplDates { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2) var(--d-s3); font-size: var(--text-sm); margin: 0; }
+.fplPayment { align-items: end; display: grid; gap: var(--d-s2) var(--d-s3); grid-template-columns: minmax(0, 1fr) auto; }
+.fplPayment > :not(.field):not(.fplPaymentActions) { grid-column: 1 / -1; }
+.fplPaymentActions { display: flex; flex-wrap: wrap; gap: var(--d-s2); }
+@media (max-width: 640px) { .fplPayment { grid-template-columns: minmax(0, 1fr); } }
+
+/* what if */
+.fplWhatIf { background: rgb(var(--c-ok) / .08); border: 1px solid rgb(var(--c-ok) / .35); border-radius: var(--d-r-panel); display: flex; gap: var(--d-s3); padding: var(--d-s4); }
+.fplWhatIf > svg { color: var(--d-accent); flex: none; height: 28px; width: 28px; }
+.fplWhatIf > div { display: grid; gap: var(--d-s2); min-width: 0; }
+.fplWhatIf h2 { font-size: var(--text-lg); margin: 0; }
+.fplWhatIf p { font-weight: 600; margin: 0; }
+.fplWhatIfInput { color: var(--d-muted); font-size: var(--text-sm); }
+.fplWhatIf input { max-width: 180px; }
+
+/* goals */
+.fplGoals { display: grid; gap: var(--d-s2); list-style: none; margin: 0; padding: 0; }
+.fplGoals > li { border: 1px solid var(--d-line); border-radius: var(--d-r-control); display: grid; gap: var(--d-s2); padding: var(--d-s3); }
+.fplGoals > li.paused { background: var(--d-glass-1); }
+.fplGoalTop { align-items: center; display: grid; gap: var(--d-s2) var(--d-s3); grid-template-columns: auto minmax(0, 1fr) auto auto; }
+.fplPercent { font-size: var(--text-lg); font-variant-numeric: tabular-nums; }
+.fplGoalMeta { align-items: center; color: var(--d-muted); display: flex; flex-wrap: wrap; font-size: var(--text-sm); gap: var(--d-s2) var(--d-s4); }
+.fplGoalMeta > span { align-items: center; display: inline-flex; gap: var(--d-s1); }
+.fplGoalMeta svg { height: 16px; width: 16px; }
+.fplGoalMeta strong { color: var(--d-text); }
+.fplGoalButtons { margin-inline-start: auto; }
+.fplGoalButtons button { align-items: center; display: inline-flex; gap: var(--d-s1); min-height: 36px; }
+@media (max-width: 640px) {
+  .fplGoalButtons { margin-inline-start: 0; }
+}
+
+/* charts */
+.fplChart { min-width: 0; overflow: hidden; }
+.fplChart svg { display: block; max-width: 100%; }
+.fplGrid { stroke: var(--d-line); stroke-width: 1; }
+.fplAxis { fill: var(--d-faint); font-size: var(--text-xs); }
+.fplLine { fill: none; stroke-linecap: round; stroke-linejoin: round; stroke-width: 2.5; }
+.fplLine.dashed { stroke-dasharray: 6 5; stroke-width: 2; }
+.fplArea { opacity: .14; stroke: none; }
+.fplDot { stroke: var(--d-surface-1); stroke-width: 1.5; }
+.fplSeriesDebt .fplLine { stroke: var(--d-accent); }
+.fplSeriesDebt .fplArea, .fplSeriesDebt .fplDot { fill: var(--d-accent); }
+.fplSeriesSave .fplLine { stroke: var(--d-ok); }
+.fplSeriesSave .fplArea, .fplSeriesSave .fplDot { fill: var(--d-ok); }
+.fplSeriesDebt .fplLine { stroke: var(--d-primary); }
+.fplSeriesDebt .fplArea, .fplSeriesDebt .fplDot { fill: var(--d-primary); }
+.fplSeriesBudget .fplLine { stroke: var(--d-muted); }
+.fplSeriesBudget .fplDot { display: none; }
+.fplLegend { display: flex; flex-wrap: wrap; gap: var(--d-s2) var(--d-s4); font-size: var(--text-sm); list-style: none; margin: 0; padding: 0; }
+.fplLegend li { align-items: center; display: inline-flex; gap: var(--d-s2); }
+.fplSwatch { border-top: 3px solid currentColor; display: inline-block; width: 20px; }
+.fplSwatch.dashed { border-top-style: dashed; }
+.fplLegend li { color: var(--d-text); }
+.fplLegend .fplSeriesDebt .fplSwatch { border-top-color: var(--d-primary); }
+.fplLegend .fplSeriesSave .fplSwatch { border-top-color: var(--d-ok); }
+.fplLegend .fplSeriesBudget .fplSwatch { border-top-color: var(--d-muted); }
+.fplChartBlock { border-top: 1px solid var(--d-line); display: grid; gap: var(--d-s2); padding-top: var(--d-s3); }
+.fplChartHead { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); justify-content: space-between; }
+.fplChartHead h3 { font-size: var(--text-md); margin: 0; }
+.fplChartHead strong { color: var(--d-ok); }
+
+/* bills */
+.fplStrip { align-items: center; display: flex; gap: var(--d-s1); min-width: 0; }
+.fplStrip ol { display: grid; flex: 1; gap: 4px; grid-template-columns: repeat(14, minmax(0, 1fr)); list-style: none; margin: 0; min-width: 0; padding: 0; }
+.fplStrip ol button { align-items: center; background: var(--d-surface-1); border: 1px solid var(--d-line); border-radius: var(--d-r-control); color: var(--d-text); cursor: pointer;
+  display: grid; font: inherit; gap: 0; justify-items: center; min-height: 52px; padding: 2px 0; position: relative; width: 100%; }
+.fplStrip ol button small { color: var(--d-faint); font-size: var(--text-2xs); }
+.fplStrip ol button.due { background: rgb(var(--c-ok) / .1); border-color: rgb(var(--c-ok) / .45); }
+.fplStrip ol button.today { box-shadow: inset 0 0 0 2px var(--d-accent); }
+.fplStrip ol button[aria-pressed="true"] { background: var(--d-primary); border-color: var(--d-primary); color: var(--d-on-primary); }
+.fplStrip ol button[aria-pressed="true"] small { color: var(--d-on-primary); }
+.fplStrip .fplDot { background: var(--d-ok); border-radius: 50%; height: 5px; width: 5px; }
+@media (max-width: 760px) { .fplStrip ol { grid-template-columns: repeat(14, 44px); overflow-x: auto; } }
+.fplTag { align-items: center; background: var(--d-glass-2); border-radius: var(--d-r-pill); display: inline-flex; font-size: var(--text-xs); gap: 4px; padding: 2px 8px; white-space: nowrap; }
+.fplTag svg { height: 12px; width: 12px; }
+.fplBills td, .fplRules td { vertical-align: middle; }
+.fplPaid { color: var(--d-muted); display: block; font-size: var(--text-xs); }
+.fplActions { white-space: nowrap; }
+.fplActions > * { display: inline-flex; vertical-align: middle; }
+.fplNote { align-items: center; display: flex; font-size: var(--text-sm); gap: var(--d-s2); margin: 0; }
+.fplNote svg { height: 16px; width: 16px; }
+.fplHealth { display: grid; gap: var(--d-s3); list-style: none; margin: 0; padding: 0; }
+.fplHealth li { display: grid; gap: 4px; }
+.fplHealthTop { align-items: center; display: grid; gap: var(--d-s2); grid-template-columns: minmax(0, 1fr) auto auto; }
+.fplHealthTop span { color: var(--d-muted); font-size: var(--text-sm); font-variant-numeric: tabular-nums; }
+.fplHealthState { font-size: var(--text-xs); justify-self: end; }
+.fplHealthState.near { color: var(--d-warn); }
+.fplHealthState.over { color: var(--d-stop); }
+.fplChecks { display: grid; gap: 2px; }
+.fplChecks label { align-items: center; display: inline-flex; font-size: var(--text-sm); gap: var(--d-s1); white-space: nowrap; }
+.fplChecks input { accent-color: var(--d-primary); }
+.fplRules select { min-height: 36px; }
+.fplLinkSteps { display: grid; gap: var(--d-s2) var(--d-s4); grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); list-style: none; margin: 0; padding: 0; }
+.fplLinkSteps li { align-items: start; border: 1px solid var(--d-line); border-radius: var(--d-r-control); display: grid; gap: var(--d-s2); padding: var(--d-s3); position: relative; }
+.fplLinkSteps li div { display: grid; gap: 2px; }
+.fplLinkSteps small { color: var(--d-muted); }
+.fplStepIcon { align-items: center; background: rgb(var(--c-ok) / .12); border-radius: 50%; color: var(--d-ok); display: inline-flex; height: 36px; justify-content: center; width: 36px; }
+.fplStepIcon svg, .fplStepArrow { height: 18px; width: 18px; }
+.fplStepArrow { color: var(--d-faint); inset-inline-end: -14px; position: absolute; top: 40%; }
+@media (max-width: 640px) { .fplLinkSteps { grid-template-columns: minmax(0, 1fr); } .fplStepArrow { display: none; } }
+.fplCalendar { border-collapse: collapse; table-layout: fixed; width: 100%; min-width: 640px; }
+.fplCalendar th { color: var(--d-muted); font-size: var(--text-sm); font-weight: 600; padding: var(--d-s2); text-align: start; }
+.fplCalendar td { border: 1px solid var(--d-line); height: auto; min-height: 80px; padding: var(--d-s1); vertical-align: top; }
+.fplCalendar td.today { box-shadow: inset 0 0 0 2px var(--d-accent); }
+.fplCalendar ul { display: grid; gap: 2px; list-style: none; margin: 0; padding: 0; }
+.fplCalDate { color: var(--d-muted); display: block; font-size: var(--text-sm); }
+.fplCalBill { background: var(--d-glass-2); border: 0; border-inline-start: 3px solid var(--d-faint); border-radius: 4px; color: var(--d-text); cursor: pointer; display: grid; font: inherit;
+  font-size: var(--text-xs); padding: 2px 4px; text-align: start; width: 100%; }
+.fplCalBill span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fplCalBill.ok { border-inline-start-color: var(--d-ok); }
+.fplCalBill.warn { border-inline-start-color: var(--d-warn); }
+.fplCalBill.bad { border-inline-start-color: var(--d-stop); }
+
+/* dialogs */
+.fplCandidates > li { gap: var(--d-s3); }
+.fplSteps { counter-reset: step; display: flex; flex-wrap: wrap; gap: var(--d-s2); list-style: none; margin: 0 0 var(--d-s3); padding: 0; }
+.fplSteps li { border: 1px solid var(--d-line); border-radius: var(--d-r-pill); color: var(--d-muted); counter-increment: step; font-size: var(--text-sm); padding: 2px 10px; }
+.fplSteps li::before { content: counter(step) ". "; }
+.fplSteps li[aria-current="step"] { background: var(--d-primary); border-color: var(--d-primary); color: var(--d-on-primary); font-weight: 600; }
+.fplSteps li.done { border-color: rgb(var(--c-ok) / .5); color: var(--d-ok); }
+.fplWizard .fplRadios label { border: 1px solid var(--d-line); border-radius: var(--d-r-control); padding: var(--d-s3); }
+
+/* Cards on these pages keep wide tables inside their own scroll area (a grid column sized to its content would push the page sideways). */
+.fplPage .finCard { grid-template-columns: minmax(0, 1fr); }
+.fplPage .finCard > * { min-width: 0; }
+.fplBills td:nth-child(3), .fplBills td:nth-child(4) { white-space: nowrap; }
+.fplRules select { min-width: 84px; }
+/* Visually hidden header text is absolutely placed: keep it inside the table's scroll area. */
+.fplPage .finTableWrap { position: relative; }
+
+.fplRow.compact { grid-template-columns: auto minmax(0, 1fr) auto; }
+.fplRowEnd { display: grid; gap: 4px; justify-items: end; }
+.fplBills th, .fplBills td { padding-inline: var(--d-s2); }
+.fplBills td:nth-child(5) { max-width: 160px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fplPage .finControl select { width: auto; }
+.fplLinkSteps .fplStepArrow { display: none; }
+
+.fplSub { align-items: center; color: var(--d-muted); display: flex; font-size: var(--text-xs); gap: 4px; }
+.fplSub svg { height: 12px; width: 12px; }
+.fplLinkSteps li { grid-template-columns: auto minmax(0, 1fr); }
+
+/* The strip button is a small grid: keep its hidden label out of the layout. */
+.fplStrip ol button { position: relative; }

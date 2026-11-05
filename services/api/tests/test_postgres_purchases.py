@@ -237,3 +237,31 @@ def test_a_workspace_owner_edits_the_items_of_a_members_business_purchase(client
     assert edited.status_code == 200, edited.text
     assert [i["id"] for i in edited.json()["items"]] == [kept["id"]]
     assert _rows(app_session, "colleague", "select description from purchase_items where purchase_id = :p", {"p": shared["id"]}) == [("Headphones, black",)]
+
+
+def test_tracker_filters_and_rows_under_rls(client: TestClient) -> None:
+    """The list's filters run in SQL as the app role, and another member never sees a personal purchase's shop or rows."""
+    day = utc_now().date()
+    warranty = _purchase(client, payment_method="card", warranty_until=(day + timedelta(days=100)).isoformat())
+    item_warranty = _purchase(client, merchant="Jarir", order_ref="J-1",
+                              items=[{"description": "Laptop", "warranty_until": (day + timedelta(days=10)).isoformat()}])
+    old = _purchase(client, merchant="noon", order_ref="N-1", ordered_on=(day - timedelta(days=40)).isoformat(), payment_method="cash")
+    shared = _purchase(client, COLLEAGUE, ownership="business", merchant="Office supplier", order_ref="BIZ-1")
+    client.post(f"{API}/{warranty['id']}/shipments", headers=ME, json={"carrier": "DHL", "tracking_number": "DHL123456", "status": "in_transit"})
+
+    def ids(headers: dict = ME, **params: object) -> set[str]:
+        response = client.get(API, headers=headers, params=params)
+        assert response.status_code == 200, response.text
+        return {p["id"] for p in response.json()["items"]}
+
+    assert ids(merchant="NOON") == {old["id"]}
+    assert ids(**{"to": (day - timedelta(days=1)).isoformat()}) == {old["id"]}
+    assert ids(payment="cash") == {old["id"]} and ids(payment="linked") == set()
+    assert ids(payment="unlinked") == {warranty["id"], item_warranty["id"], old["id"], shared["id"]}
+    assert ids(source="iphone") == set()
+    assert ids(warranty="true") == {warranty["id"], item_warranty["id"]}
+    assert ids(COLLEAGUE, warranty="true") == set()  # the item warranty of someone else's personal purchase stays hidden
+    assert client.get(f"{API}/merchants", headers=COLLEAGUE).json()["items"] == ["Office supplier"]
+    row = next(p for p in client.get(API, headers=ME).json()["items"] if p["id"] == warranty["id"])
+    assert row["first_item"] == "Headphones" and row["item_count"] == 2 and row["latest_shipment"]["carrier"] == "DHL"
+    assert client.get(f"{API}/overview", headers=ME).json()["in_transit"] == 1

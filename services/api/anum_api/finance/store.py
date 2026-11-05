@@ -23,7 +23,7 @@ from ..schemas import TenantContext
 from ..scoped_store import open_scoped_store
 from .connectors import Connection, ConnectionStatus
 from .execution import ExecSettings, GlobalSwitch, Intent, IntentStatus
-from .guardian import GuardianChange, GuardianPolicy
+from .guardian import GuardianChange, GuardianPolicy, GuardianReview
 from .intel.marketdata import Instrument, StoredCandle
 from .intel.records import AgentDecision, StrategyConfig, StrategyRun
 from .models import (
@@ -37,6 +37,7 @@ from .models import (
     Holding,
     ImportRecord,
     PlanSettings,
+    Planning,
     Transaction,
 )
 from .trading import PaperOrder, Portfolio, PriceRecord
@@ -97,6 +98,9 @@ class FinanceStore(Protocol):
     # Stage 3: safe-to-spend settings
     def get_plan(self, context: TenantContext) -> PlanSettings | None: ...
     def save_plan(self, context: TenantContext, plan: PlanSettings) -> PlanSettings: ...
+    # Debt plans and budget alerts (docs/finance.md#debts-and-goals)
+    def get_planning(self, context: TenantContext) -> Planning: ...
+    def save_planning(self, context: TenantContext, planning: Planning) -> Planning: ...
     # Stage 4: Guardian rule versions and proposed changes
     def get_policy(self, context: TenantContext) -> GuardianPolicy | None: ...
     def list_policies(self, context: TenantContext, *, limit: int, offset: int) -> tuple[list[GuardianPolicy], int]: ...
@@ -104,6 +108,9 @@ class FinanceStore(Protocol):
     def list_changes(self, context: TenantContext, *, status: str | None, limit: int) -> list[GuardianChange]: ...
     def get_change(self, context: TenantContext, change_id: str) -> GuardianChange | None: ...
     def save_change(self, change: GuardianChange) -> GuardianChange: ...
+    # the review queue: the person's decisions on flagged payments (one per transaction)
+    def list_reviews(self, context: TenantContext, transaction_ids: list[str]) -> list[GuardianReview]: ...
+    def save_review(self, review: GuardianReview) -> GuardianReview: ...
     # Stage 5: connections and exchange rates
     def list_connections(self, context: TenantContext) -> list[Connection]: ...
     def get_connection(self, context: TenantContext, connection_id: str) -> Connection | None: ...
@@ -252,8 +259,10 @@ class InMemoryFinanceStore:
         self.imports: dict[str, ImportRecord] = {}
         self.items: dict[str, dict[str, BaseModel]] = {kind: {} for kind in ITEM_TYPES}
         self.plans: dict[tuple[str, str, str], PlanSettings] = {}
+        self.planning: dict[tuple[str, str, str], Planning] = {}
         self.policies: dict[str, GuardianPolicy] = {}
         self.changes: dict[str, GuardianChange] = {}
+        self.reviews: dict[str, GuardianReview] = {}
         self.connections: dict[str, Connection] = {}
         self.fx_rates: dict[str, FxRate] = {}
         self.prices: dict[str, PriceRecord] = {}
@@ -441,6 +450,16 @@ class InMemoryFinanceStore:
             self.plans[self._key(context)] = plan.model_copy(deep=True)
             return plan
 
+    def get_planning(self, context: TenantContext) -> Planning:
+        with self._lock:
+            found = self.planning.get(self._key(context))
+            return found.model_copy(deep=True) if found else Planning()
+
+    def save_planning(self, context: TenantContext, planning: Planning) -> Planning:
+        with self._lock:
+            self.planning[self._key(context)] = planning.model_copy(deep=True)
+            return planning
+
     # Stage 4: Guardian -------------------------------------------------------------------
 
     def get_policy(self, context: TenantContext) -> GuardianPolicy | None:
@@ -475,6 +494,19 @@ class InMemoryFinanceStore:
         with self._lock:
             self.changes[change.id] = change.model_copy(deep=True)
             return change
+
+    def list_reviews(self, context: TenantContext, transaction_ids: list[str]) -> list[GuardianReview]:
+        wanted = set(transaction_ids)
+        with self._lock:
+            return [r.model_copy() for r in self.reviews.values() if mine(r, context) and r.transaction_id in wanted]
+
+    def save_review(self, review: GuardianReview) -> GuardianReview:
+        with self._lock:
+            # One decision per payment: a new one replaces the last (the audit log keeps them all).
+            for key in [k for k, r in self.reviews.items() if mine(r, _ctx(review)) and r.transaction_id == review.transaction_id]:
+                del self.reviews[key]
+            self.reviews[review.id] = review.model_copy()
+            return review
 
     # Stage 5: connections and rates ------------------------------------------------------
 
@@ -834,7 +866,7 @@ class InMemoryFinanceStore:
 
     def _tables(self) -> tuple[dict[str, Any], ...]:
         return (
-            self.transactions, self.imports, self.accounts, *self.items.values(), self.policies, self.changes,
+            self.transactions, self.imports, self.accounts, *self.items.values(), self.policies, self.changes, self.reviews,
             self.fx_rates, self.connections, self.prices, self.orders, self.portfolios, self.intents, self.widenings, self.incidents,
             self.bars, self.instruments, self.strategy_runs, self.strategies, self.decisions,
         )
@@ -842,7 +874,7 @@ class InMemoryFinanceStore:
     def count_everything(self, context: TenantContext) -> int:
         with self._lock:
             rows = sum(1 for table in self._tables() for v in table.values() if mine(v, context))
-            keyed = (self.settings, self.plans, self.exec_settings)
+            keyed = (self.settings, self.plans, self.planning, self.exec_settings)
             return (rows + sum(int(self._key(context) in table) for table in keyed) + _ibkr_memory().count_everything(context)
                     + _sms_memory().count_everything(context) + _links_memory().count_everything(context)
                     + _templates_memory().count_everything(context))
@@ -854,7 +886,7 @@ class InMemoryFinanceStore:
                 for key in [k for k, v in table.items() if mine(v, context)]:
                     del table[key]
                     removed += 1
-            for keyed in (self.settings, self.plans, self.exec_settings):
+            for keyed in (self.settings, self.plans, self.planning, self.exec_settings):
                 if keyed.pop(self._key(context), None) is not None:
                     removed += 1
             return (removed + _ibkr_memory().delete_everything(context) + _sms_memory().delete_everything(context)

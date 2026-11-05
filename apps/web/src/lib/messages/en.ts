@@ -10,11 +10,16 @@ import { financeResearchEn } from './financeResearch.en.ts';
 import { financeSmsEn } from './financeSms.en.ts';
 import { financePdfEn } from './financePdf.en.ts';
 import { financeConnectionsEn } from './financeConnections.en.ts';
+import { financeRegisterEn } from './financeRegister.en.ts';
 import { financeIntelEn } from './financeIntel.en.ts';
 import { financeEquityEn } from './financeEquity.en.ts';
+import { financeHoldingsEn } from './financeHoldings.en.ts';
+import { financeLabEn } from './financeLab.en.ts';
 import { financeReportsEn } from './financeReports.en.ts';
+import { financeGuardianEn } from './financeGuardian.en.ts';
 import { financeShellEn } from './financeShell.en.ts';
 import { financePagesEn } from './financePages.en.ts';
+import { financePlanningEn } from './financePlanning.en.ts';
 import { financeIntelActionsEn } from './financeIntelActions.en.ts';
 import { tyreEn } from './tyre.en.ts';
 import { hqEn } from './hq.en.ts';
@@ -111,11 +116,16 @@ export const en = {
   ...financeSmsEn,
   ...financePdfEn,
   ...financeConnectionsEn,
+  ...financeRegisterEn,
   ...financeIntelEn,
   ...financeEquityEn,
+  ...financeHoldingsEn,
+  ...financeLabEn,
   ...financeReportsEn,
+  ...financeGuardianEn,
   ...financeShellEn,
   ...financePagesEn,
+  ...financePlanningEn,
   ...financeIntelActionsEn,
   ...teamEn,
   ...appCallsEn,

@@ -53,7 +53,9 @@ them; daily reports only when the share includes them. A share never allows a wr
   Days older than 90 days are totals only and cannot be corrected.
 - **Daily reports**: one per person and day: project, tasks done and pending, site visits, issues, time spent, priority,
   follow-up date, notes, attachments (ids of files in Files, uploaded with Files' own checks, limits and malware scan),
-  and whether an AI draft was used. Saved with a version.
+  and whether an AI draft was used. Saved with a version. A report is a **draft** until the person submits it
+  (`submit: true` on the save, which sets `submitted_at` once; later edits keep it submitted). Migration
+  `0141_attendance_report_submit` adds the column.
 
 ## Time engine
 
@@ -92,11 +94,30 @@ All under `/api/v1/attendance`, signed in, `attendance:use`:
 | `POST/GET /corrections` | Corrections with reason, newest first, paged |
 | `GET /daily-reports` (search, paging), `GET/PUT/DELETE /daily-reports/{day}`, `POST /daily-reports/draft` | Daily reports and AI drafts |
 | `GET/POST /shares`, `DELETE /shares/{id}` | Sharing |
+| `GET /team?date=&limit=&offset=` | Team attendance (below): the caller and each colleague who shares with them |
 | `GET /limits` | The fixed rules the screens explain |
 
 Idempotency: every write that a client may retry carries an idempotency key (8 to 128 characters). The same key
 records the event once and answers 200 with `duplicate: true`; the same key for a different event is 409. The
 database enforces it with a unique key per person.
+
+## Team attendance
+
+`GET /api/v1/attendance/team` answers one row for the caller and one for each colleague whose **active share names
+the caller**, in the order the shares were made, paged (`limit` 1 to 100, default 50, `offset`; `total` counts every
+row). Nobody else is listed: a colleague who never shared, or stopped sharing, does not appear, and the database
+enforces the same rule (the share policies of `0132_work_attendance`). The view is read only like every share.
+
+Each row: the day (`?date=`, default each person's own today in their zone), the person's role title from their work
+profile, what they are doing now (only for their today), the names of the sites they were at, the first check in and
+its source (`web`, `device` for the iPhone Shortcut, `manual` for a correction), breaks, worked, presence, remote and
+scheduled time, attention flags, and the daily report's status (`none`, `draft`, `submitted`) with a short summary of
+the tasks done. The report status and summary are shown only for the caller and for shares that include reports;
+otherwise `report` is empty. Names come from Team people (`GET /api/v1/team/people`), which every member may read.
+
+There is no leave or absence record in Attendance, and no workspace-wide manager view: a manager sees a person here
+only after that person shares with them (Settings, Sharing). Approving or rejecting someone else's report or
+correction is not possible: a share never allows a write, and corrections apply at once with their reason.
 
 ## iPhone Shortcuts
 
@@ -163,12 +184,38 @@ codes only (kind, source, quality, counts), never times, site names or report te
 
 ## Web
 
-Attendance in the sidebar (`#attendance`, tabs `#attendance-reports`, `-daily`, `-corrections`, `-settings`): Today
-(status, check in and out, breaks, remote, attention flags, timeline), Reports (week and month, previous and next,
-figures, day table, site visits, CSV and PDF), Daily report (editor with attachments and AI drafts, search and paging of
-earlier reports), Corrections (add, change, remove with reason; history), Settings (profile and schedule, location
-check in, sites, sharing, Shortcut steps). A colleague's shared record opens read only from the header picker. English
-and Arabic (RTL), every state (loading, empty with a next action, error with retry, denied with who can help).
+**Attendance and Daily Reports** in the sidebar (`#attendance`), built on the shared page shell
+(`FinanceShell.tsx`: page head, tabs, KPI cards, cards, chips) like every module. The head has a **day** picker (the
+team view and the default report day), a **site** picker (filters the roster by the site names in it), **Export**
+(the roster as shown, as a formula-safe CSV made in the browser from what the API returned; my last 7 days as CSV
+or PDF from `/export.csv` and `/export.pdf`) and **Create daily report**. Tabs:
+
+- **Team attendance** (`#attendance`, `AttendanceTeam.tsx`): four KPIs (present x of y, checked in with the latest
+  time, reports submitted x of the reports shared, items to review: my unsubmitted report plus days with attention
+  flags), the **attendance roster** from `GET /team` (member and role, site, first check in and its source Web,
+  iPhone or Manual, break, hours, daily report status, on site, remote, on a break, left or not checked in, and a row
+  menu: open the timesheet read only, open the daily reports when shared, correct my own record), live for today
+  (refreshes every minute while visible, and on Refresh), with paging past 50 people; **Today at a glance** (present,
+  remote, not checked in, each person's worked hours against their own scheduled shift); **Daily report status**
+  (Write or Edit for me, Review read only for a colleague whose share includes reports); the **daily reports** table
+  (range 7, 30 or 90 days, contributor, status; Edit or Review); a **report draft** (completed work, blocker, next
+  plan, mapped onto tasks done, issues and tasks pending of the same report; Save draft, then Review and submit);
+  **correct a record** (the days my record flags with a missing check in or out, the time, a reason from a list
+  plus details, and the audit trail of my latest corrections); a strip of existing tools (timesheet insights,
+  missed check reminders, shift and site rules, AI report drafts) and the privacy and location note.
+- **My timesheet** (`#attendance-timesheet`; old `#attendance-reports` and `#attendance-today` links open it): today
+  (status, check in and out, breaks, remote, attention flags, timeline) and week and month hours with site visits and
+  CSV and PDF. A colleague's shared record opens here read only from the roster.
+- **Daily reports** (`#attendance-daily`): the editor with attachments, AI drafts, Save report and Review and submit,
+  above the same reports table with search.
+- **Corrections** (`#attendance-corrections`): add, change, remove with a reason (a list plus details); the history
+  as an audit trail, paged.
+- **Sites and shifts** (`#attendance-settings`): profile and schedule, location check in, sites, sharing, Shortcut steps.
+
+English and Arabic (RTL), every state (loading, empty with a next action, error with retry, denied with who can help).
+Not shown because Attendance does not have them: leave or absence records, approving someone else's report or
+correction (a share never allows a write), bulk corrections, report templates, and links from a report to a vehicle
+or task.
 
 ## Mobile
 
