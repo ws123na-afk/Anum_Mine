@@ -57,7 +57,7 @@ describe('payoff strategy', () => {
   });
 
   test('avalanche costs less interest than snowball when the large debt has the high rate', () => {
-    const debts = [debt('card', 900000, 30, 20000), debt('car', 1550000, 4, 183000)];
+    const debts = [debt('card', 1550000, 30, 40000), debt('car', 900000, 4, 100000)];
     const avalanche = simulatePayoff(debts, 'avalanche', 300000), snowball = simulatePayoff(debts, 'snowball', 300000);
     assert.ok(avalanche.months !== null && snowball.months !== null);
     assert.ok(avalanche.interest < snowball.interest);
