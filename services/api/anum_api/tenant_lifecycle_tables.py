@@ -206,6 +206,7 @@ _ORDER = (
     "finance_links",
     "finance_device_events",
     "business_ledger_allocations",
+    "finance_statement_templates",
     "finance_postings",
     "finance_journal_entries",
     "finance_sms_rules",

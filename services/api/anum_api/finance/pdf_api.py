@@ -16,24 +16,25 @@ from __future__ import annotations
 
 import asyncio
 import re
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, Header, Query, Request, status
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response, status
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from ..dependencies import UnitsOfWork, repository_context, tenant_context, units_of_work
 from ..errors import ApplicationError, ErrorCode, ErrorDetail
 from ..files import read_upload_body
 from ..repository import AnumRepository
-from ..schemas import TenantContext
+from ..schemas import TenantContext, new_id, utc_now
 from . import csv_import
-from . import pdf_statement as pdf
+from . import statement_pdf as pdf
 from .api import ImportView, _audit, _clean, _invalid, _manage, _own_account, _view, record_import
 from .categories import categorize
 from .models import Category
 from .money import MoneyError, quantize
+from .pdf_templates import MAX_TEMPLATES, StatementTemplate, open_template_store
 from .store import open_finance_store
 from .summary import settings_for
 
@@ -70,8 +71,11 @@ class PdfRow(BaseModel):
     credit: Decimal | None
     balance: Decimal | None
     reference: str | None
+    currency: str | None
     category: Category
     duplicate: bool
+    # 0 to 1: the reading's certainty (OCR quality, how the sign was found, whether the balance agrees).
+    confidence: float
     flags: list[str]
 
 
@@ -85,6 +89,8 @@ class PdfCheck(BaseModel):
     opening_source: str
     closing_source: str
     breaks: list[int]
+    # Pages whose balance brought forward is not the balance the page before ended with.
+    page_breaks: list[int]
 
 
 class PdfStatementView(BaseModel):
@@ -94,9 +100,13 @@ class PdfStatementView(BaseModel):
     file_sha256: str
     source: Literal["text", "ocr"]
     page_count: int
-    layout: Literal["table", "lines"]
+    layout: Literal["table", "columns", "lines"]
     columns: list[PdfColumn]
     roles: list[str]
+    # The layout's fingerprint (header words and column positions) and the saved template used, if any.
+    fingerprint: str | None
+    template_id: str | None
+    confidence: float
     date_format: str
     date_formats: list[str]
     date_format_ambiguous: bool
@@ -119,8 +129,8 @@ def _roles(value: str | None) -> list[str] | None:
     if not value:
         return None
     roles = [part.strip() for part in value.split(",")]
-    if len(roles) > pdf.MAX_COLUMNS or any(r not in pdf.ROLES for r in roles):
-        raise _invalid("Unknown column role. Use date, description, debit, credit, amount, balance, reference or skip.")
+    if len(roles) > 12 or any(r not in pdf.ROLES for r in roles):
+        raise _invalid("Unknown column role. Use date, description, debit, credit, amount, balance, reference, currency or skip.")
     return roles
 
 
@@ -167,11 +177,30 @@ async def read_pdf_statement(
         if extracted.source == "ocr":
             # No store or session is open while the OCR service reads the pages.
             pages = await pdf.read_scanned(extracted.images)
+            words = [w for page in pages for w in page]
+            positioned = bool(words) and sum(w.positioned for w in words) * 2 > len(words)
+            widths = [max((w.x1 for w in page), default=0.0) for page in pages]
         else:
-            pages = extracted.pages
-        statement = await asyncio.to_thread(
-            pdf.parse, pages, currency=found.currency, roles=wanted_roles, date_format=date_format, positioned=extracted.source == "text",
-        )
+            pages, positioned, widths = extracted.pages, True, extracted.widths
+
+        def read() -> tuple[Any, StatementTemplate | None]:
+            statement = pdf.parse(pages, currency=found.currency, roles=wanted_roles, date_format=date_format, positioned=positioned, page_widths=widths)
+            template = None
+            if wanted_roles is None and date_format is None and statement.fingerprint:
+                # A layout the owner taught before: read it with their mapping.
+                with open_template_store(context) as templates:
+                    template = templates.by_fingerprint(context, statement.fingerprint)
+                if template is not None and len(template.roles) == len(statement.columns):
+                    try:
+                        statement = pdf.parse(pages, currency=found.currency, roles=template.roles, date_format=template.date_format,
+                                              positioned=positioned, page_widths=widths)
+                    except pdf.PdfStatementError:
+                        template = None
+                else:
+                    template = None
+            return statement, template
+
+        statement, template = await asyncio.to_thread(read)
     except pdf.PdfStatementError as exc:
         def refused() -> None:
             with uow(context) as repository:
@@ -203,7 +232,8 @@ async def read_pdf_statement(
         category = categorize(row.description, row.amount or Decimal(0), rules)[0]
         views.append(PdfRow(
             line=row.line, page=row.page, posted_on=row.posted_on, description=row.description, amount=row.amount, debit=row.debit,
-            credit=row.credit, balance=row.balance, reference=row.reference, category=category, duplicate=duplicate, flags=row.flags,
+            credit=row.credit, balance=row.balance, reference=row.reference, currency=row.currency, category=category, duplicate=duplicate,
+            confidence=row.confidence, flags=row.flags,
         ))
     check = statement.check
 
@@ -211,7 +241,7 @@ async def read_pdf_statement(
         with uow(context) as repository:
             _audit(repository, context, "finance.import.pdf_read", account_id, {
                 "outcome": "read", "source": extracted.source, "pages": extracted.page_count, "rows": len(views), "check": check.status,
-                "layout": statement.layout,
+                "layout": statement.layout, "template": bool(template),
             })
 
     await asyncio.to_thread(audit)
@@ -220,6 +250,7 @@ async def read_pdf_statement(
         account_id=found.id, currency=found.currency, filename=_filename(filename), file_sha256=extracted.sha256, source=extracted.source,  # type: ignore[arg-type]
         page_count=extracted.page_count, layout=statement.layout,  # type: ignore[arg-type]
         columns=[PdfColumn(index=c.index, label=c.label, role=c.role) for c in statement.columns], roles=[c.role for c in statement.columns],
+        fingerprint=statement.fingerprint, template_id=template.id if template else None, confidence=statement.confidence,
         date_format=statement.date_format, date_formats=statement.date_formats, date_format_ambiguous=statement.date_format_ambiguous,
         period_start=statement.period_start, period_end=statement.period_end, account_last4=last4,
         account_last4_matches=None if not (last4 and found.last4) else last4 == found.last4,
@@ -237,6 +268,31 @@ class PdfImportRow(BaseModel):
     amount: Decimal
     balance: Decimal | None = None
     reference: str | None = Field(default=None, max_length=60)
+    currency: str | None = Field(default=None, pattern=r"^[A-Z]{3}$")
+
+
+class PdfLayout(BaseModel):
+    """The layout the rows were read with, kept as a template when ``remember`` is true."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    fingerprint: str = Field(pattern=r"^[0-9a-f]{32}$")
+    labels: list[str] = Field(max_length=12)
+    roles: list[str] = Field(max_length=12)
+    date_format: str | None = Field(default=None, max_length=20)
+    remember: bool = False
+
+    @field_validator("roles")
+    @classmethod
+    def _known(cls, roles: list[str]) -> list[str]:
+        if any(r not in pdf.ROLES for r in roles):
+            raise ValueError("Unknown column role.")
+        return roles
+
+    @field_validator("labels")
+    @classmethod
+    def _short(cls, labels: list[str]) -> list[str]:
+        return [csv_import.clean_text(label, 60) for label in labels]
 
 
 class PdfImportInput(BaseModel):
@@ -250,6 +306,7 @@ class PdfImportInput(BaseModel):
     opening_balance: Decimal | None = None
     closing_balance: Decimal | None = None
     accept_mismatch: bool = Field(default=False, description="Import even though the rows do not add up to the closing balance")
+    layout: PdfLayout | None = None
 
     @field_validator("rows")
     @classmethod
@@ -284,6 +341,8 @@ def import_pdf_statement(
                 raise _invalid(f"Row {number}: {exc}") from None
             if amount == 0:
                 raise _invalid(f"Row {number}: the amount is zero. Fix it or drop the row.")
+            if row.currency and row.currency != currency:
+                raise _invalid(f"Row {number} is in {row.currency}, but the account is in {currency}. Drop the row or pick an account in {row.currency}.")
             items.append((row.posted_on, amount, description, balance, row.reference))
         try:
             opening = quantize(body.opening_balance, currency) if body.opening_balance is not None else None
@@ -313,12 +372,79 @@ def import_pdf_statement(
             file_sha256=body.file_sha256,
         )
 
+    layout = body.layout
+    if layout is not None and len(layout.labels) != len(layout.roles):
+        raise _invalid("The layout needs one role for every column.")
+    if layout is not None and layout.remember:
+        with open_template_store(context) as templates:
+            known = templates.list(context)
+        if len(known) >= MAX_TEMPLATES and all(t.fingerprint != layout.fingerprint for t in known):
+            raise _invalid(f"You have {MAX_TEMPLATES} saved statement layouts. Delete one you no longer use, then import again.")
     record, added, breaks, reconciled = record_import(context, body.account_id, _filename(body.filename), build, references=references)
+    template_id = _remember(context, layout) if layout is not None else None
     _audit(repository, context, "finance.import.create", record.id, {
         "format": record.preset, "imported": added, "duplicates": record.duplicate_count, "rule_breaks": breaks,
         "reconciled": reconciled.attached, "review": reconciled.review, "accept_mismatch": body.accept_mismatch,
+        "template": template_id,
     })
     return ImportView(**_view(record), rule_breaks=breaks, reconciled=reconciled.attached, held_for_review=reconciled.review)
+
+
+def _remember(context: TenantContext, layout: PdfLayout) -> str | None:
+    """Keep (or refresh) the owner's mapping for this layout, or count a use of the one already kept."""
+    now = utc_now()
+    with open_template_store(context) as templates:
+        found = templates.by_fingerprint(context, layout.fingerprint)
+        if found is None and not layout.remember:
+            return None
+        if found is None:
+            found = StatementTemplate(
+                id=new_id("fin_tpl"), tenant_id=context.tenant_id, workspace_id=context.workspace_id, owner_user_id=context.user_id,
+                fingerprint=layout.fingerprint, labels=layout.labels, roles=layout.roles, date_format=layout.date_format, created_at=now,
+                updated_at=now,
+            )
+        elif layout.remember:
+            found.labels, found.roles, found.date_format, found.updated_at = layout.labels, layout.roles, layout.date_format, now
+        found.uses += 1
+        found.last_used_at = now
+        templates.save(found)
+        return found.id
+
+
+class TemplateView(BaseModel):
+    id: str
+    labels: list[str]
+    roles: list[str]
+    date_format: str | None
+    uses: int
+    created_at: datetime
+    updated_at: datetime
+    last_used_at: datetime | None
+
+
+@router.get("/imports/pdf/templates", response_model=list[TemplateView])
+def list_pdf_templates(context: TenantContext = Depends(tenant_context)) -> list[TemplateView]:
+    """The statement layouts you taught ANUM (yours only)."""
+    _manage(context)
+    with open_template_store(context) as templates:
+        items = templates.list(context)
+    return [TemplateView(**t.model_dump(include=set(TemplateView.model_fields))) for t in items]
+
+
+@router.delete("/imports/pdf/templates/{template_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_pdf_template(
+    template_id: str,
+    context: TenantContext = Depends(tenant_context),
+    repository: AnumRepository = Depends(repository_context),
+) -> Response:
+    """Forget a statement layout: the next statement from that bank is read from scratch."""
+    _manage(context)
+    with open_template_store(context) as templates:
+        removed = templates.delete(context, template_id)
+    if not removed:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, "Statement layout not found.")
+    _audit(repository, context, "finance.import.template_delete", template_id)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 __all__ = ["PASSWORD_HEADER", "router"]

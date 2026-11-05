@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import io
 import logging
+import re
 from collections.abc import Iterator
 from decimal import Decimal
 from typing import Any
@@ -19,7 +20,9 @@ from PIL import Image
 from pypdf import PdfReader, PdfWriter
 
 from anum_api import main
-from anum_api.finance import pdf_statement as P
+from anum_api.finance import statement_pdf as P
+from anum_api.finance.statement_pdf import ocr as OCR
+from anum_api.finance.statement_pdf.words import Word
 from anum_api.finance import sms_service as svc
 from anum_api.finance.sms_store import sms_memory_store
 from anum_api.finance.store import finance_store
@@ -301,9 +304,10 @@ def test_a_scanned_pdf_is_read_through_the_vault_ocr_seam(monkeypatch: pytest.Mo
     bank = account(last4="5678")
     seen: list[str] = []
 
-    async def fake_ocr(data: bytes, content_type: str) -> list[str]:
+    async def fake_ocr(data: bytes, content_type: str, page: int) -> list[Word]:
         seen.append(content_type)
-        return [
+        # An OCR service that answers lines without word boxes: the line rules read them.
+        return OCR.words_from_ocr([
             "SYNTHETIC Example Bank",
             "Account No. XXXXXXXXXXXX5678",
             "Opening balance 500.00",
@@ -311,9 +315,9 @@ def test_a_scanned_pdf_is_read_through_the_vault_ocr_seam(monkeypatch: pytest.Mo
             "02/11/2026 ATM WITHDRAWAL 200.00 12,300.00",
             "03/11/2026 FEES 10.00 DR 12,290.00",
             "Closing balance 12,290.00",
-        ]
+        ], [], [92.0] * 7, page)
 
-    monkeypatch.setattr(P, "ocr_page", fake_ocr)
+    monkeypatch.setattr(OCR, "ocr_page", fake_ocr)
     view = read(bank["id"], scanned_pdf()).json()
     assert seen == ["image/jpeg"] and view["source"] == "ocr" and view["layout"] == "lines"
     assert [(r["posted_on"], r["amount"]) for r in view["rows"]] == [
@@ -328,10 +332,10 @@ def test_a_scanned_pdf_is_read_through_the_vault_ocr_seam(monkeypatch: pytest.Mo
 def test_a_scan_without_ocr_says_so(monkeypatch: pytest.MonkeyPatch) -> None:
     bank = account()
 
-    async def down(data: bytes, content_type: str) -> list[str]:
+    async def down(data: bytes, content_type: str, page: int) -> list[Word]:
         raise OcrUnavailable("OCR is not connected on this server.")
 
-    monkeypatch.setattr(P, "ocr_page", down)
+    monkeypatch.setattr(OCR, "ocr_page", down)
     response = read(bank["id"], scanned_pdf())
     assert response.status_code == 503 and error_type(response) == "pdf_ocr_unavailable"
 
@@ -368,8 +372,29 @@ def test_refusals_permissions_and_caps() -> None:
 # -- the reader, pure --------------------------------------------------------------------------
 
 
-def lines(*text: str) -> list[list[str]]:
-    return [list(text)]
+CHAR = 5.0  # a monospace character's width in these synthetic layouts
+
+
+def lines(*text: str) -> list[list[Word]]:
+    """Monospaced lines as positioned words, the way the extraction layer hands them over: each
+    character 5 points wide, each line 12 points down. Arabic cells are placed right to left."""
+    words: list[Word] = []
+    for row, line in enumerate(text):
+        for cell in re.finditer(r"\S+(?: \S+)*", line):
+            parts = [(m.start() + cell.start(), m.group(0)) for m in re.finditer(r"\S+", cell.group(0))]
+            texts = [t for _, t in parts]
+            if P.words.is_arabic(cell.group(0)):
+                texts = P.words.reorder_rtl(texts)  # drawn right to left: visual order on the page
+            start = cell.start()
+            for value in texts:
+                words.append(Word(P.words.normalize(value), start * CHAR, (start + len(value)) * CHAR, row * 12.0, row * 12.0 + 9, 1))
+                start += len(value) + 1
+    return [words]
+
+
+def text_lines(*text: str) -> list[list[Word]]:
+    """Lines without positions (an OCR answer without boxes)."""
+    return [OCR.words_from_ocr(list(text), [], [95.0] * len(text), 1)]
 
 
 def test_arabic_headers_and_arabic_indic_digits_are_read() -> None:
@@ -399,7 +424,7 @@ def test_arabic_headers_and_arabic_indic_digits_are_read() -> None:
     ],
 )
 def test_date_formats_both_decimal_marks_and_cr_dr_markers(opening: str, raw: str, expected: tuple[str, Decimal]) -> None:
-    parsed = P.parse(lines(f"Opening balance {opening}", raw), currency="AED", positioned=False)
+    parsed = P.parse(text_lines(f"Opening balance {opening}", raw), currency="AED", positioned=False)
     first = parsed.rows[0]
     assert (str(first.posted_on), first.amount) == expected
     assert parsed.check.status == "matched"
@@ -434,7 +459,7 @@ def test_a_missing_row_shows_as_a_balance_break() -> None:
 
 
 def test_without_a_sign_or_balance_a_row_is_flagged_for_the_owner() -> None:
-    parsed = P.parse(lines("05/11/2026 MYSTERY 25.00"), currency="AED", positioned=False)
+    parsed = P.parse(text_lines("05/11/2026 MYSTERY 25.00"), currency="AED", positioned=False)
     assert parsed.rows[0].amount == Decimal("-25.00") and "sign_unsure" in parsed.rows[0].flags
     assert parsed.check.status == "unknown"
 
@@ -468,7 +493,7 @@ def test_page_limits_and_scan_limits() -> None:
 
 
 def test_the_ocr_seam_reports_the_service_reason() -> None:
-    async def down(data: bytes, content_type: str) -> list[str]:
+    async def down(data: bytes, content_type: str, page: int) -> list[Word]:
         raise OcrUnavailable("The OCR service is busy. Try again in a minute.")
 
     with pytest.raises(P.PdfStatementError) as raised:
