@@ -3,6 +3,9 @@ import { hqRegistry, openHq, TENANT_A } from './support/hqApi';
 import { flowItems, mockFlow, type FlowMock } from './support/hqFlowApi';
 import { mockAssign, mockBuildingAssistant, type AssignMock } from './support/hqAssignApi';
 
+// The 3D office draws on a software renderer in CI, where loading a scene alone can take most of a minute.
+test.describe.configure({ timeout: 150_000 });
+
 // Assign work from inside the headquarters, and add a building from the assistant (docs/ANUM_MINE_ASSIGN_WORK.md).
 // The API is mocked; the tests check that the person never leaves the office, that one governed request is sent
 // with an idempotency key, that every state says what to do, and that only a click confirms a building.

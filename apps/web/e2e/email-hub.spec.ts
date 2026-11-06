@@ -144,6 +144,8 @@ test('viewers see who may read email', async ({ page }) => {
 const SIZES = [{ width: 1440, height: 900 }, { width: 1366, height: 768 }, { width: 1024, height: 768 }, { width: 768, height: 1024 }, { width: 390, height: 844 }];
 for (const locale of ['en', 'ar'] as const) {
   test(`@gate the Email page fits every gate size and passes axe (${locale})`, async ({ page }) => {
+    // Ten page loads with an axe scan each: give a busy runner room (it timed out at 30s on main too).
+    test.setTimeout(120_000);
     await useSavedLocale(page, locale);
     await mockHub(page);
     const axe = async () => (await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'best-practice']).analyze()).violations

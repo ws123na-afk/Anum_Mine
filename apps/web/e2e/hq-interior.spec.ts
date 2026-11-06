@@ -1,6 +1,9 @@
 import { expect, test, type Page } from '@playwright/test';
 import { mockHq } from './support/hqCampusApi';
 
+// The 3D office draws on a software renderer in CI, where loading a scene alone can take most of a minute.
+test.describe.configure({ timeout: 150_000 });
+
 // The interiors of the starter campus (docs/ANUM_MINE_HQ_INTERIORS.md): every building of the 8 building, 18 floor, 62 room
 // campus opens, draws a lit, non-blank floor at every supported size without sideways scroll, carries its moving scenery
 // as parts the renderer can freeze, and keeps it frozen under reduced motion. The API is mocked; every name is plainly fake.

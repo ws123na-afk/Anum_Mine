@@ -14,7 +14,9 @@ import { ApiError, describeError, isBudgetExceeded, isPermissionDenied, budgetMe
 import { formatDateTime, formatNumber, t, type MessageKey } from './lib/i18n';
 import { ITEMS_PAGE, citationPlace, fileSize, parseTags } from './lib/library';
 import * as lib from './lib/libraryApi';
-import { KnowledgeSummary, useRetrievalStatus } from './MemoryView';
+import { useRetrievalStatus } from './MemoryView';
+import { FinBanner, KpiCard, KpiRow } from './FinanceShell';
+import { AlertTriangle, CheckCircle2, Clock, Database, XCircle } from 'lucide-react';
 import { DialogButton, SPLIT_QUERY, SplitView, useMediaQuery } from './PageParts';
 import './library.css';
 
@@ -65,7 +67,7 @@ export function KnowledgeView({ initialCollectionId }: { initialCollectionId?: s
   const created = (c: KnowledgeCollection) => { setCollections((rows) => [...rows, c].sort((a, b) => a.name.localeCompare(b.name))); choose(c.id); setFlash({ text: t('kb.created', { name: c.name }) }); };
 
   return <>
-    <KnowledgeSummary status={retrieval.status} onRetry={retrieval.reload} />
+    <KnowledgeKpis status={retrieval.status} onRetry={retrieval.reload} />
     <Notice flash={flash} />
     {stars.error && <Notice flash={{ text: stars.error, error: true }} />}
     {load.kind === 'loading' && <p className="notice" role="status"><CircleDot aria-hidden="true" />{t('kb.loading')}</p>}
@@ -98,6 +100,29 @@ export function KnowledgeView({ initialCollectionId }: { initialCollectionId?: s
         </section>
       </SplitView>
     </>}
+  </>;
+}
+
+/**
+ * The knowledge base figures (docs/knowledge-base.md#the-knowledge-page): sources, indexed, stale,
+ * failed and chunks, all from `GET /retrieval/status`; banners name what needs a re-index.
+ */
+function KnowledgeKpis({ status, onRetry }: { status: ReturnType<typeof useRetrievalStatus>['status']; onRetry: () => void }) {
+  const value = status.state === 'ready' ? status.value : null;
+  const show = (n: number | undefined) => status.state === 'loading' ? '…' : value && n !== undefined ? formatNumber(n) : '-';
+  return <>
+    <div className="kbKpis"><KpiRow label={t('pages.kb.summary')}>
+      <KpiCard icon={<Library />} label={t('kbPage.fig.sources')} value={show(value?.sources.length)} hint={t('kbPage.fig.sourcesHint')} />
+      <KpiCard icon={<CheckCircle2 />} label={t('kbPage.fig.indexed')} value={show(value?.indexed)} hint={value ? t('pages.kb.fig.model', { model: value.embedding_model }) : undefined} tone={value && value.indexed ? 'good' : ''} />
+      <KpiCard icon={<Clock />} label={t('kbPage.fig.stale')} value={show(value?.stale)} hint={t('kbPage.fig.staleHint')} tone={value?.stale ? 'warn' : ''} />
+      <KpiCard icon={<XCircle />} label={t('kbPage.fig.failed')} value={show(value?.failed)} hint={value?.failed ? t('pages.kb.fig.failedHint') : t('pages.kb.fig.noneFailed')} tone={value?.failed ? 'bad' : ''} />
+      <KpiCard icon={<Database />} label={t('kbPage.fig.chunks')} value={show(value?.chunks)} hint={value ? t('kbPage.fig.skipped', { count: value.skipped }) : undefined} />
+    </KpiRow></div>
+    {status.state === 'error' && <div className="notice errorNotice" role="alert"><CircleDot aria-hidden="true" /><span>{t('kbPage.statusFailed')}</span><button type="button" className="secondary" onClick={onRetry}><RefreshCw aria-hidden="true" />{t('common.tryAgain')}</button></div>}
+    {value && (value.stale > 0 || value.failed > 0) && <div className="kbBanners">
+      {value.stale > 0 && <FinBanner tone="warn" icon={<AlertTriangle />} title={t('kbPage.stale.title', { count: value.stale })}>{t('kbPage.stale.text')}</FinBanner>}
+      {value.failed > 0 && <FinBanner tone="warn" icon={<XCircle />} title={t('kbPage.failed.title', { count: value.failed })}>{t('kbPage.failed.text')}</FinBanner>}
+    </div>}
   </>;
 }
 

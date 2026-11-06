@@ -159,3 +159,9 @@ button.secondary.dangerText { color: var(--d-stop); }
   #report-print .reportTableWrap { max-height: none; overflow: visible; }
   #report-print .reportMetrics > div, #report-print .reportTable th { background: #fff; color: #000; }
 }
+
+/* Knowledge figures (KnowledgeView KnowledgeKpis): five across on wide screens. */
+@media (min-width: 1280px) { .kbKpis .finKpis ul { grid-template-columns: repeat(5, minmax(0, 1fr)); } }
+.kbKpis { margin-bottom: var(--d-s3); }
+.kbBanners { display: grid; gap: var(--d-s2); margin-bottom: var(--d-s3); }
+@media (min-width: 1024px) { .kbBanners { grid-template-columns: repeat(auto-fit, minmax(0, 1fr)); } }
