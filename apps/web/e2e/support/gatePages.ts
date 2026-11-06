@@ -39,6 +39,8 @@ export interface GatePage {
   mock: (page: Page) => Promise<unknown>;
   /** CSS selector of something that appears only once the page has its data. */
   ready: string;
+  /** The dead-button audit's budget (journey.spec.ts) for a page that reopens slowly, in ms; 240 s otherwise. */
+  auditTimeout?: number;
 }
 
 const workspace = (page: Page) => mockWorkspaceApi(page);
@@ -158,7 +160,9 @@ export const GATE_PAGES: GatePage[] = [
   { hash: 'purchases-returns', view: 'purchases', mock: workspace, ready: '.purTracker tbody tr, .emptyState' },
   { hash: 'purchases-warranty', view: 'purchases', mock: workspace, ready: '.purTracker tbody tr, .emptyState' },
   { hash: 'purchases-settings', view: 'purchases', mock: workspace, ready: '.purForm input[type=number]' },
-  { hash: 'office', view: 'office', mock: headquarters, ready: '.hqLive .hqBuildingCard, .hqLive .hqListBuilding' },
+  // The headquarters has 54 buttons and each audit press reopens a 3D campus (about 5 s): the audit takes about 225 s on
+  // a fast machine on main as well, so a slower CI runner ran out of the default 240 s while reopening the page.
+  { hash: 'office', view: 'office', mock: headquarters, ready: '.hqLive .hqBuildingCard, .hqLive .hqListBuilding', auditTimeout: 480_000 },
 ];
 
 const brevo = async (page: Page) => { await mockMarketing(page); await mockBrevo(page); };
