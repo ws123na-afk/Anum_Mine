@@ -1,0 +1,132 @@
+/* Finance, Connections and data capture (FinanceConnections.tsx). Shared tokens only; logical properties
+   so the page mirrors in Arabic. Heights follow the content. */
+.fconn { display: grid; gap: var(--d-s4); min-width: 0; }
+.fconnScope .finSegmented > button { align-items: center; display: inline-flex; gap: var(--d-s2); }
+.fconnScope svg { height: 16px; width: 16px; }
+.fconnSegment { display: inline-flex; flex-wrap: wrap; gap: var(--d-s2); }
+.fconnSegment button { background: var(--d-control-bg); border: 1px solid var(--d-line-strong); border-radius: var(--d-r-control); color: var(--d-text); min-height: var(--d-control-h); padding: 0 var(--d-s4); }
+.fconnSegment button[aria-pressed="true"] { background: var(--d-primary); border-color: var(--d-primary); color: var(--d-on-primary); }
+
+.fconnGrid { align-items: start; display: grid; gap: var(--d-s4); grid-template-columns: minmax(0, 1fr) minmax(0, 1.12fr); }
+.fconnCard { gap: var(--d-s3); }
+.fconnNote { font-size: var(--text-sm); margin: 0; }
+
+/* Accounts. */
+.fconnAccounts { display: grid; gap: var(--d-s3); list-style: none; margin: 0; padding: 0; }
+.fconnAccount { border: 1px solid var(--d-line); border-radius: var(--d-r-panel); display: grid; gap: var(--d-s3); padding: var(--d-s3) var(--d-s4); }
+.fconnAccountHead { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s3); }
+.fconnAccountIcon { align-items: center; background: var(--d-well); border: 1px solid var(--d-line); border-radius: var(--d-r-control); color: var(--d-accent); display: inline-flex; flex: none; height: 40px; justify-content: center; width: 40px; }
+.fconnAccountName { display: grid; flex: 1 1 12rem; gap: 2px; min-width: 0; }
+.fconnAccountName strong { font-size: var(--text-base); overflow-wrap: anywhere; }
+.fconnAccountName small { color: var(--d-muted); font-size: var(--text-sm); }
+.fconnChips { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); }
+.fconnChip { align-items: center; border: 1px solid var(--d-line-strong); border-radius: var(--d-r-pill); color: var(--d-muted); display: inline-flex; font-size: var(--text-xs); font-weight: var(--weight-semibold); gap: var(--d-s1); padding: 2px var(--d-s2); }
+.fconnChip svg { height: 13px; width: 13px; }
+.fconnFacts { border-block: 1px solid var(--d-line); display: grid; gap: var(--d-s2) var(--d-s3); grid-template-columns: repeat(4, minmax(0, 1fr)); margin: 0; padding-block: var(--d-s3); }
+.fconnFacts > div { display: grid; gap: 2px; min-width: 0; }
+.fconnFacts > div + div { border-inline-start: 1px solid var(--d-line); padding-inline-start: var(--d-s3); }
+.fconnFacts dt { align-items: center; color: var(--d-muted); display: flex; font-size: var(--text-xs); gap: var(--d-s1); }
+.fconnFacts dt svg { height: 14px; width: 14px; }
+.fconnFacts dd { font-weight: var(--weight-semibold); margin: 0; overflow-wrap: anywhere; }
+.fconnActions { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); justify-content: center; }
+.fconnActions button { min-height: var(--d-control-h-sm); }
+.fconn button.secondary.fconnDanger { border-color: rgb(var(--c-stop) / .55); color: var(--d-stop); }
+.fconnPushEnd { margin-inline-start: auto; }
+.fconnSearch { align-items: center; display: flex; gap: var(--d-s2); }
+.fconnSearch svg { color: var(--d-muted); }
+.fconnSearch input { flex: 1; min-width: 0; }
+.fconnFlip { height: 16px; width: 16px; }
+:root[dir="rtl"] .fconnFlip { transform: scaleX(-1); }
+
+/* "Add a source" menu. */
+.fconnMenu { position: relative; }
+.fconnMenu > .cmPrimary { min-height: var(--d-control-h); }
+.fconnMenuList { background: var(--d-surface-2); border: 1px solid var(--d-line-strong); border-radius: var(--d-r-panel); box-shadow: var(--d-elev-2); display: grid; gap: var(--d-s1);
+  inset-block-start: calc(100% + var(--d-s1)); inset-inline-end: 0; padding: var(--d-s2); position: absolute; width: min(20rem, 86vw); z-index: var(--z-popover); }
+.fconnMenuList button { align-items: flex-start; background: none; border: 0; border-radius: var(--d-r-control); box-shadow: none; color: var(--d-text); display: flex; gap: var(--d-s3);
+  min-height: 44px; padding: var(--d-s2); text-align: start; width: 100%; }
+.fconnMenuList button:hover, .fconnMenuList button:focus-visible { background: var(--d-control-bg-hover); }
+.fconnMenuList button > svg { color: var(--d-accent); margin-top: 2px; }
+.fconnMenuList span { display: grid; gap: 2px; }
+.fconnMenuList small { color: var(--d-muted); font-size: var(--text-xs); font-weight: var(--weight-regular); }
+.fconnMenuNote { align-items: flex-start; border-block-start: 1px solid var(--d-line); color: var(--d-muted); display: flex; font-size: var(--text-xs); gap: var(--d-s2); margin: var(--d-s1) 0 0; padding: var(--d-s2) var(--d-s2) 0; }
+.fconnMenuNote svg { flex: none; height: 14px; width: 14px; }
+
+/* iPhone SMS capture. */
+.fconnCaptureHead { align-items: center; display: flex; gap: var(--d-s3); }
+.fconnCaptureHead > div { display: grid; flex: 1; gap: 2px; min-width: 0; }
+.fconnCaptureHead h2 { font-size: var(--text-xl); margin: 0; }
+.fconnCaptureHead p { font-size: var(--text-sm); margin: 0; }
+.fconnStats { display: grid; gap: var(--d-s2); grid-template-columns: repeat(5, minmax(0, 1fr)); margin: 0; }
+.fconnStats > div { border: 1px solid var(--d-line); border-radius: var(--d-r-control); display: grid; gap: 2px; min-width: 0; padding: var(--d-s2) var(--d-s3); }
+.fconnStats > div.warn { background: rgb(var(--c-warn) / .08); border-color: rgb(var(--c-warn) / .4); }
+.fconnStats dt { align-items: center; color: var(--d-muted); display: flex; font-size: var(--text-xs); gap: var(--d-s1); }
+.fconnStats dt svg { flex: none; height: 14px; width: 14px; }
+.fconnStats dd { font-size: var(--text-sm); font-weight: var(--weight-bold); margin: 0; overflow-wrap: anywhere; }
+.fconnSub, .fconnRecent h3, .fconnPolicy h3, .fconnPrivacy h3 { font-size: var(--text-base); margin: 0; }
+.fconnSteps { display: grid; gap: var(--d-s2); grid-template-columns: repeat(3, minmax(0, 1fr)); list-style: none; margin: 0; padding: 0; }
+.fconnSteps li { align-items: flex-start; display: flex; gap: var(--d-s2); min-width: 0; }
+.fconnSteps li > svg { background: rgb(var(--c-accent) / .1); border-radius: var(--d-r-control); color: var(--d-accent); flex: none; height: 32px; padding: 6px; width: 32px; }
+.fconnSteps span { display: grid; gap: 2px; min-width: 0; }
+.fconnSteps strong { font-size: var(--text-sm); }
+.fconnSteps small { color: var(--d-muted); font-size: var(--text-xs); }
+.fconnDevice { border-block: 1px solid var(--d-line); display: grid; gap: var(--d-s3); padding-block: var(--d-s3); }
+.fconnFields { align-items: start; display: grid; gap: var(--d-s3); grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.fconnField { display: grid; gap: var(--d-s1); min-width: 0; }
+.fconnField label { font-size: var(--text-sm); font-weight: var(--weight-semibold); }
+.fconnField small { font-size: var(--text-xs); }
+.fconnField p { margin: 0; }
+.fconnInputRow { align-items: center; display: flex; gap: var(--d-s2); }
+.fconnInputRow input { flex: 1; font-family: var(--d-mono); font-size: var(--text-sm); min-width: 0; }
+.fconnDeviceFacts { align-items: start; display: grid; gap: var(--d-s2) var(--d-s3); grid-template-columns: repeat(4, minmax(0, auto)); justify-content: space-between; margin: 0; }
+.fconnDeviceFacts > div { display: grid; gap: var(--d-s1); min-width: 0; }
+.fconnDeviceFacts dt { color: var(--d-muted); font-size: var(--text-xs); }
+.fconnDeviceFacts dd { margin: 0; overflow-wrap: anywhere; }
+.fconnDeviceFacts select { max-width: 100%; }
+.fconnDevice .fconnActions { justify-content: flex-start; }
+.fconnRecent { display: grid; gap: var(--d-s2); min-width: 0; }
+.fconnTable td small { display: block; font-size: var(--text-xs); }
+.fconnTable td { vertical-align: top; }
+.fconnPolicyRow { align-items: start; display: grid; gap: var(--d-s3); grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr); }
+.fconnPolicy, .fconnPrivacy { border: 1px solid var(--d-line); border-radius: var(--d-r-panel); display: grid; gap: var(--d-s2); padding: var(--d-s3) var(--d-s4); }
+.fconnPrivacy { background: rgb(var(--c-ok) / .06); border-color: rgb(var(--c-ok) / .25); }
+.fconnPrivacy h3 { align-items: center; display: flex; gap: var(--d-s2); }
+.fconnPrivacy h3 svg { color: var(--d-ok); height: 18px; width: 18px; }
+.fconnPrivacy p { font-size: var(--text-sm); margin: 0; }
+.fconnToggle { align-items: center; border-block-end: 1px solid var(--d-line); display: flex; gap: var(--d-s3); justify-content: space-between; padding-block: var(--d-s2); }
+.fconnToggle > span { display: grid; gap: 2px; min-width: 0; }
+.fconnToggle > span > span { font-size: var(--text-md); }
+.fconnToggle small { font-size: var(--text-xs); }
+.fconnToggle button[role="switch"] { background: var(--d-line-strong); border: 0; border-radius: var(--d-r-pill); box-shadow: none; flex: none; height: 26px; min-height: 26px; padding: 0; position: relative; width: 46px; }
+.fconnToggle button[role="switch"] span { background: #fff; border-radius: 50%; box-shadow: 0 1px 2px rgba(3, 5, 9, .3); height: 20px; inset-block-start: 3px; inset-inline-start: 3px; position: absolute;
+  transition: inset-inline-start var(--d-fast) var(--d-ease); width: 20px; }
+.fconnToggle button[role="switch"][aria-checked="true"] { background: var(--d-primary); }
+.fconnToggle button[role="switch"][aria-checked="true"] span { inset-inline-start: 23px; }
+.fconnToggle button[role="switch"]:focus-visible { box-shadow: var(--d-ring); outline: none; }
+@media (prefers-reduced-motion: reduce) { .fconnToggle button[role="switch"] span { transition: none; } }
+
+/* Permissions. */
+.fconnPerms { display: grid; gap: var(--d-s4); }
+.fconnPermList { display: grid; gap: 0; list-style: none; margin: 0; padding: 0; }
+.fconnPermList li { border-block-end: 1px solid var(--d-line); display: grid; gap: var(--d-s1) var(--d-s4); grid-template-columns: minmax(8rem, 12rem) minmax(0, 1fr); padding-block: var(--d-s3); }
+.fconnPermList li:last-child { border-block-end: 0; }
+.fconnLog .fconnSegment { margin-block-end: var(--d-s2); }
+
+@media (max-width: 1280px) {
+  .fconnGrid { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 1024px) {
+  .fconnStats { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+@media (max-width: 760px) {
+  .fconnFacts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .fconnFacts > div:nth-child(3) { border-inline-start: 0; padding-inline-start: 0; }
+  .fconnSteps, .fconnFields, .fconnPolicyRow { grid-template-columns: minmax(0, 1fr); }
+  .fconnDeviceFacts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .fconnStats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .fconnPermList li { grid-template-columns: minmax(0, 1fr); }
+  .fconnPushEnd { margin-inline-start: 0; }
+}
+/* relative: the hidden "Actions" header label (visuallyHidden is absolute) stays inside the table's
+   scroller instead of widening the page, which on phones pushed the KPI row over the import list. */
+.fconn .cmTableWrap { position: relative; }

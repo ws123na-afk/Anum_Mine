@@ -24,7 +24,7 @@ import { figure, type Figure } from './lib/pageSummary';
 import { viewLabel } from './lib/shell';
 import { ConfirmDialog, Modal } from './Dialog';
 import { Denied, Empty, FormActions, FormError, LoadError, Money, Notice, failed, type Load } from './FinanceParts';
-import { ConnectionsPanel, SafeToSpendCard, reasonText } from './FinancePlan';
+import { SafeToSpendCard, reasonText } from './FinancePlan';
 import { ExecutionPanel } from './FinanceTrading';
 import { IntelPanel } from './FinanceIntel';
 import { PageHeader, PageSummary, useMediaQuery, type Crumb } from './PageParts';
@@ -39,7 +39,6 @@ const IbkrPanel = lazy(() => import('./FinanceIbkr').then((m) => ({ default: m.I
 // Fund research (docs/finance-research.md) is its own lazy chunk too.
 const ResearchPanel = lazy(() => import('./FinanceResearch').then((m) => ({ default: m.ResearchPanel })));
 // iPhone SMS banking and the double-entry ledger (docs/finance-sms.md): one lazy chunk for both tabs.
-const SmsPanel = lazy(() => import('./FinanceSms').then((m) => ({ default: m.SmsPanel })));
 const LedgerPanel = lazy(() => import('./FinanceSms').then((m) => ({ default: m.LedgerPanel })));
 const PdfStatementImport = lazy(() => import('./FinancePdfImport').then((m) => ({ default: m.PdfStatementImport })));
 const PdfTemplates = lazy(() => import('./FinancePdfImport').then((m) => ({ default: m.PdfTemplates })));
@@ -58,6 +57,9 @@ const TransactionsPage = lazy(() => import('./FinanceTransactionsPage').then((m)
 const HoldingsPage = lazy(() => import('./FinanceHoldings').then((m) => ({ default: m.HoldingsPage })));
 const LabPage = lazy(() => import('./FinanceLab').then((m) => ({ default: m.LabPage })));
 const GuardianPage = lazy(() => import('./FinanceGuardian').then((m) => ({ default: m.GuardianPage })));
+// Connections and data capture (docs/finance.md#connections-and-data-capture): accounts, SMS capture,
+// iPhone Shortcuts, import history and permissions; `#finance-sms` opens its SMS capture tab.
+const ConnectionsPage = lazy(() => import('./FinanceConnections').then((m) => ({ default: m.ConnectionsPage })));
 const KINDS: FinanceAccountKind[] = ['bank', 'card', 'cash', 'loan', 'investment'];
 const CATEGORIES: FinanceCategory[] = [
   'groceries', 'dining', 'transport', 'fuel', 'utilities', 'telecom', 'housing', 'shopping', 'health', 'education', 'entertainment',
@@ -119,6 +121,7 @@ export function FinanceView() {
         {tab === 'trading' && <LabPage base={summary.kind === 'ready' ? summary.value.base_currency : 'AED'} onOpen={pick} />}
         {/* Until the summary arrives, the settings' default base currency (AED) prefills Test and new limits. */}
         {tab === 'guardian' && <GuardianPage base={summary.kind === 'ready' ? summary.value.base_currency : 'AED'} onOpen={pick} />}
+        {(tab === 'connections' || tab === 'sms') && <ConnectionsPage from={tab} onOpen={pick} />}
       </Suspense>
     </div>;
   }
@@ -161,12 +164,10 @@ export function FinanceView() {
     </section>}
     {accounts.kind === 'error' && <LoadError message={t('finance.error.accounts', { message: accounts.message })} retry={() => void loadAccounts()} />}
     {tab === 'overview' && <Overview summary={s} month={month ?? s.month} onMonth={setMonth} onOpen={pick} />}
-    {tab === 'connections' && <ConnectionsPanel />}
     {tab === 'intel' && <IntelPanel onOpen={pick} />}
     {tab === 'execution' && <ExecutionPanel />}
     {tab === 'ibkr' && <Suspense fallback={<section className="surface cmPanel"><Notice busy>{t('ibkr.loading')}</Notice></section>}><IbkrPanel /></Suspense>}
     {tab === 'research' && <Suspense fallback={<section className="surface cmPanel"><Notice busy>{t('fresearch.loading')}</Notice></section>}><ResearchPanel /></Suspense>}
-    {tab === 'sms' && <Suspense fallback={<section className="surface cmPanel"><Notice busy>{t('fsms.loading')}</Notice></section>}><SmsPanel /></Suspense>}
     {tab === 'ledger' && <Suspense fallback={<section className="surface cmPanel"><Notice busy>{t('fsms.loading')}</Notice></section>}><LedgerPanel /></Suspense>}
     {tab === 'import' && <Import accounts={accountList} onChanged={onChanged} onAddAccount={() => pick('accounts')} onDone={() => pick('transactions')} />}
     {(tab === 'bills' || tab === 'budgets') && <Suspense fallback={planning}><BillsBudgetsPage key={tab} initial={tab} accounts={accountList} base={base} today={s.today} onOpen={pick} onChanged={onChanged} /></Suspense>}

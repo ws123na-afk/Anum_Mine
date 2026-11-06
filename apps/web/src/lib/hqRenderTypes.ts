@@ -60,6 +60,11 @@ export type RenderStats = {
   frames: number; lastDrawMs: number; avgDrawMs: number; drawn: number; culled: number; triangles: number; dpr: number;
   /** Uploads of a live atlas (billboards, screens) that was already on the GPU: each one is the whole canvas, so they happen only when its drawing changed. */
   uploads?: number;
+  /**
+   * Triangles of `triangles` that the frame's shadow map refresh drew (0 when the frame reused the map). The map is redrawn only when the light
+   * or the scene changed, so a count read without it (`triangles - shadowTriangles`) is the same for every frame of the same scene.
+   */
+  shadowTriangles?: number;
   /** Shadow map size in pixels (0 = off) and whether the night glow pass is on. */
   shadowSize: number; bloom: boolean;
   /** Ambient parts in the scene, and whether they are moving right now (false under reduced motion, in a hidden tab, or at the lowest quality). */

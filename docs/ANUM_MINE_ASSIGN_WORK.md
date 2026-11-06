@@ -60,7 +60,7 @@ It adds no rules of its own. It calls `main.create_task` (the body of `POST /tas
 - The database work runs in a worker thread with its own loop, not on the server's loop.
 - PostgreSQL only (503 otherwise).
 
-After assigning, the flow, the desks and the open side panel read again at once, and when the agent's desk is on the open floor its workstation panel opens beside the scene with the new task in its work list. A toast links to the task; "Open the task" shows it in a drawer (see below). It never navigates unless the person clicks "Open full page".
+After assigning, the flow, the desks and the open side panel read again at once, and when the agent's desk is on the open floor its workstation panel opens beside the scene with the new task in its work list. A toast links to the task once the dialog is closed (while it is open the dialog shows the same confirmation with its own "Open the task", and on a phone, where the dialog is a bottom sheet, the toast would cover its Close button); it goes after 12 seconds on screen. "Open the task" shows it in a drawer (see below). It never navigates unless the person clicks "Open full page".
 
 ## Work inside the office
 
