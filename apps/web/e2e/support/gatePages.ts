@@ -48,6 +48,8 @@ const callsWithProvider = (page: Page) => mockCallsApi(page, { provider: true })
 const headquarters = async (page: Page) => { await mockHq(page, { commerce: 'connected', tyre: 'none', meetings: 'live' }); };
 const billing = async (page: Page) => { await mockWorkspaceApi(page); await mockBilling(page); };
 const vault = async (page: Page) => { await mockWorkspaceApi(page); await mockVault(page); };
+/** The pages that read several modules: the workspace, the business books and the document vault. */
+const operations = async (page: Page) => { await mockWorkspaceApi(page); await mockBooks(page); await mockVault(page); };
 
 /** Invoices with every state in the list: sent and overdue, sent on time, a draft and one waiting for approval. */
 async function mockInvoicesWithData(page: Page) {
@@ -60,7 +62,9 @@ async function mockInvoicesWithData(page: Page) {
 }
 
 export const GATE_PAGES: GatePage[] = [
-  { hash: 'home', view: 'home', mock: workspace, ready: '.commandPanel .listRow' },
+  // Home opens on the Operations overview (business books, vehicles, the vault, purchases, attendance); My day is #home-day.
+  { hash: 'home', view: 'home', mock: operations, ready: '.opsHome .opsShares li' },
+  { hash: 'home-day', view: 'home', mock: workspace, ready: '.commandPanel .listRow' },
   { hash: 'command', view: 'command', mock: workspace, ready: '.commandStage' },
   { hash: 'assistant', view: 'assistant', mock: workspace, ready: '.chatTurn.assistant' },
   { hash: 'agents', view: 'agents', mock: workspace, ready: '.agentRow' },
@@ -82,7 +86,7 @@ export const GATE_PAGES: GatePage[] = [
   { hash: 'integrations', view: 'integrations', mock: workspace, ready: 'li.intRow' },
   { hash: 'tyre', view: 'tyre', mock: tyre, ready: '.tyreMetric' },
   { hash: 'commerce', view: 'commerce', mock: workspace, ready: '.cmChart svg' },
-  { hash: 'finance', view: 'finance', mock: workspace, ready: '.finChart svg' },
+  { hash: 'finance', view: 'finance', mock: operations, ready: '.fovRow .opsShares li' },
   { hash: 'finance-transactions', view: 'finance', mock: workspace, ready: '.fregTable tbody tr' },
   { hash: 'finance-import', view: 'finance', mock: workspace, ready: '.finMapping, input[type="file"]' },
   { hash: 'finance-safe', view: 'finance', mock: workspace, ready: '.finBuild' },
@@ -103,7 +107,7 @@ export const GATE_PAGES: GatePage[] = [
   { hash: 'business-catalog', view: 'business', mock: mockBusiness, ready: '.bzTabs [aria-current="page"]' },
   { hash: 'business-invoices', view: 'business', mock: mockInvoicesWithData, ready: '.bzTabs [aria-current="page"]' },
   { hash: 'business-settings', view: 'business', mock: mockInvoices, ready: '.bzTabs [aria-current="page"]' },
-  { hash: 'business-books', view: 'business', mock: (page) => mockBooks(page), ready: '.bkStatement' },
+  { hash: 'business-books', view: 'business', mock: (page) => mockBooks(page), ready: '.bkDashBills tbody tr' },
   { hash: 'business-books/bills', view: 'business', mock: (page) => mockBooks(page), ready: '.bzTable tbody tr' },
   { hash: 'business-books/settings', view: 'business', mock: (page) => mockBooks(page), ready: '#bk-rates-set' },
   { hash: 'business-books/group', view: 'business', mock: (page) => mockBooks(page), ready: '.bkGroup-pnl' },
@@ -145,7 +149,7 @@ export const GATE_PAGES: GatePage[] = [
   { hash: 'platformBilling', view: 'platformBilling', mock: billing, ready: '.blConsoleBar' },
   { hash: 'billing', view: 'settings', mock: billing, ready: '.blPlanNow' },
   { hash: 'attendance', view: 'attendance', mock: workspace, ready: '.attRosterTable tbody tr, .attTimeline li, .attStatus h2' },
-  { hash: 'vehicles', view: 'vehicles', mock: workspace, ready: '.vehGrid .cmList li' },
+  { hash: 'vehicles', view: 'vehicles', mock: workspace, ready: '.opsVehTable tbody tr' },
   { hash: 'vehicles-list', view: 'vehicles', mock: workspace, ready: '.vehList li' },
   { hash: 'vehicles-settings', view: 'vehicles', mock: workspace, ready: '.vehForm select' },
   { hash: 'purchases', view: 'purchases', mock: workspace, ready: '.purTaskList li' },

@@ -113,6 +113,17 @@ Rule-based only, no AI and no network (`finance/categories.py`): the person's ow
 
 `GET /api/v1/finance/bills/suggestions` finds recurring payments: money out with the same payee at a steady interval (weekly, monthly, quarterly or yearly) and amount (within 15 percent), three or more times, not yet saved as a bill. The person keeps the ones that are bills.
 
+## Finance overview
+
+`#finance` (`src/FinanceOverviewPage.tsx`) has its own page head with Settings, Import statement, the scope switch (All finance, Personal, Business), the month and, for personal figures in more than one currency, a currency choice.
+
+- **All finance**: personal net worth (balances less debts) and the business month from the books (income, expenses, net result, each against the month before). **Personal**: net worth, income, spending and net against the month before. **Business**: the business figures and cash flow. People who may not read the books see Personal only, and the switch says why.
+- Accounts, bills due (total and the next date) and items to review (Guardian flags waiting plus business allocations in review), each opening its page.
+- Income and outflow over six months (the books, or the person's own ledger on Personal) with the month's P&L beside it; business spending by category with Open Expenses and P&L, or the person's spending by category.
+- Recent activity: the month's newest transactions (on Business, the newest bills). Safe to spend, bills due soon with the review queue, the read-only note, balances and goals.
+
+Read only, like the rest of Finance: there is no pay, transfer or trade button.
+
 ## Register and account overview
 
 The Accounts and Transactions and ledger pages read a joined, **read-only** view of the ledger (`finance/register_api.py`, contracts `packages/contracts/src/financeRegister.ts`, web `FinanceAccountsPage.tsx` and `FinanceTransactionsPage.tsx`). Nothing here posts, links or moves money, and nothing says an account is connected: ANUM has no live bank connection, so each account shows the real sources that feed it.

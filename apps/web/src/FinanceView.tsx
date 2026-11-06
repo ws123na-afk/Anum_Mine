@@ -2,19 +2,17 @@
 // summary band, the month's spend by category, accounts, transactions with search and paging, CSV
 // statement import with a mapping preview, bills, debts, goals and manual holdings. Nothing here
 // moves money: there is no pay, transfer or trade button anywhere, by design (Stage 2).
-import { Suspense, lazy, useCallback, useEffect, useId, useMemo, useState, type FormEvent } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useId, useState, type FormEvent } from 'react';
 import {
-  ArrowDownLeft, ArrowUpRight, ChevronLeft, ChevronRight, CircleDot, Download, FileUp, Landmark, Lock, PiggyBank,
-  Plus, RefreshCw, Search, Settings2, Trash2, Undo2, Wallet,
+  CircleDot, Download, FileUp, Landmark, Lock, Plus, RefreshCw, Search, Settings2, Trash2, Undo2, Wallet,
 } from 'lucide-react';
 import type {
   FinanceAccount, FinanceAccountKind, FinanceCategory, FinanceFormats,
-  FinanceHolding, FinanceImport, FinanceImportPreview, FinancePage, FinanceSettings, FinanceSummary, FinanceTransaction, FinanceUpcomingBill,
-} from '@anum/contracts';
+  FinanceHolding, FinanceImport, FinanceImportPreview, FinancePage, FinanceSettings, FinanceSummary, FinanceTransaction, } from '@anum/contracts';
 import * as api from './lib/financeApi';
 import {
-  PDF_STATEMENT_MAX_BYTES, amountTone, isolate, categoryLabel, checkFile, dueLabel, formatAmount, formatAmounts, hashForTab, isLast4, monthLabel, parseAmount, pickAmount,
-  rangeLabel, shiftMonth, spendBars, spendCurrencies, tabFromHash, type FinanceTab,
+  PDF_STATEMENT_MAX_BYTES, amountTone, categoryLabel, checkFile, formatAmount, formatAmounts, hashForTab, isLast4, monthLabel, parseAmount, pickAmount,
+  rangeLabel, tabFromHash, type FinanceTab,
 } from './lib/finance';
 import { describeError, isPermissionDenied } from './lib/errors';
 import { isPdf } from './lib/financePdf';
@@ -24,11 +22,12 @@ import { figure, type Figure } from './lib/pageSummary';
 import { viewLabel } from './lib/shell';
 import { ConfirmDialog, Modal } from './Dialog';
 import { Denied, Empty, FormActions, FormError, LoadError, Money, Notice, failed, type Load } from './FinanceParts';
-import { SafeToSpendCard, reasonText } from './FinancePlan';
+import { reasonText } from './FinancePlan';
 import { ExecutionPanel } from './FinanceTrading';
 import { IntelPanel } from './FinanceIntel';
 import { PageHeader, PageSummary, useMediaQuery, type Crumb } from './PageParts';
 import { FinanceSectionNav } from './FinanceShell';
+import { FinanceOverviewPage } from './FinanceOverviewPage';
 import { OWN_HEAD_TABS } from './lib/financeNav';
 import './commerce.css';
 import './finance.css';
@@ -126,9 +125,17 @@ export function FinanceView() {
     </div>;
   }
 
+  // The overview draws its own head, scope and period (docs/finance.md#finance-overview), in every load state.
+  if (tab === 'overview') return <>
+    <FinanceOverviewPage summary={summary} accounts={accounts} month={month} onMonth={setMonth} onOpen={pick} onRetry={refresh}
+      onSettings={() => setSettingsOpen(true)} onImport={() => pick('import')} onAddAccount={() => pick('accounts')}
+      accountsError={accounts.kind === 'error' ? <LoadError message={t('finance.error.accounts', { message: accounts.message })} retry={() => void loadAccounts()} /> : null} />
+    {settingsOpen && <SettingsDialog onClose={(saved) => { setSettingsOpen(false); if (saved) refresh(); }} />}
+  </>;
+
   const crumbs: Crumb[] = [{ label: viewLabel('home'), href: '#home' }, { label: viewLabel('finance'), href: '#finance', onClick: () => pick('overview') }];
-  if (tab !== 'overview') crumbs.push({ label: t(`finance.tab.${tab}` as MessageKey) });
-  const header = <PageHeader title={viewLabel('finance')} subtitle={t('finance.subtitle')} crumbs={tab === 'overview' ? undefined : crumbs} actions={summary.kind === 'ready' ? <>
+  crumbs.push({ label: t(`finance.tab.${tab}` as MessageKey) });
+  const header = <PageHeader title={viewLabel('finance')} subtitle={t('finance.subtitle')} crumbs={crumbs} actions={summary.kind === 'ready' ? <>
     <button type="button" className="secondary" onClick={() => setSettingsOpen(true)}><Settings2 aria-hidden="true" />{t('finance.settings.open')}</button>
     {tab !== 'import' && <button type="button" onClick={() => pick('import')}><FileUp aria-hidden="true" />{t('finance.import.open')}</button>}
   </> : undefined} />;
@@ -163,7 +170,6 @@ export function FinanceView() {
         <div className="actions"><button type="button" onClick={() => pick('accounts')}><Plus aria-hidden="true" />{t('finance.accounts.add')}</button></div></div>
     </section>}
     {accounts.kind === 'error' && <LoadError message={t('finance.error.accounts', { message: accounts.message })} retry={() => void loadAccounts()} />}
-    {tab === 'overview' && <Overview summary={s} month={month ?? s.month} onMonth={setMonth} onOpen={pick} />}
     {tab === 'intel' && <IntelPanel onOpen={pick} />}
     {tab === 'execution' && <ExecutionPanel />}
     {tab === 'ibkr' && <Suspense fallback={<section className="surface cmPanel"><Notice busy>{t('ibkr.loading')}</Notice></section>}><IbkrPanel /></Suspense>}
@@ -174,126 +180,6 @@ export function FinanceView() {
     {(tab === 'debts' || tab === 'goals') && <Suspense fallback={planning}><DebtsGoalsPage key={tab} initial={tab} accounts={accountList} base={base} today={s.today} onOpen={pick} onChanged={onChanged} /></Suspense>}
     {settingsOpen && <SettingsDialog onClose={(saved) => { setSettingsOpen(false); if (saved) refresh(); }} />}
   </div>;
-}
-
-// ---- Overview --------------------------------------------------------------------------------
-
-function Overview({ summary: s, month, onMonth, onOpen }: { summary: FinanceSummary; month: string; onMonth: (month: string) => void; onOpen: (tab: FinanceTab) => void }) {
-  const currencies = spendCurrencies(s, s.base_currency);
-  const [currency, setCurrency] = useState<string | null>(null);
-  const shown = currency && currencies.includes(currency) ? currency : currencies[0] ?? s.base_currency;
-  return <>
-    <div className="finMonth" role="group" aria-label={t('finance.month.label')}>
-      <button type="button" className="secondary" onClick={() => onMonth(shiftMonth(month, -1))} aria-label={t('finance.month.previous')}><ChevronLeft aria-hidden="true" className="cmFlip" /></button>
-      <strong aria-live="polite">{monthLabel(month)}</strong>
-      <button type="button" className="secondary" disabled={month >= s.today.slice(0, 7)} onClick={() => onMonth(shiftMonth(month, 1))} aria-label={t('finance.month.next')}><ChevronRight aria-hidden="true" className="cmFlip" /></button>
-      {currencies.length > 1 && <label className="cmInline"><span>{t('finance.overview.currency')}</span><select value={shown} onChange={(e) => setCurrency(e.target.value)}>{currencies.map((c) => <option key={c} value={c}>{c}</option>)}</select></label>}
-    </div>
-    <div className="finOverview">
-      <div className="finColumn">
-        <SpendChart summary={s} currency={shown} onOpen={() => onOpen('transactions')} />
-        <section className="surface cmPanel cmWide" aria-labelledby="fin-upcoming">
-          <div className="sectionHeader"><h2 id="fin-upcoming">{t('finance.overview.upcoming')}</h2><button type="button" className="cmLinkButton" onClick={() => onOpen('bills')}>{t('finance.overview.allBills')}</button></div>
-          {s.upcoming_bills.length === 0 ? <p className="muted">{t('finance.bills.noneDue')}</p> : <UpcomingList rows={s.upcoming_bills.slice(0, 6)} />}
-        </section>
-        {s.goals.length > 0 && <section className="surface cmPanel cmWide" aria-labelledby="fin-goals-overview">
-          <div className="sectionHeader"><h2 id="fin-goals-overview">{t('finance.tab.goals')}</h2><button type="button" className="cmLinkButton" onClick={() => onOpen('goals')}>{t('finance.overview.manage')}</button></div>
-          <ul className="cmList">{s.goals.map((g) => <li key={g.id}><div><strong dir="auto">{g.name}</strong><small>{t('finance.goals.progress', { saved: isolate(formatAmount(g.saved_amount, g.currency)), target: isolate(formatAmount(g.target_amount, g.currency)) })}</small></div><Progress percent={g.percent} label={g.name} /></li>)}</ul>
-        </section>}
-      </div>
-      <div className="finColumn">
-        <SafeToSpendCard base={s.base_currency} onOpen={onOpen} />
-        <section className="surface cmPanel" aria-labelledby="fin-flow">
-          <h2 id="fin-flow">{t('finance.overview.flow')}</h2>
-          {s.income.length === 0 && s.spend.length === 0 ? <p className="muted">{t('finance.overview.noFlow')}</p> : <dl className="finFlow">
-            {[...new Set([...s.income, ...s.spend].map((row) => row.currency))].map((cur) => {
-              const income = s.income.find((r) => r.currency === cur)?.amount ?? '0';
-              const spend = s.spend.find((r) => r.currency === cur)?.amount ?? '0';
-              const net = s.net.find((r) => r.currency === cur)?.amount ?? '0';
-              return <div key={cur} className="finFlowRow">
-                <dt>{cur}</dt>
-                <dd><span><ArrowDownLeft aria-hidden="true" className="finIn" />{t('finance.overview.in')} <Money value={income} currency={cur} /></span>
-                  <span><ArrowUpRight aria-hidden="true" className="finOut" />{t('finance.overview.out')} <Money value={spend} currency={cur} /></span>
-                  <span>{t('finance.overview.net')} <Money value={net} currency={cur} signed /></span></dd>
-              </div>;
-            })}
-          </dl>}
-        </section>
-        <section className="surface cmPanel" aria-labelledby="fin-balances">
-          <div className="sectionHeader"><h2 id="fin-balances">{t('finance.overview.accounts')}</h2><button type="button" className="cmLinkButton" onClick={() => onOpen('accounts')}>{t('finance.overview.manage')}</button></div>
-          {s.accounts.length === 0 ? <p className="muted">{t('finance.accounts.none')}</p> : <ul className="cmList">{s.accounts.filter((a) => !a.archived).map((a) => <li key={a.id}>
-            <div><strong dir="auto">{a.name}</strong><small>{t(`finance.kind.${a.kind}` as MessageKey)}{a.last4 ? ` · ${t('finance.accounts.endingIn', { last4: a.last4 })}` : ''}</small></div>
-            <Money value={a.balance} currency={a.currency} signed />
-          </li>)}</ul>}
-        </section>
-      </div>
-    </div>
-  </>;
-}
-
-function Progress({ percent, label }: { percent: number; label: string }) {
-  return <span className="finProgress" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={percent} aria-label={t('finance.goals.progressLabel', { name: label, percent })}><span className="finTrack"><span className="finFill" style={{ width: `${percent}%` }} /></span><small aria-hidden="true">{percent}%</small></span>;
-}
-
-function UpcomingList({ rows }: { rows: FinanceUpcomingBill[] }) {
-  return <ul className="cmList">{rows.map((row) => <li key={`${row.id}-${row.due_on}`}>
-    <div><strong dir="auto">{row.name}</strong><small><bdi dir="ltr">{row.due_on}</bdi> · {dueLabel(row.days_until)} · {categoryLabel(row.category)}</small></div>
-    <Money value={row.amount} currency={row.currency} />
-  </li>)}</ul>;
-}
-
-/** The width of an element in CSS pixels, kept current as the window changes. */
-function useWidth(): [(node: HTMLDivElement | null) => void, number] {
-  const [node, setNode] = useState<HTMLDivElement | null>(null);
-  const [width, setWidth] = useState(0);
-  useEffect(() => {
-    if (!node) return undefined;
-    const update = () => setWidth(node.getBoundingClientRect().width);
-    update();
-    const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(update) : null;
-    observer?.observe(node);
-    return () => observer?.disconnect();
-  }, [node]);
-  return [setNode, width];
-}
-
-/**
- * The month's spend by category as horizontal bars (the SalesChart pattern: SVG with a table
- * fallback). The SVG is drawn at the panel's real width, so labels stay 12px on a phone, and it is
- * mirrored in Arabic: labels on the right, bars growing to the left.
- */
-function SpendChart({ summary, currency, onOpen }: { summary: FinanceSummary; currency: string; onOpen: () => void }) {
-  const bars = useMemo(() => spendBars(summary, currency), [summary, currency]);
-  const titleId = useId();
-  const [measure, measured] = useWidth();
-  const rtl = typeof document !== 'undefined' && document.documentElement.dir === 'rtl';
-  const width = Math.max(280, Math.round(measured) || 720);
-  const row = 32, labelWidth = Math.min(150, Math.round(width * 0.3)), valueWidth = 104;
-  const plot = width - labelWidth - valueWidth;
-  const height = Math.max(row, bars.length * row);
-  const x = (value: number) => (rtl ? width - value : value);
-  return <section className="surface cmPanel cmWide cmChartPanel" aria-labelledby={titleId}>
-    <div className="sectionHeader"><h2 id={titleId}>{t('finance.chart.title', { month: monthLabel(summary.month), currency })}</h2></div>
-    {bars.length === 0 ? <Empty icon={<PiggyBank aria-hidden="true" />} title={t('finance.chart.empty')} text={t('finance.chart.emptyText')} action={<button type="button" className="secondary" onClick={onOpen}>{t('finance.chart.openTransactions')}</button>} /> : <>
-      <div className="cmChart finChart" ref={measure}>
-        <svg viewBox={`0 0 ${width} ${height}`} width={width} height={height} direction="ltr" role="img" aria-label={t('finance.chart.aria', { count: bars.length, top: categoryLabel(bars[0].category), amount: isolate(formatAmount(bars[0].amount, currency)) })}>
-          {bars.map((bar, index) => {
-            const y = index * row;
-            const w = Math.max(2, bar.share * (plot - 8));
-            return <g key={bar.category}>
-              <text className="finLabel" x={x(labelWidth - 8)} y={y + row / 2 + 4} textAnchor={rtl ? 'start' : 'end'}>{categoryLabel(bar.category)}</text>
-              <rect x={rtl ? width - labelWidth - w : labelWidth} y={y + 7} width={w} height={row - 14} rx={4} className={`finBar finBar${index % 6}`} />
-              <text className="finValue" x={x(labelWidth + w + 8)} y={y + row / 2 + 4} textAnchor={rtl ? 'end' : 'start'}>{formatAmount(bar.amount, currency)}</text>
-            </g>;
-          })}
-        </svg>
-      </div>
-      <details className="cmChartTable"><summary>{t('finance.chart.table')}</summary><div className="cmTableWrap" tabIndex={0}><table className="cmTable">
-        <thead><tr><th scope="col">{t('finance.col.category')}</th><th scope="col" className="num">{t('finance.col.count')}</th><th scope="col" className="num">{t('finance.col.amount')}</th></tr></thead>
-        <tbody>{bars.map((bar) => <tr key={bar.category}><td>{categoryLabel(bar.category)}</td><td className="num">{bar.count}</td><td className="num"><Money value={bar.amount} currency={currency} /></td></tr>)}</tbody>
-      </table></div></details>
-    </>}
-  </section>;
 }
 
 // ---- Transactions ----------------------------------------------------------------------------

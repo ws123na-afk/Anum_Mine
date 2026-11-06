@@ -27,6 +27,7 @@ from .models import FuelEntry, OdometerReading, ServiceRecord, Vehicle
 
 CENT = Decimal("0.01")
 TENTH = Decimal("0.1")
+LITRE = Decimal("0.001")
 PRICE_OUTLIER = Decimal("0.25")  # 25 % from the vehicle's median price per litre
 CONSUMPTION_OUTLIER = Decimal("1.5")  # 1.5 times the vehicle's median L/100 km
 TANK_SLACK = Decimal("1.05")
@@ -63,6 +64,22 @@ def distance_km(readings: Iterable[OdometerReading], start: date | None = None, 
         if after.reading_km > before.reading_km:
             total += after.reading_km - before.reading_km
     return total
+
+
+def distance_by_month(readings: Iterable[OdometerReading], start: date | None = None, end: date | None = None) -> dict[str, Decimal]:
+    """Kilometres per month: each increase counts in the month of the later reading (inside the period).
+
+    Unlike ``distance_km`` the earlier reading may sit before the period, so a month's distance includes the
+    run from the last reading of the month before. A correction starts a new run, as everywhere else.
+    """
+    ordered = sorted(readings, key=lambda r: (r.read_at, r.created_at, r.id))
+    totals: dict[str, Decimal] = defaultdict(Decimal)
+    for before, after in zip(ordered, ordered[1:]):
+        if after.correction or not _in(after.read_at, start, end):
+            continue
+        if after.reading_km > before.reading_km:
+            totals[month_of(after.read_at)] += after.reading_km - before.reading_km
+    return dict(totals)
 
 
 def current_odometer(readings: Iterable[OdometerReading]) -> Decimal | None:
@@ -295,6 +312,7 @@ def vehicle_report(vehicle: Vehicle, readings: list[OdometerReading], fuel: list
         "monthly": monthly(period_costs),
         "by_category": by_category(period_costs),
         "fuel_litres": str(sum((f.litres for f in in_fuel), Decimal(0))),
+        "usage": usage([vehicle], {vehicle.id: readings}, fuel, start=start, end=end)["usage"],
         "fuel_price_trend": price_trend(in_fuel),
         "consumption": {
             "average_per_100": str(avg) if (avg := average_per_100(segments)) is not None else None,
@@ -310,6 +328,39 @@ def vehicle_report(vehicle: Vehicle, readings: list[OdometerReading], fuel: list
             "capital_paid": ({"currency": vehicle.purchase_payment.currency, "amount": money(vehicle.purchase_payment.amount)}
                              if vehicle.purchase_payment is not None and vehicle.purchase_payment.status == "active" else None),
         },
+    }
+
+
+def usage(vehicles: list[Vehicle], readings: dict[str, list[OdometerReading]], fuel: list[FuelEntry], *, start: date | None,
+          end: date | None) -> dict[str, Any]:
+    """Distance and litres per month across the vehicles, and per vehicle with its average consumption.
+
+    Quantities only, never money: ``usage`` is ``[{month, distance_km, fuel_litres}]`` for every month with either,
+    ``by_vehicle_usage`` one row per vehicle with ``average_per_100`` from the full-to-full chains that ended in the period.
+    """
+    months: dict[str, list[Decimal]] = defaultdict(lambda: [Decimal(0), Decimal(0)])
+    rows: list[dict[str, Any]] = []
+    for vehicle in vehicles:
+        own = readings.get(vehicle.id, [])
+        per_month = distance_by_month(own, start, end)
+        for month, km in per_month.items():
+            months[month][0] += km
+        fills = [f for f in fuel if f.vehicle_id == vehicle.id]
+        in_period = [f for f in fills if _in(f.filled_at, start, end)]
+        for fill in in_period:
+            months[month_of(fill.filled_at)][1] += fill.litres
+        segments = [s for s in consumption(fills, [r.read_at for r in own if r.correction]) if _in(s.ended_on, start, end)]
+        avg = average_per_100(segments)
+        rows.append({
+            "vehicle_id": vehicle.id,
+            "distance_km": str(sum(per_month.values(), Decimal(0)).quantize(TENTH)),
+            "fuel_litres": str(sum((f.litres for f in in_period), Decimal(0)).quantize(LITRE)),
+            "average_per_100": str(avg) if avg is not None else None,
+        })
+    return {
+        "usage": [{"month": m, "distance_km": str(km.quantize(TENTH)), "fuel_litres": str(litres.quantize(LITRE))}
+                  for m, (km, litres) in sorted(months.items())],
+        "by_vehicle_usage": rows,
     }
 
 
@@ -342,10 +393,12 @@ __all__ = [
     "costs",
     "current_odometer",
     "depreciation",
+    "distance_by_month",
     "distance_km",
     "monthly",
     "overview",
     "price_per_litre",
     "price_trend",
+    "usage",
     "vehicle_report",
 ]
