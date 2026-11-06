@@ -26,6 +26,9 @@ async function distinctColours(page: Page): Promise<number> {
 }
 
 async function openBuilding(page: Page, name: string, ambient?: 'on' | 'off') {
+  // Its own waits (the 3D engine, the card tap, the building) allow up to 60s each on a software rasteriser: give every test that opens
+  // a building the same budget as the other tests here, never less than the 30s default.
+  test.setTimeout(Math.max(test.info().timeout, 120_000));
   await page.addInitScript((a) => { try { localStorage.setItem('anum.hq.light', 'night'); if (a) localStorage.setItem('anum.hq.ambient', a); } catch { /* storage blocked */ } }, ambient);
   await mockHq(page, { campus: 'api', layout: 'starter-full', commerce: 'connected', meetings: 'live' });
   await page.goto('/#office-preview');
