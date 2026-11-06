@@ -12,7 +12,6 @@ export const teamPageEn = {
   'teamPage.tab.activity': 'Activity',
   'teamPage.tab.mine': 'My work',
   'teamPage.tab.board': 'Team dashboard',
-  'teamPage.tab.calls': 'Calls',
   'teamPage.invite': 'Invite member',
   'teamPage.viewOrg': 'View org chart',
   'teamPage.kpi.members': 'Members',
@@ -139,4 +138,5 @@ export const teamPageEn = {
   'teamPage.area.whatsapp': 'WhatsApp',
   'teamPage.area.work': 'Team work',
   'teamPage.area.workspace': 'Workspace settings',
+  'teamPage.col.call': 'Call',
 } satisfies Record<string, Message>;

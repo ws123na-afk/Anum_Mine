@@ -116,7 +116,7 @@ export function TeamView({ focusItemId = null, onFocusChange, live = 0 }: { focu
   const peopleList = people.state === 'ready' ? people.value : [];
   const departments = new Set(peopleList.map((p) => p.department).filter(Boolean)).size;
   const reloadPeople = () => { loadPeople(); void dir.reload(); changed(); };
-  const items = TABS.map((id) => ({ id, label: t(`teamPage.tab.${id}` as MessageKey), badge: id === 'invitations' && summary.state === 'ready' && summary.value.pendingInvitations ? summary.value.pendingInvitations : undefined }));
+  const items = TABS.map((id) => ({ id, label: id === 'calls' ? t('team.tab.calls') : t(`teamPage.tab.${id}` as MessageKey), badge: id === 'invitations' && summary.state === 'ready' && summary.value.pendingInvitations ? summary.value.pendingInvitations : undefined }));
   const workTab = WORK_TABS.has(tab);
 
   return <div className="teamView tpPage">

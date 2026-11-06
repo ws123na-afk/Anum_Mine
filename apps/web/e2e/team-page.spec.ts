@@ -17,7 +17,8 @@ test('the directory lists people with their role and work, filters, and opens a 
   await expect(table.getByRole('row')).toHaveCount(2);
   await page.getByRole('button', { name: 'Clear filters' }).click();
   await page.getByRole('searchbox', { name: 'Search name, email or job title' }).fill('sales lead');
-  await table.getByRole('button', { name: /Ahmed Saleh/ }).click();
+  await expect(table.getByRole('button', { name: 'Call Ahmed Saleh', exact: true })).toBeVisible();
+  await table.getByRole('button', { name: /^Ahmed Saleh/ }).click();
   const panel = page.getByRole('complementary', { name: 'Ahmed Saleh' });
   await expect(panel.getByRole('heading', { name: /What a Member can do/ })).toBeVisible();
   await expect(panel).toContainText('Can change: Calendar, Finance, Tasks.');

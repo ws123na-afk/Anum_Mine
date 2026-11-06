@@ -46,6 +46,7 @@ export function DirectoryTab({ people, peopleLoad, workload, roles, onReload, on
   const person = people.find((p) => p.user_id === selected) ?? null;
   const filtered = filter.q !== '' || filter.department !== '' || filter.role !== '';
   const showTable = wide || !person;
+  const me = currentUserId();
   return <div className={`tpSplit ${person ? 'withDetail' : ''}`}>
     {showTable && <FinCard title={t('teamPage.directory.title')} subtitle={peopleLoad.state === 'ready' ? t('teamPage.directory.count', { count: shown.length }) : undefined} icon={<Users />}
       actions={<button type="button" className="secondary" onClick={onOpenOrg}>{t('teamPage.viewOrg')}</button>}>
@@ -67,7 +68,7 @@ export function DirectoryTab({ people, peopleLoad, workload, roles, onReload, on
       {shown.length > 0 && <div className="finTableWrap" tabIndex={0} aria-label={t('teamPage.tableScroll')}>
         <table className="finGrid tpTable">
           <caption className="visuallyHidden">{t('teamPage.directory.title')}</caption>
-          <thead><tr><th scope="col">{t('teamPage.col.name')}</th><th scope="col">{t('teamPage.col.role')}</th><th scope="col">{t('teamPage.col.department')}</th><th scope="col">{t('teamPage.col.title')}</th><th scope="col">{t('teamPage.col.zone')}</th><th scope="col" className="num">{t('teamPage.col.open')}</th><th scope="col">{t('teamPage.col.status')}</th></tr></thead>
+          <thead><tr><th scope="col">{t('teamPage.col.name')}</th><th scope="col">{t('teamPage.col.role')}</th><th scope="col">{t('teamPage.col.department')}</th><th scope="col">{t('teamPage.col.title')}</th><th scope="col">{t('teamPage.col.zone')}</th><th scope="col" className="num">{t('teamPage.col.open')}</th><th scope="col">{t('teamPage.col.status')}</th><th scope="col">{t('teamPage.col.call')}</th></tr></thead>
           <tbody>{shown.map((p) => {
             const load = workload?.rows.find((r) => r.assignee_type === 'user' && r.assignee_id === p.user_id);
             return <tr key={p.user_id} className={selected === p.user_id ? 'selected' : undefined}>
@@ -79,6 +80,7 @@ export function DirectoryTab({ people, peopleLoad, workload, roles, onReload, on
               <td dir="ltr" className="tpZone">{p.timezone}</td>
               <td className="num">{load ? formatNumber(load.open) : '0'}{load?.overdue ? <small className="tpLate"> {t('teamPage.overdueShort', { count: load.overdue })}</small> : null}</td>
               <td>{p.has_profile ? <StatusChip tone={p.assignable ? 'ok' : 'muted'}>{p.assignable ? t('teamPage.status.assignable') : t('teamPage.status.readOnly')}</StatusChip> : <StatusChip tone="warn">{t('teamPage.status.noProfile')}</StatusChip>}</td>
+              <td>{p.user_id !== me ? <CallButtons person={p} compact /> : <span className="muted">-</span>}</td>
             </tr>;
           })}</tbody>
         </table>

@@ -12,7 +12,6 @@ export const teamPageAr: Record<keyof typeof teamPageEn, Message> = {
   'teamPage.tab.activity': 'النشاط',
   'teamPage.tab.mine': 'عملي',
   'teamPage.tab.board': 'لوحة الفريق',
-  'teamPage.tab.calls': 'المكالمات',
   'teamPage.invite': 'دعوة عضو',
   'teamPage.viewOrg': 'عرض الهيكل التنظيمي',
   'teamPage.kpi.members': 'الأعضاء',
@@ -139,4 +138,5 @@ export const teamPageAr: Record<keyof typeof teamPageEn, Message> = {
   'teamPage.area.whatsapp': 'واتساب',
   'teamPage.area.work': 'عمل الفريق',
   'teamPage.area.workspace': 'إعدادات مساحة العمل',
+  'teamPage.col.call': 'اتصال',
 };
