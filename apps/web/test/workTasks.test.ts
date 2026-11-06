@@ -42,3 +42,14 @@ describe('work groups', () => {
     assert.deepEqual(dueIn(new Date(2026, 10, 2, 10).toISOString(), now), { unit: 'days', count: 3, late: true });
   });
 });
+
+describe('completed this week paging', () => {
+  test('stops at the last page or once the page reaches last week', async () => {
+    const { doneWeekComplete } = await import('../src/lib/workTasks.ts');
+    const at = (d: number) => new Date(2026, 10, d, 12).toISOString();
+    assert.equal(doneWeekComplete({ items: [{ updated_at: at(4) }], next_offset: null }, now), true);
+    assert.equal(doneWeekComplete({ items: [{ updated_at: at(4) }, { updated_at: at(3) }], next_offset: 200 }, now), false);
+    assert.equal(doneWeekComplete({ items: [{ updated_at: at(4) }, { updated_at: at(1) }], next_offset: 200 }, now), true);
+    assert.equal(doneWeekComplete({ items: [], next_offset: 200 }, now), true);
+  });
+});

@@ -12,7 +12,7 @@ import * as team from './lib/teamApi';
 import { describeError, isPermissionDenied } from './lib/errors';
 import { formatDateTime, formatNumber, t, type MessageKey } from './lib/i18n';
 import { PRIORITIES, workQuery } from './lib/team';
-import { dueIn, groupWork, WORK_GROUPS, type WorkGroup } from './lib/workTasks';
+import { doneWeekComplete, dueIn, groupWork, WORK_GROUPS, type WorkGroup } from './lib/workTasks';
 import { Modal } from './Dialog';
 import { KpiCard, KpiRow, StatusChip } from './FinanceShell';
 import { PaneDenied, PaneProblem, SPLIT_QUERY, useMediaQuery } from './PageParts';
@@ -21,8 +21,10 @@ import './team.css';
 import './workTasks.css';
 
 type Scope = 'mine' | 'all';
-type Lists = { state: 'loading' } | { state: 'ready'; open: WorkItemPage; openItems: WorkItem[]; done: WorkItem[] } | { state: 'error' | 'denied'; message: string };
+type Lists = { state: 'loading' } | { state: 'ready'; open: WorkItemPage; openItems: WorkItem[]; done: WorkItem[]; doneComplete: boolean } | { state: 'error' | 'denied'; message: string };
 const PRIORITY_TONE: Record<WorkPriority, 'bad' | 'warn' | 'info' | 'muted'> = { urgent: 'bad', high: 'warn', normal: 'info', low: 'muted' };
+/** At most this many pages of 200 done items are read for Completed this week; past that the figure shows a +. */
+const DONE_PAGES = 5;
 const GROUP_TONE: Record<WorkGroup, string> = { overdue: 'bad', today: 'warn', in_progress: 'ok', blocked: 'bad', todo: 'muted', done_week: 'ok' };
 
 export function WorkTasks({ scope, live = 0, focusItemId = null }: { scope: Scope; live?: number; focusItemId?: string | null }) {
@@ -47,10 +49,21 @@ export function WorkTasks({ scope, live = 0, focusItemId = null }: { scope: Scop
   useEffect(() => {
     let alive = true;
     setLists((old) => (old.state === 'ready' ? old : { state: 'loading' }));
+    // Completed this week: page the done list (newest update first) until it reaches last week.
+    const doneThisWeek = async () => {
+      const items: WorkItem[] = [];
+      for (let offset = 0, pages = 0; pages < DONE_PAGES; pages += 1) {
+        const page = await team.listWork(workQuery({ scope, status: 'done', q, sort: 'updated', limit: 200, offset }));
+        items.push(...page.items);
+        if (doneWeekComplete(page, new Date())) return { items, complete: true };
+        offset = page.next_offset ?? offset + page.items.length;
+      }
+      return { items, complete: false };
+    };
     Promise.all([
       team.listWork(workQuery({ scope, status: 'open', q, sort: 'due', limit: 200 })),
-      team.listWork(workQuery({ scope, status: 'done', q, sort: 'updated', limit: 100 })),
-    ]).then(([open, done]) => { if (alive) setLists({ state: 'ready', open, openItems: open.items, done: done.items }); },
+      doneThisWeek(),
+    ]).then(([open, done]) => { if (alive) setLists({ state: 'ready', open, openItems: open.items, done: done.items, doneComplete: done.complete }); },
       (e: unknown) => { if (alive) setLists({ state: isPermissionDenied(e) ? 'denied' : 'error', message: describeError(e) }); });
     return () => { alive = false; };
   }, [scope, q, revision]);
@@ -94,7 +107,7 @@ export function WorkTasks({ scope, live = 0, focusItemId = null }: { scope: Scop
       <KpiCard icon={<AlertTriangle />} label={t('wt.group.overdue')} value={groups ? `${formatNumber(groups.overdue.length)}${plus}` : '-'} hint={groups ? (groups.overdue.length ? t('wt.kpi.overdueHint') : t('wt.kpi.overdueNone')) : lists.state === 'error' ? t('page.figure.unavailable') : undefined} tone={groups?.overdue.length ? 'bad' : ''} />
       <KpiCard icon={<CalendarClock />} label={t('wt.group.today')} value={groups ? `${formatNumber(groups.today.length)}${plus}` : '-'} hint={groups ? t('wt.kpi.todayHint') : undefined} tone={groups?.today.length ? 'warn' : ''} />
       <KpiCard icon={<RefreshCw />} label={t('wt.group.in_progress')} value={groups ? `${formatNumber(groups.in_progress.length)}${plus}` : '-'} hint={groups ? t('wt.kpi.blocked', { count: groups.blocked.length }) : undefined} />
-      <KpiCard icon={<CheckCircle2 />} label={t('wt.group.done_week')} value={groups ? formatNumber(groups.done_week.length) : '-'} hint={groups ? t('wt.kpi.doneHint') : undefined} tone={groups?.done_week.length ? 'good' : ''} />
+      <KpiCard icon={<CheckCircle2 />} label={t('wt.group.done_week')} value={groups && lists.state === 'ready' ? `${formatNumber(groups.done_week.length)}${lists.doneComplete ? '' : '+'}` : '-'} hint={groups ? t('wt.kpi.doneHint') : undefined} tone={groups?.done_week.length ? 'good' : ''} />
     </KpiRow>
     <div className={`wtLayout ${showDetail ? 'withDetail' : ''}`}>
       {showList && <section className="finCard wtTable" aria-labelledby={`${ids}-title`} aria-busy={lists.state === 'loading'}>

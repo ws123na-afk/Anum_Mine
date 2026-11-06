@@ -269,17 +269,29 @@ export function invitees(event: Pick<CalendarEventView, 'attendees'>): string[] 
 
 // ---- Time grid, conflicts and the week strip (docs/calendar.md#web-page) ----
 
+/**
+ * The wall-clock hour (0 to 24, with fractions) of `ms` on the local `day`: 0 before the day starts,
+ * 24 after it ends. Read from the local clock, never from elapsed time since midnight, so a
+ * daylight-saving day (23 or 25 hours long) still places 23:30 at 23:30.
+ */
+export function wallHour(ms: number, day: Date): number {
+  if (ms < day.getTime()) return 0;
+  if (ms >= addDays(day, 1).getTime()) return 24;
+  const at = new Date(ms);
+  return at.getHours() + at.getMinutes() / 60 + at.getSeconds() / 3600;
+}
+
 /** The hours a time grid draws: 08:00 to 18:00, widened to hold every shown event (whole hours). */
 export function hourWindow(events: readonly CalendarEventView[], days: readonly Date[]): { from: number; to: number } {
   let from = 8, to = 18;
   for (const day of days) {
     const dayStart = day.getTime(), dayEnd = addDays(day, 1).getTime();
     for (const event of events) {
-      const start = Math.max(Date.parse(event.starts_at), dayStart), end = Math.min(Date.parse(event.ends_at), dayEnd);
-      if (end <= start && !(Date.parse(event.starts_at) >= dayStart && Date.parse(event.starts_at) < dayEnd)) continue;
-      const startHour = (start - dayStart) / 3_600_000, endHour = (end - dayStart) / 3_600_000;
+      const starts = Date.parse(event.starts_at), ends = Date.parse(event.ends_at);
+      if (!(starts < dayEnd && (ends > dayStart || starts >= dayStart))) continue;
+      const startHour = wallHour(starts, day), endHour = Math.max(wallHour(ends, day), startHour);
       from = Math.min(from, Math.floor(startHour));
-      to = Math.max(to, Math.ceil(Math.max(endHour, startHour + 0.5)));
+      to = Math.max(to, Math.ceil(Math.max(endHour, Math.min(24, startHour + 0.5))));
     }
   }
   return { from: Math.max(0, from), to: Math.min(24, Math.max(to, from + 1)) };
@@ -288,15 +300,20 @@ export function hourWindow(events: readonly CalendarEventView[], days: readonly 
 export interface GridBlock { event: CalendarEventView; top: number; height: number; lane: number; lanes: number }
 
 /**
- * Events of one day placed on a grid from `from` to `to` o'clock: `top` and `height` are fractions
- * of the grid, and events that overlap share the width in lanes (each cluster of overlapping events
- * gets as many lanes as it needs). A very short event keeps a readable minimum height.
+ * Events of one day placed on a grid from `from` to `to` o'clock (wall-clock hours): `top` and
+ * `height` are fractions of the grid, and events that overlap share the width in lanes (each
+ * cluster of overlapping events gets as many lanes as it needs). A very short event keeps a
+ * readable minimum height.
  */
 export function layoutDay(events: readonly CalendarEventView[], day: Date, from: number, to: number, minHeight = 0.03): GridBlock[] {
-  const gridStart = day.getTime() + from * 3_600_000, gridEnd = day.getTime() + to * 3_600_000, span = gridEnd - gridStart;
+  const span = to - from, dayStart = day.getTime(), dayEnd = addDays(day, 1).getTime();
   const placed = events
-    .map((event) => ({ event, start: Math.max(Date.parse(event.starts_at), gridStart), end: Math.min(Date.parse(event.ends_at), gridEnd) }))
-    .filter((row) => row.end > row.start || (Date.parse(row.event.starts_at) >= gridStart && Date.parse(row.event.starts_at) < gridEnd))
+    .filter((event) => { const starts = Date.parse(event.starts_at), ends = Date.parse(event.ends_at); return starts < dayEnd && (ends > dayStart || starts >= dayStart); })
+    .map((event) => {
+      const startHour = wallHour(Date.parse(event.starts_at), day), endHour = Math.max(wallHour(Date.parse(event.ends_at), day), startHour);
+      return { event, start: Math.min(Math.max(startHour, from), to), end: Math.min(Math.max(endHour, from), to) };
+    })
+    .filter((row) => row.end > row.start || (row.start >= from && row.start < to))
     .sort((a, b) => a.start - b.start || b.end - a.end || a.event.title.localeCompare(b.event.title));
   const blocks: GridBlock[] = [];
   let cluster: { block: GridBlock; end: number }[] = [];
@@ -308,7 +325,8 @@ export function layoutDay(events: readonly CalendarEventView[], day: Date, from:
     const used = new Set(cluster.filter((c) => c.end > row.start).map((c) => c.block.lane));
     let lane = 0;
     while (used.has(lane)) lane += 1;
-    const block: GridBlock = { event: row.event, top: (row.start - gridStart) / span, height: Math.min(1 - (row.start - gridStart) / span, (end - row.start) / span), lane, lanes: 1 };
+    const top = (row.start - from) / span;
+    const block: GridBlock = { event: row.event, top, height: Math.min(1 - top, (end - row.start) / span), lane, lanes: 1 };
     blocks.push(block);
     cluster.push({ block, end });
     clusterEnd = Math.max(clusterEnd, end);

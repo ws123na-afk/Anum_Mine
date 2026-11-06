@@ -13,7 +13,7 @@ import * as calendarApi from './lib/calendarApi';
 import * as meetingsApi from './lib/meetingsApi';
 import {
   ATTENDEE_RESPONSES, CALENDAR_MODES, conflictIds, dayKey, durationMinutes, emptyForm, EVENT_KINDS, eventBody, eventTiming, findConflicts, formFromEvent, formProblem, groupByDay,
-  CALENDAR_CONNECT_KEY, eventSyncKind, hourWindow, inRange, invitees, layoutDay, matchesEvent, monthDays, nextEvent, rangeStats, replyCounts, shiftAnchor, startOfDay, syncTarget, visibleRange,
+  CALENDAR_CONNECT_KEY, eventSyncKind, hourWindow, inRange, wallHour, invitees, layoutDay, matchesEvent, monthDays, nextEvent, rangeStats, replyCounts, shiftAnchor, startOfDay, syncTarget, visibleRange,
   type AttendeeResponse, type CalendarEventView, type CalendarMode, type EventForm, type EventKind, type EventPage, type NextStep, type SyncConnection, type SyncSetup,
 } from './lib/calendar';
 import { describeError } from './lib/errors';
@@ -383,7 +383,7 @@ function TimeGrid({ days, now, events, selected, clashes, onSelect }: { days: Da
   const { from, to } = hourWindow(events, days);
   const hours = Array.from({ length: to - from }, (_, index) => from + index);
   const groups = groupByDay(events, days);
-  const nowFraction = (now.getTime() - startOfDay(now).getTime()) / 3_600_000;
+  const nowFraction = wallHour(now.getTime(), startOfDay(now));
   const showNow = days.some((day) => dayKey(day) === dayKey(now)) && nowFraction >= from && nowFraction <= to;
   const style = { '--cal-hours': String(to - from), '--cal-days': String(days.length) } as CSSProperties;
   return <div className={`calGrid ${days.length === 1 ? 'oneDay' : ''}`} style={style}>

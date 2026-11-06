@@ -47,3 +47,13 @@ export function dueIn(dueAt: string, now: Date): { unit: 'minutes' | 'hours' | '
   if (minutes < 48 * 60) return { unit: 'hours', count: Math.round(minutes / 60), late };
   return { unit: 'days', count: Math.round(minutes / 1440), late };
 }
+
+/**
+ * Whether paging the done list (newest update first) can stop: an item completed this week was
+ * also updated this week, so once a page ends with an item last updated before Monday, no later
+ * page holds one completed this week.
+ */
+export function doneWeekComplete(page: { items: readonly Pick<WorkItem, 'updated_at'>[]; next_offset: number | null }, now: Date): boolean {
+  const last = page.items[page.items.length - 1];
+  return page.next_offset === null || !last || Date.parse(last.updated_at) < weekStart(now).getTime();
+}

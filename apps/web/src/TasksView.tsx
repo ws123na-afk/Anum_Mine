@@ -42,6 +42,8 @@ export interface TasksViewProps {
   loading: boolean;
   message: string;
   stream: StreamState;
+  /** Counts every shell event (main.tsx liveTick): My tasks and Team tasks reload on each one. */
+  live?: number;
   /** Type of the last event received; the view refetches the selected task when events arrive. */
   lastEvent: string | null;
   setTask(t: Task): void;
@@ -69,12 +71,9 @@ export function TasksView(p: TasksViewProps) {
   const [pageTab, setPageTab] = useState<Exclude<TasksTab, 'approvals'>>(readTasksTab);
   useEffect(() => { if (p.run?.taskId) setPageTab('agent'); }, [p.run?.id, p.run?.taskId]);
   const pickTab = (next: TasksTab) => { if (next === 'approvals') p.openApprovals(); else setPageTab(next); };
-  // Shell events (work items change through them too) reload My tasks and Team tasks.
-  const [liveTick, setLiveTick] = useState(0);
-  useEffect(() => { if (p.lastEvent) setLiveTick((n) => n + 1); }, [p.lastEvent, p.tasks]);
   const pendingApprovals = p.approvals.filter((a) => a.status === 'pending').length;
   const head = <TasksHead tab={pageTab} onPick={pickTab} pending={pendingApprovals} actions={pageTab === 'agent' ? <span className={`statusBadge ${streamBadge(p.stream).tone}`} title={t('tasks.streamTitle')}>{streamBadge(p.stream).label}</span> : undefined} />;
-  if (pageTab !== 'agent') return <div className="tasksPage">{head}<div {...tabPanel(TASKS_PANEL, pageTab)}><Suspense fallback={<p className="notice" role="status">{t('common.loading')}</p>}><WorkTasks key={pageTab} scope={pageTab === 'mine' ? 'mine' : 'all'} live={liveTick} /></Suspense></div></div>;
+  if (pageTab !== 'agent') return <div className="tasksPage">{head}<div {...tabPanel(TASKS_PANEL, pageTab)}><Suspense fallback={<p className="notice" role="status">{t('common.loading')}</p>}><WorkTasks key={pageTab} scope={pageTab === 'mine' ? 'mine' : 'all'} live={p.live ?? 0} /></Suspense></div></div>;
   return <AgentTasks {...p} head={head} />;
 }
 
