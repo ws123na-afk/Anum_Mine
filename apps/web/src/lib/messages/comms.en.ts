@@ -68,7 +68,7 @@ export const commsEn = {
   'calls.aiBoard.queue': "AI call requests",
   'calls.aiBoard.filter': "Show requests",
   'calls.aiBoard.all': "All",
-  'calls.aiBoard.noneInFilter': "No request in this state on this page.",
+  'calls.aiBoard.noneInFilter': "No request is in this state. Pick All to see every request.",
   'calls.aiBoard.recipient': "Exact recipient",
   'calls.aiBoard.longest': "Longest call",
   'calls.aiBoard.costCeiling': "Cost ceiling",

@@ -36,19 +36,23 @@ describe('Phone calls page helpers', () => {
     assert.deepEqual(groupByDay([], now), []);
   });
   test('the AI queue filter counts each state', () => {
-    const items = [{ status: 'pending_approval' as const }, { status: 'completed' as const }, { status: 'pending_approval' as const }];
-    assert.equal(aiCount(items, 'all'), 3);
-    assert.equal(aiCount(items, 'pending_approval'), 2);
-    assert.equal(aiCount(items, 'failed'), 0);
+    // The counts come from the server over the whole list, not from the page on screen.
+    const counts = { pending_approval: 2, completed: 1, failed: 0 };
+    assert.equal(aiCount(counts, 'all'), 3);
+    assert.equal(aiCount(counts, 'pending_approval'), 2);
+    assert.equal(aiCount(counts, 'calling'), 0);
+    assert.equal(aiCount(undefined, 'all'), 0);
   });
 });
 
 describe('Meetings page helpers', () => {
+  const at = (d: number) => ({ generated_at: new Date(2026, 10, d, 9).toISOString() });
   const items = [
-    { status: 'ready' as const, updated_at: new Date(2026, 10, 6, 9).toISOString() },
-    { status: 'ready' as const, updated_at: new Date(2026, 10, 2, 9).toISOString() },
-    { status: 'failed' as const, updated_at: new Date(2026, 10, 6, 9).toISOString() },
-    { status: 'transcribing' as const, updated_at: new Date(2026, 10, 6, 9).toISOString() },
+    { status: 'ready' as const, provenance: at(6) },
+    // Renamed today, summarised days ago: not processed today.
+    { status: 'ready' as const, provenance: at(2), updated_at: new Date(2026, 10, 6, 10).toISOString() },
+    { status: 'failed' as const, provenance: null },
+    { status: 'transcribing' as const, provenance: null },
   ];
   test('every state is counted, zero when none', () => {
     assert.deepEqual(statusCounts(items), { queued: 0, transcribing: 1, analyzing: 0, ready: 2, needs_model: 0, failed: 1 });

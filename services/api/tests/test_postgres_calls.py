@@ -188,6 +188,9 @@ def test_ai_call_approval_binds_the_number_in_postgres(client: TestClient, twili
     assert twilio.placed() == []
     current = client.get(f"/api/v1/calls/ai-calls/{request['id']}", headers=A_MEMBER).json()
     assert current["status"] == "failed" and "number changed" in current["error"]
+    failed = client.get("/api/v1/calls/ai-calls", headers=A_MEMBER, params={"status": "failed"}).json()
+    assert [item["id"] for item in failed["items"]] == [request["id"]] and failed["status_counts"]["failed"] == 1
+    assert client.get("/api/v1/calls/ai-calls", headers=A_MEMBER, params={"status": "completed"}).json()["total"] == 0
     # The happy path in PostgreSQL: a new request for the new number is placed once approved.
     again = client.post("/api/v1/calls/ai-calls", headers=A_MEMBER, json={"contact_id": sara["id"], "purpose": "Confirm delivery", "script": "Ask whether Thursday suits.", "max_seconds": 60}).json()
     client.post(f"/api/v1/approvals/{again['approval']['id']}/approve", headers=A, json={"payload_hash": again["approval"]["payload_hash"]})

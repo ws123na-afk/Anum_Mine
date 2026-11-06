@@ -386,9 +386,12 @@ class SqlAlchemyCallsStore:
         self._save(CallAiRequestRecord, request, request.id)
         return request
 
-    def list_requests(self, *, offset: int, limit: int) -> tuple[list[AiCallRequest], int]:
+    def list_requests(self, *, offset: int, limit: int, status: AiRequestStatus | None = None) -> tuple[list[AiCallRequest], int]:
+        where = self._scope(CallAiRequestRecord)
+        if status is not None:
+            where.append(CallAiRequestRecord.status == status.value)
         return self._page(
-            CallAiRequestRecord, AiCallRequest, self._scope(CallAiRequestRecord),
+            CallAiRequestRecord, AiCallRequest, where,
             [CallAiRequestRecord.created_at.desc(), CallAiRequestRecord.id.desc()], offset, limit,
         )
 

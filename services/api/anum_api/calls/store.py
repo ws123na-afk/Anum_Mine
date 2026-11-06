@@ -296,7 +296,7 @@ class CallsStore(Protocol):
     def add_request(self, request: AiCallRequest) -> AiCallRequest: ...
     def get_request(self, request_id: str, *, lock: bool = False) -> AiCallRequest | None: ...
     def save_request(self, request: AiCallRequest) -> AiCallRequest: ...
-    def list_requests(self, *, offset: int, limit: int) -> tuple[list[AiCallRequest], int]: ...
+    def list_requests(self, *, offset: int, limit: int, status: AiRequestStatus | None = None) -> tuple[list[AiCallRequest], int]: ...
     def count_requests(self, status: AiRequestStatus) -> int: ...
 
 
@@ -504,9 +504,9 @@ class MemoryCallsStore:
                 self.data.requests[request.id] = request.model_copy(deep=True)
         return request
 
-    def list_requests(self, *, offset: int, limit: int) -> tuple[list[AiCallRequest], int]:
+    def list_requests(self, *, offset: int, limit: int, status: AiRequestStatus | None = None) -> tuple[list[AiCallRequest], int]:
         with self.data.lock:
-            found = [item for item in self.data.requests.values() if self._mine(item)]
+            found = [item for item in self.data.requests.values() if self._mine(item) and (status is None or item.status == status)]
         found.sort(key=lambda item: (item.created_at, item.id), reverse=True)
         return [item.model_copy(deep=True) for item in found[offset : offset + limit]], len(found)
 

@@ -4,7 +4,7 @@ import { apiRequest, apiRequestVoid } from './api';
 import {
   callsPath, contactsPath, summaryPath, type ApiCallSummary,
   type ApiAiCall, type ApiBrowserCall, type ApiCall, type ApiCallsSetup, type ApiContact, type ApiOptOut, type ApiProvider,
-  type ConsentMethod, type Direction, type Outcome, type Page,
+  type AiCallPage, type AiStatus, type ConsentMethod, type Direction, type Outcome, type Page,
 } from './calls';
 
 const base = '/api/v1/calls';
@@ -48,7 +48,8 @@ export const deleteProvider = () => apiRequestVoid(`${base}/provider`, { method:
 export const prepareBrowserCall = (body: { contact_id?: string; phone?: string; record: boolean; recording_consent: boolean; language: 'en' | 'ar' }) =>
   apiRequest<ApiBrowserCall>(`${base}/provider/calls`, json('POST', body));
 
-export const listAiCalls = (offset = 0) => apiRequest<Page<ApiAiCall>>(`${base}/ai-calls?limit=25&offset=${offset}`, { method: 'GET' });
+export const listAiCalls = (offset = 0, status: AiStatus | null = null) =>
+  apiRequest<AiCallPage>(`${base}/ai-calls?limit=25&offset=${offset}${status ? `&status=${status}` : ''}`, { method: 'GET' });
 export const requestAiCall = (body: { contact_id: string; purpose: string; script: string; language: 'en' | 'ar'; max_seconds: number }) =>
   apiRequest<ApiAiCall>(`${base}/ai-calls`, json('POST', body));
 export const cancelAiCall = (requestId: string) => apiRequest<ApiAiCall>(`${base}/ai-calls/${id(requestId)}/cancel`, json('POST'));

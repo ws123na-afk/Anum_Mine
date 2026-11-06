@@ -64,7 +64,7 @@ All routes are under `/api/v1/calls` and take the usual tenant context.
 | `GET`, `POST /opt-outs`, `DELETE /opt-outs/{id}` | read: `call:read`; add: `call:log`; lift: `call:manage` | Numbers that asked not to be called by the AI assistant. Stored as a keyed hash plus a masked number. |
 | `GET`, `PUT`, `DELETE /provider`, `POST /provider/check` | `call:manage` | The voice provider account (see below). Secrets are write-only. Members see the provider's state in `GET /setup`. |
 | `POST /provider/calls` | `call:log` | Prepare a browser call: a call log entry and a 10 minute access token for the provider's browser SDK. |
-| `GET`, `POST /ai-calls`, `GET /ai-calls/{id}`, `POST /ai-calls/{id}/cancel` | read: `call:read`; ask and cancel: `call:log` | AI call requests and their approval state. |
+| `GET`, `POST /ai-calls`, `GET /ai-calls/{id}`, `POST /ai-calls/{id}/cancel` | read: `call:read`; ask and cancel: `call:log` | AI call requests and their approval state. The list takes `?status=` (applied before paging) and returns `status_counts`, the number of requests in each state over the whole list, for the page's state filters. |
 
 Errors say what failed and how to fix it, for example "Provider calls need a full international number, for example +971501234567." or "Recording is off in this workspace. A workspace owner turns it on under Calls > Provider."
 

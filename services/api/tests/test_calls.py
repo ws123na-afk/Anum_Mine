@@ -619,6 +619,24 @@ def test_cancelling_an_ai_call_withdraws_its_approval(client: TestClient, gatewa
     assert client.post(f"/api/v1/calls/ai-calls/{request['id']}/cancel", headers=MEMBER).status_code == 409
 
 
+def test_ai_call_list_filters_by_state_before_paging_and_counts_every_state(client: TestClient, gateway: FakeGateway, twilio: Twilio) -> None:
+    connect(client)
+    sara = contact(client)
+    consent(client, sara["id"])
+    older = ask_ai_call(client, sara["id"]).json()
+    for _ in range(3):
+        newer = ask_ai_call(client, sara["id"]).json()
+        assert client.post(f"/api/v1/calls/ai-calls/{newer['id']}/cancel", headers=MEMBER).status_code == 200
+    # The only pending request is the oldest: past the first page, but the state filter still finds it.
+    assert client.get("/api/v1/calls/ai-calls", headers=MEMBER, params={"limit": 2}).json()["items"][0]["status"] == "cancelled"
+    pending = client.get("/api/v1/calls/ai-calls", headers=MEMBER, params={"status": "pending_approval", "limit": 2}).json()
+    assert [item["id"] for item in pending["items"]] == [older["id"]] and pending["total"] == 1
+    counts = pending["status_counts"]
+    assert counts["pending_approval"] == 1 and counts["cancelled"] == 3 and counts["completed"] == 0
+    assert client.get("/api/v1/calls/ai-calls", headers=MEMBER, params={"status": "nope"}).status_code == 422
+    assert client.get("/api/v1/calls/ai-calls", headers=ELSEWHERE).json()["status_counts"]["cancelled"] == 0
+
+
 def test_the_ai_answers_the_provider_number_and_takes_a_message(client: TestClient, gateway: FakeGateway) -> None:
     connect(client, greeting="Thank you for calling ANUM Tyres.")
     sara = contact(client)

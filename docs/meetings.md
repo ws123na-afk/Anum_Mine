@@ -14,7 +14,7 @@ Code: `services/api/anum_api/meetings.py` (API and processing), `meeting_transcr
 
 ## The page
 
-The web page (`MeetingsView.tsx`, [communication pages](web-design-system.md#communication-pages)) has four tabs. **Meeting records**: the figures (records, processed today, needing attention: failed or waiting for a model, and open action items with how many are overdue, counted over the newest 500 meetings), the list with search and status next to the open meeting, and from 1360px the integration status of Zoom and Teams, the processing counts by state and the privacy notes. **Live meetings**: the live agent meeting rooms. **Connectors**: Zoom and Teams, to connect and import. **Processing queue**: the counts by state and every meeting that is not ready, with its error and a way to open it (Retry is on the meeting).
+The web page (`MeetingsView.tsx`, [communication pages](web-design-system.md#communication-pages)) has four tabs. **Meeting records**: the figures (records, processed today (ready meetings whose notes the model wrote today, from `provenance.generated_at`), needing attention: failed or waiting for a model, and open action items with how many are overdue, counted over the newest 500 meetings), the list with search and status next to the open meeting, and from 1360px the integration status of Zoom and Teams, the processing counts by state and the privacy notes. **Live meetings**: the live agent meeting rooms. **Connectors**: Zoom and Teams, to connect and import. **Processing queue**: the counts by state and every meeting that is not ready (the figures and counts refresh every few seconds while a meeting is being processed), with its error and a way to open it (Retry is on the meeting).
 
 ## Importing
 

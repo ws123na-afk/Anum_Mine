@@ -192,7 +192,10 @@ export function needsWork<T extends { status: MeetingStatus }>(items: readonly T
   return items.filter((item) => item.status !== 'ready');
 }
 
-/** Meetings whose summary was ready on `today` (a local "YYYY-MM-DD"); `dayOf` turns a time into the local day. */
-export function processedOn(items: readonly { status: MeetingStatus; updated_at: string }[], today: string, dayOf: (date: Date) => string): number {
-  return items.filter((item) => item.status === 'ready' && dayOf(new Date(item.updated_at)) === today).length;
+/**
+ * Ready meetings whose notes were written on `today` (a local "YYYY-MM-DD"): the time the model produced
+ * the summary (`provenance.generated_at`), never `updated_at`, which renames and action item edits move too.
+ */
+export function processedOn(items: readonly { status: MeetingStatus; provenance: { generated_at: string } | null }[], today: string, dayOf: (date: Date) => string): number {
+  return items.filter((item) => item.status === 'ready' && item.provenance && dayOf(new Date(item.provenance.generated_at)) === today).length;
 }

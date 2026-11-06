@@ -12,7 +12,7 @@ import { describeError, isPermissionDenied } from './lib/errors';
 import { formatDateTime, t, type MessageKey } from './lib/i18n';
 import {
   AI_FILTERS, aiCount, aiStatusLabel, aiTone, costText, durationText, providerBody, providerSteps, PAGE_SIZE,
-  type AiFilter, type ApiAiCall, type ApiCallsSetup, type ApiContact, type ApiOptOut, type ApiProvider,
+  type AiCallPage, type AiFilter, type ApiAiCall, type ApiCallsSetup, type ApiContact, type ApiOptOut, type ApiProvider,
 } from './lib/calls';
 import * as callsApi from './lib/callsApi';
 import type { Load } from './lib/pageSummary';
@@ -49,18 +49,20 @@ export function AiCallsTab({ refresh, setup, contacts, onOpenApprovals, onOpenCa
   refresh: number; setup: ApiCallsSetup | null; contacts: ApiContact[]; onOpenApprovals?(): void; onOpenCall(id: string): void; onOpenContacts(): void; onOpenProvider?(): void;
 }) {
   const ids = useId();
-  const [page, setPage] = useState<Load<{ items: ApiAiCall[]; total: number }>>({ state: 'loading' });
+  const [page, setPage] = useState<Load<AiCallPage>>({ state: 'loading' });
   const [offset, setOffset] = useState(0);
   const [filter, setFilter] = useState<AiFilter>('all');
   const [picked, setPicked] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null), [problem, setProblem] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
-  const load = useCallback(() => { callsApi.listAiCalls(offset).then((value) => setPage({ state: 'ready', value }), (e) => setPage(fail(e))); }, [offset, refresh]); // eslint-disable-line react-hooks/exhaustive-deps
+  // The state filter is applied by the server before paging, so an older request in that state is never missed.
+  const load = useCallback(() => { callsApi.listAiCalls(offset, filter === 'all' ? null : filter).then((value) => setPage({ state: 'ready', value }), (e) => setPage(fail(e))); }, [offset, filter, refresh]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { load(); }, [load]);
   const consenting = contacts.filter((item) => item.ai_consent && !item.opted_out);
   const caps = setup?.capabilities;
   const items = page.state === 'ready' ? page.value.items : [];
-  const shown = filter === 'all' ? items : items.filter((item) => item.status === filter);
+  const counts = page.state === 'ready' ? page.value.status_counts : undefined;
+  const shown = items;
   const current = shown.find((item) => item.id === picked) ?? shown[0] ?? null;
   const cancel = (item: ApiAiCall) => { setBusy(item.id); setProblem(null); callsApi.cancelAiCall(item.id).then(() => { setNote(t('calls.ai.cancelled')); load(); }, (e) => setProblem(describeError(e))).finally(() => setBusy(null)); };
 
@@ -73,16 +75,16 @@ export function AiCallsTab({ refresh, setup, contacts, onOpenApprovals, onOpenCa
     {problem && <Notice error>{problem}</Notice>}
     <div className="callsAiGrid">
       <FinCard title={t('calls.aiBoard.queue')} icon={<Bot />} className="callsAiQueue" id={`${ids}-list`}>
-        {page.state === 'ready' && items.length > 0 && <div className="callsFilterChips" role="radiogroup" aria-label={t('calls.aiBoard.filter')}>
-          {AI_FILTERS.map((value) => <button key={value} type="button" role="radio" aria-checked={filter === value} className="callsFilterChip" onClick={() => { setFilter(value); setPicked(null); }}>
-            {value === 'all' ? t('calls.aiBoard.all') : aiStatusLabel(value)} ({aiCount(items, value)})
+        {page.state === 'ready' && (items.length > 0 || filter !== 'all') && <div className="callsFilterChips" role="radiogroup" aria-label={t('calls.aiBoard.filter')}>
+          {AI_FILTERS.map((value) => <button key={value} type="button" role="radio" aria-checked={filter === value} className="callsFilterChip" onClick={() => { setFilter(value); setOffset(0); setPicked(null); }}>
+            {value === 'all' ? t('calls.aiBoard.all') : aiStatusLabel(value)} ({aiCount(counts, value)})
           </button>)}
         </div>}
         {page.state === 'loading' && <Notice>{t('calls.ai.loading')}</Notice>}
         {page.state === 'error' && <ErrorNotice message={t('calls.ai.failed', { message: page.message })} onRetry={load} />}
         {page.state === 'denied' && <p className="notice" role="status"><Lock aria-hidden="true" />{page.message}</p>}
-        {page.state === 'ready' && !items.length && <div className="paneEmpty"><Bot aria-hidden="true" /><h3>{t('calls.ai.empty')}</h3><p>{t('calls.ai.emptyText')}</p></div>}
-        {page.state === 'ready' && items.length > 0 && !shown.length && <p className="muted">{t('calls.aiBoard.noneInFilter')}</p>}
+        {page.state === 'ready' && !items.length && filter === 'all' && <div className="paneEmpty"><Bot aria-hidden="true" /><h3>{t('calls.ai.empty')}</h3><p>{t('calls.ai.emptyText')}</p></div>}
+        {page.state === 'ready' && !items.length && filter !== 'all' && <p className="muted">{t('calls.aiBoard.noneInFilter')}</p>}
         {shown.length > 0 && <ul className="callsAiList">{shown.map((item) => <li key={item.id} className={current?.id === item.id ? 'selected' : undefined}>
           <button type="button" className="callsAiPick" aria-current={current?.id === item.id ? 'true' : undefined} onClick={() => setPicked(item.id)}>
             <span className="callsRowTop"><strong dir="auto">{item.purpose}</strong><span className={`statusBadge ${aiTone(item.status)}`}>{aiStatusLabel(item.status)}</span></span>

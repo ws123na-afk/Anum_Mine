@@ -68,7 +68,7 @@ export const commsAr: Record<keyof typeof commsEn, Message> = {
   'calls.aiBoard.queue': "طلبات مكالمات الذكاء الاصطناعي",
   'calls.aiBoard.filter': "عرض الطلبات",
   'calls.aiBoard.all': "الكل",
-  'calls.aiBoard.noneInFilter': "لا طلب بهذه الحالة في هذه الصفحة.",
+  'calls.aiBoard.noneInFilter': "لا طلب بهذه الحالة. اختر الكل لعرض كل الطلبات.",
   'calls.aiBoard.recipient': "المتلقي بالضبط",
   'calls.aiBoard.longest': "أطول مدة",
   'calls.aiBoard.costCeiling': "سقف التكلفة",

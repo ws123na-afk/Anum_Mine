@@ -139,7 +139,11 @@ export function groupByDay<T extends { started_at: string }>(items: readonly T[]
 /** The AI call queue filter: every request, or one state. */
 export type AiFilter = 'all' | AiStatus;
 export const AI_FILTERS: readonly AiFilter[] = ['all', 'pending_approval', 'calling', 'completed', 'failed', 'cancelled'];
-export const aiCount = (items: readonly { status: AiStatus }[], filter: AiFilter): number => filter === 'all' ? items.length : items.filter((item) => item.status === filter).length;
+/** A page of AI call requests with the count of every state over the whole list (GET /calls/ai-calls). */
+export interface AiCallPage extends Page<ApiAiCall> { status_counts?: Partial<Record<AiStatus, number>> }
+/** How many requests a state filter holds, from the server's counts over the whole list. */
+export const aiCount = (counts: Partial<Record<AiStatus, number>> | undefined, filter: AiFilter): number =>
+  filter === 'all' ? Object.values(counts ?? {}).reduce((sum, n) => sum + (n ?? 0), 0) : counts?.[filter] ?? 0;
 export function contactsPath(options: { query?: string; favourites?: boolean; offset?: number; limit?: number } = {}): string {
   return `/api/v1/calls/contacts?${query({ limit: options.limit ?? PAGE_SIZE, offset: options.offset ?? 0, q: options.query?.trim(), favourites: options.favourites })}`;
 }

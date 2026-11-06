@@ -62,3 +62,22 @@ test('Meetings: the tabs show the processing queue, the connectors and the live 
   await page.getByRole('tab', { name: 'Meeting records' }).click();
   await expect(page.locator('.meetingRows li').first()).toBeVisible();
 });
+
+test('Phone calls: the AI request state filter asks the server, so older requests in that state are found', async ({ page }) => {
+  const { calls } = await mockCallsApi(page, { provider: true });
+  await page.goto('/#calls-ai');
+  const form = page.getByRole('region', { name: 'Ask the AI to call' });
+  for (const purpose of ['Confirm the delivery', 'Ask about the invoice']) {
+    await form.getByLabel('Purpose').fill(purpose);
+    await form.getByLabel('Script').fill('Ask whether Thursday morning suits.');
+    await form.getByRole('button', { name: 'Send for approval' }).click();
+    await expect(page.getByRole('region', { name: 'AI call requests' }).getByText(purpose)).toBeVisible();
+  }
+  await page.getByRole('region', { name: 'Ask about the invoice' }).getByRole('button', { name: 'Cancel request' }).click();
+  const queue = page.getByRole('region', { name: 'AI call requests' });
+  await expect(queue.getByRole('radio', { name: 'Cancelled (1)' })).toBeVisible();
+  await queue.getByRole('radio', { name: 'Waiting for approval (1)' }).click();
+  await expect(queue.locator('.callsAiList > li')).toHaveCount(1);
+  await expect(queue.getByText('Confirm the delivery')).toBeVisible();
+  expect(calls.aiRequests).toHaveLength(2);
+});

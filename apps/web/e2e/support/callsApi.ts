@@ -202,7 +202,11 @@ export async function mockCallsApi(page: Page, options: CallsMockOptions = {}): 
       return error(409, 'The test browser has no microphone for provider calls.');
     }
 
-    if (path === '/api/v1/calls/ai-calls' && method === 'GET') return json(page_(aiCalls));
+    if (path === '/api/v1/calls/ai-calls' && method === 'GET') {
+      const status = url.searchParams.get('status');
+      const status_counts = Object.fromEntries(['pending_approval', 'calling', 'completed', 'failed', 'cancelled'].map((s) => [s, aiCalls.filter((a) => a.status === s).length]));
+      return json({ ...page_(status ? aiCalls.filter((a) => a.status === status) : aiCalls), status_counts });
+    }
     if (path === '/api/v1/calls/ai-calls' && method === 'POST') {
       const input = body();
       calls.aiRequests.push(input);

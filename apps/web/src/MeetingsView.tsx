@@ -82,11 +82,13 @@ export function MeetingsView({ onOpenTasks, onOpenApprovals, onOpenSettings }: {
 
   // Keep the list fresh while anything on it is still being processed.
   const working = page.state === 'ready' && page.value.items.some((item) => isWorking(item.status));
+  // The figures, the processing counts and the queue tab count too: refresh them while anything (listed or not) is in progress.
+  const statsWorking = stats.state === 'ready' && stats.value.pending.some((item) => isWorking(item.status));
   useEffect(() => {
-    if (!working) return undefined;
-    const timer = window.setInterval(() => void load(), POLL_MS * 2);
+    if (!working && !statsWorking) return undefined;
+    const timer = window.setInterval(() => { if (working) void load(); void refreshStats(); }, POLL_MS * 2);
     return () => window.clearInterval(timer);
-  }, [working, load]);
+  }, [working, statsWorking, load, refreshStats]);
 
   // The Zoom / Microsoft sign-in comes back to /meetings/connected?code=...&state=...
   useEffect(() => {

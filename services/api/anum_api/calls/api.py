@@ -350,6 +350,8 @@ class AiCallPage(BaseModel):
     total: int
     offset: int
     limit: int
+    # Requests in each state over the whole list (not this page), for the state filters.
+    status_counts: dict[str, int] = Field(default_factory=dict)
 
 
 class BrowserCallCreate(BaseModel):
@@ -1046,14 +1048,19 @@ def prepare_browser_call(payload: BrowserCallCreate, context: TenantContext = De
 @router.get("/ai-calls", response_model=AiCallPage)
 def list_ai_calls(
     offset: int = Query(default=0, ge=0), limit: int = Query(default=DEFAULT_PAGE, ge=1, le=MAX_PAGE),
+    status: AiRequestStatus | None = None,
     context: TenantContext = Depends(tenant_context),
 ) -> AiCallPage:
+    """AI call requests, newest first; ``status`` keeps one state before paging, and ``status_counts`` counts every state."""
     require(context, Permission.CALL_READ)
     offset, limit = _page(offset, limit)
     with open_calls_store(context) as store:
-        items, total = store.list_requests(offset=offset, limit=limit)
+        items, total = store.list_requests(offset=offset, limit=limit, status=status)
+        counts = {state.value: store.count_requests(state) for state in AiRequestStatus}
     approvals = _approvals(context, [item.approval_id for item in items if item.approval_id and item.status == AiRequestStatus.PENDING_APPROVAL])
-    return AiCallPage(items=[_ai_view(item, approvals.get(item.approval_id or "")) for item in items], total=total, offset=offset, limit=limit)
+    return AiCallPage(
+        items=[_ai_view(item, approvals.get(item.approval_id or "")) for item in items], total=total, offset=offset, limit=limit, status_counts=counts,
+    )
 
 
 def _approvals(context: TenantContext, ids: list[str]) -> dict[str, Any]:
