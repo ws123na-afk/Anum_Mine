@@ -105,6 +105,12 @@ describe('the Assistants page helpers', async () => {
     assert.ok(assistantGuards('suggest').includes('asPage.guard.changeAsk'));
     assert.ok(assistantGuards('act_low_risk').includes('asPage.guard.risky'));
   });
+  test('a card shows "-" for figures that did not load, never 0', async () => {
+    const { assistantCardCounts } = await import('../src/lib/team.ts');
+    assert.deepEqual(assistantCardCounts(null, false, undefined), { open: null, overdue: null, done: null });
+    assert.deepEqual(assistantCardCounts(null, true, null), { open: 0, overdue: 0, done: null });
+    assert.deepEqual(assistantCardCounts({ open: 3, overdue: 1 }, true, 4), { open: 3, overdue: 1, done: 4 });
+  });
   test('the wizard starts with templates and ends with the review', () => {
     assert.equal(WIZARD_STEPS[0], 'start');
     assert.equal(WIZARD_STEPS.at(-1), 'review');

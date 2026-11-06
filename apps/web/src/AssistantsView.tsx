@@ -9,7 +9,7 @@ import type { AssistantBody, AssistantProfile, AssistantTemplate, AutoRouteChann
 import * as team from './lib/teamApi';
 import { describeError, isPermissionDenied } from './lib/errors';
 import { formatDateTime, t, type MessageKey } from './lib/i18n';
-import { assistantGuards, assistantMatches, assistantTotals, splitList, workQuery, WIZARD_STEPS, type AssistantStep } from './lib/team';
+import { assistantCardCounts, assistantGuards, assistantMatches, assistantTotals, splitList, workQuery, WIZARD_STEPS, type AssistantStep } from './lib/team';
 import { type Load } from './lib/pageSummary';
 import { viewLabel } from './lib/shell';
 import { ConfirmDialog } from './Dialog';
@@ -118,13 +118,13 @@ export function AssistantsView({ onOpenWork }: { onOpenWork?(itemId: string): vo
           {!list.length && <div className="paneEmpty"><Bot aria-hidden="true" /><h3>{t('assistants.empty')}</h3><p>{t('assistants.emptyText')}</p><div className="actions"><button type="button" onClick={() => setWizard({ id: null, body: null })}><Plus aria-hidden="true" />{t('assistants.new')}</button></div></div>}
           {list.length > 0 && !shown.length && <div className="paneEmpty"><Search aria-hidden="true" /><h3>{t('pages2.assistants.noMatch')}</h3><div className="actions"><button type="button" className="secondary" onClick={() => { setQuery(''); setStatus('all'); }}>{t('common.clear')}</button></div></div>}
           {shown.length > 0 && <ul className="asCards" aria-label={t('asPage.directory')}>{shown.map((a) => {
-            const row = rowOf(a);
+            const counts = assistantCardCounts(rowOf(a), workReady, done[a.id]);
             return <li key={a.id}><button type="button" className={`asCard ${a.id === selected ? 'isSelected' : ''}`} aria-pressed={a.id === selected} onClick={() => setSelected(a.id)}>
               <span className="asCardHead"><span className="asIcon" aria-hidden="true"><Bot /></span><strong dir="auto">{a.name}</strong><StatusChip tone={a.enabled ? 'ok' : 'muted'}>{a.enabled ? t('assistants.on') : t('assistants.off')}</StatusChip></span>
               <span className="asCardText" dir="auto">{a.instructions || t('asPage.noInstructions')}</span>
               <span className="asCardMeta"><span>{t(`team.dept.${a.department}` as MessageKey)}</span><span>{t(`assistants.autonomy.${a.autonomy}` as MessageKey)}</span>
-                <span>{t('asPage.card.queue', { count: row?.open ?? 0 })}</span>{(row?.overdue ?? 0) > 0 && <span className="asOverdue">{t('asPage.card.overdue', { count: row?.overdue ?? 0 })}</span>}
-                <span>{t('asPage.card.done', { count: done[a.id] ?? 0 })}</span></span>
+                <span>{counts.open === null ? t('asPage.card.queueUnknown') : t('asPage.card.queue', { count: counts.open })}</span>{(counts.overdue ?? 0) > 0 && <span className="asOverdue">{t('asPage.card.overdue', { count: counts.overdue ?? 0 })}</span>}
+                <span>{counts.done === null ? t('asPage.card.doneUnknown') : t('asPage.card.done', { count: counts.done })}</span></span>
             </button></li>;
           })}</ul>}
         </FinCard>

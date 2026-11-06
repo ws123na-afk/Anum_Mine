@@ -227,3 +227,15 @@ export function assistantGuards(autonomy: 'observe' | 'suggest' | 'act_low_risk'
   if (autonomy === 'suggest') return ['asPage.guard.send', 'asPage.guard.spend', 'asPage.guard.changeAsk'];
   return ['asPage.guard.send', 'asPage.guard.spend', 'asPage.guard.risky'];
 }
+
+/**
+ * A directory card's figures: null (shown as "-") while the workload or the finished count is
+ * still loading or failed, never a made-up 0.
+ */
+export function assistantCardCounts(row: { open: number; overdue: number } | null, workloadReady: boolean, done: number | null | undefined): { open: number | null; overdue: number | null; done: number | null } {
+  return {
+    open: workloadReady ? row?.open ?? 0 : null,
+    overdue: workloadReady ? row?.overdue ?? 0 : null,
+    done: typeof done === 'number' ? done : null,
+  };
+}

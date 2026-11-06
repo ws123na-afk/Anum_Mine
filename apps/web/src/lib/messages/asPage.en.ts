@@ -26,6 +26,8 @@ export const asPageEn = {
   'asPage.card.queue': { one: '{count} open', other: '{count} open' },
   'asPage.card.overdue': { one: '{count} overdue', other: '{count} overdue' },
   'asPage.card.done': { one: '{count} done', other: '{count} done' },
+  'asPage.card.queueUnknown': 'Open: -',
+  'asPage.card.doneUnknown': 'Done: -',
   'asPage.updated': 'Updated {when}',
   'asPage.purpose': 'Purpose',
   'asPage.allowed': { one: 'Allowed tools ({count})', other: 'Allowed tools ({count})' },

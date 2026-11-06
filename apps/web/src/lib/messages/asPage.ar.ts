@@ -27,6 +27,8 @@ export const asPageAr: Record<keyof typeof asPageEn, Message> = {
   'asPage.card.queue': { zero: 'لا عمل مفتوح', one: 'عمل مفتوح واحد', two: 'عملان مفتوحان', few: '{count} أعمال مفتوحة', many: '{count} عملًا مفتوحًا', other: '{count} عمل مفتوح' },
   'asPage.card.overdue': { one: 'متأخر واحد', two: 'متأخران', few: '{count} متأخرة', many: '{count} متأخرًا', other: '{count} متأخر' },
   'asPage.card.done': { zero: 'لم يكتمل شيء', one: 'مكتمل واحد', two: 'مكتملان', few: '{count} مكتملة', many: '{count} مكتملًا', other: '{count} مكتمل' },
+  'asPage.card.queueUnknown': 'المفتوح: -',
+  'asPage.card.doneUnknown': 'المكتمل: -',
   'asPage.updated': 'حُدّث {when}',
   'asPage.purpose': 'الغرض',
   'asPage.allowed': { zero: 'الأدوات المسموحة (لا شيء)', one: 'الأدوات المسموحة (واحدة)', two: 'الأدوات المسموحة (اثنتان)', few: 'الأدوات المسموحة ({count})', many: 'الأدوات المسموحة ({count})', other: 'الأدوات المسموحة ({count})' },
