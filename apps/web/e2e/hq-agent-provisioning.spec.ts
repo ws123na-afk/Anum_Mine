@@ -3,6 +3,9 @@ import { hqRegistry, openHq, TENANT_A } from './support/hqApi';
 import { mockFlow } from './support/hqFlowApi';
 import { mockProvisioning, type ProvisioningMock } from './support/hqProvisioningApi';
 
+// The 3D office draws on a software renderer in CI, where loading a scene alone can take most of a minute.
+test.describe.configure({ timeout: 150_000 });
+
 // Organisation gaps and governed agent provisioning (docs/ANUM_MINE_AGENT_PROVISIONING.md). Everything
 // shown comes from the mocked provisioning API; the tests check that nothing is created without a click on
 // the review dialog, that the dialog says exactly what will be created, and that every state says what to do.

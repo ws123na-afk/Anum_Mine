@@ -19,6 +19,7 @@ import { TABS as CALLS_TABS } from '../../src/lib/calls.ts';
 import { COMMERCE_TABS } from '../../src/lib/commerce.ts';
 import { FINANCE_TABS } from '../../src/lib/finance.ts';
 import { MARKETING_TABS } from '../../src/lib/marketing.ts';
+import { INTEGRATION_TABS } from '../../src/lib/integrationsHub.ts';
 import { ATTENDANCE_TABS } from '../../src/lib/attendance.ts';
 import { VEHICLE_TABS } from '../../src/lib/vehicles.ts';
 import { PURCHASE_TABS } from '../../src/lib/purchases.ts';
@@ -92,7 +93,8 @@ export const GATE_PAGES: GatePage[] = [
   { hash: 'finance-trading', view: 'finance', mock: workspace, ready: '.finOrders tbody tr' },
   { hash: 'finance-trading-orders', view: 'finance', mock: workspace, ready: '.finTradeTable tbody tr' },
   { hash: 'finance-execution', view: 'finance', mock: workspace, ready: '.finPreconditions li' },
-  { hash: 'marketing', view: 'marketing', mock: mockMarketing, ready: '.mkPostTable tbody tr' },
+  { hash: 'marketing', view: 'marketing', mock: mockMarketing, ready: '.mkOverview [data-campaign-row]' },
+  { hash: 'marketing-posts', view: 'marketing', mock: mockMarketing, ready: '.mkPostTable tbody tr' },
   { hash: 'marketing-accounts', view: 'marketing', mock: mockMarketing, ready: '.mkAccountTable tbody tr' },
   { hash: 'business', view: 'business', mock: mockBusiness, ready: '.bzTabs [aria-current="page"]' },
   { hash: 'business-leads', view: 'business', mock: mockBusiness, ready: '.bzTabs [aria-current="page"]' },
@@ -173,13 +175,14 @@ export const DEEP_LINKS: readonly string[] = [
   ...tabLinks('attendance', ATTENDANCE_TABS),
   ...tabLinks('vehicles', VEHICLE_TABS),
   ...tabLinks('purchases', PURCHASE_TABS),
+  ...tabLinks('integrations', INTEGRATION_TABS),
   // Settings sections and the Integrations connection setup (shell.ts viewFromHash).
   'notifications', 'language', 'privacy', 'appearance', 'connections',
 ];
 
 /** The page a deep link belongs to, and the mock that fills it. */
 function familyOf(link: string): { view: string; mock: (page: Page) => Promise<unknown> } {
-  if (link === 'marketing-email') return { view: 'marketing', mock: brevo };
+  if (link === 'marketing-email' || link === 'marketing-audience') return { view: 'marketing', mock: brevo };
   if (link.startsWith('marketing-')) return { view: 'marketing', mock: mockMarketing };
   if (link.startsWith('business-')) return { view: 'business', mock: mockBusiness };
   if (link.startsWith('calls-')) return { view: 'calls', mock: callsWithProvider };
@@ -188,7 +191,7 @@ function familyOf(link: string): { view: string; mock: (page: Page) => Promise<u
   if (link.startsWith('attendance-')) return { view: 'attendance', mock: workspace };
   if (link.startsWith('vehicles-')) return { view: 'vehicles', mock: workspace };
   if (link.startsWith('purchases-')) return { view: 'purchases', mock: workspace };
-  if (link === 'connections') return { view: 'integrations', mock: workspace };
+  if (link === 'connections' || link.startsWith('integrations-')) return { view: 'integrations', mock: workspace };
   if (['notifications', 'language', 'privacy', 'appearance'].includes(link)) return { view: 'settings', mock: workspace };
   return { view: link, mock: workspace };
 }

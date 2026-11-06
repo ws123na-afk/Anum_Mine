@@ -6,6 +6,9 @@ import { mockFlow } from './support/hqFlowApi';
 import { mockProvisioning } from './support/hqProvisioningApi';
 import { mockStarterCampus, type StarterCampusMock } from './support/hqStarterCampusApi';
 
+// The 3D office draws on a software renderer in CI, where loading a scene alone can take most of a minute.
+test.describe.configure({ timeout: 150_000 });
+
 // "Set up my campus" (docs/ANUM_MINE_STARTER_CAMPUS.md). Everything shown comes from the mocked API; the tests check that
 // a preview writes nothing, that the dialog lists what will be created and skipped, that only a click with the shown hash
 // confirms, and that every state says what to do. Set HQ_SHOTS_DIR to keep a screenshot of every state.

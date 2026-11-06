@@ -51,7 +51,28 @@ Email campaigns go through the owner's Brevo account and live in Marketing's **E
 
 ## Web page layout
 
-Marketing follows the shared [page layout](design/anum360.md#page-layout): one header row with **New post**, then a summary band over every tab from `GET /marketing/analytics/summary` for the last 30 days (published with the 30 days before, reach and link clicks, engagement rate and its change, scheduled with any failed, and posts waiting for approval). **Posts** is a dense table (post, account, status, when) with search and filters; a row opens the post in a drawer with its preview, approval, schedule, retry and **Delete** (a secondary danger button). Next to it (below on narrower screens) a planning rail shows the best times to post (`GET /marketing/analytics/best-times`) and this week's report (`GET /marketing/reports/weekly`). **Accounts** lists the platforms and the connected accounts as compact tables with their state and actions.
+Marketing uses the shared Finance-style shell ([page layout](design/anum360.md#page-layout)): the page head with **New post** and eight tabs, each a history entry with its own link: **Overview** (`#marketing`), **Campaigns** (`#marketing-campaigns`), **Calendar** (`#marketing-calendar`), **Content** (`#marketing-posts`), **Audience** (`#marketing-audience`), **Email** (`#marketing-email`), **Analytics** (`#marketing-analytics`) and **Settings** (`#marketing-accounts`). Old links keep working.
+
+A KPI row from `GET /marketing/analytics/summary` sits over the post tabs: reach, impressions, link clicks and posts published for the last 30 days, each with its change against the 30 days before (no percentage is invented when the earlier figure is zero), and the engagement rate with its change in points. Audience, Email and Settings leave it out.
+
+### Overview
+
+- **Campaigns:** the first five campaigns (active first) with channels, status, dates, published of all posts and their 30-day reach from the summary. Empty: a button to create one.
+- **Content calendar:** a month with a dot on each day that has posts (`GET /marketing/posts?from&to`); picking a day lists its posts, an empty day offers **Plan a post**. **Full calendar** opens the Calendar tab.
+- **Engagement trend:** the daily engagement series from the summary as a line, with a hidden table for screen readers.
+- **Needs attention:** posts waiting for approval, failed posts and scheduled posts, each opening its tab. **Top posts** and **Channels** (the connected accounts) complete the side column.
+
+### Audience
+
+The Brevo contact lists (`GET /brevo/lists`, paged by 50) with contacts, blocked contacts and the share that can still be emailed, a search over the loaded lists and four figures (lists, contacts you can email, blocked, largest list). Without a Brevo connection it says so and opens **Email**; a role without access is told who can.
+
+### Content and Settings
+
+**Content** is the dense posts table (post, account, status, when) with search and filters; a row opens the post in a drawer with its preview, approval, schedule, retry and **Delete**. Next to it a planning rail shows the best times to post (`GET /marketing/analytics/best-times`) and this week's report (`GET /marketing/reports/weekly`). **Settings** lists the platforms and the connected accounts with their state and actions, and the brand preferences.
+
+### Not on the page
+
+The redesign mockups also show budget, spend, leads, conversion rate, cost per lead, cost per acquisition, return on spend, unsubscribe rates by campaign, segment rules with consent rates, a brand asset library, an approval stepper for campaigns, audience overlap and send-volume warnings and an attribution model. ANUM does not record spend, leads or conversions per campaign and has no segment builder, so these are left out rather than shown with made-up numbers.
 
 ## Phone (Flutter)
 

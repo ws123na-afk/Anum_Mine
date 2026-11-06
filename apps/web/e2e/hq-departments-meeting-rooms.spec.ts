@@ -5,6 +5,9 @@ import { mockFlow } from './support/hqFlowApi';
 import { mockProvisioning } from './support/hqProvisioningApi';
 import { openBuilder } from './support/hqBuilderApi';
 
+// The 3D office draws on a software renderer in CI, where loading a scene alone can take most of a minute.
+test.describe.configure({ timeout: 150_000 });
+
 // Departments that open a real module, and live meetings tied to their office room
 // (docs/ANUM_MINE_DEPARTMENTS_AND_MEETING_ROOMS.md). Names are plainly fake test data.
 test.use({ viewport: { width: 1280, height: 800 } });

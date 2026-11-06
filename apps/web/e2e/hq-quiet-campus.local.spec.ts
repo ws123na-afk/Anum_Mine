@@ -5,6 +5,9 @@ import { mockFlow } from './support/hqFlowApi';
 import { sceneReady } from './support/hqScene';
 import { useSavedLocale } from './support/workspaceApi';
 
+// The 3D office draws on a software renderer in CI, where loading a scene alone can take most of a minute.
+test.describe.configure({ timeout: 150_000 });
+
 // Local render check for the quiet campus and the live boards (not run in CI: screenshots for the owner review, no pixel assertions).
 // QUIET_DIR: where the screenshots go; QUIET_W / QUIET_H: viewport; QUIET_LANG: en | ar; QUIET_LIGHT: day | night; QUIET_BUILDING: a building to select and frame;
 // QUIET_ZOOM: how many keyboard zoom steps after framing; QUIET_HIDE=1: hide the side panels (the owner's wide stage); QUIET_TAG: file name part.
