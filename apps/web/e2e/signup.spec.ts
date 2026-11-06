@@ -113,7 +113,7 @@ test.describe('with Keycloak sign-in', () => {
     await page.getByRole('button', { name: 'Create organisation' }).click();
 
     // The refreshed token names the organisation: Home opens with the first-run checklist.
-    await expect(page.getByRole('heading', { name: /^Good (morning|afternoon|evening)/, level: 1 })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'Operations overview', level: 1 })).toBeVisible();
     expect(oidc.created).toEqual([{ organization_name: 'Riyadh Tyres', plan_id: 'plan_business', country: 'SA', accept_terms: true }]);
     const checklist = page.getByRole('region', { name: 'Set up your organisation' });
     await expect(checklist).toBeVisible();

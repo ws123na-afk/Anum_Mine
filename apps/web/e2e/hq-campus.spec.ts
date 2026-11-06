@@ -3,6 +3,9 @@ import { mockHq, type HqMockOptions } from './support/hqCampusApi';
 import { useSavedLocale } from './support/workspaceApi';
 import { cameraOptions, officeMenuItem, reloadReleasingGl, sceneReady } from './support/hqScene';
 
+// The 3D office draws on a software renderer in CI, where loading a scene alone can take most of a minute.
+test.describe.configure({ timeout: 150_000 });
+
 // ANUM MINE headquarters (docs/ANUM_MINE_HQ_EXTENSION_POINTS.md): the campus of workspaces, the
 // building cutaway, the accessible list, the no-WebGL fallback and the navigation command. The API is
 // mocked at http://localhost:8000 like the other specs; every name and number below is plainly fake.

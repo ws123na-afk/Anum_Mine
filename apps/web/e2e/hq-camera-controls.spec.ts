@@ -1,6 +1,9 @@
 import { expect, test, type Page } from '@playwright/test';
 import { mockHq } from './support/hqCampusApi';
 
+// The 3D office draws on a software renderer in CI, where loading a scene alone can take most of a minute.
+test.describe.configure({ timeout: 150_000 });
+
 // A camera control (Reset view) pressed while the camera still flies to a picked building ends that flight: the view
 // settles where the control put it and the building cards there can be clicked. The flight used to keep setting its
 // frames over the reset, so the camera landed back on the picked building and the card stayed off the stage.

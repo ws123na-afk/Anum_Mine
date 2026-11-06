@@ -66,6 +66,15 @@ test('overview: spend per currency, what is due, and a fuel payment linked from 
   await expect(page.getByRole('region', { name: 'Vehicles at a glance' })).toContainText('SAR');
   await expect(page.getByRole('heading', { name: 'Coming up' })).toBeVisible();
   await expect(page.getByText(/Insurance · ABC 1234/)).toBeVisible();
+  // The fleet table and the selected vehicle's panel (docs/vehicles.md#web-page).
+  await expect(page.locator('.opsVehTable').getByRole('row', { name: /ABC 1234/ })).toContainText('Due in 10 days');
+  const panel = page.getByRole('complementary', { name: /ABC 1234/ });
+  await expect(panel).toContainText('10.0 km/L');
+  await expect(panel.getByRole('figure').or(panel.getByRole('img', { name: 'Monthly fuel use' })).first()).toBeVisible();
+  await panel.getByRole('button', { name: 'Record fuel' }).click();
+  await expect(page.getByRole('dialog')).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('dialog')).toHaveCount(0);
   await openCar(page);
   await expect(page.getByText('Example Station North')).toBeVisible();
   await expect(page.getByText('No payment linked').first()).toBeVisible();

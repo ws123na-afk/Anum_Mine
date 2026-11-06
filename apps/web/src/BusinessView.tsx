@@ -71,6 +71,11 @@ export function BusinessView() {
   if (state.kind === 'error') return <><PageHeader title={title} subtitle={subtitle} /><Failed text={state.text} onRetry={() => { setState({ kind: 'loading' }); void loadSetup(); }} /></>;
   const setup = state.setup;
   const { tab, id } = route;
+  // Expenses and P&L draws its own page head and sections (docs/business-books.md#overview-dashboard).
+  if (tab === 'books') return <div className="bzLayout">
+    <BooksTab section={id} onSection={(item) => go('books', item === 'overview' ? null : item)}
+      crumbs={[{ label: viewLabel('home'), href: '#home' }, { label: title, href: '#business', onClick: () => go('overview') }, { label: t('books.page.title') }]} />
+  </div>;
   return <div className="bzLayout">
     <PageHeader title={title} subtitle={subtitle} crumbs={tab === 'overview' ? undefined : [{ label: viewLabel('home'), href: '#home' }, { label: title, href: '#business', onClick: () => go('overview') }, { label: t(`biz.tab.${tab}`) }]} />
     <nav className="settingsTabs bzTabs" aria-label={t('biz.sections')}>{TABS.map((item) => <button key={item} type="button" aria-current={tab === item ? 'page' : undefined} onClick={() => go(item)}>{t(`biz.tab.${item}`)}</button>)}</nav>
@@ -83,7 +88,6 @@ export function BusinessView() {
     {tab === 'proposals' && <ProposalsTab setup={setup} openId={id} onOpen={(item) => go('proposals', item)} onOpenProject={(item) => go('projects', item)} onGoPipeline={() => go('pipeline')} onChanged={changed} />}
     {tab === 'projects' && <ProjectsTab setup={setup} openId={id} onOpen={(item) => go('projects', item)} onGoProposals={() => go('proposals')} />}
     {tab === 'invoices' && <InvoicesTab setup={setup} openId={id} onOpen={(item) => go('invoices', item)} onChanged={changed} />}
-    {tab === 'books' && <BooksTab section={id} onSection={(item) => go('books', item === 'overview' ? null : item)} />}
     {tab === 'support' && <SupportTab setup={setup} products={products} openId={id} onOpen={(item) => go('support', item)} onChanged={changed} />}
     {tab === 'catalog' && <CatalogTab setup={setup} onChanged={() => void loadProducts()} />}
     {tab === 'settings' && <SettingsTab setup={setup} onSaved={() => void loadSetup()} />}

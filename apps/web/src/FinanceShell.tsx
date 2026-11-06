@@ -144,8 +144,8 @@ export function tabPanel(idPrefix: string, value: string) {
 }
 
 /** The KPI row: one card per figure, four across on desktop, two on tablets, one on phones. */
-export function KpiRow({ label, children }: { label: string; children: ReactNode }) {
-  return <section className="finKpis" aria-label={label}><ul>{children}</ul></section>;
+export function KpiRow({ label, children, className = '' }: { label: string; children: ReactNode; className?: string }) {
+  return <section className={`finKpis ${className}`} aria-label={label}><ul>{children}</ul></section>;
 }
 
 /**

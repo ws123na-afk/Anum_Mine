@@ -34,7 +34,7 @@ from ..repository import AnumRepository
 from ..schemas import TenantContext, new_id, utc_now
 from . import analytics as A
 from . import service as S
-from .models import Country, FuelType, Ownership, PaymentMethod, ServiceKind, TripPurpose, Vehicle, VehicleType
+from .models import Country, FuelType, OdometerReading, Ownership, PaymentMethod, ServiceKind, TripPurpose, Vehicle, VehicleType
 from .store import MAX_VEHICLES, DuplicateError, RecordKind, VehicleStore, open_vehicle_store
 
 router = APIRouter(prefix="/api/v1/vehicles", tags=["vehicles"])
@@ -173,12 +173,13 @@ class VehiclePatch(BaseModel):
     notes: str | None = Field(default=None, max_length=1000)
 
 
-def _due(store: VehicleStore, context: TenantContext, vehicles: list[Vehicle], window: int) -> dict[str, tuple[Decimal | None, list[dict[str, Any]]]]:
+def _due(store: VehicleStore, context: TenantContext, vehicles: list[Vehicle], window: int,
+         readings: dict[str, list[OdometerReading]] | None = None) -> dict[str, tuple[Decimal | None, list[dict[str, Any]]]]:
     today = utc_now().date()
     service = store.records_for(context, "service", [v.id for v in vehicles])
     out = {}
     for vehicle in vehicles:
-        odometer = A.current_odometer(store.readings(context, vehicle.id))
+        odometer = A.current_odometer(readings[vehicle.id] if readings is not None else store.readings(context, vehicle.id))
         out[vehicle.id] = (odometer, S.due_items(vehicle, [r for r in service if r.vehicle_id == vehicle.id], odometer, today=today, window_days=window))
     return out
 
@@ -230,8 +231,10 @@ def overview(start: date | None = None, end: date | None = None, context: Tenant
         fuel = store.records_for(context, "fuel", ids)
         service = store.records_for(context, "service", ids)
         window = S.preferences(store, context).reminder_days
-        due = _due(store, context, vehicles, window)
+        readings = {v.id: store.readings(context, v.id) for v in vehicles}
+        due = _due(store, context, vehicles, window, readings)
     result = A.overview(vehicles, fuel, service, start=start, end=end)
+    result.update(A.usage(vehicles, readings, fuel, start=start, end=end))
     result["vehicles"] = len(vehicles)
     result["due"] = sorted((item for _, items in due.values() for item in items),
                            key=lambda i: (i["days_left"] if i["days_left"] is not None else 10_000, i["registration"]))

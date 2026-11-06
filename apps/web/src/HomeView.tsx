@@ -1,4 +1,5 @@
-// Home, the owner's overview (docs/home.md#the-web-home): what needs the person today. A greeting,
+// Home (docs/home.md#the-web-home): two tabs under the page head "Operations overview". Overview is the business at a
+// glance (HomeOperations.tsx, docs/home.md#operations-overview); My day is what needs the person today: a greeting,
 // today at a glance (approvals with Approve and Deny, tasks, unread inbox and WhatsApp, today's
 // meetings, automation alerts, budget use), Today's focus, what ANUM noticed, recent activity, pinned
 // apps and quick links into every area. Giving orders is the ANUM Command page; Home links to it.
@@ -31,6 +32,9 @@ import { EmptyPanel, PanelDenied, PanelError, PanelLoading, ShowMore } from './P
 import './commandCenter.css';
 import './home.css';
 import { OnboardingChecklist } from './billing/Onboarding';
+import { FinancePageHead, FinanceTabs, PeriodPicker, tabPanel } from './FinanceShell';
+import { HomeOperations } from './HomeOperations';
+import { getCurrentWorkspace } from './lib/api';
 
 type Load<T> = { state: 'loading' } | { state: 'ready'; value: T } | { state: 'denied' } | { state: 'error'; message: string };
 const settle = <T,>(set: (value: Load<T>) => void, promise: Promise<T>) => {
@@ -68,6 +72,11 @@ export function HomeView({ tasks, approvals, loading, userName, owner, alerts, b
   const [now, setNow] = useState(() => new Date());
   const [layout, setLayout] = useState<HomeLayout | null>(null);
   const [arranging, setArranging] = useState(false);
+  const [tab, pickTab] = useHomeTab();
+  const [opsMonth, setOpsMonth] = useState<string | null>(null);
+  const [opsTick, setOpsTick] = useState(0);
+  const [workspaceName, setWorkspaceName] = useState<string | null>(null);
+  useEffect(() => { void getCurrentWorkspace().then((w) => setWorkspaceName(w.name || null)).catch(() => setWorkspaceName(null)); }, []);
   // The person's own order (docs/home.md#arrange-home); a failed read keeps the default page.
   useEffect(() => { void homeApi.getLayout().then(setLayout).catch(() => setLayout(null)); }, []);
 
@@ -141,26 +150,29 @@ export function HomeView({ tasks, approvals, loading, userName, owner, alerts, b
     </nav>,
   };
 
-  return <div className="homePage">
-    <header className="homeHeader">
-      <div>
-        <p className="eyebrow">{formatDateTime(now, { weekday: 'long', day: 'numeric', month: 'long' })}</p>
-        <h1 id="view-title">{name ? greeting : t(`home.greetingUnnamed.${dayPart(now)}` as MessageKey)}</h1>
-        <p className="homeLead">{t('home.lead')}</p>
-      </div>
-      <div className="homeHeaderActions">
-        <button type="button" className="secondary smallButton" onClick={() => { loadAll(); loadBudget(); }}><RefreshCw aria-hidden="true" />{t('home.refresh')}</button>
-        {layout && <button type="button" className="secondary smallButton" onClick={() => setArranging(true)}><Settings2 aria-hidden="true" />{t('home.arrange.open')}</button>}
+  const thisMonth = monthOfDate(now);
+  const tabs = [{ id: 'overview' as const, label: t('ops.home.tab.overview') }, { id: 'day' as const, label: t('ops.home.tab.day'), badge: waiting.length || undefined }];
+  return <div className="homePage opsPage">
+    <FinancePageHead title={t('ops.home.title')} subtitle={workspaceName ? t('ops.home.subtitleNamed', { name: workspaceName }) : t('ops.home.subtitle')}
+      actions={<>
+        <button type="button" className="secondary smallButton" onClick={() => { loadAll(); loadBudget(); setOpsTick((n) => n + 1); }}><RefreshCw aria-hidden="true" />{t('home.refresh')}</button>
+        {tab === 'day' && layout && <button type="button" className="secondary smallButton" onClick={() => setArranging(true)}><Settings2 aria-hidden="true" />{t('home.arrange.open')}</button>}
         <button type="button" className="primaryButton" onClick={() => onGo('command')}><Sparkles aria-hidden="true" />{t('home.giveOrder')}</button>
-      </div>
-    </header>
-
+      </>}
+      controls={<>
+        <p className="homeGreeting">{name ? greeting : t(`home.greetingUnnamed.${dayPart(now)}` as MessageKey)} · {formatDateTime(now, { weekday: 'long', day: 'numeric', month: 'long' })}</p>
+        {tab === 'overview' && <PeriodPicker month={opsMonth ?? thisMonth} onChange={setOpsMonth} max={thisMonth} />}
+      </>}
+      tabs={<FinanceTabs label={t('ops.home.tabs')} items={tabs} value={tab} onChange={pickTab} idPrefix="home" />} />
     {/* The first-run billing checklist for billing admins (docs/billing.md); hidden for everyone else. */}
     <OnboardingChecklist />
 
     {/* Placeholder answers: shown only while this workspace's model is the built-in mock (docs/model-gateway.md#placeholder-answers). */}
     <ModelPlaceholderBanner />
 
+    <div {...tabPanel('home', tab)}>
+    {tab === 'overview' && <HomeOperations key={opsTick} month={opsMonth ?? thisMonth} waiting={waiting} live={live} activity={parts.activity} />}
+    {tab === 'day' && <>
     {layout?.customized
       ? <div className="homeFlow">{layout.sections.map((key) => <div key={key} className={`homeFlowItem ${WIDE_SECTIONS.has(key) ? 'wide' : ''}`}>{parts[key]}</div>)}</div>
       : <>
@@ -172,9 +184,31 @@ export function HomeView({ tasks, approvals, loading, userName, owner, alerts, b
         {parts.pinned}
         {parts.goto}
       </>}
+    </>}
+    </div>
     {arranging && layout && <Suspense fallback={null}><HomeArrangeDialog layout={layout} onSaved={setLayout} onClose={() => setArranging(false)} /></Suspense>}
   </div>;
 }
+
+/** Home's tabs, deep-linkable: `#home` is the Operations overview, `#home-day` the person's day. */
+type HomeTab = 'overview' | 'day';
+const homeTabFromHash = (hash: string): HomeTab => (hash.replace(/^#/, '') === 'home-day' ? 'day' : 'overview');
+function useHomeTab(): [HomeTab, (next: HomeTab) => void] {
+  const [tab, setTab] = useState<HomeTab>(() => homeTabFromHash(typeof location === 'undefined' ? '' : location.hash));
+  useEffect(() => {
+    const sync = () => { if (location.hash === '' || location.hash.startsWith('#home')) setTab(homeTabFromHash(location.hash)); };
+    window.addEventListener('popstate', sync);
+    window.addEventListener('hashchange', sync);
+    return () => { window.removeEventListener('popstate', sync); window.removeEventListener('hashchange', sync); };
+  }, []);
+  const pick = (next: HomeTab) => {
+    setTab(next);
+    const hash = next === 'day' ? '#home-day' : '#home';
+    if (location.hash !== hash) history.pushState(null, '', hash);
+  };
+  return [tab, pick];
+}
+const monthOfDate = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 
 function openTarget(target: HomeTarget, onGo: (view: View) => void, onOpenTask: (id: string) => void) {
   if (target.feature === 'tasks' && target.id) { onOpenTask(target.id); return; }

@@ -20,14 +20,15 @@ async function serious(page: Page) {
 
 async function openHome(page: Page) {
   const state = await mockWorkspaceApi(page);
-  await page.goto('/');
-  await expect(page.getByRole('heading', { level: 1, name: /^Good (morning|afternoon|evening), Sara$/ })).toBeVisible();
+  // My day: the person's day under the Operations overview head (docs/home.md#the-web-home).
+  await page.goto('/#home-day');
+  await expect(page.getByText(/^Good (morning|afternoon|evening), Sara ·/)).toBeVisible();
   return state;
 }
 
 test('Home is the overview of the day, not the command page', async ({ page }) => {
   await openHome(page);
-  await expect(page.getByRole('main', { name: /Good (morning|afternoon|evening), Sara/ })).toBeVisible();
+  await expect(page.getByRole('main', { name: 'Operations overview' })).toBeVisible();
   // No command composer, plan or saved commands on Home: those live on ANUM Command.
   await expect(page.getByLabel('Your command')).toHaveCount(0);
   await expect(page.getByRole('heading', { name: 'Saved commands' })).toHaveCount(0);
@@ -96,7 +97,7 @@ test('a part that fails says what failed and offers Try again; a viewer is told 
   await mockWorkspaceApi(page);
   await page.route(`${API}/api/v1/home/summary`, (route) => route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ error: { code: 'unavailable', message: 'Home is warming up', correlation_id: 'c1' } }) }));
   await page.route(`${API}/api/v1/workspace-memberships/current`, (route) => route.fulfill({ contentType: 'application/json', body: JSON.stringify({ tenant_id: 'tenant_local', workspace_id: 'workspace_foundation', user_id: 'user_local', role: 'viewer', active: true }) }));
-  await page.goto('/#home');
+  await page.goto('/#home-day');
   const focus = page.getByRole('region', { name: /Today's focus/ });
   await expect(focus.getByRole('alert')).toContainText("Today's overview could not load");
   await expect(focus.getByRole('button', { name: 'Retry' })).toBeVisible();
@@ -147,7 +148,7 @@ for (const locale of ['en', 'ar'] as const) {
       await mockWorkspaceApi(page);
       for (const size of VIEWPORTS) {
         await page.setViewportSize(size);
-        await page.goto('/#home');
+        await page.goto('/#home-day');
         await expect(page.locator('html')).toHaveAttribute('dir', locale === 'ar' ? 'rtl' : 'ltr');
         await expect(page.locator('.glanceCard').first()).toBeVisible();
         await expect(page.locator('.homePage .listRow').first()).toBeVisible();

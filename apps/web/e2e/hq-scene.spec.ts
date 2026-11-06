@@ -1,6 +1,9 @@
 import { expect, test, type Page } from '@playwright/test';
 import { openHq } from './support/hqApi';
 
+// The 3D office draws on a software renderer in CI, where loading a scene alone can take most of a minute.
+test.describe.configure({ timeout: 150_000 });
+
 // F04 / F14 browser verification of the authenticated headquarters (HeadquartersLive).
 // The sandbox Chromium renders WebGL through SwiftShader (software), see docs/ANUM_MINE_HQ_BASELINE_AUDIT.md.
 const hq = (page: Page) => page.locator('.hqLive');

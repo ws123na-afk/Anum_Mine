@@ -2,6 +2,9 @@ import { expect, test, type Page } from '@playwright/test';
 import { mkdirSync } from 'node:fs';
 import { mockHq } from './support/hqCampusApi';
 
+// The 3D office draws on a software renderer in CI, where loading a scene alone can take most of a minute.
+test.describe.configure({ timeout: 150_000 });
+
 const OUT = process.env.LOOK_DIR ?? '/tmp/claude-0/-home-user/61f032fb-c00f-5793-80f2-ca9f0fc13fd1/scratchpad/look-before';
 const Q = process.env.LOOK_Q;
 const hq = (page: Page) => page.locator('.hqLive');

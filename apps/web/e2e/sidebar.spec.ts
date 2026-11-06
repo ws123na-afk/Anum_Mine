@@ -19,7 +19,7 @@ async function hitsItself(item: Locator): Promise<boolean> {
 async function openHome(page: Page) {
   await mockWorkspaceApi(page);
   await page.goto('/');
-  await expect(page.getByRole('heading', { level: 1, name: /^Good (morning|afternoon|evening)/ })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: 'Operations overview' })).toBeVisible();
 }
 
 /** The last entry of the last sidebar group (Admin, for an owner who runs the platform). */
