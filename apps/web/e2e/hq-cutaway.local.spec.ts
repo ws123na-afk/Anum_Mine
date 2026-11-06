@@ -3,6 +3,9 @@ import { mkdirSync } from 'node:fs';
 import { mockHq } from './support/hqCampusApi';
 import { useSavedLocale } from './support/workspaceApi';
 
+// The 3D office draws on a software renderer in CI, where loading a scene alone can take most of a minute.
+test.describe.configure({ timeout: 150_000 });
+
 // Local render check of the section view (not run in CI): screenshots of one building for the owner review.
 // CUT_DIR, CUT_BUILDING, CUT_W, CUT_H, CUT_LIGHT, CUT_LOCALE, CUT_FACADE (cutaway|closed), CUT_TURNS (number of "Rotate right" steps), CUT_FLOOR (index).
 const OUT = process.env.CUT_DIR ?? '/tmp/cutaway-shots';

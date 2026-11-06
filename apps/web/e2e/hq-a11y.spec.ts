@@ -3,6 +3,9 @@ import { expect, test } from '@playwright/test';
 import { openHq } from './support/hqApi';
 import { cameraOptions } from './support/hqScene';
 
+// The 3D office draws on a software renderer in CI, where loading a scene alone can take most of a minute.
+test.describe.configure({ timeout: 150_000 });
+
 // F14 accessibility scans of the headquarters: English and Arabic, light and dark app theme,
 // the office's own day and night lighting, and the no-WebGL renderer.
 const TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'best-practice'];

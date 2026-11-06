@@ -3,6 +3,9 @@ import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { openBuilder } from './support/hqBuilderApi';
 
+// The 3D office draws on a software renderer in CI, where loading a scene alone can take most of a minute.
+test.describe.configure({ timeout: 150_000 });
+
 // Responsive gate for the office builder (CLAUDE.md, Responsive UI quality gate): five viewports,
 // no horizontal overflow, nothing clipped, the whole builder inside the screen. Set HQ_SHOTS_DIR to
 // keep a screenshot of every state.
