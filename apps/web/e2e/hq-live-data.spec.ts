@@ -2,6 +2,9 @@ import { expect, test, type Page } from '@playwright/test';
 import { hqRegistry, mockOfficeSpaces, TENANT_A, TENANT_B as OTHER_ORG } from './support/hqApi';
 import { mockHq } from './support/hqCampusApi';
 
+// The 3D office draws on a software renderer in CI, where loading a scene alone can take most of a minute.
+test.describe.configure({ timeout: 150_000 });
+
 // These specs test data, not layout: use a desktop viewport in both projects.
 test.use({ viewport: { width: 1280, height: 800 } });
 

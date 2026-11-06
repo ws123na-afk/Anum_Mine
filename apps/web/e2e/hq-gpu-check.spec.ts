@@ -6,6 +6,9 @@ import { openStatus, sceneReady } from './support/hqScene';
 import { REPORT_SCHEMA, reportLooksAnonymous } from '../src/lib/hqGpuReport';
 import { HQ_TIERS } from '../src/lib/hqQualityTiers';
 
+// The 3D office draws on a software renderer in CI, where loading a scene alone can take most of a minute.
+test.describe.configure({ timeout: 150_000 });
+
 // Graphics check, quality chip, context loss and shader fallback (docs/ANUM_MINE_HQ_GPU_CHECK.md).
 // These run on a software rasteriser (SwiftShader), so they prove the LOGIC: that the panel reports a software renderer honestly,
 // measures, pins, saves an anonymous report and recovers from a lost context. They say nothing about a real graphics card.
