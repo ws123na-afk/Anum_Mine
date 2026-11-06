@@ -77,3 +77,52 @@ test('a member who cannot read the audit trail is told who can, in Arabic, right
   await expect(page.getByText('لا يقرأ سجل التدقيق إلا المالكون والمسؤولون. اطلب من أحدهم مراجعته.')).toBeVisible();
   expect(await noOverflow(page)).toBe(true);
 });
+
+test('a failed load says so on Data sync, API & webhooks and Permissions instead of an empty list, and Try again recovers', async ({ page }) => {
+  await mockWorkspaceApi(page);
+  let failSetup = true, failServices = true;
+  await page.route('http://localhost:8000/api/v1/integrations/setup', async (route) => {
+    if (failSetup) await route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ detail: 'setup down' }) });
+    else await route.fallback();
+  });
+  await page.route('http://localhost:8000/api/v1/integrations', async (route) => {
+    if (failServices) await route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ detail: 'services down' }) });
+    else await route.fallback();
+  });
+  await page.goto('/#integrations-sync');
+  await expect(page.getByText(/Could not load connection setup/)).toBeVisible();
+  await expect(page.getByText('1 account failed its last sync')).toHaveCount(0);
+
+  await page.goto('/#integrations-permissions');
+  await expect(page.locator('.intProblem').filter({ hasText: /services down|Could not/ }).first()).toBeVisible();
+  await expect(page.locator('.intHubTable')).toHaveCount(0);
+
+  failSetup = false; failServices = false;
+  await page.locator('.intProblem').getByRole('button', { name: 'Try again' }).first().click();
+  await expect(page.locator('[data-permission-row="valkey"]')).toContainText('Server setting');
+});
+
+test('a slow reply for an earlier Logs filter never replaces the rows for the filter picked now', async ({ page }) => {
+  await mockWorkspaceApi(page);
+  const record = (id: string, target: string) => ({ id, tenant_id: 'tenant_local', workspace_id: 'workspace_foundation', actor: 'user_local', action: 'integration.tested', target, outcome: 'success', correlation_id: 'c', created_at: now, metadata: {} });
+  let releaseAll: () => void = () => undefined;
+  const allHeld = new Promise<void>((resolve) => { releaseAll = resolve; });
+  await page.route('http://localhost:8000/api/v1/audit-records?**', async (route) => {
+    const target = new URL(route.request().url()).searchParams.get('target');
+    if (!target) {
+      await allHeld;
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ items: [record('old', 'external-webhook')], next_cursor: 'stale' }) }).catch(() => undefined);
+      return;
+    }
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ items: [record('new', target)], next_cursor: null }) });
+  });
+  await page.goto('/#integrations-logs');
+  await page.getByRole('combobox', { name: 'Integration', exact: true }).selectOption({ label: 'Valkey' });
+  await expect(page.locator('[data-log-row="new"]')).toContainText('Valkey');
+  const stale = page.waitForResponse((r) => r.url().includes('/audit-records') && !new URL(r.url()).searchParams.get('target'));
+  releaseAll();
+  await stale;
+  await expect(page.locator('[data-log-row="old"]')).toHaveCount(0);
+  await expect(page.locator('[data-log-row="new"]')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Load more' })).toHaveCount(0);
+});

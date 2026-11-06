@@ -156,10 +156,12 @@ export function IntegrationsView({ onGo }: { onGo?: (view: View) => void } = {})
       tabs={<FinanceTabs label={t('intHub.tabs')} items={tabs} value={tab} idPrefix="int" onChange={pick} />} />
     <HubKpis items={setup?.items ?? []} services={services} loading={loadingAny} />
     <div {...tabPanel('int', tab)}>
+    {tab !== 'apps' && setupState === 'error' && (tab === 'sync' || tab === 'webhooks') && <div className="intProblem"><Note error>{t('setup.loadFailed', { error: setupError })}</Note><button type="button" className="secondary" onClick={() => void loadSetup()}>{t('setup.tryAgain')}</button></div>}
+    {tab !== 'apps' && servicesError && (tab === 'webhooks' || tab === 'permissions') && <div className="intProblem"><Note error>{servicesError}</Note><button type="button" className="secondary" onClick={() => void loadServices()}>{t('setup.tryAgain')}</button></div>}
     {tab === 'sync' && <SyncTab items={setup?.items ?? []} setupState={setupState} onOpen={(itemId) => openById('setup', itemId)} />}
-    {tab === 'webhooks' && <WebhooksTab items={setup?.items ?? []} services={services} setupState={setupState} canViewSetup={setup?.can_view_setup ?? false}
+    {tab === 'webhooks' && <WebhooksTab items={setup?.items ?? []} services={services} servicesFailed={Boolean(servicesError)} setupState={setupState} canViewSetup={setup?.can_view_setup ?? false}
       onCopy={(value) => void copyHub(value)} onOpenService={(itemId) => openById('service', itemId)} flash={hubFlash} />}
-    {tab === 'permissions' && <PermissionsTab services={services} loading={servicesLoading} onOpen={(itemId) => openById('service', itemId)} />}
+    {tab === 'permissions' && <PermissionsTab services={services} loading={servicesLoading} failed={Boolean(servicesError)} onOpen={(itemId) => openById('service', itemId)} />}
     {tab === 'logs' && <LogsTab items={setup?.items ?? []} services={services} />}
     {tab === 'apps' && <div className="intApps">
     <section className="surface intToolbar" aria-label={t('setup.toolbar')}>

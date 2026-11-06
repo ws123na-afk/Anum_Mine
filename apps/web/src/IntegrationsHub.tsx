@@ -2,7 +2,7 @@
 // the KPI row, Data sync (connected accounts per integration), API and webhooks (callback addresses
 // and the event services), Permissions (credential, scopes and expiry per service) and Logs (the
 // integration audit trail). Every figure and row comes from the API; nothing here is a sample.
-import { useCallback, useEffect, useId, useState } from 'react';
+import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import { Activity, AlertTriangle, CheckCircle2, Copy, History, KeyRound, Link2, Plug, RefreshCw, ShieldCheck, Webhook } from 'lucide-react';
 import type { AuditRecord } from '@anum/contracts';
 import { getAuditPage } from './lib/adminApi';
@@ -66,8 +66,8 @@ export function SyncTab({ items, setupState, onOpen }: { items: readonly SetupIt
 }
 
 /** API and webhooks: the addresses to give each provider, and the services that carry events. */
-export function WebhooksTab({ items, services, setupState, canViewSetup, onCopy, onOpenService, flash }: {
-  items: readonly SetupItem[]; services: readonly IntegrationState[]; setupState: string; canViewSetup: boolean;
+export function WebhooksTab({ items, services, servicesFailed = false, setupState, canViewSetup, onCopy, onOpenService, flash }: {
+  items: readonly SetupItem[]; services: readonly IntegrationState[]; servicesFailed?: boolean; setupState: string; canViewSetup: boolean;
   onCopy: (value: string) => void; onOpenService: (id: string) => void; flash: { text: string; error?: boolean } | null;
 }) {
   const urls = callbackRows(items);
@@ -91,7 +91,7 @@ export function WebhooksTab({ items, services, setupState, canViewSetup, onCopy,
       {flash && <Notice error={flash.error}>{flash.text}</Notice>}
     </FinCard>
     <FinCard title={t('intHub.events.title')} icon={<Activity />} subtitle={t('intHub.events.sub')}>
-      {events.length === 0 ? <Empty icon={<Webhook aria-hidden="true" />} title={t('intHub.events.emptyTitle')} text={t('intHub.events.emptyText')} />
+      {events.length === 0 ? (servicesFailed ? null : <Empty icon={<Webhook aria-hidden="true" />} title={t('intHub.events.emptyTitle')} text={t('intHub.events.emptyText')} />)
         : <ul className="intHubList">{events.map((s) => {
           const badge = integrationBadge(s.status);
           return <li key={s.id} data-event-service={s.id}>
@@ -108,13 +108,13 @@ export function WebhooksTab({ items, services, setupState, canViewSetup, onCopy,
 const expiryChip: Record<ExpiryState, Chip> = { none: 'muted', ok: 'ok', soon: 'warn', expired: 'bad' };
 
 /** Permissions: each service's credential source, scopes and expiry, and whether a workspace token is stored. */
-export function PermissionsTab({ services, loading, onOpen }: { services: readonly IntegrationState[]; loading: boolean; onOpen: (id: string) => void }) {
+export function PermissionsTab({ services, loading, failed = false, onOpen }: { services: readonly IntegrationState[]; loading: boolean; failed?: boolean; onOpen: (id: string) => void }) {
   const rows = permissionRows(services);
   const scoped = rows.filter((r) => r.configured);
   const expiring = rows.filter((r) => r.expiry === 'soon' || r.expiry === 'expired').length;
   return <FinCard title={t('intHub.perm.title')} icon={<ShieldCheck />} subtitle={t('intHub.perm.sub')}>
     {loading && !rows.length && <Notice busy>{t('intHub.loading')}</Notice>}
-    {!loading && !rows.length && <Empty icon={<KeyRound aria-hidden="true" />} title={t('intHub.perm.emptyTitle')} text={t('intHub.perm.emptyText')} />}
+    {!loading && !failed && !rows.length && <Empty icon={<KeyRound aria-hidden="true" />} title={t('intHub.perm.emptyTitle')} text={t('intHub.perm.emptyText')} />}
     {rows.length > 0 && <>
       <FinBanner tone={expiring ? 'warn' : 'ok'} icon={expiring ? <AlertTriangle /> : <ShieldCheck />}
         title={expiring ? t('intHub.perm.expiring', { count: expiring }) : t('intHub.perm.noneExpiring')}>
@@ -147,17 +147,28 @@ export function LogsTab({ items, services }: { items: readonly SetupItem[]; serv
   const [target, setTarget] = useState('');
   const [more, setMore] = useState(false);
   const selectId = useId();
+  // Each first-page load starts a new generation; a reply (first page or Load more) from an older generation is dropped,
+  // so a slow answer for a previous filter never overwrites the rows or cursor of the filter picked now.
+  const generation = useRef(0);
   const fetchFirst = useCallback(async () => {
+    const mine = ++generation.current;
     setLoad({ kind: 'loading' });
-    try { const page = await getAuditPage({ action: 'integration.*', target: target || undefined }, null, LOG_PAGE); setLoad({ kind: 'ready', items: page.items, next: page.nextCursor }); }
-    catch (e) { setLoad(isPermissionDenied(e) ? { kind: 'denied' } : { kind: 'error', message: describeError(e) }); }
+    setMore(false);
+    try {
+      const page = await getAuditPage({ action: 'integration.*', target: target || undefined }, null, LOG_PAGE);
+      if (mine === generation.current) setLoad({ kind: 'ready', items: page.items, next: page.nextCursor });
+    } catch (e) { if (mine === generation.current) setLoad(isPermissionDenied(e) ? { kind: 'denied' } : { kind: 'error', message: describeError(e) }); }
   }, [target]);
   useEffect(() => { void fetchFirst(); }, [fetchFirst]);
   const loadMore = async () => {
     if (load.kind !== 'ready' || !load.next) return;
+    const mine = generation.current;
     setMore(true);
-    try { const page = await getAuditPage({ action: 'integration.*', target: target || undefined }, load.next, LOG_PAGE); setLoad({ kind: 'ready', items: [...load.items, ...page.items], next: page.nextCursor }); }
-    catch (e) { setLoad({ kind: 'error', message: describeError(e) }); } finally { setMore(false); }
+    try {
+      const page = await getAuditPage({ action: 'integration.*', target: target || undefined }, load.next, LOG_PAGE);
+      if (mine === generation.current) setLoad({ kind: 'ready', items: [...load.items, ...page.items], next: page.nextCursor });
+    } catch (e) { if (mine === generation.current) setLoad({ kind: 'error', message: describeError(e) }); }
+    finally { if (mine === generation.current) setMore(false); }
   };
   const targets = [...services.map((s) => ({ id: s.id, name: s.name })), ...items.map((i) => ({ id: i.id, name: logTargetName(i.id, items, services) }))]
     .sort((a, b) => a.name.localeCompare(b.name));
