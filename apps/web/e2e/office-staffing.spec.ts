@@ -125,8 +125,11 @@ for (const locale of ['en', 'ar'] as const) {
       const drawer = page.locator('.drawerPanel');
       await expect(drawer.locator('[data-role="hr_people"]')).toBeVisible();
       expect(await noOverflow(page)).toBe(true);
-      const box = await drawer.boundingBox();
-      expect(box && box.x >= -1 && box.x + box.width <= size.width + 1).toBe(true);
+      // The drawer slides in 24px (dialog.css drawerIn): measure it once the slide has finished.
+      await expect.poll(async () => {
+        const box = await drawer.boundingBox();
+        return Boolean(box && box.x >= -1 && box.x + box.width <= size.width + 1);
+      }).toBe(true);
     });
   }
 }
