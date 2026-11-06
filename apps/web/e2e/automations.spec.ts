@@ -94,7 +94,8 @@ async function mockApi(page: Page, options: Options = {}) {
     if (path === '/api/v1/automation/triggers' && method === 'GET') return json([], 200, { 'X-Total-Count': '0' });
     if (path === '/api/v1/automation/trigger-events') return json([]);
     if (path === '/api/v1/automation/runs' && method === 'GET') {
-      const items = state.runs.filter((r) => r.workflow_id === url.searchParams.get('workflow_id'));
+      const workflowId = url.searchParams.get('workflow_id'), status = url.searchParams.get('status');
+      const items = state.runs.filter((r) => (!workflowId || r.workflow_id === workflowId) && (!status || r.status === status));
       return json(items, 200, { 'X-Total-Count': String(items.length) });
     }
     return json({ error: { code: 'not_found', message: `Unmocked ${method} ${path}`, correlation_id: 'x', details: [] } }, 404);
@@ -102,7 +103,7 @@ async function mockApi(page: Page, options: Options = {}) {
   return state;
 }
 
-const openAutomations = async (page: Page) => { await page.goto('/#automation'); await expect(page.getByRole('heading', { name: 'Automations', level: 2, exact: true })).toBeVisible(); };
+const openAutomations = async (page: Page) => { await page.goto('/#automation'); await expect(page.getByRole('heading', { name: 'Automations', level: 1, exact: true })).toBeVisible(); };
 
 test('an owner creates, runs, schedules, pauses and deletes an automation', async ({ page }) => {
   const state = await mockApi(page);
@@ -200,7 +201,7 @@ test('long lists page and search on the server', async ({ page }) => {
   await page.getByRole('button', { name: 'Next' }).click();
   await expect(page.getByText('21 to 25 of 25')).toBeVisible();
   await page.getByLabel('Search').fill('invoice');
-  await expect(page.getByRole('list', { name: 'Automations' }).getByRole('button')).toHaveCount(1);
+  await expect(page.getByRole('table', { name: 'Automations' }).getByRole('button')).toHaveCount(1);
   expect(state.queries.some((q) => q.includes('query=invoice') && q.includes('offset=0'))).toBe(true);
   await page.getByLabel('Search').fill('nothing like this');
   await expect(page.getByRole('heading', { name: 'No matches' })).toBeVisible();
@@ -238,10 +239,31 @@ test('the page reads in Arabic, right to left, without overflow', async ({ page 
   await page.addInitScript(() => { try { localStorage.setItem('anum.locale', 'ar'); } catch { /* storage blocked */ } });
   await page.goto('/#automation');
   await expect(page.locator('html')).toHaveAttribute('dir', 'rtl');
-  await expect(page.getByRole('heading', { name: 'الأتمتة', level: 2, exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'الأتمتة', level: 1, exact: true })).toBeVisible();
   await page.getByRole('button', { name: /Digest/ }).click();
   await expect(page.getByRole('heading', { name: 'سجل التشغيل' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'تشغيل الآن' })).toBeVisible();
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
   expect(overflow).toBeLessThanOrEqual(0);
+});
+
+test('the figures, the Runs tab and the builder side cards come from the API', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await mockApi(page, { workflows: [workflow('wf_1', 'Digest'), workflow('wf_2', 'Backup', { status: 'disabled' })] });
+  await openAutomations(page);
+  const figures = page.getByRole('region', { name: 'Automation figures' });
+  await expect(figures.getByText('Workflows', { exact: true })).toBeVisible();
+  await expect(figures.locator('.finKpi').first()).toContainText('2');
+  await page.getByRole('button', { name: /^Digest/ }).click();
+  await page.getByRole('button', { name: 'Run now' }).click();
+  await page.getByRole('tab', { name: 'Runs' }).click();
+  const runs = page.getByRole('region', { name: 'Runs across all automations' }).first();
+  await expect(runs.getByRole('button', { name: 'Digest' })).toBeVisible();
+  await runs.getByRole('button', { name: 'Digest' }).click();
+  await page.getByRole('button', { name: 'Edit', exact: true }).click();
+  await expect(page.getByRole('heading', { name: /Edit .Digest/, level: 1 })).toBeVisible();
+  await expect(page.getByText('No step sends email.')).toBeVisible();
+  await expect(page.getByText(/Live: v1\. Saving creates v2\./)).toBeVisible();
+  await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Automations', level: 1, exact: true })).toBeVisible();
 });

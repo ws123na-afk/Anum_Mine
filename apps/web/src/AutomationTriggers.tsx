@@ -39,7 +39,7 @@ export function AutomationTriggers({ workflow, viewer, tick, onChanged }: { work
     try { await operation(); setLocalTick((n) => n + 1); onChanged(message); } catch (e) { setError(automationError(e)); } finally { setBusy(false); }
   }
 
-  return <section className="surface autoPanel" aria-labelledby={`triggers-${workflow.id}`}>
+  return <section className="finCard autoPanel" aria-labelledby={`triggers-${workflow.id}`}>
     <div className="sectionHeader"><h2 id={`triggers-${workflow.id}`}>{t('auto.trig.title')}</h2>
       {manage && editing === null && <div className="actions autoHeaderActions">
         <button type="button" className="secondary" onClick={() => setEditing('event')}><Zap aria-hidden="true" />{t('auto.trig.addEvent')}</button>
