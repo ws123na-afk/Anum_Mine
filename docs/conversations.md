@@ -329,6 +329,8 @@ The view loads on first visit like the other views and uses the shared theme tok
 
 ### Context rail
 
+On the page, **New chat** sits at the top of the conversation list, pinned conversations come first and the rest are grouped by day (Today, Yesterday, Earlier this week, Older). Under the conversation facts, the rail's three lists are tabs: **Sources**, **Tasks** (tasks and approvals) and **Memory**, each with its count.
+
 What the open conversation used and produced, all from the API (`apps/web/src/ChatContextRail.tsx`,
 helpers `chatContext` and `memoriesFromChat` in `src/lib/pageSummary.ts`):
 

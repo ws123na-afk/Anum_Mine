@@ -2,7 +2,9 @@
 // produced. Everything comes from the API: the conversation's own turns (task cards carry the records
 // an answer used, the task it ran as and any approval it asked for) and the memories the Assistant
 // remembered from this chat (GET /api/v1/memories?source_type=conversation).
+import { useState } from 'react';
 import { Brain, CircleDot, ExternalLink, FileText, Inbox, ListChecks, MessageCircle, Search, ShieldCheck } from 'lucide-react';
+import { FinanceTabs, tabPanel } from './FinanceShell';
 import type { ChatTarget } from './ChatCardView';
 import type { MemoryNote } from './lib/api';
 import { chatContext, type ContextSource } from './lib/pageSummary';
@@ -30,6 +32,12 @@ export function ChatContextRail({ conversation, turns, memories, agentName, onOp
 }) {
   const context = chatContext(turns);
   const saved = memories.state === 'ready' ? memories.items : [];
+  const [tab, setTab] = useState<RailTab>('sources');
+  const tabs = [
+    { id: 'sources' as const, label: t('chat.rail.tab.sources'), badge: context.sources.length ? formatNumber(context.sources.length) : undefined },
+    { id: 'work' as const, label: t('chat.rail.tab.work'), badge: context.tasks.length + context.approvals.length ? formatNumber(context.tasks.length + context.approvals.length) : undefined },
+    { id: 'memory' as const, label: t('chat.rail.tab.memory'), badge: saved.length ? formatNumber(saved.length) : undefined },
+  ];
   return <div className="chatRail">
     <section className="railSection" aria-labelledby="chat-rail-about">
       <h3 id="chat-rail-about">{t('pages.chat.rail.about')}</h3>
@@ -41,7 +49,9 @@ export function ChatContextRail({ conversation, turns, memories, agentName, onOp
       </dl> : <p>{t('pages.chat.rail.new')}</p>}
     </section>
 
-    <section className="railSection" aria-labelledby="chat-rail-sources">
+    <div className="chatRailTabs"><FinanceTabs label={t('chat.rail.tabs')} items={tabs} value={tab} idPrefix="chat-rail" onChange={setTab} /></div>
+    <div {...tabPanel('chat-rail', tab)}>
+    {tab === 'sources' && <section className="railSection" aria-labelledby="chat-rail-sources">
       <h3 id="chat-rail-sources"><Search aria-hidden="true" />{t('pages.chat.rail.sources')}</h3>
       {context.sources.length === 0 ? <p>{t('pages.chat.rail.noSources')}</p> : <ul className="railList">{context.sources.map((source, index) => {
         const target = sourceTarget(source);
@@ -53,9 +63,9 @@ export function ChatContextRail({ conversation, turns, memories, agentName, onOp
               : <div className="railItem">{body}</div>}
         </li>;
       })}</ul>}
-    </section>
+    </section>}
 
-    <section className="railSection" aria-labelledby="chat-rail-memories">
+    {tab === 'memory' && <section className="railSection" aria-labelledby="chat-rail-memories">
       <h3 id="chat-rail-memories"><Brain aria-hidden="true" />{t('pages.chat.rail.memories')}</h3>
       {memories.state === 'loading' && <p>{t('common.loading')}</p>}
       {memories.state === 'error' && <p>{t('pages.chat.rail.memoriesFailed')} <button type="button" className="linkButton" onClick={memories.retry}>{t('pages.chat.rail.retry')}</button></p>}
@@ -64,9 +74,9 @@ export function ChatContextRail({ conversation, turns, memories, agentName, onOp
         {onOpen ? <button type="button" className="railItem" onClick={() => onOpen({ kind: 'memory', id: memory.id, title: memory.content.slice(0, 80) })}><strong dir="auto">{memory.content}</strong><small>{formatDateTime(memory.created_at, { dateStyle: 'medium' })}</small></button>
           : <div className="railItem"><strong dir="auto">{memory.content}</strong></div>}
       </li>)}</ul>}
-    </section>
+    </section>}
 
-    <section className="railSection" aria-labelledby="chat-rail-work">
+    {tab === 'work' && <section className="railSection" aria-labelledby="chat-rail-work">
       <h3 id="chat-rail-work"><ListChecks aria-hidden="true" />{t('pages.chat.rail.work')}</h3>
       {context.tasks.length === 0 && context.approvals.length === 0 && <p>{t('pages.chat.rail.noWork')}</p>}
       {context.tasks.length > 0 && <ul className="railList">{context.tasks.map((task) => <li key={task.taskId}>
@@ -75,6 +85,9 @@ export function ChatContextRail({ conversation, turns, memories, agentName, onOp
       {context.approvals.length > 0 && <ul className="railList">{context.approvals.map((approval) => <li key={approval.id}>
         <button type="button" className="railItem" disabled={!onOpen} onClick={() => onOpen?.({ kind: 'approvals' })}><strong dir="auto"><ShieldCheck aria-hidden="true" className="railIcon" />{approval.summary || approval.action}</strong><small><span className={`statusBadge ${approval.status === 'pending' ? 'warning' : approval.status === 'approved' ? 'success' : 'neutral'}`}>{APPROVAL_STATES.has(approval.status) ? t(`status.${approval.status}` as MessageKey) : approval.status}</span> {t('pages.chat.rail.risk', { risk: approval.risk })}</small></button>
       </li>)}</ul>}
-    </section>
+    </section>}
+    </div>
   </div>;
 }
+
+type RailTab = 'sources' | 'work' | 'memory';
