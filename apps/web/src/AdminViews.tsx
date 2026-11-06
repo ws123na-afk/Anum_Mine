@@ -283,7 +283,7 @@ export function MembersView({ workspaceId, onSwitchWorkspace, onSwitchOrganisati
 }
 
 /** When an invitation was accepted, revoked or expired, for its row. */
-function invitationState(invitation: WorkspaceInvitation): string {
+export function invitationState(invitation: WorkspaceInvitation): string {
   if (invitation.status === 'pending') return expiryLabel(invitation.expiresAt);
   if (invitation.status === 'accepted' && invitation.acceptedAt) {
     return invitation.acceptedByUserId
@@ -294,7 +294,7 @@ function invitationState(invitation: WorkspaceInvitation): string {
   return t('memberPage.expiredAt', { when: when(invitation.expiresAt) });
 }
 
-function InviteForm({ busy, onCreate }: { busy: boolean; onCreate: (request: Parameters<typeof admin.createInvitation>[0]) => Promise<boolean> }) {
+export function InviteForm({ busy, onCreate }: { busy: boolean; onCreate: (request: Parameters<typeof admin.createInvitation>[0]) => Promise<boolean> }) {
   const [role, setRole] = useState<WorkspaceRole>('member');
   const [userId, setUserId] = useState('');
   const [email, setEmail] = useState('');
@@ -331,7 +331,7 @@ function InviteForm({ busy, onCreate }: { busy: boolean; onCreate: (request: Par
   </form>;
 }
 
-function TokenReveal({ created, onDone }: { created: CreatedInvitation; onDone: () => void }) {
+export function TokenReveal({ created, onDone }: { created: CreatedInvitation; onDone: () => void }) {
   const [copied, setCopied] = useState<string | null>(null);
   const link = invitationLink(`${location.origin}${location.pathname}`, created.token, created.invitation.workspaceId);
   const emailNotice = invitationEmailNotice(created.email);

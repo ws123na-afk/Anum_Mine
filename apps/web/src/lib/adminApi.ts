@@ -195,3 +195,9 @@ export async function getModelBudgets(): Promise<ModelBudgetOverview> {
 export async function setModelBudget(scope: BudgetScope, limits: ModelBudgetLimits): Promise<ModelBudgetOverview> {
   return mapBudgetOverview(await apiRequest<ApiBudgetOverview>(`/api/v1/model-budgets/${scope}`, { method: 'PUT', body: JSON.stringify(limitsBody(limits)) }));
 }
+
+/** What each workspace role may do (`GET /workspaces/current/roles`), for the Team page's Roles and access tab. */
+export interface RolePermissions { role: WorkspaceRole; permissions: string[] }
+export async function getWorkspaceRoles(): Promise<RolePermissions[]> {
+  return (await apiRequest<{ roles: RolePermissions[] }>('/api/v1/workspaces/current/roles', { method: 'GET' })).roles;
+}

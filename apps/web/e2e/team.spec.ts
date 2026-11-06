@@ -3,11 +3,13 @@ import { mockWorkspaceApi, useSavedLocale } from './support/workspaceApi';
 
 // Team work, department assistants, notifications and the platform console against a mocked API
 // (docs/team-work.md, docs/customer-organisations.md).
+const teamTab = (page: Page, name: string) => page.getByRole('tablist', { name: 'Team sections' }).getByRole('tab', { name, exact: true }).click();
 const noHorizontalOverflow = (page: Page) => page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1);
 
 test('Ask ANUM assigns work from a sentence, after a preview, and opens it', async ({ page }) => {
   await mockWorkspaceApi(page);
   await page.goto('/#team');
+  await teamTab(page, 'My work');
   await expect(page.getByRole('heading', { level: 1, name: 'Team' })).toBeVisible();
   await page.getByLabel('Say who should do what, and by when').fill('ANUM, ask Ahmed to call the supplier by Thursday');
   await page.getByRole('button', { name: 'Check' }).click();
@@ -21,6 +23,7 @@ test('Ask ANUM assigns work from a sentence, after a preview, and opens it', asy
 test('an unknown person is explained and nothing is created', async ({ page }) => {
   await mockWorkspaceApi(page);
   await page.goto('/#team');
+  await teamTab(page, 'My work');
   await page.getByLabel('Say who should do what, and by when').fill('ask Khalid to count tyres');
   await page.getByRole('button', { name: 'Check' }).click();
   await expect(page.getByText(/Nobody in this workspace is called Khalid/)).toBeVisible();
@@ -30,6 +33,7 @@ test('an unknown person is explained and nothing is created', async ({ page }) =
 test('my tasks: list, detail, checklist, comment and status change', async ({ page }) => {
   await mockWorkspaceApi(page);
   await page.goto('/#team');
+  await teamTab(page, 'My work');
   const row = page.getByRole('button', { name: /Count winter tyre stock/ });
   await expect(row).toBeVisible();
   await expect(row.getByText(/Overdue since/)).toBeVisible();
@@ -50,6 +54,7 @@ test('my tasks: list, detail, checklist, comment and status change', async ({ pa
 test('new work form validates, then creates', async ({ page }) => {
   await mockWorkspaceApi(page, { emptyWork: true });
   await page.goto('/#team');
+  await teamTab(page, 'My work');
   await expect(page.getByRole('heading', { name: 'Nothing assigned to you' })).toBeVisible();
   await page.getByRole('button', { name: 'New work item' }).first().click();
   await page.getByRole('button', { name: 'Create and notify' }).click();
@@ -65,6 +70,7 @@ test('new work form validates, then creates', async ({ page }) => {
 test('a refused change says who may make it', async ({ page }) => {
   await mockWorkspaceApi(page, { denyEdit: true });
   await page.goto('/#team');
+  await teamTab(page, 'My work');
   await page.getByRole('button', { name: /Count winter tyre stock/ }).click();
   const detail = page.getByRole('complementary', { name: 'Count winter tyre stock' });
   await expect(detail.getByText(/Only the creator, the assignee or a workspace owner can change this item/)).toBeVisible();
@@ -78,14 +84,14 @@ test('board, workload and activity tabs', async ({ page }) => {
   await mockWorkspaceApi(page);
   await page.goto('/#team');
   // The board and the workload share the Team dashboard tab.
-  await page.getByRole('navigation', { name: 'Team sections' }).getByRole('button', { name: 'Team dashboard' }).click();
+  await teamTab(page, 'Team dashboard');
   await expect(page.getByRole('heading', { level: 3, name: /In progress/ })).toBeVisible();
   await expect(page.getByRole('button', { name: /Draft a quote for Al Noor fleet/ })).toBeVisible();
   await expect(page.getByRole('meter', { name: 'Omar Owner: 85% of weekly capacity' })).toBeVisible();
-  await page.getByRole('navigation', { name: 'Team sections' }).getByRole('button', { name: 'Activity' }).click();
+  await teamTab(page, 'Activity');
   await expect(page.getByText(/Ahmed Saleh created "Count winter tyre stock"/)).toBeVisible();
-  await page.getByRole('navigation', { name: 'Team sections' }).getByRole('button', { name: 'People' }).click();
-  await expect(page.getByText(/No team profile yet/)).toBeVisible();
+  await teamTab(page, 'Directory');
+  await expect(page.getByRole('row', { name: /user_vera/ })).toContainText('No profile yet');
 });
 
 test('the notifications menu lists my team notifications and opens the work item', async ({ page }) => {
@@ -173,6 +179,9 @@ test('Arabic: the team page is right to left without overflow', async ({ page })
   await useSavedLocale(page, 'ar');
   await page.goto('/#team');
   await expect(page.getByRole('heading', { level: 1, name: 'الفريق' })).toBeVisible();
+  await expect(page.getByRole('table', { name: 'الدليل' })).toBeVisible();
+  expect(await noHorizontalOverflow(page)).toBe(true);
+  await page.getByRole('tab', { name: 'عملي', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'اطلب من أنعم إسناد عمل' })).toBeVisible();
   expect(await noHorizontalOverflow(page)).toBe(true);
 });
