@@ -23,6 +23,8 @@ async function enterFleetBuilding(page: Page) {
 }
 
 test('the campus shows one building per workspace with real counts, and opens a building', async ({ page }) => {
+  // sceneReady allows the software renderer in CI up to 90 s to draw the campus; the test's own budget must cover that.
+  test.setTimeout(150_000);
   await openOffice(page);
   const canvas = hq(page).locator('canvas.hqCanvas');
   await sceneReady(page);
