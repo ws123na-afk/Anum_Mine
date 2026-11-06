@@ -1,7 +1,8 @@
-// Integrations (docs/integrations-setup.md#the-integrations-page): one status summary with filter
-// chips and search, integrations grouped into collapsible categories, one compact row per
-// integration with its status and one primary action, and everything else (setup steps, missing
-// server settings, callback URLs, checks, health detail, workspace switch and token) in a drawer.
+// Integrations (docs/integrations-setup.md#the-integrations-page): the page head with five tabs
+// (Connected apps, Data sync, API and webhooks, Permissions, Logs) over one KPI row. Connected apps
+// keeps the status chips and search, integrations grouped into collapsible categories with one card
+// per integration (status, one primary action), and everything else (setup steps, missing server
+// settings, callback URLs, checks, health detail, workspace switch and token) in a drawer.
 import { lazy, Suspense, useCallback, useEffect, useId, useMemo, useState, type ReactNode } from 'react';
 import {
   Activity, Bell, Bot, Bug, ChevronDown, Code, Database, FileAudio, FileText, GitBranch, Globe, HardDrive, KeyRound, LogIn, Mail, MousePointerClick,
@@ -13,17 +14,20 @@ import { getIntegrationConfiguration, saveIntegrationConfiguration } from './lib
 import { canSwitchIntegration, credentialBody, credentialSource, lastErrorNote, type IntegrationState } from './lib/catalog';
 import * as catalog from './lib/catalogApi';
 import { copyText } from './lib/clipboard';
-import { formatDateTime, t } from './lib/i18n';
+import { formatDateTime, t, type MessageKey } from './lib/i18n';
 import { checkSentence, itemName, statusBadge, type IntegrationSetup, type SetupItem } from './lib/integrationSetup';
 import { checkIntegrationSetup, getIntegrationSetup } from './lib/integrationSetupApi';
 import {
   PAGE_FILTERS, actionLabel, actionName, buildSections, categoryName, filterLabel, pageCounts, sectionStartsOpen, sectionSummary,
   serviceAction, serviceEntry, setupAction, setupEntry, type Category, type Entry, type PageFilter, type PrimaryAction,
 } from './lib/integrationsPage';
-import type { View } from './lib/shell';
+import { INTEGRATION_TABS, hashOf, tabFromHash, type IntegrationTab } from './lib/integrationsHub';
+import { viewLabel, type View } from './lib/shell';
 import { useIsOwner } from './useIsOwner';
 import { Drawer } from './Dialog';
 import { Note, SetupDetails, type SetupFlash } from './ConnectionSetup';
+import { FinancePageHead, FinanceTabs, tabPanel } from './FinanceShell';
+import { HubKpis, LogsTab, PermissionsTab, SyncTab, WebhooksTab } from './IntegrationsHub';
 import './governance.css';
 import './catalog.css';
 import './integrations.css';
@@ -65,6 +69,14 @@ export function IntegrationsView({ onGo }: { onGo?: (view: View) => void } = {})
   const [flash, setFlash] = useState<Flash | null>(null);
   const owner = useIsOwner();
   const id = useId();
+  const [tab, setTab] = useState<IntegrationTab>(() => tabFromHash(location.hash));
+  const [hubFlash, setHubFlash] = useState<{ text: string; error?: boolean } | null>(null);
+  useEffect(() => {
+    const onHash = () => { if (location.hash.startsWith('#integrations')) setTab(tabFromHash(location.hash)); };
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
+  }, []);
+  const pick = (next: IntegrationTab) => { setTab(next); if (location.hash !== hashOf(next)) history.replaceState(null, '', hashOf(next)); };
 
   const loadServices = useCallback(async () => {
     setServicesLoading(true);
@@ -135,10 +147,21 @@ export function IntegrationsView({ onGo }: { onGo?: (view: View) => void } = {})
 
   const loadingAny = servicesLoading || setupState === 'loading';
   const hasRows = rows.length > 0;
-  return <div className="intPage">
-    <section className="moduleIntro"><div><p className="eyebrow">{t('integrations.eyebrow')}</p><h2>{t('integrations.title')}</h2><p>{t('integrations.intro')}</p></div>
-      <button type="button" onClick={refresh} disabled={loadingAny}><RefreshCw aria-hidden="true" />{t('integrations.refresh')}</button></section>
-
+  const tabs = INTEGRATION_TABS.map((key) => ({ id: key, label: t(`intHub.tab.${key}` as MessageKey), badge: key === 'apps' && counts.error ? counts.error : undefined }));
+  const openById = (kind: 'setup' | 'service', itemId: string) => { setFlash(null); setOpened({ kind, id: itemId }); };
+  const copyHub = async (value: string) => { const ok = await copyText(value); setHubFlash({ text: ok ? t('setup.copied', { value }) : t('setup.copyFailed'), error: !ok }); };
+  return <div className="finPage intPage">
+    <FinancePageHead title={viewLabel('integrations')} subtitle={t('integrations.intro')}
+      actions={<button type="button" className="secondary" onClick={refresh} disabled={loadingAny}><RefreshCw aria-hidden="true" />{t('integrations.refresh')}</button>}
+      tabs={<FinanceTabs label={t('intHub.tabs')} items={tabs} value={tab} idPrefix="int" onChange={pick} />} />
+    <HubKpis items={setup?.items ?? []} services={services} loading={loadingAny} />
+    <div {...tabPanel('int', tab)}>
+    {tab === 'sync' && <SyncTab items={setup?.items ?? []} setupState={setupState} onOpen={(itemId) => openById('setup', itemId)} />}
+    {tab === 'webhooks' && <WebhooksTab items={setup?.items ?? []} services={services} setupState={setupState} canViewSetup={setup?.can_view_setup ?? false}
+      onCopy={(value) => void copyHub(value)} onOpenService={(itemId) => openById('service', itemId)} flash={hubFlash} />}
+    {tab === 'permissions' && <PermissionsTab services={services} loading={servicesLoading} onOpen={(itemId) => openById('service', itemId)} />}
+    {tab === 'logs' && <LogsTab items={setup?.items ?? []} services={services} />}
+    {tab === 'apps' && <div className="intApps">
     <section className="surface intToolbar" aria-label={t('setup.toolbar')}>
       <fieldset className="intChips">
         <legend className="visuallyHidden">{t('setup.filter.label')}</legend>
@@ -177,6 +200,8 @@ export function IntegrationsView({ onGo }: { onGo?: (view: View) => void } = {})
       </section>;
     })}
     {setupState === 'ready' && setup && setup.items.length > 0 && <p className="setupFoot">{t('setup.serverOnly')}</p>}
+    </div>}
+    </div>
 
     {openSetup && setup && <Drawer title={itemName(openSetup.id)} onClose={() => setOpened(null)}>
       <SetupDetails item={openSetup} setup={setup} onGo={go} checking={checking} flash={flash?.id === `setup:${openSetup.id}` ? flash as SetupFlash : null}
@@ -192,16 +217,29 @@ function rowBadge(row: Row) {
   return row.kind === 'setup' ? statusBadge(row.value.status) : integrationBadge(row.value.status);
 }
 
+/** The card's second line: accounts and failures for setup items, the last health check for services. */
+function rowMeta(row: Row): string | null {
+  if (row.kind === 'setup') {
+    const item = row.value;
+    if (item.connections === null) return item.missing.length ? t('intHub.card.missing', { count: item.missing.length }) : null;
+    return item.failing ? t('intHub.card.accountsFailing', { count: item.connections, failing: item.failing }) : t('intHub.card.accounts', { count: item.connections });
+  }
+  const item = row.value;
+  return item.checked_at ? t('intHub.card.checked', { when: when(item.checked_at) }) : null;
+}
+
 function IntegrationRow({ row, canViewSetup, owner, onOpen }: { row: Row; canViewSetup: boolean; owner: boolean; onOpen: () => void }) {
   const badge = rowBadge(row);
   const action: PrimaryAction = row.kind === 'setup' ? setupAction(row.value, canViewSetup) : serviceAction(row.value, owner);
   const icon = row.kind === 'setup' ? setupIcons[row.value.id] : serviceIcons[row.value.id] ?? kindIcons[row.value.kind];
   const nameId = `int-${row.kind}-${row.value.id}`;
+  const meta = rowMeta(row);
   return <li className={`intRow intRow-${row.bucket}`} data-integration-row={row.value.id} aria-labelledby={nameId}>
     <span className="intIcon" aria-hidden="true">{icon ?? <Plug />}</span>
     <div className="intMain">
       <h4 id={nameId}>{row.name}</h4>
       {row.purpose && <p className="intPurpose" dir="auto" title={row.purpose}>{row.purpose}</p>}
+      {meta && <p className="intMeta">{meta}</p>}
     </div>
     <span className={`statusBadge ${badge.tone}`}>{badge.label}</span>
     <button type="button" className={action === 'fix' || action === 'connect' ? 'intAction intActionPrimary' : 'intAction secondary'}

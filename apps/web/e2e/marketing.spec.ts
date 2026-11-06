@@ -2,6 +2,7 @@ import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 import { useSavedLocale } from './support/workspaceApi';
 import { hash, mockMarketing, post } from './support/marketingApi';
+import { mockBrevo } from './support/brevoApi';
 
 // Marketing (docs/marketing.md): connect accounts, compose English and Arabic drafts with previews,
 // ask to publish and approve with the payload hash shown, move posts on the calendar, and read results.
@@ -9,7 +10,7 @@ const noOverflow = (page: Page) => page.evaluate(() => document.documentElement.
 
 test('an owner drafts bilingual posts with AI help, asks to publish and approves with the payload hash', async ({ page }) => {
   const sent = await mockMarketing(page);
-  await page.goto('/#marketing');
+  await page.goto('/#marketing-posts');
   await expect(page.getByRole('heading', { level: 1, name: 'Marketing' })).toBeVisible();
   await expect(page.getByText('Summer tyre check')).toBeVisible();
 
@@ -91,21 +92,66 @@ test('analytics and the weekly report read in Arabic, right to left, without ove
 
 test('the posts view has no serious accessibility problems in English', async ({ page }) => {
   await mockMarketing(page);
-  await page.goto('/#marketing');
+  await page.goto('/#marketing-posts');
   await expect(page.getByText('Summer tyre check')).toBeVisible();
   const results = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa']).analyze();
   expect(results.violations.filter((v) => v.impact === 'serious' || v.impact === 'critical').map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(' ')).join(', ')}`)).toEqual([]);
   expect(await noOverflow(page)).toBe(true);
 });
 
-test('Marketing tabs are history entries with a breadcrumb back to the posts and Home', async ({ page }) => {
+test('Marketing tabs are history entries with a breadcrumb back to the overview and Home', async ({ page }) => {
   await mockMarketing(page);
   await page.goto('/#marketing');
   const tabs = page.getByRole('navigation', { name: 'Marketing sections' });
   await tabs.getByRole('button').nth(1).click();
-  await expect(page).not.toHaveURL(/#marketing-posts$/);
+  await expect(page).toHaveURL(/#marketing-campaigns$/);
   const crumbs = page.getByRole('navigation', { name: 'Breadcrumb' });
   await expect(crumbs.getByRole('link', { name: 'Home' })).toBeVisible();
   await page.goBack();
   await expect(tabs.getByRole('button').first()).toHaveAttribute('aria-current', 'page');
+});
+
+test('the overview shows the campaigns, calendar, trend and what needs attention from the API, and links into each tab', async ({ page }) => {
+  await mockMarketing(page);
+  await page.goto('/#marketing');
+  await expect(page.getByRole('heading', { level: 1, name: 'Marketing' })).toBeVisible();
+  const kpis = page.getByRole('region', { name: 'Marketing, last 30 days' });
+  await expect(kpis).toContainText('2,400');
+  await expect(kpis).toContainText('5.0%');
+  const campaigns = page.getByRole('region', { name: 'Campaigns', exact: true });
+  const row = campaigns.locator('[data-campaign-row="mkcamp_winter"]');
+  await expect(row).toContainText('Winter safety');
+  await expect(row).toContainText('2 of 3');
+  await expect(page.getByText('Waiting for approval')).toBeVisible();
+  await expect(page.getByText('210 engagements', { exact: false })).toBeVisible();
+  // No spend, leads or return figures: ANUM does not track them.
+  await expect(page.locator('main').getByText(/\bROI\b|Spend|Leads|Budget/)).toHaveCount(0);
+  await page.getByRole('button', { name: 'Full calendar' }).click();
+  await expect(page).toHaveURL(/#marketing-calendar$/);
+  await page.goBack();
+  await page.getByRole('button', { name: 'Open: Waiting for approval' }).click();
+  await expect(page).toHaveURL(/#marketing-posts$/);
+  await expect(page.getByText('Summer tyre check')).toBeVisible();
+  expect(await noOverflow(page)).toBe(true);
+});
+
+test('the audience tab lists the Brevo contact lists, and says what to do when Brevo is not connected', async ({ page }) => {
+  await mockBrevo(page);
+  await page.goto('/#marketing-audience');
+  const table = page.getByRole('region', { name: 'Contact lists' });
+  await expect(table.locator('[data-list-row="7"]')).toContainText('Newsletter');
+  await expect(table.locator('[data-list-row="7"]')).toContainText('99.8%');
+  await page.getByLabel('Search lists').fill('vip');
+  await expect(table.locator('[data-list-row="7"]')).toHaveCount(0);
+  await expect(table.locator('[data-list-row="9"]')).toBeVisible();
+  const results = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa']).analyze();
+  expect(results.violations.filter((v) => v.impact === 'serious' || v.impact === 'critical').map((v) => v.id)).toEqual([]);
+});
+
+test('the audience tab without Brevo points to the email setup', async ({ page }) => {
+  await mockBrevo(page, { connected: false });
+  await page.goto('/#marketing-audience');
+  await expect(page.getByRole('heading', { name: 'Brevo is not connected' })).toBeVisible();
+  await page.getByRole('button', { name: 'Email campaigns' }).click();
+  await expect(page).toHaveURL(/#marketing-email$/);
 });
