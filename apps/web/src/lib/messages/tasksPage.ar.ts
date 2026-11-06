@@ -9,7 +9,6 @@ export const tasksPageAr: Record<keyof typeof tasksPageEn, Message> = {
   'tasksTabs.team': 'مهام الفريق',
   'tasksTabs.agent': 'مهام الوكلاء',
   'tasksTabs.approvals': 'الموافقات',
-  'tasksTabs.approvalsTitle': 'صندوق الموافقات',
   'tasksTabs.approvalsSubtitle': 'راجع الإجراءات التي ينتظر ANUM تنفيذها وقرّر فيها.',
   'wt.kpis.mine': 'مهامي باختصار',
   'wt.kpis.team': 'مهام الفريق باختصار',

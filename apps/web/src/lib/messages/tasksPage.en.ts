@@ -9,7 +9,6 @@ export const tasksPageEn = {
   'tasksTabs.team': 'Team tasks',
   'tasksTabs.agent': 'Agent tasks',
   'tasksTabs.approvals': 'Approvals',
-  'tasksTabs.approvalsTitle': 'Approval inbox',
   'tasksTabs.approvalsSubtitle': 'Review and decide the actions ANUM is waiting to take.',
   'wt.kpis.mine': 'My tasks at a glance',
   'wt.kpis.team': 'Team tasks at a glance',

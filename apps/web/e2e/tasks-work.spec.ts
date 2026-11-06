@@ -42,7 +42,7 @@ test('Approvals is a Tasks tab: it opens the inbox, and the inbox tabs lead back
   await page.goto('/#tasks');
   await tabs(page).getByRole('tab', { name: /Approvals/ }).click();
   await expect(page).toHaveURL(/#approvals$/);
-  await expect(page.getByRole('heading', { level: 1, name: 'Approval inbox' })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: 'Approvals' })).toBeVisible();
   await expect(page.getByRole('region', { name: 'Approvals at a glance' })).toContainText('Pending');
   await tabs(page).getByRole('tab', { name: 'My tasks' }).click();
   await expect(page).toHaveURL(/#tasks$/);

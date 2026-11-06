@@ -20,7 +20,7 @@ export function rememberTasksTab(tab: TasksTab): void { try { sessionStorage.set
 
 export function TasksHead({ tab, onPick, actions, pending }: { tab: TasksTab; onPick(tab: TasksTab): void; actions?: ReactNode; pending?: number }) {
   const items = TASKS_TABS.map((id) => ({ id, label: t(`tasksTabs.${id}`), badge: id === 'approvals' && pending ? pending : undefined }));
-  return <FinancePageHead title={tab === 'approvals' ? t('tasksTabs.approvalsTitle') : viewLabel('tasks')} crumbs={tab === 'approvals' ? [{ label: viewLabel('tasks'), href: '#tasks' }] : undefined}
+  return <FinancePageHead title={tab === 'approvals' ? viewLabel('approvals') : viewLabel('tasks')} crumbs={tab === 'approvals' ? [{ label: viewLabel('tasks'), href: '#tasks' }] : undefined}
     subtitle={tab === 'approvals' ? t('tasksTabs.approvalsSubtitle') : t('tasksTabs.subtitle')} actions={actions}
     tabs={<FinanceTabs label={t('tasksTabs.label')} idPrefix={TASKS_PANEL} items={items} value={tab} onChange={(next) => { rememberTasksTab(next); onPick(next); }} />} />;
 }
