@@ -86,3 +86,27 @@ describe('team helpers', () => {
     assert.equal(shouldNotifyDesktop({ ...base, permission: 'default' }), false);
   });
 });
+
+describe('the Assistants page helpers', async () => {
+  const { assistantGuards, splitList, WIZARD_STEPS } = await import('../src/lib/team.ts');
+  const { CATALOGS } = await import('../src/lib/i18n.ts');
+  test('splitList trims, drops empties and repeats', () => {
+    assert.deepEqual(splitList(' price, quote ,, price ,'), ['price', 'quote']);
+    assert.deepEqual(splitList(''), []);
+  });
+  test('no autonomy lets an assistant send or spend on its own', () => {
+    for (const level of ['observe', 'suggest', 'act_low_risk'] as const) {
+      const guards = assistantGuards(level);
+      assert.ok(guards.includes('asPage.guard.send'));
+      assert.ok(guards.includes('asPage.guard.spend'));
+      for (const locale of ['en', 'ar'] as const) for (const key of guards) assert.ok(CATALOGS[locale][key], `${locale} ${key}`);
+    }
+    assert.ok(assistantGuards('observe').includes('asPage.guard.change'));
+    assert.ok(assistantGuards('suggest').includes('asPage.guard.changeAsk'));
+    assert.ok(assistantGuards('act_low_risk').includes('asPage.guard.risky'));
+  });
+  test('the wizard starts with templates and ends with the review', () => {
+    assert.equal(WIZARD_STEPS[0], 'start');
+    assert.equal(WIZARD_STEPS.at(-1), 'review');
+  });
+});

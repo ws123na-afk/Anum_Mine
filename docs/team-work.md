@@ -112,6 +112,16 @@ When work assigned to an assistant is handed off, its agent task carries `assist
 
 A tool outside the profile, a missing or turned-off assistant, are blocked with the reason. The profile never loosens anything: high-risk tools still need an approval, governance denials still apply.
 
+### The Assistants page
+
+The web page (`AssistantsView.tsx`, `assistantsPage.css`, helpers in `lib/team.ts`) uses the shared page layout: a head with New assistant and the **Overview** and **Work** tabs.
+
+- **Overview**: four figures (switched on, in their queues, overdue, finished) from `GET /assistants`, `GET /work-items/workload` and one-row `GET /work-items` reads; the assistant directory as cards (department, autonomy, open, overdue and finished work) with search and a status filter; and the selected assistant's detail: Edit, Turn on or off, Delete, its purpose, allowed tools, what it never does on its own at its autonomy (`assistantGuards`: no sending, posting or calling outside ANUM without approval, no paying or committing, and no changes or only approved ones below `act_low_risk`), routing, its five most recent work items and the always-on safety controls. Routing an inbound message stays folded under the directory.
+- **Work**: every work item assigned to an assistant (`GET /work-items?assignee_type=assistant&status=all&sort=updated`), filtered by assistant and status, paged, each opening in Team.
+- **Create and edit** is a wizard: Start (department templates, new assistants only), Define, Configure (tools, keywords, channels), Safety and approval (autonomy with its effect, on or off) and Review and save. The API validates every field and the role.
+
+Not built from the design mockups, because the API has no such data: per-assistant model, token budget, cost and usage charts, run traces and token breakdowns, versions and rollback, a test sandbox, approval rules by amount, data-access scopes and retention per assistant. The usage and cost mockup is not built at all; workspace model spending is in Budgets and per-agent caps in [Agent controls](agent-controls.md).
+
 ### Routing inbound messages
 
 `POST /api/v1/assistants/route` turns a message (email, WhatsApp, marketplace, website, phone, other) into a work item (source `inbound`) for the named assistant or the enabled assistant whose keywords occur most often in the subject and body (whole words for Latin keywords, substrings for Arabic; ties alphabetical). With no match the item stays unassigned for a person to triage. The message is stored as the item's details: it is customer data, never instructions, and it cannot choose tools. The activity feed shows "Inbound email message routed to Sales assistant". Messages are routed by a person (web Assistants page, Flutter) or by any client of this route.

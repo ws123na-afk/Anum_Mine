@@ -78,7 +78,7 @@ export const GATE_PAGES: GatePage[] = [
   { hash: 'meetings?meeting=meeting_pmv', view: 'meetings', mock: workspace, ready: '.transcriptLines li' },
   { hash: 'calendar', view: 'calendar', mock: workspace, ready: '.calendarEvents' },
   { hash: 'team', view: 'team', mock: workspace, ready: '.workRow' },
-  { hash: 'assistants', view: 'assistants', mock: workspace, ready: '.assistantsTable tbody tr' },
+  { hash: 'assistants', view: 'assistants', mock: workspace, ready: '.asCard' },
   { hash: 'integrations', view: 'integrations', mock: workspace, ready: 'li.intRow' },
   { hash: 'tyre', view: 'tyre', mock: tyre, ready: '.tyreMetric' },
   { hash: 'commerce', view: 'commerce', mock: workspace, ready: '.cmChart svg' },

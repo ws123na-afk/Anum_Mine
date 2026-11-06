@@ -205,3 +205,25 @@ export function organisationMatches(org: { display_name: string; tenant_id: stri
   const q = query.trim().toLowerCase();
   return !q || org.display_name.toLowerCase().includes(q) || org.tenant_id.toLowerCase().includes(q);
 }
+
+// ------------------------------------------------------------------ the Assistants page (docs/team-work.md#the-assistants-page)
+
+/** The create and edit wizard's steps; Start (the department templates) is for new assistants only. */
+export type AssistantStep = 'start' | 'define' | 'configure' | 'safety' | 'review';
+export const WIZARD_STEPS: readonly AssistantStep[] = ['start', 'define', 'configure', 'safety', 'review'];
+
+/** A comma-separated field as a clean list: trimmed, no empties, no repeats. */
+export function splitList(text: string): string[] {
+  return [...new Set(text.split(',').map((part) => part.trim()).filter(Boolean))];
+}
+
+/**
+ * What an assistant may not do on its own at this autonomy (the runtime's rule, docs/team-work.md):
+ * nothing is ever sent, paid or committed outside ANUM without a person; below `act_low_risk` it
+ * changes nothing without approval, and `observe` changes nothing at all.
+ */
+export function assistantGuards(autonomy: 'observe' | 'suggest' | 'act_low_risk'): ('asPage.guard.send' | 'asPage.guard.spend' | 'asPage.guard.change' | 'asPage.guard.changeAsk' | 'asPage.guard.risky')[] {
+  if (autonomy === 'observe') return ['asPage.guard.send', 'asPage.guard.spend', 'asPage.guard.change'];
+  if (autonomy === 'suggest') return ['asPage.guard.send', 'asPage.guard.spend', 'asPage.guard.changeAsk'];
+  return ['asPage.guard.send', 'asPage.guard.spend', 'asPage.guard.risky'];
+}
