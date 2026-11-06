@@ -2,6 +2,9 @@ import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import { openBuilder, type BuilderMock } from './support/hqBuilderApi';
 
+// The 3D office draws on a software renderer in CI, where loading a scene alone can take most of a minute.
+test.describe.configure({ timeout: 150_000 });
+
 // The owner's visual office builder (docs/help/office-builder.md): plan, drag, resize, rotate,
 // templates, draft and atomic save, stale revision, permissions, keyboard, Arabic and a large floor.
 // The API is mocked at http://localhost:8000/** with the server's own rules (support/hqBuilderApi.ts).

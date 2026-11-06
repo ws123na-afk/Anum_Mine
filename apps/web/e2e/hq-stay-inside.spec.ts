@@ -7,6 +7,9 @@ import { workFixture } from './support/hqCampusApi';
 import { approvalPagesResponse } from './support/approvalPages';
 import { createRoomMock } from './support/meetingRoomApi';
 
+// The 3D office draws on a software renderer in CI, where loading a scene alone can take most of a minute.
+test.describe.configure({ timeout: 150_000 });
+
 // Work is given and followed inside the headquarters (owner, 2 November 2026: "any task I want to give goes back to
 // other modules"). Assigning, opening a task, deciding an approval, opening a meeting and an agent's work log all
 // happen in drawers over the scene: the URL never leaves the office. The API is mocked; the requests are the modules' own.

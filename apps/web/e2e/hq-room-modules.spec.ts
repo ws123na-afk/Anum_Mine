@@ -2,6 +2,9 @@ import { expect, test, type Page } from '@playwright/test';
 import { hqRegistry, openHq, TENANT_A } from './support/hqApi';
 import { officeMenuItem } from './support/hqScene';
 
+// The 3D office draws on a software renderer in CI, where loading a scene alone can take most of a minute.
+test.describe.configure({ timeout: 150_000 });
+
 // Rooms open the module of their STORED department (docs/ANUM_MINE_HQ_EXTENSION_POINTS.md, "Room modules"),
 // and the live office never shows the invented reception simulation. Names are plainly fake test data.
 test.use({ viewport: { width: 1280, height: 800 } });

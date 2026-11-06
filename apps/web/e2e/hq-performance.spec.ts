@@ -3,6 +3,9 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { gzipSync } from 'node:zlib';
 import { hqRegistry, TENANT_A, openHq } from './support/hqApi';
 
+// The 3D office draws on a software renderer in CI, where loading a scene alone can take most of a minute.
+test.describe.configure({ timeout: 150_000 });
+
 // These specs test data and speed, not layout: use a desktop viewport in both projects (the phone layout hides the room inspector, issue H-04).
 test.use({ viewport: { width: 1280, height: 800 }, deviceScaleFactor: 1, isMobile: false, hasTouch: false });
 

@@ -2,6 +2,9 @@ import { expect, test, type Page } from '@playwright/test';
 import { mkdirSync } from 'node:fs';
 import { mockHq } from './support/hqCampusApi';
 
+// The 3D office draws on a software renderer in CI, where loading a scene alone can take most of a minute.
+test.describe.configure({ timeout: 150_000 });
+
 // The glass shows the real floors (docs/ANUM_MINE_HQ_GLASS_PLAN.md): the campus draws its registry buildings from their floor plans and the
 // glass shader looks into the plan atlas. The API is mocked and every name is fake. With LOOK_DIR set it writes the screenshots.
 const OUT = process.env.LOOK_DIR;

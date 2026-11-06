@@ -2,6 +2,9 @@ import { expect, test, type Page } from '@playwright/test';
 import { mkdirSync } from 'node:fs';
 import { mockHq } from './support/hqCampusApi';
 
+// The 3D office draws on a software renderer in CI, where loading a scene alone can take most of a minute.
+test.describe.configure({ timeout: 150_000 });
+
 // Local render check (not in CI): every building should stand on the ground (docs/ANUM_MINE_HQ_BUILDING_LOOK.md#standing-on-the-ground).
 // Screenshots of the campus and of three building kinds, Closed and Cutaway, at the five sizes of the responsive gate.
 // GROUND_DIR (output folder), GROUND_SIZES (for example 1440x900,390x844), GROUND_BUILDINGS (comma separated names).
