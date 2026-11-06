@@ -78,3 +78,25 @@ export function barWidth(percent: number | null): number {
   if (percent === null || !Number.isFinite(percent)) return 0;
   return Math.min(100, Math.max(0, percent));
 }
+
+/** The most cap rows one `GET /agent-controls/agent-caps` returns (the API's `limit` maximum). */
+export const CAPS_PAGE_LIMIT = 100;
+
+/**
+ * Every cap row, page by page, so the spending totals never stop at the first page. Stops when the
+ * API's `total` is reached or a page comes back empty (never loops forever on a short page).
+ */
+export async function readAllCaps<T>(readPage: (offset: number, limit: number) => Promise<{ items: T[]; total: number; resets_on: string }>): Promise<{ items: T[]; total: number; resetsOn: string }> {
+  const items: T[] = [];
+  let offset = 0, total = 0, resetsOn = '';
+  for (;;) {
+    const page = await readPage(offset, CAPS_PAGE_LIMIT);
+    const rows = Array.isArray(page?.items) ? page.items : [];
+    items.push(...rows);
+    total = typeof page.total === 'number' ? page.total : items.length;
+    resetsOn = page.resets_on;
+    offset += rows.length;
+    if (rows.length === 0 || offset >= total) break;
+  }
+  return { items, total, resetsOn };
+}

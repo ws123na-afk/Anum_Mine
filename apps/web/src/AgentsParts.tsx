@@ -7,7 +7,7 @@ import {
 import * as api from './lib/api';
 import { formatUsd } from './lib/admin';
 import { capsPath, type AgentCap, type AgentCapsPage } from './lib/agentControls';
-import { agentBoundaries, barWidth } from './lib/agentsPage';
+import { agentBoundaries, barWidth, readAllCaps } from './lib/agentsPage';
 import type { AgentCatalog, AgentProfile } from './lib/agents';
 import { budgetMessage, describeError, isBudgetExceeded, isPermissionDenied } from './lib/errors';
 import { t, type MessageKey } from './lib/i18n';
@@ -51,10 +51,9 @@ export function useAgentCaps(): { caps: CapsLoad; reload: () => void } {
   const load = useCallback(async () => {
     setCaps({ state: 'loading' });
     try {
-      // One page of 100 holds every agent a workspace normally has; the page says so if there are more.
-      const page = await api.apiRequest<AgentCapsPage>(capsPath('', 0, 100), { method: 'GET' });
-      const items = Array.isArray(page?.items) ? page.items : [];
-      setCaps({ state: 'ready', items, resetsOn: page.resets_on, total: typeof page.total === 'number' ? page.total : items.length });
+      // Every page: the totals must cover every agent, not only the first page.
+      const all = await readAllCaps((offset, limit) => api.apiRequest<AgentCapsPage>(capsPath('', offset, limit), { method: 'GET' }));
+      setCaps({ state: 'ready', items: all.items, resetsOn: all.resetsOn, total: all.total });
     } catch (error) {
       setCaps(isPermissionDenied(error) ? { state: 'denied', message: describeError(error) } : { state: 'error', message: describeError(error) });
     }

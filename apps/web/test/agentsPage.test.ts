@@ -2,7 +2,7 @@
 // docs/automation.md#the-automations-page). Run with `pnpm --filter @anum/web test:unit`.
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
-import { agentBoundaries, appliedLevel, approvalSummary, barWidth, capFor, spendTotals, toolSummary } from '../src/lib/agentsPage.ts';
+import { agentBoundaries, appliedLevel, approvalSummary, barWidth, capFor, CAPS_PAGE_LIMIT, readAllCaps, spendTotals, toolSummary } from '../src/lib/agentsPage.ts';
 import type { AgentCap } from '../src/lib/agentControls.ts';
 import { stepCounts } from '../src/lib/automation.ts';
 import { CATALOGS } from '../src/lib/i18n.ts';
@@ -69,5 +69,22 @@ describe('automation builder', () => {
   test('stepCounts counts email and task steps for the review card', () => {
     assert.deepEqual(stepCounts(['task.create', 'email.send', 'notify', 'email.send']), { email: 2, tasks: 1 });
     assert.deepEqual(stepCounts([]), { email: 0, tasks: 0 });
+  });
+});
+
+describe('reading every cap page', () => {
+  test('the totals cover every agent across pages, not only the first page', async () => {
+    const rows = Array.from({ length: 230 }, (_, i) => cap(`a${i}`, 1, 2));
+    const offsets: number[] = [];
+    const all = await readAllCaps(async (offset, limit) => { offsets.push(offset); return { items: rows.slice(offset, offset + limit), total: rows.length, resets_on: '2026-12-01' }; });
+    assert.deepEqual(offsets, [0, CAPS_PAGE_LIMIT, CAPS_PAGE_LIMIT * 2]);
+    assert.equal(all.items.length, 230);
+    assert.equal(spendTotals(all.items).used, 230);
+  });
+  test('a short or empty page stops the loop', async () => {
+    let calls = 0;
+    const all = await readAllCaps(async () => { calls += 1; return { items: [], total: 5, resets_on: 'x' }; });
+    assert.equal(calls, 1);
+    assert.equal(all.items.length, 0);
   });
 });
