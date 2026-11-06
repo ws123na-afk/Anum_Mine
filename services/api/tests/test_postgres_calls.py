@@ -106,6 +106,12 @@ def test_contacts_and_calls_are_isolated_per_tenant_under_forced_rls(client: Tes
     call = client.post("/api/v1/calls/log", headers=A_MEMBER, json={"contact_id": sara["id"], "outcome": "answered", "notes": "Quote"})
     assert call.status_code == 201, call.text
     assert client.get("/api/v1/calls/log", headers=A_MEMBER, params={"q": "quote"}).json()["total"] == 1
+    missed = client.post("/api/v1/calls/log", headers=A_MEMBER, json={"phone": "+97142223333", "outcome": "no_answer", "direction": "inbound", "duration_seconds": 4})
+    assert missed.status_code == 201, missed.text
+    summary = client.get("/api/v1/calls/log/summary", headers=A_MEMBER, params={"since": "2020-01-01T00:00:00Z"}).json()
+    assert (summary["calls"], summary["missed"], summary["talk_seconds"], summary["ai_pending"]) == (2, 1, 4, 0)
+    assert client.get("/api/v1/calls/log", headers=A_MEMBER, params={"until": "2020-01-01T00:00:00Z"}).json()["total"] == 0
+    assert client.get("/api/v1/calls/log/summary", headers=B).json()["calls"] == 0
     assert client.get("/api/v1/calls/contacts", headers=B).json()["total"] == 0
     assert client.get(f"/api/v1/calls/contacts/{sara['id']}", headers=B).status_code == 404
     assert client.get(f"/api/v1/calls/log/{call.json()['id']}", headers=B).status_code == 404

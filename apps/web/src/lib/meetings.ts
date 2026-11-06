@@ -175,3 +175,24 @@ export function pageNumbers(current: number, pages: number): (number | null)[] {
   sorted.forEach((page, index) => { if (index && page - sorted[index - 1] > 1) out.push(null); out.push(page); });
   return out;
 }
+
+/** The Meetings page tabs (docs/meetings.md#the-page). */
+export type MeetingsTab = 'records' | 'live' | 'connectors' | 'queue';
+export const MEETINGS_TABS: readonly MeetingsTab[] = ['records', 'live', 'connectors', 'queue'];
+
+/** How many of `items` are in each state (every state present, zero when none). */
+export function statusCounts(items: readonly { status: MeetingStatus }[]): Record<MeetingStatus, number> {
+  const counts = Object.fromEntries(STATUSES.map((status) => [status, 0])) as Record<MeetingStatus, number>;
+  for (const item of items) counts[item.status] += 1;
+  return counts;
+}
+
+/** Meetings that still need something: being processed, waiting for a model, or failed (newest first, as listed). */
+export function needsWork<T extends { status: MeetingStatus }>(items: readonly T[]): T[] {
+  return items.filter((item) => item.status !== 'ready');
+}
+
+/** Meetings whose summary was ready on `today` (a local "YYYY-MM-DD"); `dayOf` turns a time into the local day. */
+export function processedOn(items: readonly { status: MeetingStatus; updated_at: string }[], today: string, dayOf: (date: Date) => string): number {
+  return items.filter((item) => item.status === 'ready' && dayOf(new Date(item.updated_at)) === today).length;
+}

@@ -78,11 +78,24 @@ The second pass recomposed the most used pages on these tokens. Each keeps its r
 | Approvals | A review queue: from 1100 px an index of what waits (action, risk, age) sits beside the requests and opens one in place with focus; each request reads top to bottom and ends in one decision bar; its start edge carries the risk colour (the words stay in its meta line). Figures are one strip. | `ui-ux-pro-max` (approval queue), `high-end-visual-design` (one decision moment per card), `vectorlab-ux-skills:surfaces` |
 | Agents | A roster: one surface, a row per agent on hairlines, who it is and what it does on the start side, category, sharing and tools on the end side. | `redesign-existing-projects` (replace the card wall), `design-taste-frontend` (density for a daily tool) |
 | Agent controls | The page title is the only visible title; Refresh is quiet so the emergency stop is the page's main action; the stop card's start edge says its state. | `frontend-design` (one bold element), `vectorlab-ux-skills:verbs` |
-| Email | Three full panes (folders, messages, reader) up to 1680 px: the mailbox list becomes one row above the page instead of a fourth column. | `ui-ux-pro-max` (inbox pattern) |
+| Email | From 1280 px one rail on the start side holds All inboxes, the open mailbox's folders, the connected inboxes and Manage connections, so the mail keeps two full panes (messages and reader); narrower, the mailboxes are one row above the page. | `ui-ux-pro-max` (inbox pattern) |
 | ANUM Command | A smaller orb stage so the composer (the page's job) sits higher and is the raised surface; the capability tiles become one row of labelled shortcuts. | `frontend-design` (the order first), `vectorlab-ux-skills:typography` |
 | Business invoices | The money figures are one strip with hairlines; the table leads with the invoice number in the text colour, amounts in tabular figures. | `vectorlab-ux-skills:spacing`, `:colour-palette` |
 | Settings | From 1100 px the sections are a vertical list beside the open section; narrower screens keep the underlined row. | `ui-ux-pro-max` (settings pattern), `vectorlab-ux-skills:page-patterns` |
 | Summary figures everywhere (`.metrics`) | One strip with hairlines instead of separate cards; three to a row on phones. | `vectorlab-ux-skills:surfaces` |
+
+## Communication pages
+
+Phone calls, Calls & Meetings, AI Chat and Email use the shared page shell of the Finance pages (`FinanceShell.tsx`: `FinancePageHead` with its optional `icon` tile, `FinanceTabs`, `KpiRow`/`KpiCard`, `FinCard`, `FinBanner`, `StatusChip`). Strings are in `lib/messages/comms.en.ts` and `comms.ar.ts`. Every figure comes from the API; a section the API cannot fill is left out rather than drawn with sample data.
+
+| Page | Layout |
+|---|---|
+| Phone calls ([calls.md](calls.md#the-page)) | Head with the provider chip, tabs, four figures for today (`GET /calls/log/summary`); Recents beside the open call with a quick dial card and the AI calls card; Dial board (contacts, pad, the contact or how the call goes); AI calls queue, open request and form. |
+| Calls & Meetings ([meetings.md](meetings.md#the-page)) | Tabs Meeting records, Live meetings, Connectors and Processing queue; figures for records, processed today, needing attention and open action items; integration status, processing counts and privacy beside the records from 1360 px. |
+| AI Chat ([conversations.md](conversations.md#context-rail)) | New chat at the top of the list, conversations grouped by day (pinned first); the context rail's sources, tasks and memory are tabs. |
+| Email ([email.md](email.md#one-email-module)) | The rail above; the reader says the message opened safely; Connections has figures, one table of every mailbox and the security and send controls. |
+
+Not built, because the API has no data for them: the call audit trail and monthly call budget cards, a live call state card, the mail AI summary and related items cards beside the message, create a task from an email, sender identity and domain cards on Connections, the chat model picker and export menu in the header, and the meeting AI action item confidence table.
 
 ## Motion
 

@@ -294,6 +294,29 @@ def test_logging_a_dialer_call_matches_the_contact_and_pages(client: TestClient)
     assert client.get("/api/v1/calls/log", headers=MEMBER).json()["total"] == 2
 
 
+def test_calls_filter_by_period_and_the_summary_counts_them(client: TestClient) -> None:
+    now = utc_now()
+    earlier = (now - timedelta(days=3)).isoformat()
+    client.post("/api/v1/calls/log", headers=MEMBER, json={"phone": "+971501234567", "outcome": "answered", "duration_seconds": 95})
+    client.post("/api/v1/calls/log", headers=MEMBER, json={"phone": "+97142223333", "outcome": "no_answer", "direction": "inbound"})
+    client.post("/api/v1/calls/log", headers=OTHER, json={"phone": "+97142224444", "outcome": "missed", "direction": "inbound"})
+    client.post("/api/v1/calls/log", headers=MEMBER, json={"phone": "+97142225555", "outcome": "no_answer", "direction": "outbound", "duration_seconds": 5})
+    client.post("/api/v1/calls/log", headers=MEMBER, json={"phone": "+97142226666", "outcome": "answered", "duration_seconds": 600, "started_at": earlier})
+    today = (now - timedelta(hours=1)).isoformat()
+    assert client.get("/api/v1/calls/log", headers=MEMBER, params={"since": today}).json()["total"] == 4
+    assert client.get("/api/v1/calls/log", headers=MEMBER, params={"until": today}).json()["total"] == 1
+    summary = client.get("/api/v1/calls/log/summary", headers=MEMBER, params={"since": today})
+    assert summary.status_code == 200, summary.text
+    body = summary.json()
+    # An unanswered outgoing call is not a missed call; an unanswered incoming one is.
+    assert (body["calls"], body["missed"], body["talk_seconds"], body["ai_pending"]) == (4, 2, 100, 0)
+    assert client.get("/api/v1/calls/log/summary", headers=MEMBER, params={"since": today, "mine": "true"}).json()["calls"] == 3
+    assert client.get("/api/v1/calls/log/summary", headers=MEMBER).json()["talk_seconds"] == 700
+    assert client.get("/api/v1/calls/log/summary", headers=MEMBER, params={"since": today, "until": earlier}).status_code == 422
+    assert client.get("/api/v1/calls/log/summary", headers=ELSEWHERE).json()["calls"] == 0
+    assert client.get("/api/v1/calls/log/summary", headers=VIEWER).status_code == 403
+
+
 def test_log_validation_and_in_app_hook(client: TestClient) -> None:
     assert client.post("/api/v1/calls/log", headers=MEMBER, json={"outcome": "answered"}).status_code == 422
     future = (utc_now() + timedelta(hours=2)).isoformat()

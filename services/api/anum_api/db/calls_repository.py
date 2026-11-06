@@ -11,16 +11,20 @@ from datetime import datetime
 from typing import Any, TypeVar
 
 from pydantic import BaseModel
-from sqlalchemy import Boolean, DateTime, Integer, String, Text, delete, func, or_, select, text
+from sqlalchemy import Boolean, DateTime, Integer, String, Text, and_, delete, func, or_, select, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
 from anum_api.calls.store import (
     AiCallRequest,
+    AiRequestStatus,
     CallContact,
     CallEntry,
     CallFilter,
+    CallTotals,
+    Direction,
     OptOut,
+    Outcome,
     ProviderAccount,
 )
 from anum_api.maintenance import default_session_factory, discover
@@ -274,6 +278,10 @@ class SqlAlchemyCallsStore:
         return bool(result.rowcount)  # type: ignore[attr-defined]
 
     def list_calls(self, flt: CallFilter, *, offset: int, limit: int) -> tuple[list[CallEntry], int]:
+        where = self._call_where(flt)
+        return self._page(CallLogRecord, CallEntry, where, [CallLogRecord.started_at.desc(), CallLogRecord.id.desc()], offset, limit)
+
+    def _call_where(self, flt: CallFilter) -> list[Any]:
         where = self._scope(CallLogRecord)
         for column, value in (
             (CallLogRecord.direction, flt.direction), (CallLogRecord.outcome, flt.outcome), (CallLogRecord.kind, flt.kind),
@@ -281,12 +289,30 @@ class SqlAlchemyCallsStore:
         ):
             if value is not None:
                 where.append(column == (value.value if hasattr(value, "value") else value))
+        if flt.since is not None:
+            where.append(CallLogRecord.started_at >= flt.since)
+        if flt.until is not None:
+            where.append(CallLogRecord.started_at < flt.until)
         if flt.query:
             pattern = _like(flt.query)
             where.append(or_(*(column.ilike(pattern, escape="\\") for column in (
                 CallLogRecord.contact_name, CallLogRecord.phone, CallLogRecord.phone_normalized, CallLogRecord.notes, CallLogRecord.summary,
             ))))
-        return self._page(CallLogRecord, CallEntry, where, [CallLogRecord.started_at.desc(), CallLogRecord.id.desc()], offset, limit)
+        return where
+
+    def call_totals(self, flt: CallFilter) -> CallTotals:
+        missed = or_(
+            CallLogRecord.outcome == Outcome.MISSED.value,
+            and_(CallLogRecord.direction == Direction.INBOUND.value, CallLogRecord.outcome == Outcome.NO_ANSWER.value),
+        )
+        row = self.session.execute(
+            select(
+                func.count(),
+                func.count().filter(missed),
+                func.coalesce(func.sum(CallLogRecord.duration_seconds), 0),
+            ).select_from(CallLogRecord).where(*self._call_where(flt))
+        ).one()
+        return CallTotals(calls=int(row[0] or 0), missed=int(row[1] or 0), talk_seconds=int(row[2] or 0))
 
     def call_by_provider_id(self, provider_call_id: str) -> CallEntry | None:
         row = self._one(CallLogRecord, CallLogRecord.provider_call_id, provider_call_id)
@@ -365,3 +391,8 @@ class SqlAlchemyCallsStore:
             CallAiRequestRecord, AiCallRequest, self._scope(CallAiRequestRecord),
             [CallAiRequestRecord.created_at.desc(), CallAiRequestRecord.id.desc()], offset, limit,
         )
+
+    def count_requests(self, status: AiRequestStatus) -> int:
+        return int(self.session.scalar(
+            select(func.count()).select_from(CallAiRequestRecord).where(*self._scope(CallAiRequestRecord), CallAiRequestRecord.status == status.value)
+        ) or 0)

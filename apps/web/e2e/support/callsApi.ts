@@ -130,6 +130,8 @@ export async function mockCallsApi(page: Page, options: CallsMockOptions = {}): 
       if (failLog > 0) { failLog -= 1; return error(503, 'The database did not answer. Try again in a minute.'); }
       let items = log.filter((c) => !q || `${c.contact_name ?? ''} ${c.phone ?? ''} ${c.notes ?? ''} ${c.summary ?? ''}`.toLowerCase().includes(q));
       for (const key of ['direction', 'outcome', 'contact_id'] as const) { const value = url.searchParams.get(key); if (value) items = items.filter((c) => c[key] === value); }
+      const since = url.searchParams.get('since');
+      if (since) items = items.filter((c) => c.started_at >= since);
       items.sort((a, b) => b.started_at.localeCompare(a.started_at));
       return json(page_(items));
     }
@@ -143,6 +145,16 @@ export async function mockCallsApi(page: Page, options: CallsMockOptions = {}): 
       });
       log.unshift(created);
       return json(created, 201);
+    }
+    if (path === '/api/v1/calls/log/summary' && method === 'GET') {
+      const since = url.searchParams.get('since');
+      const period = log.filter((c) => !since || c.started_at >= since);
+      return json({
+        since, until: null, calls: period.length,
+        missed: period.filter((c) => c.outcome === 'missed' || (c.direction === 'inbound' && c.outcome === 'no_answer')).length,
+        talk_seconds: period.reduce((sum, c) => sum + (c.duration_seconds ?? 0), 0),
+        ai_pending: aiCalls.filter((a) => a.status === 'pending_approval').length,
+      });
     }
     const callMatch = /^\/api\/v1\/calls\/log\/([^/]+)(\/summarize|\/follow-up|\/follow-up\/task)?$/.exec(path);
     if (callMatch) {

@@ -1,19 +1,20 @@
 import { useCallback, useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { CopyAction } from './MessageActions';
-import { CheckCircle2, CircleDot, Copy, Link2, ListChecks, Lock, Mail, Pencil, PhoneCall, Plug, RefreshCw, Search, Send, Sparkles, Trash2, Unlink, Upload, X } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, CircleDot, Copy, Layers, Link2, ListChecks, Lock, Mail, Pencil, PhoneCall, Plug, RefreshCw, Search, Send, ShieldCheck, Sparkles, Trash2, Unlink, Upload, Video, X } from 'lucide-react';
 import * as api from './lib/api';
 import { ApiError, describeError, isPermissionDenied } from './lib/errors';
 import { formatDateTime, formatNumber, t, type MessageKey } from './lib/i18n';
 import {
-  clock, draftText, durationText, isWorking, mailtoLink, oauthCallback, pageNumbers, parseRecipients, sourceLabel,
-  statusLabel, statusTone, textDirection, uploadProblem, MEETING_PAGE_SIZE, STATUSES, TRANSCRIPT_PAGE_SIZE,
+  clock, draftText, durationText, isWorking, mailtoLink, needsWork, oauthCallback, pageNumbers, parseRecipients, processedOn, sourceLabel,
+  statusCounts, statusLabel, statusTone, textDirection, uploadProblem, MEETING_PAGE_SIZE, MEETINGS_TABS, STATUSES, TRANSCRIPT_PAGE_SIZE, type MeetingsTab,
   type ApiEmailAccountChoice, type ApiExternalMeeting, type ApiMeeting, type ApiMeetingSetup, type ApiTranscriptPage, type ConnectorProvider, type MeetingLanguage, type MeetingStatus,
 } from './lib/meetings';
 import * as meetingsApi from './lib/meetingsApi';
-import { actionItemCounts, figure, localDay, type ActionCounts } from './lib/pageSummary';
+import { actionItemCounts, localDay, type ActionCounts } from './lib/pageSummary';
 import { viewLabel } from './lib/shell';
 import { Drawer } from './Dialog';
-import { PageHeader, PageSummary, SPLIT_QUERY, SplitView, useMediaQuery } from './PageParts';
+import { SPLIT_QUERY, SplitView, useMediaQuery } from './PageParts';
+import { FinBanner, FinCard, FinancePageHead, FinanceTabs, KpiCard, KpiRow, StatusChip, tabPanel } from './FinanceShell';
 import './admin.css';
 import { MeetingRoomLauncher } from './MeetingRoomLauncher';
 import './meetings.css';
@@ -23,7 +24,7 @@ const fail = <T,>(e: unknown): Load<T> => isPermissionDenied(e) ? { state: 'deni
 const POLL_MS = 2500;
 /** Action items are counted over at most this many of the newest meetings (pages of 100). */
 const STATS_PAGES = 5;
-type Stats = { total: number; counted: number; actions: ActionCounts };
+type Stats = { total: number; counted: number; actions: ActionCounts; byStatus: Record<MeetingStatus, number>; processedToday: number; pending: ApiMeeting[] };
 
 /** Every meeting's action items, a page of 100 at a time, up to STATS_PAGES pages. */
 async function loadStats(): Promise<Stats> {
@@ -35,7 +36,11 @@ async function loadStats(): Promise<Stats> {
     items.push(...result.items);
     if (items.length >= total || result.items.length === 0) break;
   }
-  return { total, counted: items.length, actions: actionItemCounts(items, localDay(new Date())) };
+  const today = localDay(new Date());
+  return {
+    total, counted: items.length, actions: actionItemCounts(items, today), byStatus: statusCounts(items),
+    processedToday: processedOn(items, today, localDay), pending: needsWork(items).slice(0, 50),
+  };
 }
 
 /**
@@ -55,7 +60,7 @@ export function MeetingsView({ onOpenTasks, onOpenApprovals, onOpenSettings }: {
   const [offset, setOffset] = useState(0);
   const [selected, setSelected] = useState<string | null>(() => new URLSearchParams(location.hash.split('?')[1] ?? '').get('meeting'));
   const [picked, setPicked] = useState(() => (selected ? 1 : 0));
-  const [listTab, setListTab] = useState<'meetings' | 'connectors'>('meetings');
+  const [listTab, setListTab] = useState<MeetingsTab>('records');
   const [importing, setImporting] = useState(false);
   const [note, setNote] = useState<string | null>(null), [problem, setProblem] = useState<string | null>(null);
   const [agents, setAgents] = useState<string[]>([]);
@@ -122,36 +127,40 @@ export function MeetingsView({ onOpenTasks, onOpenApprovals, onOpenSettings }: {
 
   function submitSearch(event: FormEvent) { event.preventDefault(); setOffset(0); setQuery(draft.trim()); }
 
-  const figures = [
-    figure('meetings', t('pages.meetings.fig.meetings'), stats, () => ({ value: formatNumber(statsValue!.total), hint: partial ? t('pages.meetings.fig.counted', { count: statsValue!.counted }) : t('pages.meetings.fig.all') })),
-    figure('open', t('pages.meetings.fig.open'), stats, () => ({ value: formatNumber(statsValue!.actions.open), hint: t('pages.meetings.fig.openHint'), tone: statsValue!.actions.open ? 'accent' : '' })),
-    figure('overdue', t('pages.meetings.fig.overdue'), stats, () => ({ value: formatNumber(statsValue!.actions.overdue), hint: statsValue!.actions.overdue ? t('pages.meetings.fig.overdueHint') : t('pages.meetings.fig.noneOverdue'), tone: statsValue!.actions.overdue ? 'danger' : '' })),
-    figure('done', t('pages.meetings.fig.done'), stats, () => ({ value: formatNumber(statsValue!.actions.done), hint: t('pages.meetings.fig.doneHint'), tone: statsValue!.actions.done ? 'ok' : '' })),
-  ];
-
-  return <>
-    <PageHeader title={viewLabel('meetings')} subtitle={t('pages.meetings.subtitle')} actions={<>
+  const waiting = <span className="muted">{t('meetings.kpi.loading')}</span>;
+  const attention = statsValue ? statsValue.byStatus.failed + statsValue.byStatus.needs_model : 0;
+  const working_ = statsValue ? statsValue.byStatus.queued + statsValue.byStatus.transcribing + statsValue.byStatus.analyzing : 0;
+  const tabItems = MEETINGS_TABS.map((id) => ({ id, label: t(`meetings.tab.${id}` as MessageKey), badge: id === 'queue' && (attention + working_) ? formatNumber(attention + working_) : undefined }));
+  return <div className="finPage meetingsPage">
+    <FinancePageHead icon={<Video />} title={viewLabel('meetings')} subtitle={t('pages.meetings.subtitle')} actions={<>
       {info && <button type="button" className={`chipButton ${connectedCount ? 'success' : 'neutral'}`} onClick={() => setListTab('connectors')} aria-label={t('pages.meetings.connectorsChipLabel', { count: connectedCount })}><span className="chipDot" aria-hidden="true" /><span>{t('pages.meetings.connectorsChip', { count: connectedCount })}</span></button>}
       {canCreate && <button type="button" onClick={() => setImporting(true)}><Upload aria-hidden="true" />{t('meetings.importButton')}</button>}
-    </>} />
+    </>} tabs={<FinanceTabs label={t('pages.meetings.listTabs')} items={tabItems} value={listTab} idPrefix="meetings" onChange={setListTab} />} />
     {info && !info.can_create && <p className="notice" role="status"><Lock aria-hidden="true" />{t('meetings.viewerNote')}</p>}
     {info && !info.model_ready && <div className="notice" role="status"><Sparkles aria-hidden="true" /><span>{t('meetings.noModel')}</span>{onOpenSettings && <button type="button" className="secondary" onClick={onOpenSettings}>{t('meetings.openModelSettings')}</button>}</div>}
     {setup.state === 'error' && <ErrorNotice message={t('meetings.setupFailed', { message: setup.message })} onRetry={() => void loadSetup()} />}
     {note && <Notice>{note}</Notice>}
     {problem && <Notice error>{problem}</Notice>}
-    {page.state !== 'denied' && <PageSummary label={t('pages.meetings.summary')} figures={figures} onRetry={() => { setStats({ state: 'loading' }); void refreshStats(); }} />}
-
+    {page.state !== 'denied' && <KpiRow label={t('pages.meetings.summary')}>
+      <KpiCard icon={<Video />} label={t('meetings.kpi.records')} value={statsValue ? formatNumber(statsValue.total) : waiting}
+        hint={statsValue ? (partial ? t('pages.meetings.fig.counted', { count: statsValue.counted }) : t('pages.meetings.fig.all')) : undefined} />
+      <KpiCard icon={<Layers />} label={t('meetings.kpi.processed')} value={statsValue ? formatNumber(statsValue.processedToday) : waiting}
+        hint={statsValue ? (working_ ? t('meetings.kpi.working', { count: working_ }) : t('meetings.kpi.noneWorking')) : undefined} />
+      <KpiCard icon={<AlertTriangle />} label={t('meetings.kpi.attention')} value={statsValue ? formatNumber(attention) : waiting} tone={attention ? 'warn' : ''}
+        hint={statsValue ? (attention ? t('meetings.kpi.attentionHint') : t('meetings.kpi.noneAttention')) : undefined} />
+      <KpiCard icon={<ListChecks />} label={t('pages.meetings.fig.open')} value={statsValue ? formatNumber(statsValue.actions.open) : waiting} tone={statsValue?.actions.overdue ? 'bad' : ''}
+        hint={statsValue ? (statsValue.actions.overdue ? t('meetings.kpi.overdue', { count: statsValue.actions.overdue }) : t('pages.meetings.fig.noneOverdue')) : undefined} />
+    </KpiRow>}
+    {stats.state === 'error' && <ErrorNotice message={t('meetings.kpi.failed')} onRetry={() => void refreshStats()} />}
     {page.state === 'denied' && <section className="surface emptyState" aria-labelledby="meetings-denied"><Lock aria-hidden="true" /><h3 id="meetings-denied">{t('pages.meetings.deniedTitle')}</h3><p>{t('meetings.readDenied')}</p></section>}
-    {page.state !== 'denied' && <MeetingRoomLauncher />}
 
-    {page.state !== 'denied' && <SplitView className="meetingsSplit" show={selected ? 'detail' : 'list'}>
+    {page.state !== 'denied' && <div {...tabPanel('meetings', listTab)}>
+    {listTab === 'records' && <div className="meetingsBoard">
+    <SplitView className="meetingsSplit" show={selected ? 'detail' : 'list'}>
       <section data-pane="list" className="pane meetingsListPane" aria-label={t('meetings.list')} aria-busy={page.state === 'loading'}>
         <div className="paneHead meetingsListHead">
-          <div className="segmented" role="tablist" aria-label={t('pages.meetings.listTabs')}>
-            <button type="button" role="tab" aria-selected={listTab === 'meetings'} onClick={() => setListTab('meetings')}>{t('pages.meetings.tab.meetings', { count: total })}</button>
-            <button type="button" role="tab" aria-selected={listTab === 'connectors'} onClick={() => setListTab('connectors')}>{t('pages.meetings.tab.connectors')}</button>
-          </div>
-          {listTab === 'meetings' && page.state !== 'loading' && (total > 0 || searching) && <form className="toolbar meetingsListToolbar" role="search" onSubmit={submitSearch}>
+          <h2 className="meetingsListTitle">{t('pages.meetings.tab.meetings', { count: total })}</h2>
+          {page.state !== 'loading' && (total > 0 || searching) && <form className="toolbar meetingsListToolbar" role="search" onSubmit={submitSearch}>
             <label className="visuallyHidden" htmlFor={`${searchId}-q`}>{t('meetings.searchLabel')}</label>
             <input id={`${searchId}-q`} type="search" required value={draft} placeholder={t('meetings.searchLabel')} maxLength={200} onChange={(e) => { setDraft(e.target.value); if (!e.target.value) { setQuery(''); setOffset(0); } }} />
             <button type="submit" className="secondary iconOnly" aria-label={t('common.search')} title={t('common.search')}><Search aria-hidden="true" /></button>
@@ -162,7 +171,7 @@ export function MeetingsView({ onOpenTasks, onOpenApprovals, onOpenSettings }: {
             </select>
           </form>}
         </div>
-        {listTab === 'meetings' && <>
+        {<>
           {page.state === 'loading' && <div className="paneBody"><Notice>{t('meetings.loading')}</Notice></div>}
           {page.state === 'error' && <div className="paneBody"><ErrorNotice message={t('meetings.loadFailed', { message: page.message })} onRetry={() => void load()} /></div>}
           {page.state === 'ready' && page.value.items.length > 0 && <ul className="meetingRows">
@@ -194,26 +203,54 @@ export function MeetingsView({ onOpenTasks, onOpenApprovals, onOpenSettings }: {
             ? <div className="paneEmpty"><Search aria-hidden="true" /><h3>{t('meetings.noMatch')}</h3><p>{t('meetings.noMatchText')}</p><div className="actions"><button type="button" className="secondary" onClick={() => { setDraft(''); setQuery(''); setStatus(''); setOffset(0); }}>{t('meetings.clearSearch')}</button></div></div>
             : <div className="paneEmpty"><PhoneCall aria-hidden="true" /><h3>{t('meetings.empty')}</h3><p>{canCreate ? t('meetings.emptyText') : t('meetings.emptyReadOnly')}</p>{canCreate && <div className="actions"><button type="button" onClick={() => setImporting(true)}><Upload aria-hidden="true" />{t('meetings.importFirst')}</button></div>}</div>)}
         </>}
-        {listTab === 'connectors' && <div className="paneBody meetingConnectors">
-          {setup.state === 'loading' && <Notice>{t('pages.meetings.connectorsLoading')}</Notice>}
-          {setup.state === 'denied' && <p className="notice" role="status"><Lock aria-hidden="true" />{t('meetings.viewerNote')}</p>}
-          {setup.state === 'error' && <ErrorNotice message={t('meetings.setupFailed', { message: setup.message })} onRetry={() => void loadSetup()} />}
-          {info && !info.can_create && <p className="muted">{t('pages.meetings.connectorsViewer')}</p>}
-          {info && info.can_create && connectors.map((connector) => <section key={connector.provider} className="meetingConnectorBlock" aria-labelledby={`${searchId}-${connector.provider}`}>
-            <h3 id={`${searchId}-${connector.provider}`}><Plug aria-hidden="true" />{providerName(connector.provider)}<span className={`statusBadge ${connector.connected ? 'success' : connector.available ? 'neutral' : 'warning'}`}>{connector.connected ? t('pages.meetings.connector.connected') : connector.available ? t('pages.meetings.connector.notConnected') : t('pages.meetings.connector.notSetUp')}</span></h3>
-            <ConnectorImport provider={connector.provider} setup={info} language="auto" agent="" onSetupChanged={() => void loadSetup()} onImported={(meeting) => { setNote(t('meetings.imported', { title: meeting.title })); changed(); setListTab('meetings'); open(meeting.id); }} />
-          </section>)}
-        </div>}
       </section>
       <section data-pane="detail" className="pane meetingsDetailPane" aria-label={selected ? undefined : t('meetings.detail.title')}>
         {selected
           ? <MeetingDetail key={selected} meetingId={selected} setup={info} agents={agents} focusSignal={picked} onClose={() => open(null)} onChanged={changed} onDeleted={(title) => { open(null); setNote(t('meetings.deleted', { title })); changed(); }} onOpenTasks={onOpenTasks} onOpenApprovals={onOpenApprovals} onOpenSettings={onOpenSettings} />
           : <div className="paneEmpty"><PhoneCall aria-hidden="true" /><h3>{t('pages.meetings.pickTitle')}</h3><p>{total ? t('pages.meetings.pickText') : canCreate ? t('meetings.emptyText') : t('meetings.emptyReadOnly')}</p></div>}
       </section>
-    </SplitView>}
+    </SplitView>
+      <aside className="meetingsSide" aria-label={t('meetings.side.label')}>
+        <FinCard title={t('meetings.side.integrations')} icon={<Plug />} actions={<button type="button" className="linkButton" onClick={() => setListTab('connectors')}>{t('meetings.side.manage')}</button>}>
+          {setup.state === 'loading' && <p className="muted">{t('pages.meetings.connectorsLoading')}</p>}
+          {setup.state === 'error' && <p className="muted">{t('meetings.setupFailed', { message: setup.message })}</p>}
+          {connectors.length > 0 && <ul className="meetingsFacts">{connectors.map((connector) => <li key={connector.provider}>
+            <span>{providerName(connector.provider)}</span>
+            <StatusChip tone={connector.connected ? 'ok' : connector.available ? 'muted' : 'warn'}>{connector.connected ? t('pages.meetings.connector.connected') : connector.available ? t('pages.meetings.connector.notConnected') : t('pages.meetings.connector.notSetUp')}</StatusChip>
+          </li>)}</ul>}
+        </FinCard>
+        <FinCard title={t('meetings.side.queue')} icon={<Layers />} actions={<button type="button" className="linkButton" onClick={() => setListTab('queue')}>{t('meetings.side.viewAll')}</button>}>
+          {stats.state === 'loading' && <p className="muted">{t('meetings.kpi.loading')}</p>}
+          {stats.state === 'error' && <p className="muted">{t('meetings.kpi.failed')}</p>}
+          {statsValue && <ul className="meetingsFacts">{STATUSES.map((value) => <li key={value}><span>{statusLabel(value)}</span><strong>{formatNumber(statsValue.byStatus[value])}</strong></li>)}</ul>}
+        </FinCard>
+        <FinCard title={t('meetings.side.privacy')} icon={<ShieldCheck />}>
+          <ul className="meetingsPrivacy">
+            <li>{t('meetings.side.privacy1')}</li>
+            <li>{t('meetings.side.privacy2')}</li>
+            <li>{t('meetings.side.privacy3')}</li>
+          </ul>
+        </FinCard>
+      </aside>
+    </div>}
+    {listTab === 'live' && <FinCard title={t('meetings.tab.live')} icon={<Video />} className="meetingsLive"><MeetingRoomLauncher /></FinCard>}
+    {listTab === 'connectors' && <>
+      <div className="meetingConnectors meetingConnectorsGrid">
+          {setup.state === 'loading' && <Notice>{t('pages.meetings.connectorsLoading')}</Notice>}
+          {setup.state === 'denied' && <p className="notice" role="status"><Lock aria-hidden="true" />{t('meetings.viewerNote')}</p>}
+          {setup.state === 'error' && <ErrorNotice message={t('meetings.setupFailed', { message: setup.message })} onRetry={() => void loadSetup()} />}
+          {info && !info.can_create && <p className="muted">{t('pages.meetings.connectorsViewer')}</p>}
+          {info && info.can_create && connectors.map((connector) => <section key={connector.provider} className="finCard meetingConnectorBlock" aria-labelledby={`${searchId}-${connector.provider}`}>
+            <h3 id={`${searchId}-${connector.provider}`}><Plug aria-hidden="true" />{providerName(connector.provider)}<span className={`statusBadge ${connector.connected ? 'success' : connector.available ? 'neutral' : 'warning'}`}>{connector.connected ? t('pages.meetings.connector.connected') : connector.available ? t('pages.meetings.connector.notConnected') : t('pages.meetings.connector.notSetUp')}</span></h3>
+            <ConnectorImport provider={connector.provider} setup={info} language="auto" agent="" onSetupChanged={() => void loadSetup()} onImported={(meeting) => { setNote(t('meetings.imported', { title: meeting.title })); changed(); setListTab('records'); open(meeting.id); }} />
+          </section>)}
+      </div>
+    </>}
+    {listTab === 'queue' && <QueueTab stats={stats} onRetry={() => void refreshStats()} onOpen={(id) => { setListTab('records'); open(id); }} />}
+    </div>}
 
-    {importing && info && <ImportDrawer setup={info} agents={agents} onClose={() => setImporting(false)} onSetupChanged={() => void loadSetup()} onImported={(meeting) => { setImporting(false); setNote(t('meetings.imported', { title: meeting.title })); changed(); open(meeting.id); }} />}
-  </>;
+    {importing && info && <ImportDrawer setup={info} agents={agents} onClose={() => setImporting(false)} onSetupChanged={() => void loadSetup()} onImported={(meeting) => { setImporting(false); setNote(t('meetings.imported', { title: meeting.title })); changed(); setListTab('records'); open(meeting.id); }} />}
+  </div>;
 }
 
 const providerName = (provider: ConnectorProvider) => provider === 'zoom' ? 'Zoom' : 'Microsoft Teams';
@@ -221,6 +258,27 @@ const providerName = (provider: ConnectorProvider) => provider === 'zoom' ? 'Zoo
 // ------------------------------------------------------------------------------------------- import
 
 type ImportTab = 'transcript' | 'recording' | 'zoom' | 'teams';
+
+/** The meetings still being processed, waiting for a model, or failed, each with the way to open it. */
+function QueueTab({ stats, onRetry, onOpen }: { stats: { state: 'loading' } | { state: 'ready'; value: Stats } | { state: 'error' }; onRetry(): void; onOpen(id: string): void }) {
+  if (stats.state === 'loading') return <Notice>{t('meetings.kpi.loading')}</Notice>;
+  if (stats.state === 'error') return <ErrorNotice message={t('meetings.kpi.failed')} onRetry={onRetry} />;
+  const { byStatus, pending } = stats.value;
+  return <div className="meetingsQueue">
+    <FinCard title={t('meetings.side.queue')} icon={<Layers />} subtitle={t('meetings.queue.counted', { count: stats.value.counted })}>
+      <ul className="meetingsQueueCounts">{STATUSES.map((value) => <li key={value}><StatusChip tone={value === 'ready' ? 'ok' : value === 'failed' ? 'bad' : value === 'needs_model' ? 'warn' : 'info'}>{statusLabel(value)}</StatusChip><strong>{formatNumber(byStatus[value])}</strong></li>)}</ul>
+    </FinCard>
+    <FinCard title={t('meetings.queue.waiting')} icon={<AlertTriangle />}>
+      {pending.length === 0 ? <FinBanner tone="ok" icon={<CheckCircle2 />} title={t('meetings.queue.clear')}>{t('meetings.queue.clearText')}</FinBanner>
+        : <ul className="meetingsQueueList">{pending.map((meeting) => <li key={meeting.id}>
+          <div><strong dir="auto">{meeting.title}</strong><small className="muted">{[sourceLabel(meeting.source), formatDateTime(meeting.created_at, { dateStyle: 'medium', timeStyle: 'short' })].join(' · ')}</small>
+            {meeting.error && <small className="muted" dir="auto">{meeting.error}</small>}</div>
+          <span className={`statusBadge ${statusTone(meeting.status)}`}>{statusLabel(meeting.status)}</span>
+          <button type="button" className="secondary" onClick={() => onOpen(meeting.id)} aria-label={t('meetings.queue.openLabel', { title: meeting.title })}>{t('meetings.queue.open')}</button>
+        </li>)}</ul>}
+    </FinCard>
+  </div>;
+}
 
 function ImportDrawer({ setup, agents, onClose, onImported, onSetupChanged }: { setup: ApiMeetingSetup; agents: string[]; onClose(): void; onImported(meeting: ApiMeeting): void; onSetupChanged(): void }) {
   const [tab, setTab] = useState<ImportTab>(() => setup.connectors.some((c) => c.connected) ? (setup.connectors.find((c) => c.connected)?.provider ?? 'transcript') : 'transcript');

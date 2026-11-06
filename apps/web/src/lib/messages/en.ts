@@ -98,6 +98,7 @@ import { mailOpsEn } from './mailOps.en.ts';
 import { mailDomainsEn } from './mailDomains.en.ts';
 import { mailEn } from './mail.en.ts';
 import { callsEn } from './calls.en.ts';
+import { commsEn } from './comms.en.ts';
 import { executiveEn } from './executive.en.ts';
 import { paBriefingEn } from './paBriefing.en.ts';
 import { chatEn } from './chat.en.ts';
@@ -171,6 +172,7 @@ export const en = {
   ...mailDomainsEn,
   ...mailEn,
   ...callsEn,
+  ...commsEn,
   ...executiveEn,
   ...paBriefingEn,
   ...chatEn,

@@ -600,6 +600,14 @@ def withdraw_consent(contact_id: str, context: TenantContext = Depends(tenant_co
 # -- call log --------------------------------------------------------------------------------
 
 
+def _window(since: datetime | None, until: datetime | None) -> tuple[datetime | None, datetime | None]:
+    """A call window from the query: both ends timezone aware (a time without one reads as UTC)."""
+    since, until = (value.replace(tzinfo=timezone.utc) if value is not None and value.tzinfo is None else value for value in (since, until))
+    if since is not None and until is not None and until <= since:
+        raise HTTPException(status_code=422, detail="The end of the period must come after its start.")
+    return since, until
+
+
 @router.get("/log", response_model=CallPage)
 def list_calls(
     q: str | None = Query(default=None, max_length=200),
@@ -608,16 +616,49 @@ def list_calls(
     kind: CallKind | None = None,
     contact_id: str | None = Query(default=None, max_length=80),
     mine: bool = False,
+    since: datetime | None = None,
+    until: datetime | None = None,
     offset: int = Query(default=0, ge=0),
     limit: int = Query(default=DEFAULT_PAGE, ge=1, le=MAX_PAGE),
     context: TenantContext = Depends(tenant_context),
 ) -> CallPage:
     require(context, Permission.CALL_READ)
     offset, limit = _page(offset, limit)
-    flt = CallFilter(query=_text(q), direction=direction, outcome=outcome, kind=kind, contact_id=contact_id, user_id=context.user_id if mine else None)
+    since, until = _window(since, until)
+    flt = CallFilter(
+        query=_text(q), direction=direction, outcome=outcome, kind=kind, contact_id=contact_id,
+        user_id=context.user_id if mine else None, since=since, until=until,
+    )
     with open_calls_store(context) as store:
         items, total = store.list_calls(flt, offset=offset, limit=limit)
     return CallPage(items=[_call_view(context, item) for item in items], total=total, offset=offset, limit=limit)
+
+
+class CallSummary(BaseModel):
+    """The Phone calls page's figures for a period: calls, missed calls, talk time and AI calls waiting."""
+
+    since: datetime | None
+    until: datetime | None
+    calls: int
+    missed: int
+    talk_seconds: int
+    ai_pending: int
+
+
+@router.get("/log/summary", response_model=CallSummary)
+def call_summary(
+    since: datetime | None = None,
+    until: datetime | None = None,
+    mine: bool = False,
+    context: TenantContext = Depends(tenant_context),
+) -> CallSummary:
+    """Counts over the calls this person may read that started in the period (the whole log without one)."""
+    require(context, Permission.CALL_READ)
+    since, until = _window(since, until)
+    with open_calls_store(context) as store:
+        totals = store.call_totals(CallFilter(since=since, until=until, user_id=context.user_id if mine else None))
+        pending = store.count_requests(AiRequestStatus.PENDING_APPROVAL)
+    return CallSummary(since=since, until=until, calls=totals.calls, missed=totals.missed, talk_seconds=totals.talk_seconds, ai_pending=pending)
 
 
 @router.post("/log", response_model=CallView, status_code=status.HTTP_201_CREATED)

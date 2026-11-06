@@ -2,7 +2,7 @@
 // envelope); the server checks call:read, call:log and call:manage on every route.
 import { apiRequest, apiRequestVoid } from './api';
 import {
-  callsPath, contactsPath,
+  callsPath, contactsPath, summaryPath, type ApiCallSummary,
   type ApiAiCall, type ApiBrowserCall, type ApiCall, type ApiCallsSetup, type ApiContact, type ApiOptOut, type ApiProvider,
   type ConsentMethod, type Direction, type Outcome, type Page,
 } from './calls';
@@ -24,8 +24,9 @@ export const recordConsent = (contactId: string, body: { method: ConsentMethod; 
   apiRequest<ApiContact>(`${base}/contacts/${id(contactId)}/ai-consent`, json('PUT', body));
 export const withdrawConsent = (contactId: string) => apiRequest<ApiContact>(`${base}/contacts/${id(contactId)}/ai-consent`, json('DELETE'));
 
-export const listCalls = (options: { query?: string; direction?: Direction | ''; outcome?: Outcome | ''; contactId?: string; mine?: boolean; offset?: number; limit?: number }) =>
+export const listCalls = (options: { query?: string; direction?: Direction | ''; outcome?: Outcome | ''; contactId?: string; mine?: boolean; since?: string | null; offset?: number; limit?: number }) =>
   apiRequest<Page<ApiCall>>(callsPath(options), { method: 'GET' });
+export const getSummary = (since: string | null) => apiRequest<ApiCallSummary>(summaryPath(since), { method: 'GET' });
 export const getCall = (callId: string) => apiRequest<ApiCall>(`${base}/log/${id(callId)}`, { method: 'GET' });
 export interface CallInput { contact_id?: string; phone?: string; direction: Direction; outcome: Outcome; started_at?: string; duration_seconds?: number | null; notes?: string }
 export const logCall = (body: CallInput) => apiRequest<ApiCall>(`${base}/log`, json('POST', { kind: 'phone', ...body }));

@@ -3,14 +3,16 @@
 // approval of the exact number, purpose and script. The provider is the workspace's own Twilio
 // account, stored encrypted; nothing here costs anything until the owner connects one.
 import { useCallback, useEffect, useId, useState, type FormEvent } from 'react';
-import { Bot, Copy, Lock, PhoneCall, Plug, RefreshCw, ShieldOff, Unlink } from 'lucide-react';
+import { AlertTriangle, ArrowRight, Bot, CheckCircle2, Copy, FileText, Lock, PhoneCall, Plug, Plus, RefreshCw, ShieldCheck, ShieldOff, Unlink } from 'lucide-react';
 import { ConfirmDialog } from './Dialog';
 import { ErrorNotice, Notice, Pager } from './CallsParts';
+import { FinBanner, FinCard, StatusChip } from './FinanceShell';
+import { shortHash } from './lib/approvals';
 import { describeError, isPermissionDenied } from './lib/errors';
 import { formatDateTime, t, type MessageKey } from './lib/i18n';
 import {
-  aiStatusLabel, aiTone, costText, providerBody, providerSteps, PAGE_SIZE,
-  type ApiAiCall, type ApiCallsSetup, type ApiContact, type ApiOptOut, type ApiProvider,
+  AI_FILTERS, aiCount, aiStatusLabel, aiTone, costText, durationText, providerBody, providerSteps, PAGE_SIZE,
+  type AiFilter, type ApiAiCall, type ApiCallsSetup, type ApiContact, type ApiOptOut, type ApiProvider,
 } from './lib/calls';
 import * as callsApi from './lib/callsApi';
 import type { Load } from './lib/pageSummary';
@@ -19,55 +21,115 @@ const fail = <T,>(e: unknown): Load<T> => isPermissionDenied(e) ? { state: 'deni
 
 // ----------------------------------------------------------------------------------------- AI calls
 
-export function AiCallsTab({ refresh, setup, contacts, onOpenApprovals, onOpenCall, onOpenContacts }: {
-  refresh: number; setup: ApiCallsSetup | null; contacts: ApiContact[]; onOpenApprovals?(): void; onOpenCall(id: string): void; onOpenContacts(): void;
+const chipTone = (status: ApiAiCall['status']): 'ok' | 'warn' | 'bad' | 'muted' =>
+  status === 'completed' ? 'ok' : status === 'failed' ? 'bad' : status === 'pending_approval' || status === 'calling' ? 'warn' : 'muted';
+
+/** The Recents card for AI calls: the newest requests and their state, and the way to the AI calls tab. */
+export function AiCallsCard({ refresh, setup, onOpenAi, onOpenApprovals }: { refresh: number; setup: ApiCallsSetup | null; onOpenAi(): void; onOpenApprovals?(): void }) {
+  const [page, setPage] = useState<Load<{ items: ApiAiCall[]; total: number }>>({ state: 'loading' });
+  const load = useCallback(() => { callsApi.listAiCalls(0).then((value) => setPage({ state: 'ready', value }), (e) => setPage(fail(e))); }, [refresh]); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { load(); }, [load]);
+  const total = page.state === 'ready' ? page.value.total : null;
+  return <FinCard title={total === null ? t('calls.aiCard.title') : t('calls.aiCard.titleCount', { count: total })} icon={<Bot />} className="callsAiCard"
+    actions={<button type="button" className="linkButton" onClick={onOpenAi}>{t('calls.aiCard.all')}<ArrowRight aria-hidden="true" className="flipRtl" /></button>}>
+    {page.state === 'loading' && <Notice>{t('calls.ai.loading')}</Notice>}
+    {page.state === 'error' && <ErrorNotice message={t('calls.ai.failed', { message: page.message })} onRetry={load} />}
+    {page.state === 'denied' && <p className="notice" role="status"><Lock aria-hidden="true" />{page.message}</p>}
+    {page.state === 'ready' && !page.value.items.length && <div className="callsCardEmpty"><p className="muted">{setup?.capabilities.ai_calls ? t('calls.aiCard.empty') : t('calls.aiCard.off')}</p>
+      <div className="actions"><button type="button" className="secondary" onClick={onOpenAi}>{setup?.capabilities.ai_calls ? t('calls.aiCard.ask') : t('calls.aiCard.howOn')}</button></div></div>}
+    {page.state === 'ready' && page.value.items.length > 0 && <ul className="callsAiMini">{page.value.items.slice(0, 3).map((item) => <li key={item.id}>
+      <div className="callsAiMiniTop"><strong dir="auto">{t('calls.aiCard.row', { purpose: item.purpose, name: item.contact_name })}</strong><StatusChip tone={chipTone(item.status)}>{aiStatusLabel(item.status)}</StatusChip></div>
+      <small className="muted"><bdi dir="ltr">{item.phone_masked}</bdi> · {formatDateTime(item.created_at, { dateStyle: 'medium', timeStyle: 'short' })}</small>
+      {item.status === 'pending_approval' && <p className="callsAiMiniNote">{t('calls.aiCard.waiting')}{onOpenApprovals && <> <button type="button" className="linkButton" onClick={onOpenApprovals}>{t('calls.ai.openApprovals')}</button></>}</p>}
+    </li>)}</ul>}
+  </FinCard>;
+}
+
+export function AiCallsTab({ refresh, setup, contacts, onOpenApprovals, onOpenCall, onOpenContacts, onOpenProvider }: {
+  refresh: number; setup: ApiCallsSetup | null; contacts: ApiContact[]; onOpenApprovals?(): void; onOpenCall(id: string): void; onOpenContacts(): void; onOpenProvider?(): void;
 }) {
   const ids = useId();
   const [page, setPage] = useState<Load<{ items: ApiAiCall[]; total: number }>>({ state: 'loading' });
   const [offset, setOffset] = useState(0);
+  const [filter, setFilter] = useState<AiFilter>('all');
+  const [picked, setPicked] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null), [problem, setProblem] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const load = useCallback(() => { callsApi.listAiCalls(offset).then((value) => setPage({ state: 'ready', value }), (e) => setPage(fail(e))); }, [offset, refresh]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { load(); }, [load]);
   const consenting = contacts.filter((item) => item.ai_consent && !item.opted_out);
   const caps = setup?.capabilities;
+  const items = page.state === 'ready' ? page.value.items : [];
+  const shown = filter === 'all' ? items : items.filter((item) => item.status === filter);
+  const current = shown.find((item) => item.id === picked) ?? shown[0] ?? null;
+  const cancel = (item: ApiAiCall) => { setBusy(item.id); setProblem(null); callsApi.cancelAiCall(item.id).then(() => { setNote(t('calls.ai.cancelled')); load(); }, (e) => setProblem(describeError(e))).finally(() => setBusy(null)); };
 
-  return <div className="callsColumns">
-    <section className="pane callsAiNew" aria-labelledby={`${ids}-new`}>
-      <div className="paneHead"><h2 id={`${ids}-new`}><Bot aria-hidden="true" />{t('calls.ai.new')}</h2></div>
-      <div className="paneBody">
-        <p className="muted">{t('calls.ai.rules')}</p>
-        {!setup?.can_log && <p className="notice" role="status"><Lock aria-hidden="true" /><span>{t('calls.ai.blocked.role')}</span></p>}
-        {setup?.can_log && !caps?.ai_calls && <p className="notice" role="status"><Plug aria-hidden="true" /><span>{caps?.ai_problem ?? t('calls.ai.blocked.off')}</span></p>}
-        {setup?.can_log && caps?.ai_calls && (consenting.length
-          ? <AiCallForm contacts={consenting} centsPerMinute={caps.cost_per_minute_cents} onSent={() => { setNote(t('calls.ai.sent')); setOffset(0); load(); }} />
-          : <div className="paneEmpty"><Bot aria-hidden="true" /><p>{t('calls.ai.noConsenting')}</p><div className="actions"><button type="button" className="secondary" onClick={onOpenContacts}>{t('calls.tab.contacts')}</button></div></div>)}
-        {note && <p className="notice" role="status"><Bot aria-hidden="true" /><span>{note}</span>{onOpenApprovals && <button type="button" className="secondary" onClick={onOpenApprovals}>{t('calls.ai.openApprovals')}</button>}</p>}
-      </div>
-    </section>
-    <section className="pane" aria-labelledby={`${ids}-list`} aria-busy={page.state === 'loading'}>
-      <div className="paneHead"><h2 id={`${ids}-list`}>{t('calls.ai.title')}</h2></div>
-      <div className="paneBody">
-        {problem && <Notice error>{problem}</Notice>}
+  return <div className="callsAiBoard">
+    {!caps?.ai_calls && <FinBanner tone="warn" icon={<AlertTriangle />} title={t('calls.aiBoard.offTitle')}
+      action={setup?.can_manage && onOpenProvider ? <button type="button" className="secondary" onClick={onOpenProvider}>{t('calls.aiBoard.toProvider')}<ArrowRight aria-hidden="true" className="flipRtl" /></button> : undefined}>
+      {caps?.ai_problem ?? t('calls.ai.blocked.off')}
+    </FinBanner>}
+    {note && <p className="notice" role="status"><Bot aria-hidden="true" /><span>{note}</span>{onOpenApprovals && <button type="button" className="secondary" onClick={onOpenApprovals}>{t('calls.ai.openApprovals')}</button>}</p>}
+    {problem && <Notice error>{problem}</Notice>}
+    <div className="callsAiGrid">
+      <FinCard title={t('calls.aiBoard.queue')} icon={<Bot />} className="callsAiQueue" id={`${ids}-list`}>
+        {page.state === 'ready' && items.length > 0 && <div className="callsFilterChips" role="radiogroup" aria-label={t('calls.aiBoard.filter')}>
+          {AI_FILTERS.map((value) => <button key={value} type="button" role="radio" aria-checked={filter === value} className="callsFilterChip" onClick={() => { setFilter(value); setPicked(null); }}>
+            {value === 'all' ? t('calls.aiBoard.all') : aiStatusLabel(value)} ({aiCount(items, value)})
+          </button>)}
+        </div>}
         {page.state === 'loading' && <Notice>{t('calls.ai.loading')}</Notice>}
         {page.state === 'error' && <ErrorNotice message={t('calls.ai.failed', { message: page.message })} onRetry={load} />}
         {page.state === 'denied' && <p className="notice" role="status"><Lock aria-hidden="true" />{page.message}</p>}
-        {page.state === 'ready' && !page.value.items.length && <div className="paneEmpty"><Bot aria-hidden="true" /><h3>{t('calls.ai.empty')}</h3><p>{t('calls.ai.emptyText')}</p></div>}
-        {page.state === 'ready' && page.value.items.length > 0 && <ul className="callsAiList">{page.value.items.map((item) => <li key={item.id}>
-          <div className="callsRowTop"><strong dir="auto">{item.contact_name}</strong><span className={`statusBadge ${aiTone(item.status)}`}>{aiStatusLabel(item.status)}</span></div>
-          <small className="muted"><bdi dir="ltr">{item.phone_masked}</bdi> · {formatDateTime(item.created_at)} · {t('calls.ai.requestedBy', { who: item.requested_by })}</small>
-          <p dir="auto">{t('calls.ai.purposeShort', { purpose: item.purpose })}</p>
-          {item.error && <p className="muted" dir="auto">{item.error}</p>}
-          <div className="actions">
-            {item.status === 'pending_approval' && onOpenApprovals && <button type="button" className="secondary" onClick={onOpenApprovals}>{t('calls.ai.openApprovals')}</button>}
-            {item.status === 'pending_approval' && setup?.can_log && <button type="button" className="secondary" disabled={busy !== null} onClick={() => { setBusy(item.id); setProblem(null); callsApi.cancelAiCall(item.id).then(() => { setNote(t('calls.ai.cancelled')); load(); }, (e) => setProblem(describeError(e))).finally(() => setBusy(null)); }}>{t('calls.ai.cancel')}</button>}
-            {item.call_id && <button type="button" className="secondary" onClick={() => onOpenCall(item.call_id!)}><PhoneCall aria-hidden="true" />{t('calls.ai.openCall')}</button>}
-          </div>
+        {page.state === 'ready' && !items.length && <div className="paneEmpty"><Bot aria-hidden="true" /><h3>{t('calls.ai.empty')}</h3><p>{t('calls.ai.emptyText')}</p></div>}
+        {page.state === 'ready' && items.length > 0 && !shown.length && <p className="muted">{t('calls.aiBoard.noneInFilter')}</p>}
+        {shown.length > 0 && <ul className="callsAiList">{shown.map((item) => <li key={item.id} className={current?.id === item.id ? 'selected' : undefined}>
+          <button type="button" className="callsAiPick" aria-current={current?.id === item.id ? 'true' : undefined} onClick={() => setPicked(item.id)}>
+            <span className="callsRowTop"><strong dir="auto">{item.purpose}</strong><span className={`statusBadge ${aiTone(item.status)}`}>{aiStatusLabel(item.status)}</span></span>
+            <small className="muted"><span dir="auto">{item.contact_name}</span> · <bdi dir="ltr">{item.phone_masked}</bdi> · {formatDateTime(item.created_at, { dateStyle: 'medium', timeStyle: 'short' })}</small>
+          </button>
         </li>)}</ul>}
         {page.state === 'ready' && <Pager offset={offset} limit={PAGE_SIZE} total={page.value.total} onOffset={setOffset} />}
+      </FinCard>
+      <section className="finCard callsAiDetail" aria-labelledby={`${ids}-detail`}>
+        {current ? <>
+          <div className="finCardHead"><h2 id={`${ids}-detail`} dir="auto">{current.purpose}</h2><StatusChip tone={chipTone(current.status)}>{aiStatusLabel(current.status)}</StatusChip></div>
+          <p className="muted"><span dir="auto">{current.contact_name}</span> · <bdi dir="ltr">{current.phone_masked}</bdi></p>
+          <dl className="callsFactsList">
+            <div><dt>{t('calls.aiBoard.recipient')}</dt><dd><span dir="auto">{current.contact_name}</span> <bdi dir="ltr">{current.phone_masked}</bdi></dd></div>
+            <div><dt>{t('calls.ai.language')}</dt><dd>{t(`calls.contact.lang.${current.language}` as MessageKey)}</dd></div>
+            <div><dt>{t('calls.aiBoard.longest')}</dt><dd dir="ltr">{durationText(current.max_seconds)}</dd></div>
+            <div><dt>{t('calls.aiBoard.costCeiling')}</dt><dd dir="ltr">{`$${(current.max_cost_cents / 100).toFixed(2)}`}</dd></div>
+            <div><dt>{t('calls.aiBoard.requestedBy')}</dt><dd>{current.requested_by}</dd></div>
+            <div><dt>{t('calls.aiBoard.requested')}</dt><dd>{formatDateTime(current.created_at, { dateStyle: 'medium', timeStyle: 'short' })}</dd></div>
+          </dl>
+          <div className="callsScript"><h3><FileText aria-hidden="true" />{t('calls.aiBoard.script')}</h3><pre dir="auto">{current.script}</pre></div>
+          <div className="callsCompliance"><h3><ShieldCheck aria-hidden="true" />{t('calls.aiBoard.rulesTitle')}</h3><p className="muted">{t('calls.ai.rules')}</p></div>
+          {current.error && <Notice error>{current.error}</Notice>}
+          {current.status === 'pending_approval' && <FinBanner tone="ok" icon={<CheckCircle2 />} title={t('calls.aiBoard.approvalTitle')}>
+            {t('calls.aiBoard.approvalText', { hash: shortHash(current.approval?.payload_hash) })}
+          </FinBanner>}
+          <div className="actions">
+            {current.status === 'pending_approval' && onOpenApprovals && <button type="button" onClick={onOpenApprovals}>{t('calls.ai.openApprovals')}</button>}
+            {current.status === 'pending_approval' && setup?.can_log && <button type="button" className="secondary danger" disabled={busy !== null} onClick={() => cancel(current)}>{t('calls.ai.cancel')}</button>}
+            {current.call_id && <button type="button" className="secondary" onClick={() => onOpenCall(current.call_id!)}><PhoneCall aria-hidden="true" />{t('calls.ai.openCall')}</button>}
+          </div>
+        </> : <div className="paneEmpty"><Bot aria-hidden="true" /><h2 id={`${ids}-detail`} className="callsEmptyTitle">{t('calls.aiBoard.pickTitle')}</h2><p>{t('calls.aiBoard.pickText')}</p></div>}
+      </section>
+      <div className="callsAiSide">
+        <section className="pane callsAiNew" aria-labelledby={`${ids}-new`}>
+          <div className="paneHead"><h2 id={`${ids}-new`}><Plus aria-hidden="true" />{t('calls.ai.new')}</h2></div>
+          <div className="paneBody">
+            {!setup?.can_log && <p className="notice" role="status"><Lock aria-hidden="true" /><span>{t('calls.ai.blocked.role')}</span></p>}
+            {setup?.can_log && !caps?.ai_calls && <p className="muted">{t('calls.aiBoard.formOff')}</p>}
+            {setup?.can_log && caps?.ai_calls && (consenting.length
+              ? <AiCallForm contacts={consenting} centsPerMinute={caps.cost_per_minute_cents} onSent={() => { setNote(t('calls.ai.sent')); setOffset(0); setFilter('all'); setPicked(null); load(); }} />
+              : <div className="paneEmpty"><Bot aria-hidden="true" /><p>{t('calls.ai.noConsenting')}</p><div className="actions"><button type="button" className="secondary" onClick={onOpenContacts}>{t('calls.tab.contacts')}</button></div></div>)}
+          </div>
+        </section>
+        <OptOuts setup={setup} />
       </div>
-    </section>
-    <OptOuts setup={setup} />
+    </div>
   </div>;
 }
 

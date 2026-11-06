@@ -379,3 +379,15 @@ export function exportFileName(title: string): string {
   const slug = title.normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '-').replace(/^-+|-+$/g, '').slice(0, 60);
   return `${slug || 'conversation'}.md`;
 }
+
+/** The AI Chat list's day groups: today, yesterday, the last 7 days, then older, each in the order given. */
+export type ChatDay = 'today' | 'yesterday' | 'week' | 'older';
+export function conversationsByDay<T extends { updated_at: string }>(items: readonly T[], now: Date): { day: ChatDay; items: T[] }[] {
+  const start = (back: number) => new Date(now.getFullYear(), now.getMonth(), now.getDate() - back).getTime();
+  const groups: Record<ChatDay, T[]> = { today: [], yesterday: [], week: [], older: [] };
+  for (const item of items) {
+    const at = new Date(item.updated_at).getTime();
+    groups[at >= start(0) ? 'today' : at >= start(1) ? 'yesterday' : at >= start(6) ? 'week' : 'older'].push(item);
+  }
+  return (['today', 'yesterday', 'week', 'older'] as const).filter((day) => groups[day].length > 0).map((day) => ({ day, items: groups[day] }));
+}

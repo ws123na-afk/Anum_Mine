@@ -99,6 +99,7 @@ import { mailOpsAr } from './mailOps.ar.ts';
 import { mailDomainsAr } from './mailDomains.ar.ts';
 import { mailAr } from './mail.ar.ts';
 import { callsAr } from './calls.ar.ts';
+import { commsAr } from './comms.ar.ts';
 import { executiveAr } from './executive.ar.ts';
 import { paBriefingAr } from './paBriefing.ar.ts';
 import { chatAr } from './chat.ar.ts';
@@ -172,6 +173,7 @@ export const ar: Record<MessageKey, Message> = {
   ...mailDomainsAr,
   ...mailAr,
   ...callsAr,
+  ...commsAr,
   ...executiveAr,
   ...paBriefingAr,
   ...chatAr,
