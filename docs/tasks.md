@@ -72,9 +72,24 @@ Retry creates a new run for a `failed` or `cancelled` task; earlier runs, their 
 
 ## Web (Tasks view)
 
+The Tasks page (owner's mockups 29, 36, 44 and 45) has one head with four tabs (`apps/web/src/TasksTabs.tsx`): **My tasks**, **Team tasks**, **Agent tasks** and **Approvals**. The tab picked last is remembered for the browser tab; opening a task from anywhere else (Home, Calendar, Command) opens Agent tasks. Approvals stays its own route (`#approvals`, [Approvals and Risk](approvals-and-risk.md#user-experience)) and draws the same head, so its other tabs lead back to `#tasks`.
+
+### My tasks and Team tasks
+
+People's work items from [Team Work](team-work.md#work-items) (`apps/web/src/WorkTasks.tsx`, grouping in `src/lib/workTasks.ts`): My tasks lists `scope=mine`, Team tasks every item in the workspace.
+
+- A KPI row: **Overdue**, **Due today**, **In progress** (with how many are blocked) and **Completed this week** (since Monday, from `completed_at`). A figure whose list failed says Unavailable; when more open items exist than the 200 loaded, the figures carry a `+` and **Load more** reads the next page.
+- One table, grouped **Overdue**, **Due today**, **In progress**, **Blocked**, **To do** and **Completed this week** (each group folds), with the title (checklist and comment counts), priority, owner, due date and time left ("Due in 8 hours", "3 days late", Completed). Search (server side, debounced) and a priority filter; Clear filters.
+- Each row has a **Mark done** box (`PATCH` with the item's `version`; a stale version or a refusal shows the API's sentence and reloads). Picking a title opens the item's detail beside the table (status, priority, assignee, due and follow-up, checklist, files, comments, Delete; the same detail as Team). **New task** opens the work form; **Ask ANUM to assign work** sits under the table.
+- States: loading, empty (with New task), no match (with Clear filters), list error with Retry, refused (the API's reason).
+
+Not built from the mockups: **Projects** and **Templates** (ANUM has no task projects or task templates; building them needs new tables), bulk actions, saved views, linked modules, reminders per item and the approval audit trail on a work item.
+
+### Agent tasks
+
 `apps/web/src/TasksView.tsx`, helpers in `src/lib/tasks.ts` and `src/lib/tasksApi.ts`:
 
-- One header row and a summary band from `GET /tasks/summary` (active, waiting approval, completed, failed or cancelled, archived); a band whose summary failed says **Unavailable**, never the loaded rows' count.
+- A summary band from `GET /tasks/summary` (active, waiting approval, completed, failed or cancelled, archived); a band whose summary failed says **Unavailable**, never the loaded rows' count.
 - The composer is a bar across the page above the figures (Ctrl+Enter runs it). **Run task** stays clickable: with nothing written it says "Write what the task should do, then run it.", marks the field and focuses it. Viewers still see it disabled with the reason.
 - A split view (`PageParts.tsx` `SplitView`): the history on the start side, the selected task on the end side. Below 1024px one or the other shows, with **Back to the list**, and the composer bar gives way while a task is open.
 - History with server-side search (debounced), status, creator, date range and "Show archived"; "Clear filters"; keyset "Load more tasks"; per-row checkboxes with "Select all loaded" (at most 100) and a bulk bar (Archive, Restore, and for owners Cancel with a confirm step).
@@ -85,7 +100,7 @@ Retry creates a new run for a `failed` or `cancelled` task; earlier runs, their 
 
 Every string is in the English and Arabic catalogs (`src/lib/messages/en.ts` and `ar.ts`, `tasks.*` keys, [Web localization](web-localization.md)); user and model text is `dir="auto"`, ids and tool names stay left to right, and the layout uses logical CSS properties.
 
-Tests: `apps/web/test/tasks.test.ts`, `apps/web/test/tasksQuery.test.ts`, `apps/web/e2e/tasks.spec.ts` (stateful mock in `e2e/tasks-mock.ts`) `e2e/core-journey.spec.ts`, and the shared `e2e/accessibility.spec.ts` and `e2e/localization.spec.ts`.
+Tests: `apps/web/test/tasks.test.ts`, `apps/web/test/tasksQuery.test.ts`, `apps/web/test/workTasks.test.ts`, `apps/web/e2e/tasks.spec.ts`, `apps/web/e2e/tasks-work.spec.ts` (stateful mock in `e2e/tasks-mock.ts`) `e2e/core-journey.spec.ts`, and the shared `e2e/accessibility.spec.ts` and `e2e/localization.spec.ts`.
 
 ## Flutter (Tasks screens)
 

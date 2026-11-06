@@ -105,6 +105,7 @@ import { chatAr } from './chat.ar.ts';
 import { setupAr } from './setup.ar.ts';
 import { pagesAr } from './pages.ar.ts';
 import { calendarAr } from './calendar.ar.ts';
+import { tasksPageAr } from './tasksPage.ar.ts';
 import { pages2Ar } from './pages2.ar.ts';
 
 export const ar: Record<MessageKey, Message> = {
@@ -178,6 +179,7 @@ export const ar: Record<MessageKey, Message> = {
   ...setupAr,
   ...pagesAr,
   ...calendarAr,
+  ...tasksPageAr,
   ...pages2Ar,
   // ---- Common ----
   'common.listAnd': '{head} و{last}',

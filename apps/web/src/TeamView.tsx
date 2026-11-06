@@ -52,7 +52,7 @@ function DueLabel({ item }: { item: Pick<WorkItem, 'due_at' | 'status'> }) {
 }
 
 /** Shared lookups for the assignee pickers: people (with profiles) and enabled assistants. */
-function useDirectory() {
+export function useDirectory() {
   const [people, setPeople] = useState<TeamPerson[]>([]);
   const [assistants, setAssistants] = useState<AssistantProfile[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -119,7 +119,7 @@ function sessionStorageSet(key: string, value: string): void { try { sessionStor
 
 // ------------------------------------------------------------------------- Ask ANUM
 
-function CommandBox({ options, onCreated }: { options: ReturnType<typeof assigneeOptions>; onCreated(item: WorkItemDetail): void }) {
+export function CommandBox({ options, onCreated }: { options: ReturnType<typeof assigneeOptions>; onCreated(item: WorkItemDetail): void }) {
   const [text, setText] = useState('');
   const [preview, setPreview] = useState<CommandPreview | null>(null);
   const [choice, setChoice] = useState('');
@@ -175,7 +175,7 @@ function CommandBox({ options, onCreated }: { options: ReturnType<typeof assigne
 
 // ------------------------------------------------------------------------- new work
 
-function WorkForm({ options, onCancel, onCreated }: { options: ReturnType<typeof assigneeOptions>; onCancel(): void; onCreated(item: WorkItemDetail): void }) {
+export function WorkForm({ options, onCancel, onCreated }: { options: ReturnType<typeof assigneeOptions>; onCancel(): void; onCreated(item: WorkItemDetail): void }) {
   const [draft, setDraft] = useState<WorkDraft>(emptyDraft);
   const [errors, setErrors] = useState<ReturnType<typeof draftBody>['errors']>({});
   const [busy, setBusy] = useState(false);
@@ -439,7 +439,7 @@ function ProfileForm({ person, onDone }: { person: TeamPerson; onDone(): void })
 
 // ------------------------------------------------------------------------- detail
 
-function WorkDetail({ itemId, options, onClose, onChanged }: { itemId: string; options: ReturnType<typeof assigneeOptions>; onClose(): void; onChanged(): void }) {
+export function WorkDetail({ itemId, options, onClose, onChanged }: { itemId: string; options: ReturnType<typeof assigneeOptions>; onClose(): void; onChanged(): void }) {
   const [item, setItem] = useState<WorkItemDetail | null>(null);
   const [error, setError] = useState<{ text: string; missing?: boolean } | null>(null);
   const [flash, setFlash] = useState<Flash>(null);

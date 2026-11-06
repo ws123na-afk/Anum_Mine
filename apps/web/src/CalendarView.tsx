@@ -191,7 +191,7 @@ export function CalendarView({ onOpenTask, onOpenInbox, onOpenApprovals, onOpenM
     {note && <p className="notice" role="status">{note}</p>}
     <div {...tabPanel(`${ids}-cal`, tab)}>
       {tab === 'calendar' && <div className={`calLayout ${detailOpen ? 'withDetail' : ''}`}>
-        {showMain && <CalendarRail anchor={anchor} mode={mode} now={now} events={events} page={page} sync={sync} hiddenKinds={hiddenKinds} canWrite={canWrite}
+        {showMain && <CalendarRail anchor={anchor} mode={mode} now={now} events={events} page={page} sync={sync} hiddenKinds={hiddenKinds} canWrite={canWrite} selected={selected}
           onPick={(day) => goTo(day, mode === 'agenda' || mode === 'month' ? 'day' : undefined)} onToggleKind={(kind) => setHiddenKinds((old) => { const next = new Set(old); if (next.has(kind)) next.delete(kind); else next.add(kind); return next; })}
           onSelect={(id) => setSelected(id)} onOpenSync={() => setTab('sync')} onSynced={(message) => { setNote(message); loadSync(); loadEvents(); }} />}
         {showMain && <section className="calMain" aria-labelledby={`${ids}-agenda`} aria-busy={page.state === 'loading'}>
@@ -273,8 +273,8 @@ export function CalendarView({ onOpenTask, onOpenInbox, onOpenApprovals, onOpenM
 
 // ------------------------------------------------------------------------- the rail
 
-function CalendarRail({ anchor, mode, now, events, page, sync, hiddenKinds, canWrite, onPick, onToggleKind, onSelect, onOpenSync, onSynced }: {
-  anchor: Date; mode: CalendarMode; now: Date; events: CalendarEventView[]; page: Load<EventPage>; sync: Load<SyncSetup>; hiddenKinds: Set<EventKind>; canWrite: boolean;
+function CalendarRail({ anchor, mode, now, events, page, sync, hiddenKinds, canWrite, selected, onPick, onToggleKind, onSelect, onOpenSync, onSynced }: {
+  anchor: Date; mode: CalendarMode; now: Date; events: CalendarEventView[]; page: Load<EventPage>; sync: Load<SyncSetup>; hiddenKinds: Set<EventKind>; canWrite: boolean; selected: string | null;
   onPick(day: Date): void; onToggleKind(kind: EventKind): void; onSelect(id: string): void; onOpenSync(): void; onSynced(message: string): void;
 }) {
   const conflicts = useMemo(() => findConflicts(events), [events]);
@@ -327,10 +327,12 @@ function CalendarRail({ anchor, mode, now, events, page, sync, hiddenKinds, canW
     </section>
     <section className="calCard" aria-labelledby="cal-rail-next">
       <h3 id="cal-rail-next">{t('calendar.rail.next')}</h3>
-      {next ? <button type="button" className="calNext" onClick={() => onSelect(next.id)}>
-        <strong dir="auto">{next.title}</strong>
-        <small>{formatDateTime(next.starts_at, { weekday: 'short', day: 'numeric', month: 'short' })}, {timeOf(next.starts_at)} <span className="calIn">({inText(next.starts_at, now)})</span></small>
-      </button> : <p className="muted">{page.state === 'ready' ? t('calendar.rail.noNext') : t('page.figure.unavailable')}</p>}
+      {next ? (() => {
+        const body = <><strong dir="auto">{next.title}</strong>
+          <small>{formatDateTime(next.starts_at, { weekday: 'short', day: 'numeric', month: 'short' })}, {timeOf(next.starts_at)} <span className="calIn">({inText(next.starts_at, now)})</span></small></>;
+        // Already open beside the calendar: a summary, not a button that would do nothing.
+        return selected === next.id ? <p className="calNext current">{body}</p> : <button type="button" className="calNext" onClick={() => onSelect(next.id)}>{body}</button>;
+      })() : <p className="muted">{page.state === 'ready' ? t('calendar.rail.noNext') : t('page.figure.unavailable')}</p>}
     </section>
     <p className="calZone"><Globe2 aria-hidden="true" /><span>{t('calendar.rail.zone', { zone: timeZone })}</span></p>
   </aside>;

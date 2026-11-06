@@ -17,6 +17,7 @@ import { ApprovalPolicyView, BudgetExceededNotice, BudgetsView, MembersView } fr
 import { getApprovalPolicy, getCurrentWorkspace } from './lib/adminApi';
 import { PendingScreen, SignInScreen } from './SignInView';
 import { TasksView } from './TasksView';
+import { rememberTasksTab } from './TasksTabs';
 import type { MemoryTarget } from './SourcesUsed';
 import { isActiveOwner } from './lib/capabilities';
 import type { NotificationPreferences } from './lib/push';
@@ -149,7 +150,7 @@ function App({onSwitchWorkspace,onSwitchOrganisation}:{onSwitchWorkspace:(worksp
  // A task an automation step created: load it (it may be newer than the list) and show it under Tasks.
  // Links on chat cards (docs/conversations.md#tools-in-chat) open the item in its own view.
  const openChatTarget=(target:ChatTarget)=>{switch(target.kind){case 'email':setEmailFocus(target.id);go('inbox');break;case 'inbox':setEmailFocus(null);go('inbox');break;case 'whatsapp':setWaFocus(target.id);go('whatsapp');break;case 'whatsappView':setWaFocus(null);go('whatsapp');break;case 'file':setFileFocus(target.id);go('files');break;case 'files':setFileFocus(null);go('files');break;case 'memory':setMemoryChats(false);setMemoryFocus({id:target.id,title:target.title});go('memory');break;case 'task':openTask(target.id);break;case 'approvals':go('approvals');break;case 'commerce':go('commerce');break;case 'tyre':go('tyre');break;case 'finance':go('finance');break}};
- const openTask=(id:string)=>void doIt(async()=>{const t=await api.getTask(id);setTasks(ts=>ts.some(x=>x.id===t.id)?ts:[t,...ts]);setTask(t);setRun(null);go('tasks')});
+ const openTask=(id:string)=>void doIt(async()=>{const t=await api.getTask(id);setTasks(ts=>ts.some(x=>x.id===t.id)?ts:[t,...ts]);setTask(t);setRun(null);rememberTasksTab('agent');go('tasks')});
  const openFile=(id:string)=>{setFileFocus(id);go('files')};
  const openPalette=useCallback(()=>setPaletteOpen(true),[]);
  usePaletteShortcut(openPalette);

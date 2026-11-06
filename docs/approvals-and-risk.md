@@ -23,6 +23,8 @@ When an agent proposes a risky action, the runtime should pause execution, emit 
 
 Approval prompts should be concrete. Users need to see what will happen, which account or integration will be used, what data will be sent, what can be undone, and why ANUM is asking. The product should avoid vague prompts such as "approve this action".
 
+On the web the approval queue is the **Approval inbox** (`#approvals`, `apps/web/src/ApprovalsView.tsx`), drawn as a tab of the Tasks page (owner's mockup 45): a KPI row from `GET /approvals/summary` (pending, lapsed, approved, rejected; a failed summary says Unavailable), the filters and search, and on wide screens a table of what waits (tool, risk, requested by, submitted, when it lapses) beside the request cards; picking a row brings its card into view with focus. Each card still shows the exact call and its payload hash, and Approve sends back the hash shown (`POST /approve {"payload_hash": ...}`). Not built from the mockup: approval delegation, escalation rules and bulk review (no API for them; a bulk approval would have to show and send each payload hash).
+
 ## Emergency stop
 
 While the organization's [emergency stop](agent-controls.md) is on, `POST /api/v1/approvals/{id}/approve` answers `423` (`agents_stopped`) and the approval stays pending; rejecting still works. The tool registry refuses the call even if it was approved earlier.

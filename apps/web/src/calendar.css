@@ -288,3 +288,4 @@
   .calModes > button { flex: 1; padding: 0 var(--d-s2); }
 }
 .calMonthDays .calendarEvents, .calDay .calendarEvents { grid-template-columns: minmax(0, 1fr); }
+.calNext.current { cursor: default; margin: 0; }
