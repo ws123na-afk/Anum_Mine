@@ -23,6 +23,9 @@ async function enterFleetBuilding(page: Page) {
 }
 
 test('the campus shows one building per workspace with real counts, and opens a building', async ({ page }) => {
+  // It waits for the 3D scene and opens a building on a software rasteriser: the same budget as the other scene tests here
+  // (hq-interior.spec.ts openBuilding), never less than the 30s default.
+  test.setTimeout(Math.max(test.info().timeout, 120_000));
   await openOffice(page);
   const canvas = hq(page).locator('canvas.hqCanvas');
   await sceneReady(page);
