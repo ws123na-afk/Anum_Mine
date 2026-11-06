@@ -2,6 +2,9 @@ import { expect, test, type Page } from '@playwright/test';
 import { hqRegistry, openHq, TENANT_A } from './support/hqApi';
 import { historyFixture, mockHistory, record, type HistoryMock, type HistoryMockOptions } from './support/hqHistoryApi';
 
+// The 3D office draws on a software renderer in CI, where loading a scene alone can take most of a minute.
+test.describe.configure({ timeout: 150_000 });
+
 // The office history panel (docs/ANUM_MINE_HQ_HISTORY_PANEL.md). Everything shown comes from the mocked
 // /office-history answers; the tests check that filters become server parameters, that long histories page,
 // that a record opens in the side panel with its sources, and that the room slider never invents a state.

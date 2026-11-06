@@ -3,6 +3,9 @@ import { hqRegistry, openHq, TENANT_A } from './support/hqApi';
 import { flowItems, mockFlow, type FlowMock } from './support/hqFlowApi';
 import { sceneSettled } from './support/hqScene';
 
+// The 3D office draws on a software renderer in CI, where loading a scene alone can take most of a minute.
+test.describe.configure({ timeout: 150_000 });
+
 // Live flow, stuck work and office teams in the headquarters (docs/ANUM_MINE_HQ_LIVE_FLOW.md).
 // Everything shown comes from the mocked /office/flow, /office/team and event stream; the tests
 // check that a marker moves only when the answer moves, and that every state says what to do.

@@ -4,6 +4,9 @@ import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { openBuilder } from './support/hqBuilderApi';
 
+// The 3D office draws on a software renderer in CI, where loading a scene alone can take most of a minute.
+test.describe.configure({ timeout: 150_000 });
+
 // Layout history, restore and templates in the office builder (docs/ANUM_MINE_LAYOUT_HISTORY.md): the main
 // path, every state (loading, empty, error, denied, conflict), keyboard, Arabic and the five viewports.
 // The API is mocked at http://localhost:8000/** with the server's rules (support/hqLayoutHistoryApi.ts).

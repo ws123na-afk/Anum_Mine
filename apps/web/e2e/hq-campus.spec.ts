@@ -3,6 +3,9 @@ import { mockHq, type HqMockOptions } from './support/hqCampusApi';
 import { useSavedLocale } from './support/workspaceApi';
 import { cameraOptions, officeMenuItem, reloadReleasingGl, sceneReady } from './support/hqScene';
 
+// The 3D office draws on a software renderer in CI, where loading a scene alone can take most of a minute.
+test.describe.configure({ timeout: 150_000 });
+
 // ANUM MINE headquarters (docs/ANUM_MINE_HQ_EXTENSION_POINTS.md): the campus of workspaces, the
 // building cutaway, the accessible list, the no-WebGL fallback and the navigation command. The API is
 // mocked at http://localhost:8000 like the other specs; every name and number below is plainly fake.
@@ -23,8 +26,6 @@ async function enterFleetBuilding(page: Page) {
 }
 
 test('the campus shows one building per workspace with real counts, and opens a building', async ({ page }) => {
-  // sceneReady allows the software renderer in CI up to 90 s to draw the campus; the test's own budget must cover that.
-  test.setTimeout(150_000);
   await openOffice(page);
   const canvas = hq(page).locator('canvas.hqCanvas');
   await sceneReady(page);
