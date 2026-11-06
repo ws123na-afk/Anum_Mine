@@ -6,7 +6,7 @@ This is not the phone dialer or provider calling ([Phone calls](calls.md), under
 
 ## What a person can do
 
-- **Call a teammate.** Web: Team, People, then **Call** or **Video** next to a person. Flutter: Settings or the menu, Team work, **Team calls**, People. Every active member of the workspace can call and be called, viewers included.
+- **Call a teammate.** Web: Team, Directory, then **Call** or **Video** in a person's row (or in their member panel); the **Team calls** tab holds the history. Flutter: Settings or the menu, Team work, **Team calls**, People. Every active member of the workspace can call and be called, viewers included.
 - **Answer or decline.** An incoming call shows the caller's name, voice or video, and **Answer**, **Answer with video** (video calls) and **Decline**, above whatever screen is open. Every device of the person rings; the one that answers takes the call and the others stop ("You answered this call on another device").
 - **During the call:** the timer, **Mute**, **Speaker** (web: the other person's audio on or off; phone: loudspeaker or earpiece), **Turn camera off/on** (video calls) and **Hang up**. On the web the call can be minimised to a small bar while you keep working.
 - **After the call:** what happened ("Call ended, call lasted 2:10", "Ahmed declined the call", "No answer", "On another call", "Could not connect", "Call dropped") with **Call again**.

@@ -258,3 +258,87 @@
 .mailAliasName input { flex: 1 1 auto; min-width: 0; }
 .mailAliasName span { overflow-wrap: anywhere; }
 @media (max-width: 560px) { .mailDnsChecks li { grid-template-columns: auto minmax(0, 1fr); } .mailDnsMessage { grid-column: 1 / -1; } }
+
+/* ---- Team page tabs from the owner's mockups (TeamPeople.tsx, docs/team-work.md#team-page) ---- */
+.tpPage { display: grid; gap: var(--d-s4); min-width: 0; }
+.tpStack { display: grid; gap: var(--d-s4); min-width: 0; }
+.tpSplit { align-items: start; display: grid; gap: var(--d-s4); grid-template-columns: minmax(0, 1fr); min-width: 0; }
+@media (min-width: 1024px) { .tpSplit.withDetail { grid-template-columns: minmax(0, 1fr) minmax(300px, 360px); } }
+.tpSplit > * { min-width: 0; }
+.tpFilters { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2) var(--d-s3); }
+.tpSearch { align-items: center; display: flex; flex: 1 1 240px; min-width: 0; position: relative; }
+.tpSearch svg { color: var(--d-faint); height: 16px; inset-inline-start: var(--d-s2); pointer-events: none; position: absolute; width: 16px; }
+.tpSearch input { min-width: 0; padding-inline-start: 32px; width: 100%; }
+.tpSelect { align-items: center; display: inline-flex; gap: var(--d-s2); margin: 0; }
+.tpSelect span { color: var(--d-muted); font-size: var(--text-sm); white-space: nowrap; }
+.tpSelect select { min-height: 40px; width: auto; }
+.tpTable { min-width: 680px; }
+.tpTable td, .tpTable th { vertical-align: middle; }
+.tpTable tr.selected > * { background: rgb(var(--c-ok) / .08); }
+.tpPerson { align-items: center; background: transparent; border: 0; color: var(--d-text); cursor: pointer; display: flex; font: inherit; gap: var(--d-s2); min-height: 40px; padding: 0; text-align: start; width: 100%; }
+.tpPerson.static { cursor: default; }
+.tpPerson > span:last-child, .tpPeopleList li > span { display: grid; min-width: 0; }
+.tpPerson strong { font-weight: 600; overflow-wrap: anywhere; }
+.tpPerson small, .tpPeopleList small { color: var(--d-muted); font-size: var(--text-xs); font-weight: 400; overflow-wrap: anywhere; }
+button.tpPerson:hover strong { text-decoration: underline; }
+.tpPerson > svg { color: var(--d-faint); height: 16px; margin-inline-start: auto; width: 16px; }
+.tpAvatar { align-items: center; background: var(--d-glass-2); border-radius: 50%; color: var(--d-accent-text); display: inline-flex; flex: none; font-size: var(--text-xs); font-weight: 700; height: 34px; justify-content: center; width: 34px; }
+.tpAvatar.dept svg { height: 18px; width: 18px; }
+.tpZone { color: var(--d-muted); font-size: var(--text-xs); white-space: nowrap; }
+.tpLate { color: var(--d-stop); font-weight: 600; }
+.tpPanel { gap: var(--d-s3); }
+.tpPanelHead { align-items: flex-start; display: flex; gap: var(--d-s3); }
+.tpPanelHead .tpAvatar { font-size: var(--text-md); height: 52px; width: 52px; }
+.tpPanelHead > div { flex: 1; min-width: 0; }
+.tpPanelHead h2 { font-size: var(--text-xl); margin: 0; overflow-wrap: anywhere; }
+.tpPanelHead p { margin: 2px 0 0; }
+.tpClose { align-items: center; display: inline-flex; justify-content: center; min-height: 32px; min-width: 32px; padding: 0; }
+.tpClose svg { height: 16px; width: 16px; }
+.tpChips { display: flex; flex-wrap: wrap; gap: var(--d-s1); }
+.tpFacts { display: grid; gap: var(--d-s2); margin: 0; }
+.tpFacts > div { align-items: center; display: flex; gap: var(--d-s2); }
+.tpFacts dt { color: var(--d-muted); display: inline-flex; }
+.tpFacts dt svg { height: 16px; width: 16px; }
+.tpFacts dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.tpSection { border-top: 1px solid var(--d-line); display: grid; gap: var(--d-s2); padding-top: var(--d-s3); }
+.tpSection h3 { align-items: center; display: inline-flex; font-size: var(--text-md); gap: var(--d-s2); margin: 0; }
+.tpSection h3 svg { color: var(--d-accent); height: 16px; width: 16px; }
+.tpSection p { margin: 0; }
+.tpNumbers { display: grid; gap: var(--d-s2); grid-template-columns: repeat(2, minmax(0, 1fr)); list-style: none; margin: 0; padding: 0; }
+.tpNumbers li { background: var(--d-glass-1); border-radius: var(--d-r-control); display: grid; padding: var(--d-s2) var(--d-s3); }
+.tpNumbers strong { font-size: var(--text-xl); font-variant-numeric: tabular-nums; }
+.tpNumbers span { color: var(--d-muted); font-size: var(--text-xs); }
+.tpNumbers li.bad strong { color: var(--d-stop); }
+.tpPanelActions { border-top: 1px solid var(--d-line); display: flex; flex-wrap: wrap; gap: var(--d-s2); padding-top: var(--d-s3); }
+.tpPanelActions > button, .tpPanelActions > a, .secondaryLink { align-items: center; display: inline-flex; gap: var(--d-s2); min-height: 40px; }
+.secondaryLink { border: 1px solid var(--d-line-strong); border-radius: var(--d-r-control); color: var(--d-text); font-weight: 600; padding: 0 var(--d-s3); text-decoration: none; }
+.secondaryLink:hover { background: var(--d-glass-1); }
+.tpPanelActions svg, .secondaryLink svg { height: 16px; width: 16px; }
+.tpPeopleList { display: grid; gap: var(--d-s2); list-style: none; margin: 0; padding: 0; }
+.tpPeopleList li { align-items: center; display: flex; gap: var(--d-s2); }
+.tpRoleCards { display: grid; gap: var(--d-s3); grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); list-style: none; margin: 0; padding: 0; }
+.tpRoleCards li { border: 1px solid var(--d-line); border-radius: var(--d-r-panel); display: grid; gap: 2px; padding: var(--d-s3); }
+.tpRoleCards span { font-size: var(--text-sm); }
+.tpRoleCards small { color: var(--d-accent-text); font-weight: 600; }
+.tpMatrix { min-width: 520px; }
+.tpMatrix td { white-space: nowrap; }
+.tpGroupRow th { background: var(--d-glass-1); font-weight: 650; }
+.tpGroupRow span { color: var(--d-muted); font-weight: 500; }
+.tpState { color: var(--d-muted); font-size: var(--text-xs); }
+.tpRowActions { display: flex; flex-wrap: wrap; gap: var(--d-s1); justify-content: flex-end; }
+.tpRowActions button { min-height: 32px; padding: 0 var(--d-s2); }
+.tpRowActions svg { height: 14px; width: 14px; }
+.dangerText { color: var(--d-stop); }
+.tpNote { font-size: var(--text-sm); margin: 0; }
+.tpPage .teamSplit { margin: 0; }
+@media (max-width: 760px) { .tpSelect { flex: 1 1 140px; } .tpSelect select { width: 100%; } }
+.tpPage .teamMain { display: grid; gap: var(--d-s4); align-content: start; }
+/* Phones: the invitations table drops the date and details so Resend and Revoke stay in view. */
+@media (max-width: 760px) {
+  .tpWideOnly { display: none; }
+  .tpTable.tpInv { min-width: 0; }
+  .tpInv .tpRowActions { justify-content: flex-start; }
+}
+.tpStack > * { min-width: 0; }
+/* Visually hidden cell text is positioned: keep it inside the scrolling table, not the page. */
+.tpPage .finTableWrap { position: relative; }
