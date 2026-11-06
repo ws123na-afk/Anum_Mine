@@ -72,6 +72,8 @@ import { purchasesEn } from './purchases.en.ts';
 import { businessBooksEn } from './businessBooks.en.ts';
 import { iphoneEn } from './iphone.en.ts';
 import { vaultEn } from './vault.en.ts';
+import { autoPageEn } from './autoPage.en.ts';
+import { agentsPageEn } from './agentsPage.en.ts';
 import { helpEn } from './help.en.ts';
 import { publicSiteEn } from './publicSite.en.ts';
 import { ownerEn } from './en.owner.ts';
@@ -151,6 +153,8 @@ export const en = {
   ...businessBooksEn,
   ...iphoneEn,
   ...vaultEn,
+  ...agentsPageEn,
+  ...autoPageEn,
   ...helpEn,
   ...publicSiteEn,
   ...agentSkillsEn,

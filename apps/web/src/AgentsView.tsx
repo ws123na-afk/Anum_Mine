@@ -1,77 +1,59 @@
-// Agents (docs/agents.md): the agents people build in a workspace. A list with category filters and
-// search, a create/edit wizard (start from a template or from scratch), and an agent's page with
-// Chat, Call, Edit and More, and the Overview, Skills, Memory and Settings tabs.
-import { useCallback, useEffect, useId, useMemo, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from 'react';
+// Agents (docs/agents.md): the agents people build in a workspace. The page head with the My agents,
+// Templates, Org chart and Spending tabs; a card grid with an overview rail and a preview panel; a
+// create/edit wizard (start from a template or from scratch); and an agent's page with Chat, Call,
+// Edit and More, the identity and boundaries side cards, and the Overview, Skills, Memory, Settings
+// and Activity tabs.
+import { useCallback, useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import {
-  AlertTriangle, ArrowLeft, BarChart3, Bot, Briefcase, Calendar, Check, CircleDot, Ellipsis, FileText, Heart, Lock, Mail, MessageSquare,
-  Pause, Pencil, Phone, Play, Plus, RefreshCw, Search, ShoppingCart, Sparkles, Trash2, Truck, User, Users, Wrench,
+  ArrowLeft, Bot, Check, Ellipsis, FileText, History, LayoutTemplate, Lock, MessageSquare,
+  Pause, Pencil, Phone, Play, Plus, RefreshCw, Search, Settings2, ShieldCheck, Trash2, Wallet,
 } from 'lucide-react';
 import type { Task } from '@anum/contracts';
 import { AgentMemoryPanel } from './AgentMemoryPanel';
 import { AgentSkillsPanel } from './AgentSkillsPanel';
-import { AvatarChip, AvatarStyleEditor, roleFamilyOf } from './AvatarStyleEditor';
+import { AgentList } from './AgentsList';
+import { AGENT_ICONS, AgentAvatar, BoundaryList, capText, explain, Meter, Notice, useAgentCaps, useRole, type CapsLoad, type Role } from './AgentsParts';
+import { AvatarStyleEditor, roleFamilyOf } from './AvatarStyleEditor';
 import { ChatView } from './ChatView';
 import { ConfirmDialog } from './Dialog';
+import { FinancePageHead, FinanceTabs, FinCard, StatusChip, tabPanel } from './FinanceShell';
 import { OrgChartView, openByHash, type OrgGo } from './OrgChartView';
 import { OrgProfile } from './OrgProfile';
+import { Breadcrumbs, PaneDenied } from './PageParts';
 import { parseProfileHash, profileHash, TEAM_HASH, type ProfileRef, type ProfileTab } from './lib/orgChart';
 import * as api from './lib/api';
+import { formatUsd } from './lib/admin';
+import { capFor } from './lib/agentsPage';
 import {
   agentsApi, ALWAYS_ON_TOOL, CATEGORIES, COLORS, DESCRIPTION_MAX, DETAIL_TABS, draftBody, draftChanges, draftFromAgent,
-  draftFromTemplate, EDIT_STEPS, effectiveLevel, emptyDraft, INSTRUCTIONS_MAX, levelsFor, mergeById, NAME_MAX,
-  recentTasksPath, skillNames, skillsMissingTools, templateKey, toggleSkill, toggleTool, TOOL_CATEGORIES, toolGroups, validateDraft,
+  draftFromTemplate, EDIT_STEPS, effectiveLevel, emptyDraft, INSTRUCTIONS_MAX, levelsFor, NAME_MAX,
+  recentTasksPath, skillsMissingTools, templateKey, toggleSkill, toggleTool, TOOL_CATEGORIES, toolGroups, validateDraft,
   WIZARD_STEPS, callSummaryPrompt,
   type AgentCatalog, type AgentDraft, type AgentProfile, type AgentStatus, type AgentTemplate,
-  type CategoryFilter, type DetailTab, type DraftErrors, type WizardStep,
+  type DetailTab, type DraftErrors, type WizardStep,
 } from './lib/agents';
-import { budgetMessage, describeError, isBudgetExceeded, isPermissionDenied } from './lib/errors';
+import { budgetMessage, isBudgetExceeded } from './lib/errors';
 import { formatDateTime, t, type MessageKey } from './lib/i18n';
 import { statusLabel } from './lib/labels';
 import './agents.css';
+import './agentsPage.css';
 
 const agents = agentsApi(api.apiRequest, api.apiRequestVoid);
 
-const ICONS: Record<string, typeof Bot> = {
-  bot: Bot, truck: Truck, search: Search, mail: Mail, calendar: Calendar, 'file-text': FileText, phone: Phone,
-  briefcase: Briefcase, user: User, sparkles: Sparkles, wrench: Wrench, chart: BarChart3, 'shopping-cart': ShoppingCart, heart: Heart,
-};
-
-function AgentAvatar({ icon, color, size = 'md' }: { icon: string; color: string; size?: 'md' | 'lg' }) {
-  const Icon = ICONS[icon] ?? Bot;
-  return <span className={`agentAvatar ${size}`} style={{ '--agent-color': color } as CSSProperties} aria-hidden="true"><Icon /></span>;
-}
-
-function Notice({ children, error }: { children: ReactNode; error?: boolean }) {
-  return <p className={`notice ${error ? 'errorNotice' : ''}`} role={error ? 'alert' : 'status'}><CircleDot aria-hidden="true" />{children}</p>;
-}
-
-/** Why something failed, in words that say who can fix it. */
-function explain(error: unknown, action: MessageKey): string {
-  if (isPermissionDenied(error)) return describeError(error);
-  if (isBudgetExceeded(error)) return t('common.budgetReached', { message: budgetMessage(error) });
-  return t(action, { reason: describeError(error) });
-}
-
-function useRole(): 'owner' | 'member' | 'viewer' | null {
-  const [role, setRole] = useState<'owner' | 'member' | 'viewer' | null>(null);
-  useEffect(() => {
-    void api.getCurrentMembership().then((m) => setRole(m.role === 'owner' || m.role === 'member' ? m.role : 'viewer')).catch(() => setRole('viewer'));
-  }, []);
-  return role;
-}
-
-type Mode = { kind: 'list' } | { kind: 'detail'; id: string } | { kind: 'wizard'; agent: AgentProfile | null } | { kind: 'profile'; target: ProfileRef & { tab: ProfileTab } };
+type Panel = DetailTab | 'activity' | 'chat' | 'call';
+type Mode = { kind: 'list' } | { kind: 'detail'; id: string; panel?: Panel } | { kind: 'wizard'; agent: AgentProfile | null; template?: AgentTemplate | null } | { kind: 'profile'; target: ProfileRef & { tab: ProfileTab } };
 
 /** What the URL hash opens: a member's profile (`#agents/team/...`), the org chart tab (`#agents/team`) or the list. */
 function modeFromHash(): Mode {
   const target = typeof window === 'undefined' ? null : parseProfileHash(window.location.hash);
   return target ? { kind: 'profile', target } : { kind: 'list' };
 }
-type ListTab = 'agents' | 'org';
+type ListTab = 'agents' | 'templates' | 'org' | 'spending';
+const LIST_TABS: readonly ListTab[] = ['agents', 'templates', 'org', 'spending'];
 const TAB_KEY = 'anum.agents.tab';
 
 function readTab(): ListTab {
-  try { return localStorage.getItem(TAB_KEY) === 'org' ? 'org' : 'agents'; } catch { return 'agents'; }
+  try { const saved = localStorage.getItem(TAB_KEY) as ListTab | null; return saved && LIST_TABS.includes(saved) ? saved : 'agents'; } catch { return 'agents'; }
 }
 
 export function AgentsView({ onOpenSkills, onOpenTasks, onOpenApprovals, onOpenBudgets, onOpenFiles, onGo }: {
@@ -96,11 +78,16 @@ export function AgentsView({ onOpenSkills, onOpenTasks, onOpenApprovals, onOpenB
     window.history.replaceState(null, '', TEAM_HASH);
     setTab('org'); go({ kind: 'list' });
   };
-  const setTab = (next: ListTab) => { setTabState(next); try { localStorage.setItem(TAB_KEY, next); } catch { /* storage blocked */ } };
+  const setTab = (next: ListTab) => {
+    setTabState(next);
+    try { localStorage.setItem(TAB_KEY, next); } catch { /* storage blocked */ }
+    if (window.location.hash.startsWith('#agents')) window.history.replaceState(null, '', next === 'org' ? TEAM_HASH : '#agents');
+  };
   const [catalog, setCatalog] = useState<AgentCatalog | null>(null);
   const [catalogError, setCatalogError] = useState<string | null>(null);
   const [flash, setFlash] = useState<string | null>(null);
   const role = useRole();
+  const { caps, reload: reloadCaps } = useAgentCaps();
   const loadCatalog = useCallback(async () => {
     setCatalogError(null);
     try { setCatalog(await agents.catalog()); } catch (e) { setCatalogError(explain(e, 'agents.err.catalog')); }
@@ -113,133 +100,82 @@ export function AgentsView({ onOpenSkills, onOpenTasks, onOpenApprovals, onOpenB
     setMode(next); setFlash(message);
     window.requestAnimationFrame(() => top.current?.focus());
   };
-  return <div className="agentsView" ref={top} tabIndex={-1}>
+  const canCreate = role === 'owner' || role === 'member';
+  const create = (template: AgentTemplate | null = null) => go({ kind: 'wizard', agent: null, template });
+  const backToList: { label: string; href: string; onClick: () => void } = { label: t('nav.agents'), href: '#agents', onClick: () => go({ kind: 'list' }) };
+  return <div className="agentsView agPage" ref={top} tabIndex={-1}>
+    {mode.kind === 'list' && <FinancePageHead title={t('nav.agents')} subtitle={t('agentsPage.subtitle')}
+      actions={canCreate ? <>
+        <button type="button" onClick={() => create()}><Plus aria-hidden="true" />{t('agents.create')}</button>
+        <button type="button" className="secondary" onClick={() => setTab('templates')}><LayoutTemplate aria-hidden="true" />{t('agentsPage.tab.templates')}</button>
+      </> : undefined}
+      tabs={<FinanceTabs label={t('org.tabs')} idPrefix="agents" value={tab} onChange={setTab} items={[
+        { id: 'agents', label: t('agentsPage.tab.agents') }, { id: 'templates', label: t('agentsPage.tab.templates') },
+        { id: 'org', label: t('org.tab.org') }, { id: 'spending', label: t('agentsPage.tab.spending') },
+      ]} />} />}
+    {mode.kind === 'profile' && <FinancePageHead title={t('nav.agents')} crumbs={[backToList, { label: t('org.tab.org') }]} />}
     {flash && <Notice>{flash}</Notice>}
-    {mode.kind === 'list' && <nav className="settingsTabs agentTabs agentViewTabs" aria-label={t('org.tabs')}>
-      {(['agents', 'org'] as const).map((value) => <button key={value} type="button" aria-current={tab === value ? 'page' : undefined} onClick={() => { setTab(value); window.history.replaceState(null, '', value === 'org' ? TEAM_HASH : '#agents'); }}>{t(`org.tab.${value}`)}</button>)}
-    </nav>}
     {mode.kind === 'profile' && <OrgProfile key={`${mode.target.kind}:${mode.target.id}`} target={mode.target} role={role} onBack={leaveProfile}
       onTab={(next) => { window.history.replaceState(window.history.state, '', profileHash(mode.target, next)); setMode({ kind: 'profile', target: { ...mode.target, tab: next } }); }}
       onOpenAgent={(id) => go({ kind: 'detail', id })} onEditAgent={(agent) => go({ kind: 'wizard', agent })} onOpenBudgets={onOpenBudgets}
       onGo={(view) => { if (view === 'approvals' && onOpenApprovals) onOpenApprovals(); else if (view === 'tasks' && onOpenTasks) onOpenTasks(); else if (onGo) onGo(view); else openByHash(view); }} />}
-    {mode.kind === 'list' && tab === 'org' && <OrgChartView role={role} onOpenProfile={openProfile} onOpenAgent={(id) => go({ kind: 'detail', id })} onEditAgent={(agent) => go({ kind: 'wizard', agent })}
-      onCreate={() => go({ kind: 'wizard', agent: null })} onOpenApprovals={onOpenApprovals} onOpenTasks={onOpenTasks} onOpenBudgets={onOpenBudgets} onGo={onGo} />}
-    {mode.kind === 'list' && tab === 'agents' && <AgentList catalog={catalog} catalogError={catalogError} role={role} onRetryCatalog={() => void loadCatalog()}
-      onOpen={(id) => go({ kind: 'detail', id })} onCreate={() => go({ kind: 'wizard', agent: null })} onOpenSkills={onOpenSkills} />}
-    {mode.kind === 'wizard' && <AgentWizard catalog={catalog} catalogError={catalogError} onRetryCatalog={() => void loadCatalog()} agent={mode.agent}
+    {mode.kind === 'list' && <div {...tabPanel('agents', tab)}>
+      {tab === 'org' && <OrgChartView role={role} onOpenProfile={openProfile} onOpenAgent={(id) => go({ kind: 'detail', id })} onEditAgent={(agent) => go({ kind: 'wizard', agent })}
+        onCreate={() => create()} onOpenApprovals={onOpenApprovals} onOpenTasks={onOpenTasks} onOpenBudgets={onOpenBudgets} onGo={onGo} />}
+      {tab === 'agents' && <AgentList catalog={catalog} catalogError={catalogError} role={role} caps={caps} onRetryCatalog={() => void loadCatalog()}
+        onOpen={(id, panel) => go({ kind: 'detail', id, panel })} onCreate={() => create()} onTemplates={() => setTab('templates')} onOpenSkills={onOpenSkills} onOpenApprovals={onOpenApprovals} />}
+      {tab === 'templates' && <TemplatesTab catalog={catalog} catalogError={catalogError} canCreate={canCreate} onRetry={() => void loadCatalog()} onUse={create} />}
+      {tab === 'spending' && <SpendingTab caps={caps} onRetry={reloadCaps} onOpen={(id) => go({ kind: 'detail', id })} />}
+    </div>}
+    {mode.kind === 'wizard' && <AgentWizard catalog={catalog} catalogError={catalogError} onRetryCatalog={() => void loadCatalog()} agent={mode.agent} template={mode.template ?? null} crumbs={backToList}
       onCancel={() => go(mode.agent ? { kind: 'detail', id: mode.agent.id } : { kind: 'list' })}
       onSaved={(saved, created) => go({ kind: 'detail', id: saved.id }, t(created ? 'agents.created' : 'agents.saved', { name: saved.name }))}
       onOpenSkills={onOpenSkills} onOpenFiles={onOpenFiles} />}
-    {mode.kind === 'detail' && <AgentDetail key={mode.id} id={mode.id} catalog={catalog} catalogError={catalogError} onOpenSkills={onOpenSkills} onBack={() => go({ kind: 'list' })}
+    {mode.kind === 'detail' && <AgentDetail key={mode.id} id={mode.id} initialPanel={mode.panel} catalog={catalog} catalogError={catalogError} caps={caps} role={role} crumbs={backToList}
+      onOpenSkills={onOpenSkills} onBack={() => go({ kind: 'list' })}
       onEdit={(agent) => go({ kind: 'wizard', agent })} onDeleted={(name) => go({ kind: 'list' }, t('agents.deleted', { name }))}
       onOpenTasks={onOpenTasks} onOpenApprovals={onOpenApprovals} onOpenBudgets={onOpenBudgets} />}
   </div>;
 }
 
-// ---------------------------------------------------------------------------- list
+// ---------------------------------------------------------------------------- templates and spending tabs
 
-function AgentList({ catalog, catalogError, role, onOpen, onCreate, onRetryCatalog, onOpenSkills }: {
-  catalog: AgentCatalog | null; catalogError: string | null; role: 'owner' | 'member' | 'viewer' | null;
-  onOpen: (id: string) => void; onCreate: () => void; onRetryCatalog: () => void; onOpenSkills?: () => void;
+function TemplatesTab({ catalog, catalogError, canCreate, onRetry, onUse }: {
+  catalog: AgentCatalog | null; catalogError: string | null; canCreate: boolean; onRetry: () => void; onUse: (template: AgentTemplate | null) => void;
 }) {
-  const [category, setCategory] = useState<CategoryFilter>('all');
-  const [status, setStatus] = useState<AgentStatus | 'all'>('all');
-  const [query, setQuery] = useState('');
-  const [q, setQ] = useState('');
-  const [items, setItems] = useState<AgentProfile[]>([]);
-  const [counts, setCounts] = useState<Record<string, number>>({ all: 0, work: 0, personal: 0, custom: 0 });
-  const [cursor, setCursor] = useState<string | null>(null);
-  const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading');
-  const [error, setError] = useState<string | null>(null);
-  const [more, setMore] = useState(false);
-  const canCreate = role === 'owner' || role === 'member';
-  useEffect(() => { const timer = window.setTimeout(() => setQ(query), 250); return () => window.clearTimeout(timer); }, [query]);
-  const load = useCallback(async () => {
-    setState('loading'); setError(null);
-    try {
-      const page = await agents.list({ category, q, status });
-      setItems(page.items); setCounts(page.counts); setCursor(page.next_cursor); setState('ready');
-    } catch (e) { setError(explain(e, 'agents.err.list')); setState('error'); }
-  }, [category, q, status]);
-  useEffect(() => { void load(); }, [load]);
-  async function loadMore() {
-    if (!cursor) return;
-    setMore(true);
-    try { const page = await agents.list({ category, q, status, cursor }); setItems((old) => mergeById(old, page.items)); setCursor(page.next_cursor); }
-    catch (e) { setError(explain(e, 'agents.err.list')); }
-    finally { setMore(false); }
-  }
-  const filtered = Boolean(q.trim()) || status !== 'all' || category !== 'all';
-  const searchId = useId();
-  return <>
-    <section className="moduleIntro">
-      <div><h2>{t('agents.list.title')}</h2><p>{t('agents.list.intro')}</p></div>
-      {canCreate && <div className="actions"><button type="button" onClick={onCreate}><Plus aria-hidden="true" />{t('agents.create')}</button></div>}
-    </section>
-    {role === 'viewer' && <Notice>{t('agents.viewerNote')}</Notice>}
-    <div className="agentFilters">
-      <div className="segmented" role="group" aria-label={t('agents.filter.category')}>
-        {(['all', ...CATEGORIES] as CategoryFilter[]).map((c) => <button key={c} type="button" aria-pressed={category === c} onClick={() => setCategory(c)}>
-          {t(`agents.category.${c}` as MessageKey)} <span className="agentCount">{counts[c] ?? 0}</span>
-        </button>)}
-      </div>
-      <div className="agentSearch">
-        <label className="visuallyHidden" htmlFor={searchId}>{t('agents.search')}</label>
-        <Search aria-hidden="true" />
-        <input id={searchId} type="search" value={query} placeholder={t('agents.searchPlaceholder')} onChange={(e) => setQuery(e.target.value)} />
-      </div>
-      <label className="agentStatusFilter"><span className="visuallyHidden">{t('agents.filter.status')}</span>
-        <select value={status} onChange={(e) => setStatus(e.target.value as AgentStatus | 'all')} aria-label={t('agents.filter.status')}>
-          <option value="all">{t('agents.status.all')}</option><option value="active">{t('agents.status.active')}</option><option value="paused">{t('agents.status.paused')}</option>
-        </select>
-      </label>
-    </div>
-    {state === 'loading' && <p className="muted agentState" role="status">{t('agents.loading')}</p>}
-    {state === 'error' && <div className="agentState" role="alert"><Notice error>{error}</Notice><div className="actions"><button type="button" className="secondary" onClick={() => void load()}><RefreshCw aria-hidden="true" />{t('common.tryAgain')}</button></div></div>}
-    {state === 'ready' && items.length > 0 && <ul className="agentGrid" aria-label={t('agents.list.title')}>
-      {items.map((agent) => <li key={agent.id}>
-        <article className={`surface agentRow agentCard ${agent.status === 'paused' ? 'isPaused' : ''}`}>
-          <AgentAvatar icon={agent.icon} color={agent.color} />
-          <div className="agentMain">
-            <div className="rowTitle"><h3 dir="auto">
-              <button type="button" className="agentOpen" onClick={() => onOpen(agent.id)}>{agent.name}</button>
-            </h3><AvatarChip id={agent.id} name={agent.name} avatar={agent.avatar} department={agent.department} size={26} />{agent.status === 'paused' && <span className="statusBadge warning">{t('agents.status.paused')}</span>}</div>
-            <p dir="auto">{agent.description || t('agents.noDescription')}</p>
-            <div className="agentMeta">
-              <span>{t(`agents.category.${agent.category}` as MessageKey)}{agent.department ? ` · ${agent.department}` : ''}</span>
-              <span>{agent.sharing === 'workspace' ? <><Users aria-hidden="true" />{t('agents.sharing.workspace')}</> : <><Lock aria-hidden="true" />{t('agents.sharing.private')}</>}</span>
-              <span>{t('agents.toolCount', { count: agent.allowed_tools.length + 1 })}</span>
-            </div>
-            <AgentSkillChips agent={agent} catalog={catalog} />
-          </div>
-        </article>
-      </li>)}
-    </ul>}
-    {state === 'ready' && cursor && <div className="actions"><button type="button" className="secondary" disabled={more} onClick={() => void loadMore()}>{more ? t('common.loading') : t('agents.loadMore')}</button></div>}
-    {state === 'ready' && items.length === 0 && (filtered
-      ? <div className="emptyState"><Search aria-hidden="true" /><h3>{t('agents.emptyFiltered')}</h3><p>{t('agents.emptyFilteredText')}</p>
-          <button type="button" className="secondary" onClick={() => { setQuery(''); setQ(''); setStatus('all'); setCategory('all'); }}>{t('agents.clearFilters')}</button></div>
-      : <div className="emptyState"><Bot aria-hidden="true" /><h3>{t('agents.emptyTitle')}</h3><p>{canCreate ? t('agents.emptyText') : t('agents.emptyViewer')}</p>
-          {canCreate && <div className="actions"><button type="button" onClick={onCreate}><Plus aria-hidden="true" />{t('agents.createFirst')}</button></div>}
-          {catalogError && <><Notice error>{catalogError}</Notice><button type="button" className="secondary" onClick={onRetryCatalog}>{t('common.tryAgain')}</button></>}
-          {catalog && canCreate && <p className="muted">{t('agents.templatesHint', { count: catalog.templates.length })}</p>}
-          {onOpenSkills && <button type="button" className="secondary" onClick={onOpenSkills}>{t('agents.browseSkills')}</button>}
-        </div>)}
-  </>;
+  if (catalogError) return <div role="alert"><Notice error>{catalogError}</Notice><div className="actions"><button type="button" className="secondary" onClick={onRetry}><RefreshCw aria-hidden="true" />{t('common.tryAgain')}</button></div></div>;
+  if (!catalog) return <p className="muted agentState" role="status">{t('agents.loadingCatalog')}</p>;
+  return <FinCard title={t('agentsPage.templates.title', { count: catalog.templates.length })} icon={<LayoutTemplate />} subtitle={t('agentsPage.templates.text')}>
+    {!canCreate && <Notice>{t('agents.viewerNote')}</Notice>}
+    {catalog.templates.length === 0 && <div className="emptyState"><LayoutTemplate aria-hidden="true" /><h3>{t('agentsPage.templates.empty')}</h3>
+      {canCreate && <button type="button" onClick={() => onUse(null)}><Plus aria-hidden="true" />{t('agents.wizard.blank')}</button>}</div>}
+    {catalog.templates.length > 0 && <ul className="agTemplateGrid" aria-label={t('agentsPage.tab.templates')}>{catalog.templates.map((template) => <li key={template.id} className="agTemplate">
+      <AgentAvatar icon={template.icon} color={template.color} />
+      <div><h3>{t(templateKey(template.id, 'name'))}</h3><p className="agSmall muted">{t(templateKey(template.id, 'description'))}</p>
+        {template.missing_capabilities.length > 0 && <p className="agSmall templateMissing">{t('agents.wizard.notConnected', { what: template.missing_capabilities.join(t('common.listSeparator')) })}</p>}</div>
+      {canCreate && <button type="button" className="secondary" aria-label={t('agentsPage.templates.useNamed', { name: t(templateKey(template.id, 'name')) })} onClick={() => onUse(template)}>{t('agentsPage.templates.use')}</button>}
+    </li>)}</ul>}
+  </FinCard>;
 }
 
-/** The skills an agent loads, by name, and a warning when some no longer load. */
-function AgentSkillChips({ agent, catalog }: { agent: AgentProfile; catalog: AgentCatalog | null }) {
-  if (agent.allowed_skills.length === 0) return null;
-  const { names, more } = skillNames(agent, catalog);
-  return <div className="agentSkillChips">
-    <span className="visuallyHidden">{t('agentSkills.cardCount', { count: agent.allowed_skills.length })}</span>
-    <ul aria-label={t('agentSkills.cardCount', { count: agent.allowed_skills.length })}>
-      {names.map((name) => <li key={name} dir="auto">{name}</li>)}
-      {more > 0 && <li>{t('agentSkills.cardMore', { count: more })}</li>}
-    </ul>
-    {agent.unavailable_skills.length > 0 && <span className="agentSkillWarn"><AlertTriangle aria-hidden="true" />{t('agentSkills.cardAttention', { count: agent.unavailable_skills.length })}</span>}
-  </div>;
+function SpendingTab({ caps, onRetry, onOpen }: { caps: CapsLoad; onRetry: () => void; onOpen: (id: string) => void }) {
+  if (caps.state === 'loading') return <p className="muted agentState" role="status">{t('common.loading')}</p>;
+  if (caps.state === 'denied') return <PaneDenied title={t('agentsPage.spending.deniedTitle')} text={caps.message} />;
+  if (caps.state === 'error') return <div role="alert"><Notice error>{t('agentsPage.spend.failed', { message: caps.message })}</Notice><div className="actions"><button type="button" className="secondary" onClick={onRetry}><RefreshCw aria-hidden="true" />{t('common.tryAgain')}</button></div></div>;
+  return <FinCard title={t('agentsPage.spending.title')} icon={<Wallet />} subtitle={t('agentsPage.spend.resets', { date: formatDateTime(caps.resetsOn) })}
+    actions={<a className="button secondary" href="#agentControls"><Settings2 aria-hidden="true" />{t('agentsPage.spending.manage')}</a>}>
+    {caps.total > caps.items.length && <Notice>{t('agentsPage.spending.partial', { shown: caps.items.length, total: caps.total })}</Notice>}
+    <div className="finTableWrap" tabIndex={0} role="region" aria-label={t('agentsPage.spending.title')}><table className="finGrid">
+      <thead><tr><th scope="col">{t('agentsPage.spending.agent')}</th><th scope="col">{t('agents.field.status')}</th><th scope="col" className="num">{t('agentsPage.spending.used')}</th><th scope="col" className="num">{t('agentsPage.spending.cap')}</th><th scope="col">{t('agentsPage.spending.share')}</th></tr></thead>
+      <tbody>{caps.items.map((cap) => <tr key={cap.agent_id}>
+        <th scope="row">{cap.is_default ? <span dir="auto">{cap.name}</span> : <button type="button" className="linkButton" onClick={() => onOpen(cap.agent_id)} dir="auto">{cap.name}</button>}</th>
+        <td><StatusChip tone={cap.exceeded ? 'bad' : cap.status === 'active' ? 'ok' : 'warn'}>{cap.exceeded ? t('agentsPage.spending.overCap') : t(cap.status === 'paused' ? 'agents.status.paused' : 'agents.status.active')}</StatusChip></td>
+        <td className="num">{formatUsd(cap.usage.estimated_cost_usd)}</td>
+        <td className="num">{cap.monthly_cost_limit_usd === null ? t('agentControls.noCap') : formatUsd(cap.monthly_cost_limit_usd)}</td>
+        <td>{cap.percent_used === null ? '-' : <span className="agMeterCell"><Meter percent={cap.percent_used} label={t('agentsPage.spend.meter', { percent: Math.round(cap.percent_used) })} /><span>{t('agentsPage.percent', { percent: Math.round(cap.percent_used) })}</span></span>}</td>
+      </tr>)}</tbody>
+    </table></div>
+  </FinCard>;
 }
 
 // ---------------------------------------------------------------------------- wizard
@@ -248,13 +184,15 @@ function FieldError({ id, error }: { id: string; error?: MessageKey }) {
   return error ? <small id={id} className="fieldError" role="alert">{t(error)}</small> : null;
 }
 
-function AgentWizard({ catalog, catalogError, onRetryCatalog, agent, onCancel, onSaved, onOpenSkills, onOpenFiles }: {
-  catalog: AgentCatalog | null; catalogError: string | null; onRetryCatalog: () => void; agent: AgentProfile | null;
+function AgentWizard({ catalog, catalogError, onRetryCatalog, agent, template, crumbs, onCancel, onSaved, onOpenSkills, onOpenFiles }: {
+  catalog: AgentCatalog | null; catalogError: string | null; onRetryCatalog: () => void; agent: AgentProfile | null; template: AgentTemplate | null;
+  crumbs: { label: string; href: string; onClick: () => void };
   onCancel: () => void; onSaved: (agent: AgentProfile, created: boolean) => void; onOpenSkills?: () => void; onOpenFiles?: () => void;
 }) {
   const steps = agent ? EDIT_STEPS : WIZARD_STEPS;
-  const [step, setStep] = useState<WizardStep>(steps[0]);
-  const [draft, setDraft] = useState<AgentDraft>(() => agent ? draftFromAgent(agent) : emptyDraft());
+  // A template picked on the Templates tab skips the Start step.
+  const [step, setStep] = useState<WizardStep>(template && !agent ? 'identity' : steps[0]);
+  const [draft, setDraft] = useState<AgentDraft>(() => agent ? draftFromAgent(agent) : template ? draftFromTemplate(template, t(templateKey(template.id, 'name')), t(templateKey(template.id, 'description'))) : emptyDraft());
   const [errors, setErrors] = useState<DraftErrors>({});
   const [busy, setBusy] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -294,10 +232,12 @@ function AgentWizard({ catalog, catalogError, onRetryCatalog, agent, onCancel, o
   const nameId = useId(), descId = useId(), deptId = useId(), instrId = useId();
   const groups = catalog ? toolGroups(catalog) : null;
   const missing = catalog ? skillsMissingTools(draft, catalog) : [];
-  return <section className="surface agentWizard" aria-labelledby="agent-wizard-title">
+  const title = agent ? t('agents.wizard.editTitle', { name: agent.name }) : t('agents.wizard.createTitle');
+  return <section className="surface agentWizard" aria-labelledby="view-title">
+    <Breadcrumbs trail={[crumbs, ...(agent ? [{ label: agent.name }] : []), { label: agent ? t('agents.edit') : t('agents.create') }]} />
     <div className="wizardHead">
       <button type="button" className="secondary" onClick={onCancel}><ArrowLeft className="flipRtl" aria-hidden="true" />{t('common.cancel')}</button>
-      <h2 id="agent-wizard-title">{agent ? t('agents.wizard.editTitle', { name: agent.name }) : t('agents.wizard.createTitle')}</h2>
+      <h1 id="view-title" className="agWizardTitle">{title}</h1>
     </div>
     <ol className="wizardSteps" aria-label={t('agents.wizard.steps')}>
       {steps.map((s, i) => <li key={s} aria-current={s === step ? 'step' : undefined} className={i < index ? 'done' : ''}>
@@ -337,7 +277,7 @@ function AgentWizard({ catalog, catalogError, onRetryCatalog, agent, onCancel, o
           <FieldError id={deptId} error={errors.department} /></label>
         <fieldset className="field"><legend>{t('agents.field.icon')}</legend>
           <div className="iconPicker" role="radiogroup" aria-label={t('agents.field.icon')}>
-            {catalog.icons.map((icon) => { const Icon = ICONS[icon] ?? Bot; return <button key={icon} type="button" role="radio" aria-checked={draft.icon === icon} aria-label={t(`agents.icon.${icon}` as MessageKey)} title={t(`agents.icon.${icon}` as MessageKey)} onClick={() => set('icon', icon)}><Icon aria-hidden="true" /></button>; })}
+            {catalog.icons.map((icon) => { const Icon = AGENT_ICONS[icon] ?? Bot; return <button key={icon} type="button" role="radio" aria-checked={draft.icon === icon} aria-label={t(`agents.icon.${icon}` as MessageKey)} title={t(`agents.icon.${icon}` as MessageKey)} onClick={() => set('icon', icon)}><Icon aria-hidden="true" /></button>; })}
           </div>
         </fieldset>
         <fieldset className="field"><legend>{t('agents.field.color')}</legend>
@@ -441,16 +381,15 @@ function AgentWizard({ catalog, catalogError, onRetryCatalog, agent, onCancel, o
 
 // ---------------------------------------------------------------------------- detail
 
-type Panel = DetailTab | 'chat' | 'call';
-
-function AgentDetail({ id, catalog, catalogError, onOpenSkills, onBack, onEdit, onDeleted, onOpenTasks, onOpenApprovals, onOpenBudgets }: {
-  id: string; catalog: AgentCatalog | null; catalogError: string | null; onOpenSkills?: () => void; onBack: () => void; onEdit: (agent: AgentProfile) => void; onDeleted: (name: string) => void;
+function AgentDetail({ id, initialPanel, catalog, catalogError, caps, role, crumbs, onOpenSkills, onBack, onEdit, onDeleted, onOpenTasks, onOpenApprovals, onOpenBudgets }: {
+  id: string; initialPanel?: Panel; catalog: AgentCatalog | null; catalogError: string | null; caps: CapsLoad; role: Role; crumbs: { label: string; href: string; onClick: () => void };
+  onOpenSkills?: () => void; onBack: () => void; onEdit: (agent: AgentProfile) => void; onDeleted: (name: string) => void;
   onOpenTasks?: () => void; onOpenApprovals?: () => void; onOpenBudgets?: () => void;
 }) {
   const [agent, setAgent] = useState<AgentProfile | null>(null);
   const [state, setState] = useState<'loading' | 'ready' | 'error' | 'missing'>('loading');
   const [error, setError] = useState<string | null>(null);
-  const [panel, setPanel] = useState<Panel>('overview');
+  const [panel, setPanel] = useState<Panel>(initialPanel ?? 'overview');
   const [menu, setMenu] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -480,22 +419,20 @@ function AgentDetail({ id, catalog, catalogError, onOpenSkills, onBack, onEdit, 
     finally { setBusy(false); }
   }
   const back = <button type="button" className="secondary backButton" onClick={onBack}><ArrowLeft className="flipRtl" aria-hidden="true" />{t('agents.allAgents')}</button>;
-  if (state === 'loading') return <>{back}<p className="muted agentState" role="status">{t('agents.loadingOne')}</p></>;
-  if (state === 'missing') return <>{back}<div className="emptyState"><Search aria-hidden="true" /><h3>{t('agents.missingTitle')}</h3><p>{t('agents.missingText')}</p></div></>;
-  if (state === 'error' || !agent) return <>{back}<Notice error>{error}</Notice><div className="actions"><button type="button" className="secondary" onClick={() => void load()}>{t('common.tryAgain')}</button></div></>;
+  const head = (title: string) => <><Breadcrumbs trail={[crumbs, { label: title }]} /><h1 id="view-title" className="visuallyHidden">{title}</h1>{back}</>;
+  if (state === 'loading') return <>{head(t('nav.agents'))}<p className="muted agentState" role="status">{t('agents.loadingOne')}</p></>;
+  if (state === 'missing') return <>{head(t('agents.missingTitle'))}<div className="emptyState"><Search aria-hidden="true" /><h3>{t('agents.missingTitle')}</h3><p>{t('agents.missingText')}</p></div></>;
+  if (state === 'error' || !agent) return <>{head(t('nav.agents'))}<Notice error>{error}</Notice><div className="actions"><button type="button" className="secondary" onClick={() => void load()}>{t('common.tryAgain')}</button></div></>;
   const paused = agent.status === 'paused';
+  const cap = capFor(caps.state === 'ready' ? caps.items : null, agent.id);
+  const tabs: Panel[] = [...DETAIL_TABS];
   return <>
-    {back}
-    <section className="surface agentHero" aria-labelledby="agent-name">
-      <AgentAvatar icon={agent.icon} color={agent.color} size="lg" />
+    <Breadcrumbs trail={[crumbs, { label: agent.name }]} />
+    <section className="agHero" aria-labelledby="view-title">
+      <AgentAvatar icon={agent.icon} color={agent.color} size="xl" />
       <div className="agentHeroText">
-        <h2 id="agent-name" dir="auto">{agent.name}</h2>
-        <p className="muted" dir="auto">{agent.description || t('agents.noDescription')}</p>
-        <div className="agentMeta">
-          <span className={`statusBadge ${paused ? 'warning' : 'success'}`}>{t(`agents.status.${agent.status}` as MessageKey)}</span>
-          <span>{t(`agents.category.${agent.category}` as MessageKey)}{agent.department ? ` · ${agent.department}` : ''}</span>
-          <span>{agent.sharing === 'workspace' ? t('agents.sharing.workspace') : t('agents.sharing.private')}</span>
-        </div>
+        <div className="agHeroTitle"><h1 id="view-title" dir="auto">{agent.name}</h1><StatusChip tone={paused ? 'warn' : 'ok'}>{t(`agents.status.${agent.status}` as MessageKey)}</StatusChip></div>
+        <p className="muted" dir="auto"><strong>{t('agentsPage.preview.purpose')}:</strong> {agent.description || t('agents.noDescription')}</p>
       </div>
       <div className="agentActions">
         <button type="button" onClick={() => setPanel('chat')} disabled={paused} aria-pressed={panel === 'chat'}><MessageSquare aria-hidden="true" />{t('agents.chat')}</button>
@@ -507,24 +444,61 @@ function AgentDetail({ id, catalog, catalogError, onOpenSkills, onBack, onEdit, 
         ]} />}
       </div>
     </section>
+    <nav className="settingsTabs agentTabs agDetailTabs" aria-label={t('agents.sections')}>
+      {tabs.map((tab) => <button key={tab} type="button" aria-current={panel === tab ? 'page' : undefined} onClick={() => setPanel(tab)}>{t(`agents.tab.${tab}` as MessageKey)}</button>)}
+    </nav>
     {paused && <Notice>{agent.can_edit ? t('agents.pausedOwner') : t('agents.pausedOther')}</Notice>}
     {!agent.can_edit && <Notice>{t('agents.readOnly')}</Notice>}
     {actionError && <Notice error>{actionError}</Notice>}
     {(agent.unavailable_tools.length > 0 || agent.unavailable_skills.length > 0) && <Notice error>{t('agents.unavailable', { names: [...agent.unavailable_tools, ...agent.unavailable_skills].join(t('common.listSeparator')) })}</Notice>}
-    <nav className="settingsTabs agentTabs" aria-label={t('agents.sections')}>
-      {DETAIL_TABS.map((tab) => <button key={tab} type="button" aria-current={panel === tab ? 'page' : undefined} onClick={() => setPanel(tab)}>{t(`agents.tab.${tab}` as MessageKey)}</button>)}
-    </nav>
-    {panel === 'overview' && <OverviewTab agent={agent} tasksVersion={tasksVersion} onRan={() => setTasksVersion((v) => v + 1)} onOpenTasks={onOpenTasks} onOpenApprovals={onOpenApprovals} onOpenBudgets={onOpenBudgets} />}
-    {panel === 'skills' && <AgentSkillsPanel agent={agent} catalog={catalog} catalogError={catalogError} onAgentChanged={setAgent} onOpenSkills={onOpenSkills} />}
-    {panel === 'memory' && <AgentMemoryPanel agentId={agent.id} canEdit={agent.can_edit} />}
-    {panel === 'settings' && <SettingsTab agent={agent} catalog={catalog} busy={busy} onUpdate={(body) => void update(body)} onDelete={() => setConfirmDelete(true)}
-      onSaveAvatar={async (avatar) => { setAgent(await agents.update(agent.id, { avatar, version: agent.version })); }} />}
-    {panel === 'chat' && <section className="agentChat" aria-label={t('agents.chatWith', { name: agent.name })}><ChatView key={agent.id} agent={{ id: agent.id, name: agent.name }} onOpenBudgets={onOpenBudgets ?? (() => undefined)} /></section>}
-    {panel === 'call' && <CallPanel agent={agent} onRan={() => setTasksVersion((v) => v + 1)} onOpenApprovals={onOpenApprovals} onOpenBudgets={onOpenBudgets} />}
+    <div className="agDetailGrid">
+      <IdentityCard agent={agent} caps={caps} cap={cap} role={role} />
+      <div className="agDetailMain">
+        {panel === 'overview' && <OverviewTab agent={agent} tasksVersion={tasksVersion} onOpenTasks={onOpenTasks} />}
+        {panel === 'skills' && <AgentSkillsPanel agent={agent} catalog={catalog} catalogError={catalogError} onAgentChanged={setAgent} onOpenSkills={onOpenSkills} />}
+        {panel === 'memory' && <AgentMemoryPanel agentId={agent.id} canEdit={agent.can_edit} />}
+        {panel === 'settings' && <SettingsTab agent={agent} catalog={catalog} busy={busy} onUpdate={(body) => void update(body)} onDelete={() => setConfirmDelete(true)}
+          onSaveAvatar={async (avatar) => { setAgent(await agents.update(agent.id, { avatar, version: agent.version })); }} />}
+        {panel === 'chat' && <section className="agentChat" aria-label={t('agents.chatWith', { name: agent.name })}><ChatView key={agent.id} agent={{ id: agent.id, name: agent.name }} onOpenBudgets={onOpenBudgets ?? (() => undefined)} /></section>}
+        {panel === 'call' && <CallPanel agent={agent} onRan={() => setTasksVersion((v) => v + 1)} onOpenApprovals={onOpenApprovals} onOpenBudgets={onOpenBudgets} />}
+      </div>
+      <div className="agDetailSide">
+        <FinCard title={t('agentsPage.preview.boundaries')} icon={<ShieldCheck />}>
+          <BoundaryList agent={agent} catalog={catalog} />
+          <p className="agSmall muted">{t('agentsPage.bound.note')}</p>
+        </FinCard>
+        <RunCard agent={agent} onRan={() => setTasksVersion((v) => v + 1)} onOpenTasks={onOpenTasks} onOpenApprovals={onOpenApprovals} onOpenBudgets={onOpenBudgets} />
+        <FinCard title={t('agentsPage.version.title')} icon={<History />} actions={<StatusChip tone="info">{t('agentsPage.version.current', { version: agent.version })}</StatusChip>}>
+          <dl className="agFactList">
+            <div><dt>{t('agentsPage.version.changed')}</dt><dd>{formatDateTime(agent.updated_at)}</dd></div>
+            <div><dt>{t('agents.createdAt')}</dt><dd>{formatDateTime(agent.created_at)}</dd></div>
+          </dl>
+          <p className="agSmall muted">{t('agentsPage.version.note')}</p>
+        </FinCard>
+      </div>
+    </div>
     {confirmDelete && <ConfirmDialog title={t('agents.deleteTitle', { name: agent.name })} confirmLabel={t('agents.delete')} danger busy={busy} onConfirm={() => void remove()} onCancel={() => setConfirmDelete(false)}>
       <p>{t('agents.deleteText')}</p>
     </ConfirmDialog>}
   </>;
+}
+
+/** Who the agent is: owner, model, privacy, this month's spending (owners only) and when it last changed. */
+function IdentityCard({ agent, caps, cap, role }: { agent: AgentProfile; caps: CapsLoad; cap: import('./lib/agentControls').AgentCap | null; role: Role }) {
+  const isOwner = agent.owner_user_id === api.currentUserId();
+  return <FinCard title={t('agentsPage.identity.title')} className="agIdentity">
+    <div className="agIdentityHead"><AgentAvatar icon={agent.icon} color={agent.color} size="lg" />
+      <div><strong dir="auto">{agent.name}</strong><StatusChip tone={agent.status === 'paused' ? 'warn' : 'ok'}>{t(`agents.status.${agent.status}` as MessageKey)}</StatusChip></div></div>
+    <dl className="agFactList">
+      <div><dt>{t('agents.owner')}</dt><dd>{isOwner ? t('agents.you') : t('agentsPage.preview.someoneElse')}</dd></div>
+      <div><dt>{t('agentsPage.card.model')}</dt><dd>{t(`agents.model.${agent.model_route}` as MessageKey)}</dd></div>
+      <div><dt>{t('agentsPage.identity.privacy')}</dt><dd>{agent.sharing === 'workspace' ? t('agents.sharing.workspace') : t('agents.sharing.private')}</dd></div>
+      <div><dt>{t('agents.field.category')}</dt><dd>{t(`agents.category.${agent.category}` as MessageKey)}{agent.department ? ` · ${agent.department}` : ''}</dd></div>
+      <div><dt>{t('agentsPage.card.spend')}</dt><dd>{cap ? capText(cap) : caps.state === 'denied' || role !== 'owner' ? <span className="muted"><Lock aria-hidden="true" className="inlineIcon" />{t('agentsPage.spend.ownersOnlyShort')}</span> : '-'}</dd></div>
+    </dl>
+    {cap?.percent_used !== null && cap?.percent_used !== undefined && <Meter percent={cap.percent_used} label={t('agentsPage.spend.meter', { percent: Math.round(cap.percent_used) })} />}
+    <p className="agSmall muted">{t('agentsPage.card.updated', { when: formatDateTime(agent.updated_at) })}</p>
+  </FinCard>;
 }
 
 function MoreMenu({ open, onToggle, items }: { open: boolean; onToggle: (open: boolean) => void; items: { label: string; icon: ReactNode; danger?: boolean; run: () => void }[] }) {
@@ -584,25 +558,26 @@ function RunFeedback({ runner, onOpenTasks, onOpenApprovals, onOpenBudgets }: { 
   </>;
 }
 
-function OverviewTab({ agent, tasksVersion, onRan, onOpenTasks, onOpenApprovals, onOpenBudgets }: {
-  agent: AgentProfile; tasksVersion: number; onRan: () => void; onOpenTasks?: () => void; onOpenApprovals?: () => void; onOpenBudgets?: () => void;
+/** "Run a task" with this agent: a real task, so anything that sends, pays or acts outside ANUM waits for approval. */
+function RunCard({ agent, onRan, onOpenTasks, onOpenApprovals, onOpenBudgets }: {
+  agent: AgentProfile; onRan: () => void; onOpenTasks?: () => void; onOpenApprovals?: () => void; onOpenBudgets?: () => void;
 }) {
   const [prompt, setPrompt] = useState('');
   const runner = useRunAsAgent(agent, onRan);
   const promptId = useId();
-  return <div className="agentColumns">
-    <div className="agentStack">
-      <section className="surface agentPanel" aria-labelledby={`${promptId}-h`}>
-        <h3 id={`${promptId}-h`}>{t('agents.run.title')}</h3>
-        {agent.can_run ? <form onSubmit={(e) => { e.preventDefault(); if (prompt.trim()) void runner.run(prompt.trim()).then((ok) => { if (ok) setPrompt(''); }); }}>
-          <label className="field"><span>{t('agents.run.label', { name: agent.name })}</span>
-            <textarea id={promptId} className="short" value={prompt} maxLength={8000} dir="auto" placeholder={t('agents.run.placeholder')} onChange={(e) => setPrompt(e.target.value)} /></label>
-          <div className="actions"><button type="submit" disabled={runner.busy || !prompt.trim()}><Play aria-hidden="true" />{runner.busy ? t('agents.run.running') : t('agents.run.submit')}</button></div>
-        </form> : <p className="muted">{agent.status === 'paused' ? t('agents.run.paused') : t('agents.run.noPermission')}</p>}
-        <RunFeedback runner={runner} onOpenTasks={onOpenTasks} onOpenApprovals={onOpenApprovals} onOpenBudgets={onOpenBudgets} />
-      </section>
-      <RecentTasks agent={agent} version={tasksVersion} onOpenTasks={onOpenTasks} />
-    </div>
+  return <FinCard title={t('agents.run.title')} icon={<Play />} id={`${promptId}-h`} actions={<StatusChip tone="warn">{t('agentsPage.run.approvals')}</StatusChip>}>
+    <p className="agSmall muted">{t('agentsPage.run.note')}</p>
+    {agent.can_run ? <form onSubmit={(e) => { e.preventDefault(); if (prompt.trim()) void runner.run(prompt.trim()).then((ok) => { if (ok) setPrompt(''); }); }}>
+      <label className="field"><span>{t('agents.run.label', { name: agent.name })}</span>
+        <textarea id={promptId} className="short" value={prompt} maxLength={8000} dir="auto" placeholder={t('agents.run.placeholder')} onChange={(e) => setPrompt(e.target.value)} /></label>
+      <div className="actions"><button type="submit" disabled={runner.busy || !prompt.trim()}><Play aria-hidden="true" />{runner.busy ? t('agents.run.running') : t('agents.run.submit')}</button></div>
+    </form> : <p className="muted">{agent.status === 'paused' ? t('agents.run.paused') : t('agents.run.noPermission')}</p>}
+    <RunFeedback runner={runner} onOpenTasks={onOpenTasks} onOpenApprovals={onOpenApprovals} onOpenBudgets={onOpenBudgets} />
+  </FinCard>;
+}
+
+function OverviewTab({ agent, tasksVersion, onOpenTasks }: { agent: AgentProfile; tasksVersion: number; onOpenTasks?: () => void }) {
+  return <div className="agentStack">
     <section className="surface agentPanel" aria-labelledby="agent-instructions-h">
       <h3 id="agent-instructions-h">{t('agents.field.instructions')}</h3>
       {agent.instructions ? <p className="agentInstructions" dir="auto">{agent.instructions}</p> : <p className="muted">{t('agents.noInstructions')}</p>}
@@ -610,9 +585,10 @@ function OverviewTab({ agent, tasksVersion, onRan, onOpenTasks, onOpenApprovals,
         <div><dt>{t('agents.field.model')}</dt><dd>{t(`agents.model.${agent.model_route}` as MessageKey)}</dd></div>
         <div><dt>{t('agents.field.knowledge')}</dt><dd>{t(`agents.knowledge.${agent.knowledge_mode}` as MessageKey)}{agent.knowledge_mode === 'selected' ? ` (${agent.knowledge_sources.length})` : ''}</dd></div>
         <div><dt>{t('agents.field.autonomy')}</dt><dd>{TOOL_CATEGORIES.map((c) => `${t(`agents.toolCategory.${c}` as MessageKey)}: ${t(`agents.level.${agent.autonomy[c]}` as MessageKey)}`).join(t('common.listSeparator'))}</dd></div>
-        <div><dt>{t('agents.updated')}</dt><dd>{formatDateTime(agent.updated_at)}</dd></div>
+        <div><dt>{t('agents.field.tools')}</dt><dd dir="ltr">{[ALWAYS_ON_TOOL, ...agent.allowed_tools].join(', ')}</dd></div>
       </dl>
     </section>
+    <RecentTasks agent={agent} version={tasksVersion} onOpenTasks={onOpenTasks} />
   </div>;
 }
 
