@@ -118,6 +118,8 @@ export function TeamView({ focusItemId = null, onFocusChange, live = 0 }: { focu
   const reloadPeople = () => { loadPeople(); void dir.reload(); changed(); };
   const items = TABS.map((id) => ({ id, label: id === 'calls' ? t('team.tab.calls') : t(`teamPage.tab.${id}` as MessageKey), badge: id === 'invitations' && summary.state === 'ready' && summary.value.pendingInvitations ? summary.value.pendingInvitations : undefined }));
   const workTab = WORK_TABS.has(tab);
+  // The work item's detail sits beside My work and the Team dashboard; Activity keeps its full width.
+  const showWorkDetail = Boolean(selected) && tab !== 'activity';
 
   return <div className="teamView tpPage">
     <FinancePageHead title={viewLabel('team')} subtitle={t('teamPage.subtitle')} actions={<>
@@ -147,7 +149,7 @@ export function TeamView({ focusItemId = null, onFocusChange, live = 0 }: { focu
       {tab === 'invitations' && <InvitationsTab permissions={permissions} onChanged={changed} />}
       {tab === 'mine' && <CommandBox options={dir.options} onCreated={(item) => { changed(); open(item.id); }} />}
       {dir.error && workTab && <Notice error>{t('team.directoryFailed', { message: dir.error })}</Notice>}
-      {workTab && <div className={`teamSplit ${selected ? 'hasDetail' : ''}`}>
+      {workTab && <div className={`teamSplit ${showWorkDetail ? 'hasDetail' : ''}`}>
         <div className="teamMain">
           {tab === 'mine' && <WorkList key={`mine-${revision}`} scope="mine" selected={selected} onOpen={open} onCreate={() => setCreating(true)} />}
           {tab === 'board' && <Board key={`board-${revision}`} workload={workload} onRetryWorkload={loadWorkload} selected={selected} onOpen={open} onCreate={() => setCreating(true)} />}
@@ -155,7 +157,7 @@ export function TeamView({ focusItemId = null, onFocusChange, live = 0 }: { focu
           {tab === 'activity' && permissions?.canReadAudit && <AuditLogView onOpenMembers={() => openByHash('members')} />}
           {tab === 'activity' && permissions && !permissions.canReadAudit && <p className="muted tpNote">{t('teamPage.activity.auditOwners')}</p>}
         </div>
-        {selected && tab !== 'activity' && <WorkDetail key={selected} itemId={selected} options={dir.options} onClose={() => open(null)} onChanged={changed} />}
+        {showWorkDetail && selected && <WorkDetail key={selected} itemId={selected} options={dir.options} onClose={() => open(null)} onChanged={changed} />}
       </div>}
       {tab === 'calls' && <CallHistory />}
     </div>

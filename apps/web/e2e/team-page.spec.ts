@@ -82,3 +82,17 @@ test('the Team page reads right to left in Arabic at phone width', async ({ page
   await expect(page.getByRole('table', { name: 'الدليل' })).toBeVisible();
   expect(await noHorizontalOverflow(page)).toBe(true);
 });
+
+test('Activity keeps its content after a work item was opened, at 1024 wide', async ({ page }) => {
+  await page.setViewportSize({ width: 1024, height: 768 });
+  await mockWorkspaceApi(page);
+  await page.goto('/#team');
+  await tab(page, 'My work').click();
+  await page.getByRole('button', { name: /Count winter tyre stock/ }).click();
+  await expect(page.getByRole('complementary', { name: 'Count winter tyre stock' })).toBeVisible();
+  await tab(page, 'Activity').click();
+  await expect(page.getByText(/Ahmed Saleh created "Count winter tyre stock"/)).toBeVisible();
+  await expect(page.getByRole('complementary', { name: 'Count winter tyre stock' })).toHaveCount(0);
+  await tab(page, 'My work').click();
+  await expect(page.getByRole('complementary', { name: 'Count winter tyre stock' })).toBeVisible();
+});
