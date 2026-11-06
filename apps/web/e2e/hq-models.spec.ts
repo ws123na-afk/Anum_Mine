@@ -1,6 +1,9 @@
 import { expect, test, type Page } from '@playwright/test';
 import { mockHq, type HqMockOptions } from './support/hqCampusApi';
 
+// The 3D office draws on a software renderer in CI, where loading a scene alone can take most of a minute.
+test.describe.configure({ timeout: 150_000 });
+
 // Loadable (glTF) furniture and seated people in the building cutaway (docs/ANUM_MINE_HQ_EXTENSION_POINTS.md,
 // "Loadable models"). A person is drawn only at a desk with a registry assignment; a failed download keeps the procedural
 // furniture. Everything below is plainly fake data served by the usual API mock.

@@ -6,6 +6,9 @@ import { pathToFileURL } from 'node:url';
 import { mockHq } from './support/hqCampusApi';
 import { reportLooksAnonymous } from '../src/lib/hqGpuReport';
 
+// The 3D office draws on a software renderer in CI, where loading a scene alone can take most of a minute.
+test.describe.configure({ timeout: 150_000 });
+
 // scripts/hq-gpu-check.mjs, the owner-run check, driven against the mocked office here. In this sandbox and in CI the browser draws
 // in software, so the script must say so, and what it saves is verified for shape and anonymity. A real GPU run is the owner's.
 type Script = { runCheck(page: unknown, o: Record<string, unknown>, log: (line: string) => void): Promise<{ software: boolean; summary: Record<string, unknown> }>; parseArgs(argv: string[], env?: Record<string, string>): Record<string, unknown>; GPU_ARGS: string[] };

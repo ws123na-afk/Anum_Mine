@@ -2,6 +2,9 @@ import { expect, test } from '@playwright/test';
 import { hqRegistry, openHq, TENANT_A } from './support/hqApi';
 import { mockHistory } from './support/hqHistoryApi';
 
+// The 3D office draws on a software renderer in CI, where loading a scene alone can take most of a minute.
+test.describe.configure({ timeout: 150_000 });
+
 const OUT = '/tmp/claude-0/-home-user/61f032fb-c00f-5793-80f2-ca9f0fc13fd1/scratchpad/hq-shots-history';
 const registry = hqRegistry(TENANT_A, { rooms: 4, desks: 4, agentIds: ['agent_fleet', 'agent_leads', 'agent_care', 'agent_invoice'] });
 const SIZES = [[1440, 900], [1366, 768], [1024, 768], [768, 1024], [390, 844]] as const;

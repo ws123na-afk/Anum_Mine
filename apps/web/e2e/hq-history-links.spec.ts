@@ -3,6 +3,9 @@ import { expect, test, type Page } from '@playwright/test';
 import { hqRegistry, openHq, TENANT_A } from './support/hqApi';
 import { historyFixture, mockHistory, record, type HistoryMock, type HistoryMockOptions, type HistoryRecord } from './support/hqHistoryApi';
 
+// The 3D office draws on a software renderer in CI, where loading a scene alone can take most of a minute.
+test.describe.configure({ timeout: 150_000 });
+
 // "Show history" on a task, meeting or approval screen (matrix row 10.4) and the JSON export with the server's
 // room or agent filter (row 10.9). docs/ANUM_MINE_HQ_HISTORY_PANEL.md. The API is mocked at http://localhost:8000;
 // ids and names are plainly fake. The History panel is a lazy chunk: it must not load before the click.

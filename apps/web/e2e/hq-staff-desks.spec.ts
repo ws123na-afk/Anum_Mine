@@ -6,6 +6,9 @@ import { mockFlow } from './support/hqFlowApi';
 import { mockProvisioning } from './support/hqProvisioningApi';
 import { mockStaffDesks, type StaffDesksMock } from './support/hqStaffDesksApi';
 
+// The 3D office draws on a software renderer in CI, where loading a scene alone can take most of a minute.
+test.describe.configure({ timeout: 150_000 });
+
 // "Staff my campus" (docs/ANUM_MINE_STAFF_DESKS.md). Everything shown comes from the mocked API (the default 220 desk campus); the
 // tests check that a preview writes nothing, that only a click with the shown hash confirms one building at a time, that the 200 agent
 // limit and the run cap are explained, and that every state says what to do. Set HQ_SHOTS_DIR to keep a screenshot of every state.

@@ -3,6 +3,9 @@ import { expect, test, type Page } from '@playwright/test';
 import { hqRegistry, openHq, TENANT_A } from './support/hqApi';
 import { historyFixture, mockHistory, record, type HistoryMock, type HistoryMockOptions } from './support/hqHistoryApi';
 
+// The 3D office draws on a software renderer in CI, where loading a scene alone can take most of a minute.
+test.describe.configure({ timeout: 150_000 });
+
 // History CSV export for room views, agent views and the "Other" type (docs/ANUM_MINE_HQ_HISTORY_PANEL.md,
 // matrix row 10.9), and the request links of a record (row 10.4). The mocked audit export returns JSON rows;
 // the panel keeps the rows of the view and saves them as CSV. API mocked at http://localhost:8000/**.

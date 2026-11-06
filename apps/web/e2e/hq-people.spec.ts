@@ -4,6 +4,9 @@ import { mockFlow } from './support/hqFlowApi';
 import { reloadReleasingGl } from './support/hqScene';
 import { agentAvatars as teamAvatars } from './support/orgChartApi';
 
+// The 3D office draws on a software renderer in CI, where loading a scene alone can take most of a minute.
+test.describe.configure({ timeout: 150_000 });
+
 // Avatar styles for the people of the headquarters (docs/ANUM_MINE_HQ_REALISM_ASSETS.md, "Avatar styles").
 // Six real assigned agents sit in one office; the scene draws a different style for each, the owner changes one
 // from the Team panel, and the scene, the list chip and the dataset follow. Nothing here is read from a name.
