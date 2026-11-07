@@ -22,6 +22,7 @@ import { Denied, Empty, LoadError, Money, Notice, failed, type Load } from './Fi
 import { FinBanner, FinCard, FinancePageHead, FinanceTabs, KpiCard, KpiRow, PeriodPicker, StatusChip, tabPanel } from './FinanceShell';
 import { BillForm } from './FinancePlanningForms';
 import { BudgetSpendChart } from './FinancePlanningCharts';
+import { BillsCsvImport } from './FinanceBillsCsvImport';
 import { CapDialog, MatchDialog, PersonalScope, Progress, RowMenu } from './FinancePlanningParts';
 import './financePlanning.css';
 
@@ -45,6 +46,7 @@ export function BillsBudgetsPage({ initial, accounts, base, today, onOpen, onCha
   const [notice, setNotice] = useState<{ error?: boolean; text: string } | null>(null);
   const [editing, setEditing] = useState<FinanceBill | 'new' | null>(null), [removing, setRemoving] = useState<FinanceBill | null>(null), [busy, setBusy] = useState(false);
   const [matching, setMatching] = useState<FinanceBillOccurrence | null>(null);
+  const [importing, setImporting] = useState(false);
   const [cap, setCap] = useState<{ category: FinanceCategory; currency: string; amount: string } | 'new' | null>(null);
 
   const loadSchedule = useCallback(async () => {
@@ -89,7 +91,7 @@ export function BillsBudgetsPage({ initial, accounts, base, today, onOpen, onCha
 
   const crumbs = [{ label: t('finance.tab.overview'), href: '#finance', onClick: () => onOpen('overview') }, { label: t('fplan.bills.title') }];
   const head = <FinancePageHead title={t('fplan.bills.title')} subtitle={t('fplan.bills.subtitle')} crumbs={crumbs}
-    actions={<button type="button" onClick={() => setEditing('new')}><Plus aria-hidden="true" />{t('finance.bills.add')}</button>}
+    actions={<><button type="button" onClick={() => setImporting(true)}>Import CSV</button><button type="button" onClick={() => setEditing('new')}><Plus aria-hidden="true" />{t('finance.bills.add')}</button></>}
     controls={<><PersonalScope /><PeriodPicker month={month} onChange={setMonth} /></>}
     tabs={<FinanceTabs label={t('fplan.bills.tabs')} idPrefix="fbb" value={section} onChange={setSection}
       items={SECTIONS.map((id) => ({ id, label: t(`fplan.bills.tab.${id}` as MessageKey) }))} />} />;
@@ -143,6 +145,10 @@ export function BillsBudgetsPage({ initial, accounts, base, today, onOpen, onCha
         onToggle={(b) => void toggleBill(b)} onRemove={setRemoving} onKept={(name) => { setNotice({ text: t('finance.bills.kept', { name }) }); reloadBills(); }} />}
       {section === 'calendar' && <CalendarCard rows={rows} month={month} today={schedule.value.today} onPick={(row) => (row.status === 'paid' ? openBill(row.bill_id) : setMatching(row))} />}
     </div>
+    {importing && <Modal title="Import installment bills from CSV" className="formDialog" onClose={() => setImporting(false)}>
+      <BillsCsvImport existing={bills.kind === 'ready' ? bills.value : []} onClose={() => setImporting(false)}
+        onDone={(count) => { if (count) reloadBills(); }} />
+    </Modal>}
     {editing && <Modal title={editing === 'new' ? t('finance.bills.add') : t('finance.item.editTitle', { name: editing.name })} className="formDialog" onClose={() => setEditing(null)}>
       <BillForm bill={editing === 'new' ? null : editing} accounts={accounts} base={base} onDone={(text) => { setEditing(null); if (text) { setNotice({ text }); reloadBills(); } }} />
     </Modal>}
