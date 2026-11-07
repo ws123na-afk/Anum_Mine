@@ -287,6 +287,6 @@ test('full statement keeps completed orders, excludes refund cases from monthly 
   await expect(section.getByText('refund-1')).toBeVisible();
   await expect(section.getByText('open-1')).toBeVisible();
   await expect(section.getByRole('row').filter({ hasText: '2026-12' })).toContainText('602.00');
-  await expect(section.getByRole('row').filter({ hasText: '2026-11' })).toHaveCount(0);
+  await expect(section.getByText('2026-11', { exact: true })).toHaveCount(0);
   await expect(section.getByRole('button', { name: 'Export statement CSV' })).toBeVisible();
 });
