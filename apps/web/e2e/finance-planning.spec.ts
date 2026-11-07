@@ -171,3 +171,20 @@ for (const [width, height] of [[1440, 900], [1366, 768], [1024, 768], [768, 1024
     }
   });
 }
+
+test('Bills CSV import maps Tamara fields, skips paid and review rows and creates only unpaid one-time bills', async ({ page }) => {
+  const { sent } = await mockApi(page);
+  await page.goto('/#finance-bills');
+  await page.getByRole('button', { name: 'Import CSV' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Import installment bills from CSV' });
+  const csv = [
+    'Due Date,Merchant,Tamara Order ID,Installment #,Amount (SAR),Currency,Reconciliation Status',
+    '2026-11-01,Jarir,example-1,2,602.00,SAR,Paid',
+    '2026-12-01,Jarir,example-1,3,602.00,SAR,Scheduled',
+    '2026-12-02,Amazon,example-2,2,75.00,SAR,Refund adjusted - review',
+  ].join('\\n');
+  await dialog.locator('input[type="file"]').setInputFiles({ name: 'tamara.csv', mimeType: 'text/csv', buffer: Buffer.from(csv) });
+  await expect(dialog.getByText('Ready: 1 unpaid installments. Skipped: 1. Errors: 1.')).toBeVisible();
+  // A refund-adjusted row is deliberately blocked rather than assumed payable.
+  await expect(dialog.getByRole('button', { name: 'Import 1 bills' })).toBeDisabled();
+});
