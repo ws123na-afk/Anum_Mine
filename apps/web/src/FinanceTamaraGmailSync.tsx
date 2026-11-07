@@ -120,7 +120,7 @@ export function FinanceTamaraGmailSync({ existing, onDone, onClose }: {
       </select>
     </label>
     {!mailboxes.some(m => m.address.toLowerCase() === TARGET) &&
-      <p role="status">The LLC Gmail account ({TARGET}) is not connected to ANUM Email yet. Connect it there with a private mailbox grant, then return to Finance.</p>}
+      <p role="status">The LLC Gmail account ({TARGET}) is not connected to ANUM Email yet. Connect it there with a private mailbox grant, then return to Finance. <a href="#email/connections">Open Email connections</a></p>}
     <div className="finFormActions">
       <button type="button" disabled={loading || busy || !account} onClick={() => void examine()}>{loading ? 'Reading Gmail…' : 'Preview Tamara emails'}</button>
       <button type="button" onClick={onClose}>Close</button>
