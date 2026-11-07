@@ -152,8 +152,12 @@ export function BillsCsvImport({ existing, onDone, onClose }: { existing: Financ
       if (!bill || matched.has(bill.id)) continue;
       matched.add(bill.id);
       if (bill.next_due_on !== date || Number(bill.amount) !== Number(amount)) {
-        conflicts.push(`Row ${i + 2}: ${merchant} ${order || ''} changed amount or due date. Review this bill manually; existing financial terms were preserved.`);
-        continue;
+        if (pending(status)) {
+          conflicts.push(`Row ${i + 2}: ${merchant} ${order || ''} changed amount or due date. Review manually; original bill terms were preserved.`);
+          continue;
+        }
+        // Refund adjustments must not remain due, even when the statement amount changes.
+        // Keep original terms and flag the case for review in saved source status.
       }
       const summary = orderFor(order, merchant, currency);
       if (!summary) continue;
