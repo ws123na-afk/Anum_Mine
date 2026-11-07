@@ -530,3 +530,18 @@ Finance > Bills > **Import CSV** accepts a provider installment statement with d
 - **Money and privacy:** No import charges cards or creates canonical bank transactions, and no personal statement is committed to the repository. Source email links and notes belong only to the signed-in owner. Amounts under refund/dispute review are excluded from payable totals, and original statement amounts are not represented as confirmed refunds or invoice totals.
 
 **Known limitations:** Provider email status may lag real payment activity. A final bank/Tamara reconciliation is needed for disputed refunds and reported paid amounts. The source CSV describes merchants/orders, not the actual item-level receipts, unless receipts are supplied separately. A new installment record may be due even if it is not yet matched to a real payment.
+
+
+### Gmail receipts alongside manual and CSV import
+
+Finance > Bills now presents **Sync Gmail**, **Import CSV**, and **Add Bill** independently. Manual Bills are never deleted when Gmail is connected or disconnected. Gmail integration reuses the ANUM Email module's existing Gmail OAuth connection (ANUM does not reuse the ChatGPT Gmail connection).
+
+1. Connect the intended Gmail account in **ANUM Email**, preferably as **Private**. Finance prefers `shahzeb.rahmanllc@gmail.com` when that mailbox is among the authenticated user's own connections; it never assumes this Gmail identity is already authorized.
+2. In Finance > Bills > **Sync Gmail**, select the mailbox, refresh ANUM Email's existing incremental sync, and preview Tamara messages.
+3. Finance's read-only preview endpoint `GET /api/v1/finance/installment-email/preview?account_id=...&limit=500` only allows Gmail mailboxes connected by the current user, requires both finance manage and email read permissions, reads relevant metadata from the existing inbox, and fetches bodies transiently through the provider. It does not send, archive, or mark mail read. The mailbox list is `GET /api/v1/finance/installment-email/mailboxes`.
+4. Parsing is **deterministic** and limited to Tamara sender addresses, order numbers, original due schedules and repayment confirmations. It flags amount mismatches and refund/adjustment emails for human review. No model tokens or LLM provider are required.
+5. The user explicitly approves the preview before its rows are stored using the same idempotent Finance statement sync API and before any future scheduled Bills are created. Provider-reported paid installments are preserved in statement history but not fabricated as bank transactions. Refund review cannot be automatically treated as money received.
+6. Provider replies, invoices and SKU-level product details cannot be guaranteed from an order-only email. Original invoices/receipts must be separately scanned if SKU-level detail is required.
+7. The Email module's normal background mailbox sync continues under its own schedule, but **Finance does not silently import or modify bill records on a background timer**: approve the Finance import for each new batch. This prevents accidental financial obligations from unreviewed email content.
+
+The scanner checks at most 500 locally synchronized messages per manual preview and warns if it hits the limit. Older invoices absent from the local Email cache are not claimed as scanned; use CSV or the existing Email archive/backfill process to cover them. None of these endpoints require or publish OAuth tokens or Gmail bodies in the Finance response.
