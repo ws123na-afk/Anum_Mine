@@ -23,7 +23,7 @@ function merchantOf(b: FinanceBill) {
 }
 export function summarizeInstallmentBills(bills: FinanceBill[], occurrences: FinanceBillOccurrence[]): OrderRow[] {
   const csvNumber = (notes: string | null, field: string): number | null => {
-    const match = notes?.match(new RegExp(field + ':\\\\s*([0-9]+(?:\\\\.[0-9]+)?)', 'i'));
+    const match = notes?.match(new RegExp(field + ':\\s*([0-9]+(?:\\.[0-9]+)?)', 'i'));
     return match ? Number(match[1]) : null;
   };
   const byBill = new Map(occurrences.map(o => [o.bill_id + '/' + o.due_on, o]));
