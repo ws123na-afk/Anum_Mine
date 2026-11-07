@@ -92,6 +92,17 @@ export function InstallmentBillsSummary({ bills, onRefresh }: { bills: FinanceBi
       paid: found.reduce((n, r) => n + r.paidAmount, 0),
       nextDue: found.map(r => r.nextDue).filter((d): d is string => !!d).sort()[0] ?? null };
   });
+  const monthly = useMemo(() => {
+    const values = new Map<string, Map<string, number>>();
+    for (const row of rows) for (const installment of row.installments) {
+      if (installment.status === 'paid' || installment.status === 'review' || installment.status === 'paused' || installment.status === 'unknown') continue;
+      const month = installment.date.slice(0, 7);
+      const sums = values.get(month) ?? new Map<string, number>();
+      sums.set(row.currency, (sums.get(row.currency) ?? 0) + installment.amount);
+      values.set(month, sums);
+    }
+    return [...values].sort(([a], [b]) => a.localeCompare(b)).map(([month, sums]) => ({ month, sums: [...sums] }));
+  }, [rows]);
   if (!relevant.length) return null;
   return <section className="finCard" aria-label="Tamara installment summary" style={{ marginBlock: 16 }}>
     <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 12 }}>
@@ -108,16 +119,22 @@ export function InstallmentBillsSummary({ bills, onRefresh }: { bills: FinanceBi
           <td>{money(r.pending, r.currency)}</td><td>{r.nextDue ?? 'None'}</td></tr>)}</tbody>
       </table></div>
       <div className="finTableWrap"><table className="finGrid">
-        <thead><tr><th>Purchase</th><th>Installments in ANUM</th><th>CSV paid*</th><th>Matched in ANUM</th><th>Pending</th><th>Remaining amount</th><th>Next due</th><th>Final due</th><th>Details</th></tr></thead>
+        <thead><tr><th>Purchase</th><th>Installments in ANUM</th><th>CSV paid*</th><th>CSV paid amount*</th><th>Matched in ANUM</th><th>Pending</th><th>Remaining amount</th><th>Next due</th><th>Final due</th><th>Details</th></tr></thead>
         <tbody>{rows.map(r => <tr key={r.key}>
           <td><strong>{r.merchant}</strong>{r.reference && <small style={{ display: 'block' }}>{r.reference}</small>}</td>
-          <td>{r.total}</td><td>{r.csvPaid ?? 'Not imported'}</td><td>{r.paid}</td><td>{r.pending}{r.review > 0 ? ` (review ${r.review})` : ''}</td>
+          <td>{r.total}</td><td>{r.csvPaid ?? 'Not imported'}</td><td>{r.csvPaidAmount === null ? 'Not imported' : money(r.csvPaidAmount, r.currency)}</td><td>{r.paid}</td><td>{r.pending}{r.review > 0 ? ` (review ${r.review})` : ''}</td>
           <td>{money(r.pendingAmount, r.currency)}</td><td>{r.nextDue ?? 'None'}</td><td>{r.lastDue ?? 'None'}</td>
           <td><button type="button" aria-expanded={expanded === r.key} onClick={() => setExpanded(expanded === r.key ? null : r.key)}>View</button></td>
-        </tr>).flatMap((row, i) => expanded === rows[i].key ? [row, <tr key={rows[i].key + '-details'}><td colSpan={9}>
+        </tr>).flatMap((row, i) => expanded === rows[i].key ? [row, <tr key={rows[i].key + '-details'}><td colSpan={10}>
           <ul>{rows[i].installments.map(p => <li key={p.date}>{p.date}: {money(p.amount, rows[i].currency)} ({p.status})</li>)}</ul>
         </td></tr>] : [row])}</tbody>
       </table></div>
+      {monthly.length > 0 && <div className="finTableWrap">
+        <h3>Month-by-month unpaid installments</h3>
+        <table className="finGrid"><thead><tr><th>Due month</th><th>Scheduled amount</th></tr></thead><tbody>
+          {monthly.map(m => <tr key={m.month}><td>{m.month}</td><td>{m.sums.map(([currency, amount]) => money(amount, currency)).join(' · ')}</td></tr>)}
+        </tbody></table>
+      </div>}
       <p className="muted">* CSV paid means reported as paid by the uploaded file, not independently verified. Matched in ANUM means linked to a recorded payment. Counts cover only bills retained/imported; fully completed orders with no outstanding bill appear only in the CSV preview. No payment is made by this screen.</p>
     </>}
   </section>;
