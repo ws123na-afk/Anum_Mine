@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { FinanceBill, FinanceBillInput, FinanceInstallmentStatementEntry } from '@anum/contracts';
 import * as billsApi from './lib/financeApi';
+import { syncEmailAccount } from './lib/emailApi';
 import * as plan from './lib/financePlanningApi';
 import { describeError } from './lib/errors';
 
@@ -38,6 +39,7 @@ export function FinanceTamaraGmailSync({ existing, onDone, onClose }: {
     if (!account) return;
     setLoading(true); setError(''); setDone(''); setPreview(null);
     try {
+      await syncEmailAccount(account);
       const found = await plan.previewTamaraGmail(account, 500);
       setPreview(found);
     } catch (e) { setError(describeError(e)); }
@@ -110,7 +112,7 @@ export function FinanceTamaraGmailSync({ existing, onDone, onClose }: {
   }
 
   return <div className="finForm">
-    <p>This reads Tamara receipts from a Gmail account already connected under ANUM Email. Email payments are only provider-reported until matched with actual bank records. Manual Bills and CSV Import remain available.</p>
+    <p>This first refreshes the selected Gmail mailbox in ANUM Email, then reads Tamara receipts. Email payments are only provider-reported until matched with actual bank records. Manual Bills and CSV Import remain available.</p>
     <label className="field"><span>Gmail mailbox</span>
       <select value={account} onChange={e => { setAccount(e.target.value); setPreview(null); }}>
         {mailboxes.length === 0 && <option value="">No connected Gmail account</option>}
