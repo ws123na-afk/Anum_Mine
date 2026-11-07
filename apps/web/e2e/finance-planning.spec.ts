@@ -9,6 +9,7 @@ import { useSavedLocale } from './support/workspaceApi';
 async function mockApi(page: Page, options: { empty?: boolean; denied?: boolean; failSchedule?: boolean } = {}) {
   const state = financeState({ empty: options.empty, denied: options.denied });
   const sent: { method: string; path: string; body: unknown }[] = [];
+  const installments = new Map<string, Record<string, unknown>>();
   await page.route('http://localhost:8000/**', async (route) => {
     const request = route.request();
     const url = new URL(request.url());
@@ -26,6 +27,37 @@ async function mockApi(page: Page, options: { empty?: boolean; denied?: boolean;
     }
     const body = request.postData() ? request.postDataJSON() : null;
     if (request.method() !== 'GET') sent.push({ method: request.method(), path, body });
+    if (path === '/api/v1/finance/installment-email/mailboxes' && request.method() === 'GET')
+      return json([{ id: 'gmail_llc', address: 'shahzeb.rahmanllc@gmail.com', selected: true }]);
+    if (path === '/api/v1/email/accounts/gmail_llc/sync' && request.method() === 'POST')
+      return json({ id: 'gmail_llc', address: 'shahzeb.rahmanllc@gmail.com', provider: 'gmail', status: 'connected' });
+    if (path === '/api/v1/finance/installment-email/preview' && request.method() === 'GET')
+      return json({
+        account_id: 'gmail_llc', address: 'shahzeb.rahmanllc@gmail.com', messages_checked: 4,
+        messages_matched: 3, warnings: [],
+        rows: [
+          { provider: 'Tamara', order_id: 'jarir-gmail-1', merchant: 'Jarir', purchase_on: '2026-10-15',
+            due_on: '2026-10-15', installment: 1, total_installments: 2,
+            amount: '602.00', currency: 'SAR', source_status: 'paid', source_email: null, review_notes: null },
+          { provider: 'Tamara', order_id: 'jarir-gmail-1', merchant: 'Jarir', purchase_on: '2026-10-15',
+            due_on: '2026-12-01', installment: 2, total_installments: 2,
+            amount: '602.00', currency: 'SAR', source_status: 'scheduled', source_email: null, review_notes: null },
+        ],
+      });
+    if (path === '/api/v1/finance/installment-statement' && request.method() === 'GET')
+      return json({ items: [...installments.values()], total: installments.size });
+    if (path === '/api/v1/finance/installment-statement/sync' && request.method() === 'POST') {
+      let created = 0, updated = 0, unchanged = 0;
+      for (const row of (body as { entries: Record<string, unknown>[] }).entries) {
+        const key = String(row.provider) + '/' + String(row.order_id) + '/' + String(row.installment);
+        const old = installments.get(key);
+        if (!old) created++;
+        else if (JSON.stringify(old) !== JSON.stringify(row)) updated++;
+        else unchanged++;
+        installments.set(key, row);
+      }
+      return json({ created, updated, unchanged, conflicts: [], total: installments.size });
+    }
     const reply = financeReply(state, request.method(), url, body);
     if (reply) return reply.status === 204 ? route.fulfill({ status: 204 }) : json(reply.body, reply.status);
     return route.abort();
@@ -184,10 +216,112 @@ test('Bills CSV import maps Tamara fields, skips paid and review rows and create
     '2026-12-02,Amazon,example-2,2,75.00,SAR,Refund adjusted - review',
   ].join('\\n');
   await dialog.locator('input[type="file"]').setInputFiles({ name: 'tamara.csv', mimeType: 'text/csv', buffer: Buffer.from(csv) });
-  await expect(dialog.getByText('Ready: 1 unpaid installments. Skipped: 2. Errors: 0.')).toBeVisible();
+  await expect(dialog.getByText('New: 1. Existing to update: 0. Skipped: 2. Errors: 0. Conflicts: 0.')).toBeVisible();
   // Paid and refund-review rows are excluded; the scheduled installment is imported.
-  await dialog.getByRole('button', { name: 'Import 1 bills' }).click();
+  await dialog.getByRole('button', { name: 'Sync 1 new + 0 existing bills' }).click();
   await expect.poll(() => sent.filter((x) => x.method === 'POST' && x.path === '/api/v1/finance/bills').length).toBe(1);
   const created = sent.find((x) => x.method === 'POST' && x.path === '/api/v1/finance/bills')?.body as { next_due_on: string; cadence: string; amount: string };
   expect(created).toMatchObject({ next_due_on: '2026-12-01', cadence: 'once', amount: '602.00' });
+});
+
+test('Tamara CSV preview reports paid and upcoming installments by order without importing paid rows', async ({ page }) => {
+  const { sent } = await mockApi(page);
+  await page.goto('/#finance-bills');
+  await page.getByRole('button', { name: 'Import CSV' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Import installment bills from CSV' });
+  const csv = [
+    'Due Date,Merchant,Tamara Order ID,Installment #,Amount (SAR),Currency,Reconciliation Status',
+    '2026-10-01,Jarir,jarir-1,1,602.00,SAR,Paid',
+    '2026-11-01,Jarir,jarir-1,2,602.00,SAR,Paid',
+    '2026-12-01,Jarir,jarir-1,3,602.00,SAR,Scheduled',
+    '2027-01-01,Jarir,jarir-1,4,602.00,SAR,Scheduled',
+    '2026-12-05,Amazon,amazon-1,2,29.00,SAR,Refund adjusted - review',
+  ].join('\\n');
+  await dialog.locator('input[type="file"]').setInputFiles({ name: 'tamara.csv', mimeType: 'text/csv', buffer: Buffer.from(csv) });
+  const summary = dialog.getByRole('region', { name: 'Imported order payment summary' });
+  await expect(summary.getByRole('row').filter({ hasText: 'jarir-1' })).toContainText('1204.00');
+  await expect(summary.getByRole('row').filter({ hasText: 'jarir-1' })).toContainText('2026-12-01');
+  await expect(dialog.getByText('New: 2. Existing to update: 0. Skipped: 3. Errors: 0. Conflicts: 0.')).toBeVisible();
+  await dialog.getByRole('button', { name: 'Sync 2 new + 0 existing bills' }).click();
+  await expect.poll(() => sent.filter(r => r.method === 'POST' && r.path === '/api/v1/finance/bills').length).toBe(2);
+  const body = sent.find(r => r.method === 'POST' && r.path === '/api/v1/finance/bills')?.body as { notes: string; cadence: string };
+  expect(body.cadence).toBe('once');
+  expect(body.notes).toContain('CSV Paid Count: 2');
+  expect(body.notes).toContain('CSV Paid Amount: 1204.00');
+});
+
+test('re-uploading the same CSV preserves all paid history without duplicating scheduled bills', async ({ page }) => {
+  const { sent } = await mockApi(page);
+  await page.goto('/#finance-bills');
+  const csv = [
+    'Due Date,Merchant,Tamara Order ID,Installment #,Total Installments,Amount (SAR),Currency,Reconciliation Status',
+    '2026-10-15,Jarir,jarir-1,1,3,602.00,SAR,Paid',
+    '2026-11-01,Jarir,jarir-1,2,3,602.00,SAR,Paid',
+    '2026-12-01,Jarir,jarir-1,3,3,602.00,SAR,Scheduled',
+  ].join('\\n');
+  const upload = async () => {
+    await page.getByRole('button', { name: 'Import CSV' }).click();
+    const dialog = page.getByRole('dialog', { name: 'Import installment bills from CSV' });
+    await dialog.locator('input[type="file"]').setInputFiles({ name: 'tamara.csv', mimeType: 'text/csv', buffer: Buffer.from(csv) });
+    return dialog;
+  };
+  let dialog = await upload();
+  await expect(dialog.getByText('Full statement storage: 3 of 3 rows ready.')).toBeVisible();
+  await dialog.getByRole('button', { name: 'Sync 1 new + 0 existing bills' }).click();
+  await expect(dialog).not.toBeVisible();
+
+  dialog = await upload();
+  await expect(dialog.getByText(/New: 0\. Existing to update: 1\./)).toBeVisible();
+  await dialog.getByRole('button', { name: 'Sync 0 new + 1 existing bills' }).click();
+  await expect(dialog).not.toBeVisible();
+
+  dialog = await upload();
+  await expect(dialog.getByText(/New: 0\. Existing to update: 0\./)).toBeVisible();
+  await dialog.getByRole('button', { name: 'Sync 0 new + 0 existing bills' }).click();
+  const posts = sent.filter(x => x.path === '/api/v1/finance/bills' && x.method === 'POST');
+  expect(posts).toHaveLength(1);
+  expect(sent.filter(x => x.path === '/api/v1/finance/installment-statement/sync' && x.method === 'POST')).toHaveLength(3);
+  await expect(page.getByRole('region', { name: 'Complete installment statement' }).getByText('jarir-1')).toBeVisible();
+});
+
+test('full statement keeps completed orders, excludes refund cases from monthly dues and exports data', async ({ page }) => {
+  await mockApi(page);
+  await page.goto('/#finance-bills');
+  await page.getByRole('button', { name: 'Import CSV' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Import installment bills from CSV' });
+  const csv = [
+    'Due Date,Merchant,Tamara Order ID,Installment #,Total Installments,Amount (SAR),Currency,Reconciliation Status,Review Notes',
+    '2026-06-01,Noon,completed-1,1,2,50.00,SAR,Paid,',
+    '2026-07-01,Noon,completed-1,2,2,50.00,SAR,Paid,',
+    '2026-11-01,Amazon,refund-1,1,1,99.00,SAR,Refund adjusted - review,Awaiting confirmation',
+    '2026-12-01,Jarir,open-1,1,1,602.00,SAR,Scheduled,',
+  ].join('\\n');
+  await dialog.locator('input[type="file"]').setInputFiles({ name: 'all.csv', mimeType: 'text/csv', buffer: Buffer.from(csv) });
+  await expect(dialog.getByText('Full statement storage: 4 of 4 rows ready.')).toBeVisible();
+  await dialog.getByRole('button', { name: 'Sync 1 new + 0 existing bills' }).click();
+  const section = page.getByRole('region', { name: 'Complete installment statement' });
+  await expect(section.getByText('completed-1')).toBeVisible();
+  await expect(section.getByText('refund-1')).toBeVisible();
+  await expect(section.getByText('open-1')).toBeVisible();
+  await expect(section.getByRole('row').filter({ hasText: '2026-12' })).toContainText('602.00');
+  await expect(section.getByText('2026-11', { exact: true })).toHaveCount(0);
+  await expect(section.getByRole('button', { name: 'Export statement CSV' })).toBeVisible();
+});
+
+test('Gmail sync for preferred LLC account previews and imports only pending installments', async ({ page }) => {
+  const { sent } = await mockApi(page);
+  await page.goto('/#finance-bills');
+  await page.getByRole('button', { name: 'Sync Gmail' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Import Tamara payments from connected Gmail' });
+  await expect(dialog.getByLabel('Gmail mailbox')).toContainText('shahzeb.rahmanllc@gmail.com');
+  await dialog.getByRole('button', { name: 'Preview Tamara emails' }).click();
+  await expect(dialog.getByText('Installments found: 2.')).toBeVisible();
+  await expect(dialog.getByText('New Bills: 1.')).toBeVisible();
+  await dialog.getByRole('button', { name: 'Approve Gmail statement import' }).click();
+  await expect(dialog.getByText(/Saved 2 email installment entries/)).toBeVisible();
+  expect(sent.filter(x => x.path === '/api/v1/finance/installment-statement/sync' && x.method === 'POST')).toHaveLength(1);
+  const bills = sent.filter(x => x.path === '/api/v1/finance/bills' && x.method === 'POST');
+  expect(bills).toHaveLength(1);
+  expect(bills[0].body).toMatchObject({ next_due_on: '2026-12-01', amount: '602.00', cadence: 'once' });
+  expect(sent.some(x => x.path === '/api/v1/email/accounts/gmail_llc/sync')).toBe(true);
 });
