@@ -137,9 +137,9 @@ export function FinanceInstallmentStatement({ bills, today, refreshKey = 0, onRe
         <td>{lines.filter(l => l.effective === 'review').length}</td><td>{overdue}</td><td>{next?.due_on ?? 'None'}</td></tr></tbody>
     </table></div>
     <div className="finTableWrap"><table className="finGrid">
-      <thead><tr><th>Currency</th><th>Reported paid amount</th><th>Scheduled outstanding</th><th>Amount under review</th></tr></thead>
+      <thead><tr><th>Currency</th><th>Reported paid amount</th><th>Scheduled outstanding</th><th>Amount under review</th><th>Statement total*</th></tr></thead>
       <tbody>{totals.map(t => <tr key={t.currency}><td>{t.currency}</td><td>{amount(t.paid,t.currency)}</td>
-        <td>{amount(t.pending,t.currency)}</td><td>{amount(t.review,t.currency)}</td></tr>)}</tbody>
+        <td>{amount(t.pending,t.currency)}</td><td>{amount(t.review,t.currency)}</td><td>{amount(t.paid + t.pending + t.review,t.currency)}</td></tr>)}</tbody>
     </table></div>
     <div style={{ display:'flex',gap:8, flexWrap:'wrap', marginBlock:12 }}>
       <label className="field"><span>Search purchase or order</span><input value={needle} onChange={e => setNeedle(e.target.value)} placeholder="Merchant / order number" /></label>
@@ -147,19 +147,19 @@ export function FinanceInstallmentStatement({ bills, today, refreshKey = 0, onRe
         <option value="all">All purchases</option><option value="outstanding">Pending payments</option><option value="completed">Completed</option><option value="review">Refunds / review</option></select></label>
     </div>
     <div className="finTableWrap"><table className="finGrid">
-      <thead><tr><th>Purchase / order</th><th>Purchase date</th><th>Paid</th><th>Pending</th><th>Review</th><th>Paid amount</th><th>Outstanding</th><th>Next due</th><th>Final due</th><th>Details</th></tr></thead>
+      <thead><tr><th>Purchase / order</th><th>Purchase date</th><th>Paid</th><th>Pending</th><th>Review</th><th>Paid amount</th><th>Outstanding</th><th>Statement total*</th><th>Next due</th><th>Final due</th><th>Details</th></tr></thead>
       <tbody>{shown.map(o => <Fragment key={o.key}>
         <tr key={o.key}><td><strong>{o.merchant}</strong><small style={{display:'block'}}>{o.reference}</small></td>
           <td>{o.purchaseDate ?? 'Unknown'}</td><td>{o.paid} / {o.rows.length}</td><td>{o.pending}</td><td>{o.review}</td>
-          <td>{amount(o.paidAmount,o.currency)}</td><td>{amount(o.pendingAmount,o.currency)}</td>
+          <td>{amount(o.paidAmount,o.currency)}</td><td>{amount(o.pendingAmount,o.currency)}</td><td>{amount(o.totalPlan,o.currency)}</td>
           <td>{o.nextDue ?? 'None'}</td><td>{o.lastDue ?? 'None'}</td>
           <td><button type="button" aria-expanded={expanded === o.key} onClick={() => setExpanded(expanded === o.key ? null : o.key)}>View</button></td>
         </tr>
-        {expanded === o.key && <tr key={o.key + '-expanded'}><td colSpan={10}>
-          <div className="finTableWrap"><table className="finGrid"><thead><tr><th>#</th><th>Due</th><th>Amount</th><th>Provider status</th><th>ANUM match</th><th>Review notes</th></tr></thead>
+        {expanded === o.key && <tr key={o.key + '-expanded'}><td colSpan={11}>
+          <div className="finTableWrap"><table className="finGrid"><thead><tr><th>#</th><th>Due</th><th>Amount</th><th>Provider status</th><th>ANUM match</th><th>Review notes</th><th>Source</th></tr></thead>
             <tbody>{o.rows.map(l => <tr key={l.installment}><td>{l.installment} / {l.total_installments}</td><td>{l.due_on}</td>
               <td>{amount(Number(l.amount),l.currency)}</td><td>{l.source_status}</td>
-              <td>{l.verified ? 'Verified transaction match' : 'Not matched'}</td><td>{l.review_notes ?? ''}</td></tr>)}</tbody>
+              <td>{l.verified ? 'Verified transaction match' : 'Not matched'}</td><td>{l.review_notes ?? ''}</td><td>{l.source_email?.startsWith('https://mail.google.com/') ? <a href={l.source_email} target="_blank" rel="noreferrer">Email</a> : 'Not linked'}</td></tr>)}</tbody>
           </table></div>
         </td></tr>}
       </Fragment>)}</tbody>
@@ -169,6 +169,6 @@ export function FinanceInstallmentStatement({ bills, today, refreshKey = 0, onRe
       <tbody>{months.map(([month, currencies]) => <tr key={month}><td>{month}</td><td>{[...currencies].map(([currency,sum])=>amount(sum,currency)).join(' · ')}</td>
         <td>{month < today.slice(0,7) ? 'Past due, check status' : month === today.slice(0,7) ? 'This month' : 'Upcoming'}</td></tr>)}</tbody>
     </table></div>
-    <p className="muted">Amounts under review are excluded from payable totals. Never automatically mark an installment paid from an email alone. Verify actual payments against the canonical ledger. This page does not transfer money.</p>
+    <p className="muted">* Statement totals sum the uploaded installment rows before disputed refund adjustments; they are not a verified merchant invoice total. Amounts under review are excluded from payable totals. Never automatically mark an installment paid from an email alone. Verify actual payments against the canonical ledger. This page does not transfer money.</p>
   </section>;
 }
