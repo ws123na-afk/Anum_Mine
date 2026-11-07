@@ -50,6 +50,32 @@ export function importBillKey(date: string, name: string, amount: string, curren
   return [date, normalize(name), Number(amount).toFixed(2), currency.toUpperCase()].join('|');
 }
 
+
+// A source-file overview includes paid entries that are deliberately not imported as bills.
+export function summarizeImportedCsv(headers: string[], data: string[][], mapping: Record<Field, string>, fallbackCurrency: string) {
+  const index = (field: Field) => headers.indexOf(mapping[field]);
+  const read = (r: string[], field: Field) => index(field) >= 0 ? (r[index(field)] ?? '').trim() : '';
+  const orders = new Map<string, { merchant: string; reference: string; currency: string; paid: number; pending: number; review: number; paidAmount: number; pendingAmount: number; nextDue: string | null; finalDue: string | null }>();
+  if (!mapping.date || !mapping.merchant || !mapping.amount || !mapping.status) return [];
+  for (const r of data) {
+    const merchant = read(r, 'merchant'), reference = read(r, 'order');
+    const amount = decimal(read(r, 'amount')), due = read(r, 'date');
+    const currency = (read(r, 'currency') || fallbackCurrency).toUpperCase();
+    if (!merchant || !amount || !isIso(due)) continue;
+    const key = [currency, reference || merchant.toLowerCase()].join('|');
+    const item = orders.get(key) ?? { merchant, reference, currency, paid: 0, pending: 0, review: 0, paidAmount: 0, pendingAmount: 0, nextDue: null, finalDue: null };
+    const status = read(r, 'status');
+    if (/^paid$/i.test(status)) { item.paid++; item.paidAmount += Number(amount); }
+    else if (pending(status)) {
+      item.pending++; item.pendingAmount += Number(amount);
+      if (!item.nextDue || due < item.nextDue) item.nextDue = due;
+    } else item.review++;
+    if (!item.finalDue || due > item.finalDue) item.finalDue = due;
+    orders.set(key, item);
+  }
+  return [...orders.values()].sort((a, b) => (a.nextDue ?? a.finalDue ?? '').localeCompare(b.nextDue ?? b.finalDue ?? ''));
+}
+
 export function BillsCsvImport({ existing, onDone, onClose }: { existing: FinanceBill[]; onDone: (count: number) => void; onClose: () => void }) {
   const [headers, setHeaders] = useState<string[]>([]);
   const [data, setData] = useState<string[][]>([]);
@@ -101,6 +127,8 @@ export function BillsCsvImport({ existing, onDone, onClose }: { existing: Financ
     return { entries, errors, skipped };
   }, [headers, data, mapping, existing, defaultCurrency]);
 
+  const orderSummary = useMemo(() => summarizeImportedCsv(headers, data, mapping, defaultCurrency), [headers, data, mapping, defaultCurrency]);
+
   async function submit() {
     if (!preview.entries.length || preview.errors.length || busy) return;
     setBusy(true); setError(''); let count = 0;
@@ -129,6 +157,19 @@ export function BillsCsvImport({ existing, onDone, onClose }: { existing: Financ
           </select></label>)}
         <label className="field"><span>Currency when not in CSV</span><input value={defaultCurrency} maxLength={3} onChange={(e) => setDefaultCurrency(e.target.value.toUpperCase())} /></label>
       </div>
+      {orderSummary.length > 0 && <section aria-label="Imported order payment summary">
+        <h3>Purchase summary from this CSV</h3>
+        <p>Includes paid installments from the file, even though only unpaid rows will become Bills. Review/refund items are not treated as payable.</p>
+        <div className="finTableWrap"><table className="finGrid">
+          <thead><tr><th>Purchase</th><th>Paid</th><th>Pending</th><th>To review</th><th>Paid amount</th><th>Remaining</th><th>Next due</th><th>Last due</th></tr></thead>
+          <tbody>{orderSummary.map(r => <tr key={r.currency + '/' + (r.reference || r.merchant)}>
+            <td>{r.merchant}{r.reference && <small style={{ display: 'block' }}>{r.reference}</small>}</td>
+            <td>{r.paid}</td><td>{r.pending}</td><td>{r.review}</td>
+            <td>{r.paidAmount.toFixed(2)} {r.currency}</td><td>{r.pendingAmount.toFixed(2)} {r.currency}</td>
+            <td>{r.nextDue ?? 'None'}</td><td>{r.finalDue ?? 'None'}</td>
+          </tr>)}</tbody>
+        </table></div>
+      </section>}
       <p role="status">Ready: {preview.entries.length} unpaid installments. Skipped: {preview.skipped.length}. Errors: {preview.errors.length}.</p>
       {preview.errors.length > 0 && <div role="alert">{preview.errors.slice(0, 12).map((e) => <p key={e}>{e}</p>)}</div>}
       {preview.entries.length > 0 && <div className="finTableWrap"><table className="finGrid"><thead><tr><th>Date</th><th>Merchant</th><th>Amount</th><th>Order</th></tr></thead><tbody>
