@@ -373,3 +373,48 @@ def test_privacy_export_and_delete_include_the_ledger() -> None:
     export = client.get("/api/v1/privacy/export", headers=OWNER)
     assert export.status_code == 200 and len(export.json()["finance"]["transactions"]) == 6
     assert client.get("/api/v1/privacy", headers=MEMBER).json()["private"]["finance_records"] == 0
+
+
+def test_full_installment_statement_roundtrip_idempotency_refunds_conflicts_and_owner_scope() -> None:
+    """Import source history without creating fake bank transactions or corrupting due terms."""
+    base = f"{API}/installment-statement"
+    first = [
+        {"provider": "Tamara", "order_id": "order-1", "merchant": "Jarir", "purchase_on": "2026-10-15",
+         "due_on": "2026-10-15", "installment": 1, "total_installments": 3, "amount": "602.00",
+         "currency": "SAR", "source_status": "paid", "source_email": None, "review_notes": None},
+        {"provider": "Tamara", "order_id": "order-1", "merchant": "Jarir", "purchase_on": "2026-10-15",
+         "due_on": "2026-12-01", "installment": 2, "total_installments": 3, "amount": "602.00",
+         "currency": "SAR", "source_status": "scheduled", "source_email": None, "review_notes": None},
+        {"provider": "Tamara", "order_id": "order-2", "merchant": "Amazon", "purchase_on": "2026-10-01",
+         "due_on": "2026-11-01", "installment": 1, "total_installments": 1, "amount": "99.00",
+         "currency": "SAR", "source_status": "review", "source_email": None, "review_notes": "Refund requires review"},
+    ]
+    created = client.post(base + "/sync", headers=OWNER, json={"entries": first})
+    assert created.status_code == 200, created.text
+    assert created.json()["created"] == 3
+    assert created.json()["total"] == 3
+    repeated = client.post(base + "/sync", headers=OWNER, json={"entries": first})
+    assert repeated.status_code == 200, repeated.text
+    assert repeated.json()["created"] == 0
+    assert repeated.json()["unchanged"] == 3
+
+    rows = client.get(base, headers=OWNER)
+    assert rows.status_code == 200, rows.text
+    assert rows.json()["total"] == 3
+    assert {r["source_status"] for r in rows.json()["items"]} == {"paid", "scheduled", "review"}
+    assert client.get(base, headers=MEMBER).json()["total"] == 0
+    assert client.get(base, headers=VIEWER).status_code in (401, 403)
+    assert client.get(f"{API}/bills", headers=OWNER).json() == []
+    assert client.get(f"{API}/transactions", headers=OWNER).json()["total"] == 0
+
+    changed = [{**first[1], "source_status": "paid"}]
+    confirmed_source = client.post(base + "/sync", headers=OWNER, json={"entries": changed})
+    assert confirmed_source.status_code == 200, confirmed_source.text
+    assert confirmed_source.json()["updated"] == 1
+    # A re-imported different amount must not silently replace the earlier source terms.
+    conflict = client.post(base + "/sync", headers=OWNER, json={"entries": [{**first[1], "amount": "800.00"}]})
+    assert conflict.status_code == 200, conflict.text
+    assert conflict.json()["conflicts"]
+    assert next(r for r in client.get(base, headers=OWNER).json()["items"] if r["installment"] == 2)["amount"] == "602.0000"
+    duplicate = client.post(base + "/sync", headers=OWNER, json={"entries": [first[0], first[0]]})
+    assert duplicate.status_code == 400
