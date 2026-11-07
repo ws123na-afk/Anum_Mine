@@ -27,6 +27,23 @@ async function mockApi(page: Page, options: { empty?: boolean; denied?: boolean;
     }
     const body = request.postData() ? request.postDataJSON() : null;
     if (request.method() !== 'GET') sent.push({ method: request.method(), path, body });
+    if (path === '/api/v1/finance/installment-email/mailboxes' && request.method() === 'GET')
+      return json([{ id: 'gmail_llc', address: 'shahzeb.rahmanllc@gmail.com', selected: true }]);
+    if (path === '/api/v1/email/accounts/gmail_llc/sync' && request.method() === 'POST')
+      return json({ id: 'gmail_llc', address: 'shahzeb.rahmanllc@gmail.com', provider: 'gmail', status: 'connected' });
+    if (path === '/api/v1/finance/installment-email/preview' && request.method() === 'GET')
+      return json({
+        account_id: 'gmail_llc', address: 'shahzeb.rahmanllc@gmail.com', messages_checked: 4,
+        messages_matched: 3, warnings: [],
+        rows: [
+          { provider: 'Tamara', order_id: 'jarir-gmail-1', merchant: 'Jarir', purchase_on: '2026-10-15',
+            due_on: '2026-10-15', installment: 1, total_installments: 2,
+            amount: '602.00', currency: 'SAR', source_status: 'paid', source_email: null, review_notes: null },
+          { provider: 'Tamara', order_id: 'jarir-gmail-1', merchant: 'Jarir', purchase_on: '2026-10-15',
+            due_on: '2026-12-01', installment: 2, total_installments: 2,
+            amount: '602.00', currency: 'SAR', source_status: 'scheduled', source_email: null, review_notes: null },
+        ],
+      });
     if (path === '/api/v1/finance/installment-statement' && request.method() === 'GET')
       return json({ items: [...installments.values()], total: installments.size });
     if (path === '/api/v1/finance/installment-statement/sync' && request.method() === 'POST') {
@@ -289,4 +306,22 @@ test('full statement keeps completed orders, excludes refund cases from monthly 
   await expect(section.getByRole('row').filter({ hasText: '2026-12' })).toContainText('602.00');
   await expect(section.getByText('2026-11', { exact: true })).toHaveCount(0);
   await expect(section.getByRole('button', { name: 'Export statement CSV' })).toBeVisible();
+});
+
+test('Gmail sync for preferred LLC account previews and imports only pending installments', async ({ page }) => {
+  const { sent } = await mockApi(page);
+  await page.goto('/#finance-bills');
+  await page.getByRole('button', { name: 'Sync Gmail' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Import Tamara payments from connected Gmail' });
+  await expect(dialog.getByLabel('Gmail mailbox')).toContainText('shahzeb.rahmanllc@gmail.com');
+  await dialog.getByRole('button', { name: 'Preview Tamara emails' }).click();
+  await expect(dialog.getByText('Installments found: 2.')).toBeVisible();
+  await expect(dialog.getByText('New Bills: 1.')).toBeVisible();
+  await dialog.getByRole('button', { name: 'Approve Gmail statement import' }).click();
+  await expect(dialog.getByText(/Saved 2 email installment entries/)).toBeVisible();
+  expect(sent.filter(x => x.path === '/api/v1/finance/installment-statement/sync' && x.method === 'POST')).toHaveLength(1);
+  const bills = sent.filter(x => x.path === '/api/v1/finance/bills' && x.method === 'POST');
+  expect(bills).toHaveLength(1);
+  expect(bills[0].body).toMatchObject({ next_due_on: '2026-12-01', amount: '602.00', cadence: 'once' });
+  expect(sent.some(x => x.path === '/api/v1/email/accounts/gmail_llc/sync')).toBe(true);
 });
