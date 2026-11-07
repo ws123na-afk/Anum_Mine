@@ -132,7 +132,7 @@ export function BillsCsvImport({ existing, onDone, onClose }: { existing: Financ
   // Repeat imports are a sync: never duplicate an order installment or alter real payment matches.
   // Keep source history on existing bills so older imports gain the order summary metadata.
   const reconciliation = useMemo(() => {
-    const updates: { bill: FinanceBill; notes: string }[] = [];
+    const updates: { bill: FinanceBill; notes: string; active: boolean }[] = [];
     const conflicts: string[] = [];
     const orderFor = (order: string, merchant: string, currency: string) =>
       orderSummary.find(s => s.currency === currency && (order ? s.reference === order : s.merchant === merchant));
@@ -143,7 +143,7 @@ export function BillsCsvImport({ existing, onDone, onClose }: { existing: Financ
       const date = get(cells, 'date'), installment = get(cells, 'installment');
       const amount = decimal(get(cells, 'amount')), currency = (get(cells, 'currency') || defaultCurrency).toUpperCase();
       const status = get(cells, 'status');
-      if (!pending(status) || !amount || !isIso(date)) continue;
+      if ((!pending(status) && !excluded(status)) || !amount || !isIso(date)) continue;
       const byOrder = order && existing.find(b => b.name.startsWith('Tamara |') && b.currency === currency &&
         b.notes?.includes(`Order: ${order}`) && (installment ? b.notes?.includes(`Installment: ${installment}`) : b.next_due_on === date));
       const byLegacy = existing.find(b => b.name.startsWith('Tamara |') && b.currency === currency &&
@@ -159,11 +159,16 @@ export function BillsCsvImport({ existing, onDone, onClose }: { existing: Financ
       if (!summary) continue;
       const history = `CSV Paid Count: ${summary.paid} | CSV Paid Amount: ${summary.paidAmount.toFixed(2)} | CSV Scheduled Count: ${summary.pending} | CSV Review Count: ${summary.review} | CSV Total: ${(summary.paidAmount + summary.pendingAmount).toFixed(2)}`;
       const original = (bill.notes ?? '').split(' | ').filter(t => !/^CSV (?:Paid|Scheduled|Review|Total):|^CSV installment import;|^CSV Paid Count:|^CSV Paid Amount:|^CSV Scheduled Count:|^CSV Review Count:/.test(t));
-      const preserved = original.filter(t => t && t !== 'CSV installment import; historical paid statuses are unverified until matched in the transaction ledger.');
+      const preserved = original.filter(t => t && t !== 'CSV installment import; historical paid statuses are unverified until matched in the transaction ledger.' && !t.startsWith('CSV source status:'));
       if (order && !preserved.some(t => t.startsWith('Order: '))) preserved.push(`Order: ${order}`);
       if (installment && !preserved.some(t => t.startsWith('Installment: '))) preserved.push(`Installment: ${installment}`);
-      const notes = [...preserved, history].join(' | ').slice(0, 1000);
-      if (notes !== (bill.notes ?? '')) updates.push({ bill, notes });
+      const sourceStatus = pending(status) ? 'scheduled' : /^paid$/i.test(status) ? 'paid' : 'review';
+      const needsPause = sourceStatus !== 'scheduled';
+      // A former CSV-driven pause can be resumed; a human-initiated pause must stay paused.
+      const priorCsvPause = /CSV source status: (paid|review)/i.test(bill.notes ?? '');
+      const active = needsPause ? false : priorCsvPause ? true : bill.active;
+      const notes = [...preserved, history, `CSV source status: ${sourceStatus}`].join(' | ').slice(0, 1000);
+      if (notes !== (bill.notes ?? '') || active !== bill.active) updates.push({ bill, notes, active });
     }
     return { updates, conflicts };
   }, [headers, data, mapping, existing, orderSummary, defaultCurrency]);
@@ -173,11 +178,11 @@ export function BillsCsvImport({ existing, onDone, onClose }: { existing: Financ
     setBusy(true); setError('');
     let created = 0, updated = 0;
     // Update existing metadata first. Do not touch bill amount, due date, status, or matched payments.
-    for (const { bill, notes } of reconciliation.updates) {
+    for (const { bill, notes, active } of reconciliation.updates) {
       try {
         await api.updateBill(bill.id, { name: bill.name, amount: bill.amount, currency: bill.currency,
           cadence: bill.cadence, next_due_on: bill.next_due_on, category: bill.category,
-          account_id: bill.account_id, source: bill.source, active: bill.active, notes });
+          account_id: bill.account_id, source: bill.source, active, notes });
         updated++;
       } catch (e) {
         setError(`Synchronized ${updated} existing records, then stopped: ${describeError(e)}. Reopen this file and retry. The updated records will be recognized.`);
@@ -206,7 +211,7 @@ export function BillsCsvImport({ existing, onDone, onClose }: { existing: Financ
   }
 
   return <div className="finForm">
-    <p>Synchronize a full installment statement with existing Bills. The upload updates missing order history and creates new unpaid installments; real payment matches are never overwritten. Paid, refunded and disputed rows are excluded from payable bills.</p>
+    <p>Synchronize a full installment statement with existing Bills. The upload updates missing order history and creates new unpaid installments; real payment matches are never overwritten. Existing bills reported paid or under refund review in the new CSV are paused, not marked as verified payments. Previously manually paused bills stay paused.</p>
     <label className="field"><span>Installment CSV</span><input type="file" accept=".csv,text/csv" onChange={(e) => void readFile(e.target.files?.[0])} /></label>
     {headers.length > 0 && <>
       <div className="cmFormGrid">
