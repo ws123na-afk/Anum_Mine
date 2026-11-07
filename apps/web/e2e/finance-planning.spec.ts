@@ -266,3 +266,27 @@ test('re-uploading the same CSV preserves all paid history without duplicating s
   expect(sent.filter(x => x.path === '/api/v1/finance/installment-statement/sync' && x.method === 'POST')).toHaveLength(3);
   await expect(page.getByRole('region', { name: 'Complete installment statement' }).getByText('jarir-1')).toBeVisible();
 });
+
+test('full statement keeps completed orders, excludes refund cases from monthly dues and exports data', async ({ page }) => {
+  await mockApi(page);
+  await page.goto('/#finance-bills');
+  await page.getByRole('button', { name: 'Import CSV' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Import installment bills from CSV' });
+  const csv = [
+    'Due Date,Merchant,Tamara Order ID,Installment #,Total Installments,Amount (SAR),Currency,Reconciliation Status,Review Notes',
+    '2026-06-01,Noon,completed-1,1,2,50.00,SAR,Paid,',
+    '2026-07-01,Noon,completed-1,2,2,50.00,SAR,Paid,',
+    '2026-11-01,Amazon,refund-1,1,1,99.00,SAR,Refund adjusted - review,Awaiting confirmation',
+    '2026-12-01,Jarir,open-1,1,1,602.00,SAR,Scheduled,',
+  ].join('\\n');
+  await dialog.locator('input[type="file"]').setInputFiles({ name: 'all.csv', mimeType: 'text/csv', buffer: Buffer.from(csv) });
+  await expect(dialog.getByText('Full statement storage: 4 of 4 rows ready.')).toBeVisible();
+  await dialog.getByRole('button', { name: 'Sync 1 new + 0 existing bills' }).click();
+  const section = page.getByRole('region', { name: 'Complete installment statement' });
+  await expect(section.getByText('completed-1')).toBeVisible();
+  await expect(section.getByText('refund-1')).toBeVisible();
+  await expect(section.getByText('open-1')).toBeVisible();
+  await expect(section.getByRole('row').filter({ hasText: '2026-12' })).toContainText('602.00');
+  await expect(section.getByRole('row').filter({ hasText: '2026-11' })).toHaveCount(0);
+  await expect(section.getByRole('button', { name: 'Export statement CSV' })).toBeVisible();
+});
