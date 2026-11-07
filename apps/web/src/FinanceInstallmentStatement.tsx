@@ -1,6 +1,6 @@
 // Complete installment statement viewer. Source-reported "paid" is not a bank transaction.
 // Keep canonical payment matches separate and never count refund-review amounts as payable.
-import { useEffect, useMemo, useState } from 'react';
+import { Fragment, useEffect, useMemo, useState } from 'react';
 import type { FinanceBill, FinanceBillOccurrence, FinanceInstallmentStatementEntry } from '@anum/contracts';
 import * as plan from './lib/financePlanningApi';
 import { InstallmentBillsSummary } from './InstallmentBillsSummary';
@@ -148,7 +148,7 @@ export function FinanceInstallmentStatement({ bills, today, onRefresh }: { bills
     </div>
     <div className="finTableWrap"><table className="finGrid">
       <thead><tr><th>Purchase / order</th><th>Purchase date</th><th>Paid</th><th>Pending</th><th>Review</th><th>Paid amount</th><th>Outstanding</th><th>Next due</th><th>Final due</th><th>Details</th></tr></thead>
-      <tbody>{shown.map(o => <>
+      <tbody>{shown.map(o => <Fragment key={o.key}>
         <tr key={o.key}><td><strong>{o.merchant}</strong><small style={{display:'block'}}>{o.reference}</small></td>
           <td>{o.purchaseDate ?? 'Unknown'}</td><td>{o.paid} / {o.rows.length}</td><td>{o.pending}</td><td>{o.review}</td>
           <td>{amount(o.paidAmount,o.currency)}</td><td>{amount(o.pendingAmount,o.currency)}</td>
@@ -162,7 +162,7 @@ export function FinanceInstallmentStatement({ bills, today, onRefresh }: { bills
               <td>{l.verified ? 'Verified transaction match' : 'Not matched'}</td><td>{l.review_notes ?? ''}</td></tr>)}</tbody>
           </table></div>
         </td></tr>}
-      </>)}</tbody>
+      </Fragment>)}</tbody>
     </table></div>
     <h3>Scheduled by month</h3>
     <div className="finTableWrap"><table className="finGrid"><thead><tr><th>Month</th><th>Scheduled due</th><th>Overdue / upcoming</th></tr></thead>
