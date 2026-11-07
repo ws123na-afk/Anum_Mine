@@ -184,9 +184,9 @@ test('Bills CSV import maps Tamara fields, skips paid and review rows and create
     '2026-12-02,Amazon,example-2,2,75.00,SAR,Refund adjusted - review',
   ].join('\\n');
   await dialog.locator('input[type="file"]').setInputFiles({ name: 'tamara.csv', mimeType: 'text/csv', buffer: Buffer.from(csv) });
-  await expect(dialog.getByText('Ready: 1 unpaid installments. Skipped: 2. Errors: 0.')).toBeVisible();
+  await expect(dialog.getByText('New: 1. Existing to update: 0. Skipped: 2. Errors: 0. Conflicts: 0.')).toBeVisible();
   // Paid and refund-review rows are excluded; the scheduled installment is imported.
-  await dialog.getByRole('button', { name: 'Import 1 bills' }).click();
+  await dialog.getByRole('button', { name: 'Sync 1 new + 0 existing bills' }).click();
   await expect.poll(() => sent.filter((x) => x.method === 'POST' && x.path === '/api/v1/finance/bills').length).toBe(1);
   const created = sent.find((x) => x.method === 'POST' && x.path === '/api/v1/finance/bills')?.body as { next_due_on: string; cadence: string; amount: string };
   expect(created).toMatchObject({ next_due_on: '2026-12-01', cadence: 'once', amount: '602.00' });
@@ -209,8 +209,8 @@ test('Tamara CSV preview reports paid and upcoming installments by order without
   const summary = dialog.getByRole('region', { name: 'Imported order payment summary' });
   await expect(summary.getByRole('row').filter({ hasText: 'jarir-1' })).toContainText('1204.00');
   await expect(summary.getByRole('row').filter({ hasText: 'jarir-1' })).toContainText('2026-12-01');
-  await expect(dialog.getByText('Ready: 2 unpaid installments. Skipped: 3. Errors: 0.')).toBeVisible();
-  await dialog.getByRole('button', { name: 'Import 2 bills' }).click();
+  await expect(dialog.getByText('New: 2. Existing to update: 0. Skipped: 3. Errors: 0. Conflicts: 0.')).toBeVisible();
+  await dialog.getByRole('button', { name: 'Sync 2 new + 0 existing bills' }).click();
   await expect.poll(() => sent.filter(r => r.method === 'POST' && r.path === '/api/v1/finance/bills').length).toBe(2);
   const body = sent.find(r => r.method === 'POST' && r.path === '/api/v1/finance/bills')?.body as { notes: string; cadence: string };
   expect(body.cadence).toBe('once');
