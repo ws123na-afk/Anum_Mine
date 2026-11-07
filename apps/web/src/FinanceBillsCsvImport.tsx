@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
-import type { FinanceBill, FinanceBillInput } from '@anum/contracts';
+import type { FinanceBill, FinanceBillInput, FinanceInstallmentStatementEntry } from '@anum/contracts';
 import * as api from './lib/financeApi';
+import * as plan from './lib/financePlanningApi';
 import { describeError } from './lib/errors';
 
 type Entry = { line: number; date: string; merchant: string; amount: string; order: string; installment: string; status: string; currency: string };
@@ -12,9 +13,14 @@ const aliases = {
   order: ['order number', 'order id', 'order_number', 'order_id', 'tamara order id', 'reference'],
   installment: ['installment number', 'installment #', 'installment', 'instalment', 'payment number'],
   currency: ['currency', 'ccy'],
+  provider: ['provider', 'payment provider'],
+  purchase: ['purchase date', 'purchased on', 'purchase_on'],
+  total: ['total installments', 'total instalments', 'installment count'],
+  source: ['source email', 'email reference', 'email source'],
+  review: ['review notes', 'notes', 'review comments'],
 };
 type Field = keyof typeof aliases;
-const fields: Field[] = ['date', 'merchant', 'amount', 'status', 'order', 'installment', 'currency'];
+const fields: Field[] = ['date', 'merchant', 'amount', 'status', 'order', 'installment', 'currency', 'provider', 'purchase', 'total', 'source', 'review'];
 const normalize = (s: string) => s.trim().toLowerCase().replace(/[_-]+/g, ' ').replace(/\s+/g, ' ');
 
 // RFC 4180-style quoted fields, escaped quotes, and CRLF; no third-party parser.
@@ -79,7 +85,7 @@ export function summarizeImportedCsv(headers: string[], data: string[][], mappin
 export function BillsCsvImport({ existing, onDone, onClose }: { existing: FinanceBill[]; onDone: (count: number) => void; onClose: () => void }) {
   const [headers, setHeaders] = useState<string[]>([]);
   const [data, setData] = useState<string[][]>([]);
-  const [mapping, setMapping] = useState<Record<Field, string>>({ date: '', merchant: '', amount: '', status: '', order: '', installment: '', currency: '' });
+  const [mapping, setMapping] = useState<Record<Field, string>>({ date: '', merchant: '', amount: '', status: '', order: '', installment: '', currency: '', provider: '', purchase: '', total: '', source: '', review: '' });
   const [defaultCurrency, setDefaultCurrency] = useState('SAR');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -96,7 +102,7 @@ export function BillsCsvImport({ existing, onDone, onClose }: { existing: Financ
       const next = parsed[0].map((h, i) => h.trim() || `Column ${i + 1}`);
       const pick = (key: Field) => next.find((h) => aliases[key].some((a) => normalize(a) === normalize(h))) ?? '';
       setHeaders(next); setData(parsed.slice(1));
-      setMapping({ date: pick('date'), merchant: pick('merchant'), amount: pick('amount'), status: pick('status'), order: pick('order'), installment: pick('installment'), currency: pick('currency') });
+      setMapping({ date: pick('date'), merchant: pick('merchant'), amount: pick('amount'), status: pick('status'), order: pick('order'), installment: pick('installment'), currency: pick('currency'), provider: pick('provider'), purchase: pick('purchase'), total: pick('total'), source: pick('source'), review: pick('review') });
     } catch (e) { setHeaders([]); setData([]); setError(describeError(e)); }
   }
 
@@ -128,6 +134,27 @@ export function BillsCsvImport({ existing, onDone, onClose }: { existing: Financ
   }, [headers, data, mapping, existing, defaultCurrency]);
 
   const orderSummary = useMemo(() => summarizeImportedCsv(headers, data, mapping, defaultCurrency), [headers, data, mapping, defaultCurrency]);
+
+  const statementEntries = useMemo(() => {
+    if (!mapping.order || !mapping.installment || !mapping.date || !mapping.merchant || !mapping.amount || !mapping.status) return [];
+    const cell = (r: string[], field: Field) => mapping[field] ? (r[headers.indexOf(mapping[field])] ?? '').trim() : '';
+    return data.flatMap((r): FinanceInstallmentStatementEntry[] => {
+      const order_id = cell(r, 'order'), merchant = cell(r, 'merchant'), due_on = cell(r, 'date');
+      const amount = decimal(cell(r, 'amount')), installment = Number(cell(r, 'installment'));
+      const total_installments = Number(cell(r, 'total') || installment);
+      const currency = (cell(r, 'currency') || defaultCurrency).toUpperCase();
+      const status = cell(r, 'status');
+      const source_status: FinanceInstallmentStatementEntry['source_status'] =
+        /^paid$/i.test(status) ? 'paid' : pending(status) ? 'scheduled' : 'review';
+      const purchase = cell(r, 'purchase'), purchase_on = isIso(purchase) ? purchase : null;
+      if (!order_id || !merchant || !isIso(due_on) || !amount || !Number.isInteger(installment) ||
+          installment < 1 || !Number.isInteger(total_installments) || total_installments < installment ||
+          !/^[A-Z]{3}$/.test(currency)) return [];
+      return [{ provider: cell(r, 'provider') || 'Tamara', order_id, merchant, purchase_on, due_on,
+        installment, total_installments, amount, currency, source_status,
+        source_email: cell(r, 'source') || null, review_notes: cell(r, 'review') || null }];
+    });
+  }, [headers, data, mapping, defaultCurrency]);
 
   // Repeat imports are a sync: never duplicate an order installment or alter real payment matches.
   // Keep source history on existing bills so older imports gain the order summary metadata.
@@ -178,9 +205,21 @@ export function BillsCsvImport({ existing, onDone, onClose }: { existing: Financ
   }, [headers, data, mapping, existing, orderSummary, defaultCurrency]);
 
   async function submit() {
-    if (busy || preview.errors.length || reconciliation.conflicts.length || (!preview.entries.length && !reconciliation.updates.length)) return;
+    if (busy || preview.errors.length || reconciliation.conflicts.length || (statementEntries.length > 0 && statementEntries.length !== data.length) || (!preview.entries.length && !reconciliation.updates.length && !statementEntries.length)) return;
     setBusy(true); setError('');
     let created = 0, updated = 0;
+    if (statementEntries.length > 0) {
+      try {
+        const saved = await plan.syncInstallmentStatement(statementEntries);
+        if (saved.conflicts.length) {
+          setError(`Saved source history but found ${saved.conflicts.length} changed installment amounts or due dates. No Bills were changed. Review source conflicts: ${saved.conflicts.slice(0, 5).join('; ')}`);
+          setBusy(false); onDone(0); return;
+        }
+      } catch (e) {
+        setError(`Could not save the complete installment statement: ${describeError(e)}. No Bills were changed.`);
+        setBusy(false); return;
+      }
+    }
     // Update existing metadata first. Do not touch bill amount, due date, status, or matched payments.
     for (const { bill, notes, active } of reconciliation.updates) {
       try {
@@ -219,12 +258,13 @@ export function BillsCsvImport({ existing, onDone, onClose }: { existing: Financ
     <label className="field"><span>Installment CSV</span><input type="file" accept=".csv,text/csv" onChange={(e) => void readFile(e.target.files?.[0])} /></label>
     {headers.length > 0 && <>
       <div className="cmFormGrid">
-        {fields.map((field) => <label className="field" key={field}><span>{({ date: 'Due date', merchant: 'Merchant / description', amount: 'Amount', status: 'Payment status', order: 'Order ID (optional)', installment: 'Installment number (optional)', currency: 'Currency (optional)' } as Record<Field, string>)[field]}</span>
+        {fields.map((field) => <label className="field" key={field}><span>{({ date: 'Due date', merchant: 'Merchant / description', amount: 'Amount', status: 'Payment status', order: 'Order ID (optional)', installment: 'Installment number (optional)', currency: 'Currency (optional)', provider: 'Provider (optional)', purchase: 'Purchase date (optional)', total: 'Total installments (optional)', source: 'Source email (optional)', review: 'Review notes (optional)' } as Record<Field, string>)[field]}</span>
           <select aria-label={field + ' column'} value={mapping[field]} onChange={(e) => setMapping((prev) => ({ ...prev, [field]: e.target.value }))}>
             <option value="">Not mapped</option>{headers.map((h) => <option key={h} value={h}>{h}</option>)}
           </select></label>)}
         <label className="field"><span>Currency when not in CSV</span><input value={defaultCurrency} maxLength={3} onChange={(e) => setDefaultCurrency(e.target.value.toUpperCase())} /></label>
       </div>
+      <p role="status">Full statement storage: {statementEntries.length} of {data.length} rows ready. {statementEntries.length !== data.length ? 'Some rows lack valid order IDs, installment numbers or amounts; fix the file or mapping to store complete history.' : 'All source rows are ready to save, including paid and refund-review records.'}</p>
       {orderSummary.length > 0 && <section aria-label="Imported order payment summary">
         <h3>Purchase summary from this CSV</h3>
         <p>Includes paid installments from the file, even though only unpaid rows will become Bills. Review/refund items are not treated as payable.</p>
@@ -247,6 +287,6 @@ export function BillsCsvImport({ existing, onDone, onClose }: { existing: Financ
     </>}
     {error && <p role="alert">{error}</p>}
     {result && <p role="status">{result}</p>}
-    <div className="finFormActions"><button type="button" onClick={onClose}>Close</button><button type="button" disabled={busy || (!preview.entries.length && !reconciliation.updates.length) || preview.errors.length > 0 || reconciliation.conflicts.length > 0} onClick={() => void submit()}>{busy ? 'Synchronizing…' : `Sync ${preview.entries.length} new + ${reconciliation.updates.length} existing bills`}</button></div>
+    <div className="finFormActions"><button type="button" onClick={onClose}>Close</button><button type="button" disabled={busy || (!preview.entries.length && !reconciliation.updates.length && !statementEntries.length) || preview.errors.length > 0 || reconciliation.conflicts.length > 0 || (statementEntries.length > 0 && statementEntries.length !== data.length)} onClick={() => void submit()}>{busy ? 'Synchronizing…' : `Sync ${preview.entries.length} new + ${reconciliation.updates.length} existing bills`}</button></div>
   </div>;
 }
