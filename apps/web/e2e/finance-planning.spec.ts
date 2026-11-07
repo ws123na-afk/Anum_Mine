@@ -191,3 +191,29 @@ test('Bills CSV import maps Tamara fields, skips paid and review rows and create
   const created = sent.find((x) => x.method === 'POST' && x.path === '/api/v1/finance/bills')?.body as { next_due_on: string; cadence: string; amount: string };
   expect(created).toMatchObject({ next_due_on: '2026-12-01', cadence: 'once', amount: '602.00' });
 });
+
+test('Tamara CSV preview reports paid and upcoming installments by order without importing paid rows', async ({ page }) => {
+  const { sent } = await mockApi(page);
+  await page.goto('/#finance-bills');
+  await page.getByRole('button', { name: 'Import CSV' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Import installment bills from CSV' });
+  const csv = [
+    'Due Date,Merchant,Tamara Order ID,Installment #,Amount (SAR),Currency,Reconciliation Status',
+    '2026-10-01,Jarir,jarir-1,1,602.00,SAR,Paid',
+    '2026-11-01,Jarir,jarir-1,2,602.00,SAR,Paid',
+    '2026-12-01,Jarir,jarir-1,3,602.00,SAR,Scheduled',
+    '2027-01-01,Jarir,jarir-1,4,602.00,SAR,Scheduled',
+    '2026-12-05,Amazon,amazon-1,2,29.00,SAR,Refund adjusted - review',
+  ].join('\\n');
+  await dialog.locator('input[type="file"]').setInputFiles({ name: 'tamara.csv', mimeType: 'text/csv', buffer: Buffer.from(csv) });
+  const summary = dialog.getByRole('region', { name: 'Imported order payment summary' });
+  await expect(summary.getByRole('row').filter({ hasText: 'jarir-1' })).toContainText('1204.00');
+  await expect(summary.getByRole('row').filter({ hasText: 'jarir-1' })).toContainText('2026-12-01');
+  await expect(dialog.getByText('Ready: 2 unpaid installments. Skipped: 3. Errors: 0.')).toBeVisible();
+  await dialog.getByRole('button', { name: 'Import 2 bills' }).click();
+  await expect.poll(() => sent.filter(r => r.method === 'POST' && r.path === '/api/v1/finance/bills').length).toBe(2);
+  const body = sent.find(r => r.method === 'POST' && r.path === '/api/v1/finance/bills')?.body as { notes: string; cadence: string };
+  expect(body.cadence).toBe('once');
+  expect(body.notes).toContain('CSV Paid Count: 2');
+  expect(body.notes).toContain('CSV Paid Amount: 1204.00');
+});
