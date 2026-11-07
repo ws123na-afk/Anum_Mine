@@ -8,9 +8,9 @@ const aliases = {
   date: ['due date', 'due_date', 'due_on', 'payment date', 'date'],
   merchant: ['merchant', 'description', 'bill', 'name', 'payee'],
   amount: ['amount (sar)', 'amount sar', 'amount', 'installment amount', 'expected amount'],
-  status: ['status', 'payment status', 'installment status'],
-  order: ['order number', 'order id', 'order_number', 'order_id', 'reference'],
-  installment: ['installment number', 'installment', 'instalment', 'payment number'],
+  status: ['status', 'reconciliation status', 'payment status', 'installment status'],
+  order: ['order number', 'order id', 'order_number', 'order_id', 'tamara order id', 'reference'],
+  installment: ['installment number', 'installment #', 'installment', 'instalment', 'payment number'],
   currency: ['currency', 'ccy'],
 };
 type Field = keyof typeof aliases;
@@ -112,10 +112,10 @@ export function BillsCsvImport({ existing, onDone, onClose }: { existing: Financ
         notes: [row.order ? `Order: ${row.order}` : '', row.installment ? `Installment: ${row.installment}` : '', 'CSV installment import; confirm actual payment against transaction ledger.'].filter(Boolean).join(' | '),
       };
       try { await api.createBill(body); count++; }
-      catch (e) { setError(`Imported ${count} bills, then stopped at CSV row ${row.line}: ${describeError(e)}. Reopen to continue; already added rows will be skipped.`); setBusy(false); onDone(count); return; }
+      catch (e) { setError(`Imported ${count} bills, then stopped at CSV row ${row.line}: ${describeError(e)}. Reopen to continue; already added rows will be skipped.`); setBusy(false); onDone(count); if (count) onClose(); return; }
     }
     setResult(`Created ${count} one-time bills. ${preview.skipped.length} rows skipped.`);
-    setBusy(false); onDone(count);
+    setBusy(false); onDone(count); onClose();
   }
 
   return <div className="finForm">
