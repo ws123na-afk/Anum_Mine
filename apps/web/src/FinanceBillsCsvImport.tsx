@@ -45,7 +45,7 @@ const decimal = (s: string) => {
   return Number(raw).toFixed(2);
 };
 const pending = (s: string) => /^(pending|unpaid|due|planned|scheduled|overdue|due soon|due_soon)$/i.test(s.trim());
-const excluded = (s: string) => /^(paid|completed|refunded|refund|cancelled|canceled|void|disputed|review|needs review)$/i.test(s.trim());
+const excluded = (s: string) => /^(paid|completed|refunded|refund|cancelled|canceled|void|disputed|review|needs review)$/i.test(s.trim()) || /refund|review|disput|cancel/i.test(s);
 export function importBillKey(date: string, name: string, amount: string, currency: string) {
   return [date, normalize(name), Number(amount).toFixed(2), currency.toUpperCase()].join('|');
 }
