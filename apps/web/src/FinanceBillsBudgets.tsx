@@ -23,7 +23,7 @@ import { FinBanner, FinCard, FinancePageHead, FinanceTabs, KpiCard, KpiRow, Peri
 import { BillForm } from './FinancePlanningForms';
 import { BudgetSpendChart } from './FinancePlanningCharts';
 import { BillsCsvImport } from './FinanceBillsCsvImport';
-import { InstallmentBillsSummary } from './InstallmentBillsSummary';
+import { FinanceInstallmentStatement } from './FinanceInstallmentStatement';
 import { CapDialog, MatchDialog, PersonalScope, Progress, RowMenu } from './FinancePlanningParts';
 import './financePlanning.css';
 
@@ -139,7 +139,7 @@ export function BillsBudgetsPage({ initial, accounts, base, today, onOpen, onCha
     {notice && <Notice error={notice.error}>{notice.text}</Notice>}
     <div {...tabPanel('fbb', section)}>
       {section === 'bills' && <>
-        {bills.kind === 'ready' && <InstallmentBillsSummary bills={bills.value} onRefresh={() => void loadBills()} />}
+        {bills.kind === 'ready' && <FinanceInstallmentStatement bills={bills.value} today={today} onRefresh={() => void loadBills()} />}
         <div className="fplColumns wideStart"><div className="fplColumn">{upcoming}{rules}</div><div className="fplColumn">{health}{riskBanner}<LinkPayCard /></div></div>
       </>}
       {section === 'budgets' && <>{riskBanner}<div className="fplColumns"><div className="fplColumn">{health}</div><div className="fplColumn"><LinkPayCard /></div></div>{rules}</>}
