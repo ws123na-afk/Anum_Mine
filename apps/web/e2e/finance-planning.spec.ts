@@ -9,6 +9,7 @@ import { useSavedLocale } from './support/workspaceApi';
 async function mockApi(page: Page, options: { empty?: boolean; denied?: boolean; failSchedule?: boolean } = {}) {
   const state = financeState({ empty: options.empty, denied: options.denied });
   const sent: { method: string; path: string; body: unknown }[] = [];
+  const installments = new Map<string, Record<string, unknown>>();
   await page.route('http://localhost:8000/**', async (route) => {
     const request = route.request();
     const url = new URL(request.url());
@@ -26,6 +27,20 @@ async function mockApi(page: Page, options: { empty?: boolean; denied?: boolean;
     }
     const body = request.postData() ? request.postDataJSON() : null;
     if (request.method() !== 'GET') sent.push({ method: request.method(), path, body });
+    if (path === '/api/v1/finance/installment-statement' && request.method() === 'GET')
+      return json({ items: [...installments.values()], total: installments.size });
+    if (path === '/api/v1/finance/installment-statement/sync' && request.method() === 'POST') {
+      let created = 0, updated = 0, unchanged = 0;
+      for (const row of (body as { entries: Record<string, unknown>[] }).entries) {
+        const key = String(row.provider) + '/' + String(row.order_id) + '/' + String(row.installment);
+        const old = installments.get(key);
+        if (!old) created++;
+        else if (JSON.stringify(old) !== JSON.stringify(row)) updated++;
+        else unchanged++;
+        installments.set(key, row);
+      }
+      return json({ created, updated, unchanged, conflicts: [], total: installments.size });
+    }
     const reply = financeReply(state, request.method(), url, body);
     if (reply) return reply.status === 204 ? route.fulfill({ status: 204 }) : json(reply.body, reply.status);
     return route.abort();
@@ -216,4 +231,38 @@ test('Tamara CSV preview reports paid and upcoming installments by order without
   expect(body.cadence).toBe('once');
   expect(body.notes).toContain('CSV Paid Count: 2');
   expect(body.notes).toContain('CSV Paid Amount: 1204.00');
+});
+
+test('re-uploading the same CSV preserves all paid history without duplicating scheduled bills', async ({ page }) => {
+  const { sent } = await mockApi(page);
+  await page.goto('/#finance-bills');
+  const csv = [
+    'Due Date,Merchant,Tamara Order ID,Installment #,Total Installments,Amount (SAR),Currency,Reconciliation Status',
+    '2026-10-15,Jarir,jarir-1,1,3,602.00,SAR,Paid',
+    '2026-11-01,Jarir,jarir-1,2,3,602.00,SAR,Paid',
+    '2026-12-01,Jarir,jarir-1,3,3,602.00,SAR,Scheduled',
+  ].join('\\n');
+  const upload = async () => {
+    await page.getByRole('button', { name: 'Import CSV' }).click();
+    const dialog = page.getByRole('dialog', { name: 'Import installment bills from CSV' });
+    await dialog.locator('input[type="file"]').setInputFiles({ name: 'tamara.csv', mimeType: 'text/csv', buffer: Buffer.from(csv) });
+    return dialog;
+  };
+  let dialog = await upload();
+  await expect(dialog.getByText('Full statement storage: 3 of 3 rows ready.')).toBeVisible();
+  await dialog.getByRole('button', { name: 'Sync 1 new + 0 existing bills' }).click();
+  await expect(dialog).not.toBeVisible();
+
+  dialog = await upload();
+  await expect(dialog.getByText(/New: 0\. Existing to update: 1\./)).toBeVisible();
+  await dialog.getByRole('button', { name: 'Sync 0 new + 1 existing bills' }).click();
+  await expect(dialog).not.toBeVisible();
+
+  dialog = await upload();
+  await expect(dialog.getByText(/New: 0\. Existing to update: 0\./)).toBeVisible();
+  await dialog.getByRole('button', { name: 'Sync 0 new + 0 existing bills' }).click();
+  const posts = sent.filter(x => x.path === '/api/v1/finance/bills' && x.method === 'POST');
+  expect(posts).toHaveLength(1);
+  expect(sent.filter(x => x.path === '/api/v1/finance/installment-statement/sync' && x.method === 'POST')).toHaveLength(3);
+  await expect(page.getByRole('region', { name: 'Complete installment statement' }).getByText('jarir-1')).toBeVisible();
 });
