@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import asyncio
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from ..authorization import Permission, has_permission
 from ..dependencies import tenant_context
@@ -64,10 +64,10 @@ async def installment_email_preview(
         raise HTTPException(status_code=404, detail="Connect your own Gmail account in ANUM Email first.")
     # Fetch from the existing ANUM email metadata cache. Avoid remote mailbox mutation.
     with open_email_store(context) as store:
-        messages = store.list_messages([account.id], MessageFilters(account_id=account.id, archived=False),
+        messages = store.list_messages([account.id], MessageFilters(account_id=account.id, archived=False, query='tamara'),
                                        limit=limit, before=None)
         # Archived Tamara evidence may still be relevant.
-        archived = store.list_messages([account.id], MessageFilters(account_id=account.id, archived=True),
+        archived = store.list_messages([account.id], MessageFilters(account_id=account.id, archived=True, query='tamara'),
                                        limit=limit, before=None)
     messages = sorted({m.id: m for m in messages + archived}.values(),
                       key=lambda m: m.received_at, reverse=True)[:limit]
