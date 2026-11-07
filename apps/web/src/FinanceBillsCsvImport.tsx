@@ -134,10 +134,15 @@ export function BillsCsvImport({ existing, onDone, onClose }: { existing: Financ
     setBusy(true); setError(''); let count = 0;
     for (const row of preview.entries) {
       const name = `Tamara | ${row.merchant}${row.installment ? ` | ${row.installment}` : ''}`.slice(0, 120);
+      const sourceOrder = orderSummary.find(summary => summary.currency === row.currency &&
+        (row.order ? summary.reference === row.order : summary.merchant === row.merchant));
+      const history = sourceOrder
+        ? `CSV Paid Count: ${sourceOrder.paid} | CSV Paid Amount: ${sourceOrder.paidAmount.toFixed(2)} | CSV Scheduled Count: ${sourceOrder.pending} | CSV Review Count: ${sourceOrder.review}`
+        : '';
       const body: FinanceBillInput = {
         name, amount: row.amount, currency: row.currency, cadence: 'once', next_due_on: row.date, category: 'shopping',
         source: 'manual', active: true,
-        notes: [row.order ? `Order: ${row.order}` : '', row.installment ? `Installment: ${row.installment}` : '', 'CSV installment import; confirm actual payment against transaction ledger.'].filter(Boolean).join(' | '),
+        notes: [row.order ? `Order: ${row.order}` : '', row.installment ? `Installment: ${row.installment}` : '', history, 'CSV installment import; historical paid statuses are unverified until matched in the transaction ledger.'].filter(Boolean).join(' | '),
       };
       try { await api.createBill(body); count++; }
       catch (e) { setError(`Imported ${count} bills, then stopped at CSV row ${row.line}: ${describeError(e)}. Reopen to continue; already added rows will be skipped.`); setBusy(false); onDone(count); if (count) onClose(); return; }
