@@ -48,6 +48,7 @@ export function BillsBudgetsPage({ initial, accounts, base, today, onOpen, onCha
   const [editing, setEditing] = useState<FinanceBill | 'new' | null>(null), [removing, setRemoving] = useState<FinanceBill | null>(null), [busy, setBusy] = useState(false);
   const [matching, setMatching] = useState<FinanceBillOccurrence | null>(null);
   const [importing, setImporting] = useState(false);
+  const [statementReload, setStatementReload] = useState(0);
   const [cap, setCap] = useState<{ category: FinanceCategory; currency: string; amount: string } | 'new' | null>(null);
 
   const loadSchedule = useCallback(async () => {
@@ -139,7 +140,7 @@ export function BillsBudgetsPage({ initial, accounts, base, today, onOpen, onCha
     {notice && <Notice error={notice.error}>{notice.text}</Notice>}
     <div {...tabPanel('fbb', section)}>
       {section === 'bills' && <>
-        {bills.kind === 'ready' && <FinanceInstallmentStatement bills={bills.value} today={today} onRefresh={() => void loadBills()} />}
+        {bills.kind === 'ready' && <FinanceInstallmentStatement bills={bills.value} today={today} refreshKey={statementReload} onRefresh={() => void loadBills()} />}
         <div className="fplColumns wideStart"><div className="fplColumn">{upcoming}{rules}</div><div className="fplColumn">{health}{riskBanner}<LinkPayCard /></div></div>
       </>}
       {section === 'budgets' && <>{riskBanner}<div className="fplColumns"><div className="fplColumn">{health}</div><div className="fplColumn"><LinkPayCard /></div></div>{rules}</>}
@@ -149,7 +150,7 @@ export function BillsBudgetsPage({ initial, accounts, base, today, onOpen, onCha
     </div>
     {importing && <Modal title="Import installment bills from CSV" className="formDialog" onClose={() => setImporting(false)}>
       <BillsCsvImport existing={bills.kind === 'ready' ? bills.value : []} onClose={() => setImporting(false)}
-        onDone={(count) => { if (count) reloadBills(); }} />
+        onDone={() => { reloadBills(); setStatementReload(n => n + 1); }} />
     </Modal>}
     {editing && <Modal title={editing === 'new' ? t('finance.bills.add') : t('finance.item.editTitle', { name: editing.name })} className="formDialog" onClose={() => setEditing(null)}>
       <BillForm bill={editing === 'new' ? null : editing} accounts={accounts} base={base} onDone={(text) => { setEditing(null); if (text) { setNotice({ text }); reloadBills(); } }} />
