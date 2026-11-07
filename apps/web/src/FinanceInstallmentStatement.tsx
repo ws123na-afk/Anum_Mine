@@ -29,7 +29,7 @@ function downloadStatement(rows: Line[]) {
   URL.revokeObjectURL(url);
 }
 
-export function FinanceInstallmentStatement({ bills, today, onRefresh }: { bills: FinanceBill[]; today: string; onRefresh?: () => void }) {
+export function FinanceInstallmentStatement({ bills, today, refreshKey = 0, onRefresh }: { bills: FinanceBill[]; today: string; refreshKey?: number; onRefresh?: () => void }) {
   const [entries, setEntries] = useState<FinanceInstallmentStatementEntry[] | null>(null);
   const [matched, setMatched] = useState<FinanceBillOccurrence[]>([]);
   const [error, setError] = useState('');
@@ -48,7 +48,7 @@ export function FinanceInstallmentStatement({ bills, today, onRefresh }: { bills
     }).catch(() => { if (!cancelled) { setError('The full statement could not be loaded. Existing bill records are shown below.'); setEntries(null); } })
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [revision, billSignature]);
+  }, [revision, refreshKey, billSignature]);
 
   const lines = useMemo((): Line[] => {
     if (!entries) return [];
