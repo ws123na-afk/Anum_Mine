@@ -184,7 +184,10 @@ test('Bills CSV import maps Tamara fields, skips paid and review rows and create
     '2026-12-02,Amazon,example-2,2,75.00,SAR,Refund adjusted - review',
   ].join('\\n');
   await dialog.locator('input[type="file"]').setInputFiles({ name: 'tamara.csv', mimeType: 'text/csv', buffer: Buffer.from(csv) });
-  await expect(dialog.getByText('Ready: 1 unpaid installments. Skipped: 1. Errors: 1.')).toBeVisible();
-  // A refund-adjusted row is deliberately blocked rather than assumed payable.
-  await expect(dialog.getByRole('button', { name: 'Import 1 bills' })).toBeDisabled();
+  await expect(dialog.getByText('Ready: 1 unpaid installments. Skipped: 2. Errors: 0.')).toBeVisible();
+  // Paid and refund-review rows are excluded; the scheduled installment is imported.
+  await dialog.getByRole('button', { name: 'Import 1 bills' }).click();
+  await expect.poll(() => sent.filter((x) => x.method === 'POST' && x.path === '/api/v1/finance/bills').length).toBe(1);
+  const created = sent.find((x) => x.method === 'POST' && x.path === '/api/v1/finance/bills')?.body as { next_due_on: string; cadence: string; amount: string };
+  expect(created).toMatchObject({ next_due_on: '2026-12-01', cadence: 'once', amount: '602.00' });
 });
