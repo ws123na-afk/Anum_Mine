@@ -415,6 +415,6 @@ def test_full_installment_statement_roundtrip_idempotency_refunds_conflicts_and_
     conflict = client.post(base + "/sync", headers=OWNER, json={"entries": [{**first[1], "amount": "800.00"}]})
     assert conflict.status_code == 200, conflict.text
     assert conflict.json()["conflicts"]
-    assert next(r for r in client.get(base, headers=OWNER).json()["items"] if r["installment"] == 2)["amount"] == "602.0000"
+    assert next(r for r in client.get(base, headers=OWNER).json()["items"] if r["installment"] == 2)["amount"] == "602.00"
     duplicate = client.post(base + "/sync", headers=OWNER, json={"entries": [first[0], first[0]]})
     assert duplicate.status_code == 400
