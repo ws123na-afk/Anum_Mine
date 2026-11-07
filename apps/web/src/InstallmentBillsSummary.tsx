@@ -8,6 +8,7 @@ type OrderRow = {
   key: string; merchant: string; reference: string; currency: string;
   total: number; paid: number; pending: number; review: number;
   totalAmount: number; paidAmount: number; pendingAmount: number;
+  csvPaid: number | null; csvPaidAmount: number | null; csvReview: number | null;
   nextDue: string | null; lastDue: string | null;
   installments: { date: string; amount: number; status: string }[];
 };
@@ -21,6 +22,10 @@ function merchantOf(b: FinanceBill) {
   return parts[0]?.toLowerCase() === 'tamara' && parts[1] ? parts[1] : b.name;
 }
 export function summarizeInstallmentBills(bills: FinanceBill[], occurrences: FinanceBillOccurrence[]): OrderRow[] {
+  const csvNumber = (notes: string | null, field: string): number | null => {
+    const match = notes?.match(new RegExp(field + ':\\\\s*([0-9]+(?:\\\\.[0-9]+)?)', 'i'));
+    return match ? Number(match[1]) : null;
+  };
   const byBill = new Map(occurrences.map(o => [o.bill_id + '/' + o.due_on, o]));
   const grouped = new Map<string, OrderRow>();
   for (const bill of bills) {
@@ -28,8 +33,14 @@ export function summarizeInstallmentBills(bills: FinanceBill[], occurrences: Fin
     const reference = referenceOf(bill), merchant = merchantOf(bill);
     const key = [bill.currency, reference || merchant.toLowerCase()].join('/');
     const row = grouped.get(key) ?? { key, merchant, reference, currency: bill.currency, total: 0,
-      paid: 0, pending: 0, review: 0, totalAmount: 0, paidAmount: 0, pendingAmount: 0,
+      paid: 0, pending: 0, review: 0, totalAmount: 0, paidAmount: 0, pendingAmount: 0, csvPaid: null, csvPaidAmount: null, csvReview: null,
       nextDue: null, lastDue: null, installments: [] };
+    const reportedPaid = csvNumber(bill.notes, 'CSV Paid Count');
+    const reportedAmount = csvNumber(bill.notes, 'CSV Paid Amount');
+    const reportedReview = csvNumber(bill.notes, 'CSV Review Count');
+    if (reportedPaid !== null) row.csvPaid = Math.max(row.csvPaid ?? 0, reportedPaid);
+    if (reportedAmount !== null) row.csvPaidAmount = Math.max(row.csvPaidAmount ?? 0, reportedAmount);
+    if (reportedReview !== null) row.csvReview = Math.max(row.csvReview ?? 0, reportedReview);
     const occurrence = byBill.get(bill.id + '/' + bill.next_due_on);
     // If no occurrence was returned, do not silently assume paid.
     const status = !bill.active ? 'paused' : occurrence?.status ?? 'unknown';
@@ -97,17 +108,17 @@ export function InstallmentBillsSummary({ bills, onRefresh }: { bills: FinanceBi
           <td>{money(r.pending, r.currency)}</td><td>{r.nextDue ?? 'None'}</td></tr>)}</tbody>
       </table></div>
       <div className="finTableWrap"><table className="finGrid">
-        <thead><tr><th>Purchase</th><th>Installments in ANUM</th><th>Matched paid</th><th>Pending</th><th>Remaining amount</th><th>Next due</th><th>Final due</th><th>Details</th></tr></thead>
+        <thead><tr><th>Purchase</th><th>Installments in ANUM</th><th>CSV paid*</th><th>Matched in ANUM</th><th>Pending</th><th>Remaining amount</th><th>Next due</th><th>Final due</th><th>Details</th></tr></thead>
         <tbody>{rows.map(r => <tr key={r.key}>
           <td><strong>{r.merchant}</strong>{r.reference && <small style={{ display: 'block' }}>{r.reference}</small>}</td>
-          <td>{r.total}</td><td>{r.paid}</td><td>{r.pending}{r.review > 0 ? ` (review ${r.review})` : ''}</td>
+          <td>{r.total}</td><td>{r.csvPaid ?? 'Not imported'}</td><td>{r.paid}</td><td>{r.pending}{r.review > 0 ? ` (review ${r.review})` : ''}</td>
           <td>{money(r.pendingAmount, r.currency)}</td><td>{r.nextDue ?? 'None'}</td><td>{r.lastDue ?? 'None'}</td>
           <td><button type="button" aria-expanded={expanded === r.key} onClick={() => setExpanded(expanded === r.key ? null : r.key)}>View</button></td>
-        </tr>).flatMap((row, i) => expanded === rows[i].key ? [row, <tr key={rows[i].key + '-details'}><td colSpan={8}>
+        </tr>).flatMap((row, i) => expanded === rows[i].key ? [row, <tr key={rows[i].key + '-details'}><td colSpan={9}>
           <ul>{rows[i].installments.map(p => <li key={p.date}>{p.date}: {money(p.amount, rows[i].currency)} ({p.status})</li>)}</ul>
         </td></tr>] : [row])}</tbody>
       </table></div>
-      <p className="muted">Paid means matched to a real transaction in ANUM. Unmatched historical payments and refunds must be reconciled separately. No payment is made by this screen.</p>
+      <p className="muted">* CSV paid means reported as paid by the uploaded file, not independently verified. Matched in ANUM means linked to a recorded payment. Counts cover only bills retained/imported; fully completed orders with no outstanding bill appear only in the CSV preview. No payment is made by this screen.</p>
     </>}
   </section>;
 }
