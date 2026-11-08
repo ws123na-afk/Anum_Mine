@@ -269,7 +269,7 @@ export function Import({ accounts, onChanged, onAddAccount, onDone }: { accounts
   const [pdf, setPdf] = useState<File | null>(null), [pdfOpen, setPdfOpen] = useState(false), [inputKey, setInputKey] = useState(0);
   const [templatesRefresh, setTemplatesRefresh] = useState(0);
   const [preset, setPreset] = useState(''), [dateFormat, setDateFormat] = useState('');
-  const [mapping, setMapping] = useState<{ date: string; description: string; amount: string; debit: string; credit: string } | null>(null);
+  const [mapping, setMapping] = useState<{ date: string; description: string; amount: string; debit: string; credit: string; currency: string; original_amount: string; original_currency: string; billed_amount: string; billed_currency: string; fx_rate: string; fee: string } | null>(null);
   const [preview, setPreview] = useState<FinanceImportPreview | null>(null);
   const [error, setError] = useState<string | null>(null), [notice, setNotice] = useState<string | null>(null), [busy, setBusy] = useState(false);
   const [history, setHistory] = useState<Load<FinancePage<FinanceImport>>>({ kind: 'loading' });
@@ -284,7 +284,9 @@ export function Import({ accounts, onChanged, onAddAccount, onDone }: { accounts
   const selected = accounts.find((a) => a.id === accountId) ?? null;
   const body = () => ({
     account_id: accountId, filename: file?.name ?? 'statement.csv', content: file?.content ?? '', preset: preset || null, date_format: dateFormat || null,
-    mapping: mapping ? { date: mapping.date, description: mapping.description, amount: mapping.amount || null, debit: mapping.debit || null, credit: mapping.credit || null } : null,
+    mapping: mapping ? { date: mapping.date, description: mapping.description, amount: mapping.amount || null, debit: mapping.debit || null, credit: mapping.credit || null,
+      currency: mapping.currency || null, original_amount: mapping.original_amount || null, original_currency: mapping.original_currency || null,
+      billed_amount: mapping.billed_amount || null, billed_currency: mapping.billed_currency || null, fx_rate: mapping.fx_rate || null, fee: mapping.fee || null } : null,
   });
   async function pickFile(list: FileList | null) {
     setPreview(null); setNotice(null); setError(null); setMapping(null); setPdf(null); setPdfOpen(false);
@@ -300,7 +302,9 @@ export function Import({ accounts, onChanged, onAddAccount, onDone }: { accounts
     if (pdf) { setError(null); setNotice(null); setPdfOpen(true); return; }
     if (!file) { setError(t('finance.import.error.noFile')); return; }
     setBusy(true); setError(null); setNotice(null);
-    try { const result = await api.previewImport(body()); setPreview(result); setMapping({ date: result.mapping.date, description: result.mapping.description, amount: result.mapping.amount ?? '', debit: result.mapping.debit ?? '', credit: result.mapping.credit ?? '' }); }
+    try { const result = await api.previewImport(body()); setPreview(result); setMapping({ date: result.mapping.date, description: result.mapping.description, amount: result.mapping.amount ?? '', debit: result.mapping.debit ?? '', credit: result.mapping.credit ?? '',
+        currency: result.mapping.currency ?? '', original_amount: result.mapping.original_amount ?? '', original_currency: result.mapping.original_currency ?? '',
+        billed_amount: result.mapping.billed_amount ?? '', billed_currency: result.mapping.billed_currency ?? '', fx_rate: result.mapping.fx_rate ?? '', fee: result.mapping.fee ?? '' }); }
     catch (e) { setPreview(null); setError(describeError(e)); } finally { setBusy(false); }
   }
   async function confirm() {
@@ -352,6 +356,7 @@ export function Import({ accounts, onChanged, onAddAccount, onDone }: { accounts
     {preview && <section className="surface cmPanel" aria-labelledby="fin-preview" aria-live="polite">
       <h2 id="fin-preview">{t('finance.import.previewTitle', { file: preview.filename })}</h2>
       <p>{t('finance.import.previewText', { rows: preview.row_count, valid: preview.valid_count, fresh: preview.new_count, duplicates: preview.duplicate_count, errors: preview.error_count })}</p>
+      <p className="muted">For foreign purchases, record the original USD (or other) amount and map the bank's actual {selected?.currency ?? 'account'} charge as the billed amount. ANUM will not invent a conversion or add a fee twice.</p>
       {preview.date_format_ambiguous && <Notice>{t('finance.import.ambiguous', { format: preview.date_format })}</Notice>}
       <fieldset className="finMapping"><legend>{t('finance.import.mapping', { layout: preview.preset })}</legend>
         <div className="cmFilters">
@@ -360,6 +365,13 @@ export function Import({ accounts, onChanged, onAddAccount, onDone }: { accounts
           {columnSelect('amount', t('finance.import.amountColumn'), true)}
           {columnSelect('debit', t('finance.import.debitColumn'), true)}
           {columnSelect('credit', t('finance.import.creditColumn'), true)}
+          {columnSelect('currency', 'Transaction currency (optional)', true)}
+          {columnSelect('original_amount', 'Original/foreign amount (USD, etc.)', true)}
+          {columnSelect('original_currency', 'Original currency', true)}
+          {columnSelect('billed_amount', `Amount actually billed in ${selected?.currency ?? 'account currency'}`, true)}
+          {columnSelect('billed_currency', 'Billed currency', true)}
+          {columnSelect('fx_rate', 'Bank exchange rate', true)}
+          {columnSelect('fee', 'Bank FX/transaction fee', true)}
           <button type="button" className="secondary" disabled={busy} onClick={() => void runPreview()}><RefreshCw aria-hidden="true" />{t('finance.import.recheck')}</button>
         </div>
       </fieldset>
@@ -367,7 +379,7 @@ export function Import({ accounts, onChanged, onAddAccount, onDone }: { accounts
         <caption className="visuallyHidden">{t('finance.import.sample')}</caption>
         <thead><tr><th scope="col">{t('finance.import.line')}</th><th scope="col">{t('finance.col.date')}</th><th scope="col">{t('finance.col.description')}</th><th scope="col">{t('finance.col.category')}</th><th scope="col" className="num">{t('finance.col.amount')}</th></tr></thead>
         <tbody>{preview.rows.map((row) => <tr key={row.line} className={row.duplicate ? 'finDuplicate' : undefined}>
-          <td>{row.line}</td><td><bdi dir="ltr">{row.posted_on}</bdi></td><td className="finDescription"><strong dir="auto">{row.description}</strong>{row.duplicate && <small>{t('finance.import.duplicate')}</small>}</td><td>{categoryLabel(row.category)}</td><td className="num"><Money value={row.amount} currency={row.currency} signed /></td>
+          <td>{row.line}</td><td><bdi dir="ltr">{row.posted_on}</bdi></td><td className="finDescription"><strong dir="auto">{row.description}</strong>{row.notes && <small style={{ display: 'block' }}>{row.notes}</small>}{row.duplicate && <small>{t('finance.import.duplicate')}</small>}</td><td>{categoryLabel(row.category)}</td><td className="num"><Money value={row.amount} currency={row.currency} signed /></td>
         </tr>)}</tbody>
       </table></div>}
       {preview.errors.length > 0 && <details className="finErrors"><summary>{t('finance.import.errors', { count: preview.error_count })}</summary><ul>{preview.errors.map((e) => <li key={e.line}>{t('finance.import.errorLine', { line: e.line, message: e.message })}</li>)}</ul></details>}
