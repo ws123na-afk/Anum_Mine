@@ -62,7 +62,7 @@ const ConnectionsPage = lazy(() => import('./FinanceConnections').then((m) => ({
 const KINDS: FinanceAccountKind[] = ['bank', 'card', 'cash', 'loan', 'investment'];
 const CATEGORIES: FinanceCategory[] = [
   'groceries', 'dining', 'transport', 'fuel', 'utilities', 'telecom', 'housing', 'shopping', 'health', 'education', 'entertainment',
-  'subscriptions', 'travel', 'insurance', 'fees', 'cash', 'transfer', 'income', 'other',
+  'subscriptions', 'travel', 'insurance', 'fees', 'cash', 'transfer', 'income', 'cashback', 'refunds', 'other',
 ];
 
 const today = () => new Date().toISOString().slice(0, 10);
