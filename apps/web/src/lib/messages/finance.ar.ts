@@ -288,6 +288,8 @@ export const financeAr: Record<keyof typeof financeEn, Message> = {
   'finance.settings.removeRule': 'احذف قاعدة {match}',
 
   'finance.category.income': 'الدخل',
+  'finance.category.cashback': 'استرداد نقدي',
+  'finance.category.refunds': 'المبالغ المستردة',
   'finance.category.transfer': 'التحويلات',
   'finance.category.groceries': 'البقالة',
   'finance.category.dining': 'المطاعم',
