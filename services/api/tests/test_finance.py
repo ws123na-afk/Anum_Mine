@@ -507,17 +507,18 @@ def test_owner_approved_category_learning_applies_to_future_statement_not_old_tr
     acct = account(currency="SAR")
     first = client.post(f"{API}/transactions", headers=OWNER, json={
         "account_id": acct["id"], "posted_on": "2026-10-20",
-        "description": "ALI ROOM SHARING October", "amount": "-2600.00",
+        "description": "QASIM 24 SERVICES October", "amount": "-2600.00",
     })
     assert first.status_code == 201, first.text
+    assert first.json()["category"] == "other"  # specific merchant is unknown until the owner teaches it
     learned = client.patch(f"{API}/transactions/{first.json()['id']}", headers=OWNER, json={
-        "category": "room_rent", "remember_category_match": "ALI ROOM SHARING",
+        "category": "room_rent", "remember_category_match": "QASIM 24 SERVICES",
     })
     assert learned.status_code == 200, learned.text
     assert learned.json()["category_source"] == "manual"
     settings = client.get(f"{API}/settings", headers=OWNER).json()
-    assert {"match": "ali room sharing", "category": "room_rent"} in settings["category_rules"]
-    csv = "Date,Description,Amount\n2026-11-20,ALI ROOM SHARING November,-2600.00\n"
+    assert {"match": "qasim 24 services", "category": "room_rent"} in settings["category_rules"]
+    csv = "Date,Description,Amount\n2026-11-20,QASIM 24 SERVICES November,-2600.00\n"
     preview = client.post(f"{API}/imports/preview", headers=OWNER,
                           json={"account_id": acct["id"], "content": csv})
     assert preview.status_code == 200, preview.text
