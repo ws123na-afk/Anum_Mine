@@ -31,6 +31,8 @@ class Category(StrEnum):
     """Built-in categories. Rules (``categories.py``) pick one; the owner can override it."""
 
     INCOME = "income"
+    CASHBACK = "cashback"
+    REFUNDS = "refunds"
     TRANSFER = "transfer"
     GROCERIES = "groceries"
     DINING = "dining"
