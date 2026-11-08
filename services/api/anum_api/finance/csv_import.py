@@ -505,8 +505,16 @@ def parse_file(
                     raise MoneyError(f"The billed currency is {billed_ccy}, but the account is {currency}. Choose the matching account.")
                 if billed == 0:
                     raise MoneyError("The billed amount is zero.")
-                # Preserve the direction from the debit/credit column when billed figures are unsigned.
-                amount = quantize(-abs(billed) if value < 0 else abs(billed), currency)
+                # A negative billed figure is a debit. It decides the direction of an unsigned amount; a row
+                # that marks itself a credit (a CR indicator, a credit column or a "+" amount) contradicts it
+                # and goes back for review. Unsigned billed figures follow the amount or debit/credit column.
+                if billed < 0 and value > 0 and (
+                    (mapping.direction and clean_text(cell(row, mapping.direction), 30).strip())
+                    or not mapping.amount
+                    or cell(row, mapping.amount).strip().startswith("+")
+                ):
+                    raise MoneyError("The bank-billed amount is a debit, but the amount on this row is a credit. Check the row and map its direction.")
+                amount = quantize(-abs(billed) if value < 0 or billed < 0 else abs(billed), currency)
                 if foreign is None and row_ccy and row_ccy != currency:
                     foreign = abs(value)
             elif row_ccy and row_ccy != currency and foreign is None:

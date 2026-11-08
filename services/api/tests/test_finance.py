@@ -458,6 +458,27 @@ def test_import_foreign_usd_purchase_posts_bank_billed_sar_only_and_categories()
     assert repeat.json()["imported_count"] == 0
 
 
+def test_negative_billed_amount_is_never_imported_as_incoming_money() -> None:
+    header = "Date,Description,Amount,Currency,Billed Amount,Billed Currency\n"
+    # Unsigned original amount, signed billed amount: the billed sign decides, so it stays a debit.
+    debit = csv_import.parse_file(header + "2026-11-01,USD PURCHASE,20.00,USD,-76.80,SAR\n", account_id="a", currency="SAR")
+    assert not debit.errors, debit.errors
+    assert debit.rows[0].amount == Decimal("-76.80")
+    # A credit amount with a debit billed amount contradicts itself: it goes back for review.
+    conflict = csv_import.parse_file(header + "2026-11-01,USD PURCHASE,+20.00,USD,-76.80,SAR\n", account_id="a", currency="SAR")
+    assert not conflict.rows
+    assert "credit" in conflict.errors[0].message
+    # Unsigned billed figures still follow the amount column.
+    credit = csv_import.parse_file(header + "2026-11-01,USD REFUND,20.00,USD,76.80,SAR\n", account_id="a", currency="SAR")
+    assert credit.rows[0].amount == Decimal("76.80")
+
+
+def test_advisor_labels_cover_every_category() -> None:
+    from anum_api.finance.advisor_text import CATEGORY_AR, CATEGORY_EN
+    assert set(CATEGORY_EN) == set(Category)
+    assert set(CATEGORY_AR) == set(Category)
+
+
 def test_missing_billed_amount_does_not_guess_fx_or_post_wrong_account_currency() -> None:
     raw = ("Date,Description,Amount,Currency\n"
            "2026-11-01,USD FOREIGN PURCHASE,-20.00,USD\n")
