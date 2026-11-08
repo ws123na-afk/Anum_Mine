@@ -300,6 +300,8 @@ export const financeEn = {
   'finance.category.transfer': 'Transfers',
   'finance.category.groceries': 'Groceries',
   'finance.category.dining': 'Dining',
+  'finance.category.food': 'Food and meals',
+  'finance.category.room_rent': 'Room rent',
   'finance.category.transport': 'Transport',
   'finance.category.fuel': 'Fuel',
   'finance.category.utilities': 'Utilities',
