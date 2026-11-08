@@ -61,7 +61,7 @@ const GuardianPage = lazy(() => import('./FinanceGuardian').then((m) => ({ defau
 const ConnectionsPage = lazy(() => import('./FinanceConnections').then((m) => ({ default: m.ConnectionsPage })));
 const KINDS: FinanceAccountKind[] = ['bank', 'card', 'cash', 'loan', 'investment'];
 const CATEGORIES: FinanceCategory[] = [
-  'groceries', 'dining', 'transport', 'fuel', 'utilities', 'telecom', 'housing', 'shopping', 'health', 'education', 'entertainment',
+  'groceries', 'dining', 'food', 'room_rent', 'transport', 'fuel', 'utilities', 'telecom', 'housing', 'shopping', 'health', 'education', 'entertainment',
   'subscriptions', 'travel', 'insurance', 'fees', 'cash', 'transfer', 'income', 'cashback', 'refunds', 'other',
 ];
 
