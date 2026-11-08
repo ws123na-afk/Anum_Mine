@@ -11,7 +11,7 @@ import { describeError } from './lib/errors';
 import { formatAmount, rangeLabel } from './lib/finance';
 import { formatDateTime } from './lib/i18n';
 import {
-  LOW_CONFIDENCE, PDF_PAGE_SIZE, PDF_ROLES, checkRoles, filterRows, flagLabel, foreignDetail, importBody, liveCheck, liveSummary, pdfErrorCode, reviewRows,
+  LOW_CONFIDENCE, PDF_PAGE_SIZE, PDF_ROLES, checkRoles, directionHint, filterRows, flagLabel, foreignDetail, importBody, liveCheck, liveSummary, pdfErrorCode, reviewRows,
   roleLabel, rowProblem, type ReviewRow,
 } from './lib/financePdf';
 import { t } from './lib/i18n';
@@ -240,6 +240,7 @@ export function PdfStatementImport({ file, account, onImported, onCancel }: {
                   onChange={(e) => change(row.key, { billed_amount: e.target.value, billed_currency: currency })} />
                 <small>The displayed {row.currency} amount stays as original purchase evidence. Do not guess the SAR conversion.</small>
               </label>}
+              {directionHint(row) && <small role="alert" className="finPdfFlag">{directionHint(row)}</small>}
               {foreignDetail(row) && <small dir="auto">{foreignDetail(row)}</small>}
               {row.duplicate && <small>{t('fpdf.rows.duplicate')}</small>}
               {row.flags.map((flag) => flagLabel(flag)).filter(Boolean).map((label) => <small key={label} className="finPdfFlag">{label}</small>)}
