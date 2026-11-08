@@ -356,7 +356,7 @@ export function Import({ accounts, onChanged, onAddAccount, onDone }: { accounts
     {preview && <section className="surface cmPanel" aria-labelledby="fin-preview" aria-live="polite">
       <h2 id="fin-preview">{t('finance.import.previewTitle', { file: preview.filename })}</h2>
       <p>{t('finance.import.previewText', { rows: preview.row_count, valid: preview.valid_count, fresh: preview.new_count, duplicates: preview.duplicate_count, errors: preview.error_count })}</p>
-      <p className="muted">For foreign purchases, record the original USD (or other) amount and map the bank's actual {selected?.currency ?? 'account'} charge as the billed amount. ANUM will not invent a conversion or add a fee twice.</p>
+      <p className="muted">{t('finance.import.fxGuide', { currency: selected?.currency ?? 'SAR' })}</p>
       {preview.date_format_ambiguous && <Notice>{t('finance.import.ambiguous', { format: preview.date_format })}</Notice>}
       <fieldset className="finMapping"><legend>{t('finance.import.mapping', { layout: preview.preset })}</legend>
         <div className="cmFilters">
@@ -365,13 +365,13 @@ export function Import({ accounts, onChanged, onAddAccount, onDone }: { accounts
           {columnSelect('amount', t('finance.import.amountColumn'), true)}
           {columnSelect('debit', t('finance.import.debitColumn'), true)}
           {columnSelect('credit', t('finance.import.creditColumn'), true)}
-          {columnSelect('currency', 'Transaction currency (optional)', true)}
-          {columnSelect('original_amount', 'Original/foreign amount (USD, etc.)', true)}
-          {columnSelect('original_currency', 'Original currency', true)}
-          {columnSelect('billed_amount', `Amount actually billed in ${selected?.currency ?? 'account currency'}`, true)}
-          {columnSelect('billed_currency', 'Billed currency', true)}
-          {columnSelect('fx_rate', 'Bank exchange rate', true)}
-          {columnSelect('fee', 'Bank FX/transaction fee', true)}
+          {columnSelect('currency', t('finance.import.fxCurrency'), true)}
+          {columnSelect('original_amount', t('finance.import.fxOriginal'), true)}
+          {columnSelect('original_currency', t('finance.import.fxOriginalCurrency'), true)}
+          {columnSelect('billed_amount', t('finance.import.fxBilled', { currency: selected?.currency ?? 'SAR' }), true)}
+          {columnSelect('billed_currency', t('finance.import.fxBilledCurrency'), true)}
+          {columnSelect('fx_rate', t('finance.import.fxRate'), true)}
+          {columnSelect('fee', t('finance.import.fxFee'), true)}
           <button type="button" className="secondary" disabled={busy} onClick={() => void runPreview()}><RefreshCw aria-hidden="true" />{t('finance.import.recheck')}</button>
         </div>
       </fieldset>
