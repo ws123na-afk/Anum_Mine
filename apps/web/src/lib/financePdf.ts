@@ -80,7 +80,7 @@ export function fromMinor(units: bigint, currency: string): string {
 /** A warning only. Original bank evidence takes priority over a merchant label. */
 export function directionHint(row: Pick<ReviewRow, 'amount' | 'description'>): string | null {
   if (!/^[+]?(?:[0-9]|[٠-٩])/.test(row.amount.trim())) return null;
-  if (/(?:room[ -]?rent|rent[ -]?room|room[ -]?rental|bed[ -]?space|accommodation[ -]?rent|إيجار\\s*غرفة|ايجار\\s*غرفة)/i.test(row.description))
+  if (/(?:room[ -]?rent|rent[ -]?room|room[ -]?rental|bed[ -]?space|accommodation[ -]?rent|إيجار\s*غرفة|ايجار\s*غرفة)/i.test(row.description))
     return 'Room rent is shown as incoming. Check the bank statement and change the sign if you paid it.';
   return null;
 }
