@@ -24,10 +24,11 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 COPY --from=python /usr/local/bin/python3.13 /usr/local/bin/python3.13
 COPY --from=python /usr/local/lib/python3.13 /usr/local/lib/python3.13
 COPY --from=python /usr/local/lib/libpython3.13.so.1.0 /usr/local/lib/libpython3.13.so.1.0
-# apt and libapt-pkg come from the base image; a fixed release (CVE-2026-109518, apt
-# 3.0.4) can land before the base image is rebuilt, so upgrade just those two packages.
+# Debian security fixes can land before the base image is rebuilt (apt CVE-2026-109518,
+# zlib1g CVE-2026-76844 and CVE-2026-85091), so every pending update is applied, as the
+# API image does. Upgrading only named packages left the next fixed library to fail Trivy.
 RUN apt-get update \
-    && apt-get install --yes --no-install-recommends --only-upgrade apt libapt-pkg7.0 zlib1g \
+    && apt-get upgrade --yes --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 # gosu is the base image's setuid helper for its docker-entrypoint.sh, which this image
 # never runs (own ENTRYPOINT, fixed non-root USER). It is a Go binary whose bundled Go

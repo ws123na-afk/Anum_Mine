@@ -278,9 +278,10 @@ test('re-uploading the same CSV preserves all paid history without duplicating s
   dialog = await upload();
   await expect(dialog.getByText(/New: 0\. Existing to update: 0\./)).toBeVisible();
   await dialog.getByRole('button', { name: 'Sync 0 new + 0 existing bills' }).click();
-  const posts = sent.filter(x => x.path === '/api/v1/finance/bills' && x.method === 'POST');
-  expect(posts).toHaveLength(1);
-  expect(sent.filter(x => x.path === '/api/v1/finance/installment-statement/sync' && x.method === 'POST')).toHaveLength(3);
+  // The third sync is sent after the click returns: wait for it before counting.
+  await expect(dialog).not.toBeVisible();
+  await expect.poll(() => sent.filter(x => x.path === '/api/v1/finance/installment-statement/sync' && x.method === 'POST').length).toBe(3);
+  expect(sent.filter(x => x.path === '/api/v1/finance/bills' && x.method === 'POST')).toHaveLength(1);
   await expect(page.getByRole('region', { name: 'Complete installment statement' }).getByText('jarir-1')).toBeVisible();
 });
 
@@ -303,7 +304,8 @@ test('full statement keeps completed orders, excludes refund cases from monthly 
   await expect(section.getByText('completed-1')).toBeVisible();
   await expect(section.getByText('refund-1')).toBeVisible();
   await expect(section.getByText('open-1')).toBeVisible();
-  await expect(section.getByRole('cell', { name: '2026-12', exact: true }).locator('..')).toContainText('602.00');
+  // The "Scheduled by month" row for December, not the summary or order rows that show 2026-12-01.
+  await expect(section.getByRole('row').filter({ has: page.getByRole('cell', { name: '2026-12', exact: true }) })).toContainText('602.00');
   await expect(section.getByText('2026-11', { exact: true })).toHaveCount(0);
   await expect(section.getByRole('button', { name: 'Export statement CSV' })).toBeVisible();
 });
