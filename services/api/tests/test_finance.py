@@ -418,3 +418,74 @@ def test_full_installment_statement_roundtrip_idempotency_refunds_conflicts_and_
     assert next(r for r in client.get(base, headers=OWNER).json()["items"] if r["installment"] == 2)["amount"] == "602.00"
     duplicate = client.post(base + "/sync", headers=OWNER, json={"entries": [first[0], first[0]]})
     assert duplicate.status_code == 400
+
+
+def test_import_foreign_usd_purchase_posts_bank_billed_sar_only_and_categories() -> None:
+    """USD is evidence; the actual SAR billed is the card ledger amount, not another debit."""
+    acct = account(currency="SAR")
+    statement = (
+        "Date,Description,Amount,Currency,Original Amount,Original Currency,Billed Amount,Billed Currency,Exchange Rate,Foreign Transaction Fee\\n"
+        "2026-11-01,Online overseas purchase,-20.00,USD,20.00,USD,76.80,SAR,3.84,1.20\\n"
+        "2026-11-02,CASH BACK REWARD,5.00,SAR,,,,,,\\n"
+        "2026-11-03,FX TRANSACTION FEE,-1.20,SAR,,,,,,\\n"
+        "2026-11-04,PURCHASE REFUND,10.00,SAR,,,,,,\\n"
+    )
+    response = client.post(f"{API}/imports/preview", headers=OWNER,
+                           json={"account_id": acct["id"], "content": statement})
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert data["valid_count"] == 4, data
+    assert data["error_count"] == 0, data
+    first = data["rows"][0]
+    assert first["amount"] == "-76.80"
+    assert first["currency"] == "SAR"
+    assert first["original_amount"] == "20.00"
+    assert first["original_currency"] == "USD"
+    assert first["reported_fee"] == "1.20"
+    assert "Bank billed: 76.80 SAR" in first["notes"]
+    assert [row["category"] for row in data["rows"]] == ["other", "cashback", "fees", "refunds"]
+    imported = client.post(f"{API}/imports", headers=OWNER,
+                           json={"account_id": acct["id"], "content": statement})
+    assert imported.status_code == 201, imported.text
+    assert imported.json()["imported_count"] == 4
+    items = client.get(f"{API}/transactions", headers=OWNER).json()["items"]
+    assert sum(1 for row in items if row["amount"] == "-76.80") == 1
+    assert any("Original: 20.00 USD" in (row["notes"] or "") for row in items)
+    repeat = client.post(f"{API}/imports", headers=OWNER,
+                         json={"account_id": acct["id"], "content": statement})
+    assert repeat.status_code == 201, repeat.text
+    assert repeat.json()["imported_count"] == 0
+
+
+def test_missing_billed_amount_does_not_guess_fx_or_post_wrong_account_currency() -> None:
+    raw = ("Date,Description,Amount,Currency\\n"
+           "2026-11-01,USD FOREIGN PURCHASE,-20.00,USD\\n")
+    parsed = csv_import.parse_file(raw, account_id="a", currency="SAR")
+    assert not parsed.rows
+    assert len(parsed.errors) == 1
+    assert "SAR" in parsed.errors[0].message
+    # Account matching the original currency needs no conversion.
+    own = csv_import.parse_file(raw, account_id="usd_card", currency="USD")
+    assert len(own.rows) == 1 and own.rows[0].amount == Decimal("-20.00")
+
+
+def test_pdf_foreign_currency_import_requires_explicit_billed_amount() -> None:
+    acct = account(currency="SAR")
+    row = {
+        "posted_on": "2026-11-01", "description": "International retailer purchase",
+        "amount": "-20.00", "currency": "USD", "original_amount": "-20.00",
+        "original_currency": "USD", "fx_rate": "3.84", "fee": "1.20"
+    }
+    req = {"account_id": acct["id"], "filename": "bank.pdf", "file_sha256": "a" * 64,
+           "source": "text", "rows": [row]}
+    rejected = client.post(f"{API}/imports/pdf", headers=OWNER, json=req)
+    assert rejected.status_code == 400 or rejected.status_code == 422, rejected.text
+    assert "bank-billed" in rejected.text.lower()
+    accepted = client.post(f"{API}/imports/pdf", headers=OWNER, json={
+        **req, "rows": [{**row, "billed_amount": "-76.80", "billed_currency": "SAR"}]})
+    assert accepted.status_code == 201, accepted.text
+    assert accepted.json()["imported_count"] == 1
+    items = client.get(f"{API}/transactions", headers=OWNER).json()["items"]
+    assert items[0]["amount"] == "-76.80"
+    assert items[0]["currency"] == "SAR"
+    assert "Original: 20.00 USD" in items[0]["notes"]
