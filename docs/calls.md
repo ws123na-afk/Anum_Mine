@@ -12,6 +12,14 @@ It comes in three parts:
 | 2. Calls through a voice provider | A Twilio account with a voice number, its credentials stored by an owner under **Calls > Provider**, and `ANUM_CALLS_PUBLIC_BASE_URL` set by the operator. | Off: the Provider tab says what is missing, browser calls and recordings are not offered. |
 | 3. AI calls | Part 2, a configured model, AI calls turned on by an owner, and a contact with recorded consent. | Off: the AI calls tab explains which of these is missing. |
 
+## The page
+
+The web page (`CallsView.tsx`, on the shared page shell, [communication pages](web-design-system.md#communication-pages)) has the head with the provider chip, **Add contact** and **Log a call**, the tabs (Recents, Contacts, Dial, AI calls, Provider) and four figures from `GET /log/summary` for today: calls, missed calls, talk time and AI calls awaiting approval.
+
+- **Recents**: the call log grouped by day (Today, Yesterday, Earlier) with search, direction, outcome, period (all time, today, last 7 or 30 days) and "only my calls"; the open call beside it; a quick dial pad and how calls work on this workspace (provider, recording and AI calls on or off) beside both from 1360px; the newest AI call requests under them.
+- **Dial**: the contacts (favourites first, searchable) next to the dial pad; picking one fills its number, and the third card shows that contact (company, email, AI call consent, notes, **Open contact**) or, for an unknown number, how the call will be placed.
+- **AI calls**: a warning while AI calls are off with the way to the provider setup; the request queue with state filters; the open request with its exact recipient, language, longest call, cost ceiling, the script and the approval it waits for (payload hash); then the form to ask for a call and the opt-out list.
+
 ## Free calling and the call log
 
 **Contacts** belong to the workspace: name, phone number, company, language (English or Arabic), favourite, and where the contact came from (`manual`, or `device` for one picked from the phone's address book). Search runs over name, company and number; lists are paged (25 a page, at most 100). Numbers are stored as typed and also normalised (digits and one leading `+`, Arabic and Persian digits converted) so the same number is found however it was written.
@@ -48,14 +56,15 @@ All routes are under `/api/v1/calls` and take the usual tenant context.
 | `GET /contacts` `?q=&favourites=&offset=&limit=` | `call:read` | Paged contacts. |
 | `POST /contacts`, `GET`, `PATCH`, `DELETE /contacts/{id}` | `call:log` (change: the adder or an owner) | Contact CRUD. Changing the number withdraws the AI call consent, since it was given for the old number. |
 | `PUT`, `DELETE /contacts/{id}/ai-consent` | `call:manage` | Record (method `verbal`, `written`, `web_form` or `other`, a note, and `confirmed: true`) or withdraw consent to AI calls. |
-| `GET /log` `?q=&outcome=&contact_id=&offset=&limit=` | `call:read` | Paged call log. |
+| `GET /log` `?q=&direction=&outcome=&contact_id=&mine=&since=&until=&offset=&limit=` | `call:read` | Paged call log. `since` and `until` (timezone-aware times; one without a zone reads as UTC) keep calls that started in `[since, until)`; `until` before `since` is `422`. |
+| `GET /log/summary` `?since=&until=&mine=` | `call:read` | The figures for a period over the calls the caller may read: `calls`, `missed` (marked missed, or an incoming call nobody answered; an unanswered outgoing call is not missed), `talk_seconds` (sum of logged durations) and `ai_pending` (AI call requests waiting for approval). The Phone calls page asks for today from local midnight. |
 | `POST /log`, `GET`, `PATCH`, `DELETE /log/{id}` | `call:log` (change: the person who logged it or an owner) | Log a call (`kind: "phone"` or `"in_app"`), read it, edit outcome, duration and notes, delete it (its recording file goes with it). |
 | `POST /log/{id}/summarize` | `call:log` | AI summary and suggested follow-up. `409` without a model or without notes. |
 | `PUT`, `DELETE /log/{id}/follow-up`, `POST /log/{id}/follow-up/task` | `call:log` | Save or clear the follow-up; create a task from it (once). |
 | `GET`, `POST /opt-outs`, `DELETE /opt-outs/{id}` | read: `call:read`; add: `call:log`; lift: `call:manage` | Numbers that asked not to be called by the AI assistant. Stored as a keyed hash plus a masked number. |
 | `GET`, `PUT`, `DELETE /provider`, `POST /provider/check` | `call:manage` | The voice provider account (see below). Secrets are write-only. Members see the provider's state in `GET /setup`. |
 | `POST /provider/calls` | `call:log` | Prepare a browser call: a call log entry and a 10 minute access token for the provider's browser SDK. |
-| `GET`, `POST /ai-calls`, `GET /ai-calls/{id}`, `POST /ai-calls/{id}/cancel` | read: `call:read`; ask and cancel: `call:log` | AI call requests and their approval state. |
+| `GET`, `POST /ai-calls`, `GET /ai-calls/{id}`, `POST /ai-calls/{id}/cancel` | read: `call:read`; ask and cancel: `call:log` | AI call requests and their approval state. The list takes `?status=` (applied before paging) and returns `status_counts`, the number of requests in each state over the whole list, for the page's state filters. |
 
 Errors say what failed and how to fix it, for example "Provider calls need a full international number, for example +971501234567." or "Recording is off in this workspace. A workspace owner turns it on under Calls > Provider."
 

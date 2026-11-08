@@ -85,3 +85,25 @@ def test_depreciation_is_straight_line_and_capped() -> None:
                                                           "monthly": "2500.00", "months": 11, "accumulated": "27500.00", "book_value": "72500.00"}
     assert A.depreciation(vehicle, date(2030, 1, 1))["book_value"] == "40000.00"
     assert A.depreciation(car(), date(2030, 1, 1)) is None
+
+
+def test_distance_by_month_credits_the_later_reading_and_skips_corrections() -> None:
+    # T0 is 1 May: 1000 (1 May), 1400 (30 May), 1900 (5 June), a correction to 1800 (6 June), 2000 (7 June).
+    readings = [reading("1000", 0), reading("1400", 29), reading("1900", 35), reading("1800", 36, correction=True), reading("2000", 37)]
+    assert A.distance_by_month(readings) == {"2026-05": Decimal("400"), "2026-06": Decimal("700")}
+    # June only: the run from the last May reading still counts in June.
+    assert A.distance_by_month(readings, start=date(2026, 6, 1), end=date(2026, 6, 30)) == {"2026-06": Decimal("700")}
+
+
+def test_usage_sums_distance_and_litres_per_month_and_per_vehicle() -> None:
+    fills = [fill(0, "40", "1000"), fill(10, "30", "1500"), fill(35, "50", "2000")]
+    readings = {"veh_1": [reading("1000", 0), reading("1500", 10), reading("2000", 35)]}
+    result = A.usage([car()], readings, fills, start=date(2026, 5, 1), end=date(2026, 6, 30))
+    assert result["usage"] == [{"month": "2026-05", "distance_km": "500.0", "fuel_litres": "70.000"},
+                               {"month": "2026-06", "distance_km": "500.0", "fuel_litres": "50.000"}]
+    assert result["by_vehicle_usage"] == [{"vehicle_id": "veh_1", "distance_km": "1000.0", "fuel_litres": "120.000", "average_per_100": "8.00"}]
+    # A period without readings or fills: no months, and the vehicle's row reads zero with no average.
+    empty = A.usage([car()], readings, fills, start=date(2026, 8, 1), end=date(2026, 8, 31))
+    assert empty == {"usage": [], "by_vehicle_usage": [{"vehicle_id": "veh_1", "distance_km": "0.0", "fuel_litres": "0.000", "average_per_100": None}]}
+    report = A.vehicle_report(car(), readings["veh_1"], fills, [], start=date(2026, 6, 1), end=date(2026, 6, 30), today=date(2026, 7, 1))
+    assert report["usage"] == [{"month": "2026-06", "distance_km": "500.0", "fuel_litres": "50.000"}]

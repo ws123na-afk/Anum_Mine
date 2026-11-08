@@ -246,6 +246,26 @@ class CallFilter(BaseModel):
     kind: CallKind | None = None
     contact_id: str | None = None
     user_id: str | None = None
+    # Calls that started at or after ``since`` and before ``until`` (both timezone aware).
+    since: datetime | None = None
+    until: datetime | None = None
+
+
+class CallTotals(BaseModel):
+    """The figures over the calls a filter matches (the Phone calls page's KPI row)."""
+
+    calls: int = 0
+    missed: int = 0
+    talk_seconds: int = 0
+
+
+def is_missed(call: CallEntry) -> bool:
+    """A missed call: marked missed, or an incoming call nobody answered."""
+    return call.outcome == Outcome.MISSED or (call.direction == Direction.INBOUND and call.outcome == Outcome.NO_ANSWER)
+
+
+def in_window(call: CallEntry, flt: CallFilter) -> bool:
+    return (flt.since is None or call.started_at >= flt.since) and (flt.until is None or call.started_at < flt.until)
 
 
 class CallsStore(Protocol):
@@ -261,6 +281,7 @@ class CallsStore(Protocol):
     def save_call(self, call: CallEntry) -> CallEntry: ...
     def delete_call(self, call_id: str) -> bool: ...
     def list_calls(self, flt: CallFilter, *, offset: int, limit: int) -> tuple[list[CallEntry], int]: ...
+    def call_totals(self, flt: CallFilter) -> CallTotals: ...
     def call_by_provider_id(self, provider_call_id: str) -> CallEntry | None: ...
 
     def add_opt_out(self, opt_out: OptOut) -> OptOut: ...
@@ -275,7 +296,8 @@ class CallsStore(Protocol):
     def add_request(self, request: AiCallRequest) -> AiCallRequest: ...
     def get_request(self, request_id: str, *, lock: bool = False) -> AiCallRequest | None: ...
     def save_request(self, request: AiCallRequest) -> AiCallRequest: ...
-    def list_requests(self, *, offset: int, limit: int) -> tuple[list[AiCallRequest], int]: ...
+    def list_requests(self, *, offset: int, limit: int, status: AiRequestStatus | None = None) -> tuple[list[AiCallRequest], int]: ...
+    def count_requests(self, status: AiRequestStatus) -> int: ...
 
 
 def _has(text: str | None, needle: str) -> bool:
@@ -400,10 +422,18 @@ class MemoryCallsStore:
                 and (flt.kind is None or item.kind == flt.kind)
                 and (flt.contact_id is None or item.contact_id == flt.contact_id)
                 and (flt.user_id is None or item.user_id == flt.user_id)
+                and in_window(item, flt)
                 and (needle is None or call_matches(item, needle))
             ]
         found.sort(key=lambda item: (item.started_at, item.id), reverse=True)
         return [item.model_copy(deep=True) for item in found[offset : offset + limit]], len(found)
+
+    def call_totals(self, flt: CallFilter) -> CallTotals:
+        found, _ = self.list_calls(flt, offset=0, limit=len(self.data.calls) or 1)
+        return CallTotals(
+            calls=len(found), missed=sum(1 for item in found if is_missed(item)),
+            talk_seconds=sum(item.duration_seconds or 0 for item in found),
+        )
 
     def call_by_provider_id(self, provider_call_id: str) -> CallEntry | None:
         with self.data.lock:
@@ -474,11 +504,15 @@ class MemoryCallsStore:
                 self.data.requests[request.id] = request.model_copy(deep=True)
         return request
 
-    def list_requests(self, *, offset: int, limit: int) -> tuple[list[AiCallRequest], int]:
+    def list_requests(self, *, offset: int, limit: int, status: AiRequestStatus | None = None) -> tuple[list[AiCallRequest], int]:
         with self.data.lock:
-            found = [item for item in self.data.requests.values() if self._mine(item)]
+            found = [item for item in self.data.requests.values() if self._mine(item) and (status is None or item.status == status)]
         found.sort(key=lambda item: (item.created_at, item.id), reverse=True)
         return [item.model_copy(deep=True) for item in found[offset : offset + limit]], len(found)
+
+    def count_requests(self, status: AiRequestStatus) -> int:
+        with self.data.lock:
+            return sum(1 for item in self.data.requests.values() if self._mine(item) and item.status == status)
 
 
 memory_data = MemoryCallsData()

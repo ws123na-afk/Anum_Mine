@@ -227,3 +227,35 @@ test('the Sync tab reads right to left in Arabic without overflow', async ({ pag
   await expect(page.getByRole('button', { name: 'زامن الآن' })).toBeVisible();
   expect(await noHorizontalOverflow(page)).toBe(true);
 });
+
+// The redesigned page (owner's mockups): time grid, month, rail checks and the week strip.
+test('a double booking is flagged on the grid, in the rail and in the week strip; event types filter the grid', async ({ page }) => {
+  await mockWorkspaceApi(page);
+  await pinCalendarClock(page);
+  const calendar = createCalendarMock();
+  const at = (hour: number, minute = 0) => { const d = new Date(); d.setHours(hour, minute, 0, 0); return d.toISOString(); };
+  (calendar.state.events as Record<string, unknown>[]).push({ ...(calendar.state.events as Record<string, unknown>[])[1], id: 'evt_clash', title: 'Tyre audit', kind: 'review', starts_at: at(1, 30), ends_at: at(2, 15) });
+  await page.route('http://localhost:8000/api/v1/calendar/**', async (route) => { if (!(await calendar.handle(route))) await route.fallback(); });
+  await page.addInitScript(() => localStorage.setItem('anum.calendar.mode', 'week'));
+  await page.goto('/#calendar');
+  const rail = page.getByRole('complementary', { name: 'Month, calendars and checks' });
+  await expect(rail.getByRole('button', { name: 'Tyre audit' })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Calendar at a glance' })).toContainText('1 double booking');
+  await expect(agenda(page).getByRole('button', { name: /Tyre audit.*Double booked/ })).toBeVisible();
+  await rail.getByLabel('Review').uncheck();
+  await expect(agenda(page).getByRole('button', { name: /Tyre audit/ })).toHaveCount(0);
+  await expect(agenda(page).getByRole('button', { name: /Supplier call/ })).toBeVisible();
+});
+
+test('the month view shows the month and opens a day; the small month picks a day', async ({ page }) => {
+  await openCalendar(page);
+  await page.getByRole('button', { name: 'Month', exact: true }).click();
+  await expect(agenda(page).getByRole('button', { name: /Supplier call: Michelin order/ })).toBeVisible();
+  const today = new Date(); today.setHours(12, 0, 0, 0);
+  await agenda(page).getByRole('button', { name: /events?\. Show the day/ }).filter({ hasText: String(today.getDate()) }).first().click();
+  await expect(page.getByRole('button', { name: 'Day', exact: true })).toHaveAttribute('aria-pressed', 'true');
+  await page.getByRole('button', { name: 'Next day' }).click();
+  await page.getByRole('button', { name: 'Today', exact: true }).click();
+  await expect(agenda(page).getByRole('button', { name: /Supplier call/ })).toBeVisible();
+  expect(await noHorizontalOverflow(page)).toBe(true);
+});

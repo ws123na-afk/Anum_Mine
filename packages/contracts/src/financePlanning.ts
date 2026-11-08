@@ -101,3 +101,27 @@ export interface FinanceBudgetReport {
 }
 
 export interface FinanceBudgetAlert { category: FinanceCategory; currency: string; alert_percent: number; alert_near: boolean; alert_over: boolean }
+
+/** A full provider installment statement row. This is SOURCE-REPORTED status, never a bank payment. */
+export interface FinanceInstallmentStatementEntry {
+  provider: string;
+  order_id: string;
+  merchant: string;
+  purchase_on: string | null;
+  due_on: string;
+  installment: number;
+  total_installments: number;
+  amount: string;
+  currency: string;
+  source_status: 'paid' | 'scheduled' | 'review';
+  source_email: string | null;
+  review_notes: string | null;
+}
+export interface FinanceInstallmentStatementView { items: FinanceInstallmentStatementEntry[]; total: number }
+export interface FinanceInstallmentStatementSyncResult {
+  created: number;
+  updated: number;
+  unchanged: number;
+  conflicts: string[];
+  total: number;
+}

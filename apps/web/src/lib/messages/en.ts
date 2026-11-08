@@ -68,6 +68,7 @@ import { lifecycleEn } from './lifecycle.en.ts';
 import { recordRetentionEn } from './recordRetention.en.ts';
 import { attendanceEn } from './attendance.en.ts';
 import { vehiclesEn } from './vehicles.en.ts';
+import { opsEn } from './ops.en.ts';
 import { purchasesEn } from './purchases.en.ts';
 import { businessBooksEn } from './businessBooks.en.ts';
 import { iphoneEn } from './iphone.en.ts';
@@ -99,12 +100,14 @@ import { mailOpsEn } from './mailOps.en.ts';
 import { mailDomainsEn } from './mailDomains.en.ts';
 import { mailEn } from './mail.en.ts';
 import { callsEn } from './calls.en.ts';
+import { commsEn } from './comms.en.ts';
 import { executiveEn } from './executive.en.ts';
 import { paBriefingEn } from './paBriefing.en.ts';
 import { chatEn } from './chat.en.ts';
 import { setupEn } from './setup.en.ts';
 import { pagesEn } from './pages.en.ts';
 import { calendarEn } from './calendar.en.ts';
+import { tasksPageEn } from './tasksPage.en.ts';
 import { pages2En } from './pages2.en.ts';
 
 export const en = {
@@ -148,6 +151,7 @@ export const en = {
   ...recordRetentionEn,
   ...attendanceEn,
   ...vehiclesEn,
+  ...opsEn,
   ...purchasesEn,
   ...businessBooksEn,
   ...iphoneEn,
@@ -173,12 +177,14 @@ export const en = {
   ...mailDomainsEn,
   ...mailEn,
   ...callsEn,
+  ...commsEn,
   ...executiveEn,
   ...paBriefingEn,
   ...chatEn,
   ...setupEn,
   ...pagesEn,
   ...calendarEn,
+  ...tasksPageEn,
   ...pages2En,
   // ---- Common ----
   'common.listAnd': '{head} and {last}',

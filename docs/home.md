@@ -87,13 +87,13 @@ Differences from the mockups: the numbers and names are the workspace's own; the
 
 ## The web home
 
-On the web (`apps/web`) Home and ANUM Command are two pages with two jobs. **Home** (`#home`, the landing page) is the owner's overview: what needs them today. **ANUM Command** (`#command`) is where orders are given ([command.md](command.md#the-web-command-center)). Home has no composer, plan or saved commands; its "Give ANUM an order" button and an insight's command action open ANUM Command, which plans the request (read-only) and runs nothing until the person presses Start.
+On the web (`apps/web`) Home and ANUM Command are two pages with two jobs. **Home** (`#home`, the landing page) has the page head **Operations overview** and two tabs: **Overview** (`#home`, the business at a glance, [below](#operations-overview)) and **My day** (`#home-day`, what needs the person today, the parts in the table below; Arrange Home applies to it). **ANUM Command** (`#command`) is where orders are given ([command.md](command.md#the-web-command-center)). Home has no composer, plan or saved commands; its "Give ANUM an order" button and an insight's command action open ANUM Command, which plans the request (read-only) and runs nothing until the person presses Start.
 
 Code: `src/HomeView.tsx` and `src/home.css` for the page, `src/lib/home.ts` for the pure rules (unit tested in `test/home.test.ts`), `src/lib/homeApi.ts` for every API call. The panel states (loading, empty with a next action, error with Retry, permission denied, "Show more") are the shared `src/Panels.tsx`, also used by ANUM Command.
 
 | Part | What it shows | Backed by |
 |---|---|---|
-| Greeting | Good morning/afternoon/evening with the Home name (`profile.display_name`, else the sign-in name), today's date, Refresh, "Give ANUM an order" | `GET /home/summary` |
+| Greeting | Good morning/afternoon/evening with the Home name (`profile.display_name`, else the sign-in name) and today's date, under the page head with Refresh and "Give ANUM an order" | `GET /home/summary` |
 | Today at a glance | Approvals waiting; tasks running, failed, waiting and not started; unread email and the number of mailboxes; unread WhatsApp messages and chats (the first 50 unread chats, "50+" beyond); today's meetings and the next one; automation alerts (live alerts for this user plus runs failed in the last 24 hours); AI budget use this month (the workspace or organisation budget closest to its limit, cost and tokens). Each card opens its area | Shell tasks and approvals, `GET /email/accounts`, `GET /whatsapp/conversations?filter=unread`, `GET /calendar/events` (local day), automation events and `counts.automations`, `GET /model-budgets` |
 | Waiting for your decision | Pending approvals, three at a time, with the exact tool, risk, the payload hash, **Approve** and **Deny**. They go through the shell's approval flow (`POST /approvals/{id}/approve` with `{"payload_hash"}`), so the two-person rule and approval chains apply; a refusal is shown on the card | `GET /approvals` |
 | Today's focus | `focus[]` with severity and progress, five at a time; a part that failed is named with Retry | `GET /home/summary` |
@@ -107,3 +107,24 @@ Code: `src/HomeView.tsx` and `src/home.css` for the page, `src/lib/home.ts` for 
 Permissions are the API's: a part the role cannot read says so (for example "Only workspace owners see budget use", the calendar for viewers), and the rest of Home still loads. Workspace events refresh the summary and insights quietly.
 
 Tests: `e2e/home.spec.ts` (the overview with workspace data, Home is not the command page, approving sends the payload hash, an insight hands its request to ANUM Command, pins, a failing part and a viewer, the palette, notifications and the sidebar, axe and no horizontal overflow at 1440x900, 1366x768, 1024x768, 768x1024 and 390x844 in English and Arabic, dark and light). Mocks: `e2e/support/homeApi.ts`.
+
+### Operations overview
+
+The Overview tab (`src/HomeOperations.tsx`, figures in `src/lib/ops.ts`, unit tested in `test/ops.test.ts`; shared charts in `src/OpsParts.tsx`) reads each module's own API, so a module that is off or refused shows its own state and the rest of the page still loads. A month picker in the page head chooses the month (never past the current one). Every amount stays in its own currency.
+
+| Part | What it shows | Backed by |
+|---|---|---|
+| Figures | Revenue, expenses and net profit for the month with the change against the month before (from the books' trend); the fleet (active vehicles, items due soon); kilometres driven this month against the month before; pending actions (everything the Attention center counts) | `GET /business/books/report`, `GET /vehicles/overview` |
+| Income vs. expenses | Six months of revenue and costs as two lines, the month's figures labelled, a table view | books report `trend` |
+| Spend by category | The month's cost lines largest first with their share; above five, the rest is one "Other" | books report `pnl` |
+| Attention center | Most urgent first: approvals waiting, vehicle renewals and services due (with days left), expired documents and documents to review, late deliveries, open returns and refunds owed, purchases to review, overdue bills and allocations waiting for review. Each opens its page | shell approvals, vehicles `due`, `GET /documents/meta`, `GET /purchases/overview`, books report `balances` and `allocations_in_review` |
+| Fleet status | Five vehicles: name, registration, odometer, fuel economy (km per litre, from full-to-full fills this month), the next service or renewal and the status | `GET /vehicles`, `GET /vehicles/overview` (`by_vehicle_usage`) |
+| Recent activity | The My day activity list | `GET /home/summary` |
+| Attendance | The person's week (scheduled days attended, or days worked without a schedule) and today's first arrival and status | `GET /attendance/summary?period=week`, `GET /attendance/today` |
+| Document expiry | The next document to expire, with the counts expiring soon and expired | `GET /documents/meta`, `GET /documents?sort=expiry` |
+| Purchases and delivery | Orders this month, on the way, awaiting delivery, open returns and how many are late | `GET /purchases/overview` |
+
+Not built (no data behind them yet): a workspace location switch, a fleet "no change" comparison of vehicle counts, and a per-order delivery stepper on Home (the Purchases page has each order's timeline).
+
+Tests: `e2e/home-operations.spec.ts` (the overview with every part, a refused module, Arabic, axe), and the `home` and `home-day` gate pages in `e2e/support/gatePages.ts`.
+
