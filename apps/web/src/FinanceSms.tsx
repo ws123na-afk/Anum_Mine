@@ -23,8 +23,8 @@ import './financeSms.css';
 
 const PAGE = 20;
 const CATEGORIES: FinanceCategory[] = [
-  'groceries', 'dining', 'transport', 'fuel', 'utilities', 'telecom', 'housing', 'shopping', 'health', 'education', 'entertainment',
-  'subscriptions', 'travel', 'insurance', 'fees', 'cash', 'transfer', 'income', 'other',
+  'groceries', 'dining', 'food', 'room_rent', 'transport', 'fuel', 'utilities', 'telecom', 'housing', 'shopping', 'health', 'education', 'entertainment',
+  'subscriptions', 'travel', 'insurance', 'fees', 'cash', 'transfer', 'income', 'cashback', 'refunds', 'other',
 ];
 const when = (value: string | null | undefined) => (value ? formatDateTime(value) : '-');
 

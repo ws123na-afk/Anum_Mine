@@ -95,9 +95,10 @@ test('transactions and ledger: period, search, server filters and paging; the dr
   await expect(drawer.getByText('Original SMS (masked)')).toBeVisible();
   await expect(drawer).toContainText('***1234');
   await drawer.getByLabel('Choose category').selectOption('entertainment');
-  await drawer.getByRole('button', { name: 'Save category' }).click();
-  await expect(drawer.getByText('Saved as Entertainment.')).toBeVisible();
-  expect(sent.some((r) => r.method === 'PATCH' && (r.body as { category?: string }).category === 'entertainment')).toBe(true);
+  // SMS-derived transactions use the audited SMS Review path, not direct PATCH.
+  await expect(drawer.getByRole('button', { name: 'Save category' })).toBeDisabled();
+  await expect(drawer.getByText(/Make its category correction under Finance/)).toBeVisible();
+  expect(sent.some((r) => r.method === 'PATCH' && (r.body as { category?: string }).category === 'entertainment')).toBe(false);
   await drawer.getByRole('button', { name: 'Close details' }).click();
 
   await page.getByRole('searchbox', { name: 'Search merchant or reference' }).fill('');
