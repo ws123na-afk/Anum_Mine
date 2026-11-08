@@ -18,10 +18,13 @@ from .models import Category, CategoryRule, CategorySource
 
 # (category, keywords). Earlier entries win, so the specific ones come first.
 BUILT_IN: tuple[tuple[Category, tuple[str, ...]], ...] = (
+    (Category.CASHBACK, ("cashback", "cash back", "cash-back", "cashback earned", "cashback credit", "cash back reward", "مكافأة نقدية", "استرداد نقدي")),
+    (Category.REFUNDS, ("refund", "refunded", "merchant credit", "purchase reversal", "reversal of purchase", "رد المبلغ", "استرجاع")),
+    (Category.FEES, ("foreign transaction fee", "international transaction fee", "cross border fee", "currency conversion charge", "fx markup", "fx fee", "atm fee", "annual fee", "monthly fee", "late fee", "finance charge", "interest", "vat charge", "ضريبة رسوم")),
     (Category.TRANSFER, ("transfer", "trf", "own account", "ipp", "aani", "remittance", "تحويل")),
     (Category.FEES, ("fee", "fees", "charges", "commission", "interest charge", "late payment", "vat on", "رسوم")),
     (Category.CASH, ("atm", "cash withdrawal", "cash wdl", "سحب نقدي")),
-    (Category.INCOME, ("salary", "payroll", "wps", "dividend", "refund", "cashback", "راتب")),
+    (Category.INCOME, ("salary", "payroll", "wps", "dividend", "راتب")),
     (Category.FUEL, ("enoc", "adnoc", "eppco", "emarat", "petrol", "fuel")),
     (Category.TRANSPORT, ("careem", "uber", "salik", "rta", "nol", "parking", "mawaqif", "taxi", "metro")),
     (Category.GROCERIES, ("carrefour", "lulu", "spinneys", "choithrams", "waitrose", "union coop", "grandiose",
@@ -60,7 +63,7 @@ def categorize(description: str, amount: Decimal, rules: list[CategoryRule] | No
     for category, pattern in _COMPILED:
         if pattern.search(text):
             # "refund" or "cashback" on money out is a fee reversal at most: keep it other.
-            if category == Category.INCOME and amount < 0:
+            if category in {Category.INCOME, Category.CASHBACK, Category.REFUNDS} and amount < 0:
                 continue
             return category, CategorySource.RULE
     if amount > 0:
@@ -69,4 +72,4 @@ def categorize(description: str, amount: Decimal, rules: list[CategoryRule] | No
 
 
 # Categories that are not spending: excluded from "spend by category" and "spend".
-NOT_SPEND = frozenset({Category.TRANSFER, Category.INCOME})
+NOT_SPEND = frozenset({Category.TRANSFER, Category.INCOME, Category.CASHBACK, Category.REFUNDS})
