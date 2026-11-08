@@ -269,7 +269,7 @@ export function Import({ accounts, onChanged, onAddAccount, onDone }: { accounts
   const [pdf, setPdf] = useState<File | null>(null), [pdfOpen, setPdfOpen] = useState(false), [inputKey, setInputKey] = useState(0);
   const [templatesRefresh, setTemplatesRefresh] = useState(0);
   const [preset, setPreset] = useState(''), [dateFormat, setDateFormat] = useState('');
-  const [mapping, setMapping] = useState<{ date: string; description: string; amount: string; debit: string; credit: string; currency: string; original_amount: string; original_currency: string; billed_amount: string; billed_currency: string; fx_rate: string; fee: string } | null>(null);
+  const [mapping, setMapping] = useState<{ date: string; description: string; amount: string; debit: string; credit: string; direction: string; currency: string; original_amount: string; original_currency: string; billed_amount: string; billed_currency: string; fx_rate: string; fee: string } | null>(null);
   const [preview, setPreview] = useState<FinanceImportPreview | null>(null);
   const [error, setError] = useState<string | null>(null), [notice, setNotice] = useState<string | null>(null), [busy, setBusy] = useState(false);
   const [history, setHistory] = useState<Load<FinancePage<FinanceImport>>>({ kind: 'loading' });
@@ -284,7 +284,7 @@ export function Import({ accounts, onChanged, onAddAccount, onDone }: { accounts
   const selected = accounts.find((a) => a.id === accountId) ?? null;
   const body = () => ({
     account_id: accountId, filename: file?.name ?? 'statement.csv', content: file?.content ?? '', preset: preset || null, date_format: dateFormat || null,
-    mapping: mapping ? { date: mapping.date, description: mapping.description, amount: mapping.amount || null, debit: mapping.debit || null, credit: mapping.credit || null,
+    mapping: mapping ? { date: mapping.date, description: mapping.description, amount: mapping.amount || null, debit: mapping.debit || null, credit: mapping.credit || null, direction: mapping.direction || null,
       currency: mapping.currency || null, original_amount: mapping.original_amount || null, original_currency: mapping.original_currency || null,
       billed_amount: mapping.billed_amount || null, billed_currency: mapping.billed_currency || null, fx_rate: mapping.fx_rate || null, fee: mapping.fee || null } : null,
   });
@@ -302,7 +302,7 @@ export function Import({ accounts, onChanged, onAddAccount, onDone }: { accounts
     if (pdf) { setError(null); setNotice(null); setPdfOpen(true); return; }
     if (!file) { setError(t('finance.import.error.noFile')); return; }
     setBusy(true); setError(null); setNotice(null);
-    try { const result = await api.previewImport(body()); setPreview(result); setMapping({ date: result.mapping.date, description: result.mapping.description, amount: result.mapping.amount ?? '', debit: result.mapping.debit ?? '', credit: result.mapping.credit ?? '',
+    try { const result = await api.previewImport(body()); setPreview(result); setMapping({ date: result.mapping.date, description: result.mapping.description, amount: result.mapping.amount ?? '', debit: result.mapping.debit ?? '', credit: result.mapping.credit ?? '', direction: result.mapping.direction ?? '',
         currency: result.mapping.currency ?? '', original_amount: result.mapping.original_amount ?? '', original_currency: result.mapping.original_currency ?? '',
         billed_amount: result.mapping.billed_amount ?? '', billed_currency: result.mapping.billed_currency ?? '', fx_rate: result.mapping.fx_rate ?? '', fee: result.mapping.fee ?? '' }); }
     catch (e) { setPreview(null); setError(describeError(e)); } finally { setBusy(false); }
@@ -365,6 +365,7 @@ export function Import({ accounts, onChanged, onAddAccount, onDone }: { accounts
           {columnSelect('amount', t('finance.import.amountColumn'), true)}
           {columnSelect('debit', t('finance.import.debitColumn'), true)}
           {columnSelect('credit', t('finance.import.creditColumn'), true)}
+          {columnSelect('direction', t('finance.import.directionColumn'), true)}
           {columnSelect('currency', t('finance.import.fxCurrency'), true)}
           {columnSelect('original_amount', t('finance.import.fxOriginal'), true)}
           {columnSelect('original_currency', t('finance.import.fxOriginalCurrency'), true)}
