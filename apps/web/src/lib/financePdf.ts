@@ -25,6 +25,8 @@ export interface ReviewRow {
   posted_on: string;
   description: string;
   amount: string;
+  billed_amount: string | null;
+  billed_currency: string | null;
   balance: string | null;
   reference: string | null;
   currency: string | null;
@@ -47,7 +49,7 @@ export function reviewRows(view: Pick<FinancePdfStatement, 'rows'>): ReviewRow[]
     key: `${row.page}:${row.line}`, line: row.line, page: row.page,
     // A row in another currency than the account's cannot be imported into it: left out until the owner decides.
     include: !row.flags.includes('foreign_currency'), posted_on: row.posted_on ?? '', description: row.description,
-    amount: row.amount ?? '', balance: row.balance, reference: row.reference, currency: row.currency, time: row.time, kind: row.kind,
+    amount: row.amount ?? '', billed_amount: null, billed_currency: null, balance: row.balance, reference: row.reference, currency: row.currency, time: row.time, kind: row.kind,
     counterparty: row.counterparty, parent_line: row.parent_line, original_amount: row.original_amount, original_currency: row.original_currency,
     fx_rate: row.fx_rate, fee: row.fee, vat: row.vat, confidence: row.confidence, duplicate: row.duplicate, flags: row.flags,
   }));
@@ -79,7 +81,9 @@ export function fromMinor(units: bigint, currency: string): string {
 export function rowProblem(row: ReviewRow, currency: string): string | null {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(row.posted_on)) return t('fpdf.problem.date');
   if (!row.description.trim()) return t('fpdf.problem.description');
-  const units = toMinor(row.amount, currency);
+  if (row.currency && row.currency !== currency && (!row.billed_amount || row.billed_currency !== currency))
+    return `Enter the bank-billed ${currency} amount for this ${row.currency} transaction.`;
+  const units = toMinor(row.currency && row.currency !== currency ? row.billed_amount : row.billed_amount || row.amount, currency);
   if (units === null) return t('fpdf.problem.amount');
   if (units === 0n) return t('fpdf.problem.zero');
   return null;
@@ -98,7 +102,7 @@ export interface LiveCheck {
 /** Opening plus the included rows against the closing balance, as the API checks it. */
 export function liveCheck(rows: readonly ReviewRow[], opening: string, closing: string, currency: string): LiveCheck {
   const included = rows.filter((row) => row.include);
-  const amounts = included.map((row) => toMinor(row.amount, currency));
+  const amounts = included.map((row) => toMinor(row.billed_amount || row.amount, currency));
   const total = amounts.reduce<bigint>((sum, value) => sum + (value ?? 0n), 0n);
   const open = opening.trim() ? toMinor(opening, currency) : null;
   const close = closing.trim() ? toMinor(closing, currency) : null;
@@ -132,6 +136,11 @@ export function importBody(view: FinancePdfStatement, accountId: string, rows: r
     rows: rows.filter((row) => row.include).map((row) => ({
       posted_on: row.posted_on, description: row.description.trim(), amount: wire(row.amount) ?? row.amount,
       balance: row.balance, reference: row.reference, currency: row.currency, time: row.time,
+      original_amount: row.original_amount || (row.currency && row.currency !== currency ? row.amount : null),
+      original_currency: row.original_currency || (row.currency && row.currency !== currency ? row.currency : null),
+      billed_amount: row.billed_amount ? (wire(row.billed_amount) ?? row.billed_amount) : null,
+      billed_currency: row.billed_amount ? currency : null,
+      fx_rate: row.fx_rate, fee: row.fee, vat: row.vat,
     })),
     opening_balance: opening.trim() ? wire(opening) : null, closing_balance: closing.trim() ? wire(closing) : null, accept_mismatch: acceptMismatch,
     layout,
@@ -168,7 +177,7 @@ export type SummaryLine = FinancePdfCheck['summary'][number];
 
 /** The statement's own counts and totals against the included rows, as the owner edits them. */
 export function liveSummary(stated: readonly SummaryLine[], rows: readonly ReviewRow[], opening: string, currency: string): SummaryLine[] {
-  const amounts = rows.filter((row) => row.include).map((row) => toMinor(row.amount, currency)).filter((v): v is bigint => v !== null);
+  const amounts = rows.filter((row) => row.include).map((row) => toMinor(row.billed_amount || row.amount, currency)).filter((v): v is bigint => v !== null);
   const credits = amounts.filter((v) => v > 0n), debits = amounts.filter((v) => v < 0n);
   const sum = (values: bigint[]) => values.reduce((a, b) => a + b, 0n);
   return stated.map((item) => {
