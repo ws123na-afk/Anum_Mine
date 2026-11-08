@@ -30,7 +30,7 @@ import { FinCard, FinancePageHead, KpiCard, KpiRow, PeriodPicker, ScopeSwitch, S
 import './financeGuardian.css';
 
 const CATEGORIES: FinanceCategory[] = [
-  'groceries', 'dining', 'transport', 'fuel', 'utilities', 'telecom', 'housing', 'shopping', 'health', 'education', 'entertainment',
+  'groceries', 'dining', 'food', 'room_rent', 'transport', 'fuel', 'utilities', 'telecom', 'housing', 'shopping', 'health', 'education', 'entertainment',
   'subscriptions', 'travel', 'insurance', 'fees', 'cash', 'other',
 ];
 const KIND_ICON: Record<FinanceGuardianRuleKind, ReactNode> = {

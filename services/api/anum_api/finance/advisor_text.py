@@ -26,6 +26,7 @@ CATEGORY_EN = {
     Category.HOUSING: "housing", Category.SHOPPING: "shopping", Category.HEALTH: "health", Category.EDUCATION: "education",
     Category.ENTERTAINMENT: "entertainment", Category.SUBSCRIPTIONS: "subscriptions", Category.TRAVEL: "travel",
     Category.INSURANCE: "insurance", Category.FEES: "fees", Category.CASH: "cash", Category.OTHER: "other",
+    Category.CASHBACK: "cashback", Category.REFUNDS: "refunds", Category.FOOD: "food", Category.ROOM_RENT: "room rent",
 }
 CATEGORY_AR = {
     Category.INCOME: "الدخل", Category.TRANSFER: "التحويلات", Category.GROCERIES: "البقالة", Category.DINING: "المطاعم",
@@ -33,6 +34,7 @@ CATEGORY_AR = {
     Category.HOUSING: "السكن", Category.SHOPPING: "التسوق", Category.HEALTH: "الصحة", Category.EDUCATION: "التعليم",
     Category.ENTERTAINMENT: "الترفيه", Category.SUBSCRIPTIONS: "الاشتراكات", Category.TRAVEL: "السفر",
     Category.INSURANCE: "التأمين", Category.FEES: "الرسوم", Category.CASH: "النقد", Category.OTHER: "أخرى",
+    Category.CASHBACK: "الاسترداد النقدي", Category.REFUNDS: "المبالغ المستردة", Category.FOOD: "الطعام", Category.ROOM_RENT: "إيجار الغرفة",
 }
 
 # code: (English, Arabic). Placeholders are filled from already formatted strings.
