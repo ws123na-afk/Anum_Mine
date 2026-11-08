@@ -4,7 +4,7 @@ import { afterEach, describe, test } from 'node:test';
 import type { FinancePdfStatement } from '@anum/contracts';
 import { checkFile } from '../src/lib/finance.ts';
 import {
-  PDF_MAX_BYTES, checkRoles, filterRows, flagLabel, foreignDetail, fromMinor, importBody, isPdf, liveCheck, liveSummary, pdfErrorCode, reviewRows, roleLabel,
+  PDF_MAX_BYTES, checkRoles, directionHint, filterRows, flagLabel, foreignDetail, fromMinor, importBody, isPdf, liveCheck, liveSummary, pdfErrorCode, reviewRows, roleLabel,
   rowProblem, toMinor,
 } from '../src/lib/financePdf.ts';
 import { placeholdersOf, setLocale } from '../src/lib/i18n.ts';
@@ -82,7 +82,7 @@ describe('PDF statement review', () => {
     const rows = reviewRows(view()).map((row) => (row.line === 2 ? { ...row, amount: '-1,120.5' } : row.line === 3 ? { ...row, include: false } : row));
     const body = importBody(view(), 'fin_acct_current', rows, '2,000', '13579.50', true);
     assert.equal(body.rows.length, 2);
-    assert.deepEqual(body.rows[1], { posted_on: '2026-11-02', description: 'POS PANDA', amount: '-1120.50', balance: '13879.50', reference: null, currency: null, time: null });
+    assert.deepEqual(body.rows[1], { posted_on: '2026-11-02', description: 'POS PANDA', amount: '-1120.50', balance: '13879.50', reference: null, currency: null, time: null, original_amount: null, original_currency: null, billed_amount: null, billed_currency: null, fx_rate: null, fee: null, vat: null });
     assert.equal(body.opening_balance, '2000.00');
     assert.equal(body.accept_mismatch, true);
     assert.equal(body.file_sha256, 'a'.repeat(64));
@@ -147,4 +147,46 @@ describe('PDF statement review', () => {
     setLocale('ar');
     assert.equal(roleLabel('credit'), 'دائن (مال داخل)');
   });
+});
+
+describe('Foreign bank card PDF review', () => {
+  test('needs bank-billed SAR amount before importing USD purchases, preserving original and fees', () => {
+    const source = { ...view(), currency: 'SAR' as const };
+    const row = { ...reviewRows(source)[1], amount: '-20.00', currency: 'USD', original_amount: '-20.00', original_currency: 'USD',
+      billed_amount: null, billed_currency: null, fee: '1.20', fx_rate: '3.84', flags: ['foreign_currency'], include: true };
+    assert.match(rowProblem(row, 'SAR') ?? '', /bank-billed SAR/);
+    const edited = { ...row, billed_amount: '-76.80', billed_currency: 'SAR' };
+    assert.equal(rowProblem(edited, 'SAR'), null);
+    const request = importBody(source, 'fin_acct_current', [edited], '', '', false);
+    assert.equal(request.rows.length, 1);
+    assert.equal(request.rows[0].currency, 'USD');
+    assert.equal(request.rows[0].billed_amount, '-76.80');
+    assert.equal(request.rows[0].billed_currency, 'SAR');
+    assert.equal(request.rows[0].original_currency, 'USD');
+    assert.equal(request.rows[0].fee, '1.20');
+    assert.equal(liveCheck([edited], '', '', 'SAR').total, '-76.80');
+    assert.match(rowProblem({ ...edited, billed_amount: '76.80' }, 'SAR') ?? '', /both be charges/);
+  });
+});
+
+describe('Payment direction PDF review', () => {
+  test('positive room rent is flagged without automatically changing it', () => {
+    const row = { ...reviewRows(view())[1], description: 'ROOM RENT PAYMENT', amount: '2600.00' };
+    assert.match(directionHint(row) ?? '', /incoming/);
+    assert.equal(directionHint({ ...row, amount: '-2600.00' }), null);
+    assert.equal(directionHint({ ...row, description: 'SALARY NOVEMBER' }), null);
+  });
+});
+
+test('PDF foreign amount retains its own currency precision', () => {
+  const source = view();
+  const row = {
+    ...reviewRows(source)[1], amount: '-2.345', currency: 'KWD',
+    original_amount: '-2.345', original_currency: 'KWD',
+    billed_amount: '-29.32', billed_currency: 'AED', include: true,
+  };
+  const request = importBody(source, 'fin_acct_current', [row], '', '', false);
+  assert.equal(request.rows[0].amount, '-2.345');
+  assert.equal(request.rows[0].original_amount, '-2.345');
+  assert.equal(request.rows[0].billed_amount, '-29.32');
 });

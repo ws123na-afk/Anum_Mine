@@ -115,6 +115,7 @@ export function FinanceOverviewPage({ summary, accounts, month, onMonth, onOpen,
       tone={key === 'net' && value.startsWith('-') ? 'bad' : ''} hint={t('fov.kpi.businessHint', { month: monthLabel(shownMonth) })} />;
   };
   const income = amountOf(s.income, cur), spent = amountOf(s.spend, cur), net = amountOf(s.net, cur);
+  const cashback = amountOf(s.cashback ?? [], cur), refunds = amountOf(s.refunds ?? [], cur);
   const dIncome = previous ? delta(income, amountOf(previous.income, cur)) : null;
   const dSpent = previous ? delta(spent, amountOf(previous.spend, cur), false) : null;
   const dNet = previous ? delta(net, amountOf(previous.net, cur)) : null;
@@ -122,7 +123,9 @@ export function FinanceOverviewPage({ summary, accounts, month, onMonth, onOpen,
   const kpis = shownScope === 'personal' ? [worthCard,
     <KpiCard key="in" icon={<TrendingUp />} label={t('finance.figure.income')} value={<bdi>{formatAmount(income, cur)}</bdi>} delta={dIncome} deltaText={words(dIncome)} />,
     <KpiCard key="out" icon={<Wallet />} label={t('finance.figure.spent')} value={<bdi>{formatAmount(spent, cur)}</bdi>} delta={dSpent} deltaText={words(dSpent)} />,
-    <KpiCard key="net" icon={<Layers />} label={t('fov.kpi.personalNet')} value={<bdi>{formatAmount(net, cur)}</bdi>} delta={dNet} deltaText={words(dNet)} tone={net.startsWith('-') ? 'bad' : ''} />]
+    <KpiCard key="net" icon={<Layers />} label={t('fov.kpi.personalNet')} value={<bdi>{formatAmount(net, cur)}</bdi>} delta={dNet} deltaText={words(dNet)} tone={net.startsWith('-') ? 'bad' : ''} />,
+    <KpiCard key="cashback" icon={<PiggyBank />} label={t('finance.category.cashback')} value={<bdi>{formatAmount(cashback, cur)}</bdi>} hint="Card rewards, not salary" />,
+    <KpiCard key="refunds" icon={<Wallet />} label={t('finance.category.refunds')} value={<bdi>{formatAmount(refunds, cur)}</bdi>} hint="Returned purchases, not earned income" />]
     : shownScope === 'business' ? [bizCard('income', <Briefcase />), bizCard('expenses', <Layers />), bizCard('net', <TrendingUp />),
       <KpiCard key="cash" icon={<Landmark />} label={t('books.dash.cash')} value={b ? <bdi>{formatAmount(amountOf(b.current.cash_flow.net, b.current.base_currency), b.current.base_currency)}</bdi> : '-'}
         hint={b ? t('books.fig.cashHint') : businessUnavailable} />]

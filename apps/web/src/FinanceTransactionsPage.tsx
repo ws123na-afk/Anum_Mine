@@ -31,7 +31,7 @@ const LedgerPanel = lazy(() => import('./FinanceSms').then((m) => ({ default: m.
 const PAGE = 25;
 export type TxTab = 'transactions' | 'ledger' | 'sms' | 'imports';
 const CATEGORIES: FinanceCategory[] = [
-  'groceries', 'dining', 'transport', 'fuel', 'utilities', 'telecom', 'housing', 'shopping', 'health', 'education', 'entertainment',
+  'groceries', 'dining', 'food', 'room_rent', 'transport', 'fuel', 'utilities', 'telecom', 'housing', 'shopping', 'health', 'education', 'entertainment',
   'subscriptions', 'travel', 'insurance', 'fees', 'cash', 'transfer', 'income', 'other',
 ];
 
@@ -260,13 +260,18 @@ function TransactionDrawer({ id, onClose, onOpen, onChanged, inModal }: {
 }) {
   const [state, setState] = useState<Load<FinanceRegisterDetail>>({ kind: 'loading' });
   const [category, setCategory] = useState<FinanceCategory | ''>('');
-  const [busy, setBusy] = useState<'' | 'category' | 'receipt' | 'delete'>('');
+  const [learn, setLearn] = useState(false);
+  const [learnPhrase, setLearnPhrase] = useState('');
+  const [reversePending, setReversePending] = useState(false);
+  const [busy, setBusy] = useState<'' | 'category' | 'receipt' | 'delete' | 'direction'>('');
   const [notice, setNotice] = useState<{ error?: boolean; text: string } | null>(null);
   const [removing, setRemoving] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const headingId = useId(), categoryId = useId();
   const load = useCallback(async () => {
-    try { const value = await getRegisterDetail(id); setState({ kind: 'ready', value }); setCategory(value.row.category_source === 'none' ? value.suggested_category : value.row.category); }
+    try { const value = await getRegisterDetail(id); setState({ kind: 'ready', value }); setCategory(value.row.category_source === 'none' ? value.suggested_category : value.row.category);
+      setLearn(false);
+      setLearnPhrase((value.merchant && value.row.description.toLowerCase().includes(value.merchant.toLowerCase()) ? value.merchant : value.row.description).slice(0, 80)); }
     catch (e) { setState(failed(e)); }
   }, [id]);
   useEffect(() => { void load(); }, [load]);
@@ -274,8 +279,29 @@ function TransactionDrawer({ id, onClose, onOpen, onChanged, inModal }: {
   async function saveCategory(row: FinanceRegisterRow) {
     if (!category) return;
     setBusy('category'); setNotice(null);
-    try { await api.updateTransaction(row.id, { category }); setNotice({ text: t('freg.drawer.categorySaved', { category: categoryLabel(category) }) }); await load(); onChanged(); }
+    try { await api.updateTransaction(row.id, { category, ...(learn ? { remember_category_match: learnPhrase.trim() } : {}) }); setNotice({ text: t('freg.drawer.categorySaved', { category: categoryLabel(category) }) }); await load(); onChanged(); }
     catch (e) { setNotice({ error: true, text: describeError(e) }); } finally { setBusy(''); }
+  }
+  async function correctDirection(row: FinanceRegisterRow) {
+    if (Number(row.amount) <= 0 || !['manual', 'statement'].includes(row.origin)) return;
+    if (!category || ['income', 'cashback', 'refunds', 'transfer'].includes(category)) {
+      setNotice({ error: true, text: 'Choose an appropriate expense category before changing an incoming transaction to money out.' });
+      setReversePending(false);
+      return;
+    }
+    setBusy('direction'); setNotice(null);
+    try {
+      const updated = await api.updateTransaction(row.id, {
+        amount: '-' + row.amount.replace(/^\\+/, ''),
+        category,
+      });
+      setReversePending(false);
+      setNotice({ text: `Corrected to money out: ${updated.amount} ${updated.currency}. Balance and journal updated.` });
+      await load(); onChanged();
+    } catch (e) {
+      setNotice({ error: true, text: describeError(e) });
+      setReversePending(false);
+    } finally { setBusy(''); }
   }
   async function attach(row: FinanceRegisterRow, file: File | undefined) {
     if (!file || !row.canonical_id) return;
@@ -330,6 +356,10 @@ function TransactionDrawer({ id, onClose, onOpen, onChanged, inModal }: {
       action={<button type="button" className="cmLinkButton" onClick={() => onOpen(d.duplicate!.id)}>{t('freg.drawer.viewMatch')}</button>}>
       {t('freg.drawer.duplicateText', { amount: isolate(formatAmount(d.duplicate.amount, d.duplicate.currency)), date: d.duplicate.posted_on, description: d.duplicate.description })}
     </FinBanner>}
+    {Number(row.amount) > 0 && (/room\\s*rent|rent\\s*room|bed\\s*space|accommodation\\s*rent|إيجار\\s*غرفة|ايجار\\s*غرفة/i.test(row.description) || category === 'room_rent') &&
+      <FinBanner tone="warn" icon={<AlertTriangle />} title="Check payment direction">
+        This room-rent entry is incoming. If you paid it, verify the statement debit and correct it to money out. Nothing is changed automatically.
+      </FinBanner>}
     {row.links_need_review > 0 && <FinBanner tone="warn" icon={<AlertTriangle />}>{t('freg.drawer.linksReview', { count: row.links_need_review })}</FinBanner>}
     <div className="fregAttach">
       <div><strong><Paperclip aria-hidden="true" />{t('freg.drawer.receipt')}</strong>
@@ -344,13 +374,28 @@ function TransactionDrawer({ id, onClose, onOpen, onChanged, inModal }: {
         {CATEGORIES.map((c) => <option key={c} value={c}>{c === d.suggested_category ? t('freg.drawer.suggestedOption', { category: categoryLabel(c) }) : categoryLabel(c)}</option>)}
       </select>
     </div>
+    {["sms", "apple_pay"].includes(row.origin) && <p className="muted">This transaction is linked to an SMS or Apple Pay journal entry. Make its category correction under Finance → iPhone SMS → Review to preserve the audit trail.</p>}
+    {["manual", "statement"].includes(row.origin) && <label className="field"><input type="checkbox" checked={learn} onChange={(e) => setLearn(e.target.checked)} />
+      Remember this category for future matching descriptions
+    </label>}
+    {learn && <label className="field"><span>Merchant/description to remember (specific phrase)</span>
+      <input value={learnPhrase} maxLength={80} onChange={(e) => setLearnPhrase(e.target.value)} />
+      <small>Applies to future imports only. Review the phrase so unrelated payments are not affected.</small>
+    </label>}
     {notice && <Notice error={notice.error}>{notice.text}</Notice>}
     <div className="fregDrawerActions">
-      <button type="button" disabled={Boolean(busy) || !category || (category === row.category && row.category_source === 'manual')} onClick={() => void saveCategory(row)}>
+      <button type="button" disabled={Boolean(busy) || !category || !['manual', 'statement'].includes(row.origin) || (category === row.category && row.category_source === 'manual' && !learn)} onClick={() => void saveCategory(row)}>
         <Tags aria-hidden="true" />{busy === 'category' ? t('finance.saving') : t('freg.drawer.saveCategory')}</button>
+      {Number(row.amount) > 0 && ['statement', 'manual'].includes(row.origin) &&
+        <button type="button" className="secondary" disabled={Boolean(busy)} onClick={() => setReversePending(true)}>
+          <AlertTriangle aria-hidden="true" />Correct to money out
+        </button>}
       {d.duplicate && <button type="button" className="secondary danger" disabled={Boolean(busy)} onClick={() => setRemoving(true)}>{t('freg.drawer.deleteCopy')}</button>}
       <button type="button" className="secondary" onClick={onClose}>{t('freg.drawer.done')}</button>
     </div>
+    {reversePending && <ConfirmDialog title="Confirm outgoing payment" confirmLabel="Correct to money out" danger busy={busy === 'direction'} onConfirm={() => void correctDirection(row)} onCancel={() => setReversePending(false)}>
+      <p>Only confirm after checking the bank statement and selecting the correct expense category. This changes {row.currency} {row.amount} from incoming to outgoing, updates the ledger and may change your balance. The original record remains auditable.</p>
+    </ConfirmDialog>}
     {removing && <ConfirmDialog title={t('finance.transactions.deleteTitle')} confirmLabel={t('finance.delete')} danger busy={busy === 'delete'} onConfirm={() => void remove(row)} onCancel={() => setRemoving(false)}>
       <p dir="auto">{t('finance.transactions.deleteText', { description: row.description, amount: isolate(formatAmount(row.amount, row.currency)) })}</p>
     </ConfirmDialog>}

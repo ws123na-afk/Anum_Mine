@@ -496,3 +496,8 @@ export const signingExample = (url: string): string => [
 /** Owners take over another member's schedule or trigger (it then runs as them). */
 export const canTakeOver = (viewer: Viewer, createdBy: string | null): boolean =>
   viewer.role === 'owner' && Boolean(createdBy) && createdBy !== viewer.userId;
+
+/** How many steps send email and how many create tasks: the builder's review card counts them. */
+export function stepCounts(actions: readonly string[]): { email: number; tasks: number } {
+  return { email: actions.filter((a) => a === 'email.send').length, tasks: actions.filter((a) => a === 'task.create').length };
+}

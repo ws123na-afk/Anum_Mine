@@ -251,7 +251,8 @@ def test_summary_is_per_currency_with_spend_income_bills_and_debts() -> None:
         data = build_summary(store, context, None, now=now)
     assert data.month == "2026-10" and data.base_currency == "AED" and data.timezone == "Asia/Dubai"
     assert {a.currency: a.amount for a in data.spend} == {"AED": Decimal("650.50"), "USD": Decimal("80.25")}
-    assert {a.currency: a.amount for a in data.income} == {"AED": Decimal("15000.00"), "USD": Decimal("20.00")}
+    assert {a.currency: a.amount for a in data.income} == {"AED": Decimal("15000.00")}
+    assert {a.currency: a.amount for a in data.refunds} == {"USD": Decimal("20.00")}
     assert {a.currency: a.amount for a in data.balances} == {"AED": Decimal("15349.50"), "USD": Decimal("-60.25")}
     assert data.spend_by_category[0].category == Category.UTILITIES
     assert [b.days_until for b in data.upcoming_bills] == [6]
@@ -418,3 +419,207 @@ def test_full_installment_statement_roundtrip_idempotency_refunds_conflicts_and_
     assert next(r for r in client.get(base, headers=OWNER).json()["items"] if r["installment"] == 2)["amount"] == "602.00"
     duplicate = client.post(base + "/sync", headers=OWNER, json={"entries": [first[0], first[0]]})
     assert duplicate.status_code == 422, duplicate.text
+
+
+def test_import_foreign_usd_purchase_posts_bank_billed_sar_only_and_categories() -> None:
+    """USD is evidence; the actual SAR billed is the card ledger amount, not another debit."""
+    acct = account(currency="SAR")
+    statement = (
+        "Date,Description,Amount,Currency,Original Amount,Original Currency,Billed Amount,Billed Currency,Exchange Rate,Foreign Transaction Fee\n"
+        "2026-11-01,Online overseas purchase,-20.00,USD,20.00,USD,76.80,SAR,3.84,1.20\n"
+        "2026-11-02,CASH BACK REWARD,5.00,SAR,,,,,,\n"
+        "2026-11-03,FX TRANSACTION FEE,-1.20,SAR,,,,,,\n"
+        "2026-11-04,PURCHASE REFUND,10.00,SAR,,,,,,\n"
+    )
+    response = client.post(f"{API}/imports/preview", headers=OWNER,
+                           json={"account_id": acct["id"], "content": statement})
+    assert response.status_code == 200, response.text
+    data = response.json()
+    assert data["valid_count"] == 4, data
+    assert data["error_count"] == 0, data
+    first = data["rows"][0]
+    assert first["amount"] == "-76.80"
+    assert first["currency"] == "SAR"
+    assert first["original_amount"] == "20.00"
+    assert first["original_currency"] == "USD"
+    assert first["reported_fee"] == "1.20"
+    assert "Bank billed: 76.80 SAR" in first["notes"]
+    assert [row["category"] for row in data["rows"]] == ["other", "cashback", "fees", "refunds"]
+    imported = client.post(f"{API}/imports", headers=OWNER,
+                           json={"account_id": acct["id"], "content": statement})
+    assert imported.status_code == 201, imported.text
+    assert imported.json()["imported_count"] == 4
+    items = client.get(f"{API}/transactions", headers=OWNER).json()["items"]
+    assert sum(1 for row in items if row["amount"] == "-76.80") == 1
+    assert any("Original: 20.00 USD" in (row["notes"] or "") for row in items)
+    repeat = client.post(f"{API}/imports", headers=OWNER,
+                         json={"account_id": acct["id"], "content": statement})
+    assert repeat.status_code == 201, repeat.text
+    assert repeat.json()["imported_count"] == 0
+
+
+def test_negative_billed_amount_is_never_imported_as_incoming_money() -> None:
+    header = "Date,Description,Amount,Currency,Billed Amount,Billed Currency\n"
+    # Unsigned original amount, signed billed amount: the billed sign decides, so it stays a debit.
+    debit = csv_import.parse_file(header + "2026-11-01,USD PURCHASE,20.00,USD,-76.80,SAR\n", account_id="a", currency="SAR")
+    assert not debit.errors, debit.errors
+    assert debit.rows[0].amount == Decimal("-76.80")
+    # A credit amount with a debit billed amount contradicts itself: it goes back for review.
+    conflict = csv_import.parse_file(header + "2026-11-01,USD PURCHASE,+20.00,USD,-76.80,SAR\n", account_id="a", currency="SAR")
+    assert not conflict.rows
+    assert "credit" in conflict.errors[0].message
+    # Unsigned billed figures still follow the amount column.
+    credit = csv_import.parse_file(header + "2026-11-01,USD REFUND,20.00,USD,76.80,SAR\n", account_id="a", currency="SAR")
+    assert credit.rows[0].amount == Decimal("76.80")
+
+
+def test_advisor_labels_cover_every_category() -> None:
+    from anum_api.finance.advisor_text import CATEGORY_AR, CATEGORY_EN
+    assert set(CATEGORY_EN) == set(Category)
+    assert set(CATEGORY_AR) == set(Category)
+
+
+def test_missing_billed_amount_does_not_guess_fx_or_post_wrong_account_currency() -> None:
+    raw = ("Date,Description,Amount,Currency\n"
+           "2026-11-01,USD FOREIGN PURCHASE,-20.00,USD\n")
+    parsed = csv_import.parse_file(raw, account_id="a", currency="SAR")
+    assert not parsed.rows
+    assert len(parsed.errors) == 1
+    assert "SAR" in parsed.errors[0].message
+    # Account matching the original currency needs no conversion.
+    own = csv_import.parse_file(raw, account_id="usd_card", currency="USD")
+    assert len(own.rows) == 1 and own.rows[0].amount == Decimal("-20.00")
+
+
+def test_pdf_foreign_currency_import_requires_explicit_billed_amount() -> None:
+    acct = account(currency="SAR")
+    row = {
+        "posted_on": "2026-11-01", "description": "International retailer purchase",
+        "amount": "-20.00", "currency": "USD", "original_amount": "-20.00",
+        "original_currency": "USD", "fx_rate": "3.84", "fee": "1.20"
+    }
+    req = {"account_id": acct["id"], "filename": "bank.pdf", "file_sha256": "a" * 64,
+           "source": "text", "rows": [row]}
+    rejected = client.post(f"{API}/imports/pdf", headers=OWNER, json=req)
+    assert rejected.status_code == 400 or rejected.status_code == 422, rejected.text
+    assert "bank-billed" in rejected.text.lower()
+    accepted = client.post(f"{API}/imports/pdf", headers=OWNER, json={
+        **req, "rows": [{**row, "billed_amount": "-76.80", "billed_currency": "SAR"}]})
+    assert accepted.status_code == 201, accepted.text
+    assert accepted.json()["imported_count"] == 1
+    items = client.get(f"{API}/transactions", headers=OWNER).json()["items"]
+    assert items[0]["amount"] == "-76.80"
+    assert items[0]["currency"] == "SAR"
+    assert "Original: 20.00 USD" in items[0]["notes"]
+
+
+def test_room_rent_and_food_categorization_and_direction_warning() -> None:
+    from anum_api.finance.categories import suspected_direction
+    assert categorize("ROOM RENT TRANSFER RIYADH", Decimal("-2600"))[0] == Category.ROOM_RENT
+    assert categorize("ROOM RENT PAYMENT", Decimal("-2600"))[0] == Category.ROOM_RENT
+    assert categorize("FOOD DELIVERY", Decimal("-36.00"))[0] == Category.FOOD
+    assert categorize("MESS FOOD MONTHLY", Decimal("-360.00"))[0] == Category.FOOD
+    assert categorize("HUNGERSTATION ORDER", Decimal("-55.00"))[0] == Category.DINING
+    assert categorize("PANDA SUPERMARKET", Decimal("-175.00"))[0] == Category.GROCERIES
+    assert suspected_direction("ROOM RENT TRANSFER", Decimal("2600")) is not None
+    assert suspected_direction("ROOM RENT TRANSFER", Decimal("-2600")) is None
+
+
+def test_owner_approved_category_learning_applies_to_future_statement_not_old_transactions() -> None:
+    acct = account(currency="SAR")
+    first = client.post(f"{API}/transactions", headers=OWNER, json={
+        "account_id": acct["id"], "posted_on": "2026-10-20",
+        "description": "QASIM 24 SERVICES October", "amount": "-2600.00",
+    })
+    assert first.status_code == 201, first.text
+    assert first.json()["category"] == "other"  # specific merchant is unknown until the owner teaches it
+    learned = client.patch(f"{API}/transactions/{first.json()['id']}", headers=OWNER, json={
+        "category": "room_rent", "remember_category_match": "QASIM 24 SERVICES",
+    })
+    assert learned.status_code == 200, learned.text
+    assert learned.json()["category_source"] == "manual"
+    settings = client.get(f"{API}/settings", headers=OWNER).json()
+    assert {"match": "qasim 24 services", "category": "room_rent"} in settings["category_rules"]
+    csv = "Date,Description,Amount\n2026-11-20,QASIM 24 SERVICES November,-2600.00\n"
+    preview = client.post(f"{API}/imports/preview", headers=OWNER,
+                          json={"account_id": acct["id"], "content": csv})
+    assert preview.status_code == 200, preview.text
+    assert preview.json()["rows"][0]["category"] == "room_rent"
+    # A generic phrase or a phrase absent from this record cannot be learned.
+    wrong = client.patch(f"{API}/transactions/{first.json()['id']}", headers=OWNER, json={
+        "category": "room_rent", "remember_category_match": "salary",
+    })
+    assert wrong.status_code == 422
+    assert client.get(f"{API}/settings", headers=OWNER).json()["category_rules"] == settings["category_rules"]
+
+
+def test_room_rent_2600_inward_stays_reviewable_until_owner_corrects_and_keeps_audit() -> None:
+    acct = account(currency="SAR")
+    statement = "Date,Description,Amount\n2026-11-01,ROOM RENT PAYMENT,2600.00\n"
+    preview = client.post(f"{API}/imports/preview", headers=OWNER,
+                          json={"account_id": acct["id"], "content": statement})
+    assert preview.status_code == 200, preview.text
+    assert preview.json()["rows"][0]["amount"] == "2600.00"
+    assert "incoming" in preview.json()["rows"][0]["direction_warning"].lower()
+    imported = client.post(f"{API}/imports", headers=OWNER,
+                           json={"account_id": acct["id"], "content": statement})
+    assert imported.status_code == 201, imported.text
+    row = client.get(f"{API}/transactions", headers=OWNER).json()["items"][0]
+    assert row["amount"] == "2600.00"
+    fixed = client.patch(f"{API}/transactions/{row['id']}", headers=OWNER, json={
+        "amount": "-2600.00", "category": "room_rent",
+    })
+    assert fixed.status_code == 200, fixed.text
+    assert fixed.json()["amount"] == "-2600.00"
+    assert fixed.json()["category"] == "room_rent"
+    # Import fingerprint still blocks a second posting of the original source record.
+    again = client.post(f"{API}/imports", headers=OWNER,
+                        json={"account_id": acct["id"], "content": statement})
+    assert again.status_code == 201, again.text
+    assert again.json()["imported_count"] == 0
+
+
+def test_cashback_and_refunds_not_earnings_but_count_in_cashflow() -> None:
+    acct = account(currency="SAR")
+    for day, desc, amount in [
+        ("2026-11-01", "SALARY NOVEMBER", "10000.00"),
+        ("2026-11-02", "CASHBACK REWARD", "20.00"),
+        ("2026-11-03", "MERCHANT REFUND", "100.00"),
+        ("2026-11-04", "ROOM RENT PAYMENT", "-2600.00"),
+    ]:
+        response = client.post(f"{API}/transactions", headers=OWNER, json={
+            "account_id": acct["id"], "posted_on": day, "description": desc, "amount": amount,
+        })
+        assert response.status_code == 201, response.text
+    report = client.get(f"{API}/summary", headers=OWNER, params={"month": "2026-11"})
+    assert report.status_code == 200, report.text
+    data = report.json()
+    assert data["income"] == [{"currency": "SAR", "amount": "10000.00"}]
+    assert data["cashback"] == [{"currency": "SAR", "amount": "20.00"}]
+    assert data["refunds"] == [{"currency": "SAR", "amount": "100.00"}]
+    assert data["spend"] == [{"currency": "SAR", "amount": "2600.00"}]
+    assert data["net"] == [{"currency": "SAR", "amount": "7520.00"}]
+
+
+def test_bank_dr_cr_indicator_fixes_unsigned_room_rent_without_guessing() -> None:
+    acct = account(currency="SAR")
+    data = ("Date,Description,Amount,DR/CR\n"
+            "2026-11-01,ROOM RENT PAYMENT,2600,DR\n"
+            "2026-11-02,EMPLOYER REFUND,125,CR\n")
+    preview = client.post(f"{API}/imports/preview", headers=OWNER,
+                          json={"account_id": acct["id"], "content": data})
+    assert preview.status_code == 200, preview.text
+    assert preview.json()["mapping"]["direction"] == "DR/CR"
+    assert [r["amount"] for r in preview.json()["rows"]] == ["-2600.00", "125.00"]
+    assert preview.json()["rows"][0]["category"] == "room_rent"
+    assert preview.json()["rows"][0]["direction_warning"] is None
+    imported = client.post(f"{API}/imports", headers=OWNER,
+                           json={"account_id": acct["id"], "content": data})
+    assert imported.status_code == 201, imported.text
+    assert imported.json()["imported_count"] == 2
+
+    # Incorrect explicit CR on a negative amount gets held for review.
+    conflict = csv_import.parse_file("Date,Description,Amount,DR/CR\n"
+        "2026-11-01,ROOM RENT,-2600,CR\n", account_id="x", currency="SAR")
+    assert not conflict.rows and len(conflict.errors) == 1
+    assert "conflicts" in conflict.errors[0].message

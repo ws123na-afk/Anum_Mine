@@ -6,8 +6,8 @@
 export type FinanceMoney = string;
 export type FinanceAccountKind = 'bank' | 'card' | 'cash' | 'loan' | 'investment';
 export type FinanceCategory =
-  | 'income' | 'transfer' | 'groceries' | 'dining' | 'transport' | 'fuel' | 'utilities' | 'telecom' | 'housing'
-  | 'shopping' | 'health' | 'education' | 'entertainment' | 'subscriptions' | 'travel' | 'insurance' | 'fees' | 'cash' | 'other';
+  | 'income' | 'cashback' | 'refunds' | 'transfer' | 'groceries' | 'dining' | 'transport' | 'fuel' | 'utilities' | 'telecom' | 'housing'
+  | 'food' | 'room_rent' | 'shopping' | 'health' | 'education' | 'entertainment' | 'subscriptions' | 'travel' | 'insurance' | 'fees' | 'cash' | 'other';
 export type FinanceCategorySource = 'rule' | 'owner_rule' | 'manual' | 'none';
 export type FinanceCadence = 'weekly' | 'monthly' | 'quarterly' | 'yearly' | 'once';
 export type FinanceBillSource = 'manual' | 'detected';
@@ -84,6 +84,7 @@ export interface FinanceTransactionInput {
   description: string;
   category?: FinanceCategory | null;
   notes?: string | null;
+  remember_category_match?: string | null;
 }
 
 export interface FinancePage<T> { items: T[]; total: number; limit: number; offset: number }
@@ -94,6 +95,14 @@ export interface FinanceColumnMapping {
   amount?: string | null;
   debit?: string | null;
   credit?: string | null;
+  direction?: string | null;
+  currency?: string | null;
+  original_amount?: string | null;
+  original_currency?: string | null;
+  billed_amount?: string | null;
+  billed_currency?: string | null;
+  fx_rate?: string | null;
+  fee?: string | null;
 }
 
 export interface FinanceImportInput {
@@ -120,7 +129,7 @@ export interface FinanceImportPreview {
   new_count: number;
   duplicate_count: number;
   error_count: number;
-  rows: { line: number; posted_on: string; amount: FinanceMoney; currency: string; description: string; category: FinanceCategory; duplicate: boolean }[];
+  rows: { line: number; posted_on: string; amount: FinanceMoney; currency: string; description: string; category: FinanceCategory; duplicate: boolean; direction_warning?: string | null; notes?: string | null; original_amount?: FinanceMoney | null; original_currency?: string | null; reported_fee?: FinanceMoney | null }[];
   errors: { line: number; message: string }[];
 }
 
@@ -157,7 +166,7 @@ export interface FinancePdfRow {
   credit: string | null;
   balance: string | null;
   reference: string | null;
-  /** A currency printed on the row; a row in another currency than the account's cannot be imported. */
+  /** Original row currency; foreign charges require an explicit bank-billed amount in the account currency before import. */
   currency: string | null;
   /** Card statements: the amount in the currency spent, its rate, fees and VAT, as printed. */
   original_amount: string | null;
@@ -245,6 +254,13 @@ export interface FinancePdfImportRow {
   balance?: string | null;
   reference?: string | null;
   currency?: string | null;
+  original_amount?: string | null;
+  original_currency?: string | null;
+  billed_amount?: string | null;
+  billed_currency?: string | null;
+  fx_rate?: string | null;
+  fee?: string | null;
+  vat?: string | null;
   time?: string | null;
 }
 
@@ -423,6 +439,10 @@ export interface FinanceSummary {
   balances: FinanceCurrencyAmount[];
   spend_by_category: { category: FinanceCategory; currency: string; amount: FinanceMoney; count: number }[];
   income: FinanceCurrencyAmount[];
+  /** Cash-back rewards, separate from earnings. */
+  cashback?: FinanceCurrencyAmount[];
+  /** Merchant refunds, not salary or new earnings. */
+  refunds?: FinanceCurrencyAmount[];
   spend: FinanceCurrencyAmount[];
   net: FinanceCurrencyAmount[];
   transaction_count: number;

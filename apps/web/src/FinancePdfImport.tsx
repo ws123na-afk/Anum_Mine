@@ -11,7 +11,7 @@ import { describeError } from './lib/errors';
 import { formatAmount, rangeLabel } from './lib/finance';
 import { formatDateTime } from './lib/i18n';
 import {
-  LOW_CONFIDENCE, PDF_PAGE_SIZE, PDF_ROLES, checkRoles, filterRows, flagLabel, foreignDetail, importBody, liveCheck, liveSummary, pdfErrorCode, reviewRows,
+  LOW_CONFIDENCE, PDF_PAGE_SIZE, PDF_ROLES, checkRoles, directionHint, filterRows, flagLabel, foreignDetail, importBody, liveCheck, liveSummary, pdfErrorCode, reviewRows,
   roleLabel, rowProblem, type ReviewRow,
 } from './lib/financePdf';
 import { t } from './lib/i18n';
@@ -231,6 +231,16 @@ export function PdfStatementImport({ file, account, onImported, onCancel }: {
               <small>{t('fpdf.rows.page', { page: row.page })}{row.reference ? ` · ${t('fpdf.rows.reference', { reference: row.reference })}` : ''}</small>
               {(row.kind || row.time) && <small dir="auto">{[row.kind, row.time ? t('fpdf.row.time', { time: row.time }) : null].filter(Boolean).join(' · ')}</small>}
               {row.parent_line && <small>{t('fpdf.row.charge', { line: row.parent_line })}</small>}
+              {row.currency && row.currency !== currency && <label className="field" style={{ marginBlock: 6 }}>
+                <span>Actual amount billed by bank ({currency})</span>
+                <input className="finPdfAmount" dir="ltr" inputMode="decimal"
+                  value={row.billed_amount ?? ''}
+                  placeholder={`Enter posted ${currency} amount, with sign`}
+                  aria-label={`Bank-billed ${currency} for row ${row.line}`}
+                  onChange={(e) => change(row.key, { billed_amount: e.target.value, billed_currency: currency })} />
+                <small>The displayed {row.currency} amount stays as original purchase evidence. Do not guess the SAR conversion.</small>
+              </label>}
+              {directionHint(row) && <small role="alert" className="finPdfFlag">{directionHint(row)}</small>}
               {foreignDetail(row) && <small dir="auto">{foreignDetail(row)}</small>}
               {row.duplicate && <small>{t('fpdf.rows.duplicate')}</small>}
               {row.flags.map((flag) => flagLabel(flag)).filter(Boolean).map((label) => <small key={label} className="finPdfFlag">{label}</small>)}

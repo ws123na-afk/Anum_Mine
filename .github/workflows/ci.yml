@@ -186,7 +186,10 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: 22
-      - run: pnpm install --frozen-lockfile
+      # This report-only job needs the Playwright CLI, not native postinstall binaries.
+      # Skip unrelated onnxruntime downloads, which can fail with transient upstream 504s.
+      - name: Install report merger dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
       - name: Download the shards' blob reports
         if: ${{ !cancelled() }}
         uses: actions/download-artifact@v8
