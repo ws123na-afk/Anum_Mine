@@ -377,7 +377,7 @@ function TransactionDrawer({ id, onClose, onOpen, onChanged, inModal }: {
     {["sms", "apple_pay"].includes(row.origin) && <p className="muted">This transaction is linked to an SMS or Apple Pay journal entry. Make its category correction under Finance → iPhone SMS → Review to preserve the audit trail.</p>}
     {["manual", "statement"].includes(row.origin) && <label className="field"><input type="checkbox" checked={learn} onChange={(e) => setLearn(e.target.checked)} />
       Remember this category for future matching descriptions
-    </label>
+    </label>}
     {learn && <label className="field"><span>Merchant/description to remember (specific phrase)</span>
       <input value={learnPhrase} maxLength={80} onChange={(e) => setLearnPhrase(e.target.value)} />
       <small>Applies to future imports only. Review the phrase so unrelated payments are not affected.</small>
