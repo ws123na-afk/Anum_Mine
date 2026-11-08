@@ -409,6 +409,8 @@ def import_pdf_statement(
                     )
                 if row.billed_amount is not None and row.billed_currency not in (None, currency):
                     raise MoneyError(f"Billed currency {row.billed_currency} does not match {currency}.")
+                if row.billed_amount is not None and row.amount != 0 and (row.billed_amount > 0) != (row.amount > 0):
+                    raise MoneyError("The billed amount must have the same debit or credit direction as the original transaction.")
                 amount = quantize(row.billed_amount if row.billed_amount is not None else row.amount, currency)
                 balance = quantize(row.balance, currency) if row.balance is not None else None
                 if amount == 0:
