@@ -126,5 +126,5 @@ The Overview tab (`src/HomeOperations.tsx`, figures in `src/lib/ops.ts`, unit te
 
 Not built (no data behind them yet): a workspace location switch, a fleet "no change" comparison of vehicle counts, and a per-order delivery stepper on Home (the Purchases page has each order's timeline).
 
-Tests: `e2e/home-operations.spec.ts` (the overview with every part, a refused module, Arabic, axe), and the `home` and `home-day` gate pages in `e2e/support/gatePages.ts`.
+Changing the month drops any reply for a month already left, so a slow older reply never replaces the month on screen. Tests: `e2e/home-operations.spec.ts` (the overview with every part, a refused module, a slow reply for the month before, Arabic, axe), and the `home` and `home-day` gate pages in `e2e/support/gatePages.ts`.
 
