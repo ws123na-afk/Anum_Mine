@@ -663,6 +663,10 @@ class PreviewRow(BaseModel):
     description: str
     category: Category
     duplicate: bool
+    notes: str | None = None
+    original_amount: Decimal | None = None
+    original_currency: str | None = None
+    reported_fee: Decimal | None = None
 
 
 class PreviewError(BaseModel):
@@ -744,6 +748,8 @@ def preview_import(body: ImportInput, context: TenantContext = Depends(tenant_co
             PreviewRow(
                 line=row.line, posted_on=row.posted_on, amount=row.amount, currency=account.currency, description=row.description,
                 category=categorize(row.description, row.amount, rules)[0], duplicate=row.dedupe_hash in existing,
+                notes=row.notes, original_amount=row.original_amount, original_currency=row.original_currency,
+                reported_fee=row.fee,
             )
             for row in parsed.rows[: csv_import.PREVIEW_ROWS]
         ],
@@ -812,7 +818,7 @@ def record_import(
                     id=new_id("fin_txn"), tenant_id=context.tenant_id, workspace_id=context.workspace_id,
                     owner_user_id=context.user_id, account_id=account.id, posted_on=row.posted_on, amount=row.amount,
                     currency=account.currency, description=row.description, category=category, category_source=source,
-                    import_id=record.id, dedupe_hash=row.dedupe_hash, created_at=now, updated_at=now,
+                    notes=row.notes, import_id=record.id, dedupe_hash=row.dedupe_hash, created_at=now, updated_at=now,
                 )
             )
         # A row that reports a payment an SMS, Apple Pay or the person already recorded is attached to that
