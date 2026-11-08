@@ -77,6 +77,14 @@ export function fromMinor(units: bigint, currency: string): string {
   return `${negative ? '-' : ''}${whole}${fraction}`;
 }
 
+/** A warning only. Original bank evidence takes priority over a merchant label. */
+export function directionHint(row: Pick<ReviewRow, 'amount' | 'description'>): string | null {
+  if (!/^[+]?(?:[0-9]|[٠-٩])/.test(row.amount.trim())) return null;
+  if (/(?:room[ -]?rent|rent[ -]?room|room[ -]?rental|bed[ -]?space|accommodation[ -]?rent|إيجار\\s*غرفة|ايجار\\s*غرفة)/i.test(row.description))
+    return 'Room rent is shown as incoming. Check the bank statement and change the sign if you paid it.';
+  return null;
+}
+
 /** What is wrong with a row before it can be imported, or null. */
 export function rowProblem(row: ReviewRow, currency: string): string | null {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(row.posted_on)) return t('fpdf.problem.date');
