@@ -191,6 +191,7 @@ export const financeEn = {
   'finance.import.amountColumn': 'Amount column',
   'finance.import.debitColumn': 'Debit column',
   'finance.import.creditColumn': 'Credit column',
+  'finance.import.directionColumn': 'Bank direction (DR / CR, optional)',
   'finance.import.fxCurrency': 'Original/transaction currency',
   'finance.import.fxOriginal': 'Original amount (USD or other)',
   'finance.import.fxOriginalCurrency': 'Original currency',
