@@ -35,15 +35,22 @@ export const approval = {
 export const totals = (posts: number, engagement: number) => ({ posts, impressions: 3000, reach: 2400, engagement, clicks: 40, likes: 100, comments: 10, shares: 5, views: 0, engagement_rate: 0.05, without_metrics: 0 });
 export const summary = {
   start: now, end: now, totals: totals(3, 150), previous: { ...totals(2, 90), engagement_rate: 0.04 }, platforms: [{ ...totals(2, 120), platform: 'instagram' }, { ...totals(1, 30), platform: 'x' }],
-  campaigns: [{ ...totals(3, 150), campaign_id: null, name: 'No campaign' }],
+  campaigns: [{ ...totals(2, 120), campaign_id: 'mkcamp_winter', name: 'Winter safety' }, { ...totals(1, 30), campaign_id: null, name: 'No campaign' }],
   top_posts: [{ id: 'mkpost_top', platform: 'instagram', account_id: 'acct_ig', excerpt: 'Check your tyre pressure', published_at: now, external_url: 'https://www.instagram.com/p/x/', metrics: { impressions: 2000, reach: 1600, engagement: 120, clicks: 0, likes: 90, comments: 8, shares: 4, saves: 2, views: 0, note: null } }],
   series: Array.from({ length: 7 }, (_, index) => ({ day: `2026-10-0${index + 1}`, posts: index % 2, impressions: 400, engagement: index * 10 })), upcoming: 2, pending_approval: 1, failed: 0, metrics_updated_at: now,
 };
+
+export const campaign = (id: string, name: string, extra: Record<string, unknown> = {}) => ({
+  id, name, objective: 'awareness', product: 'TyrePulse', brief: '', languages: ['en', 'ar'], platforms: ['facebook', 'x'], start_date: '2026-11-01', end_date: '2026-11-30',
+  status: 'active', utm_campaign: 'winter-safety', auto_post: false, auto_post_accounts: [], auto_post_approved_by: null, auto_post_enabled_at: null,
+  created_by: 'user_local', created_at: now, updated_at: now, counts: { draft: 1, published: 2 }, auto_post_approval: null, ...extra,
+});
 
 export async function mockMarketing(page: Page, { role = 'owner', accounts = [account('acct_fb', 'facebook', 'Tyre Shop'), account('acct_x', 'x', 'Tyre Shop X')] }: { role?: string; accounts?: unknown[] } = {}) {
   await mockWorkspaceApi(page);
   const sent: { creates: unknown[]; decisions: unknown[]; moves: unknown[]; connects: unknown[]; deliveries: unknown[] } = { creates: [], decisions: [], moves: [], connects: [], deliveries: [] };
   let posts: Record<string, unknown>[] = [post('mkpost_1')];
+  const campaigns = [campaign('mkcamp_winter', 'Winter safety')];
   await page.route('http://localhost:8000/api/v1/**', async (route) => {
     const request = route.request();
     const url = new URL(request.url());
@@ -54,7 +61,7 @@ export async function mockMarketing(page: Page, { role = 'owner', accounts = [ac
     if (!path.startsWith('/api/v1/marketing/')) return route.fallback();
     if (path === '/api/v1/marketing/setup') return json(setup(role));
     if (path === '/api/v1/marketing/accounts') return json(accounts);
-    if (path === '/api/v1/marketing/campaigns' && method === 'GET') return json([]);
+    if (path === '/api/v1/marketing/campaigns' && method === 'GET') return json(campaigns);
     if (path === '/api/v1/marketing/preferences') return json({ brand_voice: 'Practical', timezone: 'Asia/Riyadh', default_hashtags_en: ['KSA'], default_hashtags_ar: [], updated_by: null, updated_at: null });
     if (path === '/api/v1/marketing/media') return json([{ id: 'file_logo', name: 'logo.png', content_type: 'image/png', kind: 'image', size_bytes: 512, created_at: now }]);
     if (path === '/api/v1/marketing/posts' && method === 'GET') return json(url.searchParams.get('status') === 'failed' ? [] : posts);
