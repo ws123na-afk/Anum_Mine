@@ -94,12 +94,16 @@ test('the switch in Settings saves at once and leads to the chat memories, which
 });
 
 test('a failed save keeps the previous choice and says what to do', async ({ page }) => {
-  await mockApi(page, { failSave: true });
+  const state = await mockApi(page, { failSave: true });
   await page.goto('/#memory');
   await page.getByRole('button', { name: /^Chat memory/ }).click();
   const section = page.getByRole('region', { name: 'Chat memory' });
   const toggle = section.getByRole('checkbox', { name: 'Remember things from my chats' });
-  await toggle.uncheck();
+  await expect(toggle).toBeChecked();
+  // A click, not uncheck(): the switch turns off at once and back on when the save fails, and
+  // uncheck() throws when that revert lands before it reads the state again.
+  await toggle.click();
+  await expect.poll(() => state.puts).toEqual([{ remember_conversations: false }]);
   await expect(section.getByRole('alert')).toContainText('Your choice was not saved. Complete onboarding for this workspace first Try again.');
   await expect(toggle).toBeChecked();
 });

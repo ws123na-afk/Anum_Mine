@@ -206,7 +206,14 @@ const previous = (() => { const d = new Date(now.getFullYear(), now.getMonth() -
 const monthName = (m: string) => new Intl.DateTimeFormat('en', { month: 'long', year: 'numeric', timeZone: 'UTC' }).format(new Date(`${m}-01T00:00:00Z`));
 
 test('reports: a slow answer for a month left behind never replaces the month on screen', async ({ page }) => {
-  const { control, sent } = await mockApi(page);
+  const { control, sent, state } = await mockApi(page);
+  // The fixture spreads its rows over the last 28 days, so each month's income depends on today's
+  // date. One extra row on the 1st keeps this month's income different from last month's on every day.
+  state.transactions.push({ ...state.transactions[1], id: 'fin_txn_bonus', posted_on: `${month}-01`, amount: '1234.56', description: 'BONUS', category: 'income' });
+  const incomeOf = (m: string) => state.transactions.filter((t) => String(t.posted_on).startsWith(m) && Number(t.amount) > 0).reduce((sum, t) => sum + Number(t.amount), 0);
+  const shown = (n: number) => n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const income = shown(incomeOf(month));
+  expect(income).not.toBe(shown(incomeOf(previous)));
   await page.goto('/#finance-reports');
   const kpis = page.getByRole('region', { name: `Figures for ${monthName(month)}` });
   await expect(kpis).toBeVisible({ timeout: 15_000 });
@@ -228,9 +235,9 @@ test('reports: a slow answer for a month left behind never replaces the month on
   await expect(page.getByRole('region', { name: /Business P&L/ })).toContainText(monthName(month));
   await page.getByRole('radio', { name: 'Personal' }).click();
   await leaveAndReturn();
-  await expect(page.getByRole('region', { name: `Figures for ${monthName(month)}` })).toContainText('45,000.00', { timeout: 15_000 });
+  await expect(page.getByRole('region', { name: `Figures for ${monthName(month)}` })).toContainText(income, { timeout: 15_000 });
   await page.waitForTimeout(5000);
-  await expect(page.getByRole('region', { name: `Figures for ${monthName(month)}` })).toContainText('45,000.00');
+  await expect(page.getByRole('region', { name: `Figures for ${monthName(month)}` })).toContainText(income);
   await expect(page.getByRole('region', { name: `Figures for ${monthName(previous)}` })).toHaveCount(0);
 });
 
