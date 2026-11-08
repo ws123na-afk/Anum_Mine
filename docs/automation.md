@@ -226,6 +226,16 @@ A step with `action: "report.generate"` and `input: {"type": "task_summary" | "a
 
 A `task.create` step may name an agent in its input (`agent_id`, see the step table above): the owner opts in per step, in the step's **Run as** field on the web (`AutomationWorkbench.tsx`, the agents the editor can see, paused ones marked). The task runs as the agent: the agent's tools, autonomy, monthly cap ([Agent controls](agent-controls.md)) and loop limits apply, on top of the access, budget and approvals of the person who owns the automation. Saving a workflow refuses (`422`) an agent the editor cannot see (another person's private agent, or one not in the workspace). When the step runs, an agent that was removed, or is paused, fails the step with the reason ("... is paused. Resume it in Agents, then retry the run."), and the agent's step attempt limit lowers the step's `max_attempts`. The step's output carries `agent_id`. The setup plan sets it on its automations when "Run automations as their agent" is on ([Setup plan](setup-plan.md#options-on-the-page)).
 
+### The Automations page
+
+The web page (`AutomationWorkbench.tsx`, `AutomationTriggers.tsx`, `automationPage.css`) uses the shared page layout: a head with Refresh and Create automation, the **Workflows** and **Runs** tabs, a note that drafted emails always wait for approval, and four figures counted by the API (`X-Total-Count` of one-row reads): workflows, active workflows, runs waiting (paused) and failed runs.
+
+- **Workflows**: a searchable, paged table (workflow, next run, last run, status, owner) beside the selected automation's details, steps, schedules, triggers and run history. Below 1280 px the table and the automation take turns, with a way back.
+- **Runs**: every run across the workspace's automations, newest first, with a status filter and paging; the workflow name opens it.
+- **Builder** (create and edit): breadcrumbs, the draft version and Save, a note on what saving changes, the details and the ordered steps, and side cards for the run policy (overlap), the required review (counted from the steps: email steps are approved before sending, task steps follow approvals and the agent's limits, the emergency stop) and the version.
+
+Not built from the design mockup, because the engine has no such feature: a run plan preview, test runs on sample data, branching steps, drag and drop reordering (steps move with Up and Down), per-workflow budgets and maximum concurrency or duration, restoring an older version, and a "runs today" figure (runs have no date filter).
+
 ## Not done yet
 
 - Event triggers on workspace events only: integration signals other than email, WhatsApp and files (for example marketplace orders) arrive through a webhook trigger.

@@ -41,6 +41,10 @@ test('the overview shows net worth, bills, review, spending by category, recent 
   // Without the business books (this mock refuses them) the page reads Personal and the switch says why.
   await expect(page.getByRole('radio', { name: 'Personal', exact: true })).toBeChecked();
   await expect(page.getByRole('radio', { name: /^Business/ })).toBeDisabled();
+  // The scope chosen was All finance; with the books refused the chart reads the person's own six months, never stays loading.
+  const flow = page.getByRole('region', { name: 'Income and outflow' });
+  await expect(flow.getByRole('img', { name: 'Income and outflow' }).or(flow.getByText('No income or spending this month yet.'))).toBeVisible();
+  await expect(flow.getByRole('status')).toHaveCount(0);
   const kpis = page.getByRole('region', { name: 'This month at a glance' });
   await expect(kpis.getByText('Personal net worth')).toBeVisible();
   await expect(kpis.getByText('Spent')).toBeVisible();

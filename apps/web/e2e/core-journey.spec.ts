@@ -81,7 +81,7 @@ test('task history filters by status and search', async ({ page, isMobile }) => 
 
 test('navigation exposes automations and approvals', async ({ page }) => {
   await page.getByRole('button', { name: 'Automations' }).click();
-  await expect(page.getByRole('heading', { name: 'Automations', level: 2, exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Automations', level: 1, exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Approvals' }).click();
   await expect(page.getByRole('heading', { name: 'Queue clear' })).toBeVisible();
 });
