@@ -23,7 +23,7 @@ from itertools import pairwise
 from statistics import median
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from ..schemas import TenantContext
 from .categories import NOT_SPEND
@@ -100,8 +100,8 @@ class FinanceSummary(BaseModel):
     balances: list[CurrencyAmount]
     spend_by_category: list[CategorySpend]
     income: list[CurrencyAmount]
-    cashback: list[CurrencyAmount] = []
-    refunds: list[CurrencyAmount] = []
+    cashback: list[CurrencyAmount] = Field(default_factory=list)
+    refunds: list[CurrencyAmount] = Field(default_factory=list)
     spend: list[CurrencyAmount]
     net: list[CurrencyAmount]
     transaction_count: int
