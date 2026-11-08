@@ -192,6 +192,7 @@ export const financeAr: Record<keyof typeof financeEn, Message> = {
   'finance.import.amountColumn': 'عمود المبلغ',
   'finance.import.debitColumn': 'عمود المدين',
   'finance.import.creditColumn': 'عمود الدائن',
+  'finance.import.directionColumn': 'اتجاه العملية من البنك (مدين / دائن DR/CR)',
   'finance.import.fxCurrency': 'عملة العملية الأصلية',
   'finance.import.fxOriginal': 'المبلغ الأصلي (بالدولار أو عملة أخرى)',
   'finance.import.fxOriginalCurrency': 'العملة الأصلية',
