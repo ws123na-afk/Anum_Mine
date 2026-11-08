@@ -1,6 +1,8 @@
-// Social media marketing (docs/marketing.md): connected accounts, a planner with per-platform
-// previews in English and Arabic, a calendar to drag posts between days, campaigns with an
-// owner-approved auto-post, approvals with the payload hash shown, and analytics from the platforms.
+// Marketing (docs/marketing.md): the page head with eight tabs over one KPI row: an overview
+// (campaigns, content calendar, engagement trend, what needs attention), campaigns with an
+// owner-approved auto-post, a calendar to drag posts between days, content (posts with per-platform
+// previews in English and Arabic and approvals with the payload hash shown), the audience (Brevo
+// contact lists), email campaigns, analytics from the platforms and settings (connected accounts).
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type DragEvent, type FormEvent, type ReactNode } from 'react';
 import { BarChart3, CheckCircle2, ChevronLeft, ChevronRight, CircleDot, ExternalLink, Fingerprint, Link2, Lock, Plug, Plus, RefreshCw, Search, Send, ShieldAlert, Sparkles, Trash2, Upload, X } from 'lucide-react';
 import type { Approval } from '@anum/contracts';
@@ -20,9 +22,9 @@ import { contactLabel, type WaConversation } from './lib/whatsapp';
 import { useIsOwner } from './useIsOwner';
 import { Drawer } from './Dialog';
 import { BrevoCampaigns } from './BrevoCampaigns';
-import { figure } from './lib/pageSummary';
 import { viewLabel } from './lib/shell';
-import { PageHeader, PageSummary } from './PageParts';
+import { FinancePageHead } from './FinanceShell';
+import { AudienceTab, MarketingKpis, OverviewTab, type SummaryLoad } from './MarketingOverview';
 import './marketing.css';
 
 type Tab = MarketingTab;
@@ -40,7 +42,12 @@ const failure = (e: unknown, what: string) => isPermissionDenied(e) ? t('marketi
 
 export function MarketingView({ onOpenBudgets, onOpenFiles }: { onOpenBudgets?: () => void; onOpenFiles?: () => void } = {}) {
   const owner = useIsOwner();
-  const [tab, setTab] = useState<Tab>(() => (location.hash.startsWith('#marketing-') && TABS.includes(location.hash.slice(11) as Tab) ? location.hash.slice(11) as Tab : 'posts'));
+  const [tab, setTab] = useState<Tab>(() => (location.hash.startsWith('#marketing-') && TABS.includes(location.hash.slice(11) as Tab) ? location.hash.slice(11) as Tab : 'overview'));
+  const [summary, setSummary] = useState<SummaryLoad>({ kind: 'loading' });
+  const loadSummary = useCallback(() => {
+    setSummary({ kind: 'loading' });
+    m.getSummary(30, '').then((value) => setSummary({ kind: 'ready', value }), (e) => setSummary({ kind: 'error', message: describeError(e) }));
+  }, []);
   const [setup, setSetup] = useState<Setup | null>(null);
   const [accounts, setAccounts] = useState<Account[]>([]);
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
@@ -73,31 +80,39 @@ export function MarketingView({ onOpenBudgets, onOpenFiles }: { onOpenBudgets?: 
   }, [load]);
 
   // Tabs are history entries, so Back and Forward move between them (docs/module-checklist.md#navigation).
-  const pick = (next: Tab) => { setTab(next); if (location.hash !== `#marketing-${next}`) history.pushState(null, '', `#marketing-${next}`); };
+  const hashOf = (next: Tab) => (next === 'overview' ? '#marketing' : `#marketing-${next}`);
+  const pick = (next: Tab) => { setTab(next); if (location.hash !== hashOf(next)) history.pushState(null, '', hashOf(next)); };
   useEffect(() => {
-    const sync = () => { const id = location.hash.slice(11); if (location.hash.startsWith('#marketing-') && TABS.includes(id as Tab)) setTab(id as Tab); else if (location.hash === '#marketing') setTab('posts'); };
+    const sync = () => { const id = location.hash.slice(11); if (location.hash.startsWith('#marketing-') && TABS.includes(id as Tab)) setTab(id as Tab); else if (location.hash === '#marketing') setTab('overview'); };
     window.addEventListener('popstate', sync);
     return () => window.removeEventListener('popstate', sync);
   }, []);
-  const refreshAll = () => { setVersion((value) => value + 1); void load(); };
+  const refreshAll = () => { setVersion((value) => value + 1); void load(); loadSummary(); };
+  useEffect(() => { if (state === 'ready') loadSummary(); }, [state, loadSummary, version]);
 
   const title = viewLabel('marketing');
-  if (state === 'loading') return <><PageHeader title={title} subtitle={t('pages.mk.subtitle')} /><Note>{t('marketing.loading')}</Note></>;
-  if (state === 'denied') return <><PageHeader title={title} subtitle={t('pages.mk.subtitle')} /><section className="surface mkPanel"><Lock aria-hidden="true" /><div><h2>{t('marketing.deniedTitle')}</h2><p className="muted">{t('marketing.deniedText')}</p></div></section></>;
-  if (state === 'error' || !setup) return <><PageHeader title={title} subtitle={t('pages.mk.subtitle')} /><section className="surface mkPanel"><ShieldAlert aria-hidden="true" /><div><h2>{t('marketing.errorTitle')}</h2><p className="muted">{t('marketing.errorText', { message: error ?? '' })}</p><div className="actions"><button type="button" onClick={() => { setState('loading'); void load(); }}>{t('common.tryAgain')}</button></div></div></section></>;
+  if (state === 'loading') return <div className="mkLayout"><FinancePageHead title={title} subtitle={t('pages.mk.subtitle')} /><Note>{t('marketing.loading')}</Note></div>;
+  if (state === 'denied') return <div className="mkLayout"><FinancePageHead title={title} subtitle={t('pages.mk.subtitle')} /><section className="surface mkPanel"><Lock aria-hidden="true" /><div><h2>{t('marketing.deniedTitle')}</h2><p className="muted">{t('marketing.deniedText')}</p></div></section></div>;
+  if (state === 'error' || !setup) return <div className="mkLayout"><FinancePageHead title={title} subtitle={t('pages.mk.subtitle')} /><section className="surface mkPanel"><ShieldAlert aria-hidden="true" /><div><h2>{t('marketing.errorTitle')}</h2><p className="muted">{t('marketing.errorText', { message: error ?? '' })}</p><div className="actions"><button type="button" onClick={() => { setState('loading'); void load(); }}>{t('common.tryAgain')}</button></div></div></section></div>;
 
   const connected = accounts.filter((item) => item.status === 'connected');
+  const tabLabel = (id: Tab) => t(`mkHub.tab.${id}` as MessageKey);
+  const tabs = <nav className="finTabs mkTabs" aria-label={t('marketing.sections')}>{TABS.map((id) => <button key={id} type="button" aria-current={tab === id ? 'page' : undefined} onClick={() => pick(id)}>{tabLabel(id)}</button>)}</nav>;
+  const newPost = (day?: Date) => setComposer(day ? { day } : {});
   return <div className="mkLayout">
-    <PageHeader title={title} subtitle={t('pages.mk.subtitle')} crumbs={tab === 'posts' ? undefined : [{ label: viewLabel('home'), href: '#home' }, { label: title, href: '#marketing-posts', onClick: () => pick('posts') }, { label: t(`marketing.tab.${tab}`) }]} actions={setup.can_write ? <button type="button" onClick={() => setComposer({})} disabled={connected.length === 0} aria-describedby={connected.length === 0 ? 'mk-no-accounts' : undefined}><Plus aria-hidden="true" />{t('marketing.newPost')}</button> : undefined} />
-    <MarketingSummary key={`s${version}`} />
-    {connected.length === 0 && tab !== 'email' && <Note id="mk-no-accounts">{setup.can_manage ? t('marketing.noAccountsOwner') : t('marketing.noAccountsMember')}</Note>}
+    <FinancePageHead title={title} subtitle={t('pages.mk.subtitle')} crumbs={tab === 'overview' ? undefined : [{ label: viewLabel('home'), href: '#home' }, { label: title, href: '#marketing', onClick: () => pick('overview') }, { label: tabLabel(tab) }]}
+      actions={setup.can_write ? <button type="button" onClick={() => newPost()} disabled={connected.length === 0} aria-describedby={connected.length === 0 ? 'mk-no-accounts' : undefined}><Plus aria-hidden="true" />{t('marketing.newPost')}</button> : undefined}
+      tabs={tabs} />
+    {tab !== 'audience' && tab !== 'email' && tab !== 'accounts' && <MarketingKpis load={summary} onRetry={loadSummary} />}
+    {connected.length === 0 && tab !== 'email' && tab !== 'audience' && <Note id="mk-no-accounts">{setup.can_manage ? t('marketing.noAccountsOwner') : t('marketing.noAccountsMember')}</Note>}
     {notice && <Note>{notice}</Note>}
-    <nav className="settingsTabs mkTabs" aria-label={t('marketing.sections')}>{TABS.map((id) => <button key={id} type="button" aria-current={tab === id ? 'page' : undefined} onClick={() => pick(id)}>{t(`marketing.tab.${id}`)}</button>)}</nav>
     {composer && <Composer setup={setup} accounts={connected} campaigns={campaigns} post={composer.post} day={composer.day} onOpenBudgets={onOpenBudgets} onOpenFiles={onOpenFiles}
       onClose={() => setComposer(null)} onSaved={(message) => { setComposer(null); setNotice(message); setVersion((value) => value + 1); }} />}
+    {tab === 'overview' && <OverviewTab key={`o${version}`} setup={setup} accounts={accounts} campaigns={campaigns} load={summary} onGo={pick} onNewPost={connected.length && setup.can_write ? newPost : () => pick('accounts')} />}
     {tab === 'posts' && <PostsTab key={`p${version}`} setup={setup} campaigns={campaigns} owner={owner === true} onEdit={(post) => setComposer({ post })} onNotice={setNotice} />}
     {tab === 'calendar' && <CalendarTab key={`c${version}`} setup={setup} onEdit={(post) => setComposer({ post })} onNew={(day) => setComposer({ day })} onNotice={setNotice} />}
     {tab === 'campaigns' && <CampaignsTab setup={setup} accounts={connected} owner={owner === true} onChanged={refreshAll} onNotice={setNotice} />}
+    {tab === 'audience' && <AudienceTab onGo={pick} />}
     {tab === 'email' && <BrevoCampaigns owner={owner === true} />}
     {tab === 'accounts' && <AccountsTab setup={setup} accounts={accounts} onChanged={load} onNotice={setNotice} />}
     {tab === 'analytics' && <AnalyticsTab setup={setup} campaigns={campaigns} onNotice={setNotice} />}
@@ -248,24 +263,6 @@ function PostsTab({ setup, campaigns, owner, onEdit, onNotice }: { setup: Setup;
         onChange={(next) => setItems((current) => current.map((item) => item.id === next.id ? next : item))} onRemove={(id) => { setOpenId(null); setItems((current) => current.filter((item) => item.id !== id)); }} /></ul>
     </Drawer>}
   </section>;
-}
-
-/** The summary band above every tab: the last 30 days from GET /marketing/analytics/summary. */
-function MarketingSummary() {
-  const [summary, setSummary] = useState<{ state: 'loading' } | { state: 'ready'; value: Summary } | { state: 'error' }>({ state: 'loading' });
-  const load = useCallback(() => { setSummary({ state: 'loading' }); m.getSummary(30, '').then((value) => setSummary({ state: 'ready', value }), () => setSummary({ state: 'error' })); }, []);
-  useEffect(() => { load(); }, [load]);
-  const value = summary.state === 'ready' ? summary.value : null;
-  const totals = value?.totals;
-  const shift = value ? change(value.totals.engagement_rate, value.previous.engagement_rate) : null;
-  const figures = [
-    figure('published', t('pages.mk.fig.published'), summary, () => ({ value: formatNumber(totals!.posts), hint: t('pages.mk.fig.publishedHint', { count: value!.previous.posts }) })),
-    figure('reach', t('pages.mk.fig.reach'), summary, () => ({ value: formatNumber(totals!.reach || totals!.views), hint: t('pages.mk.fig.reachHint', { clicks: formatNumber(totals!.clicks) }) })),
-    figure('rate', t('pages.mk.fig.rate'), summary, () => ({ value: rate(totals!.engagement_rate), hint: shift ? t('pages.mk.fig.rateHint', { change: shift }) : t('pages.mk.fig.rateNone'), tone: 'accent' })),
-    figure('upcoming', t('pages.mk.fig.upcoming'), summary, () => ({ value: formatNumber(value!.upcoming), hint: value!.failed ? t('pages.mk.fig.failed', { count: value!.failed }) : t('pages.mk.fig.noneFailed'), tone: value!.failed ? 'danger' : '' })),
-    figure('pending', t('pages.mk.fig.pending'), summary, () => ({ value: formatNumber(value!.pending_approval), hint: t('pages.mk.fig.pendingHint'), tone: value!.pending_approval ? 'warn' : '' })),
-  ];
-  return <PageSummary label={t('pages.mk.summary')} figures={figures} onRetry={load} />;
 }
 
 /** Next to the posts: the best times to post and this week's report, both from the API. */

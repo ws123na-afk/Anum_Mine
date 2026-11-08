@@ -74,6 +74,8 @@ import { businessBooksEn } from './businessBooks.en.ts';
 import { iphoneEn } from './iphone.en.ts';
 import { asPageEn } from './asPage.en.ts';
 import { vaultEn } from './vault.en.ts';
+import { intHubEn } from './intHub.en.ts';
+import { mkHubEn } from './mkHub.en.ts';
 import { autoPageEn } from './autoPage.en.ts';
 import { agentsPageEn } from './agentsPage.en.ts';
 import { helpEn } from './help.en.ts';
@@ -159,6 +161,8 @@ export const en = {
   ...iphoneEn,
   ...vaultEn,
   ...asPageEn,
+  ...intHubEn,
+  ...mkHubEn,
   ...agentsPageEn,
   ...autoPageEn,
   ...helpEn,

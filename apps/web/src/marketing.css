@@ -1,7 +1,6 @@
 /* Marketing (MarketingView.tsx). Spacing and colour from the shared tokens; logical properties for RTL. */
-.mkLayout { display: grid; gap: var(--d-s4); min-width: 0; }
-.mkLayout { gap: var(--d-s3); }
-.mkLayout > .pageHeader, .mkLayout > .pageSummary, .mkLayout > .notice, .mkLayout .settingsTabs { margin: 0; }
+.mkLayout { display: grid; gap: var(--d-s4); grid-template-columns: minmax(0, 1fr); min-width: 0; }
+.mkLayout > .finHead, .mkLayout > .finKpis, .mkLayout > .notice, .mkLayout > .cmLoadError { margin: 0; }
 .mkLayout section { min-width: 0; }
 .mkPanel { align-items: flex-start; display: grid; gap: var(--d-s4); grid-template-columns: 24px minmax(0, 1fr); padding: var(--d-s5); }
 .mkPanel > svg { color: var(--d-violet); height: 24px; width: 24px; }
@@ -189,3 +188,70 @@ button.secondary.dangerText { color: var(--d-stop); }
 .mkReportSend { display: grid; gap: var(--d-s2); }
 .mkReportSend .actions { margin-top: 0; }
 .mkReportSend select, .mkReport .mkSectionHead select { flex: 1 1 200px; max-width: 320px; min-width: 0; width: auto; }
+
+/* The page head's tabs (MarketingView.tsx): the shell's underline tabs, as history-entry buttons. */
+.finTabs.mkTabs > button[aria-current="page"] { box-shadow: inset 0 -3px 0 var(--d-accent); color: var(--d-text); font-weight: 600; }
+.mkLayout .finKpis ul { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+@media (max-width: 1279px) { .mkLayout .finKpis ul { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 900px) { .mkLayout .finKpis ul { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 480px) { .mkLayout .finKpis ul { grid-template-columns: minmax(0, 1fr); } }
+.mkAudience .finKpis ul { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+@media (max-width: 1279px) { .mkAudience .finKpis ul { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 480px) { .mkAudience .finKpis ul { grid-template-columns: minmax(0, 1fr); } }
+
+/* Overview (MarketingOverview.tsx): main column and a side column on wide screens. */
+.mkOverview, .mkOverviewMain, .mkOverviewSide, .mkAudience { align-items: start; display: grid; gap: var(--d-s4); grid-template-columns: minmax(0, 1fr); min-width: 0; }
+.mkOverview > *, .mkOverviewMain > *, .mkOverviewSide > *, .mkOverviewPair > * { min-width: 0; }
+@media (min-width: 1200px) { .mkOverview { grid-template-columns: minmax(0, 1fr) minmax(300px, 360px); } }
+.mkOverviewPair { align-items: start; display: grid; gap: var(--d-s4); grid-template-columns: minmax(0, 1fr); }
+@media (min-width: 900px) { .mkOverviewPair { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } }
+.mkSmall { align-items: center; display: inline-flex; font-size: var(--text-sm); gap: var(--d-s1); min-height: 36px; padding: 0 var(--d-s3); white-space: nowrap; }
+.mkSmall svg { height: 14px; width: 14px; }
+.mkSmallText { font-size: var(--text-xs); margin: 0; }
+.mkHubTable td, .mkHubTable th { vertical-align: middle; }
+.mkHubTable td .mkPlatform + .mkPlatform { margin-inline-start: var(--d-s1); }
+.mkHubTable th small { display: block; font-weight: 400; }
+.mkCampaignLink { font-weight: 650; text-align: start; }
+.mkHubTable .nowrap { white-space: nowrap; }
+
+.mkMiniCalHead { align-items: center; display: flex; gap: var(--d-s2); justify-content: space-between; }
+.mkMiniCal { border-collapse: collapse; table-layout: fixed; width: 100%; }
+.mkMiniCal th { color: var(--d-muted); font-size: var(--text-xs); font-weight: 600; padding: var(--d-s1) 0; text-align: center; }
+.mkMiniCal td { padding: 1px; text-align: center; }
+.mkMiniCal td.outside .mkMiniDay { color: var(--d-faint); }
+.mkMiniDay { align-items: center; background: none; border: 1px solid transparent; border-radius: var(--d-r-control); color: var(--d-text); cursor: pointer;
+  display: inline-flex; flex-direction: column; font-size: var(--text-sm); gap: 2px; justify-content: center; min-height: 36px; min-width: 0; padding: 2px; width: 100%; }
+.mkMiniDay:hover { background: var(--d-glass-1); }
+.mkMiniDay.today { border-color: var(--d-line-strong); font-weight: 700; }
+.mkMiniDay.picked { background: var(--d-primary-grad); color: #fff; }
+.mkMiniDot { background: var(--d-accent); border-radius: 50%; height: 5px; width: 5px; }
+.mkMiniDay.picked .mkMiniDot { background: #fff; }
+.mkMiniDayList { border-top: 1px solid var(--d-line); display: grid; gap: var(--d-s2); padding-top: var(--d-s3); }
+.mkMiniDayList h3 { font-size: var(--text-sm); margin: 0; }
+.mkMiniDayList ul, .mkTopPosts, .mkChannels, .mkAttention { display: grid; gap: var(--d-s2); list-style: none; margin: 0; padding: 0; }
+.mkMiniDayList li, .mkChannels li { align-items: center; display: grid; gap: var(--d-s2); grid-template-columns: auto minmax(0, 1fr) auto; }
+.mkMiniText { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mkMiniDayList p { margin: 0; }
+
+.mkTrend { display: grid; gap: var(--d-s2); margin: 0; }
+.mkTrend svg { height: 140px; width: 100%; }
+.mkTrend figcaption { color: var(--d-muted); font-size: var(--text-xs); }
+.mkTrendAxis { stroke: var(--d-line); stroke-width: 1; }
+.mkTrendArea { fill: rgb(var(--c-ok) / .14); }
+.mkTrendLine { fill: none; stroke: var(--d-accent); stroke-linejoin: round; stroke-width: 2; vector-effect: non-scaling-stroke; }
+.mkTrendDot { fill: var(--d-accent); }
+
+.mkAttention li { align-items: center; display: grid; font-size: var(--text-sm); gap: var(--d-s2); grid-template-columns: 20px minmax(0, 1fr) auto auto; }
+.mkAttentionIcon { color: var(--d-muted); display: inline-flex; }
+.mkAttentionIcon svg { height: 18px; width: 18px; }
+.mkTopPosts li { border-bottom: 1px solid var(--d-line); display: grid; gap: 2px; padding-bottom: var(--d-s2); }
+.mkTopPosts li:last-child { border-bottom: 0; padding-bottom: 0; }
+.mkTopPosts li > div { display: flex; gap: var(--d-s2); min-width: 0; }
+
+.mkAudienceSearch { align-items: center; display: flex; max-width: 360px; position: relative; }
+.mkAudienceSearch svg { color: var(--d-faint); height: 16px; inset-inline-start: var(--d-s3); pointer-events: none; position: absolute; width: 16px; }
+.mkAudienceSearch input { min-height: 40px; padding-inline-start: calc(var(--d-s3) * 2 + 16px); width: 100%; }
+.mkBar { align-items: center; display: inline-flex; gap: var(--d-s2); min-width: 140px; }
+.mkBarTrack { background: var(--d-glass-2); border-radius: 999px; display: block; flex: 1; height: 6px; overflow: hidden; }
+.mkBarTrack > span { background: var(--d-accent); display: block; height: 100%; }
+.mkLayout .finTableWrap, .mkTrend { position: relative; }

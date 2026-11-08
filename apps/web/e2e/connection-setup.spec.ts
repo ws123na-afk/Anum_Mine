@@ -68,7 +68,7 @@ test('an organization administrator sees what is missing, copies the callback UR
   await context.grantPermissions(['clipboard-read', 'clipboard-write']).catch(() => undefined);
   const calls = await mockApi(page);
   await page.goto('/#integrations');
-  await expect(page.getByRole('heading', { level: 2, name: 'Integrations' })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: 'Integrations' })).toBeVisible();
   await expect(page.getByText('3 connected · 3 need setup · 1 with errors · 0 not used')).toBeVisible();
   await expect(page.getByRole('radio', { name: /Needs setup/ })).toHaveAccessibleName('Needs setup 3');
 
@@ -194,7 +194,11 @@ for (const [width, height] of [[1440, 900], [1366, 768], [1024, 768], [768, 1024
     await expect(row(page, 'WhatsApp Business')).toBeVisible();
     const overflow = () => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
     expect(await overflow()).toBeLessThanOrEqual(0);
+    // The tab strip scrolls sideways on narrow screens (as on Finance): the strip itself must fit, its tabs may scroll.
+    const strip = await page.locator('.finTabs').boundingBox();
+    if (strip) expect(strip.x + strip.width).toBeLessThanOrEqual(width + 1);
     for (const button of await page.locator('.intPage button:visible').all()) {
+      if (await button.evaluate((el) => Boolean(el.closest('.finTabs')))) continue;
       const box = await button.boundingBox();
       if (box) expect(box.x + box.width).toBeLessThanOrEqual(width + 1);
     }

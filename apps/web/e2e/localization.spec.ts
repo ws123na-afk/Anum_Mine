@@ -152,7 +152,7 @@ test('Integrations, Skills and the marketplace read in Arabic, right to left, wi
   await useSavedLocale(page, 'ar');
 
   await page.goto('/#integrations');
-  await expect(page.getByRole('heading', { level: 2, name: 'التكاملات' })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: 'التكاملات' })).toBeVisible();
   await expect(page.getByText('3 متصل · 2 يحتاج إلى إعداد · 2 به أخطاء · 1 غير مستخدم')).toBeVisible();
   await expect(page.getByRole('radio', { name: /^خطأ/ })).toBeVisible();
   expect(await noHorizontalOverflow(page)).toBe(true);
