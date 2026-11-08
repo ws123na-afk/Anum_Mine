@@ -9,7 +9,8 @@ import asyncio
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel
 
-from ..authorization import Permission, has_permission
+from ..authorization import Permission
+from ..dependencies import has_permission
 from ..dependencies import tenant_context
 from ..email_inbox import MessageFilters, fetch_body, open_email_store
 from ..email_providers import EmailProvider
