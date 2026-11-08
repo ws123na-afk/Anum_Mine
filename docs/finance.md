@@ -560,3 +560,13 @@ Finance > Import supports both CSV and reviewed PDF bank statements with interna
 - Three-letter ISO currency codes use the applicable minor units (e.g. KWD three decimal places); no fabricated FX rates or currency conversion is performed.
 
 **Scope:** These safeguards apply to new reviewed imports. Previously imported misclassified transactions are not silently rewritten. Review the transaction's import preview and the bank's own original and billed figures before confirming. The existing Finance PDF source parser may require layout mapping or OCR corrections on unusual bank statement formats.
+
+
+## Personal expense learning and corrected rent direction
+
+- **Room Rent** (`room_rent`) and **Food and meals** (`food`) are first-class expense categories alongside existing Housing, Dining and Groceries. Common Arabic/English descriptions and Saudi merchants are recognized for new records.
+- In Finance > Transactions, choose a category, optionally tick **Remember this category for future matching descriptions**, and review a specific merchant/description phrase. The backend stores an owner-scoped Finance category rule, which is applied to future bank statement previews, CSV/PDF imports and manually recorded transactions. It does **not** silently rewrite historical transactions or learn from another user's data. Generic phrases such as `rent`, `payment`, `card` and `food` are rejected as overbroad.
+- A **positive** amount with a description indicating room rent is flagged for review in CSV import preview and the transaction details drawer. No positive amount is automatically changed to a negative value. For a manual or statement-origin transaction, the drawer offers an explicitly confirmed **Correct to money out** action that changes the sign through the normal finance transaction PATCH and canonical journal repost. For SMS/Apple Pay-origin transactions, correct their payment through Finance > iPhone SMS > Review.
+- If you paid SAR 2,600 for room rent but it appears as +SAR 2,600, inspect the actual bank statement and correct the specific entry to -SAR 2,600 with the Room Rent category. The application must not infer a specific transaction ID or make an automatic correction based solely on amount or text.
+- The monthly Finance summary separates income, cashback, merchant refunds, expenses and net cash flow. Cashbacks and refunds do not inflate earned income; confirmed positive credits remain part of actual net cash movement.
+- Previously imported records are never silently recategorized or reversed. The audit trail, source import fingerprint and ledger correction rules remain intact. Reimporting the original statement after a human correction does not double count that same bank entry.
