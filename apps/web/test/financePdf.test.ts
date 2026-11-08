@@ -148,3 +148,23 @@ describe('PDF statement review', () => {
     assert.equal(roleLabel('credit'), 'دائن (مال داخل)');
   });
 });
+
+describe('Foreign bank card PDF review', () => {
+  test('needs bank-billed SAR amount before importing USD purchases, preserving original and fees', () => {
+    const source = { ...view(), currency: 'SAR' as const };
+    const row = { ...reviewRows(source)[1], amount: '-20.00', currency: 'USD', original_amount: '-20.00', original_currency: 'USD',
+      billed_amount: null, billed_currency: null, fee: '1.20', fx_rate: '3.84', flags: ['foreign_currency'], include: true };
+    assert.match(rowProblem(row, 'SAR') ?? '', /bank-billed SAR/);
+    const edited = { ...row, billed_amount: '-76.80', billed_currency: 'SAR' };
+    assert.equal(rowProblem(edited, 'SAR'), null);
+    const request = importBody(source, 'fin_acct_current', [edited], '', '', false);
+    assert.equal(request.rows.length, 1);
+    assert.equal(request.rows[0].currency, 'USD');
+    assert.equal(request.rows[0].billed_amount, '-76.80');
+    assert.equal(request.rows[0].billed_currency, 'SAR');
+    assert.equal(request.rows[0].original_currency, 'USD');
+    assert.equal(request.rows[0].fee, '1.20');
+    assert.equal(liveCheck([edited], '', '', 'SAR').total, '-76.80');
+    assert.match(rowProblem({ ...edited, billed_amount: '76.80' }, 'SAR') ?? '', /both be charges/);
+  });
+});
