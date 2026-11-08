@@ -576,3 +576,27 @@ def test_cashback_and_refunds_not_earnings_but_count_in_cashflow() -> None:
     assert data["refunds"] == [{"currency": "SAR", "amount": "100.00"}]
     assert data["spend"] == [{"currency": "SAR", "amount": "2600.00"}]
     assert data["net"] == [{"currency": "SAR", "amount": "7520.00"}]
+
+
+def test_bank_dr_cr_indicator_fixes_unsigned_room_rent_without_guessing() -> None:
+    acct = account(currency="SAR")
+    data = ("Date,Description,Amount,DR/CR\n"
+            "2026-11-01,ROOM RENT PAYMENT,2600,DR\n"
+            "2026-11-02,EMPLOYER REFUND,125,CR\n")
+    preview = client.post(f"{API}/imports/preview", headers=OWNER,
+                          json={"account_id": acct["id"], "content": data})
+    assert preview.status_code == 200, preview.text
+    assert preview.json()["mapping"]["direction"] == "DR/CR"
+    assert [r["amount"] for r in preview.json()["rows"]] == ["-2600.00", "125.00"]
+    assert preview.json()["rows"][0]["category"] == "room_rent"
+    assert preview.json()["rows"][0]["direction_warning"] is None
+    imported = client.post(f"{API}/imports", headers=OWNER,
+                           json={"account_id": acct["id"], "content": data})
+    assert imported.status_code == 201, imported.text
+    assert imported.json()["imported_count"] == 2
+
+    # Incorrect explicit CR on a negative amount gets held for review.
+    conflict = csv_import.parse_file("Date,Description,Amount,DR/CR\n"
+        "2026-11-01,ROOM RENT,-2600,CR\n", account_id="x", currency="SAR")
+    assert not conflict.rows and len(conflict.errors) == 1
+    assert "conflicts" in conflict.errors[0].message
