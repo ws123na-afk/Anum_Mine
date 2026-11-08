@@ -214,7 +214,7 @@ test('Bills CSV import maps Tamara fields, skips paid and review rows and create
     '2026-11-01,Jarir,example-1,2,602.00,SAR,Paid',
     '2026-12-01,Jarir,example-1,3,602.00,SAR,Scheduled',
     '2026-12-02,Amazon,example-2,2,75.00,SAR,Refund adjusted - review',
-  ].join('\\n');
+  ].join('\n');
   await dialog.locator('input[type="file"]').setInputFiles({ name: 'tamara.csv', mimeType: 'text/csv', buffer: Buffer.from(csv) });
   await expect(dialog.getByText('New: 1. Existing to update: 0. Skipped: 2. Errors: 0. Conflicts: 0.')).toBeVisible();
   // Paid and refund-review rows are excluded; the scheduled installment is imported.
@@ -236,7 +236,7 @@ test('Tamara CSV preview reports paid and upcoming installments by order without
     '2026-12-01,Jarir,jarir-1,3,602.00,SAR,Scheduled',
     '2027-01-01,Jarir,jarir-1,4,602.00,SAR,Scheduled',
     '2026-12-05,Amazon,amazon-1,2,29.00,SAR,Refund adjusted - review',
-  ].join('\\n');
+  ].join('\n');
   await dialog.locator('input[type="file"]').setInputFiles({ name: 'tamara.csv', mimeType: 'text/csv', buffer: Buffer.from(csv) });
   const summary = dialog.getByRole('region', { name: 'Imported order payment summary' });
   await expect(summary.getByRole('row').filter({ hasText: 'jarir-1' })).toContainText('1204.00');
@@ -258,7 +258,7 @@ test('re-uploading the same CSV preserves all paid history without duplicating s
     '2026-10-15,Jarir,jarir-1,1,3,602.00,SAR,Paid',
     '2026-11-01,Jarir,jarir-1,2,3,602.00,SAR,Paid',
     '2026-12-01,Jarir,jarir-1,3,3,602.00,SAR,Scheduled',
-  ].join('\\n');
+  ].join('\n');
   const upload = async () => {
     await page.getByRole('button', { name: 'Import CSV' }).click();
     const dialog = page.getByRole('dialog', { name: 'Import installment bills from CSV' });
@@ -295,7 +295,7 @@ test('full statement keeps completed orders, excludes refund cases from monthly 
     '2026-07-01,Noon,completed-1,2,2,50.00,SAR,Paid,',
     '2026-11-01,Amazon,refund-1,1,1,99.00,SAR,Refund adjusted - review,Awaiting confirmation',
     '2026-12-01,Jarir,open-1,1,1,602.00,SAR,Scheduled,',
-  ].join('\\n');
+  ].join('\n');
   await dialog.locator('input[type="file"]').setInputFiles({ name: 'all.csv', mimeType: 'text/csv', buffer: Buffer.from(csv) });
   await expect(dialog.getByText('Full statement storage: 4 of 4 rows ready.')).toBeVisible();
   await dialog.getByRole('button', { name: 'Sync 1 new + 0 existing bills' }).click();
