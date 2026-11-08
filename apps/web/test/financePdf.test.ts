@@ -177,3 +177,16 @@ describe('Payment direction PDF review', () => {
     assert.equal(directionHint({ ...row, description: 'SALARY NOVEMBER' }), null);
   });
 });
+
+test('PDF foreign amount retains its own currency precision', () => {
+  const source = view();
+  const row = {
+    ...reviewRows(source)[1], amount: '-2.345', currency: 'KWD',
+    original_amount: '-2.345', original_currency: 'KWD',
+    billed_amount: '-29.32', billed_currency: 'AED', include: true,
+  };
+  const request = importBody(source, 'fin_acct_current', [row], '', '', false);
+  assert.equal(request.rows[0].amount, '-2.345');
+  assert.equal(request.rows[0].original_amount, '-2.345');
+  assert.equal(request.rows[0].billed_amount, '-29.32');
+});
