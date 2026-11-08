@@ -287,5 +287,6 @@ export function postsPath(filter: PostFilter = {}): string {
 }
 
 /** The Marketing tabs; each one but Posts is a deep link (#marketing-calendar). */
-export type MarketingTab = 'posts' | 'calendar' | 'campaigns' | 'email' | 'accounts' | 'analytics';
-export const MARKETING_TABS: readonly MarketingTab[] = ['posts', 'calendar', 'campaigns', 'email', 'accounts', 'analytics'];
+/** The Marketing tabs in page order; the first is the plain #marketing hash. `posts` reads "Content" and `accounts` "Settings". */
+export type MarketingTab = 'overview' | 'campaigns' | 'calendar' | 'posts' | 'audience' | 'email' | 'analytics' | 'accounts';
+export const MARKETING_TABS: readonly MarketingTab[] = ['overview', 'campaigns', 'calendar', 'posts', 'audience', 'email', 'analytics', 'accounts'];

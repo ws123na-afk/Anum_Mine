@@ -15,11 +15,21 @@ Members who cannot change setup see **Details** instead of Set up or Fix. No key
 
 ### The Integrations page
 
-The page is built to scan, not to scroll:
+The page uses the shared Finance-style shell: the page head with **Refresh**, five tabs that each have a link, and a KPI row over all of them (connected integrations of those in use, health as the share of checked integrations answering now, issues, and the newest platform health check).
+
+- **Connected apps** (`#integrations`, also `#connections`): the status bar, categories, cards and details panel described below.
+- **Data sync** (`#integrations-sync`): every integration that keeps connected accounts (mailboxes, calendars, chat numbers, stores) with how many accounts it has and how many failed their last sync, and a banner when any fail. **Open** shows the details panel.
+- **API & webhooks** (`#integrations-webhooks`): the callback and webhook addresses to register with each provider, with **Copy** (owners and organization administrators), and the event services (outbound webhook, event bus, workflow engine) with their last health check.
+- **Permissions** (`#integrations-permissions`): each platform service's credential source (server setting, sign-in, none), scopes, expiry (a warning within 30 days) and whether a workspace token is stored.
+- **Logs** (`#integrations-logs`): the integration audit trail (`GET /api/v1/audit-records?action=integration.*`): connection tests, setting changes, tokens stored or removed and setup checks, newest first, filtered by integration and paged. Only owners and administrators can read it; others are told who can.
+
+The mockups also show webhook delivery logs with retries and replay, a retry queue, sync jobs with schedules, field mappings and lineage, per-app OAuth scopes with usage and access reviews, and permission request inboxes. ANUM records none of these per provider today, so they are not on the page.
+
+The Connected apps tab is built to scan, not to scroll:
 
 - **Status and filters.** One bar at the top holds the filter chips **All**, **Connected**, **Needs setup** (not set up or ready to connect) and **Error** (needs attention, or a platform service that is degraded), each with its count, a search box (names, descriptions, categories and setting names, for example `google_client`) and a one-line summary. A platform service the deployment does not use counts as "not used" and shows only under All.
 - **Categories.** Rows are grouped into collapsible sections: Messaging & email, Calls & meetings, AI & search, Marketing & social, Commerce & data, Developer & webhooks, Sign-in, files & monitoring, and last **Platform services** (the database, sign-in server, cache, event bus, workflow engine, storage, web search, mail providers and webhook this deployment runs on, checked live). Each header shows how many items it has and how many need setup or have errors. A section where nothing needs action starts collapsed; any filter or search opens every section with a match.
-- **Rows.** Icon, name, one line on what it does, the status and one action. Problems sort first inside each section.
+- **Cards.** Icon, name, one line on what it does, one status line (accounts connected and failing, missing server settings, or the last health check), the status and one action. Problems sort first inside each section.
 - **Details panel.** The action opens a side panel (Esc or Close returns focus to the row) with everything else: what to do next, the full description and cost, **Open <view>**, **Setup guide** (the section here), the missing setting names and callback URLs with **Copy** (owners and organization administrators), and **Check connection** (organization administrators; it asks the server whether it can reach the provider, never sends data, and every check is audited). For a platform service the panel shows its address, last check, last error, how to fix it and, for workspace owners, **Test connection**, the per-workspace switch and the webhook's workspace token.
 
 ## Before you start
