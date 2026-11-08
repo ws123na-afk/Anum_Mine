@@ -99,7 +99,9 @@ test('a failed save keeps the previous choice and says what to do', async ({ pag
   await page.getByRole('button', { name: /^Chat memory/ }).click();
   const section = page.getByRole('region', { name: 'Chat memory' });
   const toggle = section.getByRole('checkbox', { name: 'Remember things from my chats' });
-  await toggle.uncheck();
+  // The mocked save fails immediately and restores the previous value; click instead of uncheck,
+  // which incorrectly requires the checkbox to remain unchecked after the rejected save.
+  await toggle.click();
   await expect(section.getByRole('alert')).toContainText('Your choice was not saved. Complete onboarding for this workspace first Try again.');
   await expect(toggle).toBeChecked();
 });
