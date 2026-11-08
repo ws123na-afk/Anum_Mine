@@ -438,6 +438,10 @@ export interface FinanceSummary {
   balances: FinanceCurrencyAmount[];
   spend_by_category: { category: FinanceCategory; currency: string; amount: FinanceMoney; count: number }[];
   income: FinanceCurrencyAmount[];
+  /** Cash-back rewards, separate from earnings. */
+  cashback?: FinanceCurrencyAmount[];
+  /** Merchant refunds, not salary or new earnings. */
+  refunds?: FinanceCurrencyAmount[];
   spend: FinanceCurrencyAmount[];
   net: FinanceCurrencyAmount[];
   transaction_count: number;
