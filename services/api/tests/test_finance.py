@@ -251,7 +251,8 @@ def test_summary_is_per_currency_with_spend_income_bills_and_debts() -> None:
         data = build_summary(store, context, None, now=now)
     assert data.month == "2026-10" and data.base_currency == "AED" and data.timezone == "Asia/Dubai"
     assert {a.currency: a.amount for a in data.spend} == {"AED": Decimal("650.50"), "USD": Decimal("80.25")}
-    assert {a.currency: a.amount for a in data.income} == {"AED": Decimal("15000.00"), "USD": Decimal("20.00")}
+    assert {a.currency: a.amount for a in data.income} == {"AED": Decimal("15000.00")}
+    assert {a.currency: a.amount for a in data.refunds} == {"USD": Decimal("20.00")}
     assert {a.currency: a.amount for a in data.balances} == {"AED": Decimal("15349.50"), "USD": Decimal("-60.25")}
     assert data.spend_by_category[0].category == Category.UTILITIES
     assert [b.days_until for b in data.upcoming_bills] == [6]
