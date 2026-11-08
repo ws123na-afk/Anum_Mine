@@ -414,8 +414,8 @@ function CustomBusiness({ onPersonal }: { onPersonal: () => void }) {
 }
 
 const CUSTOM_CATEGORIES: FinanceCategory[] = [
-  'groceries', 'dining', 'transport', 'fuel', 'utilities', 'telecom', 'housing', 'shopping', 'health', 'education', 'entertainment',
-  'subscriptions', 'travel', 'insurance', 'fees', 'cash', 'transfer', 'income', 'other',
+  'groceries', 'dining', 'food', 'room_rent', 'transport', 'fuel', 'utilities', 'telecom', 'housing', 'shopping', 'health', 'education', 'entertainment',
+  'subscriptions', 'travel', 'insurance', 'fees', 'cash', 'transfer', 'income', 'cashback', 'refunds', 'other',
 ];
 
 /** A custom period and filter: how many records match, and the CSV of exactly those records. */
