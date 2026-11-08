@@ -3,7 +3,7 @@
 // against expenses over six months, spend by category, the Attention Center, fleet status, recent activity, the person's
 // attendance this week, the next document to expire and purchases on their way. Each part reads its own module's API
 // and has its own loading, empty, error and permission state, so one module that is off or refused never blanks the page.
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import {
   AlertTriangle, CalendarCheck, CarFront, ChevronRight, ClipboardList, Clock, Coins, FileText, Lock, Package, RefreshCw, Route, ShieldCheck,
   ShoppingCart, TrendingUp, Truck, Wallet,
@@ -27,9 +27,16 @@ import { FinCard, KpiCard, KpiRow, StatusChip } from './FinanceShell';
 import { Ring, ShareBars, TrendLines } from './OpsParts';
 
 type Part<T> = { kind: 'loading' } | { kind: 'ready'; value: T } | { kind: 'denied'; message: string } | { kind: 'error'; message: string };
-const settle = <T,>(promise: Promise<T>, set: (value: Part<T>) => void) => {
+/**
+ * Loads one part. With `run` (a generation counter), only the newest request may set the state: a slow reply for a month
+ * the person has already left is dropped, so it never replaces the month on screen.
+ */
+const settle = <T,>(promise: Promise<T>, set: (value: Part<T>) => void, run?: { current: number }) => {
+  const mine = run ? ++run.current : 0;
+  const latest = () => !run || run.current === mine;
   set({ kind: 'loading' });
-  promise.then((value) => set({ kind: 'ready', value })).catch((e: unknown) => set(isPermissionDenied(e) ? { kind: 'denied', message: describeError(e) } : { kind: 'error', message: describeError(e) }));
+  promise.then((value) => { if (latest()) set({ kind: 'ready', value }); })
+    .catch((e: unknown) => { if (latest()) set(isPermissionDenied(e) ? { kind: 'denied', message: describeError(e) } : { kind: 'error', message: describeError(e) }); });
 };
 const day = (value: string) => formatDateTime(`${value.slice(0, 10)}T12:00:00Z`, { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
 const isoDay = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
@@ -45,12 +52,13 @@ export function HomeOperations({ month, waiting, activity, live }: { month: stri
   const [purchases, setPurchases] = useState<Part<PurchaseOverview>>({ kind: 'loading' });
   const [attendance, setAttendance] = useState<Part<Attendance>>({ kind: 'loading' });
   const months = useMemo(() => monthsEnding(month, 6), [month]);
-  const loadBooks = useCallback(() => settle(books.getReport(monthRange(month)), setReport), [month]);
+  const booksRun = useRef(0), fleetRun = useRef(0);
+  const loadBooks = useCallback(() => settle(books.getReport(monthRange(month)), setReport, booksRun), [month]);
   const loadFleet = useCallback(() => settle((async () => {
     const range = monthRange(month);
     const [six, one, list] = await Promise.all([vehiclesApi.overview(monthRange(months[0]).from, range.to), vehiclesApi.overview(range.from, range.to), vehiclesApi.listVehicles('', false, 0, 5)]);
     return { months: six, month: one, vehicles: list.items, total: list.total };
-  })(), setFleet), [month, months]);
+  })(), setFleet, fleetRun), [month, months]);
   const loadVault = useCallback(() => settle(Promise.all([vaultApi.getMeta(), vaultApi.listDocuments('status=active&sort=expiry&limit=3')]).then(([meta, page]) => ({ meta, next: page.items })), setVault), []);
   const loadPurchases = useCallback(() => settle(purchasesApi.overview(), setPurchases), []);
   const loadAttendance = useCallback(() => settle(Promise.all([attendanceApi.getSummary('week', isoDay(new Date())), attendanceApi.getToday()]).then(([week, today]) => ({ week, today })), setAttendance), []);
