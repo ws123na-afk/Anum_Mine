@@ -59,17 +59,20 @@ async def installment_email_preview(
     context: TenantContext = Depends(tenant_context),
 ) -> TamaraEmailPreview:
     _manage(context)
-    accounts = _owner_gmail_accounts(context)
-    account = next((a for a in accounts if a.id == account_id), None)
-    if account is None:
-        raise HTTPException(status_code=404, detail="Connect your own Gmail account in ANUM Email first.")
-    # Fetch from the existing ANUM email metadata cache. Avoid remote mailbox mutation.
-    with open_email_store(context) as store:
-        messages = store.list_messages([account.id], MessageFilters(account_id=account.id, archived=False, query='tamara'),
-                                       limit=limit, before=None)
-        # Archived Tamara evidence may still be relevant.
-        archived = store.list_messages([account.id], MessageFilters(account_id=account.id, archived=True, query='tamara'),
-                                       limit=limit, before=None)
+    # Database-backed mailbox reads are synchronous. Do not block the ASGI event loop.
+    def cached_messages():
+        accounts = _owner_gmail_accounts(context)
+        account = next((a for a in accounts if a.id == account_id), None)
+        if account is None:
+            raise HTTPException(status_code=404, detail="Connect your own Gmail account in ANUM Email first.")
+        with open_email_store(context) as store:
+            messages = store.list_messages([account.id], MessageFilters(account_id=account.id, archived=False, query='tamara'),
+                                           limit=limit, before=None)
+            archived = store.list_messages([account.id], MessageFilters(account_id=account.id, archived=True, query='tamara'),
+                                           limit=limit, before=None)
+        return account, messages, archived
+
+    account, messages, archived = await asyncio.to_thread(cached_messages)
     messages = sorted({m.id: m for m in messages + archived}.values(),
                       key=lambda m: m.received_at, reverse=True)[:limit]
     matches = [m for m in messages if m.from_address.lower().strip().endswith("@tamara.co")
