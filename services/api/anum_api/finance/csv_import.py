@@ -394,7 +394,7 @@ def parse_file(
             )
         mapping = found
     else:
-        missing = [n for n in (mapping.date, mapping.description, mapping.amount, mapping.debit, mapping.credit, mapping.currency, mapping.original_amount, mapping.original_currency, mapping.billed_amount, mapping.billed_currency, mapping.fx_rate, mapping.fee) if n and n not in headers]
+        missing = [n for n in (mapping.date, mapping.description, mapping.amount, mapping.debit, mapping.credit, mapping.direction, mapping.currency, mapping.original_amount, mapping.original_currency, mapping.billed_amount, mapping.billed_currency, mapping.fx_rate, mapping.fee) if n and n not in headers]
         if missing:
             raise ImportError_(f"These columns are not in the file: {', '.join(missing)}.")
         chosen = "custom"
