@@ -94,6 +94,13 @@ export interface FinanceColumnMapping {
   amount?: string | null;
   debit?: string | null;
   credit?: string | null;
+  currency?: string | null;
+  original_amount?: string | null;
+  original_currency?: string | null;
+  billed_amount?: string | null;
+  billed_currency?: string | null;
+  fx_rate?: string | null;
+  fee?: string | null;
 }
 
 export interface FinanceImportInput {
@@ -120,7 +127,7 @@ export interface FinanceImportPreview {
   new_count: number;
   duplicate_count: number;
   error_count: number;
-  rows: { line: number; posted_on: string; amount: FinanceMoney; currency: string; description: string; category: FinanceCategory; duplicate: boolean }[];
+  rows: { line: number; posted_on: string; amount: FinanceMoney; currency: string; description: string; category: FinanceCategory; duplicate: boolean; notes?: string | null; original_amount?: FinanceMoney | null; original_currency?: string | null; reported_fee?: FinanceMoney | null }[];
   errors: { line: number; message: string }[];
 }
 
