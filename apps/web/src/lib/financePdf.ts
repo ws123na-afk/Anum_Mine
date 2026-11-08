@@ -140,11 +140,14 @@ export function liveCheck(rows: readonly ReviewRow[], opening: string, closing: 
 export function importBody(view: FinancePdfStatement, accountId: string, rows: readonly ReviewRow[], opening: string, closing: string,
   acceptMismatch: boolean, layout: FinancePdfImportInput['layout'] = null): FinancePdfImportInput {
   const currency = view.currency;
-  const wire = (value: string) => { const units = toMinor(value, currency); return units === null ? null : fromMinor(units, currency); };
+  const wire = (value: string, inCurrency = currency) => {
+    const units = toMinor(value, inCurrency);
+    return units === null ? null : fromMinor(units, inCurrency);
+  };
   return {
     account_id: accountId, filename: view.filename, file_sha256: view.file_sha256, source: view.source,
     rows: rows.filter((row) => row.include).map((row) => ({
-      posted_on: row.posted_on, description: row.description.trim(), amount: wire(row.amount) ?? row.amount,
+      posted_on: row.posted_on, description: row.description.trim(), amount: wire(row.amount, row.currency || currency) ?? row.amount,
       balance: row.balance, reference: row.reference, currency: row.currency, time: row.time,
       original_amount: row.original_amount || (row.currency && row.currency !== currency ? row.amount : null),
       original_currency: row.original_currency || (row.currency && row.currency !== currency ? row.currency : null),
