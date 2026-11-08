@@ -29,7 +29,7 @@ from ..dependencies import repository_context, require_permission, tenant_contex
 from ..repository import AnumRepository
 from ..schemas import TenantContext, new_id, utc_now
 from . import csv_import
-from .categories import categorize
+from .categories import categorize, suspected_direction
 from .csv_import import ColumnMapping, ImportError_, safe_cell
 from .models import (
     Account,
@@ -407,6 +407,7 @@ class TransactionPatch(BaseModel):
     description: str | None = Field(default=None, min_length=1, max_length=500)
     category: Category | None = None
     notes: str | None = Field(default=None, max_length=1000)
+    remember_category_match: str | None = Field(default=None, min_length=4, max_length=80)
 
 
 class TransactionView(BaseModel):
@@ -574,6 +575,14 @@ def update_transaction(
 ) -> TransactionView:
     _manage(context)
     changes = body.model_dump(exclude_unset=True)
+    # Learning is opt-in, tied to a manually chosen category, and cannot match
+    # unrelated merchants. Never infer a new category or money direction.
+    match = " ".join((body.remember_category_match or "").split()).casefold()
+    if match:
+        if body.category is None or len(match) < 4 or not any(ch.isalpha() for ch in match):
+            raise _invalid("Choose a category and a specific merchant phrase (at least 4 characters) to remember.")
+        if match in {"rent", "food", "transfer", "bank", "payment", "card", "cash", "salary", "room", "debit", "credit"}:
+            raise _invalid("The learning phrase is too broad. Choose a specific merchant or description.")
     from .ledger import EntrySource
     from .sms_service import owner_lock, repost_plain
     from .sms_store import open_sms_stores
@@ -587,6 +596,8 @@ def update_transaction(
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=(
                 "An iPhone SMS or Apple Pay recorded this transaction. Correct its amount, date or category under Finance, iPhone SMS, "
                 "Review, so the ledger records the change as a correction."))
+        if match and match not in item.description.casefold():
+            raise _invalid("The learning phrase must appear in this transaction description.")
         before = (item.posted_on, item.amount, item.category)
         if body.posted_on is not None:
             item.posted_on = body.posted_on
@@ -601,12 +612,23 @@ def update_transaction(
         elif item.category_source != CategorySource.MANUAL and ({"description", "amount"} & set(changes)) and (entry is None or plain):
             item.category, item.category_source = categorize(item.description, item.amount, settings_for(store, context).category_rules)
         item.updated_at = utc_now()
+        if match:
+            settings = settings_for(store, context)
+            existing = next((r for r in settings.category_rules if r.match.casefold() == match), None)
+            if existing:
+                existing.category = body.category
+            else:
+                if len(settings.category_rules) >= 100:
+                    raise _invalid("You have reached 100 learned category rules. Remove an old rule under Finance Settings.")
+                settings.category_rules.insert(0, CategoryRule(match=match, category=body.category))
+            settings.updated_at = item.updated_at
+            store.save_settings(context, settings)
         store.save_transaction(item)
         if plain and entry is not None and (item.posted_on, item.amount, item.category) != before:
             # A correction reverses the entry and reposts it in the same canonical chain; the row keeps its id.
             repost_plain(store, sms, context, entry, item, now=item.updated_at)
         decision = check_record(store, context, item, utc_now())
-    _audit(repository, context, "finance.transaction.update", transaction_id, {"fields": sorted(changes), **_guardian_meta(decision)})
+    _audit(repository, context, "finance.transaction.update", transaction_id, {"fields": sorted(changes), "learned_category": bool(match), **_guardian_meta(decision)})
     return TransactionView(**_view(item), guardian=decision)
 
 
@@ -663,6 +685,11 @@ class PreviewRow(BaseModel):
     description: str
     category: Category
     duplicate: bool
+    direction_warning: str | None = None
+    notes: str | None = None
+    original_amount: Decimal | None = None
+    original_currency: str | None = None
+    reported_fee: Decimal | None = None
 
 
 class PreviewError(BaseModel):
@@ -744,6 +771,9 @@ def preview_import(body: ImportInput, context: TenantContext = Depends(tenant_co
             PreviewRow(
                 line=row.line, posted_on=row.posted_on, amount=row.amount, currency=account.currency, description=row.description,
                 category=categorize(row.description, row.amount, rules)[0], duplicate=row.dedupe_hash in existing,
+                direction_warning=suspected_direction(row.description, row.amount),
+                notes=row.notes, original_amount=row.original_amount, original_currency=row.original_currency,
+                reported_fee=row.fee,
             )
             for row in parsed.rows[: csv_import.PREVIEW_ROWS]
         ],
@@ -812,7 +842,7 @@ def record_import(
                     id=new_id("fin_txn"), tenant_id=context.tenant_id, workspace_id=context.workspace_id,
                     owner_user_id=context.user_id, account_id=account.id, posted_on=row.posted_on, amount=row.amount,
                     currency=account.currency, description=row.description, category=category, category_source=source,
-                    import_id=record.id, dedupe_hash=row.dedupe_hash, created_at=now, updated_at=now,
+                    notes=row.notes, import_id=record.id, dedupe_hash=row.dedupe_hash, created_at=now, updated_at=now,
                 )
             )
         # A row that reports a payment an SMS, Apple Pay or the person already recorded is attached to that

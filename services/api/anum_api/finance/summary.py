@@ -23,7 +23,7 @@ from itertools import pairwise
 from statistics import median
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 from ..schemas import TenantContext
 from .categories import NOT_SPEND
@@ -100,6 +100,8 @@ class FinanceSummary(BaseModel):
     balances: list[CurrencyAmount]
     spend_by_category: list[CategorySpend]
     income: list[CurrencyAmount]
+    cashback: list[CurrencyAmount] = Field(default_factory=list)
+    refunds: list[CurrencyAmount] = Field(default_factory=list)
     spend: list[CurrencyAmount]
     net: list[CurrencyAmount]
     transaction_count: int
@@ -228,10 +230,17 @@ def build_summary(store: FinanceStore, context: TenantContext, month: str | None
         (CategorySpend(category=cat, currency=cur, amount=quantize(v, cur), count=n) for (cat, cur), (v, n) in by_category.items()),
         key=lambda r: (r.currency, -r.amount, r.category.value),
     )
-    income = totals((t.currency, t.amount) for t in month_rows if t.amount > 0 and t.category != Category.TRANSFER)
+    income = totals((t.currency, t.amount) for t in month_rows if t.amount > 0 and t.category not in {
+        Category.TRANSFER, Category.CASHBACK, Category.REFUNDS,
+    })
+    cashback = totals((t.currency, t.amount) for t in month_rows if t.amount > 0 and t.category == Category.CASHBACK)
+    refunds = totals((t.currency, t.amount) for t in month_rows if t.amount > 0 and t.category == Category.REFUNDS)
     spend = totals((t.currency, -t.amount) for t in spending)
-    net_keys = sorted(set(income) | set(spend))
-    net = {c: income.get(c, Decimal(0)) - spend.get(c, Decimal(0)) for c in net_keys}
+    # Net cash flow retains credits actually received, while the income KPI excludes
+    # reimbursements and card rewards that are not earnings.
+    net_keys = sorted(set(income) | set(cashback) | set(refunds) | set(spend))
+    net = {c: income.get(c, Decimal(0)) + cashback.get(c, Decimal(0)) +
+           refunds.get(c, Decimal(0)) - spend.get(c, Decimal(0)) for c in net_keys}
     bills = [b for b in store.list_items(context, "bill") if isinstance(b, Bill)]
     upcoming = upcoming_bills(bills, today)
     debts = [d for d in store.list_items(context, "debt") if isinstance(d, Debt)]
@@ -241,7 +250,7 @@ def build_summary(store: FinanceStore, context: TenantContext, month: str | None
         accounts=accounts,
         balances=_amounts(totals((a.currency, a.balance) for a in accounts if not a.archived)),
         spend_by_category=category_rows,
-        income=_amounts(income), spend=_amounts(spend), net=_amounts(net),
+        income=_amounts(income), cashback=_amounts(cashback), refunds=_amounts(refunds), spend=_amounts(spend), net=_amounts(net),
         transaction_count=len(month_rows),
         upcoming_bills=upcoming,
         bills_due=_amounts(totals((b.currency, b.amount) for b in upcoming)),

@@ -83,10 +83,17 @@ async function mockAgents(page: Page, options: Options = {}) {
     if (path === '/api/v1/events/stream') return route.fulfill({ status: 204 });
     if (path === '/api/v1/workspace-memberships/current') return json({ tenant_id: 'tenant_local', workspace_id: 'workspace_foundation', user_id: 'user_local', role: options.role ?? 'owner', active: true, created_at: now, updated_at: now });
     if (path === '/api/v1/agents/catalog') return json(catalog);
+    if (path === '/api/v1/agent-controls/agent-caps') {
+      if (options.role && options.role !== 'owner') return envelope(403, 'forbidden', 'Only workspace owners can see agent spending. Ask an owner.');
+      const cap = (id: string, name: string, used: number, limit: number | null) => ({ agent_id: id, name, status: 'active', sharing: 'workspace', monthly_cost_limit_usd: limit, usage: { input_tokens: 0, output_tokens: 0, estimated_cost_usd: used, calls: 3, unpriced_calls: 0 }, percent_used: limit === null ? null : (used / limit) * 100, exceeded: limit !== null && used >= limit, updated_by: null, updated_at: null });
+      return json({ period_start: '2026-10-01T00:00:00Z', resets_on: '2026-11-01T00:00:00Z', can_manage: true, total: 3, items: [
+        { ...cap('assistant', 'ANUM assistant', 1.5, null), is_default: true }, cap('agent_fleet', 'Fleet desk', 3, 10), cap('agent_shop', 'Groceries', 0.25, null)] });
+    }
     if (path === '/api/v1/agents' && method === 'GET') {
       if (options.listFails) return envelope(503, 'unavailable', 'The database is not reachable.');
       const q = (url.searchParams.get('q') ?? '').toLowerCase();
-      let rows = agents.filter((a) => !q || `${a.name} ${a.description} ${a.department ?? ''}`.toLowerCase().includes(q));
+      const status = url.searchParams.get('status');
+      let rows = agents.filter((a) => (!q || `${a.name} ${a.description} ${a.department ?? ''}`.toLowerCase().includes(q)) && (!status || a.status === status));
       const counts = { all: rows.length, work: rows.filter((a) => a.category === 'work').length, personal: rows.filter((a) => a.category === 'personal').length, custom: rows.filter((a) => a.category === 'custom').length };
       const category = url.searchParams.get('category');
       if (category) rows = rows.filter((a) => a.category === category);
@@ -175,7 +182,7 @@ async function mockAgents(page: Page, options: Options = {}) {
 
 async function openAgents(page: Page) {
   await page.goto('/#agents');
-  await expect(page.getByRole('heading', { name: 'Your agents' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Agents', exact: true, level: 1 })).toBeVisible();
 }
 
 test('the list filters by category, searches and opens an agent', async ({ page }) => {
@@ -187,16 +194,16 @@ test('the list filters by category, searches and opens an agent', async ({ page 
   await page.getByRole('button', { name: /Personal\s*1/ }).click();
   await expect(list.getByRole('listitem')).toHaveCount(1);
   await expect(list.getByText('Groceries')).toBeVisible();
-  await page.getByRole('button', { name: /All\s*2/ }).click();
+  await page.getByRole('group', { name: 'Category' }).getByRole('button', { name: /All\s*2/ }).click();
   await page.getByLabel('Search agents', { exact: true }).fill('logistics');
   await expect(list.getByRole('listitem')).toHaveCount(1);
-  await expect(list.getByText('Work · Logistics')).toBeVisible();
+  await expect(list.getByText('Logistics')).toBeVisible();
   expect(api.calls.some((c) => c.path.includes('q=logistics'))).toBe(true);
   await page.getByLabel('Search agents', { exact: true }).fill('nothing like this');
   await expect(page.getByRole('heading', { name: 'No agents match' })).toBeVisible();
   await page.getByRole('button', { name: 'Clear filters' }).click();
-  await list.getByRole('button', { name: 'Fleet desk' }).click();
-  await expect(page.getByRole('heading', { name: 'Fleet desk', level: 2 })).toBeVisible();
+  await list.getByRole('button', { name: 'Fleet desk', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Fleet desk', level: 1 })).toBeVisible();
   await expect(page.locator('.agentActions').getByRole('button', { name: 'Chat' })).toBeVisible();
   await expect(page.locator('.agentActions').getByRole('button', { name: 'Call' })).toBeVisible();
   await expect(page.locator('.agentActions').getByRole('button', { name: 'Edit' })).toBeVisible();
@@ -253,7 +260,7 @@ test('create an agent from a template, then run a task as it', async ({ page }) 
 test('memory, chat, call summary, pause and delete on an agent\'s page', async ({ page }) => {
   const api = await mockAgents(page);
   await openAgents(page);
-  await page.getByRole('button', { name: 'Fleet desk' }).click();
+  await page.getByRole('button', { name: 'Fleet desk', exact: true }).click();
   const tabs = page.getByRole('navigation', { name: 'Agent sections' });
   await tabs.getByRole('button', { name: 'Memory' }).click();
   await expect(page.getByText('Truck 12 runs on Michelin tyres.')).toBeVisible();
@@ -297,7 +304,7 @@ test('a viewer can open shared agents but not create, change or run them', async
   await openAgents(page);
   await expect(page.getByText('You can use agents shared with this workspace. Members and owners can create agents.')).toBeVisible();
   await expect(page.getByRole('button', { name: 'Create agent' })).toHaveCount(0);
-  await page.getByRole('button', { name: 'Fleet desk' }).click();
+  await page.getByRole('button', { name: 'Fleet desk', exact: true }).click();
   await expect(page.getByText('You can use this agent. Only its creator, or a workspace owner, can change it.')).toBeVisible();
   await expect(page.locator('.agentActions').getByRole('button', { name: 'Edit' })).toHaveCount(0);
   await expect(page.getByText('Viewers cannot run tasks. Ask a member or owner.')).toBeVisible();
@@ -313,7 +320,7 @@ test('failures say what went wrong and offer a retry', async ({ page }) => {
 test('a refused task explains why', async ({ page }) => {
   await mockAgents(page, { runFails: true });
   await openAgents(page);
-  await page.getByRole('button', { name: 'Fleet desk' }).click();
+  await page.getByRole('button', { name: 'Fleet desk', exact: true }).click();
   await page.getByLabel('What should Fleet desk do?').fill('Check tyre wear');
   await page.getByRole('button', { name: 'Run task' }).click();
   await expect(page.getByText('The task did not start: Fleet desk is paused. Resume it in Agents to run tasks with it.')).toBeVisible();
@@ -324,12 +331,12 @@ test('Arabic: the list, the wizard and the agent page are translated and right t
   await useSavedLocale(page, 'ar');
   await page.goto('/#agents');
   await expect(page.locator('html')).toHaveAttribute('dir', 'rtl');
-  await expect(page.getByRole('heading', { name: 'وكلاؤك' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'الوكلاء', exact: true, level: 1 })).toBeVisible();
   await expect(page.getByRole('button', { name: /العمل\s*1/ })).toBeVisible();
   await page.getByRole('button', { name: 'إنشاء وكيل' }).click();
   await expect(page.getByRole('button', { name: /^وكيل الأسطول/ })).toBeVisible();
   await page.getByRole('button', { name: 'إلغاء', exact: true }).click();
-  await page.getByRole('button', { name: 'Fleet desk' }).click();
+  await page.getByRole('button', { name: 'Fleet desk', exact: true }).click();
   for (const label of ['محادثة', 'مكالمة', 'تعديل', 'المزيد']) await expect(page.locator('.agentActions').getByRole('button', { name: label, exact: true })).toBeVisible();
   await expect(page.getByRole('navigation', { name: 'أقسام الوكيل' }).getByRole('button', { name: 'الذاكرة' })).toBeVisible();
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
@@ -343,7 +350,7 @@ test('the Skills tab shows what the agent loads, fixes a missing tool, adds and 
   await openAgents(page);
   const card = page.getByRole('list', { name: 'Your agents' }).getByRole('listitem').first();
   await expect(card.getByText('Release notes')).toBeVisible();
-  await page.getByRole('button', { name: 'Fleet desk' }).click();
+  await page.getByRole('button', { name: 'Fleet desk', exact: true }).click();
   await page.getByRole('navigation', { name: 'Agent sections' }).getByRole('button', { name: 'Skills' }).click();
   const loaded = page.getByRole('list', { name: 'Skills this agent loads' });
   await expect(page.getByText('Ready: 1. Needs attention: 1.')).toBeVisible();
@@ -380,7 +387,7 @@ test('the Skills tab shows what the agent loads, fixes a missing tool, adds and 
 test('a skill turned off in the workspace says who can fix it; a viewer sees the skills read only', async ({ page }) => {
   await mockAgents(page, { role: 'viewer', disabledSkill: 'acme.release-notes', agents: [agentRow('agent_fleet', 'Fleet desk', { sharing: 'workspace', allowed_skills: ['acme.release-notes'] })] });
   await openAgents(page);
-  await page.getByRole('button', { name: 'Fleet desk' }).click();
+  await page.getByRole('button', { name: 'Fleet desk', exact: true }).click();
   await page.getByRole('navigation', { name: 'Agent sections' }).getByRole('button', { name: 'Skills' }).click();
   await expect(page.getByText('Turned off', { exact: true })).toBeVisible();
   await expect(page.getByText(/A workspace owner turned this skill off in Skills/)).toBeVisible();
@@ -392,11 +399,41 @@ test('a skill turned off in the workspace says who can fix it; a viewer sees the
 test('an agent without skills offers to add one, and a failed load can be retried', async ({ page }) => {
   await mockAgents(page, { loadoutFails: 1, agents: [agentRow('agent_fleet', 'Fleet desk')] });
   await openAgents(page);
-  await page.getByRole('button', { name: 'Fleet desk' }).click();
+  await page.getByRole('button', { name: 'Fleet desk', exact: true }).click();
   await page.getByRole('navigation', { name: 'Agent sections' }).getByRole('button', { name: 'Skills' }).click();
   await expect(page.getByRole('alert').getByText(/Could not load this agent’s skills: The skill registry is not reachable./)).toBeVisible();
   await page.getByRole('button', { name: 'Try again' }).click();
   await expect(page.getByRole('heading', { name: 'No skills loaded' })).toBeVisible();
   await page.locator('.compactEmpty').getByRole('button', { name: 'Add a skill' }).click();
   await expect(page.getByRole('button', { name: 'Add Release notes' })).toBeVisible();
+});
+
+test('the overview rail, preview panel, templates and spending tabs show real figures', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await mockAgents(page);
+  await openAgents(page);
+  const rail = page.getByRole('complementary', { name: 'Agents overview' });
+  await expect(rail.getByText('$4.75 of $10.00')).toBeVisible();
+  await expect(page.getByRole('group', { name: 'Status' }).getByRole('button', { name: /Active\s*2/ })).toBeVisible();
+  await page.getByRole('button', { name: 'Show Groceries in the side panel' }).click();
+  const preview = page.locator('.agPreview');
+  await expect(preview.getByRole('heading', { name: 'Groceries' })).toBeVisible();
+  await expect(preview.getByText('Sends, pays or acts outside ANUM only after approval')).toBeVisible();
+  await preview.getByRole('button', { name: 'Memory' }).click();
+  await expect(page.getByRole('heading', { name: 'Groceries', level: 1 })).toBeVisible();
+  await page.locator('.breadcrumbs').getByRole('link', { name: 'Agents' }).click();
+  await page.getByRole('tab', { name: 'Spending and limits' }).click();
+  await expect(page.getByRole('cell', { name: '$3.00' })).toBeVisible();
+  await page.getByRole('tab', { name: 'Templates' }).click();
+  await page.getByRole('button', { name: 'Use the Research Agent template' }).click();
+  await expect(page.getByRole('heading', { name: 'Create an agent', level: 1 })).toBeVisible();
+  await expect(page.getByRole('textbox', { name: 'Name' })).toHaveValue('Research Agent');
+});
+
+test('members see that spending is for owners, never a made-up figure', async ({ page }) => {
+  await mockAgents(page, { role: 'member' });
+  await openAgents(page);
+  await expect(page.getByText('Only workspace owners see spending and caps.')).toBeVisible();
+  await page.getByRole('tab', { name: 'Spending and limits' }).click();
+  await expect(page.getByRole('heading', { name: 'Spending is for workspace owners' })).toBeVisible();
 });

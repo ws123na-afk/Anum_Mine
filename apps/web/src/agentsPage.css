@@ -1,0 +1,153 @@
+/* The Agents page layout (docs/agents.md#the-agents-page): overview rail, card grid, preview panel,
+   and the agent page's three columns. Shared tokens only; logical properties for RTL. */
+.agPage { gap: var(--d-s4); }
+.agPage > *, .agBoard > *, .agDetailGrid > * { min-width: 0; }
+.agSmall { font-size: var(--text-sm); margin: 0; }
+.agentAvatar.xl { border-radius: var(--d-r-panel); height: 64px; width: 64px; }
+.agentAvatar.xl svg { height: 30px; width: 30px; }
+
+/* Board: rail | cards | preview. The preview shows from 1280px; the rail stacks under 1024px. */
+.agBoard { align-items: start; display: grid; gap: var(--d-s4); }
+.agRail, .agMain, .agDetailSide, .agDetailMain { align-content: start; display: grid; gap: var(--d-s3); min-width: 0; }
+.agRail .finCard, .agDetailSide .finCard { gap: var(--d-s2); padding: var(--d-s4); }
+.agRail .finCardHead h2, .agDetailSide .finCardHead h2, .agPreview h2 { font-size: var(--text-md); }
+@media (min-width: 1024px) { .agBoard { grid-template-columns: minmax(240px, 270px) minmax(0, 1fr); } }
+@media (min-width: 1280px) { .agBoard:has(> .agPreview) { grid-template-columns: minmax(230px, 250px) minmax(0, 1fr) minmax(290px, 320px); } }
+@media (max-width: 1023px) {
+  .agRail { grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr)); order: 2; }
+}
+
+/* Overview and spending */
+.agOverview { display: grid; gap: var(--d-s2); grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 0; }
+.agOverview div { display: flex; flex-direction: column-reverse; gap: 2px; }
+.agOverview dt { align-items: center; color: var(--d-muted); display: inline-flex; font-size: var(--text-xs); gap: 4px; }
+.agOverview dd { font-size: var(--text-2xl); font-variant-numeric: tabular-nums; font-weight: 700; margin: 0; }
+.agSpendFigure { align-items: baseline; display: flex; flex-wrap: wrap; gap: var(--d-s2); justify-content: space-between; margin: 0; }
+.agSpendFigure strong { font-size: var(--text-lg); font-variant-numeric: tabular-nums; }
+.agSpendFigure span { color: var(--d-muted); font-size: var(--text-sm); font-variant-numeric: tabular-nums; }
+.agMeter { background: var(--d-glass-2); border-radius: var(--d-r-pill); display: block; height: 6px; overflow: hidden; width: 100%; }
+.agMeter > span { background: var(--d-primary); border-radius: inherit; display: block; height: 100%; }
+.agMeter.warn > span { background: var(--d-warn); }
+.agMeter.bad > span { background: var(--d-stop); }
+.agMeterCell { align-items: center; display: flex; gap: var(--d-s2); min-width: 120px; }
+.agMeterCell .agMeter { flex: 1; }
+.agDot { background: var(--d-faint); border-radius: 50%; display: inline-block; flex: none; height: 8px; width: 8px; }
+.agDot.active, .agChip.active .agDot { background: var(--d-ok); }
+.agDot.paused, .agChip.paused .agDot { background: var(--d-warn); }
+
+/* Start card */
+.agStartSteps { display: flex; gap: var(--d-s2); justify-content: space-between; list-style: none; margin: 0; padding: 0; }
+.agStartSteps li { align-items: center; color: var(--d-muted); display: grid; font-size: var(--text-xs); gap: 4px; justify-items: center; }
+.agStartSteps span { align-items: center; border: 1px solid var(--d-line-strong); border-radius: 50%; display: inline-flex; font-weight: 700; height: 24px; justify-content: center; width: 24px; }
+.agStartSteps li[aria-current="step"] { color: var(--d-text); font-weight: 600; }
+.agStartSteps li[aria-current="step"] span { background: var(--d-primary); border-color: var(--d-primary); color: var(--d-on-primary); }
+.agStartChoices { border: 0; display: grid; gap: var(--d-s2); margin: 0; padding: 0; }
+.agStartChoices legend { color: var(--d-muted); font-size: var(--text-sm); margin-bottom: var(--d-s1); padding: 0; }
+.agStartChoice { align-items: start; border: 1px solid var(--d-line); border-radius: var(--d-r-control); cursor: pointer; display: grid; gap: var(--d-s2); grid-template-columns: auto minmax(0, 1fr); padding: var(--d-s2) var(--d-s3); }
+.agStartChoice.on { background: rgb(var(--c-ok) / .08); border-color: rgb(var(--c-ok) / .45); }
+.agStartChoice input { margin-top: 3px; }
+.agStartChoice span { display: grid; gap: 2px; }
+.agStartChoice strong { font-size: var(--text-sm); }
+.agStartChoice small { color: var(--d-muted); font-size: var(--text-xs); }
+.agRail .finCard > button { align-items: center; display: inline-flex; gap: var(--d-s2); justify-content: center; min-height: 40px; }
+.agRail .finCard > button svg { height: 16px; width: 16px; }
+
+/* Filters */
+.agFilters { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2) var(--d-s3); }
+.agChips { display: flex; flex-wrap: wrap; gap: var(--d-s2); }
+.agChip {
+  align-items: center; background: var(--d-surface-1); border: 1px solid var(--d-line); border-radius: var(--d-r-pill); color: var(--d-text); cursor: pointer;
+  display: inline-flex; font: inherit; font-size: var(--text-sm); gap: 6px; min-height: 36px; padding: 0 var(--d-s3);
+}
+.agChip[aria-pressed="true"] { background: rgb(var(--c-ok) / .1); border-color: rgb(var(--c-ok) / .5); font-weight: 600; }
+.agCategories button { min-height: 36px; }
+.agFilters .agentSearch { flex: 1 1 200px; }
+
+/* Cards */
+.agentGrid.agCards { grid-template-columns: repeat(auto-fill, minmax(min(100%, 240px), 1fr)); }
+.agCard:hover { border-color: var(--d-line-strong); }
+.agCard:focus-within { border-color: rgb(var(--c-sky) / .5); }
+.agCard.isPaused .agentAvatar { filter: grayscale(.7); }
+.agCard { align-content: start; display: grid; position: relative; gap: var(--d-s2); grid-template-columns: minmax(0, 1fr); padding: var(--d-s4); }
+.agCard.isSelected { border-color: rgb(var(--c-ok) / .7); box-shadow: 0 0 0 1px rgb(var(--c-ok) / .5); }
+.agCardHead { align-items: center; display: grid; gap: var(--d-s2); grid-template-columns: auto minmax(0, 1fr) auto; }
+.agCardHead h3 { font-size: var(--text-md); line-height: 1.25; margin: 0; overflow-wrap: anywhere; }
+.agCardText { color: var(--d-muted); display: -webkit-box; font-size: var(--text-sm); margin: 0; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.agCardFacts { display: grid; font-size: var(--text-sm); gap: 4px; margin: 0; }
+.agCardFacts div { align-items: baseline; display: flex; gap: var(--d-s2); min-width: 0; }
+.agCardFacts dt { align-items: center; color: var(--d-muted); display: inline-flex; flex: none; gap: 4px; }
+.agCardFacts dt svg { height: 14px; width: 14px; }
+.agCardFacts dd { font-weight: 500; margin: 0; min-width: 0; }
+.agTags { display: flex; flex-wrap: wrap; gap: 4px; }
+.agTag { background: var(--d-glass-1); border: 1px solid var(--d-line); border-radius: var(--d-r-control); font-size: var(--text-xs); max-width: 100%; overflow: hidden; padding: 0 6px; text-overflow: ellipsis; white-space: nowrap; }
+.agApproval { align-items: center; border-radius: var(--d-r-pill); display: inline-flex; font-size: var(--text-xs); font-weight: 600; gap: 4px; justify-self: start; margin: 0; padding: 2px 8px; }
+.agApproval svg { height: 14px; width: 14px; }
+.agApproval.warn { background: rgb(var(--c-warn) / .14); color: var(--d-warn); }
+.agApproval.ok { background: rgb(var(--c-ok) / .12); color: var(--d-ok); }
+.agApproval.muted { background: var(--d-glass-2); color: var(--d-muted); }
+.agCardSpend { display: grid; font-size: var(--text-sm); gap: 4px; grid-template-columns: minmax(0, 1fr) auto; }
+.agCardSpend span { color: var(--d-muted); }
+.agCardSpend strong { font-variant-numeric: tabular-nums; }
+.agCardSpend .agMeter { grid-column: 1 / -1; }
+.agCardFoot { align-items: center; border-top: 1px solid var(--d-line); color: var(--d-faint); display: flex; flex-wrap: wrap; font-size: var(--text-xs); gap: var(--d-s1) var(--d-s3); padding-top: var(--d-s2); }
+.agCardFoot span { align-items: center; display: inline-flex; gap: 4px; }
+.agCardFoot svg { height: 13px; width: 13px; }
+.agCardFoot .avatarChip { margin-inline-start: auto; }
+.agPreviewToggle {
+  align-items: center; background: var(--d-surface-1); border: 1px solid var(--d-line); border-radius: 50%; color: var(--d-muted); display: inline-flex; flex: none; height: 32px;
+  justify-content: center; padding: 0; position: relative; width: 32px; z-index: 1;
+}
+.agPreviewToggle[aria-pressed="true"] { background: var(--d-primary); border-color: var(--d-primary); color: var(--d-on-primary); }
+.agPreviewToggle svg { height: 16px; width: 16px; }
+
+/* Preview panel */
+.agPreview { position: sticky; top: var(--d-s3); }
+.agPreviewHead { align-items: start; display: grid; gap: var(--d-s3); grid-template-columns: auto minmax(0, 1fr) auto; }
+.agPreviewHead h2 { font-size: var(--text-lg); margin: 0 0 4px; overflow-wrap: anywhere; }
+.agPreviewActions { display: grid; gap: var(--d-s2); grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.agPreviewActions button { align-items: center; display: inline-flex; gap: 6px; justify-content: center; min-height: 40px; padding: 0 var(--d-s2); }
+.agPreviewActions svg { height: 16px; width: 16px; }
+.agPreviewLinks { border-bottom: 1px solid var(--d-line); display: flex; flex-wrap: wrap; gap: var(--d-s3); padding-bottom: var(--d-s2); }
+.agPreviewBlock { border-bottom: 1px solid var(--d-line); display: grid; gap: 4px; padding-bottom: var(--d-s2); }
+.agPreviewBlock:last-child { border-bottom: 0; padding-bottom: 0; }
+.agPreviewBlock h3 { font-size: var(--text-sm); margin: 0; }
+.agPreviewBlock p { font-size: var(--text-sm); margin: 0; overflow-wrap: anywhere; }
+.agBoundaries { display: grid; gap: 6px; list-style: none; margin: 0; padding: 0; }
+.agBoundaries li { align-items: start; display: grid; font-size: var(--text-sm); gap: var(--d-s2); grid-template-columns: 16px minmax(0, 1fr); }
+.agBoundaries svg { height: 16px; margin-top: 2px; width: 16px; }
+.agBoundaries li.ok svg { color: var(--d-ok); }
+.agBoundaries li.warn svg { color: var(--d-warn); }
+
+/* Templates tab */
+.agTemplateGrid { display: grid; gap: var(--d-s3); grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr)); list-style: none; margin: 0; padding: 0; }
+.agTemplate { align-items: start; border: 1px solid var(--d-line); border-radius: var(--d-r-control); display: grid; gap: var(--d-s3); grid-template-columns: 44px minmax(0, 1fr); padding: var(--d-s3); }
+.agTemplate h3 { font-size: var(--text-md); margin: 0 0 2px; }
+.agTemplate > button { grid-column: 2; justify-self: start; }
+.agTemplate .templateMissing { color: var(--d-warn); }
+
+/* The agent's page */
+.agHero { align-items: center; display: grid; gap: var(--d-s3) var(--d-s4); grid-template-columns: auto minmax(0, 1fr) auto; }
+.agHeroTitle { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2) var(--d-s3); }
+.agHeroTitle h1 { font-size: var(--text-3xl); line-height: 1.15; margin: 0; overflow-wrap: anywhere; }
+.agHero .agentHeroText p { margin: 4px 0 0; }
+.agHero .agentActions { display: flex; flex-wrap: wrap; gap: var(--d-s2); }
+.agDetailTabs { margin: 0; }
+.agDetailGrid { align-items: start; display: grid; gap: var(--d-s4); }
+@media (min-width: 1024px) { .agDetailGrid { grid-template-columns: minmax(240px, 280px) minmax(0, 1fr); } .agDetailSide { grid-column: 1 / -1; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); } }
+@media (min-width: 1440px) { .agDetailGrid { grid-template-columns: minmax(240px, 270px) minmax(0, 1fr) minmax(300px, 360px); } .agDetailSide { grid-column: auto; grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 760px) { .agHero { grid-template-columns: auto minmax(0, 1fr); } .agHero .agentActions { grid-column: 1 / -1; } }
+.agDetailMain .agentColumns { margin: 0; }
+.agIdentityHead { align-items: center; display: grid; gap: var(--d-s3); grid-template-columns: auto minmax(0, 1fr); }
+.agIdentityHead div { display: grid; gap: 4px; justify-items: start; }
+.agFactList { display: grid; margin: 0; }
+.agFactList div { border-bottom: 1px solid var(--d-line); display: flex; font-size: var(--text-sm); gap: var(--d-s2); justify-content: space-between; padding: 6px 0; }
+.agFactList div:last-child { border-bottom: 0; }
+.agFactList dt { color: var(--d-muted); }
+.agFactList dd { font-weight: 500; margin: 0; overflow-wrap: anywhere; text-align: end; }
+.agWizardTitle { font-size: var(--text-2xl); margin: 0; }
+
+/* The preview panel and its toggles exist only where the panel fits beside the cards. */
+@media (max-width: 1279px) {
+  .agPreview, .agPreviewToggle { display: none; }
+  .agCard.isSelected { border-color: var(--d-line); box-shadow: none; }
+}

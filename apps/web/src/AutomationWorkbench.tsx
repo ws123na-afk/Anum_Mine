@@ -1,18 +1,21 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
-import { ArrowDown, ArrowLeft, ArrowUp, CalendarClock, ChevronDown, ChevronRight, CircleDot, ExternalLink, Pause, Pencil, Play, Plus, RefreshCw, RotateCcw, Search, Square, Trash2, UserCheck, Workflow, X } from 'lucide-react';
+import { AlertTriangle, ArrowDown, ArrowLeft, ArrowUp, CalendarClock, ChevronDown, ChevronRight, CircleDot, ExternalLink, History, Hourglass, Pause, Pencil, Play, Plus, RefreshCw, RotateCcw, Save, Search, Settings2, ShieldCheck, Square, Trash2, UserCheck, Workflow, X, Zap } from 'lucide-react';
+import { FinancePageHead, FinanceTabs, FinBanner, FinCard, KpiCard, KpiRow, StatusChip, tabPanel } from './FinanceShell';
+import { Breadcrumbs } from './PageParts';
 import { AutomationTriggers } from './AutomationTriggers';
 import { listEmailAccounts } from './lib/emailApi';
 import * as api from './lib/api';
 import * as automationApi from './lib/automationApi';
 import {
   OVERLAP_POLICIES, SCHEDULE_PRESETS, STEP_ACTIONS, manageHint, actionLabel, automationError, browserTimeZone, canEdit, canManage, canTakeOver, checkDraft,
-  createdTaskId, cronShapeError, cronWords, runStatusLabel, waitingLabel, draftFromWorkflow, editHint, emptyDraft, formatTime, intervalCron, moveStep, newStep, nextRunLabel, nextTimes, outcomeLabel,
+  createdTaskId, cronShapeError, stepCounts, cronWords, runStatusLabel, waitingLabel, draftFromWorkflow, editHint, emptyDraft, formatTime, intervalCron, moveStep, newStep, nextRunLabel, nextTimes, outcomeLabel,
   overlapLabel, pageLabel, relativeTime, removeStep, runDuration, runProgress, statusLabel, statusTone, timeZones, triggerLabel,
   type AutomationRun, type AutomationSchedule, type AutomationWorkflow, type FieldErrors, type Page, type RunStatus, type SchedulePreview,
   type StepAction, type StepDraft, type Viewer, type WorkflowDraft,
 } from './lib/automation';
 import { t } from './lib/i18n';
 import './workbench.css';
+import './automationPage.css';
 
 const PAGE_SIZE = 20;
 const RUN_PAGE_SIZE = 10;
@@ -27,9 +30,10 @@ function Notice({ children, error }: { children: ReactNode; error?: boolean }) {
 function Badge({ status }: { status: string }) { return <span className={`statusBadge ${statusTone(status)}`}>{statusLabel(status)}</span>; }
 
 /**
- * Automations (docs/automation.md): a searchable, paged list; the selected automation's steps,
- * schedules and run history; a composer for creating and editing. Owners change any automation,
- * members their own, viewers read only; the page says so instead of showing dead buttons.
+ * Automations (docs/automation.md): the page head with the Workflows and Runs tabs, the figures,
+ * the searchable, paged table, and beside it the selected automation's steps, schedules, triggers
+ * and run history; the builder for creating and editing. Owners change any automation, members
+ * their own, viewers read only; the page says so instead of showing dead buttons.
  */
 export function AutomationWorkbench({ focus = null, onOpenTask, refreshSignal = 0 }: { focus?: AutomationFocus | null; onOpenTask?: (taskId: string) => void; refreshSignal?: number }) {
   const [viewer, setViewer] = useState<Viewer>({ userId: api.currentUserId(), role: null });
@@ -42,12 +46,14 @@ export function AutomationWorkbench({ focus = null, onOpenTask, refreshSignal = 
   const [selectedId, setSelectedId] = useState<string | null>(focus?.workflowId ?? null);
   const [mode, setMode] = useState<'view' | 'create' | 'edit'>('view');
   const [pane, setPane] = useState<'list' | 'detail'>(focus ? 'detail' : 'list');
+  const [tab, setTab] = useState<'workflows' | 'runs'>('workflows');
   const [notice, setNotice] = useState<string | null>(null);
+  const [bannerOpen, setBannerOpen] = useState(true);
   const reload = useCallback(() => setTick((t) => t + 1), []);
 
   // Only a changed search goes back to the first page; the mount (query unchanged) must not undo a page the person already moved to.
   useEffect(() => { if (query === debounced) return; const timer = setTimeout(() => { setDebounced(query); setOffset(0); }, 250); return () => clearTimeout(timer); }, [query]); // eslint-disable-line react-hooks/exhaustive-deps
-  useEffect(() => { if (focus) { setSelectedId(focus.workflowId); setMode('view'); setPane('detail'); } }, [focus]);
+  useEffect(() => { if (focus) { setSelectedId(focus.workflowId); setMode('view'); setPane('detail'); setTab('workflows'); } }, [focus]);
   useEffect(() => {
     let live = true;
     setList((current) => current.state === 'ready' ? current : { state: 'loading' });
@@ -56,27 +62,39 @@ export function AutomationWorkbench({ focus = null, onOpenTask, refreshSignal = 
       .catch((error) => { if (live) setList({ state: 'error', message: automationError(error), status: statusOf(error) }); });
     return () => { live = false; };
   }, [debounced, statusFilter, offset, tick, refreshSignal]);
+  const figures = useAutomationFigures(tick + refreshSignal);
 
-  const select = (id: string) => { setSelectedId(id); setMode('view'); setPane('detail'); setNotice(null); };
-  const startCreate = () => { setMode('create'); setPane('detail'); setNotice(null); };
+  const select = (id: string) => { setSelectedId(id); setMode('view'); setPane('detail'); setNotice(null); setTab('workflows'); };
+  const startCreate = () => { setMode('create'); setPane('detail'); setNotice(null); setTab('workflows'); };
   const filtered = Boolean(debounced.trim() || statusFilter);
+  const building = mode === 'create' || mode === 'edit';
 
-  return <div className="autoPage">
-    <section className="moduleIntro">
-      <div><p className="eyebrow">{t('auto.eyebrow')}</p><h2>{t('auto.title')}</h2><p>{t('auto.intro')}</p></div>
-      <div className="actions">
+  return <div className={`autoPage ${building ? 'isBuilding' : ''}`}>
+    {!building && <FinancePageHead title={t('auto.title')} subtitle={t('autoPage.subtitle')}
+      actions={<>
         <button type="button" className="secondary" onClick={reload}><RefreshCw aria-hidden="true" />{t('auto.refresh')}</button>
-        {manage && <button type="button" onClick={startCreate}><Plus aria-hidden="true" />{t('auto.new')}</button>}
-      </div>
-    </section>
+        {manage && <button type="button" onClick={startCreate}><Plus aria-hidden="true" />{t('auto.create')}</button>}
+      </>}
+      tabs={<FinanceTabs label={t('autoPage.tabs')} idPrefix="auto" value={tab} onChange={setTab} items={[
+        { id: 'workflows', label: t('autoPage.tab.workflows') }, { id: 'runs', label: t('autoPage.tab.runs') },
+      ]} />} />}
+    {!building && bannerOpen && <FinBanner tone="ok" icon={<ShieldCheck />}
+      action={<button type="button" className="iconButton" aria-label={t('autoPage.bannerHide')} title={t('autoPage.bannerHide')} onClick={() => setBannerOpen(false)}><X aria-hidden="true" /></button>}>{t('autoPage.banner')}</FinBanner>}
     {!manage && <Notice>{manageHint()}</Notice>}
     {notice && <Notice>{notice}</Notice>}
-    <div className="autoLayout" data-pane={pane}>
-      <section className="surface autoList" aria-labelledby="autoListTitle">
-        <div className="sectionHeader"><h2 id="autoListTitle">{t('auto.listTitle')}</h2>{list.state === 'ready' && <span className="muted">{t('auto.total', { count: list.value.total })}</span>}</div>
+    {!building && <KpiRow label={t('autoPage.figures')}>
+      <KpiCard icon={<Zap />} label={t('autoPage.fig.workflows')} value={figureText(figures.workflows)} hint={t('autoPage.fig.workflowsHint')} />
+      <KpiCard icon={<Play />} label={t('autoPage.fig.active')} value={figureText(figures.active)} hint={t('autoPage.fig.activeHint')} tone={figures.active.state === 'ready' && figures.active.value > 0 ? 'good' : ''} />
+      <KpiCard icon={<Hourglass />} label={t('autoPage.fig.waiting')} value={figureText(figures.waiting)} hint={t('autoPage.fig.waitingHint')} tone={figures.waiting.state === 'ready' && figures.waiting.value > 0 ? 'warn' : ''} />
+      <KpiCard icon={<AlertTriangle />} label={t('autoPage.fig.failed')} value={figureText(figures.failed)} hint={t('autoPage.fig.failedHint')} tone={figures.failed.state === 'ready' && figures.failed.value > 0 ? 'bad' : ''} />
+    </KpiRow>}
+    {tab === 'runs' && !building && <div {...tabPanel('auto', 'runs')}><AllRuns tick={tick + refreshSignal} onOpen={select} /></div>}
+    {(tab === 'workflows' || building) && <div {...(building ? {} : tabPanel('auto', 'workflows'))} className={`autoLayout ${building ? 'isBuilding' : ''}`} data-pane={pane}>
+      {!building && <section className="finCard autoList" aria-labelledby="autoListTitle">
+        <div className="finCardHead"><h2 id="autoListTitle">{t('auto.listTitle')}</h2>{list.state === 'ready' && <span className="muted">{t('auto.total', { count: list.value.total })}</span>}</div>
         <div className="autoFilters">
-          <label className="field"><span>{t('auto.search')}</span><input type="search" value={query} placeholder={t('auto.searchPlaceholder')} onChange={(e) => setQuery(e.target.value)} /></label>
-          <label className="field"><span>{t('auto.statusFilter')}</span><select value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value as typeof statusFilter); setOffset(0); }}><option value="">{t('auto.filter.all')}</option><option value="active">{t('auto.filter.active')}</option><option value="disabled">{t('auto.filter.paused')}</option></select></label>
+          <label className="field autoSearchField"><span className="visuallyHidden">{t('auto.search')}</span><Search aria-hidden="true" /><input type="search" aria-label={t('auto.search')} value={query} placeholder={t('auto.searchPlaceholder')} onChange={(e) => setQuery(e.target.value)} /></label>
+          <label className="field"><span className="visuallyHidden">{t('auto.statusFilter')}</span><select aria-label={t('auto.statusFilter')} value={statusFilter} onChange={(e) => { setStatusFilter(e.target.value as typeof statusFilter); setOffset(0); }}><option value="">{t('autoPage.filter.all')}</option><option value="active">{t('autoPage.filter.active')}</option><option value="disabled">{t('autoPage.filter.paused')}</option></select></label>
         </div>
         {list.state === 'loading' && <p className="muted autoPad" role="status">{t('auto.loadingList')}</p>}
         {list.state === 'error' && <div className="autoPad"><Notice error>{list.status === 403 ? list.message : t('auto.loadFailed', { message: list.message })}</Notice>{list.status !== 403 && <div className="actions"><button type="button" className="secondary" onClick={reload}><RefreshCw aria-hidden="true" />{t('common.tryAgain')}</button></div>}</div>}
@@ -84,23 +102,33 @@ export function AutomationWorkbench({ focus = null, onOpenTask, refreshSignal = 
           ? <div className="emptyState"><Search aria-hidden="true" /><h3>{t('auto.noMatches')}</h3><p>{t('auto.noMatchesText')}</p><button type="button" className="secondary autoInlineButton" onClick={() => { setQuery(''); setDebounced(''); setStatusFilter(''); setOffset(0); }}>{t('auto.clearFilters')}</button></div>
           : <div className="emptyState"><Workflow aria-hidden="true" /><h3>{t('auto.emptyTitle')}</h3><p>{manage ? t('auto.emptyManage') : t('auto.emptyRead')}</p>{manage && <button type="button" className="autoInlineButton" onClick={startCreate}><Plus aria-hidden="true" />{t('auto.create')}</button>}</div>)}
         {list.state === 'ready' && list.value.items.length > 0 && <>
-          <ul className="autoRows" aria-label={t('auto.title')}>
-            {list.value.items.map((item) => <li key={item.id}>
-              <button type="button" className={`recordButton autoRow ${item.id === selectedId && mode !== 'create' ? 'selected' : ''}`} aria-current={item.id === selectedId && mode !== 'create' ? 'true' : undefined} onClick={() => select(item.id)}>
-                <span><strong dir="auto">{item.name}</strong><small>{item.last_run_status ? t('auto.row.lastRun', { status: statusLabel(item.last_run_status).toLowerCase(), when: relativeTime(item.last_run_at) }, { isolate: false }) : t('auto.row.neverRun')}{item.next_run_at ? ` · ${t('auto.row.next', { when: relativeTime(item.next_run_at) }, { isolate: false })}` : ''}</small></span>
-                <Badge status={item.status} />
-              </button>
-            </li>)}
-          </ul>
+          <div className="finTableWrap" tabIndex={0} role="region" aria-label={t('auto.listTitle')}><table className="finGrid autoTable" aria-label={t('auto.title')}>
+            <thead><tr>
+              <th scope="col">{t('autoPage.col.workflow')}</th><th scope="col">{t('autoPage.col.next')}</th><th scope="col">{t('autoPage.col.last')}</th>
+              <th scope="col">{t('autoPage.col.status')}</th><th scope="col" className="autoOptional">{t('autoPage.col.owner')}</th>
+            </tr></thead>
+            <tbody>{list.value.items.map((item) => {
+              const current = item.id === selectedId;
+              return <tr key={item.id} className={current ? 'selected' : undefined}>
+                <th scope="row"><button type="button" className="recordButton autoRow" aria-current={current ? 'true' : undefined} onClick={() => select(item.id)}>
+                  <Workflow aria-hidden="true" /><span><strong dir="auto">{item.name}</strong><small dir="auto">{item.description || t('auto.noDescription')}</small></span>
+                </button></th>
+                <td>{item.status === 'disabled' ? <span className="muted">{t('auto.status.disabled')}</span> : item.next_run_at ? <span title={formatTime(item.next_run_at)}>{relativeTime(item.next_run_at)}</span> : <span className="muted">{t('autoPage.noSchedule')}</span>}</td>
+                <td>{item.last_run_status ? <span className="autoLast"><StatusChip tone={chipTone(item.last_run_status)}>{statusLabel(item.last_run_status)}</StatusChip><small className="muted">{relativeTime(item.last_run_at)}</small></span> : <span className="muted">{t('auto.row.neverRun')}</span>}</td>
+                <td><StatusChip tone={chipTone(item.status)}>{statusLabel(item.status)}</StatusChip></td>
+                <td className="autoOptional"><span dir="auto">{item.created_by === viewer.userId ? t('autoPage.you') : item.created_by ?? t('auto.fact.unknown')}</span></td>
+              </tr>;
+            })}</tbody>
+          </table></div>
           {list.value.total > PAGE_SIZE && <nav className="autoPager" aria-label={t('auto.pages')}>
-            <button type="button" className="secondary" disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}>{t('auto.previous')}</button>
             <span className="muted" aria-live="polite">{pageLabel(offset, list.value.items.length, list.value.total)}</span>
+            <button type="button" className="secondary" disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}>{t('auto.previous')}</button>
             <button type="button" className="secondary" disabled={offset + PAGE_SIZE >= list.value.total} onClick={() => setOffset(offset + PAGE_SIZE)}>{t('auto.next')}</button>
           </nav>}
         </>}
-      </section>
+      </section>}
       <section className="autoDetail" aria-label={t('auto.detail')}>
-        <button type="button" className="secondary autoBack" onClick={() => { setPane('list'); setMode('view'); }}><ArrowLeft aria-hidden="true" className="flipRtl" />{t('auto.listTitle')}</button>
+        {!building && <button type="button" className="secondary autoBack" onClick={() => { setPane('list'); setMode('view'); }}><ArrowLeft aria-hidden="true" className="flipRtl" />{t('auto.listTitle')}</button>}
         {mode === 'create' && <Composer viewer={viewer} onCancel={() => { setMode('view'); if (!selectedId) setPane('list'); }} onSaved={(saved) => { setSelectedId(saved.id); setMode('view'); setNotice(t('auto.created', { name: saved.name })); setOffset(0); reload(); }} />}
         {mode !== 'create' && selectedId && <Detail key={selectedId} workflowId={selectedId} viewer={viewer} editing={mode === 'edit'} tick={tick + refreshSignal}
           focusRunId={focus?.workflowId === selectedId ? focus.runId : undefined}
@@ -108,10 +136,69 @@ export function AutomationWorkbench({ focus = null, onOpenTask, refreshSignal = 
           onChanged={(message) => { setNotice(message); reload(); }}
           onDeleted={(name) => { setSelectedId(null); setMode('view'); setPane('list'); setNotice(t('auto.deleted', { name })); reload(); }}
           onOpenTask={onOpenTask} />}
-        {mode !== 'create' && !selectedId && list.state === 'ready' && list.value.items.length > 0 && <div className="surface emptyState"><Workflow aria-hidden="true" /><h3>{t('auto.selectTitle')}</h3><p>{t('auto.selectText')}</p></div>}
+        {mode !== 'create' && !selectedId && list.state === 'ready' && list.value.items.length > 0 && <div className="finCard emptyState"><Workflow aria-hidden="true" /><h3>{t('auto.selectTitle')}</h3><p>{t('auto.selectText')}</p></div>}
       </section>
-    </div>
+    </div>}
   </div>;
+}
+
+type Count = { state: 'loading' } | { state: 'ready'; value: number } | { state: 'error' };
+const figureText = (count: Count): string => count.state === 'ready' ? String(count.value) : count.state === 'loading' ? '…' : '-';
+const chipTone = (status: string | null | undefined): 'ok' | 'warn' | 'bad' | 'muted' => {
+  const tone = statusTone(status);
+  return tone === 'success' ? 'ok' : tone === 'warning' ? 'warn' : tone === 'dangerTone' ? 'bad' : 'muted';
+};
+
+/** The four figures: totals the API counts (one-row reads), never numbers made up here. */
+function useAutomationFigures(tick: number): { workflows: Count; active: Count; waiting: Count; failed: Count } {
+  const [figures, setFigures] = useState<{ workflows: Count; active: Count; waiting: Count; failed: Count }>({ workflows: { state: 'loading' }, active: { state: 'loading' }, waiting: { state: 'loading' }, failed: { state: 'loading' } });
+  useEffect(() => {
+    let live = true;
+    const count = (read: Promise<Page<unknown>>): Promise<Count> => read.then((page) => ({ state: 'ready' as const, value: page.total }), () => ({ state: 'error' as const }));
+    void Promise.all([
+      count(automationApi.listWorkflows({ limit: 1, offset: 0 })), count(automationApi.listWorkflows({ status: 'active', limit: 1, offset: 0 })),
+      count(automationApi.listRuns({ status: 'paused', limit: 1, offset: 0 })), count(automationApi.listRuns({ status: 'failed', limit: 1, offset: 0 })),
+    ]).then(([workflows, active, waiting, failed]) => { if (live) setFigures({ workflows, active, waiting, failed }); });
+    return () => { live = false; };
+  }, [tick]);
+  return figures;
+}
+
+/** Every run across the workspace's automations, newest first, with a status filter and paging. */
+function AllRuns({ tick, onOpen }: { tick: number; onOpen(workflowId: string): void }) {
+  const [status, setStatus] = useState<'' | RunStatus>(''), [offset, setOffset] = useState(0), [localTick, setLocalTick] = useState(0);
+  const [load, setLoad] = useState<Load<Page<AutomationRun>>>({ state: 'loading' });
+  useEffect(() => {
+    let live = true;
+    setLoad({ state: 'loading' });
+    automationApi.listRuns({ status, limit: PAGE_SIZE, offset }).then((value) => { if (live) setLoad({ state: 'ready', value }); })
+      .catch((e) => { if (live) setLoad({ state: 'error', message: automationError(e), status: statusOf(e) }); });
+    return () => { live = false; };
+  }, [status, offset, tick, localTick]);
+  return <FinCard title={t('autoPage.runs.title')} icon={<History />} actions={<label className="autoInlineField"><span>{t('auto.runs.show')}</span><select value={status} onChange={(e) => { setStatus(e.target.value as typeof status); setOffset(0); }}>
+    <option value="">{t('auto.runs.all')}</option><option value="running">{t('auto.runs.running')}</option><option value="failed">{t('auto.runs.failed')}</option><option value="paused">{t('auto.runs.waiting')}</option><option value="completed">{t('auto.runs.completed')}</option><option value="cancelled">{t('auto.runs.cancelled')}</option>
+  </select></label>}>
+    {load.state === 'loading' && <p className="muted" role="status">{t('auto.runs.loading')}</p>}
+    {load.state === 'error' && <><Notice error>{load.status === 403 ? load.message : t('auto.runs.loadFailed', { message: load.message })}</Notice>{load.status !== 403 && <div className="actions"><button type="button" className="secondary" onClick={() => setLocalTick((n) => n + 1)}><RefreshCw aria-hidden="true" />{t('common.tryAgain')}</button></div>}</>}
+    {load.state === 'ready' && load.value.items.length === 0 && <div className="emptyState autoCompactEmpty"><Workflow aria-hidden="true" /><h3>{status ? t('auto.runs.emptyFiltered') : t('auto.runs.empty')}</h3><p>{status ? t('auto.runs.emptyFilteredText') : t('autoPage.runs.emptyText')}</p></div>}
+    {load.state === 'ready' && load.value.items.length > 0 && <>
+      <div className="finTableWrap" tabIndex={0} role="region" aria-label={t('autoPage.runs.title')}><table className="finGrid">
+        <thead><tr><th scope="col">{t('autoPage.runs.started')}</th><th scope="col">{t('autoPage.col.workflow')}</th><th scope="col">{t('autoPage.runs.trigger')}</th><th scope="col">{t('autoPage.col.status')}</th><th scope="col">{t('autoPage.runs.progress')}</th></tr></thead>
+        <tbody>{load.value.items.map((run) => <tr key={run.id}>
+          <td>{formatTime(run.created_at)}</td>
+          <th scope="row"><button type="button" className="linkButton" onClick={() => onOpen(run.workflow_id)} dir="auto">{run.workflow_name ?? run.workflow_id}</button></th>
+          <td>{triggerLabel(run.trigger)}</td>
+          <td><StatusChip tone={chipTone(run.status)}>{runStatusLabel(run)}</StatusChip></td>
+          <td>{runProgress(run)}{runDuration(run) ? ` · ${runDuration(run)}` : ''}</td>
+        </tr>)}</tbody>
+      </table></div>
+      {load.value.total > PAGE_SIZE && <nav className="autoPager" aria-label={t('auto.runs.pages')}>
+        <span className="muted" aria-live="polite">{pageLabel(offset, load.value.items.length, load.value.total)}</span>
+        <button type="button" className="secondary" disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}>{t('auto.runs.newer')}</button>
+        <button type="button" className="secondary" disabled={offset + PAGE_SIZE >= load.value.total} onClick={() => setOffset(offset + PAGE_SIZE)}>{t('auto.runs.older')}</button>
+      </nav>}
+    </>}
+  </FinCard>;
 }
 
 // ------------------------------------------------------------------------------- Detail
@@ -133,8 +220,8 @@ function Detail({ workflowId, viewer, editing, tick, focusRunId, onEdit, onEditD
   useEffect(() => { if (confirming) confirmButton.current?.focus(); }, [confirming]);
   const refresh = () => setLocalTick((t) => t + 1);
 
-  if (load.state === 'loading') return <div className="surface autoPad" role="status">{t('auto.loadingOne')}</div>;
-  if (load.state === 'error') return <div className="surface autoPad">
+  if (load.state === 'loading') return <div className="finCard autoPad" role="status">{t('auto.loadingOne')}</div>;
+  if (load.state === 'error') return <div className="finCard autoPad">
     <Notice error>{load.status === 404 ? t('auto.gone') : t('auto.loadOneFailed', { message: load.message })}</Notice>
     {load.status !== 404 && <div className="actions"><button type="button" className="secondary" onClick={refresh}><RefreshCw aria-hidden="true" />{t('common.tryAgain')}</button></div>}
   </div>;
@@ -154,7 +241,7 @@ function Detail({ workflowId, viewer, editing, tick, focusRunId, onEdit, onEditD
   };
 
   return <>
-    <article className="surface autoPanel" aria-labelledby="autoTitle">
+    <article className="finCard autoPanel" aria-labelledby="autoTitle">
       <div className="sectionHeader autoHead">
         <div className="autoHeadText"><h2 id="autoTitle" ref={heading} tabIndex={-1} dir="auto">{workflow.name}</h2>
           <p className="muted" dir="auto">{workflow.description || t('auto.noDescription')}</p></div>
@@ -251,18 +338,32 @@ function Composer({ viewer, existing, onCancel, onSaved }: { viewer: Viewer; exi
     } catch (error) { setSummary(automationError(error)); } finally { setBusy(false); }
   }
 
-  if (!canManage(viewer)) return <div className="surface autoPad"><Notice error>{manageHint()}</Notice></div>;
+  if (!canManage(viewer)) return <div className="finCard autoPad"><Notice error>{manageHint()}</Notice></div>;
   const title = existing ? t('auto.composer.edit', { name: existing.name }) : t('auto.new');
-  return <form className="surface autoPanel" aria-label={title} noValidate onSubmit={(e) => { e.preventDefault(); void save(); }}>
-    <div className="sectionHeader"><h2 ref={heading} tabIndex={-1}>{title}</h2></div>
-    {existing && <p className="muted">{t('auto.composer.versionNote', { version: existing.version + 1 })}</p>}
-    <Field id={fieldId('name')} label={t('auto.field.name')} error={errors.name}>{(a) => <input {...a} value={draft.name} maxLength={160} autoComplete="off" onChange={(e) => setDraft({ ...draft, name: e.target.value })} />}</Field>
-    <Field id={fieldId('description')} label={t('auto.field.description')} error={errors.description}>{(a) => <input {...a} value={draft.description} maxLength={1000} onChange={(e) => setDraft({ ...draft, description: e.target.value })} />}</Field>
-    <Field id={fieldId('policy')} label={t('auto.field.overlap')} hint={OVERLAP_POLICIES.find((p) => p.value === draft.overlapPolicy)?.help}>{(a) =>
-      <select {...a} value={draft.overlapPolicy} onChange={(e) => setDraft({ ...draft, overlapPolicy: e.target.value as WorkflowDraft['overlapPolicy'] })}>
-        {OVERLAP_POLICIES.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
-      </select>}</Field>
-    <h3 className="autoSubhead">{t('auto.steps')}</h3>
+  const counts = stepCounts(draft.steps.map((step) => step.action));
+  return <form className="autoBuilder" aria-label={title} noValidate onSubmit={(e) => { e.preventDefault(); void save(); }}>
+    <Breadcrumbs trail={[{ label: t('auto.title'), href: '#automation', onClick: onCancel }, { label: existing ? existing.name : t('auto.new') }]} />
+    <header className="autoBuilderHead">
+      <div className="autoBuilderTitle">
+        <h1 id="view-title" ref={heading} tabIndex={-1} dir="auto">{title}</h1>
+        <StatusChip tone="info">{existing ? t('autoPage.builder.draft', { version: existing.version + 1 }) : t('autoPage.builder.new')}</StatusChip>
+        {existing && <span className="muted">{t('autoPage.builder.unsaved')}</span>}
+      </div>
+      <div className="autoBuilderActions">
+        <button type="button" className="secondary" disabled={busy} onClick={onCancel}>{t('common.cancel')}</button>
+        <button type="submit" disabled={busy}><Save aria-hidden="true" />{busy ? t('auto.saving') : existing ? t('auto.saveChanges') : t('auto.create')}</button>
+      </div>
+    </header>
+    <FinBanner tone="info" icon={<CircleDot />}>{existing ? t('autoPage.builder.publishNote', { version: existing.version + 1 }) : t('autoPage.builder.createNote')}</FinBanner>
+    {summary && <Notice error>{summary}</Notice>}
+    <div className="autoBuilderGrid">
+      <div className="autoBuilderMain">
+        <FinCard title={t('autoPage.builder.details')} icon={<Workflow />}>
+          <Field id={fieldId('name')} label={t('auto.field.name')} error={errors.name}>{(a) => <input {...a} value={draft.name} maxLength={160} autoComplete="off" onChange={(e) => setDraft({ ...draft, name: e.target.value })} />}</Field>
+          <Field id={fieldId('description')} label={t('auto.field.description')} error={errors.description}>{(a) => <input {...a} value={draft.description} maxLength={1000} onChange={(e) => setDraft({ ...draft, description: e.target.value })} />}</Field>
+        </FinCard>
+        <FinCard title={t('autoPage.builder.steps', { count: draft.steps.length })} icon={<Zap />} subtitle={t('autoPage.builder.stepsSub')}
+          actions={<button type="button" className="secondary" disabled={draft.steps.length >= 100} onClick={() => setDraft((d) => ({ ...d, steps: [...d.steps, newStep(d.steps, 'notify' as StepAction)] }))}><Plus aria-hidden="true" />{t('auto.addStep')}</button>}>
     <p className="muted">{t('auto.stepsHelp')}</p>
     <p className="muted">{t('auto.templatesHelp')}</p>
     {errors.steps && <p className="autoFieldError">{errors.steps}</p>}
@@ -320,13 +421,30 @@ function Composer({ viewer, existing, onCancel, onSaved }: { viewer: Viewer; exi
         </div>}
       </li>;
     })}</ol>
-    <div className="actions">
-      <button type="button" className="secondary" disabled={draft.steps.length >= 100} onClick={() => setDraft((d) => ({ ...d, steps: [...d.steps, newStep(d.steps, 'notify' as StepAction)] }))}><Plus aria-hidden="true" />{t('auto.addStep')}</button>
-    </div>
-    {summary && <Notice error>{summary}</Notice>}
-    <div className="actions">
-      <button type="submit" disabled={busy}>{busy ? t('auto.saving') : existing ? t('auto.saveChanges') : t('auto.create')}</button>
-      <button type="button" className="secondary" disabled={busy} onClick={onCancel}>{t('common.cancel')}</button>
+        </FinCard>
+        <p className={`autoValidation ${Object.keys(errors).length ? 'bad' : ''}`} role="status">{Object.keys(errors).length ? t('autoPage.builder.fix', { count: Object.keys(errors).length }) : t('autoPage.builder.checkOnSave')}</p>
+      </div>
+      <aside className="autoBuilderSide" aria-label={t('autoPage.builder.side')}>
+        <FinCard title={t('autoPage.builder.policy')} icon={<Settings2 />} subtitle={t('autoPage.builder.policySub')}>
+          <Field id={fieldId('policy')} label={t('auto.field.overlap')} hint={OVERLAP_POLICIES.find((p) => p.value === draft.overlapPolicy)?.help}>{(a) =>
+            <select {...a} value={draft.overlapPolicy} onChange={(e) => setDraft({ ...draft, overlapPolicy: e.target.value as WorkflowDraft['overlapPolicy'] })}>
+              {OVERLAP_POLICIES.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
+            </select>}</Field>
+          <p className="autoSmall muted">{t('autoPage.builder.retryNote')}</p>
+        </FinCard>
+        <FinCard title={t('autoPage.builder.review')} icon={<ShieldCheck />}>
+          <ul className="autoReviewList">
+            <li>{t('autoPage.builder.reviewEmail', { count: counts.email })}</li>
+            <li>{t('autoPage.builder.reviewTasks', { count: counts.tasks })}</li>
+            <li>{t('autoPage.builder.reviewStop')}</li>
+          </ul>
+          <FinBanner tone="ok">{t('autoPage.builder.noAutoSend')}</FinBanner>
+        </FinCard>
+        <FinCard title={t('agentsPage.version.title')} icon={<History />}>
+          <p className="autoSmall">{existing ? t('autoPage.builder.versionNow', { version: existing.version, next: existing.version + 1 }) : t('autoPage.builder.versionFirst')}</p>
+          <p className="autoSmall muted">{t('autoPage.builder.versionKeep')}</p>
+        </FinCard>
+      </aside>
     </div>
   </form>;
 }
@@ -363,7 +481,7 @@ function Schedules({ workflow, viewer, tick, onChanged }: { workflow: Automation
     try { await operation(); setLocalTick((t) => t + 1); onChanged(message); } catch (e) { setError(automationError(e)); } finally { setBusy(false); }
   }
 
-  return <section className="surface autoPanel" aria-labelledby={`schedules-${workflow.id}`}>
+  return <section className="finCard autoPanel" aria-labelledby={`schedules-${workflow.id}`}>
     <div className="sectionHeader"><h2 id={`schedules-${workflow.id}`}>{t('auto.sched.title')}</h2>
       {manage && editing === null && <div className="actions autoHeaderActions"><button type="button" className="secondary" onClick={() => setEditing('new')}><CalendarClock aria-hidden="true" />{t('auto.sched.add')}</button></div>}
     </div>
@@ -480,7 +598,7 @@ function RunHistory({ workflow, viewer, tick, focusRunId, onChanged, onOpenTask 
     } catch (e) { setError(automationError(e)); setLocalTick((t) => t + 1); } finally { setBusy(false); }
   }
 
-  return <section className="surface autoPanel" aria-labelledby={`runs-${workflow.id}`}>
+  return <section className="finCard autoPanel" aria-labelledby={`runs-${workflow.id}`}>
     <div className="sectionHeader"><h2 id={`runs-${workflow.id}`}>{t('auto.runs.title')}</h2>
       <label className="autoInlineField"><span>{t('auto.runs.show')}</span><select value={status} onChange={(e) => { setStatus(e.target.value as typeof status); setOffset(0); }}>
         <option value="">{t('auto.runs.all')}</option><option value="running">{t('auto.runs.running')}</option><option value="failed">{t('auto.runs.failed')}</option><option value="paused">{t('auto.runs.waiting')}</option><option value="completed">{t('auto.runs.completed')}</option><option value="cancelled">{t('auto.runs.cancelled')}</option>
