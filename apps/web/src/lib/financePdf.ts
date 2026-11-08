@@ -85,6 +85,8 @@ export function rowProblem(row: ReviewRow, currency: string): string | null {
     return `Enter the bank-billed ${currency} amount for this ${row.currency} transaction.`;
   const units = toMinor(row.currency && row.currency !== currency ? row.billed_amount : row.billed_amount || row.amount, currency);
   if (units === null) return t('fpdf.problem.amount');
+  if (row.billed_amount && (toMinor(row.amount, row.currency || currency) ?? 0n) * units < 0n)
+    return "The original and billed amounts must both be charges or both be credits.";
   if (units === 0n) return t('fpdf.problem.zero');
   return null;
 }
