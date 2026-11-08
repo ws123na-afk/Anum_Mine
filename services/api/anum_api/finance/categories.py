@@ -83,9 +83,9 @@ NOT_SPEND = frozenset({Category.TRANSFER, Category.INCOME, Category.CASHBACK, Ca
 # Do not mutate account money based only on a merchant label. Incoming rent or
 # outgoing cashback should be reviewed against the actual debit/credit column.
 _PAYMENT_WORDS = re.compile(
-    r"(?i)(?:room[\\s-]*rent|room[\\s-]*rental|bed[\\s-]*space|rent[\\s-]*payment|"
-    r"monthly[\\s-]*rent|accommodation[\\s-]*rent|rent[\\s-]*room|"
-    r"إيجار[\\s-]*غرفة|ايجار[\\s-]*غرفة)"
+    r"(?i)(?:room[\s-]*rent|room[\s-]*rental|bed[\s-]*space|rent[\s-]*payment|"
+    r"monthly[\s-]*rent|accommodation[\s-]*rent|rent[\s-]*room|"
+    r"إيجار[\s-]*غرفة|ايجار[\s-]*غرفة)"
 )
 
 
