@@ -301,6 +301,8 @@ export const financeAr: Record<keyof typeof financeEn, Message> = {
   'finance.category.transfer': 'التحويلات',
   'finance.category.groceries': 'البقالة',
   'finance.category.dining': 'المطاعم',
+  'finance.category.food': 'الطعام والوجبات',
+  'finance.category.room_rent': 'إيجار الغرفة',
   'finance.category.transport': 'المواصلات',
   'finance.category.fuel': 'الوقود',
   'finance.category.utilities': 'الخدمات',
