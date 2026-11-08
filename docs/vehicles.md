@@ -65,6 +65,7 @@ Pure functions in `vehicles/analytics.py`, tested on their own:
 
 - **Spend** from active linked payments only, per month, per category and per vehicle, **per currency**. Nothing adds SAR to AED.
 - **Distance** is the sum of increases between consecutive readings; the jump to a correction is not distance.
+- **Usage per month** (`usage`, quantities only): kilometres and litres per month. A month's kilometres are the increases whose later reading falls in that month, so the run from the last reading of the month before counts too. The overview also gives each vehicle's kilometres, litres and average L/100 km in the period (`by_vehicle_usage`).
 - **Cost per km** per currency: spend in the period divided by the distance in the period.
 - **L/100 km only from full-to-full chains:** from one full fill with an odometer value to the next, counting the litres of every fill after the first (partial fills included). A full fill without an odometer value, or an odometer correction in between, breaks the chain.
 - **Fuel price trend:** litres-weighted price per litre per month, currency and fuel type.
@@ -99,7 +100,7 @@ iOS may delay automations while the phone is locked or in Low Power Mode, and Ca
 | `GET /api/v1/vehicles` (`q`, `archived`, paging) | `vehicle:read`; VINs masked, odometer and what is due |
 | `POST /api/v1/vehicles` | `vehicle:write`; optional first `odometer_km` |
 | `GET`, `PATCH /api/v1/vehicles/{id}` (`version`), `POST /{id}/archive`, `DELETE /{id}` | read; change needs the vehicle's owner or `vehicle:manage` |
-| `GET /api/v1/vehicles/overview`, `/reminders`, `GET`, `PUT /preferences` | spend per currency, due items, waiting records; the person's settings |
+| `GET /api/v1/vehicles/overview` (`start`, `end`), `/reminders`, `GET`, `PUT /preferences` | spend per currency, kilometres and litres per month and per vehicle, due items, waiting records; the person's settings |
 | `GET /api/v1/vehicles/{id}/report` (`start`, `end`) | the analytics above |
 | `GET`, `POST /api/v1/vehicles/{id}/odometer` | readings, newest first; a correction needs `reason` |
 | `GET`, `POST /api/v1/vehicles/{id}/{fuel,trips,service}` (`q`, `start`, `end`, paging; `Idempotency-Key`) | records; a replay answers 200 with `replayed: true` |
@@ -109,6 +110,15 @@ iOS may delay automations while the phone is locked or in Low Power Mode, and Ca
 | `POST /api/v1/vehicles/device/sessions` | the iPhone (above) |
 
 Refusals answer `{"detail": "<plain words>", "code": "<code>"}` with figures where they help. Audit rows hold ids and codes only, never a registration, VIN, place or amount.
+
+## Web page
+
+`#vehicles` (`src/VehiclesView.tsx`, `src/VehicleParts.tsx`, figures in `src/lib/ops.ts`): the page head with Add vehicle, a month picker and the tabs **Overview**, **Vehicles** (`#vehicles-list`) and **Settings** (`#vehicles-settings`).
+
+- **Overview**: active vehicles, kilometres this month and spend this month (each against the month before), and services or renewals due soon with the records waiting for a payment. The fleet table (vehicle, registration, odometer, this month's spend, the next service or renewal, status: overdue, due in N days or in service) with search on the server and status, ownership and country filters; up to 100 vehicles, with a link to the full list beyond. The selected vehicle's panel: latest odometer, next due, fuel economy in km per litre, this month's cost, litres and kilometres over six months (`/report` `usage`), the maintenance timeline (last service and what is due), its papers (registration, insurance, inspection with their dates), its newest fuel, service and trip records, Open vehicle, Export CSV, and Record fuel, Log trip and Add service (the same forms as the vehicle page) and Upload document (the document vault). Below the table: what is coming up and spend by month.
+- A vehicle opens its own page: Fuel, Trips, Service, Odometer, Report and Details.
+
+Not built: fleet-wide Fuel and mileage, Service and Documents tabs (each vehicle's page has them) and a fleet-wide export (each vehicle exports its own log).
 
 ## Mobile
 

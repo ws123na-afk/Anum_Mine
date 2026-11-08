@@ -294,6 +294,29 @@ def test_logging_a_dialer_call_matches_the_contact_and_pages(client: TestClient)
     assert client.get("/api/v1/calls/log", headers=MEMBER).json()["total"] == 2
 
 
+def test_calls_filter_by_period_and_the_summary_counts_them(client: TestClient) -> None:
+    now = utc_now()
+    earlier = (now - timedelta(days=3)).isoformat()
+    client.post("/api/v1/calls/log", headers=MEMBER, json={"phone": "+971501234567", "outcome": "answered", "duration_seconds": 95})
+    client.post("/api/v1/calls/log", headers=MEMBER, json={"phone": "+97142223333", "outcome": "no_answer", "direction": "inbound"})
+    client.post("/api/v1/calls/log", headers=OTHER, json={"phone": "+97142224444", "outcome": "missed", "direction": "inbound"})
+    client.post("/api/v1/calls/log", headers=MEMBER, json={"phone": "+97142225555", "outcome": "no_answer", "direction": "outbound", "duration_seconds": 5})
+    client.post("/api/v1/calls/log", headers=MEMBER, json={"phone": "+97142226666", "outcome": "answered", "duration_seconds": 600, "started_at": earlier})
+    today = (now - timedelta(hours=1)).isoformat()
+    assert client.get("/api/v1/calls/log", headers=MEMBER, params={"since": today}).json()["total"] == 4
+    assert client.get("/api/v1/calls/log", headers=MEMBER, params={"until": today}).json()["total"] == 1
+    summary = client.get("/api/v1/calls/log/summary", headers=MEMBER, params={"since": today})
+    assert summary.status_code == 200, summary.text
+    body = summary.json()
+    # An unanswered outgoing call is not a missed call; an unanswered incoming one is.
+    assert (body["calls"], body["missed"], body["talk_seconds"], body["ai_pending"]) == (4, 2, 100, 0)
+    assert client.get("/api/v1/calls/log/summary", headers=MEMBER, params={"since": today, "mine": "true"}).json()["calls"] == 3
+    assert client.get("/api/v1/calls/log/summary", headers=MEMBER).json()["talk_seconds"] == 700
+    assert client.get("/api/v1/calls/log/summary", headers=MEMBER, params={"since": today, "until": earlier}).status_code == 422
+    assert client.get("/api/v1/calls/log/summary", headers=ELSEWHERE).json()["calls"] == 0
+    assert client.get("/api/v1/calls/log/summary", headers=VIEWER).status_code == 403
+
+
 def test_log_validation_and_in_app_hook(client: TestClient) -> None:
     assert client.post("/api/v1/calls/log", headers=MEMBER, json={"outcome": "answered"}).status_code == 422
     future = (utc_now() + timedelta(hours=2)).isoformat()
@@ -594,6 +617,24 @@ def test_cancelling_an_ai_call_withdraws_its_approval(client: TestClient, gatewa
     assert approve(client, request["approval"]).status_code in {409, 410}
     assert twilio.placed() == []
     assert client.post(f"/api/v1/calls/ai-calls/{request['id']}/cancel", headers=MEMBER).status_code == 409
+
+
+def test_ai_call_list_filters_by_state_before_paging_and_counts_every_state(client: TestClient, gateway: FakeGateway, twilio: Twilio) -> None:
+    connect(client)
+    sara = contact(client)
+    consent(client, sara["id"])
+    older = ask_ai_call(client, sara["id"]).json()
+    for _ in range(3):
+        newer = ask_ai_call(client, sara["id"]).json()
+        assert client.post(f"/api/v1/calls/ai-calls/{newer['id']}/cancel", headers=MEMBER).status_code == 200
+    # The only pending request is the oldest: past the first page, but the state filter still finds it.
+    assert client.get("/api/v1/calls/ai-calls", headers=MEMBER, params={"limit": 2}).json()["items"][0]["status"] == "cancelled"
+    pending = client.get("/api/v1/calls/ai-calls", headers=MEMBER, params={"status": "pending_approval", "limit": 2}).json()
+    assert [item["id"] for item in pending["items"]] == [older["id"]] and pending["total"] == 1
+    counts = pending["status_counts"]
+    assert counts["pending_approval"] == 1 and counts["cancelled"] == 3 and counts["completed"] == 0
+    assert client.get("/api/v1/calls/ai-calls", headers=MEMBER, params={"status": "nope"}).status_code == 422
+    assert client.get("/api/v1/calls/ai-calls", headers=ELSEWHERE).json()["status_counts"]["cancelled"] == 0
 
 
 def test_the_ai_answers_the_provider_number_and_takes_a_message(client: TestClient, gateway: FakeGateway) -> None:

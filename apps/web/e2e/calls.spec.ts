@@ -127,10 +127,14 @@ test('an AI call is sent for approval and can be cancelled; the provider tab sho
   await form.getByRole('button', { name: 'Send for approval' }).click();
   await expect(page.getByText('Sent. The call waits for an owner’s approval.')).toBeVisible();
   expect(calls.aiRequests[0]).toMatchObject({ contact_id: 'contact_omar', language: 'ar', max_seconds: 120 });
-  const list = page.getByRole('region', { name: 'AI calls' });
-  await expect(list.getByText('Waiting for approval')).toBeVisible();
-  await list.getByRole('button', { name: 'Cancel request' }).click();
-  await expect(list.getByText('Cancelled')).toBeVisible();
+  const list = page.getByRole('region', { name: 'AI call requests' });
+  await expect(list.getByText('Waiting for approval', { exact: true })).toBeVisible();
+  // The newest request opens beside the queue with its exact script and the approval it waits for.
+  const detail = page.getByRole('region', { name: 'Confirm the delivery' });
+  await expect(detail.getByText('Ask whether Thursday morning suits.')).toBeVisible();
+  await expect(detail.getByText('Waiting for an owner’s approval')).toBeVisible();
+  await detail.getByRole('button', { name: 'Cancel request' }).click();
+  await expect(list.getByText('Cancelled', { exact: true })).toBeVisible();
   await page.getByRole('tab', { name: 'Provider' }).click();
   await expect(page.getByText('Connected', { exact: true })).toBeVisible();
   await expect(page.getByText('https://api.example.test/api/v1/calls/webhooks/twilio/route0001/voice')).toBeVisible();

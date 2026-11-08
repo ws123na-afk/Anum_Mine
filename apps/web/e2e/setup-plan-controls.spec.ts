@@ -131,7 +131,7 @@ test('an owner turns on the approval reminder', async ({ page }) => {
 
 test('a person arranges their Home and goes back to the default', async ({ page }) => {
   const sent = await mockGaps(page);
-  await page.goto('/#home');
+  await page.goto('/#home-day');
   await page.getByRole('button', { name: 'Arrange Home' }).click();
   const dialog = page.getByRole('alertdialog', { name: 'Arrange your Home' });
   await dialog.getByRole('button', { name: 'Move Waiting for your decision up' }).click();

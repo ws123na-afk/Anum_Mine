@@ -199,3 +199,13 @@ a.railItem { text-decoration: none; }
 a.railItem:hover { background: var(--d-glass-1); border-color: var(--d-line); }
 .chatRail .statusBadge { font-size: var(--text-2xs); padding: 0 6px; }
 .chatRailToggle { flex: none; }
+
+/* The AI Chat page on the shared shell (docs/web-design-system.md#communication-pages). */
+.chatPage { display: grid; gap: var(--d-s4); min-width: 0; }
+.chatNewWide { justify-content: center; min-height: 44px; width: 100%; }
+.chatDayGroup { display: grid; gap: var(--d-s1); }
+.chatRailTabs { padding: 0 var(--d-s3); }
+.chatRailTabs .finTabs > button { font-size: var(--text-sm); min-height: 40px; padding: 0 var(--d-s2); }
+.chatRail .finTabPanel { gap: 0; }
+.chatList .chatNewWide { background: var(--d-primary); border-color: transparent; color: var(--d-on-primary); gap: var(--d-s2); }
+.chatList .chatNewWide:hover:not(:disabled) { background: var(--d-primary-hover); }

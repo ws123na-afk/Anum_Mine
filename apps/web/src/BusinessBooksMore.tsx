@@ -168,7 +168,7 @@ export function Recurring({ setup }: { setup: BooksSetup }) {
       <form className="bzSearch" role="search" onSubmit={(event) => { event.preventDefault(); setSearch(q.trim()); }}>
         <label className="visuallyHidden" htmlFor={searchId}>{t('books.rec.search')}</label>
         <input id={searchId} type="search" value={q} placeholder={t('books.rec.search')} onChange={(event) => { setQ(event.target.value); if (!event.target.value) setSearch(''); }} />
-        <button type="submit" className="secondary"><Search aria-hidden="true" />{t('biz.find')}</button>
+        <button type="submit" className="secondary" disabled={q.trim() === search}><Search aria-hidden="true" />{t('biz.find')}</button>
       </form>
       <label className="bzCompact" htmlFor={statusId}><span>{t('books.rec.filter')}</span>
         <select id={statusId} value={status} onChange={(event) => setStatus(event.target.value as BooksTemplateStatus | '')}>

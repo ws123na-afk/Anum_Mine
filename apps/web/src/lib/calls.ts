@@ -89,9 +89,61 @@ function query(params: Record<string, string | number | boolean | undefined | nu
   return search.toString();
 }
 
-export function callsPath(options: { query?: string; direction?: Direction | ''; outcome?: Outcome | ''; contactId?: string; mine?: boolean; offset?: number; limit?: number } = {}): string {
-  return `/api/v1/calls/log?${query({ limit: options.limit ?? PAGE_SIZE, offset: options.offset ?? 0, q: options.query?.trim(), direction: options.direction, outcome: options.outcome, contact_id: options.contactId, mine: options.mine })}`;
+export function callsPath(options: { query?: string; direction?: Direction | ''; outcome?: Outcome | ''; contactId?: string; mine?: boolean; since?: string | null; offset?: number; limit?: number } = {}): string {
+  return `/api/v1/calls/log?${query({ limit: options.limit ?? PAGE_SIZE, offset: options.offset ?? 0, q: options.query?.trim(), direction: options.direction, outcome: options.outcome, contact_id: options.contactId, mine: options.mine, since: options.since })}`;
 }
+
+/** The figures over a period (GET /calls/log/summary): calls, missed calls, talk time and AI calls waiting. */
+export interface ApiCallSummary { since: string | null; until: string | null; calls: number; missed: number; talk_seconds: number; ai_pending: number }
+export const summaryPath = (since: string | null): string => `/api/v1/calls/log/summary${since ? `?${query({ since })}` : ''}`;
+
+/** The Recents period filter: all calls, today, the last 7 or 30 days (in the person's own time zone). */
+export type CallPeriod = 'all' | 'today' | 'week' | 'month';
+export const CALL_PERIODS: readonly CallPeriod[] = ['all', 'today', 'week', 'month'];
+
+/** Local midnight of `now`'s day as an ISO time; `daysBack` days earlier for the longer periods. */
+export function startOfLocalDay(now: Date, daysBack = 0): string {
+  const day = new Date(now.getFullYear(), now.getMonth(), now.getDate() - daysBack);
+  return day.toISOString();
+}
+
+/** The `since` a period sends, or null for all calls. */
+export function periodSince(period: CallPeriod, now: Date): string | null {
+  if (period === 'today') return startOfLocalDay(now);
+  if (period === 'week') return startOfLocalDay(now, 6);
+  if (period === 'month') return startOfLocalDay(now, 29);
+  return null;
+}
+
+/** Talk time as words: "46 min", "1 h 05 min", "40 s". */
+export function talkTimeText(seconds: number): string {
+  if (seconds < 60) return t('calls.talk.seconds', { count: Math.max(0, Math.round(seconds)) });
+  const minutes = Math.round(seconds / 60);
+  if (minutes < 60) return t('calls.talk.minutes', { count: minutes });
+  return t('calls.talk.hours', { hours: Math.floor(minutes / 60), minutes: String(minutes % 60).padStart(2, '0') });
+}
+
+export type CallDay = 'today' | 'yesterday' | 'earlier';
+/** The Recents groups: calls of today, of yesterday, then everything earlier, each newest first (as the API sends them). */
+export function groupByDay<T extends { started_at: string }>(items: readonly T[], now: Date): { day: CallDay; items: T[] }[] {
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const yesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1).getTime();
+  const groups: Record<CallDay, T[]> = { today: [], yesterday: [], earlier: [] };
+  for (const item of items) {
+    const at = new Date(item.started_at).getTime();
+    groups[at >= today ? 'today' : at >= yesterday ? 'yesterday' : 'earlier'].push(item);
+  }
+  return (['today', 'yesterday', 'earlier'] as const).filter((day) => groups[day].length > 0).map((day) => ({ day, items: groups[day] }));
+}
+
+/** The AI call queue filter: every request, or one state. */
+export type AiFilter = 'all' | AiStatus;
+export const AI_FILTERS: readonly AiFilter[] = ['all', 'pending_approval', 'calling', 'completed', 'failed', 'cancelled'];
+/** A page of AI call requests with the count of every state over the whole list (GET /calls/ai-calls). */
+export interface AiCallPage extends Page<ApiAiCall> { status_counts?: Partial<Record<AiStatus, number>> }
+/** How many requests a state filter holds, from the server's counts over the whole list. */
+export const aiCount = (counts: Partial<Record<AiStatus, number>> | undefined, filter: AiFilter): number =>
+  filter === 'all' ? Object.values(counts ?? {}).reduce((sum, n) => sum + (n ?? 0), 0) : counts?.[filter] ?? 0;
 export function contactsPath(options: { query?: string; favourites?: boolean; offset?: number; limit?: number } = {}): string {
   return `/api/v1/calls/contacts?${query({ limit: options.limit ?? PAGE_SIZE, offset: options.offset ?? 0, q: options.query?.trim(), favourites: options.favourites })}`;
 }

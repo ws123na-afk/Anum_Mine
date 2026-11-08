@@ -191,6 +191,7 @@ test('Calls and Meetings lists live agent meetings and opens a room', async ({ p
     return route.abort();
   });
   await page.goto('/#meetings');
+  await page.getByRole('tab', { name: 'Live meetings' }).click();
   const launcher = page.getByRole('region', { name: 'Live agent meetings' });
   await expect(launcher.getByText('Launch planning')).toBeVisible();
   await launcher.getByRole('link', { name: 'Open room' }).click();

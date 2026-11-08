@@ -170,3 +170,9 @@
 .mailAllBadge svg { flex: none; height: 12px; width: 12px; }
 .mailAllContext { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); justify-content: space-between; padding: var(--d-s3) var(--d-s3) 0; }
 .mailAll .notice { min-width: 0; overflow-wrap: anywhere; }
+
+/* The reader's safety line and the folders inside the Email page's rail. */
+.mailSafe { align-items: flex-start; background: rgb(var(--c-ok) / .08); border: 1px solid rgb(var(--c-ok) / .35); border-radius: var(--d-r-control); display: flex; font-size: var(--text-sm); gap: var(--d-s2); margin: 0 var(--d-s4) var(--d-s3); padding: var(--d-s2) var(--d-s3); }
+.mailSafe svg { color: var(--d-ok); flex: none; height: 18px; width: 18px; }
+@media (min-width: 1024px) { .splitView.two.mailSplit.mailSplitHubbed { grid-template-columns: minmax(320px, 2fr) minmax(0, 3fr); } }
+.mailNavInRail .mailFolderSelect { display: none; }

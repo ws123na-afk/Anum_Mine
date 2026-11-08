@@ -45,7 +45,7 @@ test('a workspace set to the placeholder model says so', async ({ page }) => {
 test('a real model shows no banner', async ({ page }) => {
   await withModelStatus(page, { placeholder: false, provider: 'anthropic', source: 'server' });
   await page.goto('/#home');
-  await expect(page.getByRole('heading', { level: 1, name: /^Good (morning|afternoon|evening), Sara$/ })).toBeVisible();
+  await expect(page.getByText(/^Good (morning|afternoon|evening), Sara ·/)).toBeVisible();
   await page.goto('/#assistant');
   await expect(page.getByRole('textbox', { name: 'Message the assistant' })).toBeVisible();
   await expect(page.getByTestId('model-placeholder-banner')).toHaveCount(0);
@@ -54,7 +54,7 @@ test('a real model shows no banner', async ({ page }) => {
 test('an unreadable status claims nothing', async ({ page }) => {
   await mockWorkspaceApi(page);
   await page.goto('/#home');
-  await expect(page.getByRole('heading', { level: 1, name: /^Good (morning|afternoon|evening), Sara$/ })).toBeVisible();
+  await expect(page.getByText(/^Good (morning|afternoon|evening), Sara ·/)).toBeVisible();
   await expect(page.getByTestId('model-placeholder-banner')).toHaveCount(0);
 });
 

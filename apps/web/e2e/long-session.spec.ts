@@ -37,7 +37,7 @@ test('many navigations keep one event stream, no hanging requests or growing tim
   let streamsOpened = 0;
   await page.route(`${API}/api/v1/events/stream`, () => { streamsOpened += 1; });
   await page.goto('/');
-  await expect(page.getByRole('heading', { level: 1, name: /^Good (morning|afternoon|evening)/ })).toBeVisible();
+  await expect(page.getByRole('heading', { level: 1, name: 'Operations overview' })).toBeVisible();
 
   // Every collapsed sidebar group open, then every view in the sidebar, three times over.
   for (const toggle of await page.locator('.navGroupToggle[aria-expanded="false"]').all()) await toggle.click();

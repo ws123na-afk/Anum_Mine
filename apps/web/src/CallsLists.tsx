@@ -1,6 +1,6 @@
 // Recents (the call log) and Contacts of the Phone calls page (CallsView.tsx, docs/calls.md): a list
 // with search, filters and paging next to the open record (stacked on phones, with a way back).
-import { useCallback, useEffect, useId, useRef, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useId, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { ArrowLeft, Bot, Download, ListChecks, Lock, Pencil, PhoneCall, PhoneIncoming, PhoneOutgoing, Search, ShieldCheck, Sparkles, Star, Trash2, UserPlus, X } from 'lucide-react';
 import { ConfirmDialog, Modal } from './Dialog';
 import { CallLink, ErrorNotice, Notice, Pager, type DialTarget } from './CallsParts';
@@ -9,8 +9,8 @@ import { apiBaseUrl } from './lib/api';
 import { describeError, isPermissionDenied } from './lib/errors';
 import { formatDateTime, t, type MessageKey } from './lib/i18n';
 import {
-  aiCallBlocker, callWith, directionLabel, durationText, initials, isDialable, isLive, kindLabel, OUTCOMES, outcomeLabel, outcomeTone,
-  PAGE_SIZE, parseDuration, type ApiCall, type ApiCallsSetup, type ApiContact, type ConsentMethod, type Direction, type Outcome,
+  aiCallBlocker, CALL_PERIODS, callWith, directionLabel, durationText, groupByDay, initials, isDialable, isLive, kindLabel, OUTCOMES, outcomeLabel, outcomeTone,
+  PAGE_SIZE, parseDuration, periodSince, type CallPeriod, type ApiCall, type ApiCallsSetup, type ApiContact, type ConsentMethod, type Direction, type Outcome,
 } from './lib/calls';
 import * as callsApi from './lib/callsApi';
 import type { Load } from './lib/pageSummary';
@@ -20,20 +20,23 @@ type PageState<T> = Load<{ items: T[]; total: number }>;
 
 // ------------------------------------------------------------------------------------------ recents
 
-export function RecentsTab({ refresh, setup, selected, onSelect, onDial, onCallInAnum, onChanged, onOpenTasks, onOpenSettings, onOpenDial }: {
+export function RecentsTab({ refresh, setup, selected, onSelect, onDial, onCallInAnum, onChanged, onOpenTasks, onOpenSettings, onOpenDial, side, bottom }: {
   refresh: number; setup: ApiCallsSetup | null; selected: string | null; onSelect(id: string | null): void; onDial(target: DialTarget): void; onCallInAnum(target: DialTarget): void;
   onChanged(): void; onOpenTasks?(): void; onOpenSettings?(): void; onOpenDial(): void;
+  /** Cards beside the list on wide screens (the quick dial pad), and the row under it (AI calls). */
+  side?: ReactNode; bottom?: ReactNode;
 }) {
   const ids = useId();
   const wide = useMediaQuery(SPLIT_QUERY);
   const [page, setPage] = useState<PageState<ApiCall>>({ state: 'loading' });
   const [draft, setDraft] = useState(''), [query, setQuery] = useState('');
   const [direction, setDirection] = useState<Direction | ''>(''), [outcome, setOutcome] = useState<Outcome | ''>(''), [mine, setMine] = useState(false);
+  const [period, setPeriod] = useState<CallPeriod>('all');
   const [offset, setOffset] = useState(0);
   const autoPicked = useRef(false);
   const load = useCallback(() => {
-    callsApi.listCalls({ query, direction, outcome, mine, offset, limit: PAGE_SIZE }).then((value) => setPage({ state: 'ready', value }), (e) => setPage(fail(e)));
-  }, [query, direction, outcome, mine, offset, refresh]); // eslint-disable-line react-hooks/exhaustive-deps
+    callsApi.listCalls({ query, direction, outcome, mine, since: periodSince(period, new Date()), offset, limit: PAGE_SIZE }).then((value) => setPage({ state: 'ready', value }), (e) => setPage(fail(e)));
+  }, [query, direction, outcome, mine, period, offset, refresh]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => { load(); }, [load]);
   const live = page.state === 'ready' && page.value.items.some(isLive);
   useEffect(() => {
@@ -48,11 +51,13 @@ export function RecentsTab({ refresh, setup, selected, onSelect, onDial, onCallI
     history.replaceState(null, '', `#calls?call=${encodeURIComponent(first)}`);
     onSelect(first);
   }, [wide, selected, first]); // eslint-disable-line react-hooks/exhaustive-deps
-  const searching = Boolean(query || direction || outcome || mine);
-  const clear = () => { setDraft(''); setQuery(''); setDirection(''); setOutcome(''); setMine(false); setOffset(0); };
+  const searching = Boolean(query || direction || outcome || mine || period !== 'all');
+  const clear = () => { setDraft(''); setQuery(''); setDirection(''); setOutcome(''); setMine(false); setPeriod('all'); setOffset(0); };
   const submit = (event: FormEvent) => { event.preventDefault(); setOffset(0); setQuery(draft.trim()); };
 
-  return <SplitView className="callsSplit" show={selected ? 'detail' : 'list'}>
+  const groups = page.state === 'ready' ? groupByDay(page.value.items, new Date()) : [];
+  return <div className="callsRecentsBoard">
+  <SplitView className="callsSplit" show={selected ? 'detail' : 'list'}>
     <section data-pane="list" className="pane callsListPane" aria-label={t('calls.tab.recents')} aria-busy={page.state === 'loading'}>
       <div className="paneHead callsListHead">
         <form className="toolbar callsToolbar" role="search" aria-label={t('calls.recents.search')} onSubmit={submit}>
@@ -67,26 +72,33 @@ export function RecentsTab({ refresh, setup, selected, onSelect, onDial, onCallI
           <select id={`${ids}-out`} value={outcome} onChange={(event) => { setOffset(0); setOutcome(event.target.value as Outcome | ''); }}>
             <option value="">{t('calls.recents.allOutcomes')}</option>{OUTCOMES.map((value) => <option key={value} value={value}>{outcomeLabel(value)}</option>)}
           </select>
+          <label className="visuallyHidden" htmlFor={`${ids}-period`}>{t('calls.recents.period')}</label>
+          <select id={`${ids}-period`} value={period} onChange={(event) => { setOffset(0); setPeriod(event.target.value as CallPeriod); }}>
+            {CALL_PERIODS.map((value) => <option key={value} value={value}>{t(`calls.period.${value}` as MessageKey)}</option>)}
+          </select>
           <label className="checkRow callsMine"><input type="checkbox" checked={mine} onChange={(event) => { setOffset(0); setMine(event.target.checked); }} />{t('calls.recents.mine')}</label>
         </form>
       </div>
       {page.state === 'loading' && <div className="paneBody"><Notice>{t('calls.recents.loading')}</Notice></div>}
       {page.state === 'error' && <div className="paneBody"><ErrorNotice message={t('calls.recents.failed', { message: page.message })} onRetry={load} /></div>}
       {page.state === 'denied' && <div className="paneBody"><p className="notice" role="status"><Lock aria-hidden="true" />{page.message}</p></div>}
-      {page.state === 'ready' && page.value.items.length > 0 && <ul className="callsRows">
-        {page.value.items.map((call) => <li key={call.id} className={call.id === selected ? 'selected' : undefined}>
+      {groups.map((group) => <section key={group.day} className="callsDay" aria-labelledby={`${ids}-day-${group.day}`}>
+        <h3 id={`${ids}-day-${group.day}`} className="callsDayHead">{t(`calls.day.${group.day}` as MessageKey, { count: group.items.length })}</h3>
+        <ul className="callsRows">
+        {group.items.map((call) => <li key={call.id} className={call.id === selected ? 'selected' : undefined}>
           {/* Named by its own text after a hidden verb (WCAG 2.5.3: the name holds every word the row shows). */}
           <button type="button" className="callsRow" aria-current={call.id === selected ? 'true' : undefined} onClick={() => onSelect(call.id)}>
             <span className="visuallyHidden">{t('calls.recents.openHint')} </span>
-            <span className="callsRowIcon" aria-hidden="true">{call.kind.startsWith('ai') ? <Bot /> : call.direction === 'inbound' ? <PhoneIncoming /> : <PhoneOutgoing />}</span>
+            <span className={`callsRowIcon ${call.outcome === 'missed' || (call.direction === 'inbound' && call.outcome === 'no_answer') ? 'missed' : ''}`} aria-hidden="true">{call.kind.startsWith('ai') ? <Bot /> : call.direction === 'inbound' ? <PhoneIncoming /> : <PhoneOutgoing />}</span>
             <span className="callsRowText">
               <span className="callsRowTop"><strong dir="auto">{callWith(call)}</strong>{' '}<span className={`statusBadge ${outcomeTone(call.outcome)}`}>{isLive(call) ? t('calls.detail.live') : outcomeLabel(call.outcome)}</span></span>
-              <small>{[kindLabel(call.kind), formatDateTime(call.started_at, { dateStyle: 'medium', timeStyle: 'short' }), durationText(call.duration_seconds)].filter(Boolean).join(' · ')}</small>{' '}
+              <small className="callsRowFacts">{call.contact_name && call.phone && <><bdi dir="ltr">{call.phone}</bdi>{' · '}</>}{[kindLabel(call.kind), formatDateTime(call.started_at, { dateStyle: 'medium', timeStyle: 'short' }), durationText(call.duration_seconds)].filter(Boolean).join(' · ')}</small>{' '}
               {(call.summary || call.notes) && <small className="callsSnippet" dir="auto">{call.summary ?? call.notes}</small>}
             </span>
           </button>
         </li>)}
-      </ul>}
+        </ul>
+      </section>)}
       {page.state === 'ready' && <Pager offset={offset} limit={PAGE_SIZE} total={page.value.total} onOffset={setOffset} />}
       {page.state === 'ready' && !page.value.items.length && (searching
         ? <div className="paneEmpty"><Search aria-hidden="true" /><h3>{t('calls.recents.noMatch')}</h3><p>{t('calls.recents.noMatchText')}</p><div className="actions"><button type="button" className="secondary" onClick={clear}>{t('calls.clearFilters')}</button></div></div>
@@ -97,7 +109,10 @@ export function RecentsTab({ refresh, setup, selected, onSelect, onDial, onCallI
         ? <CallDetail key={selected} callId={selected} setup={setup} onClose={() => { history.replaceState(null, '', '#calls'); onSelect(null); }} onChanged={() => { load(); onChanged(); }} onDeleted={() => { onSelect(null); load(); onChanged(); }} onDial={onDial} onCallInAnum={onCallInAnum} onOpenTasks={onOpenTasks} onOpenSettings={onOpenSettings} />
         : <div className="paneEmpty"><PhoneCall aria-hidden="true" /><h3>{t('calls.recents.pickTitle')}</h3><p>{t('calls.recents.pickText')}</p></div>}
     </section>
-  </SplitView>;
+  </SplitView>
+    {side && <div className="callsSide">{side}</div>}
+    {bottom && <div className="callsBottom">{bottom}</div>}
+  </div>;
 }
 
 function CallDetail({ callId, setup, onClose, onChanged, onDeleted, onDial, onCallInAnum, onOpenTasks, onOpenSettings }: {
