@@ -164,7 +164,7 @@ export interface FinancePdfRow {
   credit: string | null;
   balance: string | null;
   reference: string | null;
-  /** A currency printed on the row; a row in another currency than the account's cannot be imported. */
+  /** Original row currency; foreign charges require an explicit bank-billed amount in the account currency before import. */
   currency: string | null;
   /** Card statements: the amount in the currency spent, its rate, fees and VAT, as printed. */
   original_amount: string | null;
@@ -252,6 +252,13 @@ export interface FinancePdfImportRow {
   balance?: string | null;
   reference?: string | null;
   currency?: string | null;
+  original_amount?: string | null;
+  original_currency?: string | null;
+  billed_amount?: string | null;
+  billed_currency?: string | null;
+  fx_rate?: string | null;
+  fee?: string | null;
+  vat?: string | null;
   time?: string | null;
 }
 
