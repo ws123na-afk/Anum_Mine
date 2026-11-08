@@ -123,3 +123,6 @@ export function backendNotes(found: UnifiedMailboxes | null): { backend: MailBac
     .filter(([, info]) => info.state !== 'ok' && info.state !== 'none')
     .map(([backend, info]) => ({ backend, info }));
 }
+
+/** The rail slot the open own-server mailbox puts its folders into on wide screens (EmailHub.tsx, EmailView.tsx). */
+export const HUB_FOLDERS_SLOT = 'email-hub-folders';

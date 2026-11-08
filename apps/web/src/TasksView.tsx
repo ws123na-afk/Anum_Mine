@@ -19,12 +19,16 @@ import { formatDateTime, formatNumber, t, type MessageKey } from './lib/i18n';
 import { riskLabel, statusLabel, stepLabel } from './lib/labels';
 import { figure } from './lib/pageSummary';
 import { viewLabel } from './lib/shell';
-import { PageHeader, PageSummary, SplitView } from './PageParts';
+import { PageSummary, SplitView } from './PageParts';
+import { readTasksTab, TASKS_PANEL, TasksHead, type TasksTab } from './TasksTabs';
+import { tabPanel } from './FinanceShell';
 import './tasks.css';
 
 // The action browser's live view (docs/action-browser.md#live-view): its own lazy chunk, loaded only for
 // a task whose run used web.act.
 const ActionBrowserLive = lazy(() => import('./action-browser/ActionBrowserLive'));
+// My tasks and Team tasks (people's work items): their own chunk, loaded when one of those tabs opens.
+const WorkTasks = lazy(() => import('./WorkTasks').then((m) => ({ default: m.WorkTasks })));
 
 export interface TasksViewProps {
   /** The workspace's newest tasks (`GET /api/v1/tasks`), reloaded by the shell on task events. */
@@ -38,6 +42,8 @@ export interface TasksViewProps {
   loading: boolean;
   message: string;
   stream: StreamState;
+  /** Counts every shell event (main.tsx liveTick): My tasks and Team tasks reload on each one. */
+  live?: number;
   /** Type of the last event received; the view refetches the selected task when events arrive. */
   lastEvent: string | null;
   setTask(t: Task): void;
@@ -61,6 +67,17 @@ function refusal(error: unknown, hint?: string): string {
 }
 
 export function TasksView(p: TasksViewProps) {
+  // A task opened from elsewhere (main.tsx openTask remembers Agent tasks) or just run shows there.
+  const [pageTab, setPageTab] = useState<Exclude<TasksTab, 'approvals'>>(readTasksTab);
+  useEffect(() => { if (p.run?.taskId) setPageTab('agent'); }, [p.run?.id, p.run?.taskId]);
+  const pickTab = (next: TasksTab) => { if (next === 'approvals') p.openApprovals(); else setPageTab(next); };
+  const pendingApprovals = p.approvals.filter((a) => a.status === 'pending').length;
+  const head = <TasksHead tab={pageTab} onPick={pickTab} pending={pendingApprovals} actions={pageTab === 'agent' ? <span className={`statusBadge ${streamBadge(p.stream).tone}`} title={t('tasks.streamTitle')}>{streamBadge(p.stream).label}</span> : undefined} />;
+  if (pageTab !== 'agent') return <div className="tasksPage">{head}<div {...tabPanel(TASKS_PANEL, pageTab)}><Suspense fallback={<p className="notice" role="status">{t('common.loading')}</p>}><WorkTasks key={pageTab} scope={pageTab === 'mine' ? 'mine' : 'all'} live={p.live ?? 0} /></Suspense></div></div>;
+  return <AgentTasks {...p} head={head} />;
+}
+
+function AgentTasks(p: TasksViewProps & { head: ReactNode }) {
   const userId = api.currentUserId();
   const [role, setRole] = useState<WorkspaceRole>(null);
   useEffect(() => { void api.getCurrentMembership().then((m) => setRole(roleFrom(m))).catch(() => setRole(null)); }, []);
@@ -178,7 +195,8 @@ export function TasksView(p: TasksViewProps) {
   const historyLabel = query.archived ? t('tasks.history.archived') : t('tasks.history.eyebrow');
 
   return <>
-    <PageHeader title={viewLabel('tasks')} subtitle={t('pages2.tasks.subtitle')} actions={<span className={`statusBadge ${badge.tone}`} title={t('tasks.streamTitle')}>{badge.label}</span>} />
+    {p.head}
+    <div {...tabPanel(TASKS_PANEL, 'agent')}>
     {/* The composer is the page's first job: a bar above the figures and the list and detail split (docs/web-design-system.md#pages). */}
     <form className="taskComposer" aria-labelledby="task-composer-heading" onSubmit={(e) => { e.preventDefault(); if (!p.prompt.trim()) { setEmptyTried(true); composerRef.current?.focus(); return; } if (canRun && !p.busy) { setPicked(true); p.runTask(); } }}>
       <h2 id="task-composer-heading" className="visuallyHidden">{t('tasks.composer.title')}</h2>
@@ -258,6 +276,7 @@ export function TasksView(p: TasksViewProps) {
           : <Empty title={t('tasks.noneSelected.title')} text={t('tasks.noneSelected.text')} />}
       </section>
     </SplitView>
+    </div>
   </>;
 }
 

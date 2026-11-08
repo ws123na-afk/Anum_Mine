@@ -44,7 +44,7 @@ from .commitments import (
 from .links_api import LinkResult, _view, refusals
 from .links_store import LinkStatus, open_link_stores
 from .money import quantize
-from .models import Bill, BudgetAlert, Category, Debt, DebtPlan, DebtStrategy, Planning
+from .models import Bill, BudgetAlert, Category, Debt, DebtPlan, DebtStrategy, InstallmentStatementEntry, Planning
 from .policy import current_rules
 from .store import open_finance_store
 from .summary import month_range, settings_for, today_in
@@ -52,6 +52,89 @@ from .summary import month_range, settings_for, today_in
 router = APIRouter(prefix="/api/v1/finance", tags=["finance"])
 
 MAX_PAGE = 100
+
+
+# -- complete provider installment statements --------------------------------------------------------------
+
+
+class InstallmentStatementView(BaseModel):
+    items: list[InstallmentStatementEntry]
+    total: int
+
+
+class InstallmentStatementSyncInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    entries: list[InstallmentStatementEntry] = Field(min_length=1, max_length=1000)
+
+
+class InstallmentStatementSyncResult(BaseModel):
+    created: int
+    updated: int
+    unchanged: int
+    conflicts: list[str]
+    total: int
+
+
+def _installment_key(row: InstallmentStatementEntry) -> tuple[str, str, int]:
+    return (row.provider.casefold(), row.order_id.casefold(), row.installment)
+
+
+@router.get("/installment-statement", response_model=InstallmentStatementView)
+def get_installment_statement(context: TenantContext = Depends(tenant_context)) -> InstallmentStatementView:
+    """The owner's complete imported statement, including paid and refund-review source rows."""
+    _read(context)
+    with open_finance_store(context) as store:
+        rows = store.get_planning(context).installment_entries
+    return InstallmentStatementView(items=sorted(rows, key=lambda r: (r.due_on, r.order_id, r.installment)), total=len(rows))
+
+
+@router.post("/installment-statement/sync", response_model=InstallmentStatementSyncResult)
+def sync_installment_statement(
+    body: InstallmentStatementSyncInput,
+    context: TenantContext = Depends(tenant_context),
+    repository: AnumRepository = Depends(repository_context),
+) -> InstallmentStatementSyncResult:
+    """Idempotent owner-scoped upsert. No bank transactions, payment matches or real money actions."""
+    _manage(context)
+    incoming: dict[tuple[str, str, int], InstallmentStatementEntry] = {}
+    for entry in body.entries:
+        if entry.installment > entry.total_installments:
+            raise _invalid("Installment number cannot exceed the plan length.")
+        normalized = entry.model_copy(update={"amount": quantize(entry.amount, entry.currency)})
+        key = _installment_key(normalized)
+        if key in incoming:
+            raise _invalid(f"Duplicate provider order installment in upload: {entry.order_id} #{entry.installment}")
+        incoming[key] = normalized
+    created = updated = unchanged = 0
+    conflicts: list[str] = []
+    with open_finance_store(context) as store:
+        planning = store.get_planning(context)
+        current = {_installment_key(entry): entry for entry in planning.installment_entries}
+        for key, row in incoming.items():
+            old = current.get(key)
+            if old is None:
+                if len(current) >= 3000:
+                    raise _invalid("Maximum 3,000 saved statement entries reached.")
+                current[key] = row
+                created += 1
+                continue
+            # A different amount or date may mean a reschedule, refund or incorrect source file.
+            # Keep the prior financial terms until the person reconciles the difference.
+            if old.amount != row.amount or old.due_on != row.due_on or old.currency != row.currency:
+                conflicts.append(f"{row.provider} / {row.order_id} / {row.installment}: due date or amount changed")
+                continue
+            if old == row:
+                unchanged += 1
+            else:
+                current[key] = row
+                updated += 1
+        if created or updated:
+            planning.installment_entries = sorted(current.values(), key=lambda r: (r.due_on, r.order_id, r.installment))
+            store.save_planning(context, planning)
+    _audit(repository, context, "finance.installment_statement.sync", context.user_id,
+           {"created": created, "updated": updated, "unchanged": unchanged, "conflicts": len(conflicts)})
+    return InstallmentStatementSyncResult(created=created, updated=updated, unchanged=unchanged, conflicts=conflicts,
+                                          total=len(current))
 
 
 # -- bills ----------------------------------------------------------------------------------------------

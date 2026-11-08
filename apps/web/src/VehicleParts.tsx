@@ -250,7 +250,7 @@ function RecordRow({ kind, record }: { kind: VehicleRecordKind; record: AnyRecor
     <PaymentChip payment={r.payment} /></div>;
 }
 
-function RecordForm({ kind, vehicle, record, onClose, onSaved }: { kind: VehicleRecordKind; vehicle: Vehicle; record: AnyRecord | null; onClose: () => void; onSaved: () => void }) {
+export function RecordForm({ kind, vehicle, record, onClose, onSaved }: { kind: VehicleRecordKind; vehicle: Vehicle; record: AnyRecord | null; onClose: () => void; onSaved: () => void }) {
   const fuel = record as VehicleFuelEntry | null, trip = record as VehicleTrip | null, svc = record as VehicleServiceRecord | null;
   const [f, setF] = useState(() => ({
     filled_at: fuel?.filled_at ? localInput(new Date(fuel.filled_at)) : localInput(), station: fuel?.station ?? '', fuel_type: fuel?.fuel_type ?? vehicle.fuel_type,

@@ -24,7 +24,12 @@ const books = (page: Page, name: string) => page.getByRole('navigation', { name:
 test('the P&L keeps tax apart, lists what is not converted and the rates used, and exports CSV', async ({ page }) => {
   await mockBooks(page);
   await page.goto('/#business-books');
-  await expect(page.getByRole('heading', { name: 'Business', level: 1 })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Expenses and P&L', level: 1 })).toBeVisible();
+  // The dashboard over the statement (docs/business-books.md#overview-dashboard).
+  await expect(page.getByRole('region', { name: /The period at a glance/ })).toContainText('Net profit');
+  await expect(page.getByRole('list', { name: 'Expense breakdown' })).toContainText('Office rent');
+  await expect(page.getByRole('region', { name: 'Month close' })).toContainText('1 allocation waits for review');
+  await expect(page.locator('.bkDashBills tbody tr')).not.toHaveCount(0);
   await expect(page.getByText(/Nothing here records money twice/)).toBeVisible();
   const pnl = page.locator('.bkStatement');
   await expect(pnl.getByRole('row', { name: /Credit notes/ }).locator('td.bkNeg')).toContainText('500.00');

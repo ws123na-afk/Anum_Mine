@@ -62,11 +62,14 @@ export function FinanceSectionNav({ tab, onPick }: { tab: FinanceTab; onPick: (n
 }
 
 /** The page head: title and subtitle with the primary actions, the controls row, then the tabs. */
-export function FinancePageHead({ title, subtitle, actions, controls, tabs, crumbs }: {
+export function FinancePageHead({ title, subtitle, actions, controls, tabs, crumbs, icon }: {
   title: string; subtitle?: string; actions?: ReactNode; controls?: ReactNode; tabs?: ReactNode; crumbs?: Crumb[];
+  /** A tinted tile with the module's icon before the title (the communication pages' heads). */
+  icon?: ReactNode;
 }) {
   return <header className="finHead">
     <div className="finHeadTop">
+      {icon && <span className="finHeadIcon" aria-hidden="true">{icon}</span>}
       <div className="finHeadText">{crumbs && crumbs.length > 0 && <Breadcrumbs trail={crumbs} />}<h1 id="view-title">{title}</h1>{subtitle && <p>{subtitle}</p>}</div>
       {actions && <div className="finHeadButtons">{actions}</div>}
     </div>
@@ -141,8 +144,8 @@ export function tabPanel(idPrefix: string, value: string) {
 }
 
 /** The KPI row: one card per figure, four across on desktop, two on tablets, one on phones. */
-export function KpiRow({ label, children }: { label: string; children: ReactNode }) {
-  return <section className="finKpis" aria-label={label}><ul>{children}</ul></section>;
+export function KpiRow({ label, children, className = '' }: { label: string; children: ReactNode; className?: string }) {
+  return <section className={`finKpis ${className}`} aria-label={label}><ul>{children}</ul></section>;
 }
 
 /**

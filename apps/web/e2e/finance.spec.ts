@@ -21,6 +21,8 @@ async function mockApi(page: Page, options: Parameters<typeof financeState>[0] &
     if (path === '/api/v1/workspaces/current') return json({ id: 'workspace_foundation', tenant_id: 'tenant_local', name: 'Foundation', created_at: '2026-01-01T00:00:00Z', updated_at: '2026-01-01T00:00:00Z', archived_at: null, archived_by: null });
     if (path === '/api/v1/me/workspace-memberships') return json([{ tenant_id: 'tenant_local', workspace_id: 'workspace_foundation', role, active: true }]);
     if (path === '/api/v1/tasks' || path === '/api/v1/approvals' || path === '/api/v1/conversations') return json([]);
+    // This person may not read the business books: the overview reads Personal (docs/finance.md#finance-overview).
+    if (path.startsWith('/api/v1/business/books')) return json({ error: { code: 'forbidden', message: 'The business books are for owners and members with Business access.', details: [] } }, 403);
     const body = request.postData() ? request.postDataJSON() : null;
     if (path.startsWith('/api/v1/finance')) sent.push({ method: request.method(), path, body });
     const reply = financeReply(state, request.method(), url, body);
@@ -32,22 +34,26 @@ async function mockApi(page: Page, options: Parameters<typeof financeState>[0] &
 
 const tab = (page: Page, name: string) => page.getByRole('navigation', { name: 'Finance sections' }).getByRole('button', { name });
 
-test('the overview shows the month per currency, the spend chart, bills due and balances, and says it is read only', async ({ page }) => {
+test('the overview shows net worth, bills, review, spending by category, recent activity and balances, and says it is read only', async ({ page }) => {
   await mockApi(page);
   await page.goto('/#finance');
-  await expect(page.getByRole('heading', { name: 'Finance', level: 1 })).toBeVisible();
-  const band = page.getByRole('region', { name: 'This month in figures' });
-  await expect(band.getByText('Bills in 30 days')).toBeVisible();
-  await expect(band.getByText('Read only: ANUM never pays, transfers or trades from here.')).toBeVisible();
-  await expect(page.getByRole('img', { name: /Spending by category: \d+ categories, the largest is Utilities/ })).toBeVisible();
-  await page.getByText('Show as a table').click();
-  await expect(page.getByRole('cell', { name: 'Utilities' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Finance overview', level: 1 })).toBeVisible();
+  // Without the business books (this mock refuses them) the page reads Personal and the switch says why.
+  await expect(page.getByRole('radio', { name: 'Personal', exact: true })).toBeChecked();
+  await expect(page.getByRole('radio', { name: /^Business/ })).toBeDisabled();
+  const kpis = page.getByRole('region', { name: 'This month at a glance' });
+  await expect(kpis.getByText('Personal net worth')).toBeVisible();
+  await expect(kpis.getByText('Spent')).toBeVisible();
+  await expect(page.getByRole('list', { name: 'Accounts, bills and reviews' }).getByRole('button', { name: /bills? due/ })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Spending by category' }).getByRole('list', { name: 'Spending by category' })).toContainText('Utilities');
   await expect(page.getByRole('region', { name: 'Bills due soon' }).getByText('Rent')).toBeVisible();
   await expect(page.getByRole('region', { name: 'Balances' }).getByText('ending 1234')).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Recent finance activity' }).getByRole('row')).not.toHaveCount(0);
+  await expect(page.getByText('Read only: ANUM never pays, transfers or trades from here.')).toBeVisible();
   // No pay, transfer or trade action anywhere on the page.
   await expect(page.getByRole('button', { name: /pay|transfer|buy|sell/i })).toHaveCount(0);
   await page.getByRole('button', { name: 'Previous month' }).click();
-  await expect(page.getByRole('group', { name: 'Month' })).not.toContainText(new Date().toLocaleString('en', { month: 'long' }) + ' ' + new Date().getFullYear());
+  await expect(page.getByRole('group', { name: 'Period' })).not.toContainText(new Date().toLocaleString('en', { month: 'long' }) + ' ' + new Date().getFullYear());
 });
 
 test('transactions and ledger: period, search, server filters and paging; the drawer shows the masked SMS, a possible duplicate and saves the category', async ({ page }) => {

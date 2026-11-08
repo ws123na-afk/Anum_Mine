@@ -96,7 +96,7 @@ test('the list shows recent call summaries and opens a meeting with labelled AI 
   // The summary band counts the action items across meetings: the PMV meeting has two open ones.
   const band = page.getByRole('region', { name: 'Meetings and action items' });
   await expect(band.getByText('Open action items')).toBeVisible();
-  await expect(band.locator('.pageFigure').nth(1).locator('strong')).toHaveText('2');
+  await expect(band.locator('.finKpi').nth(3).locator('.finKpiValue')).toHaveText('2');
   await expect(page.locator('.meetingRows li')).toHaveCount(1);
   await page.getByRole('button', { name: 'Open PMV meeting' }).click();
 
