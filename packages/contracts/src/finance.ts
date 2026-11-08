@@ -95,6 +95,7 @@ export interface FinanceColumnMapping {
   amount?: string | null;
   debit?: string | null;
   credit?: string | null;
+  direction?: string | null;
   currency?: string | null;
   original_amount?: string | null;
   original_currency?: string | null;
