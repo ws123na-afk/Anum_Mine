@@ -287,6 +287,8 @@ export const financeEn = {
   'finance.settings.removeRule': 'Remove the rule for {match}',
 
   'finance.category.income': 'Income',
+  'finance.category.cashback': 'Cashback',
+  'finance.category.refunds': 'Refunds',
   'finance.category.transfer': 'Transfers',
   'finance.category.groceries': 'Groceries',
   'finance.category.dining': 'Dining',
