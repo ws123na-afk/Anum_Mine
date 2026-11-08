@@ -116,6 +116,7 @@ class ColumnMapping(BaseModel):
     amount: str | None = Field(default=None, max_length=120)
     debit: str | None = Field(default=None, max_length=120)
     credit: str | None = Field(default=None, max_length=120)
+    direction: str | None = Field(default=None, max_length=120)  # bank-provided DR/CR, not merchant guessing
     currency: str | None = Field(default=None, max_length=120)  # original or billed currency
     original_amount: str | None = Field(default=None, max_length=120)
     original_currency: str | None = Field(default=None, max_length=120)
@@ -311,6 +312,7 @@ def mapping_for(preset: Preset, headers: list[str]) -> ColumnMapping | None:
     if not date_col or not desc_col:
         return None
     extra = {
+        "direction": _find(headers, ("dr cr", "dr/cr", "debit credit indicator", "transaction direction", "debit credit", "money direction")),
         "currency": _find(headers, ("currency", "transaction currency", "curr", "ccy")),
         "original_amount": _find(headers, ("original amount", "foreign amount", "transaction amount foreign", "amount foreign", "usd amount")),
         "original_currency": _find(headers, ("original currency", "foreign currency", "transaction ccy")),
@@ -339,7 +341,7 @@ def _locate_header(rows: list[list[str]], preset: str | None, mapping: ColumnMap
     for index, row in enumerate(rows[:HEADER_SEARCH_ROWS]):
         headers = [clean_text(c, 120) for c in row]
         if mapping is not None:
-            wanted = [mapping.date, mapping.description, mapping.amount, mapping.debit, mapping.credit, mapping.currency, mapping.original_amount, mapping.original_currency, mapping.billed_amount, mapping.billed_currency, mapping.fx_rate, mapping.fee]
+            wanted = [mapping.date, mapping.description, mapping.amount, mapping.debit, mapping.credit, mapping.direction, mapping.currency, mapping.original_amount, mapping.original_currency, mapping.billed_amount, mapping.billed_currency, mapping.fx_rate, mapping.fee]
             if all(name in headers for name in wanted if name):
                 return index
         elif preset is not None and preset in PRESETS:
@@ -443,6 +445,23 @@ def parse_file(
                 if debit is None and credit is None:
                     raise MoneyError("Neither a debit nor a credit amount is there.")
                 value = abs(credit or Decimal(0)) - abs(debit or Decimal(0))
+            # Explicit statement DR/CR fields take precedence over positive, unsigned
+            # amounts. Conflicting signs are refused rather than silently reversed.
+            if mapping.direction:
+                marker = clean_text(cell(row, mapping.direction), 30).upper().strip()
+                debit_markers = {"DR", "D", "DEBIT", "WITHDRAWAL", "MONEY OUT", "OUT"}
+                credit_markers = {"CR", "C", "CREDIT", "DEPOSIT", "MONEY IN", "IN"}
+                if marker in debit_markers:
+                    if value < 0:
+                        pass
+                    else:
+                        value = -abs(value)
+                elif marker in credit_markers:
+                    if value < 0:
+                        raise MoneyError("The signed amount conflicts with the bank's CREDIT indicator. Review this row.")
+                    value = abs(value)
+                elif marker:
+                    raise MoneyError(f"Unrecognized debit/credit indicator '{marker}'. Correct the mapping or exclude this row.")
             amount = quantize(value, currency)
         except MoneyError as exc:
             result.errors.append(RowError(line, str(exc)))
