@@ -7,7 +7,7 @@ export type FinanceMoney = string;
 export type FinanceAccountKind = 'bank' | 'card' | 'cash' | 'loan' | 'investment';
 export type FinanceCategory =
   | 'income' | 'cashback' | 'refunds' | 'transfer' | 'groceries' | 'dining' | 'transport' | 'fuel' | 'utilities' | 'telecom' | 'housing'
-  | 'shopping' | 'health' | 'education' | 'entertainment' | 'subscriptions' | 'travel' | 'insurance' | 'fees' | 'cash' | 'other';
+  | 'food' | 'room_rent' | 'shopping' | 'health' | 'education' | 'entertainment' | 'subscriptions' | 'travel' | 'insurance' | 'fees' | 'cash' | 'other';
 export type FinanceCategorySource = 'rule' | 'owner_rule' | 'manual' | 'none';
 export type FinanceCadence = 'weekly' | 'monthly' | 'quarterly' | 'yearly' | 'once';
 export type FinanceBillSource = 'manual' | 'detected';
