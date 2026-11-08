@@ -61,20 +61,21 @@ export function FinanceOverviewPage({ summary, accounts, month, onMonth, onOpen,
   }, [shownMonth]);
   useEffect(() => { void loadBusiness(); }, [loadBusiness]);
   useEffect(() => { void loadPersonal(); }, [loadPersonal]);
-  // Six months of the person's own ledger, read only when the Personal chart is shown.
+  const businessDenied = business.kind === 'denied';
+  // Without access to the books, All finance and Business have nothing business to show: the page reads Personal.
+  const shownScope: FinanceScope = businessDenied ? 'personal' : scope;
+  // Six months of the person's own ledger, read only when the Personal chart is shown: chosen,
+  // or because the books are refused (the effective scope, so a 403 never leaves the chart loading).
   useEffect(() => {
-    if (scope !== 'personal' || !shownMonth || !s) return;
+    if (shownScope !== 'personal' || !shownMonth || !s) return;
     let live = true;
     setHistory({ kind: 'loading' });
     Promise.all(monthsEnding(shownMonth, 6).slice(0, -1).map((m) => api.getSummary(m)))
       .then((rows) => { if (live) setHistory({ kind: 'ready', value: [...rows, s] }); })
       .catch((e) => { if (live) setHistory(failed(e)); });
     return () => { live = false; };
-  }, [scope, shownMonth, s]);
+  }, [shownScope, shownMonth, s]);
 
-  const businessDenied = business.kind === 'denied';
-  // Without access to the books, All finance and Business have nothing business to show: the page reads Personal.
-  const shownScope: FinanceScope = businessDenied ? 'personal' : scope;
   const currencies = s ? spendCurrencies(s, s.base_currency) : [];
   const cur = currency && currencies.includes(currency) ? currency : currencies[0] ?? s?.base_currency ?? 'SAR';
   const head = <FinancePageHead title={t('fov.title')} subtitle={t('fov.subtitle')}
