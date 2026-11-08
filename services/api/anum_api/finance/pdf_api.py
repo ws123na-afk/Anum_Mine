@@ -316,6 +316,13 @@ class PdfImportRow(BaseModel):
     balance: Decimal | None = None
     reference: str | None = Field(default=None, max_length=60)
     currency: str | None = Field(default=None, pattern=r"^[A-Z]{3}$")
+    original_amount: Decimal | None = None
+    original_currency: str | None = Field(default=None, pattern=r"^[A-Z]{3}$")
+    billed_amount: Decimal | None = None
+    billed_currency: str | None = Field(default=None, pattern=r"^[A-Z]{3}$")
+    fx_rate: Decimal | None = None
+    fee: Decimal | None = None
+    vat: Decimal | None = None
     time: str | None = Field(default=None, pattern=r"^\d{2}:\d{2}(:\d{2})?$", description="The time the statement prints for the row")
 
 
@@ -394,22 +401,48 @@ def import_pdf_statement(
             if not description:
                 raise _invalid(f"Row {number}: the description is empty.")
             try:
-                amount = quantize(row.amount, currency)
+                foreign = row.currency is not None and row.currency != currency
+                if foreign and (row.billed_amount is None or row.billed_currency != currency):
+                    raise MoneyError(
+                        f"Foreign {row.currency} row needs the actual bank-billed {currency} amount. "
+                        "Enter it in the PDF review before including this transaction."
+                    )
+                if row.billed_amount is not None and row.billed_currency not in (None, currency):
+                    raise MoneyError(f"Billed currency {row.billed_currency} does not match {currency}.")
+                amount = quantize(row.billed_amount if row.billed_amount is not None else row.amount, currency)
                 balance = quantize(row.balance, currency) if row.balance is not None else None
+                if amount == 0:
+                    raise MoneyError("The posted amount is zero.")
+                original = row.original_amount
+                original_currency = row.original_currency
+                if foreign:
+                    original = original if original is not None else row.amount
+                    original_currency = original_currency or row.currency
+                if original is not None and not original_currency:
+                    raise MoneyError("Original currency is missing.")
+                details = []
+                if original is not None:
+                    details.append(f"Original: {abs(original)} {original_currency}")
+                if row.billed_amount is not None:
+                    details.append(f"Bank billed: {abs(amount)} {currency}")
+                if row.fx_rate is not None:
+                    if row.fx_rate <= 0:
+                        raise MoneyError("Invalid FX rate.")
+                    details.append(f"Bank FX rate: {row.fx_rate}")
+                if row.fee is not None:
+                    details.append(f"FX/transaction fee reported: {abs(row.fee)} {currency} (informational)")
+                if row.vat is not None:
+                    details.append(f"VAT reported: {abs(row.vat)} {currency} (informational)")
             except MoneyError as exc:
                 raise _invalid(f"Row {number}: {exc}") from None
-            if amount == 0:
-                raise _invalid(f"Row {number}: the amount is zero. Fix it or drop the row.")
-            if row.currency and row.currency != currency:
-                raise _invalid(f"Row {number} is in {row.currency}, but the account is in {currency}. Drop the row or pick an account in {row.currency}.")
-            items.append((row.posted_on, amount, description, balance, row.reference, row.time))
+            items.append((row.posted_on, amount, description, balance, row.reference, row.time, " | ".join(details) or None, original, original_currency, row.fee))
         try:
             opening = quantize(body.opening_balance, currency) if body.opening_balance is not None else None
             closing = quantize(body.closing_balance, currency) if body.closing_balance is not None else None
         except MoneyError as exc:
             raise _invalid(str(exc)) from None
-        check = pdf.verify([(i, amount, balance) for i, (_, amount, _, balance, _, _) in enumerate(items, start=1)], opening, closing)
-        failed = _summary_failures(body.summary, [amount for _, amount, _, _, _, _ in items], opening, currency)
+        check = pdf.verify([(i, amount, balance) for i, (_, amount, _, balance, _, _, _, _, _, _) in enumerate(items, start=1)], opening, closing)
+        failed = _summary_failures(body.summary, [amount for _, amount, _, _, _, _, _, _, _, _ in items], opening, currency)
         if failed and not body.accept_mismatch:
             raise ApplicationError(
                 ErrorCode.VALIDATION_ERROR,
@@ -424,11 +457,11 @@ def import_pdf_statement(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 details=[ErrorDetail(type="pdf_balance_mismatch", message=str(check.difference) if check.difference is not None else "")],
             )
-        hashes = _occurrence_hashes(account.id, currency, [(posted, amount, description) for posted, amount, description, _, _, _ in items])
+        hashes = _occurrence_hashes(account.id, currency, [(posted, amount, description) for posted, amount, description, _, _, _, _, _, _, _ in items])
         tz = zone(settings_for(store, context).timezone)
         rows = []
-        for number, ((posted, amount, description, _, reference, at), digest) in enumerate(zip(items, hashes, strict=True), start=1):
-            rows.append(csv_import.ParsedRow(number, posted, amount, description, digest))
+        for number, ((posted, amount, description, _, reference, at, notes, original, original_currency, fee), digest) in enumerate(zip(items, hashes, strict=True), start=1):
+            rows.append(csv_import.ParsedRow(number, posted, amount, description, digest, notes, original, original_currency, fee))
             if at:
                 parts = [int(x) for x in at.split(":")] + [0]
                 times[digest] = datetime.combine(posted, dtime(parts[0] % 24, parts[1] % 60, parts[2] % 60), tzinfo=tz)
