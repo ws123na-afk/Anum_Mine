@@ -72,6 +72,7 @@ function report(state: VehiclesState, vehicleId: string): Row {
     vehicle_id: vehicleId, start: null, end: null, odometer_km: '10400.0', distance_km: '400.0', spend: spend ? [{ currency: 'SAR', amount: spend.toFixed(2) }] : [],
     cost_per_km: spend ? [{ currency: 'SAR', amount: (spend / 400).toFixed(3) }] : [], monthly: spend ? [{ month: day(0).slice(0, 7), currency: 'SAR', amount: spend.toFixed(2) }] : [],
     by_category: spend ? [{ currency: 'SAR', category: 'fuel', amount: spend.toFixed(2) }] : [], fuel_litres: '82.000',
+    usage: [{ month: day(-31).slice(0, 7), distance_km: '100.0', fuel_litres: '42.000' }, { month: day(0).slice(0, 7), distance_km: '300.0', fuel_litres: '40.000' }],
     fuel_price_trend: [{ month: day(0).slice(0, 7), currency: 'SAR', fuel_type: 'petrol_91', price_per_litre: '2.330' }],
     consumption: { average_per_100: '10.00', segments: [{ start_id: 'vfuel_1', end_id: 'vfuel_2', km: '400.0', litres: '40.000', per_100: '10.00', ended_on: day(-1) }] },
     anomalies: [], unlinked_records: state.fuel.concat(state.service).filter((r) => r.vehicle_id === vehicleId && !r.payment).length,
@@ -110,7 +111,10 @@ export function vehiclesReply(state: VehiclesState, method: string, url: URL, bo
     return { status: 200, body: { start: null, end: null, vehicles: active.length, spend: spend ? [{ currency: 'SAR', amount: spend.toFixed(2) }] : [],
       monthly: spend ? [{ month: day(0).slice(0, 7), currency: 'SAR', amount: spend.toFixed(2) }] : [],
       by_vehicle: spend ? [{ vehicle_id: 'veh_car', registration: 'ABC 1234', currency: 'SAR', amount: spend.toFixed(2) }] : [],
-      due: active.flatMap((v) => v.due as Row[]), unlinked_records: state.fuel.concat(state.service).filter((r) => !r.payment).length } };
+      due: active.flatMap((v) => v.due as Row[]), unlinked_records: state.fuel.concat(state.service).filter((r) => !r.payment).length,
+      usage: active.length ? [{ month: day(-31).slice(0, 7), distance_km: '100.0', fuel_litres: '42.000' }, { month: day(0).slice(0, 7), distance_km: '300.0', fuel_litres: '40.000' }] : [],
+      by_vehicle_usage: active.map((v) => ({ vehicle_id: v.id, distance_km: v.id === 'veh_car' ? '300.0' : '0.0', fuel_litres: v.id === 'veh_car' ? '40.000' : '0.000',
+        average_per_100: v.id === 'veh_car' ? '10.00' : null })) } };
   }
   if (method === 'GET' && sub === '/reminders') return { status: 200, body: { items: state.vehicles.flatMap((v) => v.due as Row[]), window_days: 30 } };
   if (method === 'GET' && sub === '/preferences') return { status: 200, body: state.preferences };

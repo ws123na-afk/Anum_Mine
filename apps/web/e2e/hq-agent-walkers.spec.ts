@@ -3,6 +3,9 @@ import { expect, test, type Page } from '@playwright/test';
 import { mkdirSync } from 'node:fs';
 import { mockHq } from './support/hqCampusApi';
 
+// The 3D office draws on a software renderer in CI, where loading a scene alone can take most of a minute.
+test.describe.configure({ timeout: 150_000 });
+
 // Agent walkers (docs/ANUM_MINE_HQ_AGENT_WALKERS.md). A figure of an agent appears only when a stored record says the agent moved between buildings:
 // a live meeting with a room in another building that started or ended with the agent as participant, or a presence answer that puts the agent's
 // desk in another building. No record, no figure. The API is mocked and every name is fake.

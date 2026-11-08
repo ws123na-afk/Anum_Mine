@@ -98,3 +98,84 @@
 .callsUrl > span { grid-column: 1 / -1; }
 .callsUrl code { background: var(--d-glass-1); border: 1px solid var(--d-line); border-radius: var(--d-r-control); font-size: var(--text-sm); min-width: 0; overflow-wrap: anywhere; padding: var(--d-s1) var(--d-s2); }
 p.statusBadge { justify-self: start; margin: 0; width: fit-content; }
+
+/* ---- The page on the shared shell (docs/web-design-system.md#communication-pages) ---- */
+.callsPage { display: grid; gap: var(--d-s4); min-width: 0; }
+.callsPage .chipButton { min-height: 40px; }
+/* Recents: the list and the open call, the quick dial card beside them on wide screens, AI calls under them. */
+.callsRecentsBoard { display: grid; gap: var(--d-s4); grid-template-areas: "split" "bottom" "side"; grid-template-columns: minmax(0, 1fr); min-width: 0; }
+.callsRecentsBoard > .callsSplit { grid-area: split; }
+.callsSide { display: grid; gap: var(--d-s4); grid-area: side; grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr)); min-width: 0; }
+.callsBottom { display: grid; gap: var(--d-s4); grid-area: bottom; min-width: 0; }
+@media (min-width: 1360px) {
+  .callsRecentsBoard { align-items: start; grid-template-areas: "split side" "bottom side"; grid-template-columns: minmax(0, 1fr) minmax(280px, 312px); grid-template-rows: auto 1fr; }
+  .callsSide { grid-template-columns: minmax(0, 1fr); }
+}
+.callsDay + .callsDay { border-top: 1px solid var(--d-line); }
+.callsDayHead { color: var(--d-muted); font-size: var(--text-sm); font-weight: 700; margin: 0; padding: var(--d-s3) var(--d-s4) var(--d-s1); }
+.callsRowIcon.missed { color: var(--d-stop); }
+.callsRowFacts bdi { color: var(--d-muted); }
+
+/* The small dial pad and the facts lists */
+.callsPad { display: grid; gap: var(--d-s3); min-width: 0; }
+.callsPad.compact .callsDialNumber input { font-size: var(--text-xl); }
+.callsPad.compact .callsKey { font-size: var(--text-xl); min-height: 44px; }
+.callsPad.compact .callsDialActions { justify-content: stretch; }
+.callsPad.compact .callsDialActions > * { flex: 1 1 100%; justify-content: center; }
+.callsFacts { display: grid; gap: var(--d-s3); list-style: none; margin: 0; padding: 0; }
+.callsFacts li { display: grid; gap: var(--d-s1); justify-items: start; min-width: 0; }
+.callsFacts li > span:last-child { color: var(--d-muted); font-size: var(--text-sm); overflow-wrap: anywhere; }
+.callsFactsList { display: grid; gap: var(--d-s2); margin: 0; }
+.callsFactsList > div { display: grid; gap: var(--d-s3); grid-template-columns: minmax(96px, 38%) minmax(0, 1fr); }
+.callsFactsList dt { color: var(--d-muted); font-size: var(--text-sm); }
+.callsFactsList dd { margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.linkButton svg { height: 14px; vertical-align: middle; width: 14px; }
+
+/* Dial tab: contacts, the pad, the person or the call facts */
+.callsDialBoard { align-items: start; display: grid; gap: var(--d-s4); grid-template-columns: minmax(0, 1fr); min-width: 0; }
+@media (min-width: 1024px) { .callsDialBoard { grid-template-columns: minmax(0, 1fr) minmax(320px, 400px); } .callsDialAbout { grid-column: 1 / -1; } }
+@media (min-width: 1280px) { .callsDialBoard { grid-template-columns: minmax(240px, 1fr) minmax(320px, 400px) minmax(240px, 1fr); } .callsDialAbout { grid-column: auto; } }
+.callsDialBoard .callsDial { justify-self: stretch; max-width: none; }
+.callsPick { display: grid; gap: 2px; list-style: none; margin: 0; max-height: 520px; overflow: auto; padding: 0; }
+.callsPickRow {
+  align-items: center; background: none; border: 1px solid transparent; border-radius: var(--d-r-control); color: var(--d-text); display: flex; font: inherit; gap: var(--d-s3);
+  min-height: 52px; padding: var(--d-s1) var(--d-s2); text-align: start; width: 100%;
+}
+.callsPickRow:hover { background: var(--d-glass-1); }
+.callsPickRow.on { background: var(--d-glass-2); border-color: rgb(var(--c-ok) / .45); }
+.callsPickText { display: grid; min-width: 0; }
+.callsPickText strong { align-items: center; display: inline-flex; gap: var(--d-s1); overflow-wrap: anywhere; }
+.callsPickText small { color: var(--d-muted); font-size: var(--text-sm); overflow-wrap: anywhere; }
+.callsPickStar { color: var(--d-warn); fill: currentColor; height: 14px; width: 14px; }
+
+/* AI calls: queue, the open request, then the form and opt-outs */
+.callsAiBoard { display: grid; gap: var(--d-s4); min-width: 0; }
+.callsAiGrid { align-items: start; display: grid; gap: var(--d-s4); grid-template-columns: minmax(0, 1fr); min-width: 0; }
+@media (min-width: 1024px) { .callsAiGrid { grid-template-columns: minmax(280px, 2fr) minmax(0, 3fr); } .callsAiSide { grid-column: 1 / -1; grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr)); } }
+@media (min-width: 1440px) { .callsAiGrid { grid-template-columns: minmax(260px, 1fr) minmax(0, 1.5fr) minmax(300px, 1fr); } .callsAiSide { grid-column: auto; grid-template-columns: minmax(0, 1fr); } }
+.callsAiSide { align-items: start; display: grid; gap: var(--d-s4); min-width: 0; }
+.callsFilterChips { display: flex; flex-wrap: wrap; gap: var(--d-s1); }
+.callsFilterChip { border-radius: var(--d-r-pill); font-size: var(--text-sm); min-height: 36px; padding: 0 var(--d-s3); }
+.callsFilterChip[aria-checked="false"] { background: transparent; border: 1px solid var(--d-line); color: var(--d-muted); }
+.callsAiList > li.selected { border-color: rgb(var(--c-ok) / .5); background: var(--d-glass-1); }
+.callsAiList > li:has(.callsAiPick) { padding: 0; }
+.callsAiPick { background: none; border: 0; color: var(--d-text); display: grid; font: inherit; gap: var(--d-s1); padding: var(--d-s3); text-align: start; width: 100%; }
+.callsAiDetail h3 { align-items: center; display: flex; font-size: var(--text-md); gap: var(--d-s2); margin: 0 0 var(--d-s2); }
+.callsAiDetail h3 svg { color: var(--d-accent); height: 16px; width: 16px; }
+.callsAiDetail .finCardHead h2 { font-size: var(--text-xl); overflow-wrap: anywhere; }
+.callsScript pre { background: var(--d-glass-1); border: 1px solid var(--d-line); border-radius: var(--d-r-control); font-family: inherit; margin: 0; max-height: 260px; overflow: auto; overflow-wrap: anywhere; padding: var(--d-s3); white-space: pre-wrap; }
+.callsCompliance p { margin: 0; }
+.callsEmptyTitle { font-size: var(--text-lg); margin: 0; }
+.callsAiMini { display: grid; gap: var(--d-s3); list-style: none; margin: 0; padding: 0; }
+.callsAiMini > li { border: 1px solid var(--d-line); border-radius: var(--d-r-control); display: grid; gap: var(--d-s1); padding: var(--d-s3); }
+.callsAiMiniTop { align-items: flex-start; display: flex; flex-wrap: wrap; gap: var(--d-s2); justify-content: space-between; }
+.callsAiMiniTop strong { min-width: 0; overflow-wrap: anywhere; }
+.callsAiMiniNote { color: var(--d-muted); font-size: var(--text-sm); margin: 0; }
+.callsCardEmpty p { margin: 0; }
+@media (min-width: 1024px) { .callsRecentsBoard .splitView.callsSplit { grid-template-columns: minmax(320px, 1.1fr) minmax(0, 1fr); } }
+.callsRecentsBoard .callsToolbar { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.callsRecentsBoard .callsToolbar input[type="search"] { grid-column: 1 / span 2; }
+.callsRecentsBoard .callsToolbar .iconOnly { justify-self: start; }
+.callsRecentsBoard .callsToolbar .callsMine { grid-column: 1 / -1; }
+.callsAiSide .paneHead h2 { align-items: center; display: inline-flex; gap: var(--d-s2); }
+.callsAiSide .paneHead h2 svg { color: var(--d-accent); height: 17px; width: 17px; }

@@ -2,6 +2,9 @@ import { expect, test, type Page } from '@playwright/test';
 import { mkdirSync } from 'node:fs';
 import { mockHq } from './support/hqCampusApi';
 
+// The 3D office draws on a software renderer in CI, where loading a scene alone can take most of a minute.
+test.describe.configure({ timeout: 150_000 });
+
 // Local render check for the interior assets (not run in CI: no assertions on pixels, only screenshots for the owner review).
 const OUT = process.env.INT_DIR ?? '/tmp/int-shots';
 mkdirSync(OUT, { recursive: true });

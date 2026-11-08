@@ -1,0 +1,47 @@
+/* My tasks and Team tasks (WorkTasks.tsx, docs/tasks.md#my-tasks-and-team-tasks): KPI row, the
+   grouped table and the selected task beside it. Shared tokens and shell classes only. */
+.wtPage { display: grid; gap: var(--d-s4); min-width: 0; }
+.wtLayout { align-items: start; display: grid; gap: var(--d-s4); grid-template-columns: minmax(0, 1fr); min-width: 0; }
+@media (min-width: 1280px) { .wtLayout.withDetail { grid-template-columns: minmax(0, 1fr) minmax(320px, 400px); } }
+.wtLayout > *, .wtDetail > * { min-width: 0; }
+.wtDetail .workDetail { margin: 0; }
+.wtToolbar { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2) var(--d-s3); justify-content: space-between; }
+.wtToolbar h2 { align-items: baseline; display: flex; flex-wrap: wrap; font-size: var(--text-lg); gap: var(--d-s2); margin: 0; }
+.wtTools { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); }
+.wtTools > button { align-items: center; display: inline-flex; gap: var(--d-s2); min-height: 40px; }
+.wtTools svg { height: 16px; width: 16px; }
+.wtSearch { align-items: center; display: flex; position: relative; }
+.wtSearch svg { color: var(--d-faint); inset-inline-start: var(--d-s2); pointer-events: none; position: absolute; }
+.wtSearch input { min-width: 0; padding-inline-start: 32px; width: 220px; }
+.wtSelect { align-items: center; display: inline-flex; gap: var(--d-s2); margin: 0; }
+.wtSelect span { color: var(--d-muted); font-size: var(--text-sm); }
+.wtSelect select { min-height: 40px; width: auto; }
+.wtGrid { min-width: 640px; }
+.wtGrid td, .wtGrid th { vertical-align: middle; }
+.wtCheck { width: 36px; }
+.wtCheck input { accent-color: var(--d-primary); height: 18px; min-height: 0; width: 18px; }
+.wtGroupRow th { background: var(--d-glass-1); padding: 0; }
+.wtGroupRow button {
+  align-items: center; background: transparent; border: 0; color: var(--d-text); cursor: pointer; display: flex; font: inherit; font-weight: 650; gap: var(--d-s2);
+  min-height: 40px; padding: 0 var(--d-s2); text-align: start; width: 100%;
+}
+.wtGroupRow button span { color: var(--d-muted); font-weight: 500; }
+.wtGroup.bad .wtGroupRow th { background: rgb(var(--c-stop) / .1); }
+.wtGroup.warn .wtGroupRow th { background: rgb(var(--c-warn) / .12); }
+.wtGroup.ok .wtGroupRow th { background: rgb(var(--c-ok) / .1); }
+.wtChevron { height: 16px; transition: transform var(--d-fast) var(--d-ease); width: 16px; }
+.wtGroupRow button[aria-expanded="false"] .wtChevron { transform: rotate(-90deg); }
+.wtGroupRow button[aria-expanded="false"] .wtChevron:dir(rtl) { transform: rotate(90deg); }
+.wtTitle { background: transparent; border: 0; color: var(--d-text); cursor: pointer; display: grid; font: inherit; gap: 2px; min-height: 40px; padding: 0; text-align: start; width: 100%; }
+.wtTitle strong { font-weight: 600; overflow-wrap: anywhere; }
+.wtTitle:hover strong { text-decoration: underline; }
+.wtTitle small { color: var(--d-muted); display: flex; flex-wrap: wrap; font-size: var(--text-xs); gap: var(--d-s3); font-weight: 400; }
+.wtTitle small span { align-items: center; display: inline-flex; gap: 3px; }
+.wtTitle small svg { height: 12px; width: 12px; }
+.wtGrid tr.selected > * { background: rgb(var(--c-ok) / .08); }
+.wtLate { color: var(--d-stop); font-weight: 600; }
+.wtQuick .commandBox { margin: 0; }
+@media (max-width: 760px) {
+  .wtTools, .wtSearch { width: 100%; }
+  .wtSearch input { width: 100%; }
+}

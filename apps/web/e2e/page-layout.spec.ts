@@ -17,7 +17,8 @@ test('AI Chat shows what the open conversation used and saved, next to the threa
   if ((page.viewportSize()?.width ?? 0) < 1280) await page.getByRole('button', { name: 'Show what this chat used' }).click();
   const rail = page.locator('.chatRail');
   await expect(rail.getByText('1 asked · 1 answered')).toBeVisible();
-  // The memory remembered from this conversation (provenance source_id conv_1) is listed and opens the Knowledge Base.
+  // The memory remembered from this conversation (provenance source_id conv_1) is listed under the Memory tab and opens the Knowledge Base.
+  await rail.getByRole('tab', { name: /^Memory/ }).click();
   await rail.getByRole('button', { name: /The user prefers short answers/ }).click();
   await expect(page.getByRole('heading', { level: 1, name: 'Knowledge Base' })).toBeVisible();
 });

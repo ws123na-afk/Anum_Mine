@@ -18,7 +18,7 @@ test.describe('no dead buttons @gate', () => {
 
   for (const item of GATE_PAGES) {
     test(`#${item.hash}: every button does something`, async ({ page }) => {
-      test.setTimeout(240_000);
+      test.setTimeout(item.auditTimeout ?? 240_000);
       await item.mock(page);
       expect(await auditButtons(page, `/#${item.hash}`, item.ready)).toEqual([]);
     });

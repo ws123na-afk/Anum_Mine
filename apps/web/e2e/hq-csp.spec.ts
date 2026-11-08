@@ -2,6 +2,9 @@ import { expect, test } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import { openHq } from './support/hqApi';
 
+// The 3D office draws on a software renderer in CI, where loading a scene alone can take most of a minute.
+test.describe.configure({ timeout: 150_000 });
+
 // F14 security: the scene must run under the REAL production Content-Security-Policy (the one
 // nginx sends, apps/web/nginx/default.conf.template) without a single violation, so the office never
 // needs a looser policy. vite preview sends no CSP, so the spec adds the production one to the page.

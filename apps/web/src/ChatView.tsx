@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
 import {
-  ArrowDown, CircleDot, Download, FileText, MessageSquarePlus, PanelRight, Pencil, Pin, PinOff, RefreshCw, RotateCcw, Search, Send, Sparkles, Square, Trash2, WifiOff, X,
+  ArrowDown, CircleDot, Download, FileText, MessageSquare, MessageSquarePlus, PanelRight, Pencil, Pin, PinOff, RefreshCw, RotateCcw, Search, Send, Sparkles, Square, Trash2, WifiOff, X,
 } from 'lucide-react';
 import { ModelPlaceholderBanner } from './ModelPlaceholderBanner';
 import { AnswerFeedback, type Rating } from './AnswerFeedback';
 import { getRatings } from './lib/learningApi';
 import {
   applyAskEvent, canRegenerate, canRetry, conversationMarkdown, conversationTitle, deletionSpan, endAsk, exportFileName, fromStored, isNearBottom, isStored,
-  laterTurns, nextCursor, orderConversations, retryTarget, startAsk, type Conversation, type UiTurn,
+  conversationsByDay, laterTurns, nextCursor, orderConversations, retryTarget, startAsk, type Conversation, type UiTurn,
 } from './lib/chat';
 import {
   askInConversation, CONVERSATION_PAGE, createConversation, deleteConversation, deleteTurn, getConversation, listConversations, rateTurn, updateConversation, type AskBody,
@@ -31,7 +31,8 @@ import { apiRequest, searchMemories } from './lib/api';
 import { agentListPath } from './lib/agents';
 import { memoriesFromChat } from './lib/pageSummary';
 import { viewLabel } from './lib/shell';
-import { PageHeader, RAIL_QUERY, SplitView, useMediaQuery } from './PageParts';
+import { RAIL_QUERY, SplitView, useMediaQuery } from './PageParts';
+import { FinancePageHead } from './FinanceShell';
 import type { AgentPage } from '@anum/contracts';
 import './chat.css';
 
@@ -419,6 +420,7 @@ export function ChatView({ onOpenBudgets, onOpenDeveloper, onOpenTarget, initial
         {!page && <button type="button" className="secondary" onClick={startNew} disabled={streaming}><MessageSquarePlus aria-hidden="true" />{t('chat.new')}</button>}
         {page && conversations.length > 0 && <span className="muted">{formatNumber(conversations.length)}{cursor ? '+' : ''}</span>}
       </div>
+      {page && <button type="button" className="chatNewWide" onClick={startNew} disabled={streaming}><MessageSquarePlus aria-hidden="true" />{t('pages.chat.newChat')}</button>}
       <div className="chatSearch" role="search">
         <Search aria-hidden="true" />
         <input type="search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder={t('chat.searchPlaceholder')} aria-label={t('chat.searchLabel')} maxLength={200} dir="auto" />
@@ -431,7 +433,10 @@ export function ChatView({ onOpenBudgets, onOpenDeveloper, onOpenTarget, initial
         : <p className="chatListState">{t('chat.emptyList')}</p>)}
       {conversations.length > 0 && <div className="chatListScroll">
         {pinned.length > 0 && <><h3 className="chatListGroup">{t('chat.pinnedGroup')}</h3><ul aria-label={t('chat.pinnedGroup')}>{pinned.map(row)}</ul></>}
-        {recent.length > 0 && <>{pinned.length > 0 && <h3 className="chatListGroup">{t('chat.recentGroup')}</h3>}<ul aria-label={pinned.length > 0 ? t('chat.recentGroup') : t('chat.conversations')}>{recent.map(row)}</ul></>}
+        {recent.length > 0 && (page
+          ? conversationsByDay(recent, new Date()).map((group) => <section key={group.day} className="chatDayGroup" aria-labelledby={`chat-day-${group.day}`}>
+              <h3 id={`chat-day-${group.day}`} className="chatListGroup">{t(`chat.day.${group.day}` as MessageKey)}</h3><ul>{group.items.map(row)}</ul></section>)
+          : <>{pinned.length > 0 && <h3 className="chatListGroup">{t('chat.recentGroup')}</h3>}<ul aria-label={pinned.length > 0 ? t('chat.recentGroup') : t('chat.conversations')}>{recent.map(row)}</ul></>)}
         {cursor && <button type="button" className="secondary chatMore" onClick={() => void loadMore()} disabled={loadingMore}>{loadingMore ? t('chat.loadingMore') : t('chat.loadMore')}</button>}
       </div>}
     </aside>;
@@ -548,19 +553,18 @@ export function ChatView({ onOpenBudgets, onOpenDeveloper, onOpenTarget, initial
   </>;
 
   if (!page) return <div className="chatLayout">{listPane}{panel}{dialogs}</div>;
-  return <>
-    <PageHeader title={viewLabel('assistant')} subtitle={t('pages.chat.subtitle')} actions={<>
-      {agents.length > 0 && <label className="chatTalkTo"><span>{t('pages.chat.talkTo')}</span>
-        <select value={talkTo} disabled={streaming} onChange={(e) => chooseTalkTo(e.target.value)}><option value="">{t('pages.chat.assistant')}</option>{agents.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>}
-      <button type="button" onClick={startNew} disabled={streaming}><MessageSquarePlus aria-hidden="true" />{t('pages.chat.newChat')}</button>
-    </>} />
+  return <div className="finPage chatPage">
+    <FinancePageHead icon={<MessageSquare />} title={viewLabel('assistant')} subtitle={t('pages.chat.subtitle')} actions={agents.length > 0 ? <>
+      <label className="chatTalkTo"><span>{t('pages.chat.talkTo')}</span>
+        <select value={talkTo} disabled={streaming} onChange={(e) => chooseTalkTo(e.target.value)}><option value="">{t('pages.chat.assistant')}</option>{agents.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+    </> : undefined} />
     <SplitView layout="three" className="chatLayout chatSplit">
       {listPane}
       {panel}
       <aside className="pane chatRailPane" data-pane="rail" aria-label={t('pages.chat.rail.title')}>{railShown && rail}</aside>
     </SplitView>
     {dialogs}
-  </>;
+  </div>;
 }
 
 function when(value: string): string {

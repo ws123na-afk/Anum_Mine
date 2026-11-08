@@ -18,8 +18,9 @@ import {
 } from './lib/businessBooks';
 import { describeError, isPermissionDenied } from './lib/errors';
 import { t, type MessageKey } from './lib/i18n';
-import { figure } from './lib/pageSummary';
-import { PageSummary } from './PageParts';
+import type { Crumb } from './PageParts';
+import { FinancePageHead } from './FinanceShell';
+import { BooksDashboard, singleMonth } from './BusinessBooksDashboard';
 import { ConfirmDialog } from './Dialog';
 import { Badge, Denied, Empty, Failed, Note, Pager, ReasonDialog, day, failure } from './BusinessParts';
 import { ListState, usePaged } from './BusinessDeals';
@@ -33,28 +34,37 @@ type SetupLoad = { kind: 'loading' } | { kind: 'ready'; setup: BooksSetup } | { 
 const label = (key: string) => t(key as MessageKey);
 const dayText = (value: string | null | undefined) => (value ? day(value) : '-');
 
-export function BooksTab({ section, onSection }: { section: string | null; onSection: (tab: BooksTab) => void }) {
+export function BooksTab({ section, onSection, crumbs }: { section: string | null; onSection: (tab: BooksTab) => void; crumbs?: Crumb[] }) {
   const tab = booksTabFromId(section);
   const [load, setLoad] = useState<SetupLoad>({ kind: 'loading' });
+  const [recording, setRecording] = useState(false);
+  const [recorded, setRecorded] = useState<string | null>(null);
+  const [tick, setTick] = useState(0);
   const reload = useCallback(async () => {
     try { setLoad({ kind: 'ready', setup: await api.getSetup() }); }
     catch (error) { setLoad(isPermissionDenied(error) ? { kind: 'denied', text: describeError(error) } : { kind: 'error', text: describeError(error) }); }
   }, []);
   useEffect(() => { void reload(); }, [reload]);
-  if (load.kind === 'loading') return <Note>{t('books.loading')}</Note>;
-  if (load.kind === 'denied') return <Denied text={load.text} />;
-  if (load.kind === 'error') return <Failed text={load.text} onRetry={() => { setLoad({ kind: 'loading' }); void reload(); }} />;
+  const ready = load.kind === 'ready' && Boolean(load.setup.settings);
+  const write = load.kind === 'ready' && load.setup.permissions.write;
+  // The page head of Expenses and P&L (docs/business-books.md#overview-dashboard): its own title, the primary action and the sections.
+  const head = <FinancePageHead title={t('books.page.title')} subtitle={t('books.page.subtitle')} crumbs={crumbs}
+    actions={ready && write ? <button type="button" onClick={() => setRecording(true)}><Plus aria-hidden="true" />{t('books.page.record')}</button> : undefined}
+    tabs={load.kind === 'ready' ? <nav className="finTabs bkNav" aria-label={t('books.sections')}>{BOOKS_TABS.filter((item) => load.setup.permissions.manage || !OWNER_TABS.includes(item)).map((item) =>
+      <button key={item} type="button" aria-current={tab === item ? 'page' : undefined} onClick={() => onSection(item)}>{booksTabLabel(item)}</button>)}</nav> : undefined} />;
+  if (load.kind === 'loading') return <section className="bkPage opsPage">{head}<Note>{t('books.loading')}</Note></section>;
+  if (load.kind === 'denied') return <section className="bkPage opsPage">{head}<Denied text={load.text} /></section>;
+  if (load.kind === 'error') return <section className="bkPage opsPage">{head}<Failed text={load.text} onRetry={() => { setLoad({ kind: 'loading' }); void reload(); }} /></section>;
   const setup = load.setup;
-  const ready = Boolean(setup.settings);
-  return <section className="bzSection bkBooks" aria-label={t('biz.tab.books')}>
-    <nav className="bkNav" aria-label={t('books.sections')}>{BOOKS_TABS.filter((item) => setup.permissions.manage || !OWNER_TABS.includes(item)).map((item) =>
-      <button key={item} type="button" className="secondary" aria-current={tab === item ? 'page' : undefined} onClick={() => onSection(item)}>{booksTabLabel(item)}</button>)}</nav>
+  return <section className="bzSection bkBooks bkPage opsPage" aria-label={t('books.page.title')}>
+    {head}
     <p className="muted bzHint">{t('books.noPosting')}</p>
+    {recorded && <Note>{recorded}</Note>}
     {!ready && tab !== 'settings' && <Empty title={t('books.setupTitle')} text={setup.permissions.manage ? t('books.setupText') : t('books.setupMember')}
       action={setup.permissions.manage ? <button type="button" onClick={() => onSection('settings')}>{t('books.setupAction')}</button> : undefined} />}
-    {ready && tab === 'overview' && <Overview setup={setup} onSection={onSection} />}
+    {ready && tab === 'overview' && <Overview key={tick} setup={setup} onSection={onSection} />}
     {ready && tab === 'group' && (setup.permissions.manage ? <GroupSection setup={setup} /> : <Denied text={t('books.group.ownersOnly')} />)}
-    {ready && tab === 'bills' && <Bills setup={setup} />}
+    {ready && tab === 'bills' && <Bills key={tick} setup={setup} />}
     {ready && tab === 'recurring' && <Recurring setup={setup} />}
     {ready && tab === 'vendors' && <Vendors setup={setup} />}
     {ready && tab === 'allocations' && <Allocations setup={setup} />}
@@ -62,6 +72,8 @@ export function BooksTab({ section, onSection }: { section: string | null; onSec
     {ready && tab === 'journal' && <Journal setup={setup} />}
     {ready && tab === 'intercompany' && <Intercompany setup={setup} />}
     {tab === 'settings' && <SettingsSection setup={setup} onSaved={() => void reload()} extra={ready ? <RateFeedCard setup={setup} /> : null} />}
+    {recording && <BillDialog setup={setup} onClose={() => setRecording(false)}
+      onSaved={(bill) => { setRecording(false); setRecorded(t('books.page.recorded', { vendor: bill.vendor_name })); setTick((n) => n + 1); }} />}
   </section>;
 }
 
@@ -71,9 +83,10 @@ type ReportLoad = { state: 'loading' } | { state: 'ready'; value: BooksReport } 
 
 function Overview({ setup, onSection }: { setup: BooksSetup; onSection: (tab: BooksTab) => void }) {
   const settings = setup.settings!;
-  const [period, setPeriod] = useState(() => ({ from: setup.default_period?.from ?? '', to: setup.default_period?.to ?? '' }));
+  // The mockup opens on the month: this month by default, the rest of the presets and any dates one choice away.
+  const [period, setPeriod] = useState(() => presetPeriod('this_month', new Date(), settings.fiscal_year_start_month));
   const [basis, setBasis] = useState<BooksBasis>(settings.basis);
-  const [preset, setPreset] = useState<PeriodPreset | ''>('this_year');
+  const [preset, setPreset] = useState<PeriodPreset | ''>('this_month');
   const [report, setReport] = useState<ReportLoad>({ state: 'loading' });
   const [exporting, setExporting] = useState<string | null>(null);
   const ids = { preset: useId(), from: useId(), to: useId(), basis: useId() };
@@ -85,19 +98,6 @@ function Overview({ setup, onSection }: { setup: BooksSetup; onSection: (tab: Bo
   useEffect(() => { void load(); }, [load]);
   const choose = (value: PeriodPreset | '') => { setPreset(value); if (value) setPeriod(presetPeriod(value, new Date(), settings.fiscal_year_start_month)); };
   const value = report.state === 'ready' ? report.value : null;
-  const base = settings.base_currency;
-  const figures = [
-    figure('revenue', t('books.fig.revenue'), report, () => ({ value: money(value!.pnl.revenue.total, base), hint: basisLabel(basis) })),
-    figure('gross', t('books.fig.gross'), report, () => ({ value: money(value!.pnl.gross_profit, base), hint: t('books.fig.margin', { pct: pct(value!.pnl.gross_margin_pct) }) })),
-    figure('operating', t('books.fig.operating'), report, () => ({ value: money(value!.pnl.operating_profit, base), tone: isNegative(value!.pnl.operating_profit) ? 'danger' : '' })),
-    figure('net', t('books.fig.net'), report, () => ({ value: money(value!.pnl.net_profit, base), hint: t('books.fig.margin', { pct: pct(value!.pnl.net_margin_pct) }),
-      tone: isNegative(value!.pnl.net_profit) ? 'danger' : 'ok' })),
-    figure('cash', t('books.fig.cash'), report, () => ({ value: moneyList(value!.cash_flow.net), hint: t('books.fig.cashHint') })),
-    figure('receivable', t('books.fig.receivable'), report, () => ({ value: moneyList(value!.balances.receivables.map((r) => ({ currency: r.currency, amount: r.total }))),
-      hint: t('books.fig.invoicesOpen', { count: value!.balances.outstanding_invoices_count }) })),
-    figure('payable', t('books.fig.payable'), report, () => ({ value: moneyList(value!.balances.payables.map((r) => ({ currency: r.currency, amount: r.total }))),
-      hint: t('books.fig.billsOpen', { count: value!.balances.unpaid_bills_count }), tone: value!.balances.unpaid_bills.some((b) => b.days_overdue > 0) ? 'warn' : '' })),
-  ];
   async function exportCsv() {
     setExporting(null);
     try { await api.exportReport({ ...period, basis }); setExporting(t('books.exported')); } catch (error) { setExporting(failure(error, t('books.export'))); }
@@ -117,12 +117,15 @@ function Overview({ setup, onSection }: { setup: BooksSetup; onSection: (tab: Bo
       <div className="bzToolbarEnd"><button type="button" className="secondary" disabled={!value} onClick={() => void exportCsv()}><Download aria-hidden="true" />{t('books.export')}</button></div>
     </div>
     {exporting && <Note error={exporting !== t('books.exported')}>{exporting}</Note>}
-    <PageSummary label={t('books.summary', { currency: base })} figures={figures} onRetry={() => void load()} />
     {report.state === 'loading' && <Note>{t('books.reading')}</Note>}
     {report.state === 'error' && <Failed text={report.message} onRetry={() => void load()} />}
     {value && reportIsEmpty(value) && <Empty title={t('books.emptyTitle')} text={t('books.emptyText')}
       action={<><button type="button" onClick={() => onSection('bills')}>{t('books.goBills')}</button><button type="button" className="secondary" onClick={() => onSection('allocations')}>{t('books.goAllocations')}</button></>} />}
-    {value && !reportIsEmpty(value) && <ReportBody report={value} setup={setup} period={{ ...period, basis }} />}
+    {value && !reportIsEmpty(value) && <>
+      <BooksDashboard report={value} setup={setup} single={singleMonth(period)} onSection={onSection} />
+      <h2 className="bkDetailsTitle">{t('books.page.details')}</h2>
+      <ReportBody report={value} setup={setup} period={{ ...period, basis }} />
+    </>}
   </>;
 }
 
@@ -274,12 +277,13 @@ function ProjectsBlock({ period, base }: { period: api.Period; base: string }) {
 
 // ---- bills ------------------------------------------------------------------------------------------------------------
 
-function SearchForm({ label: name, value, onChange, onSubmit }: { label: string; value: string; onChange: (value: string) => void; onSubmit: () => void }) {
+/** A search box; Find is off while the text is the search already shown (`applied`), so it never does nothing. */
+function SearchForm({ label: name, value, applied, onChange, onSubmit }: { label: string; value: string; applied: string; onChange: (value: string) => void; onSubmit: () => void }) {
   const id = useId();
   return <form className="bzSearch" role="search" onSubmit={(event) => { event.preventDefault(); onSubmit(); }}>
     <label className="visuallyHidden" htmlFor={id}>{name}</label>
     <input id={id} type="search" value={value} placeholder={name} onChange={(event) => onChange(event.target.value)} />
-    <button type="submit" className="secondary"><Search aria-hidden="true" />{t('biz.find')}</button>
+    <button type="submit" className="secondary" disabled={value.trim() === applied}><Search aria-hidden="true" />{t('biz.find')}</button>
   </form>;
 }
 
@@ -295,7 +299,7 @@ function Bills({ setup }: { setup: BooksSetup }) {
   const exportCsv = async () => { setMessage(null); try { await api.exportBills(); setMessage(t('books.exported')); } catch (error) { setMessage(failure(error, t('books.export'))); } };
   return <>
     <div className="bzToolbar">
-      <SearchForm label={t('books.bills.search')} value={q} onChange={(value) => { setQ(value); if (!value) setSearch(''); }} onSubmit={() => setSearch(q.trim())} />
+      <SearchForm label={t('books.bills.search')} value={q} applied={search} onChange={(value) => { setQ(value); if (!value) setSearch(''); }} onSubmit={() => setSearch(q.trim())} />
       <label className="bzCompact" htmlFor={statusId}><span>{t('books.bills.filter')}</span>
         <select id={statusId} value={status} onChange={(event) => setStatus(event.target.value as BooksBillFilter | '')}>
           <option value="">{t('books.bills.all')}</option>{BOOKS_BILL_FILTERS.map((item) => <option key={item} value={item}>{billFilterLabel(item)}</option>)}</select></label>
@@ -335,7 +339,7 @@ function Vendors({ setup }: { setup: BooksSetup }) {
   const filtered = Boolean(search || archived);
   return <>
     <div className="bzToolbar">
-      <SearchForm label={t('books.vendors.search')} value={q} onChange={(value) => { setQ(value); if (!value) setSearch(''); }} onSubmit={() => setSearch(q.trim())} />
+      <SearchForm label={t('books.vendors.search')} value={q} applied={search} onChange={(value) => { setQ(value); if (!value) setSearch(''); }} onSubmit={() => setSearch(q.trim())} />
       <label className="bzCheck"><input type="checkbox" checked={archived} onChange={(event) => setArchived(event.target.checked)} />{t('books.showArchived')}</label>
       <div className="bzToolbarEnd">{write && <button type="button" onClick={() => setEditing('new')}><Plus aria-hidden="true" />{t('books.vendors.new')}</button>}</div>
     </div>
@@ -369,7 +373,7 @@ function Allocations({ setup }: { setup: BooksSetup }) {
   return <>
     <p className="muted bzHint">{t('books.alloc.help')}</p>
     <div className="bzToolbar">
-      <SearchForm label={t('books.alloc.search')} value={q} onChange={(value) => { setQ(value); if (!value) setSearch(''); }} onSubmit={() => setSearch(q.trim())} />
+      <SearchForm label={t('books.alloc.search')} value={q} applied={search} onChange={(value) => { setQ(value); if (!value) setSearch(''); }} onSubmit={() => setSearch(q.trim())} />
       <label className="bzCompact" htmlFor={statusId}><span>{t('books.alloc.filter')}</span>
         <select id={statusId} value={status} onChange={(event) => setStatus(event.target.value as BooksAllocationFilter | '')}>
           <option value="">{t('books.alloc.all')}</option>{ALLOCATION_FILTERS.map((item) => <option key={item} value={item}>{label(`books.alloc.filter.${item}`)}</option>)}</select></label>

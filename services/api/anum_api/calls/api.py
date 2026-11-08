@@ -350,6 +350,8 @@ class AiCallPage(BaseModel):
     total: int
     offset: int
     limit: int
+    # Requests in each state over the whole list (not this page), for the state filters.
+    status_counts: dict[str, int] = Field(default_factory=dict)
 
 
 class BrowserCallCreate(BaseModel):
@@ -600,6 +602,14 @@ def withdraw_consent(contact_id: str, context: TenantContext = Depends(tenant_co
 # -- call log --------------------------------------------------------------------------------
 
 
+def _window(since: datetime | None, until: datetime | None) -> tuple[datetime | None, datetime | None]:
+    """A call window from the query: both ends timezone aware (a time without one reads as UTC)."""
+    since, until = (value.replace(tzinfo=timezone.utc) if value is not None and value.tzinfo is None else value for value in (since, until))
+    if since is not None and until is not None and until <= since:
+        raise HTTPException(status_code=422, detail="The end of the period must come after its start.")
+    return since, until
+
+
 @router.get("/log", response_model=CallPage)
 def list_calls(
     q: str | None = Query(default=None, max_length=200),
@@ -608,16 +618,49 @@ def list_calls(
     kind: CallKind | None = None,
     contact_id: str | None = Query(default=None, max_length=80),
     mine: bool = False,
+    since: datetime | None = None,
+    until: datetime | None = None,
     offset: int = Query(default=0, ge=0),
     limit: int = Query(default=DEFAULT_PAGE, ge=1, le=MAX_PAGE),
     context: TenantContext = Depends(tenant_context),
 ) -> CallPage:
     require(context, Permission.CALL_READ)
     offset, limit = _page(offset, limit)
-    flt = CallFilter(query=_text(q), direction=direction, outcome=outcome, kind=kind, contact_id=contact_id, user_id=context.user_id if mine else None)
+    since, until = _window(since, until)
+    flt = CallFilter(
+        query=_text(q), direction=direction, outcome=outcome, kind=kind, contact_id=contact_id,
+        user_id=context.user_id if mine else None, since=since, until=until,
+    )
     with open_calls_store(context) as store:
         items, total = store.list_calls(flt, offset=offset, limit=limit)
     return CallPage(items=[_call_view(context, item) for item in items], total=total, offset=offset, limit=limit)
+
+
+class CallSummary(BaseModel):
+    """The Phone calls page's figures for a period: calls, missed calls, talk time and AI calls waiting."""
+
+    since: datetime | None
+    until: datetime | None
+    calls: int
+    missed: int
+    talk_seconds: int
+    ai_pending: int
+
+
+@router.get("/log/summary", response_model=CallSummary)
+def call_summary(
+    since: datetime | None = None,
+    until: datetime | None = None,
+    mine: bool = False,
+    context: TenantContext = Depends(tenant_context),
+) -> CallSummary:
+    """Counts over the calls this person may read that started in the period (the whole log without one)."""
+    require(context, Permission.CALL_READ)
+    since, until = _window(since, until)
+    with open_calls_store(context) as store:
+        totals = store.call_totals(CallFilter(since=since, until=until, user_id=context.user_id if mine else None))
+        pending = store.count_requests(AiRequestStatus.PENDING_APPROVAL)
+    return CallSummary(since=since, until=until, calls=totals.calls, missed=totals.missed, talk_seconds=totals.talk_seconds, ai_pending=pending)
 
 
 @router.post("/log", response_model=CallView, status_code=status.HTTP_201_CREATED)
@@ -1005,14 +1048,19 @@ def prepare_browser_call(payload: BrowserCallCreate, context: TenantContext = De
 @router.get("/ai-calls", response_model=AiCallPage)
 def list_ai_calls(
     offset: int = Query(default=0, ge=0), limit: int = Query(default=DEFAULT_PAGE, ge=1, le=MAX_PAGE),
+    status: AiRequestStatus | None = None,
     context: TenantContext = Depends(tenant_context),
 ) -> AiCallPage:
+    """AI call requests, newest first; ``status`` keeps one state before paging, and ``status_counts`` counts every state."""
     require(context, Permission.CALL_READ)
     offset, limit = _page(offset, limit)
     with open_calls_store(context) as store:
-        items, total = store.list_requests(offset=offset, limit=limit)
+        items, total = store.list_requests(offset=offset, limit=limit, status=status)
+        counts = {state.value: store.count_requests(state) for state in AiRequestStatus}
     approvals = _approvals(context, [item.approval_id for item in items if item.approval_id and item.status == AiRequestStatus.PENDING_APPROVAL])
-    return AiCallPage(items=[_ai_view(item, approvals.get(item.approval_id or "")) for item in items], total=total, offset=offset, limit=limit)
+    return AiCallPage(
+        items=[_ai_view(item, approvals.get(item.approval_id or "")) for item in items], total=total, offset=offset, limit=limit, status_counts=counts,
+    )
 
 
 def _approvals(context: TenantContext, ids: list[str]) -> dict[str, Any]:

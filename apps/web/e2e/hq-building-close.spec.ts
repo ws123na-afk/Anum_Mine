@@ -3,6 +3,9 @@ import { campusFixture, mockHq } from './support/hqCampusApi';
 import { useSavedLocale } from './support/workspaceApi';
 import { sceneReady } from './support/hqScene';
 
+// The 3D office draws on a software renderer in CI, where loading a scene alone can take most of a minute.
+test.describe.configure({ timeout: 150_000 });
+
 // Clicking a building on the campus opens its billboard card over the scene and its details beside it (docs/ANUM_MINE_HQ_BILLBOARDS.md).
 // The owner hit a card that showed a raw message key for a Career building ("hqBillboard.purpose.career") and could not be closed:
 // the card had no Close button and Escape did nothing. Every window a building click opens must say words, close with its own button
