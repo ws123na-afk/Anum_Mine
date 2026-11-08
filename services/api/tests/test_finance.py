@@ -424,11 +424,11 @@ def test_import_foreign_usd_purchase_posts_bank_billed_sar_only_and_categories()
     """USD is evidence; the actual SAR billed is the card ledger amount, not another debit."""
     acct = account(currency="SAR")
     statement = (
-        "Date,Description,Amount,Currency,Original Amount,Original Currency,Billed Amount,Billed Currency,Exchange Rate,Foreign Transaction Fee\\n"
-        "2026-11-01,Online overseas purchase,-20.00,USD,20.00,USD,76.80,SAR,3.84,1.20\\n"
-        "2026-11-02,CASH BACK REWARD,5.00,SAR,,,,,,\\n"
-        "2026-11-03,FX TRANSACTION FEE,-1.20,SAR,,,,,,\\n"
-        "2026-11-04,PURCHASE REFUND,10.00,SAR,,,,,,\\n"
+        "Date,Description,Amount,Currency,Original Amount,Original Currency,Billed Amount,Billed Currency,Exchange Rate,Foreign Transaction Fee\n"
+        "2026-11-01,Online overseas purchase,-20.00,USD,20.00,USD,76.80,SAR,3.84,1.20\n"
+        "2026-11-02,CASH BACK REWARD,5.00,SAR,,,,,,\n"
+        "2026-11-03,FX TRANSACTION FEE,-1.20,SAR,,,,,,\n"
+        "2026-11-04,PURCHASE REFUND,10.00,SAR,,,,,,\n"
     )
     response = client.post(f"{API}/imports/preview", headers=OWNER,
                            json={"account_id": acct["id"], "content": statement})
@@ -458,8 +458,8 @@ def test_import_foreign_usd_purchase_posts_bank_billed_sar_only_and_categories()
 
 
 def test_missing_billed_amount_does_not_guess_fx_or_post_wrong_account_currency() -> None:
-    raw = ("Date,Description,Amount,Currency\\n"
-           "2026-11-01,USD FOREIGN PURCHASE,-20.00,USD\\n")
+    raw = ("Date,Description,Amount,Currency\n"
+           "2026-11-01,USD FOREIGN PURCHASE,-20.00,USD\n")
     parsed = csv_import.parse_file(raw, account_id="a", currency="SAR")
     assert not parsed.rows
     assert len(parsed.errors) == 1
