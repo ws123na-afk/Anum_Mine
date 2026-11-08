@@ -117,7 +117,7 @@ Rule-based only, no AI and no network (`finance/categories.py`): the person's ow
 
 `#finance` (`src/FinanceOverviewPage.tsx`) has its own page head with Settings, Import statement, the scope switch (All finance, Personal, Business), the month and, for personal figures in more than one currency, a currency choice.
 
-- **All finance**: personal net worth (balances less debts) and the business month from the books (income, expenses, net result, each against the month before). **Personal**: net worth, income, spending and net against the month before. **Business**: the business figures and cash flow. People who may not read the books see Personal only, and the switch says why.
+- **All finance**: personal net worth (balances less debts) and the business month from the books (income, expenses, net result, each against the month before). **Personal**: net worth, income, spending and net against the month before. **Business**: the business figures and cash flow. People who may not read the books see Personal only, and the switch says why; the chart then reads their own six months whatever scope was chosen.
 - Accounts, bills due (total and the next date) and items to review (Guardian flags waiting plus business allocations in review), each opening its page.
 - Income and outflow over six months (the books, or the person's own ledger on Personal) with the month's P&L beside it; business spending by category with Open Expenses and P&L, or the person's spending by category.
 - Recent activity: the month's newest transactions (on Business, the newest bills). Safe to spend, bills due soon with the review queue, the read-only note, balances and goals.

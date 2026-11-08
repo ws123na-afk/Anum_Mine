@@ -70,3 +70,36 @@ test('Arabic reads right to left with no serious accessibility issue', async ({ 
   const results = await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa']).analyze();
   expect(results.violations.filter((v) => v.impact === 'serious' || v.impact === 'critical').map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(' ')).slice(0, 3).join(', ')}`)).toEqual([]);
 });
+
+test('a slow reply for a month the person has left never replaces the month on screen', async ({ page }) => {
+  await mockAll(page);
+  const now = new Date();
+  const previous = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+  const before = `${previous.getFullYear()}-${String(previous.getMonth() + 1).padStart(2, '0')}-01`;
+  // The month before answers late, and with a revenue the current month never has.
+  await page.route('http://localhost:8000/api/v1/business/books/report**', async (route) => {
+    if (new URL(route.request().url()).searchParams.get('from') !== before) return route.fallback();
+    const zero = { lines: [], total: '0.00' };
+    const body = { period: { from: before, to: before, basis: 'accrual' }, base_currency: 'SAR',
+      pnl: { currency: 'SAR', revenue: { lines: [{ key: 'service', amount: '99999.00' }], total: '99999.00' }, cost_of_sales: zero, gross_profit: '99999.00', gross_margin_pct: '100.0',
+        operating_expenses: zero, operating_profit: '99999.00', other_income: zero, finance_costs: zero, fx_differences: '0.00', net_profit: '99999.00', net_margin_pct: '100.0',
+        not_converted: [], complete: true },
+      tax: { label: 'VAT', country: 'SA', by_currency: [], allocations_without_tax_split: 0 }, cash_flow: { lines: {}, net: [], paid_by_members: {} },
+      balances: { as_of: before, aged_on: before, receivables: [], outstanding_invoices: [], outstanding_invoices_count: 0, payables: [], unpaid_bills: [], unpaid_bills_count: 0,
+        owed_to_members: [], debt: [], intercompany: [] }, equity: { contributions: [], drawings: [] }, trend: [], customers: [], projects: [], cost_centres: [], budgets: [],
+      recurring: { items: [], per_month: [], upcoming: [] }, allocations_in_review: 0, conversions: [], notes: [], truncated: false };
+    await new Promise((resolve) => setTimeout(resolve, 2_500));
+    await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) }).catch(() => undefined);
+  });
+  await page.goto('/#home');
+  const kpis = page.getByRole('region', { name: 'This month at a glance' });
+  await expect(kpis).toContainText('SAR 21,900.00');
+  await page.getByRole('button', { name: 'Previous month' }).click();
+  await page.getByRole('button', { name: 'Next month' }).click();
+  await expect(kpis).toContainText('SAR 21,900.00');
+  // Long after the old month's reply has arrived, the current month is still the one shown.
+  await page.waitForTimeout(3_500);
+  await expect(kpis).toContainText('SAR 21,900.00');
+  await expect(kpis).not.toContainText('99,999.00');
+});
+
