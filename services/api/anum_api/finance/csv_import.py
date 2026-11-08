@@ -468,6 +468,13 @@ def parse_file(
 
         try:
             row_ccy = currency_cell(mapping.currency)
+            if not row_ccy:
+                raw_value = cell(row, mapping.amount or mapping.debit or mapping.credit)
+                printed_code = re.search(r"(?<![A-Za-z])([A-Z]{3})(?![A-Za-z])", raw_value.upper())
+                if printed_code:
+                    row_ccy = printed_code.group(1)
+                elif raw_value.lstrip().startswith(("$", "€", "£")) and not mapping.original_currency:
+                    raise MoneyError("Currency symbol is ambiguous; map the statement's three-letter currency column.")
             original_ccy = currency_cell(mapping.original_currency) or row_ccy
             billed_ccy = currency_cell(mapping.billed_currency) or currency
             foreign = money_cell(mapping.original_amount)
