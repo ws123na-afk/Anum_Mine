@@ -4,7 +4,7 @@ import { afterEach, describe, test } from 'node:test';
 import type { FinancePdfStatement } from '@anum/contracts';
 import { checkFile } from '../src/lib/finance.ts';
 import {
-  PDF_MAX_BYTES, checkRoles, filterRows, flagLabel, foreignDetail, fromMinor, importBody, isPdf, liveCheck, liveSummary, pdfErrorCode, reviewRows, roleLabel,
+  PDF_MAX_BYTES, checkRoles, directionHint, filterRows, flagLabel, foreignDetail, fromMinor, importBody, isPdf, liveCheck, liveSummary, pdfErrorCode, reviewRows, roleLabel,
   rowProblem, toMinor,
 } from '../src/lib/financePdf.ts';
 import { placeholdersOf, setLocale } from '../src/lib/i18n.ts';
@@ -166,5 +166,14 @@ describe('Foreign bank card PDF review', () => {
     assert.equal(request.rows[0].fee, '1.20');
     assert.equal(liveCheck([edited], '', '', 'SAR').total, '-76.80');
     assert.match(rowProblem({ ...edited, billed_amount: '76.80' }, 'SAR') ?? '', /both be charges/);
+  });
+});
+
+describe('Payment direction PDF review', () => {
+  test('positive room rent is flagged without automatically changing it', () => {
+    const row = { ...reviewRows(view())[1], description: 'ROOM RENT PAYMENT', amount: '2600.00' };
+    assert.match(directionHint(row) ?? '', /incoming/);
+    assert.equal(directionHint({ ...row, amount: '-2600.00' }), null);
+    assert.equal(directionHint({ ...row, description: 'SALARY NOVEMBER' }), null);
   });
 });
