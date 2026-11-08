@@ -3,7 +3,7 @@
 // server works the status out from the match on every read; the page never sets it.
 import type {
   FinanceBillSchedule, FinanceBudgetAlert, FinanceBudgetReport, FinanceDebtPaymentPage, FinanceDebtPlan, FinanceDebtPlanView, FinanceLinkResult,
-  FinanceMatchInput, FinancePaymentCandidate,
+  FinanceMatchInput, FinancePaymentCandidate, FinanceInstallmentStatementEntry, FinanceInstallmentStatementView, FinanceInstallmentStatementSyncResult,
 } from '@anum/contracts';
 import { apiRequest, apiRequestVoid } from './api';
 import { query } from './financeApi';
@@ -14,6 +14,19 @@ const get = <T>(path: string) => apiRequest<T>(`${BASE}${path}`, { method: 'GET'
 const send = <T>(method: string, path: string, body: unknown, key?: string) => apiRequest<T>(`${BASE}${path}`, {
   method, body: JSON.stringify(body), headers: { 'content-type': 'application/json', ...(key ? { 'Idempotency-Key': key } : {}) },
 });
+
+export interface FinanceGmailMailbox { id: string; address: string; selected: boolean }
+export interface TamaraGmailPreview {
+  account_id: string; address: string; messages_checked: number; messages_matched: number;
+  rows: FinanceInstallmentStatementEntry[]; warnings: string[];
+}
+export const installmentGmailMailboxes = () => get<FinanceGmailMailbox[]>('/installment-email/mailboxes');
+export const previewTamaraGmail = (accountId: string, limit = 500) =>
+  get<TamaraGmailPreview>(`/installment-email/preview${query({ account_id: accountId, limit })}`);
+
+export const installmentStatement = () => get<FinanceInstallmentStatementView>('/installment-statement');
+export const syncInstallmentStatement = (entries: FinanceInstallmentStatementEntry[]) =>
+  send<FinanceInstallmentStatementSyncResult>('POST', '/installment-statement/sync', { entries });
 
 export const billSchedule = (from: string, to: string) => get<FinanceBillSchedule>(`/bill-schedule${query({ from, to })}`);
 export const paymentCandidates = (kind: 'bill' | 'debt', opts: { around?: string | null; amount?: string | null; currency?: string | null; q?: string | null }) =>

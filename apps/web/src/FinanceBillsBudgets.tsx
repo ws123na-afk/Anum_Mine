@@ -22,6 +22,9 @@ import { Denied, Empty, LoadError, Money, Notice, failed, type Load } from './Fi
 import { FinBanner, FinCard, FinancePageHead, FinanceTabs, KpiCard, KpiRow, PeriodPicker, StatusChip, tabPanel } from './FinanceShell';
 import { BillForm } from './FinancePlanningForms';
 import { BudgetSpendChart } from './FinancePlanningCharts';
+import { BillsCsvImport } from './FinanceBillsCsvImport';
+import { FinanceTamaraGmailSync } from './FinanceTamaraGmailSync';
+import { FinanceInstallmentStatement } from './FinanceInstallmentStatement';
 import { CapDialog, MatchDialog, PersonalScope, Progress, RowMenu } from './FinancePlanningParts';
 import './financePlanning.css';
 
@@ -45,6 +48,9 @@ export function BillsBudgetsPage({ initial, accounts, base, today, onOpen, onCha
   const [notice, setNotice] = useState<{ error?: boolean; text: string } | null>(null);
   const [editing, setEditing] = useState<FinanceBill | 'new' | null>(null), [removing, setRemoving] = useState<FinanceBill | null>(null), [busy, setBusy] = useState(false);
   const [matching, setMatching] = useState<FinanceBillOccurrence | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [gmailImport, setGmailImport] = useState(false);
+  const [statementReload, setStatementReload] = useState(0);
   const [cap, setCap] = useState<{ category: FinanceCategory; currency: string; amount: string } | 'new' | null>(null);
 
   const loadSchedule = useCallback(async () => {
@@ -89,7 +95,7 @@ export function BillsBudgetsPage({ initial, accounts, base, today, onOpen, onCha
 
   const crumbs = [{ label: t('finance.tab.overview'), href: '#finance', onClick: () => onOpen('overview') }, { label: t('fplan.bills.title') }];
   const head = <FinancePageHead title={t('fplan.bills.title')} subtitle={t('fplan.bills.subtitle')} crumbs={crumbs}
-    actions={<button type="button" onClick={() => setEditing('new')}><Plus aria-hidden="true" />{t('finance.bills.add')}</button>}
+    actions={<><button type="button" onClick={() => setGmailImport(true)}>Sync Gmail</button><button type="button" onClick={() => setImporting(true)}>Import CSV</button><button type="button" onClick={() => setEditing('new')}><Plus aria-hidden="true" />{t('finance.bills.add')}</button></>}
     controls={<><PersonalScope /><PeriodPicker month={month} onChange={setMonth} /></>}
     tabs={<FinanceTabs label={t('fplan.bills.tabs')} idPrefix="fbb" value={section} onChange={setSection}
       items={SECTIONS.map((id) => ({ id, label: t(`fplan.bills.tab.${id}` as MessageKey) }))} />} />;
@@ -136,6 +142,7 @@ export function BillsBudgetsPage({ initial, accounts, base, today, onOpen, onCha
     {notice && <Notice error={notice.error}>{notice.text}</Notice>}
     <div {...tabPanel('fbb', section)}>
       {section === 'bills' && <>
+        {bills.kind === 'ready' && <FinanceInstallmentStatement bills={bills.value} today={today} refreshKey={statementReload} onRefresh={() => void loadBills()} />}
         <div className="fplColumns wideStart"><div className="fplColumn">{upcoming}{rules}</div><div className="fplColumn">{health}{riskBanner}<LinkPayCard /></div></div>
       </>}
       {section === 'budgets' && <>{riskBanner}<div className="fplColumns"><div className="fplColumn">{health}</div><div className="fplColumn"><LinkPayCard /></div></div>{rules}</>}
@@ -143,6 +150,14 @@ export function BillsBudgetsPage({ initial, accounts, base, today, onOpen, onCha
         onToggle={(b) => void toggleBill(b)} onRemove={setRemoving} onKept={(name) => { setNotice({ text: t('finance.bills.kept', { name }) }); reloadBills(); }} />}
       {section === 'calendar' && <CalendarCard rows={rows} month={month} today={schedule.value.today} onPick={(row) => (row.status === 'paid' ? openBill(row.bill_id) : setMatching(row))} />}
     </div>
+    {gmailImport && <Modal title="Import Tamara payments from connected Gmail" className="formDialog" onClose={() => setGmailImport(false)}>
+      <FinanceTamaraGmailSync existing={bills.kind === 'ready' ? bills.value : []} onClose={() => setGmailImport(false)}
+        onDone={() => { reloadBills(); setStatementReload(n => n + 1); }} />
+    </Modal>}
+    {importing && <Modal title="Import installment bills from CSV" className="formDialog" onClose={() => setImporting(false)}>
+      <BillsCsvImport existing={bills.kind === 'ready' ? bills.value : []} onClose={() => setImporting(false)}
+        onDone={() => { reloadBills(); setStatementReload(n => n + 1); }} />
+    </Modal>}
     {editing && <Modal title={editing === 'new' ? t('finance.bills.add') : t('finance.item.editTitle', { name: editing.name })} className="formDialog" onClose={() => setEditing(null)}>
       <BillForm bill={editing === 'new' ? null : editing} accounts={accounts} base={base} onDone={(text) => { setEditing(null); if (text) { setNotice({ text }); reloadBills(); } }} />
     </Modal>}

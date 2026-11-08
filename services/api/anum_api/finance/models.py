@@ -256,9 +256,30 @@ class BudgetAlert(BaseModel):
     alert_over: bool = True
 
 
+class InstallmentStatementEntry(BaseModel):
+    """Statement-provided schedule, not evidence of a bank payment.
+
+    This belongs to the signed-in person's Finance planning data. Payment matches
+    are separately recorded in the canonical ledger and never invented here.
+    """
+    provider: str = Field(min_length=1, max_length=80)
+    order_id: str = Field(min_length=1, max_length=160)
+    merchant: str = Field(min_length=1, max_length=160)
+    purchase_on: date | None = None
+    due_on: date
+    installment: int = Field(ge=1, le=120)
+    total_installments: int = Field(ge=1, le=120)
+    amount: Decimal = Field(gt=0)
+    currency: str = Field(pattern=r"^[A-Z]{3}$")
+    source_status: str = Field(pattern=r"^(paid|scheduled|review)$")
+    source_email: str | None = Field(default=None, max_length=500)
+    review_notes: str | None = Field(default=None, max_length=500)
+
+
 class Planning(BaseModel):
     debt_plans: list[DebtPlan] = Field(default_factory=list, max_length=20)
     budget_alerts: list[BudgetAlert] = Field(default_factory=list, max_length=100)
+    installment_entries: list[InstallmentStatementEntry] = Field(default_factory=list, max_length=3000)
 
 
 # -- Stage 5: FX rates ------------------------------------------------------------------------

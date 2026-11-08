@@ -4,6 +4,9 @@ import { mkdirSync } from 'node:fs';
 import { mockHq } from './support/hqCampusApi';
 import { flowItems, mockFlow, type FlowMock } from './support/hqFlowApi';
 
+// The 3D office draws on a software renderer in CI, where loading a scene alone can take most of a minute.
+test.describe.configure({ timeout: 150_000 });
+
 // Campus motion (docs/ANUM_MINE_HQ_CAMPUS_MOTION.md). Layer 1 is scenery: loops and turning wheels that claim nothing. Layer 2 is work motion, started
 // only by a stored record: a Tyre Pulse alert or inspection, a task that starts in an office, a rise in working agents. Every work motion says why
 // ("Because: ...") and ends; with the feed off the building says "Not connected" and nothing moves. The API is mocked and every name is fake.

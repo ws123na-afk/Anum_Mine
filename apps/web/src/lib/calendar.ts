@@ -31,7 +31,9 @@ export interface EventPage { items: CalendarEventView[]; start: string; end: str
 export interface NextStepAction { kind: 'task' | 'open'; title?: string | null; prompt?: string | null; destination?: 'email_urgent' | 'approvals' | 'event' | null; event_id?: string | null }
 export interface NextStep { id: string; title: string; detail: string; icon: 'agenda' | 'follow_up' | 'summary' | 'email' | 'approval'; action: NextStepAction }
 
-export type CalendarMode = 'week' | 'day';
+/** Week and Day draw a time grid, Month a month of days, Agenda the week as a list. */
+export type CalendarMode = 'week' | 'day' | 'month' | 'agenda';
+export const CALENDAR_MODES: readonly CalendarMode[] = ['day', 'week', 'month', 'agenda'];
 
 const pad = (n: number) => String(n).padStart(2, '0');
 
@@ -56,17 +58,25 @@ export function dayKey(date: Date): string {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 }
 
-/** The range a mode shows around `anchor`: seven days from Monday, or the one day. */
+/**
+ * The range a mode shows around `anchor`: seven days from Monday (Week and Agenda), the one day, or
+ * the six weeks that hold the anchor's month (Month, from the Monday on or before the 1st).
+ */
 export function visibleRange(mode: CalendarMode, anchor: Date): { start: Date; end: Date; days: Date[] } {
-  const start = mode === 'week' ? startOfWeek(anchor) : startOfDay(anchor);
-  const count = mode === 'week' ? 7 : 1;
+  const start = mode === 'day' ? startOfDay(anchor) : mode === 'month' ? startOfWeek(new Date(anchor.getFullYear(), anchor.getMonth(), 1)) : startOfWeek(anchor);
+  const count = mode === 'day' ? 1 : mode === 'month' ? 42 : 7;
   const days = Array.from({ length: count }, (_, index) => addDays(start, index));
   return { start, end: addDays(start, count), days };
 }
 
-/** The anchor one step back or forward (a week or a day). */
+/** The anchor one step back or forward: a day, a week, or a month (kept on a day the month has). */
 export function shiftAnchor(mode: CalendarMode, anchor: Date, step: -1 | 1): Date {
-  return addDays(anchor, step * (mode === 'week' ? 7 : 1));
+  if (mode === 'month') {
+    const target = new Date(anchor.getFullYear(), anchor.getMonth() + step, 1);
+    const last = new Date(target.getFullYear(), target.getMonth() + 1, 0).getDate();
+    return new Date(target.getFullYear(), target.getMonth(), Math.min(anchor.getDate(), last));
+  }
+  return addDays(anchor, step * (mode === 'day' ? 1 : 7));
 }
 
 /** Query string for `GET /calendar/events` over a local range. */
@@ -255,4 +265,117 @@ export function eventSyncKind(event: Pick<CalendarEventView, 'sync_state' | 'con
 /** Attendees with an email address: the people an invitation would reach. */
 export function invitees(event: Pick<CalendarEventView, 'attendees'>): string[] {
   return event.attendees.map((attendee) => attendee.email).filter((email): email is string => Boolean(email));
+}
+
+// ---- Time grid, conflicts and the week strip (docs/calendar.md#web-page) ----
+
+/**
+ * The wall-clock hour (0 to 24, with fractions) of `ms` on the local `day`: 0 before the day starts,
+ * 24 after it ends. Read from the local clock, never from elapsed time since midnight, so a
+ * daylight-saving day (23 or 25 hours long) still places 23:30 at 23:30.
+ */
+export function wallHour(ms: number, day: Date): number {
+  if (ms < day.getTime()) return 0;
+  if (ms >= addDays(day, 1).getTime()) return 24;
+  const at = new Date(ms);
+  return at.getHours() + at.getMinutes() / 60 + at.getSeconds() / 3600;
+}
+
+/** The hours a time grid draws: 08:00 to 18:00, widened to hold every shown event (whole hours). */
+export function hourWindow(events: readonly CalendarEventView[], days: readonly Date[]): { from: number; to: number } {
+  let from = 8, to = 18;
+  for (const day of days) {
+    const dayStart = day.getTime(), dayEnd = addDays(day, 1).getTime();
+    for (const event of events) {
+      const starts = Date.parse(event.starts_at), ends = Date.parse(event.ends_at);
+      if (!(starts < dayEnd && (ends > dayStart || starts >= dayStart))) continue;
+      const startHour = wallHour(starts, day), endHour = Math.max(wallHour(ends, day), startHour);
+      from = Math.min(from, Math.floor(startHour));
+      to = Math.max(to, Math.ceil(Math.max(endHour, Math.min(24, startHour + 0.5))));
+    }
+  }
+  return { from: Math.max(0, from), to: Math.min(24, Math.max(to, from + 1)) };
+}
+
+export interface GridBlock { event: CalendarEventView; top: number; height: number; lane: number; lanes: number }
+
+/**
+ * Events of one day placed on a grid from `from` to `to` o'clock (wall-clock hours): `top` and
+ * `height` are fractions of the grid, and events that overlap share the width in lanes (each
+ * cluster of overlapping events gets as many lanes as it needs). A very short event keeps a
+ * readable minimum height.
+ */
+export function layoutDay(events: readonly CalendarEventView[], day: Date, from: number, to: number, minHeight = 0.03): GridBlock[] {
+  const span = to - from, dayStart = day.getTime(), dayEnd = addDays(day, 1).getTime();
+  const placed = events
+    .filter((event) => { const starts = Date.parse(event.starts_at), ends = Date.parse(event.ends_at); return starts < dayEnd && (ends > dayStart || starts >= dayStart); })
+    .map((event) => {
+      const startHour = wallHour(Date.parse(event.starts_at), day), endHour = Math.max(wallHour(Date.parse(event.ends_at), day), startHour);
+      return { event, start: Math.min(Math.max(startHour, from), to), end: Math.min(Math.max(endHour, from), to) };
+    })
+    .filter((row) => row.end > row.start || (row.start >= from && row.start < to))
+    .sort((a, b) => a.start - b.start || b.end - a.end || a.event.title.localeCompare(b.event.title));
+  const blocks: GridBlock[] = [];
+  let cluster: { block: GridBlock; end: number }[] = [];
+  let clusterEnd = -Infinity;
+  const close = () => { const lanes = Math.max(1, ...cluster.map((c) => c.block.lane + 1)); for (const c of cluster) c.block.lanes = lanes; cluster = []; };
+  for (const row of placed) {
+    const end = Math.max(row.end, row.start + span * minHeight);
+    if (row.start >= clusterEnd) { close(); clusterEnd = -Infinity; }
+    const used = new Set(cluster.filter((c) => c.end > row.start).map((c) => c.block.lane));
+    let lane = 0;
+    while (used.has(lane)) lane += 1;
+    const top = (row.start - from) / span;
+    const block: GridBlock = { event: row.event, top, height: Math.min(1 - top, (end - row.start) / span), lane, lanes: 1 };
+    blocks.push(block);
+    cluster.push({ block, end });
+    clusterEnd = Math.max(clusterEnd, end);
+  }
+  close();
+  return blocks;
+}
+
+/** Pairs of scheduled events whose times overlap (double bookings), earliest first. */
+export function findConflicts(events: readonly CalendarEventView[]): [CalendarEventView, CalendarEventView][] {
+  const live = events.filter((event) => event.status !== 'cancelled').slice().sort((a, b) => a.starts_at.localeCompare(b.starts_at));
+  const pairs: [CalendarEventView, CalendarEventView][] = [];
+  for (let i = 0; i < live.length; i += 1) {
+    for (let j = i + 1; j < live.length; j += 1) {
+      if (Date.parse(live[j].starts_at) >= Date.parse(live[i].ends_at)) break;
+      if (Date.parse(live[j].ends_at) > Date.parse(live[i].starts_at)) pairs.push([live[i], live[j]]);
+    }
+  }
+  return pairs;
+}
+
+/** The ids of events in a double booking. */
+export function conflictIds(events: readonly CalendarEventView[]): Set<string> {
+  return new Set(findConflicts(events).flat().map((event) => event.id));
+}
+
+/** The next scheduled event still to start after `now`, or null. */
+export function nextEvent(events: readonly CalendarEventView[], now: Date): CalendarEventView | null {
+  return events.filter((event) => event.status !== 'cancelled' && Date.parse(event.starts_at) > now.getTime())
+    .sort((a, b) => a.starts_at.localeCompare(b.starts_at))[0] ?? null;
+}
+
+/** The figures for the strip under the calendar: events, distinct people invited, double bookings, replies missing. */
+export function rangeStats(events: readonly CalendarEventView[], now: Date): { events: number; people: number; conflicts: number; awaiting: number; cancelled: number } {
+  const live = events.filter((event) => event.status !== 'cancelled');
+  const people = new Set(live.flatMap((event) => event.attendees.map((a) => (a.email ?? a.name).trim().toLowerCase())).filter(Boolean));
+  const counts = calendarCounts(events, now);
+  return { events: live.length, people: people.size, conflicts: findConflicts(live).length, awaiting: counts.awaiting, cancelled: counts.cancelled };
+}
+
+/** The 42 days of the small month calendar that holds `month` (Monday first). */
+export function monthDays(month: Date): Date[] {
+  const start = startOfWeek(new Date(month.getFullYear(), month.getMonth(), 1));
+  return Array.from({ length: 42 }, (_, index) => addDays(start, index));
+}
+
+/** Whether `day` falls inside the range a mode shows around `anchor`. */
+export function inRange(mode: CalendarMode, anchor: Date, day: Date): boolean {
+  const range = visibleRange(mode === 'month' ? 'week' : mode, anchor);
+  if (mode === 'month') return day.getMonth() === anchor.getMonth() && day.getFullYear() === anchor.getFullYear();
+  return day.getTime() >= range.start.getTime() && day.getTime() < range.end.getTime();
 }

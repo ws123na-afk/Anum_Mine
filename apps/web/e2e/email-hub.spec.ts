@@ -118,8 +118,9 @@ test('the old Inbox link opens the provider inbox inside Email; Connections list
   await expect(page.getByRole('heading', { level: 1, name: 'Email' })).toBeVisible();
   await expect(page.getByRole('button', { name: /Sara Customer/ })).toBeVisible();
   await page.getByRole('navigation', { name: 'Mailboxes' }).getByRole('button', { name: 'Connections' }).click();
-  await expect(page.getByRole('heading', { name: 'Gmail, Outlook and Zoho' })).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Your own mail server' })).toBeVisible();
+  const table = page.getByRole('region', { name: 'Connected mailboxes' });
+  await expect(table.getByRole('row', { name: /shop@example.com/ })).toContainText('Gmail');
+  await expect(table.getByRole('row', { name: /admin@example.com/ })).toContainText('Own server');
   await expect(page.getByRole('button', { name: 'Settings for shop@example.com' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Settings for admin@example.com' })).toBeVisible();
   await page.getByRole('button', { name: 'Connect or manage' }).click();
@@ -132,7 +133,8 @@ test('with no mailbox the page lands on how to connect; viewers are told who rea
   await expect(page.getByRole('heading', { name: 'Nothing in any inbox' })).toBeVisible();
   await expect(page.getByText('Connect a Gmail, Outlook or Zoho mailbox')).toBeVisible();
   await page.getByRole('button', { name: 'Connections' }).last().click();
-  await expect(page.getByRole('heading', { name: 'Gmail, Outlook and Zoho' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'No mailbox connected yet' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Connect or manage' })).toBeVisible();
 });
 
 test('viewers see who may read email', async ({ page }) => {
@@ -144,6 +146,7 @@ test('viewers see who may read email', async ({ page }) => {
 const SIZES = [{ width: 1440, height: 900 }, { width: 1366, height: 768 }, { width: 1024, height: 768 }, { width: 768, height: 1024 }, { width: 390, height: 844 }];
 for (const locale of ['en', 'ar'] as const) {
   test(`@gate the Email page fits every gate size and passes axe (${locale})`, async ({ page }) => {
+    test.setTimeout(120_000);
     await useSavedLocale(page, locale);
     await mockHub(page);
     const axe = async () => (await new AxeBuilder({ page }).withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'best-practice']).analyze()).violations

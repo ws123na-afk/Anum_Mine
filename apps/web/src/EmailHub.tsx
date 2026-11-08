@@ -6,7 +6,8 @@
 // composer are that back end's own (InboxView.tsx for providers, EmailView.tsx for the own server), so
 // permissions, tenant scoping and the approval of every send are exactly as before.
 import { useCallback, useEffect, useId, useMemo, useState, type FormEvent, type ReactNode } from 'react';
-import { AtSign, CircleDot, Inbox, Lock, Mail, MailOpen, Paperclip, PenLine, Plug, RefreshCw, Search, Server, Settings, Share2 } from 'lucide-react';
+import { AlertTriangle, AtSign, CheckCircle2, CircleDot, Inbox, Lock, Mail, MailOpen, Paperclip, PenLine, Plug, RefreshCw, Search, Server, Settings, Share2, ShieldCheck } from 'lucide-react';
+import { FinCard, KpiCard, KpiRow, StatusChip } from './FinanceShell';
 import { Composer, EmailView, Notice, Panel, Reader, mailError } from './EmailView';
 import { InboxView, MessagePanel } from './InboxView';
 import { Drawer } from './Dialog';
@@ -16,7 +17,7 @@ import { describeError, isPermissionDenied } from './lib/errors';
 import { formatDateTime, formatNumber, t } from './lib/i18n';
 import { viewLabel } from './lib/shell';
 import {
-  appendUnique, backendNotes, findMailbox, landingPane, needsAttention, paneFromHash, paneHash, senders, sourceKey, totalUnread,
+  HUB_FOLDERS_SLOT, appendUnique, backendNotes, findMailbox, landingPane, needsAttention, paneFromHash, paneHash, senders, sourceKey, totalUnread,
   type HubPane, type UnifiedMailbox, type UnifiedMailboxes, type UnifiedMessage, type UnreadableMailbox,
 } from './lib/emailHub';
 import { listUnifiedMailboxes, listUnifiedMessages } from './lib/emailHubApi';
@@ -136,26 +137,32 @@ function mailboxName(m: UnifiedMailbox): string {
   ].filter(Boolean).join('. ');
 }
 
-/** The one mailbox list: All inboxes, every mailbox with its source badge, then Connections. */
+/** The one mailbox list: All inboxes, the open mailbox's folders, every connected mailbox with its source badge, then Manage connections. */
 function HubRail({ load, pane, onPick, onRetry }: { load: Load; pane: HubPane | null; onPick: (pane: HubPane) => void; onRetry: () => void }) {
   const found = load.state === 'ready' ? load.value : null;
   const current = (p: HubPane) => pane !== null && pane.kind === p.kind && (p.kind !== 'mailbox' || (pane.kind === 'mailbox' && pane.ref === p.ref));
   const unread = totalUnread(found);
-  const item = (p: HubPane, icon: ReactNode, label: ReactNode, extra?: ReactNode, aria?: string) =>
-    <li><button type="button" className="hubRailItem" aria-current={current(p) ? 'page' : undefined} aria-label={aria} onClick={() => onPick(p)}>{icon}<span className="hubRailLabel">{label}</span>{extra}</button></li>;
   return <nav className="emailHubRail" aria-label={t('emailHub.rail.label')}>
     <ul className="hubRailList">
-      {item({ kind: 'all' }, <Inbox aria-hidden="true" />, t('emailHub.all'), unread > 0 ? <span className="hubCount" aria-label={t('emailHub.unreadCount', { count: unread })}>{formatNumber(unread)}</span> : null)}
+      <li><button type="button" className="hubRailItem hubRailAll" aria-current={current({ kind: 'all' }) ? 'page' : undefined} onClick={() => onPick({ kind: 'all' })}>
+        <Inbox aria-hidden="true" /><span className="hubRailLabel">{t('emailHub.all')}</span>
+        {unread > 0 ? <span className="hubCount" aria-label={t('emailHub.unreadCount', { count: unread })}>{formatNumber(unread)}</span> : null}</button></li>
+    </ul>
+    <div id={HUB_FOLDERS_SLOT} className="hubFoldersSlot" />
+    {(found?.items.length ?? 0) > 0 && <h2 className="hubRailHeading">{t('emailHub.rail.connected')}</h2>}
+    <ul className="hubRailList hubRailMailboxes">
       {found?.items.map((m) => <li key={m.ref}>
         <button type="button" className="hubRailItem hubRailMailbox" aria-current={current({ kind: 'mailbox', ref: m.ref }) ? 'page' : undefined} onClick={() => onPick({ kind: 'mailbox', ref: m.ref })}
           aria-label={mailboxName(m)}>
+          <span className={`hubRailMark hubRailMark-${m.source}`} aria-hidden="true">{m.source === 'mailserver' ? <Server /> : <AtSign />}</span>
           <span className="hubRailLabel"><span dir="ltr" className="hubAddress">{m.address}</span>{' '}<SourceBadge source={m.source} />{' '}
             {m.access === 'read' || m.access === 'send' ? <span className="hubShared"><Share2 aria-hidden="true" />{t('emailHub.shared')}</span> : null}</span>{' '}
           {needsAttention(m) && <span className="statusBadge warning">{t('emailHub.attention')}</span>}
           {(m.unread ?? 0) > 0 && <span className="hubCount" aria-hidden="true" data-count={formatNumber(m.unread ?? 0)} />}
         </button>
       </li>)}
-      {item({ kind: 'connections' }, <Settings aria-hidden="true" />, t('emailHub.connections'))}
+      <li className="hubRailManage"><button type="button" className="hubRailItem hubRailConnections" aria-current={current({ kind: 'connections' }) ? 'page' : undefined} onClick={() => onPick({ kind: 'connections' })}>
+        <Settings aria-hidden="true" /><span className="hubRailLabel">{t('emailHub.rail.manage')}</span></button></li>
     </ul>
     {load.state === 'loading' && <p className="muted hubRailNote" role="status">{t('emailHub.rail.loading')}</p>}
     {load.state === 'error' && <div className="hubRailNote"><p className="muted" role="alert">{t('emailHub.rail.failed')}</p>
@@ -295,6 +302,7 @@ function HubAllInboxes({ found, write, onOpenMailbox, onOpenConnections, onOpenA
             <button type="button" className="mailRowOpen" aria-current={active ? 'true' : undefined} onClick={() => openMessage(m)}>
               <span className="mailRowTop"><strong dir="auto">{m.from_name || m.from_address || t('emailHub.unknownSender')}</strong><time dateTime={m.received_at}>{when(m.received_at)}</time></span>
               <span className="mailRowSubject" dir="auto">{m.unread && <span className="mailUnreadDot" role="img" aria-label={t('emailHub.unread')} />}{subject}{m.has_attachments && <Paperclip className="mailClip" role="img" aria-label={t('emailHub.attachment')} />}</span>
+              {m.snippet && <span className="hubRowSnippet" dir="auto">{m.snippet}</span>}
               <span className="hubRowMeta"><SourceBadge source={m.source} /><span dir="ltr" className="hubAddress">{m.mailbox_address}</span></span>
             </button>
           </li>;
@@ -328,7 +336,7 @@ function HubAllInboxes({ found, write, onOpenMailbox, onOpenConnections, onOpenA
   </>;
 }
 
-/** Every connection on one page: provider inboxes and own-server mailboxes, each managed by its back end. */
+/** Every connection on one page: figures, one table of every mailbox (provider and own server) with its actions, and the send controls. */
 function HubConnections({ found, load, write, onRetry, onManageProviders, onConnectServer, onOpenMailbox }: {
   found: UnifiedMailboxes | null; load: Load; write: ReactNode; onRetry: () => void; onManageProviders: () => void; onConnectServer: () => void;
   onOpenMailbox: (ref: string, settings: boolean) => void;
@@ -339,33 +347,48 @@ function HubConnections({ found, load, write, onRetry, onManageProviders, onConn
     <div className="actions"><button type="button" onClick={onRetry}><RefreshCw aria-hidden="true" />{t('emailHub.retry')}</button></div></>;
   const providers = found.items.filter((m) => m.backend === 'provider');
   const servers = found.items.filter((m) => m.backend === 'server');
-  const group = (backend: 'provider' | 'server', rows: UnifiedMailbox[], titleKey: 'emailHub.connections.provider' | 'emailHub.connections.server',
-    textKey: 'emailHub.connections.providerText' | 'emailHub.connections.serverText', action: ReactNode) => {
-    const info = backend === 'provider' ? found.provider : found.server;
-    const headingId = `hub-${backend}`;
-    return <section className="surface hubGroup" aria-labelledby={headingId}>
-      <div className="hubGroupHead"><div><h2 id={headingId}>{t(titleKey)}</h2><p className="muted">{t(textKey)}</p></div>{action}</div>
-      {info.state !== 'ok' && info.state !== 'none' && <p className={`notice ${info.state === 'error' ? 'errorNotice' : ''}`} role={info.state === 'error' ? 'alert' : 'note'}><CircleDot aria-hidden="true" />{info.detail ?? t('emailHub.backendFailed')}</p>}
-      {rows.length === 0 && (info.state === 'ok' || info.state === 'none') && <p className="muted">{t('emailHub.connections.none')}</p>}
-      {rows.length > 0 && <ul className="hubConnList">{rows.map((m) => <li key={m.ref} className="hubConn">
-        <div className="hubConnText"><span dir="ltr" className="hubAddress"><strong>{m.address}</strong></span>
-          <span className="hubConnMeta"><SourceBadge source={m.source} /><span>{t(`emailHub.access.${m.access}` as Parameters<typeof t>[0])}</span>
-            <span className={`statusBadge ${needsAttention(m) ? 'warning' : 'success'}`}>{needsAttention(m) ? t('emailHub.attention') : t('emailHub.connected')}</span></span></div>
-        <div className="actions">
-          <button type="button" className="secondary" onClick={() => onOpenMailbox(m.ref, false)} aria-label={t('emailHub.connections.openLabel', { address: m.address })}><Mail aria-hidden="true" />{t('emailHub.connections.open')}</button>
-          <button type="button" className="secondary" onClick={() => onOpenMailbox(m.ref, true)} aria-label={t('emailHub.connections.settingsLabel', { address: m.address })}><Settings aria-hidden="true" />{t('emailHub.connections.settings')}</button>
-        </div>
-      </li>)}</ul>}
-    </section>;
-  };
+  const attention = found.items.filter(needsAttention).length;
+  const notes = (['provider', 'server'] as const).map((backend) => ({ backend, info: backend === 'provider' ? found.provider : found.server }))
+    .filter(({ info }) => info.state !== 'ok' && info.state !== 'none');
+  const connect = <div className="hubConnectButtons">
+    <button type="button" className="secondary" onClick={onManageProviders}><Plug aria-hidden="true" />{found.can_manage ? t('emailHub.connections.connectProvider') : t('emailHub.connections.manageProvider')}</button>
+    {found.server.state === 'ok' && found.can_act && <button type="button" className="secondary" onClick={onConnectServer}><Plug aria-hidden="true" />{t('emailHub.connections.connectServer')}</button>}
+  </div>;
   return <>
     {header}
-    <div className="hubGroups">
-      {group('provider', providers, 'emailHub.connections.provider', 'emailHub.connections.providerText',
-        <button type="button" className="secondary" onClick={onManageProviders}><Plug aria-hidden="true" />{found.can_manage ? t('emailHub.connections.connectProvider') : t('emailHub.connections.manageProvider')}</button>)}
-      {group('server', servers, 'emailHub.connections.server', 'emailHub.connections.serverText',
-        found.server.state === 'ok' && found.can_act ? <button type="button" className="secondary" onClick={onConnectServer}><Plug aria-hidden="true" />{t('emailHub.connections.connectServer')}</button> : null)}
+    <KpiRow label={t('emailHub.conn.summary')}>
+      <KpiCard icon={<Mail />} label={t('emailHub.conn.kpi.mailboxes')} value={formatNumber(found.items.length)} hint={t('emailHub.conn.kpi.mailboxesHint')} />
+      <KpiCard icon={<AtSign />} label={t('emailHub.conn.kpi.providers')} value={formatNumber(providers.length)} hint={t('emailHub.conn.kpi.providersHint')} />
+      <KpiCard icon={<Server />} label={t('emailHub.conn.kpi.server')} value={formatNumber(servers.length)} hint={t('emailHub.conn.kpi.serverHint')} />
+      <KpiCard icon={<AlertTriangle />} label={t('emailHub.conn.kpi.attention')} value={formatNumber(attention)} tone={attention ? 'warn' : ''}
+        hint={attention ? t('emailHub.conn.kpi.attentionHint') : t('emailHub.conn.kpi.allWell')} />
+    </KpiRow>
+    {notes.map(({ backend, info }) => <p key={backend} className={`notice ${info.state === 'error' ? 'errorNotice' : ''}`} role={info.state === 'error' ? 'alert' : 'note'}><CircleDot aria-hidden="true" />{info.detail ?? t('emailHub.backendFailed')}</p>)}
+    <div className="hubConnBoard">
+      <FinCard title={t('emailHub.conn.table', { count: found.items.length })} icon={<Mail />} actions={connect} className="hubConnTableCard">
+        {found.items.length === 0 ? <div className="paneEmpty"><Mail aria-hidden="true" /><h3>{t('emailHub.conn.emptyTitle')}</h3><p>{t('emailHub.connections.none')}</p></div>
+          : <div className="finTableWrap" tabIndex={0} role="region" aria-label={t('emailHub.conn.tableLabel')}><table className="finGrid hubConnTable">
+            <thead><tr><th scope="col">{t('emailHub.conn.col.mailbox')}</th><th scope="col">{t('emailHub.conn.col.connection')}</th><th scope="col">{t('emailHub.conn.col.access')}</th><th scope="col"><span className="visuallyHidden">{t('emailHub.conn.col.actions')}</span></th></tr></thead>
+            <tbody>{found.items.map((m) => <tr key={m.ref} className="hubConnRow">
+              <th scope="row"><span className="hubConnWho"><span className={`hubRailMark hubRailMark-${m.source}`} aria-hidden="true">{m.source === 'mailserver' ? <Server /> : <AtSign />}</span>
+                <span className="hubConnText"><strong dir="ltr" className="hubAddress">{m.address}</strong><SourceBadge source={m.source} /></span></span></th>
+              <td><StatusChip tone={needsAttention(m) ? 'warn' : 'ok'}>{needsAttention(m) ? t('emailHub.attention') : t('emailHub.connected')}</StatusChip></td>
+              <td>{t(`emailHub.access.${m.access}` as Parameters<typeof t>[0])}</td>
+              <td><div className="actions hubConnActions">
+                <button type="button" className="secondary" onClick={() => onOpenMailbox(m.ref, false)} aria-label={t('emailHub.connections.openLabel', { address: m.address })}><Mail aria-hidden="true" />{t('emailHub.connections.open')}</button>
+                <button type="button" className="secondary" onClick={() => onOpenMailbox(m.ref, true)} aria-label={t('emailHub.connections.settingsLabel', { address: m.address })}><Settings aria-hidden="true" />{t('emailHub.connections.settings')}</button>
+              </div></td>
+            </tr>)}</tbody>
+          </table></div>}
+      </FinCard>
+      <FinCard title={t('emailHub.conn.controls')} icon={<ShieldCheck />} className="hubControls">
+        <ul className="hubControlList">
+          <li><CheckCircle2 aria-hidden="true" /><div><strong>{t('emailHub.conn.ctl.approval')}</strong><p>{t('emailHub.conn.ctl.approvalText')}</p></div></li>
+          <li><CheckCircle2 aria-hidden="true" /><div><strong>{t('emailHub.conn.ctl.secrets')}</strong><p>{t('emailHub.conn.ctl.secretsText')}</p></div></li>
+          <li><CheckCircle2 aria-hidden="true" /><div><strong>{t('emailHub.conn.ctl.reading')}</strong><p>{t('emailHub.conn.ctl.readingText')}</p></div></li>
+          <li><CheckCircle2 aria-hidden="true" /><div><strong>{t('emailHub.conn.ctl.sharing')}</strong><p>{t('emailHub.conn.ctl.sharingText')}</p></div></li>
+        </ul>
+      </FinCard>
     </div>
   </>;
 }
-

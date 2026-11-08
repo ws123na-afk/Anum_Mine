@@ -263,7 +263,11 @@ def test_an_apple_pay_and_sms_fuel_payment_stays_one_expense_after_linking() -> 
     assert journal() == before
     report = client.get(f"{API}/{car['id']}/report", headers=OWNER).json()
     assert report["spend"] == [{"currency": "SAR", "amount": "150.00"}]
-    assert client.get(f"{API}/overview", headers=OWNER).json()["spend"] == [{"currency": "SAR", "amount": "150.00"}]
+    overview = client.get(f"{API}/overview", headers=OWNER).json()
+    assert overview["spend"] == [{"currency": "SAR", "amount": "150.00"}]
+    # Quantities next to the money: litres and kilometres per month and per vehicle (docs/vehicles.md#analytics).
+    assert car["id"] in {row["vehicle_id"] for row in overview["by_vehicle_usage"]}
+    assert overview["usage"] and all(set(row) == {"month", "distance_km", "fuel_litres"} for row in overview["usage"])
     # Relinking is idempotent; a second vehicle record cannot take more than the payment.
     again = link("fuel_entry", entry["id"], canonical)
     assert again.status_code == 200 and again.json()["replayed"] and len(links_memory_store.links) == 2

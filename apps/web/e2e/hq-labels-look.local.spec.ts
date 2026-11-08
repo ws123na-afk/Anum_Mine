@@ -3,6 +3,9 @@ import { mkdirSync } from 'node:fs';
 import { mockHq } from './support/hqCampusApi';
 import { mockFlow } from './support/hqFlowApi';
 
+// The 3D office draws on a software renderer in CI, where loading a scene alone can take most of a minute.
+test.describe.configure({ timeout: 150_000 });
+
 // Local render check for the label layer (not run in CI: screenshots for the owner review, no pixel assertions).
 const OUT = process.env.LBL_DIR ?? '/tmp/lbl-shots';
 mkdirSync(OUT, { recursive: true });

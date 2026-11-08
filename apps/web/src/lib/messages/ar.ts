@@ -69,6 +69,7 @@ import { lifecycleAr } from './lifecycle.ar.ts';
 import { recordRetentionAr } from './recordRetention.ar.ts';
 import { attendanceAr } from './attendance.ar.ts';
 import { vehiclesAr } from './vehicles.ar.ts';
+import { opsAr } from './ops.ar.ts';
 import { purchasesAr } from './purchases.ar.ts';
 import { businessBooksAr } from './businessBooks.ar.ts';
 import { iphoneAr } from './iphone.ar.ts';
@@ -99,6 +100,7 @@ import { mailOpsAr } from './mailOps.ar.ts';
 import { mailDomainsAr } from './mailDomains.ar.ts';
 import { mailAr } from './mail.ar.ts';
 import { callsAr } from './calls.ar.ts';
+import { commsAr } from './comms.ar.ts';
 import { executiveAr } from './executive.ar.ts';
 import { paBriefingAr } from './paBriefing.ar.ts';
 import { chatAr } from './chat.ar.ts';
@@ -106,6 +108,7 @@ import { setupAr } from './setup.ar.ts';
 import { pagesAr } from './pages.ar.ts';
 import { calendarAr } from './calendar.ar.ts';
 import { teamPageAr } from './teamPage.ar.ts';
+import { tasksPageAr } from './tasksPage.ar.ts';
 import { pages2Ar } from './pages2.ar.ts';
 
 export const ar: Record<MessageKey, Message> = {
@@ -149,6 +152,7 @@ export const ar: Record<MessageKey, Message> = {
   ...recordRetentionAr,
   ...attendanceAr,
   ...vehiclesAr,
+  ...opsAr,
   ...purchasesAr,
   ...businessBooksAr,
   ...iphoneAr,
@@ -173,6 +177,7 @@ export const ar: Record<MessageKey, Message> = {
   ...mailDomainsAr,
   ...mailAr,
   ...callsAr,
+  ...commsAr,
   ...executiveAr,
   ...paBriefingAr,
   ...chatAr,
@@ -180,6 +185,7 @@ export const ar: Record<MessageKey, Message> = {
   ...pagesAr,
   ...calendarAr,
   ...teamPageAr,
+  ...tasksPageAr,
   ...pages2Ar,
   // ---- Common ----
   'common.listAnd': '{head} و{last}',

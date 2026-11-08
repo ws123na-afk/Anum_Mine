@@ -247,6 +247,8 @@ export interface VehicleReport {
   monthly: { month: string; currency: string; amount: string }[];
   by_category: { currency: string; category: string; amount: string }[];
   fuel_litres: string;
+  /** Kilometres and litres per month in the period; a month's distance counts from the reading before it. */
+  usage: VehicleUsageMonth[];
   fuel_price_trend: { month: string; currency: string; fuel_type: VehicleFuelType; price_per_litre: string }[];
   consumption: {
     average_per_100: string | null;
@@ -272,7 +274,13 @@ export interface VehicleOverview {
   by_vehicle: { vehicle_id: string; registration: string; currency: string; amount: string }[];
   due: VehicleDueItem[];
   unlinked_records: number;
+  /** Kilometres and litres per month across the vehicles (quantities, never money). */
+  usage: VehicleUsageMonth[];
+  /** Each vehicle's kilometres, litres and average L/100 km (full-to-full chains) in the period. */
+  by_vehicle_usage: { vehicle_id: string; distance_km: string; fuel_litres: string; average_per_100: string | null }[];
 }
+
+export interface VehicleUsageMonth { month: string; distance_km: string; fuel_litres: string }
 
 export interface VehiclePreferences {
   owner_user_id: string;

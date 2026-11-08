@@ -2,6 +2,9 @@ import { expect, test, type Page } from '@playwright/test';
 import { mkdirSync } from 'node:fs';
 import { mockHq } from './support/hqCampusApi';
 
+// The 3D office draws on a software renderer in CI, where loading a scene alone can take most of a minute.
+test.describe.configure({ timeout: 150_000 });
+
 // The exterior look and the ambient motion of the 3D campus (docs/ANUM_MINE_HQ_BUILDING_LOOK.md, docs/ANUM_MINE_HQ_SCENERY_MOTION.md).
 // It checks that day, blue hour and night each draw a real, different frame, that scenery motion is off by default on a
 // software renderer and under reduced motion, and that it runs (vehicles, scene clock) when it is switched on.

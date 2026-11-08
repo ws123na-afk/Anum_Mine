@@ -1,7 +1,7 @@
 // Approvals: the exact tool call, where it goes, why it stopped, when it lapses, and who decided
 // and why. See docs/approvals-and-risk.md. Approve sends back the payload hash shown here.
 import { lazy, Suspense, useCallback, useEffect, useId, useRef, useState, type ReactNode } from 'react';
-import { BellOff, CheckCircle2, Clock, Fingerprint, Globe, Route, Search, ShieldCheck, UserX, Users, XCircle } from 'lucide-react';
+import { BellOff, CheckCircle2, Clock, Fingerprint, Globe, Hourglass, Route, Search, ShieldCheck, UserX, Users, XCircle } from 'lucide-react';
 import type { Approval } from '@anum/contracts';
 import * as api from './lib/api';
 import { APPROVAL_FILTERS, approvalSignal,APPROVAL_PAGE_SIZE, APPROVAL_SEARCH_DELAY_MS, emptyKind, mergeApprovals, searchText, splitApprovals, summaryTotal } from './lib/approvalPaging';
@@ -12,6 +12,8 @@ import { formatDateTime, formatNumber, t } from './lib/i18n';
 import { riskLabel, statusLabel } from './lib/labels';
 import { EmptyPanel, PanelDenied, PanelError, PanelLoading } from './Panels';
 import { rich } from './rich';
+import { KpiCard, KpiRow, StatusChip, tabPanel } from './FinanceShell';
+import { rememberTasksTab, TASKS_PANEL, TasksHead } from './TasksTabs';
 
 // A web.act step's picture and facts (docs/action-browser.md): its own lazy chunk.
 const ActionBrowserApproval = lazy(() => import('./action-browser/ActionBrowserApproval'));
@@ -31,11 +33,12 @@ type Load = { state: 'loading' } | { state: 'ready' } | { state: 'denied' } | { 
  * `items` is the shell's pending snapshot: it is only the signal to reload the first page when an approval
  * event arrives (the list itself is fetched here, filtered and searched on the server).
  */
-export function ApprovalsView({ items, busy, decide, metric, empty, userId, onOpenRules }: {
+export function ApprovalsView({ items, busy, decide, empty, userId, onOpenRules }: {
   items: Approval[];
   busy: boolean;
   decide: Decide;
-  metric(icon: ReactNode, label: string, value: string, detail: string): ReactNode;
+  /** Kept for the shell's call; the page draws its own KPI row now. */
+  metric?(icon: ReactNode, label: string, value: string, detail: string): ReactNode;
   empty: ReactNode;
   /** The signed-in user, so a chain they already approved offers no second approval. */
   userId?: string | null;
@@ -128,12 +131,15 @@ export function ApprovalsView({ items, busy, decide, metric, empty, userId, onOp
   const ready = load.state === 'ready';
   const noMatch = <EmptyPanel icon={<Search />} title={t('approvals.empty.searchTitle')} text={t('approvals.empty.searchText', { query })} action={t('common.clear')} onAction={clearSearch} />;
   return (
-    <>
-      <section className="metrics three">
-        {metric(<ShieldCheck />, t('approvals.metric.pending'), summary ? formatNumber(summary.pending) : '-', t('approvals.metric.pendingDetail'))}
-        {metric(<CheckCircle2 />, t('approvals.metric.approved'), summary ? formatNumber(summary.approved) : '-', t('approvals.metric.total'))}
-        {metric(<XCircle />, t('approvals.metric.rejected'), summary ? formatNumber(summary.rejected) : '-', t('approvals.metric.total'))}
-      </section>
+    <div className="tasksPage">
+      <TasksHead tab="approvals" pending={summary?.pending ?? pending.length} onPick={(next) => { rememberTasksTab(next); if (next !== 'approvals') window.location.hash = 'tasks'; }} />
+      <div {...tabPanel(TASKS_PANEL, 'approvals')}>
+      <KpiRow label={t('approvals.kpis')}>
+        <KpiCard icon={<Hourglass />} label={t('approvals.metric.pending')} value={summary ? formatNumber(summary.pending) : '-'} hint={summary ? t('approvals.metric.pendingDetail') : t('page.figure.unavailable')} tone={summary?.pending ? 'warn' : ''} />
+        <KpiCard icon={<Clock />} label={t('approvals.metric.expired')} value={summary ? formatNumber(summary.expired) : '-'} hint={summary ? t('approvals.metric.expiredDetail') : t('page.figure.unavailable')} />
+        <KpiCard icon={<CheckCircle2 />} label={t('approvals.metric.approved')} value={summary ? formatNumber(summary.approved) : '-'} hint={summary ? t('approvals.metric.total') : t('page.figure.unavailable')} tone={summary?.approved ? 'good' : ''} />
+        <KpiCard icon={<XCircle />} label={t('approvals.metric.rejected')} value={summary ? formatNumber(summary.rejected) : '-'} hint={summary ? t('approvals.metric.total') : t('page.figure.unavailable')} />
+      </KpiRow>
       {onOpenRules && (
         <p className="approvalRulesLink">
           <Route aria-hidden size={14} />
@@ -163,18 +169,24 @@ export function ApprovalsView({ items, busy, decide, metric, empty, userId, onOp
         // one brings its card into view with focus (docs/web-design-system.md#pages).
         <div className={`approvalQueue ${pending.length > 1 ? 'withIndex' : ''}`}>
           {pending.length > 1 && (
-            <nav className="approvalQueueIndex" aria-label={t('approvals.queueIndex')}>
+            <nav className="approvalQueueIndex approvalInbox" aria-label={t('approvals.queueIndex')}>
               <p className="approvalQueueIndexTitle">{t('approvals.queueIndexCount', { count: formatNumber(pending.length) })}</p>
-              <ol>
-                {pending.map((a) => (
-                  <li key={a.id}>
-                    <button type="button" className={`approvalQueueItem risk-${a.riskLevel}`} onClick={() => jumpTo(a.id)}>
-                      <strong dir="ltr">{a.action}</strong>
-                      <small>{riskLabel(a.riskLevel)}, {formatDate(a.createdAt)}</small>
-                    </button>
-                  </li>
-                ))}
-              </ol>
+              <table className="finGrid">
+                <thead><tr><th scope="col">{t('approvals.col.request')}</th><th scope="col">{t('approvals.col.risk')}</th><th scope="col">{t('approvals.col.submitted')}</th><th scope="col">{t('approvals.col.lapses')}</th></tr></thead>
+                <tbody>
+                  {pending.map((a) => (
+                    <tr key={a.id} className={`risk-${a.riskLevel}`}>
+                      <th scope="row"><button type="button" className={`approvalQueueItem risk-${a.riskLevel}`} onClick={() => jumpTo(a.id)}>
+                        <strong dir="ltr">{a.action}</strong>
+                        <small>{a.requestedBy ? t('approvals.requestedBy', { who: a.requestedBy }) : riskLabel(a.riskLevel)}</small>
+                      </button></th>
+                      <td><StatusChip tone={a.riskLevel === 'high' ? 'bad' : a.riskLevel === 'medium' ? 'warn' : 'muted'}>{riskLabel(a.riskLevel)}</StatusChip></td>
+                      <td>{formatDateTime(a.createdAt, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</td>
+                      <td>{expiryLabel(a, now) ?? '-'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </nav>
           )}
           <section className="surface approvalTable" aria-labelledby="approvals-pending-heading">
@@ -217,7 +229,8 @@ export function ApprovalsView({ items, busy, decide, metric, empty, userId, onOp
           {cursor && <button type="button" className="secondary" onClick={() => void loadMore()} disabled={paging}>{paging ? t('common.loading') : t('approvals.loadMore')}</button>}
         </div>
       )}
-    </>
+      </div>
+    </div>
   );
 }
 

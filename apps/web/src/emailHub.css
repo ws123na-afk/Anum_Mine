@@ -5,14 +5,14 @@
 /* On very wide screens the mailbox list sits beside the page; below that it is one row of mailboxes
    above the page, so the mail itself keeps three full panes: folders, messages and the reader
    (docs/web-design-system.md#pages). */
-@media (min-width: 1680px) {
-  .emailHub { align-items: start; grid-template-columns: 216px minmax(0, 1fr); }
-  .emailHubRail { position: sticky; top: var(--d-s3); }
+@media (min-width: 1280px) {
+  .emailHub { align-items: start; grid-template-columns: minmax(220px, 248px) minmax(0, 1fr); }
+  .emailHubRail { align-content: start; display: grid; gap: var(--d-s2); max-height: calc(100dvh - 2 * var(--d-s4)); overflow-y: auto; position: sticky; scrollbar-width: thin; top: var(--d-s3); }
 }
 
 .emailHubRail { border: 1px solid var(--d-line); border-radius: var(--d-r-control); min-width: 0; padding: var(--d-s2); }
 .hubRailList { display: grid; gap: var(--d-s1); list-style: none; margin: 0; padding: 0; }
-@media (max-width: 1679px) {
+@media (max-width: 1279px) {
   .emailHubRail { background: var(--d-surface-1); border-radius: var(--d-r-panel); box-shadow: var(--d-elev-1); padding: var(--d-s1); }
   .hubRailList { display: flex; gap: var(--d-s1); overflow-x: auto; overscroll-behavior-x: contain; padding-bottom: var(--d-s1); }
   .hubRailList > li { flex: none; max-width: 280px; }
@@ -70,3 +70,34 @@
 }
 .hubConnText { display: grid; gap: var(--d-s1); min-width: 0; }
 .hubConnMeta { align-items: center; color: var(--d-muted); display: flex; flex-wrap: wrap; font-size: var(--text-sm); gap: var(--d-s2); }
+
+/* The rail as designed (docs/email.md#one-email-module): All inboxes, the open mailbox's folders, the connected inboxes, Manage connections. */
+.emailHubRail { background: var(--d-surface-1); }
+.hubRailAll[aria-current='page'], .hubRailItem[aria-current='page'] { background: rgb(var(--c-ok) / .14); border-color: rgb(var(--c-ok) / .45); }
+.hubRailHeading { color: var(--d-muted); font-size: var(--text-sm); font-weight: 600; margin: var(--d-s2) var(--d-s2) 0; }
+.hubRailMark { align-items: center; background: var(--d-glass-2); border-radius: var(--d-r-control); color: var(--d-accent); display: inline-flex; flex: none; height: 32px; justify-content: center; width: 32px; }
+.hubRailMark svg { height: 16px; width: 16px; }
+.hubRailMark-mailserver { color: var(--d-sky); }
+.hubRailManage .hubRailItem { border: 1px solid var(--d-line); justify-content: center; margin-top: var(--d-s2); }
+.hubFoldersSlot:empty { display: none; }
+.hubFoldersSlot { border-bottom: 1px solid var(--d-line); border-top: 1px solid var(--d-line); padding: var(--d-s2) 0; }
+.hubFoldersSlot .mailNavInRail { background: transparent; border: 0; box-shadow: none; display: grid; gap: var(--d-s2); max-height: none; overflow: visible; padding: 0; }
+@media (max-width: 1279px) { .hubRailHeading { display: none; } .hubRailManage .hubRailItem { margin-top: 0; } .hubRailMailboxes { display: contents; } }
+.hubRowSnippet { -webkit-box-orient: vertical; -webkit-line-clamp: 1; color: var(--d-muted); display: -webkit-box; font-size: var(--text-sm); overflow: hidden; }
+
+/* Connections: figures, the mailbox table and the send controls side by side on wide screens. */
+.hubConnBoard { align-items: start; display: grid; gap: var(--d-s4); grid-template-columns: minmax(0, 1fr); min-width: 0; }
+@media (min-width: 1280px) { .hubConnBoard { grid-template-columns: minmax(0, 1fr) minmax(280px, 340px); } }
+.hubConnTable td, .hubConnTable th { vertical-align: middle; }
+.hubConnWho { align-items: center; display: flex; gap: var(--d-s2); min-width: 0; }
+.hubConnText { display: grid; gap: 2px; justify-items: start; min-width: 0; }
+.hubConnActions { flex-wrap: nowrap; justify-content: flex-end; }
+.hubConnectButtons { display: flex; flex-wrap: wrap; gap: var(--d-s2); }
+.hubControlList { display: grid; gap: var(--d-s3); list-style: none; margin: 0; padding: 0; }
+.hubControlList li { align-items: flex-start; display: flex; gap: var(--d-s2); }
+.hubControlList li > svg { color: var(--d-ok); flex: none; height: 18px; margin-top: 2px; width: 18px; }
+.hubControlList p { color: var(--d-muted); font-size: var(--text-sm); margin: 2px 0 0; }
+@media (max-width: 760px) { .hubConnTable thead { display: none; } .hubConnTable tr { display: grid; gap: var(--d-s1); padding: var(--d-s2) 0; } .hubConnTable th, .hubConnTable td { border: 0; padding: 0; } .hubConnActions { justify-content: flex-start; } }
+.emailHubRail, .hubFoldersSlot, .mailNavInRail, .mailNavInRail > * { min-width: 0; }
+.emailHubRail { grid-template-columns: minmax(0, 1fr); }
+.mailNavInRail .mailFolder { padding-inline: var(--d-s2); }

@@ -6,6 +6,8 @@
 // mailboxes (own and shared), sharing, sender identities and contacts (MailDirectory.tsx), and All
 // inboxes over every readable mailbox (MailAllInboxes.tsx).
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
+import { HUB_FOLDERS_SLOT } from './lib/emailHub';
 import {
   ArrowLeft, AtSign, CircleDot, Contact, Download, FileText, Forward, Lock, Mail, MailOpen, Paperclip, PenLine, Plug, RefreshCw, Reply, ReplyAll, Send, Settings, ShieldCheck, Trash2, Unplug,
 } from 'lucide-react';
@@ -378,6 +380,10 @@ function Mailbox({ setup, account, owner, note, setNote, header, onOpenApprovals
   const draftsWaiting = (drafts ?? []).filter((d) => d.status !== 'sent');
   const show = pane ? 'detail' : 'list';
   const listTitleId = useId();
+  // In the one Email page on a wide screen, the folders sit in the page's mailbox rail (one column, as designed).
+  const [folderSlot, setFolderSlot] = useState<HTMLElement | null>(null);
+  useEffect(() => { setFolderSlot(widest ? document.getElementById(HUB_FOLDERS_SLOT) : null); }, [widest]);
+  const placeNav = (nav: ReactNode) => folderSlot ? createPortal(nav, folderSlot) : nav;
   const emptyText = folder?.role === 'inbox' ? t('mail.list.emptyInbox') : t('mail.list.empty', { folder: folder ? folderLabel(folder) : '' });
 
   return <>
@@ -387,8 +393,8 @@ function Mailbox({ setup, account, owner, note, setNote, header, onOpenApprovals
     <Notice note={note} />
     <SharedNotice account={account} />
     {account.status === 'auth_failed' && <Notice note={{ text: t('mail.authFailed'), error: true }} />}
-    <SplitView className="mailSplit" layout="three" show={show} label={t('mail.folders')}>
-      <aside data-pane="nav" className="pane mailNav" aria-label={t('mail.folders')}>
+    <SplitView className={`mailSplit ${folderSlot ? 'mailSplitHubbed' : ''}`} layout={folderSlot ? 'two' : 'three'} show={show} label={t('mail.folders')}>
+      {placeNav(<aside data-pane="nav" className={`pane mailNav ${folderSlot ? 'mailNavInRail' : ''}`} aria-label={t('mail.folders')}>
         <MailSearchBar filters={filters} inputRef={searchRef} busy={listState === 'loading'} onApply={(next) => { setFilters(next); setSelected(new Set()); setPane(null); }} />
         {foldersState === 'loading' && <p className="muted" role="status">{t('mail.list.loading')}</p>}
         {foldersState === 'error' && <div><Notice note={{ text: foldersError, error: true }} /><button type="button" className="secondary" onClick={() => { setFoldersState('loading'); loadFolders().then(applyFolders, (e) => { setFoldersError(mailError(e)); setFoldersState('error'); }); }}><RefreshCw aria-hidden="true" />{t('mail.retry')}</button></div>}
@@ -417,7 +423,7 @@ function Mailbox({ setup, account, owner, note, setNote, header, onOpenApprovals
           </li>)}</ul>}
         </details>
         <ScheduledRail accountId={account.id} version={drafts} open={widest} current={pane?.kind === 'draft' ? pane.id : null} onOpen={(id) => setPane({ kind: 'draft', id })} />
-      </aside>
+      </aside>)}
 
       <section data-pane="list" className="pane mailList" aria-labelledby={listTitleId} aria-busy={listState === 'loading'}>
         <div className="paneHead"><h2 id={listTitleId}>{folder ? folderLabel(folder) : t('mail.folders')}</h2>{listState === 'ready' && <span className="muted" aria-live="polite">{filtersActive(filters) ? t('mailc.search.results', { count: total }) : t('mail.list.shown', { shown: formatNumber(items.length), total: formatNumber(total) })}</span>}</div>
@@ -513,6 +519,7 @@ export function Reader({ account, folder, uid, message, canAct, busy, moves, onB
         <div><dt>{t('mail.reader.date')}</dt><dd><time dateTime={m.date}>{when(m.date)}</time></dd></div>
       </dl>
     </header>
+    <p className="mailSafe" role="note"><ShieldCheck aria-hidden="true" /><span><strong>{t('mail.reader.safeTitle')}</strong> {t('mail.reader.safeText')}</span></p>
     <MailAssist target={{ account_id: account.id, folder: folder.id, uid }} account={account} canAct={canAct} onDrafted={onDrafted} onOpenApprovals={onOpenApprovals} />
     {detail.remote_images_blocked > 0 && <p className="notice mailBlocked" role="status"><ShieldCheck aria-hidden="true" />{t('mail.reader.imagesBlocked', { count: detail.remote_images_blocked })}</p>}
     {detail.inline_images_hidden > 0 && <p className="muted mailSmall">{t('mail.reader.inlineHidden', { count: detail.inline_images_hidden })}</p>}

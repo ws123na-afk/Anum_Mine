@@ -1,0 +1,13 @@
+/* The approval inbox layout (ApprovalsView.tsx, docs/approvals-and-risk.md#user-experience): the
+   waiting requests as a table beside the request cards on wide screens. */
+@media (min-width: 1100px) {
+  .approvalQueue.withIndex { grid-template-columns: minmax(360px, 5fr) minmax(0, 6fr); }
+}
+.approvalInbox { padding: var(--d-s2) var(--d-s3); }
+.approvalInbox .finGrid th, .approvalInbox .finGrid td { padding: var(--d-s1) var(--d-s2); vertical-align: middle; }
+.approvalInbox tbody th { padding: 0; }
+.approvalInbox .approvalQueueItem { border-radius: 0; min-width: 0; max-width: 260px; }
+.approvalInbox td { color: var(--d-muted); font-size: var(--text-xs); white-space: nowrap; }
+.approvalInbox tr:hover > * { background: var(--d-glass-1); }
+.tasksPage { display: grid; gap: var(--d-s4); min-width: 0; }
+.wtGroupRow button { justify-content: flex-start; }
