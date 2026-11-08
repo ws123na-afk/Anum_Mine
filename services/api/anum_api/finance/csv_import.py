@@ -92,7 +92,7 @@ PRESETS: dict[str, Preset] = {
                ("date", "transaction date", "posting date", "posted date", "value date", "booking date", "التاريخ"),
                ("description", "details", "narration", "narrative", "memo", "payee", "merchant", "transaction details",
                 "الوصف", "البيان"),
-               amount=("amount", "transaction amount", "value", "المبلغ"),
+               amount=("amount", "transaction amount", "value", "posted amount", "billing amount", "المبلغ"),
                debit=("debit", "debit amount", "withdrawal", "withdrawals", "money out", "paid out", "مدين"),
                credit=("credit", "credit amount", "deposit", "deposits", "money in", "paid in", "دائن")),
     )
@@ -116,6 +116,13 @@ class ColumnMapping(BaseModel):
     amount: str | None = Field(default=None, max_length=120)
     debit: str | None = Field(default=None, max_length=120)
     credit: str | None = Field(default=None, max_length=120)
+    currency: str | None = Field(default=None, max_length=120)  # original or billed currency
+    original_amount: str | None = Field(default=None, max_length=120)
+    original_currency: str | None = Field(default=None, max_length=120)
+    billed_amount: str | None = Field(default=None, max_length=120)
+    billed_currency: str | None = Field(default=None, max_length=120)
+    fx_rate: str | None = Field(default=None, max_length=120)
+    fee: str | None = Field(default=None, max_length=120)
 
     @model_validator(mode="after")
     def _money_columns(self) -> ColumnMapping:
@@ -133,7 +140,10 @@ class ParsedRow:
     amount: Decimal
     description: str
     dedupe_hash: str = ""
-
+    notes: str | None = None
+    original_amount: Decimal | None = None
+    original_currency: str | None = None
+    fee: Decimal | None = None
 
 @dataclass
 class RowError:
@@ -300,10 +310,19 @@ def mapping_for(preset: Preset, headers: list[str]) -> ColumnMapping | None:
     debit_col, credit_col = _find(headers, preset.debit), _find(headers, preset.credit)
     if not date_col or not desc_col:
         return None
+    extra = {
+        "currency": _find(headers, ("currency", "transaction currency", "curr", "ccy")),
+        "original_amount": _find(headers, ("original amount", "foreign amount", "transaction amount foreign", "amount foreign", "usd amount")),
+        "original_currency": _find(headers, ("original currency", "foreign currency", "transaction ccy")),
+        "billed_amount": _find(headers, ("billed amount", "billing amount", "settlement amount", "local amount", "amount sar", "sar amount", "posted amount sar", "amount in sar")),
+        "billed_currency": _find(headers, ("billing currency", "billed currency", "settlement currency", "account currency")),
+        "fx_rate": _find(headers, ("exchange rate", "fx rate", "conversion rate")),
+        "fee": _find(headers, ("foreign transaction fee", "fx fee", "transaction fee", "fee amount")),
+    }
     if amount_col and not (debit_col and credit_col):
-        return ColumnMapping(date=date_col, description=desc_col, amount=amount_col)
+        return ColumnMapping(date=date_col, description=desc_col, amount=amount_col, **extra)
     if debit_col or credit_col:
-        return ColumnMapping(date=date_col, description=desc_col, debit=debit_col, credit=credit_col)
+        return ColumnMapping(date=date_col, description=desc_col, debit=debit_col, credit=credit_col, **extra)
     return None
 
 
@@ -320,7 +339,7 @@ def _locate_header(rows: list[list[str]], preset: str | None, mapping: ColumnMap
     for index, row in enumerate(rows[:HEADER_SEARCH_ROWS]):
         headers = [clean_text(c, 120) for c in row]
         if mapping is not None:
-            wanted = [mapping.date, mapping.description, mapping.amount, mapping.debit, mapping.credit]
+            wanted = [mapping.date, mapping.description, mapping.amount, mapping.debit, mapping.credit, mapping.currency, mapping.original_amount, mapping.original_currency, mapping.billed_amount, mapping.billed_currency, mapping.fx_rate, mapping.fee]
             if all(name in headers for name in wanted if name):
                 return index
         elif preset is not None and preset in PRESETS:
@@ -373,7 +392,7 @@ def parse_file(
             )
         mapping = found
     else:
-        missing = [n for n in (mapping.date, mapping.description, mapping.amount, mapping.debit, mapping.credit) if n and n not in headers]
+        missing = [n for n in (mapping.date, mapping.description, mapping.amount, mapping.debit, mapping.credit, mapping.currency, mapping.original_amount, mapping.original_currency, mapping.billed_amount, mapping.billed_currency, mapping.fx_rate, mapping.fee) if n and n not in headers]
         if missing:
             raise ImportError_(f"These columns are not in the file: {', '.join(missing)}.")
         chosen = "custom"
@@ -428,10 +447,74 @@ def parse_file(
         except MoneyError as exc:
             result.errors.append(RowError(line, str(exc)))
             continue
+        # The account ledger must always use its posted currency. A USD purchase on a
+        # SAR card needs the actual bank-billed SAR amount, NOT an invented FX rate.
+        def currency_cell(name: str | None) -> str | None:
+            raw = clean_text(cell(row, name), 15).upper()
+            if not raw:
+                return None
+            if not re.fullmatch(r"[A-Z]{3}", raw):
+                raise MoneyError("Invalid currency code. Use a three-letter ISO currency.")
+            return raw
+
+        def money_cell(name: str | None) -> Decimal | None:
+            raw = cell(row, name)
+            if not raw.strip():
+                return None
+            parsed = parse_amount(raw)
+            if parsed is None:
+                raise MoneyError("A foreign amount, billed amount, FX rate or fee could not be read.")
+            return parsed
+
+        try:
+            row_ccy = currency_cell(mapping.currency)
+            original_ccy = currency_cell(mapping.original_currency) or row_ccy
+            billed_ccy = currency_cell(mapping.billed_currency) or currency
+            foreign = money_cell(mapping.original_amount)
+            billed = money_cell(mapping.billed_amount)
+            rate = money_cell(mapping.fx_rate)
+            fee = money_cell(mapping.fee)
+            if billed is not None:
+                if billed_ccy != currency:
+                    raise MoneyError(f"The billed currency is {billed_ccy}, but the account is {currency}. Choose the matching account.")
+                if billed == 0:
+                    raise MoneyError("The billed amount is zero.")
+                # Preserve the direction from the debit/credit column when billed figures are unsigned.
+                amount = quantize(-abs(billed) if value < 0 else abs(billed), currency)
+                if foreign is None and row_ccy and row_ccy != currency:
+                    foreign = abs(value)
+            elif row_ccy and row_ccy != currency and foreign is None:
+                raise MoneyError(
+                    f"This entry is {row_ccy} on a {currency} account. Map the bank's actual {currency} billed/settlement amount "
+                    "or import it into an account denominated in the original currency."
+                )
+            elif row_ccy and row_ccy != currency and foreign is not None:
+                raise MoneyError(
+                    f"Original {row_ccy} amount is available, but bank-billed {currency} amount is missing. "
+                    "Map the settlement amount; no exchange rate is guessed."
+                )
+            if fee is not None and fee < 0:
+                fee = abs(fee)
+            notes_parts = []
+            if foreign is not None:
+                if not original_ccy:
+                    raise MoneyError("Map the original/foreign currency alongside the foreign amount.")
+                notes_parts.append(f"Original: {abs(foreign)} {original_ccy}")
+            if billed is not None:
+                notes_parts.append(f"Bank billed: {abs(amount)} {currency}")
+            if rate is not None:
+                if rate <= 0:
+                    raise MoneyError("The exchange rate must be positive.")
+                notes_parts.append(f"Bank FX rate: {rate}")
+            if fee is not None:
+                notes_parts.append(f"FX/transaction fee reported: {fee} {currency} (informational; not an additional ledger posting)")
+        except MoneyError as exc:
+            result.errors.append(RowError(line, str(exc)))
+            continue
         key = (posted, amount, " ".join(description.lower().split()))
         occurrence = seen.get(key, 0)
         seen[key] = occurrence + 1
         result.rows.append(
-            ParsedRow(line, posted, amount, description, dedupe_hash(account_id, posted, amount, currency, description, occurrence))
+            ParsedRow(line, posted, amount, description, dedupe_hash(account_id, posted, amount, currency, description, occurrence), " | ".join(notes_parts) or None, foreign, original_ccy if foreign is not None else None, fee)
         )
     return result
