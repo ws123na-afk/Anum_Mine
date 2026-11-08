@@ -59,3 +59,47 @@ def test_untrusted_sender_and_unidentified_payment_do_not_create_schedule() -> N
                              "Order Number\njarir-12345")
     rows, _ = extract_tamara_statement([spoof, only_repayment])
     assert rows == []
+
+
+def test_preview_route_reads_only_the_callers_own_gmail_off_the_event_loop() -> None:
+    """The preview's mailbox reads run in a worker thread; a mailbox the caller did not connect is not found."""
+    from fastapi.testclient import TestClient
+
+    from anum_api import main
+    from anum_api.email_inbox import (
+        EmailAccount,
+        EmailMessage,
+        Visibility,
+        email_backend,
+        open_email_store,
+    )
+    from anum_api.email_providers import EmailProvider
+    from anum_api.schemas import TenantContext, utc_now
+
+    tenant, workspace = "tenant_tamara", "workspace_tamara"
+    owner = {"x-tenant-id": tenant, "x-workspace-id": workspace, "x-user-id": "owner_tamara", "x-user-roles": "owner"}
+    other = {**owner, "x-user-id": "other_tamara"}
+    client = TestClient(main.app)
+    email_backend.clear()
+    try:
+        now = utc_now()
+        context = TenantContext(tenant_id=tenant, workspace_id=workspace, user_id="owner_tamara", roles=["owner"])
+        with open_email_store(context) as store:
+            store.add_account(EmailAccount(id="acct_tamara", tenant_id=tenant, workspace_id=workspace, provider=EmailProvider.GMAIL,
+                                           address="owner@gmail.example", connected_by="owner_tamara",
+                                           visibility=Visibility.WORKSPACE, created_at=now, updated_at=now))
+            store.upsert_messages([EmailMessage(id="acct_tamara_m1", tenant_id=tenant, workspace_id=workspace, account_id="acct_tamara",
+                                                provider_message_id="p1", thread_id="t1", subject="tamara offer",
+                                                from_address="offers@shop.example", snippet="tamara", received_at=now,
+                                                is_read=False, created_at=now, updated_at=now)])
+        preview = client.get("/api/v1/finance/installment-email/preview", headers=owner, params={"account_id": "acct_tamara"})
+        assert preview.status_code == 200, preview.text
+        body = preview.json()
+        # Only mail from Tamara's own domain counts as evidence; nothing is imported by the preview.
+        assert body["account_id"] == "acct_tamara" and body["messages_matched"] == 0 and body["rows"] == []
+        missing = client.get("/api/v1/finance/installment-email/preview", headers=owner, params={"account_id": "acct_none"})
+        assert missing.status_code == 404, missing.text
+        not_theirs = client.get("/api/v1/finance/installment-email/preview", headers=other, params={"account_id": "acct_tamara"})
+        assert not_theirs.status_code == 404, not_theirs.text
+    finally:
+        email_backend.clear()
