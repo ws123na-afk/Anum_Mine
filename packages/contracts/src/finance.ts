@@ -84,6 +84,7 @@ export interface FinanceTransactionInput {
   description: string;
   category?: FinanceCategory | null;
   notes?: string | null;
+  remember_category_match?: string | null;
 }
 
 export interface FinancePage<T> { items: T[]; total: number; limit: number; offset: number }
@@ -127,7 +128,7 @@ export interface FinanceImportPreview {
   new_count: number;
   duplicate_count: number;
   error_count: number;
-  rows: { line: number; posted_on: string; amount: FinanceMoney; currency: string; description: string; category: FinanceCategory; duplicate: boolean; notes?: string | null; original_amount?: FinanceMoney | null; original_currency?: string | null; reported_fee?: FinanceMoney | null }[];
+  rows: { line: number; posted_on: string; amount: FinanceMoney; currency: string; description: string; category: FinanceCategory; duplicate: boolean; direction_warning?: string | null; notes?: string | null; original_amount?: FinanceMoney | null; original_currency?: string | null; reported_fee?: FinanceMoney | null }[];
   errors: { line: number; message: string }[];
 }
 
