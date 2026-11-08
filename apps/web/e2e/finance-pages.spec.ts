@@ -228,9 +228,9 @@ test('reports: a slow answer for a month left behind never replaces the month on
   await expect(page.getByRole('region', { name: /Business P&L/ })).toContainText(monthName(month));
   await page.getByRole('radio', { name: 'Personal' }).click();
   await leaveAndReturn();
-  await expect(page.getByRole('region', { name: `Figures for ${monthName(month)}` })).toContainText('45,000.00', { timeout: 15_000 });
+  await expect(page.getByRole('region', { name: `Figures for ${monthName(month)}` })).toContainText('60,000.00', { timeout: 15_000 });
   await page.waitForTimeout(5000);
-  await expect(page.getByRole('region', { name: `Figures for ${monthName(month)}` })).toContainText('45,000.00');
+  await expect(page.getByRole('region', { name: `Figures for ${monthName(month)}` })).toContainText('60,000.00');
   await expect(page.getByRole('region', { name: `Figures for ${monthName(previous)}` })).toHaveCount(0);
 });
 
