@@ -374,7 +374,8 @@ function TransactionDrawer({ id, onClose, onOpen, onChanged, inModal }: {
         {CATEGORIES.map((c) => <option key={c} value={c}>{c === d.suggested_category ? t('freg.drawer.suggestedOption', { category: categoryLabel(c) }) : categoryLabel(c)}</option>)}
       </select>
     </div>
-    <label className="field"><input type="checkbox" checked={learn} onChange={(e) => setLearn(e.target.checked)} />
+    {["sms", "apple_pay"].includes(row.origin) && <p className="muted">This transaction is linked to an SMS or Apple Pay journal entry. Make its category correction under Finance → iPhone SMS → Review to preserve the audit trail.</p>}
+    {["manual", "statement"].includes(row.origin) && <label className="field"><input type="checkbox" checked={learn} onChange={(e) => setLearn(e.target.checked)} />
       Remember this category for future matching descriptions
     </label>
     {learn && <label className="field"><span>Merchant/description to remember (specific phrase)</span>
@@ -383,7 +384,7 @@ function TransactionDrawer({ id, onClose, onOpen, onChanged, inModal }: {
     </label>}
     {notice && <Notice error={notice.error}>{notice.text}</Notice>}
     <div className="fregDrawerActions">
-      <button type="button" disabled={Boolean(busy) || !category || (category === row.category && row.category_source === 'manual' && !learn)} onClick={() => void saveCategory(row)}>
+      <button type="button" disabled={Boolean(busy) || !category || !['manual', 'statement'].includes(row.origin) || (category === row.category && row.category_source === 'manual' && !learn)} onClick={() => void saveCategory(row)}>
         <Tags aria-hidden="true" />{busy === 'category' ? t('finance.saving') : t('freg.drawer.saveCategory')}</button>
       {Number(row.amount) > 0 && ['statement', 'manual'].includes(row.origin) &&
         <button type="button" className="secondary" disabled={Boolean(busy)} onClick={() => setReversePending(true)}>
