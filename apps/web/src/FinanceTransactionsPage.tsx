@@ -284,11 +284,16 @@ function TransactionDrawer({ id, onClose, onOpen, onChanged, inModal }: {
   }
   async function correctDirection(row: FinanceRegisterRow) {
     if (Number(row.amount) <= 0 || !['manual', 'statement'].includes(row.origin)) return;
+    if (!category || ['income', 'cashback', 'refunds', 'transfer'].includes(category)) {
+      setNotice({ error: true, text: 'Choose an appropriate expense category before changing an incoming transaction to money out.' });
+      setReversePending(false);
+      return;
+    }
     setBusy('direction'); setNotice(null);
     try {
       const updated = await api.updateTransaction(row.id, {
         amount: '-' + row.amount.replace(/^\\+/, ''),
-        category: category || 'room_rent',
+        category,
       });
       setReversePending(false);
       setNotice({ text: `Corrected to money out: ${updated.amount} ${updated.currency}. Balance and journal updated.` });
@@ -388,7 +393,7 @@ function TransactionDrawer({ id, onClose, onOpen, onChanged, inModal }: {
       <button type="button" className="secondary" onClick={onClose}>{t('freg.drawer.done')}</button>
     </div>
     {reversePending && <ConfirmDialog title="Confirm outgoing payment" confirmLabel="Correct to money out" danger busy={busy === 'direction'} onConfirm={() => void correctDirection(row)} onCancel={() => setReversePending(false)}>
-      <p>Only confirm after checking the bank statement. This changes {row.currency} {row.amount} from incoming to outgoing, updates the ledger and may change your balance. The original record remains auditable.</p>
+      <p>Only confirm after checking the bank statement and selecting the correct expense category. This changes {row.currency} {row.amount} from incoming to outgoing, updates the ledger and may change your balance. The original record remains auditable.</p>
     </ConfirmDialog>}
     {removing && <ConfirmDialog title={t('finance.transactions.deleteTitle')} confirmLabel={t('finance.delete')} danger busy={busy === 'delete'} onConfirm={() => void remove(row)} onCancel={() => setRemoving(false)}>
       <p dir="auto">{t('finance.transactions.deleteText', { description: row.description, amount: isolate(formatAmount(row.amount, row.currency)) })}</p>
