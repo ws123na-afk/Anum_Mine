@@ -82,7 +82,7 @@ describe('PDF statement review', () => {
     const rows = reviewRows(view()).map((row) => (row.line === 2 ? { ...row, amount: '-1,120.5' } : row.line === 3 ? { ...row, include: false } : row));
     const body = importBody(view(), 'fin_acct_current', rows, '2,000', '13579.50', true);
     assert.equal(body.rows.length, 2);
-    assert.deepEqual(body.rows[1], { posted_on: '2026-11-02', description: 'POS PANDA', amount: '-1120.50', balance: '13879.50', reference: null, currency: null, time: null });
+    assert.deepEqual(body.rows[1], { posted_on: '2026-11-02', description: 'POS PANDA', amount: '-1120.50', balance: '13879.50', reference: null, currency: null, time: null, original_amount: null, original_currency: null, billed_amount: null, billed_currency: null, fx_rate: null, fee: null, vat: null });
     assert.equal(body.opening_balance, '2000.00');
     assert.equal(body.accept_mismatch, true);
     assert.equal(body.file_sha256, 'a'.repeat(64));
