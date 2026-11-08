@@ -36,6 +36,8 @@ class Category(StrEnum):
     TRANSFER = "transfer"
     GROCERIES = "groceries"
     DINING = "dining"
+    FOOD = "food"
+    ROOM_RENT = "room_rent"
     TRANSPORT = "transport"
     FUEL = "fuel"
     UTILITIES = "utilities"
