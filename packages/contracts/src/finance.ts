@@ -629,6 +629,10 @@ export interface FinanceCurrencySafeToSpend {
   per_day: FinanceMoney;
   short: boolean;
   lines: FinanceSafeLine[];
+  /** With a salary profile in this currency: the next usual pay day and the net expected then. */
+  next_pay_on?: string | null;
+  expected_pay?: FinanceMoney | null;
+  days_to_payday?: number | null;
 }
 
 export interface FinanceConversion {
@@ -1500,7 +1504,12 @@ export interface FinanceAdvisorNote {
   version: number; today: string; timezone: string; base_currency: string; week_start: string; week_end: string; month_start: string;
   newest_record_on: string | null; history_days: number; has_accounts: boolean;
   currencies: FinanceAdvisorCurrency[]; cards: FinanceAdvisorCard[];
-  income: { salary_found: boolean; last_salary_on: string | null };
+  income: {
+    salary_found: boolean; last_salary_on: string | null;
+    /** The one income figure: the salary profile's expected net, else the average of the records. Older notes leave these out. */
+    currency?: string | null; monthly?: string | null; source?: 'salary_profile' | 'records' | null; next_pay_on?: string | null;
+    missing_months?: string[]; expected_pay_day?: number | null;
+  };
   actions: FinanceAdvisorAction[]; notice_en: string; notice_ar: string;
 }
 export interface FinanceAdvisorSettings { enabled: boolean; weekday: number; updated_at: string | null }

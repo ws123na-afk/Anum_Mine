@@ -178,11 +178,22 @@ export interface FinanceCommitment {
   note: string | null;
 }
 
+export interface FinanceIncomeShare {
+  currency: string;
+  /** The one income figure (salary profile, else the records), or null without income. */
+  monthly: string | null;
+  source: 'salary_profile' | 'records' | null;
+  /** Fixed costs as a share of income, rounded; null without income. */
+  share_percent: number | null;
+}
+
 export interface FinanceCommitments {
   month: string;
   items: FinanceCommitment[];
   not_counted: FinanceCommitment[];
   totals: { currency: string; amount: string }[];
+  /** Per currency with fixed costs (older servers leave it out). */
+  income?: FinanceIncomeShare[];
   note: string;
 }
 
@@ -289,4 +300,75 @@ export interface FinanceResearch {
   items: { title: string; url: string; read_on: string; figures: { kind: 'percent' | 'amount'; value: string; currency: string | null }[] }[];
   message: string;
   note: string;
+}
+
+// ---- Salary (docs/finance.md#salary) --------------------------------------------------------------
+
+export type FinanceSalaryRuleKind = 'deduction' | 'advance';
+export type FinanceSalaryDeductionReason = 'loan' | 'advance' | 'absence' | 'social_insurance' | 'other';
+
+export interface FinanceSalaryRule {
+  id: string;
+  kind: FinanceSalaryRuleKind;
+  reason: FinanceSalaryDeductionReason;
+  label: string | null;
+  /** Taken off the salary each month. */
+  amount: string;
+  /** YYYY-MM, the first month. */
+  starts: string;
+  /** A deduction's last month, or null (until removed). */
+  ends: string | null;
+  /** An advance: what was received; repaid `amount` a month until it is back. */
+  total: string | null;
+  received_on: string | null;
+}
+
+export interface FinanceSalaryRuleInput {
+  id?: string | null; kind: FinanceSalaryRuleKind; reason?: FinanceSalaryDeductionReason; label?: string | null; amount: string;
+  starts: string; ends?: string | null; total?: string | null; received_on?: string | null;
+}
+
+export interface FinanceSalaryProfile {
+  id: string;
+  employer: string;
+  joined_on: string;
+  currency: string;
+  expected_gross: string;
+  pay_day: number;
+  account_id: string | null;
+  rules: FinanceSalaryRule[];
+  created_at: string;
+  updated_at: string;
+  /** This month's expected net (a payslip for the month overrides it). */
+  expected_net: string;
+  next_pay_on: string;
+  advances: { rule_id: string; label: string | null; total: string; left: string }[];
+}
+
+export interface FinanceSalaryProfileInput {
+  employer: string; joined_on: string; currency?: string | null; expected_gross: string; pay_day: number; account_id?: string | null;
+  /** Omitted: the saved rules stay. */
+  rules?: FinanceSalaryRuleInput[];
+}
+
+export type FinanceSalaryStatus = 'received' | 'late' | 'partial' | 'missing' | 'upcoming';
+
+export interface FinanceSalaryMonth {
+  month: string;
+  currency: string;
+  pay_on: string;
+  status: FinanceSalaryStatus;
+  flags: string[];
+  expected: { gross: string; deductions: { reason: string; label: string | null; amount: string }[]; advance_repayment: string; net: string; payslip: boolean };
+  received: string;
+  /** Received less the expected net. */
+  difference: string;
+  found: { transaction_id: string; posted_on: string; amount: string; description: string; account_id: string; confidence: 'high' | 'medium' | 'low'; score: number } | null;
+  /** confirmed by the person, linked to the payslip, or suggested (waiting for a confirm or reject). */
+  basis: 'confirmed' | 'payslip' | 'suggested' | null;
+  rejected: number;
+}
+
+export interface FinanceSalaryMonthsPage {
+  currency: string | null; months: FinanceSalaryMonth[]; total: number; missing: number; waiting: number; limit: number; offset: number;
 }

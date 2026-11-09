@@ -77,6 +77,7 @@ def gather(context: TenantContext, *, now: datetime | None = None) -> AdvisorInp
             debts=obligations.current_debts([d for d in finance.list_items(context, "debt") if isinstance(d, Debt)], accounts, sums, links, today),
             bill_links=links.bill_links,
             lending_ids=links.lending_ids,
+            salary_profile=links.salary_profile, payslips=links.payslips, payslip_credits=links.payslip_credits,
             card_limits={k: Decimal(v) for k, v in limits.items() if v is not None},
             observations=sms.latest_observations(context),
         )

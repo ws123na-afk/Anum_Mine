@@ -22,8 +22,8 @@ from . import commitment_math as M
 from . import obligations
 from . import personal as P
 from . import planner as PL
-from .advisor import SPENDABLE, AdvisorInputs, build_note, previous_months
-from .flows import figures, kinds_of
+from . import salary as SAL
+from .advisor import SPENDABLE, AdvisorInputs, build_note
 from .models import Account, AccountKind, Bill, Category, Debt, DebtKind, Goal, GoalPurpose
 from .money import quantize
 
@@ -44,6 +44,8 @@ class PlanContext:
     safe: dict[str, Decimal]  # currency: safe to spend this month
     fx_fees: dict[str, tuple[Decimal, int]] = field(default_factory=dict)  # account currency: (fees paid, payments) in 400 days
     late_fees: dict[str, tuple[Decimal, int]] = field(default_factory=dict)  # currency: (late fees, count) in 400 days
+    salary_profile: P.SalaryProfile | None = None
+    payslips: list[P.Payslip] = field(default_factory=list)
 
 
 _LATE = re.compile(r"(?<![\w])(late|overdue|penalty|غرامة|تأخير)(?![\w])", re.IGNORECASE)
@@ -81,6 +83,7 @@ def load(context: TenantContext, *, now: datetime | None = None) -> PlanContext:
         today=inputs.today, base_currency=inputs.base_currency, accounts=inputs.accounts, balances=inputs.balances, inputs=inputs,
         bills=inputs.bills, debts=inputs.debts, goals=goals, commitments=counted, skipped=skipped, remittances=remittances,
         safe={c.currency: c.safe_to_spend for c in safe.currencies}, fx_fees=fx, late_fees=late,
+        salary_profile=links.salary_profile if isinstance(links.salary_profile, P.SalaryProfile) else None, payslips=links.payslips,
     )
 
 
@@ -91,23 +94,15 @@ def liquid(ctx: PlanContext, currency: str) -> Decimal:
     return M.liquid(ctx.accounts, ctx.balances, currency)
 
 
+def income(ctx: PlanContext, currency: str) -> SAL.MonthlyIncome:
+    """The one monthly income figure (``salary.monthly_income``): the salary profile's expected net, else the
+    average of the last three full months of records."""
+    return SAL.monthly_income(currency=currency, today=ctx.today, transactions=ctx.inputs.transactions, accounts=ctx.accounts,
+                              lending_ids=ctx.inputs.lending_ids, profile=ctx.salary_profile, payslips=ctx.payslips)
+
+
 def income_monthly(ctx: PlanContext, currency: str) -> Decimal | None:
-    """The average monthly income over the last three full months that have records (the shared rule: no
-    transfers, refunds, cashback or money lent or borrowed with a person)."""
-    kinds = kinds_of(ctx.accounts)
-    rows = [t for t in ctx.inputs.transactions if t.currency == currency]
-    if not rows:
-        return None
-    first = min(t.posted_on for t in rows)
-    months = [(s, e) for s, e in previous_months(ctx.today, 3) if first <= s + timedelta(days=7)]
-    if not months:
-        return None
-    total = Decimal(0)
-    for s, e in months:
-        total += figures([t for t in rows if s <= t.posted_on <= e], kinds, ctx.inputs.lending_ids).income.get(currency, Decimal(0))
-    if total <= 0:
-        return None
-    return quantize(total / len(months), currency)
+    return income(ctx, currency).amount
 
 
 def essential_monthly(ctx: PlanContext, currency: str) -> Decimal | None:

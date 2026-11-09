@@ -8,7 +8,8 @@ add and where. ANUM only advises: no step pays, moves money or touches a bank or
 
 from __future__ import annotations
 
-from datetime import timedelta
+import calendar
+from datetime import date, timedelta
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
@@ -119,6 +120,10 @@ TEMPLATES: dict[str, tuple[str, str]] = {
         "Save {count} recurring payments as bills ({amount} in the next 30 days) so they are counted in your plans.",
         "احفظ {count} دفعات متكررة كفواتير ({amount} خلال 30 يومًا القادمة) لتُحسب في خططك.",
     ),
+    "salary_missing": (
+        "No salary found for {month}, expected around {date}. Confirm it on the Salary page if it arrived, or check with your employer.",
+        "لم نجد راتب {month}، وكان متوقعًا نحو {date}. أكّده في صفحة الراتب إن وصل، أو راجع جهة العمل.",
+    ),
     "no_salary": (
         "No salary found in your records for the last 60 days. The survival figures already assume no income.",
         "لم نجد راتبًا في سجلاتك خلال آخر 60 يومًا. أرقام الصمود تفترض أصلًا عدم وجود دخل.",
@@ -219,7 +224,13 @@ def actions(note: AdvisorNote) -> list[Action]:
             total = sum((i.amount for i in recurring), Decimal(0))
             found.append(_action("save_recurring", "info", {"count": str(len(recurring)), "amount": money_en(total, c)}, currency=c, tab="bills"))
 
-    if note.history_days >= 30 and not note.income.salary_found:
+    if note.income.missing_months:
+        month = note.income.missing_months[-1]
+        day = date(int(month[:4]), int(month[5:7]), 1)
+        due = day.replace(day=min(note.income.expected_pay_day or 1, calendar.monthrange(day.year, day.month)[1]))
+        en = {"month": day.strftime("%B %Y"), "date": f"{due.day} {due.strftime('%B')}"}
+        found.append(_action("salary_missing", "medium", en, {"month": iso(month), "date": iso(due.isoformat())}, tab="advisor"))
+    elif note.history_days >= 30 and not note.income.salary_found:
         found.append(_action("no_salary", "info", {}))
     found.sort(key=lambda entry: (entry[0], entry[1]))
     return [entry[2] for entry in found[:10]]

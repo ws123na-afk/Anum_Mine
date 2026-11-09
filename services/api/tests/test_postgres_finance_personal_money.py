@@ -31,7 +31,7 @@ pytestmark = pytest.mark.database
 API = "/api/v1/finance"
 ME = {"x-tenant-id": TENANT_A, "x-workspace-id": WORKSPACE_A, "x-user-id": "user_test", "x-user-roles": "owner"}
 COLLEAGUE = {**ME, "x-user-id": "colleague", "x-user-roles": "member"}
-TABLES = ("finance_person_loans", "finance_payslips", "finance_remittances")
+TABLES = ("finance_person_loans", "finance_payslips", "finance_remittances", "finance_salary_profiles")
 
 
 @pytest.fixture
@@ -88,6 +88,13 @@ def test_records_are_the_owners_alone_and_lending_is_a_transfer(client: TestClie
     remit = client.post(f"{API}/remittances", headers=ME, json={"sent_on": "2026-11-03", "amount": "500", "fee": "15", "fx_rate": "22.5",
                                                                 "received_currency": "INR", "recipient": "Family", "provider": "Exchange A"}).json()
     assert slip["net"] == "9025.00" and remit["received_amount"] == "11250.00"
+    # The salary profile (migration 0148) sits next to the payslips; its rules and decisions are JSON.
+    salary = client.put(f"{API}/salary/profile", headers=ME, json={"employer": "Example Co", "joined_on": "2026-01-05", "currency": "SAR",
+                                                                  "expected_gross": "10000", "pay_day": 27, "rules": [
+                                                                      {"kind": "advance", "amount": "500", "total": "1500", "starts": "2026-02"}]})
+    assert salary.status_code == 200, salary.text
+    assert client.get(f"{API}/salary/profile", headers=ME).json()["profile"]["rules"][0]["total"] == "1500.0000"
+    assert client.get(f"{API}/salary/profile", headers=COLLEAGUE).json() == {"profile": None}
     handed = _record(client, bank["id"], "-1000", "2026-11-02", "To Friend A", "other")
     assert client.post(f"{API}/people-loans/{loan['id']}/links", headers=ME, json={"canonical_id": handed, "kind": "handed"}).status_code == 201
     month = client.get(f"{API}/summary", headers=ME, params={"month": "2026-11"}).json()
@@ -112,7 +119,7 @@ def test_records_are_the_owners_alone_and_lending_is_a_transfer(client: TestClie
         from anum_api.privacy import finance_export
 
         exported = finance_export(store, ctx)
-        assert [len(exported[k]) for k in ("person_loans", "payslips", "remittances")] == [1, 1, 1]
+        assert [len(exported[k]) for k in ("person_loans", "payslips", "remittances", "salary_profiles")] == [1, 1, 1, 1]
         store.delete_everything(ctx)
     with open_personal_store(ctx) as store:
         assert store.count_everything(ctx) == 0

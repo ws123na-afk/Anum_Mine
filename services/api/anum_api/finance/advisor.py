@@ -91,6 +91,10 @@ class AdvisorInputs:
     bill_links: list = field(default_factory=list)  # the person's ``bill`` links: a matched due date is paid
     # Transactions lent or borrowed with a person: transfers by the shared rule (``flows.py``).
     lending_ids: frozenset[str] = frozenset()
+    # The salary profile (``personal.SalaryProfile``) or None, the payslips and the credits linked to each payslip month.
+    salary_profile: object | None = None
+    payslips: list = field(default_factory=list)
+    payslip_credits: dict[str, set[str]] = field(default_factory=dict)
 
 
 # -- output ------------------------------------------------------------------------------------
@@ -248,6 +252,14 @@ class Action(BaseModel):
 class Income(BaseModel):
     salary_found: bool
     last_salary_on: date | None
+    # The one income figure (``salary.monthly_income``) for the salary's currency, else the base currency.
+    currency: str | None = None
+    monthly: Decimal | None = None
+    source: Literal["salary_profile", "records"] | None = None
+    next_pay_on: date | None = None
+    # With a salary profile: months with no salary found once the pay day passed (newest last, at most 3).
+    missing_months: list[str] = Field(default_factory=list)
+    expected_pay_day: int | None = None
 
 
 class AdvisorNote(BaseModel):
@@ -582,7 +594,29 @@ def _cards(inputs: AdvisorInputs) -> list[CardAdvice]:
     return sorted(out, key=lambda c: (c.due_on is None, c.due_on or today, -c.owed, c.name.lower()))
 
 
-def _income(rows: list[Transaction], today: date, kinds: dict[str, AccountKind] | None = None, lending: frozenset[str] | None = None) -> Income:
+def _income(rows: list[Transaction], today: date, kinds: dict[str, AccountKind] | None = None, lending: frozenset[str] | None = None,
+            inputs: AdvisorInputs | None = None) -> Income:
+    found = _salary_found(rows, today, kinds, lending)
+    if inputs is None:
+        return found
+    from . import salary as SAL
+    from .personal import SalaryProfile
+
+    profile = inputs.salary_profile if isinstance(inputs.salary_profile, SalaryProfile) else None
+    currency = profile.currency if profile is not None else inputs.base_currency
+    figure = SAL.monthly_income(currency=currency, today=today, transactions=rows, accounts=inputs.accounts, lending_ids=inputs.lending_ids,
+                                profile=profile, payslips=inputs.payslips)
+    out = found.model_copy(update={"currency": currency, "monthly": figure.amount, "source": figure.source, "next_pay_on": figure.next_pay_on})
+    if profile is None:
+        return out
+    months = SAL.salary_months(profile, rows, inputs.accounts, today, inputs.payslips, lending_ids=inputs.lending_ids,
+                               payslip_credits=inputs.payslip_credits)
+    got = [m.transaction.posted_on for m in months if m.transaction is not None and (m.basis != "suggested" or m.transaction.confidence != "low")]
+    return out.model_copy(update={"salary_found": bool(got) or found.salary_found, "last_salary_on": max(got, default=found.last_salary_on),
+                                  "missing_months": [m.month for m in months if m.status == "missing"][-3:], "expected_pay_day": profile.pay_day})
+
+
+def _salary_found(rows: list[Transaction], today: date, kinds: dict[str, AccountKind] | None = None, lending: frozenset[str] | None = None) -> Income:
     window = [t for t in rows if t.amount > 0 and flow_of(t, kinds, lending) == Flow.INCOME and t.posted_on >= today - timedelta(days=SALARY_WINDOW_DAYS)]
     salary = [t for t in window if _SALARY.search(t.description)]
     if not salary:
@@ -635,7 +669,7 @@ def build_note(inputs: AdvisorInputs) -> AdvisorNote:
         today=today, timezone=inputs.timezone, base_currency=inputs.base_currency, week_start=today - timedelta(days=7),
         week_end=today - timedelta(days=1), month_start=month_start(today), newest_record_on=max((t.posted_on for t in rows), default=None),
         history_days=days_all, has_accounts=any(not a.archived for a in inputs.accounts), currencies=blocks, cards=cards,
-        income=_income(rows, today, kinds, lend), actions=[],
+        income=_income(rows, today, kinds, lend, inputs), actions=[],
     )
     note.actions = advisor_text.actions(note)
     return note

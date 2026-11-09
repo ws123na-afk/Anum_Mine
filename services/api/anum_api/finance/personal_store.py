@@ -1,10 +1,11 @@
-"""Storage for money lent and borrowed with people, payslips and remittances (docs/finance.md#lent-and-borrowed).
+"""Storage for money lent and borrowed with people, payslips, the salary profile and remittances (docs/finance.md#lent-and-borrowed).
 
 With PostgreSQL the store is ``anum_api.db.personal_finance_repository.SqlAlchemyPersonalStore`` in a session whose
 tenant, workspace and user RLS context is set (``open_scoped_store(..., user_scoped=True)``): the three tables
 (migration ``0147_finance_personal_money``) are under forced RLS with the tenant policy and a restrictive owner-only
 policy, and every query repeats the scope and the owner. The in-memory store serves local development and tests with
-the same rules. Counted, exported and deleted with the rest of Finance.
+the same rules. The salary profile (one per person, ``finance_salary_profiles``, migration ``0148_finance_salary_profile``)
+lives here too, next to the payslips. Counted, exported and deleted with the rest of Finance.
 """
 
 from __future__ import annotations
@@ -17,12 +18,12 @@ from typing import Literal, Protocol, TypeVar
 
 from ..schemas import TenantContext
 from ..scoped_store import open_scoped_store
-from .personal import Payslip, PersonLoan, Remittance
+from .personal import Payslip, PersonLoan, Remittance, SalaryProfile
 
-Kind = Literal["person_loan", "payslip", "remittance"]
-MODELS: dict[str, type] = {"person_loan": PersonLoan, "payslip": Payslip, "remittance": Remittance}
+Kind = Literal["person_loan", "payslip", "remittance", "salary_profile"]
+MODELS: dict[str, type] = {"person_loan": PersonLoan, "payslip": Payslip, "remittance": Remittance, "salary_profile": SalaryProfile}
 MAX_ROWS = 2000  # per person and kind
-Item = TypeVar("Item", PersonLoan, Payslip, Remittance)
+Item = TypeVar("Item", PersonLoan, Payslip, Remittance, SalaryProfile)
 
 
 class PersonalStore(Protocol):
@@ -47,6 +48,8 @@ def sort_key(kind: Kind, item: object) -> tuple:
         return (item.lent_on, item.created_at)  # type: ignore[attr-defined]
     if kind == "payslip":
         return (item.month, item.created_at)  # type: ignore[attr-defined]
+    if kind == "salary_profile":
+        return (item.joined_on, item.created_at)  # type: ignore[attr-defined]
     return (item.sent_on, item.created_at)  # type: ignore[attr-defined]
 
 

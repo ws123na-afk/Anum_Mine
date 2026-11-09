@@ -225,6 +225,67 @@ def pay_months(slips: list[Payslip], links: list) -> list[PayMonth]:
     return sorted(months.values(), key=lambda m: (m.month, m.currency), reverse=True)
 
 
+# -- the salary profile ------------------------------------------------------------------------------
+# One per person: the job the salary comes from, what it is expected to be and the standing rules that take
+# money off it. Detection, the month by month check and the one income figure are in ``salary.py``.
+
+
+class SalaryRuleKind(StrEnum):
+    DEDUCTION = "deduction"  # taken off every month from ``starts`` (to ``ends``)
+    ADVANCE = "advance"  # money received early, repaid by ``amount`` a month from ``starts`` until ``total`` is back
+
+
+class SalaryDeductionReason(StrEnum):
+    LOAN = "loan"  # a loan repaid from the salary
+    ADVANCE = "advance"  # an advance repaid (the advance rule's own repayments)
+    ABSENCE = "absence"
+    SOCIAL_INSURANCE = "social_insurance"  # GOSI, pension
+    OTHER = "other"
+
+
+MONTH_PATTERN = r"^\d{4}-(0[1-9]|1[0-2])$"
+
+
+class SalaryRule(BaseModel):
+    id: str = Field(min_length=1, max_length=80)
+    kind: SalaryRuleKind
+    reason: SalaryDeductionReason = SalaryDeductionReason.OTHER
+    label: str | None = Field(default=None, max_length=80)
+    amount: Decimal  # taken off the salary each month, positive
+    starts: str = Field(pattern=MONTH_PATTERN)
+    ends: str | None = Field(default=None, pattern=MONTH_PATTERN)  # a deduction's last month (None: until removed)
+    total: Decimal | None = None  # an advance: what was received; repayments stop once it is back
+    received_on: date | None = None  # an advance: the day it arrived (that credit is not a salary)
+
+
+SalaryDecisionKind = Literal["confirmed", "rejected"]
+
+
+class SalaryDecision(BaseModel):
+    month: str = Field(pattern=MONTH_PATTERN)
+    transaction_id: str = Field(min_length=1, max_length=80)
+    decision: SalaryDecisionKind
+    decided_at: datetime
+
+
+MAX_SALARY_RULES = 30
+MAX_SALARY_DECISIONS = 1000
+
+
+class SalaryProfile(_Owned):
+    id: str
+    employer: str = Field(min_length=1, max_length=120)
+    joined_on: date
+    currency: str
+    expected_gross: Decimal  # the monthly salary before deductions
+    pay_day: int = Field(ge=1, le=31)  # the usual day it arrives (the month's last day when shorter)
+    account_id: str | None = None  # the account it is paid into (None: any bank account in its currency)
+    rules: list[SalaryRule] = Field(default_factory=list, max_length=MAX_SALARY_RULES)
+    decisions: list[SalaryDecision] = Field(default_factory=list, max_length=MAX_SALARY_DECISIONS)
+    created_at: datetime
+    updated_at: datetime
+
+
 # -- remittances -----------------------------------------------------------------------------------
 
 
@@ -422,6 +483,7 @@ def commitment_totals(rows: list[Commitment]) -> dict[str, Decimal]:
 __all__ = [
     "Commitment", "Deduction", "DeductionKind", "LoanDirection", "LoanFigures", "PAYSLIP_DIMENSION", "PAYSLIP_TARGET", "PERSONAL_DIMENSIONS",
     "PERSON_LOAN_DIMENSION", "PERSON_LOAN_TARGET", "PayMonth", "Payslip", "PayslipFigures", "PersonLoan", "ProviderCost", "REMITTANCE_DIMENSION",
-    "REMITTANCE_TARGET", "RemitMonth", "Remittance", "commitment_totals", "effective_rate", "fee_percent", "fixed_commitments", "handed_role",
+    "REMITTANCE_TARGET", "RemitMonth", "Remittance", "SalaryDecision", "SalaryDeductionReason", "SalaryProfile", "SalaryRule", "SalaryRuleKind",
+    "commitment_totals", "effective_rate", "fee_percent", "fixed_commitments", "handed_role",
     "loan_figures", "pay_months", "payslip_figures", "provider_costs", "remit_months", "reminder_due", "repaid_role",
 ]

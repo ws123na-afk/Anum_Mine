@@ -746,11 +746,21 @@ class CommitmentView(BaseModel):
     note: str | None
 
 
+class IncomeShare(BaseModel):
+    """The one monthly income figure (``salary.monthly_income``) and the share the fixed costs take of it."""
+
+    currency: str
+    monthly: Decimal | None
+    source: Literal["salary_profile", "records"] | None
+    share_percent: int | None  # fixed costs / income, rounded; None without income
+
+
 class CommitmentsView(BaseModel):
     month: str
     items: list[CommitmentView]
     not_counted: list[CommitmentView]  # left out so nothing is counted twice (``in_bill``) or not monthly (a one-off bill)
     totals: list[dict[str, str]]  # one per currency, never added across currencies
+    income: list[IncomeShare] = Field(default_factory=list)  # per currency with fixed costs
     note: str = "Monthly figures: a weekly bill is x 52 / 12, quarterly / 3, yearly / 12. A minimum also saved as a bill counts once, as the bill."
 
 
@@ -759,8 +769,14 @@ def commitments_view(ctx: S.PlanContext) -> CommitmentsView:
         return CommitmentView(kind=c.kind, name=c.name, currency=c.currency, monthly=c.monthly, source=c.source, ref_id=c.ref_id, note=c.note)
 
     totals = P.commitment_totals(ctx.commitments)
+    shares: list[IncomeShare] = []
+    for c, v in totals.items():
+        found = S.income(ctx, c)
+        share = int((v * 100 / found.amount).to_integral_value()) if found.amount and found.amount > 0 else None
+        shares.append(IncomeShare(currency=c, monthly=quantize(found.amount, c) if found.amount is not None else None, source=found.source,
+                                  share_percent=share))
     return CommitmentsView(month=ctx.today.strftime("%Y-%m"), items=[view(c) for c in ctx.commitments], not_counted=[view(c) for c in ctx.skipped],
-                           totals=[{"currency": c, "amount": str(quantize(v, c))} for c, v in totals.items()])
+                           totals=[{"currency": c, "amount": str(quantize(v, c))} for c, v in totals.items()], income=shares)
 
 
 @router.get("/fixed-commitments", response_model=CommitmentsView)

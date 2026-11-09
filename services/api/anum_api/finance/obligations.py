@@ -60,15 +60,20 @@ class Links:
     # Money lent and borrowed with people, and their live links (what changed hands and every repayment).
     person_loans: list = field(default_factory=list)
     loan_links: list = field(default_factory=list)
+    # The salary profile (or None), the payslips and, per payslip month, the transactions linked to that payslip.
+    salary_profile: object | None = None
+    payslips: list = field(default_factory=list)
+    payslip_credits: dict[str, set[str]] = field(default_factory=dict)
 
 
 def load(context: TenantContext) -> Links:
-    """Bill links, matched debt payments and the transactions lent or borrowed with a person, in one short unit
-    of work (never nested in another)."""
+    """Bill links, matched debt payments, the transactions lent or borrowed with a person and the salary credits
+    linked to payslips, in one short unit of work; then the loans, payslips and salary profile in another (never
+    nested)."""
     from .commitments import BILL_DIMENSION, BILL_TARGET, DEBT_DIMENSION, DEBT_TARGET
     from .links import live_entry
     from .links_store import LinkStatus, open_link_stores
-    from .personal import PERSON_LOAN_DIMENSION
+    from .personal import PAYSLIP_DIMENSION, PERSON_LOAN_DIMENSION
     from .personal_store import open_personal_store
 
     with open_link_stores(context) as (_finance, sms, links):
@@ -91,10 +96,25 @@ def load(context: TenantContext) -> Links:
         for canonical in {l.canonical_id for l in loan_rows if l.status != LinkStatus.VOID}:
             for entry in sms.chain(context, canonical):
                 lending.update(p.transaction_id for p in entry.postings if p.transaction_id)
+        slip_rows, _ = links.list_links(context, canonical_id=None, dimension=PAYSLIP_DIMENSION, target_type=None, target_id=None,
+                                        status=LinkStatus.ACTIVE.value, limit=10_000, offset=0)
+        by_slip: dict[str, set[str]] = {}
+        for link in slip_rows:
+            if link.status != LinkStatus.ACTIVE:
+                continue
+            for entry in sms.chain(context, link.canonical_id):
+                by_slip.setdefault(link.target_id, set()).update(p.transaction_id for p in entry.postings if p.transaction_id)
     with open_personal_store(context) as people:  # its own short unit, after the links one
         loans = people.list(context, "person_loan")
+        slips = people.list(context, "payslip")
+        profiles = people.list(context, "salary_profile")
+    credits: dict[str, set[str]] = {}
+    for slip in slips:
+        if slip.id in by_slip:
+            credits.setdefault(slip.month, set()).update(by_slip[slip.id])
     return Links(bill_links=[l for l in bill_rows if l.status != LinkStatus.VOID], debt_payments=payments, lending_ids=frozenset(lending),
-                 person_loans=loans, loan_links=[l for l in loan_rows if l.status != LinkStatus.VOID])
+                 person_loans=loans, loan_links=[l for l in loan_rows if l.status != LinkStatus.VOID],
+                 salary_profile=profiles[0] if profiles else None, payslips=slips, payslip_credits=credits)
 
 
 # -- bills ---------------------------------------------------------------------------------------------

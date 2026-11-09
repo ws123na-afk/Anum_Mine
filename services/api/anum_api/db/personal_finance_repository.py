@@ -16,7 +16,7 @@ from sqlalchemy import Boolean, Date, DateTime, Numeric, SmallInteger, String, d
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
-from anum_api.finance.personal import Payslip, PersonLoan, Remittance
+from anum_api.finance.personal import Payslip, PersonLoan, Remittance, SalaryProfile
 from anum_api.schemas import TenantContext
 
 from .models import Base
@@ -85,13 +85,32 @@ class FinanceRemittanceRecord(Base, _Owned):
     updated_at: Mapped[datetime] = mapped_column(TS)
 
 
-RECORDS = (FinancePersonLoanRecord, FinancePayslipRecord, FinanceRemittanceRecord)
+class FinanceSalaryProfileRecord(Base, _Owned):
+    """One per person (migration ``0148_finance_salary_profile``): the rules and the confirmed or rejected months as JSON."""
+
+    __tablename__ = "finance_salary_profiles"
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    employer: Mapped[str] = mapped_column(String(120))
+    joined_on: Mapped[date] = mapped_column(Date)
+    currency: Mapped[str] = mapped_column(String(3))
+    expected_gross: Mapped[Decimal] = mapped_column(MONEY)
+    pay_day: Mapped[int] = mapped_column(SmallInteger)
+    account_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    rules: Mapped[list[dict[str, Any]]] = mapped_column(JSONB)
+    decisions: Mapped[list[dict[str, Any]]] = mapped_column(JSONB)
+    created_at: Mapped[datetime] = mapped_column(TS)
+    updated_at: Mapped[datetime] = mapped_column(TS)
+
+
+RECORDS = (FinancePersonLoanRecord, FinancePayslipRecord, FinanceRemittanceRecord, FinanceSalaryProfileRecord)
 _BY_KIND: dict[str, tuple[type[Any], type[Any]]] = {
     "person_loan": (FinancePersonLoanRecord, PersonLoan),
     "payslip": (FinancePayslipRecord, Payslip),
     "remittance": (FinanceRemittanceRecord, Remittance),
+    "salary_profile": (FinanceSalaryProfileRecord, SalaryProfile),
 }
-_ORDER = {"person_loan": "lent_on", "payslip": "month", "remittance": "sent_on"}
+_ORDER = {"person_loan": "lent_on", "payslip": "month", "remittance": "sent_on", "salary_profile": "joined_on"}
 
 
 def _mine(record: Any, context: TenantContext) -> list[Any]:
@@ -122,6 +141,9 @@ class SqlAlchemyPersonalStore:
         values = item.model_dump(mode="python")
         if kind == "payslip":
             values["deductions"] = [d.model_dump(mode="json") for d in item.deductions]
+        if kind == "salary_profile":
+            values["rules"] = [r.model_dump(mode="json") for r in item.rules]
+            values["decisions"] = [d.model_dump(mode="json") for d in item.decisions]
         for name in ("direction",):
             if name in values:
                 values[name] = getattr(values[name], "value", values[name])

@@ -21,6 +21,9 @@ promised. Per currency, line by line, from their own records only:
    either, or already reached, is listed as not counted.
 5. **Buffer:** what the person always keeps back, per currency.
 
+With a salary profile (``salary.py``) the salary's currency also shows the next usual pay day and the net
+expected then (the one income figure), so the page can say how long the money has to last.
+
 ``safe_to_spend = money you have - bills - minimum payments - goals - buffer``. It can be
 negative: the page then says by how much the month is short. ``per_day`` divides a positive
 figure by the days left (today included) and rounds **down** to the minor unit, so it is
@@ -84,6 +87,10 @@ class CurrencySafeToSpend(BaseModel):
     per_day: Decimal
     short: bool
     lines: list[SafeLine]
+    # With a salary profile in this currency: the next usual pay day and the net expected then (``salary.py``).
+    next_pay_on: date | None = None
+    expected_pay: Decimal | None = None
+    days_to_payday: int | None = None
 
 
 class CombinedTotal(BaseModel):
@@ -142,6 +149,8 @@ def compute(
     rates: list[FxRate],
     bill_links: list | None = None,
     debt_payments: list[O.DebtPayment] | None = None,
+    salary_profile: object | None = None,
+    payslips: list | None = None,
 ) -> SafeToSpend:
     """The pure calculation: the same inputs always give the same figure.
 
@@ -265,6 +274,16 @@ def compute(
             buffer=buffer_total, safe_to_spend=safe, per_day=quantize(per_day, currency), short=safe < 0, lines=mine,
         ))
 
+    from . import salary as SAL
+    from .personal import SalaryProfile
+
+    if isinstance(salary_profile, SalaryProfile):
+        for row in currencies:
+            if row.currency == salary_profile.currency:
+                pay_on = SAL.next_payday(salary_profile, today)
+                pay = SAL.expected_for(salary_profile, SAL.month_key(pay_on), payslips or []).net
+                row.next_pay_on, row.expected_pay, row.days_to_payday = pay_on, pay, (pay_on - today).days
+
     combined: CombinedTotal | None = None
     missing: list[str] = []
     if not plan.combine_currencies:
@@ -313,4 +332,5 @@ def build_safe_to_spend(store: FinanceStore, context: TenantContext, *, now: dat
         plan=plan, rates=store.list_fx_rates(context, limit=2000) if plan.combine_currencies else [],
         bill_links=links.bill_links if links is not None else None,
         debt_payments=links.debt_payments if links is not None else None,
+        salary_profile=links.salary_profile if links is not None else None, payslips=links.payslips if links is not None else None,
     )
