@@ -508,12 +508,23 @@ export const PREVIEW = {
   mapping: { date: 'Transaction Date', description: 'Narration', amount: null, debit: 'Debit', credit: 'Credit' }, date_format: '%d/%m/%Y', date_formats: ['%d/%m/%Y', '%m/%d/%Y'],
   date_format_ambiguous: true, row_count: 4, valid_count: 3, new_count: 2, duplicate_count: 1, error_count: 1,
   rows: [
-    { line: 2, posted_on: day(0), amount: '-120.50', currency: 'AED', description: 'CARREFOUR CITY CENTRE', category: 'groceries', duplicate: true },
-    { line: 3, posted_on: day(0), amount: '-60.00', currency: 'AED', description: 'SPINNEYS', category: 'groceries', duplicate: false },
-    { line: 4, posted_on: day(0), amount: '15000.00', currency: 'AED', description: 'SALARY NOVEMBER', category: 'income', duplicate: false },
+    { line: 2, posted_on: day(0), amount: '-120.50', currency: 'AED', description: 'CARREFOUR CITY CENTRE', category: 'groceries', duplicate: true,
+      match: matchOf({ status: 'exact_duplicate', code: 'imported_before', default_import: false,
+        record: { record_id: 'fin_je_1:fin_acct_current', canonical_id: 'fin_je_1', transaction_id: 'fin_txn_1', account_id: 'fin_acct_current', source: 'statement', last4: null,
+          posted_on: day(0), amount: '-120.50', currency: 'AED', description: 'CARREFOUR CITY CENTRE' } }) },
+    { line: 3, posted_on: day(0), amount: '-60.00', currency: 'AED', description: 'SPINNEYS', category: 'groceries', duplicate: false, match: matchOf({}) },
+    { line: 4, posted_on: day(0), amount: '15000.00', currency: 'AED', description: 'SALARY NOVEMBER', category: 'income', duplicate: false, match: matchOf({}) },
   ],
   errors: [{ line: 5, message: 'The date could not be read with the chosen date format.' }],
+  counts: { new: 2, exact_duplicate: 1, matched_existing: 0, possible_duplicate: 0, bills: 0, transfers: 0 },
+  reconciliation: { status: 'unknown', opening: null, closing: null, rows_total: '14819.50', expected_closing: null, difference: null, opening_source: 'none', closing_source: 'none', breaks: [] },
 };
+
+/** A statement row's match as the API answers it (docs/finance.md#statement-matching). */
+export function matchOf(patch: Record<string, unknown>) {
+  return { status: 'new', code: 'no_match', reason: 'Nothing recorded matches this row.', record: null, candidates: [], lag_days: null, amount_difference: null,
+    bill: null, transfer: null, default_import: true, ...patch };
+}
 
 const denied = { status: 403, body: { error: { code: 'forbidden', message: 'Finance is for workspace owners and members. Ask a workspace owner to change your role from viewer to member.', correlation_id: 'c', details: [] } } };
 

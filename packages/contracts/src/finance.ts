@@ -105,6 +105,81 @@ export interface FinanceColumnMapping {
   billed_currency?: string | null;
   fx_rate?: string | null;
   fee?: string | null;
+  balance?: string | null;
+  reference?: string | null;
+}
+
+/** The statement matching engine (docs/finance.md#statement-matching). */
+export type FinanceMatchStatus = 'new' | 'exact_duplicate' | 'matched_existing' | 'possible_duplicate';
+
+export interface FinanceMatchedRecord {
+  record_id: string;
+  canonical_id: string | null;
+  transaction_id: string | null;
+  account_id: string;
+  /** Who recorded it first: `sms`, `wallet` (Apple Pay), `manual` or `statement`. */
+  source: string;
+  last4: string | null;
+  posted_on: string;
+  amount: FinanceMoney;
+  currency: string;
+  description: string;
+}
+
+export interface FinanceRowMatch {
+  status: FinanceMatchStatus;
+  /** `imported_before`, `reconciled_before`, `waiting_review`, `same_statement_row`, `same_amount_merchant`, `same_reference`,
+   *  `same_original_amount`, `two_candidates`, `amount_date_only`, `no_match`. */
+  code: string;
+  /** The reason in plain English (the web shows its own translation of `code`). */
+  reason: string;
+  record: FinanceMatchedRecord | null;
+  candidates: FinanceMatchedRecord[];
+  lag_days: number | null;
+  /** Statement billed minus recorded, when the bank billed a foreign purchase differently. */
+  amount_difference: FinanceMoney | null;
+  bill: { bill_id: string; name: string; due_on: string; expected: FinanceMoney; currency: string; strength: 'strong' | 'weak'; reasons: string[] } | null;
+  transfer: { direction: 'to' | 'from'; account_id: string; account_name: string; account_last4: string | null; strength: 'strong' | 'weak';
+    reasons: string[]; lag_days: number; other: FinanceMatchedRecord } | null;
+  default_import: boolean;
+}
+
+/** A row's foreign currency details, as printed (or `implied` from two printed amounts); never an invented rate. */
+export interface FinanceRowFx {
+  original_amount: FinanceMoney | null;
+  original_currency: string | null;
+  rate: string | null;
+  rate_source: 'printed' | 'implied' | 'column' | null;
+  fee: FinanceMoney | null;
+  fee_currency: string | null;
+  markup_percent: string | null;
+  expected: FinanceMoney | null;
+  difference: FinanceMoney | null;
+  check: 'ties' | 'differs' | null;
+  implied_markup_percent: string | null;
+}
+
+export interface FinanceMatchCounts { new: number; exact_duplicate: number; matched_existing: number; possible_duplicate: number; bills: number; transfers: number }
+
+export interface FinanceReconciliation {
+  status: 'tied' | 'differs' | 'unknown';
+  opening: FinanceMoney | null;
+  closing: FinanceMoney | null;
+  rows_total: FinanceMoney;
+  expected_closing: FinanceMoney | null;
+  difference: FinanceMoney | null;
+  opening_source: string;
+  closing_source: string;
+  breaks: number[];
+}
+
+/** The person's choice for one previewed row; rows not listed follow the preview's default. */
+export interface FinanceRowDecision {
+  line: number;
+  action?: 'import' | 'skip' | null;
+  bill?: boolean | null;
+  transfer?: boolean | null;
+  correct?: boolean | null;
 }
 
 export interface FinanceImportInput {
@@ -114,6 +189,9 @@ export interface FinanceImportInput {
   preset?: string | null;
   date_format?: string | null;
   mapping?: FinanceColumnMapping | null;
+  decisions?: FinanceRowDecision[];
+  opening_balance?: string | null;
+  closing_balance?: string | null;
 }
 
 export interface FinanceImportPreview {
@@ -131,8 +209,11 @@ export interface FinanceImportPreview {
   new_count: number;
   duplicate_count: number;
   error_count: number;
-  rows: { line: number; posted_on: string; amount: FinanceMoney; currency: string; description: string; category: FinanceCategory; duplicate: boolean; direction_warning?: string | null; notes?: string | null; original_amount?: FinanceMoney | null; original_currency?: string | null; reported_fee?: FinanceMoney | null }[];
+  rows: { line: number; posted_on: string; amount: FinanceMoney; currency: string; description: string; category: FinanceCategory; duplicate: boolean; direction_warning?: string | null; notes?: string | null; original_amount?: FinanceMoney | null; original_currency?: string | null; reported_fee?: FinanceMoney | null;
+    balance?: FinanceMoney | null; reference?: string | null; match: FinanceRowMatch; fx?: FinanceRowFx | null }[];
   errors: { line: number; message: string }[];
+  counts: FinanceMatchCounts;
+  reconciliation: FinanceReconciliation;
 }
 
 export interface FinanceImport {
@@ -152,7 +233,29 @@ export interface FinanceImport {
   reconciled?: number;
   /** Rows that could match more than one recorded payment: waiting in Finance, iPhone SMS, Review. */
   held_for_review?: number;
+  /** Records corrected to the bank-billed amount. */
+  corrected?: number;
+  skipped?: number;
+  bills_paid?: number;
+  bills_review?: number;
+  transfers?: number;
+  reconciliation?: { status: 'tied' | 'differs' | 'unknown'; opening: string | null; closing: string | null; rows_total: string | null; difference: string | null } | null;
 }
+
+/** Own transfers already in the ledger, not yet paired (`GET /transfers/candidates`). */
+export interface FinanceTransferPair {
+  out: FinanceMatchedRecord;
+  into: FinanceMatchedRecord;
+  strength: 'strong' | 'weak';
+  reasons: string[];
+  lag_days: number;
+  out_account_name: string;
+  into_account_name: string;
+  into_last4: string | null;
+}
+
+export interface FinanceTransferCandidates { start: string; end: string; pairs: FinanceTransferPair[]; strong: number; weak: number }
+export interface FinanceTransferResult { paired: number; recategorized: number; failed: string[] }
 
 /** PDF statements (docs/finance.md#pdf-statements): one role per column the reader found. */
 export type FinancePdfRole = 'date' | 'description' | 'debit' | 'credit' | 'amount' | 'balance' | 'reference' | 'currency' | 'foreign_amount'
@@ -190,6 +293,9 @@ export interface FinancePdfRow {
   /** `sign_unsure`, `sign_from_balance`, `date_unreadable`, `amount_missing`, `amount_zero`, `hijri_date`, `balance_break`,
    *  `foreign_currency`, `columns_swapped`, `low_confidence`. */
   flags: string[];
+  /** The matching engine's answer; null for a row without a date or amount. */
+  match?: FinanceRowMatch | null;
+  fx?: FinanceRowFx | null;
 }
 
 export interface FinancePdfCheck {
@@ -247,6 +353,7 @@ export interface FinancePdfStatement {
   /** `currency_differs`, `no_rows`, `page_breaks`, `summary_differs`, `low_confidence`, `debit_credit_swapped`, `columns_from_content`. */
   warnings: string[];
   rows: FinancePdfRow[];
+  counts: FinanceMatchCounts;
 }
 
 export interface FinancePdfImportRow {
@@ -264,6 +371,10 @@ export interface FinancePdfImportRow {
   fee?: string | null;
   vat?: string | null;
   time?: string | null;
+  action?: 'import' | 'skip' | null;
+  bill?: boolean | null;
+  transfer?: boolean | null;
+  correct?: boolean | null;
 }
 
 /** A statement layout taught by the owner (Finance, Import): the mapping kept against the layout's fingerprint. */

@@ -295,6 +295,12 @@ export async function mockWorkspaceApi(page: Page, teamOptions: TeamMockOptions 
     // Workspace lifecycle and the audit log (docs/identity.md#workspace-lifecycle, docs/governance-and-scale.md#audit-log).
     if (path === '/api/v1/workspaces/current' && method === 'GET') return json({ id: 'workspace_foundation', tenant_id: 'tenant_local', name: 'Foundation', created_at: now, updated_at: now, archived_at: null, archived_by: null });
     if (path === '/api/v1/workspaces/current/permissions') return json({ workspace_id: 'workspace_foundation', role: 'owner', organization_admin: true, can_manage_workspace: true, can_create_workspace: true, can_manage_members: true, can_read_audit: true, can_export_audit: true });
+    // The role access matrix (docs/team-work.md#team-page): a small slice of authorization.ROLE_PERMISSIONS.
+    if (path === '/api/v1/workspaces/current/roles') return json({ roles: [
+      { role: 'owner', permissions: ['calendar:read', 'calendar:write', 'finance:manage', 'finance:read', 'membership:manage', 'task:cancel', 'task:create', 'task:manage', 'task:read', 'task:run'] },
+      { role: 'member', permissions: ['calendar:read', 'calendar:write', 'finance:manage', 'finance:read', 'task:create', 'task:read', 'task:run'] },
+      { role: 'viewer', permissions: ['calendar:read', 'task:read'] },
+    ] });
     if (path === '/api/v1/audit-records/actions') return json({ actions: ['policy_pack.created', 'workspace_member.role_change'] });
     if (path === '/api/v1/audit-records') return json({ items: [{ id: 'audit_1', tenant_id: 'tenant_local', workspace_id: 'workspace_foundation', actor: 'user_local', action: 'workspace_member.role_change', target: 'user_member', outcome: 'success', correlation_id: 'corr_1', created_at: now, metadata: { role: 'viewer' } }], next_cursor: null, retention: 'Audit records are kept for as long as the workspace exists, including after it is archived. They are append-only: nobody can edit or delete them, owners included.' });
     // Integrations, Skills, Agents and Enterprise (docs/tools-and-integrations.md, docs/skills.md).

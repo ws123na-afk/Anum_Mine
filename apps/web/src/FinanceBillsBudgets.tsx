@@ -26,6 +26,7 @@ import { BudgetSpendChart } from './FinancePlanningCharts';
 import { BillsCsvImport } from './FinanceBillsCsvImport';
 import { FinanceTamaraGmailSync } from './FinanceTamaraGmailSync';
 import { FinanceInstallmentStatement } from './FinanceInstallmentStatement';
+import { FinanceInstallmentRefunds } from './FinanceInstallmentRefunds';
 import { CapDialog, MatchDialog, PersonalScope, Progress, RowMenu } from './FinancePlanningParts';
 import './financePlanning.css';
 
@@ -143,6 +144,8 @@ export function BillsBudgetsPage({ initial, accounts, base, today, onOpen, onCha
     {notice && <Notice error={notice.error}>{notice.text}</Notice>}
     <div {...tabPanel('fbb', section)}>
       {section === 'bills' && <>
+        {bills.kind === 'ready' && <FinanceInstallmentRefunds refreshKey={statementReload} onSyncGmail={() => setGmailImport(true)}
+          onChanged={() => { reloadBills(); setStatementReload(n => n + 1); }} />}
         {bills.kind === 'ready' && <FinanceInstallmentStatement bills={bills.value} today={today} refreshKey={statementReload} onRefresh={() => void loadBills()} />}
         <div className="fplColumns wideStart"><div className="fplColumn">{upcoming}{rules}</div><div className="fplColumn">{health}{riskBanner}<LinkPayCard /></div></div>
       </>}
