@@ -36,7 +36,8 @@ async function person(browser: Browser, relay: CallRelay, me: Teammate, peers: T
 
 async function openPeople(page: Page) {
   await page.goto('/#team');
-  await page.getByRole('button', { name: 'People', exact: true }).click();
+  // The Team page opens on its Directory, where each teammate's row has Call and Video call.
+  await page.getByRole('tablist', { name: 'Team sections' }).getByRole('tab', { name: /^Directory/ }).click();
 }
 
 test('a teammate is rung, answers, both hear each other, mute works and hanging up ends it for both', async ({ browser }) => {
@@ -69,7 +70,7 @@ test('a teammate is rung, answers, both hear each other, mute works and hanging 
   expect(relay.signals.map((s) => s.kind)).toEqual(expect.arrayContaining(['offer', 'answer']));
 
   await omar.page.getByRole('dialog', { name: 'Ahmed Saleh' }).getByRole('button', { name: 'Close' }).click();
-  await omar.page.getByRole('button', { name: 'Team calls', exact: true }).click();
+  await omar.page.getByRole('tablist', { name: 'Team sections' }).getByRole('tab', { name: 'Team calls' }).click();
   const history = omar.page.getByRole('list', { name: 'Team calls' });
   await expect(history.getByRole('listitem')).toHaveCount(1);
   await expect(history).toContainText('Ahmed Saleh');
@@ -119,7 +120,7 @@ test('cancelling while it rings leaves the callee a missed call', async ({ brows
   await expect(ahmed.page.getByRole('alertdialog', { name: 'Omar Owner' })).toBeVisible();
   await omar.page.getByRole('dialog', { name: 'Ahmed Saleh' }).getByRole('button', { name: 'Hang up' }).click();
   await expect(ahmed.page.getByRole('alertdialog')).toHaveCount(0);
-  await ahmed.page.getByRole('button', { name: 'Team calls', exact: true }).click();
+  await ahmed.page.getByRole('tablist', { name: 'Team sections' }).getByRole('tab', { name: 'Team calls' }).click();
   await ahmed.page.getByRole('button', { name: 'Missed', exact: true }).click();
   const history = ahmed.page.getByRole('list', { name: 'Team calls' });
   await expect(history).toContainText('Omar Owner');
@@ -141,9 +142,10 @@ test('a refused microphone explains how to allow it and never rings anyone', asy
 test('with calls off the buttons are disabled and the Calls tab says who can turn them on', async ({ page }) => {
   await mockWorkspaceApi(page);
   await page.goto('/#team');
-  await page.getByRole('button', { name: 'People', exact: true }).click();
+  // The Team page opens on its Directory, where each teammate's row has Call and Video call.
+  await page.getByRole('tablist', { name: 'Team sections' }).getByRole('tab', { name: /^Directory/ }).click();
   await expect(page.getByRole('button', { name: 'Call Ahmed Saleh', exact: true })).toBeDisabled();
-  await page.getByRole('button', { name: 'Team calls', exact: true }).click();
+  await page.getByRole('tablist', { name: 'Team sections' }).getByRole('tab', { name: 'Team calls' }).click();
   await expect(page.getByText('Calls are off on this server. Ask the person who runs ANUM to set up the calls relay.')).toBeVisible();
   await expect(page.getByRole('heading', { name: 'No calls yet' })).toBeVisible();
 });
@@ -154,7 +156,7 @@ test('offline: placing a call says it needs a connection', async ({ browser }) =
   await openPeople(omar.page);
   await omar.context.setOffline(true);
   await expect(omar.page.getByRole('button', { name: 'Call Ahmed Saleh', exact: true })).toBeDisabled();
-  await omar.page.getByRole('button', { name: 'Team calls', exact: true }).click();
+  await omar.page.getByRole('tablist', { name: 'Team sections' }).getByRole('tab', { name: 'Team calls' }).click();
   await expect(omar.page.getByText('You are offline. Calls need an internet connection.')).toBeVisible();
   await omar.context.close();
 });
