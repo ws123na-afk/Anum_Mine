@@ -357,6 +357,11 @@ def _key(text: str) -> str:
     return _name(text)
 
 
+def _still_due(entry: InstallmentStatementEntry) -> Decimal:
+    """What is left to pay on an installment after applied refunds (the web's ``outstandingAmount``)."""
+    return max(Decimal(0), entry.amount - entry.refunded_amount)
+
+
 def fixed_commitments(bills: list[Bill], debts: list[Debt], installments: list[InstallmentStatementEntry], remittances: list[Remittance],
                       today: date) -> tuple[list[Commitment], list[Commitment]]:
     """What goes out every month, and what was left out so it is not counted twice (with the reason).
@@ -382,12 +387,14 @@ def fixed_commitments(bills: list[Bill], debts: list[Debt], installments: list[I
     month = today.strftime("%Y-%m")
     orders: dict[tuple[str, str, str], list[InstallmentStatementEntry]] = {}
     for entry in installments:
-        if entry.due_on.strftime("%Y-%m") == month and entry.source_status != "paid":
+        # Paid, refunded by the provider, or fully refunded by applied refund evidence: nothing left to pay.
+        if entry.due_on.strftime("%Y-%m") == month and entry.source_status not in ("paid", "refunded") and _still_due(entry) > 0:
             orders.setdefault((entry.provider, entry.order_id, entry.currency), []).append(entry)
     for (provider, order_id, currency), entries in sorted(orders.items()):
         merchant = entries[0].merchant
         row = Commitment(kind="installment", name=f"{provider}: {merchant}", currency=currency,
-                         monthly=quantize(sum((e.amount for e in entries), Decimal(0)), currency), source="installment", ref_id=f"{provider}:{order_id}")
+                         monthly=quantize(sum((_still_due(e) for e in entries), Decimal(0)), currency), source="installment",
+                         ref_id=f"{provider}:{order_id}")
         if (_key(merchant), currency) in bill_names or (_key(provider), currency) in bill_names:
             skipped.append(Commitment(**{**row.__dict__, "note": "in_bill"}))
         else:
