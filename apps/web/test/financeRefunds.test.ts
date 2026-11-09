@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import type { FinanceInstallmentStatementEntry, FinanceOrderRefundPlan } from '@anum/contracts';
 import {
-  applySelection, filterOrders, orderRefundState, pendingTotals, rowDue, rowEffective, stateTone, sumAmounts, withEvidence,
+  applySelection, filterOrders, orderRefundState, pendingTotals, rowDue, rowDueText, rowEffective, stateTone, sumAmounts, withEvidence,
 } from '../src/lib/financeRefunds.ts';
 import { en } from '../src/lib/messages/en.ts';
 import { ar } from '../src/lib/messages/ar.ts';
@@ -64,5 +64,15 @@ describe('refunds card', () => {
     const keys = Object.keys(en).filter((k) => k.startsWith('frefund.'));
     assert.ok(keys.length > 50);
     for (const key of keys) assert.ok(key in ar, key);
+  });
+});
+
+describe('statement CSV amounts', () => {
+  test('what is still due is exact, in the currency\'s own digits', () => {
+    assert.equal(rowDueText(row({ amount: '10.125', currency: 'KWD', refunded_amount: '0.100' }), false), '10.025');
+    assert.equal(rowDueText(row({ amount: '1500', currency: 'JPY', refunded_amount: '0' }), false), '1500');
+    assert.equal(rowDueText(row({ amount: '100.10', refunded_amount: '0.20' }), false), '99.90');
+    assert.equal(rowDueText(row({ amount: '100.00', refunded_amount: '150.00' }), false), '0.00');
+    assert.equal(rowDueText(row({ amount: '100.00' }), true), '0.00');
   });
 });

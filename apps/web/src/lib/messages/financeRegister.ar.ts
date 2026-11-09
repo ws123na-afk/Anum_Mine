@@ -128,7 +128,7 @@ export const financeRegisterAr = {
   'facct.error.overview': 'تعذّر تحميل تفاصيل الحسابات: {message}',
   'facct.kpi.label': 'الحسابات بلمحة',
   'facct.kpi.available': 'إجمالي المتاح',
-  'facct.kpi.availableHint': 'الحسابات المصرفية والنقدية والاستثمارية',
+  'facct.kpi.availableHint': 'الحسابات المصرفية والنقدية، كما يحسبها المتاح للصرف',
   'facct.kpi.otherCurrencies': 'ولديك أيضًا {list} دون تحويل',
   'facct.kpi.accounts': 'الحسابات',
   'facct.kpi.reconciled': 'آخر تسوية',

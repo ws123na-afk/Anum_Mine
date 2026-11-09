@@ -550,6 +550,21 @@ export interface FinanceHoldingInput {
   notes?: string | null;
 }
 
+/** One currency's net worth (docs/finance.md#how-figures-are-counted). */
+export interface FinanceNetWorthPart {
+  currency: string;
+  /** Account balances (cards and loans by their sign); an investment account with holdings counts them at cost instead. */
+  accounts: FinanceMoney;
+  /** Money lent to people, still owed back. */
+  receivables: FinanceMoney;
+  holdings_at_cost: FinanceMoney;
+  /** Debts with no account of their own, money borrowed from people included. */
+  debts: FinanceMoney;
+  /** Still due on installment plans. */
+  installments: FinanceMoney;
+  net: FinanceMoney;
+}
+
 export interface FinanceSummary {
   month: string;
   start: string;
@@ -576,6 +591,10 @@ export interface FinanceSummary {
   unlinked_debts?: FinanceCurrencyAmount[];
   /** Account balances (cards and loans by their sign) less `unlinked_debts`, per currency. */
   net_worth?: FinanceCurrencyAmount[];
+  /** Net worth per currency, line by line (older servers leave it out; the web then works it out from the accounts). */
+  net_worth_parts?: FinanceNetWorthPart[];
+  /** Left out of net worth, with the reason: a holding without a cost basis, or in another currency than its account. */
+  net_worth_excluded?: { kind: 'holding'; name: string; currency: string; reason: 'no_cost_basis' | 'currency_differs' }[];
   minimum_payments: FinanceCurrencyAmount[];
   debt_count: number;
   /** The month had more rows than one read returns: the figures are partial. */

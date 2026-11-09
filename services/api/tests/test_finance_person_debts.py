@@ -117,3 +117,25 @@ def test_borrowed_money_joins_the_payoff_plan_and_lent_money_is_not_a_debt(owner
     assert [names[i] for i in row["avalanche"]["order"]] == ["Card A", "Cousin B"]
     summary = client.get(f"{API}/summary", headers=OWNER).json()
     assert summary["debts"] == [{"currency": "AED", "amount": "1700.00"}]
+
+
+def test_net_worth_counts_people_installments_and_holdings_at_cost() -> None:
+    from anum_api.finance.models import AccountKind, Holding, InstallmentStatementEntry
+    from anum_api.finance.summary import AccountBalance, net_worth
+
+    accounts = [AccountBalance(id="bank", name="Bank", kind=AccountKind.BANK, currency="AED", institution=None, last4=None, balance=D("5000.00"), archived=False),
+                AccountBalance(id="broker", name="Broker", kind=AccountKind.INVESTMENT, currency="AED", institution=None, last4=None, balance=D("3000.00"),
+                               archived=False)]
+    holdings = [Holding(**owned(id="h1", account_id="broker", symbol="AAA", quantity=D("10"), cost_basis=D("2800"), currency="AED")),
+                Holding(**owned(id="h2", account_id="broker", symbol="BBB", quantity=D("5"), cost_basis=D("0"), currency="AED"))]
+    links = O.Links(person_loans=[loan("lent", "lent", "Friend G", "700"), loan("borrowed", "borrowed", "Cousin A", "400")])
+    plan = [InstallmentStatementEntry(provider="Tamara", order_id="example-order", merchant="Example Shop", due_on=date(2026, 11, 1), installment=2,
+                                      total_installments=4, amount=D("250"), currency="AED", source_status="scheduled"),
+            InstallmentStatementEntry(provider="Tamara", order_id="example-order", merchant="Example Shop", due_on=date(2026, 9, 1), installment=1,
+                                      total_installments=4, amount=D("250"), currency="AED", source_status="paid")]
+    parts, excluded = net_worth(accounts, {"AED": D("400")}, holdings, links, plan, TODAY)
+    aed = parts[0]
+    # 5,000 in the bank, 2,800 of holdings at cost instead of the broker's ledger balance, 700 lent; less 400 borrowed and 250 still due.
+    assert (aed.accounts, aed.holdings_at_cost, aed.receivables, aed.debts, aed.installments, aed.net) == (
+        D("5000.00"), D("2800.00"), D("700.00"), D("400.00"), D("250.00"), D("7850.00"))
+    assert [(e.name, e.reason) for e in excluded] == [("BBB", "no_cost_basis")]

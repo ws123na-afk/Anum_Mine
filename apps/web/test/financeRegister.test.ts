@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import type { FinanceAccount, FinanceAccountOverview } from '@anum/contracts';
 import {
-  NO_REGISTER_FILTERS, accountTab, activityScale, maskedNumber, monthBounds, narrowed, percentOf, primarySource, registerQuery, statusTone,
+  NO_REGISTER_FILTERS, accountTab, activityScale, isAvailable, maskedNumber, monthBounds, narrowed, percentOf, primarySource, registerQuery, statusTone,
 } from '../src/lib/financeRegister.ts';
 import { placeholdersOf } from '../src/lib/i18n.ts';
 import { financeRegisterAr } from '../src/lib/messages/financeRegister.ar.ts';
@@ -75,5 +75,14 @@ describe('catalogs', () => {
       assert.doesNotMatch(en, /\b(synced|is connected|consent expires)\b/i, key);
     }
     assert.equal(Object.keys(financeRegisterAr).length, Object.keys(financeRegisterEn).length);
+  });
+});
+
+describe('available money', () => {
+  test('is bank and cash accounts that are not archived, as Safe to spend counts it', () => {
+    assert.equal(isAvailable({ kind: 'bank', archived: false }), true);
+    assert.equal(isAvailable({ kind: 'cash', archived: false }), true);
+    for (const kind of ['card', 'loan', 'investment'] as const) assert.equal(isAvailable({ kind, archived: false }), false);
+    assert.equal(isAvailable({ kind: 'bank', archived: true }), false);
   });
 });
