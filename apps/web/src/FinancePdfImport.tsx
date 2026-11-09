@@ -167,6 +167,19 @@ export function PdfStatementImport({ file, account, onImported, onCancel }: {
     </dl>
     {view.template_id && <Notice>{t('fpdf.template.applied')}</Notice>}
     {view.skipped_pages.map((skip) => <Notice key={skip.page}>{t(`fpdf.skipped.${skip.reason}`, { page: skip.page })}</Notice>)}
+    {(view.dropped_rows ?? []).length > 0 && <details className="finPdfDropped">
+      <summary>{t('fpdf.dropped.title', { count: view.dropped_rows.length })}</summary>
+      <p className="muted">{t('fpdf.dropped.help')}</p>
+      <div className="cmTableWrap" tabIndex={0}><table className="cmTable">
+        <caption className="visuallyHidden">{t('fpdf.dropped.caption')}</caption>
+        <thead><tr><th scope="col">{t('fpdf.dropped.page')}</th><th scope="col">{t('finance.col.date')}</th>
+          <th scope="col">{t('fpdf.dropped.text')}</th><th scope="col" className="num">{t('finance.col.amount')}</th><th scope="col">{t('fpdf.dropped.reason')}</th></tr></thead>
+        <tbody>{view.dropped_rows.map((item, index) => <tr key={`${item.page}-${index}`}>
+          <td>{item.page}</td><td><bdi dir="ltr">{item.posted_on ?? '-'}</bdi></td><td dir="auto">{item.text}</td>
+          <td className="num"><bdi dir="ltr">{item.amount ? formatAmount(item.amount, currency) : '-'}</bdi></td>
+          <td>{t(`fpdf.dropped.${item.reason}`)}</td></tr>)}</tbody>
+      </table></div>
+    </details>}
     {view.warnings.includes('debit_credit_swapped') && <Notice>{t('fpdf.warning.debit_credit_swapped')}</Notice>}
     {view.warnings.includes('columns_from_content') && <Notice>{t('fpdf.warning.columns_from_content')}</Notice>}
     {view.warnings.includes('low_confidence') && <Notice>{t('fpdf.warning.low_confidence')}</Notice>}

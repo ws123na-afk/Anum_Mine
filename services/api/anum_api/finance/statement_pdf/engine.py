@@ -55,6 +55,11 @@ _FOOTER = re.compile(
     re.IGNORECASE,
 )
 _PERIOD = re.compile(r"period|statement (date|from)|\bfrom\b|للفترة|الفترة|من تاريخ|from date", re.IGNORECASE)
+# A row that names a transfer ("Transfer from ...", "تحويل من ...") is never the statement period.
+_TRANSFER_TEXT = re.compile(r"transfer|\btrf\b|تحويل|حوالة|حواله", re.IGNORECASE)
+# The period printed over two lines: "From 01/10/2026" then "To 31/10/2026" ("من ..." then "إلى ...").
+_PERIOD_FROM = re.compile(r"^(?:statement\s+)?(?:period\s*)?(?:from(?:\s+date)?|من(?:\s+تاريخ)?|(?:الفترة|للفترة)\s+من(?:\s+تاريخ)?)$", re.IGNORECASE)
+_PERIOD_TO = re.compile(r"^(?:to(?:\s+date)?|till|until|إلى(?:\s+تاريخ)?|الى(?:\s+تاريخ)?|حتى(?:\s+تاريخ)?)$", re.IGNORECASE)
 _ACCOUNT = re.compile(
     r"(account|a/c|acct|iban|card)\s*(no\.?|number|#)?\s*[:.\-]?\s*([A-Z]{2}\d{2})?[\s\-]*([\dXx*•\s\-]{4,40}\d{4})"
     r"|(رقم الحساب|رقم البطاقة|الآيبان|ايبان)\s*[:.\-]?\s*([A-Z]{2}\d{2})?[\s\-]*([\dXx*•\s\-]{4,40}\d{4})",
@@ -115,6 +120,17 @@ class Row:
 
 
 @dataclass
+class Dropped:
+    """A row or line the reader did not take, and why: never left out silently (docs/finance-statements.md#rows-left-out)."""
+
+    page: int
+    reason: str  # "outside_period" (a dated row outside the statement's period) or "unattached_line" (a line no row could take)
+    text: str
+    posted_on: date | None = None
+    amount: Decimal | None = None
+
+
+@dataclass
 class SummaryCheck:
     name: str  # "closing", "deposits_count", "withdrawals_count", "deposits_total", "withdrawals_total", "total_due"
     stated: Decimal
@@ -160,6 +176,7 @@ class Statement:
     skipped_lines: int = 0
     skipped_pages: list[tuple[int, str]] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
+    dropped: list[Dropped] = field(default_factory=list)
 
 
 # -- the owner's mapping -----------------------------------------------------------------------
@@ -197,6 +214,7 @@ _NOISE = re.compile(
 _PAYMENT = re.compile(r"payment|refund|reversal|credit adjustment|cashback|سداد|دفعة|استرداد|مرتجع|عكس", re.IGNORECASE)
 _FEE_KIND = re.compile(r"charges?\b|markup|fee\b|commission|رسوم|عمولة", re.IGNORECASE)
 OUTSIDE_PERIOD_DAYS = 62
+NO_PERIOD_DAYS = 366  # no printed period: rows up to a year before the statement date are kept
 
 
 def parse(
@@ -219,7 +237,6 @@ def parse(
         page_lines.append(lines)
     every = [line for lines in page_lines for line in lines]
     year = _year_hint(every)
-    all_text = " ".join(line.text for line in every)
 
     # 1. The table header: of every header-like block, the one with the most rows under it.
     columns: list[Column] = []
@@ -250,16 +267,20 @@ def parse(
     # 2. Lines: headers, noise, balances and the anchors (a date in the date column with money).
     order_guess, _ = dates.decide_order([t.text for line in every for t in line.tokens if t.kind == "date"])
     info = meta.facts(every, money, order_guess)
-    card = bool(meta.CARD_WORDS.search(all_text)) or ("total_due" in info.values and "closing" not in info.values)
     rows: list[Row] = []
-    opening: Decimal | None = None
-    closing: Decimal | None = None
+    # The balances printed as lines; whether they count is decided once the statement's kind is known (a card's
+    # balances are what is owed, read from its facts).
+    opening_seen: Decimal | None = None
+    closing_seen: Decimal | None = None
+    table_lines: set[int] = set()  # lines inside a transaction table: never read as the statement's title
+    dropped: list[Dropped] = []
     brought: dict[int, Decimal] = {}
     carried: dict[int, Decimal] = {}
     period: tuple[str, str] | None = None
     period_guess: tuple[str, str] | None = None
     preamble: list[str] = []
     cards: list[str] = []
+    card_bands: list[str] = []
     skipped = 0
     skipped_pages: list[tuple[int, str]] = []
     counter = 0
@@ -268,8 +289,9 @@ def parse(
             skipped_pages.append((page_number, "no_text"))
             continue
         page_text = " ".join(line.text for line in lines)
-        if _EXAMPLE.search(page_text):
-            # Bank boilerplate (an illustrative example, the terms): never transactions.
+        if _EXAMPLE.search(page_text) and not _has_rows(lines, columns):
+            # Bank boilerplate (an illustrative example, the terms) and not one transaction row: skipped whole. A page
+            # with rows and a terms footer is read like any other page.
             skipped_pages.append((page_number, "not_transactions"))
             skipped += len(lines)
             continue
@@ -277,6 +299,7 @@ def parse(
         anchors: list[tuple[Line, Row]] = []
         loose: list[Line] = []
         in_table = not columns
+        period_from: tuple[str, int] | None = None  # "From <date>" waiting for its "To <date>" line
         index = 0
         while index < len(lines):
             line = lines[index]
@@ -298,6 +321,7 @@ def parse(
             last4 = meta.masked_card(text) if not date_tokens else None
             if last4 and not money_tokens:
                 cards.append(last4)  # the card holder band above a card's rows
+                card_bands.append(text)
                 skipped += 1
                 continue
             if _OPENING.search(text) and not _CLOSING.search(text) and not date_tokens[:1] == line.tokens[:1]:
@@ -305,8 +329,8 @@ def parse(
                     value = amounts.parse(money_tokens[-1].text)
                     if _BROUGHT.search(text) and value is not None:
                         brought.setdefault(page_number, value)
-                    if opening is None and not card:
-                        opening = value
+                    if opening_seen is None:
+                        opening_seen = value
                 skipped += 1
                 continue
             if _CLOSING.search(text) and not date_tokens[:1] == line.tokens[:1]:
@@ -314,30 +338,52 @@ def parse(
                     value = amounts.parse(money_tokens[-1].text)
                     if _CARRIED.search(text) and value is not None:
                         carried[page_number] = value
-                    if not card:
-                        closing = value
+                    closing_seen = value
                 skipped += 1
                 continue
-            if _FOOTER.search(text) or _TOTAL.search(text) or _NOISE.search(text):
+            if _FOOTER.search(text) or _TOTAL.search(text) or _NOISE.search(text) or (
+                    _EXAMPLE.search(text) and not date_tokens and not money_tokens):
                 skipped += 1
                 continue
-            if len(date_tokens) >= 2 and not money_tokens:
+            if len(date_tokens) == 1 and not money_tokens and not _TRANSFER_TEXT.search(text):
+                # A period printed over two lines: "From <date>", then "To <date>" within a few lines.
+                words = _words_without(text, date_tokens)
+                if _PERIOD_FROM.match(words):
+                    period_from = (date_tokens[0].text, index)
+                    skipped += 1
+                    continue
+                if _PERIOD_TO.match(words) and period_from is not None and index - period_from[1] <= 3:
+                    pair = (period_from[0], date_tokens[0].text)
+                    if period is None and not any((p := dates.split(d)) is not None and p.hijri for d in pair):
+                        period = pair
+                    period_from = None
+                    skipped += 1
+                    continue
+            if len(date_tokens) >= 2 and not money_tokens and not _TRANSFER_TEXT.search(text):
                 pair = (date_tokens[0].text, date_tokens[1].text)
                 between = text[text.find(pair[0]) + len(pair[0]): text.find(pair[1])] if pair[0] in text and pair[1] in text else ""
                 hijri = any((p := dates.split(d)) is not None and p.hijri for d in pair)
-                if _PERIOD.search(text) and period is None and not hijri:
-                    period = pair
-                elif period_guess is None and not hijri and re.search(r"-|\bto\b|until|إلى|الى|حتى", between):
-                    period_guess = pair
-                skipped += 1
-                continue
+                # Only a line with period words, or nothing but two dates and a separator, is the period. Two dates and a
+                # description with no money is a row whose amounts are on the next line (a Gregorian and a Hijri date).
+                worded = bool(_PERIOD.search(text))
+                bare = not re.search(r"[^\W\d_]", _words_without(text, date_tokens).replace("to", "").replace("until", "")
+                                     .replace("إلى", "").replace("الى", "").replace("حتى", ""))
+                if worded or bare:
+                    if worded and period is None and not hijri:
+                        period = pair
+                    elif period_guess is None and not hijri and re.search(r"-|\bto\b|until|إلى|الى|حتى", between):
+                        period_guess = pair
+                    skipped += 1
+                    continue
             if _is_anchor(line, page_columns, money_tokens, date_tokens, in_table):
                 counter += 1
                 row = Row(line=counter, page=page_number, raw_date=_anchor_date(line, page_columns).text, top=line.top, bottom=line.bottom)
                 anchors.append((line, row))
+                table_lines.add(id(line))
                 continue
             if in_table or anchors:
                 loose.append(line)
+                table_lines.add(id(line))
             elif not rows:
                 preamble.append(text)
                 skipped += 1
@@ -350,9 +396,14 @@ def parse(
         # (a type line printed above the date); a title or a card holder band further up does not.
         above_limit = min(height * 2.6, steps[len(steps) // 2] * 0.6) if steps else height * 1.5
         attached: dict[int, list[Line]] = {id(row): [line] for line, row in anchors}
+        step = steps[len(steps) // 2] if steps else height * 3
         for line in loose:
             if not anchors:
                 skipped += 1
+                _drop_line(dropped, line, page_number)
+                continue
+            if meta.masked_card(line.text) and not any(t.kind == "money" for t in line.tokens):
+                skipped += 1  # the card holder band between a card's rows
                 continue
             middle = (line.top + line.bottom) / 2
             near = [(abs(middle - (a.top + a.bottom) / 2), a.top, row) for a, row in anchors]
@@ -360,8 +411,16 @@ def parse(
             near.sort(key=lambda x: (round(x[0], 1), 0 if x[1] < line.top else 1))
             distance, _, target = near[0]
             limit = above_limit if line.top < target.top else height * 2.6
-            if distance > limit or (meta.masked_card(line.text) and not any(t.kind == "money" for t in line.tokens)):
+            if distance > limit:
+                # Too far for a plain wrapped line. More words for the row above it are still taken when that is
+                # unambiguous: text only, under its nearest row, nearer to it than to the next row and within two rows'
+                # height. Anything else is reported in the preview, never dropped silently.
+                plain = not any(t.kind in ("money", "date") for t in line.tokens)
+                if plain and line.top > target.top and distance <= max(step * 2, height * 4):
+                    attached[id(target)].append(line)
+                    continue
                 skipped += 1
+                _drop_line(dropped, line, page_number)
                 continue
             attached[id(target)].append(line)
         for _, row in anchors:
@@ -375,6 +434,10 @@ def parse(
             _finish(row, rows)
     if len(rows) > MAX_ROWS:
         raise PdfStatementError("too_many_rows", f"The statement has more than {MAX_ROWS} rows. Import one month at a time.")
+    card = meta.is_card_statement([line.text for line in every if id(line) not in table_lines and line.page not in
+                                   {p for p, _ in skipped_pages}], info, card_bands, has_balance=any(c.role == "balance" for c in columns))
+    opening = opening_seen if not card else None
+    closing = closing_seen if not card else None
 
     warnings: list[str] = []
     if layout == "columns":
@@ -411,7 +474,7 @@ def parse(
         elif period_start and period_end and period_start.month > period_end.month and row.posted_on.month >= period_start.month and \
                 (dates.split(row.raw_date) or dates.Parts(0, 0, None, "")).kind == "short":
             row.posted_on = row.posted_on.replace(year=period_start.year)
-    rows = _inside_period(rows, period_start, period_end, skipped_pages)
+    rows = _inside_period(rows, period_start if use else None, period_end if use else None, info.statement_date, skipped_pages, dropped)
 
     # Newest first: put the rows in time order so balances run forward. Rows inside a day stay as printed.
     dated = [r.posted_on for r in rows if r.posted_on]
@@ -459,6 +522,8 @@ def parse(
         warnings.append("summary_differs")
     if any(row.confidence < LOW_CONFIDENCE for row in rows):
         warnings.append("low_confidence")
+    if dropped:
+        warnings.append("rows_left_out")
     fmt = dates.FORMATS[order]
     last4 = cards[0] if cards else _last4(preamble + [line.text for line in every[:80]])
     return Statement(
@@ -468,7 +533,7 @@ def parse(
         account_last4=last4, currency=statement_currency, opening_balance=opening, closing_balance=closing, check=check,
         kind="card" if card else "account", statement_date=info.statement_date, due_date=info.due_date,
         fingerprint=print_, confidence=min((r.confidence for r in rows), default=0.0), skipped_lines=skipped,
-        skipped_pages=skipped_pages, warnings=warnings,
+        skipped_pages=skipped_pages, warnings=warnings, dropped=dropped[:MAX_DROPPED],
     )
 
 
@@ -512,17 +577,62 @@ def _overlaps(token: Token, column: Column) -> bool:
     return token.x1 >= column.x0 - slack and token.x0 <= column.x1 + slack
 
 
-def _inside_period(rows: list[Row], start: date | None, end: date | None, skipped_pages: list[tuple[int, str]]) -> list[Row]:
-    """Rows dated far outside the statement's period are bank examples, never transactions."""
+def _inside_period(rows: list[Row], start: date | None, end: date | None, statement_date: date | None, skipped_pages: list[tuple[int, str]],
+                   dropped: list[Dropped]) -> list[Row]:
+    """Rows dated far outside the statement's printed period are bank examples, not transactions: they are left out
+    and every one is reported (``dropped``, reason ``outside_period``). Without a printed period only rows far after the
+    statement date, or more than a year before it, are left out: a statement may cover several months."""
+    end = end or statement_date
     if end is None:
         return rows
-    low = (start or end) - timedelta(days=OUTSIDE_PERIOD_DAYS + (0 if start else 31))
+    low = start - timedelta(days=OUTSIDE_PERIOD_DAYS) if start else end - timedelta(days=NO_PERIOD_DAYS)
     high = end + timedelta(days=OUTSIDE_PERIOD_DAYS)
-    kept = [r for r in rows if r.posted_on is None or low <= r.posted_on <= high]
+    kept = [r for r in rows if r.posted_on is None or ((low is None or low <= r.posted_on) and r.posted_on <= high)]
+    keep = {id(r) for r in kept}
+    for row in rows:
+        if id(row) not in keep:
+            dropped.append(Dropped(row.page, "outside_period", row.description[:200], row.posted_on, _shown_amount(row)))
     dropped_pages = {r.page for r in rows} - {r.page for r in kept}
     for page in sorted(dropped_pages):
         skipped_pages.append((page, "not_transactions"))
     return kept
+
+
+MAX_DROPPED = 500
+
+
+def _shown_amount(row: Row) -> Decimal | None:
+    if row.amount is not None:
+        return row.amount
+    if row.debit is not None or row.credit is not None:
+        return (row.credit or Decimal(0)) - (row.debit or Decimal(0))
+    return None
+
+
+def _drop_line(dropped: list[Dropped], line: Line, page: int) -> None:
+    """A line inside the table no row could take: reported in the preview with its text (numbers masked)."""
+    text = mask_numbers(csv_import.clean_text(line.text))[:200]
+    if not text:
+        return
+    figures = [amounts.parse(t.text) for t in line.tokens if t.kind == "money"]
+    dropped.append(Dropped(page, "unattached_line", text, None, next((f for f in figures if f is not None), None)))
+
+
+def _words_without(text: str, tokens: list[Token]) -> str:
+    """A line's text without its date tokens, folded: what a period label is read from."""
+    for token in tokens:
+        text = text.replace(token.text, " ")
+    return " ".join(re.sub(r"[:\-\u2013,.]", " ", text).split()).lower()
+
+
+def _has_rows(lines: list[Line], columns: list[Column]) -> bool:
+    """Whether a page holds at least one transaction line: a date where the date column is, with money."""
+    for line in lines:
+        money_tokens = [t for t in line.tokens if t.kind == "money"]
+        date_tokens = [t for t in line.tokens if t.kind == "date"]
+        if money_tokens and _is_anchor(line, columns, money_tokens, date_tokens, False):
+            return True
+    return False
 
 
 def _details(rows: list[Row]) -> None:
@@ -881,4 +991,4 @@ def _last4(lines: list[str]) -> str | None:
     return None
 
 
-__all__ = ["LOW_CONFIDENCE", "Check", "Row", "Statement", "apply_roles", "mask_numbers", "parse", "verify"]
+__all__ = ["LOW_CONFIDENCE", "Check", "Dropped", "Row", "Statement", "apply_roles", "mask_numbers", "parse", "verify"]

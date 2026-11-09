@@ -33,6 +33,9 @@ MAX_COLUMNS = 12
 
 # Checked in this order: "Debit Amount" is a debit, "Transaction Date" a date, "Balance" never an amount.
 _ROLE_WORDS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    # A Hijri date column printed next to the Gregorian one (common on Saudi statements): kept off the date role, so the
+    # Gregorian column is the row's date. The Hijri date is still read when it is the only date a row has.
+    ("skip", ("hijri", "hijri date", "التاريخ الهجري", "تاريخ هجري", "الهجري", "هجري")),
     ("fx_rate", ("conversion rate", "exchange rate", "fx rate", "rate", "سعر التحويل", "سعر تحويل", "سعر الصرف")),
     ("foreign_amount", ("international transaction amount", "foreign amount", "original amount", "transaction currency amount",
                         "مبلغ العملية الدولية", "المبلغ الأصلي", "المبلغ بالعملة الأجنبية")),

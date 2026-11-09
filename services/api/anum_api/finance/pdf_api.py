@@ -109,6 +109,16 @@ class PdfSkippedPage(BaseModel):
     reason: Literal["not_transactions", "no_text"]
 
 
+class PdfDroppedRow(BaseModel):
+    """A row or line the reader left out, and why (docs/finance-statements.md#rows-left-out): shown, never silent."""
+
+    page: int
+    reason: Literal["outside_period", "unattached_line"]
+    text: str
+    posted_on: date | None
+    amount: Decimal | None
+
+
 class PdfCheck(BaseModel):
     status: Literal["matched", "mismatch", "unknown"]
     opening: Decimal | None
@@ -160,6 +170,8 @@ class PdfStatementView(BaseModel):
     warnings: list[str]
     rows: list[PdfRow]
     counts: SI.MatchCounts
+    # Rows dated outside the statement's period and lines no row could take: left out of the rows, listed here.
+    dropped_rows: list[PdfDroppedRow] = []
 
 
 def _roles(value: str | None) -> list[str] | None:
@@ -322,6 +334,8 @@ async def read_pdf_statement(
         skipped_pages=[PdfSkippedPage(page=p, reason=r) for p, r in statement.skipped_pages],  # type: ignore[arg-type]
         row_count=len(views), duplicate_count=duplicates, skipped_lines=statement.skipped_lines,
         warnings=statement.warnings, rows=views, counts=SI.counts(matches),
+        dropped_rows=[PdfDroppedRow(page=d.page, reason=d.reason, text=d.text, posted_on=d.posted_on, amount=d.amount)  # type: ignore[arg-type]
+                      for d in statement.dropped],
     )
 
 

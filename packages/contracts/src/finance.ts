@@ -315,6 +315,16 @@ export interface FinancePdfCheck {
   summary: { name: 'deposits_count' | 'withdrawals_count' | 'deposits_total' | 'withdrawals_total' | 'total_due'; stated: string; found: string; ok: boolean }[];
 }
 
+/** A row or line the reader left out, and why: shown in the review, never dropped silently. */
+export interface FinancePdfDroppedRow {
+  page: number;
+  /** `outside_period`: a dated row outside the statement's period. `unattached_line`: a line no row could take. */
+  reason: 'outside_period' | 'unattached_line';
+  text: string;
+  posted_on: string | null;
+  amount: string | null;
+}
+
 /** What `POST /imports/pdf/read` found. Nothing is saved until the reviewed rows are imported. */
 export interface FinancePdfStatement {
   account_id: string;
@@ -350,10 +360,12 @@ export interface FinancePdfStatement {
   row_count: number;
   duplicate_count: number;
   skipped_lines: number;
-  /** `currency_differs`, `no_rows`, `page_breaks`, `summary_differs`, `low_confidence`, `debit_credit_swapped`, `columns_from_content`. */
+  /** `currency_differs`, `no_rows`, `page_breaks`, `summary_differs`, `low_confidence`, `debit_credit_swapped`, `columns_from_content`, `rows_left_out`. */
   warnings: string[];
   rows: FinancePdfRow[];
   counts: FinanceMatchCounts;
+  /** Rows outside the statement's period and lines no row could take: listed, not imported. */
+  dropped_rows: FinancePdfDroppedRow[];
 }
 
 export interface FinancePdfImportRow {
