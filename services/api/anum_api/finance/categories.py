@@ -157,8 +157,9 @@ def classify_text(description: str, amount: Decimal, rules: list[CategoryRule] |
                 return Classified(Category.TRANSFER, CategorySource.RULE,
                                   _typed(TransactionType.INTERNAL_TRANSFER, TypeSource.RULE, "0.8", "own_account_words"))
             if words is GENERIC_TRANSFER_WORDS and amount < 0:
-                # A transfer to another person: money gone, so spending (audit C3), until a match pairs it with an own account.
-                return Classified(Category.OTHER, CategorySource.RULE, _typed(TransactionType.EXPENSE, TypeSource.RULE, "0.6", "transfer_out_third_party"))
+                # A transfer to another person with no words saying what for: a loan, money sent home or a payment are all
+                # possible, so it waits for the person (a debit is not automatically an expense), until a match pairs it.
+                return Classified(Category.OTHER, CategorySource.NONE, _typed(TransactionType.UNCATEGORIZED, TypeSource.RULE, "0.3", "transfer_out_third_party"))
             if words is GENERIC_TRANSFER_WORDS:
                 return Classified(Category.OTHER, CategorySource.NONE, _typed(TransactionType.UNCATEGORIZED, TypeSource.RULE, "0.3", "transfer_in_unknown"))
             if words is not GENERIC_TRANSFER_WORDS and words is not OWN_TRANSFER_WORDS and amount < 0:

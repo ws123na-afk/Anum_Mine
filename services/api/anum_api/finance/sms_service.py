@@ -460,6 +460,9 @@ def sms_type(kind: P.Kind, category: Category, amount: Decimal, account_kind: Ac
     if kind == P.Kind.REFUND:
         return typed(T.CASHBACK if category == Category.CASHBACK else T.REFUND)
     if kind == P.Kind.TRANSFER_OUT:
+        # Money to a person: spending only when its words say what for (rent), else it waits like the statement row.
+        if category == Category.OTHER:
+            return typed(T.UNCATEGORIZED, "0.3", "transfer_out_third_party")
         return typed(T.EXPENSE, "0.7", "transfer_out_third_party")
     return TT.for_category(category, amount, account_kind, TypeSource.SMS, "0.9", "sms_" + kind.value)
 

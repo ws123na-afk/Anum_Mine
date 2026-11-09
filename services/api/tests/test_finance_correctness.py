@@ -155,7 +155,7 @@ def test_built_in_rules(text: str, value: str, kind: AccountKind | None, expecte
     ("PAYMENT RECEIVED - THANK YOU", "500", AccountKind.CARD, TransactionType.CARD_PAYMENT),
     ("SOME CREDIT", "500", AccountKind.LOAN, TransactionType.CARD_PAYMENT),
     ("OWN ACCOUNT TRANSFER", "-300", AccountKind.BANK, TransactionType.INTERNAL_TRANSFER),
-    ("TRANSFER TO SAMPLE PERSON", "-300", AccountKind.BANK, TransactionType.EXPENSE),
+    ("TRANSFER TO SAMPLE PERSON", "-300", AccountKind.BANK, TransactionType.UNCATEGORIZED),
     ("TRANSFER FROM SAMPLE PERSON", "300", AccountKind.BANK, TransactionType.UNCATEGORIZED),
     ("CARREFOUR CITY CENTRE", "-120", AccountKind.BANK, TransactionType.EXPENSE),
 ])
@@ -268,12 +268,12 @@ def test_a_transfer_to_someone_else_is_not_paired() -> None:
     send(s["token"], IN.replace("300.00", "299.00"))
     kinds = sorted(e.kind for e in sms_memory_store.entries.values() if e.status == L.EntryStatus.POSTED)
     assert kinds == ["transfer_in", "transfer_out"]
-    # Not paired, so not an own transfer: money sent to another person is spending and money received from one is not
-    # income until the owner files it (held as uncategorized). The same everywhere (audit C1, C3).
+    # Not paired, so not an own transfer: money sent to another person and money received from one are neither
+    # spending nor income until the owner files them (held as uncategorized). The same everywhere (audit C1, C2, C3).
     sm, board = summary(), dashboard()
     assert amount(sm["income"]) == Decimal(0) and money(board["income"]) == Decimal(0)
-    assert amount(sm["spend"]) == Decimal("300.00") and money(board["expenses"]) == Decimal("300.00")
-    assert sm["uncategorized_count"] == 1 and board["uncategorized_count"] == 1
+    assert amount(sm["spend"]) == Decimal(0) and money(board["expenses"]) == Decimal(0)
+    assert sm["uncategorized_count"] == 2 and board["uncategorized_count"] == 2
 
 
 def test_own_transfer_partner_is_pure_and_needs_exactly_one_candidate() -> None:

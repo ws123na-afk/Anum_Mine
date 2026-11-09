@@ -165,9 +165,10 @@ def plan(
         source = "income:" + kind.value
         return [_leg(account, amount), Leg(source, -amount, cur)]
     if kind in (Kind.CARD_PURCHASE, Kind.TRANSFER_OUT):
-        # A transfer to another person is spending, filed like the same row from a statement (audit C3): its category
-        # comes from the words that name what it paid for, else ``other``.
-        expense = "expense:" + category
+        # A transfer to another person is filed like the same row from a statement (audit C3): spending in the category
+        # its words name ("rent" is housing); with no such words it waits as uncategorized, because money sent to a
+        # person may be a loan, money sent home or a purchase, and is not spending until the person says so.
+        expense = UNCATEGORIZED_LEDGER if kind == Kind.TRANSFER_OUT and category == Category.OTHER.value else "expense:" + category
         legs = [Leg(expense, amount, cur)]
         if fee:
             legs.append(Leg("expense:fees", fee, cur))

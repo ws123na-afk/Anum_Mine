@@ -108,13 +108,14 @@ def test_room_rent_paid_out_is_housing_spending_from_a_statement_and_from_an_sms
     assert classify_text("TRANSFER TO SAMPLE LANDLORD RENT", Decimal("-2600"), None, AccountKind.BANK).category == Category.HOUSING
 
 
-def test_a_plain_transfer_to_someone_else_is_spending_in_other_from_both_sources() -> None:
+def test_a_plain_transfer_to_someone_else_waits_as_uncategorized_from_both_sources() -> None:
     s = setup()
     do_import(s["bank"]["id"], "2026-11-02,TRANSFER TO SAMPLE PERSON,-150.00\n")
     send(s["token"], "SYNTHETIC. SAR 150.00 transferred to SAMPLE PERSON from account ***9999 on 04/11/2026")
-    rows = sorted((t.category, t.transaction_type, t.type_reason) for t in finance_store.transactions.values())
-    assert rows == [(Category.OTHER, T.EXPENSE, "transfer_out_third_party")] * 2
-    assert amount(summary()["spend"]) == Decimal("300.00") and money(dashboard()["expenses"]) == Decimal("300.00")
+    rows = sorted((t.transaction_type, t.type_reason) for t in finance_store.transactions.values())
+    assert rows == [(T.UNCATEGORIZED, "transfer_out_third_party")] * 2
+    # Not counted as spending until the person says what it was (a loan, money sent home, a payment).
+    assert amount(summary()["spend"]) == Decimal("0") and money(dashboard()["expenses"]) == Decimal("0")
 
 
 def test_salary_received_is_income_from_a_statement_and_from_an_sms() -> None:
