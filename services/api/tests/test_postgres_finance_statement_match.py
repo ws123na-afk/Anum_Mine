@@ -82,3 +82,23 @@ def test_balance_check_and_transfer_pair_are_stored_and_private(client: TestClie
     # Another person in the same workspace sees no candidates and no preview match.
     other = client.get(f"{API}/transfers/candidates", headers=SOMEONE, params={"start": "2026-11-01", "end": "2026-11-30"})
     assert other.status_code == 200 and other.json()["pairs"] == []
+
+
+def test_an_import_stores_every_rows_disposition_and_a_tied_statement_with_a_held_row_does_not_reconcile(client: TestClient) -> None:
+    """Migration ``0149_finance_import_rows``: the counts and the per-row dispositions are stored under forced RLS."""
+    bank = _account(client, name="Current", last4="5678")
+    content = ("Date,Description,Amount,Balance\n2026-11-03,EXAMPLE CAFE,-15.00,985.00\n2026-11-03,EXAMPLE CAFE,-15.00,970.00\n"
+               "2026-11-04,SAMPLE BOOKS,-20.00,950.00\nnot a date,FOOTER,,\n")
+    done = _import(client, bank["id"], content, opening_balance="1000.00", closing_balance="950.00", decisions=[{"line": 3, "action": "skip"}])
+    assert (done["imported_count"], done["skipped"], done["dropped"], done["not_in_ledger"]) == (2, 1, 1, 1)
+    listed = client.get(f"{API}/imports", headers=ME).json()["items"][0]
+    assert (listed["skipped"], listed["dropped"], listed["not_in_ledger"]) == (1, 1, 1)
+    detail = client.get(f"{API}/imports/{done['id']}", headers=ME, params={"disposition": "not_in_ledger"}).json()
+    assert [(r["line"], r["disposition"]) for r in detail["rows"]] == [(3, "unticked")]
+    overview = client.get(f"{API}/accounts/overview", headers=ME).json()
+    mine = next(a for a in overview["accounts"] if a["account_id"] == bank["id"])
+    assert mine["last_reconciled_at"] is None and "statement_rows_missing" in mine["needs_attention"]
+    # The identical row left out is added by the next import of the same statement; nothing else is.
+    again = _import(client, bank["id"], content)
+    assert (again["imported_count"], again["duplicate_count"]) == (1, 2)
+    assert client.get(f"{API}/imports/{done['id']}", headers=SOMEONE).status_code == 404

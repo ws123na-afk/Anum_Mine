@@ -84,6 +84,7 @@ class FinanceStore(Protocol):
     def delete_transaction(self, context: TenantContext, transaction_id: str) -> bool: ...
     def existing_hashes(self, context: TenantContext, account_id: str, hashes: list[str]) -> set[str]: ...
     def add_transactions(self, transactions: list[Transaction]) -> int: ...
+    def insert_transactions(self, transactions: list[Transaction]) -> set[str]: ...
     def transactions_between(self, context: TenantContext, start: date, end: date) -> list[Transaction]: ...
     # imports
     def list_imports(self, context: TenantContext, *, limit: int, offset: int) -> tuple[list[ImportRecord], int]: ...
@@ -389,16 +390,20 @@ class InMemoryFinanceStore:
             }
 
     def add_transactions(self, transactions: list[Transaction]) -> int:
+        return len(self.insert_transactions(transactions))
+
+    def insert_transactions(self, transactions: list[Transaction]) -> set[str]:
+        """The ids of the rows actually inserted: a row whose (account, dedupe hash) is already stored is left out."""
         with self._lock:
             taken = {(t.account_id, t.dedupe_hash) for t in self.transactions.values()}
-            added = 0
+            inserted: set[str] = set()
             for item in transactions:
                 if (item.account_id, item.dedupe_hash) in taken:
                     continue
                 taken.add((item.account_id, item.dedupe_hash))
                 self.transactions[item.id] = item.model_copy()
-                added += 1
-            return added
+                inserted.add(item.id)
+            return inserted
 
     def transactions_between(self, context: TenantContext, start: date, end: date) -> list[Transaction]:
         with self._lock:

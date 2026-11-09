@@ -257,6 +257,7 @@ export const financeSmsEn = {
   'fledger.netWorth': 'Net worth',
   'fledger.net': 'Net',
   'fledger.inTransit': 'In transit',
+  'fledger.uncategorized': '{count} uncategorized this month, not counted in income or expenses. File them under Transactions.',
   'fledger.inTransitText': 'In transit between your own accounts: {amount}. The other side appears when its message arrives.',
   'fledger.empty': 'Nothing recorded this month',
   'fledger.emptyText': 'Recorded messages, statements and manual entries appear here.',

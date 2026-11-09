@@ -4,7 +4,7 @@ With PostgreSQL the store is ``anum_api.db.personal_finance_repository.SqlAlchem
 tenant, workspace and user RLS context is set (``open_scoped_store(..., user_scoped=True)``): the three tables
 (migration ``0147_finance_personal_money``) are under forced RLS with the tenant policy and a restrictive owner-only
 policy, and every query repeats the scope and the owner. The in-memory store serves local development and tests with
-the same rules. The salary profile (one per person, ``finance_salary_profiles``, migration ``0148_finance_salary_profile``)
+the same rules. The salary profile (one per person, ``finance_salary_profiles``, migration ``0150_finance_salary_profile``)
 lives here too, next to the payslips. Counted, exported and deleted with the rest of Finance.
 """
 

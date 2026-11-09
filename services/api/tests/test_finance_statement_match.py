@@ -162,8 +162,8 @@ def test_weak_and_ambiguous_matches_need_a_decision() -> None:
     sms = record("s", "-45.50", NOV, "EXAMPLE MARKET")
     out = M.match_lines([line(1, "-45.50", NOV, "CARD TXN 9912")], [sms])
     assert (out[0].status, out[0].code) == ("possible_duplicate", "amount_date_only") and not out[0].default_import
-    # A different merchant on the same day and amount is weak too, never attached.
-    assert M.match_lines([line(1, "-45.50", NOV, "OTHER SHOP")], [sms])[0].status == "possible_duplicate"
+    # A different merchant on the same day and amount is a second purchase: never attached, never held (I1).
+    assert M.match_lines([line(1, "-45.50", NOV, "OTHER SHOP")], [sms])[0].status == "new"
     # An agreeing bank reference is enough on its own; a conflicting one rules the record out.
     ref = record("r", "-45.50", NOV, "EXAMPLE MARKET", reference="88AB12")
     assert M.match_lines([line(1, "-45.50", NOV, "CARD TXN 9912", reference="88AB12")], [ref])[0].code == "same_reference"
@@ -347,7 +347,8 @@ def test_a_statement_row_pays_a_saved_bill_and_a_weak_one_waits_for_review() -> 
 def test_own_transfer_from_the_salary_account_to_the_card_is_paired_on_import() -> None:
     bank = account(name="Salary account", last4="5678")
     card = account(name="Card", kind="card", last4="5377")
-    do_import(bank["id"], "Date,Description,Amount\n2026-11-03,TRANSFER TO CARD 5377,-1000.00\n2026-11-03,EXAMPLE GROCER,-50.00\n")
+    # A purchase a rule recognises (an unrecognised one would be held as uncategorized and counted in neither figure).
+    do_import(bank["id"], "Date,Description,Amount\n2026-11-03,TRANSFER TO CARD 5377,-1000.00\n2026-11-03,EXAMPLE GROCERY,-50.00\n")
     view = preview(card["id"], "Date,Description,Amount\n2026-11-05,PAYMENT RECEIVED THANK YOU,1000.00\n")
     transfer = view["rows"][0]["match"]["transfer"]
     assert transfer["direction"] == "from" and transfer["account_id"] == bank["id"] and transfer["strength"] == "strong"

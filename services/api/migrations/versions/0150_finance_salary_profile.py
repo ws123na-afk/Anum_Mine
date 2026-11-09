@@ -13,15 +13,15 @@ Forced RLS like ``0147``: ``tenant_isolation_finance_salary_profiles``, a restri
 role, which can only delete) and ``lifecycle_purge_finance_salary_profiles``. No grant to a maintenance role.
 
 Expand only: a new table. The previous release never reads it. Rollback: ``alembic downgrade
-0147_finance_personal_money`` drops the table (only for an empty test workspace; production restores a backup).
+0149_finance_import_rows`` drops the table (only for an empty test workspace; production restores a backup).
 """
 
 import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
-revision = "0148_finance_salary_profile"
-down_revision = "0147_finance_personal_money"
+revision = "0150_finance_salary_profile"
+down_revision = "0149_finance_import_rows"
 branch_labels = None
 depends_on = None
 

@@ -167,6 +167,14 @@ export function PdfStatementImport({ file, account, onImported, onCancel }: {
     </dl>
     {view.template_id && <Notice>{t('fpdf.template.applied')}</Notice>}
     {view.skipped_pages.map((skip) => <Notice key={skip.page}>{t(`fpdf.skipped.${skip.reason}`, { page: skip.page })}</Notice>)}
+    {(view.dropped_rows ?? []).length > 0 && <details className="finPdfDropped">
+      <summary>{t('fpdf.dropped.title', { count: view.dropped_rows.length })}</summary>
+      <p className="muted">{t('fpdf.dropped.help')}</p>
+      <ul className="cmList finPdfDroppedList" aria-label={t('fpdf.dropped.caption')}>{view.dropped_rows.map((item, index) => <li key={`${item.page}-${index}`}>
+        <div><strong dir="auto">{item.text || '-'}</strong>
+          <small>{t('fpdf.dropped.page')} {item.page} · <bdi dir="ltr">{item.posted_on ?? '-'}</bdi> · <bdi dir="ltr">{item.amount ? formatAmount(item.amount, currency) : '-'}</bdi></small></div>
+        <small className="muted">{t(`fpdf.dropped.${item.reason}`)}</small></li>)}</ul>
+    </details>}
     {view.warnings.includes('debit_credit_swapped') && <Notice>{t('fpdf.warning.debit_credit_swapped')}</Notice>}
     {view.warnings.includes('columns_from_content') && <Notice>{t('fpdf.warning.columns_from_content')}</Notice>}
     {view.warnings.includes('low_confidence') && <Notice>{t('fpdf.warning.low_confidence')}</Notice>}

@@ -86,7 +86,7 @@ class FinanceRemittanceRecord(Base, _Owned):
 
 
 class FinanceSalaryProfileRecord(Base, _Owned):
-    """One per person (migration ``0148_finance_salary_profile``): the rules and the confirmed or rejected months as JSON."""
+    """One per person (migration ``0150_finance_salary_profile``): the rules and the confirmed or rejected months as JSON."""
 
     __tablename__ = "finance_salary_profiles"
 

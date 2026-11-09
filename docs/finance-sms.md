@@ -42,7 +42,7 @@ Apple Pay (the Wallet "Transaction" automation) and a bank SMS often report the 
 - **Endpoint:** `POST /api/v1/finance/wallet/ingest` with the same device token. Body: `{"source": "apple_wallet", "amount": ..., "merchant": ..., "card": ..., "name": ...}`; nothing else is accepted, and there is no event time: ANUM stamps the server's reception time.
 - **Amounts** may arrive as text with a currency symbol or code and either decimal mark (`SAR 125.00`, `125,00 ر.س`, `$1,234.56`, `1.234,56 €`, Arabic-Indic digits) or as a number. A negative amount is a refund. When only one kind of separator is written, one or two digits after it are decimals; three digits are decimals only for a currency with three (`KWD 1.250`) and thousands for the others (`SAR 1.250` is 1,250); without a currency that case is a guess and waits for review (`ambiguous_amount`), as do more decimals than any currency has. With no currency in the text, the mapped account's currency is shown (`currency_inferred`) but the event **waits for review** (`wallet_currency_missing`): the purchase may have been in another currency, and booking it in the card's currency would become a second purchase when the bank's message with the charged amount arrives. A currency that differs from the account's waits for review (`needs_converted_amount`).
 - **Card mapping:** Apple Pay uses a virtual card number (the Device Account Number), so its last four digits differ from the physical card a bank SMS names. The owner maps each Wallet card or pass (its name as Wallet shows it, and optionally its Wallet last four) to the account its payments hit (Settings, Apple Wallet cards), and maps the physical card's last four to the same account (Card and account numbers). An unmapped card waits for review (`wallet_card_unknown`); ANUM never guesses.
-- **Matching** (`wallet.same_payment`), never on the amount alone: the same account, direction, amount and currency; within 30 minutes when both carry a time, else within 2 days and the merchants must share a word; merchants that do not disagree; no conflicting reference; and the existing transaction has no source of the same kind (a second Wallet event is a second purchase). One candidate attaches (status `attached`, reason `attached_to_existing`); more than one waits for review (`ambiguous_match`); none posts a new entry. Either source may arrive first, and a delayed SMS still attaches within the window.
+- **Matching** (`wallet.same_payment`), never on the amount alone: the same account, direction, amount and currency; within 30 minutes when both carry a time, else within 2 days and the merchants must share a meaningful word (generic banking words such as `purchase`, `online` or `شراء` never count: [how merchants agree](finance.md#how-matching-works)); the candidates are every posted entry of the same fingerprint within that window, read completely in a fixed order; merchants that do not disagree; no conflicting reference; and the existing transaction has no source of the same kind (a second Wallet event is a second purchase). One candidate attaches (status `attached`, reason `attached_to_existing`); more than one waits for review (`ambiguous_match`); none posts a new entry. Either source may arrive first, and a delayed SMS still attaches within the window.
 - **Atomic:** ingestion for one person runs under a per-owner lock in the process and a PostgreSQL transaction-level advisory lock (`pg_advisory_xact_lock`), held only for the short unit of work that matches and writes (no model or provider call inside), so two reports arriving together cannot both post. A unique index allows at most one recorded or attached source of each kind per entry (`uq_finance_sms_messages_entry_source`), and the idempotency key makes a retried delivery a no-op.
 - **Dashboard:** one expense; the journal lists the entry's sources (Apple Pay, bank message).
 
@@ -66,6 +66,23 @@ Importing a CSV or PDF statement ([PDF bank statements](finance-statements.md)) 
 ### Kinds
 
 `salary`, `deposit`, `transfer_in`, `transfer_out`, `own_transfer`, `card_purchase`, `atm_withdrawal`, `card_repayment`, `loan_disbursement`, `loan_repayment`, `bank_fee`, `refund`, `reversal`, `unknown`. A foreign-currency transaction is any kind whose amount is in another currency than the account's.
+
+Each kind gives the stage 2 rows of the entry a [transaction type](finance.md#transaction-types) (source `sms`, `sms_service.sms_type`):
+
+| Kind | Type of the row on the account |
+|---|---|
+| `salary` | `income` |
+| `deposit`, `transfer_in` | `uncategorized` (held for review: money arrived, not why; a credit is not automatically income) |
+| `transfer_out` | `expense`, filed by the other party's words like the same row from a statement (rent is housing, else `other`) |
+| `card_purchase` | `expense` in the merchant's category |
+| `own_transfer`, `atm_withdrawal` to the cash account | `internal_transfer` |
+| `atm_withdrawal` with no cash account | `expense` (`cash`) |
+| `card_repayment` | `card_payment` on both sides |
+| `loan_disbursement` | `loan_received` |
+| `loan_repayment` | `loan_principal` on the bank and the loan; the interest row on the loan is `interest` |
+| `bank_fee` | `bank_fee` |
+| `refund` | `refund` (`cashback` when filed as cashback) |
+| `reversal` | `reversal` |
 
 ### Masking and retention
 
@@ -91,16 +108,17 @@ Every recorded message is a journal entry whose postings sum to zero in each cur
 
 | Message | Debit | Credit |
 |---|---|---|
-| Salary, deposit | the account | `income:<kind>` |
+| Salary | the account | `income:salary` |
+| Deposit | the account | `suspense:uncategorized` (not income until the person files it; before November 2026 `income:deposit`) |
 | Incoming transfer | the account | `income:transfer_in` (a transfer: not counted as income) |
 | Card purchase | `expense:<category>` (plus `expense:fees` for a stated fee) | the account (a card's debt goes up) |
-| Outgoing transfer | `expense:transfer` (a transfer: not counted as spending) | the account |
+| Outgoing transfer | `expense:<category>`, the other party's words deciding (rent is housing, else `other`): money sent to someone else is spending (audit C3; before November 2026 `expense:transfer`, a transfer) | the account |
 | ATM withdrawal | the cash account, else `expense:cash` | the account |
 | Bank fee | `expense:fees` | the account |
 | Card repayment | the card (debt down) | the paying account; never an expense |
 | Own-account transfer | the receiving account | the sending account; neither income nor expense |
 | Loan proceeds | the account | the loan (debt up) |
-| Loan repayment | the loan for the whole payment, and `expense:interest` for the interest | the account, and the loan for the interest (charged on the loan) |
+| Loan repayment | the loan for the whole payment, and `expense:interest` for the interest (category `interest`, no longer `fees`) | the account, and the loan for the interest (charged on the loan) |
 | Refund, reversal | the account | the original purchase's category (found by merchant within 120 days), else `income:refunds` (its own line, never income) |
 
 A side no message has named yet (the paying account of a card's "payment received") waits in `suspense:own_transfer`, shown as "in transit", until a later message names it. Stated balances are **observations** shown next to the ledger's figure, never posted.
@@ -127,7 +145,7 @@ For an import whose rows were added anyway, `GET /sms/reconcile/{import_id}` mat
 
 ## Dashboard
 
-`GET /api/v1/finance/ledger/dashboard?month=&account_id=&currency=&category=&kind=`: income, expenses and surplus for the month; balances (with the bank's last stated balance and the difference); cards with what is owed, the limit and utilization; loans; assets, liabilities and net worth per currency (never added across currencies); spending by category and by merchant; the last 12 months and this year; money in transit; bills due; goals; debts with the months to clear them at the minimum payment; and sync status. `GET /ledger/entries` lists the journal.
+`GET /api/v1/finance/ledger/dashboard?month=&account_id=&currency=&category=&kind=`: income, expenses and surplus for the month; balances (with the bank's last stated balance and the difference); cards with what is owed, the limit and utilization; loans; assets, liabilities and net worth per currency (never added across currencies); spending by category and by merchant; the last 12 months and this year; money in transit; `uncategorized_count` (the month's rows no rule recognised, in neither income nor expenses, shown as "N uncategorized, not counted"); bills due; goals; debts with the months to clear them at the minimum payment; and sync status. `GET /ledger/entries` lists the journal.
 
 **Personal and business:** each workspace has its own ledger per person, so books are never mixed. The ledger's kind (`personal` or `business`, Settings) labels it; keep personal banking in the workspace you use for yourself.
 
