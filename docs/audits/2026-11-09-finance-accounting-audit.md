@@ -21,7 +21,7 @@ The fixes are delivered as functional-area pull requests in this order: transact
 - Business Books keep **no journal**: every report is derived from invoices, bills, allocations and adjustments (`business/books_report.py`, `books_service.py:4-6`). There is no chart of accounts, general ledger, trial balance, balance sheet, opening balance, close or lock.
 - Classification had **no transaction type**: an unrecognised credit counted as income and an unrecognised debit as spending (`finance/categories.py:106-108`, `flows.py:58-67`). Fixed in the transaction-correctness PR (C1 to C7 below).
 - The most likely reasons statement rows look missing are the Transactions page defaulting to the current month, rows held in review or attached to other records by amount alone, and rows the PDF reader drops without saying so (details below).
-- There is no accountant review (the reconciliation workspace came with the reconciliation PR), no unified suggestion queue and no period close.
+- There is no accountant review (the reconciliation workspace came with the reconciliation PR), no unified suggestion queue and no period close. The forecast PR adds the Accountant review in Business books.
 
 ## Accounting foundation and Business Books
 
@@ -146,9 +146,9 @@ Confirmed defects:
 | Salary profile (joining date, expected salary, pay day, advances, recurring deductions, detection across months) | 4 | Payslips record a month's figures only (`personal_api.py:446-520`); the advisor detects only `salary_found` |
 | Scheduled obligations against paid transactions | 3 | Past debt minimums are assumed paid (P2) |
 | Category budgets | 2 | Set only through the Guardian confirm flow |
-| Emergency reserve | 2 | Indirect only |
-| Month-end forecast | 2 | Web only (`financeStatements.ts:180`), ignores expected income |
-| Reconciliation, Accountant review, Automations and suggestions, Finance settings pages | 2 (was 4): Suggestions and Reconciliation 1, the others 4 | Finance, Suggestions (queue, rules, merchants, automation) and the Reconciliation page are built ([Suggestions](../finance.md#suggestions)); Accountant review and a settings page are not (settings is a dialog) |
+| Emergency reserve | 1 (was 2) | Forecast PR: an emergency goal sized in months of essential spending or a fixed amount, held in an account or the goal, with progress, months covered and a `below_reserve` forecast warning in the Suggestions queue (migration `0155_finance_reserve`, `GET /reserve`; [Emergency reserve](../finance.md#emergency-reserve)) |
+| Month-end forecast | 1 (was 2) | Forecast PR: one API forecast per currency, day by day to the month end and three months, from cash, the salary profile's expected net, confident recurring income, bills, minimums (overdue included), installments, regular transfers and usual spending, with a band and dated warnings; the web runway is gone and the web and phone read `GET /forecast` ([Forecast](../finance.md#forecast)) |
+| Reconciliation, Accountant review, Automations and suggestions, Finance settings pages | 1 (was 4) | Finance, Suggestions (queue, rules, merchants, automation) and the Reconciliation page are built ([Suggestions](../finance.md#suggestions)); the forecast PR adds Finance settings (`#finance-settings`, [Finance settings](../finance.md#finance-settings)) and the Accountant review in Business books (`GET /books/review`, [Accountant review](../business-books.md#accountant-review)); VAT return warnings join it when the tax module lands |
 | English and Arabic | 1 | Paired catalogs, parity tests |
 
 Confirmed defects:
@@ -160,7 +160,7 @@ Confirmed defects:
 
 ## Duplicated logic
 
-- Monthly commitments are computed four times: `personal.fixed_commitments`, `safe_to_spend.compute`, `advisor._coming` and `advisor._runway`.
+- Monthly commitments are computed four times: `personal.fixed_commitments`, `safe_to_spend.compute`, `advisor._coming` and `advisor._runway`. The forecast (`forecast.py`) takes each bill, minimum, installment and transfer from the same shared helpers (`commitment_math`, `obligations.unpaid`, `salary.expected_for`) and the web's own runway is gone.
 - Two debt payoff engines: `lib/financeDebtPlan.ts` and `planner.py`.
 - Lent and borrowed sits beside Debts; borrowed money never reaches payoff, Safe to spend or fixed costs.
 - Three income figures: `planning_service.income_monthly`, the advisor's month income, and its salary detection; payslips feed none of them.

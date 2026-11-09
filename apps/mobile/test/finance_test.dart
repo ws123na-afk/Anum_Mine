@@ -93,9 +93,12 @@ Map<String, Object?> transactionJson(int i) => {
 
 class FakeFinance implements FinanceRepository {
   FakeFinance(
-      {this.deny = false, this.failSummary = false, this.empty = false});
+      {this.deny = false,
+      this.failSummary = false,
+      this.empty = false,
+      this.forecastFailed = false});
   bool deny, failSummary;
-  final bool empty;
+  final bool empty, forecastFailed;
   final requests = <String>[];
   final total = 30;
 
@@ -193,7 +196,7 @@ class FakeFinance implements FinanceRepository {
   Future<SafeToSpend> safeToSpend() async {
     requests.add('safe');
     if (deny) throw const ApiException(403, 'Workspace permission denied');
-    return SafeToSpend.fromJson(JsonReader.of({
+    final safe = SafeToSpend.fromJson(JsonReader.of({
       'month_end': '2026-10-31',
       'days_left': 18,
       'currencies': empty
@@ -244,6 +247,39 @@ class FakeFinance implements FinanceRepository {
       ],
       'combined': null,
     }));
+    if (empty || forecastFailed) {
+      return safe.withForecast(const [], const [], failed: forecastFailed);
+    }
+    // The API's forecast and reserve (docs/finance.md#forecast), read only.
+    return safe.withForecast([
+      CurrencyForecast.fromJson(JsonReader.of({
+        'currency': 'AED',
+        'actual': '4250.00',
+        'month_end': {
+          'on': '2026-10-31',
+          'expected': '2100.00',
+          'low': '1800.00',
+          'high': '2350.00'
+        },
+        'warnings': [
+          {
+            'kind': 'below_reserve',
+            'on': '2026-10-20',
+            'balance': '2750.00',
+            'threshold': '3000.00'
+          }
+        ],
+      }))
+    ], [
+      ReserveProgress.fromJson(JsonReader.of({
+        'currency': 'AED',
+        'name': 'Emergency reserve',
+        'saved': '1500.00',
+        'target': '3000.00',
+        'progress_percent': 50,
+        'months_covered': '0.5',
+      }))
+    ]);
   }
 
   @override
@@ -606,6 +642,91 @@ void main() {
     expect(find.textContaining('AED 1,000.00 left over 3 month(s)'),
         findsOneWidget);
     expect(find.text('Card: covered by its minimum payment'), findsOneWidget);
+  });
+
+  testWidgets('safe to spend shows the forecast month end and the reserve',
+      (tester) async {
+    tester.view.physicalSize = const Size(390, 2400);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final c = FinanceController(FakeFinance());
+    await tester.pumpWidget(app(c));
+    await open(tester);
+    await c.select(FinanceSection.safe);
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    expect(find.text('Expected on 2026-10-31 (estimate)'), findsOneWidget);
+    expect(find.text('AED 2,100.00'), findsOneWidget);
+    expect(find.textContaining('Likely between AED 1,800.00 and AED 2,350.00'),
+        findsOneWidget);
+    expect(
+        find.text(
+            'Your money may drop below your reserve of AED 3,000.00 on 2026-10-20.'),
+        findsOneWidget);
+    expect(find.text('Emergency reserve'), findsOneWidget);
+    expect(find.text('AED 1,500.00 of AED 3,000.00'), findsOneWidget);
+    expect(
+        find.byWidgetPredicate((w) =>
+            w is LinearProgressIndicator &&
+            w.semanticsLabel == 'Emergency reserve: 50% of the target' &&
+            w.value == 0.5),
+        findsOneWidget);
+    expect(
+        find.text('Covers 0.5 months of essential spending'), findsOneWidget);
+  });
+
+  testWidgets(
+      'a forecast that cannot be read is said, Safe to spend still shows',
+      (tester) async {
+    tester.view.physicalSize = const Size(390, 2400);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final c = FinanceController(FakeFinance(forecastFailed: true));
+    await tester.pumpWidget(app(c));
+    await open(tester);
+    await c.select(FinanceSection.safe);
+    await tester.pumpAndSettle();
+    expect(find.text('AED 1,466.66'), findsOneWidget);
+    expect(find.textContaining('The forecast could not be loaded'),
+        findsOneWidget);
+  });
+
+  test('the forecast warning shown first is the most serious within the month',
+      () {
+    final f = CurrencyForecast.fromJson(JsonReader.of({
+      'currency': 'SAR',
+      'actual': '1.00',
+      'month_end': {
+        'on': '2026-11-30',
+        'expected': '0',
+        'low': '0',
+        'high': '0'
+      },
+      'warnings': [
+        {
+          'kind': 'below_reserve',
+          'on': '2026-11-10',
+          'balance': '1',
+          'threshold': '5'
+        },
+        {
+          'kind': 'below_zero',
+          'on': '2026-12-02',
+          'balance': '-1',
+          'threshold': '0'
+        },
+      ],
+    }));
+    expect(f.firstWarning?.kind, 'below_reserve');
+    expect(
+        ReserveProgress.fromJson(JsonReader.of({
+          'currency': 'SAR',
+          'name': 'R',
+          'saved': '9',
+          'target': '1',
+          'progress_percent': 900
+        })).fraction,
+        1.0);
   });
 
   testWidgets('safe to spend reads in Arabic', (tester) async {});

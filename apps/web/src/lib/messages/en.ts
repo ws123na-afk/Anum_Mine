@@ -23,6 +23,8 @@ import { financePagesEn } from './financePages.en.ts';
 import { financeAdvisorEn } from './financeAdvisor.en.ts';
 import { financePersonalEn } from './financePersonal.en.ts';
 import { financeReconEn } from './financeRecon.en.ts';
+import { financeForecastEn } from './financeForecast.en.ts';
+import { booksReviewEn } from './booksReview.en.ts';
 import { financeSuggestionsEn } from './financeSuggestions.en.ts';
 import { financePlanningEn } from './financePlanning.en.ts';
 import { financeRefundsEn } from './financeRefunds.en.ts';
@@ -145,6 +147,8 @@ export const en = {
   ...financeAdvisorEn,
   ...financePersonalEn,
   ...financeReconEn,
+  ...financeForecastEn,
+  ...booksReviewEn,
   ...financeSuggestionsEn,
   ...financePlanningEn,
   ...financeRefundsEn,

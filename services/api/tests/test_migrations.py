@@ -1413,3 +1413,15 @@ def test_room_geometry_file_rename_kept_its_revision_ids() -> None:
     assert chain["0099_office_create_keys.py"] == ("0099_office_create_keys", "0098_agent_live_meetings")
     assert chain["0101_executive_grants.py"][1] == "0100_office_room_geometry"
     assert "0099_office_room_geometry.py" not in chain
+
+
+def test_finance_reserve_migration_is_expand_only() -> None:
+    versions = Path(__file__).parents[1] / "migrations" / "versions"
+    revision_text = (versions / "0155_finance_reserve.py").read_text(encoding="utf-8")
+    assert 'revision = "0155_finance_reserve"' in revision_text and len("0155_finance_reserve") <= 32
+    assert 'down_revision = "0153_finance_reconciliation"' in revision_text
+    upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
+    # A nullable column with a check on an existing forced-RLS table: nothing dropped, no new policy needed.
+    assert '"finance_goals"' in upgrade and '"reserve_months"' in upgrade and "nullable=true" in upgrade
+    assert "ck_finance_goals_reserve_months" in upgrade
+    assert "drop " not in upgrade and "bypassrls" not in upgrade and "security definer" not in upgrade

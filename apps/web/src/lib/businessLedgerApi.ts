@@ -2,7 +2,7 @@
 // docs/business-books.md#api). The server checks every right; a 403 carries its own sentence naming who may do it.
 import type {
   LedgerAccount, LedgerAccountInput, LedgerAccountList, LedgerAccountant, LedgerClose, LedgerCloseStatus, LedgerEntry, LedgerGeneral, LedgerIssue,
-  LedgerJournalPage, LedgerManualInput, LedgerPostResult, LedgerSourceKind, LedgerStatements, LedgerStatus, BooksPage,
+  LedgerJournalPage, LedgerManualInput, LedgerPostResult, LedgerSourceKind, LedgerStatements, LedgerStatus, BooksPage, BooksReview, BooksReviewKind,
 } from '@anum/contracts';
 import { apiBaseUrl, apiRequest, apiRequestVoid, authHeaders } from './api';
 import { apiErrorFromResponse } from './errors';
@@ -38,6 +38,8 @@ export const accountLines = (accountId: string, span: Span, offset: number, limi
 export const getStatements = (span: Span, compare = false) => get<LedgerStatements>(`/ledger/statements${query({ from: span.from, to: span.to, compare })}`);
 
 export const getClose = () => get<LedgerCloseStatus>('/close');
+// Accountant review (docs/business-books.md#accountant-review): owners and accountants only; members get a 403 naming who may.
+export const getReview = (kind: BooksReviewKind | '' = '', offset = 0, limit = 25) => get<BooksReview>(`/review${query({ kind: kind || undefined, offset, limit })}`);
 export const closeThrough = (through: string) => send<{ closed_through: string; previous: string | null; closed: LedgerClose[] }>('POST', '/close', { through });
 export const reopen = (month: string, reason: string) => send<{ closed_through: string | null; previous: string; reopened: LedgerClose[] }>('POST', '/reopen', { month, reason });
 

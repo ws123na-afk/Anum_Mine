@@ -470,6 +470,24 @@ def reopen_period(payload: ReopenInput, context: TenantContext = Depends(tenant_
     return result
 
 
+# -- accountant review --------------------------------------------------------------------------------------------------------
+
+
+@router.get("/review")
+@refusals
+@_ledger
+def accountant_review(kind: str | None = Query(default=None, max_length=40), limit: int = Query(default=50, ge=1, le=MAX_PAGE),
+                      offset: int = Query(default=0, ge=0), context: TenantContext = Depends(tenant_context)) -> Any:
+    """Everything waiting on an owner or an accountant: draft bills to approve, posting issues, records with no exchange rate,
+    allocations in review, and the close checklist of the previous and current month (docs/business-books.md#accountant-review)."""
+    from . import books_review as RV
+
+    require_accounting(context)
+    if kind is not None and kind not in RV.KIND_ORDER:
+        raise S.BooksError(422, "Unknown review kind.", "invalid_kind")
+    return RV.build(context, _today(), kind=kind, limit=limit, offset=offset).model_dump(mode="json")
+
+
 # -- accountants -------------------------------------------------------------------------------------------------------------
 
 

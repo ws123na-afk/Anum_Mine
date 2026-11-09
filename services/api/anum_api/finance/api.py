@@ -1383,6 +1383,9 @@ class GoalInput(BaseModel):
     paused: bool | None = None
     # What the goal is for. Left out: kept as it is (a new goal is "general").
     purpose: GoalPurpose | None = None
+    # An emergency reserve sized in months of essential spending (1 to 24). Left out: kept as it is; 0 clears it
+    # (a fixed amount). Only for the purpose "emergency".
+    reserve_months: int | None = Field(default=None, ge=0, le=24)
     notes: str | None = Field(default=None, max_length=1000)
 
 
@@ -1441,6 +1444,7 @@ class GoalView(BaseModel):
     monthly_contribution: Decimal | None = None
     paused: bool = False
     purpose: GoalPurpose = GoalPurpose.GENERAL
+    reserve_months: int | None = None
     notes: str | None
     created_at: Any
     updated_at: Any
@@ -1528,6 +1532,10 @@ def _build_goal(store: FinanceStore, context: TenantContext, body: GoalInput, ex
     account = _linked_account(store, context, body.account_id)
     currency = _currency(body.currency or (account.currency if account else None), settings_for(store, context).base_currency)
     now = utc_now()
+    purpose = body.purpose or (existing.purpose if existing else GoalPurpose.GENERAL)
+    months = existing.reserve_months if existing and body.reserve_months is None else (body.reserve_months or None)
+    if months is not None and purpose != GoalPurpose.EMERGENCY:
+        raise _invalid("Only an emergency reserve goal is sized in months of essential spending.")
     return Goal(
         id=existing.id if existing else new_id("fin_goal"), tenant_id=context.tenant_id, workspace_id=context.workspace_id,
         owner_user_id=context.user_id, name=_clean(body.name, 120) or "Goal",
@@ -1539,7 +1547,8 @@ def _build_goal(store: FinanceStore, context: TenantContext, body: GoalInput, ex
             if body.monthly_contribution not in (None, "") else None
         ),
         paused=body.paused if body.paused is not None else (existing.paused if existing else False),
-        purpose=body.purpose or (existing.purpose if existing else GoalPurpose.GENERAL),
+        purpose=purpose,
+        reserve_months=months,
         notes=_clean(body.notes, 1000), created_at=existing.created_at if existing else now, updated_at=now,
     )
 

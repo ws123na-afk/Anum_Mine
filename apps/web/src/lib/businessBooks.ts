@@ -9,13 +9,22 @@ import { formatAmount } from './finance.ts';
 import { t, type MessageKey } from './i18n.ts';
 import type { Tone } from './business.ts';
 
-export type BooksTab = 'overview' | 'group' | 'bills' | 'recurring' | 'vendors' | 'allocations' | 'budgets' | 'journal' | 'ledger' | 'statements' | 'accounts'
+export type BooksTab = 'overview' | 'review' | 'group' | 'bills' | 'recurring' | 'vendors' | 'allocations' | 'budgets' | 'journal' | 'ledger' | 'statements' | 'accounts'
   | 'close' | 'intercompany' | 'settings';
 /** ``journal`` is the adjustments; ``ledger``, ``statements``, ``accounts`` and ``close`` are the double-entry journal (docs/business-books.md#the-journal). */
-export const BOOKS_TABS: readonly BooksTab[] = ['overview', 'group', 'bills', 'recurring', 'vendors', 'allocations', 'budgets', 'journal', 'ledger', 'statements', 'accounts',
+export const BOOKS_TABS: readonly BooksTab[] = ['overview', 'review', 'group', 'bills', 'recurring', 'vendors', 'allocations', 'budgets', 'journal', 'ledger', 'statements', 'accounts',
   'close', 'intercompany', 'settings'];
 /** Sections only owners see in the navigation (the API refuses everyone else anyway). */
 export const OWNER_TABS: readonly BooksTab[] = ['group'];
+/** Sections for owners and accountants only (``permissions.account``): the Accountant review (docs/business-books.md#accountant-review). */
+export const ACCOUNTANT_TABS: readonly BooksTab[] = ['review'];
+
+/** Whether a section shows in the Books navigation for these permissions. */
+export function tabShown(tab: BooksTab, permissions: { manage: boolean; account?: boolean }): boolean {
+  if (OWNER_TABS.includes(tab)) return permissions.manage;
+  if (ACCOUNTANT_TABS.includes(tab)) return permissions.manage || Boolean(permissions.account);
+  return true;
+}
 export const BOOKS_PAGE = 25;
 export const BOOK_CURRENCIES = ['SAR', 'AED', 'USD', 'EUR', 'GBP', 'KWD', 'QAR', 'BHD', 'OMR', 'EGP', 'INR', 'PKR'] as const;
 export const COUNTRIES = ['SA', 'AE', 'KW', 'QA', 'BH', 'OM', 'EG', 'GB', 'US'] as const;

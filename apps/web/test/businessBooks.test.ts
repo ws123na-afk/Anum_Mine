@@ -203,3 +203,16 @@ describe('books second release: recurring bills and the consolidated books', () 
     for (const key of Object.keys(businessBooksEn)) assert.ok(key in businessBooksAr, key);
   });
 });
+
+describe('accountant review section', () => {
+  test('shows only to owners and accountants, after the overview', async () => {
+    const { BOOKS_TABS, booksTabFromId, tabShown } = await import('../src/lib/businessBooks.ts');
+    assert.equal(BOOKS_TABS[1], 'review');
+    assert.equal(booksTabFromId('review'), 'review');
+    assert.equal(tabShown('review', { manage: false, account: true }), true);
+    assert.equal(tabShown('review', { manage: true }), true);
+    assert.equal(tabShown('review', { manage: false, account: false }), false);
+    assert.equal(tabShown('group', { manage: false, account: true }), false);
+    assert.equal(tabShown('bills', { manage: false }), true);
+  });
+});

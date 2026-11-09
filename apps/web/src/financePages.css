@@ -93,3 +93,23 @@
   .finCalcSteps li.op { justify-self: center; }
 }
 .finReview .finQualityList strong { font-size: var(--text-md); font-weight: 600; }
+
+/* The forecast, the emergency reserve and Finance settings (docs/finance.md#forecast, #finance-settings). */
+.finForecast { display: grid; gap: var(--d-s3); }
+.finKpis.finForecastKpis ul { grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
+.finForecastOk { margin: 0; }
+.finForecastDetails { display: grid; gap: var(--d-s3); grid-template-columns: minmax(0, 1fr) minmax(0, 1.3fr); }
+.finForecastDetails caption { font-weight: 600; padding-block-end: var(--d-s2); text-align: start; }
+.finReserveFigure { font-size: var(--text-lg); margin: 0 0 var(--d-s2); }
+.finReserve .finUsage { margin-block-end: var(--d-s2); }
+.finSettingsGrid { display: grid; gap: var(--d-s4); grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.finSettingsGeneral, .finSettingsReserve { grid-column: 1 / -1; }
+.finSettingsLinks { display: grid; gap: var(--d-s3); list-style: none; margin: 0; padding: 0; }
+.finSettingsLinks li { display: grid; gap: 2px; }
+.finSettingsLinks a { align-items: center; display: inline-flex; font-weight: 600; gap: var(--d-s2); min-height: 32px; }
+.finSettingsLinks svg { height: 18px; width: 18px; }
+.finReserveSettings { display: grid; gap: var(--d-s3); }
+.finReserveSettings .finCard { box-shadow: none; }
+@media (max-width: 900px) {
+  .finForecastDetails, .finSettingsGrid { grid-template-columns: minmax(0, 1fr); }
+}

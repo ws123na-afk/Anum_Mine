@@ -154,8 +154,25 @@ class ApiFinanceRepository implements FinanceRepository {
   }
 
   @override
-  Future<SafeToSpend> safeToSpend() async => SafeToSpend.fromJson(
-      JsonReader.of(await api.request('GET', '$base/safe-to-spend')));
+  Future<SafeToSpend> safeToSpend() async {
+    final safe = SafeToSpend.fromJson(
+        JsonReader.of(await api.request('GET', '$base/safe-to-spend')));
+    // The forecast and the reserve (docs/finance.md#forecast) come with it; if
+    // they cannot be read, Safe to spend still shows and says the forecast failed.
+    try {
+      final forecast =
+          JsonReader.of(await api.request('GET', '$base/forecast'));
+      final reserve = JsonReader.of(await api.request('GET', '$base/reserve'));
+      return safe.withForecast(
+          forecast.optObjects('currencies', CurrencyForecast.fromJson),
+          reserve.optObjects('reserves', ReserveProgress.fromJson));
+    } on ApiException catch (error) {
+      if (error.statusCode == 401 || error.statusCode == 403) rethrow;
+      return safe.withForecast(const [], const [], failed: true);
+    } on JsonShapeException {
+      return safe.withForecast(const [], const [], failed: true);
+    }
+  }
 
   @override
   Future<GuardianView> guardian() async => GuardianView.fromJson(

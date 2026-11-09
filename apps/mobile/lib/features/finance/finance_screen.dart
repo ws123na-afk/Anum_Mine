@@ -374,6 +374,62 @@ class _FinanceScreenState extends State<FinanceScreen> {
         _ => s.t('safe.note.${line.note}'),
       };
 
+  /// The API's forecast and the emergency reserve for one currency, read only
+  /// (docs/finance.md#forecast, #emergency-reserve).
+  List<Widget> _forecastFor(
+      BuildContext context, SafeToSpend d, String currency, FinanceStrings s) {
+    final muted = TextStyle(color: context.palette.muted);
+    if (d.forecastFailed) {
+      return [Text(s.t('forecast.failed'), style: muted)];
+    }
+    final out = <Widget>[];
+    for (final f in d.forecasts) {
+      if (f.currency != currency) continue;
+      final end = f.monthEnd;
+      out.add(AnumMetric(
+          label: s.t('forecast.expected', {'date': end.on}),
+          value: formatAmount(end.expected, currency),
+          icon: Icons.insights_outlined,
+          caption: s.t('forecast.range', {
+            'low': formatAmount(end.low, currency),
+            'high': formatAmount(end.high, currency)
+          })));
+      final warning = f.firstWarning;
+      if (warning != null) {
+        out.add(AnumRow(
+            title: s.t('forecast.warn.${warning.kind}', {
+              'date': warning.on,
+              'amount': formatAmount(warning.threshold, currency)
+            }),
+            icon: Icons.warning_amber_outlined,
+            tone: AnumTone.warn));
+      }
+    }
+    for (final r in d.reserves) {
+      if (r.currency != currency) continue;
+      out.add(AnumHeader(
+          title: s.t('reserve.title'),
+          subtitle: s.t('reserve.of', {
+            'saved': formatAmount(r.saved, currency),
+            'target': formatAmount(r.target, currency)
+          })));
+      out.add(LinearProgressIndicator(
+          value: r.fraction,
+          minHeight: 6,
+          semanticsLabel:
+              s.t('reserve.progress', {'percent': r.progressPercent ?? 0}),
+          semanticsValue: '${r.progressPercent ?? 0}%'));
+      if (r.monthsCovered != null) {
+        out.add(Text(s.t('reserve.covers', {'months': r.monthsCovered!}),
+            style: muted));
+      }
+    }
+    if (out.isNotEmpty) {
+      out.add(Text(s.t('forecast.note'), style: muted));
+    }
+    return out;
+  }
+
   List<Widget> _safe(
       BuildContext context, FinanceController c, FinanceStrings s) {
     final waiting =
@@ -412,6 +468,7 @@ class _FinanceScreenState extends State<FinanceScreen> {
                         'amount': formatAmount(row.perDay, row.currency),
                         'n': d.daysLeft
                       })),
+            ..._forecastFor(context, d, row.currency, s),
             AnumHeader(title: s.t('safe.howBuilt')),
             for (final line in row.lines)
               AnumRow(

@@ -923,3 +923,53 @@ export interface LedgerAccountant {
   added_by: string;
   added_at: string;
 }
+
+// ---- Accountant review (docs/business-books.md#accountant-review) ------------------------------------------------
+
+export type BooksReviewKind = 'draft_bill' | 'posting_issue' | 'unconverted' | 'allocation_review' | 'external';
+export const BOOKS_REVIEW_KINDS: readonly BooksReviewKind[] = ['draft_bill', 'unconverted', 'posting_issue', 'allocation_review', 'external'];
+
+/** One thing waiting on an owner or an accountant, with the Books section where it is acted on. */
+export interface BooksReviewItem {
+  key: string;
+  producer: string;
+  kind: BooksReviewKind;
+  detected: string;
+  params: Record<string, string>;
+  /** blocking: the month cannot close until it is resolved. */
+  severity: 'blocking' | 'warning';
+  occurred_on: string | null;
+  amount: string | null;
+  currency: string | null;
+  ref_id: string | null;
+  section: string;
+  action: 'approve' | 'open';
+  can_act: boolean;
+  /** own_draft: this person made the draft (or its recurring bill), so someone else approves it. */
+  why_not: string | null;
+}
+
+export interface BooksReviewMonth {
+  month: string;
+  start: string;
+  end: string;
+  status: 'closed' | 'open' | 'not_ended';
+  issues: number;
+  drafts: number;
+  allocations_in_review: number;
+  ready: boolean;
+}
+
+export interface BooksReview {
+  items: BooksReviewItem[];
+  total: number;
+  limit: number;
+  offset: number;
+  counts: Partial<Record<BooksReviewKind, number>>;
+  blocking: number;
+  close_months: BooksReviewMonth[];
+  closed_through: string | null;
+  to_post: number;
+  producers: string[];
+  unavailable: string[];
+}

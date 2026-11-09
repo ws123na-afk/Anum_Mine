@@ -55,3 +55,11 @@
 .bkFacts dd { font-weight: 600; margin: 0; }
 .bkInlineIcon { block-size: 1em; inline-size: 1em; vertical-align: -0.125em; }
 @media (max-width: 560px) { .bkManualRow { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } .bkManualRow .field:first-child { grid-column: 1 / -1; } }
+/* Accountant review (docs/business-books.md#accountant-review). */
+.bkReviewBanner h2 { align-items: center; display: flex; gap: var(--d-s2); }
+.bkReviewBanner h2 svg { height: 20px; width: 20px; }
+.bkReviewList { display: grid; gap: var(--d-s2); list-style: none; margin: var(--d-s3) 0 0; padding: 0; }
+.bkReviewList > li { align-items: center; border-bottom: 1px solid var(--d-line); display: flex; flex-wrap: wrap; gap: var(--d-s2) var(--d-s4); justify-content: space-between; min-width: 0; padding-block: var(--d-s2); }
+.bkReviewMain { display: grid; flex: 1 1 320px; gap: 2px; min-width: 0; overflow-wrap: anywhere; }
+.bkReviewHead { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); }
+.bkMoney { font-variant-numeric: tabular-nums; }
