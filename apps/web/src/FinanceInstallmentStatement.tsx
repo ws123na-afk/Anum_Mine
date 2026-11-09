@@ -4,7 +4,7 @@ import { Fragment, useEffect, useMemo, useState } from 'react';
 import type { FinanceBill, FinanceBillOccurrence, FinanceInstallmentStatementEntry } from '@anum/contracts';
 import * as plan from './lib/financePlanningApi';
 import { InstallmentBillsSummary } from './InstallmentBillsSummary';
-import { orderRefundState, rowDue, rowEffective } from './lib/financeRefunds';
+import { orderRefundState, rowDue, rowDueText, rowEffective } from './lib/financeRefunds';
 import { t, type MessageKey } from './lib/i18n';
 
 // A refunded installment (applied in Refunds, or marked so by the statement) is not due and never payable.
@@ -23,7 +23,7 @@ function csvCell(raw: string): string {
 function downloadStatement(rows: Line[]) {
   const headings = ['Provider','Merchant','Order ID','Purchase Date','Installment','Total Installments','Due Date','Amount','Currency','Source Status','Refunded Amount','Still Due','Verified Match','Source Email','Review Notes'];
   const values = rows.map(r => [r.provider,r.merchant,r.order_id,r.purchase_on ?? '',String(r.installment),String(r.total_installments),
-    r.due_on,r.amount,r.currency,r.source_status,r.refunded_amount ?? '0',r.due.toFixed(2),r.verified ? 'Yes' : 'No',r.source_email ?? '',r.review_notes ?? '']);
+    r.due_on,r.amount,r.currency,r.source_status,r.refunded_amount ?? '0',rowDueText(r, r.effective === 'paid'),r.verified ? 'Yes' : 'No',r.source_email ?? '',r.review_notes ?? '']);
   const csv = '\uFEFF' + [headings,...values].map(row => row.map(csvCell).join(',')).join('\r\n');
   const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
   const url = URL.createObjectURL(blob);

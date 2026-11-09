@@ -21,6 +21,7 @@ from anum_api.events import CanonicalEventName, create_event
 from anum_api.finance import advisor as A
 from anum_api.finance import advisor_jobs as J
 from anum_api.finance import advisor_text as T
+from anum_api.finance import commitment_math as M
 from anum_api.finance.advisor_store import advisor_memory_store
 from anum_api.finance.models import (
     Account,
@@ -138,9 +139,11 @@ def codes(note: A.AdvisorNote) -> list[str]:
 
 
 def test_small_helpers() -> None:
-    assert A.monthly_equivalent(bill("Gym", "120", TODAY, Cadence.WEEKLY)) == D(120) * 52 / 12
-    assert A.monthly_equivalent(bill("Car", "1200", TODAY, Cadence.YEARLY)) == D(100)
-    assert A.monthly_equivalent(bill("Once", "500", TODAY, Cadence.ONCE)) == 0
+    # The advisor's runway takes a bill's monthly share from the shared rule (commitment_math.py): a one-off bill adds nothing.
+    assert M.bill_monthly(bill("Gym", "120", TODAY, Cadence.WEEKLY)) == D(120) * 52 / 12
+    assert M.bill_monthly(bill("Car", "1200", TODAY, Cadence.YEARLY)) == D(100)
+    assert M.bill_monthly(bill("Once", "500", TODAY, Cadence.ONCE)) == 0
+    assert M.monthly_equivalent(D(500), Cadence.ONCE) is None
     assert A.next_due_day(31, date(2027, 2, 3)) == date(2027, 2, 28)
     assert A.next_due_day(5, date(2026, 11, 5)) == date(2026, 11, 5) and A.next_due_day(4, date(2026, 11, 5)) == date(2026, 12, 4)
     assert A.next_due_day(31, date(2026, 12, 31)) == date(2026, 12, 31) and A.next_due_day(30, date(2027, 1, 31)) == date(2027, 2, 28)

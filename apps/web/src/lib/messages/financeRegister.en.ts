@@ -133,7 +133,7 @@ export const financeRegisterEn = {
   'facct.error.overview': 'Account details could not be loaded: {message}',
   'facct.kpi.label': 'Accounts at a glance',
   'facct.kpi.available': 'Total available',
-  'facct.kpi.availableHint': 'Bank, cash and investment accounts',
+  'facct.kpi.availableHint': 'Bank and cash accounts, as Safe to spend counts them',
   'facct.kpi.otherCurrencies': 'Also held in {list}, not converted',
   'facct.kpi.accounts': 'Accounts',
   'facct.kpi.reconciled': 'Last reconciled',

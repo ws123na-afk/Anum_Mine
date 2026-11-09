@@ -27,11 +27,13 @@ from datetime import date, datetime, timedelta
 from decimal import Decimal
 from itertools import pairwise
 from statistics import median
+from typing import Literal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from pydantic import BaseModel, Field
 
 from ..schemas import TenantContext
+from . import commitment_math as M
 from . import obligations as O
 from .flows import NOT_SPEND, figures, kinds_of
 from .models import (
@@ -43,6 +45,7 @@ from .models import (
     Debt,
     FinanceSettings,
     Goal,
+    Holding,
     Transaction,
 )
 from .money import quantize, totals
@@ -97,6 +100,27 @@ class GoalProgress(BaseModel):
     target_on: date | None
 
 
+class NetWorthPart(BaseModel):
+    """One currency's net worth, line by line (docs/finance.md#how-figures-are-counted)."""
+
+    currency: str
+    accounts: Decimal  # account balances (cards and loans by their sign); an investment account with holdings counts them at cost
+    receivables: Decimal  # money lent to people, still owed back
+    holdings_at_cost: Decimal  # holdings with a cost basis, instead of their account's ledger balance
+    debts: Decimal  # debts with no account of their own, money borrowed from people included
+    installments: Decimal  # what is still due on installment plans (Tamara, Tabby)
+    net: Decimal
+
+
+class NetWorthExcluded(BaseModel):
+    """Something left out of net worth, with the reason (a holding without a cost basis has no value ANUM can use)."""
+
+    kind: Literal["holding"]
+    name: str
+    currency: str
+    reason: Literal["no_cost_basis", "currency_differs"]
+
+
 class FinanceSummary(BaseModel):
     month: str
     start: date
@@ -119,6 +143,8 @@ class FinanceSummary(BaseModel):
     # Debts no account counts yet (no card or loan account of their own): the only ones net worth subtracts.
     unlinked_debts: list[CurrencyAmount] = Field(default_factory=list)
     net_worth: list[CurrencyAmount] = Field(default_factory=list)
+    net_worth_parts: list[NetWorthPart] = Field(default_factory=list)
+    net_worth_excluded: list[NetWorthExcluded] = Field(default_factory=list)
     minimum_payments: list[CurrencyAmount]
     debt_count: int
     goals: list[GoalProgress]
@@ -218,6 +244,42 @@ def _amounts(values: dict[str, Decimal]) -> list[CurrencyAmount]:
     return [CurrencyAmount(currency=c, amount=quantize(v, c)) for c, v in values.items()]
 
 
+def net_worth(accounts: list[AccountBalance], loose: dict[str, Decimal], holdings: list[Holding], links: O.Links | None,
+              installments: list, today: date) -> tuple[list[NetWorthPart], list[NetWorthExcluded]]:
+    """Net worth per currency: account balances, plus money lent to people and holdings at cost, less debts with no
+    account of their own (money borrowed from people included) and what is still due on installment plans.
+
+    An investment account with holdings counts them at their cost basis (ANUM keeps no market prices) instead of its
+    ledger balance, so a purchase is never counted twice. A holding without a cost basis, or in another currency
+    than its account, is left out and listed in ``excluded``."""
+    from .personal import _still_due
+
+    live = {a.id: a for a in accounts if not a.archived}
+    at_cost: dict[str, Decimal] = {}
+    replaced: set[str] = set()
+    excluded: list[NetWorthExcluded] = []
+    for h in holdings:
+        account = live.get(h.account_id)
+        if account is None:
+            continue
+        if h.cost_basis <= 0:
+            excluded.append(NetWorthExcluded(kind="holding", name=h.symbol, currency=h.currency, reason="no_cost_basis"))
+        elif h.currency != account.currency:
+            excluded.append(NetWorthExcluded(kind="holding", name=h.symbol, currency=h.currency, reason="currency_differs"))
+        else:
+            at_cost[h.currency] = at_cost.get(h.currency, Decimal(0)) + h.cost_basis
+            replaced.add(account.id)
+    own = totals((a.currency, a.balance) for a in live.values() if a.id not in replaced)
+    lent = O.lent_receivables(links.person_loans, links.loan_links, today) if links is not None else {}
+    plans = totals((e.currency, _still_due(e)) for e in installments if e.source_status not in ("paid", "refunded") and _still_due(e) > 0)
+    parts: list[NetWorthPart] = []
+    for c in sorted(set(own) | set(lent) | set(at_cost) | set(loose) | set(plans)):
+        values = [own.get(c, Decimal(0)), lent.get(c, Decimal(0)), at_cost.get(c, Decimal(0)), loose.get(c, Decimal(0)), plans.get(c, Decimal(0))]
+        a, r, h, d, i = (quantize(v, c) for v in values)
+        parts.append(NetWorthPart(currency=c, accounts=a, receivables=r, holdings_at_cost=h, debts=d, installments=i, net=a + r + h - d - i))
+    return parts, sorted(excluded, key=lambda e: (e.currency, e.name))
+
+
 def upcoming_bills(bills: list[Bill], today: date, days: int = UPCOMING_DAYS, links: list | None = None) -> list[UpcomingBill]:
     """Due dates in the next ``days`` days without a matched payment, and this month's overdue ones.
 
@@ -253,11 +315,13 @@ def build_summary(store: FinanceStore, context: TenantContext, month: str | None
     )
     bills = [b for b in store.list_items(context, "bill") if isinstance(b, Bill)]
     upcoming = upcoming_bills(bills, today, links=links.bill_links if links else None)
-    debts = O.current_debts([d for d in store.list_items(context, "debt") if isinstance(d, Debt)], raw_accounts, sums, links)
+    debts = O.current_debts([d for d in store.list_items(context, "debt") if isinstance(d, Debt)], raw_accounts, sums, links, today)
     goals = O.current_goals([g for g in store.list_items(context, "goal") if isinstance(g, Goal)], raw_accounts, sums)
     balances = totals((a.currency, a.balance) for a in accounts if not a.archived)
     loose = totals((d.currency, d.balance) for d in O.unlinked(debts, raw_accounts) if d.balance > 0)
-    worth = {c: balances.get(c, Decimal(0)) - loose.get(c, Decimal(0)) for c in sorted(set(balances) | set(loose))}
+    holdings = [h for h in store.list_items(context, "holding") if isinstance(h, Holding)]
+    parts, excluded = net_worth(accounts, loose, holdings, links, store.get_planning(context).installment_entries, today)
+    worth = {p.currency: p.net for p in parts}
     return FinanceSummary(
         month=label, start=start, end=end, today=today, base_currency=settings.base_currency, timezone=settings.timezone,
         accounts=accounts,
@@ -271,8 +335,8 @@ def build_summary(store: FinanceStore, context: TenantContext, month: str | None
         upcoming_bills=upcoming,
         bills_due=_amounts(totals((b.currency, b.amount) for b in upcoming)),
         debts=_amounts(totals((d.currency, d.balance) for d in debts)),
-        unlinked_debts=_amounts(loose), net_worth=_amounts(worth),
-        minimum_payments=_amounts(totals((d.currency, min(d.minimum_payment, d.balance)) for d in debts if d.balance > 0)),
+        unlinked_debts=_amounts(loose), net_worth=_amounts(worth), net_worth_parts=parts, net_worth_excluded=excluded,
+        minimum_payments=_amounts(totals((d.currency, M.debt_minimum(d)) for d in debts if d.balance > 0)),
         debt_count=len(debts),
         goals=[
             GoalProgress(

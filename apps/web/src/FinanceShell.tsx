@@ -4,7 +4,7 @@
 // cards, banners and status chips. Presentation only: pages pass real figures from the API.
 //
 // Props are kept stable for the other Finance pages; extend them by adding optional props only.
-import { useEffect, useId, useState, type ReactNode } from 'react';
+import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { ArrowDown, ArrowUp, ChevronLeft, ChevronRight, Minus } from 'lucide-react';
 import { monthLabel, shiftMonth, type FinanceTab } from './lib/finance';
@@ -118,12 +118,21 @@ export interface FinanceTabItem<T extends string> { id: T; label: string; badge?
 export function FinanceTabs<T extends string>({ label, items, value, onChange, idPrefix }: {
   label: string; items: readonly FinanceTabItem<T>[]; value: T; onChange: (next: T) => void; idPrefix: string;
 }) {
+  // On a phone the strip scrolls sideways: keep the selected tab in view (only the strip moves, never the page).
+  const strip = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const list = strip.current, tab = list?.querySelector<HTMLElement>('[aria-selected="true"]');
+    if (!list || !tab || list.scrollWidth <= list.clientWidth) return;
+    const box = list.getBoundingClientRect(), at = tab.getBoundingClientRect();
+    if (at.left < box.left) list.scrollLeft -= box.left - at.left + 8;
+    else if (at.right > box.right) list.scrollLeft += at.right - box.right + 8;
+  }, [value]);
   const move = (from: number, by: number) => {
     const next = items[(from + by + items.length) % items.length];
     onChange(next.id);
     requestAnimationFrame(() => document.getElementById(`${idPrefix}-tab-${next.id}`)?.focus());
   };
-  return <div className="finTabs" role="tablist" aria-label={label}>
+  return <div ref={strip} className="finTabs" role="tablist" aria-label={label}>
     {items.map((item, index) => <button key={item.id} id={`${idPrefix}-tab-${item.id}`} type="button" role="tab" aria-selected={value === item.id}
       aria-controls={`${idPrefix}-panel`} tabIndex={value === item.id ? 0 : -1} onClick={() => onChange(item.id)}
       onKeyDown={(e) => {

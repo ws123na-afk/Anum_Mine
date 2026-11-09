@@ -144,6 +144,15 @@ const LIABILITY_KINDS = new Set(['card', 'loan']);
  * a debt is therefore counted once.
  */
 export function netWorth(summary: FinanceSummary): NetWorthRow[] {
+  // The server's one definition: accounts, money lent and holdings at cost, less debts (money borrowed included) and installments.
+  if (summary.net_worth_parts) {
+    return summary.net_worth_parts.map((p) => ({
+      currency: p.currency,
+      assets: fromMilli(toMilli(p.accounts) + toMilli(p.receivables) + toMilli(p.holdings_at_cost), p.currency),
+      debts: fromMilli(toMilli(p.debts) + toMilli(p.installments), p.currency),
+      net: p.net,
+    }));
+  }
   const loose = summary.unlinked_debts ?? summary.debts;
   const accounts = summary.accounts.filter((a) => !a.archived);
   const assets = new Map<string, bigint>(), owed = new Map<string, bigint>();

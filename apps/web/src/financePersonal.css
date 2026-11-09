@@ -53,3 +53,16 @@
 }
 /* A visually hidden table heading is positioned: keep it inside the scrolling table, not the page. */
 .fpmPage .finTableWrap, .fpmPlan .finTableWrap { position: relative; }
+
+.fpmIntro { margin: 0; }
+/* Salary (FinanceSalary.tsx): the profile facts, the month cards and their figures. Shared tokens only. */
+.fsalFacts, .fsalFigures { display: grid; gap: var(--d-s2) var(--d-s4); grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); margin: 0; }
+.fsalFacts dt, .fsalFigures dt { color: var(--d-muted, inherit); font-size: .85em; }
+.fsalFacts dd, .fsalFigures dd { font-weight: 600; margin: 0; }
+.fsalRules { margin-block-start: var(--d-s3); }
+.fsalMonths { display: grid; gap: var(--d-s3); list-style: none; margin: 0; padding: 0; }
+.fsalMonth { border: 1px solid var(--d-line); border-radius: 12px; display: grid; gap: var(--d-s2); min-width: 0; padding: var(--d-s3); }
+.fsalMonthHead { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); }
+.fsalFound { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); justify-content: space-between; }
+.fsalFound p, .fsalFlag, .fsalNote { margin: 0; overflow-wrap: anywhere; }
+.fsalFlag { color: rgb(var(--c-stop)); }

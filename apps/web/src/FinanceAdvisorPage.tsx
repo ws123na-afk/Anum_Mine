@@ -11,7 +11,7 @@ import type {
   FinanceAdvisorCard, FinanceAdvisorCurrency, FinanceAdvisorNotePage, FinanceAdvisorNoteView, FinanceAdvisorOverview, FinanceAdvisorScenario,
 } from '@anum/contracts';
 import * as api from './lib/financeApi';
-import { categoryLabel, formatAmount, isolate, minorDigits, type FinanceTab } from './lib/finance';
+import { categoryLabel, formatAmount, isolate, minorDigits, type FinanceSection, type FinanceTab } from './lib/finance';
 import {
   NOTES_PAGE, WEEKDAYS, actionTab, actionText, cardsDue, headlineScenario, monthsList, pageCount, pickCurrency, runwayTone, severityTone,
   sortActions, sumMoney, weekdayName,
@@ -25,11 +25,16 @@ import './financePages.css';
 import './financeAdvisor.css';
 
 const AdvisorPlan = lazy(() => import('./FinanceAdvisorPlan').then((m) => ({ default: m.AdvisorPlan })));
-type AdvisorView = 'note' | 'plan';
+// Salary and payslips sit here because the advisor is where income already shows: the salary it found, the one income
+// figure and the "No salary found" step (docs/finance.md#salary).
+const SalarySection = lazy(() => import('./FinanceSalary').then((m) => ({ default: m.SalarySection })));
+type AdvisorView = 'note' | 'plan' | 'salary';
 
 const day = (value: string) => formatDateTime(`${value}T12:00:00Z`, { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
 
-export function FinanceAdvisorPage({ onOpen, base = 'AED', initialView = 'note' }: { onOpen: (tab: FinanceTab) => void; base?: string; initialView?: AdvisorView }) {
+export function FinanceAdvisorPage({ onOpen, base = 'AED', initialView = 'note' }: {
+  onOpen: (tab: FinanceTab, section?: FinanceSection) => void; base?: string; initialView?: AdvisorView;
+}) {
   const [view, setView] = useState<AdvisorView>(initialView);
   const [overview, setOverview] = useState<Load<FinanceAdvisorOverview>>({ kind: 'loading' });
   const [shown, setShown] = useState<FinanceAdvisorNoteView | null>(null);
@@ -67,7 +72,11 @@ export function FinanceAdvisorPage({ onOpen, base = 'AED', initialView = 'note' 
   const viewingPast = Boolean(shown && latestId && shown.id !== latestId);
 
   const tabs = <FinanceTabs label={t('fplanx.views')} idPrefix="fadvv" value={view} onChange={setView}
-    items={[{ id: 'note', label: t('fplanx.view.note') }, { id: 'plan', label: t('fplanx.view.plan') }]} />;
+    items={[{ id: 'note', label: t('fplanx.view.note') }, { id: 'plan', label: t('fplanx.view.plan') }, { id: 'salary', label: t('fplanx.view.salary') }]} />;
+  if (view === 'salary') return <div className="finPage finAdvisorPage">
+    <FinancePageHead title={t('finance.tab.advisor')} subtitle={t('fsal.profile.title')} tabs={tabs} />
+    <div {...tabPanel('fadvv', 'salary')}><Suspense fallback={<Notice busy>{t('fsal.loading')}</Notice>}><SalarySection base={base} /></Suspense></div>
+  </div>;
   if (view === 'plan') return <div className="finPage finAdvisorPage">
     <FinancePageHead title={t('finance.tab.advisor')} subtitle={t('fplanx.subtitle')} tabs={tabs} />
     <FinBanner tone="info" icon={<ShieldCheck />} title={t('fadv.onlyAdvises.title')}>{t('fplanx.onlyAdvises')} {t('fplanx.banner')}</FinBanner>
@@ -99,7 +108,8 @@ export function FinanceAdvisorPage({ onOpen, base = 'AED', initialView = 'note' 
       action={<div className="finCardButtons"><button type="button" onClick={() => onOpen('accounts')}>{t('fadv.addAccount')}</button>
         <button type="button" className="secondary" onClick={() => onOpen('import')}>{t('fadv.import')}</button></div>} />
   </FinCard>;
-  else body = <NoteBody view={shown!} block={block} onOpen={onOpen} />;
+  // A step that points at the advisor itself (the salary check) opens its Salary view.
+  else body = <NoteBody view={shown!} block={block} onOpen={(tab) => (tab === 'advisor' ? setView('salary') : onOpen(tab))} />;
 
   return <div className="finPage finAdvisorPage">
     {head}

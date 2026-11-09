@@ -4,6 +4,7 @@ import type {
   FinanceInstallmentStatementEntry, FinanceOrderRefundPlan, FinanceRefundEvidence, FinanceRefundOrderState, FinanceRefundReason,
 } from '@anum/contracts';
 import type { MessageKey } from './i18n.ts';
+import { fromMilli, toMilli } from './financeStatements.ts';
 
 export type RefundFilter = 'all' | 'pending' | 'review' | 'refunded';
 export type ChipTone = 'ok' | 'warn' | 'bad' | 'info' | 'muted';
@@ -66,6 +67,13 @@ export function pendingTotals(orders: readonly FinanceOrderRefundPlan[]): { curr
 export function rowDue(row: FinanceInstallmentStatementEntry): number {
   if (row.source_status === 'paid' || row.source_status === 'refunded') return 0;
   return Math.max(0, Number(row.amount) - Number(row.refunded_amount ?? 0));
+}
+
+/** What is still due on a row as the wire string in its currency's digits (exact, for the CSV): 0 once it is paid. */
+export function rowDueText(row: FinanceInstallmentStatementEntry, paid: boolean): string {
+  if (paid || row.source_status === 'paid' || row.source_status === 'refunded') return fromMilli(0n, row.currency);
+  const left = toMilli(row.amount) - toMilli(row.refunded_amount ?? '0');
+  return fromMilli(left > 0n ? left : 0n, row.currency);
 }
 
 /** One statement row's place in the dashboard: refunded rows are not due and never counted as payable. */

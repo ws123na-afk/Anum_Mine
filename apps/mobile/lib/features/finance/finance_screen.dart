@@ -362,6 +362,8 @@ class _FinanceScreenState extends State<FinanceScreen> {
   String _safeNote(SafeLine line, FinanceStrings s) => switch (line.note) {
         'bill_due' =>
           s.t('safe.note.bill_due', {'date': line.params['date'] ?? ''}),
+        'minimum_overdue' =>
+          s.t('safe.note.minimum_overdue', {'date': line.params['date'] ?? ''}),
         'minimum_due' ||
         'minimum_passed' =>
           s.t('safe.note.${line.note}', {'day': line.params['day'] ?? ''}),

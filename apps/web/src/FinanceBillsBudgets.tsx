@@ -3,7 +3,7 @@
 // (Planned, Due soon, Overdue, Review, Paid) comes from the API, which marks a date paid only when a
 // matched payment exists. Budgets are the person's Guardian category caps: a new or changed cap is
 // confirmed with its code like every rule; the alert threshold per budget is saved with the plan.
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, ArrowRight, CalendarDays, Check, ChevronLeft, ChevronRight, Gauge, Layers, Link2, Plus, Repeat, Search, Wallet } from 'lucide-react';
 import type {
   FinanceAccount, FinanceBill, FinanceBillOccurrence, FinanceBillSchedule, FinanceBillSuggestion, FinanceBudgetAlert, FinanceBudgetLine, FinanceBudgetReport,
@@ -30,16 +30,19 @@ import { FinanceInstallmentRefunds } from './FinanceInstallmentRefunds';
 import { CapDialog, MatchDialog, PersonalScope, Progress, RowMenu } from './FinancePlanningParts';
 import './financePlanning.css';
 
-type Section = 'bills' | 'budgets' | 'recurring' | 'calendar';
-const SECTIONS: readonly Section[] = ['bills', 'budgets', 'recurring', 'calendar'];
+// `fixed`: Monthly fixed costs (docs/finance.md#fixed-commitments), what goes out every month, at #finance-bills-fixed.
+type Section = 'bills' | 'budgets' | 'recurring' | 'calendar' | 'fixed';
+const SECTIONS: readonly Section[] = ['bills', 'budgets', 'recurring', 'calendar', 'fixed'];
 const THRESHOLDS = [50, 60, 70, 75, 80, 85, 90, 95, 99];
 
 const longDate = (day: string) => formatDateTime(`${day}T12:00:00Z`, { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
 const weekday = (day: string) => formatDateTime(`${day}T12:00:00Z`, { weekday: 'short', timeZone: 'UTC' });
 const totalText = (row: CurrencyTotal | null, fallbackCurrency: string) => formatAmount(row?.amount ?? '0', row?.currency ?? fallbackCurrency);
 
+const FixedCosts = lazy(() => import('./FinancePersonalMoney').then((m) => ({ default: m.CommitmentsSection })));
+
 export function BillsBudgetsPage({ initial, accounts, base, today, onOpen, onChanged }: {
-  initial: 'bills' | 'budgets'; accounts: FinanceAccount[]; base: string; today: string; onOpen: (tab: FinanceTab) => void; onChanged: () => void;
+  initial: 'bills' | 'budgets' | 'fixed'; accounts: FinanceAccount[]; base: string; today: string; onOpen: (tab: FinanceTab) => void; onChanged: () => void;
 }) {
   const [section, setSection] = useState<Section>(initial);
   const [month, setMonth] = useState(today.slice(0, 7));
@@ -102,6 +105,8 @@ export function BillsBudgetsPage({ initial, accounts, base, today, onOpen, onCha
     tabs={<FinanceTabs label={t('fplan.bills.tabs')} idPrefix="fbb" value={section} onChange={setSection}
       items={SECTIONS.map((id) => ({ id, label: t(`fplan.bills.tab.${id}` as MessageKey) }))} />} />;
 
+  if (section === 'fixed') return <div className="fplPage">{head}<div {...tabPanel('fbb', section)}>
+    <Suspense fallback={<Notice busy>{t('fpm.loading')}</Notice>}><FixedCosts onOpen={onOpen} /></Suspense></div></div>;
   if (schedule.kind === 'denied') return <div className="fplPage">{head}<Denied /></div>;
   if (schedule.kind === 'error') return <div className="fplPage">{head}<LoadError message={t('fplan.error.bills', { message: schedule.message })} retry={() => void loadSchedule()} /></div>;
   if (schedule.kind === 'loading') return <div className="fplPage">{head}<Notice busy>{t('fplan.loading')}</Notice></div>;

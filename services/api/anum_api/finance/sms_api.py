@@ -1124,7 +1124,7 @@ def ledger_dashboard(
         debts = [
             DebtPlan(id=d.id, name=d.name, currency=d.currency, balance=d.balance, minimum_payment=d.minimum_payment,
                      months_to_clear=_months_to_clear(d.balance, d.apr_percent, d.minimum_payment))
-            for d in obligations.current_debts(finance.list_items(context, "debt"), accounts, sums, links)  # type: ignore[arg-type]
+            for d in obligations.current_debts(finance.list_items(context, "debt"), accounts, sums, links, today)  # type: ignore[arg-type]
         ]
     built = L.dashboard(month=chosen, today=today, accounts=accounts, rows=rows,
                         filters=L.Filters(account_id=account_id, currency=currency, category=category, kind=kind),

@@ -66,6 +66,11 @@ export function statusTone(status: FinanceRowStatus): ChipTone {
   }
 }
 
+/** Money you can spend now, the one definition Safe to spend uses: a bank or cash account that is not archived. */
+export function isAvailable(account: Pick<FinanceAccount, 'kind' | 'archived'>): boolean {
+  return (account.kind === 'bank' || account.kind === 'cash') && !account.archived;
+}
+
 export type AccountsTab = 'cash' | 'cards' | 'wallets' | 'other' | 'sources' | 'archived';
 
 /** Which Accounts tab lists an account: archived first, then wallets (an Apple Wallet card is mapped to it), then its kind. */

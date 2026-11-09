@@ -211,7 +211,7 @@ export const opsEn = {
   'fov.loadingBusiness': 'Reading the business books',
   'fov.kpis': 'This month at a glance',
   'fov.kpi.worth': 'Personal net worth',
-  'fov.kpi.worthHint': 'Account balances less debts with no account of their own',
+  'fov.kpi.worthHint': 'Accounts, money lent and holdings at cost, less debts and installments',
   'fov.kpi.cashbackHint': 'Card rewards, not salary',
   'fov.kpi.refundsHint': 'Returned purchases, not earned income',
   'fov.kpi.income': 'Business income',

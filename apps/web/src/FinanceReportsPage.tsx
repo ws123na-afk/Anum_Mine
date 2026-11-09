@@ -375,6 +375,8 @@ function NetWorth(ctx: Ctx) {
             <td className="num"><Money value={r.debts} currency={r.currency} /></td><td className="num"><strong><Money value={r.net} currency={r.currency} signed /></strong></td></tr>)}</tbody>
         </table></div>}
       <p className="muted finFoot">{t('frep.worth.note')}</p>
+      {(s.net_worth_excluded ?? []).length > 0 && <p className="muted finFoot" role="note">{t('frep.worth.excluded', { list: (s.net_worth_excluded ?? [])
+        .map((e) => t(`frep.worth.excluded.${e.reason}` as MessageKey, { name: e.name, currency: e.currency })).join(', ') })}</p>}
     </FinCard>
     {s.accounts.length > 0 && <FinCard title={t('finance.overview.accounts')} icon={<Landmark />}>
       <ul className="cmList">{s.accounts.filter((a) => !a.archived).map((a) => <li key={a.id}><div><strong dir="auto">{a.name}</strong><small>{t(`finance.kind.${a.kind}` as MessageKey)}</small></div>

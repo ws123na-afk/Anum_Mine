@@ -8,7 +8,7 @@ import type {
   FinanceAfford, FinanceCompare, FinanceOptionInput, FinancePayoffPage, FinanceRemittancePage, FinanceResearch, FinanceResearchTopic,
 } from '@anum/contracts';
 import * as pm from './lib/financePersonalApi';
-import { formatAmount, isolate, type FinanceTab } from './lib/finance';
+import { formatAmount, isolate, type FinanceSection, type FinanceTab } from './lib/finance';
 import { payoffHeadline, verdictTone } from './lib/financePersonal';
 import { describeError } from './lib/errors';
 import { formatDateTime, t, type MessageKey } from './lib/i18n';
@@ -19,7 +19,7 @@ import './financePersonal.css';
 const day = (value: string) => formatDateTime(`${value}T12:00:00Z`, { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
 const amount = (value: string, currency: string) => isolate(formatAmount(value, currency));
 
-export function AdvisorPlan({ base, onOpen }: { base: string; onOpen: (tab: FinanceTab) => void }) {
+export function AdvisorPlan({ base, onOpen }: { base: string; onOpen: (tab: FinanceTab, section?: FinanceSection) => void }) {
   return <div className="fpmPlan">
     <PayoffCard onOpen={onOpen} />
     <div className="finReportGrid fpmGrid">
@@ -175,7 +175,7 @@ function CompareCard({ base }: { base: string }) {
 
 // -- sending money home ------------------------------------------------------------------------------------
 
-function SendHomeCard({ onOpen }: { onOpen: (tab: FinanceTab) => void }) {
+function SendHomeCard({ onOpen }: { onOpen: (tab: FinanceTab, section?: FinanceSection) => void }) {
   const [state, setState] = useState<Load<FinanceRemittancePage>>({ kind: 'loading' });
   const load = useCallback(() => { pm.listRemittances({ limit: 1, offset: 0 }).then((value) => setState({ kind: 'ready', value })).catch((e) => setState(failed(e))); }, []);
   useEffect(() => { load(); }, [load]);
@@ -184,7 +184,7 @@ function SendHomeCard({ onOpen }: { onOpen: (tab: FinanceTab) => void }) {
     {state.kind === 'loading' && <Notice busy>{t('fpm.loading')}</Notice>}
     {state.kind === 'error' && <LoadError message={t('fpm.error', { message: state.message })} retry={load} />}
     {state.kind === 'ready' && (providers.length === 0
-      ? <div className="fpmEmptyLine"><p className="muted">{t('fplanx.send.none')}</p><button type="button" className="secondary" onClick={() => onOpen('remittances')}>{t('fpm.remit.add')}</button></div>
+      ? <div className="fpmEmptyLine"><p className="muted">{t('fplanx.send.none')}</p><button type="button" className="secondary" onClick={() => onOpen('goals', 'send-home')}>{t('fpm.remit.add')}</button></div>
       : <ul className="finMoveList">{providers.slice(0, 5).map((p, i) => <li key={`${p.provider}-${p.corridor}`}>
         <div><span dir="auto">{p.provider}</span><small dir="ltr">{p.corridor} · {p.latest_on}</small></div>
         <span>{p.average_fee_percent !== null ? t('fpm.remit.feePct', { percent: isolate(p.average_fee_percent) }) : '-'}</span>

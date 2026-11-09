@@ -614,6 +614,21 @@ export interface FinanceHoldingInput {
   notes?: string | null;
 }
 
+/** One currency's net worth (docs/finance.md#how-figures-are-counted). */
+export interface FinanceNetWorthPart {
+  currency: string;
+  /** Account balances (cards and loans by their sign); an investment account with holdings counts them at cost instead. */
+  accounts: FinanceMoney;
+  /** Money lent to people, still owed back. */
+  receivables: FinanceMoney;
+  holdings_at_cost: FinanceMoney;
+  /** Debts with no account of their own, money borrowed from people included. */
+  debts: FinanceMoney;
+  /** Still due on installment plans. */
+  installments: FinanceMoney;
+  net: FinanceMoney;
+}
+
 export interface FinanceSummary {
   month: string;
   start: string;
@@ -640,6 +655,10 @@ export interface FinanceSummary {
   unlinked_debts?: FinanceCurrencyAmount[];
   /** Account balances (cards and loans by their sign) less `unlinked_debts`, per currency. */
   net_worth?: FinanceCurrencyAmount[];
+  /** Net worth per currency, line by line (older servers leave it out; the web then works it out from the accounts). */
+  net_worth_parts?: FinanceNetWorthPart[];
+  /** Left out of net worth, with the reason: a holding without a cost basis, or in another currency than its account. */
+  net_worth_excluded?: { kind: 'holding'; name: string; currency: string; reason: 'no_cost_basis' | 'currency_differs' }[];
   minimum_payments: FinanceCurrencyAmount[];
   debt_count: number;
   /** The month had more rows than one read returns: the figures are partial. */
@@ -671,7 +690,7 @@ export interface FinancePlanInput {
 
 export type FinanceSafeLineKind = 'balance' | 'bill' | 'minimum_payment' | 'goal' | 'buffer';
 export type FinanceSafeNote =
-  | 'account_balance' | 'bill_due' | 'bill_overdue' | 'minimum_due' | 'minimum_no_day' | 'minimum_passed' | 'minimum_in_bill' | 'goal_set' | 'goal_derived'
+  | 'account_balance' | 'bill_due' | 'bill_overdue' | 'minimum_due' | 'minimum_no_day' | 'minimum_passed' | 'minimum_overdue' | 'minimum_in_bill' | 'goal_set' | 'goal_derived'
   | 'goal_no_plan' | 'goal_reached' | 'goal_paused' | 'buffer' | 'account_card' | 'account_loan' | 'account_investment' | 'account_archived';
 
 /** One line of the figure: positive for money you have, negative for a deduction. */
@@ -697,6 +716,10 @@ export interface FinanceCurrencySafeToSpend {
   per_day: FinanceMoney;
   short: boolean;
   lines: FinanceSafeLine[];
+  /** With a salary profile in this currency: the next usual pay day and the net expected then. */
+  next_pay_on?: string | null;
+  expected_pay?: FinanceMoney | null;
+  days_to_payday?: number | null;
 }
 
 export interface FinanceConversion {
@@ -1568,7 +1591,12 @@ export interface FinanceAdvisorNote {
   version: number; today: string; timezone: string; base_currency: string; week_start: string; week_end: string; month_start: string;
   newest_record_on: string | null; history_days: number; has_accounts: boolean;
   currencies: FinanceAdvisorCurrency[]; cards: FinanceAdvisorCard[];
-  income: { salary_found: boolean; last_salary_on: string | null };
+  income: {
+    salary_found: boolean; last_salary_on: string | null;
+    /** The one income figure: the salary profile's expected net, else the average of the records. Older notes leave these out. */
+    currency?: string | null; monthly?: string | null; source?: 'salary_profile' | 'records' | null; next_pay_on?: string | null;
+    missing_months?: string[]; expected_pay_day?: number | null;
+  };
   actions: FinanceAdvisorAction[]; notice_en: string; notice_ar: string;
 }
 export interface FinanceAdvisorSettings { enabled: boolean; weekday: number; updated_at: string | null }

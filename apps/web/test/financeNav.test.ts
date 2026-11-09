@@ -1,7 +1,7 @@
 // The Finance shell model (docs/finance.md#finance-shell).
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import { FINANCE_TABS } from '../src/lib/finance.ts';
+import { FINANCE_TABS, hashForSection, sectionFromHash, tabFromHash } from '../src/lib/finance.ts';
 import { FINANCE_NAV, OWN_HEAD_TABS, delta, groupOf, isCurrent, monthRange, monthsEnding, navTabs } from '../src/lib/financeNav.ts';
 import { NAV } from '../src/lib/shell.ts';
 import { en } from '../src/lib/messages/en.ts';
@@ -13,19 +13,29 @@ describe('finance section nav', () => {
     assert.deepEqual([...tabs].sort(), [...FINANCE_TABS].sort());
     assert.equal(new Set(tabs).size, tabs.length);
   });
-  it('keeps the mockup order of the Finance group, with one Personal money entry after Goals', () => {
+  it('keeps the mockup order of the Finance group: the personal money sections live inside their pages', () => {
     const finance = FINANCE_NAV[0].entries.map((e) => (e.kind === 'tab' ? e.tab : e.id));
-    const order = ['overview', 'transactions', 'accounts', 'bills', 'budgets', 'debts', 'goals', 'people', 'reports', 'safe', 'advisor', 'guardian'].filter((id) => finance.includes(id as never));
+    const order = ['overview', 'transactions', 'accounts', 'bills', 'budgets', 'debts', 'goals', 'reports', 'safe', 'advisor', 'guardian'].filter((id) => finance.includes(id as never));
     assert.deepEqual(finance, order);
   });
-  it('marks Personal money current on each of its page tabs, in the Finance group', () => {
-    const entry = FINANCE_NAV[0].entries.find((e) => e.kind === 'tab' && e.tab === 'people');
+  it('has one entry for Connections and SMS capture, current on both of its tabs', () => {
+    const entry = FINANCE_NAV.flatMap((g) => g.entries).find((e) => e.kind === 'tab' && e.tab === 'connections');
     assert.ok(entry);
-    for (const tab of ['people', 'payslips', 'remittances', 'commitments'] as const) {
+    for (const tab of ['connections', 'sms'] as const) {
       assert.ok(isCurrent(entry, tab), tab);
-      assert.equal(groupOf(tab), 'finance');
+      assert.equal(groupOf(tab), 'capture');
     }
-    assert.ok(!isCurrent(entry, 'reports'));
+    assert.ok(!FINANCE_NAV.flatMap((g) => g.entries).some((e) => e.kind === 'tab' && e.tab === 'sms'));
+    assert.ok(!isCurrent(entry, 'import'));
+  });
+  it('opens the moved personal money pages at their new place, from the old hashes too', () => {
+    for (const [hash, tab, section] of [['#finance-people', 'debts', 'people'], ['#finance-debts-people', 'debts', 'people'], ['#finance-remittances', 'goals', 'send-home'],
+      ['#finance-commitments', 'bills', 'fixed'], ['#finance-bills-fixed', 'bills', 'fixed'], ['#finance-payslips', 'advisor', 'salary']] as const) {
+      assert.deepEqual(sectionFromHash(hash), { tab, section }, hash);
+      assert.equal(tabFromHash(hash), tab, hash);
+    }
+    assert.equal(sectionFromHash('#finance-bills'), null);
+    assert.equal(hashForSection('debts', 'people'), '#finance-debts-people');
   });
   it('labels every combined entry in both languages and never with a money-moving verb', () => {
     for (const entry of FINANCE_NAV.flatMap((g) => g.entries)) {

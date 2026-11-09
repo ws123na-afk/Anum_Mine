@@ -41,6 +41,7 @@ from anum_api.finance.guardian import (
     payload_hash,
 )
 from anum_api.finance.models import Account, AccountKind, Bill, Cadence, Category, CurrencyBuffer, Debt, DebtKind, FxRate, Goal, PlanSettings
+from anum_api.finance.obligations import DebtPayment
 from anum_api.finance.safe_to_spend import compute, months_between
 from anum_api.finance.store import finance_store
 from anum_api.finance.tools import plan_call
@@ -103,7 +104,8 @@ def _paid_link(bill_id: str, due: date):  # type: ignore[no-untyped-def]
                                 created_by="u"))
 
 
-def _scenario(plan: PlanSettings | None = None, rates: list[FxRate] | None = None, bill_links: list | None = None):  # type: ignore[no-untyped-def]
+def _scenario(plan: PlanSettings | None = None, rates: list[FxRate] | None = None, bill_links: list | None = None,  # type: ignore[no-untyped-def]
+              debt_payments: list | None = None):
     accounts = [
         _account("current", AccountKind.BANK, opening="5000.00"), _account("wallet", AccountKind.CASH, opening="250.00"),
         _account("card", AccountKind.CARD, opening="-900.00"), _account("old", AccountKind.BANK, opening="99.00", archived=True),
@@ -130,6 +132,8 @@ def _scenario(plan: PlanSettings | None = None, rates: list[FxRate] | None = Non
         today=_today(), base_currency="AED", timezone="Asia/Dubai", accounts=accounts, balances={"current": Decimal("-1000.00")},
         bills=bills, debts=debts, goals=goals, plan=plan or PlanSettings(buffers=[CurrencyBuffer(currency="AED", amount=Decimal("500.00"))]),
         rates=rates or [], bill_links=[_paid_link("paid", date(2026, 10, 2))] if bill_links is None else bill_links,
+        # The loan's minimum (day 5) was paid this month: a payment is matched to it.
+        debt_payments=[DebtPayment("loan", Decimal("300.00"), "AED", date(2026, 10, 5), NOW)] if debt_payments is None else debt_payments,
     )
 
 
@@ -138,7 +142,7 @@ def test_safe_to_spend_is_built_line_by_line_per_currency() -> None:
     assert result.days_left == 18 and result.month_end == date(2026, 10, 31) and result.accounts_counted == 3
     aed = next(c for c in result.currencies if c.currency == "AED")
     # 4000 + 250 available; bills: rent 1500 + gym on 15, 22 and 29 (150), water (2 Oct) paid by a matched payment;
-    # minimum: card 100 (loan's day 5 passed);
+    # minimum: card 100 (loan's day 5 passed and a payment is matched to it this month);
     # goals: fund 1000 over Oct, Nov, Dec = 333.34 (rounded up), trip 200 set; buffer 500.
     assert aed.available == Decimal("4250.00") and aed.bills == Decimal("1650.00") and aed.minimum_payments == Decimal("100.00")
     assert aed.goals == Decimal("533.34") and aed.buffer == Decimal("500.00")
@@ -155,6 +159,16 @@ def test_safe_to_spend_is_built_line_by_line_per_currency() -> None:
     # A minimum payment never exceeds what is owed; no due day: counted.
     assert usd.minimum_payments == Decimal("40.00") and usd.safe_to_spend == Decimal("360.00")
     assert result.currencies[0].currency == "AED" and result.combined_status == "off" and result.combined is None
+
+
+def test_a_passed_minimum_without_a_matched_payment_stays_counted_as_overdue() -> None:
+    # The loan's day 5 passed with no payment matched this month (one from last month does not count): still to pay.
+    result = _scenario(debt_payments=[DebtPayment("loan", Decimal("300.00"), "AED", date(2026, 9, 5), NOW)])
+    aed = next(c for c in result.currencies if c.currency == "AED")
+    loan = next(line for line in aed.lines if line.ref_id == "loan")
+    assert (loan.note, loan.amount, loan.params) == ("minimum_overdue", Decimal("-300.00"), {"date": "2026-10-05"})
+    assert aed.minimum_payments == Decimal("400.00") and aed.safe_to_spend == Decimal("1166.66")
+    assert "loan" not in {line.ref_id for line in result.excluded}
 
 
 def test_short_month_has_no_per_day_and_months_between_counts_this_month() -> None:
