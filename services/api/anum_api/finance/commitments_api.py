@@ -185,7 +185,8 @@ class CandidatePage(BaseModel):
 
 @router.get("/payment-candidates", response_model=CandidatePage)
 def payment_candidates(
-    for_: Literal["bill", "debt"] = Query(alias="for"),
+    for_: Literal["bill", "debt", "person_loan", "payslip", "remittance"] = Query(alias="for"),
+    direction: Literal["in", "out"] | None = Query(default=None),
     around: date | None = Query(default=None),
     amount: Decimal | None = Query(default=None, ge=0, le=Decimal("1e15")),
     currency: str | None = Query(default=None, pattern=r"^[A-Za-z]{3}$"),
@@ -193,8 +194,16 @@ def payment_candidates(
     limit: int = Query(default=20, ge=1, le=50),
     context: TenantContext = Depends(tenant_context),
 ) -> CandidatePage:
-    """Your recorded payments near a date (60 days before to 15 after), closest in amount first. A suggestion only."""
+    """Your recorded payments near a date (60 days before to 15 after), closest in amount first. A suggestion only.
+
+    Bills, debts and remittances take money out; a payslip takes the salary credit (money in); a loan with a person
+    takes either (``direction``: lending and repaying a loan are money out, borrowing and being repaid money in)."""
     _read(context)
+    wanted_direction = direction or ("in" if for_ == "payslip" else "out")
+    if for_ in ("bill", "debt", "remittance") and wanted_direction != "out":
+        raise _invalid("Bills, debts and remittances are paid with money out.")
+    if for_ == "payslip" and wanted_direction != "in":
+        raise _invalid("A payslip is matched to the salary credit (money in).")
     centre = around or utc_now().date()
     needle = (q or "").casefold().strip()
     wanted = currency.upper() if currency else None
@@ -211,11 +220,11 @@ def payment_candidates(
     out: list[tuple[tuple[Any, ...], Candidate]] = []
     for canonical, chain in chains.items():
         current = K.live_entry(chain)
-        if current is None or not is_money_out(current):
+        if current is None or is_money_out(current) != (wanted_direction == "out") or not any(p.account_id for p in current.postings):
             continue
         if needle and needle not in f"{current.merchant or ''} {current.description}".casefold():
             continue
-        account = next((p.account_id for p in current.postings if p.account_id and p.amount < 0), None)
+        account = next((p.account_id for p in current.postings if p.account_id and (p.amount < 0) == (wanted_direction == "out")), None)
         for cur, cap in K.capacity(chain).items():
             if wanted and cur != wanted:
                 continue
@@ -466,13 +475,16 @@ def put_debt_plan(body: DebtPlanInput, context: TenantContext = Depends(tenant_c
 def get_budgets(month: str | None = Query(default=None, pattern=r"^\d{4}-(0[1-9]|1[0-2])$"), context: TenantContext = Depends(tenant_context)) -> BudgetReport:
     """Your Guardian category caps as budgets for a month: spent, left, state, pace and the daily spend line."""
     _read(context)
+    from . import obligations
+
+    lending = obligations.load(context).lending_ids  # its own short unit of work first
     with open_finance_store(context) as store:
         today = today_in(settings_for(store, context))
         label, start, end = month_range(month, today)
         rules, version = current_rules(store, context)
         alerts = store.get_planning(context).budget_alerts
         rows = store.transactions_between(context, start, end) if rules.category_caps else []
-    return budget_report(rules, version, alerts, rows, month=label, start=start, end=end, today=today)
+    return budget_report(rules, version, alerts, rows, month=label, start=start, end=end, today=today, lending=lending)
 
 
 class AlertRow(BaseModel):

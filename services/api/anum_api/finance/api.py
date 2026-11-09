@@ -45,6 +45,7 @@ from .models import (
     DebtKind,
     FinanceSettings,
     Goal,
+    GoalPurpose,
     Holding,
     ImportRecord,
     Transaction,
@@ -989,6 +990,8 @@ class GoalInput(BaseModel):
     monthly_contribution: Amount | None = None
     # Left out: kept as it is (a new goal is not paused).
     paused: bool | None = None
+    # What the goal is for. Left out: kept as it is (a new goal is "general").
+    purpose: GoalPurpose | None = None
     notes: str | None = Field(default=None, max_length=1000)
 
 
@@ -1046,6 +1049,7 @@ class GoalView(BaseModel):
     account_id: str | None
     monthly_contribution: Decimal | None = None
     paused: bool = False
+    purpose: GoalPurpose = GoalPurpose.GENERAL
     notes: str | None
     created_at: Any
     updated_at: Any
@@ -1144,6 +1148,7 @@ def _build_goal(store: FinanceStore, context: TenantContext, body: GoalInput, ex
             if body.monthly_contribution not in (None, "") else None
         ),
         paused=body.paused if body.paused is not None else (existing.paused if existing else False),
+        purpose=body.purpose or (existing.purpose if existing else GoalPurpose.GENERAL),
         notes=_clean(body.notes, 1000), created_at=existing.created_at if existing else now, updated_at=now,
     )
 

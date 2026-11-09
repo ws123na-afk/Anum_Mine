@@ -26,7 +26,8 @@ reception visitor records past each workspace's retention (``anum_api.record_ret
 reported under ``record_retention``, and then sends document expiry reminders and empties the document
 vault's trash (``anum_api.vault.jobs``), reported under ``documents``, so the daily retention CronJob
 covers every one of them. Last, it writes the weekly Money advisor notes that are due
-(``anum_api.finance.advisor_jobs``), reported under ``finance_advisor``.
+(``anum_api.finance.advisor_jobs``), reported under ``finance_advisor``, and the due and overdue reminders for
+money lent and borrowed with people (``anum_api.finance.personal_jobs``), reported under ``finance_loan_reminders``.
 """
 
 from __future__ import annotations
@@ -122,6 +123,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     from .finance.advisor_jobs import run as run_advisor
 
     report["finance_advisor"] = run_advisor(dry_run=args.dry_run)
+    # Money lent and borrowed with people: due and overdue reminders, in-app only (docs/finance.md#lent-and-borrowed).
+    from .finance.personal_jobs import run as run_loan_reminders
+
+    report["finance_loan_reminders"] = run_loan_reminders(dry_run=args.dry_run)
     print(json.dumps(report, indent=2))
     return 0
 

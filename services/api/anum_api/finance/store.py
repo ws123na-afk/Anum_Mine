@@ -204,6 +204,13 @@ def _advisor_memory():  # type: ignore[no-untyped-def]
     return advisor_memory_store
 
 
+def _personal_memory():  # type: ignore[no-untyped-def]
+    """Money lent and borrowed with people, payslips and remittances (``personal_store``), deleted and counted with the rest of finance."""
+    from .personal_store import personal_memory_store
+
+    return personal_memory_store
+
+
 def _sms_memory():  # type: ignore[no-untyped-def]
     """The in-memory SMS and journal store (``sms_store``), deleted and counted with the rest of finance."""
     from .sms_store import sms_memory_store
@@ -263,6 +270,9 @@ class InMemoryFinanceStore:
         advisor = sys.modules.get("anum_api.finance.advisor_store")
         if advisor is not None and hasattr(advisor, "advisor_memory_store"):
             advisor.advisor_memory_store.clear()
+        personal = sys.modules.get("anum_api.finance.personal_store")
+        if personal is not None and hasattr(personal, "personal_memory_store"):
+            personal.personal_memory_store.clear()
         self.settings: dict[tuple[str, str, str], FinanceSettings] = {}
         self.accounts: dict[str, Account] = {}
         self.transactions: dict[str, Transaction] = {}
@@ -887,7 +897,8 @@ class InMemoryFinanceStore:
             keyed = (self.settings, self.plans, self.planning, self.exec_settings)
             return (rows + sum(int(self._key(context) in table) for table in keyed) + _ibkr_memory().count_everything(context)
                     + _sms_memory().count_everything(context) + _links_memory().count_everything(context)
-                    + _templates_memory().count_everything(context) + _advisor_memory().count_everything(context))
+                    + _templates_memory().count_everything(context) + _advisor_memory().count_everything(context)
+                    + _personal_memory().count_everything(context))
 
     def delete_everything(self, context: TenantContext) -> int:
         with self._lock:
@@ -901,7 +912,7 @@ class InMemoryFinanceStore:
                     removed += 1
             return (removed + _ibkr_memory().delete_everything(context) + _sms_memory().delete_everything(context)
                     + _links_memory().delete_everything(context) + _templates_memory().delete_everything(context)
-                    + _advisor_memory().delete_everything(context))
+                    + _advisor_memory().delete_everything(context) + _personal_memory().delete_everything(context))
 
 
 finance_store = InMemoryFinanceStore()

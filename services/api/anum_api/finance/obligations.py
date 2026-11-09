@@ -49,13 +49,17 @@ class Links:
 
     bill_links: list = field(default_factory=list)  # FinanceLink rows in the ``bill`` dimension
     debt_payments: list[DebtPayment] = field(default_factory=list)
+    # Transactions linked to money lent or borrowed with a person: transfers by the shared rule (``flows.py``).
+    lending_ids: frozenset[str] = frozenset()
 
 
 def load(context: TenantContext) -> Links:
-    """Bill links and matched debt payments, in one short unit of work (never nested in another)."""
+    """Bill links, matched debt payments and the transactions lent or borrowed with a person, in one short unit
+    of work (never nested in another)."""
     from .commitments import BILL_DIMENSION, BILL_TARGET, DEBT_DIMENSION, DEBT_TARGET
     from .links import live_entry
     from .links_store import LinkStatus, open_link_stores
+    from .personal import PERSON_LOAN_DIMENSION
 
     with open_link_stores(context) as (_finance, sms, links):
         bill_rows, _ = links.list_links(context, canonical_id=None, dimension=BILL_DIMENSION, target_type=BILL_TARGET, target_id=None,
@@ -71,7 +75,13 @@ def load(context: TenantContext) -> Links:
                 continue
             payments.append(DebtPayment(debt_id=link.target_id, amount=link.amount, currency=link.currency, posted_on=entry.posted_on,
                                         matched_at=link.created_at))
-    return Links(bill_links=[l for l in bill_rows if l.status != LinkStatus.VOID], debt_payments=payments)
+        loan_rows, _ = links.list_links(context, canonical_id=None, dimension=PERSON_LOAN_DIMENSION, target_type=None, target_id=None,
+                                        status=None, limit=10_000, offset=0)
+        lending: set[str] = set()
+        for canonical in {l.canonical_id for l in loan_rows if l.status != LinkStatus.VOID}:
+            for entry in sms.chain(context, canonical):
+                lending.update(p.transaction_id for p in entry.postings if p.transaction_id)
+    return Links(bill_links=[l for l in bill_rows if l.status != LinkStatus.VOID], debt_payments=payments, lending_ids=frozenset(lending))
 
 
 # -- bills ---------------------------------------------------------------------------------------------
