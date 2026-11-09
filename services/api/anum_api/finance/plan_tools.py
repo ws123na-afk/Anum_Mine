@@ -398,8 +398,8 @@ _ITEM_STOPS = frozenset({"for", "at", "costing", "worth", "with", "on", "in", "f
 _ITEM_WORD = re.compile(r"[a-z0-9'-]{1,60}", re.IGNORECASE)
 
 
-def _item(words: list[str]) -> str | None:
-    """What the person wants to buy, at most 61 characters starting with a letter, or None."""
+def _item(words: list[str]) -> tuple[str, range] | None:
+    """What the person wants to buy (at most 61 characters starting with a letter) and the words it spans, or None."""
     for i, verb in enumerate(words):
         if verb.lower() not in _ITEM_VERBS:
             continue
@@ -420,7 +420,7 @@ def _item(words: list[str]) -> str | None:
             j += 1
         item = " ".join(taken)
         if ended and 2 <= len(item) <= 61 and item[0].isascii() and item[0].isalpha():
-            return item
+            return item, range(j - len(taken), j)
     return None
 
 
@@ -442,6 +442,7 @@ def plan_call(text: str) -> ToolCall | None:
     words = text.split(" ")
     monthly = _amount_before(words, _MONTHLY_PHRASES)
     down = _amount_before(words, _DOWN_PHRASES)
+    item = _item(words)
     currency = _CURRENCY.search(text)
     cur = {"currency": currency.group(1).upper()} if currency else {}
     if PAYOFF.search(text):
@@ -455,7 +456,8 @@ def plan_call(text: str) -> ToolCall | None:
         if amounts:
             args["amount"] = str(amounts[0])
         return ToolCall(name="finance.plan.send_home", arguments=args)
-    taken = {i for found in (monthly, down) if found is not None for i in found[1]}
+    # A number inside the item's name ("iPhone 16", "PlayStation 5") is never its price.
+    taken = {i for found in (monthly, down, item) if found is not None for i in found[1]}
     stripped = _MONTHS.sub(" ", _RATE.sub(" ", " ".join(w for i, w in enumerate(words) if i not in taken)))
     amounts = [a for a in _amounts(stripped) if a > 0]
     if COMPARE.search(text):
@@ -473,8 +475,8 @@ def plan_call(text: str) -> ToolCall | None:
             args["basis"] = "flat"
         if re.search(r"installments?|تقسيط|أقساط|اقساط|tamara|tabby|تمارا|تابي", text, re.IGNORECASE):
             args["installments"] = True
-        if (item := _item(words)) is not None:
-            args["item"] = item
+        if item is not None:
+            args["item"] = item[0]
         return ToolCall(name="finance.plan.compare", arguments=args)
     if AFFORD.search(text):
         args = {**cur}
@@ -482,8 +484,8 @@ def plan_call(text: str) -> ToolCall | None:
             args["price"] = str(amounts[0])
         if monthly is not None:
             args["monthly_cost"] = monthly[0]
-        if (item := _item(words)) is not None:
-            args["item"] = item
+        if item is not None:
+            args["item"] = item[0]
         return ToolCall(name="finance.plan.afford", arguments=args)
     return None
 

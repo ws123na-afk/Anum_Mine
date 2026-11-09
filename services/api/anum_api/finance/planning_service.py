@@ -229,6 +229,8 @@ class LiveFigure:
     kind: Literal["percent", "amount"]
     value: str
     currency: str | None = None
+    # A percent whose own clause names an interest or profit rate and no fee (never sent to clients).
+    rate: bool = False
 
 
 @dataclass
@@ -248,16 +250,33 @@ class LiveResearch:
     message: str = ""
 
 
+_CLAUSE_END = re.compile(r"[;,،|\n()]|\.\s")
+_RATE_WORDS = re.compile(r"\b(?:interest|apr|rates?|loans?|financing|profit|p\.a|per annum|annual|flat|reducing)\b|معدل|فائدة|ربح|سنوي", re.IGNORECASE)
+_FEE_WORDS = re.compile(r"\b(?:fees?|charges?|processing|admin|commission|insurance|cashback|discount|down|deposit|vat|tax|off)\b|رسوم|عمولة|خصم|ضريبة",
+                        re.IGNORECASE)
+
+
+def _clause(text: str, start: int, end: int) -> str:
+    """The clause around text[start:end]: from the last separator before it to the first one after it."""
+    before = [m.end() for m in _CLAUSE_END.finditer(text, 0, start)]
+    after = _CLAUSE_END.search(text, end)
+    return text[before[-1] if before else 0 : after.start() if after else len(text)]
+
+
 def figures_in(text: str) -> list[LiveFigure]:
     found: list[LiveFigure] = []
     for match in _PERCENT.finditer(text):
-        found.append(LiveFigure("percent", match.group(1)))
+        clause = _clause(text, match.start(), match.end())
+        found.append(LiveFigure("percent", match.group(1), rate=bool(_RATE_WORDS.search(clause)) and not _FEE_WORDS.search(clause)))
     for match in _AMOUNT.finditer(text):
         found.append(LiveFigure("amount", match.group(2).replace(",", ""), match.group(1)))
     unique: list[LiveFigure] = []
     for f in found:
-        if all((u.kind, u.value, u.currency) != (f.kind, f.value, f.currency) for u in unique):
+        same = next((u for u in unique if (u.kind, u.value, u.currency) == (f.kind, f.value, f.currency)), None)
+        if same is None:
             unique.append(f)
+        elif f.rate and not same.rate:
+            unique[unique.index(same)] = f
     return unique[:6]
 
 
@@ -292,11 +311,13 @@ async def live_research(context: TenantContext, query: str) -> LiveResearch:
 
 
 def live_rates(research: LiveResearch, limit: int = 3) -> list[tuple[Decimal, str, date]]:
-    """Distinct percentages found, each with the address it was read from and the date (at most ``limit``)."""
+    """Distinct interest or profit rates found, each with the address it was read from and the date (at most
+    ``limit``). A percent whose clause does not name a rate, or names a fee, is shown to the person but never
+    costed as a loan rate: "1% processing fee" is not a 1% loan."""
     out: list[tuple[Decimal, str, date]] = []
     for item in research.items:
         for f in item.figures:
-            if f.kind != "percent":
+            if f.kind != "percent" or not f.rate:
                 continue
             value = Decimal(f.value)
             if Decimal(0) < value <= Decimal(60) and all(v != value for v, _, _ in out):

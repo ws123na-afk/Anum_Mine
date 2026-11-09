@@ -584,3 +584,35 @@ def test_planner_reads_the_item_word_by_word() -> None:
     started = time.monotonic()
     plan_call("can i afford a " + "a\t" * 5000)
     assert time.monotonic() - started < 1
+
+
+def test_fixed_commitments_leave_out_what_a_refund_cleared() -> None:
+    entry = {"provider": "Tamara", "merchant": "Phone Shop", "due_on": date(2026, 11, 9), "total_installments": 4, "currency": "AED",
+             "source_status": "scheduled", "installment": 2}
+    installments = [InstallmentStatementEntry(order_id="o1", amount=D("250"), refunded_amount=D("100"), **entry),
+                    InstallmentStatementEntry(order_id="o2", amount=D("100"), refunded_amount=D("100"), **{**entry, "merchant": "Shop B"}),
+                    InstallmentStatementEntry(order_id="o3", amount=D("100"), **{**entry, "merchant": "Shop C", "source_status": "refunded"})]
+    counted, skipped = P.fixed_commitments([], [], installments, [], date(2026, 11, 5))
+    assert [(c.name, c.monthly) for c in counted] == [("Tamara: Phone Shop", D("150.00"))]
+    assert skipped == []
+
+
+def test_planner_never_takes_a_model_number_for_the_price() -> None:
+    from anum_api.finance.plan_tools import plan_call
+
+    phone = plan_call("Can I afford an iPhone 16 for AED 4000?")
+    assert phone is not None and phone.arguments["price"] == "4000" and phone.arguments["item"] == "iPhone 16"
+    console = plan_call("Should I buy a PlayStation 5 for AED 2000?")
+    assert console is not None and console.arguments["price"] == "2000" and console.arguments["item"] == "PlayStation 5"
+
+
+def test_live_rates_cost_only_interest_rates_never_fees() -> None:
+    from datetime import date as day
+
+    from anum_api.finance.planning_service import LiveItem, LiveResearch, figures_in, live_rates
+
+    figures = figures_in("Personal loan: 5% annual interest, 1% processing fee. Get 20% off today")
+    assert [(f.value, f.rate) for f in figures if f.kind == "percent"] == [("5", True), ("1", False), ("20", False)]
+    found = LiveResearch("ok", "q", day(2026, 11, 9), items=[LiveItem(title="Bank", url="https://bank.example/rates", read_on=day(2026, 11, 9), figures=figures)])
+    assert [v for v, _, _ in live_rates(found)] == [D("5")]
+    assert [(f.value, f.rate) for f in figures_in("معدل الفائدة 5% سنويا، رسوم 1%") if f.kind == "percent"] == [("5", True), ("1", False)]
