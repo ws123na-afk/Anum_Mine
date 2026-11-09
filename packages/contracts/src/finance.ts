@@ -95,6 +95,8 @@ export interface FinanceTransaction {
   type_reason?: string | null;
   /** The person's own purchase a refund gives back (a match, or a suggestion when the confidence is low). */
   related_transaction_id?: string | null;
+  /** The owner's subcategory under `category` (docs/finance.md#subcategories). Optional. */
+  subcategory_id?: string | null;
   /** Stage 4: what the Guardian rules say about this record (on create and change only). */
   guardian?: FinanceGuardianDecision | null;
 }
@@ -109,6 +111,10 @@ export interface FinanceTransactionInput {
   transaction_type?: FinanceTransactionType | null;
   notes?: string | null;
   remember_category_match?: string | null;
+  /** PATCH only: one of the owner's subcategories under the row's category; null clears it. */
+  subcategory_id?: string | null;
+  /** PATCH only: the category came from the AI suggestion (kept, never learned from). */
+  from_ai_suggestion?: boolean;
 }
 
 export interface FinancePage<T> { items: T[]; total: number; limit: number; offset: number }

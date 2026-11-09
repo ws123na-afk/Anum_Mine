@@ -226,6 +226,13 @@ def _sms_memory():  # type: ignore[no-untyped-def]
     return sms_memory_store
 
 
+def _rules_memory():  # type: ignore[no-untyped-def]
+    """The owner's rules, aliases, subcategories, suggestion decisions, rule batches and automation settings (``rules_store``)."""
+    from .rules_store import rules_memory_store
+
+    return rules_memory_store
+
+
 def mine(item: object, context: TenantContext) -> bool:
     return (
         item.tenant_id == context.tenant_id
@@ -281,6 +288,9 @@ class InMemoryFinanceStore:
         personal = sys.modules.get("anum_api.finance.personal_store")
         if personal is not None and hasattr(personal, "personal_memory_store"):
             personal.personal_memory_store.clear()
+        learned = sys.modules.get("anum_api.finance.rules_store")
+        if learned is not None and hasattr(learned, "rules_memory_store"):
+            learned.rules_memory_store.clear()
         self.settings: dict[tuple[str, str, str], FinanceSettings] = {}
         self.accounts: dict[str, Account] = {}
         self.transactions: dict[str, Transaction] = {}
@@ -910,7 +920,8 @@ class InMemoryFinanceStore:
             return (rows + sum(int(self._key(context) in table) for table in keyed) + _ibkr_memory().count_everything(context)
                     + _sms_memory().count_everything(context) + _links_memory().count_everything(context)
                     + _templates_memory().count_everything(context) + _advisor_memory().count_everything(context)
-                    + _personal_memory().count_everything(context) + _recon_memory().count_everything(context))
+                    + _personal_memory().count_everything(context)
+                    + _recon_memory().count_everything(context) + _rules_memory().count_everything(context))
 
     def delete_everything(self, context: TenantContext) -> int:
         with self._lock:
@@ -925,7 +936,7 @@ class InMemoryFinanceStore:
             return (removed + _ibkr_memory().delete_everything(context) + _sms_memory().delete_everything(context)
                     + _links_memory().delete_everything(context) + _templates_memory().delete_everything(context)
                     + _advisor_memory().delete_everything(context) + _personal_memory().delete_everything(context)
-                    + _recon_memory().delete_everything(context))
+                    + _recon_memory().delete_everything(context) + _rules_memory().delete_everything(context))
 
 
 finance_store = InMemoryFinanceStore()

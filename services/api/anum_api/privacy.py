@@ -1179,6 +1179,9 @@ def finance_export(finance: Any, context: TenantContext) -> dict[str, Any]:
         **_personal_export(finance, context, hidden),
         # Reconciliation sessions and the owner's resolutions in them (docs/finance.md#reconciliation-sessions).
         **_recon_export(finance, context, hidden),
+        # The owner's rules (every version), merchant spellings, subcategories, suggestion decisions, rule batches and
+        # automation policy (docs/finance.md#rules-and-learning).
+        **_rules_export(finance, context, hidden),
     }
 
 
@@ -1195,6 +1198,27 @@ def _recon_export(finance: Any, context: TenantContext, hidden: set[str]) -> dic
     return {
         "reconciliations": [r.model_dump(mode="json", exclude=hidden) for r in recon.list(context)],
         "reconciliation_items": [i.model_dump(mode="json", exclude=hidden) for i in recon.items(context)],
+    }
+
+
+def _rules_export(finance: Any, context: TenantContext, hidden: set[str]) -> dict[str, Any]:
+    from .finance.rules_store import rules_store_for
+
+    store = rules_store_for(finance)
+    automation = store.get_automation(context)
+    batches: list[Any] = []
+    while True:
+        page, total = store.list_batches(context, limit=200, offset=len(batches))
+        batches += page
+        if not page or len(batches) >= total:
+            break
+    return {
+        "finance_rules": [r.model_dump(mode="json", exclude=hidden) for r in store.list_versions(context)],
+        "merchant_aliases": [a.model_dump(mode="json", exclude=hidden) for a in store.list_aliases(context)],
+        "subcategories": [s.model_dump(mode="json", exclude=hidden) for s in store.list_subcategories(context)],
+        "suggestion_decisions": [d.model_dump(mode="json", exclude=hidden) for d in store.list_decisions(context)],
+        "rule_batches": [b.model_dump(mode="json", exclude=hidden) for b in batches],
+        "automation_policy": automation.policy.model_dump(mode="json") if automation is not None else None,
     }
 
 

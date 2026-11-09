@@ -286,7 +286,9 @@ async def read_pdf_statement(
         # The matching engine runs in its own short unit of work, off the event loop.
         matches = preview_matches(context, found, lines)
         with open_finance_store(context) as store:
-            return matches, settings_for(store, context).category_rules
+            from .rules_store import owner_rules
+
+            return matches, owner_rules(store, context)
 
     matches, rules = await asyncio.to_thread(lookup)
     views: list[PdfRow] = []
@@ -300,7 +302,7 @@ async def read_pdf_statement(
             duplicate = match.status == "exact_duplicate"
             index += 1
         duplicates += duplicate
-        category = categorize(row.description, row.amount or Decimal(0), rules, found.kind)[0]
+        category = categorize(row.description, row.amount or Decimal(0), rules, found.kind, account_id=found.id, currency=found.currency)[0]
         views.append(PdfRow(
             line=row.line, page=row.page, posted_on=row.posted_on, description=row.description, amount=row.amount, debit=row.debit,
             credit=row.credit, balance=row.balance, reference=row.reference, currency=row.currency, original_amount=row.original_amount,

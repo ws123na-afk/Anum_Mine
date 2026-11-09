@@ -110,20 +110,20 @@ Confirmed defects:
 |---|---|---|
 | Transaction type separate from category | 1 (was 2 and 5) | Fixed in the transaction-correctness PR: `TransactionType` (21 types) with source, confidence and reason on every transaction (migration `0148_finance_txn_types`, `txn_types.py`); `flows.classify` counts by type; SMS kinds map to types (`sms_service.sms_type`); rows stored earlier read the type their category stands for ([docs/finance.md](../finance.md#transaction-types)) |
 | Direction | 1 | Signed amount, `suspected_direction` hint |
-| Subcategories | 4 | 23 flat categories |
-| Merchant and aliases | 2 and 4 | SMS merchant only; no aliases |
+| Subcategories | 1 (was 4) | Owner subcategories under each category, optional on a row, summaries still by category (`finance_subcategories`, migration `0152_finance_rules_learning`; [Subcategories](../finance.md#subcategories)) |
+| Merchant and aliases | 1 (was 2 and 4) | `rules.merchant_key` for every source and owner aliases in English and Arabic, folded (`finance_merchant_aliases`; [Merchants and aliases](../finance.md#merchants-and-aliases)) |
 | Personal or business per transaction | 2 | `business` link dimension and allocations |
 | Duplicate suggestion | 1 | `statement_match` statuses |
-| Confidence and explanation | 2 | SMS high or low, matches strong or weak; since the transaction-correctness PR every row has a type confidence and reason code, the category still has none |
+| Confidence and explanation | 1 (was 2) | Every row has a type confidence and reason code; every suggestion has a confidence, the reason and its evidence ([Suggestions](../finance.md#suggestions)) |
 | Refund linked to purchase | 1 (was 2) | SMS (`sms_service.py:333`); statement, CSV, PDF and hand-entered refunds since the transaction-correctness PR (`refunds.py`: a same-amount purchase with agreeing merchant words is a match, anything less a suggestion) |
 | Cashback separate from refund | 1 | `flows.py:63-66` |
 | Card payment not double counted | 1 | `categories.py:95-105`, `flows.py:60`, tests |
 | Loan principal and interest | 2 (was 3 and 5) | One documented policy since the transaction-correctness PR: `loan_principal` is a transfer, interest charged is type and category `interest` (no longer fees); the stated split (SMS, owner) or the debt estimate (`obligations.py:146-152`); `commitments.py` docstring corrected. Statements still cannot split a payment on their own |
-| Rules engine and owner rules | 1 and 2 | `categories.py`; owner rules match whole words and respect the sign guards since the transaction-correctness PR, but still have no scope, version, provenance or rollback (`models.py:96`, `api.py:206`) |
-| Account-scoped, amount or reference rules, history reuse | 4 | Not built |
-| Unified review queue and suggestion object | 4 | Four separate queues (SMS review, statement holds, Guardian review, link review) |
+| Rules engine and owner rules | 1 (was 1 and 2) | `categories.py` plus versioned owner rules with scope (account, sender, amount range, direction, reference as plain text), provenance, payload-hash approval, revert and undoable retroactive apply (`rules.py`, `rules_service.py`; [Rules and learning](../finance.md#rules-and-learning)) |
+| Account-scoped, amount or reference rules, history reuse | 1 (was 4) | `RuleMatch` scope fields; `rules.history_suggestion` learns only from rows the owner categorised by hand |
+| Unified review queue and suggestion object | 1 (was 4) | One `Suggestion` object and queue with pluggable producers, dismissal memory and one-wins decisions (`suggestions.py`; [Suggestions](../finance.md#suggestions)); the four existing review pages stay and are linked |
 | Upcoming bills, subscriptions | 1 and 2 | `detect_recurring`, `/bills/suggestions`; reminders not built |
-| Missing statement periods, exception notifications, reconciliation prompts | 2 (was 4) | Reconciliation PR: missing months and the next step per account (`GET /reconciliations/health`), open exceptions for the queue (`GET /reconciliations/exceptions`); no notifications yet |
+| Missing statement periods, exception notifications, reconciliation prompts | 2 (was 4) | Missing statement months and the daily unresolved notice (owner policy) are built ([Automation policies](../finance.md#automation-policies)); the reconciliation PR adds missing months and the next step per account (`GET /reconciliations/health`) and open exceptions (`GET /reconciliations/exceptions`), which the suggestion queue lists as a producer ([Suggestions](../finance.md#suggestions)) |
 
 Confirmed defects:
 
@@ -132,7 +132,7 @@ Confirmed defects:
 - **C3** The same payment is classified differently by source: an SMS transfer out is never spend (`ledger.py:164-165`) while the statement row becomes housing spend. **Fixed in the transaction-correctness PR**: a transfer to someone else is spending from both sources, filed by the same words (rent is housing, else `other`); only own-account words or a match make it an internal transfer.
 - **C4** Transfer pairing overwrites manual categories and stamps them `MANUAL` (`statement_ledger.py:268-275`, `api.py:998, 1043`). **Fixed in the transaction-correctness PR**: a machine pair records source `match` and never touches a category or type the owner chose; a pair the owner ticks is the owner's.
 - **C5** The register suggestion ignores the account kind (`register_api.py:362`). **Fixed in the transaction-correctness PR**, and the suggestion now includes the type.
-- **C6** Owner rules match inside words and skip the sign guards (`categories.py:93`). **Fixed in the transaction-correctness PR**.
+- **C6** Owner rules match inside words and skip the sign guards (`categories.py:93`). **Fixed in the transaction-correctness PR**. No leftovers: the versioned rules that replace the phrase list keep whole-word matching (Arabic forms folded) and the sign guard, and refuse an income, cashback or refunds rule limited to money out (`rules.RuleContent`).
 - **C7** A bare "INTEREST" credit lands in fees (`categories.py:40`). **Fixed in the transaction-correctness PR**: interest received is income under category `interest`; interest charged is type `interest`.
 
 ## Personal finance and the Finance screens
@@ -148,7 +148,7 @@ Confirmed defects:
 | Category budgets | 2 | Set only through the Guardian confirm flow |
 | Emergency reserve | 2 | Indirect only |
 | Month-end forecast | 2 | Web only (`financeStatements.ts:180`), ignores expected income |
-| Reconciliation, Accountant review, Automations and suggestions, Finance settings pages | 2 (was 4) | Reconciliation page built (reconciliation PR); Accountant review, Automations and suggestions and a settings page are not (settings is a dialog) |
+| Reconciliation, Accountant review, Automations and suggestions, Finance settings pages | 2 (was 4): Suggestions and Reconciliation 1, the others 4 | Finance, Suggestions (queue, rules, merchants, automation) and the Reconciliation page are built ([Suggestions](../finance.md#suggestions)); Accountant review and a settings page are not (settings is a dialog) |
 | English and Arabic | 1 | Paired catalogs, parity tests |
 
 Confirmed defects:

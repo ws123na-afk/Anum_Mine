@@ -32,6 +32,7 @@ from decimal import Decimal
 from . import txn_types as TT
 from .flows import LIABILITY_KINDS, NOT_SPEND
 from .models import AccountKind, Category, CategoryRule, CategorySource, TransactionType, TypeSource
+from .rules import ActiveRule, AliasBook, Row
 
 # Paying a credit card from a bank account, in statement and SMS wording (English and Arabic).
 CARD_PAYMENT_WORDS = (
@@ -112,6 +113,9 @@ class Classified:
     category: Category
     source: CategorySource
     typed: TT.Typed
+    subcategory_id: str | None = None
+    rule_id: str | None = None  # the owner's rule that decided it (``rules.FinanceRule.rule_id``), when one did
+    rule_version: int | None = None
 
     @property
     def type(self) -> TransactionType:
@@ -127,20 +131,37 @@ def _typed(kind: TransactionType, source: TypeSource, confidence: str, reason: s
     return TT.Typed(kind, source, Decimal(confidence), reason)
 
 
-def classify_text(description: str, amount: Decimal, rules: list[CategoryRule] | None = None,
-                  account_kind: AccountKind | None = None) -> Classified:
+def _owner_rule(rule: ActiveRule, amount: Decimal, account_kind: AccountKind | None) -> Classified:
+    content = rule.content
+    if content.transaction_type is not None:
+        typed = TT.Typed(content.transaction_type, TypeSource.RULE, rule.confidence, "owner_rule")
+    else:
+        typed = TT.for_category(content.category, amount, account_kind, TypeSource.RULE, str(rule.confidence), "owner_rule")
+    return Classified(content.category, CategorySource.OWNER_RULE, typed, content.subcategory_id, rule.rule_id, rule.version)
+
+
+def classify_text(description: str, amount: Decimal, rules: list[CategoryRule] | list[ActiveRule] | None = None,
+                  account_kind: AccountKind | None = None, *, account_id: str | None = None, currency: str | None = None,
+                  sender: str | None = None, reference: str | None = None, aliases: AliasBook | None = None) -> Classified:
     """The category and the type of a transaction from its description, sign and account kind.
 
     ``account_kind`` is the kind of account the row is on: money in on a card or loan is a card payment
-    unless a rule files it as cashback, a refund, interest or a merchant's credit."""
+    unless a rule files it as cashback, a refund, interest or a merchant's credit. ``rules`` are the owner's
+    (``rules_store.owner_rules``: approved versioned rules, or the older plain phrase list); a rule scoped to an
+    account, a sender or an amount range matches only when the caller passes that account, sender or currency."""
     text = " ".join(description.lower().split())
     liability_credit = amount > 0 and account_kind in LIABILITY_KINDS
+    row = Row(description=description, amount=amount, currency=currency, account_id=account_id, sender=sender, reference=reference)
     for rule in rules or []:
-        if rule.category in _MONEY_IN_ONLY and amount < 0:
-            continue  # the owner's income, cashback or refund rule never files money out
-        if _rule_pattern(rule.match).search(text):
-            return Classified(rule.category, CategorySource.OWNER_RULE,
-                              TT.for_category(rule.category, amount, account_kind, TypeSource.RULE, "0.9", "owner_rule"))
+        if isinstance(rule, CategoryRule):
+            if rule.category in _MONEY_IN_ONLY and amount < 0:
+                continue  # the owner's income, cashback or refund rule never files money out
+            if _rule_pattern(rule.match).search(text):
+                return Classified(rule.category, CategorySource.OWNER_RULE,
+                                  TT.for_category(rule.category, amount, account_kind, TypeSource.RULE, "0.9", "owner_rule"))
+            continue
+        if rule.matches(row, aliases):
+            return _owner_rule(rule, amount, account_kind)
     for category, words, pattern in _COMPILED:
         if not pattern.search(text):
             continue
@@ -182,10 +203,10 @@ def classify_text(description: str, amount: Decimal, rules: list[CategoryRule] |
     return Classified(Category.OTHER, CategorySource.NONE, _typed(TransactionType.UNCATEGORIZED, TypeSource.RULE, "0", "no_rule_matched"))
 
 
-def categorize(description: str, amount: Decimal, rules: list[CategoryRule] | None = None,
-               account_kind: AccountKind | None = None) -> tuple[Category, CategorySource]:
+def categorize(description: str, amount: Decimal, rules: list[CategoryRule] | list[ActiveRule] | None = None,
+               account_kind: AccountKind | None = None, **scope: object) -> tuple[Category, CategorySource]:
     """The category for a transaction, and what decided it (:func:`classify_text` without the type)."""
-    found = classify_text(description, amount, rules, account_kind)
+    found = classify_text(description, amount, rules, account_kind, **scope)  # type: ignore[arg-type]
     return found.category, found.source
 
 
