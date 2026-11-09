@@ -47,11 +47,15 @@ STANDARD: tuple[tuple[str, str, str, str], ...] = (
     ("revenue_external_cost", "4020", "Revenue: passed-on costs", "revenue"),
     ("revenue_other", "4090", "Revenue: other", "revenue"),
     ("other_income", "4500", "Other income", "other_income"),
+    ("disposal_gain", "4600", "Gains on disposal of assets", "other_income"),
     ("credit_notes", "4800", "Credit notes", "revenue"),
     ("cost_of_sales", "5000", "Cost of sales", "cost_of_sales"),
     ("operating", "6000", "Operating expenses", "operating_expense"),
     ("depreciation", "6100", "Depreciation", "depreciation"),
+    ("impairment", "6150", "Impairment losses", "operating_expense"),
+    ("disposal_loss", "6160", "Losses on disposal of assets", "operating_expense"),
     ("fx", "7000", "Exchange gains and losses", "fx"),
+    ("fx_unrealised", "7010", "Unrealised exchange gains and losses", "fx"),
     ("finance_costs", "7100", "Finance costs and interest", "finance_cost"),
 )
 SYSTEM_KEYS = frozenset(key for key, _, _, _ in STANDARD)

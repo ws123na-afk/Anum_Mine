@@ -152,7 +152,7 @@ def _summary(record: Any, *names: str) -> dict[str, str]:
 
 
 BILL_FIELDS = ("bill_date", "due_date", "currency", "subtotal", "tax", "total", "category", "section", "status", "project_id", "cost_centre_id",
-               "useful_life_months")
+               "useful_life_months", "tax_code", "reverse_charge_tax")
 
 
 def _changes(before: Any, after: Any, names: tuple[str, ...]) -> dict[str, Any]:
@@ -426,6 +426,8 @@ class BillInput(BaseModel):
     project_id: str | None = OptionalId
     recurrence: Recurrence | None = None
     useful_life_months: int | None = Field(default=None, ge=1, le=600)
+    # docs/business-tax.md#tax-codes: none keeps the bill "unknown" for the VAT return.
+    tax_code: Literal["standard", "zero_rated", "export", "exempt", "out_of_scope", "reverse_charge", "import_customs"] | None = None
 
 
 class BillUpdate(BillInput):
@@ -594,6 +596,7 @@ def update_bill(bill_id: str, payload: BillUpdate, context: TenantContext = Depe
             raise S.BooksError(409, "A void bill does not change.", "bill_void")
         updated = S.bill_from(context, store, payload.model_dump(exclude={"version"}), now=utc_now(), idem_key=current.idem_key, existing=current)
         money_changed = (updated.currency, updated.subtotal, updated.tax) != (current.currency, current.subtotal, current.tax)
+        # The tax code does not move money: a paid bill can still be coded for the VAT return (in an open period).
         if money_changed and S.live_payments(store, current.id, holding):
             raise S.BooksError(409, "This bill has payments: its amounts and currency stay as paid. Void the payments first.", "has_payments")
         trail = _changes(current, updated, (*BILL_FIELDS, "vendor_id"))

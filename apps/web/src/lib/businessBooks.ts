@@ -3,17 +3,17 @@
 // rounds every amount once, never adds currencies and converts only with a dated rate whose source it lists.
 import type {
   BooksAdjustmentKind, BooksBasis, BooksBillFilter, BooksBillInput, BooksBudgetInput, BooksFrequency, BooksGroup, BooksGroupRow, BooksIntercompanyInput,
-  BooksPaymentState, BooksReport, BooksSection, BooksSettings, BooksSettingsInput, BooksTagSection, BooksTemplate, BooksTemplateInput,
+  BooksPaymentState, BooksReport, BooksSection, BooksSettings, BooksSettingsInput, BooksTagSection, BooksTemplate, BooksTemplateInput, TaxCode,
 } from '@anum/contracts';
 import { formatAmount } from './finance.ts';
 import { t, type MessageKey } from './i18n.ts';
 import type { Tone } from './business.ts';
 
 export type BooksTab = 'overview' | 'review' | 'group' | 'bills' | 'recurring' | 'vendors' | 'allocations' | 'budgets' | 'journal' | 'ledger' | 'statements' | 'accounts'
-  | 'close' | 'intercompany' | 'settings';
+  | 'close' | 'tax' | 'assets' | 'loans' | 'revaluation' | 'intercompany' | 'settings';
 /** ``journal`` is the adjustments; ``ledger``, ``statements``, ``accounts`` and ``close`` are the double-entry journal (docs/business-books.md#the-journal). */
 export const BOOKS_TABS: readonly BooksTab[] = ['overview', 'review', 'group', 'bills', 'recurring', 'vendors', 'allocations', 'budgets', 'journal', 'ledger', 'statements', 'accounts',
-  'close', 'intercompany', 'settings'];
+  'close', 'tax', 'assets', 'loans', 'revaluation', 'intercompany', 'settings'];
 /** Sections only owners see in the navigation (the API refuses everyone else anyway). */
 export const OWNER_TABS: readonly BooksTab[] = ['group'];
 /** Sections for owners and accountants only (``permissions.account``): the Accountant review (docs/business-books.md#accountant-review). */
@@ -85,12 +85,17 @@ export const isNegative = (amount: string | null | undefined) => Boolean(amount 
 export interface BillDraft {
   vendor_id: string; reference: string; description: string; bill_date: string; due_date: string; currency: string; subtotal: string; tax: string;
   category: string; section: BooksSection | ''; cost_centre_id: string; project_id: string; recurrence: '' | 'monthly' | 'quarterly' | 'yearly'; useful_life_months: string;
+  /** docs/business-tax.md#tax-codes: '' keeps the bill "unknown" for the VAT return. */
+  tax_code?: TaxCode | '';
 }
 
 export function emptyBill(today: string, currency: string): BillDraft {
   return { vendor_id: '', reference: '', description: '', bill_date: today, due_date: '', currency, subtotal: '', tax: '0', category: '', section: '',
-    cost_centre_id: '', project_id: '', recurrence: '', useful_life_months: '' };
+    cost_centre_id: '', project_id: '', recurrence: '', useful_life_months: '', tax_code: '' };
 }
+
+/** Tax codes a supplier charges no tax under (the reverse charge is self-assessed by the business, not charged). */
+export const NO_TAX_BILL_CODES: readonly TaxCode[] = ['zero_rated', 'export', 'exempt', 'out_of_scope', 'reverse_charge'];
 
 /** The first problem with a bill form, as a message key, or null. */
 export function billProblem(draft: BillDraft): MessageKey | null {
@@ -100,6 +105,7 @@ export function billProblem(draft: BillDraft): MessageKey | null {
   if (draft.due_date && draft.due_date < draft.bill_date) return 'books.bill.dueBeforeDate';
   if (!validAmount(draft.subtotal, true) || !validAmount(draft.tax || '0', true)) return 'books.amountInvalid';
   if (Number(draft.subtotal) + Number(draft.tax || '0') <= 0) return 'books.amountInvalid';
+  if (draft.tax_code && NO_TAX_BILL_CODES.includes(draft.tax_code) && Number(draft.tax || '0') !== 0) return 'tax.problem.billNoTax';
   if (draft.category && !validCategory(normalizeCategory(draft.category))) return 'books.categoryInvalid';
   if (draft.useful_life_months && (draft.section !== 'capital' || !/^\d{1,3}$/.test(draft.useful_life_months) || Number(draft.useful_life_months) < 1)) {
     return 'books.bill.lifeNeedsCapital';
@@ -114,6 +120,7 @@ export function billBody(draft: BillDraft): BooksBillInput {
     category: draft.category ? normalizeCategory(draft.category) : null, section: draft.section || null, cost_centre_id: draft.cost_centre_id || null,
     project_id: draft.project_id || null, recurrence: draft.recurrence || null,
     useful_life_months: draft.section === 'capital' && draft.useful_life_months ? Number(draft.useful_life_months) : null,
+    tax_code: draft.tax_code || null,
   };
 }
 

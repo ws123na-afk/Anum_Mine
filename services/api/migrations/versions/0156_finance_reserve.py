@@ -7,16 +7,16 @@
 
 Row level security is unchanged: ``finance_goals`` already has forced RLS with its tenant, owner-only and purge
 policies (``0131``/``0147``), and the column is exported and deleted with the goal. Expand only: a new nullable
-column and its check. The previous release ignores it. Rollback: ``alembic downgrade 0153_finance_reconciliation``
+column and its check. The previous release ignores it. Rollback: ``alembic downgrade 0155_books_assets_fx``
 drops the column (a reserve sized in months then reads as its fixed target, which is what it already stores).
-Chained after ``0153_finance_reconciliation`` (renumber at merge if another branch takes 0154 or 0155).
+Chained after ``0155_books_assets_fx``.
 """
 
 import sqlalchemy as sa
 from alembic import op
 
-revision = "0155_finance_reserve"
-down_revision = "0153_finance_reconciliation"
+revision = "0156_finance_reserve"
+down_revision = "0155_books_assets_fx"
 branch_labels = None
 depends_on = None
 

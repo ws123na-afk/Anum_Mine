@@ -533,3 +533,16 @@ def test_the_daily_job_backfills_a_business_that_had_books_before_the_journal() 
     assert first["ledgers"] == 1 and first["entries_posted"] == 2 and first["not_posted"] == 0
     assert books_jobs.run()["entries_posted"] == 0
     assert len(chart()) >= 29
+
+
+def test_the_owners_local_today_is_not_the_future_late_in_the_utc_evening(monkeypatch: pytest.MonkeyPatch) -> None:
+    from datetime import UTC, datetime
+
+    from anum_api.business import books_service as S
+
+    late = datetime(2026, 11, 9, 21, 30, tzinfo=UTC)  # already 10 November in Dubai and Riyadh
+    monkeypatch.setattr(S, "utc_now", lambda: late)
+    assert S.not_future(date(2026, 11, 10), date(2026, 11, 9), "date") == date(2026, 11, 10)
+    with pytest.raises(S.BooksError) as refused:
+        S.not_future(date(2026, 11, 11), date(2026, 11, 9), "date")
+    assert refused.value.code == "date_in_future"

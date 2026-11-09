@@ -142,20 +142,31 @@ _UNIQUE: dict[str, Callable[[Any], tuple[Any, ...] | None]] = {
     "posting_issues": lambda r: ("event", r.event_key),
     "closes": lambda r: ("period", r.period_end) if r.status == "closed" else None,
     "accountants": lambda r: ("user", r.user_id),
+    "tax_settings": lambda r: ("one",),
+    "tax_rates": lambda r: ("rate", r.jurisdiction, r.code, r.effective_from),
+    "zatca_chain": lambda r: ("one",),
+    "zatca_documents": lambda r: ("source", r.source_kind, r.source_id),
+    "assets": lambda r: ("source", r.source_kind, r.source_id),
+    "loans": lambda r: ("idem", r.idem_key) if r.idem_key else None,
+    "loan_repayments": lambda r: ("idem", r.loan_id, r.idem_key) if r.idem_key else None,
 }
 _SECOND_UNIQUE: dict[str, Callable[[Any], tuple[Any, ...] | None]] = {
     "bill_payments": lambda r: ("idem", r.bill_id, r.idem_key) if r.idem_key else None,
     "bills": lambda r: ("period", r.template_id, r.period_date) if r.template_id else None,
     "ledger_accounts": lambda r: ("key", r.system_key) if r.system_key else None,
     "journal_entries": lambda r: ("reverses", r.reverses_id) if r.reverses_id else None,
+    "zatca_documents": lambda r: ("counter", r.counter),
+    "loan_repayments": lambda r: ("bill", r.bill_id) if r.bill_id and r.status == "active" else None,
+    "loans": lambda r: ("received", r.received_adjustment_id) if r.received_adjustment_id and r.status == "active" else None,
 }
 _THIRD_UNIQUE: dict[str, Callable[[Any], tuple[Any, ...] | None]] = {
     "ledger_accounts": lambda r: ("category", r.category) if r.category else None,
+    "loan_repayments": lambda r: ("adjustment", r.adjustment_id) if r.adjustment_id and r.status == "active" else None,
 }
 
 
 _BILL_FACTS = ("bill_date", "due_date", "currency", "subtotal", "tax", "total", "category", "section", "status", "useful_life_months", "project_id",
-               "cost_centre_id", "vendor_id")
+               "cost_centre_id", "vendor_id", "tax_code", "reverse_charge_tax")
 
 
 def _bill_touched(new: Any, old: Any, locked: Any) -> bool:
@@ -177,6 +188,12 @@ _DATED: dict[str, Callable[[Any, Any, Any], bool]] = {
     "bill_payments": lambda new, old, locked: new.paid_on <= locked or (old is not None and old.paid_on <= locked),
     "adjustments": _adjustment_touched,
     "intercompany": lambda new, old, locked: new.entry_date <= locked,
+    # Migration 0155: a disposal, an impairment or a loan repayment dated in a closed period.
+    "assets": lambda new, old, locked: (new.disposed_on is not None and new.disposed_on <= locked
+                                        and (old is None or (old.disposed_on, old.proceeds, old.disposal_kind) != (new.disposed_on, new.proceeds, new.disposal_kind)))
+                                       or (old is not None and old.disposed_on is not None and old.disposed_on <= locked and old.disposed_on != new.disposed_on),
+    "asset_impairments": lambda new, old, locked: new.entry_date <= locked and (old is None or old.status != new.status),
+    "loan_repayments": lambda new, old, locked: new.paid_on <= locked,
 }
 
 

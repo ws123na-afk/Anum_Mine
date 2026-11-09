@@ -30,6 +30,8 @@ import {
 import { GroupSection, RateFeedCard, Recurring, Upcoming } from './BusinessBooksMore';
 import { AccountantsCard, AccountsSection, CloseSection, LedgerSection, StatementsSection } from './BusinessBooksLedger';
 import { ReviewBanner, ReviewSection } from './BusinessBooksReview';
+import { TaxSection } from './BusinessBooksTax';
+import { AssetsSection, GroupBalanceSheetCard, LoansSection, RevaluationSection } from './BusinessBooksAssets';
 import './businessBooks.css';
 
 type SetupLoad = { kind: 'loading' } | { kind: 'ready'; setup: BooksSetup } | { kind: 'denied'; text: string } | { kind: 'error'; text: string };
@@ -66,7 +68,8 @@ export function BooksTab({ section, onSection, crumbs }: { section: string | nul
       action={setup.permissions.manage ? <button type="button" onClick={() => onSection('settings')}>{t('books.setupAction')}</button> : undefined} />}
     {ready && tab === 'overview' && <Overview key={tick} setup={setup} onSection={onSection} />}
     {ready && tab === 'review' && <ReviewSection setup={setup} onSection={onSection} />}
-    {ready && tab === 'group' && (setup.permissions.manage ? <GroupSection setup={setup} /> : <Denied text={t('books.group.ownersOnly')} />)}
+    {ready && tab === 'group' && (setup.permissions.manage ? <><GroupSection setup={setup} /><GroupBalanceSheetCard base={setup.settings!.base_currency} /></>
+      : <Denied text={t('books.group.ownersOnly')} />)}
     {ready && tab === 'bills' && <Bills key={tick} setup={setup} />}
     {ready && tab === 'recurring' && <Recurring setup={setup} />}
     {ready && tab === 'vendors' && <Vendors setup={setup} />}
@@ -77,6 +80,10 @@ export function BooksTab({ section, onSection, crumbs }: { section: string | nul
     {ready && tab === 'statements' && <StatementsSection setup={setup} onSection={(next) => onSection(booksTabFromId(next))} />}
     {ready && tab === 'accounts' && <AccountsSection setup={setup} />}
     {ready && tab === 'close' && <CloseSection setup={setup} onSection={(next) => onSection(booksTabFromId(next))} />}
+    {ready && tab === 'tax' && <TaxSection setup={setup} />}
+    {ready && tab === 'assets' && <div className="bkAssets"><AssetsSection setup={setup} /></div>}
+    {ready && tab === 'loans' && <div className="bkLoans"><LoansSection setup={setup} /></div>}
+    {ready && tab === 'revaluation' && <RevaluationSection onSection={(next) => onSection(booksTabFromId(next))} />}
     {ready && tab === 'intercompany' && <Intercompany setup={setup} />}
     {tab === 'settings' && <SettingsSection setup={setup} onSaved={() => void reload()} extra={ready ? <><RateFeedCard setup={setup} /><AccountantsCard setup={setup} /></> : null} />}
     {recording && <BillDialog setup={setup} onClose={() => setRecording(false)}

@@ -1,4 +1,4 @@
-"""The emergency reserve and the forecast in PostgreSQL (migration ``0155_finance_reserve``, docs/finance.md#emergency-reserve,
+"""The emergency reserve and the forecast in PostgreSQL (migration ``0156_finance_reserve``, docs/finance.md#emergency-reserve,
 #forecast). The API runs as the non-owner ``anum_test_app`` role under forced RLS. Every record is SYNTHETIC.
 """
 

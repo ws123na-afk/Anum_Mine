@@ -63,3 +63,20 @@
 .bkReviewMain { display: grid; flex: 1 1 320px; gap: 2px; min-width: 0; overflow-wrap: anywhere; }
 .bkReviewHead { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); }
 .bkMoney { font-variant-numeric: tabular-nums; }
+/* Business tax (docs/business-tax.md): the section switch, the not-verified notice, the return boxes and the e-invoice cells. */
+.taxParts { margin-block-end: var(--d-s1); }
+.taxNotice { border-inline-start: 3px solid var(--d-warn, var(--d-accent)); }
+.taxStatus { align-items: center; flex-wrap: wrap; gap: var(--d-s2); }
+.taxBoxes .num { font-variant-numeric: tabular-nums; text-align: end; }
+.taxBoxes .bk-group th { color: var(--d-muted); font-size: var(--text-sm); font-weight: 600; text-align: start; }
+.taxDoc { align-items: center; flex-wrap: wrap; gap: var(--d-s1) var(--d-s2); }
+.taxDoc small { overflow-wrap: anywhere; }
+.taxZatcaFields { border-top: 1px solid var(--d-line); padding-block-start: var(--d-s3); }
+.taxZatcaFields legend { float: inline-start; inline-size: 100%; margin-block-end: var(--d-s2); }
+.taxMissing { columns: 2 16rem; }
+/* Fixed assets, loans, revaluation and the group balance sheet (docs/business-books.md#fixed-asset-register). */
+.bkProgress { background: var(--d-line); block-size: 4px; border-radius: 2px; inline-size: 100%; margin-block-start: var(--d-s1); min-inline-size: 4rem; overflow: hidden; }
+.bkProgress span { background: var(--d-accent); block-size: 100%; display: block; }
+.bkAssets .bkList small, .bkLoans .bkList small { color: var(--d-muted); display: block; font-size: var(--text-xs); }
+.groupBs .bzInline { flex-wrap: wrap; gap: var(--d-s2); }
+.drawerBody .bzCard { margin-block: var(--d-s3); }

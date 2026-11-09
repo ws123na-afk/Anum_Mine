@@ -4,6 +4,7 @@ import 'package:anum_mobile/features/finance/finance_controller.dart';
 import 'package:anum_mobile/features/finance/finance_models.dart';
 import 'package:anum_mobile/features/finance/finance_plan_models.dart';
 import 'package:anum_mobile/features/finance/finance_repository.dart';
+import 'package:anum_mobile/features/finance/finance_review_models.dart';
 import 'package:anum_mobile/features/finance/finance_screen.dart';
 import 'package:anum_mobile/features/finance/finance_strings.dart';
 import 'package:anum_mobile/features/finance/finance_trading_models.dart';
@@ -81,15 +82,193 @@ Map<String, Object?> summaryJson({bool empty = false}) => {
       'goals': [],
     };
 
-Map<String, Object?> transactionJson(int i) => {
+Map<String, Object?> transactionJson(int i, {bool uncategorized = false}) => {
       'id': 'fin_txn_$i',
       'account_id': 'fin_acct_1',
       'posted_on': '2026-10-0${1 + i % 9}',
       'amount': i.isEven ? '-35.00' : '15000.00',
       'currency': 'AED',
       'description': i.isEven ? 'TALABAT ORDER $i' : 'SALARY $i',
-      'category': i.isEven ? 'dining' : 'income',
+      'category': uncategorized ? 'other' : (i.isEven ? 'dining' : 'income'),
+      'transaction_type':
+          uncategorized ? 'uncategorized' : (i.isEven ? 'expense' : 'income'),
+      'type_source': uncategorized ? 'system' : 'rule',
     };
+
+/// The newest statement import as `GET /imports` lists it.
+Map<String, Object?> importJson({int notInLedger = 2}) => {
+      'id': 'fin_imp_1',
+      'account_id': 'fin_acct_1',
+      'filename': 'statement-october.pdf',
+      'preset': 'pdf',
+      'date_format': 'YYYY-MM-DD',
+      'row_count': 40,
+      'imported_count': 31,
+      'duplicate_count': 2,
+      'error_count': 0,
+      'created_at': '2026-11-02T08:30:00Z',
+      'reconciled': 5,
+      'held_for_review': notInLedger,
+      'skipped': 0,
+      'not_in_ledger': notInLedger,
+      'reconciliation': {
+        'status': 'tied',
+        'opening': '1000.00',
+        'closing': '4250.00',
+        'rows_total': '3250.00',
+        'difference': '0.00',
+      },
+    };
+
+/// `GET /reconciliations/health` and `GET /reconciliations?state=open`.
+Map<String, Object?> reconHealthJson() => {
+      'today': '2026-11-09',
+      'accounts': [
+        {
+          'account_id': 'fin_acct_1',
+          'account_name': 'Everyday account',
+          'kind': 'bank',
+          'currency': 'AED',
+          'last_statement_end': '2026-10-31',
+          'last_import_at': '2026-11-02T08:30:00Z',
+          'last_sms_on': null,
+          'last_apple_pay_on': null,
+          'missing_months': ['2026-08'],
+          'gaps': 1,
+          'reconciled_through': '2026-09-30',
+          'open_reconciliation_id': 'fin_rec_2',
+          'changed_reconciliation_id': null,
+          'next_step': 'finish_reconciliation',
+          'next_month': '2026-10',
+          'bank_feed': 'not_connected',
+        },
+        {
+          'account_id': 'fin_acct_card',
+          'account_name': 'Rewards card',
+          'kind': 'card',
+          'currency': 'AED',
+          'last_statement_end': null,
+          'last_import_at': null,
+          'last_sms_on': '2026-11-01',
+          'last_apple_pay_on': null,
+          'missing_months': <String>[],
+          'gaps': 0,
+          'reconciled_through': null,
+          'open_reconciliation_id': null,
+          'changed_reconciliation_id': null,
+          'next_step': 'import_statement',
+          'next_month': null,
+          'bank_feed': 'not_connected',
+        },
+        {
+          'account_id': 'fin_acct_cash',
+          'account_name': 'Wallet cash',
+          'kind': 'cash',
+          'currency': 'AED',
+          'missing_months': <String>[],
+          'gaps': 0,
+          'next_step': 'none',
+          'bank_feed': 'not_connected',
+        },
+      ],
+    };
+
+Map<String, Object?> reconOpenJson() => {
+      'items': [
+        {
+          'id': 'fin_rec_2',
+          'account_id': 'fin_acct_1',
+          'account_name': 'Everyday account',
+          'account_kind': 'bank',
+          'currency': 'AED',
+          'period_start': '2026-10-01',
+          'period_end': '2026-10-31',
+          'source': 'import',
+          'import_id': 'fin_imp_1',
+          'status': 'open',
+          'state': 'unresolved',
+          'changed': false,
+          'can_complete': false,
+          'blockers': ['difference'],
+          'statement_closing': '4250.00',
+          'book_closing': '4115.00',
+          'unexplained': '135.00',
+          'exceptions': 3,
+          'blocking': 1,
+          'completed_at': null,
+          'completed_by': null,
+          'version': 1,
+        }
+      ],
+      'total': 1,
+      'limit': 50,
+      'offset': 0,
+    };
+
+/// Two suggestions as `GET /suggestions` sends them: one the phone can
+/// accept, one resolved on its page on the web.
+List<Map<String, Object?>> suggestionsJson() => [
+      {
+        'key': 'classification:fin_txn_2',
+        'producer': 'history',
+        'kind': 'classification',
+        'detected': 'File as groceries?',
+        'why': 'You chose groceries for zebramart 4 of 5 times.',
+        'params': {
+          'merchant': 'zebramart',
+          'category': 'groceries',
+          'agree': '4',
+          'seen': '5'
+        },
+        'evidence': <Object?>[],
+        'confidence': '0.80',
+        'effect': [
+          {
+            'amount': '35.00',
+            'currency': 'AED',
+            'direction': 'out',
+            'note': null
+          }
+        ],
+        'action': {
+          'kind': 'classify',
+          'transaction_ids': ['fin_txn_2'],
+          'category': 'groceries',
+          'subcategory_id': null,
+          'transaction_type': null,
+        },
+        'href': null,
+        'occurred_on': '2026-10-03',
+        'payload_hash': 'ef56' * 16,
+      },
+      {
+        'key': 'reconciliation:fin_rec_2:x1',
+        'producer': 'reconciliation',
+        'kind': 'reconciliation',
+        'detected': 'Statement row not in your books',
+        'why': 'Open the session.',
+        'params': {
+          'account': 'Everyday account',
+          'exception': 'not_in_ledger',
+          'severity': 'blocking',
+          'start': '2026-10-01',
+          'end': '2026-10-31',
+        },
+        'evidence': <Object?>[],
+        'confidence': null,
+        'effect': <Object?>[],
+        'action': {
+          'kind': 'open',
+          'transaction_ids': <String>[],
+          'category': null,
+          'subcategory_id': null,
+          'transaction_type': null,
+        },
+        'href': '#finance-reconciliation',
+        'occurred_on': null,
+        'payload_hash': 'ab90' * 16,
+      },
+    ];
 
 class FakeFinance implements FinanceRepository {
   FakeFinance(
@@ -143,15 +322,116 @@ class FakeFinance implements FinanceRepository {
   @override
   Future<void> deleteAccount(String id) async => requests.add('delete $id');
 
+  /// Rows no rule recognised (by index), filed away by [fileTransaction].
+  final Set<int> uncategorizedRows = {};
+
+  /// The refusal the next filing gets (an SMS-recorded row answers 409).
+  Object? fileFailure;
+
+  /// Every review read (imports, reconciliation, suggestions) fails with it.
+  Object? reviewFailure;
+  bool noImport = false;
+  List<Map<String, Object?>> suggestionItems = suggestionsJson();
+
+  void _review() {
+    if (deny) throw const ApiException(403, 'Workspace permission denied');
+    final f = reviewFailure;
+    if (f != null) throw f;
+  }
+
   @override
   Future<TransactionPage> transactions(
-      {String? query, required int offset, int limit = 25}) async {
-    requests.add('transactions ${query ?? ''} $offset');
+      {String? query,
+      required int offset,
+      int limit = 25,
+      String? type}) async {
+    requests.add(
+        'transactions ${query ?? ''} $offset${type == null ? '' : ' $type'}');
+    if (type == 'uncategorized') {
+      final rows = uncategorizedRows.toList()..sort();
+      return TransactionPage([
+        for (final i in rows.skip(offset).take(limit))
+          FinanceTransaction.fromJson(
+              JsonReader.of(transactionJson(i, uncategorized: true)))
+      ], rows.length);
+    }
     final count = (total - offset).clamp(0, limit);
     return TransactionPage([
       for (var i = 0; i < count; i++)
-        FinanceTransaction.fromJson(JsonReader.of(transactionJson(offset + i)))
+        FinanceTransaction.fromJson(JsonReader.of(transactionJson(offset + i,
+            uncategorized: uncategorizedRows.contains(offset + i))))
     ], total);
+  }
+
+  @override
+  Future<int> uncategorizedCount() async => uncategorizedRows.length;
+
+  @override
+  Future<void> fileTransaction(String id,
+      {required String type, String? category}) async {
+    final f = fileFailure;
+    if (f != null) throw f;
+    requests.add('file $id $type ${category ?? '-'}');
+    uncategorizedRows.remove(int.parse(id.split('_').last));
+  }
+
+  @override
+  Future<ImportRecord?> lastImport() async {
+    requests.add('lastImport');
+    _review();
+    return noImport ? null : ImportRecord.fromJson(JsonReader.of(importJson()));
+  }
+
+  @override
+  Future<ReconStatus> reconciliation() async {
+    requests.add('reconciliation');
+    _review();
+    return ReconStatus(
+      accounts: JsonReader.of(reconHealthJson())
+          .optObjects('accounts', ReconHealth.fromJson),
+      open: JsonReader.of(reconOpenJson())
+          .optObjects('items', ReconSession.fromJson),
+    );
+  }
+
+  @override
+  Future<SuggestionQueue> suggestions(
+      {required int offset, int limit = 25}) async {
+    requests.add('suggestions $offset');
+    _review();
+    return SuggestionQueue.fromJson(JsonReader.of({
+      'items': suggestionItems.skip(offset).take(limit).toList(),
+      'total': suggestionItems.length,
+      'limit': limit,
+      'offset': offset,
+      'counts': <Object?>[],
+      'unavailable': <String>[],
+      'dismissed': 0,
+    }));
+  }
+
+  @override
+  Future<SuggestionDecision> acceptSuggestion(
+      String key, String payloadHash) async {
+    requests.add('accept $key $payloadHash');
+    suggestionItems = [
+      for (final item in suggestionItems)
+        if (item['key'] != key) item
+    ];
+    return SuggestionDecision.fromJson(JsonReader.of({
+      'key': key,
+      'status': 'accepted',
+      'batch': {'id': 'fin_batch_1', 'changed': 1},
+    }));
+  }
+
+  @override
+  Future<void> dismissSuggestion(String key) async {
+    requests.add('dismiss $key');
+    suggestionItems = [
+      for (final item in suggestionItems)
+        if (item['key'] != key) item
+    ];
   }
 
   @override
@@ -207,7 +487,18 @@ class FakeFinance implements FinanceRepository {
                 'safe_to_spend': '1466.66',
                 'per_day': '81.48',
                 'short': false,
+                'next_pay_on': '2026-10-27',
+                'expected_pay': '15000.00',
+                'days_to_payday': 13,
                 'lines': [
+                  {
+                    'kind': 'minimum_payment',
+                    'label': 'Car loan',
+                    'currency': 'AED',
+                    'amount': '-1200.00',
+                    'note': 'minimum_overdue',
+                    'params': {'date': '2026-10-05'}
+                  },
                   {
                     'kind': 'balance',
                     'label': 'Everyday account',

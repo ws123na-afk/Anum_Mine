@@ -216,6 +216,7 @@ x-user-roles: owner,member
 - [Vehicles, fuel and mileage: vehicles, odometer that never goes down, fuel, trips, service, reminders and costs linked to Finance payments](docs/vehicles.md)
 - [Purchases, deliveries, returns and refunds: orders, an append-only lifecycle, shipments, returns, refunds linked to Finance (never income), reminders and the iPhone share](docs/purchases.md)
 - [Business books: vendors, bills and payables, allocations counted once, budgets, adjustments, intercompany entries and the P&L with tax apart and dated exchange rates](docs/business-books.md)
+- [Business tax: VAT settings and rate tables, tax codes, the VAT return from the journal (KSA, UAE VAT 201) and ZATCA e-invoicing readiness (not verified with ZATCA)](docs/business-tax.md)
 - [In-app help: task-based articles per module, bundled for offline use](docs/help.md)
 - [Sales demo workspace: sample data, reset, sending off](docs/demo-workspace.md)
   - Help, Activity: [English](docs/help/activity.md), [Arabic](docs/help/activity.ar.md)

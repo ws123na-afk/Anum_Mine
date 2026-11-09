@@ -129,6 +129,16 @@ Map<String, Object?> commitmentsJson({bool empty = false}) => {
           : [
               {'currency': 'AED', 'amount': '7558.33'}
             ],
+      'income': empty
+          ? <Object?>[]
+          : [
+              {
+                'currency': 'AED',
+                'monthly': '15000.00',
+                'source': 'salary_profile',
+                'share_percent': 50
+              }
+            ],
       'note': 'Monthly figures.',
     };
 
@@ -159,6 +169,7 @@ Map<String, Object?> payoffJson({bool empty = false}) => {
                     'minimum': '300.00',
                     'avalanche_month': 9,
                     'snowball_month': 2,
+                    'source': 'person_loan',
                   },
                 ],
                 'avalanche': {
@@ -187,8 +198,111 @@ const answerText =
     'cash SAR 95,000.00 (your data). Live price: https://cars.example/price '
     'read 2026-11-09. Check it with the seller.';
 
+/// `GET /salary/profile`, or none.
+Map<String, Object?> salaryProfileJson({bool none = false}) => {
+      'profile': none
+          ? null
+          : {
+              'id': 'fin_salary_1',
+              'employer': 'Example Trading LLC',
+              'joined_on': '2025-01-01',
+              'currency': 'AED',
+              'expected_gross': '16000.00',
+              'pay_day': 27,
+              'account_id': 'fin_acct_1',
+              'rules': <Object?>[],
+              'created_at': '2026-10-01T10:00:00Z',
+              'updated_at': '2026-10-01T10:00:00Z',
+              'expected_net': '15000.00',
+              'next_pay_on': '2026-11-27',
+              'advances': <Object?>[],
+            },
+    };
+
+/// `GET /salary/months`, newest first: this month not due yet, last month
+/// found and waiting for a confirm, the month before missing.
+Map<String, Object?> salaryMonthsJson({bool decided = false}) => {
+      'currency': 'AED',
+      'months': [
+        {
+          'month': '2026-11',
+          'currency': 'AED',
+          'pay_on': '2026-11-27',
+          'status': 'upcoming',
+          'flags': <String>[],
+          'expected': {
+            'gross': '16000.00',
+            'deductions': <Object?>[],
+            'advance_repayment': '0.00',
+            'net': '15000.00',
+            'payslip': false
+          },
+          'received': '0.00',
+          'difference': '-15000.00',
+          'found': null,
+          'basis': null,
+          'rejected': 0,
+        },
+        {
+          'month': '2026-10',
+          'currency': 'AED',
+          'pay_on': '2026-10-27',
+          'status': 'received',
+          'flags': <String>[],
+          'expected': {
+            'gross': '16000.00',
+            'deductions': <Object?>[],
+            'advance_repayment': '0.00',
+            'net': '15000.00',
+            'payslip': false
+          },
+          'received': '15000.00',
+          'difference': '0.00',
+          'found': {
+            'transaction_id': 'fin_txn_salary',
+            'posted_on': '2026-10-27',
+            'amount': '15000.00',
+            'description': 'SALARY EXAMPLE TRADING',
+            'account_id': 'fin_acct_1',
+            'confidence': 'high',
+            'score': 90,
+          },
+          'basis': decided ? 'confirmed' : 'suggested',
+          'rejected': 0,
+        },
+        {
+          'month': '2026-09',
+          'currency': 'AED',
+          'pay_on': '2026-09-27',
+          'status': 'missing',
+          'flags': ['missing'],
+          'expected': {
+            'gross': '16000.00',
+            'deductions': <Object?>[],
+            'advance_repayment': '0.00',
+            'net': '15000.00',
+            'payslip': false
+          },
+          'received': '0.00',
+          'difference': '-15000.00',
+          'found': null,
+          'basis': null,
+          'rejected': 0,
+        },
+      ],
+      'total': 3,
+      'missing': 1,
+      'waiting': decided ? 0 : 1,
+      'limit': 3,
+      'offset': 0,
+    };
+
 class FakePersonal implements FinancePersonalRepository {
   FakePersonal({this.failure, this.empty = false});
+
+  /// No salary profile yet.
+  bool noSalary = false;
+  bool salaryDecided = false;
 
   /// Every read fails with this (a 403, an offline 0 or a 503).
   Object? failure;
@@ -261,6 +375,27 @@ class FakePersonal implements FinancePersonalRepository {
     _check();
     return PayoffPage.fromJson(JsonReader.of(payoffJson(empty: empty)));
   }
+
+  @override
+  Future<SalaryView> salary({int months = 3}) async {
+    requests.add('salary');
+    _check();
+    final found =
+        JsonReader.of(salaryProfileJson(none: noSalary)).optObject('profile');
+    if (found == null) return const SalaryView();
+    return SalaryView(
+        profile: SalaryProfile.fromJson(found),
+        months: SalaryMonths.fromJson(
+            JsonReader.of(salaryMonthsJson(decided: salaryDecided))));
+  }
+
+  @override
+  Future<void> decideSalary(String month,
+      {required String transactionId, required bool confirm}) async {
+    requests
+        .add('salary $month $transactionId ${confirm ? 'confirm' : 'reject'}');
+    salaryDecided = true;
+  }
 }
 
 class FakePlanner implements MoneyPlanner {
@@ -304,6 +439,8 @@ class PersonalTransport implements ApiTransport {
       '/api/v1/finance/payment-candidates' => {'items': <Object?>[]},
       '/api/v1/finance/fixed-commitments' => commitmentsJson(),
       '/api/v1/finance/planner/payoff' => payoffJson(),
+      '/api/v1/finance/salary/profile' => salaryProfileJson(),
+      '/api/v1/finance/salary/months' => salaryMonthsJson(),
       _ => {
           'link': {'id': 'link_1'},
           'replayed': false
@@ -405,6 +542,8 @@ void main() {
     test('fixed costs and the payoff comparison read', () {
       final fixed = FixedCommitments.fromJson(JsonReader.of(commitmentsJson()));
       expect(fixed.items, hasLength(3));
+      expect(fixed.incomeFor('AED')!.percent, 50);
+      expect(fixed.incomeFor('USD'), isNull);
       expect(fixed.notCounted.single.note, 'in_bill');
       expect(fixed.totals.single.amount, '7558.33');
       final payoff = PayoffPage.fromJson(JsonReader.of(payoffJson()));
@@ -413,6 +552,7 @@ void main() {
       expect(aed.names(aed.snowball), ['Family loan', 'Credit card']);
       expect(aed.avalanche.months, 9);
       expect(aed.missingRates, ['Family loan']);
+      expect(aed.fromPeople, ['Family loan']);
       expect(
           FixedCommitments.fromJson(JsonReader.of(commitmentsJson(empty: true)))
               .isEmpty,
@@ -474,6 +614,19 @@ void main() {
       expect((await repo.payoff()).currencies.single.currency, 'AED');
       expect(
           transport.requests.last.uri.path, '/api/v1/finance/planner/payoff');
+      final salary = await repo.salary();
+      expect(salary.profile!.employer, 'Example Trading LLC');
+      expect(salary.current!.status, 'upcoming');
+      expect(salary.waiting.single.month, '2026-10');
+      expect(transport.requests.last.uri.path, '/api/v1/finance/salary/months');
+      expect(transport.requests.last.uri.queryParameters, {'limit': '3'});
+      await repo.decideSalary('2026-10',
+          transactionId: 'fin_txn_salary', confirm: false);
+      expect(transport.requests.last.method, 'POST');
+      expect(transport.requests.last.uri.path,
+          '/api/v1/finance/salary/months/2026-10/decision');
+      expect(transport.requests.last.body,
+          {'transaction_id': 'fin_txn_salary', 'decision': 'reject'});
     });
 
     test('the planner asks the Assistant and reads the streamed answer',
@@ -650,7 +803,7 @@ void main() {
       final c = finance(personal: repo);
       await tester.pumpWidget(app(c));
       await tester.pumpAndSettle();
-      await show(tester, c, FinanceSection.people);
+      await show(tester, c, FinanceSection.debts);
       expect(find.text('What I owe and what I am owed'), findsOneWidget);
       expect(find.text('Overdue: 1'), findsOneWidget);
       expect(find.text('AED 400.00'), findsOneWidget);
@@ -691,7 +844,7 @@ void main() {
       final c = finance(personal: repo);
       await tester.pumpWidget(app(c));
       await tester.pumpAndSettle();
-      await show(tester, c, FinanceSection.people);
+      await show(tester, c, FinanceSection.debts);
       expect(find.text('Nothing lent or borrowed yet'), findsOneWidget);
       expect(find.text('Add an entry'), findsWidgets);
 
@@ -719,7 +872,7 @@ void main() {
       final c = finance();
       await tester.pumpWidget(app(c));
       await tester.pumpAndSettle();
-      await show(tester, c, FinanceSection.fixed);
+      await show(tester, c, FinanceSection.bills);
       expect(find.text('Fixed monthly costs'), findsOneWidget);
       expect(find.text('Total in AED'), findsOneWidget);
       expect(find.text('AED 7,558.33'), findsOneWidget);
@@ -730,15 +883,101 @@ void main() {
       expect(find.text('Loan minimum · counted as the bill'), findsOneWidget);
     });
 
-    testWidgets('fixed costs: empty opens Bills', (tester) async {
+    testWidgets('fixed costs: empty sits under the bills and their Add bill',
+        (tester) async {
       final c = finance(personal: FakePersonal(empty: true));
       await tester.pumpWidget(app(c));
       await tester.pumpAndSettle();
-      await show(tester, c, FinanceSection.fixed);
+      await show(tester, c, FinanceSection.bills);
       expect(find.text('No fixed monthly costs yet'), findsOneWidget);
-      await tapVisible(tester, find.text('Open Bills'));
-      expect(c.section, FinanceSection.bills);
+      expect(find.textContaining('with Add bill above'), findsOneWidget);
       expect(find.text('Rent'), findsWidgets);
+      expect(find.widgetWithText(FilledButton, 'Add bill'), findsOneWidget);
+    });
+
+    testWidgets('fixed costs show their share of income on Bills',
+        (tester) async {
+      final c = finance();
+      await tester.pumpWidget(app(c));
+      await tester.pumpAndSettle();
+      await show(tester, c, FinanceSection.bills);
+      expect(find.text('Rent'), findsWidgets);
+      expect(
+          find.text('Fixed costs take 50% of your income '
+              '(AED 15,000.00 a month).'),
+          findsOneWidget);
+      expect(find.text('Income from your salary profile.'), findsOneWidget);
+    });
+
+    testWidgets('debts list people below the payoff, with the borrowed ones',
+        (tester) async {
+      final c = finance();
+      await tester.pumpWidget(app(c));
+      await tester.pumpAndSettle();
+      await show(tester, c, FinanceSection.debts);
+      expect(find.text('People'), findsOneWidget);
+      expect(find.text('Includes money borrowed from: Family loan'),
+          findsOneWidget);
+      expect(find.text('Sara Example'), findsOneWidget);
+      final payoff = tester.getTopLeft(find.text('Which debt to pay first'));
+      final people = tester.getTopLeft(find.text('People'));
+      expect(payoff.dy, lessThan(people.dy));
+    });
+
+    testWidgets('salary: expected against received, missing, and a confirm',
+        (tester) async {
+      tester.view.physicalSize = const Size(390, 844);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final repo = FakePersonal();
+      final c = finance(personal: repo);
+      await tester.pumpWidget(app(c));
+      await tester.pumpAndSettle();
+      await show(tester, c, FinanceSection.safe);
+      expect(find.text('Example Trading LLC · paid on day 27'), findsOneWidget);
+      expect(find.text('Month 2026-11'), findsOneWidget);
+      expect(find.text('Not due yet'), findsOneWidget);
+      expect(find.text('Months with no salary found: 1'), findsOneWidget);
+      expect(find.text('Is this your salary for 2026-10?'), findsOneWidget);
+      expect(find.text('SALARY EXAMPLE TRADING'), findsOneWidget);
+      await tapVisible(tester, find.byKey(const Key('salary-confirm-2026-10')));
+      expect(repo.requests, contains('salary 2026-10 fin_txn_salary confirm'));
+      expect(find.text('Confirmed as your salary.'), findsOneWidget);
+      expect(find.text('Is this your salary for 2026-10?'), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('salary: no profile says where to add it; errors retry',
+        (tester) async {
+      final repo = FakePersonal()..noSalary = true;
+      final opened = <Uri>[];
+      final c = finance(personal: repo);
+      await tester.pumpWidget(
+          app(c, webAppUrl: 'https://app.example/', openLink: (uri) async {
+        opened.add(uri);
+        return true;
+      }));
+      await tester.pumpAndSettle();
+      await show(tester, c, FinanceSection.safe);
+      expect(find.text('No salary profile yet'), findsOneWidget);
+      await tapVisible(
+          tester,
+          find.descendant(
+              of: find.byType(SalaryCard), matching: find.byType(TextButton)));
+      expect(opened.first.fragment, 'finance-advisor-salary');
+
+      repo.failure = const ApiException(503, 'The database is not reachable.');
+      await c.personal!.loadSalary();
+      await tester.pumpAndSettle();
+      expect(
+          find.text('The salary check could not be loaded: The database is '
+              'not reachable.'),
+          findsOneWidget);
+      repo.failure = const ApiException(403, 'Forbidden');
+      await c.personal!.loadSalary();
+      await tester.pumpAndSettle();
+      expect(find.textContaining('Your role cannot see personal money'),
+          findsOneWidget);
     });
 
     testWidgets('debts show avalanche against snowball above the list',
@@ -781,8 +1020,11 @@ void main() {
       }));
       await tester.pumpAndSettle();
       await tapVisible(
-          tester, find.text('Payslips and Send home are on the web: open'));
-      expect(opened, [Uri.parse('https://app.example/#finance-payslips')]);
+          tester,
+          find.text('Payslips, the salary profile and Send home are on the '
+              'web: open'));
+      expect(
+          opened, [Uri.parse('https://app.example/#finance-advisor-salary')]);
       expect(financeWebLink('', 'finance-payslips'), isNull);
       expect(financeWebLink('not a url', 'finance-payslips'), isNull);
     });
@@ -794,8 +1036,9 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.widgetWithText(ChoiceChip, 'Money planner'), findsNothing);
       expect(
-          find.widgetWithText(ChoiceChip, 'Lent and borrowed'), findsNothing);
-      expect(find.text('Payslips and Send home are on the web.'), findsNothing);
+          find.text('Payslips, the salary profile and Send home are on '
+              'the web.'),
+          findsNothing);
     });
 
     testWidgets('Arabic reads right to left in the planner and the loans',
@@ -810,12 +1053,12 @@ void main() {
       await tapVisible(
           tester, find.widgetWithText(ActionChip, 'أي دين أسدد أولا؟'));
       expect(find.text('نصيحة فقط'), findsOneWidget);
-      await show(tester, c, FinanceSection.people);
+      await show(tester, c, FinanceSection.debts);
       expect(Directionality.of(tester.element(find.byType(PeopleLoansView))),
           TextDirection.rtl);
       expect(find.text('ما عليّ وما لي'), findsOneWidget);
       expect(find.text('متأخر: 1'), findsOneWidget);
-      await show(tester, c, FinanceSection.fixed);
+      await show(tester, c, FinanceSection.bills);
       expect(find.text('التكاليف الشهرية الثابتة'), findsOneWidget);
       await show(tester, c, FinanceSection.debts);
       expect(find.text('أي دين أسدد أولًا'), findsOneWidget);
@@ -839,8 +1082,8 @@ void main() {
           await tester.pumpAndSettle();
           for (final section in const [
             FinanceSection.planner,
-            FinanceSection.people,
-            FinanceSection.fixed,
+            FinanceSection.safe,
+            FinanceSection.bills,
             FinanceSection.debts,
           ]) {
             await show(tester, c, section);

@@ -26,6 +26,14 @@ abstract interface class FinancePersonalRepository {
       {required String canonicalId, required String idempotencyKey});
   Future<FixedCommitments> fixedCommitments();
   Future<PayoffPage> payoff();
+
+  /// The salary profile and its recent months (docs/finance.md#salary);
+  /// no profile reads as an empty view.
+  Future<SalaryView> salary({int months = 3});
+
+  /// Confirms [transactionId] as [month]'s salary, or says it is not.
+  Future<void> decideSalary(String month,
+      {required String transactionId, required bool confirm});
 }
 
 class ApiFinancePersonalRepository implements FinancePersonalRepository {
@@ -91,6 +99,30 @@ class ApiFinancePersonalRepository implements FinancePersonalRepository {
   @override
   Future<PayoffPage> payoff() async => PayoffPage.fromJson(
       JsonReader.of(await api.request('GET', '$base/planner/payoff')));
+
+  @override
+  Future<SalaryView> salary({int months = 3}) async {
+    final found =
+        JsonReader.of(await api.request('GET', '$base/salary/profile'))
+            .optObject('profile');
+    if (found == null) return const SalaryView();
+    return SalaryView(
+      profile: SalaryProfile.fromJson(found),
+      months: SalaryMonths.fromJson(JsonReader.of(
+          await api.request('GET', '$base/salary/months?limit=$months'))),
+    );
+  }
+
+  @override
+  Future<void> decideSalary(String month,
+      {required String transactionId, required bool confirm}) async {
+    await api.request(
+        'POST', '$base/salary/months/${Uri.encodeComponent(month)}/decision',
+        body: {
+          'transaction_id': transactionId,
+          'decision': confirm ? 'confirm' : 'reject',
+        });
+  }
 }
 
 /// Answers a money question in the person's own words. The phone does not

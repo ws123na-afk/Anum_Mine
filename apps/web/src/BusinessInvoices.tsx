@@ -10,12 +10,13 @@ import { Download, Plus, Printer, Search, Send, Trash2 } from 'lucide-react';
 import type {
   Billable, BusinessAccountRow, BusinessCurrency, BusinessInvoice, BusinessProject, BusinessSetup, CreditNote, InvoiceSummary, PaymentMethod, PaymentNotice,
 } from '@anum/contracts';
-import { getLocale, t } from './lib/i18n';
+import { SALES_TAX_CODES, type SalesTaxCode } from '@anum/contracts';
+import { getLocale, t, type MessageKey } from './lib/i18n';
 import { CURRENCIES, formatMoney, formatPct } from './lib/business';
 import {
   INVOICE_STATUSES, LINE_KINDS, PAYMENT_METHODS, PRINT_LANGUAGES, createBody, creditBody, creditNoteTone, defaultInvoiceFilters, emptyCredit, emptyFields, emptyManualLine,
   emptyNewInvoice, emptyPayment, invoiceFiltersActive, invoiceQuery, invoiceStatusLabel, invoiceTitle, invoiceTone, lineKindLabel, listDate, noticeStatusLabel, noticeTone,
-  newPaymentKey, overdueText, paymentBody, paymentMethodLabel, paymentStateLabel, summaryTiles, today, updateBody, type FieldsDraft, type InvoiceFilters, type ManualLineDraft, type NewInvoiceDraft, type PrintLanguage,
+  newPaymentKey, overdueText, paymentBody, paymentMethodLabel, paymentStateLabel, summaryTiles, today, updateBody, withTaxCodes, type FieldsDraft, type InvoiceFilters, type ManualLineDraft, type NewInvoiceDraft, type PrintLanguage,
 } from './lib/invoices';
 import { shortHash } from './lib/approvals';
 import * as b from './lib/businessApi';
@@ -143,6 +144,8 @@ function ManualLines({ lines, onChange, taxHint }: { lines: ManualLineDraft[]; o
       <label className="field"><span>{t('inv.form.lineQty')}</span><input inputMode="decimal" value={line.quantity} onChange={(event) => set(index, { quantity: event.target.value })} /></label>
       <label className="field"><span>{t('inv.form.linePrice')}</span><input inputMode="decimal" value={line.unitPrice} onChange={(event) => set(index, { unitPrice: event.target.value })} /></label>
       <label className="field"><span>{t('inv.form.lineTax')}</span><input inputMode="decimal" value={line.taxPct} placeholder={taxHint} onChange={(event) => set(index, { taxPct: event.target.value })} /></label>
+      <label className="field"><span>{t('tax.code.label')}</span><select value={line.taxCode ?? ''} onChange={(event) => set(index, { taxCode: event.target.value as ManualLineDraft['taxCode'] })}>
+        <option value="">{t('tax.code.unknown')}</option>{SALES_TAX_CODES.map((code) => <option key={code} value={code}>{t(`tax.code.${code}` as MessageKey)}</option>)}</select></label>
       <button type="button" className="iconButton" aria-label={t('inv.form.removeLineN', { number: index + 1 })} title={t('inv.form.removeLine')} onClick={() => onChange(lines.filter((_, at) => at !== index))}><Trash2 aria-hidden="true" /></button>
     </div>)}</div>
     <div className="bzInline"><button type="button" className="secondary" onClick={() => onChange([...lines, emptyManualLine()])}><Plus aria-hidden="true" />{t('inv.form.addLine')}</button></div>
@@ -272,7 +275,8 @@ function fieldsOf(invoice: BusinessInvoice): FieldsDraft {
     billAddress: invoice.bill_to_address, billEmail: invoice.bill_to_email, billTax: invoice.bill_to_tax_number };
 }
 const manualOf = (invoice: BusinessInvoice): ManualLineDraft[] => invoice.lines.filter((line) => line.source === 'manual')
-  .map((line) => ({ description: line.description, kind: line.kind, quantity: String(line.quantity), unitPrice: String(line.unit_price), taxPct: String(line.tax_rate_pct) }));
+  .map((line) => ({ description: line.description, kind: line.kind, quantity: String(line.quantity), unitPrice: String(line.unit_price), taxPct: String(line.tax_rate_pct),
+    taxCode: line.tax_code ?? '' }));
 
 export function InvoiceDrawer({ setup, id, onClose, onChanged }: { setup: BusinessSetup; id: string; onClose: () => void; onChanged: () => void }) {
   const [item, setItem] = useState<BusinessInvoice | null>(null), [problem, setProblem] = useState<string | null>(null), [notice, setNotice] = useState<string | null>(null);
@@ -423,13 +427,16 @@ function InvoiceBody({ invoice }: { invoice: BusinessInvoice }) {
 function EditForm({ invoice, onCancel, onSaved }: { invoice: BusinessInvoice; onCancel: () => void; onSaved: (next: BusinessInvoice) => void }) {
   const [fields, setFields] = useState(() => fieldsOf(invoice)), [manual, setManual] = useState(() => manualOf(invoice));
   const [removed, setRemoved] = useState<number[]>([]), [problem, setProblem] = useState<string | null>(null), [busy, setBusy] = useState(false);
+  const [codes, setCodes] = useState<Record<number, SalesTaxCode | ''>>(() => Object.fromEntries(invoice.lines.map((line, index) => [index, line.tax_code ?? ''])));
   const hadManual = invoice.lines.some((line) => line.source === 'manual');
   async function submit(event: FormEvent) {
     event.preventDefault();
     const body = updateBody(fields, manual, removed, hadManual || manual.length > 0);
     if (!body.ok) { setProblem(body.error); return; }
+    const kept = invoice.lines.map((line, index) => ({ line, index })).filter(({ line, index }) => line.source !== 'manual' && !removed.includes(index))
+      .map(({ index }) => codes[index] || null);
     setBusy(true); setProblem(null);
-    try { onSaved(await inv.updateInvoice(invoice.id, body.value)); } catch (error) { setProblem(failure(error, t('inv.edit'))); setBusy(false); }
+    try { onSaved(await inv.updateInvoice(invoice.id, withTaxCodes(body.value, kept))); } catch (error) { setProblem(failure(error, t('inv.edit'))); setBusy(false); }
   }
   const sourced = invoice.lines.map((line, index) => ({ line, index })).filter(({ line }) => line.source !== 'manual');
   return <form className="bzProposalForm" onSubmit={(event) => void submit(event)} aria-label={t('inv.edit')} noValidate>
@@ -439,7 +446,10 @@ function EditForm({ invoice, onCancel, onSaved }: { invoice: BusinessInvoice; on
       <p className="muted bzHint">{t('inv.edit.sourcedHelp')}</p>
       <ul className="invPicks">{sourced.map(({ line, index }) => <li key={index}><label className="bzCheck">
         <input type="checkbox" checked={removed.includes(index)} onChange={() => setRemoved(removed.includes(index) ? removed.filter((value) => value !== index) : [...removed, index])} />
-        <span dir="auto">{t('inv.edit.removeLine', { description: line.description })}</span><strong>{money(line.total, invoice.currency)}</strong></label></li>)}</ul></fieldset>}
+        <span dir="auto">{t('inv.edit.removeLine', { description: line.description })}</span><strong>{money(line.total, invoice.currency)}</strong></label>
+        <label className="field invLineCode"><span>{t('tax.code.label')}</span><select value={codes[index] ?? ''} disabled={removed.includes(index)}
+          onChange={(event) => setCodes({ ...codes, [index]: event.target.value as SalesTaxCode | '' })}><option value="">{t('tax.code.unknown')}</option>
+          {SALES_TAX_CODES.map((code) => <option key={code} value={code}>{t(`tax.code.${code}` as MessageKey)}</option>)}</select></label></li>)}</ul></fieldset>}
     <ManualLines lines={manual} onChange={setManual} taxHint={formatPct(invoice.lines[0]?.tax_rate_pct ?? 0)} />
     {problem && <Note error>{problem}</Note>}
     <div className="actions"><button type="submit" disabled={busy}>{busy ? t('dialog.working') : t('inv.edit.save')}</button><button type="button" className="secondary" onClick={onCancel}>{t('common.cancel')}</button></div>

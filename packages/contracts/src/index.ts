@@ -286,3 +286,5 @@ export * from './documents.js';
 export * from './vehicles.js';
 export * from './purchases.js';
 export * from './businessBooks.js';
+export * from './businessTax.js';
+export * from './businessAssets.js';

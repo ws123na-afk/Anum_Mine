@@ -16,7 +16,7 @@ from typing import Any
 
 from ..authorization import ROLE_PERMISSIONS, Permission
 from ..finance.money import MoneyError, normalize_currency, to_money
-from ..schemas import TenantContext, new_id
+from ..schemas import TenantContext, new_id, utc_now
 from .books_models import (
     Adjustment,
     AdjustmentKind,
@@ -221,11 +221,19 @@ def bill_from(context: TenantContext, store: BooksStore, payload: dict[str, Any]
     if life is not None and section != Section.CAPITAL:
         raise BooksError(422, "A useful life is only for a capital item.", "life_needs_capital")
     category = category_of(payload.get("category") or vendor.default_category) or "other"
+    from .tax_rules import TaxRuleError
+    from .tax_service import bill_tax, table_in
+
+    try:
+        tax_code, reverse_charge_tax = bill_tax(table_in(store), payload.get("tax_code"), subtotal, tax, bill_date)
+    except TaxRuleError as exc:
+        raise BooksError(422, exc.message, exc.code, field="tax_code") from None
     fields = dict(
         vendor_id=vendor.id, reference=clean(payload.get("reference"), 80), description=clean(payload["description"], 300), bill_date=bill_date,
         due_date=due_date, currency=currency, subtotal=subtotal, tax=tax, total=subtotal + tax, category=category, section=section,
         cost_centre_id=require_cost_centre(store, payload.get("cost_centre_id"), keep=existing.cost_centre_id if existing else None),
         project_id=require_project(context, payload.get("project_id")), recurrence=payload.get("recurrence"), useful_life_months=life, updated_at=now,
+        tax_code=tax_code, reverse_charge_tax=reverse_charge_tax,
     )
     if len(fields["description"]) < 2:
         raise BooksError(422, "Describe what the bill is for.", "invalid_description")
@@ -236,7 +244,7 @@ def bill_from(context: TenantContext, store: BooksStore, payload: dict[str, Any]
 
 
 def same_bill(found: Bill, fresh: Bill) -> bool:
-    keys = ("vendor_id", "bill_date", "currency", "subtotal", "tax", "category", "section", "reference")
+    keys = ("vendor_id", "bill_date", "currency", "subtotal", "tax", "category", "section", "reference", "tax_code")
     return all(getattr(found, key) == getattr(fresh, key) for key in keys)
 
 
@@ -458,7 +466,8 @@ def gather(context: TenantContext, rates_since: date | None = None) -> Inputs:
     with open_books_store(context) as store:
         settings = settings_or_409(store)
         found: dict[str, list[Any]] = {}
-        for kind in ("bills", "bill_payments", "adjustments", "intercompany", "budgets", "allocation_tags", "vendors", "cost_centres", "templates"):
+        for kind in ("bills", "bill_payments", "adjustments", "intercompany", "budgets", "allocation_tags", "vendors", "cost_centres", "templates",
+                     "assets", "asset_impairments", "loans", "loan_repayments"):
             # Voided bill payments never count, so they are not read (and never crowd out the ones that do).
             rows, total = store.find(kind, where={"voided_at": None} if kind == "bill_payments" else None, limit=MAX_SCAN)
             truncated = truncated or total > MAX_SCAN
@@ -485,7 +494,8 @@ def gather(context: TenantContext, rates_since: date | None = None) -> Inputs:
         adjustments=found["adjustments"], intercompany=found["intercompany"], budgets=found["budgets"], rates=found["rates"],
         projects={p.id: (p.name, p.account_id) for p in projects}, accounts={a.id: a.name for a in accounts},
         vendors={v.id: v.name for v in found["vendors"]}, cost_centres={c.id: f"{c.code} {c.name}" for c in found["cost_centres"]},
-        templates=found["templates"], truncated=truncated,
+        templates=found["templates"], assets=found["assets"], asset_impairments=found["asset_impairments"], loans=found["loans"],
+        loan_repayments=found["loan_repayments"], truncated=truncated,
     )
 
 
