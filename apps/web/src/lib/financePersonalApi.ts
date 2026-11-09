@@ -5,7 +5,7 @@ import type {
   FinanceAfford, FinanceAffordInput, FinanceCommitments, FinanceCompare, FinanceCompareInput, FinanceLinkResult, FinancePaymentCandidate,
   FinancePayoffPage, FinancePayslip, FinancePayslipDetail, FinancePayslipInput, FinancePayslipPage, FinancePersonLoan, FinancePersonLoanDetail,
   FinancePersonLoanInput, FinancePersonLoanPage, FinanceRemittance, FinanceRemittanceDetail, FinanceRemittanceInput, FinanceRemittancePage,
-  FinanceResearch, FinanceResearchInput,
+  FinanceResearch, FinanceResearchInput, FinanceSalaryMonthsPage, FinanceSalaryProfile, FinanceSalaryProfileInput,
 } from '@anum/contracts';
 import { apiRequest, apiRequestVoid } from './api';
 import { query } from './financeApi';
@@ -54,7 +54,18 @@ export const candidates = (kind: PersonalKind, direction: 'in' | 'out', opts: { 
   get<{ items: FinancePaymentCandidate[] }>(`/payment-candidates${query({ for: kind, direction, around: opts.around, amount: opts.amount, currency: opts.currency, q: opts.q })}`);
 
 export const getCommitments = () => get<FinanceCommitments>('/fixed-commitments');
-export const getPayoff = (payment?: string | null, currency?: string | null) => get<FinancePayoffPage>(`/planner/payoff${query({ payment, currency })}`);
+
+export const getSalaryProfile = () => get<{ profile: FinanceSalaryProfile | null }>('/salary/profile');
+export const saveSalaryProfile = (body: FinanceSalaryProfileInput) => send<FinanceSalaryProfile>('PUT', '/salary/profile', body);
+export const removeSalaryProfile = () => remove('/salary/profile');
+export const salaryMonths = (limit = 12, offset = 0) => get<FinanceSalaryMonthsPage>(`/salary/months${query({ limit, offset })}`);
+export const decideSalaryMonth = (month: string, transactionId: string, decision: 'confirm' | 'reject') =>
+  send<FinanceSalaryProfile>('POST', `/salary/months/${id(month)}/decision`, { transaction_id: transactionId, decision });
+export const undoSalaryMonth = (month: string, transactionId: string) =>
+  apiRequest<FinanceSalaryProfile>(`${BASE}/salary/months/${id(month)}/decision${query({ transaction_id: transactionId })}`, { method: 'DELETE' });
+/** The one payoff engine (planner.py): the saved plan, another `payment` previewed, or `minimumsOnly` (each debt only its minimum). */
+export const getPayoff = (payment?: string | null, currency?: string | null, minimumsOnly = false) =>
+  get<FinancePayoffPage>(`/planner/payoff${query({ payment, currency, minimums_only: minimumsOnly ? 'true' : null })}`);
 export const afford = (body: FinanceAffordInput) => send<FinanceAfford>('POST', '/planner/afford', body);
 export const compare = (body: FinanceCompareInput) => send<FinanceCompare>('POST', '/planner/compare', body);
 export const research = (body: FinanceResearchInput) => send<FinanceResearch>('POST', '/planner/research', body);

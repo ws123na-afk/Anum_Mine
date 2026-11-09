@@ -7,8 +7,19 @@ export type FinanceMoney = string;
 export type FinanceAccountKind = 'bank' | 'card' | 'cash' | 'loan' | 'investment';
 export type FinanceCategory =
   | 'income' | 'cashback' | 'refunds' | 'transfer' | 'groceries' | 'dining' | 'transport' | 'fuel' | 'utilities' | 'telecom' | 'housing'
-  | 'food' | 'room_rent' | 'shopping' | 'health' | 'education' | 'entertainment' | 'subscriptions' | 'travel' | 'insurance' | 'fees' | 'cash' | 'other';
-export type FinanceCategorySource = 'rule' | 'owner_rule' | 'manual' | 'none';
+  | 'food' | 'room_rent' | 'shopping' | 'health' | 'education' | 'entertainment' | 'subscriptions' | 'travel' | 'insurance' | 'fees' | 'interest'
+  | 'cash' | 'other';
+/** `match`: set by matching with another record (an own-transfer pair, a refund's purchase); `system`: by ANUM. Never the owner's choice. */
+export type FinanceCategorySource = 'rule' | 'owner_rule' | 'manual' | 'none' | 'match' | 'system';
+/**
+ * What a transaction is, separate from its category (docs/finance.md#transaction-types); it decides how the row counts.
+ * `uncategorized`: no rule recognised it, held for review and counted as neither income nor spend.
+ */
+export type FinanceTransactionType =
+  | 'income' | 'expense' | 'internal_transfer' | 'card_payment' | 'loan_received' | 'loan_principal' | 'interest' | 'refund' | 'cashback'
+  | 'bank_fee' | 'investment_contribution' | 'investment_withdrawal' | 'owner_contribution' | 'owner_drawing' | 'reimbursement'
+  | 'receivable_collection' | 'payable_settlement' | 'fx_exchange' | 'tax' | 'reversal' | 'uncategorized';
+export type FinanceTypeSource = 'rule' | 'owner' | 'system' | 'sms' | 'match';
 export type FinanceCadence = 'weekly' | 'monthly' | 'quarterly' | 'yearly' | 'once';
 export type FinanceBillSource = 'manual' | 'detected';
 export type FinanceDebtKind = 'loan' | 'card' | 'mortgage' | 'other';
@@ -75,6 +86,15 @@ export interface FinanceTransaction {
   import_id: string | null;
   created_at: string;
   updated_at: string;
+  /** The transaction type and why (docs/finance.md#transaction-types). Optional: older API releases do not send it. */
+  transaction_type?: FinanceTransactionType | null;
+  type_source?: FinanceTypeSource | null;
+  /** 0 to 1, a decimal string. */
+  type_confidence?: string | null;
+  /** A short machine code, for example `no_rule_matched` or `transfer_out_third_party`. */
+  type_reason?: string | null;
+  /** The person's own purchase a refund gives back (a match, or a suggestion when the confidence is low). */
+  related_transaction_id?: string | null;
   /** Stage 4: what the Guardian rules say about this record (on create and change only). */
   guardian?: FinanceGuardianDecision | null;
 }
@@ -85,6 +105,8 @@ export interface FinanceTransactionInput {
   amount: FinanceMoney;
   description: string;
   category?: FinanceCategory | null;
+  /** The owner's own reading of what the row is; never changed by a rule or a match. */
+  transaction_type?: FinanceTransactionType | null;
   notes?: string | null;
   remember_category_match?: string | null;
 }
@@ -239,7 +261,33 @@ export interface FinanceImport {
   bills_paid?: number;
   bills_review?: number;
   transfers?: number;
-  reconciliation?: { status: 'tied' | 'differs' | 'unknown'; opening: string | null; closing: string | null; rows_total: string | null; difference: string | null } | null;
+  reconciliation?: { status: 'tied' | 'differs' | 'unknown'; opening: string | null; closing: string | null; rows_total: string | null; difference: string | null; not_in_ledger?: string | null } | null;
+  /** Rows the reader could not use (unreadable, outside the statement period): listed on the import. */
+  dropped?: number;
+  /** Statement rows the ledger does not hold (held for review or left out by the person). */
+  not_in_ledger?: number;
+}
+
+export type FinanceRowDispositionKind = 'imported' | 'held_for_review' | 'attached_to_existing' | 'duplicate_skipped' | 'unticked' | 'dropped_by_reader';
+
+/** What an import did with one statement row (`GET /imports/{id}`). */
+export interface FinanceRowDisposition {
+  line: number;
+  posted_on: string | null;
+  amount: string | null;
+  description: string;
+  disposition: FinanceRowDispositionKind;
+  reason: string | null;
+  message: string | null;
+  /** The transaction or record the row was imported as, attached to, or duplicates. */
+  record_id: string | null;
+}
+
+export interface FinanceImportDetail extends FinanceImport {
+  rows: FinanceRowDisposition[];
+  rows_total: number;
+  limit: number;
+  offset: number;
 }
 
 /** Own transfers already in the ledger, not yet paired (`GET /transfers/candidates`). */
@@ -315,6 +363,16 @@ export interface FinancePdfCheck {
   summary: { name: 'deposits_count' | 'withdrawals_count' | 'deposits_total' | 'withdrawals_total' | 'total_due'; stated: string; found: string; ok: boolean }[];
 }
 
+/** A row or line the reader left out, and why: shown in the review, never dropped silently. */
+export interface FinancePdfDroppedRow {
+  page: number;
+  /** `outside_period`: a dated row outside the statement's period. `unattached_line`: a line no row could take. */
+  reason: 'outside_period' | 'unattached_line';
+  text: string;
+  posted_on: string | null;
+  amount: string | null;
+}
+
 /** What `POST /imports/pdf/read` found. Nothing is saved until the reviewed rows are imported. */
 export interface FinancePdfStatement {
   account_id: string;
@@ -350,10 +408,12 @@ export interface FinancePdfStatement {
   row_count: number;
   duplicate_count: number;
   skipped_lines: number;
-  /** `currency_differs`, `no_rows`, `page_breaks`, `summary_differs`, `low_confidence`, `debit_credit_swapped`, `columns_from_content`. */
+  /** `currency_differs`, `no_rows`, `page_breaks`, `summary_differs`, `low_confidence`, `debit_credit_swapped`, `columns_from_content`, `rows_left_out`. */
   warnings: string[];
   rows: FinancePdfRow[];
   counts: FinanceMatchCounts;
+  /** Rows outside the statement's period and lines no row could take: listed, not imported. */
+  dropped_rows: FinancePdfDroppedRow[];
 }
 
 export interface FinancePdfImportRow {
@@ -375,6 +435,8 @@ export interface FinancePdfImportRow {
   bill?: boolean | null;
   transfer?: boolean | null;
   correct?: boolean | null;
+  /** False: unticked. Still sent so identical rows keep their place; never checked or imported. */
+  include?: boolean;
 }
 
 /** A statement layout taught by the owner (Finance, Import): the mapping kept against the layout's fingerprint. */
@@ -403,6 +465,8 @@ export interface FinancePdfImportInput {
   layout?: { fingerprint: string; labels: string[]; roles: FinancePdfRole[]; date_format: string | null; remember: boolean } | null;
   /** The statement's printed counts and totals from the read; rows that disagree need `accept_mismatch`. */
   summary?: { name: FinancePdfCheck['summary'][number]['name']; stated: string }[];
+  /** The rows the reader left out, from the read: listed on the import, never imported. */
+  dropped?: { page: number; reason: FinancePdfDroppedRow['reason']; text: string; posted_on: string | null; amount: string | null }[];
 }
 
 export interface FinanceBill {
@@ -550,6 +614,21 @@ export interface FinanceHoldingInput {
   notes?: string | null;
 }
 
+/** One currency's net worth (docs/finance.md#how-figures-are-counted). */
+export interface FinanceNetWorthPart {
+  currency: string;
+  /** Account balances (cards and loans by their sign); an investment account with holdings counts them at cost instead. */
+  accounts: FinanceMoney;
+  /** Money lent to people, still owed back. */
+  receivables: FinanceMoney;
+  holdings_at_cost: FinanceMoney;
+  /** Debts with no account of their own, money borrowed from people included. */
+  debts: FinanceMoney;
+  /** Still due on installment plans. */
+  installments: FinanceMoney;
+  net: FinanceMoney;
+}
+
 export interface FinanceSummary {
   month: string;
   start: string;
@@ -576,10 +655,18 @@ export interface FinanceSummary {
   unlinked_debts?: FinanceCurrencyAmount[];
   /** Account balances (cards and loans by their sign) less `unlinked_debts`, per currency. */
   net_worth?: FinanceCurrencyAmount[];
+  /** Net worth per currency, line by line (older servers leave it out; the web then works it out from the accounts). */
+  net_worth_parts?: FinanceNetWorthPart[];
+  /** Left out of net worth, with the reason: a holding without a cost basis, or in another currency than its account. */
+  net_worth_excluded?: { kind: 'holding'; name: string; currency: string; reason: 'no_cost_basis' | 'currency_differs' }[];
   minimum_payments: FinanceCurrencyAmount[];
   debt_count: number;
   /** The month had more rows than one read returns: the figures are partial. */
   month_rows_capped?: boolean;
+  /** Rows no rule recognised: in none of the figures above, shown as "N uncategorized, not counted". */
+  uncategorized_count?: number;
+  uncategorized_in?: FinanceCurrencyAmount[];
+  uncategorized_out?: FinanceCurrencyAmount[];
   goals: { id: string; name: string; currency: string; target_amount: FinanceMoney; saved_amount: FinanceMoney; percent: number; target_on: string | null }[];
 }
 
@@ -603,7 +690,7 @@ export interface FinancePlanInput {
 
 export type FinanceSafeLineKind = 'balance' | 'bill' | 'minimum_payment' | 'goal' | 'buffer';
 export type FinanceSafeNote =
-  | 'account_balance' | 'bill_due' | 'bill_overdue' | 'minimum_due' | 'minimum_no_day' | 'minimum_passed' | 'minimum_in_bill' | 'goal_set' | 'goal_derived'
+  | 'account_balance' | 'bill_due' | 'bill_overdue' | 'minimum_due' | 'minimum_no_day' | 'minimum_passed' | 'minimum_overdue' | 'minimum_in_bill' | 'goal_set' | 'goal_derived'
   | 'goal_no_plan' | 'goal_reached' | 'goal_paused' | 'buffer' | 'account_card' | 'account_loan' | 'account_investment' | 'account_archived';
 
 /** One line of the figure: positive for money you have, negative for a deduction. */
@@ -629,6 +716,10 @@ export interface FinanceCurrencySafeToSpend {
   per_day: FinanceMoney;
   short: boolean;
   lines: FinanceSafeLine[];
+  /** With a salary profile in this currency: the next usual pay day and the net expected then. */
+  next_pay_on?: string | null;
+  expected_pay?: FinanceMoney | null;
+  days_to_payday?: number | null;
 }
 
 export interface FinanceConversion {
@@ -1500,7 +1591,12 @@ export interface FinanceAdvisorNote {
   version: number; today: string; timezone: string; base_currency: string; week_start: string; week_end: string; month_start: string;
   newest_record_on: string | null; history_days: number; has_accounts: boolean;
   currencies: FinanceAdvisorCurrency[]; cards: FinanceAdvisorCard[];
-  income: { salary_found: boolean; last_salary_on: string | null };
+  income: {
+    salary_found: boolean; last_salary_on: string | null;
+    /** The one income figure: the salary profile's expected net, else the average of the records. Older notes leave these out. */
+    currency?: string | null; monthly?: string | null; source?: 'salary_profile' | 'records' | null; next_pay_on?: string | null;
+    missing_months?: string[]; expected_pay_day?: number | null;
+  };
   actions: FinanceAdvisorAction[]; notice_en: string; notice_ar: string;
 }
 export interface FinanceAdvisorSettings { enabled: boolean; weekday: number; updated_at: string | null }

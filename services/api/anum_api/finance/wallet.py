@@ -13,7 +13,8 @@ Matching never rests on the amount alone. Two reports are one payment only when 
 * the same direction, amount and currency;
 * close in time: within 30 minutes when both carry a time (the Wallet event is stamped with the
   server's reception time), else within 2 days **and** the merchants agree;
-* merchants that do not disagree (when both name one, they must share a word), and references
+* merchants that do not disagree (when both name one, they must share a meaningful word:
+  ``merchant_match``, generic banking words such as "purchase" or "شراء" never count), and references
   that do not conflict;
 * the existing transaction has no source of the same kind yet (a second Wallet event is a
   second purchase, not a copy).
@@ -29,6 +30,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation
 
+from .merchant_match import merchant_words, merchants_agree
 from .money import MoneyError, minor_digits, quantize
 from .sms_parser import CURRENCY_WORDS, normalize
 
@@ -36,7 +38,6 @@ PRECISE_WINDOW = timedelta(minutes=30)
 LOOSE_DAYS = 2
 _ARABIC_DIGITS = str.maketrans("٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹٫٬", "01234567890123456789.,")
 _SYMBOLS = {word.upper(): code for word, code in CURRENCY_WORDS}
-_STOP = frozenset({"the", "and", "llc", "co", "ltd", "store", "shop", "www", "com", "ksa", "uae", "sa", "ae", "pay", "apple"})
 
 
 class WalletError(ValueError):
@@ -138,22 +139,6 @@ def find_card(card: str, mappings: list[tuple[str, str | None, str]]) -> str | N
     if len(set(by_digits)) == 1:
         return by_digits[0]
     return None
-
-
-def merchant_words(value: str | None) -> set[str]:
-    if not value:
-        return set()
-    words = re.findall(r"[^\W_]+", normalize(value).lower())
-    return {w for w in words if len(w) >= 3 and w not in _STOP and not w.isdigit()}
-
-
-def merchants_agree(a: str | None, b: str | None) -> bool | None:
-    """True when both name a merchant and share a word, False when both name one and share none,
-    None when either names none."""
-    left, right = merchant_words(a), merchant_words(b)
-    if not left or not right:
-        return None
-    return bool(left & right)
 
 
 @dataclass(frozen=True)

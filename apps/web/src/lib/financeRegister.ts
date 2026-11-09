@@ -2,6 +2,7 @@
 // No network and no DOM, so `pnpm --filter @anum/web test:unit` covers them.
 import type {
   FinanceAccount, FinanceAccountActivity, FinanceAccountOverview, FinanceAccountSource, FinanceCategory, FinanceOrigin, FinanceRowStatus,
+  FinanceTransactionType,
 } from '@anum/contracts';
 
 export interface RegisterFilters {
@@ -13,12 +14,20 @@ export interface RegisterFilters {
   origin: FinanceOrigin | '';
   evidence: 'linked' | 'missing' | '';
   status: FinanceRowStatus | '';
+  /** A transaction type (docs/finance.md#transaction-types); the API's `type` filter. */
+  type: FinanceTransactionType | '';
 }
 
-export const NO_REGISTER_FILTERS: RegisterFilters = { q: '', account_id: '', category: '', from: '', to: '', origin: '', evidence: '', status: '' };
+export const NO_REGISTER_FILTERS: RegisterFilters = { q: '', account_id: '', category: '', from: '', to: '', origin: '', evidence: '', status: '', type: '' };
 
 export const ORIGINS: readonly FinanceOrigin[] = ['sms', 'apple_pay', 'statement', 'manual'];
 export const ROW_STATUSES: readonly FinanceRowStatus[] = ['linked', 'needs_review', 'duplicate_candidate', 'uncategorized', 'recorded'];
+/** Every transaction type, in the order the filter and the drawer list them. */
+export const TRANSACTION_TYPES: readonly FinanceTransactionType[] = [
+  'expense', 'income', 'internal_transfer', 'card_payment', 'refund', 'cashback', 'bank_fee', 'interest', 'tax', 'loan_received', 'loan_principal',
+  'investment_contribution', 'investment_withdrawal', 'owner_contribution', 'owner_drawing', 'reimbursement', 'receivable_collection',
+  'payable_settlement', 'fx_exchange', 'reversal', 'uncategorized',
+];
 
 /** The query the API takes: empty values are left out. */
 export function registerQuery(filters: RegisterFilters): Record<string, string> {
@@ -29,7 +38,7 @@ export function registerQuery(filters: RegisterFilters): Record<string, string> 
 
 /** True when anything but the period narrows the list (the period always applies). */
 export function narrowed(filters: RegisterFilters): boolean {
-  return Boolean(filters.q || filters.account_id || filters.category || filters.origin || filters.evidence || filters.status);
+  return Boolean(filters.q || filters.account_id || filters.category || filters.origin || filters.evidence || filters.status || filters.type);
 }
 
 /** First and last day of a "YYYY-MM" month. */
@@ -55,6 +64,11 @@ export function statusTone(status: FinanceRowStatus): ChipTone {
     case 'uncategorized': return 'info';
     default: return 'muted';
   }
+}
+
+/** Money you can spend now, the one definition Safe to spend uses: a bank or cash account that is not archived. */
+export function isAvailable(account: Pick<FinanceAccount, 'kind' | 'archived'>): boolean {
+  return (account.kind === 'bank' || account.kind === 'cash') && !account.archived;
 }
 
 export type AccountsTab = 'cash' | 'cards' | 'wallets' | 'other' | 'sources' | 'archived';
@@ -103,4 +117,39 @@ export function plainAmount(value: string, digits: number, locale: string): stri
   const n = Number(value);
   if (!Number.isFinite(n)) return '-';
   return new Intl.NumberFormat(locale, { minimumFractionDigits: digits, maximumFractionDigits: digits }).format(n);
+}
+
+/** The month (`YYYY-MM`) it is now in the Finance time zone (Finance settings); UTC when the zone is unknown or invalid. */
+export function monthIn(timeZone: string | null | undefined, now: Date = new Date()): string {
+  try {
+    const parts = new Intl.DateTimeFormat('en-CA', { timeZone: timeZone || 'UTC', year: 'numeric', month: '2-digit' }).formatToParts(now);
+    const year = parts.find((p) => p.type === 'year')?.value;
+    const month = parts.find((p) => p.type === 'month')?.value;
+    if (year && month) return `${year}-${month}`;
+  } catch { /* an unknown time zone: UTC below */ }
+  return now.toISOString().slice(0, 7);
+}
+
+/** The period kept in the page's URL (`#finance-transactions?month=2026-10`, `month=all` for every month), or null. */
+export function monthFromHash(hash: string): string | null {
+  const query = hash.split('?')[1];
+  if (!query) return null;
+  const value = new URLSearchParams(query).get('month');
+  if (value === 'all') return '';
+  return value && /^\d{4}-(0[1-9]|1[0-2])$/.test(value) ? value : null;
+}
+
+/** The same hash with the period in it (an empty period is every month). */
+export function hashWithMonth(hash: string, month: string): string {
+  const [base, query] = hash.split('?');
+  const params = new URLSearchParams(query ?? '');
+  params.set('month', month || 'all');
+  return `${base}?${params.toString()}`;
+}
+
+/** When the chosen month has no rows but the ledger has some in another month: that month, so the page can offer it. */
+export function latestMonthHint(period: string, total: number, latestPostedOn: string | null | undefined): string | null {
+  if (!period || total > 0 || !latestPostedOn) return null;
+  const latest = latestPostedOn.slice(0, 7);
+  return latest !== period ? latest : null;
 }

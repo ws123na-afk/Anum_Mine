@@ -12,7 +12,7 @@ import type {
 import * as api from './lib/financeApi';
 import {
   PDF_STATEMENT_MAX_BYTES, amountTone, categoryLabel, checkFile, formatAmount, formatAmounts, hashForTab, isLast4, monthLabel, parseAmount, pickAmount,
-  openingNeedsSign, rangeLabel, tabFromHash, type FinanceTab,
+  MOVED_HASHES, hashForSection, openingNeedsSign, rangeLabel, sectionFromHash, tabFromHash, type FinanceSection, type FinanceTab,
 } from './lib/finance';
 import { describeError, isPermissionDenied } from './lib/errors';
 import { isPdf } from './lib/financePdf';
@@ -52,7 +52,6 @@ const SafePage = lazy(() => import('./FinanceSafePage').then((m) => ({ default: 
 const AdvisorPage = lazy(() => import('./FinanceAdvisorPage').then((m) => ({ default: m.FinanceAdvisorPage })));
 // Bills and budgets, debts and goals (docs/finance.md#bills-and-budgets): two pages in their own lazy chunk.
 const BillsBudgetsPage = lazy(() => import('./FinanceBillsBudgets').then((m) => ({ default: m.BillsBudgetsPage })));
-const PersonalMoneyPage = lazy(() => import('./FinancePersonalMoney').then((m) => ({ default: m.PersonalMoneyPage })));
 const DebtsGoalsPage = lazy(() => import('./FinanceDebtsGoals').then((m) => ({ default: m.DebtsGoalsPage })));
 const PLANNING_TABS: ReadonlySet<FinanceTab> = new Set<FinanceTab>(['bills', 'budgets', 'debts', 'goals']);
 // Accounts and Transactions and ledger draw their own page head (docs/finance.md#register-and-account-overview).
@@ -68,29 +67,44 @@ const ConnectionsPage = lazy(() => import('./FinanceConnections').then((m) => ({
 const KINDS: FinanceAccountKind[] = ['bank', 'card', 'cash', 'loan', 'investment'];
 const CATEGORIES: FinanceCategory[] = [
   'groceries', 'dining', 'food', 'room_rent', 'transport', 'fuel', 'utilities', 'telecom', 'housing', 'shopping', 'health', 'education', 'entertainment',
-  'subscriptions', 'travel', 'insurance', 'fees', 'cash', 'transfer', 'income', 'cashback', 'refunds', 'other',
+  'subscriptions', 'travel', 'insurance', 'fees', 'interest', 'cash', 'transfer', 'income', 'cashback', 'refunds', 'other',
 ];
 
 const today = () => new Date().toISOString().slice(0, 10);
 
-/** The finance tabs, deep-linkable (`#finance-transactions`) and in the browser history. */
-function useFinanceTab(): [FinanceTab, (next: FinanceTab) => void] {
-  const [tab, setTab] = useState<FinanceTab>(() => tabFromHash(typeof location === 'undefined' ? '' : location.hash));
+/**
+ * The finance tabs, deep-linkable (`#finance-transactions`) and in the browser history. A section inside a page has
+ * its own hash (`#finance-debts-people`); the old hash of a page that moved into another (`#finance-people`) is
+ * replaced by its new place, so a saved link or bookmark still opens it.
+ */
+type FinanceAt = { tab: FinanceTab; section: FinanceSection | null };
+function readHash(): FinanceAt {
+  const hash = typeof location === 'undefined' ? '' : location.hash;
+  return { tab: tabFromHash(hash), section: sectionFromHash(hash)?.section ?? null };
+}
+function replaceMovedHash(): void {
+  const moved = MOVED_HASHES[location.hash.replace(/^#finance-?/, '')];
+  if (moved) history.replaceState(null, '', `#finance-${moved}`);
+}
+function useFinanceTab(): [FinanceTab, FinanceSection | null, (next: FinanceTab, section?: FinanceSection) => void] {
+  const [at, setAt] = useState<FinanceAt>(readHash);
   useEffect(() => {
-    const sync = () => { if (location.hash.startsWith('#finance')) setTab(tabFromHash(location.hash)); };
+    replaceMovedHash();
+    const sync = () => { if (location.hash.startsWith('#finance')) { replaceMovedHash(); setAt(readHash()); } };
     window.addEventListener('popstate', sync);
     window.addEventListener('hashchange', sync);
     return () => { window.removeEventListener('popstate', sync); window.removeEventListener('hashchange', sync); };
   }, []);
-  const pick = (next: FinanceTab) => {
-    setTab(next);
-    if (location.hash !== hashForTab(next)) history.pushState(null, '', hashForTab(next));
+  const pick = (next: FinanceTab, section?: FinanceSection) => {
+    setAt({ tab: next, section: section ?? null });
+    const hash = section ? hashForSection(next, section) : hashForTab(next);
+    if (location.hash !== hash) history.pushState(null, '', hash);
   };
-  return [tab, pick];
+  return [at.tab, at.section, pick];
 }
 
 export function FinanceView() {
-  const [tab, pick] = useFinanceTab();
+  const [tab, section, pick] = useFinanceTab();
   const [month, setMonth] = useState<string | null>(null);
   const [summary, setSummary] = useState<Load<FinanceSummary>>({ kind: 'loading' });
   const [accounts, setAccounts] = useState<Load<FinanceAccount[]>>({ kind: 'loading' });
@@ -115,9 +129,8 @@ export function FinanceView() {
       <Suspense fallback={<Notice busy>{t('finance.loading')}</Notice>}>
         {tab === 'reports' && <ReportsPage onOpen={pick} />}
         {tab === 'safe' && <SafePage onOpen={pick} onChanged={refresh} />}
-        {tab === 'advisor' && <AdvisorPage onOpen={pick} base={summary.kind === 'ready' ? summary.value.base_currency : 'AED'} />}
-        {(tab === 'people' || tab === 'payslips' || tab === 'remittances' || tab === 'commitments') && <PersonalMoneyPage tab={tab} onOpen={pick}
-          base={summary.kind === 'ready' ? summary.value.base_currency : 'AED'} />}
+        {tab === 'advisor' && <AdvisorPage key={section ?? 'note'} onOpen={pick} base={summary.kind === 'ready' ? summary.value.base_currency : 'AED'}
+          initialView={section === 'salary' ? 'salary' : 'note'} />}
         {tab === 'accounts' && <AccountsPage accounts={accounts} base={summary.kind === 'ready' ? summary.value.base_currency : 'AED'} onChanged={refresh}
           onOpenTransactions={(accountId) => { setTxOpen((o) => ({ accountId, key: o.key + 1 })); pick('transactions'); }}
           onImport={() => { setTxOpen((o) => ({ tab: 'imports', key: o.key + 1 })); pick('transactions'); }} />}
@@ -184,8 +197,8 @@ export function FinanceView() {
     {tab === 'research' && <Suspense fallback={<section className="surface cmPanel"><Notice busy>{t('fresearch.loading')}</Notice></section>}><ResearchPanel /></Suspense>}
     {tab === 'ledger' && <Suspense fallback={<section className="surface cmPanel"><Notice busy>{t('fsms.loading')}</Notice></section>}><LedgerPanel /></Suspense>}
     {tab === 'import' && <Import accounts={accountList} onChanged={onChanged} onAddAccount={() => pick('accounts')} onDone={() => pick('transactions')} />}
-    {(tab === 'bills' || tab === 'budgets') && <Suspense fallback={planning}><BillsBudgetsPage key={tab} initial={tab} accounts={accountList} base={base} today={s.today} onOpen={pick} onChanged={onChanged} /></Suspense>}
-    {(tab === 'debts' || tab === 'goals') && <Suspense fallback={planning}><DebtsGoalsPage key={tab} initial={tab} accounts={accountList} base={base} today={s.today} onOpen={pick} onChanged={onChanged} /></Suspense>}
+    {(tab === 'bills' || tab === 'budgets') && <Suspense fallback={planning}><BillsBudgetsPage key={`${tab}-${section ?? ''}`} initial={section === 'fixed' ? 'fixed' : tab} accounts={accountList} base={base} today={s.today} onOpen={pick} onChanged={onChanged} /></Suspense>}
+    {(tab === 'debts' || tab === 'goals') && <Suspense fallback={planning}><DebtsGoalsPage key={`${tab}-${section ?? ''}`} initial={section === 'people' || section === 'send-home' ? section : tab} accounts={accountList} base={base} today={s.today} onOpen={pick} onChanged={onChanged} /></Suspense>}
     {settingsOpen && <SettingsDialog onClose={(saved) => { setSettingsOpen(false); if (saved) refresh(); }} />}
   </div>;
 }
@@ -423,7 +436,9 @@ export function Import({ accounts, onChanged, onAddAccount, onDone }: { accounts
       {history.kind === 'loading' && <Notice busy>{t('finance.import.historyLoading')}</Notice>}
       {history.kind === 'error' && <LoadError message={history.message} retry={() => void loadHistory()} />}
       {history.kind === 'ready' && (history.value.items.length === 0 ? <p className="muted">{t('finance.import.historyEmpty')}</p> : <ul className="cmList">{history.value.items.map((item) => <li key={item.id}>
-        <div><strong dir="auto">{item.filename}</strong><small>{formatDateTime(item.created_at)} · {accounts.find((a) => a.id === item.account_id)?.name ?? ''} · {t('finance.import.historyCounts', { imported: item.imported_count, duplicates: item.duplicate_count, errors: item.error_count })}</small></div>
+        <div><strong dir="auto">{item.filename}</strong><small>{formatDateTime(item.created_at)} · {accounts.find((a) => a.id === item.account_id)?.name ?? ''} · {t('finance.import.historyCounts', { imported: item.imported_count, duplicates: item.duplicate_count, errors: item.error_count })}</small>
+          {((item.reconciled ?? 0) + (item.held_for_review ?? 0) + (item.skipped ?? 0)) > 0 && <small>{t('finance.import.historyMatched', { matched: item.reconciled ?? 0, held: item.held_for_review ?? 0, left: item.skipped ?? 0 })}</small>}
+          {(item.not_in_ledger ?? 0) > 0 && <small className="finLoosens">{t('finance.import.historyNotInLedger', { count: item.not_in_ledger ?? 0 })}</small>}</div>
         <button type="button" className="secondary" onClick={() => setUndoing(item)}><Undo2 aria-hidden="true" />{t('finance.import.undo')}</button>
       </li>)}</ul>)}
     </section>

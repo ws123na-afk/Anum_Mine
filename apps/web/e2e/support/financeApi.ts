@@ -114,6 +114,7 @@ export function financeState({ empty = false, denied = false, failSummary = fals
     return {
       id: `fin_txn_${i}`, account_id: account.id, posted_on: day(-(i % 28)), amount, currency: 'AED', description: i === 0 ? '=HYPERLINK(example)' : description,
       category, category_source: 'rule', notes: null, import_id: 'fin_imp_1', created_at: stamp, updated_at: stamp,
+      transaction_type: category === 'income' ? 'income' : 'expense', type_source: 'rule', type_confidence: '0.80', type_reason: 'keyword',
     };
   });
   return {
@@ -537,7 +538,7 @@ function registerRow(state: FinanceState, t: Record<string, unknown>, running: s
   const out = Number(t.amount) < 0;
   const receipts = (state.receipts ?? []).filter((r) => r === t.id).length + (i % 5 === 0 && out ? 1 : 0);
   const duplicate_of = t.id === 'fin_txn_1' ? 'fin_txn_7' : null;
-  const uncategorized = t.category_source === 'none';
+  const uncategorized = t.category_source === 'none' || t.transaction_type === 'uncategorized';
   const status = duplicate_of ? 'duplicate_candidate' : uncategorized ? 'uncategorized' : receipts ? 'linked' : 'recorded';
   return {
     ...t, canonical_id: `fin_jent_${i}`, origin, statement_format: origin === 'statement' ? 'csv' : null,
@@ -567,10 +568,13 @@ function registerReply(state: FinanceState, method: string, sub: string, url: UR
       && (!from || String(t.posted_on) >= from) && (!to || String(t.posted_on) <= to) && (!p.get('category') || t.category === p.get('category')))
       .map((t) => registerRow(state, t, running.get(t.id) ?? null));
     for (const key of ['origin', 'evidence', 'status'] as const) { const want = p.get(key); if (want) rows = rows.filter((r) => r[key] === want); }
+    const type = p.get('type');
+    if (type) rows = rows.filter((r) => r.transaction_type === type);
     const ending = (accountId ? [account] : state.accounts.filter((a) => a && !a.archived)).reduce((a, x) => a + Number(x?.balance ?? 0), 0);
     return ok({
       items: rows.slice(offset, offset + limit), total: rows.length, limit, offset, truncated: false,
-      totals: { count: rows.length, categorized: rows.filter((r) => r.category_source !== 'none').length, receipts_missing: rows.filter((r) => r.evidence === 'missing').length,
+      totals: { count: rows.length, categorized: rows.filter((r) => r.status !== 'uncategorized').length,
+        uncategorized: rows.filter((r) => r.transaction_type === 'uncategorized').length, receipts_missing: rows.filter((r) => r.evidence === 'missing').length,
         needs_review: 0, duplicate_candidates: rows.filter((r) => r.duplicate_of).length, matched: rows.filter((r) => r.reconciled).length, inflow: sum(rows, 1), outflow: sum(rows, -1) },
       balances: state.accounts.length ? [{ currency: 'AED', beginning: (ending - rows.reduce((a, r) => a + Number(r.amount), 0)).toFixed(2), ending: ending.toFixed(2) }] : [],
       review_count: state.transactions.length ? 2 : 0, ledger_kind: 'personal',
@@ -584,7 +588,7 @@ function registerReply(state: FinanceState, method: string, sub: string, url: UR
     const match = row.duplicate_of ? state.transactions.find((x) => x.id === row.duplicate_of) : null;
     return ok({
       row, account_name: state.accounts.find((a) => a.id === t.account_id)?.name ?? '', kind: row.origin === 'sms' ? 'card_purchase' : null, merchant: null, reference: row.origin === 'sms' ? 'TRF728410' : null,
-      suggested_category: 'dining', suggested_by: 'rule',
+      suggested_category: 'dining', suggested_by: 'rule', suggested_type: 'expense', suggested_type_by: 'rule',
       sources: row.origin === 'sms' ? [{ kind: 'sms', status: 'posted', received_at: stamp, sender: 'TestBank', text: t.id === 'fin_txn_4' ? null : 'SYNTHETIC. Purchase of AED 35.00 at TALABAT with card ***1234', kept_until: t.id === 'fin_txn_4' ? null : stamp }] : [],
       receipt_document_ids: row.receipts ? ['doc_receipt'] : [], duplicate: match ? registerRow(state, match, null) : null,
     });
@@ -674,7 +678,11 @@ export function financeReply(state: FinanceState, method: string, url: URL, body
     const found = state.transactions.find((t) => t.id === id);
     if (!found) return ok({ error: { code: 'not_found', message: 'Transaction not found.', correlation_id: 'c', details: [] } }, 404);
     if (method === 'DELETE') { state.transactions = state.transactions.filter((t) => t.id !== id); return ok(null, 204); }
-    if (method === 'PATCH') { Object.assign(found, body, (body as { category?: string }).category ? { category_source: 'manual' } : {}); return ok(found); }
+    if (method === 'PATCH') {
+      Object.assign(found, body, (body as { category?: string }).category ? { category_source: 'manual' } : {},
+        (body as { transaction_type?: string }).transaction_type ? { type_source: 'owner', type_confidence: '1', type_reason: 'owner_type' } : {});
+      return ok(found);
+    }
     return ok(found);
   }
   if (sub === '/transactions/export.csv') return { status: 200, body: 'date,account,description\n' };

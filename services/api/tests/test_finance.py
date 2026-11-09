@@ -250,7 +250,10 @@ def test_summary_is_per_currency_with_spend_income_bills_and_debts() -> None:
     with open_finance_store(context) as store:
         data = build_summary(store, context, None, now=now)
     assert data.month == "2026-10" and data.base_currency == "AED" and data.timezone == "Asia/Dubai"
-    assert {a.currency: a.amount for a in data.spend} == {"AED": Decimal("650.50"), "USD": Decimal("80.25")}
+    # The "=HYPERLINK(example)" debit matches no rule: uncategorized, held for review and left out of spend, and the
+    # summary says so (docs/finance.md#transaction-types; the owner's rule of November 2026, audit C2).
+    assert {a.currency: a.amount for a in data.spend} == {"AED": Decimal("640.50"), "USD": Decimal("80.25")}
+    assert data.uncategorized_count == 1 and {a.currency: a.amount for a in data.uncategorized_out} == {"AED": Decimal("10.00")}
     assert {a.currency: a.amount for a in data.income} == {"AED": Decimal("15000.00")}
     assert {a.currency: a.amount for a in data.refunds} == {"USD": Decimal("20.00")}
     assert {a.currency: a.amount for a in data.balances} == {"AED": Decimal("15349.50"), "USD": Decimal("-60.25")}
@@ -258,7 +261,8 @@ def test_summary_is_per_currency_with_spend_income_bills_and_debts() -> None:
     assert [b.days_until for b in data.upcoming_bills] == [6]
     assert {a.currency: a.amount for a in data.debts} == {"AED": Decimal("5000.00")} and data.goals[0].percent == 25
     over_http = client.get(f"{API}/summary", headers=OWNER, params={"month": "2026-10"}).json()
-    assert over_http["spend"] == [{"currency": "AED", "amount": "650.50"}, {"currency": "USD", "amount": "80.25"}]
+    assert over_http["spend"] == [{"currency": "AED", "amount": "640.50"}, {"currency": "USD", "amount": "80.25"}]
+    assert over_http["uncategorized_count"] == 1 and over_http["uncategorized_out"] == [{"currency": "AED", "amount": "10.00"}]
     assert client.get(f"{API}/summary", headers=OWNER, params={"month": "2026-13"}).status_code == 422
 
 
@@ -361,7 +365,7 @@ def test_tools_answer_from_the_callers_ledger_only() -> None:
     nothing = asyncio.run(registry.execute(ToolCall(name="finance.transactions.search", arguments={"query": "talabat"}), member))
     assert nothing.output["total"] == 0
     summary = asyncio.run(registry.execute(ToolCall(name="finance.summary", arguments={"month": "2026-10"}), owner))
-    assert summary.status == "succeeded" and "AED 650.50" in summary.summary
+    assert summary.status == "succeeded" and "AED 640.50" in summary.summary and "1 uncategorized, not counted" in summary.summary
     blocked = asyncio.run(registry.execute(ToolCall(name="finance.summary", arguments={}), viewer))
     assert blocked.status in {"blocked", "denied"}
 

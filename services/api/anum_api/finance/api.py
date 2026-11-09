@@ -31,7 +31,9 @@ from ..schemas import TenantContext, new_id, utc_now
 from . import csv_import
 from . import obligations
 from . import statement_import as SI
-from .categories import categorize, suspected_direction
+from . import refunds
+from . import txn_types as TT
+from .categories import categorize, classify_text, suspected_direction
 from .csv_import import ColumnMapping, ImportError_, safe_cell
 from .models import (
     Account,
@@ -50,6 +52,8 @@ from .models import (
     Holding,
     ImportRecord,
     Transaction,
+    TransactionType,
+    TypeSource,
 )
 from .guardian import Decision
 from .money import MoneyError, normalize_currency, quantize, to_money
@@ -158,6 +162,15 @@ def _currency(value: str | None, fallback: str) -> str:
 
 def _view(item: BaseModel) -> dict[str, Any]:
     return item.model_dump(mode="json", exclude=SCOPE_FIELDS)
+
+
+def _txn_view(item: Transaction, kind: AccountKind | None = None) -> dict[str, Any]:
+    """A transaction as the API shows it: with its type, derived when the row predates types (``txn_types.typed``)."""
+    return _view(TT.fill(item.model_copy(), kind))
+
+
+def _kinds(store: FinanceStore, context: TenantContext) -> dict[str, AccountKind]:
+    return {a.id: a.kind for a in store.list_accounts(context)}
 
 
 def _clean(value: str | None, limit: int) -> str | None:
@@ -418,6 +431,8 @@ class TransactionInput(BaseModel):
     amount: Amount = Field(description="Signed: money in is positive, money out negative")
     description: str = Field(min_length=1, max_length=500)
     category: Category | None = None
+    # The owner's own reading of what the row is (docs/finance.md#transaction-types); never changed by a machine.
+    transaction_type: TransactionType | None = None
     notes: str | None = Field(default=None, max_length=1000)
 
 
@@ -428,6 +443,7 @@ class TransactionPatch(BaseModel):
     amount: Amount | None = None
     description: str | None = Field(default=None, min_length=1, max_length=500)
     category: Category | None = None
+    transaction_type: TransactionType | None = None
     notes: str | None = Field(default=None, max_length=1000)
     remember_category_match: str | None = Field(default=None, min_length=4, max_length=80)
 
@@ -445,6 +461,13 @@ class TransactionView(BaseModel):
     import_id: str | None
     created_at: Any
     updated_at: Any
+    # docs/finance.md#transaction-types: always set in answers (a row stored before types existed shows the type its
+    # category stands for, ``type_reason`` ``legacy_category``). ``uncategorized`` rows count as neither income nor spend.
+    transaction_type: TransactionType | None = None
+    type_source: TypeSource | None = None
+    type_confidence: Decimal | None = None
+    type_reason: str | None = None
+    related_transaction_id: str | None = None
     # Stage 4: what your Guardian rules say about this record (create and change only).
     # Recording money already gone is never blocked; a rule it breaks is a warning.
     guardian: Decision | None = None
@@ -484,7 +507,8 @@ def list_transactions(
     flt = _filter(q, account_id, category, start, end, direction)
     with open_finance_store(context) as store:
         items, total = store.list_transactions(context, flt, limit=limit, offset=offset)
-    return TransactionPage(items=[TransactionView(**_view(t)) for t in items], total=total, limit=limit, offset=offset)
+        kinds = _kinds(store, context)
+    return TransactionPage(items=[TransactionView(**_txn_view(t, kinds.get(t.account_id))) for t in items], total=total, limit=limit, offset=offset)
 
 
 @router.get("/transactions/export.csv", response_class=Response)
@@ -504,13 +528,14 @@ def export_transactions(
     with open_finance_store(context) as store:
         names = {a.id: a.name for a in store.list_accounts(context)}
         items, _ = store.list_transactions(context, flt, limit=EXPORT_LIMIT, offset=0)
+        kinds = _kinds(store, context)
     buffer = io.StringIO()
     writer = csv.writer(buffer)
-    writer.writerow(["date", "account", "description", "category", "amount", "currency", "notes"])
+    writer.writerow(["date", "account", "description", "category", "amount", "currency", "notes", "type"])
     for t in items:
         writer.writerow([
             t.posted_on.isoformat(), safe_cell(names.get(t.account_id, "")), safe_cell(t.description), t.category.value,
-            str(t.amount), t.currency, safe_cell(t.notes or ""),
+            str(t.amount), t.currency, safe_cell(t.notes or ""), TT.effective(t, kinds.get(t.account_id)).value,
         ])
     return Response(
         content=buffer.getvalue(),
@@ -549,10 +574,15 @@ def record_manual_transaction(context: TenantContext, body: TransactionInput, *,
         description = _clean(body.description, 500)
         if not description:
             raise _invalid("Description: enter what the transaction was.")
+        found = classify_text(description, amount, settings_for(store, context).category_rules, account.kind)
+        category, source, typed = found.category, found.source, found.typed
         if body.category is not None:
             category, source = body.category, CategorySource.MANUAL
-        else:
-            category, source = categorize(description, amount, settings_for(store, context).category_rules, account.kind)
+            typed = TT.for_category(category, amount, account.kind, TypeSource.OWNER, "1", "owner_category")
+        if body.transaction_type is not None:
+            typed = TT.Typed(body.transaction_type, TypeSource.OWNER, Decimal(1), "owner_type")
+            if body.category is None:
+                category, source = TT.default_category(body.transaction_type, category, amount), CategorySource.MANUAL
         now = utc_now()
         item = Transaction(
             id=transaction_id or new_id("fin_txn"), tenant_id=context.tenant_id, workspace_id=context.workspace_id, owner_user_id=context.user_id,
@@ -562,6 +592,8 @@ def record_manual_transaction(context: TenantContext, body: TransactionInput, *,
             dedupe_hash=csv_import.dedupe_hash(account.id, body.posted_on, amount, account.currency, f"manual {new_id('m')}", 0),
             created_at=now, updated_at=now,
         )
+        TT.apply(item, typed)
+        refunds.link_refund(store, context, item, account.kind)
         store.save_transaction(item)
         # The canonical transaction: hand-entered money has its journal entry like every other source.
         entry = record_plain(sms, context, item, account, EntrySource.MANUAL, now=now)
@@ -578,14 +610,16 @@ def create_transaction(
     _manage(context)
     item, decision, _canonical = record_manual_transaction(context, body)
     _audit(repository, context, "finance.transaction.create", item.id, _guardian_meta(decision))
-    return TransactionView(**_view(item), guardian=decision)
+    return TransactionView(**_txn_view(item), guardian=decision)
 
 
 @router.get("/transactions/{transaction_id}", response_model=TransactionView)
 def get_transaction(transaction_id: str, context: TenantContext = Depends(tenant_context)) -> TransactionView:
     _read(context)
     with open_finance_store(context) as store:
-        return TransactionView(**_view(_own_transaction(store, context, transaction_id)))
+        found = _own_transaction(store, context, transaction_id)
+        owning = store.get_account(context, found.account_id)
+        return TransactionView(**_txn_view(found, owning.kind if owning is not None else None))
 
 
 @router.patch("/transactions/{transaction_id}", response_model=TransactionView)
@@ -614,13 +648,16 @@ def update_transaction(
         item = _own_transaction(store, context, transaction_id)
         entry = sms.entry_for_transaction(context, transaction_id)
         plain = entry is not None and entry.source in (EntrySource.MANUAL, EntrySource.STATEMENT)
-        if entry is not None and not plain and {"amount", "posted_on", "category"} & set(changes):
+        if entry is not None and not plain and {"amount", "posted_on", "category", "transaction_type"} & set(changes):
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=(
                 "An iPhone SMS or Apple Pay recorded this transaction. Correct its amount, date or category under Finance, iPhone SMS, "
                 "Review, so the ledger records the change as a correction."))
         if match and match not in item.description.casefold():
             raise _invalid("The learning phrase must appear in this transaction description.")
-        before = (item.posted_on, item.amount, item.category)
+        owning = store.get_account(context, item.account_id)
+        kind = owning.kind if owning is not None else None
+        TT.fill(item, kind)  # a row stored before types existed gets its type now (the backfill, docs/finance.md#transaction-types)
+        before = (item.posted_on, item.amount, item.category, item.transaction_type)
         if body.posted_on is not None:
             item.posted_on = body.posted_on
         if "amount" in changes and body.amount is not None:
@@ -631,10 +668,16 @@ def update_transaction(
             item.notes = _clean(body.notes, 1000)
         if body.category is not None:
             item.category, item.category_source = body.category, CategorySource.MANUAL
-        elif item.category_source != CategorySource.MANUAL and ({"description", "amount"} & set(changes)) and (entry is None or plain):
-            owning = store.get_account(context, item.account_id)
-            item.category, item.category_source = categorize(item.description, item.amount, settings_for(store, context).category_rules,
-                                                             owning.kind if owning is not None else None)
+            if body.transaction_type is None:
+                TT.apply(item, TT.for_category(body.category, item.amount, kind, TypeSource.OWNER, "1", "owner_category"))
+        elif not TT.owner_locked(item) and ({"description", "amount"} & set(changes)) and (entry is None or plain):
+            found = classify_text(item.description, item.amount, settings_for(store, context).category_rules, kind)
+            item.category, item.category_source = found.category, found.source
+            TT.apply(item, found.typed)
+        if body.transaction_type is not None:
+            TT.apply(item, TT.Typed(body.transaction_type, TypeSource.OWNER, Decimal(1), "owner_type"))
+            if body.category is None:
+                item.category, item.category_source = TT.default_category(body.transaction_type, item.category, item.amount), CategorySource.MANUAL
         item.updated_at = utc_now()
         if match:
             settings = settings_for(store, context)
@@ -648,12 +691,12 @@ def update_transaction(
             settings.updated_at = item.updated_at
             store.save_settings(context, settings)
         store.save_transaction(item)
-        if plain and entry is not None and (item.posted_on, item.amount, item.category) != before:
+        if plain and entry is not None and (item.posted_on, item.amount, item.category, item.transaction_type) != before:
             # A correction reverses the entry and reposts it in the same canonical chain; the row keeps its id.
             repost_plain(store, sms, context, entry, item, now=item.updated_at)
         decision = check_record(store, context, item, utc_now())
     _audit(repository, context, "finance.transaction.update", transaction_id, {"fields": sorted(changes), "learned_category": bool(match), **_guardian_meta(decision)})
-    return TransactionView(**_view(item), guardian=decision)
+    return TransactionView(**_txn_view(item, kind), guardian=decision)
 
 
 @router.delete("/transactions/{transaction_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -784,6 +827,50 @@ class ImportView(BaseModel):
     bills_review: int = 0  # possible bill payments waiting for the person under Bills
     transfers: int = 0  # own transfers paired
     reconciliation: dict[str, str | None] | None = None
+    dropped: int = 0  # rows the reader could not use (unreadable, outside the statement period): listed on the import
+    # Statement rows the ledger does not hold (held for review or left out by the person). A statement whose balances tie
+    # reconciles the account only when this is 0 (docs/finance.md#reconciliation).
+    not_in_ledger: int = 0
+
+
+def import_view(record: ImportRecord, *, breaks: int = 0, outcome: ImportOutcome | None = None) -> ImportView:
+    """An import as the API shows it: the counts stored with it, plus what this request linked afterwards."""
+    data = _view(record)
+    check = record.reconciliation or {}
+    extra: dict[str, Any] = {"reconciled": record.attached_count, "held_for_review": record.held_count, "corrected": record.corrected_count,
+                             "skipped": record.skipped_count, "dropped": record.dropped_count,
+                             "not_in_ledger": int(check.get("not_in_ledger") or 0), "rule_breaks": breaks}
+    if outcome is not None:
+        extra.update(bills_paid=outcome.bills_paid, bills_review=outcome.bills_review, transfers=outcome.transfers)
+    return ImportView(**{**data, **extra})
+
+
+DISPOSITIONS = ("imported", "held_for_review", "attached_to_existing", "duplicate_skipped", "unticked", "dropped_by_reader")
+# In the ledger: imported, attached to the record it confirms, or already recorded. Not in the ledger: the rest.
+IN_LEDGER = frozenset({"imported", "attached_to_existing", "duplicate_skipped"})
+
+
+class RowDisposition(BaseModel):
+    """What the import did with one statement row (docs/finance.md#import-history)."""
+
+    line: int
+    posted_on: date | None = None
+    amount: Decimal | None = None
+    description: str = ""
+    disposition: Literal["imported", "held_for_review", "attached_to_existing", "duplicate_skipped", "unticked", "dropped_by_reader"]
+    # held_for_review: two_candidates, amount_date_only or waiting_review; duplicate_skipped: imported_before,
+    # reconciled_before, same_statement_row or already_in_ledger; dropped_by_reader: unreadable, outside_period or
+    # unattached_line, with the reader's message.
+    reason: str | None = None
+    message: str | None = None
+    record_id: str | None = None  # the transaction or canonical record the row was imported as, attached to, or duplicates
+
+
+class ImportDetail(ImportView):
+    rows: list[RowDisposition]
+    rows_total: int
+    limit: int
+    offset: int
 
 
 class ImportPage(BaseModel):
@@ -831,7 +918,7 @@ def preview_matches(context: TenantContext, account: Account, lines: list[Any]) 
 
     with open_link_stores(context) as (finance, sms, links):
         ledger = SL.gather(finance, sms, links, context, account, [line.posted_on for line in lines])
-    return SL.run(ledger, lines)
+    return SL.run(ledger, lines, file_hashes={line.dedupe_hash for line in lines})
 
 
 @router.post("/imports/preview", response_model=ImportPreview)
@@ -892,18 +979,26 @@ class ImportOutcome:
     """What one import did, beyond the rows it added."""
 
     def __init__(self) -> None:
-        self.attached = self.review = self.corrected = self.skipped = 0
+        self.attached = self.review = self.corrected = self.skipped = self.dropped = 0
         self.bills_paid = self.bills_review = self.transfers = 0
         self.failed: list[str] = []
 
     def audit(self, imported: int, duplicates: int, breaks: int) -> dict[str, Any]:
         return {"imported": imported, "duplicates": duplicates, "rule_breaks": breaks, "reconciled": self.attached, "review": self.review,
-                "corrected": self.corrected, "skipped": self.skipped, "bills_paid": self.bills_paid, "bills_review": self.bills_review,
-                "transfers": self.transfers, "link_failures": sorted(set(self.failed))}
+                "corrected": self.corrected, "skipped": self.skipped, "dropped": self.dropped, "bills_paid": self.bills_paid,
+                "bills_review": self.bills_review, "transfers": self.transfers, "link_failures": sorted(set(self.failed))}
 
     def view(self, record: ImportRecord, breaks: int) -> ImportView:
-        return ImportView(**_view(record), rule_breaks=breaks, reconciled=self.attached, held_for_review=self.review, corrected=self.corrected,
-                          skipped=self.skipped, bills_paid=self.bills_paid, bills_review=self.bills_review, transfers=self.transfers)
+        return import_view(record, breaks=breaks, outcome=self)
+
+
+def _disposition(line: int, row: Any, disposition: str, *, reason: str | None = None, record_id: str | None = None,
+                 message: str | None = None) -> dict[str, Any]:
+    posted = getattr(row, "posted_on", None)
+    amount = getattr(row, "amount", None)
+    return {"line": line, "posted_on": posted.isoformat() if posted else None, "amount": str(amount) if amount is not None else None,
+            "description": (getattr(row, "description", "") or "")[:200], "disposition": disposition, "reason": reason,
+            "message": (message or None) and message[:200], "record_id": record_id}
 
 
 def record_import(
@@ -916,6 +1011,7 @@ def record_import(
     times: dict[str, Any] | None = None,
     decisions: dict[int, Any] | None = None,
     checks: dict[str, Any] | None = None,
+    dropped: list[dict[str, Any]] | None = None,
 ) -> tuple[ImportRecord, int, int, ImportOutcome]:
     """The one import path for every statement format (CSV and PDF), under the owner's lock: the matching engine
     (docs/finance.md#statement-matching) runs again on the live ledger, then each row follows its status and the
@@ -923,7 +1019,12 @@ def record_import(
     hand-entered record are attached to it (and its amount corrected to the bank-billed one), possible duplicates wait
     in Review unless ticked, the rest are journalled as ``statement`` entries. Own transfers are categorized
     ``transfer`` on both sides. After the unit of work, bill payments and transfer pairs are recorded as finance links.
-    ``build(store, account)`` returns the parsed rows (and may put the balance check in ``checks``)."""
+    ``build(store, account)`` returns the parsed rows (and may put the balance check in ``checks``).
+
+    Every row's disposition is stored on the import with its counts (docs/finance.md#import-history): rows the person
+    left out (``skip``) are not matched at all, so they never take a record another row needs; ``dropped`` lists the rows
+    the reader left out (a PDF's rows outside the period), the CSV's unreadable rows are added from the parse. A statement
+    whose balances tie but whose rows are not all in the ledger says how many are not (``not_in_ledger``)."""
     from . import statement_ledger as SL
     from .commitments import bill_target_id
     from .ledger import EntrySource
@@ -940,8 +1041,10 @@ def record_import(
         if not parsed.rows:
             raise _invalid("No row of this file could be read. Check the column mapping and the date format.")
         lines = statement_lines(parsed, references, times)
-        ledger = SL.gather(store, sms, links, context, account, [line.posted_on for line in lines])
-        matches = SL.run(ledger, lines)
+        left_out = {line.key for line in lines if getattr(decisions.get(line.key), "action", None) == "skip"}
+        wanted = [line for line in lines if line.key not in left_out]
+        ledger = SL.gather(store, sms, links, context, account, [line.posted_on for line in (wanted or lines)])
+        found = {m.line.key: m for m in SL.run(ledger, wanted, file_hashes={line.dedupe_hash for line in lines})}
         rules = settings_for(store, context).category_rules
         now = utc_now()
         record = ImportRecord(
@@ -953,29 +1056,42 @@ def record_import(
         )
         store.save_import(record)
         by_line = {row.line: row for row in parsed.rows}
+        by_hash_line = {row.dedupe_hash: row.line for row in parsed.rows}
         fresh: list[Transaction] = []
         follow: list[tuple[Transaction | None, str | None, Any]] = []  # (new row, canonical of an attached record, match)
-        for match in matches:
-            row = by_line[match.line.key]
+        rows_done: dict[int, dict[str, Any]] = {}
+        for line in lines:
+            row = by_line[line.key]
+            if line.key in left_out:
+                outcome.skipped += 1
+                rows_done[row.line] = _disposition(row.line, row, "unticked")
+                continue
+            match = found[line.key]
             choice = decisions.get(row.line)
             action = getattr(choice, "action", None)
             reference = (references or {}).get(row.dedupe_hash) or row.reference
-            category, source = categorize(row.description, row.amount, rules, account.kind)
-            item = Transaction(
+            classified = classify_text(row.description, row.amount, rules, account.kind)
+            item = TT.apply(Transaction(
                 id=new_id("fin_txn"), tenant_id=context.tenant_id, workspace_id=context.workspace_id,
                 owner_user_id=context.user_id, account_id=account.id, posted_on=row.posted_on, amount=row.amount,
-                currency=account.currency, description=row.description, category=category, category_source=source,
+                currency=account.currency, description=row.description, category=classified.category, category_source=classified.source,
                 notes=row.notes, import_id=record.id, dedupe_hash=row.dedupe_hash, created_at=now, updated_at=now,
-            )
-            if action == "skip":
-                outcome.skipped += 1
+            ), classified.typed)
+            if match.status == "exact_duplicate" and match.code == "waiting_review":
+                # The same row already waits in Review from an earlier import: not in the ledger yet.
+                outcome.review += 1
+                rows_done[row.line] = _disposition(row.line, row, "held_for_review", reason="waiting_review",
+                                                   record_id=match.waiting.message_id if match.waiting else None)
                 continue
             if match.status == "exact_duplicate" and not (action == "import" and match.code == "same_statement_row"):
                 record.duplicate_count += 1
+                rows_done[row.line] = _disposition(row.line, row, "duplicate_skipped", reason=match.code, record_id=_record_id(match.record))
                 continue
             if match.status == "possible_duplicate" and action != "import":
                 SL.hold(sms, context, account, item, record.id, now=now, reference=reference)
                 outcome.review += 1
+                rows_done[row.line] = _disposition(row.line, row, "held_for_review", reason=match.code,
+                                                   record_id=_record_id(match.candidates[0]) if match.candidates else None)
                 continue
             if match.status == "matched_existing" and action != "import" and match.record is not None:
                 matched = match.record
@@ -991,14 +1107,25 @@ def record_import(
                 if entry_id is not None:
                     SL.attach(sms, context, account, item, entry_id, record.id, now=now, reference=reference)
                 outcome.attached += 1
-                record.duplicate_count += 1
+                rows_done[row.line] = _disposition(row.line, row, "attached_to_existing", reason=match.code, record_id=_record_id(matched))
                 follow.append((None, matched.canonical_id, match))
                 continue
             if _wants_transfer(match, choice):
-                item.category, item.category_source = Category.TRANSFER, CategorySource.MANUAL
+                SL.mark_transfer(item, account.kind, by_owner=getattr(choice, "transfer", None) is True)
             fresh.append(item)
+            rows_done[row.line] = _disposition(row.line, row, "imported", record_id=item.id)
             follow.append((item, None, match))
-        added = store.add_transactions(fresh)
+        refunds.link_refunds(store, context, fresh, account.kind)
+        inserted = store.insert_transactions(fresh)
+        added = len(inserted)
+        for item in fresh:
+            if item.id not in inserted:
+                # Stored meanwhile by another import of the same row (ON CONFLICT DO NOTHING): no journal entry for it.
+                record.duplicate_count += 1
+                rows_done[by_hash_line[item.dedupe_hash]] = _disposition(by_hash_line[item.dedupe_hash], item, "duplicate_skipped",
+                                                                         reason="already_in_ledger")
+        follow = [(item, attached, match) for item, attached, match in follow if item is None or item.id in inserted]
+        fresh = [item for item in fresh if item.id in inserted]
         canonical: dict[str, str] = {}
         originals = {row.dedupe_hash: (row.original_amount, row.original_currency) for row in parsed.rows
                      if row.original_amount is not None and row.original_currency and row.original_currency != account.currency}
@@ -1028,11 +1155,30 @@ def record_import(
                 jobs.append(SL.LinkJob("bill", mine, bill_target_id(match.bill.bill.bill_id, match.bill.bill.due_on), abs(match.line.amount),
                                        account.currency, review=match.bill.strength != "strong"))
         record.imported_count = added
+        for error in parsed.errors:
+            rows_done.setdefault(-error.line, _disposition(error.line, None, "dropped_by_reader", reason="unreadable", message=error.message))
+        for number, item in enumerate(dropped or [], start=1):
+            rows_done[-1_000_000 - number] = {**_disposition(0, None, "dropped_by_reader", reason=item.get("reason"),
+                                                             message=item.get("message")), **{k: item.get(k) for k in ("posted_on", "amount", "description")}}
+        outcome.dropped = len(parsed.errors) + len(dropped or [])
+        record.attached_count, record.held_count, record.skipped_count = outcome.attached, outcome.review, outcome.skipped
+        record.dropped_count, record.corrected_count = outcome.dropped, outcome.corrected
+        record.dispositions = [rows_done[key] for key in sorted(rows_done, key=lambda k: (k < 0, abs(k)))]
+        missing = sum(1 for item in record.dispositions if item["disposition"] in ("held_for_review", "unticked"))
+        if record.reconciliation is not None:
+            # Balances that tie say the statement adds up; the account is reconciled only when the ledger holds every row.
+            record.reconciliation = {**record.reconciliation, "not_in_ledger": str(missing)}
         store.save_import(record)
         breaks = _import_rule_breaks(store, context, fresh)
     made = SL.make_links(context, jobs)
     outcome.bills_paid, outcome.bills_review, outcome.transfers, outcome.failed = made.bills_paid, made.bills_review, made.transfers, made.failed
     return record, added, breaks, outcome
+
+
+def _record_id(record: Any) -> str | None:
+    if record is None:
+        return None
+    return record.transaction_id or record.canonical_id or record.record_id
 
 
 def _wants_transfer(match: Any, choice: Any) -> bool:
@@ -1075,7 +1221,31 @@ def list_imports(
     _read(context)
     with open_finance_store(context) as store:
         items, total = store.list_imports(context, limit=limit, offset=offset)
-    return ImportPage(items=[ImportView(**_view(i)) for i in items], total=total, limit=limit, offset=offset)
+    return ImportPage(items=[import_view(i) for i in items], total=total, limit=limit, offset=offset)
+
+
+@router.get("/imports/{import_id}", response_model=ImportDetail)
+def get_import(
+    import_id: str,
+    disposition: Literal["imported", "held_for_review", "attached_to_existing", "duplicate_skipped", "unticked", "dropped_by_reader",
+                         "not_in_ledger"] | None = Query(default=None),
+    limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0, le=1_000_000),
+    context: TenantContext = Depends(tenant_context),
+) -> ImportDetail:
+    """One import with what happened to each of its rows, filtered by disposition (``not_in_ledger``: held or left out)."""
+    _read(context)
+    with open_finance_store(context) as store:
+        record = store.get_import(context, import_id)
+    if record is None:
+        raise _not_found("Import")
+    rows = record.dispositions or []
+    if disposition == "not_in_ledger":
+        rows = [r for r in rows if r.get("disposition") in ("held_for_review", "unticked")]
+    elif disposition is not None:
+        rows = [r for r in rows if r.get("disposition") == disposition]
+    page = [RowDisposition(**r) for r in rows[offset: offset + limit]]
+    return ImportDetail(**import_view(record).model_dump(), rows=page, rows_total=len(rows), limit=limit, offset=offset)
 
 
 @router.delete("/imports/{import_id}", status_code=status.HTTP_204_NO_CONTENT)

@@ -95,6 +95,11 @@ describe('personal reports', () => {
     });
     assert.deepEqual(netWorth(s), [{ currency: 'SAR', assets: '2000.00', debts: '6300.00', net: '-4300.00' }]);
   });
+  it('reads the server\'s net worth when it is given: money lent, holdings at cost, borrowed money and installments', () => {
+    const s = summary('2026-11', { net_worth_parts: [{ currency: 'KWD', accounts: '100.125', receivables: '20.000', holdings_at_cost: '5.500', debts: '30.000',
+      installments: '1.250', net: '94.375' }] });
+    assert.deepEqual(netWorth(s), [{ currency: 'KWD', assets: '125.625', debts: '31.250', net: '94.375' }]);
+  });
 });
 
 describe('safe to spend', () => {

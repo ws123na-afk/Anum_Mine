@@ -9,14 +9,20 @@ promised. Per currency, line by line, from their own records only:
 2. **Bills:** every active bill's due dates from today to the end of the month that have
    no matched payment (a bill paid early is not taken off again), and this month's passed
    due dates that still have none (overdue: the money has not gone out yet).
-3. **Minimum debt payments:** each debt's minimum payment, unless its due day has already
-   passed this month (then it is listed as not counted: it is taken as paid). A debt with
-   no due day is counted. A minimum that is also saved as a bill is counted once, as the
-   bill, and a debt's balance follows its matched payments (``obligations.py``).
+3. **Minimum debt payments:** each debt's minimum payment. Once its due day has passed this
+   month it is paid only when a payment is matched to the debt this month (then it is listed
+   as not counted); without one it stays counted and is called overdue. A debt with no due
+   day is counted. A minimum that is also saved as a bill is counted once, as the bill, and
+   a debt's balance follows its matched payments (``obligations.py``). Money borrowed from a
+   person is a debt here too (``obligations.borrowed_debts``): the amount left is counted
+   when its due date is in this month, and called overdue once the date has passed.
 4. **Goals:** the monthly amount the person set for a goal, or, with a target date, what
    is left divided by the months left (rounded up to the minor unit). A goal without
    either, or already reached, is listed as not counted.
 5. **Buffer:** what the person always keeps back, per currency.
+
+With a salary profile (``salary.py``) the salary's currency also shows the next usual pay day and the net
+expected then (the one income figure), so the page can say how long the money has to last.
 
 ``safe_to_spend = money you have - bills - minimum payments - goals - buffer``. It can be
 negative: the page then says by how much the month is short. ``per_day`` divides a positive
@@ -31,7 +37,6 @@ person's own records, not advice and not a forecast.
 
 from __future__ import annotations
 
-import calendar
 from datetime import date, datetime
 from decimal import ROUND_CEILING, ROUND_FLOOR, Decimal
 from typing import Literal
@@ -39,6 +44,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 from ..schemas import TenantContext
+from . import commitment_math as M
 from . import fx
 from . import obligations as O
 from .models import Account, AccountKind, Bill, Debt, FxRate, Goal, PlanSettings
@@ -46,13 +52,14 @@ from .money import fmt, minor_digits, quantize
 from .store import FinanceStore
 from .summary import settings_for, today_in
 
-SPENDABLE = frozenset({AccountKind.BANK, AccountKind.CASH})
+SPENDABLE = M.SPENDABLE
 NOTE = "An estimate from your own records: not advice and not a forecast."
 
 LineKind = Literal["balance", "bill", "minimum_payment", "goal", "buffer"]
 # Why a line is there or not counted; clients show these in the person's language.
 NoteCode = Literal[
-    "account_balance", "bill_due", "bill_overdue", "minimum_due", "minimum_no_day", "minimum_passed", "minimum_in_bill", "goal_set", "goal_derived",
+    "account_balance", "bill_due", "bill_overdue", "minimum_due", "minimum_no_day", "minimum_passed", "minimum_overdue", "minimum_in_bill", "goal_set",
+    "goal_derived",
     "goal_no_plan", "goal_reached", "goal_paused", "buffer", "account_card", "account_loan", "account_investment", "account_archived",
 ]
 
@@ -80,6 +87,10 @@ class CurrencySafeToSpend(BaseModel):
     per_day: Decimal
     short: bool
     lines: list[SafeLine]
+    # With a salary profile in this currency: the next usual pay day and the net expected then (``salary.py``).
+    next_pay_on: date | None = None
+    expected_pay: Decimal | None = None
+    days_to_payday: int | None = None
 
 
 class CombinedTotal(BaseModel):
@@ -115,9 +126,13 @@ def _ceil(amount: Decimal, currency: str) -> Decimal:
     return amount.quantize(Decimal(1).scaleb(-minor_digits(currency)), rounding=ROUND_CEILING)
 
 
-def months_between(today: date, target: date) -> int:
-    """Months left to save, this month included (at least one)."""
-    return max(1, (target.year - today.year) * 12 + (target.month - today.month) + 1)
+months_between = M.months_between
+
+
+def paid_this_month(debt: Debt, payments: list[O.DebtPayment], today: date) -> bool:
+    """A payment matched to the debt (in its currency) was made this month: its minimum is paid."""
+    start = M.month_start(today)
+    return any(p.debt_id == debt.id and p.currency == debt.currency and start <= p.posted_on <= today for p in payments)
 
 
 def compute(
@@ -133,11 +148,15 @@ def compute(
     plan: PlanSettings,
     rates: list[FxRate],
     bill_links: list | None = None,
+    debt_payments: list[O.DebtPayment] | None = None,
+    salary_profile: object | None = None,
+    payslips: list | None = None,
 ) -> SafeToSpend:
     """The pure calculation: the same inputs always give the same figure.
 
-    ``bill_links`` are the person's ``bill`` links: a due date with an active matched payment is paid."""
-    month_end = date(today.year, today.month, calendar.monthrange(today.year, today.month)[1])
+    ``bill_links`` are the person's ``bill`` links: a due date with an active matched payment is paid.
+    ``debt_payments`` are the payments matched to debts: a passed due day is paid only by one this month."""
+    month_end = M.month_end(today)
     days_left = (month_end - today).days + 1
     lines: list[SafeLine] = []
     excluded: list[SafeLine] = []
@@ -147,7 +166,7 @@ def compute(
 
     counted = 0
     for account in accounts:
-        balance = quantize(account.opening_balance + balances.get(account.id, Decimal(0)), account.currency)
+        balance = quantize(M.account_balance(account, balances), account.currency)
         if account.archived:
             excluded.append(SafeLine(kind="balance", label=account.name, ref_id=account.id, currency=account.currency, amount=balance,
                                      note="account_archived", detail="Archived account: not counted."))
@@ -175,14 +194,20 @@ def compute(
                                   note="bill_due", params={"date": due.isoformat()}, detail=f"Bill due {due.isoformat()}."))
 
     for debt in debts:
-        if debt.minimum_payment <= 0 or debt.balance <= 0:
+        payment = M.debt_minimum(debt)
+        if payment <= 0:
             continue
-        payment = min(debt.minimum_payment, debt.balance)
-        covering = O.bill_for_debt(debt, bills)
+        covering = M.bill_for_debt(debt, bills)
         if covering is not None:
             excluded.append(SafeLine(kind="minimum_payment", label=debt.name, ref_id=debt.id, currency=debt.currency, amount=-payment,
                                      note="minimum_in_bill", params={"bill": covering.name},
                                      detail=f"Saved as the bill {covering.name}: counted once, as the bill."))
+            continue
+        if isinstance(debt, O.PersonDebt) and debt.overdue and debt.due_on is not None:
+            # Borrowed from a person and not repaid by its date: the amount left is still to pay.
+            lines.append(SafeLine(kind="minimum_payment", label=debt.name, ref_id=debt.id, currency=debt.currency, amount=-payment,
+                                  note="minimum_overdue", params={"date": debt.due_on.isoformat()},
+                                  detail=f"Was due {debt.due_on.isoformat()} and is not repaid yet: counted."))
             continue
         if debt.due_day is None:
             lines.append(SafeLine(kind="minimum_payment", label=debt.name, ref_id=debt.id, currency=debt.currency, amount=-payment,
@@ -190,9 +215,15 @@ def compute(
             continue
         day = min(debt.due_day, month_end.day)
         if day < today.day:
-            excluded.append(SafeLine(kind="minimum_payment", label=debt.name, ref_id=debt.id, currency=debt.currency, amount=-payment,
-                                     note="minimum_passed", params={"day": str(day)},
-                                     detail=f"Due on day {day}, already passed this month: taken as paid."))
+            due_on = today.replace(day=day)
+            if paid_this_month(debt, debt_payments or [], today):
+                excluded.append(SafeLine(kind="minimum_payment", label=debt.name, ref_id=debt.id, currency=debt.currency, amount=-payment,
+                                         note="minimum_passed", params={"day": str(day)},
+                                         detail=f"Due on day {day}: a payment is matched to it this month, so it is paid."))
+            else:
+                lines.append(SafeLine(kind="minimum_payment", label=debt.name, ref_id=debt.id, currency=debt.currency, amount=-payment,
+                                      note="minimum_overdue", params={"date": due_on.isoformat()},
+                                      detail=f"Was due {due_on.isoformat()} and no payment is matched to it yet: counted."))
         else:
             lines.append(SafeLine(kind="minimum_payment", label=debt.name, ref_id=debt.id, currency=debt.currency, amount=-payment,
                                   note="minimum_due", params={"day": str(day)}, detail=f"Minimum payment due on day {day}."))
@@ -243,6 +274,16 @@ def compute(
             buffer=buffer_total, safe_to_spend=safe, per_day=quantize(per_day, currency), short=safe < 0, lines=mine,
         ))
 
+    from . import salary as SAL
+    from .personal import SalaryProfile
+
+    if isinstance(salary_profile, SalaryProfile):
+        for row in currencies:
+            if row.currency == salary_profile.currency:
+                pay_on = SAL.next_payday(salary_profile, today)
+                pay = SAL.expected_for(salary_profile, SAL.month_key(pay_on), payslips or []).net
+                row.next_pay_on, row.expected_pay, row.days_to_payday = pay_on, pay, (pay_on - today).days
+
     combined: CombinedTotal | None = None
     missing: list[str] = []
     if not plan.combine_currencies:
@@ -286,8 +327,10 @@ def build_safe_to_spend(store: FinanceStore, context: TenantContext, *, now: dat
         today=today, base_currency=settings.base_currency, timezone=settings.timezone,
         accounts=accounts, balances=balances,
         bills=[b for b in store.list_items(context, "bill") if isinstance(b, Bill)],
-        debts=O.current_debts([d for d in store.list_items(context, "debt") if isinstance(d, Debt)], accounts, balances, links),
+        debts=O.current_debts([d for d in store.list_items(context, "debt") if isinstance(d, Debt)], accounts, balances, links, today),
         goals=O.current_goals([g for g in store.list_items(context, "goal") if isinstance(g, Goal)], accounts, balances),
         plan=plan, rates=store.list_fx_rates(context, limit=2000) if plan.combine_currencies else [],
         bill_links=links.bill_links if links is not None else None,
+        debt_payments=links.debt_payments if links is not None else None,
+        salary_profile=links.salary_profile if links is not None else None, payslips=links.payslips if links is not None else None,
     )

@@ -43,6 +43,7 @@ from typing import Any
 
 from ..schemas import TenantContext, new_id, utc_now
 from . import sms_parser as P
+from . import txn_types as TT
 from .categories import categorize
 from .ledger import (
     SUSPENSE,
@@ -58,7 +59,7 @@ from .ledger import (
     transaction_category,
     unusual,
 )
-from .models import Account, AccountKind, Category, CategorySource, Transaction
+from .models import Account, AccountKind, Category, CategorySource, Transaction, TransactionType, TypeSource
 from .money import MoneyError, normalize_currency, quantize
 from .sms_store import (
     DeviceStatus,
@@ -84,7 +85,6 @@ SAFE_ID = re.compile(r"^[A-Za-z0-9_-]{1,80}$")
 PER_MINUTE = 30  # messages a device may send per minute
 PER_DAY = 1_000
 DUPLICATE_WINDOW = timedelta(minutes=10)  # same moment, when both messages give the time
-DUPLICATE_DAYS = 2  # otherwise posted within this many days of each other
 REFUND_LOOKBACK_DAYS = 120
 INGEST_PATH = "/api/v1/finance/sms/ingest"
 TEST_SENDER = "anumtest"
@@ -309,21 +309,6 @@ def _key_account(kind: P.Kind, resolved: Resolved) -> str:
     return target.id if target is not None else "-"
 
 
-def find_duplicate(store: SmsStore, context: TenantContext, fp: str, when: datetime, has_time: bool, reference: str | None) -> JournalEntry | None:
-    for entry in store.entries_with_fingerprint(context, fp):
-        if entry.status != EntryStatus.POSTED:
-            continue
-        if reference and entry.reference and reference != entry.reference:
-            continue
-        if has_time and entry.occurred_at is not None and abs(entry.occurred_at - when) <= DUPLICATE_WINDOW:
-            return entry
-        if abs((entry.posted_on - when.date()).days) <= DUPLICATE_DAYS and (not has_time or entry.occurred_at is None or reference):
-            return entry
-        if reference and entry.reference == reference:
-            return entry
-    return None
-
-
 def _description(kind: P.Kind, merchant: str | None) -> str:
     label = kind.value.replace("_", " ")
     text = f"{merchant} ({label})" if merchant else label.capitalize()
@@ -378,9 +363,11 @@ def post(finance: FinanceStore, store: SmsStore, context: TenantContext, setting
     reverses = None
     if draft.kind in (P.Kind.REFUND, P.Kind.REVERSAL) and not category:
         category, reverses = _refund_category(store, context, draft.merchant, resolved.amount, draft.occurred_at.date())
-    if draft.kind == P.Kind.CARD_PURCHASE and not category:
+    if draft.kind in (P.Kind.CARD_PURCHASE, P.Kind.TRANSFER_OUT) and not category:
+        # A purchase, or a transfer to another person, is spending filed by the words that name what it paid for (rent is
+        # housing), the same rule a statement row of the same payment follows (audit C3); else ``other``.
         found, _ = categorize(draft.merchant or "", -resolved.amount, finance_settings(finance, context).category_rules)
-        category = Category.OTHER.value if found in (Category.INCOME, Category.TRANSFER) else found.value
+        category = Category.OTHER.value if found in (Category.INCOME, Category.TRANSFER, Category.REFUNDS, Category.CASHBACK) else found.value
     legs = plan(draft.kind, resolved.amount, account=resolved.account, counter=resolved.counter, category=category or Category.OTHER.value,
                 cash_account=cash, interest=draft.interest, fee=draft.fee)
     if not balanced(legs):  # plan always balances; this guards a future change
@@ -402,6 +389,7 @@ def post(finance: FinanceStore, store: SmsStore, context: TenantContext, setting
                 import_id=None, dedupe_hash=leg_dedupe_hash(entry_id, account.id, legs_on),
                 created_at=now, updated_at=now,
             )
+            TT.apply(transaction, sms_type(draft.kind, txn_category, leg.amount, account.kind))
             transactions.append(transaction)
             transaction_id = transaction.id
         postings.append(Posting(
@@ -422,6 +410,45 @@ def post(finance: FinanceStore, store: SmsStore, context: TenantContext, setting
     )
     store.add_entry(entry)
     return entry, transactions
+
+
+def sms_type(kind: P.Kind, category: Category, amount: Decimal, account_kind: AccountKind | None = None) -> TT.Typed:
+    """The transaction type of one account leg of a message (docs/finance-sms.md#kinds): the kind says what happened,
+    the leg's category (what balances it, ``ledger.transaction_category``) which side this is."""
+    T = TransactionType
+
+    def typed(found: TransactionType, confidence: str = "0.9", reason: str = "") -> TT.Typed:
+        return TT.Typed(found, TypeSource.SMS, Decimal(confidence), reason or "sms_" + kind.value)
+
+    if category == Category.TRANSFER:
+        if kind == P.Kind.CARD_REPAYMENT or (amount > 0 and account_kind == AccountKind.CARD and kind != P.Kind.LOAN_DISBURSEMENT):
+            return typed(T.CARD_PAYMENT)
+        if kind == P.Kind.LOAN_DISBURSEMENT:
+            return typed(T.LOAN_RECEIVED)
+        if kind == P.Kind.LOAN_REPAYMENT:
+            return typed(T.LOAN_PRINCIPAL)
+        if kind == P.Kind.TRANSFER_IN:
+            # Money from someone: not income until the person says what it was (a credit is not automatically income).
+            return typed(T.UNCATEGORIZED, "0.3", "transfer_in_unknown")
+        return typed(T.INTERNAL_TRANSFER)
+    if kind == P.Kind.DEPOSIT or category == Category.OTHER and amount > 0 and kind not in (P.Kind.REFUND, P.Kind.REVERSAL):
+        return typed(T.UNCATEGORIZED, "0.3", "deposit_unknown")
+    if category == Category.INTEREST:
+        return typed(T.INTEREST if amount < 0 else T.INCOME)
+    if kind == P.Kind.SALARY:
+        return typed(T.INCOME)
+    if kind == P.Kind.BANK_FEE:
+        return typed(T.BANK_FEE)
+    if kind == P.Kind.REVERSAL:
+        return typed(T.REVERSAL)
+    if kind == P.Kind.REFUND:
+        return typed(T.CASHBACK if category == Category.CASHBACK else T.REFUND)
+    if kind == P.Kind.TRANSFER_OUT:
+        # Money to a person: spending only when its words say what for (rent), else it waits like the statement row.
+        if category == Category.OTHER:
+            return typed(T.UNCATEGORIZED, "0.3", "transfer_out_third_party")
+        return typed(T.EXPENSE, "0.7", "transfer_out_third_party")
+    return TT.for_category(category, amount, account_kind, TypeSource.SMS, "0.9", "sms_" + kind.value)
 
 
 def leg_dedupe_hash(entry_id: str, account_id: str, seen: dict[str, int]) -> str:
@@ -493,6 +520,8 @@ def clear_suspense(finance: FinanceStore, store: SmsStore, context: TenantContex
         category_source=CategorySource.RULE, notes="From an iPhone SMS", import_id=None,
         dedupe_hash=hashlib.sha256(f"sms\x1f{entry_id}\x1f{side.id}".encode()).hexdigest(), created_at=now, updated_at=now,
     )
+    TT.apply(transaction, sms_type(P.Kind(original.kind) if original.kind in P.Kind._value2member_map_ else P.Kind.OWN_TRANSFER,
+                                   Category.TRANSFER, amount, side.kind))
     finance.add_transactions([transaction])
     entry = JournalEntry(
         id=entry_id, tenant_id=context.tenant_id, workspace_id=context.workspace_id, owner_user_id=context.user_id,
@@ -524,9 +553,12 @@ def _when(parsed: P.Parsed, received: datetime, tz_name: str) -> tuple[datetime,
     return P.occurred(parsed, local), parsed.occurred_at_time is not None or parsed.occurred_on is None
 
 
-def candidates(store: SmsStore, context: TenantContext, fp: str) -> list[W.Candidate]:
-    """The posted entries a new report could be another source of (same direction, amount, currency, account)."""
-    entries = [e for e in store.entries_with_fingerprint(context, fp) if e.status == EntryStatus.POSTED]
+def candidates(store: SmsStore, context: TenantContext, fp: str, around: date | None = None) -> list[W.Candidate]:
+    """The posted entries a new report could be another source of (same direction, amount, currency, account), posted
+    within the matching window of ``around`` (every one of them, in a fixed order)."""
+    span = timedelta(days=W.LOOSE_DAYS + 1)
+    window = {"start": around - span, "end": around + span} if around is not None else {}
+    entries = [e for e in store.entries_with_fingerprint(context, fp, **window) if e.status == EntryStatus.POSTED]
     sources = store.entry_sources(context, [e.id for e in entries])
     out = []
     for e in entries:
@@ -541,7 +573,7 @@ def candidates(store: SmsStore, context: TenantContext, fp: str) -> list[W.Candi
 def match(store: SmsStore, context: TenantContext, fp: str, report: W.Report) -> tuple[str, JournalEntry | None]:
     """``("new", None)``, ``("same_source", entry)`` (a copy of a message already recorded), ``("attach", entry)``
     (the other source of a recorded payment) or ``("ambiguous", None)``. The caller holds the owner's lock."""
-    found = candidates(store, context, fp)
+    found = candidates(store, context, fp, report.when.date())
     decision, picked = W.choose(report, found)
     if decision != "attach" or picked is None:
         return decision, None

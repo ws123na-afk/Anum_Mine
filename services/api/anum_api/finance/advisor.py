@@ -34,9 +34,10 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from . import commitment_math as M
 from . import obligations as O
 from .flows import Flow, figures, flow_of, kinds_of, spend_rows
-from .models import Account, AccountKind, Bill, Cadence, Category, Debt, DebtKind, Transaction
+from .models import Account, AccountKind, Bill, Category, Debt, DebtKind, Transaction
 from .money import minor_digits, quantize
 from .summary import _payee, detect_recurring, next_after
 
@@ -61,7 +62,7 @@ ESSENTIAL: frozenset[Category] = frozenset({
     Category.HOUSING, Category.UTILITIES, Category.TELECOM, Category.GROCERIES,
     Category.TRANSPORT, Category.FUEL, Category.HEALTH, Category.EDUCATION,
 })
-SPENDABLE = frozenset({AccountKind.BANK, AccountKind.CASH})
+SPENDABLE = M.SPENDABLE
 _SALARY = re.compile(r"(?<![\w])(salary|payroll|wps|راتب)(?![\w])", re.IGNORECASE)
 _SUBSCRIPTION = re.compile(r"(?<![\w])(netflix|spotify|shahid|osn|anghami|apple\.com|icloud|youtube|prime|subscription|google storage)(?![\w])",
                            re.IGNORECASE)
@@ -90,6 +91,10 @@ class AdvisorInputs:
     bill_links: list = field(default_factory=list)  # the person's ``bill`` links: a matched due date is paid
     # Transactions lent or borrowed with a person: transfers by the shared rule (``flows.py``).
     lending_ids: frozenset[str] = frozenset()
+    # The salary profile (``personal.SalaryProfile``) or None, the payslips and the credits linked to each payslip month.
+    salary_profile: object | None = None
+    payslips: list = field(default_factory=list)
+    payslip_credits: dict[str, set[str]] = field(default_factory=dict)
 
 
 # -- output ------------------------------------------------------------------------------------
@@ -247,6 +252,14 @@ class Action(BaseModel):
 class Income(BaseModel):
     salary_found: bool
     last_salary_on: date | None
+    # The one income figure (``salary.monthly_income``) for the salary's currency, else the base currency.
+    currency: str | None = None
+    monthly: Decimal | None = None
+    source: Literal["salary_profile", "records"] | None = None
+    next_pay_on: date | None = None
+    # With a salary profile: months with no salary found once the pay day passed (newest last, at most 3).
+    missing_months: list[str] = Field(default_factory=list)
+    expected_pay_day: int | None = None
 
 
 class AdvisorNote(BaseModel):
@@ -285,38 +298,11 @@ def _percent(now: Decimal, before: Decimal) -> int | None:
     return int(((now - before) * 100 / before).to_integral_value())
 
 
-def month_start(day: date) -> date:
-    return day.replace(day=1)
-
-
-def month_end(day: date) -> date:
-    return day.replace(day=calendar.monthrange(day.year, day.month)[1])
-
-
-def previous_months(today: date, count: int) -> list[tuple[date, date]]:
-    """The ``count`` full calendar months before today's month, newest first."""
-    out: list[tuple[date, date]] = []
-    cursor = month_start(today)
-    for _ in range(count):
-        cursor = month_start(cursor - timedelta(days=1))
-        out.append((cursor, month_end(cursor)))
-    return out
-
-
-def monthly_equivalent(bill: Bill) -> Decimal:
-    """A bill's amount per month: weekly x 52 / 12, quarterly / 3, yearly / 12. A one-off bill is not monthly."""
-    factor = {Cadence.WEEKLY: Decimal(52) / Decimal(12), Cadence.MONTHLY: Decimal(1), Cadence.QUARTERLY: Decimal(1) / Decimal(3),
-              Cadence.YEARLY: Decimal(1) / Decimal(12), Cadence.ONCE: Decimal(0)}[bill.cadence]
-    return bill.amount * factor
-
-
-def next_due_day(due_day: int, today: date) -> date:
-    """The next date on or after today that falls on ``due_day`` (the month's last day when shorter)."""
-    this = today.replace(day=min(due_day, calendar.monthrange(today.year, today.month)[1]))
-    if this >= today:
-        return this
-    following = month_start(month_end(today) + timedelta(days=1))
-    return following.replace(day=min(due_day, calendar.monthrange(following.year, following.month)[1]))
+# One rule for every reader of bills and debts (commitment_math.py).
+month_start = M.month_start
+month_end = M.month_end
+previous_months = M.previous_months
+next_due_day = M.next_due_day
 
 
 def scenario(kind: ScenarioKind, liquid: Decimal, outflow: Decimal, today: date, currency: str) -> Scenario:
@@ -404,18 +390,18 @@ def _runway(currency: str, today: date, accounts: list[Account], balances: dict[
             bills: list[Bill], debts: list[Debt], averages: dict[Category, Decimal], basis: str, months: list[str],
             first: date | None, days: int) -> Runway:
     spendable = [a for a in accounts if a.currency == currency and a.kind in SPENDABLE and not a.archived]
-    liquid = _q(sum((a.opening_balance + balances.get(a.id, Decimal(0)) for a in spendable), Decimal(0)), currency)
+    liquid = _q(M.liquid(accounts, balances, currency), currency)
     active = [b for b in bills if b.active and b.currency == currency]
-    bills_monthly = sum((monthly_equivalent(b) for b in active), Decimal(0))
+    bills_monthly = sum((M.bill_monthly(b) for b in active), Decimal(0))
     bills_by_category: dict[Category, Decimal] = defaultdict(Decimal)
     for b in active:
-        bills_by_category[b.category] += monthly_equivalent(b)
-    owing = [d for d in debts if d.currency == currency and d.balance > 0 and d.minimum_payment > 0 and O.bill_for_debt(d, active) is None]
-    minimums = sum((min(d.minimum_payment, d.balance) for d in owing), Decimal(0))
+        bills_by_category[b.category] += M.bill_monthly(b)
+    owing = [d for d in debts if d.currency == currency and M.owes_minimum(d) and M.bill_for_debt(d, active) is None]
+    minimums = sum((M.debt_minimum(d) for d in owing), Decimal(0))
     # Card purchases are already in the spending averages and the card's minimum pays for them, so the
     # "current spending" outflow adds only the minimums of loans and other debts, never a card's.
     cards = {a.id for a in accounts if a.kind == AccountKind.CARD}
-    loan_minimums = sum((min(d.minimum_payment, d.balance) for d in owing if d.kind != DebtKind.CARD and d.account_id not in cards), Decimal(0))
+    loan_minimums = sum((M.debt_minimum(d) for d in owing if d.kind != DebtKind.CARD and d.account_id not in cards), Decimal(0))
     bare = scenario("bare", liquid, bills_monthly + minimums, today, currency)
     if basis == "none":
         status: RunwayStatus = "no_records" if first is None else "not_enough_history"
@@ -511,12 +497,17 @@ def _coming(today: date, bills: list[Bill], debts: list[Debt], card_debt_ids: se
         items.append(ComingPayment(kind="bill", name=bill.name, ref_id=bill.id, amount=_q(bill.amount, currency), due_on=due, days_until=(due - today).days,
                                    category=bill.category))
     for debt in debts:
-        if debt.currency != currency or debt.balance <= 0 or debt.minimum_payment <= 0:
+        if debt.currency != currency or not M.owes_minimum(debt):
             continue
-        if O.bill_for_debt(debt, bills) is not None:
+        if M.bill_for_debt(debt, bills) is not None:
             continue  # its minimum is saved as a bill above: counted once
         kind: ComingKind = "card_minimum" if debt.id in card_debt_ids or debt.kind == DebtKind.CARD else "minimum"
-        amount = _q(min(debt.minimum_payment, debt.balance), currency)
+        amount = _q(M.debt_minimum(debt), currency)
+        if isinstance(debt, O.PersonDebt) and debt.due_on is not None:
+            # Borrowed from a person: due on its own date (an overdue one is still to pay).
+            items.append(ComingPayment(kind=kind, name=debt.name, ref_id=debt.id, amount=amount, due_on=debt.due_on,
+                                       days_until=(debt.due_on - today).days))
+            continue
         if debt.due_day is None:
             items.append(ComingPayment(kind=kind, name=debt.name, ref_id=debt.id, amount=amount, due_on=None, days_until=None))
             continue
@@ -603,7 +594,29 @@ def _cards(inputs: AdvisorInputs) -> list[CardAdvice]:
     return sorted(out, key=lambda c: (c.due_on is None, c.due_on or today, -c.owed, c.name.lower()))
 
 
-def _income(rows: list[Transaction], today: date, kinds: dict[str, AccountKind] | None = None, lending: frozenset[str] | None = None) -> Income:
+def _income(rows: list[Transaction], today: date, kinds: dict[str, AccountKind] | None = None, lending: frozenset[str] | None = None,
+            inputs: AdvisorInputs | None = None) -> Income:
+    found = _salary_found(rows, today, kinds, lending)
+    if inputs is None:
+        return found
+    from . import salary as SAL
+    from .personal import SalaryProfile
+
+    profile = inputs.salary_profile if isinstance(inputs.salary_profile, SalaryProfile) else None
+    currency = profile.currency if profile is not None else inputs.base_currency
+    figure = SAL.monthly_income(currency=currency, today=today, transactions=rows, accounts=inputs.accounts, lending_ids=inputs.lending_ids,
+                                profile=profile, payslips=inputs.payslips)
+    out = found.model_copy(update={"currency": currency, "monthly": figure.amount, "source": figure.source, "next_pay_on": figure.next_pay_on})
+    if profile is None:
+        return out
+    months = SAL.salary_months(profile, rows, inputs.accounts, today, inputs.payslips, lending_ids=inputs.lending_ids,
+                               payslip_credits=inputs.payslip_credits)
+    got = [m.transaction.posted_on for m in months if m.transaction is not None and (m.basis != "suggested" or m.transaction.confidence != "low")]
+    return out.model_copy(update={"salary_found": bool(got) or found.salary_found, "last_salary_on": max(got, default=found.last_salary_on),
+                                  "missing_months": [m.month for m in months if m.status == "missing"][-3:], "expected_pay_day": profile.pay_day})
+
+
+def _salary_found(rows: list[Transaction], today: date, kinds: dict[str, AccountKind] | None = None, lending: frozenset[str] | None = None) -> Income:
     window = [t for t in rows if t.amount > 0 and flow_of(t, kinds, lending) == Flow.INCOME and t.posted_on >= today - timedelta(days=SALARY_WINDOW_DAYS)]
     salary = [t for t in window if _SALARY.search(t.description)]
     if not salary:
@@ -656,7 +669,7 @@ def build_note(inputs: AdvisorInputs) -> AdvisorNote:
         today=today, timezone=inputs.timezone, base_currency=inputs.base_currency, week_start=today - timedelta(days=7),
         week_end=today - timedelta(days=1), month_start=month_start(today), newest_record_on=max((t.posted_on for t in rows), default=None),
         history_days=days_all, has_accounts=any(not a.archived for a in inputs.accounts), currencies=blocks, cards=cards,
-        income=_income(rows, today, kinds, lend), actions=[],
+        income=_income(rows, today, kinds, lend, inputs), actions=[],
     )
     note.actions = advisor_text.actions(note)
     return note
@@ -664,5 +677,5 @@ def build_note(inputs: AdvisorInputs) -> AdvisorNote:
 
 __all__ = [
     "AdvisorInputs", "AdvisorNote", "Action", "CardAdvice", "Coming", "ComingPayment", "CurrencyAdvice", "ESSENTIAL", "MIN_HISTORY_DAYS",
-    "Runway", "Scenario", "Spending", "build_note", "interest_at_minimum", "monthly_equivalent", "next_due_day", "previous_months", "scenario",
+    "Runway", "Scenario", "Spending", "build_note", "interest_at_minimum", "month_end", "month_start", "next_due_day", "previous_months", "scenario",
 ]

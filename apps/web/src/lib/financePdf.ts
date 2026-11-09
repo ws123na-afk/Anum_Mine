@@ -153,7 +153,8 @@ export function importBody(view: FinancePdfStatement, accountId: string, rows: r
   };
   return {
     account_id: accountId, filename: view.filename, file_sha256: view.file_sha256, source: view.source,
-    rows: rows.filter((row) => row.include).map((row) => ({
+    // Unticked rows are sent too (include: false) so identical rows keep their place; the server never imports them.
+    rows: rows.filter((row) => row.include || sendable(row, currency)).map((row) => ({
       posted_on: row.posted_on, description: row.description.trim(), amount: wire(row.amount, row.currency || currency) ?? row.amount,
       balance: row.balance, reference: row.reference, currency: row.currency, time: row.time,
       original_amount: row.original_amount || (row.currency && row.currency !== currency ? row.amount : null),
@@ -161,13 +162,19 @@ export function importBody(view: FinancePdfStatement, accountId: string, rows: r
       billed_amount: row.billed_amount ? (wire(row.billed_amount) ?? row.billed_amount) : null,
       billed_currency: row.billed_amount ? currency : null,
       fx_rate: row.fx_rate, fee: row.fee, vat: row.vat,
-      ...choiceFields(choices[row.key]),
+      ...(row.include ? choiceFields(choices[row.key]) : { action: 'skip' as const, include: false }),
     })),
     opening_balance: opening.trim() ? wire(opening) : null, closing_balance: closing.trim() ? wire(closing) : null, accept_mismatch: acceptMismatch,
     layout,
     // The statement's printed counts and totals: the server checks the rows against them again.
     summary: view.check.summary.map((item) => ({ name: item.name, stated: item.stated })),
+    dropped: (view.dropped_rows ?? []).map((item) => ({ page: item.page, reason: item.reason, text: item.text, posted_on: item.posted_on, amount: item.amount })),
   };
+}
+
+/** An unticked row is sent only when its date and amount read, so the server can place it among identical rows. */
+function sendable(row: ReviewRow, currency: string): boolean {
+  return /^\d{4}-\d{2}-\d{2}$/.test(row.posted_on) && toMinor(row.amount, row.currency || currency) !== null && row.description.trim() !== '';
 }
 
 function choiceFields(choice: PdfChoice | undefined): Partial<Pick<FinancePdfImportInput['rows'][number], 'action' | 'bill' | 'transfer' | 'correct'>> {

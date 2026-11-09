@@ -102,6 +102,12 @@ class FinanceImportRecord(Base, _Owned):
     file_sha256: Mapped[str] = mapped_column(String(64))
     created_at: Mapped[datetime] = mapped_column(TS)
     reconciliation: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
+    attached_count: Mapped[int] = mapped_column(Integer, server_default="0")
+    held_count: Mapped[int] = mapped_column(Integer, server_default="0")
+    skipped_count: Mapped[int] = mapped_column(Integer, server_default="0")
+    dropped_count: Mapped[int] = mapped_column(Integer, server_default="0")
+    corrected_count: Mapped[int] = mapped_column(Integer, server_default="0")
+    dispositions: Mapped[list[dict[str, Any]] | None] = mapped_column(JSONB, nullable=True)
 
 
 class FinanceTransactionRecord(Base, _Owned):
@@ -120,6 +126,12 @@ class FinanceTransactionRecord(Base, _Owned):
     dedupe_hash: Mapped[str] = mapped_column(String(64))
     created_at: Mapped[datetime] = mapped_column(TS)
     updated_at: Mapped[datetime] = mapped_column(TS)
+    # Migration 0148_finance_txn_types (docs/finance.md#transaction-types); NULL on rows stored before it.
+    transaction_type: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    type_source: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    type_confidence: Mapped[Decimal | None] = mapped_column(Numeric(3, 2), nullable=True)
+    type_reason: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    related_transaction_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
 
 
 class FinanceBillRecord(Base, _Owned):
@@ -729,17 +741,21 @@ class SqlAlchemyFinanceStore:
         return found
 
     def add_transactions(self, transactions: list[Transaction]) -> int:
-        added = 0
+        return len(self.insert_transactions(transactions))
+
+    def insert_transactions(self, transactions: list[Transaction]) -> set[str]:
+        """The ids of the rows actually inserted: ``ON CONFLICT DO NOTHING`` leaves out a row already stored."""
+        inserted: set[str] = set()
         for start in range(0, len(transactions), 500):
             chunk = transactions[start : start + 500]
             for item in chunk:
                 self._require(item)
             statement = insert(FinanceTransactionRecord).values([_fields(item) for item in chunk])
-            inserted = self.session.execute(
+            result = self.session.execute(
                 statement.on_conflict_do_nothing(index_elements=["account_id", "dedupe_hash"]).returning(FinanceTransactionRecord.id)
             )
-            added += len(inserted.all())
-        return added
+            inserted.update(str(row[0]) for row in result.all())
+        return inserted
 
     def transactions_between(self, context: TenantContext, start: date, end: date) -> list[Transaction]:
         rows = self.session.scalars(

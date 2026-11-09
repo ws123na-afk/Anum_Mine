@@ -8,7 +8,8 @@ the person's own records or from a live source the caller names (its address and
   by month in minor units like a lender's statement: a twelfth of the yearly rate on each balance is added
   (rounded half to even to the minor unit), every debt gets its minimum (at most what it owes), the rest of
   the monthly payment goes in strategy order and a paid-off debt frees its minimum for the next one. The
-  same rule as the Debts plan page (``lib/financeDebtPlan.ts``).
+  one payoff engine: the Debts page, the advisor's Plan view, the assistant and the mobile app all read it
+  through ``GET /planner/payoff``.
 * **Amortisation** (``amortised``): standard annuity payment ``P x r / (1 - (1 + r)^-n)`` with ``r`` the
   yearly rate over 12, or, for a flat rate (common for UAE car and personal finance), profit
   ``P x rate x years`` spread evenly. A rate is never invented: none means the option cannot be costed.
@@ -27,6 +28,7 @@ from typing import Literal
 from .money import minor_digits, quantize
 
 MAX_MONTHS = 600
+OUTLOOK_MONTHS = 12  # month-end balances returned for the outlook chart
 COMFORTABLE_RATIO = Decimal("0.33")
 TIGHT_RATIO = Decimal("0.5")
 RESERVE_MONTHS = 3
@@ -52,6 +54,7 @@ class PayoffResult:
     below_minimums: bool
     order: list[str]  # debt ids in the order extra money goes
     paid_off_in: dict[str, int | None]
+    balances: list[Decimal] = field(default_factory=list)  # total owed at the end of each month, month 1 first (at most ``horizon``)
 
 
 def _unit(currency: str) -> Decimal:
@@ -67,7 +70,7 @@ def order_for(debts: list[PlanDebt], strategy: Strategy) -> list[PlanDebt]:
     return sorted(debts, key=key)
 
 
-def simulate(debts: list[PlanDebt], strategy: Strategy, currency: str, payment: Decimal | None) -> PayoffResult:
+def simulate(debts: list[PlanDebt], strategy: Strategy, currency: str, payment: Decimal | None, horizon: int = OUTLOOK_MONTHS) -> PayoffResult:
     unit = _unit(currency)
     minimums = sum((d.minimum for d in debts), Decimal(0))
     below = payment is not None and payment < minimums
@@ -78,6 +81,7 @@ def simulate(debts: list[PlanDebt], strategy: Strategy, currency: str, payment: 
     interest = Decimal(0)
     month = 0
     total = sum(owed.values(), Decimal(0))
+    balances: list[Decimal] = []
     while total > 0 and month < MAX_MONTHS:
         month += 1
         for d in order:
@@ -107,9 +111,11 @@ def simulate(debts: list[PlanDebt], strategy: Strategy, currency: str, payment: 
             if paid_off[d.id] is None and owed[d.id] <= 0:
                 paid_off[d.id] = month
         total = sum(owed.values(), Decimal(0))
+        if month <= horizon:
+            balances.append(quantize(total, currency))
     return PayoffResult(strategy=strategy, months=month if total <= 0 else None, total_interest=quantize(interest, currency),
                         payment=quantize(budget if budget is not None else minimums, currency), below_minimums=below,
-                        order=[d.id for d in order], paid_off_in=paid_off)
+                        order=[d.id for d in order], paid_off_in=paid_off, balances=balances)
 
 
 @dataclass
@@ -124,6 +130,7 @@ class PayoffComparison:
 
 
 def payoff(debts: list[PlanDebt], currency: str, payment: Decimal | None) -> PayoffComparison:
+    """Both orders with ``payment`` a month (``None``: each debt gets only its minimum, nothing rolls over)."""
     a = simulate(debts, "avalanche", currency, payment)
     s = simulate(debts, "snowball", currency, payment)
     cheaper: Literal["avalanche", "snowball", "same"] | None

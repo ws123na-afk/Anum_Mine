@@ -31,7 +31,7 @@ import './financeGuardian.css';
 
 const CATEGORIES: FinanceCategory[] = [
   'groceries', 'dining', 'food', 'room_rent', 'transport', 'fuel', 'utilities', 'telecom', 'housing', 'shopping', 'health', 'education', 'entertainment',
-  'subscriptions', 'travel', 'insurance', 'fees', 'cash', 'other',
+  'subscriptions', 'travel', 'insurance', 'fees', 'interest', 'cash', 'other',
 ];
 const KIND_ICON: Record<FinanceGuardianRuleKind, ReactNode> = {
   allowed_currencies: <Coins aria-hidden="true" />, max_single: <Banknote aria-hidden="true" />, max_daily_total: <CalendarDays aria-hidden="true" />,

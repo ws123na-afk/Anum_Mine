@@ -10,7 +10,8 @@ import {
 import type { FinanceAccount, FinanceAccountActivity, FinanceAccountOverview, FinanceAccountsOverview, FinanceAccountSource, FinanceRegisterPage, FinanceSettings } from '@anum/contracts';
 import * as api from './lib/financeApi';
 import { getAccountActivity, getAccountsOverview, getRegister } from './lib/financeRegisterApi';
-import { NO_REGISTER_FILTERS, accountTab, activityScale, compact, maskedNumber, percentOf, plainAmount, primarySource, type AccountsTab } from './lib/financeRegister';
+import { fromMilli, toMilli } from './lib/financeStatements';
+import { NO_REGISTER_FILTERS, accountTab, isAvailable, activityScale, compact, maskedNumber, percentOf, plainAmount, primarySource, type AccountsTab } from './lib/financeRegister';
 import { amountTone, formatAmount, isolate, minorDigits, openingNeedsSign, parseAmount } from './lib/finance';
 import { describeError } from './lib/errors';
 import { formatDateTime, getLocale, intlLocale, t, type MessageKey } from './lib/i18n';
@@ -149,14 +150,15 @@ export function AccountsPage({ accounts, base, onChanged, onOpenTransactions, on
 }
 
 function Kpis({ accounts, info, overview, currency }: { accounts: FinanceAccount[]; info: Map<string, FinanceAccountOverview>; overview: FinanceAccountsOverview | null; currency: string }) {
-  // Available money: bank, cash and investment accounts in the reporting currency. Cards and loans are owed, not available.
-  const available = accounts.filter((a) => a.currency === currency && a.kind !== 'card' && a.kind !== 'loan');
-  const total = available.reduce((sum, a) => sum + Number(a.balance), 0);
-  const others = [...new Set(accounts.filter((a) => a.currency !== currency && a.kind !== 'card' && a.kind !== 'loan').map((a) => a.currency))];
+  // Available money, the one definition Safe to spend uses (docs/finance.md#how-figures-are-counted): bank and cash accounts
+  // that are not archived, in the reporting currency, added exactly in thousandths and shown with the currency's own digits.
+  const available = accounts.filter((a) => a.currency === currency && isAvailable(a));
+  const total = fromMilli(available.reduce((sum, a) => sum + toMilli(a.balance), 0n), currency);
+  const others = [...new Set(accounts.filter((a) => a.currency !== currency && isAvailable(a)).map((a) => a.currency))];
   const attention = accounts.filter((a) => (info.get(a.id)?.needs_attention.length ?? 0) > 0).length;
   const last = overview?.last_reconciled_at;
   return <KpiRow label={t('facct.kpi.label')}>
-    <KpiCard icon={<Wallet />} label={t('facct.kpi.available')} value={available.length ? <span dir="ltr">{formatAmount(total.toFixed(2), currency)}</span> : '-'}
+    <KpiCard icon={<Wallet />} label={t('facct.kpi.available')} value={available.length ? <span dir="ltr">{formatAmount(total, currency)}</span> : '-'}
       hint={others.length ? t('facct.kpi.otherCurrencies', { list: others.join(', ') }) : t('facct.kpi.availableHint')} />
     <KpiCard icon={<Landmark />} label={t('facct.kpi.accounts')} value={accounts.length} />
     <KpiCard icon={<CalendarCheck />} label={t('facct.kpi.reconciled')} value={last ? formatDateTime(last, { dateStyle: 'medium' }) : t('facct.kpi.never')} hint={last ? undefined : t('facct.kpi.neverHint')} />
@@ -180,7 +182,9 @@ function AccountCard({ account: a, info, selected, onSelect }: { account: Financ
       {info?.credit_limit && <small className="facctMeta">{t('facct.card.limit', { amount: isolate(formatAmount(info.credit_limit, a.currency)) })}</small>}
       {info?.payment_due && <span className="facctDue"><CalendarCheck aria-hidden="true" />{t('facct.card.due', { date: info.payment_due.due_on, amount: isolate(formatAmount(info.payment_due.amount, info.payment_due.currency)) })}</span>}
       {info?.last_statement && info.last_statement.status !== 'unknown' && <small className="facctMeta" dir="auto">{info.last_statement.status === 'tied'
-        ? t('facct.statement.tied', { file: info.last_statement.filename })
+        ? ((info.last_statement.not_in_ledger ?? 0) > 0
+          ? t('facct.statement.tiedMissing', { file: info.last_statement.filename, count: info.last_statement.not_in_ledger ?? 0 })
+          : t('facct.statement.tied', { file: info.last_statement.filename }))
         : t('facct.statement.differs', { file: info.last_statement.filename, difference: isolate(formatAmount(info.last_statement.difference, a.currency)) })}</small>}
       {info && info.needs_attention.length > 0 && <span className="facctAttention"><AlertTriangle aria-hidden="true" />{info.needs_attention.map((n) => t(`facct.attention.${n}` as MessageKey)).join(' · ')}</span>}
     </button>

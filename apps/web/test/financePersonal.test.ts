@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import type { FinanceCommitment, FinancePayoff } from '@anum/contracts';
 import { commitmentGroups, fromMinorUnits, loanTone, minor, pages, payoffHeadline, previewNet, previewReceived, verdictTone } from '../src/lib/financePersonal.ts';
-import { FINANCE_TABS } from '../src/lib/finance.ts';
+import { FINANCE_TABS, sectionFromHash } from '../src/lib/finance.ts';
 import { FINANCE_NAV, OWN_HEAD_TABS, navTabs } from '../src/lib/financeNav.ts';
 
 test('minor units round half to even like the server, never through floating point sums', () => {
@@ -55,10 +55,13 @@ test('the payoff headline names the first debt of the cheaper order', () => {
   assert.deepEqual(payoffHeadline({ ...base, cheaper: 'snowball' } as FinancePayoff), { strategy: 'snowball', first: 'Loan B' });
 });
 
-test('the new Finance sections are real tabs in the shell, each with its own head', () => {
-  for (const tab of ['people', 'payslips', 'remittances', 'commitments'] as const) {
+test('the personal money sections live in their pages, each page a real tab with its own head', () => {
+  for (const [hash, tab, section] of [['#finance-people', 'debts', 'people'], ['#finance-payslips', 'advisor', 'salary'], ['#finance-remittances', 'goals', 'send-home'],
+    ['#finance-commitments', 'bills', 'fixed']] as const) {
+    assert.deepEqual(sectionFromHash(hash), { tab, section });
     assert.ok(FINANCE_TABS.includes(tab));
     assert.ok(navTabs(FINANCE_NAV).includes(tab));
     assert.ok(OWN_HEAD_TABS.has(tab));
+    assert.ok(!(FINANCE_TABS as readonly string[]).includes(hash.slice('#finance-'.length)));
   }
 });

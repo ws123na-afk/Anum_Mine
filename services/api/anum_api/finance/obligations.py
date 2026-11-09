@@ -16,19 +16,25 @@ balance follows the payments matched to it:
   already in) less only the debts that have no account of their own.
 * **Minimums**: a debt whose minimum is also saved as a bill (same currency, and the same name or
   the same account) is counted once, as the bill.
+* **Money borrowed from a person** (``PersonLoan``, direction borrowed, still open) is a debt too
+  (``borrowed_debts``): what is left to repay, no interest, and a minimum only when its due date falls in
+  this month or has passed (then the whole amount left is due). A loan whose person is also saved as a
+  Debt (same name and currency) is that Debt, never counted twice. Money lent to a person is a
+  receivable (``lent_receivables``): net worth counts it, nothing else spends it.
 
 ``load`` reads the links in one short owner-scoped unit of its own; the rest is pure.
 """
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal
 
 from ..schemas import TenantContext
-from .models import Account, AccountKind, Bill, Debt, Goal
+from . import commitment_math as M
+from . import personal as P
+from .models import Account, AccountKind, Bill, Debt, DebtKind, Goal
 
 LIABILITY_KINDS = frozenset({AccountKind.CARD, AccountKind.LOAN})
 ASSET_KINDS = frozenset({AccountKind.BANK, AccountKind.CASH, AccountKind.INVESTMENT})
@@ -51,15 +57,24 @@ class Links:
     debt_payments: list[DebtPayment] = field(default_factory=list)
     # Transactions linked to money lent or borrowed with a person: transfers by the shared rule (``flows.py``).
     lending_ids: frozenset[str] = frozenset()
+    # Money lent and borrowed with people, and their live links (what changed hands and every repayment).
+    person_loans: list = field(default_factory=list)
+    loan_links: list = field(default_factory=list)
+    # The salary profile (or None), the payslips and, per payslip month, the transactions linked to that payslip.
+    salary_profile: object | None = None
+    payslips: list = field(default_factory=list)
+    payslip_credits: dict[str, set[str]] = field(default_factory=dict)
 
 
 def load(context: TenantContext) -> Links:
-    """Bill links, matched debt payments and the transactions lent or borrowed with a person, in one short unit
-    of work (never nested in another)."""
+    """Bill links, matched debt payments, the transactions lent or borrowed with a person and the salary credits
+    linked to payslips, in one short unit of work; then the loans, payslips and salary profile in another (never
+    nested)."""
     from .commitments import BILL_DIMENSION, BILL_TARGET, DEBT_DIMENSION, DEBT_TARGET
     from .links import live_entry
     from .links_store import LinkStatus, open_link_stores
-    from .personal import PERSON_LOAN_DIMENSION
+    from .personal import PAYSLIP_DIMENSION, PERSON_LOAN_DIMENSION
+    from .personal_store import open_personal_store
 
     with open_link_stores(context) as (_finance, sms, links):
         bill_rows, _ = links.list_links(context, canonical_id=None, dimension=BILL_DIMENSION, target_type=BILL_TARGET, target_id=None,
@@ -81,7 +96,25 @@ def load(context: TenantContext) -> Links:
         for canonical in {l.canonical_id for l in loan_rows if l.status != LinkStatus.VOID}:
             for entry in sms.chain(context, canonical):
                 lending.update(p.transaction_id for p in entry.postings if p.transaction_id)
-    return Links(bill_links=[l for l in bill_rows if l.status != LinkStatus.VOID], debt_payments=payments, lending_ids=frozenset(lending))
+        slip_rows, _ = links.list_links(context, canonical_id=None, dimension=PAYSLIP_DIMENSION, target_type=None, target_id=None,
+                                        status=LinkStatus.ACTIVE.value, limit=10_000, offset=0)
+        by_slip: dict[str, set[str]] = {}
+        for link in slip_rows:
+            if link.status != LinkStatus.ACTIVE:
+                continue
+            for entry in sms.chain(context, link.canonical_id):
+                by_slip.setdefault(link.target_id, set()).update(p.transaction_id for p in entry.postings if p.transaction_id)
+    with open_personal_store(context) as people:  # its own short unit, after the links one
+        loans = people.list(context, "person_loan")
+        slips = people.list(context, "payslip")
+        profiles = people.list(context, "salary_profile")
+    credits: dict[str, set[str]] = {}
+    for slip in slips:
+        if slip.id in by_slip:
+            credits.setdefault(slip.month, set()).update(by_slip[slip.id])
+    return Links(bill_links=[l for l in bill_rows if l.status != LinkStatus.VOID], debt_payments=payments, lending_ids=frozenset(lending),
+                 person_loans=loans, loan_links=[l for l in loan_rows if l.status != LinkStatus.VOID],
+                 salary_profile=profiles[0] if profiles else None, payslips=slips, payslip_credits=credits)
 
 
 # -- bills ---------------------------------------------------------------------------------------------
@@ -109,18 +142,8 @@ def unpaid(bills: list[Bill], links: list, today: date, end: date) -> list[Due]:
     return out
 
 
-def _name(text: str) -> str:
-    return " ".join(re.sub(r"[^\w]+", " ", text.lower()).split())
-
-
-def bill_for_debt(debt: Debt, bills: list[Bill]) -> Bill | None:
-    """A saved bill that is this debt's payment (counted once, as the bill)."""
-    for bill in bills:
-        if not bill.active or bill.currency != debt.currency:
-            continue
-        if _name(bill.name) == _name(debt.name) or (debt.account_id and bill.account_id == debt.account_id):
-            return bill
-    return None
+_name = M.name_key
+bill_for_debt = M.bill_for_debt  # one rule for every reader (commitment_math.py)
 
 
 # -- debts and goals ------------------------------------------------------------------------------------
@@ -160,11 +183,71 @@ def _after(matched_at: object, saved_at: object) -> bool:
         return True
 
 
-def current_debts(debts: list[Debt], accounts: list[Account], balances: dict[str, Decimal], links: Links | None) -> list[Debt]:
-    """The debts with today's balance (copies; nothing stored changes)."""
+def current_debts(debts: list[Debt], accounts: list[Account], balances: dict[str, Decimal], links: Links | None,
+                  today: date | None = None) -> list[Debt]:
+    """The debts with today's balance (copies; nothing stored changes). With ``today``, money borrowed from a
+    person that is still open is added as a debt (``borrowed_debts``)."""
     by_id = {a.id: a for a in accounts}
     payments = links.debt_payments if links is not None else []
-    return [d.model_copy(update={"balance": debt_balance(d, by_id, balances, payments)}) for d in debts]
+    out = [d.model_copy(update={"balance": debt_balance(d, by_id, balances, payments)}) for d in debts]
+    if links is not None and today is not None:
+        out.extend(borrowed_debts(links.person_loans, links.loan_links, debts, today))
+    return out
+
+
+# -- money lent and borrowed with people ----------------------------------------------------------------
+
+
+class PersonDebt(Debt):
+    """Money borrowed from a person, read as a debt (never stored as one). ``id`` is the loan's id."""
+
+    source: str = "person_loan"
+    person_loan_id: str
+    due_on: date | None = None
+    overdue: bool = False
+
+
+def _open(loan: P.PersonLoan, links: list, today: date) -> Decimal:
+    figures = P.loan_figures(loan, links, today)
+    return figures.outstanding if figures.status not in ("repaid", "closed") else Decimal(0)
+
+
+def borrowed_debts(loans: list, links: list, debts: list[Debt], today: date) -> list[PersonDebt]:
+    """Each open loan borrowed from a person as a debt: what is left to repay, no interest. Its minimum is the whole
+    amount left once the due date is in this month or has passed (``overdue`` then), else nothing (it is paid off
+    from what is left over, in the plan's order). A loan whose person is also a saved Debt in its currency is skipped."""
+    saved = {(M.name_key(d.name), d.currency) for d in debts}
+    end = M.month_end(today)
+    out: list[PersonDebt] = []
+    for loan in loans:
+        if not isinstance(loan, P.PersonLoan) or loan.direction != P.LoanDirection.BORROWED:
+            continue
+        left = _open(loan, links, today)
+        if left <= 0 or (M.name_key(loan.person), loan.currency) in saved:
+            continue
+        due = loan.due_on is not None and loan.due_on <= end
+        out.append(PersonDebt(
+            tenant_id=loan.tenant_id, workspace_id=loan.workspace_id, owner_user_id=loan.owner_user_id, id=loan.id, person_loan_id=loan.id,
+            name=loan.person, kind=DebtKind.OTHER, balance=left, currency=loan.currency, minimum_payment=left if due else Decimal(0),
+            due_day=loan.due_on.day if due and loan.due_on and loan.due_on >= M.month_start(today) else None, due_on=loan.due_on,
+            overdue=bool(due and loan.due_on and loan.due_on < today), created_at=loan.created_at, updated_at=loan.updated_at,
+        ))
+    return out
+
+
+def lent_receivables(loans: list, links: list, today: date) -> dict[str, Decimal]:
+    """What people still owe the person, per currency (open loans lent)."""
+    out: dict[str, Decimal] = {}
+    for loan in loans:
+        if isinstance(loan, P.PersonLoan) and loan.direction == P.LoanDirection.LENT:
+            left = _open(loan, links, today)
+            if left > 0:
+                out[loan.currency] = out.get(loan.currency, Decimal(0)) + left
+    return out
+
+
+def is_person_debt(debt: Debt) -> bool:
+    return isinstance(debt, PersonDebt)
 
 
 def unlinked(debts: list[Debt], accounts: list[Account]) -> list[Debt]:
@@ -188,5 +271,5 @@ def current_goals(goals: list[Goal], accounts: list[Account], balances: dict[str
     return out
 
 
-__all__ = ["Due", "DebtPayment", "Links", "bill_for_debt", "current_debts", "current_goals", "debt_balance", "has_account", "load", "unlinked",
-           "unpaid"]
+__all__ = ["Due", "DebtPayment", "Links", "PersonDebt", "bill_for_debt", "borrowed_debts", "current_debts", "current_goals", "debt_balance",
+           "has_account", "is_person_debt", "lent_receivables", "load", "unlinked", "unpaid"]

@@ -23,11 +23,13 @@ from pydantic import BaseModel
 
 from ..dependencies import tenant_context
 from ..schemas import TenantContext, utc_now
-from .api import TransactionView, _filter, _read, _view
-from .categories import categorize
+from . import txn_types as TT
+from .api import TransactionView, _filter, _read, _txn_view
+from .categories import classify_text
 from .ledger import EntrySource, EntryStatus, JournalEntry
 from .links_store import open_link_stores
-from .models import Account, AccountKind, Category, CategorySource, Transaction
+from .merchant_match import SAME_PAYMENT_DAYS, merchants_agree
+from .models import Account, AccountKind, Category, CategorySource, Transaction, TransactionType, TypeSource
 from .money import quantize
 from .sms_service import settings_for as sms_settings_for
 from .sms_store import MessageStatus, SmsMessage, source_kind
@@ -38,7 +40,7 @@ router = APIRouter(prefix="/api/v1/finance", tags=["finance"])
 
 # The register reads at most this many matching rows (the CSV export's cap); beyond it the answer says so.
 SCAN_LIMIT = 10_000
-DUPLICATE_DAYS = 2  # the ledger's own window for "the same payment" when no time is known
+DUPLICATE_DAYS = SAME_PAYMENT_DAYS  # the ledger's window for "the same payment" when no time is known (one constant with the statement engine)
 MAX_LINKS = 50_000
 
 Origin = Literal["sms", "apple_pay", "statement", "manual"]
@@ -68,6 +70,8 @@ class RegisterRow(TransactionView):
 class RegisterTotals(BaseModel):
     count: int
     categorized: int
+    # Rows no rule recognised (type ``uncategorized``): held for review, in neither income nor spend.
+    uncategorized: int = 0
     receipts_missing: int
     needs_review: int
     duplicate_candidates: int
@@ -111,6 +115,9 @@ class RegisterDetail(BaseModel):
     reference: str | None
     suggested_category: Category
     suggested_by: CategorySource
+    # What the rules would make of the row today, read on its own account's kind (audit C5).
+    suggested_type: TransactionType | None = None
+    suggested_type_by: TypeSource | None = None
     sources: list[SourceView]
     receipt_document_ids: list[str]
     duplicate: RegisterRow | None
@@ -128,13 +135,9 @@ def _active_entries(entries: list[JournalEntry]) -> dict[str, JournalEntry]:
     return out
 
 
-def _words(text: str) -> set[str]:
-    return {w for w in "".join(c.lower() if c.isalnum() else " " for c in text).split() if len(w) >= 3 and not w.isdigit()}
-
-
 def _duplicates(rows: list[Transaction], canon: dict[str, str | None]) -> dict[str, str]:
     """A row that looks like another record of the same payment: the same account, amount and currency within
-    two days, descriptions sharing a word, and not already the same canonical transaction. The older row is the
+    ``SAME_PAYMENT_DAYS``, descriptions sharing a meaningful merchant word (``merchant_match``), and not already the same canonical transaction. The older row is the
     original; the newer one is the candidate. A signal for the person, never acted on."""
     by_key: dict[tuple[str, Decimal, str], list[Transaction]] = defaultdict(list)
     for row in rows:
@@ -151,7 +154,7 @@ def _duplicates(rows: list[Transaction], canon: dict[str, str | None]) -> dict[s
                 if (newer.posted_on - older.posted_on).days > DUPLICATE_DAYS:
                     continue
                 same_canon = canon.get(newer.id) is not None and canon.get(newer.id) == canon.get(older.id)
-                if same_canon or not (_words(newer.description) & _words(older.description)):
+                if same_canon or merchants_agree(newer.description, older.description) is not True:
                     continue
                 if newer.import_id is not None and newer.import_id == older.import_id:
                     continue  # one statement listing two identical purchases keeps both (docs/finance.md#csv-import)
@@ -220,19 +223,23 @@ def _row(txn: Transaction, facts: _Facts, duplicates: dict[str, str], running: D
     receipts = sum(1 for link in live if link.dimension == "document" and link.role == "evidence")
     review_links = sum(1 for link in live if link.status == "needs_review")
     reconciled = bool(entry is not None and (entry.reconciled_at is not None or len(set(kinds)) > 1))
-    evidence: Evidence = "linked" if receipts else ("missing" if txn.amount < 0 and txn.category not in (Category.TRANSFER,) else "not_needed")
+    account = facts.accounts.get(txn.account_id)
+    kind = TT.effective(txn, account.kind if account is not None else None)
+    spending = kind in TT.SPEND_TYPES or kind == TransactionType.UNCATEGORIZED
+    evidence: Evidence = "linked" if receipts else ("missing" if txn.amount < 0 and spending else "not_needed")
     duplicate_of = duplicates.get(txn.id)
     if duplicate_of:
         row_status: RowStatus = "duplicate_candidate"
     elif review_links:
         row_status = "needs_review"
-    elif txn.category_source == CategorySource.NONE:
+    elif kind == TransactionType.UNCATEGORIZED or txn.category_source == CategorySource.NONE:
+        # Held for review: counted as neither income nor spend until the person files it (``type_reason`` says why).
         row_status = "uncategorized"
     elif receipts:
         row_status = "linked"
     else:
         row_status = "recorded"
-    return RegisterRow(**_view(txn), canonical_id=canonical, origin=origin, statement_format=statement_format, sources=sorted(set(kinds)),
+    return RegisterRow(**_txn_view(txn, account.kind if account is not None else None), canonical_id=canonical, origin=origin, statement_format=statement_format, sources=sorted(set(kinds)),
                        reconciled=reconciled, receipts=receipts, evidence=evidence, links_need_review=review_links, duplicate_of=duplicate_of,
                        status=row_status, running_balance=running)
 
@@ -288,6 +295,7 @@ def register(
     origin: Origin | None = None,
     evidence: Literal["linked", "missing"] | None = None,
     row_status: RowStatus | None = Query(default=None, alias="status"),
+    transaction_type: TransactionType | None = Query(default=None, alias="type"),
     limit: int = Query(default=25, ge=1, le=MAX_PAGE),
     offset: int = Query(default=0, ge=0, le=1_000_000),
     context: TenantContext = Depends(tenant_context),
@@ -316,12 +324,15 @@ def register(
         rows = [r for r in rows if r.evidence == evidence]
     if row_status:
         rows = [r for r in rows if r.status == row_status]
+    if transaction_type:
+        rows = [r for r in rows if r.transaction_type == transaction_type]
     inflow: dict[str, Decimal] = defaultdict(Decimal)
     outflow: dict[str, Decimal] = defaultdict(Decimal)
     for r in rows:
         (inflow if r.amount > 0 else outflow)[r.currency] += r.amount
     totals = RegisterTotals(
-        count=len(rows), categorized=sum(1 for r in rows if r.category_source != CategorySource.NONE),
+        count=len(rows), categorized=sum(1 for r in rows if r.category_source != CategorySource.NONE and r.transaction_type != TransactionType.UNCATEGORIZED),
+        uncategorized=sum(1 for r in rows if r.transaction_type == TransactionType.UNCATEGORIZED),
         receipts_missing=sum(1 for r in rows if r.evidence == "missing"), needs_review=sum(1 for r in rows if r.status == "needs_review"),
         duplicate_candidates=sum(1 for r in rows if r.status == "duplicate_candidate"), matched=sum(1 for r in rows if r.reconciled),
         inflow=_per_currency(inflow), outflow=_per_currency({c: -v for c, v in outflow.items()}),
@@ -359,14 +370,15 @@ def register_detail(transaction_id: str, context: TenantContext = Depends(tenant
     sources = [_source_view(m, now) for m in facts.sources.get(entry.id, [])] if entry else []
     match_id = duplicates.get(txn.id) or twins.get(txn.id)
     match = next((t for t in facts.window if t.id == match_id), None) if match_id else None
-    suggested, by = categorize(txn.description, txn.amount, facts.settings.category_rules)
+    account = facts.accounts.get(txn.account_id)
+    suggestion = classify_text(txn.description, txn.amount, facts.settings.category_rules, account.kind if account is not None else None)
     canonical = row.canonical_id or ""
     receipts = [link.target_id for link in facts.links.get(canonical, [])
                 if link.status != "void" and link.dimension == "document" and link.role == "evidence"]
-    account = facts.accounts.get(txn.account_id)
     return RegisterDetail(row=row, account_name=account.name if account else "", kind=entry.kind if entry else None,
                           merchant=entry.merchant if entry else None, reference=entry.reference if entry else None,
-                          suggested_category=suggested, suggested_by=by, sources=sources, receipt_document_ids=receipts,
+                          suggested_category=suggestion.category, suggested_by=suggestion.source, suggested_type=suggestion.type,
+                          suggested_type_by=suggestion.typed.source, sources=sources, receipt_document_ids=receipts,
                           duplicate=_row(match, facts, duplicates, None) if match else None)
 
 
@@ -389,6 +401,9 @@ class StatementCheck(BaseModel):
     status: Literal["tied", "differs", "unknown"]
     closing: Decimal | None
     difference: Decimal | None
+    # Statement rows the ledger does not hold (held for review or left out). "tied" with rows not in the ledger means the
+    # statement balances but does not reconcile the account; the import lists them (GET /imports/{id}?disposition=not_in_ledger).
+    not_in_ledger: int = 0
 
 
 class AccountOverview(BaseModel):
@@ -403,7 +418,7 @@ class AccountOverview(BaseModel):
     last_reconciled_at: datetime | None
     imported: int
     matched: int
-    needs_attention: list[Literal["balance_differs", "links_need_review", "possible_duplicates", "statement_differs"]]
+    needs_attention: list[Literal["balance_differs", "links_need_review", "possible_duplicates", "statement_differs", "statement_rows_missing"]]
     payment_due: PaymentDue | None
     last_statement: StatementCheck | None = None
 
@@ -414,6 +429,13 @@ class AccountsOverview(BaseModel):
     last_reconciled_at: datetime | None
     base_currency: str
     ledger_kind: Literal["personal", "business"]
+
+
+def _not_in_ledger(check: dict[str, Any]) -> int:
+    try:
+        return max(0, int(check.get("not_in_ledger") or 0))
+    except (TypeError, ValueError):
+        return 0
 
 
 @router.get("/accounts/overview", response_model=AccountsOverview)
@@ -458,8 +480,9 @@ def accounts_overview(context: TenantContext = Depends(tenant_context)) -> Accou
             current = last_check.get(record.account_id)
             if current is None or (record.created_at, record.id) > (current.created_at, current.id):
                 last_check[record.account_id] = record
-            if check.get("status") == "tied":
-                # A statement whose rows add up from its opening to its closing balance reconciles the account.
+            if check.get("status") == "tied" and _not_in_ledger(check) == 0:
+                # A statement whose rows add up from its opening to its closing balance, and every one of whose rows is in
+                # the ledger (imported or attached), reconciles the account.
                 item = per[record.account_id]
                 item["reconciled"] = max(item["reconciled"] or record.created_at, record.created_at)
     out: list[AccountOverview] = []
@@ -490,9 +513,12 @@ def accounts_overview(context: TenantContext = Depends(tenant_context)) -> Accou
             data = checked.reconciliation or {}
             statement = StatementCheck(import_id=checked.id, filename=checked.filename, imported_at=checked.created_at, status=data["status"],
                                        closing=Decimal(data["closing"]) if data.get("closing") else None,
-                                       difference=Decimal(data["difference"]) if data.get("difference") else None)
+                                       difference=Decimal(data["difference"]) if data.get("difference") else None,
+                                       not_in_ledger=_not_in_ledger(data))
             if statement.status == "differs":
                 attention.append("statement_differs")
+            elif statement.not_in_ledger:
+                attention.append("statement_rows_missing")
         due = next((b for b in bills if bill_accounts.get(b.id) == account.id), None) if account.kind == AccountKind.CARD else None
         reconciled = item["reconciled"]
         out.append(AccountOverview(

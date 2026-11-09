@@ -6,8 +6,34 @@ import type {
 } from '@anum/contracts';
 import { getLocale, intlLocale, t, type Locale, type MessageKey } from './i18n.ts';
 
-export type FinanceTab = 'overview' | 'ledger' | 'safe' | 'advisor' | 'reports' | 'transactions' | 'accounts' | 'import' | 'bills' | 'budgets' | 'debts' | 'goals' | 'holdings' | 'guardian' | 'connections' | 'trading' | 'intel' | 'execution' | 'ibkr' | 'research' | 'sms' | 'people' | 'payslips' | 'remittances' | 'commitments';
-export const FINANCE_TABS: readonly FinanceTab[] = ['overview', 'ledger', 'safe', 'advisor', 'transactions', 'accounts', 'import', 'bills', 'budgets', 'debts', 'goals', 'reports', 'holdings', 'guardian', 'connections', 'sms', 'trading', 'intel', 'execution', 'ibkr', 'research', 'people', 'payslips', 'remittances', 'commitments'];
+export type FinanceTab = 'overview' | 'ledger' | 'safe' | 'advisor' | 'reports' | 'transactions' | 'accounts' | 'import' | 'bills' | 'budgets' | 'debts' | 'goals' | 'holdings' | 'guardian' | 'connections' | 'trading' | 'intel' | 'execution' | 'ibkr' | 'research' | 'sms';
+export const FINANCE_TABS: readonly FinanceTab[] = ['overview', 'ledger', 'safe', 'advisor', 'transactions', 'accounts', 'import', 'bills', 'budgets', 'debts', 'goals', 'reports', 'holdings', 'guardian', 'connections', 'sms', 'trading', 'intel', 'execution', 'ibkr', 'research'];
+
+/**
+ * Sections inside a Finance page, each deep-linked as `#finance-<tab>-<section>` (docs/finance.md#finance-shell).
+ * The personal money pages moved into the pages they belong to; their old hashes still open the new place.
+ */
+export type FinanceSection = 'people' | 'send-home' | 'fixed' | 'salary';
+const SECTIONS: Record<string, { tab: FinanceTab; section: FinanceSection }> = {
+  'debts-people': { tab: 'debts', section: 'people' },
+  'goals-send-home': { tab: 'goals', section: 'send-home' },
+  'bills-fixed': { tab: 'bills', section: 'fixed' },
+  'advisor-salary': { tab: 'advisor', section: 'salary' },
+};
+/** The hashes of the pages that moved (Lent and borrowed, Send home, Fixed costs, Payslips) and where each opens now. */
+export const MOVED_HASHES: Readonly<Record<string, string>> = {
+  people: 'debts-people', remittances: 'goals-send-home', commitments: 'bills-fixed', payslips: 'advisor-salary',
+};
+
+/** The section a hash opens (`#finance-debts-people`, or an old `#finance-people`), or null. */
+export function sectionFromHash(hash: string): { tab: FinanceTab; section: FinanceSection } | null {
+  const id = hash.replace(/^#finance-?/, '');
+  return SECTIONS[MOVED_HASHES[id] ?? id] ?? null;
+}
+
+export function hashForSection(tab: FinanceTab, section: FinanceSection): string {
+  return `#finance-${tab}-${section}`;
+}
 
 const THREE = new Set(['BHD', 'IQD', 'JOD', 'KWD', 'LYD', 'OMR', 'TND']);
 const ZERO = new Set(['JPY', 'KRW', 'VND', 'CLP', 'ISK', 'UGX', 'XAF', 'XOF']);
@@ -97,7 +123,10 @@ export function spendCurrencies(summary: Pick<FinanceSummary, 'spend_by_category
 
 /** The tab a URL hash opens: `#finance-transactions` and friends; anything else is the overview. */
 export function tabFromHash(hash: string): FinanceTab {
-  const id = hash.replace(/^#finance-?/, '');
+  // `#finance-transactions?month=2026-10`: the part after `?` is the page's own state (the period), not the tab.
+  const id = hash.replace(/^#finance-?/, '').split('?')[0];
+  const moved = sectionFromHash(hash.split('?')[0]);
+  if (moved) return moved.tab;
   // `#finance-intel-reports` and `#finance-intel-report=<id>` open the daily reports in Trading intelligence.
   if (id.startsWith('intel-report')) return 'intel';
   // `#finance-trading-orders` and the other lab tabs open Paper trading (docs/finance.md#paper-trading-lab).
@@ -158,7 +187,7 @@ export function isolate(value: string): string {
 export function safeNote(line: Pick<FinanceSafeLine, 'note' | 'params' | 'currency'>): string {
   const { note, params } = line;
   if (note === 'bill_due') return t('finance.safe.note.bill_due', { date: isolate(params.date ?? '') });
-  if (note === 'bill_overdue') return t('finance.safe.note.bill_overdue', { date: isolate(params.date ?? '') });
+  if (note === 'bill_overdue' || note === 'minimum_overdue') return t(`finance.safe.note.${note}`, { date: isolate(params.date ?? '') });
   if (note === 'minimum_in_bill') return t('finance.safe.note.minimum_in_bill', { bill: isolate(params.bill ?? '') });
   if (note === 'minimum_due' || note === 'minimum_passed') return t(`finance.safe.note.${note}`, { day: isolate(params.day ?? '') });
   if (note === 'goal_derived') return t('finance.safe.note.goal_derived', { left: isolate(formatAmount(params.left ?? '0', line.currency)), count: Number(params.months ?? 1) });

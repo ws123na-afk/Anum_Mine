@@ -192,6 +192,7 @@ class FinanceStrings {
     'category.travel': 'Travel',
     'category.insurance': 'Insurance',
     'category.fees': 'Fees',
+    'category.interest': 'Interest',
     'category.cash': 'Cash',
     'category.other': 'Other',
     'section.safe': 'Safe to spend',
@@ -220,7 +221,9 @@ class FinanceStrings {
     'safe.note.minimum_due': 'Due on day {day}',
     'safe.note.minimum_no_day': 'No due day set, so counted',
     'safe.note.minimum_passed':
-        'Due on day {day}, already passed: taken as paid',
+        'Due on day {day}: a payment is matched this month, so paid',
+    'safe.note.minimum_overdue':
+        'Overdue since {date}: no payment matched yet, so counted',
     'safe.note.goal_set': 'The monthly amount you set',
     'safe.note.goal_derived': '{left} left over {n} month(s)',
     'safe.note.goal_no_plan': 'No monthly amount or target date',
@@ -454,6 +457,7 @@ class FinanceStrings {
     'category.travel': 'السفر',
     'category.insurance': 'التأمين',
     'category.fees': 'الرسوم',
+    'category.interest': 'الفوائد',
     'category.cash': 'النقد',
     'category.other': 'أخرى',
     'section.safe': 'المتاح للصرف',
@@ -480,7 +484,10 @@ class FinanceStrings {
     'safe.note.bill_due': 'مستحقة في {date}',
     'safe.note.minimum_due': 'مستحقة في اليوم {day}',
     'safe.note.minimum_no_day': 'لا يوم استحقاق، لذا حُسبت',
-    'safe.note.minimum_passed': 'مستحقة في اليوم {day} وقد مضى: تُعدّ مدفوعة',
+    'safe.note.minimum_passed':
+        'مستحقة في اليوم {day}: طوبقت معها دفعة هذا الشهر، فهي مدفوعة',
+    'safe.note.minimum_overdue':
+        'متأخرة منذ {date}: لم تُطابق دفعة بعد، لذا ما زالت محسوبة',
     'safe.note.goal_set': 'المبلغ الشهري الذي حددته',
     'safe.note.goal_derived': 'بقي {left}، عدد الأشهر {n}',
     'safe.note.goal_no_plan': 'لا مبلغ شهري ولا تاريخ مستهدف',

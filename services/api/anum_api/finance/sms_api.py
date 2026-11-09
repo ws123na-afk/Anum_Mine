@@ -35,6 +35,7 @@ from . import sms_parser as P
 from . import link_hooks
 from . import sms_service as svc
 from .api import _audit, _manage, _read
+from .flows import Flow, flow_of
 from .ledger import EntrySource, EntryStatus, PlanError
 from .models import AccountKind
 from .sms_store import (
@@ -1094,7 +1095,12 @@ def ledger_dashboard(
                 ledger_account = L.lending_account(p.ledger_account, p.account_id) if lent else p.ledger_account
                 rows.append(L.Row(day=entry.posted_on, ledger_account=ledger_account, account_id=p.account_id, amount=p.amount, currency=p.currency,
                                   kind=entry.kind, category=entry.category, merchant=entry.merchant, entry_id=entry.id))
-        for txn in finance.transactions_between(context, window_start, window_end):
+        window_rows = finance.transactions_between(context, window_start, window_end)
+        # Rows no rule recognised are in no figure: the dashboard says how many (the summary's rule, flows.py).
+        kinds = {a.id: a.kind for a in accounts}
+        uncategorized = sum(1 for t in window_rows if _start <= t.posted_on <= month_end and t.id not in lending
+                            and flow_of(t, kinds) == Flow.UNCATEGORIZED)
+        for txn in window_rows:
             account = by_id.get(txn.account_id)
             if (txn.id in linked and txn.id not in plain) or account is None:
                 continue
@@ -1118,11 +1124,11 @@ def ledger_dashboard(
         debts = [
             DebtPlan(id=d.id, name=d.name, currency=d.currency, balance=d.balance, minimum_payment=d.minimum_payment,
                      months_to_clear=_months_to_clear(d.balance, d.apr_percent, d.minimum_payment))
-            for d in obligations.current_debts(finance.list_items(context, "debt"), accounts, sums, links)  # type: ignore[arg-type]
+            for d in obligations.current_debts(finance.list_items(context, "debt"), accounts, sums, links, today)  # type: ignore[arg-type]
         ]
     built = L.dashboard(month=chosen, today=today, accounts=accounts, rows=rows,
                         filters=L.Filters(account_id=account_id, currency=currency, category=category, kind=kind),
-                        limits=limits, observed=observed, balances=balances, suspense=suspense)
+                        limits=limits, observed=observed, balances=balances, suspense=suspense, uncategorized_count=uncategorized)
     status_view = _status(context)
     return LedgerDashboard(
         **built.model_dump(), ledger_kind=settings.ledger_kind, base_currency=fsettings.base_currency,

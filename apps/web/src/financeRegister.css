@@ -34,7 +34,7 @@
 /* One flexible track, so a wide table scrolls inside its card instead of stretching it. */
 .fregTableCard, .facctRegister { grid-template-columns: minmax(0, 1fr); }
 .fregFilters { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); }
-.fregFilters > .fregSearch { flex: 2 1 220px; }
+.fregFilters > .fregSearch { flex: 2 1 270px; }
 .fregFilters > .fregFilter { flex: 1 1 130px; }
 .fregFilters > button { flex: none; }
 .fregSearch { align-items: center; display: flex; gap: var(--d-s2); position: relative; }
@@ -54,6 +54,8 @@
 .fregCat.cat-income { color: var(--d-ok); }
 .fregCat.cat-other, .fregCat.cat-transfer { background: var(--d-glass-2); border-color: var(--d-line); color: var(--d-muted); }
 .fregCat.cat-fees, .fregCat.cat-utilities, .fregCat.cat-telecom, .fregCat.cat-subscriptions { background: rgb(var(--c-warn) / .1); border-color: rgb(var(--c-warn) / .3); }
+.fregCatCell .fregType { color: var(--d-muted); display: block; font-size: var(--text-xs); margin-block-start: var(--d-s1); white-space: nowrap; }
+.fregCat.cat-interest { background: rgb(var(--c-warn) / .1); border-color: rgb(var(--c-warn) / .3); }
 .fregSource, .fregEvidence { align-items: center; display: inline-flex; font-size: var(--text-xs); gap: 4px; white-space: nowrap; }
 .fregSource svg, .fregEvidence svg { flex: none; height: 14px; width: 14px; }
 .fregEvidence.ok { color: var(--d-ok); }

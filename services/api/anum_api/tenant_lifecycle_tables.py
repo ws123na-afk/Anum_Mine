@@ -211,6 +211,7 @@ _ORDER = (
     "finance_advisor_settings",
     "finance_person_loans",
     "finance_payslips",
+    "finance_salary_profiles",
     "finance_remittances",
     "finance_postings",
     "finance_journal_entries",

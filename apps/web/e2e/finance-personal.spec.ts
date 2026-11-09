@@ -9,7 +9,7 @@ import { useSavedLocale } from './support/workspaceApi';
 // error with a retry, denied), Arabic and the responsive gate. The API is mocked at http://localhost:8000/**
 // like the other specs; every figure is SYNTHETIC. ANUM only advises: nothing here moves money.
 
-interface Mock { loans: Record<string, unknown>[]; payslips: Record<string, unknown>[]; remittances: Record<string, unknown>[]; asked: string[] }
+interface Mock { loans: Record<string, unknown>[]; payslips: Record<string, unknown>[]; remittances: Record<string, unknown>[]; asked: string[]; salary: Record<string, unknown> | null; decisions: Record<string, string> }
 const stamp = '2026-11-01T00:00:00Z';
 
 async function mockApi(page: Page, o: { empty?: boolean; fail?: number; denied?: boolean; search?: 'off' | 'on' } = {}): Promise<Mock> {
@@ -22,6 +22,8 @@ async function mockApi(page: Page, o: { empty?: boolean; fail?: number; denied?:
       days_until_due: 5, links: 1, created_at: stamp, updated_at: stamp }],
     payslips: [],
     remittances: [],
+    salary: null,
+    decisions: {},
   };
   await page.route('http://localhost:8000/**', async (route) => {
     const request = route.request();
@@ -36,7 +38,7 @@ async function mockApi(page: Page, o: { empty?: boolean; fail?: number; denied?:
     if (path === '/api/v1/tasks' || path === '/api/v1/approvals' || path === '/api/v1/conversations') return json([]);
     const sub = path.replace('/api/v1/finance', '');
     const body = request.postData() ? request.postDataJSON() : null;
-    const mine = /^\/(people-loans|payslips|remittances|fixed-commitments|planner|payment-candidates)/.test(sub);
+    const mine = /^\/(people-loans|payslips|remittances|fixed-commitments|planner|payment-candidates|salary)/.test(sub);
     if (mine) {
       mock.asked.push(`${request.method()} ${sub}`);
       if (o.denied) return json({ error: { code: 'forbidden', message: 'Finance is for workspace owners and members. Ask a workspace owner to change your role from viewer to member.', correlation_id: 'c', details: [] } }, 403);
@@ -65,6 +67,29 @@ async function mockApi(page: Page, o: { empty?: boolean; fail?: number; denied?:
         const movements = Number(found.repaid) > 0 ? [{ link: { id: 'link_r1', role: 'deposit', amount: '400.00', currency: 'AED', status: 'active' }, posted_on: '2026-11-04', description: 'From Friend A', account_id: 'fin_acct_current' }] : [];
         return json({ ...found, movements });
       }
+      if (sub === '/salary/profile' && request.method() === 'GET') return json({ profile: mock.salary });
+      if (sub === '/salary/profile' && request.method() === 'PUT') {
+        mock.salary = { ...body, id: 'sal_1', currency: body.currency || 'SAR', account_id: body.account_id ?? null, rules: [], created_at: stamp, updated_at: stamp,
+          expected_gross: Number(body.expected_gross).toFixed(2), expected_net: (Number(body.expected_gross) - 450).toFixed(2), next_pay_on: '2026-11-27', advances: [] };
+        return json(mock.salary);
+      }
+      if (sub === '/salary/months') {
+        if (!mock.salary) return json({ currency: null, months: [], total: 0, missing: 0, waiting: 0, limit: 12, offset: 0 });
+        const expected = { gross: '10000.00', deductions: [{ reason: 'social_insurance', label: 'GOSI', amount: '450.00' }], advance_repayment: '0.00', net: '9550.00', payslip: false };
+        const september = mock.decisions['2026-09'];
+        const months = [
+          { month: '2026-11', currency: 'SAR', pay_on: '2026-11-27', status: 'upcoming', flags: [], expected, received: '0.00', difference: '-9550.00', found: null, basis: null, rejected: 0 },
+          { month: '2026-10', currency: 'SAR', pay_on: '2026-10-27', status: 'missing', flags: ['missing'], expected, received: '0.00', difference: '-9550.00', found: null, basis: null, rejected: 0 },
+          september === 'reject'
+            ? { month: '2026-09', currency: 'SAR', pay_on: '2026-09-27', status: 'missing', flags: ['missing'], expected, received: '0.00', difference: '-9550.00', found: null, basis: null, rejected: 1 }
+            : { month: '2026-09', currency: 'SAR', pay_on: '2026-09-27', status: 'received', flags: [], expected, received: '9550.00', difference: '0.00', rejected: 0,
+              basis: september === 'confirm' ? 'confirmed' : 'suggested',
+              found: { transaction_id: 'tx_sep', posted_on: '2026-09-27', amount: '9550.00', description: 'Example Trading Co salary', account_id: 'fin_acct_current', confidence: 'high', score: 100 } },
+        ];
+        return json({ currency: 'SAR', months, total: 3, missing: months.filter((m) => m.status === 'missing').length, waiting: september ? 0 : 1, limit: 12, offset: 0 });
+      }
+      const decision = /^\/salary\/months\/([0-9-]+)\/decision$/.exec(sub);
+      if (decision) { mock.decisions[decision[1]] = request.method() === 'DELETE' ? '' : body.decision; return json(mock.salary); }
       if (sub === '/payment-candidates') return json({ items: [{ canonical_id: 'je_in_1', posted_on: '2026-11-04', merchant: 'From Friend A', category: 'income', account_id: 'fin_acct_current', amount: '400.00', currency: 'AED', remaining: '400.00' }] });
       if (sub === '/payslips' && request.method() === 'GET') {
         const months = mock.payslips.map((s) => ({ month: s.month, currency: 'AED', gross: s.gross, deductions: s.total_deductions, net: s.net, received: '0.00', by_kind: s.by_kind, payslips: 1 }));
@@ -131,8 +156,11 @@ const card = (page: Page, name: string | RegExp) => page.getByRole('region', { n
 
 test('lent and borrowed: add a loan, link a repayment and see what is left', async ({ page }) => {
   const mock = await mockApi(page);
+  // The old address still works: Lent and borrowed is now the People section of Debts and goals.
   await page.goto('/#finance-people');
-  await expect(page.getByRole('heading', { level: 1, name: 'Lent and borrowed' })).toBeVisible();
+  await expect(page).toHaveURL(/#finance-debts-people$/);
+  await expect(page.getByRole('heading', { level: 1, name: 'Debts and goals' })).toBeVisible();
+  await expect(page.getByRole('tab', { name: 'People' })).toHaveAttribute('aria-selected', 'true');
   await expect(page.getByText('Not spending, not income', { exact: true })).toBeVisible();
   await expect(page.getByRole('region', { name: 'Lent and borrowed totals' })).toContainText('1,000.00');
   await page.getByRole('button', { name: 'Add a loan' }).first().click();
@@ -152,7 +180,10 @@ test('lent and borrowed: add a loan, link a repayment and see what is left', asy
 
 test('payslips: gross, deductions and the net preview, then the month summary', async ({ page }) => {
   await mockApi(page);
+  // Payslips sit with the salary on the Money advisor (the old address opens them there).
   await page.goto('/#finance-payslips');
+  await expect(page).toHaveURL(/#finance-advisor-salary$/);
+  await expect(page.getByRole('tab', { name: 'Salary' })).toHaveAttribute('aria-selected', 'true');
   await expect(page.getByText('No payslips yet')).toBeVisible();
   await page.getByRole('button', { name: 'Add a payslip' }).first().click();
   const dialog = page.getByRole('dialog');
@@ -165,9 +196,44 @@ test('payslips: gross, deductions and the net preview, then the month summary', 
   await expect(page.getByRole('cell', { name: 'Not linked' })).toBeVisible();
 });
 
+test('salary: add the profile, see each month expected against received, confirm a match and reject one', async ({ page }) => {
+  const mock = await mockApi(page);
+  await page.goto('/#finance-advisor-salary');
+  await expect(page.getByText('No salary profile yet')).toBeVisible();
+  await page.getByRole('button', { name: 'Add your salary profile' }).click();
+  const dialog = page.getByRole('dialog');
+  await dialog.getByLabel('Employer').fill('Example Trading Co');
+  await dialog.getByLabel('Joining date').fill('2026-09-01');
+  await dialog.getByLabel('Currency').fill('SAR');
+  await dialog.getByLabel('Expected monthly salary (gross)').fill('10000');
+  await dialog.getByLabel('Usual pay day').fill('27');
+  await dialog.getByRole('button', { name: 'Save' }).click();
+  await expect(page.getByText('The salary profile is saved.')).toBeVisible();
+  expect(mock.asked).toContain('PUT /salary/profile');
+  await expect(page.getByRole('note').filter({ hasText: 'No salary found for October 2026, expected around October 27.' })).toBeVisible();
+  const september = page.locator('.fsalMonth').filter({ hasText: 'September 2026' });
+  await expect(september).toContainText('Likely match');
+  await september.getByRole('button', { name: 'This is my salary' }).click();
+  await expect(page.getByText('Salary for September 2026 confirmed.')).toBeVisible();
+  await expect(september).toContainText('Confirmed by you');
+  if (process.env.ANUM_E2E_SHOTS) {
+    for (const [width, height] of [[1440, 900], [390, 844]] as const) {
+      await page.setViewportSize({ width, height });
+      await page.screenshot({ path: `${process.env.ANUM_E2E_SHOTS}/finance-salary-months-${width}x${height}.png`, fullPage: true });
+    }
+  }
+  await september.getByRole('button', { name: 'Undo' }).click();
+  await september.getByRole('button', { name: 'Not my salary' }).click();
+  await expect(september).toContainText('Missing');
+  expect(mock.asked).toContain('POST /salary/months/2026-09/decision');
+});
+
 test('send home: add a transfer and compare providers from your own records', async ({ page }) => {
   await mockApi(page);
+  // Send home is a section of Goals, next to the savings for family at home.
   await page.goto('/#finance-remittances');
+  await expect(page).toHaveURL(/#finance-goals-send-home$/);
+  await expect(page.getByRole('tab', { name: 'Send home' })).toHaveAttribute('aria-selected', 'true');
   await page.getByRole('button', { name: 'Add a transfer' }).first().click();
   const dialog = page.getByRole('dialog');
   await dialog.getByLabel('Recipient').fill('Family');
@@ -183,7 +249,11 @@ test('send home: add a transfer and compare providers from your own records', as
 
 test('fixed costs: one total per currency and what is left out so nothing counts twice', async ({ page }) => {
   await mockApi(page);
+  // Monthly fixed costs is a section of Bills and budgets.
   await page.goto('/#finance-commitments');
+  await expect(page).toHaveURL(/#finance-bills-fixed$/);
+  await expect(page.getByRole('heading', { level: 1, name: 'Bills and budgets' })).toBeVisible();
+  await expect(page.getByRole('tab', { name: 'Monthly fixed costs' })).toHaveAttribute('aria-selected', 'true');
   await expect(page.getByRole('region', { name: 'Fixed costs per currency' })).toContainText('5,180.00');
   await expect(page.getByRole('region', { name: 'Rent' })).toContainText('Flat rent');
   await expect(card(page, 'Left out so nothing counts twice')).toContainText('already counted as a saved bill');
@@ -191,18 +261,19 @@ test('fixed costs: one total per currency and what is left out so nothing counts
 
 test('empty fixed costs offer the next step; an error offers a retry; denied explains who may', async ({ page }) => {
   await mockApi(page, { empty: true, fail: 1 });
-  await page.goto('/#finance-commitments');
+  await page.goto('/#finance-bills-fixed');
   const alert = page.getByRole('alert').filter({ hasText: 'could not be loaded' });
   await expect(alert).toContainText('The database is not reachable.');
   await alert.getByRole('button', { name: 'Try again' }).click();
   await expect(page.getByText('No fixed costs yet')).toBeVisible();
   await page.getByRole('button', { name: 'Add a bill' }).click();
   await expect(page).toHaveURL(/#finance-bills$/);
+  await expect(page.getByRole('tab', { name: 'Bills', exact: true })).toHaveAttribute('aria-selected', 'true');
 });
 
 test('permission denied on the personal money pages', async ({ page }) => {
   await mockApi(page, { denied: true });
-  await page.goto('/#finance-people');
+  await page.goto('/#finance-debts-people');
   await expect(page.locator('.cmDenied')).toContainText(/owner|member/);
 });
 
@@ -247,14 +318,15 @@ test('plan: live prices unavailable says so and keeps your own figures', async (
 test('Arabic: lent and borrowed reads right to left with figures left to right', async ({ page }) => {
   await useSavedLocale(page, 'ar');
   await mockApi(page);
-  await page.goto('/#finance-people');
-  await expect(page.getByRole('heading', { level: 1, name: 'القروض مع الأشخاص' })).toBeVisible();
+  await page.goto('/#finance-debts-people');
+  await expect(page.getByRole('heading', { level: 1, name: 'الديون والأهداف' })).toBeVisible();
+  await expect(page.getByRole('tab', { name: 'الأشخاص' })).toHaveAttribute('aria-selected', 'true');
   expect(await page.evaluate(() => document.documentElement.dir)).toBe('rtl');
   await expect(page.locator('.finGrid .finMoney').first()).toHaveAttribute('dir', 'ltr');
 });
 
 const VIEWPORTS = [[1440, 900], [1366, 768], [1024, 768], [768, 1024], [390, 844]] as const;
-for (const [hash, ready] of [['#finance-people', '.finGrid'], ['#finance-commitments', '.fpmGroup'], ['#finance-advisor', '.fpmPayoff']] as const) {
+for (const [hash, ready] of [['#finance-debts-people', '.finGrid'], ['#finance-bills-fixed', '.fpmGroup'], ['#finance-advisor', '.fpmPayoff'], ['#finance-advisor-salary', '.fpmPage']] as const) {
   for (const [width, height] of VIEWPORTS) {
     test(`responsive @gate: ${hash} fits with no sideways scroll at ${width}x${height}`, async ({ page }) => {
       await page.setViewportSize({ width, height });
@@ -264,7 +336,7 @@ for (const [hash, ready] of [['#finance-people', '.finGrid'], ['#finance-commitm
       await expect(page.locator(ready).first()).toBeVisible();
       const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
       expect(overflow).toBeLessThanOrEqual(0);
-      const sticking = await page.locator('.finPage').first().evaluate((root) => [...root.querySelectorAll('*')].filter((e) => {
+      const sticking = await page.locator('.finPage, .fplPage').first().evaluate((root) => [...root.querySelectorAll('*')].filter((e) => {
         const box = e.getBoundingClientRect();
         if (box.right <= document.documentElement.clientWidth + 1 && box.left >= -1) return false;
         for (let p = e.parentElement; p && p !== root.parentElement; p = p.parentElement) if (getComputedStyle(p).overflowX !== 'visible') return false;

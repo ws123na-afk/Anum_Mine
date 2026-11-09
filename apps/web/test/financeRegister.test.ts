@@ -4,7 +4,8 @@ import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import type { FinanceAccount, FinanceAccountOverview } from '@anum/contracts';
 import {
-  NO_REGISTER_FILTERS, accountTab, activityScale, maskedNumber, monthBounds, narrowed, percentOf, primarySource, registerQuery, statusTone,
+  NO_REGISTER_FILTERS, TRANSACTION_TYPES, accountTab, activityScale, isAvailable, maskedNumber, monthBounds, narrowed, percentOf, primarySource, registerQuery,
+  statusTone,
 } from '../src/lib/financeRegister.ts';
 import { placeholdersOf } from '../src/lib/i18n.ts';
 import { financeRegisterAr } from '../src/lib/messages/financeRegister.ar.ts';
@@ -24,6 +25,16 @@ describe('register filters', () => {
     assert.deepEqual(registerQuery({ ...NO_REGISTER_FILTERS, q: 'fuel', from: '2026-11-01', to: '2026-11-30' }), { q: 'fuel', from: '2026-11-01', to: '2026-11-30' });
     assert.equal(narrowed({ ...NO_REGISTER_FILTERS, from: '2026-11-01' }), false);
     assert.equal(narrowed({ ...NO_REGISTER_FILTERS, origin: 'sms' }), true);
+  });
+  test('the type filter reaches the API as `type` and narrows the list', () => {
+    assert.deepEqual(registerQuery({ ...NO_REGISTER_FILTERS, type: 'uncategorized' }), { type: 'uncategorized' });
+    assert.equal(narrowed({ ...NO_REGISTER_FILTERS, type: 'income' }), true);
+  });
+  test('every transaction type is listed once and has a label in both languages', () => {
+    assert.equal(TRANSACTION_TYPES.length, 21);
+    assert.equal(new Set(TRANSACTION_TYPES).size, TRANSACTION_TYPES.length);
+    const en = financeRegisterEn as Record<string, string>, ar = financeRegisterAr as Record<string, string>;
+    for (const type of TRANSACTION_TYPES) assert.ok(en[`freg.type.${type}`] && ar[`freg.type.${type}`], type);
   });
   test('month bounds include the last day, leap years too', () => {
     assert.deepEqual(monthBounds('2026-11'), { from: '2026-11-01', to: '2026-11-30' });
@@ -75,5 +86,45 @@ describe('catalogs', () => {
       assert.doesNotMatch(en, /\b(synced|is connected|consent expires)\b/i, key);
     }
     assert.equal(Object.keys(financeRegisterAr).length, Object.keys(financeRegisterEn).length);
+  });
+});
+
+describe('available money', () => {
+  test('is bank and cash accounts that are not archived, as Safe to spend counts it', () => {
+    assert.equal(isAvailable({ kind: 'bank', archived: false }), true);
+    assert.equal(isAvailable({ kind: 'cash', archived: false }), true);
+    for (const kind of ['card', 'loan', 'investment'] as const) assert.equal(isAvailable({ kind, archived: false }), false);
+    assert.equal(isAvailable({ kind: 'bank', archived: true }), false);
+  });
+});
+
+describe('the transactions month (audit I11)', async () => {
+  const { hashWithMonth, latestMonthHint, monthFromHash, monthIn } = await import('../src/lib/financeRegister.ts');
+  const { tabFromHash } = await import('../src/lib/finance.ts');
+
+  test('the current month is the Finance time zone\'s, not UTC', () => {
+    const lateEvening = new Date('2026-10-31T21:30:00Z'); // 1 November, 01:30 in Dubai
+    assert.equal(monthIn('Asia/Dubai', lateEvening), '2026-11');
+    assert.equal(monthIn('UTC', lateEvening), '2026-10');
+    assert.equal(monthIn('Not/AZone', lateEvening), '2026-10');
+    assert.equal(monthIn(null, lateEvening), '2026-10');
+  });
+
+  test('the period is kept in the URL and the tab still reads', () => {
+    assert.equal(monthFromHash('#finance-transactions?month=2026-10'), '2026-10');
+    assert.equal(monthFromHash('#finance-transactions?month=all'), '');
+    assert.equal(monthFromHash('#finance-transactions?month=2026-13'), null);
+    assert.equal(monthFromHash('#finance-transactions'), null);
+    assert.equal(hashWithMonth('#finance-transactions', '2026-09'), '#finance-transactions?month=2026-09');
+    assert.equal(hashWithMonth('#finance-transactions?month=2026-09', ''), '#finance-transactions?month=all');
+    assert.equal(tabFromHash('#finance-transactions?month=2026-10'), 'transactions');
+  });
+
+  test('an empty month points at the month of the newest records', () => {
+    assert.equal(latestMonthHint('2026-11', 0, '2026-10-28'), '2026-10');
+    assert.equal(latestMonthHint('2026-11', 3, '2026-10-28'), null);
+    assert.equal(latestMonthHint('2026-11', 0, '2026-11-02'), null);
+    assert.equal(latestMonthHint('2026-11', 0, null), null);
+    assert.equal(latestMonthHint('', 0, '2026-10-28'), null);
   });
 });

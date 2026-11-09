@@ -1,17 +1,20 @@
 // Finance, Debts and goals (docs/finance.md#debts-and-goals), from the owner's mockup of 5 Nov 2026.
 // Every figure comes from the person's own records: debts (balance, yearly rate, minimum payment, due
 // day, starting balance), goals, the saved debt plan and the payments matched to a debt. The payoff
-// order, dates, what-if and outlook are worked out by lib/financeDebtPlan.ts from those records.
+// order, months, interest, what-if and outlook come from the API's one payoff engine (GET /planner/payoff,
+// the same answer the advisor's Plan view, the assistant and the mobile app read); lib/financeDebtPlan.ts
+// only turns it into minor units and works out goal figures and dates.
 // Nothing here pays a debt: a payment made at the bank is matched to the debt afterwards.
-import { useCallback, useEffect, useId, useMemo, useState, type FormEvent } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useId, useMemo, useState, type FormEvent } from 'react';
 import { AlertTriangle, BarChart3, CalendarDays, Car, CreditCard, Flag, Home, Landmark, Layers, Pause, Pencil, Play, Plus, Target, Wand2 } from 'lucide-react';
-import type { FinanceAccount, FinanceDebt, FinanceDebtKind, FinanceDebtPaymentPage, FinanceDebtPlan, FinanceDebtStrategy, FinanceGoal } from '@anum/contracts';
+import type { FinanceAccount, FinanceDebt, FinanceDebtKind, FinanceDebtPaymentPage, FinanceDebtPlan, FinanceDebtStrategy, FinanceGoal, FinancePayoff } from '@anum/contracts';
 import * as api from './lib/financeApi';
 import * as plan from './lib/financePlanningApi';
+import * as pm from './lib/financePersonalApi';
 import { formatAmount, isolate, minorDigits, monthLabel, parseAmount, rangeLabel, type FinanceTab } from './lib/finance';
 import {
-  daysBetween, debtProgress, fromMinor, goalMonthly, goalPercent, nextDueOn, outlook, payoffMonth, payoffOrder, planCurrencies, planDebts,
-  simulatePayoff, toMinor, totalProgress, whatIf,
+  daysBetween, debtProgress, fromMinor, goalMonthly, goalPercent, nextDueOn, orderedDebts, outlook, payoffFor, payoffMonth, planCurrencies, planDebts,
+  toMinor, totalProgress, whatIf, type Payoff,
 } from './lib/financeDebtPlan';
 import { describeError } from './lib/errors';
 import { formatDateTime, t, type MessageKey } from './lib/i18n';
@@ -23,8 +26,11 @@ import { OutlookChart } from './FinancePlanningCharts';
 import { MatchDialog, PersonalScope, Progress, RowMenu } from './FinancePlanningParts';
 import './financePlanning.css';
 
-type Section = 'debts' | 'goals' | 'plan' | 'history';
-const SECTIONS: readonly Section[] = ['debts', 'goals', 'plan', 'history'];
+// `people`: Lent and borrowed (#finance-debts-people); `send-home`: money sent to family (#finance-goals-send-home).
+type Section = 'debts' | 'goals' | 'plan' | 'history' | 'people' | 'send-home';
+const SECTIONS: readonly Section[] = ['debts', 'goals', 'plan', 'history', 'people', 'send-home'];
+const People = lazy(() => import('./FinancePersonalMoney').then((m) => ({ default: m.PeopleSection })));
+const SendHome = lazy(() => import('./FinancePersonalMoney').then((m) => ({ default: m.RemittancesSection })));
 const HISTORY_PAGE = 10;
 const DEBT_ICON: Record<FinanceDebtKind, typeof CreditCard> = { card: CreditCard, loan: Car, mortgage: Home, other: Landmark };
 
@@ -32,8 +38,21 @@ const shortDate = (day: string) => formatDateTime(`${day}T12:00:00Z`, { day: 'nu
 const longDate = (day: string) => formatDateTime(`${day}T12:00:00Z`, { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
 const money = (minor: number, currency: string) => formatAmount(fromMinor(minor, currency), currency);
 
+/** One currency's answer from the API's payoff engine: the saved plan, another payment previewed, or the minimums only. */
+async function fetchPayoff(currency: string, payment: number | null | 'minimums'): Promise<FinancePayoff | null> {
+  const page = payment === 'minimums' ? await pm.getPayoff(null, currency, true) : await pm.getPayoff(payment === null ? null : fromMinor(payment, currency), currency);
+  return page.currencies.find((c) => c.currency === currency) ?? null;
+}
+
+/** Waits `ms` after the last change before asking the API again (typing an amount). */
+function useDebounced<T>(value: T, ms = 350): T {
+  const [shown, setShown] = useState(value);
+  useEffect(() => { const id = window.setTimeout(() => setShown(value), ms); return () => window.clearTimeout(id); }, [value, ms]);
+  return shown;
+}
+
 export function DebtsGoalsPage({ initial, accounts, base, today, onOpen, onChanged }: {
-  initial: 'debts' | 'goals'; accounts: FinanceAccount[]; base: string; today: string; onOpen: (tab: FinanceTab) => void; onChanged: () => void;
+  initial: Section; accounts: FinanceAccount[]; base: string; today: string; onOpen: (tab: FinanceTab) => void; onChanged: () => void;
 }) {
   const [section, setSection] = useState<Section>(initial);
   const [debts, setDebts] = useState<Load<FinanceDebt[]>>({ kind: 'loading' });
@@ -66,6 +85,20 @@ export function DebtsGoalsPage({ initial, accounts, base, today, onOpen, onChang
   const strategy: FinanceDebtStrategy = savedPlan?.strategy ?? 'avalanche';
   const payment = savedPlan?.monthly_payment ? toMinor(savedPlan.monthly_payment, currency) : null;
   const pd = useMemo(() => planDebts(debtList, currency), [debtList, currency]);
+  // The saved plan and the minimums-only line, from the API's payoff engine; asked again when the debts or the plan change.
+  const [payoffs, setPayoffs] = useState<Load<{ planned: FinancePayoff | null; now: FinancePayoff | null }>>({ kind: 'loading' });
+  const payoffKey = debts.kind === 'ready' && plans.kind === 'ready'
+    ? JSON.stringify([currency, debtList.map((d) => [d.id, d.balance, d.apr_percent, d.minimum_payment, d.currency]), savedPlan]) : null;
+  const loadPayoffs = useCallback(async () => {
+    if (payoffKey === null) return;
+    setPayoffs({ kind: 'loading' });
+    try {
+      const [planned, now] = await Promise.all([fetchPayoff(currency, null), fetchPayoff(currency, 'minimums')]);
+      setPayoffs({ kind: 'ready', value: { planned, now } });
+    } catch (e) { setPayoffs(failed(e)); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [payoffKey]);
+  useEffect(() => { void loadPayoffs(); }, [loadPayoffs]);
 
   async function savePlan(next: FinanceDebtPlan) {
     const others = plans.kind === 'ready' ? plans.value.filter((p) => p.currency !== next.currency) : [];
@@ -99,6 +132,9 @@ export function DebtsGoalsPage({ initial, accounts, base, today, onOpen, onChang
     tabs={<FinanceTabs label={t('fplan.debts.tabs')} idPrefix="fdg" value={section} onChange={setSection}
       items={SECTIONS.map((id) => ({ id, label: t(`fplan.debts.tab.${id}` as MessageKey) }))} />} />;
 
+  if (section === 'people' || section === 'send-home') return <div className="fplPage">{head}<div {...tabPanel('fdg', section)}>
+    <Suspense fallback={<Notice busy>{t('fpm.loading')}</Notice>}>{section === 'people' ? <People base={base} /> : <SendHome base={base} onOpen={onOpen} />}</Suspense>
+  </div></div>;
   if (debts.kind === 'denied' || goals.kind === 'denied') return <div className="fplPage">{head}<Denied /></div>;
   const loadError = debts.kind === 'error' ? debts.message : goals.kind === 'error' ? goals.message : null;
   if (loadError) return <div className="fplPage">{head}<LoadError message={t('fplan.error.load', { message: loadError })} retry={() => { void loadDebts(); void loadGoals(); }} /></div>;
@@ -108,20 +144,29 @@ export function DebtsGoalsPage({ initial, accounts, base, today, onOpen, onChang
   const minimums = pd.reduce((s, d) => s + d.minimum, 0);
   const saved = myGoals.reduce((s, g) => s + toMinor(g.saved_amount, currency), 0), target = myGoals.reduce((s, g) => s + toMinor(g.target_amount, currency), 0);
   const goalShare = target > 0 ? Math.floor((saved * 100) / target) : 0;
-  const now = simulatePayoff(pd, strategy, null), planned = simulatePayoff(pd, strategy, payment);
+  const views = payoffs.kind === 'ready' ? payoffs.value : null;
+  const now = views?.now ? payoffFor(views.now, strategy) : null, planned = views?.planned ? payoffFor(views.planned, strategy) : null;
   const startMonth = today.slice(0, 7);
+  // The plan's own starting total: today's balances, money borrowed from a person included (the API's debts).
+  const planTotal = views?.planned ? views.planned.debts.reduce((s, d) => s + toMinor(d.balance, currency), 0) : totalDebt;
+  const payoffState = payoffs.kind === 'loading' ? <Notice busy>{t('fplan.loading')}</Notice>
+    : payoffs.kind === 'denied' ? <Denied />
+      : payoffs.kind === 'error' ? <LoadError message={t('fplan.error.payoff', { message: payoffs.message })} retry={() => void loadPayoffs()} /> : null;
   const progress = totalProgress(myDebts);
 
   const debtsCard = <DebtsCard debts={myDebts} accounts={accounts} today={today} onAdd={() => setEditingDebt('new')} onEdit={setEditingDebt}
     onRemove={(d) => setRemoving({ kind: 'debt', id: d.id, name: d.name })} onMatch={setMatching} />;
-  const strategyCard = pd.length > 0 && <StrategyCard debts={pd} currency={currency} strategy={strategy} payment={payment} minimums={minimums} now={now} planned={planned} startMonth={startMonth}
-    progress={progress} onSave={async (next) => { await savePlan(next); setNotice({ text: t('fplan.plan.saved') }); }} />;
+  const strategyCard = pd.length > 0 && (now && planned
+    ? <StrategyCard currency={currency} strategy={strategy} payment={payment} minimums={minimums} now={now} planned={planned} startMonth={startMonth}
+      progress={progress} onSave={async (next) => { await savePlan(next); setNotice({ text: t('fplan.plan.saved') }); }} />
+    : <FinCard title={t('fplan.strategy.title')}>{payoffState}</FinCard>);
   const goalsCard = <GoalsCard goals={myGoals} today={today} onAdd={() => setEditingGoal('new')} onEdit={setEditingGoal} onPause={(g) => void togglePause(g)}
     onRemove={(g) => setRemoving({ kind: 'goal', id: g.id, name: g.name })} />;
   const outlookCard = (pd.length > 0 || myGoals.length > 0) && <FinCard title={t('fplan.outlook.title')} icon={<BarChart3 />} subtitle={t('fplan.outlook.sub', { currency })}>
-    <OutlookChart points={outlook(pd, strategy, payment, myGoals, currency, today, 12)} currency={currency} digits={minorDigits(currency)} />
+    {pd.length > 0 && !planned ? payoffState
+      : <OutlookChart points={outlook(planTotal, planned?.balances ?? [], planned ? planned.months !== null : true, myGoals, currency, today, 12)} currency={currency} digits={minorDigits(currency)} />}
   </FinCard>;
-  const whatIfCard = pd.length > 0 && <WhatIfCard currency={currency} strategy={strategy} payment={payment} minimums={planned.payment} debts={pd} />;
+  const whatIfCard = pd.length > 0 && planned && <WhatIfCard currency={currency} strategy={strategy} base={planned} />;
   const historyCard = (full: boolean) => <HistoryCard state={history} accounts={accounts} full={full} onPage={setOffset} retry={() => void loadHistory()} onAll={() => setSection('history')}
     onRemoved={async (row) => {
       try { await plan.unmatchDebtPayment(row.debt_id, row.link_id); setNotice({ text: t('fplan.history.removed') }); await loadHistory(); }
@@ -132,7 +177,7 @@ export function DebtsGoalsPage({ initial, accounts, base, today, onOpen, onChang
     {head}
     <KpiRow label={t('fplan.debts.kpis')}>
       <KpiCard icon={<Layers />} label={t('fplan.kpi.totalDebt')} value={money(totalDebt, currency)} hint={pd.length ? t('fplan.kpi.debtCount', { count: pd.length }) : t('fplan.kpi.noDebts')} />
-      <KpiCard icon={<CalendarDays />} label={t('fplan.kpi.monthly')} value={money(planned.payment, currency)} hint={payment ? t('fplan.kpi.planned') : t('fplan.kpi.minimums')} />
+      <KpiCard icon={<CalendarDays />} label={t('fplan.kpi.monthly')} value={money(planned?.payment ?? minimums, currency)} hint={payment ? t('fplan.kpi.planned') : t('fplan.kpi.minimums')} />
       <KpiCard icon={<Target />} label={t('fplan.kpi.saved')} value={money(saved, currency)} hint={myGoals.length ? t('fplan.kpi.goalCount', { count: myGoals.length }) : t('fplan.kpi.noGoals')} />
       <KpiCard icon={<BarChart3 />} label={t('fplan.kpi.goalProgress')} value={target > 0 ? `${goalShare}%` : '-'}
         hint={target > 0 ? <Progress percent={goalShare} label={t('fplan.kpi.goalProgressAria', { percent: goalShare })} /> : t('fplan.kpi.noGoals')} />
@@ -154,7 +199,9 @@ export function DebtsGoalsPage({ initial, accounts, base, today, onOpen, onChang
         <FinBanner tone="warn" icon={<AlertTriangle />}>{t('fplan.estimates')}</FinBanner>
         {pd.length === 0 ? <FinCard title={t('fplan.plan.title')}><Empty icon={<Landmark aria-hidden="true" />} title={t('fplan.debts.empty')} text={t('fplan.debts.emptyText')}
           action={<button type="button" onClick={() => setEditingDebt('new')}><Plus aria-hidden="true" />{t('finance.debts.add')}</button>} /></FinCard>
-          : <div className="fplColumns"><div className="fplColumn">{strategyCard}<OrderCard currency={currency} strategy={strategy} payment={payment} debts={pd} startMonth={startMonth} /></div>
+          : <div className="fplColumns"><div className="fplColumn">{strategyCard}{views?.planned
+            ? <OrderCard currency={currency} strategy={strategy} view={views.planned} startMonth={startMonth} />
+            : <FinCard title={t('fplan.order.title')}>{payoffState}</FinCard>}</div>
             <div className="fplColumn">{whatIfCard}{outlookCard}</div></div>}
       </>}
       {section === 'history' && historyCard(true)}
@@ -212,11 +259,11 @@ function DebtsCard({ debts, accounts, today, onAdd, onEdit, onRemove, onMatch }:
 
 // ---- Payoff strategy and the planned payment ----------------------------------------------------
 
-function StrategyCard({ debts, currency, strategy, payment, minimums, now, planned, startMonth, progress, onSave }: {
-  debts: ReturnType<typeof planDebts>; currency: string; strategy: FinanceDebtStrategy; payment: number | null; minimums: number; now: ReturnType<typeof simulatePayoff>; planned: ReturnType<typeof simulatePayoff>;
+function StrategyCard({ currency, strategy, payment, minimums, now, planned, startMonth, progress, onSave }: {
+  currency: string; strategy: FinanceDebtStrategy; payment: number | null; minimums: number; now: Payoff; planned: Payoff;
   startMonth: string; progress: ReturnType<typeof totalProgress>; onSave: (next: FinanceDebtPlan) => Promise<void>;
 }) {
-  const [draft, setDraft] = useState(payment ? fromMinor(payment, currency) : ''), [preview, setPreview] = useState<ReturnType<typeof simulatePayoff> | null>(null);
+  const [draft, setDraft] = useState(payment ? fromMinor(payment, currency) : ''), [preview, setPreview] = useState<Payoff | null>(null);
   const [error, setError] = useState<string | null>(null), [busy, setBusy] = useState(false);
   const name = useId(), errorId = useId(), helpId = useId();
   useEffect(() => { setDraft(payment ? fromMinor(payment, currency) : ''); setPreview(null); }, [payment, currency]);
@@ -230,12 +277,15 @@ function StrategyCard({ debts, currency, strategy, payment, minimums, now, plann
     setBusy(true); setError(null);
     try { await onSave({ currency, strategy, monthly_payment: payment ? fromMinor(payment, currency) : null, ...next }); } catch (e) { setError(describeError(e)); } finally { setBusy(false); }
   }
-  function previewPlan(event: FormEvent) {
+  async function previewPlan(event: FormEvent) {
     event.preventDefault();
     const value = read();
     if (value === false) return;
-    setError(null);
-    setPreview(simulatePayoff(debts, strategy, value));
+    setError(null); setBusy(true);
+    try {
+      const view = await fetchPayoff(currency, value === null ? 'minimums' : value);
+      setPreview(view ? payoffFor(view, strategy) : null);
+    } catch (e) { setError(describeError(e)); } finally { setBusy(false); }
   }
   const shownPlan = preview ?? planned;
   const nowDate = payoffMonth(startMonth, now.months), planDate = payoffMonth(startMonth, shownPlan.months);
@@ -260,14 +310,14 @@ function StrategyCard({ debts, currency, strategy, payment, minimums, now, plann
       </div>
     </div>
     <PlannedPayment currency={currency} minimums={minimums} draft={draft} setDraft={setDraft} errorId={errorId} helpId={helpId} error={error} busy={busy}
-      onPreview={previewPlan} onSave={() => { const v = read(); if (v !== false) void save({ monthly_payment: v === null ? null : fromMinor(v, currency) }); }}
+      onPreview={(e) => void previewPlan(e)} onSave={() => { const v = read(); if (v !== false) void save({ monthly_payment: v === null ? null : fromMinor(v, currency) }); }}
       preview={preview} planned={planned} />
   </FinCard>;
 }
 
 function PlannedPayment({ currency, minimums, draft, setDraft, errorId, helpId, error, busy, onPreview, onSave, preview, planned }: {
   currency: string; minimums: number; draft: string; setDraft: (v: string) => void; errorId: string; helpId: string; error: string | null; busy: boolean;
-  onPreview: (e: FormEvent) => void; onSave: () => void; preview: ReturnType<typeof simulatePayoff> | null; planned: ReturnType<typeof simulatePayoff>;
+  onPreview: (e: FormEvent) => void; onSave: () => void; preview: Payoff | null; planned: Payoff;
 }) {
   return <form className="fplPayment" onSubmit={onPreview} aria-describedby={error ? errorId : helpId}>
     <label className="field"><span>{t('fplan.payment.label', { currency })}</span>
@@ -285,12 +335,12 @@ function PlannedPayment({ currency, minimums, draft, setDraft, errorId, helpId, 
 
 // ---- Plan tab: the order the debts are paid off -------------------------------------------------
 
-function OrderCard({ currency, strategy, payment, debts, startMonth }: { currency: string; strategy: FinanceDebtStrategy; payment: number | null; debts: ReturnType<typeof planDebts>; startMonth: string }) {
-  const result = simulatePayoff(debts, strategy, payment);
+function OrderCard({ currency, strategy, view, startMonth }: { currency: string; strategy: FinanceDebtStrategy; view: FinancePayoff; startMonth: string }) {
+  const result = payoffFor(view, strategy);
   return <FinCard title={t('fplan.order.title')} subtitle={t(`fplan.strategy.${strategy}` as MessageKey)}>
     <div className="finTableWrap" tabIndex={0}><table className="finGrid">
       <thead><tr><th scope="col">#</th><th scope="col">{t('fplan.col.debt')}</th><th scope="col" className="num">{t('fplan.col.rate')}</th><th scope="col" className="num">{t('fplan.col.balance')}</th><th scope="col">{t('fplan.col.paidOff')}</th></tr></thead>
-      <tbody>{payoffOrder(debts, strategy).map((d, i) => {
+      <tbody>{orderedDebts(view, strategy).map((d, i) => {
         const month = payoffMonth(startMonth, result.paidOffIn[d.id] ?? null);
         return <tr key={d.id}><td>{i + 1}</td><td dir="auto">{d.name}</td><td className="num" dir="ltr">{d.aprPercent}%</td><td className="num" dir="ltr">{money(d.balance, currency)}</td><td>{month ? monthLabel(month) : t('fplan.never')}</td></tr>;
       })}</tbody>
@@ -301,23 +351,36 @@ function OrderCard({ currency, strategy, payment, debts, startMonth }: { currenc
 
 // ---- What if? -----------------------------------------------------------------------------------
 
-function WhatIfCard({ currency, strategy, payment, minimums, debts }: { currency: string; strategy: FinanceDebtStrategy; payment: number | null; minimums: number; debts: ReturnType<typeof planDebts> }) {
+function WhatIfCard({ currency, strategy, base }: { currency: string; strategy: FinanceDebtStrategy; base: Payoff }) {
   // The first suggestion is a tenth of what is paid now, rounded to a whole 50: worked out from the plan, never a fixed figure.
   const unit = 50 * 10 ** minorDigits(currency);
-  const suggested = Math.max(unit, Math.round(minimums / 10 / unit) * unit);
+  const suggested = Math.max(unit, Math.round(base.payment / 10 / unit) * unit);
   const [extra, setExtra] = useState(fromMinor(suggested, currency));
-  const value = toMinor(extra, currency);
-  const result = value > 0 ? whatIf(debts, strategy, payment, value) : null;
+  const value = toMinor(useDebounced(extra), currency);
+  const [state, setState] = useState<Load<Payoff> | null>(null);
   const inputId = useId();
+  useEffect(() => {
+    if (value <= 0) { setState(null); return; }
+    let live = true;
+    setState({ kind: 'loading' });
+    fetchPayoff(currency, base.payment + value).then((view) => {
+      if (!live) return;
+      setState(view ? { kind: 'ready', value: payoffFor(view, strategy) } : null);
+    }, (e: unknown) => { if (live) setState(failed(e)); });
+    return () => { live = false; };
+  }, [currency, strategy, base, value]);
+  const result = state?.kind === 'ready' ? whatIf(base, state.value, value) : null;
   return <section className="fplWhatIf" aria-labelledby={`${inputId}-h`}>
     <BarChart3 aria-hidden="true" />
     <div>
       <h2 id={`${inputId}-h`}>{t('fplan.whatIf.title')}</h2>
       <label className="fplWhatIfInput" htmlFor={inputId}>{t('fplan.whatIf.label', { currency })}</label>
       <input id={inputId} value={extra} onChange={(e) => setExtra(e.target.value)} inputMode="decimal" dir="ltr" />
-      <p aria-live="polite">{!result ? t('fplan.whatIf.enter')
-        : result.monthsSaved === null ? t('fplan.whatIf.never')
-          : t('fplan.whatIf.result', { amount: isolate(money(value, currency)), months: result.monthsSaved, interest: isolate(money(result.interestSaved, currency)) })}</p>
+      <p aria-live="polite">{state?.kind === 'loading' ? t('fplan.loading')
+        : state?.kind === 'error' || state?.kind === 'denied' ? t('fplan.error.payoff', { message: state.message })
+          : !result ? t('fplan.whatIf.enter')
+            : result.monthsSaved === null ? t('fplan.whatIf.never')
+              : t('fplan.whatIf.result', { amount: isolate(money(value, currency)), months: result.monthsSaved, interest: isolate(money(result.interestSaved, currency)) })}</p>
       <small className="muted">{t('fplan.whatIf.note')}</small>
     </div>
   </section>;
@@ -430,9 +493,20 @@ function PlanWizard({ currency, debts, saved, startMonth, onAddDebt, onClose }: 
   const [amount, setAmount] = useState(saved?.monthly_payment ?? fromMinor(minimums, currency));
   const [error, setError] = useState<string | null>(null);
   const radio = useId();
-  const value = toMinor(amount, currency);
-  const result = simulatePayoff(debts, strategy, value > 0 ? value : null);
-  const compare = (s: FinanceDebtStrategy) => simulatePayoff(debts, s, value > 0 ? value : null);
+  const value = toMinor(useDebounced(amount), currency);
+  const [answer, setAnswer] = useState<Load<FinancePayoff | null>>({ kind: 'loading' });
+  useEffect(() => {
+    if (debts.length === 0) return;
+    let live = true;
+    setAnswer({ kind: 'loading' });
+    fetchPayoff(currency, value > 0 ? value : 'minimums').then((view) => { if (live) setAnswer({ kind: 'ready', value: view }); }, (e: unknown) => { if (live) setAnswer(failed(e)); });
+    return () => { live = false; };
+  }, [currency, value, debts.length]);
+  const view = answer.kind === 'ready' ? answer.value : null;
+  const result = view ? payoffFor(view, strategy) : null;
+  const compare = (s: FinanceDebtStrategy) => (view ? payoffFor(view, s) : null);
+  const waiting = answer.kind === 'loading' ? <Notice busy>{t('fplan.loading')}</Notice>
+    : answer.kind === 'error' || answer.kind === 'denied' ? <Notice error>{t('fplan.error.payoff', { message: answer.message })}</Notice> : null;
   const steps = [t('fplan.wizard.step1'), t('fplan.wizard.step2'), t('fplan.wizard.step3')];
   function finish() {
     const checked = parseAmount(amount, currency, { signed: false, allowZero: false });
@@ -450,19 +524,19 @@ function PlanWizard({ currency, debts, saved, startMonth, onAddDebt, onClose }: 
         const r = compare(s);
         return <label key={s}><input type="radio" name={radio} checked={strategy === s} onChange={() => setStrategy(s)} />
           <span><strong>{t(`fplan.strategy.${s}` as MessageKey)}</strong> {t(`fplan.strategy.${s}Hint` as MessageKey)}<br />
-            <small className="muted">{r.months === null ? t('fplan.never') : t('fplan.wizard.compare', { months: r.months, interest: money(r.interest, currency) })}</small></span></label>;
-      })}</fieldset>}
+            {r && <small className="muted">{r.months === null ? t('fplan.never') : t('fplan.wizard.compare', { months: r.months, interest: money(r.interest, currency) })}</small>}</span></label>;
+      })}{waiting}</fieldset>}
     {step === 2 && <div className="finForm">
       <label className="field"><span>{t('fplan.payment.label', { currency })}</span><input value={amount} onChange={(e) => setAmount(e.target.value)} inputMode="decimal" dir="ltr" /></label>
       <p className="muted finHelp">{t('fplan.payment.help', { amount: money(minimums, currency) })}</p>
-      {result.belowMinimums ? <Notice error>{t('fplan.payment.below', { amount: money(minimums, currency) })}</Notice>
-        : <Notice>{result.months === null ? t('fplan.progress.neverText') : t('fplan.wizard.result', { date: monthLabel(payoffMonth(startMonth, result.months)!), interest: money(result.interest, currency) })}</Notice>}
+      {waiting ?? (!result ? null : result.belowMinimums ? <Notice error>{t('fplan.payment.below', { amount: money(minimums, currency) })}</Notice>
+        : <Notice>{result.months === null ? t('fplan.progress.neverText') : t('fplan.wizard.result', { date: monthLabel(payoffMonth(startMonth, result.months)!), interest: money(result.interest, currency) })}</Notice>)}
       {error && <p className="cmFieldError" role="alert">{error}</p>}
     </div>}
     <div className="actions">
       {step > 0 && <button type="button" className="secondary" onClick={() => setStep(step - 1)}>{t('fplan.wizard.back')}</button>}
       {step < 2 && <button type="button" disabled={debts.length === 0} onClick={() => setStep(step + 1)}>{t('fplan.wizard.next')}</button>}
-      {step === 2 && <button type="button" disabled={result.belowMinimums} onClick={finish}>{t('fplan.wizard.save')}</button>}
+      {step === 2 && <button type="button" disabled={!result || result.belowMinimums} onClick={finish}>{t('fplan.wizard.save')}</button>}
       <button type="button" className="secondary" onClick={() => onClose(null)}>{t('common.cancel')}</button>
     </div>
   </Modal>;
