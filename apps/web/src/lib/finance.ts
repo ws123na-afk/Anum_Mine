@@ -6,8 +6,34 @@ import type {
 } from '@anum/contracts';
 import { getLocale, intlLocale, t, type Locale, type MessageKey } from './i18n.ts';
 
-export type FinanceTab = 'overview' | 'ledger' | 'safe' | 'advisor' | 'reports' | 'transactions' | 'accounts' | 'import' | 'bills' | 'budgets' | 'debts' | 'goals' | 'holdings' | 'guardian' | 'connections' | 'trading' | 'intel' | 'execution' | 'ibkr' | 'research' | 'sms' | 'people' | 'payslips' | 'remittances' | 'commitments';
-export const FINANCE_TABS: readonly FinanceTab[] = ['overview', 'ledger', 'safe', 'advisor', 'transactions', 'accounts', 'import', 'bills', 'budgets', 'debts', 'goals', 'reports', 'holdings', 'guardian', 'connections', 'sms', 'trading', 'intel', 'execution', 'ibkr', 'research', 'people', 'payslips', 'remittances', 'commitments'];
+export type FinanceTab = 'overview' | 'ledger' | 'safe' | 'advisor' | 'reports' | 'transactions' | 'accounts' | 'import' | 'bills' | 'budgets' | 'debts' | 'goals' | 'holdings' | 'guardian' | 'connections' | 'trading' | 'intel' | 'execution' | 'ibkr' | 'research' | 'sms';
+export const FINANCE_TABS: readonly FinanceTab[] = ['overview', 'ledger', 'safe', 'advisor', 'transactions', 'accounts', 'import', 'bills', 'budgets', 'debts', 'goals', 'reports', 'holdings', 'guardian', 'connections', 'sms', 'trading', 'intel', 'execution', 'ibkr', 'research'];
+
+/**
+ * Sections inside a Finance page, each deep-linked as `#finance-<tab>-<section>` (docs/finance.md#finance-shell).
+ * The personal money pages moved into the pages they belong to; their old hashes still open the new place.
+ */
+export type FinanceSection = 'people' | 'send-home' | 'fixed' | 'salary';
+const SECTIONS: Record<string, { tab: FinanceTab; section: FinanceSection }> = {
+  'debts-people': { tab: 'debts', section: 'people' },
+  'goals-send-home': { tab: 'goals', section: 'send-home' },
+  'bills-fixed': { tab: 'bills', section: 'fixed' },
+  'advisor-salary': { tab: 'advisor', section: 'salary' },
+};
+/** The hashes of the pages that moved (Lent and borrowed, Send home, Fixed costs, Payslips) and where each opens now. */
+export const MOVED_HASHES: Readonly<Record<string, string>> = {
+  people: 'debts-people', remittances: 'goals-send-home', commitments: 'bills-fixed', payslips: 'advisor-salary',
+};
+
+/** The section a hash opens (`#finance-debts-people`, or an old `#finance-people`), or null. */
+export function sectionFromHash(hash: string): { tab: FinanceTab; section: FinanceSection } | null {
+  const id = hash.replace(/^#finance-?/, '');
+  return SECTIONS[MOVED_HASHES[id] ?? id] ?? null;
+}
+
+export function hashForSection(tab: FinanceTab, section: FinanceSection): string {
+  return `#finance-${tab}-${section}`;
+}
 
 const THREE = new Set(['BHD', 'IQD', 'JOD', 'KWD', 'LYD', 'OMR', 'TND']);
 const ZERO = new Set(['JPY', 'KRW', 'VND', 'CLP', 'ISK', 'UGX', 'XAF', 'XOF']);
@@ -98,6 +124,8 @@ export function spendCurrencies(summary: Pick<FinanceSummary, 'spend_by_category
 /** The tab a URL hash opens: `#finance-transactions` and friends; anything else is the overview. */
 export function tabFromHash(hash: string): FinanceTab {
   const id = hash.replace(/^#finance-?/, '');
+  const moved = sectionFromHash(hash);
+  if (moved) return moved.tab;
   // `#finance-intel-reports` and `#finance-intel-report=<id>` open the daily reports in Trading intelligence.
   if (id.startsWith('intel-report')) return 'intel';
   // `#finance-trading-orders` and the other lab tabs open Paper trading (docs/finance.md#paper-trading-lab).

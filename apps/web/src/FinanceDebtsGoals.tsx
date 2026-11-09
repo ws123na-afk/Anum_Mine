@@ -5,7 +5,7 @@
 // the same answer the advisor's Plan view, the assistant and the mobile app read); lib/financeDebtPlan.ts
 // only turns it into minor units and works out goal figures and dates.
 // Nothing here pays a debt: a payment made at the bank is matched to the debt afterwards.
-import { useCallback, useEffect, useId, useMemo, useState, type FormEvent } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useId, useMemo, useState, type FormEvent } from 'react';
 import { AlertTriangle, BarChart3, CalendarDays, Car, CreditCard, Flag, Home, Landmark, Layers, Pause, Pencil, Play, Plus, Target, Wand2 } from 'lucide-react';
 import type { FinanceAccount, FinanceDebt, FinanceDebtKind, FinanceDebtPaymentPage, FinanceDebtPlan, FinanceDebtStrategy, FinanceGoal, FinancePayoff } from '@anum/contracts';
 import * as api from './lib/financeApi';
@@ -26,8 +26,11 @@ import { OutlookChart } from './FinancePlanningCharts';
 import { MatchDialog, PersonalScope, Progress, RowMenu } from './FinancePlanningParts';
 import './financePlanning.css';
 
-type Section = 'debts' | 'goals' | 'plan' | 'history';
-const SECTIONS: readonly Section[] = ['debts', 'goals', 'plan', 'history'];
+// `people`: Lent and borrowed (#finance-debts-people); `send-home`: money sent to family (#finance-goals-send-home).
+type Section = 'debts' | 'goals' | 'plan' | 'history' | 'people' | 'send-home';
+const SECTIONS: readonly Section[] = ['debts', 'goals', 'plan', 'history', 'people', 'send-home'];
+const People = lazy(() => import('./FinancePersonalMoney').then((m) => ({ default: m.PeopleSection })));
+const SendHome = lazy(() => import('./FinancePersonalMoney').then((m) => ({ default: m.RemittancesSection })));
 const HISTORY_PAGE = 10;
 const DEBT_ICON: Record<FinanceDebtKind, typeof CreditCard> = { card: CreditCard, loan: Car, mortgage: Home, other: Landmark };
 
@@ -49,7 +52,7 @@ function useDebounced<T>(value: T, ms = 350): T {
 }
 
 export function DebtsGoalsPage({ initial, accounts, base, today, onOpen, onChanged }: {
-  initial: 'debts' | 'goals'; accounts: FinanceAccount[]; base: string; today: string; onOpen: (tab: FinanceTab) => void; onChanged: () => void;
+  initial: Section; accounts: FinanceAccount[]; base: string; today: string; onOpen: (tab: FinanceTab) => void; onChanged: () => void;
 }) {
   const [section, setSection] = useState<Section>(initial);
   const [debts, setDebts] = useState<Load<FinanceDebt[]>>({ kind: 'loading' });
@@ -129,6 +132,9 @@ export function DebtsGoalsPage({ initial, accounts, base, today, onOpen, onChang
     tabs={<FinanceTabs label={t('fplan.debts.tabs')} idPrefix="fdg" value={section} onChange={setSection}
       items={SECTIONS.map((id) => ({ id, label: t(`fplan.debts.tab.${id}` as MessageKey) }))} />} />;
 
+  if (section === 'people' || section === 'send-home') return <div className="fplPage">{head}<div {...tabPanel('fdg', section)}>
+    <Suspense fallback={<Notice busy>{t('fpm.loading')}</Notice>}>{section === 'people' ? <People base={base} /> : <SendHome base={base} onOpen={onOpen} />}</Suspense>
+  </div></div>;
   if (debts.kind === 'denied' || goals.kind === 'denied') return <div className="fplPage">{head}<Denied /></div>;
   const loadError = debts.kind === 'error' ? debts.message : goals.kind === 'error' ? goals.message : null;
   if (loadError) return <div className="fplPage">{head}<LoadError message={t('fplan.error.load', { message: loadError })} retry={() => { void loadDebts(); void loadGoals(); }} /></div>;

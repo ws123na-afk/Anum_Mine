@@ -1,7 +1,8 @@
-// Finance, Lent and borrowed, Payslips, Send home and Fixed costs (docs/finance.md#lent-and-borrowed, #payslips,
-// #sending-money-home, #fixed-commitments). One page with four tabs in the Finance shell, each deep-linked
-// (#finance-people, #finance-payslips, #finance-remittances, #finance-commitments). Every figure is the API's,
-// from the person's own records; a record is linked to the real ledger transaction (a finance link). ANUM only
+// Finance, Lent and borrowed, Payslips, Send home and Monthly fixed costs (docs/finance.md#lent-and-borrowed, #payslips,
+// #sending-money-home, #fixed-commitments). Sections of the pages they belong to: People on Debts and goals
+// (#finance-debts-people), Send home on Goals (#finance-goals-send-home), Monthly fixed costs on Bills and budgets
+// (#finance-bills-fixed) and Payslips with the salary on the Money advisor (#finance-advisor-salary). Every figure is the
+// API's, from the person's own records; a record is linked to the real ledger transaction (a finance link). ANUM only
 // records and advises: nothing here moves money.
 import { useCallback, useEffect, useId, useState, type FormEvent, type ReactNode } from 'react';
 import { ArrowDownLeft, ArrowUpRight, Banknote, CalendarClock, HandCoins, Link2, Pencil, Plus, Receipt, Search, Send, Trash2, Wallet } from 'lucide-react';
@@ -16,30 +17,36 @@ import { describeError } from './lib/errors';
 import { formatDateTime, t, type MessageKey } from './lib/i18n';
 import { ConfirmDialog, Modal } from './Dialog';
 import { Denied, Empty, LoadError, Money, Notice, failed, type Load } from './FinanceParts';
-import { FinBanner, FinCard, FinancePageHead, FinanceTabs, KpiCard, KpiRow, StatusChip, tabPanel } from './FinanceShell';
+import { FinBanner, FinCard, KpiCard, KpiRow, StatusChip } from './FinanceShell';
 import './financePages.css';
 import './financePersonal.css';
 
-export type PersonalTab = 'people' | 'payslips' | 'remittances' | 'commitments';
-const TABS: readonly PersonalTab[] = ['people', 'payslips', 'remittances', 'commitments'];
 const day = (value: string) => formatDateTime(`${value}T12:00:00Z`, { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
 const amount = (value: string, currency: string) => isolate(formatAmount(value, currency));
 
-export function PersonalMoneyPage({ tab, base, onOpen }: { tab: PersonalTab; base: string; onOpen: (tab: FinanceTab) => void }) {
-  // On a phone the tab strip scrolls: keep the open tab in view.
-  useEffect(() => { document.getElementById(`fpm-tab-${tab}`)?.scrollIntoView({ block: 'nearest', inline: 'nearest' }); }, [tab]);
-  const head = <FinancePageHead title={t(`finance.tab.${tab}` as MessageKey)} subtitle={t(`fpm.${tab}.subtitle` as MessageKey)}
-    tabs={<FinanceTabs label={t('fpm.tabs')} idPrefix="fpm" value={tab} onChange={(next) => onOpen(next)}
-      items={TABS.map((id) => ({ id, label: t(`finance.tab.${id}` as MessageKey) }))} />} />;
-  return <div className="finPage fpmPage">
-    {head}
-    <div {...tabPanel('fpm', tab)}>
-      {tab === 'people' && <PeopleTab base={base} />}
-      {tab === 'payslips' && <PayslipsTab base={base} />}
-      {tab === 'remittances' && <RemittancesTab base={base} onOpen={onOpen} />}
-      {tab === 'commitments' && <CommitmentsTab onOpen={onOpen} />}
-    </div>
-  </div>;
+/** One personal money section inside its host page: its own intro line, then its cards. */
+function Section({ intro, children }: { intro: string; children: ReactNode }) {
+  return <div className="fpmPage"><p className="muted fpmIntro">{intro}</p>{children}</div>;
+}
+
+/** Lent and borrowed, the People section of Debts and goals. */
+export function PeopleSection({ base }: { base: string }) {
+  return <Section intro={t('fpm.people.subtitle')}><PeopleTab base={base} /></Section>;
+}
+
+/** Payslips, next to the salary on the Money advisor. */
+export function PayslipsSection({ base }: { base: string }) {
+  return <Section intro={t('fpm.payslips.subtitle')}><PayslipsTab base={base} /></Section>;
+}
+
+/** Send home, a section of Goals (savings for family at home are goals with that purpose). */
+export function RemittancesSection({ base, onOpen }: { base: string; onOpen: (tab: FinanceTab) => void }) {
+  return <Section intro={t('fpm.remittances.subtitle')}><RemittancesTab base={base} onOpen={onOpen} /></Section>;
+}
+
+/** Monthly fixed costs, a section of Bills and budgets. */
+export function CommitmentsSection({ onOpen }: { onOpen: (tab: FinanceTab) => void }) {
+  return <Section intro={t('fpm.commitments.subtitle')}><CommitmentsTab onOpen={onOpen} /></Section>;
 }
 
 function Pager({ total, offset, onOffset }: { total: number; offset: number; onOffset: (next: number) => void }) {
@@ -496,8 +503,14 @@ function CommitmentsTab({ onOpen }: { onOpen: (tab: FinanceTab) => void }) {
       action={<div className="finCardButtons"><button type="button" onClick={() => onOpen('bills')}>{t('fpm.fixed.addBill')}</button>
         <button type="button" className="secondary" onClick={() => onOpen('debts')}>{t('fpm.fixed.addDebt')}</button></div>} /></FinCard>
     : <>
-      <KpiRow label={t('fpm.fixed.kpis')}>{value.totals.map((row) => <KpiCard key={row.currency} icon={<Wallet />} label={t('fpm.fixed.total', { currency: row.currency })}
-        value={<Money value={row.amount} currency={row.currency} />} hint={t('fpm.fixed.month', { month: value.month })} />)}</KpiRow>
+      <KpiRow label={t('fpm.fixed.kpis')}>{value.totals.map((row) => {
+        const income = value.income?.find((i) => i.currency === row.currency);
+        const hint = income?.monthly && income.share_percent !== null
+          ? t(income.source === 'salary_profile' ? 'fpm.fixed.shareSalary' : 'fpm.fixed.shareRecords', { percent: income.share_percent, amount: amount(income.monthly, row.currency) })
+          : t('fpm.fixed.month', { month: value.month });
+        return <KpiCard key={row.currency} icon={<Wallet />} label={t('fpm.fixed.total', { currency: row.currency })}
+          value={<Money value={row.amount} currency={row.currency} />} hint={hint} />;
+      })}</KpiRow>
       {value.totals.map((row) => <FinCard key={row.currency} title={t('fpm.fixed.byKind', { currency: row.currency })} icon={<Wallet />} subtitle={t('fpm.fixed.note')}>
         {commitmentGroups(value.items, row.currency).map((group) => <section key={group.kind} className="fpmGroup" aria-label={t(`fpm.kind.${group.kind}` as MessageKey)}>
           <h3 className="finAdvisorSub"><span>{t(`fpm.kind.${group.kind}` as MessageKey)}</span><Money value={group.total} currency={row.currency} /></h3>
