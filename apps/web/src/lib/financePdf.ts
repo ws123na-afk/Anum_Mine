@@ -2,7 +2,7 @@
 // The API reads the PDF and checks its balances; while the person edits or drops rows, this file
 // repeats that check in whole minor units (never floating point) so the warning follows every edit.
 // The API checks again when the rows are imported.
-import type { FinancePdfCheck, FinancePdfImportInput, FinancePdfRole, FinancePdfRow, FinancePdfStatement } from '@anum/contracts';
+import type { FinancePdfCheck, FinancePdfImportInput, FinancePdfRole, FinancePdfRow, FinancePdfStatement, FinanceRowFx, FinanceRowMatch } from '@anum/contracts';
 import { PDF_STATEMENT_MAX_BYTES, minorDigits, parseAmount } from './finance.ts';
 import { t, type MessageKey } from './i18n.ts';
 
@@ -42,7 +42,13 @@ export interface ReviewRow {
   confidence: number;
   duplicate: boolean;
   flags: string[];
+  /** The matching engine's answer when the statement was read (docs/finance.md#statement-matching). */
+  match: FinanceRowMatch | null;
+  fx: FinanceRowFx | null;
 }
+
+/** The person's ticks on a row's match, sent with the row (the API reads them per row). */
+export interface PdfChoice { action?: 'import' | 'skip' | null; bill?: boolean | null; transfer?: boolean | null; correct?: boolean | null }
 
 export function reviewRows(view: Pick<FinancePdfStatement, 'rows'>): ReviewRow[] {
   return view.rows.map((row: FinancePdfRow) => ({
@@ -52,6 +58,7 @@ export function reviewRows(view: Pick<FinancePdfStatement, 'rows'>): ReviewRow[]
     amount: row.amount ?? '', billed_amount: null, billed_currency: null, balance: row.balance, reference: row.reference, currency: row.currency, time: row.time, kind: row.kind,
     counterparty: row.counterparty, parent_line: row.parent_line, original_amount: row.original_amount, original_currency: row.original_currency,
     fx_rate: row.fx_rate, fee: row.fee, vat: row.vat, confidence: row.confidence, duplicate: row.duplicate, flags: row.flags,
+    match: row.match ?? null, fx: row.fx ?? null,
   }));
 }
 
@@ -138,7 +145,7 @@ export function liveCheck(rows: readonly ReviewRow[], opening: string, closing: 
 
 /** The import request for the included rows, amounts in the API's wire form. */
 export function importBody(view: FinancePdfStatement, accountId: string, rows: readonly ReviewRow[], opening: string, closing: string,
-  acceptMismatch: boolean, layout: FinancePdfImportInput['layout'] = null): FinancePdfImportInput {
+  acceptMismatch: boolean, layout: FinancePdfImportInput['layout'] = null, choices: Readonly<Record<string, PdfChoice>> = {}): FinancePdfImportInput {
   const currency = view.currency;
   const wire = (value: string, inCurrency = currency) => {
     const units = toMinor(value, inCurrency);
@@ -154,12 +161,23 @@ export function importBody(view: FinancePdfStatement, accountId: string, rows: r
       billed_amount: row.billed_amount ? (wire(row.billed_amount) ?? row.billed_amount) : null,
       billed_currency: row.billed_amount ? currency : null,
       fx_rate: row.fx_rate, fee: row.fee, vat: row.vat,
+      ...choiceFields(choices[row.key]),
     })),
     opening_balance: opening.trim() ? wire(opening) : null, closing_balance: closing.trim() ? wire(closing) : null, accept_mismatch: acceptMismatch,
     layout,
     // The statement's printed counts and totals: the server checks the rows against them again.
     summary: view.check.summary.map((item) => ({ name: item.name, stated: item.stated })),
   };
+}
+
+function choiceFields(choice: PdfChoice | undefined): Partial<Pick<FinancePdfImportInput['rows'][number], 'action' | 'bill' | 'transfer' | 'correct'>> {
+  if (!choice) return {};
+  const out: Partial<Pick<FinancePdfImportInput['rows'][number], 'action' | 'bill' | 'transfer' | 'correct'>> = {};
+  if (choice.action) out.action = choice.action;
+  if (choice.bill === false) out.bill = false;
+  if (typeof choice.transfer === 'boolean') out.transfer = choice.transfer;
+  if (choice.correct === false) out.correct = false;
+  return out;
 }
 
 /** Rows whose description or reference contains the search text. */

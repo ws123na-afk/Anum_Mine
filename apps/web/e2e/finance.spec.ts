@@ -204,7 +204,9 @@ test('a statement is previewed with its column mapping, then imported; the impor
   await expect(preview).toContainText('4 rows: 3 read, 2 new, 1 already imported, 1 could not be read.');
   await expect(preview).toContainText('The dates fit both day first and month first');
   await expect(preview.getByLabel('Debit column')).toHaveValue('Debit');
-  await expect(preview.getByText('Already imported, skipped')).toBeVisible();
+  // The matching engine's groups: the duplicate is listed as already recorded, with its reason.
+  await expect(preview.getByText('Already recorded (1)')).toBeVisible();
+  await expect(preview.getByText('New (2)')).toBeVisible();
   await preview.getByText('1 row could not be read').click();
   await expect(preview).toContainText('Line 5: The date could not be read');
   await preview.getByRole('button', { name: 'Import 2 rows' }).click();

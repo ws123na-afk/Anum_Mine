@@ -161,7 +161,7 @@ class LinkRequest:
 def _validate(request: LinkRequest) -> LinkRequest:
     if request.dimension not in DIMENSIONS:
         raise LinkError(422, "Choose what to link the payment to: vehicle, purchase, document, business, trip, project, bill, debt, "
-                        "a loan with a person, a payslip or a remittance.", "invalid_dimension")
+                        "transfer, a loan with a person, a payslip or a remittance.", "invalid_dimension")
     if request.role not in ROLES:
         raise LinkError(422, "Choose the link's role: payment, refund, deposit or evidence.", "invalid_role")
     for value in (request.canonical_id, request.target_type, request.target_id, request.document_id or "x"):
@@ -193,8 +193,12 @@ class Created:
     replayed: bool = False
 
 
-def create(context: TenantContext, request: LinkRequest, *, allocation: dict[str, Any] | None = None, now: datetime | None = None) -> Created:
-    """Link (part of) a canonical transaction to a target; for ``business``, also write the allocation row."""
+def create(context: TenantContext, request: LinkRequest, *, allocation: dict[str, Any] | None = None, now: datetime | None = None,
+           review: bool = False) -> Created:
+    """Link (part of) a canonical transaction to a target; for ``business``, also write the allocation row.
+
+    ``review``: the link is proposed, not settled (``needs_review``, reason ``weak_match``): a statement import found
+    a payment that might pay a bill. The person confirms or removes it; until then it never counts as paid."""
     from .sms_service import owner_lock
 
     request = _validate(request)
@@ -247,7 +251,8 @@ def create(context: TenantContext, request: LinkRequest, *, allocation: dict[str
             id=new_id("fin_link"), tenant_id=context.tenant_id, workspace_id=context.workspace_id, owner_user_id=context.user_id,
             canonical_id=request.canonical_id, dimension=request.dimension, role=request.role, target_type=request.target_type,
             target_id=request.target_id, target_workspace_id=request.target_id if request.dimension == "business" else None,
-            amount=request.amount, currency=request.currency, status=LinkStatus.ACTIVE, document_id=request.document_id,
+            amount=request.amount, currency=request.currency, status=LinkStatus.NEEDS_REVIEW if review else LinkStatus.ACTIVE,
+            status_reason="weak_match" if review else None, document_id=request.document_id,
             source_event_ids=sorted({m.id for rows in sources.values() for m in rows})[:50], idem_key=key, created_by=context.user_id,
             created_at=now, updated_at=now,
         )

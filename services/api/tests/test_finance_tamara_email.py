@@ -1,7 +1,9 @@
 """Provider-specific deterministic parsing tests, no mailbox credentials or paid API calls."""
 from datetime import datetime, timezone
 
-from anum_api.finance.tamara_email import MailEvidence, extract_tamara_statement
+from decimal import Decimal
+
+from anum_api.finance.tamara_email import MailEvidence, extract_tamara_refunds, extract_tamara_statement
 
 WHEN = datetime(2026, 10, 15, tzinfo=timezone.utc)
 
@@ -29,15 +31,39 @@ def test_confirmation_and_repayment_reconstruct_schedule_without_bank_payment() 
     assert all(r.total_installments == 4 for r in rows)
 
 
-def test_refund_marks_open_installments_review_and_does_not_create_credit() -> None:
+def test_refund_with_an_amount_keeps_the_schedule_and_becomes_refund_evidence() -> None:
+    """A refund email naming its amount is evidence for Finance > Refunds; the schedule stays as Tamara sent it."""
     confirmation = message("m1", "Split in 3 order confirmed at Amazon",
                            "Paid today\n290 SAR\nDue on 01.11.2026\n290 SAR\nDue on 01.12.2026\n290 SAR\n"
-                           "Order Number\n404-9235252-0416348")
+                           "Order Number\nexample-order-1")
     refund = message("m3", "Your order status has been updated - refund",
-                     "Refund 580 SAR\nOrder Number\n404-9235252-0416348")
+                     "Refund 580 SAR\nOrder Number\nexample-order-1")
+    rows, _ = extract_tamara_statement([confirmation, refund])
+    assert [r.source_status for r in rows] == ["paid", "scheduled", "scheduled"]
+    notices = extract_tamara_refunds([confirmation, refund])
+    assert len(notices) == 1
+    assert notices[0].order_id == "example-order-1" and notices[0].amount == Decimal("580") and not notices[0].full
+    assert notices[0].message_ref == "m3" and notices[0].source_email.endswith("m3")
+
+
+def test_refund_without_an_amount_still_marks_open_installments_review() -> None:
+    confirmation = message("m1", "Split in 3 order confirmed at Amazon",
+                           "Paid today\n290 SAR\nDue on 01.11.2026\n290 SAR\nDue on 01.12.2026\n290 SAR\n"
+                           "Order Number\nexample-order-2")
+    refund = message("m3", "Your order status has been updated", "We are processing a refund.\nOrder Number\nexample-order-2")
     rows, _ = extract_tamara_statement([confirmation, refund])
     assert [r.source_status for r in rows] == ["paid", "review", "review"]
     assert "refund" in (rows[1].review_notes or "").lower()
+    notices = extract_tamara_refunds([refund])
+    assert notices[0].amount is None and not notices[0].full
+
+
+def test_full_refund_wording_and_amount_formats_are_read() -> None:
+    full = message("m4", "Refund processed", "Your order has been fully refunded.\nRefunded amount: SAR 1,200.50\nOrder Number\nexample-order-3")
+    spoof = message("m5", "Refund processed", "Refund 50 SAR\nOrder Number\nexample-order-3", "fraud@not-tamara.co")
+    notices = extract_tamara_refunds([full, spoof, full])
+    assert len(notices) == 1
+    assert notices[0].full and notices[0].amount == Decimal("1200.50")
 
 
 def test_repayment_amount_mismatch_is_review_not_paid() -> None:

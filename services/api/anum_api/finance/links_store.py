@@ -29,7 +29,8 @@ from ..schemas import TenantContext
 from .sms_store import SmsStore, open_sms_stores
 from .store import FinanceStore
 
-DIMENSIONS = ("vehicle", "purchase", "document", "business", "trip", "project", "bill", "debt", "person_loan", "payslip", "remittance")
+DIMENSIONS = ("vehicle", "purchase", "document", "business", "trip", "project", "bill", "debt", "transfer", "person_loan", "payslip",
+              "remittance")
 ROLES = ("payment", "refund", "deposit", "evidence")
 EVENT_OUTCOMES = ("ok", "failed", "denied", "test")
 

@@ -16,8 +16,8 @@ from ..email_inbox import MessageFilters, fetch_body, open_email_store
 from ..email_providers import EmailProvider
 from ..schemas import TenantContext
 from .api import _manage
-from .models import InstallmentStatementEntry
-from .tamara_email import MailEvidence, extract_tamara_statement
+from .models import InstallmentRefundNotice, InstallmentStatementEntry
+from .tamara_email import MailEvidence, extract_tamara_refunds, extract_tamara_statement
 
 router = APIRouter(prefix="/api/v1/finance", tags=["finance"])
 
@@ -34,6 +34,8 @@ class TamaraEmailPreview(BaseModel):
     messages_checked: int
     messages_matched: int
     rows: list[InstallmentStatementEntry]
+    # Refund and order-updated emails: refund evidence, saved only when the owner approves the import.
+    refunds: list[InstallmentRefundNotice] = []
     warnings: list[str]
 
 
@@ -105,4 +107,5 @@ async def installment_email_preview(
     if len(messages) == limit:
         warnings.append("Mailbox scan reached its message limit; older receipts may be missing. Sync/import historical mail separately.")
     return TamaraEmailPreview(account_id=account.id, address=account.address,
-        messages_checked=len(messages), messages_matched=len(evidence), rows=rows, warnings=warnings[:80])
+        messages_checked=len(messages), messages_matched=len(evidence), rows=rows, refunds=extract_tamara_refunds(evidence),
+        warnings=warnings[:80])

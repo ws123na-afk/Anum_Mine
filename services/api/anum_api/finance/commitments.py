@@ -283,6 +283,43 @@ def plug_finance_links() -> None:
 
     K.register_target(BILL_DIMENSION, bill_target_exists, vet=vet_link)
     K.register_target(DEBT_DIMENSION, debt_target_exists, vet=vet_link)
+    # One own transfer (docs/finance.md#own-transfers): the money out links to the money in, once.
+    K.register_target(TRANSFER_DIMENSION, transfer_target_exists, single_payment=True, vet=vet_transfer)
+
+
+TRANSFER_DIMENSION = "transfer"
+TRANSFER_TARGET = "finance_transfer"
+
+
+def transfer_target_exists(context: TenantContext, target_type: str, target_id: str) -> bool:
+    """The money-in side of an own transfer: a live canonical transaction of the caller's own."""
+    from .links import live_entry
+    from .sms_store import open_sms_stores
+
+    if target_type != TRANSFER_TARGET:
+        return False
+    with open_sms_stores(context) as (_finance, store):
+        current = live_entry(store.chain(context, target_id))
+    return current is not None and any(p.account_id and p.amount > 0 for p in current.postings)
+
+
+def vet_transfer(context: TenantContext, request: Any, entry: Any) -> None:
+    """The money out of one account pays the money into another of the person's accounts, never itself."""
+    from .links import LinkError, live_entry
+    from .sms_store import open_sms_stores
+
+    if request.role != "payment":
+        raise LinkError(422, "Pair the money that went out with the money that came in.", "invalid_role")
+    if not any(p.account_id and p.amount < 0 for p in entry.postings):
+        raise LinkError(422, "Pair the money that went out with the money that came in.", "not_a_payment")
+    if request.target_id == request.canonical_id:
+        raise LinkError(422, "A transfer needs two different transactions.", "same_transaction")
+    with open_sms_stores(context) as (_finance, store):
+        other = live_entry(store.chain(context, request.target_id))
+    out_accounts = {p.account_id for p in entry.postings if p.account_id and p.amount < 0}
+    in_accounts = {p.account_id for p in other.postings if p.account_id and p.amount > 0} if other is not None else set()
+    if not in_accounts or in_accounts <= out_accounts:
+        raise LinkError(422, "A transfer moves money between two different accounts of yours.", "same_account")
 
 
 __all__ = [
@@ -302,4 +339,6 @@ __all__ = [
     "occurrences",
     "parse_bill_target",
     "plug_finance_links",
+    "transfer_target_exists",
+    "vet_transfer",
 ]

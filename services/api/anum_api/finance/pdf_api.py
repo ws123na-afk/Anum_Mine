@@ -33,7 +33,9 @@ from ..schemas import TenantContext, new_id, utc_now
 from ..vault.ocr_client import OcrUnavailable
 from . import csv_import
 from . import statement_pdf as pdf
-from .api import ImportView, _audit, _clean, _invalid, _manage, _own_account, _view, record_import
+from . import statement_import as SI
+from .api import ImportView, _audit, _clean, _invalid, _manage, _own_account, preview_matches, record_import
+from .statement_match import Line
 from .categories import categorize
 from .models import Category
 from .money import MoneyError, quantize
@@ -90,6 +92,9 @@ class PdfRow(BaseModel):
     # 0 to 1: the reading's certainty (OCR quality, how the sign was found, whether the balance agrees).
     confidence: float
     flags: list[str]
+    # The matching engine's answer (docs/finance.md#statement-matching); None for a row without a date or amount.
+    match: SI.RowMatchView | None = None
+    fx: SI.FxView | None = None
 
 
 class PdfSummaryCheck(BaseModel):
@@ -154,6 +159,7 @@ class PdfStatementView(BaseModel):
     skipped_lines: int
     warnings: list[str]
     rows: list[PdfRow]
+    counts: SI.MatchCounts
 
 
 def _roles(value: str | None) -> list[str] | None:
@@ -257,27 +263,39 @@ async def read_pdf_statement(
         [(posted, quantize(amount, found.currency), r.description) for r, posted, amount in dated if posted and amount is not None],
     )
 
-    def lookup() -> tuple[set[str], Any]:
-        with open_finance_store(context) as store:
-            return store.existing_hashes(context, found.id, hashes), settings_for(store, context).category_rules
+    readable = [(r, posted, quantize(amount, found.currency)) for r, posted, amount in dated if posted and amount is not None]
+    lines = [Line(key=position, posted_on=posted, amount=amount, description=r.description, dedupe_hash=digest, reference=r.reference,
+                  original_amount=abs(r.original_amount) if r.original_amount is not None else None, original_currency=r.original_currency)
+             for position, ((r, posted, amount), digest) in enumerate(zip(readable, hashes, strict=True))]
 
-    existing, rules = await asyncio.to_thread(lookup)
+    def lookup() -> tuple[list[Any], Any]:
+        # The matching engine runs in its own short unit of work, off the event loop.
+        matches = preview_matches(context, found, lines)
+        with open_finance_store(context) as store:
+            return matches, settings_for(store, context).category_rules
+
+    matches, rules = await asyncio.to_thread(lookup)
     views: list[PdfRow] = []
     index = 0
     duplicates = 0
     for row in statement.rows:
         duplicate = False
+        match = None
         if row.posted_on and row.amount is not None:
-            duplicate = hashes[index] in existing
+            match = matches[index]
+            duplicate = match.status == "exact_duplicate"
             index += 1
         duplicates += duplicate
-        category = categorize(row.description, row.amount or Decimal(0), rules)[0]
+        category = categorize(row.description, row.amount or Decimal(0), rules, found.kind)[0]
         views.append(PdfRow(
             line=row.line, page=row.page, posted_on=row.posted_on, description=row.description, amount=row.amount, debit=row.debit,
             credit=row.credit, balance=row.balance, reference=row.reference, currency=row.currency, original_amount=row.original_amount,
             original_currency=row.original_currency, fx_rate=row.fx_rate, fee=row.fee, vat=row.vat, kind=row.kind,
             time=row.time.isoformat() if row.time else None, counterparty=row.counterparty, parent_line=row.parent_line,
             category=category, duplicate=duplicate, confidence=row.confidence, flags=row.flags,
+            match=SI.match_view(match) if match is not None else None,
+            fx=SI.fx_view(row.description, row.amount, found.currency, original_amount=row.original_amount, original_currency=row.original_currency,
+                          rate=row.fx_rate, fee=row.fee) if row.amount is not None else None,
         ))
     check = statement.check
 
@@ -303,7 +321,7 @@ async def read_pdf_statement(
         kind=statement.kind, statement_date=statement.statement_date, due_date=statement.due_date,  # type: ignore[arg-type]
         skipped_pages=[PdfSkippedPage(page=p, reason=r) for p, r in statement.skipped_pages],  # type: ignore[arg-type]
         row_count=len(views), duplicate_count=duplicates, skipped_lines=statement.skipped_lines,
-        warnings=statement.warnings, rows=views,
+        warnings=statement.warnings, rows=views, counts=SI.counts(matches),
     )
 
 
@@ -324,6 +342,11 @@ class PdfImportRow(BaseModel):
     fee: Decimal | None = None
     vat: Decimal | None = None
     time: str | None = Field(default=None, pattern=r"^\d{2}:\d{2}(:\d{2})?$", description="The time the statement prints for the row")
+    # The person's choice on the preview's match (docs/finance.md#statement-matching); None follows the default.
+    action: Literal["import", "skip"] | None = None
+    bill: bool | None = None
+    transfer: bool | None = None
+    correct: bool | None = None
 
 
 class PdfStatedFact(BaseModel):
@@ -392,6 +415,7 @@ def import_pdf_statement(
     _manage(context)
     references: dict[str, str] = {}
     times: dict[str, datetime] = {}
+    checks: dict[str, Any] = {}
 
     def build(store: Any, account: Any) -> csv_import.ParsedFile:
         currency = account.currency
@@ -459,11 +483,16 @@ def import_pdf_statement(
                 status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
                 details=[ErrorDetail(type="pdf_balance_mismatch", message=str(check.difference) if check.difference is not None else "")],
             )
+        checks["reconciliation"] = SI.stored(SI.ReconciliationView(
+            status={"matched": "tied", "mismatch": "differs"}.get(check.status, "unknown"), opening=check.opening, closing=check.closing,  # type: ignore[arg-type]
+            rows_total=check.rows_total, expected_closing=check.expected_closing, difference=check.difference, opening_source=check.opening_source,
+            closing_source=check.closing_source, breaks=check.breaks[:50]))
         hashes = _occurrence_hashes(account.id, currency, [(posted, amount, description) for posted, amount, description, _, _, _, _, _, _, _ in items])
         tz = zone(settings_for(store, context).timezone)
         rows = []
         for number, ((posted, amount, description, _, reference, at, notes, original, original_currency, fee), digest) in enumerate(zip(items, hashes, strict=True), start=1):
-            rows.append(csv_import.ParsedRow(number, posted, amount, description, digest, notes, original, original_currency, fee))
+            rows.append(csv_import.ParsedRow(number, posted, amount, description, digest, notes, abs(original) if original is not None else None,
+                                             original_currency, abs(fee) if fee is not None else None))
             if at:
                 parts = [int(x) for x in at.split(":")] + [0]
                 times[digest] = datetime.combine(posted, dtime(parts[0] % 24, parts[1] % 60, parts[2] % 60), tzinfo=tz)
@@ -486,14 +515,15 @@ def import_pdf_statement(
             known = templates.list(context)
         if len(known) >= MAX_TEMPLATES and all(t.fingerprint != layout.fingerprint for t in known):
             raise _invalid(f"You have {MAX_TEMPLATES} saved statement layouts. Delete one you no longer use, then import again.")
-    record, added, breaks, reconciled = record_import(context, body.account_id, _filename(body.filename), build, references=references, times=times)
+    decisions = {number: row for number, row in enumerate(body.rows, start=1)}
+    record, added, breaks, outcome = record_import(context, body.account_id, _filename(body.filename), build, references=references, times=times,
+                                                   decisions=decisions, checks=checks)
     template_id = _remember(context, layout) if layout is not None else None
     _audit(repository, context, "finance.import.create", record.id, {
-        "format": record.preset, "imported": added, "duplicates": record.duplicate_count, "rule_breaks": breaks,
-        "reconciled": reconciled.attached, "review": reconciled.review, "accept_mismatch": body.accept_mismatch,
+        "format": record.preset, **outcome.audit(added, record.duplicate_count, breaks), "accept_mismatch": body.accept_mismatch,
         "template": template_id,
     })
-    return ImportView(**_view(record), rule_breaks=breaks, reconciled=reconciled.attached, held_for_review=reconciled.review)
+    return outcome.view(record, breaks)
 
 
 def _summary_failures(stated: list[PdfStatedFact], amounts: list[Decimal], opening: Decimal | None, currency: str) -> list[str]:
