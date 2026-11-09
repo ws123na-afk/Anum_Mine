@@ -162,8 +162,8 @@ def test_weak_and_ambiguous_matches_need_a_decision() -> None:
     sms = record("s", "-45.50", NOV, "EXAMPLE MARKET")
     out = M.match_lines([line(1, "-45.50", NOV, "CARD TXN 9912")], [sms])
     assert (out[0].status, out[0].code) == ("possible_duplicate", "amount_date_only") and not out[0].default_import
-    # A different merchant on the same day and amount is weak too, never attached.
-    assert M.match_lines([line(1, "-45.50", NOV, "OTHER SHOP")], [sms])[0].status == "possible_duplicate"
+    # A different merchant on the same day and amount is a second purchase: never attached, never held (I1).
+    assert M.match_lines([line(1, "-45.50", NOV, "OTHER SHOP")], [sms])[0].status == "new"
     # An agreeing bank reference is enough on its own; a conflicting one rules the record out.
     ref = record("r", "-45.50", NOV, "EXAMPLE MARKET", reference="88AB12")
     assert M.match_lines([line(1, "-45.50", NOV, "CARD TXN 9912", reference="88AB12")], [ref])[0].code == "same_reference"

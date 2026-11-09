@@ -28,7 +28,8 @@ function statement(roles = ['date', 'description', 'debit', 'credit', 'balance']
     check: { status: swapped ? 'mismatch' : 'matched', opening: '2000.00', closing: '13549.50', rows_total: '11549.50', expected_closing: '13549.50', difference: '0.00', opening_source: 'statement', closing_source: 'statement', breaks: [], page_breaks: [],
       summary: [{ name: 'withdrawals_count', stated: '32', found: '32', ok: true }] },
     fingerprint: 'f'.repeat(32), template_id: null, confidence: 1, kind: 'account', statement_date: null, due_date: null, skipped_pages: [{ page: 3, reason: 'not_transactions' }],
-    row_count: rows.length, duplicate_count: 1, skipped_lines: 4, warnings: [], rows,
+    row_count: rows.length, duplicate_count: 1, skipped_lines: 4, warnings: ['rows_left_out'], rows,
+    dropped_rows: [{ page: 3, reason: 'outside_period', text: 'SAMPLE EXAMPLE ROW', posted_on: '2019-01-08', amount: '-41.20' }],
   };
 }
 
@@ -98,6 +99,11 @@ test('a protected PDF is opened with its password, reviewed, fixed and imported;
   await expect(review).toContainText('33 found, 1 already imported');
   await expect(review.getByText(/The rows add up/)).toBeVisible();
   await expect(review.getByText('Page 3 skipped: not transactions (bank examples or terms).')).toBeVisible();
+  // A row the reader left out is listed with its reason, never dropped silently.
+  const dropped = review.getByText('1 row or line left out by the reader');
+  await expect(dropped).toBeVisible();
+  await dropped.click();
+  await expect(review.getByRole('listitem').filter({ hasText: 'SAMPLE EXAMPLE ROW' })).toContainText('Dated outside the statement period');
   await expect(review.getByText('Number of withdrawals: the statement says 32, the rows give 32.')).toBeVisible();
   // The password went in a header, never the URL.
   const last = reads.at(-1)!;
@@ -126,9 +132,10 @@ test('a protected PDF is opened with its password, reviewed, fixed and imported;
   await review.getByLabel('The rows do not add up and I want to import them anyway').check();
   await review.getByRole('button', { name: 'Import 31 rows' }).click();
   await expect(page.getByText(/Imported 31 rows; 2 were already there/)).toBeVisible();
-  const sent = imports[0] as { rows: { description: string }[]; accept_mismatch: boolean; file_sha256: string; opening_balance: string };
-  expect(sent.rows).toHaveLength(32);
-  expect(sent.rows.some((r) => r.description === 'DEWA BILL')).toBe(false);
+  const sent = imports[0] as { rows: { description: string; include?: boolean; action?: string }[]; accept_mismatch: boolean; file_sha256: string; opening_balance: string };
+  // The unticked row travels marked left out (include: false), so identical rows keep their places; it is never imported.
+  expect(sent.rows.filter((r) => r.include !== false)).toHaveLength(32);
+  expect(sent.rows.filter((r) => r.description === 'DEWA BILL').map((r) => [r.include, r.action])).toEqual([[false, 'skip']]);
   expect(sent.accept_mismatch).toBe(true);
   expect(sent.opening_balance).toBe('2000.00');
   await expect(review).toHaveCount(0);

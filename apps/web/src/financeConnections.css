@@ -130,3 +130,13 @@
 /* relative: the hidden "Actions" header label (visuallyHidden is absolute) stays inside the table's
    scroller instead of widening the page, which on phones pushed the KPI row over the import list. */
 .fconn .cmTableWrap { position: relative; }
+.fconnRowActions { display: inline-flex; flex-wrap: wrap; gap: var(--d-s2); }
+.fimpRows { inline-size: min(64rem, calc(100vw - 2 * var(--d-s4))); }
+.fimpRowsHeld { display: flex; flex-wrap: wrap; align-items: center; gap: var(--d-s2); }
+.fimpRowsHeld p { margin: 0; flex: 1 1 16rem; }
+.fimpRowList li { align-items: flex-start; }
+.fimpRowWhat { display: grid; justify-items: end; text-align: end; max-inline-size: 45%; }
+@media (max-width: 760px) {
+  .fimpRowList li { flex-direction: column; }
+  .fimpRowWhat { justify-items: start; text-align: start; max-inline-size: none; }
+}

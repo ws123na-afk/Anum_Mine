@@ -109,6 +109,16 @@ class PdfSkippedPage(BaseModel):
     reason: Literal["not_transactions", "no_text"]
 
 
+class PdfDroppedRow(BaseModel):
+    """A row or line the reader left out, and why (docs/finance-statements.md#rows-left-out): shown, never silent."""
+
+    page: int
+    reason: Literal["outside_period", "unattached_line"]
+    text: str
+    posted_on: date | None
+    amount: Decimal | None
+
+
 class PdfCheck(BaseModel):
     status: Literal["matched", "mismatch", "unknown"]
     opening: Decimal | None
@@ -160,6 +170,8 @@ class PdfStatementView(BaseModel):
     warnings: list[str]
     rows: list[PdfRow]
     counts: SI.MatchCounts
+    # Rows dated outside the statement's period and lines no row could take: left out of the rows, listed here.
+    dropped_rows: list[PdfDroppedRow] = []
 
 
 def _roles(value: str | None) -> list[str] | None:
@@ -258,9 +270,11 @@ async def read_pdf_statement(
         raise _refuse(exc) from None
 
     dated = [(r, r.posted_on, r.amount) for r in statement.rows]
+    # The import hashes the same rows (unticked ones too) with the same cleaned text, so a row keeps its occurrence number.
     hashes = _occurrence_hashes(
         found.id, found.currency,
-        [(posted, quantize(amount, found.currency), r.description) for r, posted, amount in dated if posted and amount is not None],
+        [(posted, quantize(amount, found.currency), pdf.mask_numbers(csv_import.clean_text(r.description))) for r, posted, amount in dated
+         if posted and amount is not None],
     )
 
     readable = [(r, posted, quantize(amount, found.currency)) for r, posted, amount in dated if posted and amount is not None]
@@ -322,6 +336,8 @@ async def read_pdf_statement(
         skipped_pages=[PdfSkippedPage(page=p, reason=r) for p, r in statement.skipped_pages],  # type: ignore[arg-type]
         row_count=len(views), duplicate_count=duplicates, skipped_lines=statement.skipped_lines,
         warnings=statement.warnings, rows=views, counts=SI.counts(matches),
+        dropped_rows=[PdfDroppedRow(page=d.page, reason=d.reason, text=d.text, posted_on=d.posted_on, amount=d.amount)  # type: ignore[arg-type]
+                      for d in statement.dropped],
     )
 
 
@@ -344,6 +360,9 @@ class PdfImportRow(BaseModel):
     time: str | None = Field(default=None, pattern=r"^\d{2}:\d{2}(:\d{2})?$", description="The time the statement prints for the row")
     # The person's choice on the preview's match (docs/finance.md#statement-matching); None follows the default.
     action: Literal["import", "skip"] | None = None
+    # False: the person unticked the row. It is still sent, so every row keeps the occurrence number it had in the
+    # preview (two identical rows stay two), but it is left out of the balance check and never imported.
+    include: bool = True
     bill: bool | None = None
     transfer: bool | None = None
     correct: bool | None = None
@@ -382,6 +401,18 @@ class PdfLayout(BaseModel):
         return [csv_import.clean_text(label, 60) for label in labels]
 
 
+class PdfDroppedInput(BaseModel):
+    """A row the reader left out, sent back from the preview so the import lists it (never imported)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    page: int = Field(ge=1, le=1000)
+    reason: Literal["outside_period", "unattached_line"]
+    text: str = Field(default="", max_length=500)
+    posted_on: date | None = None
+    amount: Decimal | None = None
+
+
 class PdfImportInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -395,6 +426,7 @@ class PdfImportInput(BaseModel):
     accept_mismatch: bool = Field(default=False, description="Import even though the rows do not add up or disagree with the statement's summary")
     layout: PdfLayout | None = None
     summary: list[PdfStatedFact] = Field(default_factory=list, max_length=8, description="The statement's printed counts and totals, from the read")
+    dropped: list[PdfDroppedInput] = Field(default_factory=list, max_length=500, description="The rows the reader left out, from the read")
 
     @field_validator("rows")
     @classmethod
@@ -422,6 +454,14 @@ def import_pdf_statement(
         items = []
         for number, row in enumerate(body.rows, start=1):
             description = pdf.mask_numbers(csv_import.clean_text(row.description))
+            if not row.include:
+                # Left out by the person: kept only for its place among identical rows, never checked or imported.
+                try:
+                    amount = quantize(row.billed_amount if row.billed_amount is not None else row.amount, currency)
+                except MoneyError:
+                    amount = row.amount
+                items.append((row.posted_on, amount, description or "-", None, None, None, None, None, None, None))
+                continue
             if not description:
                 raise _invalid(f"Row {number}: the description is empty.")
             try:
@@ -467,8 +507,9 @@ def import_pdf_statement(
             closing = quantize(body.closing_balance, currency) if body.closing_balance is not None else None
         except MoneyError as exc:
             raise _invalid(str(exc)) from None
-        check = pdf.verify([(i, amount, balance) for i, (_, amount, _, balance, _, _, _, _, _, _) in enumerate(items, start=1)], opening, closing)
-        failed = _summary_failures(body.summary, [amount for _, amount, _, _, _, _, _, _, _, _ in items], opening, currency)
+        counted = [(i, item) for i, item in enumerate(items, start=1) if body.rows[i - 1].include]
+        check = pdf.verify([(i, item[1], item[3]) for i, item in counted], opening, closing)
+        failed = _summary_failures(body.summary, [item[1] for _, item in counted], opening, currency)
         if failed and not body.accept_mismatch:
             raise ApplicationError(
                 ErrorCode.VALIDATION_ERROR,
@@ -515,15 +556,25 @@ def import_pdf_statement(
             known = templates.list(context)
         if len(known) >= MAX_TEMPLATES and all(t.fingerprint != layout.fingerprint for t in known):
             raise _invalid(f"You have {MAX_TEMPLATES} saved statement layouts. Delete one you no longer use, then import again.")
-    decisions = {number: row for number, row in enumerate(body.rows, start=1)}
+    decisions = {number: (row if row.include else _LeftOut()) for number, row in enumerate(body.rows, start=1)}
+    dropped = [{"posted_on": d.posted_on.isoformat() if d.posted_on else None, "amount": str(d.amount) if d.amount is not None else None,
+                "description": pdf.mask_numbers(csv_import.clean_text(d.text))[:200], "reason": d.reason, "message": f"page {d.page}"}
+               for d in body.dropped]
     record, added, breaks, outcome = record_import(context, body.account_id, _filename(body.filename), build, references=references, times=times,
-                                                   decisions=decisions, checks=checks)
+                                                   decisions=decisions, checks=checks, dropped=dropped)
     template_id = _remember(context, layout) if layout is not None else None
     _audit(repository, context, "finance.import.create", record.id, {
         "format": record.preset, **outcome.audit(added, record.duplicate_count, breaks), "accept_mismatch": body.accept_mismatch,
         "template": template_id,
     })
     return outcome.view(record, breaks)
+
+
+class _LeftOut:
+    """The decision for an unticked row: left out (``skip``), nothing else."""
+
+    action = "skip"
+    bill = transfer = correct = None
 
 
 def _summary_failures(stated: list[PdfStatedFact], amounts: list[Decimal], opening: Decimal | None, currency: str) -> list[str]:

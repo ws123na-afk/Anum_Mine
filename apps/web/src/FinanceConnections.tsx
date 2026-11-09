@@ -38,6 +38,7 @@ import './financeSms.css';
 import './financeConnections.css';
 
 const IphoneIntegrations = lazy(() => import('./IphoneIntegrations').then((m) => ({ default: m.IphoneIntegrations })));
+const ImportRows = lazy(() => import('./FinanceImportRows').then((m) => ({ default: m.ImportRows })));
 
 const ACCOUNTS_PAGE = 6;
 const IMPORTS_PAGE = 20;
@@ -432,6 +433,7 @@ function ImportHistory({ accounts, onOpen, onChanged }: { accounts: FinanceAccou
   const [offset, setOffset] = useState(0);
   const [page, reload] = useLoad(useCallback(() => listImports(IMPORTS_PAGE, offset), [offset]));
   const [undoing, setUndoing] = useState<FinanceImport | null>(null);
+  const [rowsOf, setRowsOf] = useState<FinanceImport | null>(null);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<{ text: string; error?: boolean } | null>(null);
   const names = Object.fromEntries(accounts.map((a) => [a.id, a.name]));
@@ -456,7 +458,8 @@ function ImportHistory({ accounts, onOpen, onChanged }: { accounts: FinanceAccou
         <div className="cmTableWrap" tabIndex={0}><table className="cmTable fconnTable">
           <thead><tr><th scope="col">{t('fconn.imports.file')}</th><th scope="col">{t('fconn.imports.format')}</th><th scope="col">{t('fconn.imports.account')}</th>
             <th scope="col">{t('fconn.imports.when')}</th><th scope="col" className="num">{t('fconn.imports.added')}</th><th scope="col" className="num">{t('fconn.imports.duplicates')}</th>
-            <th scope="col" className="num">{t('fconn.imports.reconciled')}</th><th scope="col" className="num">{t('fconn.imports.review')}</th><th scope="col"><span className="visuallyHidden">{t('fconn.imports.actions')}</span></th></tr></thead>
+            <th scope="col" className="num">{t('fconn.imports.reconciled')}</th><th scope="col" className="num">{t('fconn.imports.review')}</th>
+            <th scope="col" className="num">{t('fconn.imports.notInLedger')}</th><th scope="col"><span className="visuallyHidden">{t('fconn.imports.actions')}</span></th></tr></thead>
           <tbody>{page.value.items.map((i) => <tr key={i.id}>
             <td><strong dir="auto">{i.filename}</strong>{i.error_count > 0 && <small className="finLoosens">{t('fconn.imports.errors', { count: i.error_count })}</small>}</td>
             <td><StatusChip tone={i.preset.startsWith('pdf') ? 'info' : 'muted'}>{importFormat(i.preset)}</StatusChip></td>
@@ -466,7 +469,10 @@ function ImportHistory({ accounts, onOpen, onChanged }: { accounts: FinanceAccou
             <td className="num" dir="ltr">{i.duplicate_count}</td>
             <td className="num" dir="ltr">{i.reconciled ?? 0}</td>
             <td className="num" dir="ltr">{i.held_for_review ?? 0}</td>
-            <td><button type="button" className="secondary" onClick={() => setUndoing(i)} aria-label={t('fconn.imports.undoFor', { file: i.filename })}><Trash2 aria-hidden="true" />{t('fconn.imports.undo')}</button></td>
+            <td className="num" dir="ltr">{(i.not_in_ledger ?? 0) > 0 ? <strong className="finLoosens">{i.not_in_ledger}</strong> : 0}</td>
+            <td><span className="fconnRowActions">
+              <button type="button" className="secondary" onClick={() => setRowsOf(i)} aria-label={t('fconn.imports.rowsFor', { file: i.filename })}><ScrollText aria-hidden="true" />{t('fconn.imports.rows')}</button>
+              <button type="button" className="secondary" onClick={() => setUndoing(i)} aria-label={t('fconn.imports.undoFor', { file: i.filename })}><Trash2 aria-hidden="true" />{t('fconn.imports.undo')}</button></span></td>
           </tr>)}</tbody></table></div>
         <div className="cmPager"><button type="button" className="secondary" disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - IMPORTS_PAGE))}>{t('fsms.prev')}</button>
           <span className="muted cmPagerText">{t('fsms.range', { from: offset + 1, to: Math.min(offset + IMPORTS_PAGE, page.value.total), total: page.value.total })}</span>
@@ -474,6 +480,9 @@ function ImportHistory({ accounts, onOpen, onChanged }: { accounts: FinanceAccou
       </>)}
     {undoing && <ConfirmDialog title={t('fconn.imports.undoTitle')} confirmLabel={t('fconn.imports.undo')} danger busy={busy} onConfirm={() => void undo()} onCancel={() => setUndoing(null)}>
       <p dir="auto">{t('fconn.imports.undoText', { file: undoing.filename, count: undoing.imported_count })}</p></ConfirmDialog>}
+    {rowsOf && <Suspense fallback={<Notice busy>{t('fconn.loading')}</Notice>}>
+      <ImportRows item={rowsOf} currency={accounts.find((a) => a.id === rowsOf.account_id)?.currency ?? 'SAR'} onClose={() => setRowsOf(null)}
+        onOpenReview={() => { setRowsOf(null); onOpen('sms'); }} /></Suspense>}
   </section>;
 }
 

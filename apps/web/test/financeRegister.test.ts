@@ -88,3 +88,34 @@ describe('catalogs', () => {
     assert.equal(Object.keys(financeRegisterAr).length, Object.keys(financeRegisterEn).length);
   });
 });
+
+describe('the transactions month (audit I11)', async () => {
+  const { hashWithMonth, latestMonthHint, monthFromHash, monthIn } = await import('../src/lib/financeRegister.ts');
+  const { tabFromHash } = await import('../src/lib/finance.ts');
+
+  test('the current month is the Finance time zone\'s, not UTC', () => {
+    const lateEvening = new Date('2026-10-31T21:30:00Z'); // 1 November, 01:30 in Dubai
+    assert.equal(monthIn('Asia/Dubai', lateEvening), '2026-11');
+    assert.equal(monthIn('UTC', lateEvening), '2026-10');
+    assert.equal(monthIn('Not/AZone', lateEvening), '2026-10');
+    assert.equal(monthIn(null, lateEvening), '2026-10');
+  });
+
+  test('the period is kept in the URL and the tab still reads', () => {
+    assert.equal(monthFromHash('#finance-transactions?month=2026-10'), '2026-10');
+    assert.equal(monthFromHash('#finance-transactions?month=all'), '');
+    assert.equal(monthFromHash('#finance-transactions?month=2026-13'), null);
+    assert.equal(monthFromHash('#finance-transactions'), null);
+    assert.equal(hashWithMonth('#finance-transactions', '2026-09'), '#finance-transactions?month=2026-09');
+    assert.equal(hashWithMonth('#finance-transactions?month=2026-09', ''), '#finance-transactions?month=all');
+    assert.equal(tabFromHash('#finance-transactions?month=2026-10'), 'transactions');
+  });
+
+  test('an empty month points at the month of the newest records', () => {
+    assert.equal(latestMonthHint('2026-11', 0, '2026-10-28'), '2026-10');
+    assert.equal(latestMonthHint('2026-11', 3, '2026-10-28'), null);
+    assert.equal(latestMonthHint('2026-11', 0, '2026-11-02'), null);
+    assert.equal(latestMonthHint('2026-11', 0, null), null);
+    assert.equal(latestMonthHint('', 0, '2026-10-28'), null);
+  });
+});

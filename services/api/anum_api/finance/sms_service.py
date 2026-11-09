@@ -85,7 +85,6 @@ SAFE_ID = re.compile(r"^[A-Za-z0-9_-]{1,80}$")
 PER_MINUTE = 30  # messages a device may send per minute
 PER_DAY = 1_000
 DUPLICATE_WINDOW = timedelta(minutes=10)  # same moment, when both messages give the time
-DUPLICATE_DAYS = 2  # otherwise posted within this many days of each other
 REFUND_LOOKBACK_DAYS = 120
 INGEST_PATH = "/api/v1/finance/sms/ingest"
 TEST_SENDER = "anumtest"
@@ -308,21 +307,6 @@ def _key_account(kind: P.Kind, resolved: Resolved) -> str:
         return "|".join(sorted(a.id for a in (resolved.account, resolved.counter) if a is not None)) or "-"
     target = resolved.account or resolved.counter
     return target.id if target is not None else "-"
-
-
-def find_duplicate(store: SmsStore, context: TenantContext, fp: str, when: datetime, has_time: bool, reference: str | None) -> JournalEntry | None:
-    for entry in store.entries_with_fingerprint(context, fp):
-        if entry.status != EntryStatus.POSTED:
-            continue
-        if reference and entry.reference and reference != entry.reference:
-            continue
-        if has_time and entry.occurred_at is not None and abs(entry.occurred_at - when) <= DUPLICATE_WINDOW:
-            return entry
-        if abs((entry.posted_on - when.date()).days) <= DUPLICATE_DAYS and (not has_time or entry.occurred_at is None or reference):
-            return entry
-        if reference and entry.reference == reference:
-            return entry
-    return None
 
 
 def _description(kind: P.Kind, merchant: str | None) -> str:
@@ -569,9 +553,12 @@ def _when(parsed: P.Parsed, received: datetime, tz_name: str) -> tuple[datetime,
     return P.occurred(parsed, local), parsed.occurred_at_time is not None or parsed.occurred_on is None
 
 
-def candidates(store: SmsStore, context: TenantContext, fp: str) -> list[W.Candidate]:
-    """The posted entries a new report could be another source of (same direction, amount, currency, account)."""
-    entries = [e for e in store.entries_with_fingerprint(context, fp) if e.status == EntryStatus.POSTED]
+def candidates(store: SmsStore, context: TenantContext, fp: str, around: date | None = None) -> list[W.Candidate]:
+    """The posted entries a new report could be another source of (same direction, amount, currency, account), posted
+    within the matching window of ``around`` (every one of them, in a fixed order)."""
+    span = timedelta(days=W.LOOSE_DAYS + 1)
+    window = {"start": around - span, "end": around + span} if around is not None else {}
+    entries = [e for e in store.entries_with_fingerprint(context, fp, **window) if e.status == EntryStatus.POSTED]
     sources = store.entry_sources(context, [e.id for e in entries])
     out = []
     for e in entries:
@@ -586,7 +573,7 @@ def candidates(store: SmsStore, context: TenantContext, fp: str) -> list[W.Candi
 def match(store: SmsStore, context: TenantContext, fp: str, report: W.Report) -> tuple[str, JournalEntry | None]:
     """``("new", None)``, ``("same_source", entry)`` (a copy of a message already recorded), ``("attach", entry)``
     (the other source of a recorded payment) or ``("ambiguous", None)``. The caller holds the owner's lock."""
-    found = candidates(store, context, fp)
+    found = candidates(store, context, fp, report.when.date())
     decision, picked = W.choose(report, found)
     if decision != "attach" or picked is None:
         return decision, None

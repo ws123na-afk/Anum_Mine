@@ -89,6 +89,14 @@ PRESETS: dict[str, Preset] = {
                debit=("withdrawal", "withdrawals"), credit=("deposit", "deposits")),
         Preset("dib", "Dubai Islamic Bank", ("date", "transaction date"), ("narrative", "description"),
                debit=("debit",), credit=("credit",)),
+        # Written from public, documented conventions of Saudi bank exports (Arabic and English column names, day first
+        # dates, a Hijri date beside the Gregorian one, SAR). Not verified against any one bank's file: unverified until
+        # the owner confirms an import (docs/finance-statements.md#saudi-bank-profile).
+        Preset("saudi_generic", "Saudi bank (unverified)",
+               ("التاريخ", "التاريخ الميلادي", "تاريخ العملية", "date", "transaction date", "gregorian date"),
+               ("الوصف", "البيان", "التفاصيل", "تفاصيل العملية", "description", "details", "narrative"),
+               amount=("المبلغ", "amount"),
+               debit=("مدين", "المدين", "سحب", "debit", "withdrawal"), credit=("دائن", "الدائن", "إيداع", "ايداع", "credit", "deposit")),
         Preset("generic", "Generic (date, description, amount)",
                ("date", "transaction date", "posting date", "posted date", "value date", "booking date", "التاريخ"),
                ("description", "details", "narration", "narrative", "memo", "payee", "merchant", "transaction details",
@@ -99,13 +107,14 @@ PRESETS: dict[str, Preset] = {
     )
 }
 # Tried in this order; a bank preset counts only when its distinctive columns are all there.
-_DETECT_ORDER = ("adcb", "mashreq", "fab", "dib", "emirates_nbd")
+_DETECT_ORDER = ("adcb", "mashreq", "fab", "dib", "emirates_nbd", "saudi_generic")
 _DISTINCTIVE = {
     "emirates_nbd": ("narration",),
     "fab": ("value date", "transaction details"),
     "adcb": ("posting date", "debit amount"),
     "mashreq": ("withdrawal", "deposit"),
     "dib": ("narrative",),
+    "saudi_generic": ("مدين", "دائن"),
 }
 
 

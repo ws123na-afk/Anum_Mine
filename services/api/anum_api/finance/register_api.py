@@ -28,6 +28,7 @@ from .api import TransactionView, _filter, _read, _txn_view
 from .categories import classify_text
 from .ledger import EntrySource, EntryStatus, JournalEntry
 from .links_store import open_link_stores
+from .merchant_match import SAME_PAYMENT_DAYS, merchants_agree
 from .models import Account, AccountKind, Category, CategorySource, Transaction, TransactionType, TypeSource
 from .money import quantize
 from .sms_service import settings_for as sms_settings_for
@@ -39,7 +40,7 @@ router = APIRouter(prefix="/api/v1/finance", tags=["finance"])
 
 # The register reads at most this many matching rows (the CSV export's cap); beyond it the answer says so.
 SCAN_LIMIT = 10_000
-DUPLICATE_DAYS = 2  # the ledger's own window for "the same payment" when no time is known
+DUPLICATE_DAYS = SAME_PAYMENT_DAYS  # the ledger's window for "the same payment" when no time is known (one constant with the statement engine)
 MAX_LINKS = 50_000
 
 Origin = Literal["sms", "apple_pay", "statement", "manual"]
@@ -134,13 +135,9 @@ def _active_entries(entries: list[JournalEntry]) -> dict[str, JournalEntry]:
     return out
 
 
-def _words(text: str) -> set[str]:
-    return {w for w in "".join(c.lower() if c.isalnum() else " " for c in text).split() if len(w) >= 3 and not w.isdigit()}
-
-
 def _duplicates(rows: list[Transaction], canon: dict[str, str | None]) -> dict[str, str]:
     """A row that looks like another record of the same payment: the same account, amount and currency within
-    two days, descriptions sharing a word, and not already the same canonical transaction. The older row is the
+    ``SAME_PAYMENT_DAYS``, descriptions sharing a meaningful merchant word (``merchant_match``), and not already the same canonical transaction. The older row is the
     original; the newer one is the candidate. A signal for the person, never acted on."""
     by_key: dict[tuple[str, Decimal, str], list[Transaction]] = defaultdict(list)
     for row in rows:
@@ -157,7 +154,7 @@ def _duplicates(rows: list[Transaction], canon: dict[str, str | None]) -> dict[s
                 if (newer.posted_on - older.posted_on).days > DUPLICATE_DAYS:
                     continue
                 same_canon = canon.get(newer.id) is not None and canon.get(newer.id) == canon.get(older.id)
-                if same_canon or not (_words(newer.description) & _words(older.description)):
+                if same_canon or merchants_agree(newer.description, older.description) is not True:
                     continue
                 if newer.import_id is not None and newer.import_id == older.import_id:
                     continue  # one statement listing two identical purchases keeps both (docs/finance.md#csv-import)
@@ -404,6 +401,9 @@ class StatementCheck(BaseModel):
     status: Literal["tied", "differs", "unknown"]
     closing: Decimal | None
     difference: Decimal | None
+    # Statement rows the ledger does not hold (held for review or left out). "tied" with rows not in the ledger means the
+    # statement balances but does not reconcile the account; the import lists them (GET /imports/{id}?disposition=not_in_ledger).
+    not_in_ledger: int = 0
 
 
 class AccountOverview(BaseModel):
@@ -418,7 +418,7 @@ class AccountOverview(BaseModel):
     last_reconciled_at: datetime | None
     imported: int
     matched: int
-    needs_attention: list[Literal["balance_differs", "links_need_review", "possible_duplicates", "statement_differs"]]
+    needs_attention: list[Literal["balance_differs", "links_need_review", "possible_duplicates", "statement_differs", "statement_rows_missing"]]
     payment_due: PaymentDue | None
     last_statement: StatementCheck | None = None
 
@@ -429,6 +429,13 @@ class AccountsOverview(BaseModel):
     last_reconciled_at: datetime | None
     base_currency: str
     ledger_kind: Literal["personal", "business"]
+
+
+def _not_in_ledger(check: dict[str, Any]) -> int:
+    try:
+        return max(0, int(check.get("not_in_ledger") or 0))
+    except (TypeError, ValueError):
+        return 0
 
 
 @router.get("/accounts/overview", response_model=AccountsOverview)
@@ -473,8 +480,9 @@ def accounts_overview(context: TenantContext = Depends(tenant_context)) -> Accou
             current = last_check.get(record.account_id)
             if current is None or (record.created_at, record.id) > (current.created_at, current.id):
                 last_check[record.account_id] = record
-            if check.get("status") == "tied":
-                # A statement whose rows add up from its opening to its closing balance reconciles the account.
+            if check.get("status") == "tied" and _not_in_ledger(check) == 0:
+                # A statement whose rows add up from its opening to its closing balance, and every one of whose rows is in
+                # the ledger (imported or attached), reconciles the account.
                 item = per[record.account_id]
                 item["reconciled"] = max(item["reconciled"] or record.created_at, record.created_at)
     out: list[AccountOverview] = []
@@ -505,9 +513,12 @@ def accounts_overview(context: TenantContext = Depends(tenant_context)) -> Accou
             data = checked.reconciliation or {}
             statement = StatementCheck(import_id=checked.id, filename=checked.filename, imported_at=checked.created_at, status=data["status"],
                                        closing=Decimal(data["closing"]) if data.get("closing") else None,
-                                       difference=Decimal(data["difference"]) if data.get("difference") else None)
+                                       difference=Decimal(data["difference"]) if data.get("difference") else None,
+                                       not_in_ledger=_not_in_ledger(data))
             if statement.status == "differs":
                 attention.append("statement_differs")
+            elif statement.not_in_ledger:
+                attention.append("statement_rows_missing")
         due = next((b for b in bills if bill_accounts.get(b.id) == account.id), None) if account.kind == AccountKind.CARD else None
         reconciled = item["reconciled"]
         out.append(AccountOverview(

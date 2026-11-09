@@ -38,6 +38,10 @@ _LABELS: dict[str, tuple[str, ...]] = {
     "withdrawals_total": ("total withdrawals", "total debits", "إجمالي السحوبات", "اجمالي السحوبات"),
 }
 CARD_WORDS = re.compile(r"credit card|card statement|بطاقة ائتمان|البطاقة الائتمانية|االئتمانية|الائتمانية", re.IGNORECASE)
+# A line about paying a card ("سداد بطاقة ائتمانية", "credit card payment") names a card without being a card statement.
+_CARD_NAME = re.compile(r"card|بطاقة|البطاقة", re.IGNORECASE)
+_ACCOUNT_NAME = re.compile(r"account|\ba/c\b|iban|حساب|الآيبان|ايبان", re.IGNORECASE)
+_CARD_PAYMENT = re.compile(r"payment|repayment|transfer|سداد|دفعة|تحويل|حوالة", re.IGNORECASE)
 MASKED_CARD = re.compile(r"(?<![\w*])(?:\d{4,6})?[Xx*•]{4,12}(\d{4})(\d{0,2})(?!\w)")
 _INTEGER = re.compile(r"^\d{1,6}$")
 
@@ -116,6 +120,21 @@ def _key(label: str) -> str | None:
     return best[1] if best else None
 
 
+def is_card_statement(header_lines: list[str], info: Facts, card_bands: list[str], *, has_balance: bool) -> bool:
+    """A credit card statement, told from its header and facts, never from a transaction's description: a title or
+    header line that names a credit card (and is not about paying one), a minimum payment or an amount due without a
+    closing balance, or a masked number band that names a card (not an account) over a table with no running balance. A current account
+    whose rows say "سداد بطاقة ائتمانية" stays a current account and keeps its balance check."""
+    if any(CARD_WORDS.search(text) and not _CARD_PAYMENT.search(text) for text in header_lines):
+        return True
+    if "minimum_due" in info.values:
+        return True
+    if "total_due" in info.values and "closing" not in info.values:
+        return True
+    # A masked number band counts only when it names a card (an account number masked the same way does not).
+    return not has_balance and any(_CARD_NAME.search(text) and not _ACCOUNT_NAME.search(text) for text in card_bands)
+
+
 def masked_card(text: str) -> str | None:
     """The last four digits of a masked card number ("XXXXXXXXXX469525" or "484783******8747")."""
     found = MASKED_CARD.search(text.replace(" ", ""))
@@ -153,4 +172,4 @@ def detail(description: str) -> Detail:
     return Detail(found.group("kind").strip() or None, at, party[:80] or None)
 
 
-__all__ = ["CARD_WORDS", "MASKED_CARD", "Detail", "Facts", "detail", "facts", "masked_card"]
+__all__ = ["CARD_WORDS", "MASKED_CARD", "Detail", "Facts", "detail", "facts", "is_card_statement", "masked_card"]

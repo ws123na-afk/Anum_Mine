@@ -261,7 +261,33 @@ export interface FinanceImport {
   bills_paid?: number;
   bills_review?: number;
   transfers?: number;
-  reconciliation?: { status: 'tied' | 'differs' | 'unknown'; opening: string | null; closing: string | null; rows_total: string | null; difference: string | null } | null;
+  reconciliation?: { status: 'tied' | 'differs' | 'unknown'; opening: string | null; closing: string | null; rows_total: string | null; difference: string | null; not_in_ledger?: string | null } | null;
+  /** Rows the reader could not use (unreadable, outside the statement period): listed on the import. */
+  dropped?: number;
+  /** Statement rows the ledger does not hold (held for review or left out by the person). */
+  not_in_ledger?: number;
+}
+
+export type FinanceRowDispositionKind = 'imported' | 'held_for_review' | 'attached_to_existing' | 'duplicate_skipped' | 'unticked' | 'dropped_by_reader';
+
+/** What an import did with one statement row (`GET /imports/{id}`). */
+export interface FinanceRowDisposition {
+  line: number;
+  posted_on: string | null;
+  amount: string | null;
+  description: string;
+  disposition: FinanceRowDispositionKind;
+  reason: string | null;
+  message: string | null;
+  /** The transaction or record the row was imported as, attached to, or duplicates. */
+  record_id: string | null;
+}
+
+export interface FinanceImportDetail extends FinanceImport {
+  rows: FinanceRowDisposition[];
+  rows_total: number;
+  limit: number;
+  offset: number;
 }
 
 /** Own transfers already in the ledger, not yet paired (`GET /transfers/candidates`). */
@@ -337,6 +363,16 @@ export interface FinancePdfCheck {
   summary: { name: 'deposits_count' | 'withdrawals_count' | 'deposits_total' | 'withdrawals_total' | 'total_due'; stated: string; found: string; ok: boolean }[];
 }
 
+/** A row or line the reader left out, and why: shown in the review, never dropped silently. */
+export interface FinancePdfDroppedRow {
+  page: number;
+  /** `outside_period`: a dated row outside the statement's period. `unattached_line`: a line no row could take. */
+  reason: 'outside_period' | 'unattached_line';
+  text: string;
+  posted_on: string | null;
+  amount: string | null;
+}
+
 /** What `POST /imports/pdf/read` found. Nothing is saved until the reviewed rows are imported. */
 export interface FinancePdfStatement {
   account_id: string;
@@ -372,10 +408,12 @@ export interface FinancePdfStatement {
   row_count: number;
   duplicate_count: number;
   skipped_lines: number;
-  /** `currency_differs`, `no_rows`, `page_breaks`, `summary_differs`, `low_confidence`, `debit_credit_swapped`, `columns_from_content`. */
+  /** `currency_differs`, `no_rows`, `page_breaks`, `summary_differs`, `low_confidence`, `debit_credit_swapped`, `columns_from_content`, `rows_left_out`. */
   warnings: string[];
   rows: FinancePdfRow[];
   counts: FinanceMatchCounts;
+  /** Rows outside the statement's period and lines no row could take: listed, not imported. */
+  dropped_rows: FinancePdfDroppedRow[];
 }
 
 export interface FinancePdfImportRow {
@@ -397,6 +435,8 @@ export interface FinancePdfImportRow {
   bill?: boolean | null;
   transfer?: boolean | null;
   correct?: boolean | null;
+  /** False: unticked. Still sent so identical rows keep their place; never checked or imported. */
+  include?: boolean;
 }
 
 /** A statement layout taught by the owner (Finance, Import): the mapping kept against the layout's fingerprint. */
@@ -425,6 +465,8 @@ export interface FinancePdfImportInput {
   layout?: { fingerprint: string; labels: string[]; roles: FinancePdfRole[]; date_format: string | null; remember: boolean } | null;
   /** The statement's printed counts and totals from the read; rows that disagree need `accept_mismatch`. */
   summary?: { name: FinancePdfCheck['summary'][number]['name']; stated: string }[];
+  /** The rows the reader left out, from the read: listed on the import, never imported. */
+  dropped?: { page: number; reason: FinancePdfDroppedRow['reason']; text: string; posted_on: string | null; amount: string | null }[];
 }
 
 export interface FinanceBill {

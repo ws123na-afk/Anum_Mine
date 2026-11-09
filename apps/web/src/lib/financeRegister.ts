@@ -113,3 +113,38 @@ export function plainAmount(value: string, digits: number, locale: string): stri
   if (!Number.isFinite(n)) return '-';
   return new Intl.NumberFormat(locale, { minimumFractionDigits: digits, maximumFractionDigits: digits }).format(n);
 }
+
+/** The month (`YYYY-MM`) it is now in the Finance time zone (Finance settings); UTC when the zone is unknown or invalid. */
+export function monthIn(timeZone: string | null | undefined, now: Date = new Date()): string {
+  try {
+    const parts = new Intl.DateTimeFormat('en-CA', { timeZone: timeZone || 'UTC', year: 'numeric', month: '2-digit' }).formatToParts(now);
+    const year = parts.find((p) => p.type === 'year')?.value;
+    const month = parts.find((p) => p.type === 'month')?.value;
+    if (year && month) return `${year}-${month}`;
+  } catch { /* an unknown time zone: UTC below */ }
+  return now.toISOString().slice(0, 7);
+}
+
+/** The period kept in the page's URL (`#finance-transactions?month=2026-10`, `month=all` for every month), or null. */
+export function monthFromHash(hash: string): string | null {
+  const query = hash.split('?')[1];
+  if (!query) return null;
+  const value = new URLSearchParams(query).get('month');
+  if (value === 'all') return '';
+  return value && /^\d{4}-(0[1-9]|1[0-2])$/.test(value) ? value : null;
+}
+
+/** The same hash with the period in it (an empty period is every month). */
+export function hashWithMonth(hash: string, month: string): string {
+  const [base, query] = hash.split('?');
+  const params = new URLSearchParams(query ?? '');
+  params.set('month', month || 'all');
+  return `${base}?${params.toString()}`;
+}
+
+/** When the chosen month has no rows but the ledger has some in another month: that month, so the page can offer it. */
+export function latestMonthHint(period: string, total: number, latestPostedOn: string | null | undefined): string | null {
+  if (!period || total > 0 || !latestPostedOn) return null;
+  const latest = latestPostedOn.slice(0, 7);
+  return latest !== period ? latest : null;
+}

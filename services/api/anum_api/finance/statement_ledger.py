@@ -170,9 +170,11 @@ def gather(finance: FinanceStore, sms: SmsStore, links: Any, context: TenantCont
     return Ledger(info, recorded, others, accounts, waiting(sms, context, account.id), dues)
 
 
-def run(ledger: Ledger, lines: list[M.Line]) -> list[M.Match]:
+def run(ledger: Ledger, lines: list[M.Line], *, file_hashes: set[str] | None = None) -> list[M.Match]:
+    """``file_hashes``: the dedupe hashes of every row of the statement (also rows left out), so a record imported from
+    one of them is never taken for another identical row of the same statement."""
     return M.match_lines(lines, ledger.recorded, waiting=ledger.waiting, bills=ledger.bills, account=ledger.account, others=ledger.others,
-                         accounts=ledger.accounts)
+                         accounts=ledger.accounts, file_hashes=file_hashes)
 
 
 # -- writing ---------------------------------------------------------------------------------------------

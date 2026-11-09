@@ -180,7 +180,9 @@ function AccountCard({ account: a, info, selected, onSelect }: { account: Financ
       {info?.credit_limit && <small className="facctMeta">{t('facct.card.limit', { amount: isolate(formatAmount(info.credit_limit, a.currency)) })}</small>}
       {info?.payment_due && <span className="facctDue"><CalendarCheck aria-hidden="true" />{t('facct.card.due', { date: info.payment_due.due_on, amount: isolate(formatAmount(info.payment_due.amount, info.payment_due.currency)) })}</span>}
       {info?.last_statement && info.last_statement.status !== 'unknown' && <small className="facctMeta" dir="auto">{info.last_statement.status === 'tied'
-        ? t('facct.statement.tied', { file: info.last_statement.filename })
+        ? ((info.last_statement.not_in_ledger ?? 0) > 0
+          ? t('facct.statement.tiedMissing', { file: info.last_statement.filename, count: info.last_statement.not_in_ledger ?? 0 })
+          : t('facct.statement.tied', { file: info.last_statement.filename }))
         : t('facct.statement.differs', { file: info.last_statement.filename, difference: isolate(formatAmount(info.last_statement.difference, a.currency)) })}</small>}
       {info && info.needs_attention.length > 0 && <span className="facctAttention"><AlertTriangle aria-hidden="true" />{info.needs_attention.map((n) => t(`facct.attention.${n}` as MessageKey)).join(' · ')}</span>}
     </button>

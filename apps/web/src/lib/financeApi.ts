@@ -2,7 +2,7 @@
 // checks finance:read / finance:manage on every route and the view only explains who may.
 import type {
   FinanceAccount, FinanceAccountInput, FinanceBill, FinanceBillInput, FinanceBillSuggestion, FinanceDebt, FinanceDebtInput, FinanceFormats,
-  FinanceGoal, FinanceGoalInput, FinanceHolding, FinanceHoldingInput, FinanceImport, FinanceImportInput, FinanceImportPreview, FinancePage,
+  FinanceGoal, FinanceGoalInput, FinanceHolding, FinanceHoldingInput, FinanceImport, FinanceImportDetail, FinanceImportInput, FinanceImportPreview, FinancePage,
   FinanceSettings, FinanceSummary, FinanceTransaction, FinanceTransactionInput, FinanceUpcomingBill,
   FinanceConnection, FinanceConnectionInput, FinanceEvaluateInput, FinanceEvaluation, FinanceFxRate, FinanceFxRateInput, FinanceGuardian,
   FinanceGuardianActivityPage, FinanceGuardianAlerts, FinanceGuardianChange, FinanceGuardianReviewDecision, FinanceGuardianReviewQueue, FinanceGuardianReviewResult, FinanceGuardianRules, FinanceGuardianVersion, FinancePlan, FinancePlanInput, FinanceProvider,
@@ -51,6 +51,9 @@ export const deleteTransaction = (transactionId: string) => remove(`/transaction
 export const previewImport = (body: FinanceImportInput) => send<FinanceImportPreview>('POST', '/imports/preview', body);
 export const confirmImport = (body: FinanceImportInput) => send<FinanceImport>('POST', '/imports', body);
 export const listImports = (limit: number, offset: number) => get<FinancePage<FinanceImport>>(`/imports${query({ limit, offset })}`);
+/** One import with what happened to each row; `disposition` filters (`not_in_ledger`: held or left out). */
+export const getImport = (id: string, options: { disposition?: string | null; limit: number; offset: number }) =>
+  get<FinanceImportDetail>(`/imports/${encodeURIComponent(id)}${query({ disposition: options.disposition || null, limit: options.limit, offset: options.offset })}`);
 export const deleteImport = (importId: string) => remove(`/imports/${id(importId)}`);
 /** Own transfers already in the ledger, not yet paired (docs/finance.md#own-transfers). A preview: nothing changes. */
 export const findTransfers = (start: string, end: string) => get<FinanceTransferCandidates>(`/transfers/candidates${query({ start, end })}`);

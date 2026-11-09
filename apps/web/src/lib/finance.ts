@@ -97,7 +97,8 @@ export function spendCurrencies(summary: Pick<FinanceSummary, 'spend_by_category
 
 /** The tab a URL hash opens: `#finance-transactions` and friends; anything else is the overview. */
 export function tabFromHash(hash: string): FinanceTab {
-  const id = hash.replace(/^#finance-?/, '');
+  // `#finance-transactions?month=2026-10`: the part after `?` is the page's own state (the period), not the tab.
+  const id = hash.replace(/^#finance-?/, '').split('?')[0];
   // `#finance-intel-reports` and `#finance-intel-report=<id>` open the daily reports in Trading intelligence.
   if (id.startsWith('intel-report')) return 'intel';
   // `#finance-trading-orders` and the other lab tabs open Paper trading (docs/finance.md#paper-trading-lab).
