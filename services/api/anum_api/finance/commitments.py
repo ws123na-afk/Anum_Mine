@@ -178,15 +178,17 @@ def alert_for(alerts: list[BudgetAlert], category: Category, currency: str) -> B
     return BudgetAlert(category=category, currency=currency)
 
 
-def _spend_rows(rows: list[Transaction]) -> list[Transaction]:
+def _spend_rows(rows: list[Transaction], lending: frozenset[str] | None = None) -> list[Transaction]:
     # The shared rule (flows.py): purchases, less the refunds filed in their category.
-    return spend_rows(rows)
+    return spend_rows(rows, None, lending)
 
 
 def budget_report(rules: GuardianRules, version: int, alerts: list[BudgetAlert], rows: list[Transaction], *, month: str, start: date, end: date,
-                  today: date) -> BudgetReport:
-    """Each cap with what was spent, what is left, its state and, this month, where the pace ends."""
-    spend = _spend_rows(rows)
+                  today: date, lending: frozenset[str] | None = None) -> BudgetReport:
+    """Each cap with what was spent, what is left, its state and, this month, where the pace ends.
+
+    ``lending``: transactions lent or borrowed with a person, never spending (``flows.py``)."""
+    spend = _spend_rows(rows, lending)
     by_cat: dict[tuple[Category, str], Decimal] = {}
     by_day: dict[tuple[str, date], Decimal] = {}
     capped = {(c.category, c.currency) for c in rules.category_caps}

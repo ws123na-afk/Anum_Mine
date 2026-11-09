@@ -270,15 +270,25 @@ def transaction_category(legs: list[Leg], leg: Leg) -> Category:
 # -- the dashboard ------------------------------------------------------------------------------
 
 
-def derived_legs(transaction: Transaction, account: Account) -> list[Leg]:
-    """The postings a statement or hand-entered transaction stands for, by the shared rules (``flows.py``)."""
+def derived_legs(transaction: Transaction, account: Account, *, lending: bool = False) -> list[Leg]:
+    """The postings a statement or hand-entered transaction stands for, by the shared rules (``flows.py``).
+
+    ``lending``: the transaction is linked to money lent or borrowed with a person, so its other side is a transfer."""
     amount = transaction.amount
     own = _leg(account, amount)
-    flow = classify(transaction.category, amount, account.kind, transaction.category_source)
+    flow = classify(transaction.category, amount, account.kind, transaction.category_source, lending=lending)
     other = {
         Flow.INCOME: "income:other", Flow.TRANSFER: "suspense:transfer", Flow.CASHBACK: "income:cashback", Flow.REFUND: "income:refunds",
     }.get(flow, "expense:" + transaction.category.value)
     return [own, Leg(other, -amount, transaction.currency)]
+
+
+def lending_account(ledger_account: str, account_id: str | None) -> str:
+    """A journal posting of a payment lent or borrowed with a person, as the dashboard counts it: the income or
+    expense side is a transfer (``flows.py``); postings on the person's own accounts are unchanged."""
+    if account_id is None and (ledger_account.startswith("income:") or ledger_account.startswith("expense:")):
+        return "suspense:transfer"
+    return ledger_account
 
 
 @dataclass

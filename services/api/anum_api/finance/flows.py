@@ -16,6 +16,9 @@ way everywhere:
   merchant's credit) lowers that category's spend; it is never income. Money in filed as
   ``refunds`` (no purchase found) is shown on its own line, also never income.
 * **Spend**: money out in a spending category, net of the refunds in that category.
+* **Lent or borrowed with a person** (``lending``: the transactions a ``person_loan`` link names,
+  ``obligations.load``): money handed over or received, and every repayment, is a transfer whatever its
+  category says. Lending is not spending and being repaid is not income (docs/finance.md#lent-and-borrowed).
 
 Pure: no store, clock or network.
 """
@@ -23,6 +26,7 @@ Pure: no store, clock or network.
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping
+from collections.abc import Set as AbstractSet
 from dataclasses import dataclass, field
 from decimal import Decimal
 from enum import StrEnum
@@ -45,9 +49,11 @@ class Flow(StrEnum):
 
 
 def classify(category: Category, amount: Decimal, account_kind: AccountKind | None = None,
-             source: CategorySource | None = None) -> Flow:
-    """What one row is, by its category, its sign and the kind of account it is on."""
-    if category == Category.TRANSFER:
+             source: CategorySource | None = None, *, lending: bool = False) -> Flow:
+    """What one row is, by its category, its sign and the kind of account it is on.
+
+    ``lending``: the row is money lent to or borrowed from a person, or a repayment of it: a transfer."""
+    if lending or category == Category.TRANSFER:
         return Flow.TRANSFER
     if category == Category.INCOME:
         chosen = source in (CategorySource.MANUAL, CategorySource.OWNER_RULE)
@@ -65,20 +71,22 @@ def kinds_of(accounts: Iterable[Account]) -> dict[str, AccountKind]:
     return {a.id: a.kind for a in accounts}
 
 
-def flow_of(t: Transaction, kinds: Mapping[str, AccountKind] | None = None) -> Flow:
-    return classify(t.category, t.amount, (kinds or {}).get(t.account_id), t.category_source)
+def flow_of(t: Transaction, kinds: Mapping[str, AccountKind] | None = None, lending: AbstractSet[str] | None = None) -> Flow:
+    """``lending``: ids of transactions linked to money lent or borrowed with a person (``obligations.Links.lending_ids``)."""
+    return classify(t.category, t.amount, (kinds or {}).get(t.account_id), t.category_source, lending=bool(lending) and t.id in lending)
 
 
-def spend_rows(rows: Iterable[Transaction], kinds: Mapping[str, AccountKind] | None = None) -> list[Transaction]:
+def spend_rows(rows: Iterable[Transaction], kinds: Mapping[str, AccountKind] | None = None,
+               lending: AbstractSet[str] | None = None) -> list[Transaction]:
     """Rows that move spend: purchases (negative) and refunds in a spending category (positive).
 
     ``-sum(amount)`` over them is the net spend; per category it is that category's net spend."""
-    return [t for t in rows if t.amount != 0 and flow_of(t, kinds) == Flow.SPEND]
+    return [t for t in rows if t.amount != 0 and flow_of(t, kinds, lending) == Flow.SPEND]
 
 
-def is_spend_debit(t: Transaction, kinds: Mapping[str, AccountKind] | None = None) -> bool:
+def is_spend_debit(t: Transaction, kinds: Mapping[str, AccountKind] | None = None, lending: AbstractSet[str] | None = None) -> bool:
     """One purchase (money out in a spending category): what a single-payment check looks at."""
-    return t.amount < 0 and flow_of(t, kinds) == Flow.SPEND
+    return t.amount < 0 and flow_of(t, kinds, lending) == Flow.SPEND
 
 
 @dataclass
@@ -103,12 +111,12 @@ def _add(target: dict[str, Decimal], currency: str, amount: Decimal) -> None:
     target[currency] = target.get(currency, Decimal(0)) + amount
 
 
-def figures(rows: Iterable[Transaction], kinds: Mapping[str, AccountKind] | None = None) -> Figures:
+def figures(rows: Iterable[Transaction], kinds: Mapping[str, AccountKind] | None = None, lending: AbstractSet[str] | None = None) -> Figures:
     out = Figures()
     for t in rows:
         if t.amount == 0:
             continue
-        flow = flow_of(t, kinds)
+        flow = flow_of(t, kinds, lending)
         if flow == Flow.INCOME:
             _add(out.income, t.currency, t.amount)
         elif flow == Flow.CASHBACK:

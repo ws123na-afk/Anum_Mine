@@ -8,7 +8,7 @@ import { useEffect, useId, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { ArrowDown, ArrowUp, ChevronLeft, ChevronRight, Minus } from 'lucide-react';
 import { monthLabel, shiftMonth, type FinanceTab } from './lib/finance';
-import { FINANCE_NAV, FINANCE_SCOPES, groupOf, type Delta, type FinanceScope } from './lib/financeNav';
+import { FINANCE_NAV, FINANCE_SCOPES, groupOf, isCurrent, type Delta, type FinanceScope } from './lib/financeNav';
 import { t, type MessageKey } from './lib/i18n';
 import { useMediaQuery, type Crumb, Breadcrumbs } from './PageParts';
 import './financeShell.css';
@@ -52,8 +52,8 @@ export function FinanceSectionNav({ tab, onPick }: { tab: FinanceTab; onPick: (n
       aria-label={group.id === 'finance' || group.id === 'business' ? undefined : t(`fshell.group.${group.id}` as MessageKey)}>
       {group.id === 'trading' && <li className="finNavHeading" aria-hidden="true">{t('fshell.group.trading')}</li>}
       {group.entries.map((entry) => entry.kind === 'tab'
-        ? <li key={entry.tab}><button type="button" className="finNavItem" aria-current={tab === entry.tab ? 'page' : undefined} onClick={() => onPick(entry.tab)}>
-            <span>{t(`finance.tab.${entry.tab}` as MessageKey)}</span></button></li>
+        ? <li key={entry.tab}><button type="button" className="finNavItem" aria-current={isCurrent(entry, tab) ? 'page' : undefined} onClick={() => onPick(entry.tab)}>
+            <span>{t((entry.also ? `fshell.nav.${entry.tab}` : `finance.tab.${entry.tab}`) as MessageKey)}</span></button></li>
         : <li key={entry.id}><a className="finNavItem finNavLink" href={entry.href}>
             <span>{t('fshell.nav.books')}</span><span className="finNewBadge">{t('fshell.badge.new')}</span></a></li>)}
     </ul>)}

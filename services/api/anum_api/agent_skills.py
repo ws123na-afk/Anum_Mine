@@ -33,6 +33,12 @@ FINANCE_TRIGGERS = frozenset(
         "تجريبي", "تجريبيا", "تجريبية", "محاكاة", "المحفظة", "محفظة", "محفظتي",
         # Fund research (docs/finance-research.md#assistant): the ETF words and the Shariah-screened tickers.
         "etf", "etfs", "ibkr", "shariah", "halal", "spus", "hlal", "umma", "spre", "spsk", "حلال", "صندوق",
+        # Planning and advice (docs/finance.md#planning-and-advice): "can I afford", "should I buy", "which loan",
+        # "pay first", "cheapest way to send money home". Read-only answers; "buy it for me" falls through to external-action.
+        "buy", "loan", "loans", "installments", "installment", "first", "cheapest", "remittance", "remittances", "payoff", "avalanche",
+        "snowball", "payslip", "payslips", "salary", "lent", "borrowed",
+        # Arabic: I buy, (should I) buy, I pay off, to the family, loan, loans, installments, remittance, salary.
+        "أشتري", "اشتري", "أسدد", "اسدد", "للأهل", "للاهل", "قرض", "قروض", "تقسيط", "أقساط", "اقساط", "حوالة", "راتب", "راتبي",
     }
 )
 
@@ -233,6 +239,7 @@ def default_skill_registry() -> SkillRegistry:
                 name="Personal finance",
                 description=(
                     "Answers questions about your own spending, income, balances, bills, debts and what is safe to spend, "
+                    "plans with you (can I afford it, which debt to pay first, which loan, the cheapest way to send money home; advice only), "
                     "reads or proposes your Guardian rules (you confirm every change), and reads or proposes SIMULATED paper "
                     "and shadow orders that you approve yourself. It never pays, transfers or trades for real (docs/finance.md)."
                 ),

@@ -6,8 +6,8 @@ import type {
 } from '@anum/contracts';
 import { getLocale, intlLocale, t, type Locale, type MessageKey } from './i18n.ts';
 
-export type FinanceTab = 'overview' | 'ledger' | 'safe' | 'advisor' | 'reports' | 'transactions' | 'accounts' | 'import' | 'bills' | 'budgets' | 'debts' | 'goals' | 'holdings' | 'guardian' | 'connections' | 'trading' | 'intel' | 'execution' | 'ibkr' | 'research' | 'sms';
-export const FINANCE_TABS: readonly FinanceTab[] = ['overview', 'ledger', 'safe', 'advisor', 'transactions', 'accounts', 'import', 'bills', 'budgets', 'debts', 'goals', 'reports', 'holdings', 'guardian', 'connections', 'sms', 'trading', 'intel', 'execution', 'ibkr', 'research'];
+export type FinanceTab = 'overview' | 'ledger' | 'safe' | 'advisor' | 'reports' | 'transactions' | 'accounts' | 'import' | 'bills' | 'budgets' | 'debts' | 'goals' | 'holdings' | 'guardian' | 'connections' | 'trading' | 'intel' | 'execution' | 'ibkr' | 'research' | 'sms' | 'people' | 'payslips' | 'remittances' | 'commitments';
+export const FINANCE_TABS: readonly FinanceTab[] = ['overview', 'ledger', 'safe', 'advisor', 'transactions', 'accounts', 'import', 'bills', 'budgets', 'debts', 'goals', 'reports', 'holdings', 'guardian', 'connections', 'sms', 'trading', 'intel', 'execution', 'ibkr', 'research', 'people', 'payslips', 'remittances', 'commitments'];
 
 const THREE = new Set(['BHD', 'IQD', 'JOD', 'KWD', 'LYD', 'OMR', 'TND']);
 const ZERO = new Set(['JPY', 'KRW', 'VND', 'CLP', 'ISK', 'UGX', 'XAF', 'XOF']);

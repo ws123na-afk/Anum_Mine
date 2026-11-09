@@ -239,7 +239,7 @@ def build_summary(store: FinanceStore, context: TenantContext, month: str | None
     sums = store.account_sums(context)
     accounts = account_balances(store, context)
     month_rows: list[Transaction] = store.transactions_between(context, start, end)
-    found = figures(month_rows, kinds_of(raw_accounts))
+    found = figures(month_rows, kinds_of(raw_accounts), links.lending_ids if links else None)
     category_rows = sorted(
         (CategorySpend(category=cat, currency=cur, amount=quantize(v, cur), count=n) for (cat, cur), (v, n) in found.by_category.items() if v != 0),
         key=lambda r: (r.currency, -r.amount, r.category.value),

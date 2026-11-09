@@ -702,6 +702,17 @@ def register_finance_tools(registry: ToolRegistry) -> ToolRegistry:
             ),
             handler,
         )
+    # Planning and advice (docs/finance.md#planning-and-advice): read only; ANUM never pays, buys or transfers.
+    from . import plan_tools
+
+    for name in plan_tools.TOOLS:
+        registry.register(
+            ToolDefinition(
+                name=name, description=plan_tools.DESCRIPTIONS[name], risk_level=RiskLevel.LOW, idempotent=True, timeout_seconds=45,
+                category="general", action_kind="read", input_schema=plan_tools.SCHEMAS[name],
+            ),
+            plan_tools.HANDLERS[name],
+        )
     registry.register(
         ToolDefinition(
             name=PROPOSE_TOOL,
@@ -923,6 +934,13 @@ def plan_call(prompt: str, today: date | None = None) -> ToolCall | None:
     researched = research_call(text)
     if researched is not None:
         return researched
+    # Planning questions ("can I afford", "which loan", "what to pay first", "cheapest way to send money home"):
+    # read-only advice. An action ("buy it for me", "send 500 to Ali") is not a question and falls through.
+    from .plan_tools import plan_call as planning_call
+
+    planned = planning_call(text)
+    if planned is not None:
+        return planned
     if is_money_movement(text):
         return None
     proposal = _proposal(text)

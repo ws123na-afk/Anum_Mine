@@ -43,6 +43,7 @@ from anum_api.finance.wider import Incident, Widening
 from anum_api.schemas import TenantContext
 
 from .advisor_repository import RECORDS as ADVISOR_RECORDS
+from .personal_finance_repository import RECORDS as PERSONAL_RECORDS
 from .ibkr_repository import RECORDS as IBKR_RECORDS
 from .sms_repository import RECORDS as SMS_RECORDS
 from .models import Base
@@ -169,6 +170,7 @@ class FinanceGoalRecord(Base, _Owned):
     account_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
     monthly_contribution: Mapped[Decimal | None] = mapped_column(MONEY, nullable=True)
     paused: Mapped[bool] = mapped_column(Boolean)
+    purpose: Mapped[str] = mapped_column(String(20), default="general")
     notes: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     created_at: Mapped[datetime] = mapped_column(TS)
     updated_at: Mapped[datetime] = mapped_column(TS)
@@ -1363,7 +1365,7 @@ class SqlAlchemyFinanceStore:
     # privacy ------------------------------------------------------------------------------
 
     _ALL = (
-        *SMS_RECORDS, *IBKR_RECORDS, *ADVISOR_RECORDS, FinanceAgentDecisionRecord, FinanceStrategyRunRecord, FinanceStrategyRecord, FinanceMarketBarRecord, FinanceInstrumentRecord,
+        *SMS_RECORDS, *IBKR_RECORDS, *ADVISOR_RECORDS, *PERSONAL_RECORDS, FinanceAgentDecisionRecord, FinanceStrategyRunRecord, FinanceStrategyRecord, FinanceMarketBarRecord, FinanceInstrumentRecord,
         FinanceLiveIncidentRecord, FinanceLiveWideningRecord, FinancePaperOrderRecord, FinancePaperPortfolioRecord, FinancePriceRecord, FinanceExecIntentRecord, FinanceExecSettingsRecord,
         FinanceTransactionRecord, FinanceImportRecord, FinanceHoldingRecord, FinanceBillRecord, FinanceDebtRecord,
         FinanceGoalRecord, FinanceFxRateRecord, FinanceConnectionRecord, FinanceGuardianReviewRecord, FinanceGuardianChangeRecord,

@@ -39,6 +39,7 @@ import '../features/commerce/commerce_ops_data.dart';
 import '../features/commerce/commerce_repository.dart';
 import '../features/finance/finance_controller.dart';
 import '../features/finance/finance_intel_models.dart';
+import '../features/finance/finance_personal_repository.dart';
 import '../features/finance/finance_repository.dart';
 import '../features/finance/finance_screen.dart';
 import '../features/team/team_screens.dart' show NotificationsScreen;
@@ -396,12 +397,26 @@ class _AnumAppState extends State<AnumApp> {
     commerce = CommerceController(ApiCommerceRepository(api),
         ops: CommerceOps(ApiCommerceOpsRepository(api)));
     // Finance (docs/finance.md): the person's own ledger, read only.
+    // Personal money: the Money planner asks through the Assistant's
+    // finance skill (docs/finance.md#planning-and-advice).
     finance = FinanceController(ApiFinanceRepository(api),
-        intelRepository: ApiFinanceIntelRepository(api));
+        intelRepository: ApiFinanceIntelRepository(api),
+        personalRepository: ApiFinancePersonalRepository(api),
+        planner: ChatMoneyPlanner(ChatRepository(api, events)));
     // The post-close trading report notice opens Finance, Trading
     // intelligence, where the daily reports are listed.
     NotificationsScreen.openers['finance_daily_report'] = (context) async {
       final loading = finance.select(FinanceSection.intel);
+      await Navigator.push(
+          context,
+          MaterialPageRoute<void>(
+              builder: (_) => FinanceScreen(controller: finance)));
+      await loading;
+    };
+    // A loan reminder (kind `finance_loan_due`, in-app only) opens Finance,
+    // Lent and borrowed (docs/finance.md#lent-and-borrowed).
+    NotificationsScreen.openers['finance_loan_due'] = (context) async {
+      final loading = finance.select(FinanceSection.people);
       await Navigator.push(
           context,
           MaterialPageRoute<void>(

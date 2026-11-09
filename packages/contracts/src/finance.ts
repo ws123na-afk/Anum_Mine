@@ -501,10 +501,15 @@ export interface FinanceGoal {
   monthly_contribution: FinanceMoney | null;
   /** A paused goal is not set aside by safe to spend (docs/finance.md#debts-and-goals). */
   paused?: boolean;
+  /** What the goal is for (docs/finance.md#debts-and-goals); the planner keeps an emergency fund aside. */
+  purpose?: FinanceGoalPurpose;
   notes: string | null;
   created_at: string;
   updated_at: string;
 }
+
+export type FinanceGoalPurpose = 'general' | 'emergency' | 'family' | 'purchase' | 'education' | 'travel';
+export const FINANCE_GOAL_PURPOSES: readonly FinanceGoalPurpose[] = ['general', 'emergency', 'family', 'purchase', 'education', 'travel'];
 
 export interface FinanceGoalInput {
   name: string;
@@ -516,6 +521,8 @@ export interface FinanceGoalInput {
   monthly_contribution?: FinanceMoney | null;
   /** Left out: kept as it is. */
   paused?: boolean | null;
+  /** Left out: kept as it is (a new goal is general). */
+  purpose?: FinanceGoalPurpose | null;
   notes?: string | null;
 }
 

@@ -675,4 +675,4 @@ def test_the_worker_registers_the_same_finance_tools_as_the_api() -> None:
     runtime = build_activities(config_settings).runtime_factory(context, memory_repository)
     finance = {name for name in main.tool_registry.names if name.startswith("finance.")}
     # 11 finance tools (with fund research, docs/finance-research.md) plus the trading intelligence tools (five reads and the pause).
-    assert len(finance) == 17 and finance <= runtime.tools.names
+    assert len(finance) == 21 and finance <= runtime.tools.names

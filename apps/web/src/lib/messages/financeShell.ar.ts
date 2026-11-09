@@ -8,6 +8,7 @@ export const financeShellAr = {
   'fshell.group.invest': 'الاستثمارات',
   'fshell.group.trading': 'التداول',
   'fshell.nav.books': 'مصروفات الأعمال والأرباح والخسائر',
+  'fshell.nav.people': 'أموالي الشخصية',
   'fshell.badge.new': 'جديد',
   'fshell.scope': 'النطاق',
   'fshell.scope.personal': 'شخصي',

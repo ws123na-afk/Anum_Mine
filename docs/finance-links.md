@@ -9,7 +9,7 @@ Code: `services/api/anum_api/finance/links.py` (rules), `links_store.py` and `db
 | Field | |
 |---|---|
 | `canonical_id` | The canonical transaction (`finance_journal_entries.canonical_id`), which every correction keeps. Never a stage 2 transaction id or one entry's id. |
-| `dimension` | `vehicle`, `purchase`, `document`, `business`, `trip`, `project`, `bill` (a payment matched to one due date of a bill) or `debt` ([Bills and budgets](finance.md#bills-and-budgets)). Each dimension is its own view: the vehicle part and the business part of one payment are counted separately. |
+| `dimension` | `vehicle`, `purchase`, `document`, `business`, `trip`, `project`, `bill` (a payment matched to one due date of a bill) `debt` ([Bills and budgets](finance.md#bills-and-budgets)), `person_loan` (money lent to or borrowed from a person and each repayment, [Lent and borrowed](finance.md#lent-and-borrowed)), `payslip` (the salary credit a payslip paid, [Payslips](finance.md#payslips)) or `remittance` (the payment for a transfer home, [Sending money home](finance.md#sending-money-home)). Each dimension is its own view: the vehicle part and the business part of one payment are counted separately. |
 | `role` | `payment`, `refund`, `deposit` or `evidence` (a receipt or document: no amount). |
 | `target_type`, `target_id` | The record in the module (`vehicle` / `veh_...`, `vault_document` / `doc_...`). For `business` it is the business workspace. |
 | `amount`, `currency` | The part of the payment this link covers, in the payment's own currency (never converted). |

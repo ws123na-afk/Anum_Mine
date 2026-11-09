@@ -1175,6 +1175,25 @@ def finance_export(finance: Any, context: TenantContext) -> dict[str, Any]:
         **_sms_export(finance, context, hidden),
         # The weekly Money advisor's notes and switches (docs/finance.md#money-advisor).
         **_advisor_export(finance, context, hidden),
+        # Money lent and borrowed with people, payslips and remittances (docs/finance.md#lent-and-borrowed).
+        **_personal_export(finance, context, hidden),
+    }
+
+
+def _personal_export(finance: Any, context: TenantContext, hidden: set[str]) -> dict[str, Any]:
+    session = getattr(finance, "session", None)
+    if session is not None:
+        from .db.personal_finance_repository import SqlAlchemyPersonalStore
+
+        personal: Any = SqlAlchemyPersonalStore(session)
+    else:
+        from .finance.personal_store import personal_memory_store
+
+        personal = personal_memory_store
+    return {
+        "person_loans": [r.model_dump(mode="json", exclude=hidden) for r in personal.list(context, "person_loan")],
+        "payslips": [r.model_dump(mode="json", exclude=hidden) for r in personal.list(context, "payslip")],
+        "remittances": [r.model_dump(mode="json", exclude=hidden) for r in personal.list(context, "remittance")],
     }
 
 

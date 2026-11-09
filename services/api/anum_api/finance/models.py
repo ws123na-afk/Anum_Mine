@@ -82,6 +82,17 @@ class DebtKind(StrEnum):
     OTHER = "other"
 
 
+class GoalPurpose(StrEnum):
+    """What a goal is for (docs/finance.md#debts-and-goals): the planner keeps an emergency fund aside."""
+
+    GENERAL = "general"
+    EMERGENCY = "emergency"
+    FAMILY = "family"  # money for family at home (sending money home)
+    PURCHASE = "purchase"
+    EDUCATION = "education"
+    TRAVEL = "travel"
+
+
 class CategoryRule(BaseModel):
     """The owner's own rule: a description containing ``match`` gets ``category``."""
 
@@ -196,6 +207,7 @@ class Goal(_Owned):
     monthly_contribution: Decimal | None = None
     # A paused goal keeps what is saved; nothing is set aside for it until it is resumed.
     paused: bool = False
+    purpose: GoalPurpose = GoalPurpose.GENERAL
     notes: str | None = None
     created_at: datetime
     updated_at: datetime
