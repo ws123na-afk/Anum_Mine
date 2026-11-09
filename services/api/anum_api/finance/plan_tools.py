@@ -343,12 +343,13 @@ HANDLERS = {"finance.plan.afford": afford, "finance.plan.debt_order": payoff, "f
 
 # -- the user's own words ---------------------------------------------------------------------------------
 
+MAX_QUESTION = 600
 _CURRENCY = re.compile(r"\b(AED|SAR|USD|EUR|GBP|INR|PKR|PHP|EGP|QAR|KWD|OMR|BHD)\b", re.IGNORECASE)
-_NUMBER = re.compile(r"(?<![\w.])(\d{1,3}(?:,\d{3})+|\d+)(?:\.(\d{1,3}))?\s*(k|thousand|ألف|الف)?(?![\w])", re.IGNORECASE)
-_RATE = re.compile(r"(\d{1,2}(?:\.\d{1,2})?)\s*(?:%|percent|بالمئة|٪)", re.IGNORECASE)
-_MONTHS = re.compile(r"(\d{1,3})\s*(months?|years?|شهر|شهرا|أشهر|اشهر|سنة|سنوات)", re.IGNORECASE)
-_MONTHLY = re.compile(r"(\d[\d,]*(?:\.\d{1,3})?)\s*(?:a|per)\s*month\b|(\d[\d,]*(?:\.\d{1,3})?)\s*(?:شهريا|في الشهر)", re.IGNORECASE)
-_DOWN = re.compile(r"(\d[\d,]*(?:\.\d{1,3})?)\s*(?:down|deposit|دفعة أولى|مقدم)", re.IGNORECASE)
+_NUMBER = re.compile(r"(?<![\w.,])(\d{1,3}(?:,\d{3}){1,4}|\d{1,12})(?:\.(\d{1,3}))?[ \t]{0,3}(k|thousand|ألف|الف)?(?![\w])", re.IGNORECASE)
+_RATE = re.compile(r"(?<![\d.])(\d{1,2}(?:\.\d{1,2})?)[ \t]{0,3}(?:%|percent|بالمئة|٪)", re.IGNORECASE)
+_MONTHS = re.compile(r"(?<!\d)(\d{1,3})[ \t]{0,3}(months?|years?|شهر|شهرا|أشهر|اشهر|سنة|سنوات)", re.IGNORECASE)
+_MONTHLY = re.compile(r"(?<![\d,.])(\d{1,3}(?:,\d{3}){1,4}(?:\.\d{1,3})?|\d{1,12}(?:\.\d{1,3})?)[ \t]{0,3}(?:(?:a|per)[ \t]{1,3}month\b|شهريا|في الشهر)", re.IGNORECASE)
+_DOWN = re.compile(r"(?<![\d,.])(\d{1,3}(?:,\d{3}){1,4}(?:\.\d{1,3})?|\d{1,12}(?:\.\d{1,3})?)[ \t]{0,3}(?:down|deposit|دفعة أولى|مقدم)", re.IGNORECASE)
 
 AFFORD = re.compile(
     r"\bcan i afford\b|\bcould i afford\b|\bshould i (?:buy|get|purchase)\b|\bafford (?:a|an|the|to)\b"
@@ -390,13 +391,15 @@ def _amounts(text: str) -> list[Decimal]:
 
 def plan_call(text: str) -> ToolCall | None:
     """A planning question in the user's own words, or None. Never an action: "buy it for me" is not ours."""
+    # A question is short; reading at most MAX_QUESTION characters keeps every pattern below linear in practice.
+    text = text[:MAX_QUESTION]
     currency = _CURRENCY.search(text)
     cur = {"currency": currency.group(1).upper()} if currency else {}
     if PAYOFF.search(text):
         payment = _MONTHLY.search(text)
         args: dict[str, Any] = {**cur}
         if payment:
-            args["payment"] = (payment.group(1) or payment.group(2)).replace(",", "")
+            args["payment"] = payment.group(1).replace(",", "")
         return ToolCall(name="finance.plan.debt_order", arguments=args)
     if SEND_HOME.search(text):
         args = {**cur}
@@ -429,7 +432,7 @@ def plan_call(text: str) -> ToolCall | None:
         if amounts:
             args["price"] = str(amounts[0])
         if (monthly := _MONTHLY.search(text)) is not None:
-            args["monthly_cost"] = (monthly.group(1) or monthly.group(2)).replace(",", "")
+            args["monthly_cost"] = monthly.group(1).replace(",", "")
         if (item := _ITEM.search(text)) is not None:
             args["item"] = item.group(1).strip()
         return ToolCall(name="finance.plan.afford", arguments=args)
