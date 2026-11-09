@@ -243,7 +243,12 @@ def post_quietly(context: TenantContext, *, actor: str = SYSTEM_POSTER) -> None:
     try:
         post(context, actor=actor)
     except Exception:  # noqa: BLE001 - posting is retried by the daily run; the change itself was saved
-        logger.exception("business books posting run failed", extra={"anum_workspace_id": context.workspace_id})
+        logger.exception("business books posting run failed", extra={"anum_workspace_id": _log_safe(context.workspace_id)})
+
+
+def _log_safe(value: str) -> str:
+    """Identifiers can come from request headers in local mode: no forged log lines."""
+    return value.replace("\r", "").replace("\n", "")
 
 
 # -- manual entries and reversals -------------------------------------------------------------------------------
