@@ -13,8 +13,8 @@ from __future__ import annotations
 import threading
 from collections.abc import Iterator
 from contextlib import contextmanager
-from dataclasses import replace
-from datetime import datetime
+from dataclasses import dataclass, replace
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, Literal, Protocol
 
@@ -22,7 +22,16 @@ from pydantic import BaseModel, Field
 
 from ..schemas import TenantContext
 from .models import Category, CategorySource, TransactionType, TypeSource, _Owned
-from .rules import ActiveRule, AliasBook, AutomationSettings, FinanceRule, MerchantAlias, Subcategory, active_rules, from_legacy
+from .rules import (
+    ActiveRule,
+    AliasBook,
+    AutomationSettings,
+    FinanceRule,
+    MerchantAlias,
+    Subcategory,
+    active_rules,
+    from_legacy,
+)
 
 DecisionStatus = Literal["accepted", "rejected", "auto_applied"]
 
@@ -97,8 +106,21 @@ class RulesStore(Protocol):
     def save_automation(self, settings: AutomationSettings) -> None: ...
     def claim_notice(self, context: TenantContext, day: str) -> bool: ...
     def release_notice(self, context: TenantContext, day: str) -> None: ...
+    # Exception notices (docs/finance.md#exception-notices): each item at most once a day; answers the keys newly claimed.
+    def claim_item_notices(self, context: TenantContext, kind: str, keys: list[str], day: date, now: datetime) -> list[str]: ...
+    def release_item_notices(self, context: TenantContext, kind: str, keys: list[str], day: date) -> None: ...
+    def prune_item_notices(self, context: TenantContext, before: date) -> int: ...
     def count_everything(self, context: TenantContext) -> int: ...
     def delete_everything(self, context: TenantContext) -> int: ...
+
+
+@dataclass(frozen=True)
+class _Claim:
+    """One exception notice claim in memory (``finance_notice_claims`` in PostgreSQL)."""
+
+    tenant_id: str
+    workspace_id: str
+    owner_user_id: str
 
 
 def _mine(item: object, context: TenantContext) -> bool:
@@ -125,6 +147,7 @@ class InMemoryRulesStore:
         self.decisions: dict[str, SuggestionDecision] = {}
         self.batches: dict[str, RuleBatch] = {}
         self.automation: dict[tuple[str, str, str], AutomationSettings] = {}
+        self.notice_claims: dict[tuple[Any, ...], _Claim] = {}
 
     @staticmethod
     def _key(context: TenantContext) -> tuple[str, str, str]:
@@ -273,8 +296,31 @@ class InMemoryRulesStore:
             if found is not None and found.notified_on == day:
                 found.notified_on = None
 
+    def claim_item_notices(self, context: TenantContext, kind: str, keys: list[str], day: date, now: datetime) -> list[str]:
+        with self._lock:
+            claimed = []
+            for key in keys:
+                slot = (*self._key(context), kind, key[:200], day)
+                if slot in self.notice_claims:
+                    continue
+                self.notice_claims[slot] = _Claim(context.tenant_id, context.workspace_id, context.user_id)
+                claimed.append(key)
+            return claimed
+
+    def release_item_notices(self, context: TenantContext, kind: str, keys: list[str], day: date) -> None:
+        with self._lock:
+            for key in keys:
+                self.notice_claims.pop((*self._key(context), kind, key[:200], day), None)
+
+    def prune_item_notices(self, context: TenantContext, before: date) -> int:
+        with self._lock:
+            old = [k for k in self.notice_claims if k[:3] == self._key(context) and k[5] < before]
+            for k in old:
+                del self.notice_claims[k]
+            return len(old)
+
     def _tables(self) -> tuple[dict[Any, Any], ...]:
-        return (self.versions, self.aliases, self.subcategories, self.decisions, self.batches, self.automation)
+        return (self.versions, self.aliases, self.subcategories, self.decisions, self.batches, self.automation, self.notice_claims)
 
     def count_everything(self, context: TenantContext) -> int:
         with self._lock:

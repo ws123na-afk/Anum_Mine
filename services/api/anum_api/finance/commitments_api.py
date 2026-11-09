@@ -240,6 +240,13 @@ def payment_candidates(
     Bills, debts and remittances take money out; a payslip takes the salary credit (money in); a loan with a person
     takes either (``direction``: lending and repaying a loan are money out, borrowing and being repaid money in)."""
     _read(context)
+    return CandidatePage(items=find_candidates(context, for_, direction=direction, around=around, amount=amount, currency=currency, q=q, limit=limit))
+
+
+def find_candidates(context: TenantContext, for_: str, *, direction: str | None = None, around: date | None = None, amount: Decimal | None = None,
+                    currency: str | None = None, q: str | None = None, limit: int = 20) -> list[Candidate]:
+    """The recorded payments a bill, debt, loan, payslip or remittance could be matched to, closest in amount first (a
+    suggestion only). The one matcher behind ``GET /payment-candidates`` and the suggestion queue's payment items."""
     wanted_direction = direction or ("in" if for_ == "payslip" else "out")
     if for_ in ("bill", "debt", "remittance") and wanted_direction != "out":
         raise _invalid("Bills, debts and remittances are paid with money out.")
@@ -278,7 +285,7 @@ def payment_candidates(
                 category=current.category, account_id=account, amount=cap, currency=cur, remaining=remaining,
             )))
     out.sort(key=lambda pair: pair[0])
-    return CandidatePage(items=[c for _, c in out[:limit]])
+    return [c for _, c in out[:limit]]
 
 
 class MatchInput(BaseModel):

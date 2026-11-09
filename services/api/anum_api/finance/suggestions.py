@@ -37,13 +37,13 @@ logger = logging.getLogger("anum_api.finance.suggestions")
 
 Kind = Literal[
     "classification", "conflict", "uncategorized", "statement_hold", "sms_review", "duplicate", "refund_match", "payment_match", "bill_due",
-    "subscription", "unusual_spend", "missing_statement", "cash_shortage", "reconciliation", "external",
+    "subscription", "unusual_spend", "missing_statement", "cash_shortage", "reconciliation", "attribution", "fx_fee", "external",
 ]
-ActionKind = Literal["classify", "confirm_refund", "acknowledge", "open"]
+ActionKind = Literal["classify", "confirm_refund", "acknowledge", "open", "link"]
 # The order the queue lists kinds in: money at risk first, then what blocks figures, then tidying.
 KIND_ORDER: tuple[str, ...] = (
     "cash_shortage", "bill_due", "unusual_spend", "reconciliation", "duplicate", "conflict", "classification", "uncategorized", "statement_hold", "sms_review",
-    "refund_match", "payment_match", "missing_statement", "subscription", "external",
+    "refund_match", "payment_match", "attribution", "fx_fee", "missing_statement", "subscription", "external",
 )
 RECENT_DAYS = 120  # rows a classification suggestion looks at
 HISTORY_DAYS = 400  # what historical reuse learns from
@@ -52,7 +52,7 @@ MAX_ITEMS = 2_000  # suggestions built per request at most
 
 class Evidence(BaseModel):
     label: str = Field(max_length=120)
-    ref_type: Literal["transaction", "import", "sms_message", "bill", "account", "rule", "other"] = "other"
+    ref_type: Literal["transaction", "import", "sms_message", "bill", "account", "rule", "debt", "vehicle", "purchase", "business", "other"] = "other"
     ref_id: str | None = None
     value: str | None = Field(default=None, max_length=200)
 
@@ -66,12 +66,29 @@ class Effect(BaseModel):
     note: str | None = Field(default=None, max_length=200)
 
 
+class LinkProposal(BaseModel):
+    """What Accept links, through the finance links API (so every link check applies): a part of one canonical
+    transaction to a bill's due date, a debt, a vehicle cost, a purchase, or a business (an allocation)."""
+
+    canonical_id: str
+    dimension: Literal["bill", "debt", "vehicle", "purchase", "business"]
+    target_type: str
+    target_id: str
+    amount: Decimal
+    currency: str
+    # business allocations only
+    treatment: Literal["owner_contribution", "reimbursable"] | None = None
+    category: str | None = None
+    project_id: str | None = None
+
+
 class ProposedAction(BaseModel):
     kind: ActionKind
     transaction_ids: list[str] = Field(default_factory=list, max_length=200)
     category: Category | None = None
     subcategory_id: str | None = None
     transaction_type: TransactionType | None = None
+    link: LinkProposal | None = None
 
 
 class Suggestion(BaseModel):
@@ -281,13 +298,25 @@ def bills(snap: Snapshot) -> list[Suggestion]:
                 href="#finance-bills", occurred_on=occ.due_on,
             ))
         elif occ.status in ("overdue", "review"):
+            # The one payment matcher (GET /payment-candidates) proposes the payment when one fits: Accept links it.
+            from .attribution import bill_link
+
+            proposal = bill_link(snap, occ) if occ.status == "overdue" else None
+            evidence = [Evidence(label=occ.name[:120], ref_type="bill", ref_id=occ.bill_id, value=occ.due_on.isoformat())]
+            params = {"name": occ.name[:80], "due_on": occ.due_on.isoformat()}
+            if proposal is not None:
+                params["payment"] = proposal[2][:80]
+                evidence.append(Evidence(label=proposal[2][:120] or "Payment", ref_type="other", ref_id=proposal[0].canonical_id,
+                                         value=f"{proposal[0].currency} {proposal[0].amount}"))
             out.append(Suggestion(
-                key=f"payment_match:{occ.bill_id}:{occ.due_on.isoformat()}", producer="bills", kind="payment_match",
+                key=f"payment_match:{occ.bill_id}:{occ.due_on.isoformat()}" + (f":{proposal[0].canonical_id}" if proposal else ""),
+                producer="bills", kind="payment_match",
                 detected=f"{occ.name} has no matched payment for {occ.due_on.isoformat()}.",
-                why="If you paid it, match the payment on the Bills page so it is not counted as still due.",
-                params={"name": occ.name[:80], "due_on": occ.due_on.isoformat()},
-                evidence=[Evidence(label=occ.name[:120], ref_type="bill", ref_id=occ.bill_id, value=occ.due_on.isoformat())],
-                effect=[Effect(amount=occ.expected, currency=occ.currency, direction="out")], action=ProposedAction(kind="open"),
+                why=("A recorded payment fits this due date. Accept to match it; the bill then counts as paid."
+                     if proposal else "If you paid it, match the payment on the Bills page so it is not counted as still due."),
+                params=params, evidence=evidence, confidence=proposal[1] if proposal else None,
+                effect=[Effect(amount=occ.expected, currency=occ.currency, direction="out")],
+                action=ProposedAction(kind="link", link=proposal[0]) if proposal else ProposedAction(kind="open"),
                 href="#finance-bills", occurred_on=occ.due_on,
             ))
     return out
@@ -481,9 +510,23 @@ def build(context: TenantContext, now: datetime, *, kind: str | None = None, lim
 
 
 __all__ = [
-    "Effect", "Evidence", "KIND_ORDER", "ProposedAction", "Queue", "Snapshot", "Suggestion", "build", "producers", "register_producer", "seal",
-    "snapshot", "unregister_producer",
+    "KIND_ORDER",
+    "Effect",
+    "Evidence",
+    "LinkProposal",
+    "ProposedAction",
+    "Queue",
+    "Snapshot",
+    "Suggestion",
+    "build",
+    "producers",
+    "register_producer",
+    "seal",
+    "snapshot",
+    "unregister_producer",
 ]
 
 # The reconciliation workspace's exceptions (its module registers itself; imported last, once this module is complete).
+# Attribution (business, vehicle, purchase, debt) and card FX fee producers (docs/finance.md#attribution-suggestions).
+from . import attribution as _attribution  # noqa: F401
 from . import reconciliation_suggestions as _reconciliation_suggestions  # noqa: F401

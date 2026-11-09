@@ -2,12 +2,43 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import {
-  EMPTY_RULE, NEVER_AUTOMATED, SUGGESTION_VIEWS, acceptMode, confidencePercent, confidenceTone, fromContent, kindChips, matchSummary, splitWords, toContent,
+  EMPTY_RULE, NEVER_AUTOMATED, NOTICE_KINDS, SUGGESTION_VIEWS, acceptMode, confidencePercent, confidenceTone, fromContent, kindChips, matchSummary, splitWords,
+  toContent, toggleNotice, variantOf,
 } from '../src/lib/financeSuggestions.ts';
 import { en } from '../src/lib/messages/en.ts';
 import { ar } from '../src/lib/messages/ar.ts';
 
 const action = (kind: 'classify' | 'confirm_refund' | 'acknowledge' | 'open') => ({ action: { kind, transaction_ids: [], category: null, subcategory_id: null, transaction_type: null } });
+
+describe('attribution, FX fee and exception notices (docs/finance.md#attribution-suggestions)', () => {
+  const link = { canonical_id: 'c', dimension: 'business' as const, target_type: 'business_workspace', target_id: 'ws', amount: '80.00', currency: 'SAR',
+    treatment: 'reimbursable' as const, category: 'shopping', project_id: null };
+  it('a link suggestion links through the API; one without a proposal has no Accept', () => {
+    assert.equal(acceptMode({ action: { kind: 'link', transaction_ids: [], category: null, subcategory_id: null, transaction_type: null, link } }), 'link');
+    assert.equal(acceptMode({ action: { kind: 'link', transaction_ids: [], category: null, subcategory_id: null, transaction_type: null, link: null } }), 'none');
+  });
+  it('words each attribution by the module it links to', () => {
+    const a = (params: Record<string, string>, kind = 'attribution' as const, actionKind: 'link' | 'open' = 'link') =>
+      variantOf({ kind, params, action: { kind: actionKind, transaction_ids: [], category: null, subcategory_id: null, transaction_type: null } });
+    assert.equal(a({ dimension: 'business' }), 'business');
+    assert.equal(a({ dimension: 'vehicle', record: 'none' }, 'attribution', 'open'), 'vehicle_record');
+    assert.equal(a({ dimension: 'purchase' }), 'purchase');
+    assert.equal(variantOf({ kind: 'payment_match', params: {}, action: { kind: 'open', transaction_ids: [], category: null, subcategory_id: null, transaction_type: null } }), null);
+    assert.equal(variantOf({ kind: 'fx_fee', params: { source: 'fee_row' }, action: { kind: 'open', transaction_ids: [], category: null, subcategory_id: null, transaction_type: null } }), 'link');
+    for (const variant of ['business', 'vehicle', 'vehicle_record', 'purchase', 'debt']) {
+      for (const key of [`fsug.head.attribution.${variant}`, `fsug.why.attribution.${variant}`]) {
+        assert.ok(key in en, key);
+        assert.ok(key in ar, key);
+      }
+    }
+  });
+  it('turns exception notices on and off in a stable order, never twice', () => {
+    assert.deepEqual(toggleNotice([], 'evidence_missing', true), ['evidence_missing']);
+    assert.deepEqual(toggleNotice(['evidence_missing'], 'reconciliation_overdue', true), ['reconciliation_overdue', 'evidence_missing']);
+    assert.deepEqual(toggleNotice(['evidence_missing', 'evidence_missing'], 'evidence_missing', false), []);
+    for (const kind of NOTICE_KINDS) assert.ok(`fsug.notice.${kind}` in en && `fsug.notice.${kind}` in ar, kind);
+  });
+});
 
 describe('finance suggestions model', () => {
   it('says what Accept does: apply changes rows, acknowledge only records, open has no Accept', () => {

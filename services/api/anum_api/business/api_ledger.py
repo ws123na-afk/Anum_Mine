@@ -238,7 +238,13 @@ def list_journal(start: date | None = Query(default=None, alias="from"), end: da
     _read(context)
     if source_kind is not None and source_kind not in SOURCE_KINDS:
         raise S.BooksError(422, "Unknown source.", "invalid_filter", allowed=list(SOURCE_KINDS))
-    return {**L.journal(context, start=start, end=end, source_kind=source_kind, limit=limit, offset=offset), "can_account": can_account(context)}
+    page = L.journal(context, start=start, end=end, source_kind=source_kind, limit=limit, offset=offset)
+    if has_permission(context, Permission.DOCUMENT_READ):
+        # The drill-down shows each entry's supporting documents (docs/business-books.md#supporting-documents-and-evidence).
+        from .books_evidence import with_evidence
+
+        page["items"] = with_evidence(context, page["items"])
+    return {**page, "can_account": can_account(context)}
 
 
 class ManualLine(BaseModel):
@@ -332,7 +338,10 @@ def statements(start: date | None = Query(default=None, alias="from"), end: date
     one period, from the journal; ``compare`` adds the previous period and the same period last year."""
     _read(context)
     first, last = _period(context, start, end)
-    return {**L.statements(context, first, last, today=_today(), compare=compare), "policies": policies_for(context)}
+    from .api_books import _with_evidence_warning
+
+    data = _with_evidence_warning(context, L.statements(context, first, last, today=_today(), compare=compare), first, last)
+    return {**data, "policies": policies_for(context)}
 
 
 @router.get("/ledger/statements.csv")
@@ -473,6 +482,24 @@ def reopen_period(payload: ReopenInput, context: TenantContext = Depends(tenant_
                                                                            "after": {"closed_through": result["closed_through"] or ""},
                                                                            "months": len(result["reopened"])})
     return result
+
+
+# -- accountant review --------------------------------------------------------------------------------------------------------
+
+
+@router.get("/review")
+@refusals
+@_ledger
+def accountant_review(kind: str | None = Query(default=None, max_length=40), limit: int = Query(default=50, ge=1, le=MAX_PAGE),
+                      offset: int = Query(default=0, ge=0), context: TenantContext = Depends(tenant_context)) -> Any:
+    """Everything waiting on an owner or an accountant: draft bills to approve, posting issues, records with no exchange rate,
+    allocations in review, and the close checklist of the previous and current month (docs/business-books.md#accountant-review)."""
+    from . import books_review as RV
+
+    require_accounting(context)
+    if kind is not None and kind not in RV.KIND_ORDER:
+        raise S.BooksError(422, "Unknown review kind.", "invalid_kind")
+    return RV.build(context, _today(), kind=kind, limit=limit, offset=offset).model_dump(mode="json")
 
 
 # -- accountants -------------------------------------------------------------------------------------------------------------

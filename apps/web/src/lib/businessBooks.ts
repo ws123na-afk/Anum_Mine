@@ -9,13 +9,22 @@ import { formatAmount } from './finance.ts';
 import { t, type MessageKey } from './i18n.ts';
 import type { Tone } from './business.ts';
 
-export type BooksTab = 'overview' | 'group' | 'bills' | 'recurring' | 'vendors' | 'allocations' | 'budgets' | 'journal' | 'ledger' | 'statements' | 'accounts'
+export type BooksTab = 'overview' | 'review' | 'group' | 'bills' | 'recurring' | 'vendors' | 'allocations' | 'budgets' | 'journal' | 'ledger' | 'statements' | 'accounts'
   | 'close' | 'tax' | 'assets' | 'loans' | 'revaluation' | 'intercompany' | 'settings';
 /** ``journal`` is the adjustments; ``ledger``, ``statements``, ``accounts`` and ``close`` are the double-entry journal (docs/business-books.md#the-journal). */
-export const BOOKS_TABS: readonly BooksTab[] = ['overview', 'group', 'bills', 'recurring', 'vendors', 'allocations', 'budgets', 'journal', 'ledger', 'statements', 'accounts',
+export const BOOKS_TABS: readonly BooksTab[] = ['overview', 'review', 'group', 'bills', 'recurring', 'vendors', 'allocations', 'budgets', 'journal', 'ledger', 'statements', 'accounts',
   'close', 'tax', 'assets', 'loans', 'revaluation', 'intercompany', 'settings'];
 /** Sections only owners see in the navigation (the API refuses everyone else anyway). */
 export const OWNER_TABS: readonly BooksTab[] = ['group'];
+/** Sections for owners and accountants only (``permissions.account``): the Accountant review (docs/business-books.md#accountant-review). */
+export const ACCOUNTANT_TABS: readonly BooksTab[] = ['review'];
+
+/** Whether a section shows in the Books navigation for these permissions. */
+export function tabShown(tab: BooksTab, permissions: { manage: boolean; account?: boolean }): boolean {
+  if (OWNER_TABS.includes(tab)) return permissions.manage;
+  if (ACCOUNTANT_TABS.includes(tab)) return permissions.manage || Boolean(permissions.account);
+  return true;
+}
 export const BOOKS_PAGE = 25;
 export const BOOK_CURRENCIES = ['SAR', 'AED', 'USD', 'EUR', 'GBP', 'KWD', 'QAR', 'BHD', 'OMR', 'EGP', 'INR', 'PKR'] as const;
 export const COUNTRIES = ['SA', 'AE', 'KW', 'QA', 'BH', 'OM', 'EG', 'GB', 'US'] as const;
@@ -116,7 +125,8 @@ export function billBody(draft: BillDraft): BooksBillInput {
 }
 
 export function settingsBody(form: { base_currency: string; country: string; fiscal_year_start_month: number; basis: BooksBasis; tax_label: string;
-  rate_max_age_days: string; mappings: { category: string; section: BooksTagSection }[]; policy_note?: string }, current: BooksSettings | null): BooksSettingsInput {
+  rate_max_age_days: string; mappings: { category: string; section: BooksTagSection }[]; policy_note?: string; evidence_threshold?: string },
+  current: BooksSettings | null): BooksSettingsInput {
   const category_sections: Record<string, BooksTagSection> = {};
   for (const row of form.mappings) {
     const key = normalizeCategory(row.category);
@@ -124,7 +134,10 @@ export function settingsBody(form: { base_currency: string; country: string; fis
   }
   return { base_currency: form.base_currency, country: form.country || null, fiscal_year_start_month: form.fiscal_year_start_month, basis: form.basis,
     tax_label: form.tax_label.trim(), category_sections, rate_max_age_days: Number(form.rate_max_age_days) || 31,
-    ...(form.policy_note !== undefined ? { policy_note: form.policy_note.trim() } : {}), version: current ? current.version : null };
+    ...(form.policy_note !== undefined ? { policy_note: form.policy_note.trim() } : {}),
+    // An empty threshold turns the "evidence missing" flag off (docs/business-books.md#supporting-documents-and-evidence).
+    ...(form.evidence_threshold !== undefined ? { evidence_threshold: form.evidence_threshold.trim() || null } : {}),
+    version: current ? current.version : null };
 }
 
 export function budgetProblem(form: BooksBudgetInput): MessageKey | null {

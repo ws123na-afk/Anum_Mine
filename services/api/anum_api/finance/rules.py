@@ -441,6 +441,10 @@ def require_automatable(action: str) -> None:
         raise AutomationRefused(f"'{action}' is never automated: the owner does it by hand.")
 
 
+NoticeKind = Literal["reconciliation_overdue", "statement_missing", "uncategorized_money", "business_unposted", "evidence_missing"]
+NOTICE_KINDS: tuple[str, ...] = ("reconciliation_overdue", "statement_missing", "uncategorized_money", "business_unposted", "evidence_missing")
+
+
 class AutomationPolicy(BaseModel):
     """The owner's automation switches. Off by default; every automatic change is audited and can be undone."""
 
@@ -451,6 +455,15 @@ class AutomationPolicy(BaseModel):
     sources: list[Literal["rule", "history"]] = Field(default_factory=lambda: ["rule"], max_length=2)
     notify_unresolved: bool = False  # a daily in-app notice when suggestions wait
     notify_min_items: int = Field(default=1, ge=1, le=500)
+    # Exception notices (docs/finance.md#exception-notices): each kind off until the owner turns it on; in-app only.
+    notices: list[NoticeKind] = Field(default_factory=list, max_length=5)
+    notice_exception_days: int = Field(default=7, ge=1, le=90)  # open reconciliation exceptions older than this
+    notice_uncategorized_min: Decimal = Field(default=Decimal("500"), ge=0, le=Decimal("1e9"))  # per currency, never added across
+
+    @field_validator("notices")
+    @classmethod
+    def _unique_notices(cls, value: list[str]) -> list[str]:
+        return list(dict.fromkeys(value))
 
 
 class AutomationSettings(_Owned):
@@ -461,7 +474,7 @@ class AutomationSettings(_Owned):
 
 
 __all__ = [
-    "AUTOMATABLE", "ActiveRule", "AliasBook", "AutomationPolicy", "AutomationRefused", "AutomationSettings", "FinanceRule", "HistoryHint",
+    "NOTICE_KINDS", "NoticeKind", "AUTOMATABLE", "ActiveRule", "AliasBook", "AutomationPolicy", "AutomationRefused", "AutomationSettings", "FinanceRule", "HistoryHint",
     "MAX_ALIASES", "MAX_RULES", "MAX_SUBCATEGORIES", "MAX_VERSIONS", "MerchantAlias", "NEVER_AUTOMATED", "Row", "RuleContent", "RuleMatch",
     "active_rules", "current_versions", "first_match", "fold", "from_legacy", "has_phrase", "history_index", "history_suggestion", "learnable", "merchant_key",
     "ordered", "payload_hash", "require_automatable", "Subcategory",

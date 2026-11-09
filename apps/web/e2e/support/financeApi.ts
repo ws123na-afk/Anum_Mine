@@ -188,6 +188,55 @@ function safeToSpend(state: FinanceState) {
   };
 }
 
+// The cash-flow forecast and the emergency reserve (docs/finance.md#forecast): today's AED balance, rent on day 3, the
+// card minimum on day 6, salary on day 25 and 100 a day of usual spending; the low and high lines 20 a day apart.
+function forecastOf(state: FinanceState) {
+  const reserve = state.goals.find((g) => g.purpose === 'emergency' && g.currency === 'AED');
+  const target = reserve ? Number(reserve.target_amount) : null;
+  if (!state.accounts.length) return { today: day(0), month_end: day(10), horizon_end: day(70), timezone: 'Asia/Dubai', base_currency: 'AED', currencies: [], note: '' };
+  const events = [
+    { on: day(3), kind: 'bill', label: 'Rent', ref_id: 'fin_bill_rent', currency: 'AED', amount: '-6500.00', status: 'expected', note: 'bill_due', params: { date: day(3) } },
+    { on: day(6), kind: 'minimum_payment', label: 'Rewards card', ref_id: 'fin_debt_card', currency: 'AED', amount: '-250.00', status: 'expected', note: 'minimum_due', params: { card: '1', date: day(6) } },
+    { on: day(25), kind: 'salary', label: 'Example Trading Co', ref_id: 'sp', currency: 'AED', amount: '12000.00', status: 'expected', note: 'salary_expected', params: {} },
+  ];
+  const points = [];
+  let expected = 15349.5, low = 15349.5, high = 15349.5;
+  for (let i = 0; i <= 70; i++) {
+    if (i > 0) { expected -= 100; low -= 120; high -= 80; }
+    for (const e of events) if (e.on === day(i)) { expected += Number(e.amount); low += Number(e.amount); high += Number(e.amount); }
+    points.push({ on: day(i), expected: expected.toFixed(2), low: low.toFixed(2), high: high.toFixed(2) });
+  }
+  const at = (i: number) => points[i];
+  const monthEnd = (i: number, label: string) => ({ month: label, on: day(i), expected: at(i).expected, low: at(i).low, high: at(i).high, money_in: i >= 25 ? '12000.00' : '0.00', money_out: '6750.00', spending: (100 * i).toFixed(2) });
+  const warnings = target !== null && Number(at(0).expected) < target ? [{ kind: 'below_reserve', on: day(0), balance: at(0).expected, threshold: target.toFixed(2) }] : [];
+  return {
+    today: day(0), month_end: day(10), horizon_end: day(70), timezone: 'Asia/Dubai', base_currency: 'AED', note: 'An estimate from your own records, not a promise and not advice.',
+    currencies: [{
+      currency: 'AED', actual: '15349.50', accounts_counted: 1, reserve_target: target === null ? null : target.toFixed(2),
+      spend: { basis: 'months', months: [month], monthly: '3043.75', daily: '100.00', daily_low: '80.00', daily_high: '120.00' },
+      month_end: monthEnd(10, month), months: [monthEnd(10, month), monthEnd(40, month), monthEnd(70, month)], points, events, warnings,
+      assumptions: [{ code: 'start_balance', params: { count: '1' }, detail: '' }, { code: 'spend_months', params: { months: month, amount: '3043.75', daily: '100.00' }, detail: '' },
+        { code: 'band', params: { low: '120.00', high: '80.00' }, detail: '' }, { code: 'salary_profile', params: { day: '25' }, detail: '' }],
+      left_out: [],
+    }],
+  };
+}
+
+function reservesOf(state: FinanceState) {
+  const reserves = state.goals.filter((g) => g.purpose === 'emergency').map((g) => {
+    const saved = Number(g.saved_amount ?? 0), target = Number(g.target_amount);
+    return {
+      goal_id: g.id, name: g.name, currency: g.currency, mode: g.reserve_months ? 'months' : 'amount', months: g.reserve_months ?? null, target: target.toFixed(2),
+      recalculated_target: g.reserve_months ? (6000 * Number(g.reserve_months)).toFixed(2) : null, essential_monthly: '6000.00', essential_basis: 'essential', saved: saved.toFixed(2),
+      progress_percent: Math.floor((saved * 100) / target), months_covered: (Math.floor((saved / 6000) * 10) / 10).toFixed(1), held_in: g.account_id ? 'account' : 'goal',
+      account_id: g.account_id ?? null, account_name: g.account_id ? 'Everyday account' : null, paused: false, monthly_contribution: g.monthly_contribution ?? null,
+      status: saved >= target ? 'reached' : saved > 0 ? 'building' : 'empty',
+    };
+  });
+  const suggestions = state.accounts.length && !reserves.some((r) => r.currency === 'AED') ? [{ currency: 'AED', essential_monthly: '6000.00', essential_basis: 'essential', months: 3, target: '18000.00' }] : [];
+  return { reserves, suggestions, default_months: 3, note: '' };
+}
+
 let changeCount = 0;
 
 function portfolioView(state: TradingState, portfolio: Record<string, unknown>) {
@@ -386,6 +435,9 @@ function financeStagesReply(state: FinanceState, method: string, sub: string, bo
   if (trading) return trading;
   const ok = (value: unknown, status = 200) => ({ status, body: value });
   const conflict = (message: string) => ({ status: 409, body: { error: { code: 'conflict', message, correlation_id: 'c', details: [] } } });
+  if (sub === '/forecast') return ok(forecastOf(state));
+  if (sub === '/reserve') return ok(reservesOf(state));
+  if (sub === '/salary/profile' && method === 'GET') return ok({ profile: null });
   if (sub === '/safe-to-spend') return state.failSafe ? { status: 503, body: { error: { code: 'internal_error', message: 'The database is not reachable.', correlation_id: 'c', details: [] } } } : ok(safeToSpend(state));
   if (sub === '/plan') return method === 'PUT' ? ok((state.plan = { ...state.plan, ...(body as object), updated_at: stamp })) : ok(state.plan);
   const guardianView = () => ({ ...state.guardian, confirmed_by: 'user_local', pending: state.changes.filter((c) => c.status === 'pending'), kinds: ['spend', 'bill_payment', 'transfer', 'trade', 'record'] });

@@ -1356,6 +1356,23 @@ def test_books_assets_fx_migration_is_expand_only_with_forced_rls_and_widened_ch
     for table in ("business_book_assets", "business_book_asset_impairments", "business_book_loan_repayments"):
         assert f"tg_table_name = '{table}'" in function
     assert "op.execute(new_period_open)" in upgrade and "security definer" not in function
+
+
+def test_finance_evidence_migration_widens_vault_links_adds_the_threshold_and_owner_only_notice_claims() -> None:
+    versions = Path(__file__).parents[1] / "migrations" / "versions"
+    revision_text = (versions / "0157_finance_evidence.py").read_text(encoding="utf-8")
+    assert 'revision = "0157_finance_evidence"' in revision_text and len("0157_finance_evidence") <= 32
+    assert 'down_revision = "0156_finance_reserve"' in revision_text
+    upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
+    # The only thing dropped is the vault link type check, replaced at once by a wider one every existing row passes.
+    assert upgrade.count("drop ") == 1 and "drop constraint ck_vault_document_links_type" in upgrade
+    for kind in ("business_bill", "business_invoice", "business_adjustment", "business_journal", "finance_transaction"):
+        assert kind in revision_text
+    assert 'op.add_column("business_book_settings"' in upgrade and "nullable=true" in upgrade
+    assert '"finance_notice_claims"' in revision_text and "uq_finance_notice_claims_item_day" in upgrade
+    rls = revision_text.split("def _rls", 1)[1].split("def upgrade", 1)[0].lower()
+    assert "_rls(table)" in upgrade and "force row level security" in rls and "owner_only_" in rls and "as restrictive" in rls
+    assert "create policy lifecycle_purge_finance_notice_claims" in upgrade
     assert "bypassrls" not in upgrade and "security definer" not in upgrade
 
 
@@ -1461,3 +1478,15 @@ def test_room_geometry_file_rename_kept_its_revision_ids() -> None:
     assert chain["0099_office_create_keys.py"] == ("0099_office_create_keys", "0098_agent_live_meetings")
     assert chain["0101_executive_grants.py"][1] == "0100_office_room_geometry"
     assert "0099_office_room_geometry.py" not in chain
+
+
+def test_finance_reserve_migration_is_expand_only() -> None:
+    versions = Path(__file__).parents[1] / "migrations" / "versions"
+    revision_text = (versions / "0156_finance_reserve.py").read_text(encoding="utf-8")
+    assert 'revision = "0156_finance_reserve"' in revision_text and len("0156_finance_reserve") <= 32
+    assert 'down_revision = "0155_books_assets_fx"' in revision_text
+    upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
+    # A nullable column with a check on an existing forced-RLS table: nothing dropped, no new policy needed.
+    assert '"finance_goals"' in upgrade and '"reserve_months"' in upgrade and "nullable=true" in upgrade
+    assert "ck_finance_goals_reserve_months" in upgrade
+    assert "drop " not in upgrade and "bypassrls" not in upgrade and "security definer" not in upgrade

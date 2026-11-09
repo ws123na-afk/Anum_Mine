@@ -1,25 +1,24 @@
 // Safe to spend (docs/finance.md#safe-to-spend), from the owner's mockup of 5 Nov 2026. The figure and
-// its build come from GET /finance/safe-to-spend; the runway from that figure, your bills
-// (GET /finance/bills/upcoming) and your average daily spending (two month summaries); the guardrails
+// its build come from GET /finance/safe-to-spend; the forecast and the emergency reserve from the API's one
+// forecast (GET /finance/forecast, GET /finance/reserve; docs/finance.md#forecast); the guardrails
 // from your Guardian category limits (GET /finance/guardian) against this month's spending. Business
 // budgets come from the business books. An estimate from your own records: nothing here moves money.
-import { Suspense, lazy, useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
 import {
-  CalendarClock, CircleCheck, Gauge, Info, Landmark, ListChecks, Pencil, RefreshCw, Scale, Settings2, ShieldCheck, Target, TriangleAlert, Wallet,
+  CalendarClock, CircleCheck, Info, Landmark, ListChecks, Pencil, RefreshCw, Scale, Settings2, ShieldCheck, Target, TriangleAlert, Wallet,
 } from 'lucide-react';
-import type { BooksReport, FinanceGuardian, FinanceGuardianAlerts, FinanceSafeToSpend, FinanceSummary, FinanceTransaction, FinanceUpcomingBill } from '@anum/contracts';
+import type { BooksReport, FinanceForecast, FinanceGuardian, FinanceGuardianAlerts, FinanceReserves, FinanceSafeToSpend, FinanceSummary, FinanceTransaction, FinanceUpcomingBill } from '@anum/contracts';
 import * as api from './lib/financeApi';
 import * as books from './lib/businessBooksApi';
 import { categoryLabel, describeRules, formatAmount, isolate, monthLabel, shiftMonth, type FinanceTab } from './lib/finance';
 import { monthRange, type FinanceScope } from './lib/financeNav';
-import { add, dailyPace, guardrails, runway, spendOutsideBills } from './lib/financeStatements';
+import { add, guardrails } from './lib/financeStatements';
+import { ForecastCard, ReserveCard } from './FinanceForecast';
 import { formatDateTime, formatNumber, t } from './lib/i18n';
 import { Denied, Empty, LoadError, Money, Notice, failed, type Load } from './FinanceParts';
 import { FinBanner, FinCard, FinancePageHead, FinanceTabs, KpiCard, KpiRow, ScopeSwitch, StatusChip, tabPanel } from './FinanceShell';
 import { PlanDialog, SafeBody } from './FinancePlan';
 import './financePages.css';
-
-const RunwayChart = lazy(() => import('./FinanceCharts').then((m) => ({ default: m.RunwayChart })));
 
 type SafeTab = 'now' | 'rules';
 /** Records older than this many days make the estimate "may be stale". */
@@ -57,7 +56,9 @@ export function FinanceSafePage({ onOpen, onChanged }: { onOpen: (tab: FinanceTa
   const [latest, reloadLatest] = useLoad(loadLatest);
   const loadBooks = useMemo(() => (month && scope !== 'personal' ? () => books.getReport(monthRange(month)) : null), [month, scope]);
   const [report, reloadReport] = useLoad(loadBooks);
-  const refresh = () => { reloadSafe(); reloadSummaries(); reloadBills(); reloadGuardian(); reloadLatest(); reloadReport(); onChanged(); };
+  const [forecast, reloadForecast] = useLoad(api.getForecast);
+  const [reserves, reloadReserves] = useLoad(api.getReserve);
+  const refresh = () => { reloadSafe(); reloadSummaries(); reloadBills(); reloadGuardian(); reloadLatest(); reloadReport(); reloadForecast(); reloadReserves(); onChanged(); };
 
   const data = safe.kind === 'ready' ? safe.value : null;
   const currencies = data?.currencies.map((c) => c.currency) ?? [];
@@ -88,6 +89,7 @@ export function FinanceSafePage({ onOpen, onChanged }: { onOpen: (tab: FinanceTa
       action={<button type="button" onClick={() => onOpen('accounts')}>{t('finance.accounts.add')}</button>} />
   </FinCard>;
   else if (data && shown) body = <AvailableNow data={data} currency={shown} summaries={summaries} bills={bills} guardian={guardian} latest={latest} report={scope === 'all' ? report : null}
+    forecast={forecast} reserves={reserves} onRetryForecast={() => { reloadForecast(); reloadReserves(); }}
     onOpen={onOpen} onEdit={() => setSettings(true)} onRefresh={refresh} />;
   return <div className="finPage finSafePage">
     {head}
@@ -99,19 +101,15 @@ export function FinanceSafePage({ onOpen, onChanged }: { onOpen: (tab: FinanceTa
   </div>;
 }
 
-function AvailableNow({ data, currency, summaries, bills, guardian, latest, report, onOpen, onEdit, onRefresh }: {
+function AvailableNow({ data, currency, summaries, bills, guardian, latest, report, forecast, reserves, onRetryForecast, onOpen, onEdit, onRefresh }: {
   data: FinanceSafeToSpend; currency: string; summaries: Load<[FinanceSummary, FinanceSummary]>; bills: Load<FinanceUpcomingBill[]>; guardian: Load<FinanceGuardian>;
-  latest: Load<{ items: FinanceTransaction[] }>; report: Load<BooksReport> | null; onOpen: (tab: FinanceTab) => void; onEdit: () => void; onRefresh: () => void;
+  latest: Load<{ items: FinanceTransaction[] }>; report: Load<BooksReport> | null; forecast: Load<FinanceForecast>; reserves: Load<FinanceReserves>; onRetryForecast: () => void;
+  onOpen: (tab: FinanceTab) => void; onEdit: () => void; onRefresh: () => void;
 }) {
   const row = data.currencies.find((c) => c.currency === currency)!;
   const committed = add(currency, row.bills, row.minimum_payments);
   const setAside = add(currency, row.goals, row.buffer);
   const dueBills = bills.kind === 'ready' ? bills.value.filter((b) => b.currency === currency && b.due_on <= data.month_end) : [];
-  // The pace leaves out the categories bills cover: the runway takes those off on their due day instead.
-  const billRows = bills.kind === 'ready' ? bills.value : [];
-  const pace = summaries.kind === 'ready' ? dailyPace(spendOutsideBills(summaries.value[0], currency, billRows), Number(data.today.slice(8, 10)),
-    spendOutsideBills(summaries.value[1], currency, billRows), Number(monthRange(summaries.value[1].month).to.slice(8, 10)), currency) : null;
-  const points = pace !== null ? runway(data, currency, dueBills, pace) : [];
   const newest = latest.kind === 'ready' ? latest.value.items[0]?.posted_on ?? null : null;
   const age = newest ? daysBetween(newest, data.today) : null;
   return <>
@@ -136,21 +134,9 @@ function AvailableNow({ data, currency, summaries, bills, guardian, latest, repo
       <p className="visuallyHidden">{t('fsafe.calc.sentence', { balance: formatAmount(row.available, currency), bills: formatAmount(committed, currency), goals: formatAmount(setAside, currency), result: formatAmount(row.safe_to_spend, currency) })}</p>
       <span className="finCalcMeta">{t('fsafe.kpi.accounts', { count: data.accounts_counted })}{data.excluded.length > 0 && ` · ${t('fsafe.review.excluded', { count: data.excluded.length })}`}</span>
     </section>
+    <ForecastCard forecast={forecast} currency={currency} onRetry={onRetryForecast} onOpenSettings={() => onOpen('settings')} />
     <div className="finReportGrid finSafeGridTop">
-      <FinCard title={t('fsafe.runway.title', { month: monthLabel(data.month) })} subtitle={t('fsafe.runway.subtitle')} icon={<Gauge />} className="finRunway">
-        {summaries.kind === 'loading' || bills.kind === 'loading' ? <Notice busy>{t('finance.safe.loading')}</Notice>
-          : summaries.kind !== 'ready' ? <LoadError message={t('fsafe.runway.error', { message: summaries.kind === 'error' || summaries.kind === 'denied' ? summaries.message : '' })} retry={onRefresh} />
-          // Without the bills the projection would overstate the month end: say what failed instead of drawing it.
-          : bills.kind !== 'ready' ? <LoadError message={t('fsafe.runway.billsError', { message: bills.kind === 'error' || bills.kind === 'denied' ? bills.message : '' })} retry={onRefresh} />
-          : points.length < 2 ? <p className="muted">{t('fsafe.runway.lastDay')}</p>
-          : <Suspense fallback={<Notice busy>{t('finance.safe.loading')}</Notice>}><RunwayChart points={points} currency={currency} perDay={pace ?? '0'} title={t('fsafe.runway.chartTitle', { currency })} /></Suspense>}
-        {pace !== null && bills.kind === 'ready' && <div className="finAssumptions"><strong>{t('fsafe.assume.title')}</strong><ul>
-          <li>{t('fsafe.assume.pace', { amount: isolate(formatAmount(pace, currency)) })}</li>
-          <li>{t('fsafe.assume.band', { percent: 10 })}</li>
-          <li>{t('fsafe.assume.bills', { count: dueBills.length })}</li>
-          {points.length > 0 && <li>{t('fsafe.assume.end', { amount: isolate(formatAmount(points[points.length - 1].balance, currency)) })}</li>}
-        </ul></div>}
-      </FinCard>
+      <ReserveCard reserves={reserves} currency={currency} onRetry={onRetryForecast} onOpenSettings={() => onOpen('settings')} />
       <FinCard title={t('fsafe.review.title')} icon={<ListChecks />} className="finReview">
         <ul className="finQualityList">
           <li className="ok"><CircleCheck aria-hidden="true" /><div><strong>{t('fsafe.kpi.accounts', { count: data.accounts_counted })}</strong></div></li>

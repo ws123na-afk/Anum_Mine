@@ -709,6 +709,7 @@ class DecisionView(BaseModel):
     key: str
     status: str
     batch: BatchView | None = None
+    link_id: str | None = None  # the link an attribution or payment suggestion made
 
 
 def _decision(context: TenantContext, item: SG.Suggestion, status_: str, batch_id: str | None, now: Any) -> SuggestionDecision:
@@ -764,6 +765,8 @@ def accept_suggestion(body: DecisionInput, context: TenantContext = Depends(tena
         raise HTTPException(status_code=409, detail="This suggestion changed since you looked at it. Look at it again, then accept.")
     if item.action.kind == "open":
         raise HTTPException(status_code=409, detail="This one is resolved on its own page. Open it there, or dismiss it here.")
+    if item.action.kind == "link":
+        return _accept_link(context, item, repository)
     from .sms_service import owner_lock
     from .sms_store import open_sms_stores
 
@@ -781,6 +784,37 @@ def accept_suggestion(body: DecisionInput, context: TenantContext = Depends(tena
                                   batch_id=batch_id)
     _audit(repository, context, "finance.suggestion.accept", item.producer, {"kind": item.kind, "rows": len(batch.changes) if batch else 0})
     return DecisionView(key=item.key, status="accepted", batch=_batch_view(batch) if batch else None)
+
+
+def _accept_link(context: TenantContext, item: SG.Suggestion, repository: AnumRepository) -> Any:
+    """Make the proposed link through ``finance.links`` (every link check applies). The decision is claimed first, so of two
+    accepts one wins; when the link is refused the claim is released and the refusal is the answer."""
+    from fastapi.responses import JSONResponse
+
+    from . import links as K
+
+    proposal = item.action.link
+    if proposal is None:
+        raise HTTPException(status_code=409, detail="This suggestion has nothing to link.")
+    with open_rule_stores(context) as (_finance, store):
+        if not store.claim_decision(_decision(context, item, "accepted", None, utc_now())):
+            raise HTTPException(status_code=409, detail="This suggestion was already decided.")
+    try:
+        if proposal.dimension == "business":
+            made = K.allocate(context, canonical_id=proposal.canonical_id, workspace_id=proposal.target_id, amount=proposal.amount, currency=proposal.currency,
+                              category=proposal.category, project_id=proposal.project_id, memo=None, treatment=proposal.treatment or "owner_contribution",
+                              idempotency_key=None)
+        else:
+            made = K.create(context, K.LinkRequest(canonical_id=proposal.canonical_id, dimension=proposal.dimension, role="payment",
+                                                   target_type=proposal.target_type, target_id=proposal.target_id, amount=proposal.amount,
+                                                   currency=proposal.currency))
+    except K.LinkError as exc:
+        with open_rule_stores(context) as (_finance, store):
+            store.delete_decision(context, item.key)
+        return JSONResponse(status_code=exc.status_code, content={"detail": exc.message, "code": exc.code, **exc.extra})
+    _audit(repository, context, "finance.suggestion.accept", item.producer,
+           {"kind": item.kind, "dimension": proposal.dimension, "link": made.link.id, "replayed": made.replayed})
+    return DecisionView(key=item.key, status="accepted", link_id=made.link.id)
 
 
 @router.post("/suggestions/reject", response_model=DecisionView)

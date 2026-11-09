@@ -103,7 +103,20 @@ export interface FinanceAiSuggestion { category: FinanceCategory | null; transac
 
 export type FinanceSuggestionKind =
   | 'classification' | 'conflict' | 'uncategorized' | 'statement_hold' | 'sms_review' | 'duplicate' | 'refund_match' | 'payment_match'
-  | 'bill_due' | 'subscription' | 'unusual_spend' | 'missing_statement' | 'cash_shortage' | 'reconciliation' | 'external';
+  | 'bill_due' | 'subscription' | 'unusual_spend' | 'missing_statement' | 'cash_shortage' | 'reconciliation' | 'attribution' | 'fx_fee' | 'external';
+
+/** What Accept links through the finance links API (docs/finance.md#attribution-suggestions). */
+export interface FinanceSuggestionLink {
+  canonical_id: string;
+  dimension: 'bill' | 'debt' | 'vehicle' | 'purchase' | 'business';
+  target_type: string;
+  target_id: string;
+  amount: string;
+  currency: string;
+  treatment: 'owner_contribution' | 'reimbursable' | null;
+  category: string | null;
+  project_id: string | null;
+}
 
 export interface FinanceSuggestion {
   key: string;
@@ -113,15 +126,21 @@ export interface FinanceSuggestion {
   detected: string;
   why: string;
   params: Record<string, string>;
-  evidence: { label: string; ref_type: 'transaction' | 'import' | 'sms_message' | 'bill' | 'account' | 'rule' | 'other'; ref_id: string | null; value: string | null }[];
+  evidence: {
+    label: string;
+    ref_type: 'transaction' | 'import' | 'sms_message' | 'bill' | 'account' | 'rule' | 'debt' | 'vehicle' | 'purchase' | 'business' | 'other';
+    ref_id: string | null;
+    value: string | null;
+  }[];
   confidence: string | null;
   effect: { amount: string; currency: string; direction: 'in' | 'out' | 'none'; note: string | null }[];
   action: {
-    kind: 'classify' | 'confirm_refund' | 'acknowledge' | 'open';
+    kind: 'classify' | 'confirm_refund' | 'acknowledge' | 'open' | 'link';
     transaction_ids: string[];
     category: FinanceCategory | null;
     subcategory_id: string | null;
     transaction_type: FinanceTransactionType | null;
+    link?: FinanceSuggestionLink | null;
   };
   href: string | null;
   occurred_on: string | null;
@@ -138,7 +157,10 @@ export interface FinanceSuggestionQueue {
   dismissed: number;
 }
 
-export interface FinanceSuggestionDecision { key: string; status: 'accepted' | 'rejected' | 'open'; batch: FinanceRuleBatch | null }
+export interface FinanceSuggestionDecision { key: string; status: 'accepted' | 'rejected' | 'open'; batch: FinanceRuleBatch | null; link_id?: string | null }
+
+/** Exception notices the daily job may send, each off until the owner turns it on (docs/finance.md#exception-notices). */
+export type FinanceNoticeKind = 'reconciliation_overdue' | 'statement_missing' | 'uncategorized_money' | 'business_unposted' | 'evidence_missing';
 
 export interface FinanceAutomationPolicy {
   auto_classify: boolean;
@@ -146,5 +168,8 @@ export interface FinanceAutomationPolicy {
   sources: ('rule' | 'history')[];
   notify_unresolved: boolean;
   notify_min_items: number;
+  notices?: FinanceNoticeKind[];
+  notice_exception_days?: number;
+  notice_uncategorized_min?: string;
 }
 export interface FinanceAutomation { policy: FinanceAutomationPolicy; updated_at: string | null; never_automated: string[] }

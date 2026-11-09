@@ -15,7 +15,8 @@ AccessClass = Literal["private", "workspace"]
 DocumentStatus = Literal["active", "deleted"]
 ExtractionKind = Literal["receipt", "dates"]
 ExtractionStatus = Literal["queued", "pending", "confirmed", "rejected", "failed"]
-LinkTarget = Literal["vehicle", "person", "business", "purchase", "finance_transaction"]
+LinkTarget = Literal["vehicle", "person", "business", "purchase", "finance_transaction",
+                     "business_bill", "business_invoice", "business_adjustment", "business_journal"]
 Source = Literal["web", "device", "api"]
 
 # The built-in categories (owner spec, 4 Nov 2026). A workspace adds its own (``vcat_...`` ids).
@@ -37,6 +38,9 @@ COUNTRY = re.compile(r"[A-Z]{2}")
 TAG = re.compile(r"[^\x00-\x1f\x7f]{1,40}")
 MAX_TAGS = 12
 LINK_TYPES: tuple[str, ...] = ("vehicle", "person", "business", "purchase", "finance_transaction")
+# Evidence on a business's books (migration 0157_finance_evidence, docs/business-books.md#supporting-documents-and-evidence):
+# made only through the books' evidence routes, which check that the bill, invoice, adjustment or manual entry exists.
+BOOKS_LINK_TYPES: tuple[str, ...] = ("business_bill", "business_invoice", "business_adjustment", "business_journal")
 
 
 def is_category(value: str, custom_ids: set[str] | frozenset[str]) -> bool:
@@ -203,6 +207,7 @@ __all__ = [
     "BUILT_IN_CATEGORIES",
     "DATE_CATEGORIES",
     "IDENTITY_CATEGORIES",
+    "BOOKS_LINK_TYPES",
     "LINK_TYPES",
     "RECEIPT_CATEGORIES",
     "AccessClass",

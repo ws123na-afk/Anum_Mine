@@ -26,6 +26,7 @@ import { upload as uploadToVault, addLink as linkDocument } from './lib/vaultApi
 import { ConfirmDialog, Modal } from './Dialog';
 import { Denied, Empty, LoadError, Money, Notice, failed, type Load } from './FinanceParts';
 import { FinBanner, FinCard, FinancePageHead, FinanceTabs, KpiCard, KpiRow, ScopeSwitch, StatusChip, tabPanel } from './FinanceShell';
+import { FxDetails } from './FinanceFxDetails';
 import { Import, TransactionForm } from './FinanceView';
 import { useMediaQuery } from './PageParts';
 import './financeRegister.css';
@@ -455,6 +456,7 @@ function TransactionDrawer({ id, onClose, onOpen, onChanged, inModal }: {
         <input ref={fileRef} type="file" className="visuallyHidden" accept="application/pdf,image/jpeg,image/png" disabled={Boolean(busy)} onChange={(e) => void attach(row, e.target.files?.[0])} /></label>}
     </div>
     {row.receipts > 0 && <p className="fregReceiptsLink"><a href="#vault">{t('freg.drawer.openVault')}</a></p>}
+    <FxDetails transactionId={row.id} onChanged={() => { void load(); onChanged(); }} />
     <div className="fregCategory">
       <label htmlFor={categoryId}>{t('freg.drawer.chooseCategory')}</label>
       <select id={categoryId} value={category} onChange={(e) => { setCategory(e.target.value as FinanceCategory); setCategoryTouched(true); setSub(''); }}>

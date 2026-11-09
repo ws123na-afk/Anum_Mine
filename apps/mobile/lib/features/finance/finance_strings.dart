@@ -210,6 +210,21 @@ class FinanceStrings {
         'Bills, payments, goals and your buffer are more than you have.',
     'safe.perDay': '{amount} a day for {n} day(s)',
     'safe.howBuilt': 'How it is built',
+    'forecast.expected': 'Expected on {date} (estimate)',
+    'forecast.range': 'Likely between {low} and {high}',
+    'forecast.warn.below_zero': 'Your money may run out on {date}.',
+    'forecast.warn.below_reserve':
+        'Your money may drop below your reserve of {amount} on {date}.',
+    'forecast.warn.may_go_below_zero':
+        'On a busy month your money could go below zero on {date}.',
+    'forecast.failed':
+        'The forecast could not be loaded. Open Safe to spend again to retry.',
+    'forecast.note':
+        'An estimate from your own records, not a promise. Change the reserve on the web, in Finance settings.',
+    'reserve.title': 'Emergency reserve',
+    'reserve.of': '{saved} of {target}',
+    'reserve.progress': 'Emergency reserve: {percent}% of the target',
+    'reserve.covers': 'Covers {months} months of essential spending',
     'safe.buffer': 'Buffer',
     'safe.combined': 'Together in {currency}',
     'safe.notCounted': 'Not counted ({n})',
@@ -476,6 +491,20 @@ class FinanceStrings {
     'safe.shortHint': 'الفواتير والدفعات والأهداف والاحتياطي أكثر مما لديك.',
     'safe.perDay': '{amount} في اليوم، الأيام المتبقية {n}',
     'safe.howBuilt': 'كيف حُسب',
+    'forecast.expected': 'المتوقع في {date} (تقدير)',
+    'forecast.range': 'على الأرجح بين {low} و{high}',
+    'forecast.warn.below_zero': 'قد تنفد أموالك في {date}.',
+    'forecast.warn.below_reserve':
+        'قد تنزل أموالك تحت احتياطيك البالغ {amount} في {date}.',
+    'forecast.warn.may_go_below_zero':
+        'في شهر مزدحم قد ينزل رصيدك تحت الصفر في {date}.',
+    'forecast.failed': 'تعذّر تحميل التوقع. افتح المتاح للصرف مجددًا للمحاولة.',
+    'forecast.note':
+        'تقدير من سجلاتك، وليس وعدًا. غيّر الاحتياطي على الويب في إعدادات المالية.',
+    'reserve.title': 'الاحتياطي الطارئ',
+    'reserve.of': '{saved} من {target}',
+    'reserve.progress': 'الاحتياطي الطارئ: {percent}% من الهدف',
+    'reserve.covers': 'يغطي {months} أشهر من الإنفاق الأساسي',
     'safe.buffer': 'الاحتياطي',
     'safe.combined': 'المجموع بعملة {currency}',
     'safe.notCounted': 'غير محسوب ({n})',

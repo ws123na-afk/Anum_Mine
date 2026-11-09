@@ -32,7 +32,7 @@ function booksReport(from: string) {
   };
 }
 
-async function mockApi(page: Page, { booksDenied = false, empty = false, failBills = false }: { booksDenied?: boolean; empty?: boolean; failBills?: boolean } = {}) {
+async function mockApi(page: Page, { booksDenied = false, empty = false, failBills = false, failForecast = false }: { booksDenied?: boolean; empty?: boolean; failBills?: boolean; failForecast?: boolean } = {}) {
   // A month whose answers the spec slows down once the page has loaded (set `control.slowMonth`).
   const control: { slowMonth: string | null } = { slowMonth: null };
   const state = financeState({ empty });
@@ -52,6 +52,7 @@ async function mockApi(page: Page, { booksDenied = false, empty = false, failBil
     // A slow answer for one month: a later choice must not be overwritten by it.
     const slowMonth = control.slowMonth;
     if (slowMonth && (url.searchParams.get('month') === slowMonth || url.searchParams.get('from') === `${slowMonth}-01`)) await new Promise((done) => setTimeout(done, 4000));
+    if (failForecast && path === '/api/v1/finance/forecast') return json({ error: { code: 'internal_error', message: 'The database is not reachable.', correlation_id: 'c', details: [] } }, 503);
     if (failBills && path === '/api/v1/finance/bills/upcoming') return json({ error: { code: 'internal_error', message: 'The database is not reachable.', correlation_id: 'c', details: [] } }, 503);
     if (path === '/api/v1/business/books/report') {
       if (booksDenied) return json({ error: { code: 'forbidden', message: 'Business is for workspace owners and members.', correlation_id: 'c', details: [] } }, 403);
@@ -159,15 +160,25 @@ test('reports: an empty ledger is led to import a statement', async ({ page }) =
   await expect(page).toHaveURL(/#finance-import$/);
 });
 
-test('safe to spend: the transparent calculation, the runway, commitments, guardrails and the Guardian preview', async ({ page }) => {
+test('safe to spend: the transparent calculation, the forecast, the reserve, commitments, guardrails and the Guardian preview', async ({ page }) => {
   await mockApi(page);
   await page.goto('/#finance-safe');
   await expect(page.getByRole('heading', { level: 1, name: 'Safe to spend' })).toBeVisible();
   await expect(page.getByText('This is an estimate, not financial advice or a guarantee.')).toBeVisible();
   const calc = page.getByRole('region', { name: 'Transparent calculation' });
   for (const text of ['Account balance', 'Bills and payments', 'Goals and buffer', 'Estimated remaining']) await expect(calc).toContainText(text);
-  await expect(page.getByRole('img', { name: 'Estimated balance by day in AED' })).toBeVisible();
-  await expect(page.getByText(/Daily spending pace/)).toBeVisible();
+  // The forecast is the API's (GET /finance/forecast): today's actual, the month end as an estimate with its range, the assumptions.
+  const forecast = page.getByRole('region', { name: /Forecast to the end of/ });
+  await expect(forecast.getByRole('img', { name: 'Expected balance by day in AED' })).toBeVisible();
+  await expect(forecast).toContainText('Today, actual');
+  await expect(forecast).toContainText(/Expected on .* \(estimate\)/);
+  await expect(forecast).toContainText(/Likely between/);
+  await expect(forecast.getByText(/Everyday spending outside saved bills/)).toBeVisible();
+  await expect(forecast.getByRole('table', { name: 'Expected money in and out' })).toContainText('Rent');
+  await forecast.getByRole('button', { name: '3 months' }).click();
+  await expect(forecast.getByRole('button', { name: '3 months' })).toHaveAttribute('aria-pressed', 'true');
+  await expect(forecast.getByRole('table', { name: 'Expected money in and out' })).toContainText('Example Trading Co');
+  await expect(page.getByRole('region', { name: 'Emergency reserve' })).toContainText('No emergency reserve in AED yet');
   await expect(page.getByRole('region', { name: 'Upcoming commitments' })).toContainText('Rent');
   const guard = page.getByRole('region', { name: /Spending guardrails/ });
   await expect(guard).toContainText('Dining');
@@ -266,13 +277,22 @@ test('reports: Custom is the personal ledger, so in Business scope it says so in
   expect(sent.some((r) => r.path === '/api/v1/finance/transactions/export.csv')).toBe(false);
 });
 
-test('safe to spend: without the bills there is no runway, only what failed and a retry', async ({ page }) => {
+test('safe to spend: without the forecast there is no line, only what failed and a retry', async ({ page }) => {
+  await mockApi(page, { failForecast: true });
+  await page.goto('/#finance-safe');
+  const forecast = page.getByRole('region', { name: /Forecast to the end of|^Forecast$/ });
+  await expect(forecast).toContainText('The forecast could not be loaded');
+  await expect(forecast.getByRole('button', { name: 'Try again' })).toBeVisible();
+  await expect(page.getByRole('img', { name: /Expected balance by day/ })).toHaveCount(0);
+});
+
+test('safe to spend: without the bills the commitments card says what failed with a retry', async ({ page }) => {
   await mockApi(page, { failBills: true });
   await page.goto('/#finance-safe');
-  const runway = page.getByRole('region', { name: /Runway to the end of/ });
-  await expect(runway).toContainText('The runway needs your bills');
-  await expect(runway.getByRole('button', { name: 'Try again' })).toBeVisible();
-  await expect(page.getByRole('img', { name: /Estimated balance by day/ })).toHaveCount(0);
+  const upcoming = page.getByRole('region', { name: 'Upcoming commitments' });
+  await expect(upcoming).toContainText('The database is not reachable');
+  await expect(upcoming.getByRole('button', { name: 'Try again' })).toBeVisible();
+  await expect(page.getByRole('img', { name: 'Expected balance by day in AED' })).toBeVisible();
 });
 
 test('the sidebar keeps Finance and its current section in view at 1440 (phones: the section strip)', async ({ page, isMobile }) => {
@@ -298,8 +318,8 @@ for (const locale of ['en', 'ar'] as const) {
         await page.setViewportSize({ width, height });
         await page.goto(`/#${hash}`);
         await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
-        await expect(page.locator('.finKpis')).toBeVisible();
-        await expect(page.locator('figure.finFigure svg')).toBeVisible();
+        await expect(page.locator('.finKpis').first()).toBeVisible();
+        await expect(page.locator('figure.finFigure svg').first()).toBeVisible();
         expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth), `${hash} at ${width}x${height}`).toBeLessThanOrEqual(0);
         await shot(page, `${hash}-${locale}-${width}`);
       }

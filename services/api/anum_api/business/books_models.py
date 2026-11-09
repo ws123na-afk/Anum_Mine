@@ -130,6 +130,9 @@ class BookSettings(_Scoped):
     category_sections: dict[str, str] = Field(default_factory=dict)
     rate_max_age_days: int = 31
     policy_note: str = ""  # the owner's own accounting policy text, shown with the generated policy notes (migration 0148)
+    # Bills and adjustments at or above this, in the base currency, need a supporting document (migration 0157_finance_evidence,
+    # docs/business-books.md#supporting-documents-and-evidence). None: the "evidence missing" flag is off.
+    evidence_threshold: Decimal | None = None
     version: int = 1
     updated_by: str
     updated_at: datetime

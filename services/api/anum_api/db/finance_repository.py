@@ -187,6 +187,7 @@ class FinanceGoalRecord(Base, _Owned):
     monthly_contribution: Mapped[Decimal | None] = mapped_column(MONEY, nullable=True)
     paused: Mapped[bool] = mapped_column(Boolean)
     purpose: Mapped[str] = mapped_column(String(20), default="general")
+    reserve_months: Mapped[int | None] = mapped_column(Integer, nullable=True)
     notes: Mapped[str | None] = mapped_column(String(1000), nullable=True)
     created_at: Mapped[datetime] = mapped_column(TS)
     updated_at: Mapped[datetime] = mapped_column(TS)

@@ -220,6 +220,7 @@ _ORDER = (
     "finance_merchant_aliases",
     "finance_subcategories",
     "finance_automation_settings",
+    "finance_notice_claims",
     "finance_remittances",
     "finance_postings",
     "finance_journal_entries",

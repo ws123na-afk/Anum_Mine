@@ -9,16 +9,35 @@ scope and the owner. Claims (a version decision, a suggestion decision, a batch 
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import Boolean, DateTime, Integer, Numeric, String, delete, func, select, update
+from sqlalchemy import (
+    Boolean,
+    Date,
+    DateTime,
+    Integer,
+    Numeric,
+    String,
+    delete,
+    func,
+    select,
+    update,
+)
 from sqlalchemy.dialects.postgresql import JSONB, insert
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
-from anum_api.finance.rules import AutomationPolicy, AutomationSettings, FinanceRule, MerchantAlias, RuleContent, Subcategory, fold
+from anum_api.finance.rules import (
+    AutomationPolicy,
+    AutomationSettings,
+    FinanceRule,
+    MerchantAlias,
+    RuleContent,
+    Subcategory,
+    fold,
+)
 from anum_api.finance.rules_store import BatchChange, RuleBatch, SuggestionDecision
 from anum_api.schemas import TenantContext
 
@@ -114,8 +133,20 @@ class FinanceAutomationSettingsRecord(Base, _Owned):
     updated_by: Mapped[str | None] = mapped_column(String(160), nullable=True)
 
 
+class FinanceNoticeClaimRecord(Base, _Owned):
+    """Migration 0157_finance_evidence: one exception notice per person, kind, item and day (docs/finance.md#exception-notices)."""
+
+    __tablename__ = "finance_notice_claims"
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    kind: Mapped[str] = mapped_column(String(30))
+    item_key: Mapped[str] = mapped_column(String(200))
+    day: Mapped[date] = mapped_column(Date)
+    created_at: Mapped[datetime] = mapped_column(TS)
+
+
 RECORDS = (FinanceRuleBatchRecord, FinanceSuggestionDecisionRecord, FinanceRuleRecord, FinanceMerchantAliasRecord, FinanceSubcategoryRecord,
-           FinanceAutomationSettingsRecord)
+           FinanceAutomationSettingsRecord, FinanceNoticeClaimRecord)
 
 
 def _mine(record: Any, context: TenantContext) -> list[Any]:
@@ -307,6 +338,29 @@ class SqlAlchemyRulesStore:
     def release_notice(self, context: TenantContext, day: str) -> None:
         record = FinanceAutomationSettingsRecord
         self.session.execute(update(record).where(*_mine(record, context), record.notified_on == day).values(notified_on=None))
+
+    def claim_item_notices(self, context: TenantContext, kind: str, keys: list[str], day: date, now: datetime) -> list[str]:
+        from anum_api.schemas import new_id
+
+        claimed = []
+        for key in keys:
+            statement = insert(FinanceNoticeClaimRecord).values(
+                id=new_id("fin_ntc"), tenant_id=context.tenant_id, workspace_id=context.workspace_id, owner_user_id=context.user_id, kind=kind,
+                item_key=key[:200], day=day, created_at=now,
+            ).on_conflict_do_nothing(index_elements=["tenant_id", "workspace_id", "owner_user_id", "kind", "item_key", "day"])
+            if self.session.execute(statement.returning(FinanceNoticeClaimRecord.id)).first() is not None:
+                claimed.append(key)
+        return claimed
+
+    def release_item_notices(self, context: TenantContext, kind: str, keys: list[str], day: date) -> None:
+        record = FinanceNoticeClaimRecord
+        if keys:
+            self.session.execute(delete(record).where(*_mine(record, context), record.kind == kind, record.day == day,
+                                                      record.item_key.in_([k[:200] for k in keys])))
+
+    def prune_item_notices(self, context: TenantContext, before: date) -> int:
+        record = FinanceNoticeClaimRecord
+        return int(self.session.execute(delete(record).where(*_mine(record, context), record.day < before)).rowcount or 0)
 
     # privacy -------------------------------------------------------------------------------------
 

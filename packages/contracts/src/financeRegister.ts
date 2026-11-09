@@ -125,3 +125,57 @@ export interface FinanceAccountActivity {
   currency: string;
   days: { day: string; inflow: string; outflow: string }[];
 }
+
+// -- card FX and fees (docs/finance.md#card-fx-and-fees) ------------------------------------------------------------
+
+export interface FinanceFxFee {
+  amount: string;
+  currency: string;
+  /** A separate statement row, a markup stated on the purchase row, or a fee stated on it with a printed rate. */
+  source: 'fee_row' | 'markup_stated' | 'fee_stated';
+  transaction_id: string | null;
+  markup_percent: string | null;
+  included_in_billed: boolean;
+  linked: boolean;
+}
+
+export interface FinanceTransferFx {
+  role: 'out' | 'in';
+  other_transaction_id: string | null;
+  out_amount: string;
+  out_currency: string;
+  in_amount: string;
+  in_currency: string;
+  on: string;
+  realised_rate: string;
+  valuation_rate: string | null;
+  valuation_date: string | null;
+  valuation_source: string | null;
+  valued_at: string | null;
+  /** What arrived less the value at the earlier rate: shown, never posted, never spending or income. */
+  difference: string | null;
+  policy: string;
+}
+
+export interface FinanceTransactionFx {
+  transaction_id: string;
+  foreign: boolean;
+  original_amount: string | null;
+  original_currency: string | null;
+  billed_amount: string | null;
+  billed_currency: string | null;
+  purchase_amount: string | null;
+  rate: string | null;
+  /** Printed by the bank, from a mapped column, implied by the two amounts, or not stated (never guessed). */
+  rate_kind: 'printed' | 'column' | 'implied' | 'not_stated';
+  rate_date: string | null;
+  rate_source: 'statement' | 'sms' | 'manual' | null;
+  fee: FinanceFxFee | null;
+  split: 'none' | 'available' | 'link' | 'done';
+  notes: string[];
+  plan_hash: string;
+  can_correct: boolean;
+  transfer: FinanceTransferFx | null;
+}
+
+export interface FinanceFxSeparateResult { purchase: FinanceTransactionFx; fee_transaction_id: string; mode: 'split' | 'link' }

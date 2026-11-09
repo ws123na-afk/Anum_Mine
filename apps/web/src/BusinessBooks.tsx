@@ -13,22 +13,24 @@ import type {
 import { BOOKS_ADJUSTMENT_KINDS, BOOKS_BILL_FILTERS } from '@anum/contracts';
 import * as api from './lib/businessBooksApi';
 import {
-  BOOKS_PAGE, BOOKS_TABS, OWNER_TABS, PERIOD_PRESETS, adjustmentLabel, basisLabel, billFilterLabel, booksTabFromId, booksTabLabel, isNegative, lineLabel, money,
-  moneyList, paymentStateLabel, paymentStateTone, pct, presetPeriod, reportIsEmpty, sectionLabel, statementRows, type BooksTab, type PeriodPreset,
+  BOOKS_PAGE, BOOKS_TABS, PERIOD_PRESETS, adjustmentLabel, basisLabel, billFilterLabel, booksTabFromId, booksTabLabel, isNegative, lineLabel, money,
+  moneyList, paymentStateLabel, paymentStateTone, pct, presetPeriod, reportIsEmpty, sectionLabel, statementRows, tabShown, type BooksTab, type PeriodPreset,
 } from './lib/businessBooks';
 import { describeError, isPermissionDenied } from './lib/errors';
 import { t, type MessageKey } from './lib/i18n';
 import type { Crumb } from './PageParts';
 import { FinancePageHead } from './FinanceShell';
 import { BooksDashboard, singleMonth } from './BusinessBooksDashboard';
-import { ConfirmDialog } from './Dialog';
+import { ConfirmDialog, Modal } from './Dialog';
+import { EvidencePackCard, EvidencePanel, useEvidenceFlags } from './BusinessBooksEvidence';
 import { Badge, Denied, Empty, Failed, Note, Pager, ReasonDialog, day, failure } from './BusinessParts';
 import { ListState, usePaged } from './BusinessDeals';
 import {
   AdjustmentDialog, BillDialog, BillDrawer, BudgetDialog, IntercompanyDialog, SettingsSection, TagDialog, VendorDialog,
 } from './BusinessBooksForms';
 import { GroupSection, RateFeedCard, Recurring, Upcoming } from './BusinessBooksMore';
-import { AccountantsCard, AccountsSection, CloseSection, LedgerSection, StatementsSection } from './BusinessBooksLedger';
+import { AccountantsCard, AccountsSection, CloseSection, EvidenceWarning, LedgerSection, StatementsSection } from './BusinessBooksLedger';
+import { ReviewBanner, ReviewSection } from './BusinessBooksReview';
 import { TaxSection } from './BusinessBooksTax';
 import { AssetsSection, GroupBalanceSheetCard, LoansSection, RevaluationSection } from './BusinessBooksAssets';
 import './businessBooks.css';
@@ -53,7 +55,7 @@ export function BooksTab({ section, onSection, crumbs }: { section: string | nul
   // The page head of Expenses and P&L (docs/business-books.md#overview-dashboard): its own title, the primary action and the sections.
   const head = <FinancePageHead title={t('books.page.title')} subtitle={t('books.page.subtitle')} crumbs={crumbs}
     actions={ready && write ? <button type="button" onClick={() => setRecording(true)}><Plus aria-hidden="true" />{t('books.page.record')}</button> : undefined}
-    tabs={load.kind === 'ready' ? <nav className="finTabs bkNav" aria-label={t('books.sections')}>{BOOKS_TABS.filter((item) => load.setup.permissions.manage || !OWNER_TABS.includes(item)).map((item) =>
+    tabs={load.kind === 'ready' ? <nav className="finTabs bkNav" aria-label={t('books.sections')}>{BOOKS_TABS.filter((item) => tabShown(item, load.setup.permissions)).map((item) =>
       <button key={item} type="button" aria-current={tab === item ? 'page' : undefined} onClick={() => onSection(item)}>{booksTabLabel(item)}</button>)}</nav> : undefined} />;
   if (load.kind === 'loading') return <section className="bkPage opsPage">{head}<Note>{t('books.loading')}</Note></section>;
   if (load.kind === 'denied') return <section className="bkPage opsPage">{head}<Denied text={load.text} /></section>;
@@ -66,6 +68,7 @@ export function BooksTab({ section, onSection, crumbs }: { section: string | nul
     {!ready && tab !== 'settings' && <Empty title={t('books.setupTitle')} text={setup.permissions.manage ? t('books.setupText') : t('books.setupMember')}
       action={setup.permissions.manage ? <button type="button" onClick={() => onSection('settings')}>{t('books.setupAction')}</button> : undefined} />}
     {ready && tab === 'overview' && <Overview key={tick} setup={setup} onSection={onSection} />}
+    {ready && tab === 'review' && <ReviewSection setup={setup} onSection={onSection} />}
     {ready && tab === 'group' && (setup.permissions.manage ? <><GroupSection setup={setup} /><GroupBalanceSheetCard base={setup.settings!.base_currency} /></>
       : <Denied text={t('books.group.ownersOnly')} />)}
     {ready && tab === 'bills' && <Bills key={tick} setup={setup} />}
@@ -75,7 +78,7 @@ export function BooksTab({ section, onSection, crumbs }: { section: string | nul
     {ready && tab === 'budgets' && <Budgets setup={setup} />}
     {ready && tab === 'journal' && <Journal setup={setup} />}
     {ready && tab === 'ledger' && <LedgerSection setup={setup} />}
-    {ready && tab === 'statements' && <StatementsSection setup={setup} onSection={(next) => onSection(booksTabFromId(next))} />}
+    {ready && tab === 'statements' && <><StatementsSection setup={setup} onSection={(next) => onSection(booksTabFromId(next))} /><EvidencePackCard setup={setup} /></>}
     {ready && tab === 'accounts' && <AccountsSection setup={setup} />}
     {ready && tab === 'close' && <CloseSection setup={setup} onSection={(next) => onSection(booksTabFromId(next))} />}
     {ready && tab === 'tax' && <TaxSection setup={setup} />}
@@ -133,6 +136,7 @@ function Overview({ setup, onSection }: { setup: BooksSetup; onSection: (tab: Bo
     {report.state === 'error' && <Failed text={report.message} onRetry={() => void load()} />}
     {value && reportIsEmpty(value) && <Empty title={t('books.emptyTitle')} text={t('books.emptyText')}
       action={<><button type="button" onClick={() => onSection('bills')}>{t('books.goBills')}</button><button type="button" className="secondary" onClick={() => onSection('allocations')}>{t('books.goAllocations')}</button></>} />}
+    <ReviewBanner setup={setup} onSection={onSection} />
     {value && !reportIsEmpty(value) && <>
       <BooksDashboard report={value} setup={setup} single={singleMonth(period)} onSection={onSection} />
       <h2 className="bkDetailsTitle">{t('books.page.details')}</h2>
@@ -146,6 +150,8 @@ function ReportBody({ report, setup, period }: { report: BooksReport; setup: Boo
   const rows = statementRows(report);
   const balances = report.balances;
   return <div className="bzOverview bkGrid">
+    {(report.evidence_missing?.count ?? 0) > 0 && <div className="bkWide"><EvidenceWarning count={report.evidence_missing!.count} threshold={report.evidence_missing!.threshold}
+      currency={base} onOpen={() => { location.hash = '#business-books/bills'; }} /></div>}
     <section className="surface bzCard bkWide" aria-labelledby="bk-pnl"><h2 id="bk-pnl">{t('books.pnl.title', { basis: basisLabel(report.period.basis) })}</h2>
       <p className="muted bzHint">{t(report.period.basis === 'accrual' ? 'books.pnl.accrualHelp' : 'books.pnl.cashHelp', { from: dayText(report.period.from), to: dayText(report.period.to) })}</p>
       <div className="dataTableWrap" tabIndex={0} role="region" aria-label={t('books.table')}><table className="dataTable bkStatement"><caption className="visuallyHidden">{t('books.pnl.caption')}</caption>
@@ -308,6 +314,7 @@ function Bills({ setup }: { setup: BooksSetup }) {
   const statusId = useId();
   const filtered = Boolean(search || status);
   const write = setup.permissions.write;
+  const flags = useEvidenceFlags('bill', list.items.map((bill: BooksBill) => bill.id), tick);
   const exportCsv = async () => { setMessage(null); try { await api.exportBills(); setMessage(t('books.exported')); } catch (error) { setMessage(failure(error, t('books.export'))); } };
   return <>
     <div className="bzToolbar">
@@ -331,7 +338,8 @@ function Bills({ setup }: { setup: BooksSetup }) {
           <th scope="row"><button type="button" className="linkButton" onClick={() => setOpenId(bill.id)}><span dir="auto">{bill.vendor_name}</span></button>
             <small dir="auto">{bill.reference ? `${bill.reference}, ` : ''}{bill.description}</small></th>
           <td><Badge tone={paymentStateTone(bill.payment_state, bill.overdue)}>{paymentStateLabel(bill.payment_state)}</Badge>{bill.overdue && <> <Badge tone="dangerTone">{t('books.daysLate', { days: bill.days_overdue })}</Badge></>}
-            {bill.template_id && <> <Badge tone="neutral">{t('books.rec.badge')}</Badge></>}</td>
+            {bill.template_id && <> <Badge tone="neutral">{t('books.rec.badge')}</Badge></>}
+            {flags[bill.id] && <> <Badge tone="warning">{t('books.evidence.missing')}</Badge></>}</td>
           <td className="num">{money(bill.total, bill.currency)}</td><td className="num">{bill.status === 'void' ? '-' : money(bill.balance, bill.currency)}</td>
           <td className="bzHideMd nowrap">{dayText(bill.due_date)}</td></tr>)}</tbody></table></div>
       <Pager shown={list.items.length} total={list.total} busy={list.more.busy} error={list.more.error} onMore={() => void list.loadMore()} />
@@ -453,7 +461,9 @@ function Budgets({ setup }: { setup: BooksSetup }) {
 function Journal({ setup }: { setup: BooksSetup }) {
   const [kind, setKind] = useState<BooksAdjustmentKind | ''>(''), [includeVoid, setIncludeVoid] = useState(false), [tick, setTick] = useState(0);
   const [adding, setAdding] = useState(false), [voiding, setVoiding] = useState<BooksAdjustment | null>(null);
+  const [evidenceOf, setEvidenceOf] = useState<BooksAdjustment | null>(null);
   const list = usePaged((offset) => api.listAdjustments(kind, includeVoid, offset, BOOKS_PAGE), [kind, includeVoid, tick]);
+  const flags = useEvidenceFlags('adjustment', list.items.map((row: BooksAdjustment) => row.id), tick);
   const kindId = useId();
   const manage = setup.permissions.account ?? setup.permissions.manage;  // owners and accountants
   const filtered = Boolean(kind || includeVoid);
@@ -477,10 +487,16 @@ function Journal({ setup }: { setup: BooksSetup }) {
           <small dir="auto">{row.description}{row.months ? `, ${t('books.journal.spread', { months: row.months, start: dayText(row.start_month) })}` : ''}{row.reverse_on ? `, ${t('books.journal.reverses', { day: dayText(row.reverse_on) })}` : ''}</small>
           {row.status === 'void' && <small dir="auto">{t('books.voidReason', { reason: row.void_reason })}</small>}</th>
           <td className="num">{money(row.amount, row.currency)}</td><td className="bzHideMd nowrap">{dayText(row.entry_date)}</td>
-          {manage && <td>{row.status === 'active' && <button type="button" className="secondary" onClick={() => setVoiding(row)} aria-label={t('books.voidLabel', { what: adjustmentLabel(row.kind) })}>{t('books.voidAction')}</button>}</td>}</tr>)}</tbody></table></div>
+          {manage && <td><span className="bzInline">
+            <button type="button" className="secondary" onClick={() => setEvidenceOf(row)} aria-label={t('books.evidence.openLabel', { what: adjustmentLabel(row.kind) })}>
+              {t('books.evidence.title')}{flags[row.id] && <> <Badge tone="warning">{t('books.evidence.missing')}</Badge></>}</button>
+            {row.status === 'active' && <button type="button" className="secondary" onClick={() => setVoiding(row)} aria-label={t('books.voidLabel', { what: adjustmentLabel(row.kind) })}>{t('books.voidAction')}</button>}</span></td>}</tr>)}</tbody></table></div>
       <Pager shown={list.items.length} total={list.total} busy={list.more.busy} error={list.more.error} onMore={() => void list.loadMore()} />
     </>}
     {adding && <AdjustmentDialog setup={setup} onClose={() => setAdding(false)} onSaved={() => { setAdding(false); setTick((n) => n + 1); }} />}
+    {evidenceOf && <Modal title={t('books.evidence.ofAdjustment', { what: adjustmentLabel(evidenceOf.kind) })} onClose={() => { setEvidenceOf(null); setTick((n) => n + 1); }}>
+      <EvidencePanel sourceType="adjustment" sourceId={evidenceOf.id} />
+    </Modal>}
     {voiding && <ReasonDialog title={t('books.journal.voidTitle')} label={t('books.reason')} confirm={t('books.voidAction')}
       onConfirm={async (reason) => { await api.voidAdjustment(voiding.id, reason); setVoiding(null); setTick((n) => n + 1); }} onCancel={() => setVoiding(null)} />}
   </>;

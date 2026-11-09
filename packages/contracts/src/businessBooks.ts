@@ -59,6 +59,8 @@ export interface BooksSettings {
   rate_max_age_days: number;
   /** The owner's own accounting policy text (at most 1,000 characters), shown with the generated policy notes. */
   policy_note?: string;
+  /** Bills and adjustments at or above this (base currency) need a supporting document; null keeps the flag off. */
+  evidence_threshold?: string | null;
   version: number;
   updated_by: string;
   updated_at: string;
@@ -74,6 +76,7 @@ export interface BooksSettingsInput {
   category_sections: Record<string, BooksTagSection>;
   rate_max_age_days: number;
   policy_note?: string;
+  evidence_threshold?: string | null;
   version: number | null;
 }
 
@@ -487,6 +490,8 @@ export interface BooksReport {
   conversions: BooksConversion[];
   notes: string[];
   truncated: boolean;
+  /** Bills and adjustments above the evidence threshold with no document attached (note ``evidence_missing``). */
+  evidence_missing?: { enabled: boolean; count: number; threshold: string | null };
 }
 
 export interface BooksProjectRow {
@@ -747,6 +752,9 @@ export interface LedgerEntry {
   can_reverse: boolean;
   lines: LedgerLine[];
   total: string;
+  /** Where its supporting documents are attached (its bill, invoice, adjustment or itself), and those the caller can see. */
+  evidence_source?: { type: BooksEvidenceSource; id: string } | null;
+  evidence?: BooksEvidenceDocument[];
 }
 
 export interface LedgerJournalPage extends BooksPage<LedgerEntry> {
@@ -887,6 +895,7 @@ export interface LedgerStatements {
   complete: boolean;
   pending: Omit<LedgerStatus, 'closed_through' | 'can_post' | 'can_account' | 'can_reopen'>;
   notes: string[];
+  evidence_missing?: { enabled: boolean; count: number; threshold: string | null };
   late_entries: number;
   closed_through: string | null;
   trial_balance: { rows: LedgerTrialRow[]; totals: Record<string, string>; balanced: boolean; difference: string };
@@ -933,4 +942,83 @@ export interface LedgerAccountant {
   user_id: string;
   added_by: string;
   added_at: string;
+}
+
+// ---- Accountant review (docs/business-books.md#accountant-review) ------------------------------------------------
+
+export type BooksReviewKind = 'draft_bill' | 'posting_issue' | 'unconverted' | 'allocation_review' | 'external';
+export const BOOKS_REVIEW_KINDS: readonly BooksReviewKind[] = ['draft_bill', 'unconverted', 'posting_issue', 'allocation_review', 'external'];
+
+/** One thing waiting on an owner or an accountant, with the Books section where it is acted on. */
+export interface BooksReviewItem {
+  key: string;
+  producer: string;
+  kind: BooksReviewKind;
+  detected: string;
+  params: Record<string, string>;
+  /** blocking: the month cannot close until it is resolved. */
+  severity: 'blocking' | 'warning';
+  occurred_on: string | null;
+  amount: string | null;
+  currency: string | null;
+  ref_id: string | null;
+  section: string;
+  action: 'approve' | 'open';
+  can_act: boolean;
+  /** own_draft: this person made the draft (or its recurring bill), so someone else approves it. */
+  why_not: string | null;
+}
+
+export interface BooksReviewMonth {
+  month: string;
+  start: string;
+  end: string;
+  status: 'closed' | 'open' | 'not_ended';
+  issues: number;
+  drafts: number;
+  allocations_in_review: number;
+  ready: boolean;
+}
+
+export interface BooksReview {
+  items: BooksReviewItem[];
+  total: number;
+  limit: number;
+  offset: number;
+  counts: Partial<Record<BooksReviewKind, number>>;
+  blocking: number;
+  close_months: BooksReviewMonth[];
+  closed_through: string | null;
+  to_post: number;
+  producers: string[];
+  unavailable: string[];
+}
+
+// -- supporting documents and the evidence pack (docs/business-books.md#supporting-documents-and-evidence) -------------
+
+export type BooksEvidenceSource = 'bill' | 'invoice' | 'adjustment' | 'journal';
+
+/** A Document vault document attached to a bill, an invoice, an adjustment or a manual journal entry. */
+export interface BooksEvidenceDocument {
+  link_id: string;
+  document_id: string;
+  title: string;
+  category: string;
+  added_by: string;
+  added_at: string;
+}
+
+export interface BooksEvidencePage {
+  items: Record<string, { documents: BooksEvidenceDocument[]; evidence_missing: boolean }>;
+  can_attach: boolean;
+}
+
+export interface BooksEvidenceMissing {
+  enabled: boolean;
+  threshold: string | null;
+  currency: string | null;
+  count: number;
+  items: { type: 'bill' | 'adjustment'; id: string; date: string; currency: string; amount: string; base_amount: string | null;
+    not_converted: boolean; reference: string }[];
+  period?: { from: string; to: string };
 }

@@ -4,7 +4,8 @@
 // for colour vision deficiency in both themes.
 import { useId, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from 'react';
 import { formatAmount, monthLabel } from './lib/finance';
-import type { MonthFlow, RunwayPoint } from './lib/financeStatements';
+import type { MonthFlow } from './lib/financeStatements';
+import type { ForecastChartPoint } from './lib/financeForecast';
 import { formatDateTime, t } from './lib/i18n';
 import './financeCharts.css';
 
@@ -108,41 +109,42 @@ export function FlowChart({ rows, currency, title, highlight }: { rows: readonly
 }
 
 /**
- * The month's runway: the estimated balance day by day (a line), a band for spending 10% above or
- * below the daily pace, each bill marked on its due day with its name and amount, and the month-end
- * estimate labelled. One money axis.
+ * The forecast (docs/finance.md#forecast): the expected balance day by day (a line), the API's low and high
+ * band around it, each salary, bill or payment marked on its day with its name, and the last day's figure
+ * labelled. A dashed line marks the emergency reserve target when there is one. One money axis.
  */
-export function RunwayChart({ points, currency, perDay, title, variability = 0.1 }: { points: readonly RunwayPoint[]; currency: string; perDay: string; title: string; variability?: number }) {
+export function RunwayChart({ points, currency, title, reserve = null }: { points: readonly ForecastChartPoint[]; currency: string; title: string; reserve?: string | null }) {
   const [active, setActive] = useState<number | null>(null);
   const [plotRef, W] = useWidth();
   const tableId = useId();
-  const pace = Number(perDay);
-  const spread = (i: number) => pace * i * variability;
-  const values = points.flatMap((p, i) => [Number(p.balance) - spread(i), Number(p.balance) + spread(i)]);
+  const values = points.flatMap((p) => [Number(p.low), Number(p.high), Number(p.balance)]).concat(reserve ? [Number(reserve)] : []);
   const axis = ticks(Math.min(...values), Math.max(...values));
   const lo = axis[0], hi = axis[axis.length - 1];
   const plotW = W - PAD.left - PAD.right, plotH = H - PAD.top - PAD.bottom;
   const x = (i: number) => PAD.left + (points.length > 1 ? (plotW * i) / (points.length - 1) : plotW / 2);
   const y = (v: number) => PAD.top + plotH - ((v - lo) / (hi - lo)) * plotH;
   const line = points.map((p, i) => `${i ? 'L' : 'M'}${x(i)},${y(Number(p.balance))}`).join(' ');
-  const bandPath = points.length ? `${points.map((p, i) => `${i ? 'L' : 'M'}${x(i)},${y(Number(p.balance) + spread(i))}`).join(' ')} ${[...points].reverse().map((p, k) => {
-    const i = points.length - 1 - k; return `L${x(i)},${y(Number(p.balance) - spread(i))}`;
+  const bandPath = points.length ? `${points.map((p, i) => `${i ? 'L' : 'M'}${x(i)},${y(Number(p.high))}`).join(' ')} ${[...points].reverse().map((p, k) => {
+    const i = points.length - 1 - k; return `L${x(i)},${y(Number(p.low))}`;
   }).join(' ')} Z` : '';
   const labelEvery = Math.max(1, Math.ceil(points.length / 6));
+  const markEvery = points.length > 40 ? Math.ceil(points.length / 30) : 1;
   const last = points[points.length - 1];
   const p = active === null ? null : points[active];
   return <figure className="finFigure">
-    <Legend items={[{ key: 'b', label: t('fsafe.chart.balance'), swatch: 'income' }, { key: 'u', label: t('fsafe.chart.band', { percent: Math.round(variability * 100) }), swatch: 'band' }]} />
+    <Legend items={[{ key: 'b', label: t('fsafe.chart.balance'), swatch: 'income' }, { key: 'u', label: t('ffc.chart.band'), swatch: 'band' }]} />
     <div className="finPlot" ref={plotRef}>
       <svg width={W} height={H} viewBox={`0 0 ${W} ${H}`} role="img" aria-label={title} aria-describedby={tableId} onMouseLeave={() => setActive(null)}>
         {axis.map((v) => <g key={v}><line className={v === 0 ? 'finAxisZero' : 'finGridLine'} x1={PAD.left} x2={W - PAD.right} y1={y(v)} y2={y(v)} />
           <text className="finTick" x={PAD.left - 8} y={y(v) + 4} textAnchor="end" direction="ltr">{compact(v, currency)}</text></g>)}
         <path className="finRunwayBand" d={bandPath} />
+        {reserve && Number(reserve) >= lo && Number(reserve) <= hi && <g><line className="finReserveLine" x1={PAD.left} x2={W - PAD.right} y1={y(Number(reserve))} y2={y(Number(reserve))} />
+          <text className="finTick" x={W - PAD.right} y={y(Number(reserve)) - 4} textAnchor="end">{t('ffc.chart.reserve')}</text></g>}
         <path className="finRunwayLine" d={line} />
         {points.map((pt, i) => <g key={pt.day}>
           {i % labelEvery === 0 && <text className="finTick" x={x(i)} y={H - 10} textAnchor="middle">{formatDateTime(`${pt.day}T12:00:00Z`, { day: 'numeric', month: 'short', timeZone: 'UTC' })}</text>}
-          {pt.bills.length > 0 && <><circle className="finBillDot" cx={x(i)} cy={y(Number(pt.balance))} r={5} />
-            <text className="finBillLabel" x={x(i)} y={Math.max(12, y(Number(pt.balance)) - 10)} textAnchor="middle">{pt.bills.map((b) => b.name).join(', ').slice(0, 24)}</text></>}
+          {pt.bills.length > 0 && i % markEvery === 0 && <><circle className="finBillDot" cx={x(i)} cy={y(Number(pt.balance))} r={5} />
+            {points.length <= 40 && <text className="finBillLabel" x={x(i)} y={Math.max(12, y(Number(pt.balance)) - 10)} textAnchor="middle">{pt.bills.map((b) => b.name).join(', ').slice(0, 24)}</text>}</>}
           <rect className="finHit" x={x(i) - plotW / Math.max(2, points.length) / 2} y={PAD.top} width={plotW / Math.max(1, points.length)} height={plotH} onMouseEnter={() => setActive(i)} />
         </g>)}
         {last && <><circle className="finNetDot" cx={x(points.length - 1)} cy={y(Number(last.balance))} r={4} />
@@ -151,13 +153,15 @@ export function RunwayChart({ points, currency, perDay, title, variability = 0.1
       <Tooltip width={W} at={p && active !== null ? { x: x(active), y: PAD.top } : null}>{p && <>
         <strong>{formatDateTime(`${p.day}T12:00:00Z`, { day: 'numeric', month: 'long', timeZone: 'UTC' })}</strong>
         <span>{t('fsafe.chart.balance')}: <bdi>{formatAmount(p.balance, currency)}</bdi></span>
+        <span>{t('ffc.chart.range')}: <bdi>{formatAmount(p.low, currency)}</bdi> {t('ffc.to')} <bdi>{formatAmount(p.high, currency)}</bdi></span>
         {p.bills.map((b) => <span key={b.name}>{b.name}: <bdi>{formatAmount(b.amount, currency)}</bdi></span>)}
       </>}</Tooltip>
     </div>
     <details className="finChartTable"><summary>{t('frep.chart.table')}</summary>
       <table id={tableId} className="finGrid"><caption className="visuallyHidden">{title}</caption>
-        <thead><tr><th scope="col">{t('fsafe.col.day')}</th><th scope="col" className="num">{t('fsafe.chart.balance')}</th><th scope="col">{t('fsafe.col.bills')}</th></tr></thead>
+        <thead><tr><th scope="col">{t('fsafe.col.day')}</th><th scope="col" className="num">{t('fsafe.chart.balance')}</th><th scope="col" className="num">{t('ffc.chart.low')}</th><th scope="col" className="num">{t('ffc.chart.high')}</th><th scope="col">{t('fsafe.col.bills')}</th></tr></thead>
         <tbody>{points.map((pt) => <tr key={pt.day}><th scope="row"><bdi>{pt.day}</bdi></th><td className="num"><bdi>{formatAmount(pt.balance, currency)}</bdi></td>
+          <td className="num"><bdi>{formatAmount(pt.low, currency)}</bdi></td><td className="num"><bdi>{formatAmount(pt.high, currency)}</bdi></td>
           <td>{pt.bills.map((b) => `${b.name} ${formatAmount(b.amount, currency)}`).join(', ') || '-'}</td></tr>)}</tbody>
       </table>
     </details>

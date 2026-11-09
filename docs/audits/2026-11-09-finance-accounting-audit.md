@@ -21,7 +21,7 @@ The fixes are delivered as functional-area pull requests in this order: transact
 - Business Books keep **no journal**: every report is derived from invoices, bills, allocations and adjustments (`business/books_report.py`, `books_service.py:4-6`). There is no chart of accounts, general ledger, trial balance, balance sheet, opening balance, close or lock.
 - Classification had **no transaction type**: an unrecognised credit counted as income and an unrecognised debit as spending (`finance/categories.py:106-108`, `flows.py:58-67`). Fixed in the transaction-correctness PR (C1 to C7 below).
 - The most likely reasons statement rows look missing are the Transactions page defaulting to the current month, rows held in review or attached to other records by amount alone, and rows the PDF reader drops without saying so (details below).
-- There is no accountant review (the reconciliation workspace came with the reconciliation PR), no unified suggestion queue and no period close.
+- There is no accountant review (the reconciliation workspace came with the reconciliation PR), no unified suggestion queue and no period close. The forecast PR adds the Accountant review in Business books.
 
 ## Accounting foundation and Business Books
 
@@ -54,7 +54,7 @@ The fixes are delivered as functional-area pull requests in this order: transact
 | ZATCA e-invoicing | 2 (was 4) | Tax PR: readiness only, off by default: Phase 1 QR on invoice PDFs, UBL 2.1 XML with hash, counter and previous-hash chain, a required-fields check; no stamp, CSID, clearance or reporting, and not verified with ZATCA ([docs/business-tax.md](../business-tax.md#what-is-not-built)) |
 | Loan schedules | 1 (was 2) | Assets PR: annuity or equal-principal schedules, repayments split into interest and principal, interest accrued at month ends and reversed the next day, matching to existing bills and loan adjustments, schedule against actual and early-repayment recalculation ([docs/business-books.md](../business-books.md#loan-schedules)) |
 | Owner-paid expense and reimbursement | 1 | Reimbursable allocations, tested |
-| Evidence attachments on bills, accountant role | 4 | Not built |
+| Evidence attachments on bills, accountant role | 1 (was 4) | Evidence PR: vault documents attached to bills, invoices, adjustments and manual entries, an evidence-missing flag above a per-business threshold with a warning in the reports, the journal drill-down and an audited evidence pack (CSV index and zip) for owners and accountants, never a member's bank details (`business/books_evidence.py`, migration `0157_finance_evidence`, [docs/business-books.md](../business-books.md#supporting-documents-and-evidence)); the accountant role came with the ledger PR |
 
 Confirmed defects:
 
@@ -88,7 +88,7 @@ Confirmed defects:
 | Reconciliation workspace (bank and card) | 1 (was 4) | Reconciliation PR: sessions with exceptions, owner resolutions, approved correcting entries, completion history and reopen (migration `0153_finance_reconciliation`, web Finance, Reconciliation); card amount due against the card liability |
 | Reversal pairing, pending versus posted, unrecognised fees, missing periods | 1 (was 4) | Reconciliation PR: exceptions `reversal_pair` (suggestion), `pending`, `unrecognized_fee`, `missing_period`, plus `wrong_direction`, `unknown_currency`, `possible_duplicate` |
 | Multi-currency (original amount, billed amount, no invented rates, Decimal, per-currency totals) | 1 | `csv_import.py:521-585`, `fx.py` |
-| Realised and unrealised FX in personal Finance | 4 | Not built |
+| Realised and unrealised FX in personal Finance | 2 (was 4) | Evidence PR: card billing differences with the original and billed amounts, the rate (printed, column or implied, never guessed) with its date and source, the FX fee or markup separated as its own `bank_fee` line by the owner; own transfers in two currencies show the realised rate and, with an earlier rate on record, the realised FX difference, shown and never posted (`finance/card_fx.py`, [docs/finance.md](../finance.md#card-fx-and-fees)). Unrealised revaluation of balances is not built |
 
 Confirmed defects:
 
@@ -112,7 +112,7 @@ Confirmed defects:
 | Direction | 1 | Signed amount, `suspected_direction` hint |
 | Subcategories | 1 (was 4) | Owner subcategories under each category, optional on a row, summaries still by category (`finance_subcategories`, migration `0152_finance_rules_learning`; [Subcategories](../finance.md#subcategories)) |
 | Merchant and aliases | 1 (was 2 and 4) | `rules.merchant_key` for every source and owner aliases in English and Arabic, folded (`finance_merchant_aliases`; [Merchants and aliases](../finance.md#merchants-and-aliases)) |
-| Personal or business per transaction | 2 | `business` link dimension and allocations |
+| Personal or business per transaction | 1 (was 2) | `business` link dimension and allocations; attribution suggestions propose the business (treatment and project from the owner's earlier allocations of the same merchant), vehicle, purchase, debt and bill links, accepted through the links API ([docs/finance.md](../finance.md#attribution-suggestions)) |
 | Duplicate suggestion | 1 | `statement_match` statuses |
 | Confidence and explanation | 1 (was 2) | Every row has a type confidence and reason code; every suggestion has a confidence, the reason and its evidence ([Suggestions](../finance.md#suggestions)) |
 | Refund linked to purchase | 1 (was 2) | SMS (`sms_service.py:333`); statement, CSV, PDF and hand-entered refunds since the transaction-correctness PR (`refunds.py`: a same-amount purchase with agreeing merchant words is a match, anything less a suggestion) |
@@ -123,7 +123,7 @@ Confirmed defects:
 | Account-scoped, amount or reference rules, history reuse | 1 (was 4) | `RuleMatch` scope fields; `rules.history_suggestion` learns only from rows the owner categorised by hand |
 | Unified review queue and suggestion object | 1 (was 4) | One `Suggestion` object and queue with pluggable producers, dismissal memory and one-wins decisions (`suggestions.py`; [Suggestions](../finance.md#suggestions)); the four existing review pages stay and are linked |
 | Upcoming bills, subscriptions | 1 and 2 | `detect_recurring`, `/bills/suggestions`; reminders not built |
-| Missing statement periods, exception notifications, reconciliation prompts | 2 (was 4) | Missing statement months and the daily unresolved notice (owner policy) are built ([Automation policies](../finance.md#automation-policies)); the reconciliation PR adds missing months and the next step per account (`GET /reconciliations/health`) and open exceptions (`GET /reconciliations/exceptions`), which the suggestion queue lists as a producer ([Suggestions](../finance.md#suggestions)) |
+| Missing statement periods, exception notifications, reconciliation prompts | 1 (was 4) | Missing statement months and the daily unresolved notice (owner policy) are built ([Automation policies](../finance.md#automation-policies)); the reconciliation PR adds missing months and the next step per account (`GET /reconciliations/health`) and open exceptions (`GET /reconciliations/exceptions`), which the suggestion queue lists as a producer ([Suggestions](../finance.md#suggestions)); the evidence PR adds exception notices (open reconciliation exceptions older than N days, missing statement months, uncategorized money above a threshold, unposted business documents, evidence missing), each owner-enabled, in-app only, once per item and day ([docs/finance.md](../finance.md#exception-notices)) |
 
 Confirmed defects:
 
@@ -146,9 +146,9 @@ Confirmed defects:
 | Salary profile (joining date, expected salary, pay day, advances, recurring deductions, detection across months) | 4 | Payslips record a month's figures only (`personal_api.py:446-520`); the advisor detects only `salary_found` |
 | Scheduled obligations against paid transactions | 3 | Past debt minimums are assumed paid (P2) |
 | Category budgets | 2 | Set only through the Guardian confirm flow |
-| Emergency reserve | 2 | Indirect only |
-| Month-end forecast | 2 | Web only (`financeStatements.ts:180`), ignores expected income |
-| Reconciliation, Accountant review, Automations and suggestions, Finance settings pages | 2 (was 4): Suggestions and Reconciliation 1, the others 4 | Finance, Suggestions (queue, rules, merchants, automation) and the Reconciliation page are built ([Suggestions](../finance.md#suggestions)); Accountant review and a settings page are not (settings is a dialog) |
+| Emergency reserve | 1 (was 2) | Forecast PR: an emergency goal sized in months of essential spending or a fixed amount, held in an account or the goal, with progress, months covered and a `below_reserve` forecast warning in the Suggestions queue (migration `0156_finance_reserve`, `GET /reserve`; [Emergency reserve](../finance.md#emergency-reserve)) |
+| Month-end forecast | 1 (was 2) | Forecast PR: one API forecast per currency, day by day to the month end and three months, from cash, the salary profile's expected net, confident recurring income, bills, minimums (overdue included), installments, regular transfers and usual spending, with a band and dated warnings; the web runway is gone and the web and phone read `GET /forecast` ([Forecast](../finance.md#forecast)) |
+| Reconciliation, Accountant review, Automations and suggestions, Finance settings pages | 1 (was 4) | Finance, Suggestions (queue, rules, merchants, automation) and the Reconciliation page are built ([Suggestions](../finance.md#suggestions)); the forecast PR adds Finance settings (`#finance-settings`, [Finance settings](../finance.md#finance-settings)) and the Accountant review in Business books (`GET /books/review`, [Accountant review](../business-books.md#accountant-review)); VAT return warnings join it when the tax module lands |
 | English and Arabic | 1 | Paired catalogs, parity tests |
 
 Confirmed defects:
@@ -160,7 +160,7 @@ Confirmed defects:
 
 ## Duplicated logic
 
-- Monthly commitments are computed four times: `personal.fixed_commitments`, `safe_to_spend.compute`, `advisor._coming` and `advisor._runway`.
+- Monthly commitments are computed four times: `personal.fixed_commitments`, `safe_to_spend.compute`, `advisor._coming` and `advisor._runway`. The forecast (`forecast.py`) takes each bill, minimum, installment and transfer from the same shared helpers (`commitment_math`, `obligations.unpaid`, `salary.expected_for`) and the web's own runway is gone.
 - Two debt payoff engines: `lib/financeDebtPlan.ts` and `planner.py`.
 - Lent and borrowed sits beside Debts; borrowed money never reaches payoff, Safe to spend or fixed costs.
 - Three income figures: `planning_service.income_monthly`, the advisor's month income, and its salary detection; payslips feed none of them.

@@ -19,6 +19,7 @@ import { PERIOD_PRESETS, isNegative, money, presetPeriod, todayIso, type PeriodP
 import { describeError, isPermissionDenied } from './lib/errors';
 import { t, type MessageKey } from './lib/i18n';
 import { ConfirmDialog, Drawer, Modal } from './Dialog';
+import { EntryEvidence, EvidencePanel } from './BusinessBooksEvidence';
 import { Badge, Denied, Empty, Failed, Note, Pager, ReasonDialog, day, failure } from './BusinessParts';
 import { ListState, usePaged } from './BusinessDeals';
 
@@ -130,6 +131,7 @@ export function LedgerSection({ setup }: { setup: BooksSetup }) {
   const [span, setSpan] = useState<{ from: string; to: string }>({ from: '', to: '' });
   const [posting, setPosting] = useState<{ text: string; error?: boolean } | null>(null), [busy, setBusy] = useState(false);
   const [manual, setManual] = useState(false), [reversing, setReversing] = useState<LedgerEntry | null>(null), [general, setGeneral] = useState(false);
+  const [evidenceOf, setEvidenceOf] = useState<LedgerEntry | null>(null);
   const list = usePaged((offset) => api.listJournal(span, source, offset, 15), [source, span.from, span.to, tick]);
   const ids = { source: useId(), from: useId(), to: useId() };
   const canAccount = status.state === 'ready' ? status.value.can_account : Boolean(setup.permissions.account);
@@ -189,10 +191,13 @@ export function LedgerSection({ setup }: { setup: BooksSetup }) {
             {entry.reverses_id && <Badge tone="neutral">{t('ledger.reversal')}</Badge>}
             {entry.late && <Badge tone="warning">{t('ledger.late')}</Badge>}
             {sourceHash(entry.source_kind, entry.source_id) && <a className="button secondary" href={`#${sourceHash(entry.source_kind, entry.source_id)}`}>{t('ledger.openSource')}</a>}
+            {entry.source_kind === 'manual' && canAccount && <button type="button" className="secondary" onClick={() => setEvidenceOf(entry)}
+              aria-label={t('books.evidence.openLabel', { what: entry.description })}>{t('books.evidence.title')}</button>}
             {entry.can_reverse && canAccount && <button type="button" className="secondary" onClick={() => setReversing(entry)}
               aria-label={t('ledger.reverseLabel', { what: entry.description })}>{t('ledger.reverse')}</button>}
           </span>
         </div>
+        <EntryEvidence documents={entry.evidence} source={entry.evidence_source} />
         <div className="dataTableWrap" tabIndex={0} role="region" aria-label={t('ledger.linesOf', { what: entry.description })}><table className="dataTable bkLines">
           <caption className="visuallyHidden">{t('ledger.linesOf', { what: entry.description })}</caption>
           <thead><tr><th scope="col">{t('ledger.col.account')}</th><th scope="col" className="num">{t('ledger.col.debit')}</th><th scope="col" className="num">{t('ledger.col.credit')}</th></tr></thead>
@@ -207,6 +212,9 @@ export function LedgerSection({ setup }: { setup: BooksSetup }) {
     {reversing && <ReasonDialog title={t('ledger.reverseTitle')} label={t('books.reason')} confirm={t('ledger.reverse')}
       onConfirm={async (reason) => { await api.reverseEntry(reversing.id, reason); setReversing(null); setTick((n) => n + 1); }} onCancel={() => setReversing(null)} />}
     {general && <GeneralLedgerDrawer setup={setup} onClose={() => setGeneral(false)} />}
+    {evidenceOf && <Modal title={t('books.evidence.ofEntry', { what: evidenceOf.description })} onClose={() => { setEvidenceOf(null); setTick((n) => n + 1); }}>
+      <EvidencePanel sourceType="journal" sourceId={evidenceOf.id} />
+    </Modal>}
   </>;
 }
 
@@ -325,6 +333,12 @@ const rowMap = (rows: StatementRow[]) => new Map(rows.filter((row) => row.kind !
 const pnlCompare = (data: LedgerStatements, pick: (pnl: LedgerPnl) => StatementRow[]) =>
   Object.entries(data.comparatives).map(([name, value]) => ({ label: t(`ledger.compare.${name}` as MessageKey, { from: dayText(value.from), to: dayText(value.to) }), rows: rowMap(pick(value.pnl)) }));
 
+/** The reports' warning: bills and adjustments above the evidence threshold have no supporting document. */
+export function EvidenceWarning({ count, threshold, currency, onOpen }: { count: number; threshold: string | null; currency: string; onOpen: () => void }) {
+  return <Note error>{t('books.evidence.warning', { count, threshold: threshold ? money(threshold, currency) : '-' })}
+    {' '}<button type="button" className="secondary" onClick={onOpen}>{t('books.evidence.openBills')}</button></Note>;
+}
+
 export function StatementsSection({ setup, onSection }: { setup: BooksSetup; onSection: (tab: string) => void }) {
   const settings = setup.settings!;
   const [period, setPeriod] = useState(() => presetPeriod('this_year', new Date(), settings.fiscal_year_start_month));
@@ -361,6 +375,8 @@ export function StatementsSection({ setup, onSection }: { setup: BooksSetup; onS
     {data && !data.complete && <Note error>{t('ledger.statements.incomplete', { posts: data.pending.to_post + data.pending.to_reverse, issues: data.pending.issues })}
       {' '}<button type="button" className="secondary" onClick={() => onSection('ledger')}>{t('ledger.statements.goLedger')}</button></Note>}
     {data && data.late_entries > 0 && <Note>{t('ledger.statements.late', { count: data.late_entries })}</Note>}
+    {data && (data.evidence_missing?.count ?? 0) > 0 && <EvidenceWarning count={data.evidence_missing!.count} threshold={data.evidence_missing!.threshold} currency={base}
+      onOpen={() => onSection('bills')} />}
     {empty && <Empty title={t('ledger.statements.emptyTitle')} text={t('ledger.statements.emptyText')}
       action={<button type="button" onClick={() => onSection('ledger')}>{t('ledger.statements.goLedger')}</button>} />}
     {data && !empty && <div className="bzOverview bkGrid">

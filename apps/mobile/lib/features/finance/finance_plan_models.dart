@@ -76,12 +76,36 @@ class SafeToSpend {
       required this.daysLeft,
       required this.currencies,
       required this.excluded,
-      this.combined});
+      this.combined,
+      this.forecasts = const [],
+      this.reserves = const [],
+      this.forecastFailed = false});
   final String monthEnd;
   final int daysLeft;
   final List<CurrencySafe> currencies;
   final List<SafeLine> excluded;
   final CurrencyAmount? combined;
+
+  /// The API's forecast per currency (GET /finance/forecast, docs/finance.md#forecast)
+  /// and the emergency reserves (GET /finance/reserve); read only.
+  final List<CurrencyForecast> forecasts;
+  final List<ReserveProgress> reserves;
+
+  /// The forecast could not be read: the screen says so instead of a figure.
+  final bool forecastFailed;
+
+  SafeToSpend withForecast(
+          List<CurrencyForecast> forecasts, List<ReserveProgress> reserves,
+          {bool failed = false}) =>
+      SafeToSpend(
+          monthEnd: monthEnd,
+          daysLeft: daysLeft,
+          currencies: currencies,
+          excluded: excluded,
+          combined: combined,
+          forecasts: forecasts,
+          reserves: reserves,
+          forecastFailed: failed);
 
   factory SafeToSpend.fromJson(JsonReader r) {
     final combined = r.optObject('combined');
@@ -96,6 +120,94 @@ class SafeToSpend {
               combined.string('currency'), combined.string('safe_to_spend')),
     );
   }
+}
+
+/// The expected balance on one day with its likely range (an estimate).
+class ForecastDay {
+  const ForecastDay(
+      {required this.on,
+      required this.expected,
+      required this.low,
+      required this.high});
+  final String on, expected, low, high;
+
+  factory ForecastDay.fromJson(JsonReader r) => ForecastDay(
+      on: r.string('on'),
+      expected: r.string('expected'),
+      low: r.string('low'),
+      high: r.string('high'));
+}
+
+/// The first day the expected balance goes below zero or the reserve.
+class ForecastWarning {
+  const ForecastWarning(
+      {required this.kind, required this.on, required this.threshold});
+  final String kind, on, threshold;
+
+  factory ForecastWarning.fromJson(JsonReader r) => ForecastWarning(
+      kind: r.string('kind'),
+      on: r.string('on'),
+      threshold: r.string('threshold'));
+}
+
+/// One currency of the forecast: today's actual cash and the month end.
+class CurrencyForecast {
+  const CurrencyForecast(
+      {required this.currency,
+      required this.actual,
+      required this.monthEnd,
+      this.warnings = const []});
+  final String currency, actual;
+  final ForecastDay monthEnd;
+  final List<ForecastWarning> warnings;
+
+  /// The warning to show first: below zero, then below the reserve, then
+  /// "may go below zero", within this month.
+  ForecastWarning? get firstWarning {
+    for (final kind in const [
+      'below_zero',
+      'below_reserve',
+      'may_go_below_zero'
+    ]) {
+      for (final w in warnings) {
+        if (w.kind == kind && w.on.compareTo(monthEnd.on) <= 0) return w;
+      }
+    }
+    return null;
+  }
+
+  factory CurrencyForecast.fromJson(JsonReader r) => CurrencyForecast(
+        currency: r.string('currency'),
+        actual: r.string('actual'),
+        monthEnd: ForecastDay.fromJson(r.object('month_end')),
+        warnings: r.optObjects('warnings', ForecastWarning.fromJson),
+      );
+}
+
+/// An emergency reserve's progress (docs/finance.md#emergency-reserve).
+class ReserveProgress {
+  const ReserveProgress(
+      {required this.currency,
+      required this.name,
+      required this.saved,
+      required this.target,
+      this.progressPercent,
+      this.monthsCovered});
+  final String currency, name, saved, target;
+  final int? progressPercent;
+  final String? monthsCovered;
+
+  /// 0 to 1 for a progress bar.
+  double get fraction => ((progressPercent ?? 0).clamp(0, 100)) / 100;
+
+  factory ReserveProgress.fromJson(JsonReader r) => ReserveProgress(
+        currency: r.string('currency'),
+        name: r.string('name'),
+        saved: r.string('saved'),
+        target: r.string('target'),
+        progressPercent: r.optInt('progress_percent'),
+        monthsCovered: r.optString('months_covered'),
+      );
 }
 
 /// The person's rules as plain sentence parts: (key, values) pairs the

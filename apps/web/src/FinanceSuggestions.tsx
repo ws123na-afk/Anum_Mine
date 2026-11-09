@@ -14,8 +14,8 @@ import * as rx from './lib/financeRulesApi';
 import { categoryLabel, formatAmount, isolate } from './lib/finance';
 import { TRANSACTION_TYPES } from './lib/financeRegister';
 import {
-  EMPTY_RULE, NEVER_AUTOMATED, RULE_CATEGORIES, SUGGESTION_VIEWS, acceptMode, confidencePercent, confidenceTone, fromContent, kindChips, matchSummary,
-  toContent, type RuleForm, type SuggestionsView,
+  EMPTY_RULE, NEVER_AUTOMATED, NOTICE_KINDS, RULE_CATEGORIES, SUGGESTION_VIEWS, acceptMode, confidencePercent, confidenceTone, fromContent, kindChips,
+  matchSummary, suggestionsViewFromHash, toContent, toggleNotice, variantOf, type RuleForm, type SuggestionsView,
 } from './lib/financeSuggestions';
 import { describeError } from './lib/errors';
 import { formatDateTime, t, type MessageKey } from './lib/i18n';
@@ -30,7 +30,7 @@ const when = (value: string) => formatDateTime(value, { day: 'numeric', month: '
 type Flash = { text: string; error?: boolean; undo?: string } | null;
 
 export function SuggestionsPage({ onOpenHash }: { onOpenHash?: (hash: string) => void }) {
-  const [view, setView] = useState<SuggestionsView>('queue');
+  const [view, setView] = useState<SuggestionsView>(() => suggestionsViewFromHash(typeof location === 'undefined' ? '' : location.hash));
   const [ruleSeed, setRuleSeed] = useState(0);
   return <div className="fsugPage">
     <FinancePageHead title={t('fsug.title')} subtitle={t('fsug.subtitle')} icon={<ListChecks />}
@@ -80,6 +80,12 @@ function headText(item: FinanceSuggestion): string {
   if (item.kind === 'reconciliation') return t('fsug.head.reconciliation', { account: p.account ?? '', exception: t(`frec.kind.${p.exception}` as MessageKey) });
   const vars: Record<string, string | number> = { ...p, category: p.category ? categoryLabel(p.category as FinanceCategory) : '', current: p.current ? categoryLabel(p.current as FinanceCategory) : '' };
   if (item.kind === 'bill_due') vars.count = Number(p.days ?? 0);
+  // The forecast's shortage (docs/finance.md#forecast) names the day it expects the balance to go below zero or the reserve.
+  if (item.kind === 'cash_shortage' && (p.reason === 'below_zero' || p.reason === 'below_reserve')) {
+    return t(`fsug.head.cash_shortage.${p.reason}` as MessageKey, { currency: p.currency ?? '', date: isolate(p.date ?? '') });
+  }
+  const variant = variantOf(item);
+  if (item.kind === 'attribution' || item.kind === 'fx_fee') return t(`fsug.head.${item.kind}.${variant}` as MessageKey, vars);
   return t(`fsug.head.${item.kind}` as MessageKey, vars);
 }
 
@@ -91,7 +97,14 @@ function whyText(item: FinanceSuggestion): string {
     return t(p.severity === 'blocking' ? 'fsug.why.reconciliation.blocking' : 'fsug.why.reconciliation.warning', { start: p.start ?? '', end: p.end ?? '' });
   }
   const p = item.params ?? {};
-  return t(`fsug.why.${item.kind}` as MessageKey, { ...p, category: p.category ? categoryLabel(p.category as FinanceCategory) : '', current: p.current ? categoryLabel(p.current as FinanceCategory) : '' });
+  if (item.kind === 'cash_shortage' && (p.reason === 'below_zero' || p.reason === 'below_reserve')) {
+    return t(`fsug.why.cash_shortage.${p.reason}` as MessageKey, { amount: isolate(formatAmount(p.threshold ?? '0', p.currency ?? 'AED')) });
+  }
+  const vars = { ...p, category: p.category ? categoryLabel(p.category as FinanceCategory) : '', current: p.current ? categoryLabel(p.current as FinanceCategory) : '',
+    treatment: p.treatment ? t(`fsug.treatment.${p.treatment}` as MessageKey) : '' };
+  const variant = variantOf(item);
+  if (variant) return t(`fsug.why.${item.kind}.${variant}` as MessageKey, vars);
+  return t(`fsug.why.${item.kind}` as MessageKey, vars);
 }
 
 function QueueView({ onOpenHash, onAddRule }: { onOpenHash?: (hash: string) => void; onAddRule: () => void }) {
@@ -110,7 +123,8 @@ function QueueView({ onOpenHash, onAddRule }: { onOpenHash?: (hash: string) => v
     try {
       if (accept) {
         const done = await rx.acceptSuggestion(item.key, item.payload_hash);
-        setFlash(done.batch ? { text: t('fsug.accepted', { count: done.batch.changed }), undo: done.batch.id } : { text: t('fsug.acknowledged') });
+        setFlash(done.batch ? { text: t('fsug.accepted', { count: done.batch.changed }), undo: done.batch.id }
+          : { text: t(done.link_id ? 'fsug.linked' : 'fsug.acknowledged') });
       } else {
         await rx.rejectSuggestion(item.key);
         setFlash({ text: t('fsug.dismissed') });
@@ -165,7 +179,8 @@ function SuggestionCard({ item, busy, disabled, onAccept, onReject, onOpen }: {
       <ul>{item.evidence.map((ev, i) => <li key={i}><span dir="auto">{ev.label}</span>{ev.value && <small className="muted" dir="ltr"> {ev.value}</small>}</li>)}</ul></details>}
     <div className="fsugActions">
       {mode !== 'none' && <button type="button" disabled={disabled} onClick={onAccept}><Check aria-hidden="true" />
-        {busy ? t('finance.saving') : t(mode === 'apply' ? 'fsug.accept.apply' : 'fsug.accept.acknowledge')}</button>}
+        {busy ? t('finance.saving') : t(mode === 'apply' ? 'fsug.accept.apply' : mode === 'link'
+          ? (item.action.link?.dimension === 'business' ? 'fsug.accept.allocate' : 'fsug.accept.link') : 'fsug.accept.acknowledge')}</button>}
       {item.href && <button type="button" className="secondary" disabled={disabled} onClick={onOpen}>{t('fsug.review')}</button>}
       <button type="button" className="secondary" disabled={disabled} onClick={onReject}><X aria-hidden="true" />{t('fsug.dismiss')}</button>
     </div>
@@ -457,7 +472,7 @@ function AutomationView() {
   const [state, setState] = useState<Load<FinanceAutomation>>({ kind: 'loading' });
   const [policy, setPolicy] = useState<FinanceAutomationPolicy | null>(null);
   const [busy, setBusy] = useState(false), [flash, setFlash] = useFlash();
-  const ids = { min: useId(), notifyMin: useId() };
+  const ids = { min: useId(), notifyMin: useId(), days: useId(), uncategorized: useId() };
   const load = useCallback(() => {
     rx.getAutomation().then((value) => { setState({ kind: 'ready', value }); setPolicy(value.policy); }).catch((e) => setState(failed(e)));
   }, []);
@@ -488,6 +503,20 @@ function AutomationView() {
         <div className="field"><label htmlFor={ids.notifyMin}>{t('fsug.auto.notifyMin')}</label>
           <input id={ids.notifyMin} type="number" min={1} max={500} disabled={!p.notify_unresolved} value={p.notify_min_items}
             onChange={(e) => set({ notify_min_items: Math.min(500, Math.max(1, Number(e.target.value) || 1)) })} /></div>
+        <fieldset className="fsugFieldset fsugNotices">
+          <legend>{t('fsug.auto.notices')}</legend>
+          <p className="muted">{t('fsug.auto.noticesText')}</p>
+          {NOTICE_KINDS.map((kind) => <label key={kind} className="fsugCheck"><input type="checkbox" checked={(p.notices ?? []).includes(kind)}
+            onChange={(e) => set({ notices: toggleNotice(p.notices, kind, e.target.checked) })} />{t(`fsug.notice.${kind}` as MessageKey)}</label>)}
+          <div className="fsugNoticeFields">
+            <div className="field"><label htmlFor={ids.days}>{t('fsug.auto.noticeDays')}</label>
+              <input id={ids.days} type="number" min={1} max={90} disabled={!(p.notices ?? []).includes('reconciliation_overdue')} value={p.notice_exception_days ?? 7}
+                onChange={(e) => set({ notice_exception_days: Math.min(90, Math.max(1, Number(e.target.value) || 1)) })} /></div>
+            <div className="field"><label htmlFor={ids.uncategorized}>{t('fsug.auto.noticeUncategorized')}</label>
+              <input id={ids.uncategorized} type="number" min={0} step="0.01" inputMode="decimal" disabled={!(p.notices ?? []).includes('uncategorized_money')}
+                value={p.notice_uncategorized_min ?? '500'} onChange={(e) => set({ notice_uncategorized_min: e.target.value || '0' })} /></div>
+          </div>
+        </fieldset>
         <FlashLine flash={flash} />
         <div className="actions"><button type="submit" disabled={busy}>{busy ? t('finance.saving') : t('fsug.auto.save')}</button></div>
       </form>

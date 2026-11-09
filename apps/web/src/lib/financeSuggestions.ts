@@ -5,11 +5,43 @@ import type { FinanceRuleContent, FinanceRuleMatch, FinanceSuggestion, FinanceSu
 export type SuggestionsView = 'queue' | 'rules' | 'merchants' | 'automation';
 export const SUGGESTION_VIEWS: readonly SuggestionsView[] = ['queue', 'rules', 'merchants', 'automation'];
 
-/** What the Accept button does for a suggestion: change rows, only record that it was seen, or nothing here. */
-export function acceptMode(item: Pick<FinanceSuggestion, 'action'>): 'apply' | 'acknowledge' | 'none' {
+/** The view a link opens (`#finance-suggestions?view=automation`, from Finance settings); the queue otherwise. */
+export function suggestionsViewFromHash(hash: string): SuggestionsView {
+  const query = hash.split('?')[1] ?? '';
+  const view = new URLSearchParams(query).get('view');
+  return (SUGGESTION_VIEWS as readonly string[]).includes(view ?? '') ? view as SuggestionsView : 'queue';
+}
+
+/** What the Accept button does for a suggestion: change rows, make a link (through the links API), only record that it was seen,
+ * or nothing here. */
+export function acceptMode(item: Pick<FinanceSuggestion, 'action'>): 'apply' | 'link' | 'acknowledge' | 'none' {
   if (item.action.kind === 'classify' || item.action.kind === 'confirm_refund') return 'apply';
+  if (item.action.kind === 'link' && item.action.link) return 'link';
   if (item.action.kind === 'acknowledge') return 'acknowledge';
   return 'none';
+}
+
+/** The words key of an attribution, payment or FX fee suggestion: one per linked module (docs/finance.md#attribution-suggestions). */
+export function variantOf(item: Pick<FinanceSuggestion, 'kind' | 'params' | 'action'>): string | null {
+  const p = item.params ?? {};
+  if (item.kind === 'attribution') {
+    if (p.dimension === 'vehicle' && p.record === 'none') return 'vehicle_record';
+    return p.dimension ?? 'business';
+  }
+  if (item.kind === 'payment_match') return item.action.kind === 'link' ? 'link' : null;
+  if (item.kind === 'fx_fee') return p.source === 'fee_row' ? 'link' : 'split';
+  return null;
+}
+
+/** The exception notices the Automation tab offers, in this order (docs/finance.md#exception-notices). */
+export const NOTICE_KINDS = ['reconciliation_overdue', 'statement_missing', 'uncategorized_money', 'business_unposted', 'evidence_missing'] as const;
+export type NoticeKind = (typeof NOTICE_KINDS)[number];
+
+/** Turn one notice kind on or off, keeping the server's order and never listing one twice. */
+export function toggleNotice(current: readonly string[] | undefined, kind: NoticeKind, on: boolean): NoticeKind[] {
+  const set = new Set(current ?? []);
+  if (on) set.add(kind); else set.delete(kind);
+  return NOTICE_KINDS.filter((k) => set.has(k));
 }
 
 /** A confidence ("0.85") as a whole percentage, or null. */

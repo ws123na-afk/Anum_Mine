@@ -174,53 +174,7 @@ export function netWorth(summary: FinanceSummary): NetWorthRow[] {
   });
 }
 
-// ---- Safe to spend -------------------------------------------------------------------------------
-
-export interface RunwayPoint { day: string; balance: string; bills: { name: string; amount: string }[] }
-
-const addDays = (day: string, n: number) => new Date(Date.parse(`${day}T00:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10);
-
-/**
- * The month's runway in one currency: today's estimate after goals and buffer, then each bill taken
- * off on its due day (an overdue one, not paid yet, today) and the average daily spend (`perDay`, from
- * the last 30 days without the categories bills cover, `spendOutsideBills`) taken off every day.
- * A projection of the person's own inputs, not a forecast: the page says so.
- */
-export function runway(data: FinanceSafeToSpend, currency: string, bills: readonly FinanceUpcomingBill[], perDay: string): RunwayPoint[] {
-  const row = data.currencies.find((c) => c.currency === currency);
-  if (!row) return [];
-  // Start: what you have less goals and buffer; bills come off on their day.
-  let balance = toMilli(row.available) - toMilli(row.goals) - toMilli(row.buffer) - toMilli(row.minimum_payments);
-  const daily = toMilli(perDay);
-  const due = bills.filter((b) => b.currency === currency && b.due_on <= data.month_end && (b.due_on >= data.today || b.overdue));
-  const points: RunwayPoint[] = [];
-  for (let day = data.today, i = 0; day <= data.month_end && i < 40; day = addDays(day, 1), i++) {
-    const today = due.filter((b) => (i === 0 ? b.due_on <= day : b.due_on === day));
-    if (i > 0) balance -= daily;
-    for (const b of today) balance -= toMilli(b.amount);
-    points.push({ day, balance: fromMilli(balance, currency), bills: today.map((b) => ({ name: b.name, amount: b.amount })) });
-  }
-  return points;
-}
-
-/**
- * A month's spend without the categories the person's bills cover, so the daily pace does not count rent or
- * utilities that the runway already takes off on their due day.
- */
-export function spendOutsideBills(summary: FinanceSummary, currency: string, bills: readonly Pick<FinanceUpcomingBill, 'category' | 'currency'>[]): string {
-  const covered = new Set(bills.filter((b) => b.currency === currency).map((b) => b.category));
-  const inBills = summary.spend_by_category.filter((r) => r.currency === currency && covered.has(r.category)).reduce((sum, r) => sum + toMilli(r.amount), 0n);
-  const outside = toMilli(amountIn(summary.spend, currency)) - inBills;
-  return fromMilli(outside > 0n ? outside : 0n, currency);
-}
-
-/** Average daily spending over the last 30 days from the two months' spend (the current month to date and the month before). */
-export function dailyPace(spendThisMonth: string, daysSoFar: number, spendLastMonth: string, daysLastMonth: number, currency: string): string {
-  const days = Math.max(1, Math.min(30, daysSoFar + daysLastMonth));
-  // The current month counts in full; the rest of the 30 days comes from last month's average day.
-  const fromLast = daysSoFar >= 30 ? 0n : (toMilli(spendLastMonth) * BigInt(Math.min(30 - daysSoFar, daysLastMonth))) / BigInt(Math.max(1, daysLastMonth));
-  return fromMilli((toMilli(spendThisMonth) + fromLast) / BigInt(days), currency);
-}
+// ---- Safe to spend (the forecast itself comes from the API: lib/financeForecast.ts) ----------------
 
 export interface Guardrail { category: FinanceCategory; spent: string; limit: string; percent: number; tone: 'ok' | 'warn' | 'bad' }
 

@@ -1,10 +1,10 @@
 // Finance reports and Safe to spend figures (docs/finance.md#reports).
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
-import type { FinanceSafeToSpend, FinanceSummary } from '@anum/contracts';
+import type { FinanceSummary } from '@anum/contracts';
 import {
-  add, categoryRows, dailyPace, fromMilli, guardrails, keyMovements, netWorth, parseImportAmount, percentOf, personalFlows, remainingOf, reportCurrencies, reportQuality,
-  runway, spendOutsideBills, subtract, toMilli,
+  add, categoryRows, fromMilli, guardrails, keyMovements, netWorth, parseImportAmount, percentOf, personalFlows, remainingOf, reportCurrencies, reportQuality,
+  subtract, toMilli,
 } from '../src/lib/financeStatements.ts';
 
 const summary = (month: string, over: Partial<FinanceSummary> = {}): FinanceSummary => ({
@@ -103,35 +103,6 @@ describe('personal reports', () => {
 });
 
 describe('safe to spend', () => {
-  const data: FinanceSafeToSpend = {
-    month: '2026-11', today: '2026-11-27', month_end: '2026-11-30', days_left: 4, base_currency: 'SAR', timezone: 'Asia/Riyadh', excluded: [], combine_currencies: false,
-    combined_status: 'off', combined: null, missing_rates: [], fx_max_age_days: 7, accounts_counted: 2, note: '',
-    currencies: [{ currency: 'SAR', available: '10000.00', bills: '500.00', minimum_payments: '0.00', goals: '1000.00', buffer: '500.00', safe_to_spend: '8000.00', per_day: '2000.00', short: false, lines: [] }],
-  };
-  it('draws the runway from today to the month end with bills on their day', () => {
-    const points = runway(data, 'SAR', [{ id: 'b', name: 'Internet', amount: '500.00', currency: 'SAR', cadence: 'monthly', due_on: '2026-11-29', days_until: 2, category: 'telecom' }], '100.00');
-    assert.deepEqual(points.map((p) => p.day), ['2026-11-27', '2026-11-28', '2026-11-29', '2026-11-30']);
-    assert.deepEqual(points.map((p) => p.balance), ['8500.00', '8400.00', '7800.00', '7700.00']);
-    assert.deepEqual(points[2].bills, [{ name: 'Internet', amount: '500.00' }]);
-    assert.deepEqual(runway(data, 'USD', [], '1'), []);
-  });
-  it('takes an overdue bill off today, and leaves out a past one that was paid', () => {
-    const late = { id: 'w', name: 'Water', amount: '80.00', currency: 'SAR', cadence: 'monthly' as const, due_on: '2026-11-20', days_until: -7, category: 'utilities' as const, overdue: true };
-    const paid = { ...late, id: 'p', overdue: false };
-    assert.deepEqual(runway(data, 'SAR', [late, paid], '0').map((p) => p.balance), ['8420.00', '8420.00', '8420.00', '8420.00']);
-  });
-  it('paces spending without the categories bills already cover', () => {
-    const s = summary('2026-11', { spend: [{ currency: 'SAR', amount: '6000.00' }], spend_by_category: [
-      { category: 'housing', currency: 'SAR', amount: '5000.00', count: 1 }, { category: 'dining', currency: 'SAR', amount: '1000.00', count: 9 }] });
-    const rent = { category: 'housing' as const, currency: 'SAR' };
-    assert.equal(spendOutsideBills(s, 'SAR', [rent]), '1000.00');
-    assert.equal(spendOutsideBills(s, 'SAR', []), '6000.00');
-    assert.equal(spendOutsideBills(s, 'SAR', [{ category: 'housing', currency: 'USD' }]), '6000.00');
-  });
-  it('averages the daily pace over the last 30 days', () => {
-    assert.equal(dailyPace('500.00', 5, '3000.00', 30, 'SAR'), '100.00');
-    assert.equal(dailyPace('3100.00', 31, '0', 30, 'SAR'), '103.33');
-  });
   it('compares the Guardian category caps with this month', () => {
     const rules = { allowed_currencies: [], max_single: [], max_daily_total: [], blocked_categories: [], blocked_merchants: [], approval_above: [], quiet_hours: null, cooling_off: null,
       category_caps: [{ category: 'fuel' as const, currency: 'SAR', amount: '600.00' }, { category: 'dining' as const, currency: 'SAR', amount: '100.00' }, { category: 'travel' as const, currency: 'USD', amount: '5.00' }] };
