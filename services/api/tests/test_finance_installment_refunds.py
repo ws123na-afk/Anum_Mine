@@ -348,3 +348,42 @@ def test_pure_plan_never_marks_a_refund_without_evidence() -> None:
                          category_source=CategorySource.RULE, dedupe_hash="x", created_at=datetime.now(timezone.utc),
                          updated_at=datetime.now(timezone.utc))
     assert plan_refunds(rows, [], [credit])[0].evidence == []
+
+
+# -- review fixes (PR 412) -------------------------------------------------------------------------------------------------------
+
+
+def test_card_credit_naming_the_order_that_is_the_paid_share_of_an_emailed_refund_is_money_back_not_a_second_refund() -> None:
+    # 100 paid, 300 unpaid; a 200 refund email and the 100 paid share coming back to the card, naming the order.
+    sync([entry(n) for n in (1, 2, 3, 4)], [notice("m-part", amount="200.00", days_ago=5)])
+    acct = client.post(f"{API}/accounts", headers=OWNER, json={"name": "Card", "kind": "card", "currency": "SAR"}).json()
+    made = client.post(f"{API}/transactions", headers=OWNER, json={
+        "account_id": acct["id"], "posted_on": (TODAY - timedelta(days=3)).isoformat(), "amount": "100.00",
+        "description": f"TAMARA REFUND {ORDER.upper()}", "category": "refunds"})
+    assert made.status_code == 201, made.text
+    plan = order_plan(preview())
+    ledger = [e for e in plan["evidence"] if e["kind"] == "ledger"]
+    assert [(e["role"], e["code"]) for e in ledger] == [("money_back", "ledger_matches_email")]
+    # Only the 200 email counts: a partial refund, so an estimate that stays in review, never a full cancel.
+    assert plan["refund_total"] == "200.00" and plan["mode"] == "estimate" and not plan["applicable"]
+
+
+def test_tamaras_revised_schedule_wins_over_the_amount_based_full_cancel() -> None:
+    # 100 paid, 300 unpaid; a 300 refund email, but Tamara's revised statement leaves 25 due on each unpaid installment.
+    sync([entry(n) for n in (1, 2, 3, 4)], [notice("m-300", amount="300.00")])
+    sync([entry(n, amount="25.00") for n in (2, 3, 4)])
+    plan = order_plan(preview())
+    assert plan["mode"] == "schedule" and plan["applicable"]
+    assert [by_installment(plan)[n]["due_after"] for n in (2, 3, 4)] == ["25.00"] * 3
+    assert plan["outstanding_after"] == "75.00" and "statement_differs" in plan["reasons"]
+
+
+def test_a_notice_only_sync_saves_refund_evidence_for_an_existing_order() -> None:
+    sync([entry(n) for n in (1, 2, 3, 4)])
+    response = client.post(f"{API}/installment-statement/sync", headers=OWNER,
+                           json={"entries": [], "refund_notices": [notice("m-full", amount="400.00", full=True)]})
+    assert response.status_code == 200, response.text
+    assert response.json()["notices_saved"] == 1 and response.json()["created"] == 0
+    assert order_plan(preview())["mode"] == "cancel_all"
+    empty = client.post(f"{API}/installment-statement/sync", headers=OWNER, json={"entries": [], "refund_notices": []})
+    assert empty.status_code == 422

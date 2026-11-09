@@ -57,6 +57,14 @@ export async function mockRefunds(page: Page, options: { empty?: boolean; fail?:
     const body = request.postData() ? request.postDataJSON() : null;
     if (request.method() !== 'GET') sent.push({ method: request.method(), path, body });
     if (path === '/api/v1/finance/installment-statement') return json({ items: [], total: 0 });
+    // A Gmail read that finds only a refund email (no new schedule rows).
+    if (path === '/api/v1/finance/installment-email/mailboxes') return json([{ id: 'gmail_example', address: 'owner@example.com', selected: false }]);
+    if (path === '/api/v1/email/accounts/gmail_example/sync') return json({ id: 'gmail_example', address: 'owner@example.com', provider: 'gmail', status: 'connected' });
+    if (path === '/api/v1/finance/installment-email/preview') return json({ account_id: 'gmail_example', address: 'owner@example.com', messages_checked: 1, messages_matched: 1,
+      warnings: [], rows: [], refunds: [{ provider: 'Tamara', order_id: 'example-order-a', amount: '400.00', currency: 'SAR', full: true, received_on: '2026-11-02',
+        message_ref: 'm-full', source_email: 'https://mail.google.com/mail/u/0/#all/m-full' }] });
+    if (path === '/api/v1/finance/installment-statement/sync' && request.method() === 'POST')
+      return json({ created: 0, updated: 0, unchanged: 0, conflicts: [], total: 0, refund_signals: [], notices_saved: 1 });
     if (path === '/api/v1/finance/installment-refunds' && request.method() === 'GET') {
       if (options.fail) { options.fail = false; return json({ error: { code: 'internal_error', message: 'The database is not reachable.', correlation_id: 'c', details: [] } }, 503); }
       return json(preview());
@@ -94,7 +102,7 @@ test('refunds: evidence per order, an estimate stays in review, Apply refunds sa
   await expect(card.getByText(/estimate spreads it over the upcoming installments in proportion/)).toBeVisible();
   await expect(card.getByText(/Estimate only: confirm the new amounts in the Tamara app/)).toBeVisible();
   await expect(card.getByRole('columnheader', { name: 'Estimate' })).toBeVisible();
-  await expect(card.getByRole('link', { name: 'Open email' })).toHaveAttribute('href', /mail\.google\.com/);
+  await expect(card.getByRole('link', { name: 'Open email' })).toHaveAttribute('href', 'https://mail.google.com/mail/u/0/#all/m-part');
   await review.getByRole('button', { name: 'Details for Sample Store' }).click();
 
   await full.getByRole('button', { name: 'Details for Example Shop' }).click();
@@ -135,6 +143,20 @@ test('refunds: none found leads to reading Tamara emails', async ({ page }) => {
   await expect(card.getByText('No refunds found')).toBeVisible();
   await card.getByRole('button', { name: 'Read Tamara emails' }).click();
   await expect(page.getByRole('dialog', { name: /Import Tamara payments/ })).toBeVisible();
+});
+
+test('refunds: a Gmail read with only a refund email can be approved and saves the evidence', async ({ page }) => {
+  const { sent } = await mockRefunds(page, { empty: true });
+  await page.goto('/#finance-bills');
+  await page.getByRole('region', { name: 'Refunds' }).getByRole('button', { name: 'Read Tamara emails' }).click();
+  const dialog = page.getByRole('dialog', { name: /Import Tamara payments/ });
+  await dialog.getByRole('button', { name: 'Preview Tamara emails' }).click();
+  await expect(dialog.getByText(/Installments found: 0\. Refund emails: 1\./)).toBeVisible();
+  await dialog.getByRole('button', { name: 'Approve Gmail statement import' }).click();
+  await expect(dialog.getByText(/1 refund signals found/)).toBeVisible();
+  const synced = sent.filter((x) => x.path === '/api/v1/finance/installment-statement/sync');
+  expect(synced).toHaveLength(1);
+  expect(synced[0].body).toMatchObject({ entries: [], refund_notices: [{ order_id: 'example-order-a', message_ref: 'm-full' }] });
 });
 
 test('refunds: Arabic labels', async ({ page }) => {

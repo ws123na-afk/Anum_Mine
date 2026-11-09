@@ -21,7 +21,7 @@ from decimal import Decimal
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, Header, Query, Response, status
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from ..dependencies import repository_context, tenant_context
 from ..repository import AnumRepository
@@ -64,9 +64,16 @@ class InstallmentStatementView(BaseModel):
 
 class InstallmentStatementSyncInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    entries: list[InstallmentStatementEntry] = Field(min_length=1, max_length=1000)
+    # Empty when a Gmail read found only refund emails: those are still saved as evidence for orders already imported.
+    entries: list[InstallmentStatementEntry] = Field(default_factory=list, max_length=1000)
     # Refund and order-updated emails read with this import, kept as refund evidence (docs/finance.md#tamara-refunds).
     refund_notices: list[InstallmentRefundNotice] = Field(default_factory=list, max_length=500)
+
+    @model_validator(mode="after")
+    def _something(self) -> "InstallmentStatementSyncInput":
+        if not self.entries and not self.refund_notices:
+            raise ValueError("Send statement entries, refund notices or both.")
+        return self
 
 
 class InstallmentStatementSyncResult(BaseModel):

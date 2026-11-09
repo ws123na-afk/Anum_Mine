@@ -188,14 +188,14 @@ def assign_ledger_credits(orders: list[_OrderInput], credits: list[Transaction])
         same_currency = [o for o in orders if o.rows and o.rows[0].currency == credit.currency]
         by_order = [o for o in same_currency if len(o.order_id) >= 5 and o.order_id.casefold() in text]
         if len(by_order) == 1:
-            by_order[0].credits.append((credit, "ledger_order"))
+            # Naming the order and matching a refund email (its amount, or the paid share coming back) is money
+            # back for that refund, not a refund of its own.
+            matches = _matches_email(by_order[0], credit)
+            by_order[0].credits.append((credit, "ledger_matches_email" if matches else "ledger_order"))
             continue
         by_email = [o for o in same_currency if any(n.amount == credit.amount and _near(n.received_on, credit.posted_on) for n in o.notices)]
         if not by_email:
-            # The paid share of a refunded order coming back to the card, soon after the refund email.
-            paid = lambda o: sum((r.amount for r in o.rows if _is_paid(r)), Decimal(0))  # noqa: E731
-            by_email = [o for o in same_currency if 0 < credit.amount <= paid(o)
-                        and any((n.full or n.amount is not None) and _near(n.received_on, credit.posted_on) for n in o.notices)]
+            by_email = [o for o in same_currency if _matches_email(o, credit)]
         if len(by_email) == 1:
             by_email[0].credits.append((credit, "ledger_matches_email"))
             continue
@@ -208,6 +208,17 @@ def assign_ledger_credits(orders: list[_OrderInput], credits: list[Transaction])
         by_amount = [o for o in same_currency if credit.amount == total(o) or any(credit.amount == r.amount for r in o.rows)]
         if len(by_amount) == 1:
             by_amount[0].credits.append((credit, "ledger_amount_only"))
+
+
+def _paid(order: _OrderInput) -> Decimal:
+    return sum((r.amount for r in order.rows if _is_paid(r)), Decimal(0))
+
+
+def _matches_email(order: _OrderInput, credit: Transaction) -> bool:
+    """The credit is a refund email of this order coming back: its exact amount, or (up to what was paid) the
+    paid share of a refund that Tamara returns to the card, soon after the email."""
+    near = [n for n in order.notices if (n.full or n.amount is not None) and _near(n.received_on, credit.posted_on)]
+    return any(n.amount == credit.amount for n in near) or (bool(near) and 0 < credit.amount <= _paid(order))
 
 
 def _near(notice_on: date, posted_on: date) -> bool:
@@ -284,6 +295,7 @@ def plan_order(item: _OrderInput) -> OrderRefundPlan:
                     link=None, transaction_id=credit.id)
         match = next((n for n in unmatched_notices if n.amount == credit.amount and _near(n.received_on, credit.posted_on)), None)
         if code == "ledger_matches_email" or (code == "ledger_order" and match is not None):
+            # (the paid share fallback is decided in assign_ledger_credits, with the order's notices)
             # The refund an email already counted, coming back as money: confirmation, not a second refund.
             if match is not None:
                 unmatched_notices.remove(match)
@@ -304,16 +316,17 @@ def plan_order(item: _OrderInput) -> OrderRefundPlan:
     estimate: dict[int, Decimal] = {}
     statement_all = bool(unpaid) and all(schedule.get(r.installment, Decimal(0)) >= r.amount for r in unpaid)
     refund_total = Decimal(0)
-    if full or (event_total > 0 and event_total >= outstanding_original) or statement_all:
-        mode = "cancel_all"
-        target = {r.installment: r.amount for r in unpaid}
-        refund_total = order_total if full else max(event_total, schedule_total)
-    elif schedule:
+    # Tamara's own revised schedule is evaluated first: it wins over any amount-based rule.
+    if schedule and not statement_all:
         mode = "schedule"
         target = dict(schedule)
         refund_total = max(event_total, schedule_total)
-        if event_total > schedule_total:
+        if full or event_total > schedule_total:
             reasons.append("statement_differs")
+    elif full or (event_total > 0 and event_total >= outstanding_original) or statement_all:
+        mode = "cancel_all"
+        target = {r.installment: r.amount for r in unpaid}
+        refund_total = order_total if full else max(event_total, schedule_total)
     elif event_total > 0:
         mode = "estimate"
         refund_total = event_total

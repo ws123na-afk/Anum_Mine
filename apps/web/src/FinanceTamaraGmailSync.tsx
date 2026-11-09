@@ -148,7 +148,7 @@ export function FinanceTamaraGmailSync({ existing, onDone, onClose }: {
         <tbody>{preview.rows.slice(0, 60).map(r => <tr key={orderKey(r)}><td>{r.merchant}<small style={{ display: 'block' }}>{r.order_id}</small></td>
           <td>{r.installment}/{r.total_installments}</td><td>{r.due_on}</td><td>{format(Number(r.amount))}</td><td>{r.source_status}</td></tr>)}</tbody>
       </table>{preview.rows.length > 60 && <p>Showing 60 of {preview.rows.length} entries.</p>}</div>
-      <button type="button" disabled={busy || !preview.rows.length || reconciliation.review.length > 0}
+      <button type="button" disabled={busy || !(preview.rows.length || preview.refunds?.length) || reconciliation.review.length > 0}
         onClick={() => void apply()}>{busy ? 'Importing…' : 'Approve Gmail statement import'}</button>
     </>}
     {error && <p role="alert">{error}</p>}{done && <p role="status">{done}</p>}
