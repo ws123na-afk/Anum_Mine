@@ -6,6 +6,7 @@ export const financePlanningAr = {
   'finance.tab.budgets': 'الميزانيات',
   'fplan.loading': 'جارٍ تحميل خطتك…',
   'fplan.error.load': 'تعذّر تحميل الديون والأهداف: {message}',
+  'fplan.error.payoff': 'تعذّر حساب خطة السداد: {message}. حاول مرة أخرى.',
   'fplan.error.bills': 'تعذّر تحميل الفواتير: {message}',
   'fplan.scope.business': 'فواتير الأعمال وميزانياتها في مصاريف الأعمال والأرباح والخسائر. اخترها لفتح دفاتر الأعمال.',
   'fplan.currency': 'العملة',

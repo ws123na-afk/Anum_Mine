@@ -1,14 +1,23 @@
-// Debts and goals planning (src/lib/financeDebtPlan.ts, docs/finance.md#debts-and-goals): payoff strategy,
-// what-if, outlook and goal amounts, all from the records given. Run with `pnpm --filter @anum/web test:unit`.
+// Debts and goals planning (src/lib/financeDebtPlan.ts, docs/finance.md#debts-and-goals): reading the API's
+// payoff answer, the what-if, the outlook and goal amounts. The payoff engine itself is tested where it lives,
+// in services/api/tests/test_finance_payoff.py. Run with `pnpm --filter @anum/web test:unit`.
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
-import type { FinanceDebt } from '@anum/contracts';
+import type { FinanceDebt, FinancePayoff } from '@anum/contracts';
 import {
-  addMonths, daysBetween, debtProgress, fromMinor, goalMonthly, goalPercent, monthsLeft, nextDueOn, outlook, payoffMonth, payoffOrder, planCurrencies,
-  planDebts, simulatePayoff, toMinor, totalProgress, whatIf, type PlanDebt,
+  addMonths, daysBetween, debtProgress, fromMinor, goalMonthly, goalPercent, monthsLeft, nextDueOn, orderedDebts, outlook, payoffFor, payoffMonth,
+  planCurrencies, planDebts, toMinor, totalProgress, whatIf,
 } from '../src/lib/financeDebtPlan.ts';
 
-const debt = (id: string, balance: number, aprPercent: number, minimum: number): PlanDebt => ({ id, name: id, balance, aprPercent, minimum });
+// An answer shaped like GET /planner/payoff: A 1,200 at 12% (min 100), B 200 at 0% (min 50), paying 300 a month.
+const view = (over: Partial<FinancePayoff> = {}): FinancePayoff => ({
+  currency: 'AED', payment: '300.00', planned_payment: '300.00', minimums_only: false, below_minimums: false,
+  debts: [{ id: 'a', name: 'Card A', balance: '1200.00', apr_percent: '12', minimum: '100.00', avalanche_month: 5, snowball_month: 5 },
+    { id: 'b', name: 'Loan B', balance: '200.00', apr_percent: '0', minimum: '50.00', avalanche_month: 4, snowball_month: 1 }],
+  avalanche: { strategy: 'avalanche', months: 5, total_interest: '35.97', order: ['a', 'b'], paid_off_in: { a: 5, b: 4 }, balances: ['1112.00', '821.62', '528.84', '233.63', '0.00'] },
+  snowball: { strategy: 'snowball', months: 5, total_interest: '39.03', order: ['b', 'a'], paid_off_in: { b: 1, a: 5 }, balances: ['1112.00', '823.12', '531.35', '236.66', '0.00'] },
+  cheaper: 'avalanche', interest_saved: '3.06', first_win_months: 1, missing_rates: ['Loan B'], ...over,
+});
 const record = (over: Partial<FinanceDebt>): FinanceDebt => ({
   id: 'd', name: 'Card', kind: 'card', balance: '1000.00', currency: 'SAR', apr_percent: '18', minimum_payment: '50.00', due_day: 21,
   account_id: null, original_balance: null, notes: null, created_at: '', updated_at: '', ...over,
@@ -30,49 +39,22 @@ describe('money in minor units', () => {
   });
 });
 
-describe('payoff strategy', () => {
-  test('avalanche takes the highest rate first, snowball the smallest balance first', () => {
-    const big = debt('big', 300000, 24, 1000), small = debt('small', 50000, 6, 1000);
-    assert.deepEqual(payoffOrder([small, big], 'avalanche').map((d) => d.id), ['big', 'small']);
-    assert.deepEqual(payoffOrder([big, small], 'snowball').map((d) => d.id), ['small', 'big']);
+describe('the API payoff answer', () => {
+  test('one strategy read into minor units', () => {
+    const plan = payoffFor(view(), 'snowball');
+    assert.deepEqual([plan.months, plan.interest, plan.payment, plan.belowMinimums], [5, 3903, 30000, false]);
+    assert.deepEqual(plan.paidOffIn, { b: 1, a: 5 });
+    assert.deepEqual(plan.order, ['b', 'a']);
+    assert.deepEqual(plan.balances, [111200, 82312, 53135, 23666, 0]);
   });
 
-  test('without interest the months are the balance over the payment', () => {
-    assert.equal(simulatePayoff([debt('a', 100000, 0, 10000)], 'avalanche', null).months, 10);
-    assert.equal(simulatePayoff([debt('a', 100000, 0, 10000)], 'avalanche', 25000).months, 4);
+  test('the plan table lists the debts in the order extra money goes', () => {
+    assert.deepEqual(orderedDebts(view(), 'avalanche').map((d) => [d.id, d.balance, d.aprPercent, d.minimum]), [['a', 120000, 12, 10000], ['b', 20000, 0, 5000]]);
+    assert.deepEqual(orderedDebts(view(), 'snowball').map((d) => d.id), ['b', 'a']);
   });
 
-  test('interest is a twelfth of the yearly rate on the month\'s balance, rounded once', () => {
-    const plan = simulatePayoff([debt('a', 120000, 12, 0)], 'avalanche', 121200);
-    assert.equal(plan.months, 1);
-    assert.equal(plan.interest, 1200);
-    assert.deepEqual(plan.balances, [0]);
-  });
-
-  test('a paid-off debt frees its minimum for the next one (the payment stays the same)', () => {
-    const plan = simulatePayoff([debt('a', 10000, 0, 5000), debt('b', 30000, 0, 5000)], 'snowball', 10000);
-    assert.equal(plan.months, 4);
-    assert.deepEqual(plan.balances, [30000, 20000, 10000, 0]);
-    assert.deepEqual(plan.paidOffIn, { a: 2, b: 4 });
-  });
-
-  test('avalanche costs less interest than snowball when the large debt has the high rate', () => {
-    const debts = [debt('card', 1550000, 30, 40000), debt('car', 900000, 4, 100000)];
-    const avalanche = simulatePayoff(debts, 'avalanche', 300000), snowball = simulatePayoff(debts, 'snowball', 300000);
-    assert.ok(avalanche.months !== null && snowball.months !== null);
-    assert.ok(avalanche.interest < snowball.interest);
-  });
-
-  test('payments that never catch up with the interest never end', () => {
-    const plan = simulatePayoff([debt('a', 100000, 24, 1000)], 'avalanche', null);
-    assert.equal(plan.months, null);
-  });
-
-  test('a planned payment below the minimums is not used: the minimums are', () => {
-    const plan = simulatePayoff([debt('a', 100000, 0, 10000), debt('b', 100000, 0, 10000)], 'avalanche', 5000);
-    assert.equal(plan.belowMinimums, true);
-    assert.equal(plan.payment, 20000);
-    assert.equal(plan.months, 10);
+  test('a planned payment below the minimums is flagged as the API says', () => {
+    assert.equal(payoffFor(view({ below_minimums: true, payment: '150.00' }), 'avalanche').belowMinimums, true);
   });
 
   test('payoff month counts the first payment in the start month', () => {
@@ -85,15 +67,14 @@ describe('payoff strategy', () => {
 
 describe('what if', () => {
   test('paying more each month says how many months sooner and the interest saved', () => {
-    const plain = whatIf([debt('a', 120000, 0, 10000)], 'avalanche', null, 10000);
-    assert.deepEqual([plain.baseMonths, plain.withMonths, plain.monthsSaved, plain.interestSaved], [12, 6, 6, 0]);
-    const charged = whatIf([debt('a', 500000, 18, 15000)], 'avalanche', 20000, 5000);
-    assert.ok(charged.monthsSaved !== null && charged.monthsSaved > 0);
-    assert.ok(charged.interestSaved > 0);
+    const base = payoffFor(view(), 'avalanche');
+    const more = payoffFor(view({ avalanche: { ...view().avalanche, months: 3, total_interest: '20.00' } }), 'avalanche');
+    assert.deepEqual(whatIf(base, more, 10000), { extra: 10000, baseMonths: 5, withMonths: 3, monthsSaved: 2, interestSaved: 1597 });
   });
 
   test('no saving can be named when the plan never ends', () => {
-    assert.equal(whatIf([debt('a', 100000, 24, 1000)], 'avalanche', null, 0).monthsSaved, null);
+    const never = payoffFor(view({ avalanche: { ...view().avalanche, months: null } }), 'avalanche');
+    assert.equal(whatIf(never, never, 0).monthsSaved, null);
   });
 });
 
@@ -115,12 +96,14 @@ describe('progress and goals', () => {
     assert.equal(goalPercent(goal({})), 25);
   });
 
-  test('the outlook: debt under the plan and goals growing to their targets', () => {
-    const points = outlook([debt('a', 40000, 0, 10000)], 'avalanche', null, [goal({}), goal({ currency: 'AED' }), goal({ paused: true })], 'SAR', '2026-11-05', 4);
-    assert.deepEqual(points.map((p) => p.month), ['2026-11', '2026-12', '2027-01', '2027-02', '2027-03']);
-    assert.deepEqual(points.map((p) => p.debt), [40000, 30000, 20000, 10000, 0]);
+  test('the outlook: debt from the API\'s month-end balances, goals growing to their targets', () => {
+    const points = outlook(40000, [30000, 20000, 10000, 0], true, [goal({}), goal({ currency: 'AED' }), goal({ paused: true })], 'SAR', '2026-11-05', 5);
+    assert.deepEqual(points.map((p) => p.month), ['2026-11', '2026-12', '2027-01', '2027-02', '2027-03', '2027-04']);
+    assert.deepEqual(points.map((p) => p.debt), [40000, 30000, 20000, 10000, 0, 0]);
     // The active goal grows 100 a month to its 400 target; the paused one stays at 100.
-    assert.deepEqual(points.map((p) => p.savings), [20000, 30000, 40000, 50000, 50000]);
+    assert.deepEqual(points.map((p) => p.savings), [20000, 30000, 40000, 50000, 50000, 50000]);
+    // A plan that never ends keeps the last balance the API gave.
+    assert.deepEqual(outlook(40000, [39000], false, [], 'SAR', '2026-11-05', 2).map((p) => p.debt), [40000, 39000, 39000]);
   });
 });
 

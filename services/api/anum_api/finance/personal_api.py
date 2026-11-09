@@ -788,12 +788,17 @@ class PayoffOrderView(BaseModel):
     months: int | None
     total_interest: Decimal
     order: list[str]
+    # The month each debt is paid off (1 = the coming month), or None; and the total owed at the end of each of
+    # the next months (the outlook chart). Added for the Debts page; older clients ignore them.
+    paid_off_in: dict[str, int | None] = Field(default_factory=dict)
+    balances: list[Decimal] = Field(default_factory=list)
 
 
 class PayoffView(BaseModel):
     currency: str
     payment: Decimal
     planned_payment: Decimal | None
+    minimums_only: bool = False  # each debt gets only its minimum: nothing rolls over (the "now" line)
     below_minimums: bool
     debts: list[PayoffDebtView]
     avalanche: PayoffOrderView
@@ -809,7 +814,8 @@ class PayoffPage(BaseModel):
     note: str = ADVICE_NOTE
 
 
-def payoff_views(ctx: S.PlanContext, context: TenantContext, currency: str | None, payment: Decimal | None) -> list[PayoffView]:
+def payoff_views(ctx: S.PlanContext, context: TenantContext, currency: str | None, payment: Decimal | None,
+                 minimums_only: bool = False) -> list[PayoffView]:
     out: list[PayoffView] = []
     for cur in S.debt_currencies(ctx):
         if currency and cur != currency:
@@ -817,13 +823,16 @@ def payoff_views(ctx: S.PlanContext, context: TenantContext, currency: str | Non
         debts = S.plan_debts(ctx, cur)
         planned = S.planned_payment(context, cur)
         chosen = payment if payment is not None and (currency or len(S.debt_currencies(ctx)) == 1) else planned
+        if minimums_only:
+            chosen = None
         r = PL.payoff(debts, cur, quantize(chosen, cur) if chosen is not None else None)
 
         def order(o: PL.PayoffResult) -> PayoffOrderView:
-            return PayoffOrderView(strategy=o.strategy, months=o.months, total_interest=o.total_interest, order=o.order)
+            return PayoffOrderView(strategy=o.strategy, months=o.months, total_interest=o.total_interest, order=o.order, paid_off_in=o.paid_off_in,
+                                   balances=o.balances)
 
         out.append(PayoffView(
-            currency=cur, payment=r.avalanche.payment, planned_payment=planned, below_minimums=r.avalanche.below_minimums,
+            currency=cur, payment=r.avalanche.payment, planned_payment=planned, minimums_only=minimums_only, below_minimums=r.avalanche.below_minimums,
             debts=[PayoffDebtView(id=d.id, name=d.name, balance=quantize(d.balance, cur), apr_percent=d.apr_percent, minimum=quantize(d.minimum, cur),
                                   avalanche_month=r.avalanche.paid_off_in.get(d.id), snowball_month=r.snowball.paid_off_in.get(d.id)) for d in debts],
             avalanche=order(r.avalanche), snowball=order(r.snowball), cheaper=r.cheaper, interest_saved=r.interest_saved,
@@ -835,10 +844,12 @@ def payoff_views(ctx: S.PlanContext, context: TenantContext, currency: str | Non
 @router.get("/planner/payoff", response_model=PayoffPage)
 def planner_payoff(currency: str | None = Query(default=None, pattern=r"^[A-Za-z]{3}$"),
                    payment: Decimal | None = Query(default=None, ge=0, le=Decimal("1e12")),
+                   minimums_only: bool = Query(default=False),
                    context: TenantContext = Depends(tenant_context)) -> PayoffPage:
-    """Which debt to pay first: avalanche against snowball with your real balances, rates and minimums."""
+    """Which debt to pay first: avalanche against snowball with your real balances, rates and minimums. ``payment``
+    previews another monthly payment without saving it; ``minimums_only`` pays each debt only its minimum."""
     _read(context)
-    return PayoffPage(currencies=payoff_views(S.load(context), context, currency.upper() if currency else None, payment))
+    return PayoffPage(currencies=payoff_views(S.load(context), context, currency.upper() if currency else None, payment, minimums_only))
 
 
 class AffordInput(BaseModel):

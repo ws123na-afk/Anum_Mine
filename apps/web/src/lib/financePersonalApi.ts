@@ -54,7 +54,9 @@ export const candidates = (kind: PersonalKind, direction: 'in' | 'out', opts: { 
   get<{ items: FinancePaymentCandidate[] }>(`/payment-candidates${query({ for: kind, direction, around: opts.around, amount: opts.amount, currency: opts.currency, q: opts.q })}`);
 
 export const getCommitments = () => get<FinanceCommitments>('/fixed-commitments');
-export const getPayoff = (payment?: string | null, currency?: string | null) => get<FinancePayoffPage>(`/planner/payoff${query({ payment, currency })}`);
+/** The one payoff engine (planner.py): the saved plan, another `payment` previewed, or `minimumsOnly` (each debt only its minimum). */
+export const getPayoff = (payment?: string | null, currency?: string | null, minimumsOnly = false) =>
+  get<FinancePayoffPage>(`/planner/payoff${query({ payment, currency, minimums_only: minimumsOnly ? 'true' : null })}`);
 export const afford = (body: FinanceAffordInput) => send<FinanceAfford>('POST', '/planner/afford', body);
 export const compare = (body: FinanceCompareInput) => send<FinanceCompare>('POST', '/planner/compare', body);
 export const research = (body: FinanceResearchInput) => send<FinanceResearch>('POST', '/planner/research', body);

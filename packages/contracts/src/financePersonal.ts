@@ -190,12 +190,20 @@ export interface FinancePayoffDebt {
   id: string; name: string; balance: string; apr_percent: string; minimum: string; avalanche_month: number | null; snowball_month: number | null;
 }
 
-export interface FinancePayoffOrder { strategy: 'avalanche' | 'snowball'; months: number | null; total_interest: string; order: string[] }
+export interface FinancePayoffOrder {
+  strategy: 'avalanche' | 'snowball'; months: number | null; total_interest: string; order: string[];
+  /** The month each debt is paid off (1 = the coming month), or null. */
+  paid_off_in: Record<string, number | null>;
+  /** Total owed at the end of each of the next 12 months (fewer when paid off sooner). */
+  balances: string[];
+}
 
 export interface FinancePayoff {
   currency: string;
   payment: string;
   planned_payment: string | null;
+  /** Each debt gets only its minimum: nothing rolls over (`?minimums_only=true`). */
+  minimums_only: boolean;
   below_minimums: boolean;
   debts: FinancePayoffDebt[];
   avalanche: FinancePayoffOrder;

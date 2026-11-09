@@ -326,6 +326,13 @@ def test_payoff_route_uses_real_balances_and_names_missing_rates() -> None:
     row = body["currencies"][0]
     assert (row["avalanche"]["months"], row["avalanche"]["total_interest"], row["snowball"]["total_interest"]) == (5, "35.97", "39.03")
     assert row["cheaper"] == "avalanche" and row["missing_rates"] == ["Loan B"] and "never moves money" in body["note"]
+    # What the Debts page draws: when each debt is paid off and the total owed at each month's end.
+    ids = {d["name"]: d["id"] for d in row["debts"]}
+    assert row["avalanche"]["paid_off_in"] == {ids["Card A"]: 5, ids["Loan B"]: 4}
+    assert row["avalanche"]["balances"] == ["1112.00", "821.62", "528.84", "233.63", "0.00"] and row["minimums_only"] is False
+    # Minimums only: each debt gets only its minimum, nothing rolls over (the "now" line).
+    only = client.get(f"{API}/planner/payoff", headers=OWNER, params={"minimums_only": "true", "payment": "300", "currency": "AED"}).json()["currencies"][0]
+    assert only["minimums_only"] is True and only["payment"] == "150.00" and only["below_minimums"] is False
 
 
 def test_afford_and_compare_from_the_owners_records() -> None:

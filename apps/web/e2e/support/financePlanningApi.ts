@@ -76,6 +76,25 @@ export function planningReply(state: FinanceState, method: string, sub: string, 
     return ok({ link: { id: 'x', status: 'active' }, replayed: false }, 201);
   }
   if (debtPay && method === 'DELETE') { p.debtLinks = p.debtLinks.filter((l) => l.link_id !== decodeURIComponent(debtPay[2])); return ok(null, 204); }
+  if (sub === '/planner/payoff' && method === 'GET') {
+    // A fixture answer from the debts in the state, interest left out: the real engine is tested in the API (test_finance_payoff.py).
+    const currency = url.searchParams.get('currency') ?? 'AED';
+    const debts = state.debts.filter((d) => d.currency === currency && Number(d.balance) > 0)
+      .map((d) => ({ id: String(d.id), name: String(d.name), balance: Number(d.balance), apr: String(d.apr_percent), minimum: Math.min(Number(d.minimum_payment), Number(d.balance)) }));
+    if (debts.length === 0) return ok({ currencies: [], note: 'Advice only.' });
+    const minimums = debts.reduce((s, d) => s + d.minimum, 0), owed = debts.reduce((s, d) => s + d.balance, 0);
+    const minimumsOnly = url.searchParams.get('minimums_only') === 'true';
+    const saved = (p.plans.find((r) => r.currency === currency)?.monthly_payment as string | null | undefined) ?? null;
+    const asked = minimumsOnly ? null : url.searchParams.get('payment') ?? saved;
+    const below = asked !== null && Number(asked) < minimums, used = asked === null || below ? minimums : Number(asked);
+    const months = Math.ceil(owed / used);
+    const balances = Array.from({ length: Math.min(months, 12) }, (_, i) => Math.max(0, owed - used * (i + 1)).toFixed(2));
+    const order = (strategy: 'avalanche' | 'snowball') => ({ strategy, months, total_interest: '0.00', order: debts.map((d) => d.id),
+      paid_off_in: Object.fromEntries(debts.map((d) => [d.id, months])), balances });
+    return ok({ note: 'Advice only.', currencies: [{ currency, payment: used.toFixed(2), planned_payment: saved, minimums_only: minimumsOnly, below_minimums: below,
+      debts: debts.map((d) => ({ id: d.id, name: d.name, balance: d.balance.toFixed(2), apr_percent: d.apr, minimum: d.minimum.toFixed(2), avalanche_month: months, snowball_month: months })),
+      avalanche: order('avalanche'), snowball: order('snowball'), cheaper: 'same', interest_saved: '0.00', first_win_months: months, missing_rates: [] }] });
+  }
   if (sub === '/debt-plan' && method === 'GET') return ok({ plans: p.plans });
   if (sub === '/debt-plan' && method === 'PUT') { p.plans = (body as { plans: Row[] }).plans; return ok({ plans: p.plans }); }
   if (sub === '/budgets/alerts' && method === 'PUT') { p.alerts = (body as { alerts: Row[] }).alerts; return ok({ alerts: p.alerts }); }

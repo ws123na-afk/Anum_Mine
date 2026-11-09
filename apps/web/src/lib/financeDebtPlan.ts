@@ -1,15 +1,12 @@
-// Debts and goals: the payoff strategy, the what-if forecast and the debt and savings outlook
-// (docs/finance.md#debts-and-goals). Pure functions over the person's own records: real balances,
-// rates and minimum payments as they entered them. Nothing here is a fixed figure. Money is worked in
-// minor units (whole fils or halalas) so a month's interest rounds once, like a lender's statement.
+// Debts and goals: display helpers for the payoff plan, the what-if and the debt and savings outlook
+// (docs/finance.md#debts-and-goals). The payoff itself (order, months, interest, month-end balances) is worked
+// out by the API's one payoff engine (`GET /planner/payoff`, services/api/anum_api/finance/planner.py): this
+// file only reads its answer into whole minor units (fils or halalas) and works out goal figures and dates.
 //
 // The figures are estimates: the rates and balances are what the person typed, interest is the yearly
 // rate divided by 12 on the balance at the start of each month, and nothing models fees or promotions.
-import type { FinanceDebt, FinanceDebtStrategy, FinanceGoal } from '@anum/contracts';
+import type { FinanceDebt, FinanceDebtStrategy, FinanceGoal, FinancePayoff } from '@anum/contracts';
 import { minorDigits } from './finance.ts';
-
-/** At most this many months are simulated (50 years); a plan that does not end by then never ends. */
-export const MAX_MONTHS = 600;
 
 export interface PlanDebt { id: string; name: string; balance: number; aprPercent: number; minimum: number }
 
@@ -33,21 +30,12 @@ export function planDebts(debts: readonly FinanceDebt[], currency: string): Plan
   })).filter((d) => d.balance > 0);
 }
 
-/** The order extra money goes in: avalanche = highest rate first; snowball = smallest balance first. Ties fall back to the other rule, then the name. */
-export function payoffOrder(debts: readonly PlanDebt[], strategy: FinanceDebtStrategy): PlanDebt[] {
-  return [...debts].sort((a, b) => {
-    const byRate = b.aprPercent - a.aprPercent, byBalance = a.balance - b.balance;
-    const first = strategy === 'avalanche' ? byRate || byBalance : byBalance || byRate;
-    return first || a.name.localeCompare(b.name) || a.id.localeCompare(b.id);
-  });
-}
-
 export interface Payoff {
   /** Months until every debt is paid, or null when the payments never catch up with the interest (or 50 years pass). */
   months: number | null;
-  /** Total owed at the end of each month, month 1 first (at most MAX_MONTHS). */
+  /** Total owed at the end of each month, month 1 first (the next 12 months at most). */
   balances: number[];
-  /** Interest added over the whole plan (to payoff, or over MAX_MONTHS). */
+  /** Interest added over the whole plan (to payoff, or over 50 years). */
   interest: number;
   /** The month each debt is paid off (1 = this coming month), or null. */
   paidOffIn: Record<string, number | null>;
@@ -55,58 +43,26 @@ export interface Payoff {
   payment: number;
   /** The planned payment is below the minimums together: the plan pays the minimums only. */
   belowMinimums: boolean;
+  /** Debt ids in the order extra money goes. */
+  order: string[];
 }
 
-/**
- * Month by month: interest is added (rate / 12 on the balance, rounded to the minor unit), each debt gets
- * its minimum (at most what it owes), and whatever is left of `payment` goes to the debts in strategy
- * order. A debt paid off frees its minimum for the next one (the payment stays the same each month).
- * Without a `payment` the person pays the minimums only, each debt on its own.
- */
-export function simulatePayoff(debts: readonly PlanDebt[], strategy: FinanceDebtStrategy, payment: number | null, maxMonths = MAX_MONTHS): Payoff {
-  const minimums = debts.reduce((sum, d) => sum + d.minimum, 0);
-  const belowMinimums = payment !== null && payment < minimums;
-  const budget = payment === null || belowMinimums ? null : payment;
-  const order = payoffOrder(debts, strategy);
-  const owed = new Map(order.map((d) => [d.id, d.balance]));
-  const paidOffIn: Record<string, number | null> = Object.fromEntries(order.map((d) => [d.id, d.balance <= 0 ? 0 : null]));
-  const balances: number[] = [];
-  let interest = 0;
-  let total = [...owed.values()].reduce((a, b) => a + b, 0);
-  let month = 0;
-  while (total > 0 && month < maxMonths) {
-    month += 1;
-    for (const d of order) {
-      const balance = owed.get(d.id)!;
-      if (balance <= 0) continue;
-      const added = Math.round((balance * d.aprPercent) / 100 / 12);
-      interest += added;
-      owed.set(d.id, balance + added);
-    }
-    let left = budget ?? Infinity;
-    for (const d of order) {
-      const balance = owed.get(d.id)!;
-      if (balance <= 0) continue;
-      const pay = Math.min(d.minimum, balance, left);
-      owed.set(d.id, balance - pay);
-      left -= pay;
-    }
-    if (budget !== null) {
-      for (const d of order) {
-        if (left <= 0) break;
-        const balance = owed.get(d.id)!;
-        if (balance <= 0) continue;
-        const pay = Math.min(balance, left);
-        owed.set(d.id, balance - pay);
-        left -= pay;
-      }
-    }
-    for (const d of order) if (paidOffIn[d.id] === null && owed.get(d.id)! <= 0) paidOffIn[d.id] = month;
-    const next = [...owed.values()].reduce((a, b) => a + b, 0);
-    balances.push(next);
-    total = next;
-  }
-  return { months: total <= 0 ? month : null, balances, interest, paidOffIn, payment: budget ?? minimums, belowMinimums };
+/** One strategy of the API's payoff answer, in whole minor units of its currency. */
+export function payoffFor(view: FinancePayoff, strategy: FinanceDebtStrategy): Payoff {
+  const result = view[strategy], currency = view.currency;
+  return {
+    months: result.months, balances: (result.balances ?? []).map((b) => toMinor(b, currency)), interest: toMinor(result.total_interest, currency),
+    paidOffIn: { ...(result.paid_off_in ?? {}) }, payment: toMinor(view.payment, currency), belowMinimums: view.below_minimums, order: [...result.order],
+  };
+}
+
+/** The API's debts in the order extra money goes for `strategy` (the plan table's rows). */
+export function orderedDebts(view: FinancePayoff, strategy: FinanceDebtStrategy): PlanDebt[] {
+  const byId = new Map(view.debts.map((d) => [d.id, d]));
+  return view[strategy].order.flatMap((id) => {
+    const d = byId.get(id);
+    return d ? [{ id: d.id, name: d.name, balance: toMinor(d.balance, view.currency), aprPercent: Number(d.apr_percent) || 0, minimum: toMinor(d.minimum, view.currency) }] : [];
+  });
 }
 
 /** "YYYY-MM" `months` after `month` ("2026-11" + 6 = "2027-05"). */
@@ -123,10 +79,8 @@ export function payoffMonth(startMonth: string, months: number | null): string |
 
 export interface WhatIf { extra: number; baseMonths: number | null; withMonths: number | null; monthsSaved: number | null; interestSaved: number }
 
-/** Paying `extra` more each month on top of the plan: how many months sooner, and how much interest is saved. */
-export function whatIf(debts: readonly PlanDebt[], strategy: FinanceDebtStrategy, payment: number | null, extra: number): WhatIf {
-  const base = simulatePayoff(debts, strategy, payment);
-  const withExtra = simulatePayoff(debts, strategy, base.payment + extra);
+/** Paying `extra` more each month on top of the plan (`base`), as the API worked out `withExtra`: how many months sooner, and how much interest is saved. */
+export function whatIf(base: Payoff, withExtra: Payoff, extra: number): WhatIf {
   const monthsSaved = base.months !== null && withExtra.months !== null ? base.months - withExtra.months : null;
   return { extra, baseMonths: base.months, withMonths: withExtra.months, monthsSaved, interestSaved: Math.max(0, base.interest - withExtra.interest) };
 }
@@ -170,20 +124,19 @@ export function goalPercent(goal: Pick<FinanceGoal, 'target_amount' | 'saved_amo
 export interface OutlookPoint { month: string; debt: number; savings: number }
 
 /**
- * The next `months` months for one currency: what is owed under the plan (or the minimums) at the end of
- * each month, and what the goals hold if each gets its monthly amount (never past its target; a paused
- * goal stays where it is). Month 0 is today's figures.
+ * The next `months` months for one currency: what is owed under the plan at the end of each month (the API's
+ * month-end `balances`; 0 once paid off), and what the goals hold if each gets its monthly amount (never past its
+ * target; a paused goal stays where it is). Month 0 is today's figures (`startDebt`).
  */
-export function outlook(debts: readonly PlanDebt[], strategy: FinanceDebtStrategy, payment: number | null,
+export function outlook(startDebt: number, balances: readonly number[], paidOff: boolean,
   goals: readonly Pick<FinanceGoal, 'target_amount' | 'saved_amount' | 'currency' | 'monthly_contribution' | 'target_on' | 'paused'>[],
   currency: string, today: string, months = 12): OutlookPoint[] {
-  const plan = simulatePayoff(debts, strategy, payment, months);
   const mine = goals.filter((g) => g.currency === currency);
   const start = today.slice(0, 7);
   const points: OutlookPoint[] = [];
-  let debt = debts.reduce((s, d) => s + d.balance, 0);
+  let debt = startDebt;
   for (let m = 0; m <= months; m++) {
-    if (m > 0) debt = plan.balances[m - 1] ?? 0;
+    if (m > 0) debt = balances[m - 1] ?? (paidOff ? 0 : debt);
     const savings = mine.reduce((sum, g) => {
       const saved = toMinor(g.saved_amount, currency), target = toMinor(g.target_amount, currency);
       const monthly = goalMonthly(g, today) ?? 0;

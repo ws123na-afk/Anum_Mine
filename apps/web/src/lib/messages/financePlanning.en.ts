@@ -6,6 +6,7 @@ export const financePlanningEn = {
   'finance.tab.budgets': 'Budgets',
   'fplan.loading': 'Loading your plan…',
   'fplan.error.load': 'Debts and goals could not be loaded: {message}',
+  'fplan.error.payoff': 'The payoff plan could not be worked out: {message}. Try again.',
   'fplan.error.bills': 'Bills could not be loaded: {message}',
   'fplan.scope.business': 'Business bills and budgets are in Business Expenses and P&L. Choose it to open the business books.',
   'fplan.currency': 'Currency',
