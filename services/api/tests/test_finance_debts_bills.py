@@ -112,10 +112,11 @@ def test_budget_report_states_pace_and_daily_line() -> None:
     # 750 over 5 days, 30 days in November: the pace ends at 4,500, 3,500 past the cap.
     assert (fuel.projected, fuel.projected_over) == (Decimal("4500.00"), Decimal("3500.00"))
     dining = next(b for b in report.budgets if b.category == Category.DINING)
-    assert (dining.spent, dining.state) == (Decimal("100.00"), "ok")  # money in does not count, groceries has no cap
+    # Money in filed under dining is a refund: it lowers dining's spend (never below zero); groceries has no cap.
+    assert (dining.spent, dining.state) == (Decimal("0.00"), "ok")
     series = report.series[0]
-    assert (series.currency, series.budget, series.spent, len(series.points)) == ("SAR", Decimal("1500"), Decimal("850.00"), 5)
-    assert [p.spent for p in series.points] == [Decimal("300.00"), Decimal("400.00"), Decimal("850.00"), Decimal("850.00"), Decimal("850.00")]
+    assert (series.currency, series.budget, series.spent, len(series.points)) == ("SAR", Decimal("1500"), Decimal("350.00"), 5)
+    assert [p.spent for p in series.points] == [Decimal("300.00"), Decimal("-100.00"), Decimal("350.00"), Decimal("350.00"), Decimal("350.00")]
     past = budget_report(rules, 3, [], rows, month="2026-10", start=date(2026, 10, 1), end=date(2026, 10, 31), today=date(2026, 11, 5))
     assert all(b.projected is None for b in past.budgets) and len(past.series[0].points) == 31
 

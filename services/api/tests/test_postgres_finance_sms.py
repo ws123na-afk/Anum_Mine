@@ -249,3 +249,23 @@ def test_repeated_and_undone_repayments_under_rls(client: TestClient, app_sessio
     with app_session(tenant_context()) as session:
         session.execute(text("select set_config('anum.user_id', 'user_test', true)"))
         assert session.execute(text("select coalesce(sum(amount), 0) from finance_postings where ledger_account = 'suspense:own_transfer'")).scalar_one() == 0
+
+
+def test_dashboard_summary_and_safe_to_spend_with_debts_under_rls(client: TestClient) -> None:
+    """A debt on the ledger dashboard (it used to fail), and net worth counting a card kept as an account and a debt once."""
+    api = client
+    s = _setup(api)
+    linked = api.post(f"{API}/debts", headers=ME, json={"name": "Card", "kind": "card", "balance": "500", "currency": "SAR", "apr_percent": "30",
+                                                      "minimum_payment": "50", "account_id": s["card"]})
+    loose = api.post(f"{API}/debts", headers=ME, json={"name": "Loan", "kind": "loan", "balance": "1000", "currency": "SAR", "apr_percent": "5",
+                                                     "minimum_payment": "100"})
+    assert linked.status_code == 201 and loose.status_code == 201, (linked.text, loose.text)
+    board = api.get(f"{API}/ledger/dashboard", headers=ME, params={"month": "2026-11"})
+    assert board.status_code == 200, board.text
+    assert next(d for d in board.json()["debts"] if d["name"] == "Loan")["months_to_clear"] == 11
+    summary = api.get(f"{API}/summary", headers=ME, params={"month": "2026-11"}).json()
+    balances = Decimal(next((r["amount"] for r in summary["balances"] if r["currency"] == "SAR"), "0"))
+    assert summary["unlinked_debts"] == [{"currency": "SAR", "amount": "1000.00"}]
+    assert Decimal(summary["net_worth"][0]["amount"]) == balances - Decimal("1000.00")
+    assert api.get(f"{API}/safe-to-spend", headers=ME).status_code == 200
+    assert api.get(f"{API}/ledger/dashboard", headers=SOMEONE, params={"month": "2026-11"}).json()["debts"] == []

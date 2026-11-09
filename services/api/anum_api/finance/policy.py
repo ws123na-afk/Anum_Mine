@@ -16,6 +16,7 @@ from pydantic import BaseModel, Field
 
 from ..schemas import TenantContext
 from .categories import NOT_SPEND
+from .flows import spend_rows
 from .guardian import (
     ActionKind,
     Decision,
@@ -39,7 +40,8 @@ def current_rules(store: FinanceStore, context: TenantContext) -> tuple[Guardian
 
 
 def _spend(rows: list[Transaction], exclude_id: str | None = None) -> list[Transaction]:
-    return [t for t in rows if t.amount < 0 and t.category not in NOT_SPEND and t.id != exclude_id]
+    # The shared rule (flows.py): purchases less the refunds filed in their category count towards a cap.
+    return [t for t in spend_rows(rows) if t.id != exclude_id]
 
 
 def ledger_state(store: FinanceStore, context: TenantContext, day: date, *, exclude_id: str | None = None) -> LedgerState:

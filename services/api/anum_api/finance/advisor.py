@@ -34,10 +34,11 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
-from .categories import NOT_SPEND
+from . import obligations as O
+from .flows import Flow, figures, flow_of, kinds_of, spend_rows
 from .models import Account, AccountKind, Bill, Cadence, Category, Debt, DebtKind, Transaction
 from .money import minor_digits, quantize
-from .summary import _payee, detect_recurring, due_dates, next_after
+from .summary import _payee, detect_recurring, next_after
 
 VERSION = 1
 DAYS_PER_MONTH = Decimal("30.4375")  # 365.25 / 12
@@ -86,6 +87,7 @@ class AdvisorInputs:
     debts: list[Debt]
     card_limits: dict[str, Decimal] = field(default_factory=dict)  # card account id: credit limit the person entered
     observations: dict[str, tuple[Decimal, datetime]] = field(default_factory=dict)  # last balance a bank message stated
+    bill_links: list = field(default_factory=list)  # the person's ``bill`` links: a matched due date is paid
 
 
 # -- output ------------------------------------------------------------------------------------
@@ -328,8 +330,9 @@ def scenario(kind: ScenarioKind, liquid: Decimal, outflow: Decimal, today: date,
     return Scenario(kind=kind, monthly_outflow=outflow, days=days, runs_out_on=ends)
 
 
-def _spend(rows: list[Transaction]) -> list[Transaction]:
-    return [t for t in rows if t.amount < 0 and t.category not in NOT_SPEND]
+def _spend(rows: list[Transaction], kinds: dict[str, AccountKind] | None = None) -> list[Transaction]:
+    """Purchases and the refunds filed in their categories (net spend, the shared rule in ``flows.py``)."""
+    return spend_rows(rows, kinds)
 
 
 def _between(rows: list[Transaction], start: date, end: date) -> list[Transaction]:
@@ -405,7 +408,12 @@ def _runway(currency: str, today: date, accounts: list[Account], balances: dict[
     bills_by_category: dict[Category, Decimal] = defaultdict(Decimal)
     for b in active:
         bills_by_category[b.category] += monthly_equivalent(b)
-    minimums = sum((min(d.minimum_payment, d.balance) for d in debts if d.currency == currency and d.balance > 0 and d.minimum_payment > 0), Decimal(0))
+    owing = [d for d in debts if d.currency == currency and d.balance > 0 and d.minimum_payment > 0 and O.bill_for_debt(d, active) is None]
+    minimums = sum((min(d.minimum_payment, d.balance) for d in owing), Decimal(0))
+    # Card purchases are already in the spending averages and the card's minimum pays for them, so the
+    # "current spending" outflow adds only the minimums of loans and other debts, never a card's.
+    cards = {a.id for a in accounts if a.kind == AccountKind.CARD}
+    loan_minimums = sum((min(d.minimum_payment, d.balance) for d in owing if d.kind != DebtKind.CARD and d.account_id not in cards), Decimal(0))
     bare = scenario("bare", liquid, bills_monthly + minimums, today, currency)
     if basis == "none":
         status: RunwayStatus = "no_records" if first is None else "not_enough_history"
@@ -424,7 +432,7 @@ def _runway(currency: str, today: date, accounts: list[Account], balances: dict[
         extra += counted
     total = sum(averages.values(), Decimal(0))
     essential_outflow = bills_monthly + minimums + extra
-    full_outflow = max(total + minimums, essential_outflow)
+    full_outflow = max(total + loan_minimums, essential_outflow)
     return Runway(
         status="ok", history_days=days, first_record_on=first, basis=basis, months=months, liquid=liquid,  # type: ignore[arg-type]
         accounts_counted=len(spendable), bills_monthly=_q(bills_monthly, currency), minimums_monthly=_q(minimums, currency),
@@ -491,18 +499,20 @@ def _spending(currency: str, today: date, spend: list[Transaction], averages: di
                     spikes=spikes[:5])
 
 
-def _coming(today: date, bills: list[Bill], debts: list[Debt], card_debt_ids: set[str], recurring: list, currency: str) -> Coming:  # type: ignore[type-arg]
+def _coming(today: date, bills: list[Bill], debts: list[Debt], card_debt_ids: set[str], recurring: list, currency: str,  # type: ignore[type-arg]
+            bill_links: list | None = None) -> Coming:
     end = today + timedelta(days=COMING_DAYS)
     items: list[ComingPayment] = []
-    for bill in bills:
-        if not bill.active or bill.currency != currency:
-            continue
-        for due in due_dates(bill, today, end):
-            items.append(ComingPayment(kind="bill", name=bill.name, ref_id=bill.id, amount=_q(bill.amount, currency), due_on=due, days_until=(due - today).days,
-                                       category=bill.category))
+    # Due dates with a matched payment are paid; this month's passed ones without one are still to pay.
+    for found in O.unpaid([b for b in bills if b.currency == currency], bill_links or [], today, end):
+        bill, due = found.bill, found.due_on
+        items.append(ComingPayment(kind="bill", name=bill.name, ref_id=bill.id, amount=_q(bill.amount, currency), due_on=due, days_until=(due - today).days,
+                                   category=bill.category))
     for debt in debts:
         if debt.currency != currency or debt.balance <= 0 or debt.minimum_payment <= 0:
             continue
+        if O.bill_for_debt(debt, bills) is not None:
+            continue  # its minimum is saved as a bill above: counted once
         kind: ComingKind = "card_minimum" if debt.id in card_debt_ids or debt.kind == DebtKind.CARD else "minimum"
         amount = _q(min(debt.minimum_payment, debt.balance), currency)
         if debt.due_day is None:
@@ -591,8 +601,8 @@ def _cards(inputs: AdvisorInputs) -> list[CardAdvice]:
     return sorted(out, key=lambda c: (c.due_on is None, c.due_on or today, -c.owed, c.name.lower()))
 
 
-def _income(rows: list[Transaction], today: date) -> Income:
-    window = [t for t in rows if t.amount > 0 and t.category == Category.INCOME and t.posted_on >= today - timedelta(days=SALARY_WINDOW_DAYS)]
+def _income(rows: list[Transaction], today: date, kinds: dict[str, AccountKind] | None = None) -> Income:
+    window = [t for t in rows if t.amount > 0 and flow_of(t, kinds) == Flow.INCOME and t.posted_on >= today - timedelta(days=SALARY_WINDOW_DAYS)]
     salary = [t for t in window if _SALARY.search(t.description)]
     if not salary:
         # A steady monthly credit from the same payer counts as a salary too.
@@ -612,7 +622,8 @@ def build_note(inputs: AdvisorInputs) -> AdvisorNote:
     rows = [t for t in inputs.transactions if t.posted_on <= today]
     card_debt_ids = {d.id for d in inputs.debts if d.kind == DebtKind.CARD} | {
         d.id for d in inputs.debts if d.account_id and any(a.id == d.account_id and a.kind == AccountKind.CARD for a in inputs.accounts)}
-    recurring = detect_recurring(rows, today, [b.name for b in inputs.bills])
+    recurring = detect_recurring(rows, today, [b.name for b in inputs.bills], inputs.bills)
+    kinds = kinds_of(inputs.accounts)
     currencies = sorted(
         {a.currency for a in inputs.accounts if not a.archived} | {b.currency for b in inputs.bills if b.active}
         | {d.currency for d in inputs.debts if d.balance > 0} | {t.currency for t in rows},
@@ -622,7 +633,7 @@ def build_note(inputs: AdvisorInputs) -> AdvisorNote:
     blocks: list[CurrencyAdvice] = []
     for currency in currencies:
         mine = [t for t in rows if t.currency == currency]
-        spend = _spend(mine)
+        spend = _spend(mine, kinds)
         first, days = _history(mine, today)
         basis, months, averages = _averages(spend, first, days, today)
         runway = _runway(currency, today, inputs.accounts, inputs.balances, inputs.bills, inputs.debts, averages, basis, months, first, days)
@@ -631,17 +642,18 @@ def build_note(inputs: AdvisorInputs) -> AdvisorNote:
         month_rows = _between(mine, m_start, today)
         blocks.append(CurrencyAdvice(
             currency=currency, runway=runway, card_available=_q(sum(limits, Decimal(0)), currency) if limits else None,
-            income_month=_q(sum((t.amount for t in month_rows if t.amount > 0 and t.category != Category.TRANSFER), Decimal(0)), currency),
-            spend_month=_q(_sum_out(_spend(month_rows)), currency),
+            # The same income rule as the summary: no refunds, cashback or transfers.
+            income_month=_q(figures(month_rows, kinds).income.get(currency, Decimal(0)), currency),
+            spend_month=_q(_sum_out(_spend(month_rows, kinds)), currency),
             spending=_spending(currency, today, spend, averages, basis != "none"),
-            coming=_coming(today, inputs.bills, inputs.debts, card_debt_ids, recurring, currency),
+            coming=_coming(today, inputs.bills, inputs.debts, card_debt_ids, recurring, currency, inputs.bill_links),
         ))
     _first, days_all = _history(rows, today)
     note = AdvisorNote(
         today=today, timezone=inputs.timezone, base_currency=inputs.base_currency, week_start=today - timedelta(days=7),
         week_end=today - timedelta(days=1), month_start=month_start(today), newest_record_on=max((t.posted_on for t in rows), default=None),
         history_days=days_all, has_accounts=any(not a.archived for a in inputs.accounts), currencies=blocks, cards=cards,
-        income=_income(rows, today), actions=[],
+        income=_income(rows, today, kinds), actions=[],
     )
     note.actions = advisor_text.actions(note)
     return note

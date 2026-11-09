@@ -5,6 +5,11 @@ match wins), then the built-in keyword rules below (common UAE merchants and sta
 wording), then ``income`` for money in or ``other`` for money out. A category the owner
 picks by hand (``manual``) is never changed by a rule afterwards.
 
+Money in on a card or loan account is the payment from the person's own bank (a transfer),
+not income, unless a rule files it as cashback, a refund or a merchant's credit
+(docs/finance.md#how-figures-are-counted). Salary and payroll words win over "transfer", a
+specific spending word (rent, school) wins over "transfer", and interest earned is income.
+
 Matching is on the cleaned, lower-case description: a keyword matches as a whole word
 or phrase, so "du" matches "DU TELECOM" but not "dubai".
 """
@@ -14,12 +19,24 @@ from __future__ import annotations
 import re
 from decimal import Decimal
 
-from .models import Category, CategoryRule, CategorySource
+from .flows import LIABILITY_KINDS, NOT_SPEND
+from .models import AccountKind, Category, CategoryRule, CategorySource
 
-# (category, keywords). Earlier entries win, so the specific ones come first.
+# Paying a credit card from a bank account, in statement and SMS wording (English and Arabic).
+CARD_PAYMENT_WORDS = (
+    "credit card payment", "cc payment", "card repayment", "card settlement", "card bill payment", "autopay", "auto pay",
+    "payment thank you", "thank you for your payment", "payment received thank you", "payment received - thank you",
+    "سداد بطاقة", "سداد البطاقة", "سداد بطاقة ائتمان", "سداد بطاقة الائتمان", "تسديد بطاقة", "تسديد البطاقة", "دفعة بطاقة الائتمان",
+)
+
+# (category, keywords). Earlier entries win, so the specific ones come first. Income words only ever
+# match money in (a rule that finds them on money out is skipped), so they can come early.
 BUILT_IN: tuple[tuple[Category, tuple[str, ...]], ...] = (
     (Category.CASHBACK, ("cashback", "cash back", "cash-back", "cashback earned", "cashback credit", "cash back reward", "مكافأة نقدية", "استرداد نقدي")),
     (Category.REFUNDS, ("refund", "refunded", "merchant credit", "purchase reversal", "reversal of purchase", "رد المبلغ", "استرجاع")),
+    (Category.INCOME, ("interest earned", "interest credit", "interest credited", "credit interest", "interest paid to you",
+                       "profit credit", "profit distribution", "savings profit", "فوائد دائنة", "أرباح التوفير", "توزيع الأرباح")),
+    (Category.TRANSFER, CARD_PAYMENT_WORDS),
     (Category.FEES, ("foreign transaction fee", "international transaction fee", "cross border fee", "currency conversion charge", "fx markup", "fx fee", "atm fee", "annual fee", "monthly fee", "late fee", "finance charge", "interest", "vat charge", "ضريبة رسوم")),
     # Explicit personal expenses must win over generic transfer/service-charge keywords.
     (Category.ROOM_RENT, ("room rent", "rent room", "room rental", "monthly room", "room payment",
@@ -27,10 +44,13 @@ BUILT_IN: tuple[tuple[Category, tuple[str, ...]], ...] = (
                           "ايجار غرفة", "إيجار غرفة", "إيجار السكن", "سكن مشترك", "kiraya room")),
     (Category.FOOD, ("food", "food order", "food delivery", "meal", "meals", "lunch", "dinner", "breakfast",
                      "canteen", "mess bill", "mess food", "وجبات", "طعام", "غداء", "عشاء", "فطور", "کھانا")),
+    # Salary paid by transfer (WPS) is salary, and rent or school fees paid by transfer are spending.
+    (Category.INCOME, ("salary", "payroll", "wps", "dividend", "راتب")),
+    (Category.HOUSING, ("house rent", "flat rent", "apartment rent", "ejari", "landlord", "rent", "إيجار", "اجار")),
+    (Category.EDUCATION, ("school fee", "school fees", "tuition")),
     (Category.TRANSFER, ("transfer", "trf", "own account", "ipp", "aani", "remittance", "تحويل")),
     (Category.FEES, ("fee", "fees", "charges", "commission", "interest charge", "late payment", "vat on", "رسوم")),
     (Category.CASH, ("atm", "cash withdrawal", "cash wdl", "سحب نقدي")),
-    (Category.INCOME, ("salary", "payroll", "wps", "dividend", "راتب")),
     (Category.FUEL, ("enoc", "adnoc", "eppco", "emarat", "petrol", "fuel")),
     (Category.TRANSPORT, ("careem", "uber", "salik", "rta", "nol", "parking", "mawaqif", "taxi", "metro")),
     (Category.GROCERIES, ("panda", "hyper panda", "othaim", "al othaim", "tamimi", "danube", "bin dawood", "carrefour", "lulu", "spinneys", "choithrams", "waitrose", "union coop", "grandiose",
@@ -52,6 +72,8 @@ BUILT_IN: tuple[tuple[Category, tuple[str, ...]], ...] = (
     (Category.TRAVEL, ("emirates airline", "flydubai", "etihad airways", "air arabia", "booking.com", "airbnb",
                        "hotel", "expedia", "agoda")),
     (Category.INSURANCE, ("insurance", "takaful", "axa", "oman insurance", "sukoon", "daman", "adnic")),
+    # Last: "card payment" alone, so a merchant named in the same line ("CARREFOUR CARD PAYMENT") wins.
+    (Category.TRANSFER, ("card payment", "payment to card", "card pmt")),
 )
 
 _COMPILED = tuple(
@@ -60,25 +82,34 @@ _COMPILED = tuple(
 )
 
 
-def categorize(description: str, amount: Decimal, rules: list[CategoryRule] | None = None) -> tuple[Category, CategorySource]:
-    """The category for a transaction, and what decided it."""
+def categorize(description: str, amount: Decimal, rules: list[CategoryRule] | None = None,
+               account_kind: AccountKind | None = None) -> tuple[Category, CategorySource]:
+    """The category for a transaction, and what decided it.
+
+    ``account_kind`` is the kind of account the row is on: money in on a card or loan is a transfer
+    (the card payment received) unless a rule files it as cashback, a refund or a merchant's credit."""
     text = " ".join(description.lower().split())
     for rule in rules or []:
         if rule.match.strip().lower() in text:
             return rule.category, CategorySource.OWNER_RULE
+    liability_credit = amount > 0 and account_kind in LIABILITY_KINDS
     for category, pattern in _COMPILED:
         if pattern.search(text):
             # "refund" or "cashback" on money out is a fee reversal at most: keep it other.
             if category in {Category.INCOME, Category.CASHBACK, Category.REFUNDS} and amount < 0:
                 continue
+            if category == Category.INCOME and liability_credit:
+                return Category.TRANSFER, CategorySource.RULE
             return category, CategorySource.RULE
+    if liability_credit:
+        return Category.TRANSFER, CategorySource.RULE
     if amount > 0:
         return Category.INCOME, CategorySource.NONE
     return Category.OTHER, CategorySource.NONE
 
 
-# Categories that are not spending: excluded from "spend by category" and "spend".
-NOT_SPEND = frozenset({Category.TRANSFER, Category.INCOME, Category.CASHBACK, Category.REFUNDS})
+# Categories that are not spending: excluded from "spend by category" and "spend" (finance/flows.py).
+__all__ = ["BUILT_IN", "CARD_PAYMENT_WORDS", "NOT_SPEND", "categorize", "suspected_direction"]
 
 # Do not mutate account money based only on a merchant label. Incoming rent or
 # outgoing cashback should be reviewed against the actual debit/credit column.

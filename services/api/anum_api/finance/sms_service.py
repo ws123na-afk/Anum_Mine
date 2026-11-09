@@ -331,16 +331,19 @@ def _description(kind: P.Kind, merchant: str | None) -> str:
 
 
 def _refund_category(store: SmsStore, context: TenantContext, merchant: str | None, amount: Decimal, day: date) -> tuple[str, str | None]:
-    """The category of the purchase a refund gives back, and that purchase's entry id."""
+    """The category of the purchase a refund gives back, and that purchase's entry id.
+
+    A refund whose purchase is not found is filed as ``refunds``: never income, and not taken off a
+    category it may not belong to (docs/finance.md#how-figures-are-counted)."""
     if not merchant:
-        return Category.OTHER.value, None
+        return Category.REFUNDS.value, None
     wanted = merchant.strip().upper()
     for entry in store.list_entries(context, start=day - timedelta(days=REFUND_LOOKBACK_DAYS), end=day, limit=5_000):
         if entry.kind == P.Kind.CARD_PURCHASE.value and entry.status == EntryStatus.POSTED and (entry.merchant or "").strip().upper() == wanted:
             spent = sum((p.amount for p in entry.postings if p.ledger_account.startswith("expense:")), Decimal(0))
             if spent >= amount:
                 return entry.category or Category.OTHER.value, entry.id
-    return Category.OTHER.value, None
+    return Category.REFUNDS.value, None
 
 
 # -- posting ------------------------------------------------------------------------------------
@@ -598,8 +601,92 @@ def process(finance: FinanceStore, store: SmsStore, context: TenantContext, mess
         message.status, message.reason = MessageStatus.REVIEW, exc.code
         return Outcome(message, notify="review")
     message.status, message.reason, message.entry_id = MessageStatus.POSTED, None, entry.id
+    paired = pair_own_transfer(finance, store, context, settings, entry, now=now, source_ref=message.id)
+    if paired is not None:
+        # The other message already holds the pair's entry; this one is its second source.
+        message.status, message.reason, message.entry_id = MessageStatus.ATTACHED, "own_transfer_pair", paired.id
+        return Outcome(message)
     flagged = _is_unusual(store, context, entry)
     return Outcome(message, unusual=flagged, notify="unusual" if flagged else None)
+
+
+OWN_PAIR_DAYS = 2
+
+
+def _single_side(entry: JournalEntry) -> Posting | None:
+    sides = [p for p in entry.postings if p.account_id]
+    return sides[0] if len(sides) == 1 else None
+
+
+def own_transfer_partner(entries: list[JournalEntry], entry: JournalEntry, accounts: dict[str, Account]) -> JournalEntry | None:
+    """The other half of an own transfer that two messages told separately, or None.
+
+    ``entry`` is money out to someone (``transfer_out``) or in from someone (``transfer_in``) on one of the
+    person's accounts. Its partner is the opposite kind, same amount and currency, on a different own account
+    (not a card or loan), within ``OWN_PAIR_DAYS`` days, still posted. Exactly one such partner pairs; none or
+    several leave both as they are. Pure, so the statement engine can call it with its own rows."""
+    kinds = {P.Kind.TRANSFER_IN.value: P.Kind.TRANSFER_OUT.value, P.Kind.TRANSFER_OUT.value: P.Kind.TRANSFER_IN.value}
+    wanted = kinds.get(entry.kind)
+    side = _single_side(entry)
+    if wanted is None or side is None or entry.status != EntryStatus.POSTED:
+        return None
+    own = accounts.get(side.account_id or "")
+    if own is None or own.kind not in (AccountKind.BANK, AccountKind.CASH, AccountKind.INVESTMENT):
+        return None
+    found = []
+    for other in entries:
+        if other.id == entry.id or other.kind != wanted or other.status != EntryStatus.POSTED or other.source not in (EntrySource.SMS, EntrySource.CORRECTION):
+            continue
+        if abs((other.posted_on - entry.posted_on).days) > OWN_PAIR_DAYS:
+            continue
+        theirs = _single_side(other)
+        if theirs is None or theirs.account_id == side.account_id or theirs.currency != side.currency or theirs.amount != -side.amount:
+            continue
+        account = accounts.get(theirs.account_id or "")
+        if account is None or account.kind not in (AccountKind.BANK, AccountKind.CASH, AccountKind.INVESTMENT):
+            continue
+        found.append(other)
+    return found[0] if len(found) == 1 else None
+
+
+def pair_own_transfer(finance: FinanceStore, store: SmsStore, context: TenantContext, settings: SmsSettings, entry: JournalEntry, *,
+                      now: datetime, source_ref: str | None) -> JournalEntry | None:
+    """Two messages ("transferred to" from one own account, "received from" on another) are one own transfer.
+
+    Both entries are reversed (the journal keeps them) and one ``own_transfer`` entry is posted in the older
+    entry's canonical chain, so the money is neither income nor spending (docs/finance-sms.md#own-transfers).
+    The older message keeps the new entry; the caller marks the newer one attached. The caller holds the lock."""
+    accounts = {a.id: a for a in finance.list_accounts(context) if not a.archived}
+    window = store.list_entries(context, start=entry.posted_on - timedelta(days=OWN_PAIR_DAYS),
+                                end=entry.posted_on + timedelta(days=OWN_PAIR_DAYS), limit=5_000)
+    partner = own_transfer_partner(window, entry, accounts)
+    if partner is None:
+        return None
+    out_entry, in_entry = (entry, partner) if entry.kind == P.Kind.TRANSFER_OUT.value else (partner, entry)
+    out_side, in_side = _single_side(out_entry), _single_side(in_entry)
+    if out_side is None or in_side is None:
+        return None
+    older = partner  # recorded first: its message and canonical id stay
+    for half in (entry, partner):
+        reverse(finance, store, context, half, now=now, why="paired as one own transfer")
+    draft = Draft(kind=P.Kind.OWN_TRANSFER, resolved=Resolved(accounts[out_side.account_id or ""], accounts[in_side.account_id or ""], -out_side.amount),
+                  merchant=out_entry.merchant or in_entry.merchant, category=None, occurred_at=_moment(older), has_time=older.occurred_at is not None,
+                  reference=out_entry.reference or in_entry.reference, interest=None, fee=None)
+    paired, _ = post(finance, store, context, settings, draft, source=EntrySource.CORRECTION, source_ref=source_ref, now=now,
+                     canonical_id=older.canonical_id or older.id)
+    for message_list in store.entry_sources(context, [older.id]).values():
+        for kept in message_list:
+            kept_message = store.get_message(context, kept.id)
+            if kept_message is not None:
+                kept_message.entry_id, kept_message.updated_at = paired.id, now
+                store.save_message(kept_message)
+    return paired
+
+
+def _moment(entry: JournalEntry) -> datetime:
+    if entry.occurred_at is not None:
+        return entry.occurred_at
+    return datetime.combine(entry.posted_on, datetime.min.time()).replace(hour=12, tzinfo=entry.created_at.tzinfo)
 
 
 def _is_unusual(store: SmsStore, context: TenantContext, entry: JournalEntry) -> bool:
@@ -650,8 +737,10 @@ def process_wallet(finance: FinanceStore, store: SmsStore, context: TenantContex
     account_id = W.find_card(event.card, [(W.card_key(c.card), c.last4, c.account_id) for c in settings.wallet_cards])
     account = accounts.get(account_id or "")
     currency = amount.currency
+    inferred = False
     if account is not None and currency is None:
         currency = account.currency
+        inferred = True
         parsed["currency_inferred"] = True  # the Shortcut sent no currency: the mapped account's currency, shown in Review
     if currency:
         parsed["currency"] = currency
@@ -669,6 +758,12 @@ def process_wallet(finance: FinanceStore, store: SmsStore, context: TenantContex
         message.status, message.reason = MessageStatus.REVIEW, "needs_converted_amount"
         return Outcome(message, notify="review")
     value = W.rounded(amount.amount, currency)
+    if inferred:
+        # The Shortcut sent no currency. The purchase may have been in another currency (USD 20 on a SAR
+        # card): booking it in the card's currency on a guess would be a second purchase when the bank's
+        # message with the charged amount arrives. The person confirms it in Review.
+        message.status, message.reason = MessageStatus.REVIEW, "wallet_currency_missing"
+        return Outcome(message, notify="review")
     when = now.astimezone(zone(tz_name))
     resolved = Resolved(account, None, value)
     fp = fingerprint(kind, value, account.currency, _key_account(kind, resolved))

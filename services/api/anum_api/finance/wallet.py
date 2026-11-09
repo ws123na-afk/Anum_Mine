@@ -29,7 +29,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation
 
-from .money import MoneyError, quantize
+from .money import MoneyError, minor_digits, quantize
 from .sms_parser import CURRENCY_WORDS, normalize
 
 PRECISE_WINDOW = timedelta(minutes=30)
@@ -73,10 +73,8 @@ def parse_amount(raw: object) -> WalletAmount:
         raise WalletError("missing_amount", "The amount could not be read.")
     if "," in digits and "." in digits:
         decimal_mark = "," if digits.rfind(",") > digits.rfind(".") else "."
-    elif "," in digits:
-        decimal_mark = "," if re.search(r",\d{1,2}$", digits) and digits.count(",") == 1 else ""
-    elif "." in digits:
-        decimal_mark = "." if re.search(r"\.\d{1,3}$", digits) and digits.count(".") == 1 else ""
+    elif "," in digits or "." in digits:
+        decimal_mark = _single_mark(digits, "," if "," in digits else ".", currency)
     else:
         decimal_mark = ""
     thousands = {",", "."} - {decimal_mark}
@@ -91,6 +89,28 @@ def parse_amount(raw: object) -> WalletAmount:
     if value <= 0:
         raise WalletError("missing_amount", "The amount must be more than zero.")
     return WalletAmount(amount=value, currency=currency, refund=negative)
+
+
+def _single_mark(digits: str, mark: str, currency: str | None) -> str:
+    """The decimal mark when only one kind of separator is written, or "" when it groups thousands.
+
+    One or two digits after it are decimals. Three digits are decimals only for a currency with three
+    (KWD 1.250), thousands for the others (SAR 1.250 is one thousand two hundred and fifty), and a guess
+    without a currency: that goes to review instead. Repeated separators with three-digit groups are
+    thousands ("1,234,567")."""
+    groups = digits.split(mark)
+    if len(groups) > 2:
+        if all(len(g) == 3 for g in groups[1:]) and groups[0]:
+            return ""
+        raise WalletError("ambiguous_amount", "The amount could not be read for certain. Check it in Review.")
+    places = len(groups[1])
+    if places in (1, 2):
+        return mark
+    if places == 3:
+        if currency is None:
+            raise WalletError("ambiguous_amount", "The amount could be decimals or thousands. Check it in Review.")
+        return mark if minor_digits(currency) == 3 else ""
+    raise WalletError("ambiguous_amount", "The amount could not be read for certain. Check it in Review.")
 
 
 def rounded(amount: Decimal, currency: str) -> Decimal:

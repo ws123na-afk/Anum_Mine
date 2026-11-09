@@ -95,6 +95,10 @@ TEMPLATES: dict[str, tuple[str, str]] = {
         "{name} ({amount}) is due today.",
         "يستحق {name} ({amount}) اليوم.",
     ),
+    "bill_overdue": (
+        "{name} ({amount}) was due on {date} and no payment is matched to it. Pay it, or match the payment under Bills.",
+        "كان {name} ({amount}) مستحقًا في {date} ولا توجد دفعة مطابقة له. ادفعه أو طابق الدفعة في الفواتير.",
+    ),
     "debt_add_due_day": (
         "Add the due day of {name} under Debts so its minimum payment ({amount}) shows on the right date.",
         "أضف يوم استحقاق {name} في الديون ليظهر الحد الأدنى ({amount}) في تاريخه الصحيح.",
@@ -192,7 +196,7 @@ def actions(note: AdvisorNote) -> list[Action]:
             if item.kind in ("bill", "minimum") and item.days_until is not None and item.days_until <= 7:
                 params = {"name": item.name, "amount": money_en(item.amount, c), "date": item.due_on.isoformat() if item.due_on else "-",
                           "days": str(item.days_until)}
-                code = "bill_due_today" if item.days_until == 0 else "bill_due"
+                code = "bill_overdue" if item.days_until < 0 else "bill_due_today" if item.days_until == 0 else "bill_due"
                 found.append(_action(code, "urgent" if item.days_until <= 2 else "high", params, currency=c,
                                      tab="bills" if item.kind == "bill" else "debts", sort=item.days_until))
             elif item.kind == "minimum" and item.due_on is None:

@@ -12,6 +12,7 @@ import type {
 import * as api from './lib/financeApi';
 import * as plan from './lib/financePlanningApi';
 import { categoryLabel, formatAmount, isolate, minorDigits, monthLabel, type FinanceTab } from './lib/finance';
+import { remainingOf } from './lib/financeStatements';
 import { monthRange } from './lib/financeNav';
 import { budgetAtRisk, budgetKpis, budgetTone, billKpis, calendarWeeks, dayStrip, pickTotal, statusTone, type CurrencyTotal } from './lib/financeBills';
 import { toMinor } from './lib/financeDebtPlan';
@@ -257,7 +258,7 @@ function HealthCard({ report, base, retry, onAdd }: { report: Load<FinanceBudget
         {b.state !== 'ok' && <small className={`fplHealthState ${b.state}`}>{t(`fplan.health.${b.state}` as MessageKey)}</small>}
       </li>)}</ul>
       {series && <div className="fplChartBlock">
-        <div className="fplChartHead"><h3>{t('fplan.budgetChart.title')}</h3><span>{t('fplan.kpi.remaining')}: <strong dir="ltr">{formatAmount(String(Math.max(0, Number(series.budget) - Number(series.spent)).toFixed(minorDigits(series.currency))), series.currency)}</strong></span></div>
+        <div className="fplChartHead"><h3>{t('fplan.budgetChart.title')}</h3><span>{t('fplan.kpi.remaining')}: <strong dir="ltr">{formatAmount(remainingOf(series.budget, series.spent, series.currency), series.currency)}</strong></span></div>
         <BudgetSpendChart points={series.points.map((p) => ({ day: p.day, spent: toMinor(p.spent, series.currency) }))} budget={toMinor(series.budget, series.currency)} currency={series.currency} digits={minorDigits(series.currency)} />
       </div>}
     </>)}

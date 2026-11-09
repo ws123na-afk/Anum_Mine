@@ -81,8 +81,11 @@ class PlanInput(BaseModel):
 def safe_to_spend(context: TenantContext = Depends(tenant_context)) -> SafeToSpend:
     """What you can spend for the rest of this month and per day, line by line, per currency."""
     _read(context)
+    from . import obligations
+
+    links = obligations.load(context)
     with open_finance_store(context) as store:
-        return build_safe_to_spend(store, context)
+        return build_safe_to_spend(store, context, links=links)
 
 
 @router.get("/plan", response_model=PlanSettings)

@@ -574,7 +574,9 @@ def test_every_plan_balances_and_card_repayment_has_no_expense() -> None:
     repayment = L.plan(P.Kind.CARD_REPAYMENT, amount, account=bank, counter=card)
     assert not any(leg.ledger_account.startswith("expense:") for leg in repayment)
     loan_payment = L.plan(P.Kind.LOAN_REPAYMENT, amount, account=bank, counter=loan, interest=Decimal("10.00"))
-    assert {leg.ledger_account: leg.amount for leg in loan_payment} == {"liability:l": Decimal("90.00"), "expense:interest": Decimal("10.00"), "asset:b": Decimal("-100.00")}
+    # The whole payment moves bank to loan (a transfer); the interest is charged on the loan as its own pair.
+    assert sorted((leg.ledger_account, leg.amount) for leg in loan_payment) == sorted([
+        ("liability:l", Decimal("100.00")), ("asset:b", Decimal("-100.00")), ("expense:interest", Decimal("10.00")), ("liability:l", Decimal("-10.00"))])
     proceeds = L.plan(P.Kind.LOAN_DISBURSEMENT, amount, account=bank, counter=loan)
     assert {leg.ledger_account: leg.amount for leg in proceeds} == {"asset:b": amount, "liability:l": -amount}
 
@@ -687,10 +689,12 @@ def test_wallet_amounts_in_any_shape_and_currency_from_the_mapped_card() -> None
     assert parse_amount("١٢٥٫٠٠ ر.س").amount == Decimal("125.00") and parse_amount("١٢٥٫٠٠ ر.س").currency == "SAR"
     assert parse_amount(125).amount == Decimal("125") and parse_amount("-20.00").refund
     s = wallet_setup()
+    # No currency from the Shortcut: shown with the card's currency, but never posted on that guess (it may be USD 125).
     result = wallet(s["token"], amount="125").json()
-    assert result["status"] == "posted"
+    assert result["status"] == "review" and result["reason"] == "wallet_currency_missing" and not sms_memory_store.entries
     message = sms_memory_store.messages[result["message_id"]]
     assert message.parsed["currency"] == "SAR" and message.parsed["currency_inferred"] is True
+    assert wallet(s["token"], amount="SAR 125", merchant="OTHER SHOP").json()["status"] == "posted"
 
 
 def test_unmapped_wallet_card_and_bad_input_wait_or_are_refused() -> None:

@@ -58,19 +58,24 @@ def week_start_for(today: date, weekday: int) -> date:
 
 def gather(context: TenantContext, *, now: datetime | None = None) -> AdvisorInputs:
     """The note's inputs, read in one short owner-scoped unit of work."""
+    from . import obligations
     from .sms_store import open_sms_stores
 
+    links = obligations.load(context)  # its own short unit of work first
     with open_sms_stores(context) as (finance, sms):
         finance_settings = settings_for(finance, context)
         today = today_in(finance_settings, now)
         sms_settings = sms.get_settings(context)
         limits = {m.account_id: m.credit_limit for m in (sms_settings.account_map if sms_settings else []) if m.credit_limit and m.credit_limit > 0}
+        accounts = finance.list_accounts(context)
+        sums = finance.account_sums(context)
         return AdvisorInputs(
             today=today, timezone=finance_settings.timezone, base_currency=finance_settings.base_currency,
-            accounts=finance.list_accounts(context), balances=finance.account_sums(context),
+            accounts=accounts, balances=sums,
             transactions=finance.transactions_between(context, today - timedelta(days=LOOKBACK_DAYS), today),
             bills=[b for b in finance.list_items(context, "bill") if isinstance(b, Bill)],
-            debts=[d for d in finance.list_items(context, "debt") if isinstance(d, Debt)],
+            debts=obligations.current_debts([d for d in finance.list_items(context, "debt") if isinstance(d, Debt)], accounts, sums, links),
+            bill_links=links.bill_links,
             card_limits={k: Decimal(v) for k, v in limits.items() if v is not None},
             observations=sms.latest_observations(context),
         )

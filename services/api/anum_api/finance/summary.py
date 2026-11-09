@@ -5,10 +5,14 @@ the person's own (``FinanceSettings.timezone``, Asia/Dubai by default): "this mo
 "today" are in that time zone.
 
 * Balances: an account's opening balance plus every transaction in it.
-* Spend by category: money out in the month, transfers and income excluded.
-* Income versus spend: money in (transfers excluded) against money out in the month.
-* Upcoming bills: every active bill's due dates in the next ``days`` days (default 30).
-* Debts: what is owed and the minimum payments, per currency.
+* Spend, income, refunds, cashback and transfers: counted by the one shared rule
+  (``flows.py``, docs/finance.md#how-figures-are-counted). Spend by category is net of the
+  refunds filed in that category; transfers and card payments are neither spend nor income.
+* Upcoming bills: every active bill's due dates in the next ``days`` days (default 30) that
+  have no matched payment, and this month's passed ones that still have none (overdue).
+* Debts: what is owed (following matched payments and linked accounts, ``obligations.py``)
+  and the minimum payments, per currency. Net worth is account balances less only the debts
+  that have no account of their own.
 * Bill suggestions: money out with the same description at a steady interval and a
   steady amount (three times or more in 180 days), not yet saved as a bill.
 """
@@ -26,7 +30,8 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from pydantic import BaseModel, Field
 
 from ..schemas import TenantContext
-from .categories import NOT_SPEND
+from . import obligations as O
+from .flows import NOT_SPEND, figures, kinds_of
 from .models import (
     AccountKind,
     Bill,
@@ -75,8 +80,9 @@ class UpcomingBill(BaseModel):
     currency: str
     cadence: Cadence
     due_on: date
-    days_until: int
+    days_until: int  # negative: overdue
     category: Category
+    overdue: bool = False  # passed this month with no matched payment
 
 
 class GoalProgress(BaseModel):
@@ -108,9 +114,13 @@ class FinanceSummary(BaseModel):
     upcoming_bills: list[UpcomingBill]
     bills_due: list[CurrencyAmount]
     debts: list[CurrencyAmount]
+    # Debts no account counts yet (no card or loan account of their own): the only ones net worth subtracts.
+    unlinked_debts: list[CurrencyAmount] = Field(default_factory=list)
+    net_worth: list[CurrencyAmount] = Field(default_factory=list)
     minimum_payments: list[CurrencyAmount]
     debt_count: int
     goals: list[GoalProgress]
+    month_rows_capped: bool = False  # the month had more rows than one read takes: figures are partial
 
 
 class BillSuggestion(BaseModel):
@@ -201,61 +211,59 @@ def _amounts(values: dict[str, Decimal]) -> list[CurrencyAmount]:
     return [CurrencyAmount(currency=c, amount=quantize(v, c)) for c, v in values.items()]
 
 
-def upcoming_bills(bills: list[Bill], today: date, days: int = UPCOMING_DAYS) -> list[UpcomingBill]:
+def upcoming_bills(bills: list[Bill], today: date, days: int = UPCOMING_DAYS, links: list | None = None) -> list[UpcomingBill]:
+    """Due dates in the next ``days`` days without a matched payment, and this month's overdue ones.
+
+    ``links`` are the person's ``bill`` links (``obligations.load``); a due date with an active one is paid."""
     end = today + timedelta(days=days)
     rows = [
         UpcomingBill(
-            id=b.id, name=b.name, amount=b.amount, currency=b.currency, cadence=b.cadence, due_on=due,
-            days_until=(due - today).days, category=b.category,
+            id=d.bill.id, name=d.bill.name, amount=d.bill.amount, currency=d.bill.currency, cadence=d.bill.cadence, due_on=d.due_on,
+            days_until=(d.due_on - today).days, category=d.bill.category, overdue=d.overdue,
         )
-        for b in bills
-        if b.active
-        for due in due_dates(b, today, end)
+        for d in O.unpaid(bills, links or [], today, end)
     ]
     return sorted(rows, key=lambda r: (r.due_on, r.name.lower()))
 
 
-def build_summary(store: FinanceStore, context: TenantContext, month: str | None = None, *, now: datetime | None = None) -> FinanceSummary:
+MONTH_ROW_LIMIT = 50_000  # what one ``transactions_between`` read returns at most (store.py)
+
+
+def build_summary(store: FinanceStore, context: TenantContext, month: str | None = None, *, now: datetime | None = None,
+                  links: O.Links | None = None) -> FinanceSummary:
+    """``links`` are the person's bill and debt links (``obligations.load``, read in its own unit of work first)."""
     settings = settings_for(store, context)
     today = today_in(settings, now)
     label, start, end = month_range(month, today)
+    raw_accounts = store.list_accounts(context)
+    sums = store.account_sums(context)
     accounts = account_balances(store, context)
     month_rows: list[Transaction] = store.transactions_between(context, start, end)
-    spending = [t for t in month_rows if t.amount < 0 and t.category not in NOT_SPEND]
-    by_category: dict[tuple[Category, str], tuple[Decimal, int]] = {}
-    for t in spending:
-        amount, count = by_category.get((t.category, t.currency), (Decimal(0), 0))
-        by_category[(t.category, t.currency)] = (amount - t.amount, count + 1)
+    found = figures(month_rows, kinds_of(raw_accounts))
     category_rows = sorted(
-        (CategorySpend(category=cat, currency=cur, amount=quantize(v, cur), count=n) for (cat, cur), (v, n) in by_category.items()),
+        (CategorySpend(category=cat, currency=cur, amount=quantize(v, cur), count=n) for (cat, cur), (v, n) in found.by_category.items() if v != 0),
         key=lambda r: (r.currency, -r.amount, r.category.value),
     )
-    income = totals((t.currency, t.amount) for t in month_rows if t.amount > 0 and t.category not in {
-        Category.TRANSFER, Category.CASHBACK, Category.REFUNDS,
-    })
-    cashback = totals((t.currency, t.amount) for t in month_rows if t.amount > 0 and t.category == Category.CASHBACK)
-    refunds = totals((t.currency, t.amount) for t in month_rows if t.amount > 0 and t.category == Category.REFUNDS)
-    spend = totals((t.currency, -t.amount) for t in spending)
-    # Net cash flow retains credits actually received, while the income KPI excludes
-    # reimbursements and card rewards that are not earnings.
-    net_keys = sorted(set(income) | set(cashback) | set(refunds) | set(spend))
-    net = {c: income.get(c, Decimal(0)) + cashback.get(c, Decimal(0)) +
-           refunds.get(c, Decimal(0)) - spend.get(c, Decimal(0)) for c in net_keys}
     bills = [b for b in store.list_items(context, "bill") if isinstance(b, Bill)]
-    upcoming = upcoming_bills(bills, today)
-    debts = [d for d in store.list_items(context, "debt") if isinstance(d, Debt)]
-    goals = [g for g in store.list_items(context, "goal") if isinstance(g, Goal)]
+    upcoming = upcoming_bills(bills, today, links=links.bill_links if links else None)
+    debts = O.current_debts([d for d in store.list_items(context, "debt") if isinstance(d, Debt)], raw_accounts, sums, links)
+    goals = O.current_goals([g for g in store.list_items(context, "goal") if isinstance(g, Goal)], raw_accounts, sums)
+    balances = totals((a.currency, a.balance) for a in accounts if not a.archived)
+    loose = totals((d.currency, d.balance) for d in O.unlinked(debts, raw_accounts) if d.balance > 0)
+    worth = {c: balances.get(c, Decimal(0)) - loose.get(c, Decimal(0)) for c in sorted(set(balances) | set(loose))}
     return FinanceSummary(
         month=label, start=start, end=end, today=today, base_currency=settings.base_currency, timezone=settings.timezone,
         accounts=accounts,
-        balances=_amounts(totals((a.currency, a.balance) for a in accounts if not a.archived)),
+        balances=_amounts(balances),
         spend_by_category=category_rows,
-        income=_amounts(income), cashback=_amounts(cashback), refunds=_amounts(refunds), spend=_amounts(spend), net=_amounts(net),
-        transaction_count=len(month_rows),
+        income=_amounts(found.income), cashback=_amounts(found.cashback), refunds=_amounts(found.refunds), spend=_amounts(found.spend),
+        net=_amounts(found.net()),
+        transaction_count=len(month_rows), month_rows_capped=len(month_rows) >= MONTH_ROW_LIMIT,
         upcoming_bills=upcoming,
         bills_due=_amounts(totals((b.currency, b.amount) for b in upcoming)),
         debts=_amounts(totals((d.currency, d.balance) for d in debts)),
-        minimum_payments=_amounts(totals((d.currency, d.minimum_payment) for d in debts)),
+        unlinked_debts=_amounts(loose), net_worth=_amounts(worth),
+        minimum_payments=_amounts(totals((d.currency, min(d.minimum_payment, d.balance)) for d in debts if d.balance > 0)),
         debt_count=len(debts),
         goals=[
             GoalProgress(
@@ -283,35 +291,67 @@ def suggest_bills(store: FinanceStore, context: TenantContext, *, now: datetime 
     settings = settings_for(store, context)
     today = today_in(settings, now)
     rows = store.transactions_between(context, today - timedelta(days=400), today)
-    known = [b.name for b in store.list_items(context, "bill") if isinstance(b, Bill)]
-    return detect_recurring(rows, today, known)
+    bills = [b for b in store.list_items(context, "bill") if isinstance(b, Bill)]
+    return detect_recurring(rows, today, [b.name for b in bills], bills)
 
 
-def detect_recurring(rows: list[Transaction], today: date, known_names: list[str]) -> list[BillSuggestion]:
-    """Pure: money out with the same payee at a steady interval and amount, not yet a bill."""
+def _regular(gap: int, typical: float) -> bool:
+    return typical * 0.6 <= gap <= typical * 1.4
+
+
+def _skipped(gap: int, typical: float) -> bool:
+    """One period missed (a month without the payment) keeps the pattern."""
+    return typical * 1.6 <= gap <= typical * 2.4
+
+
+def _covered(bills: list[Bill], currency: str, cadence: Cadence, middle: Decimal, account_ids: set[str]) -> bool:
+    """A saved bill already stands for this payment, whatever the bank calls it ("Electricity" and "DEWA BILL")."""
+    for bill in bills:
+        if not bill.active or bill.currency != currency or bill.cadence != cadence:
+            continue
+        if bill.account_id and bill.account_id not in account_ids:
+            continue
+        if abs(bill.amount - middle) <= max(bill.amount, middle) * Decimal("0.15"):
+            return True
+    return False
+
+
+def detect_recurring(rows: list[Transaction], today: date, known_names: list[str], known_bills: list[Bill] | None = None) -> list[BillSuggestion]:
+    """Pure: money out with the same payee at a steady interval and amount, not yet a bill.
+
+    One payee is one group across accounts (a bill paid from two accounts is still one bill), one missed
+    period does not break the pattern, and a saved bill with the same currency, cadence and amount (within
+    15 percent) counts as already saved even when its name differs from the bank's wording."""
     known = {_payee(name) for name in known_names}
-    groups: dict[tuple[str, str, str], list[Transaction]] = {}
+    groups: dict[tuple[str, str], list[Transaction]] = {}
     for t in rows:
         if t.amount >= 0 or t.category in NOT_SPEND:
             continue
         key = _payee(t.description)
         if key:
-            groups.setdefault((t.account_id, t.currency, key), []).append(t)
+            groups.setdefault((t.currency, key), []).append(t)
     found: list[BillSuggestion] = []
-    for (account_id, currency, key), items in groups.items():
+    for (currency, key), items in groups.items():
         if len(items) < 3 or key in known:
             continue
         items.sort(key=lambda t: t.posted_on)
         gaps = [(b.posted_on - a.posted_on).days for a, b in pairwise(items)]
-        typical = median(gaps)
+        base = min(gaps) if gaps else 0
+        # A gap of about two periods is one missed payment: halve it to find the usual interval.
+        typical = median([g / 2 if base > 0 and g >= base * 1.6 else g for g in gaps]) if gaps else 0
         cadence = next((c for c, low, high in _CADENCE_DAYS if low <= typical <= high), None)
-        if cadence is None or any(not (typical * 0.6 <= g <= typical * 1.4) for g in gaps):
+        if cadence is None or not all(_regular(g, typical) or _skipped(g, typical) for g in gaps):
+            continue
+        if sum(1 for g in gaps if _regular(g, typical)) * 2 < len(gaps):
             continue
         amounts = [-t.amount for t in items]
         middle = Decimal(median(amounts))
         if any(abs(a - middle) > middle * Decimal("0.15") for a in amounts):
             continue
+        if _covered(known_bills or [], currency, cadence, middle, {t.account_id for t in items}):
+            continue
         last = items[-1]
+        account_id = last.account_id
         due = next_after(last.posted_on, cadence, last.posted_on.day) or last.posted_on
         while due < today:
             due = next_after(due, cadence, last.posted_on.day) or today

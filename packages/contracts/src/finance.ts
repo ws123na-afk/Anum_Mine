@@ -54,7 +54,9 @@ export interface FinanceAccountInput {
   currency?: string | null;
   institution?: string | null;
   last4?: string | null;
+  /** Cards and loans: what is owed is a negative opening balance; a positive one needs `credit_balance` (an overpaid card). */
   opening_balance?: FinanceMoney;
+  credit_balance?: boolean;
   archived?: boolean;
 }
 
@@ -328,8 +330,10 @@ export interface FinanceUpcomingBill {
   currency: string;
   cadence: FinanceCadence;
   due_on: string;
+  /** Negative when the due date passed this month with no matched payment (`overdue`). */
   days_until: number;
   category: FinanceCategory;
+  overdue?: boolean;
 }
 
 export interface FinanceBillSuggestion {
@@ -448,9 +452,16 @@ export interface FinanceSummary {
   transaction_count: number;
   upcoming_bills: FinanceUpcomingBill[];
   bills_due: FinanceCurrencyAmount[];
+  /** What is owed now: a debt kept on a card or loan account follows that account, any other follows its matched payments. */
   debts: FinanceCurrencyAmount[];
+  /** Debts no account counts yet: the only ones net worth subtracts on top of account balances. */
+  unlinked_debts?: FinanceCurrencyAmount[];
+  /** Account balances (cards and loans by their sign) less `unlinked_debts`, per currency. */
+  net_worth?: FinanceCurrencyAmount[];
   minimum_payments: FinanceCurrencyAmount[];
   debt_count: number;
+  /** The month had more rows than one read returns: the figures are partial. */
+  month_rows_capped?: boolean;
   goals: { id: string; name: string; currency: string; target_amount: FinanceMoney; saved_amount: FinanceMoney; percent: number; target_on: string | null }[];
 }
 
@@ -474,7 +485,7 @@ export interface FinancePlanInput {
 
 export type FinanceSafeLineKind = 'balance' | 'bill' | 'minimum_payment' | 'goal' | 'buffer';
 export type FinanceSafeNote =
-  | 'account_balance' | 'bill_due' | 'minimum_due' | 'minimum_no_day' | 'minimum_passed' | 'goal_set' | 'goal_derived'
+  | 'account_balance' | 'bill_due' | 'bill_overdue' | 'minimum_due' | 'minimum_no_day' | 'minimum_passed' | 'minimum_in_bill' | 'goal_set' | 'goal_derived'
   | 'goal_no_plan' | 'goal_reached' | 'goal_paused' | 'buffer' | 'account_card' | 'account_loan' | 'account_investment' | 'account_archived';
 
 /** One line of the figure: positive for money you have, negative for a deduction. */

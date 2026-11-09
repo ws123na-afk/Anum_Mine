@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { afterEach, describe, test } from 'node:test';
 import {
   EMPTY_RULES, FINANCE_TABS, describeRules, draftFromRules, expiresLabel, rulesFromDraft, safeNote, shortHash,
-  amountTone, checkFile, dueLabel, formatAmount, formatAmounts, hashForTab, isLast4, minorDigits, monthLabel, parseAmount, pickAmount, rangeLabel,
+  amountTone, checkFile, dueLabel, formatAmount, formatAmounts, hashForTab, isLast4, minorDigits, monthLabel, openingNeedsSign, parseAmount, pickAmount, rangeLabel,
   shiftMonth, spendBars, spendCurrencies, tabFromHash,
 } from '../src/lib/finance.ts';
 import { setLocale } from '../src/lib/i18n.ts';
@@ -95,6 +95,7 @@ describe('months, chart and labels', () => {
     assert.equal(dueLabel(0), 'Due today');
     assert.equal(dueLabel(1), 'Due tomorrow');
     assert.equal(dueLabel(5), 'Due in 5 days');
+    assert.equal(dueLabel(-3), 'Overdue, no payment matched');
     assert.equal(rangeLabel(0, 50, 230), '1 to 50 of 230');
     assert.equal(rangeLabel(0, 0, 0), 'Nothing to show');
     setLocale('ar');
@@ -106,6 +107,13 @@ describe('months, chart and labels', () => {
 describe('safe-to-spend', () => {
   test('each line says why it is in the figure, in English and Arabic', () => {
     assert.equal(safeNote({ note: 'bill_due', params: { date: '2026-10-20' }, currency: 'AED' }), 'Due \u20662026-10-20\u2069');
+    assert.equal(safeNote({ note: 'bill_overdue', params: { date: '2026-10-02' }, currency: 'AED' }), 'Was due \u20662026-10-02\u2069, no payment matched to it yet');
+    assert.equal(safeNote({ note: 'minimum_in_bill', params: { bill: 'Visa' }, currency: 'AED' }), 'Saved as the bill \u2066Visa\u2069: counted once');
+    // A card or loan owes: a positive opening balance needs In credit.
+    assert.equal(openingNeedsSign('card', '3000', false), true);
+    assert.equal(openingNeedsSign('card', '3000', true), false);
+    assert.equal(openingNeedsSign('loan', '-3000', false), false);
+    assert.equal(openingNeedsSign('bank', '3000', false), false);
     assert.equal(safeNote({ note: 'minimum_passed', params: { day: '5' }, currency: 'AED' }), 'Due on day \u20665\u2069, already passed this month: taken as paid');
     assert.match(safeNote({ note: 'goal_derived', params: { left: '1000.00', months: '3' }, currency: 'AED' }), /AED.1,000\.00.* left over 3 months/);
     setLocale('ar');

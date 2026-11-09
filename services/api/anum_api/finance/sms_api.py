@@ -1063,6 +1063,9 @@ def ledger_dashboard(
     context: TenantContext = Depends(tenant_context),
 ) -> LedgerDashboard:
     _read(context)
+    from . import obligations
+
+    links = obligations.load(context)  # its own short unit of work, before the dashboard's
     with open_sms_stores(context) as (finance, store):
         fsettings = settings_for(finance, context)
         today = today_in(fsettings)
@@ -1076,13 +1079,20 @@ def ledger_dashboard(
         entries = store.list_entries(context, start=window_start, end=window_end)
         linked = store.linked_transaction_ids(context)
         rows: list[L.Row] = []
+        # Statement and hand-entered rows are read from the rows themselves by today's rules (flows.py), so a
+        # card payment or refund stored by older rules is counted the same way as a new one; their journal
+        # entries (and the reversals of them) are skipped so nothing counts twice.
+        plain_kinds = {L.EntrySource.MANUAL.value, L.EntrySource.STATEMENT.value}
+        plain = {e.source_ref for e in entries if e.kind in plain_kinds and e.source_ref}
         for entry in entries:
+            if entry.kind in plain_kinds:
+                continue
             for p in entry.postings:
                 rows.append(L.Row(day=entry.posted_on, ledger_account=p.ledger_account, account_id=p.account_id, amount=p.amount, currency=p.currency,
                                   kind=entry.kind, category=entry.category, merchant=entry.merchant, entry_id=entry.id))
         for txn in finance.transactions_between(context, window_start, window_end):
             account = by_id.get(txn.account_id)
-            if txn.id in linked or account is None:
+            if (txn.id in linked and txn.id not in plain) or account is None:
                 continue
             for leg in L.derived_legs(txn, account):
                 rows.append(L.Row(day=txn.posted_on, ledger_account=leg.ledger_account, account_id=leg.account_id, amount=leg.amount, currency=leg.currency,
@@ -1094,17 +1104,17 @@ def ledger_dashboard(
         limits = {m.account_id: m.credit_limit for m in settings.account_map if m.credit_limit}
         observed = store.latest_observations(context)
         suspense = store.suspense_totals(context)
-        bills = upcoming_bills([b for b in finance.list_items(context, "bill") if getattr(b, "active", True)], today)
+        bills = upcoming_bills([b for b in finance.list_items(context, "bill") if getattr(b, "active", True)], today, links=links.bill_links)
         goals = [
             GoalProgress(id=g.id, name=g.name, currency=g.currency, target_amount=g.target_amount, saved_amount=g.saved_amount,
                          percent=max(0, min(100, int(g.saved_amount * 100 / g.target_amount))) if g.target_amount > 0 else 0,
                          target_on=g.target_on).model_dump(mode="json")
-            for g in finance.list_items(context, "goal")  # type: ignore[attr-defined]
+            for g in obligations.current_goals(finance.list_items(context, "goal"), accounts, sums)  # type: ignore[arg-type]
         ]
         debts = [
             DebtPlan(id=d.id, name=d.name, currency=d.currency, balance=d.balance, minimum_payment=d.minimum_payment,
-                     months_to_clear=_months_to_clear(d.balance, d.apr, d.minimum_payment))
-            for d in finance.list_items(context, "debt")  # type: ignore[attr-defined]
+                     months_to_clear=_months_to_clear(d.balance, d.apr_percent, d.minimum_payment))
+            for d in obligations.current_debts(finance.list_items(context, "debt"), accounts, sums, links)  # type: ignore[arg-type]
         ]
     built = L.dashboard(month=chosen, today=today, accounts=accounts, rows=rows,
                         filters=L.Filters(account_id=account_id, currency=currency, category=category, kind=kind),
