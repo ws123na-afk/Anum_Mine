@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
+from decimal import Decimal
 from enum import Enum
 from threading import RLock
 from typing import Any, Protocol, TypeVar
@@ -44,6 +45,19 @@ class BooksStore(Protocol):
     def add_elsewhere(self, kind: str, item: ModelT) -> ModelT: ...
     def get_elsewhere(self, kind: str, workspace_id: str, **where: Any) -> Any: ...
     def save_elsewhere(self, kind: str, item: ModelT) -> None: ...
+    # The journal (migration 0148): a lock that serialises posting runs and closes per business, an entry written with its
+    # lines in one step, and sums of lines grouped by columns (debit, credit and the signed original amount).
+    def lock_books(self) -> None: ...
+    def add_entry(self, entry: Any, lines: list[Any]) -> None: ...
+    def ledger_totals(self, where: dict[str, Any], group_by: tuple[str, ...]) -> list[dict[str, Any]]: ...
+
+
+class PeriodLocked(ValueError):  # noqa: N818 - the database's refusal, named for what it means
+    """A journal line or a source document dated in a closed period (the database trigger ``business_book_period_open``)."""
+
+
+class Unbalanced(ValueError):  # noqa: N818
+    """A journal entry whose debits and credits differ, or with fewer than two lines (``business_book_journal_balanced``)."""
 
 
 def plain(value: Any) -> Any:
@@ -61,6 +75,12 @@ def matches(item: BaseModel, where: dict[str, Any]) -> bool:
                 return False
         elif isinstance(wanted, After):
             if actual is None or actual <= wanted.value:
+                return False
+        elif isinstance(wanted, Between):
+            if actual is None or not (wanted.low <= actual <= wanted.high):
+                return False
+        elif isinstance(wanted, Not):
+            if actual == plain(wanted.value):
                 return False
         elif isinstance(wanted, (set, frozenset, list, tuple)):
             if actual not in {plain(value) for value in wanted}:
@@ -91,6 +111,21 @@ class After:
         self.value = value
 
 
+class Between:
+    """A ``where`` value: ``low <= column <= high``."""
+
+    def __init__(self, low: Any, high: Any) -> None:
+        self.low = low
+        self.high = high
+
+
+class Not:
+    """A ``where`` value: the column is not ``value`` (``None`` means "is not null")."""
+
+    def __init__(self, value: Any) -> None:
+        self.value = value
+
+
 # The unique keys the database enforces (migrations 0137 and 0138), repeated for the in-memory store.
 _UNIQUE: dict[str, Callable[[Any], tuple[Any, ...] | None]] = {
     "cost_centres": lambda r: ("code", r.code.lower()),
@@ -102,16 +137,53 @@ _UNIQUE: dict[str, Callable[[Any], tuple[Any, ...] | None]] = {
     "adjustments": lambda r: ("idem", r.idem_key) if r.idem_key else None,
     "intercompany": lambda r: ("pair", r.pair_id),
     "rate_feeds": lambda r: ("feed",),
+    "ledger_accounts": lambda r: ("code", r.code),
+    "journal_entries": lambda r: ("event", r.event_key) if r.status == "posted" and r.reverses_id is None else None,
+    "posting_issues": lambda r: ("event", r.event_key),
+    "closes": lambda r: ("period", r.period_end) if r.status == "closed" else None,
+    "accountants": lambda r: ("user", r.user_id),
 }
 _SECOND_UNIQUE: dict[str, Callable[[Any], tuple[Any, ...] | None]] = {
     "bill_payments": lambda r: ("idem", r.bill_id, r.idem_key) if r.idem_key else None,
     "bills": lambda r: ("period", r.template_id, r.period_date) if r.template_id else None,
+    "ledger_accounts": lambda r: ("key", r.system_key) if r.system_key else None,
+    "journal_entries": lambda r: ("reverses", r.reverses_id) if r.reverses_id else None,
+}
+_THIRD_UNIQUE: dict[str, Callable[[Any], tuple[Any, ...] | None]] = {
+    "ledger_accounts": lambda r: ("category", r.category) if r.category else None,
+}
+
+
+_BILL_FACTS = ("bill_date", "due_date", "currency", "subtotal", "tax", "total", "category", "section", "status", "useful_life_months", "project_id",
+               "cost_centre_id", "vendor_id")
+
+
+def _bill_touched(new: Any, old: Any, locked: Any) -> bool:
+    if old is None:
+        return new.bill_date <= locked and plain(new.status) != "void"
+    if new.bill_date > locked and old.bill_date > locked:
+        return False
+    return any(plain(getattr(new, name)) != plain(getattr(old, name)) for name in _BILL_FACTS)
+
+
+def _adjustment_touched(new: Any, old: Any, locked: Any) -> bool:
+    if new.entry_date <= locked:
+        return True
+    return old is not None and ((old.start_month is not None and old.start_month <= locked) or (old.reverse_on is not None and old.reverse_on <= locked))
+
+
+_DATED: dict[str, Callable[[Any, Any, Any], bool]] = {
+    "bills": _bill_touched,
+    "bill_payments": lambda new, old, locked: new.paid_on <= locked or (old is not None and old.paid_on <= locked),
+    "adjustments": _adjustment_touched,
+    "intercompany": lambda new, old, locked: new.entry_date <= locked,
 }
 
 
 class InMemoryBooksStore:
     def __init__(self) -> None:
         self._lock = RLock()
+        self._books_locks: dict[tuple[str, str], RLock] = {}
         self.rows: dict[str, dict[str, BaseModel]] = {kind: {} for kind in KINDS}
         self.settings: dict[tuple[str, str], BookSettings] = {}
 
@@ -134,7 +206,7 @@ class _ScopedMemoryBooks:
         return item.tenant_id == self.context.tenant_id and item.workspace_id == (workspace_id or self.context.workspace_id)
 
     def _check_unique(self, kind: str, item: Any) -> None:
-        for rule in (_UNIQUE.get(kind), _SECOND_UNIQUE.get(kind)):
+        for rule in (_UNIQUE.get(kind), _SECOND_UNIQUE.get(kind), _THIRD_UNIQUE.get(kind)):
             if rule is None or (key := rule(item)) is None:
                 continue
             for other in self.root.rows[kind].values():
@@ -145,10 +217,21 @@ class _ScopedMemoryBooks:
         found = self.root.rows[kind].get(item_id)
         return found.model_copy(deep=True) if found is not None and self._mine(found) else None
 
+    def _period_open(self, kind: str, new: Any, old: Any = None) -> None:
+        """The database trigger ``business_book_period_open``, repeated: nothing dated in a closed period is written or changed."""
+        if kind not in _DATED:
+            return
+        locked = self.locked_through(new.workspace_id)
+        if locked is None:
+            return
+        if _DATED[kind](new, old, locked):
+            raise PeriodLocked(f"closed through {locked}")
+
     def add(self, kind: str, item: ModelT) -> ModelT:
         with self.root._lock:
             if not self._mine(item):
                 raise ValueError("a record is written in the caller's scope only")
+            self._period_open(kind, item)
             self._check_unique(kind, item)
             self.root.rows[kind][item.id] = item.model_copy(deep=True)
         return item
@@ -160,6 +243,7 @@ class _ScopedMemoryBooks:
                 return False
             if expected_version is not None and getattr(current, "version", None) != expected_version:
                 return False
+            self._period_open(kind, item, current)
             self._check_unique(kind, item)
             self.root.rows[kind][item.id] = item.model_copy(deep=True)
             return True
@@ -204,9 +288,51 @@ class _ScopedMemoryBooks:
         with self.root._lock:
             if item.tenant_id != self.context.tenant_id:
                 raise ValueError("never another tenant")
+            self._period_open(kind, item)
             self._check_unique(kind, item)
             self.root.rows[kind][item.id] = item.model_copy(deep=True)
         return item
+
+    def lock_books(self) -> None:
+        """Held until the request's thread is done with the store (the in-memory store has no transaction to end)."""
+        with self.root._lock:
+            lock = self.root._books_locks.setdefault((self.context.tenant_id, self.context.workspace_id), RLock())
+        lock.acquire()
+        self._held = lock
+
+    def release_books(self) -> None:
+        held = getattr(self, "_held", None)
+        if held is not None:
+            self._held = None
+            held.release()
+
+    def locked_through(self, workspace_id: str | None = None) -> Any:
+        days = [row.period_end for row in self.root.rows["closes"].values() if self._mine(row, workspace_id) and row.status == "closed"]
+        return max(days) if days else None
+
+    def add_entry(self, entry: Any, lines: list[Any]) -> None:
+        """The database's rules, repeated: at least two lines, debits equal credits, nothing dated in a closed period."""
+        with self.root._lock:
+            if len(lines) < 2 or sum((line.debit - line.credit for line in lines), Decimal(0)) != 0:
+                raise Unbalanced(f"business journal entry {entry.id} does not balance")
+            locked = self.locked_through()
+            if locked is not None and any(line.entry_date <= locked for line in lines):
+                raise PeriodLocked(f"closed through {locked}")
+            self.add("journal_entries", entry)
+            for line in lines:
+                self.root.rows["journal_lines"][line.id] = line.model_copy(deep=True)
+
+    def ledger_totals(self, where: dict[str, Any], group_by: tuple[str, ...]) -> list[dict[str, Any]]:
+        sums: dict[tuple[Any, ...], dict[str, Decimal]] = {}
+        for line in list(self.root.rows["journal_lines"].values()):
+            if not self._mine(line) or not matches(line, where):
+                continue
+            key = tuple(plain(getattr(line, name)) for name in group_by)
+            found = sums.setdefault(key, {"debit": Decimal(0), "credit": Decimal(0), "amount": Decimal(0)})
+            found["debit"] += line.debit
+            found["credit"] += line.credit
+            found["amount"] += line.amount
+        return [{**dict(zip(group_by, key, strict=True)), **values} for key, values in sums.items()]
 
     def get_elsewhere(self, kind: str, workspace_id: str, **where: Any) -> Any:
         for item in list(self.root.rows[kind].values()):
@@ -218,6 +344,7 @@ class _ScopedMemoryBooks:
         with self.root._lock:
             current = self.root.rows[kind].get(item.id)
             if current is not None and current.tenant_id == self.context.tenant_id and current.workspace_id == item.workspace_id:
+                self._period_open(kind, item, current)
                 self.root.rows[kind][item.id] = item.model_copy(deep=True)
 
 
@@ -233,8 +360,12 @@ def open_books_store(context: TenantContext) -> Iterator[BooksStore]:
 
         return SqlBooksStore(session, context)
 
-    with open_scoped_store(context, books_memory_store.scoped(context), sql_store) as store:
-        yield store
+    memory = books_memory_store.scoped(context)
+    try:
+        with open_scoped_store(context, memory, sql_store) as store:
+            yield store
+    finally:
+        memory.release_books()
 
 
 __all__ = [
@@ -243,7 +374,11 @@ __all__ = [
     "After",
     "AtLeast",
     "AtMost",
+    "Between",
     "BooksStore",
+    "Not",
+    "PeriodLocked",
+    "Unbalanced",
     "DuplicateError",
     "InMemoryBooksStore",
     "books_memory_store",

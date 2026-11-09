@@ -213,6 +213,9 @@ def test_every_purged_table_is_covered_by_the_purge_migration() -> None:
                 "business_book_settings", "business_book_cost_centres", "business_book_vendors", "business_book_bills", "business_book_bill_payments",
                 "business_book_allocation_tags", "business_book_budgets", "business_book_rates", "business_book_adjustments", "business_book_intercompany")},
             **{name: "0138_books_v2" for name in ("business_book_bill_templates", "business_book_rate_feeds")},
+            **{name: "0148_business_ledger" for name in (
+                "business_book_ledger_accounts", "business_book_journal_entries", "business_book_journal_lines", "business_book_posting_issues",
+                "business_book_closes", "business_book_accountants")},
             "finance_statement_templates": "0139_finance_pdf_templates",
             "finance_guardian_reviews": "0140_finance_guardian_reviews",
             **{name: "0143_finance_money_advisor" for name in ("finance_advisor_reports", "finance_advisor_settings")},

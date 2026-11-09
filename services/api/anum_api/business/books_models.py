@@ -96,6 +96,10 @@ class AdjustmentKind(StrEnum):
     OWNER_CONTRIBUTION = "owner_contribution"  # cash the owner put in (allocations paid by the owner count on their own)
     OWNER_DRAWING = "owner_drawing"
     OWNER_REIMBURSEMENT = "owner_reimbursement"  # the business paid back what a member paid for it (reimbursable allocations)
+    # Interest owed and interest paid are separate events (audit defect B5, migration 0148): ``loan_interest`` stays for
+    # interest paid on the day it is charged.
+    LOAN_INTEREST_ACCRUED = "loan_interest_accrued"  # a finance cost owed, not yet paid
+    LOAN_INTEREST_PAID = "loan_interest_paid"  # paying interest already owed: cash, not a second cost
 
 
 class IntercompanyKind(StrEnum):
@@ -125,6 +129,7 @@ class BookSettings(_Scoped):
     # Finance category of an allocation row -> P&L section (``operating_expense`` when unlisted).
     category_sections: dict[str, str] = Field(default_factory=dict)
     rate_max_age_days: int = 31
+    policy_note: str = ""  # the owner's own accounting policy text, shown with the generated policy notes (migration 0148)
     version: int = 1
     updated_by: str
     updated_at: datetime
@@ -323,6 +328,116 @@ class Intercompany(_Scoped):
     void_reason: str = ""
 
 
+# -- the journal (migration 0148_business_ledger, docs/business-books.md#the-journal) ---------------------------------
+
+
+class AccountType(StrEnum):
+    ASSET = "asset"
+    LIABILITY = "liability"
+    EQUITY = "equity"
+    REVENUE = "revenue"
+    EXPENSE = "expense"
+
+
+# What an account is: its type, the first digit of its code, and where it shows on the statements.
+SUBTYPES: dict[str, tuple[AccountType, str]] = {
+    "bank": (AccountType.ASSET, "1"), "receivable": (AccountType.ASSET, "1"), "tax_receivable": (AccountType.ASSET, "1"),
+    "prepayment": (AccountType.ASSET, "1"), "current_asset": (AccountType.ASSET, "1"), "fixed_asset": (AccountType.ASSET, "1"),
+    "accumulated_depreciation": (AccountType.ASSET, "1"),
+    "payable": (AccountType.LIABILITY, "2"), "tax_payable": (AccountType.LIABILITY, "2"), "accrual": (AccountType.LIABILITY, "2"),
+    "interest_payable": (AccountType.LIABILITY, "2"), "owed_to_members": (AccountType.LIABILITY, "2"), "loan": (AccountType.LIABILITY, "2"),
+    "current_liability": (AccountType.LIABILITY, "2"),
+    "capital": (AccountType.EQUITY, "3"), "drawings": (AccountType.EQUITY, "3"), "retained_earnings": (AccountType.EQUITY, "3"),
+    "current_result": (AccountType.EQUITY, "3"),
+    "revenue": (AccountType.REVENUE, "4"), "other_income": (AccountType.REVENUE, "4"),
+    "cost_of_sales": (AccountType.EXPENSE, "5"), "operating_expense": (AccountType.EXPENSE, "6"), "depreciation": (AccountType.EXPENSE, "6"),
+    "finance_cost": (AccountType.EXPENSE, "7"), "fx": (AccountType.EXPENSE, "7"),
+}
+PNL_TYPES = frozenset({AccountType.REVENUE, AccountType.EXPENSE})
+
+
+class LedgerAccount(_Scoped):
+    code: str
+    name: str
+    subtype: str
+    system_key: str | None = None  # the account a posting rule uses (one per key); never archived
+    category: str | None = None  # an expense or revenue category posted here instead of the default account
+    archived: bool = False
+    version: int = 1
+    created_by: str
+    updated_at: datetime
+
+    @property
+    def type(self) -> AccountType:
+        return SUBTYPES[self.subtype][0]
+
+
+class JournalEntry(_Scoped):
+    entry_date: date  # the day it is posted on: the event's day, or the first open day when that day is in a closed period
+    event_date: date  # the day the source document says
+    source_kind: str  # invoice, credit_note, invoice_payment, bill, bill_payment, allocation, adjustment, intercompany, manual, closing
+    source_id: str | None = None
+    event_key: str
+    fingerprint: str
+    description: str
+    status: str = "posted"  # or "reversed"
+    reverses_id: str | None = None
+    reversed_by_id: str | None = None
+    late: bool = False
+    created_by: str
+
+
+class JournalLine(_Scoped):
+    entry_id: str
+    line_no: int
+    entry_date: date
+    source_kind: str
+    account_id: str
+    debit: Decimal = Decimal(0)  # base currency
+    credit: Decimal = Decimal(0)
+    currency: str  # the original currency
+    amount: Decimal  # the original amount, signed: positive on a debit line, negative on a credit line
+    rate: Decimal | None = None  # base per unit of the original currency; None when the line is in the base currency
+    rate_date: date | None = None
+    rate_source: str | None = None
+    category: str | None = None
+    project_id: str | None = None
+    cost_centre_id: str | None = None
+    customer_id: str | None = None
+    counterparty_workspace_id: str | None = None
+    pair_id: str | None = None
+    flow: str | None = None  # how a bank line shows in the cash-flow statement
+
+
+class PostingIssue(_Scoped):
+    event_key: str
+    source_kind: str
+    source_id: str | None = None
+    event_date: date
+    reason: str  # missing_rate or too_small
+    currency: str | None = None
+    rate_date: date | None = None
+    description: str = ""
+
+
+class PeriodClose(_Scoped):
+    period_start: date
+    period_end: date
+    kind: str  # month or year (the last month of a financial year)
+    status: str = "closed"
+    closed_by: str
+    closing_entry_id: str | None = None
+    snapshot: dict[str, Any] = Field(default_factory=dict)
+    reopened_by: str | None = None
+    reopened_at: datetime | None = None
+    reopen_reason: str = ""
+
+
+class Accountant(_Scoped):
+    user_id: str
+    added_by: str
+
+
 KINDS: dict[str, type[BaseModel]] = {
     "cost_centres": CostCentre,
     "vendors": Vendor,
@@ -335,6 +450,12 @@ KINDS: dict[str, type[BaseModel]] = {
     "intercompany": Intercompany,
     "templates": BillTemplate,
     "rate_feeds": RateFeed,
+    "ledger_accounts": LedgerAccount,
+    "journal_entries": JournalEntry,
+    "journal_lines": JournalLine,
+    "posting_issues": PostingIssue,
+    "closes": PeriodClose,
+    "accountants": Accountant,
 }
 
 TABLES: dict[str, str] = {
@@ -349,6 +470,12 @@ TABLES: dict[str, str] = {
     "intercompany": "business_book_intercompany",
     "templates": "business_book_bill_templates",
     "rate_feeds": "business_book_rate_feeds",
+    "ledger_accounts": "business_book_ledger_accounts",
+    "journal_entries": "business_book_journal_entries",
+    "journal_lines": "business_book_journal_lines",
+    "posting_issues": "business_book_posting_issues",
+    "closes": "business_book_closes",
+    "accountants": "business_book_accountants",
 }
 
 
