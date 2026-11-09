@@ -72,6 +72,9 @@ EXEMPT: dict[tuple[str, str], str] = {
     ("POST", "/api/v1/calls/webhooks/twilio/{route_id}/ai/{call_id}"): _CALL_WEBHOOK,
     ("POST", "/api/v1/calls/webhooks/twilio/{route_id}/turn/{call_id}"): _CALL_WEBHOOK,
     ("POST", "/api/v1/automation/schedules/preview"): "Computes the next fire times of a cron expression; stores nothing.",
+    ("POST", "/api/v1/business/books/tax/zatca/documents/{document_id}/submit"): (
+        "Always refused (409 zatca_onboarding_required): ANUM is not onboarded with ZATCA, so nothing is sent and nothing is stored."
+    ),
     ("POST", "/api/v1/developer/resolve"): "Matches a spoken request to a project name; stores nothing.",
     ("POST", "/api/v1/automation/hooks/{tenant_id}/{workspace_id}/{trigger_id}"): (
         "An outside system's HMAC-signed delivery, not a person's action; the run it starts is in the run "

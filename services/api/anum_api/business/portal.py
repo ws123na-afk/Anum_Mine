@@ -33,6 +33,7 @@ from .invoice_models import (
     PaymentNoticeStatus,
     PortalDecision,
 )
+from .zatca import qr_for_invoice, tax_settings_for
 from .invoice_pdf import render_invoice_pdf
 from .invoice_send import open_link_url
 from .invoice_print import render_invoice
@@ -656,9 +657,11 @@ def print_invoice(invoice_id: str, lang: Literal["en", "ar"] = "en", session: Po
 @router.get("/invoices/{invoice_id}/pdf")
 def invoice_pdf(invoice_id: str, session: PortalSession = Depends(portal_session)) -> Response:
     """The invoice as a PDF file, labelled in English and Arabic."""
+    tax = tax_settings_for(session.context)  # read first: the ZATCA QR is printed only when the business turned it on
     with open_business_store(session.context) as store:
         invoice = _invoice_of(store, session, invoice_id)
         content = render_invoice_pdf(invoice, payments_of(store, invoice.id), credit_notes_of(store, invoice.id), store.get_settings().billing,
+                                     zatca_qr=qr_for_invoice(tax, invoice),
                                      payment_link=open_link_url(store, invoice))
     return pdf_response(invoice, content)
 

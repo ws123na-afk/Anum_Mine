@@ -41,7 +41,8 @@ def invoice_hash(invoice: Invoice) -> str:
         "account_id": invoice.account_id,
         "project_id": invoice.project_id,
         "currency": invoice.currency.value,
-        "lines": [item.model_dump(mode="json") for item in invoice.lines],
+        # A line without a tax code hashes as it did before tax codes existed, so a request waiting for approval stays valid.
+        "lines": [item.model_dump(mode="json", exclude={"tax_code"} if item.tax_code is None else None) for item in invoice.lines],
         "subtotal": str(money(invoice.subtotal)),
         "tax": str(money(invoice.tax)),
         "total": str(money(invoice.total)),

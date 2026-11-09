@@ -158,6 +158,24 @@ class PdfDocument:
             self.page.text(MARGIN, self.y, item, size, align="right" if direction else "left", width=width, rtl=direction)
         self.y -= 4
 
+    def qr(self, matrix: Sequence[Sequence[bool]], caption: str, *, module: float = 2.0) -> None:
+        """A QR code (dark modules as black squares, a four-module quiet zone) with a caption to its right."""
+        side = (len(matrix) + 8) * module
+        self._need(side + 6)
+        top = self.y - 4 * module
+        for row_index, row in enumerate(matrix):
+            y = top - (row_index + 1) * module
+            start = None
+            for col_index, dark in enumerate([*row, False]):
+                if dark and start is None:
+                    start = col_index
+                elif not dark and start is not None:
+                    self.page.fill(MARGIN + (4 + start) * module, y, (col_index - start) * module, module, gray=0.0)
+                    start = None
+        for index, line in enumerate(wrap(caption, PAGE_WIDTH - 2 * MARGIN - side - 12, 8)):
+            self.page.text(MARGIN + side + 12, self.y - 12 - index * 11, line, 8)
+        self.y -= side + 6
+
     def pairs(self, rows: Sequence[tuple[str, str, Any]], size: float = 9) -> None:
         """Bilingual label rows: English label left, value, Arabic label right."""
         width = PAGE_WIDTH - 2 * MARGIN

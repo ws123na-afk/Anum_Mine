@@ -42,6 +42,7 @@ from .invoice_models import (
     PaymentLinkStatus,
     PaymentMethod,
 )
+from .zatca import qr_for_invoice, tax_settings_for
 from .invoice_pdf import invoice_filename, render_invoice_pdf
 from .invoice_service import apply_payment, credit_notes_of, payments_of
 from .models import money
@@ -162,11 +163,13 @@ def resolve_attachment(context: TenantContext, item_id: str, fmt: str) -> tuple[
     """The invoice PDF for an approved email (``delivery.resolve_attachment`` checks its hash)."""
     if fmt != "pdf":
         return None
+    tax = tax_settings_for(context)  # read first: the ZATCA QR is printed only when the business turned it on
     with open_business_store(context) as store:
         invoice = store.get("invoices", item_id)
         if invoice is None or invoice.status not in (InvoiceStatus.SENT, InvoiceStatus.PAID):
             return None
         content = render_invoice_pdf(invoice, payments_of(store, invoice.id), credit_notes_of(store, invoice.id), store.get_settings().billing,
+                                     zatca_qr=qr_for_invoice(tax, invoice),
                                      payment_link=open_link_url(store, invoice))
     return invoice_filename(invoice), "application/pdf", content
 

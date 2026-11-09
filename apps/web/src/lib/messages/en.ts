@@ -77,6 +77,7 @@ import { opsEn } from './ops.en.ts';
 import { purchasesEn } from './purchases.en.ts';
 import { businessBooksEn } from './businessBooks.en.ts';
 import { businessLedgerEn } from './businessLedger.en.ts';
+import { businessTaxEn } from './businessTax.en.ts';
 import { iphoneEn } from './iphone.en.ts';
 import { asPageEn } from './asPage.en.ts';
 import { vaultEn } from './vault.en.ts';
@@ -171,6 +172,7 @@ export const en = {
   ...purchasesEn,
   ...businessBooksEn,
   ...businessLedgerEn,
+  ...businessTaxEn,
   ...iphoneEn,
   ...vaultEn,
   ...asPageEn,

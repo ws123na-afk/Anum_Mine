@@ -32,6 +32,7 @@ from ..finance.money import quantize
 from .books_chart import REVENUE_KEYS
 from .books_models import AdjustmentKind, BillStatus, Direction, IntercompanyKind, LedgerAccount, PaymentKind, Section
 from .books_report import Book, Converter, Inputs, _months, _spread, month_start
+from .tax_rules import split
 
 ZERO = Decimal(0)
 ADJUSTMENT_FLOWS = {
@@ -64,6 +65,7 @@ class Leg:
     pair_id: str | None = None
     flow: str | None = None
     absorb: bool = False  # takes the rounding of a conversion so the entry balances to the minor unit
+    tax_code: str | None = None  # docs/business-tax.md#posting: the code of a revenue, cost or VAT leg
 
 
 @dataclass
@@ -83,7 +85,9 @@ class Proposal:
         for leg in self.legs:
             facts.append("|".join(str(value) for value in (
                 leg.account, leg.debit, leg.currency, format(leg.amount.normalize(), "f"), leg.rate_on.isoformat(), leg.category, leg.project_id,
-                leg.cost_centre_id, leg.customer_id, leg.counterparty_workspace_id, leg.pair_id, leg.flow)))
+                leg.cost_centre_id, leg.customer_id, leg.counterparty_workspace_id, leg.pair_id, leg.flow))
+                         # A leg without a tax code keeps the fingerprint it had before tax codes, so nothing posted is re-posted.
+                         + (f"|tc={leg.tax_code}" if leg.tax_code else ""))
         return hashlib.sha256("\x1f".join(facts).encode()).hexdigest()
 
 
@@ -104,6 +108,7 @@ class Line:
     counterparty_workspace_id: str | None = None
     pair_id: str | None = None
     flow: str | None = None
+    tax_code: str | None = None
 
 
 @dataclass(frozen=True)
@@ -167,6 +172,34 @@ def _month_key(day: date) -> str:
     return day.isoformat()[:7]
 
 
+def _code(line: Any) -> str | None:
+    return getattr(line, "tax_code", None)
+
+
+def _taxes_by_code(invoice: Any) -> dict[str, Decimal]:
+    """The invoice's tax by line tax code ("" for lines without one). Without codes: one figure, the invoice's tax, as before."""
+    if not any(_code(line) for line in invoice.lines):
+        return {"": Decimal(invoice.tax)}
+    out: dict[str, Decimal] = defaultdict(Decimal)
+    for line in invoice.lines:
+        out[_code(line) or ""] += Decimal(line.tax)
+    return dict(out)
+
+
+def _credit_split(invoice: Any, subtotal: Decimal, tax: Decimal) -> list[tuple[str | None, Decimal, Decimal]]:
+    """(tax code, net, tax) of a credit note: in the invoice's own proportion by code; one uncoded part when it has no codes."""
+    if not any(_code(line) for line in invoice.lines):
+        return [(None, subtotal, tax)]
+    nets: dict[str, Decimal] = defaultdict(Decimal)
+    for line in invoice.lines:
+        nets[_code(line) or ""] += Decimal(line.net)
+    taxes = _taxes_by_code(invoice)
+    codes = sorted(nets)
+    net_parts = split(subtotal, [nets[code] for code in codes])
+    tax_parts = split(tax, [taxes.get(code, ZERO) for code in codes])
+    return [(code or None, net, part) for code, net, part in zip(codes, net_parts, tax_parts, strict=True)]
+
+
 def propose(inputs: Inputs, chart: Chart) -> list[Proposal]:
     """Every posting event of one business, in a stable order. Dates in the future are included; the caller posts only
     those dated on or before today."""
@@ -179,17 +212,19 @@ def propose(inputs: Inputs, chart: Chart) -> list[Proposal]:
             continue
         currency, day = _cur(invoice), invoice.issue_date
         dims = {"project_id": invoice.project_id, "customer_id": invoice.account_id}
-        nets: dict[str, Decimal] = defaultdict(Decimal)
+        nets: dict[tuple[str, str], Decimal] = defaultdict(Decimal)
+        taxes = _taxes_by_code(invoice)
         for line in invoice.lines:
-            nets[_kind(line)] += Decimal(line.net)
+            nets[(_kind(line), _code(line) or "")] += Decimal(line.net)
         legs = [Leg("key:ar", True, currency, Decimal(invoice.total), day, absorb=True, **dims)]
-        for kind, net in sorted(nets.items()):
+        for (kind, code), net in sorted(nets.items()):
             if net > 0:
-                legs.append(Leg(f"key:{REVENUE_KEYS.get(kind, 'revenue_other')}", False, currency, net, day, **dims))
+                legs.append(Leg(f"key:{REVENUE_KEYS.get(kind, 'revenue_other')}", False, currency, net, day, tax_code=code or None, **dims))
             elif net < 0:
-                legs.append(Leg(f"key:{REVENUE_KEYS.get(kind, 'revenue_other')}", True, currency, -net, day, **dims))
-        if Decimal(invoice.tax) > 0:
-            legs.append(Leg("key:tax_payable", False, currency, Decimal(invoice.tax), day, **dims))
+                legs.append(Leg(f"key:{REVENUE_KEYS.get(kind, 'revenue_other')}", True, currency, -net, day, tax_code=code or None, **dims))
+        for code, tax in sorted(taxes.items()):
+            if tax > 0:
+                legs.append(Leg("key:tax_payable", False, currency, tax, day, tax_code=code or None, **dims))
         out.append(Proposal(f"invoice:{invoice.id}", "invoice", invoice.id, day, f"Invoice {invoice.number or invoice.id} issued", legs))
 
     for note in sorted(book.credit_notes, key=lambda item: item.id):
@@ -199,10 +234,11 @@ def propose(inputs: Inputs, chart: Chart) -> list[Proposal]:
         currency, booked = _cur(note), invoice.issue_date
         dims = {"project_id": invoice.project_id, "customer_id": invoice.account_id}
         legs = [Leg("key:ar", False, currency, Decimal(note.amount), booked, absorb=True, **dims)]
-        if Decimal(note.subtotal) > 0:
-            legs.append(Leg("key:credit_notes", True, currency, Decimal(note.subtotal), booked, **dims))
-        if Decimal(note.tax) > 0:
-            legs.append(Leg("key:tax_payable", True, currency, Decimal(note.tax), booked, **dims))
+        for code, net, tax in _credit_split(invoice, Decimal(note.subtotal), Decimal(note.tax)):
+            if net > 0:
+                legs.append(Leg("key:credit_notes", True, currency, net, booked, tax_code=code, **dims))
+            if tax > 0:
+                legs.append(Leg("key:tax_payable", True, currency, tax, booked, tax_code=code, **dims))
         out.append(Proposal(f"credit_note:{note.id}", "credit_note", note.id, note.issue_date, f"Credit note {note.number or note.id}", legs))
 
     for payment in sorted(book.payments, key=lambda item: item.id):
@@ -222,11 +258,17 @@ def propose(inputs: Inputs, chart: Chart) -> list[Proposal]:
         dims = {"project_id": bill.project_id, "cost_centre_id": bill.cost_centre_id}
         name = f"Bill {bill.reference or bill.id[-6:]} from {vendors.get(bill.vendor_id, 'a vendor')}"
         legs = [Leg("key:ap", False, bill.currency, bill.total, bill.bill_date, absorb=True, **dims)]
+        code = getattr(bill, "tax_code", None)
         if bill.subtotal > 0:
             target = "key:fixed_assets" if bill.section == Section.CAPITAL else chart.expense(bill.section.value, bill.category)
-            legs.append(Leg(target, True, bill.currency, bill.subtotal, bill.bill_date, category=bill.category, **dims))
+            legs.append(Leg(target, True, bill.currency, bill.subtotal, bill.bill_date, category=bill.category, tax_code=code, **dims))
         if bill.tax > 0:
-            legs.append(Leg("key:tax_receivable", True, bill.currency, bill.tax, bill.bill_date, **dims))
+            legs.append(Leg("key:tax_receivable", True, bill.currency, bill.tax, bill.bill_date, tax_code=code, **dims))
+        self_assessed = Decimal(getattr(bill, "reverse_charge_tax", 0) or 0)
+        if self_assessed > 0:
+            # Reverse charge: the business accounts for the VAT itself, as output tax and, recoverable, as input tax.
+            legs.append(Leg("key:tax_receivable", True, bill.currency, self_assessed, bill.bill_date, tax_code=code, **dims))
+            legs.append(Leg("key:tax_payable", False, bill.currency, self_assessed, bill.bill_date, tax_code=code, **dims))
         out.append(Proposal(f"bill:{bill.id}", "bill", bill.id, bill.bill_date, name, legs))
         if bill.section == Section.CAPITAL and bill.useful_life_months and bill.subtotal > 0:
             parts = _spread(bill.subtotal, bill.currency, bill.useful_life_months)
@@ -376,7 +418,8 @@ def realise(proposal: Proposal, converter: Converter, chart: Chart) -> list[Line
         signed = leg.amount if leg.debit else -leg.amount
         out.append(Line(chart.resolve(leg.account), value if leg.debit else ZERO, ZERO if leg.debit else value, leg.currency, signed,
                         path.rate if path is not None else None, path.as_of if path is not None else None, path.source if path is not None else None,
-                        leg.category, leg.project_id, leg.cost_centre_id, leg.customer_id, leg.counterparty_workspace_id, leg.pair_id, leg.flow))
+                        leg.category, leg.project_id, leg.cost_centre_id, leg.customer_id, leg.counterparty_workspace_id, leg.pair_id, leg.flow,
+                        leg.tax_code))
     out.extend(extra)
     if len(out) < 2 or not any(line.debit > 0 for line in out) or not any(line.credit > 0 for line in out):
         return Issue(proposal.event_key, proposal.source_kind, proposal.source_id, proposal.event_date, "too_small", None, None, proposal.description)
