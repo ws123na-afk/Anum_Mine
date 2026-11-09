@@ -8,6 +8,7 @@ checks under RLS. Web search is always a fake handler: these tests never reach t
 from __future__ import annotations
 
 import asyncio
+import time
 from collections.abc import Iterator
 from datetime import UTC, date, datetime
 from decimal import Decimal as D
@@ -572,3 +573,14 @@ def test_planner_reads_monthly_and_down_amounts_across_spacing_and_punctuation()
     assert compare.arguments["price"] == "30000" and compare.arguments["months"] == 24
     nothing = plan_call("Can I afford a sofa a month from now?")
     assert nothing is not None and "monthly_cost" not in nothing.arguments
+
+
+def test_planner_reads_the_item_word_by_word() -> None:
+    from anum_api.finance.plan_tools import plan_call
+
+    assert plan_call("Should I buy a used car for 45,000 AED?").arguments["item"] == "used car"  # type: ignore[union-attr]
+    assert plan_call("Can I afford the new phone?").arguments["item"] == "new phone"  # type: ignore[union-attr]
+    assert "item" not in plan_call("Can I afford 60,000 AED?").arguments  # type: ignore[union-attr]
+    started = time.monotonic()
+    plan_call("can i afford a " + "a\t" * 5000)
+    assert time.monotonic() - started < 1
