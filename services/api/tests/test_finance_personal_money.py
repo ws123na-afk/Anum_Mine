@@ -449,3 +449,82 @@ def test_goal_purpose_is_kept() -> None:
     assert again["purpose"] == "emergency"
     assert client.post(f"{API}/goals", headers=OWNER, json={"name": "G", "target_amount": "1"}).json()["purpose"] == "general"
 
+
+
+# -- review fixes: the ledger dashboard and idempotent link retries -------------------------------------
+
+
+def _board(month: str, currency: str) -> tuple[str, str]:
+    board = client.get(f"{API}/ledger/dashboard", headers=OWNER, params={"month": month}).json()
+    pick = lambda rows: next((r["amount"] for r in rows if r["currency"] == currency), "0")  # noqa: E731
+    return pick(board["expenses"]), pick(board["income"])
+
+
+def test_the_ledger_dashboard_agrees_with_the_summary_for_manual_lending() -> None:
+    bank = account(balance="5000")
+    loan = client.post(f"{API}/people-loans", headers=OWNER, json={"direction": "lent", "person": "Friend A", "amount": "1000",
+                                                                   "lent_on": "2026-11-02"}).json()
+    handed = record(bank["id"], "-1000", "2026-11-02", "Cash to Friend A", "other")
+    back = record(bank["id"], "400", "2026-11-04", "From Friend A", "income")
+    record(bank["id"], "-120", "2026-11-04", "Grocer", "groceries")
+    assert _board("2026-11", "AED") == ("1120.00", "400.00")
+    for canonical, kind in ((handed, "handed"), (back, "repayment")):
+        assert client.post(f"{API}/people-loans/{loan['id']}/links", headers=OWNER, json={"canonical_id": canonical, "kind": kind}).status_code == 201
+    expenses, income = _board("2026-11", "AED")
+    month = client.get(f"{API}/summary", headers=OWNER, params={"month": "2026-11"}).json()
+    assert (D(expenses), D(income)) == (D("120.00"), D(0))
+    assert [a["amount"] for a in month["spend"]] == ["120.00"] and month["income"] == []
+    # Account balances are unchanged by the classification.
+    assert client.get(f"{API}/ledger/dashboard", headers=OWNER, params={"month": "2026-11"}).status_code == 200
+
+
+def test_the_ledger_dashboard_agrees_with_the_summary_for_sms_lending() -> None:
+    from test_finance_sms import PURCHASE_EN, SALARY_EN, send, setup
+
+    from anum_api.finance import sms_service as svc
+
+    svc._last_notified.clear()
+    s = setup(OWNER)
+    assert send(s["token"], PURCHASE_EN).status_code in (200, 201)
+    assert send(s["token"], SALARY_EN).status_code in (200, 201)
+    entries = client.get(f"{API}/ledger/entries", headers=OWNER).json()["items"]
+    out = next(e["canonical_id"] for e in entries if any(Decimal_str(p["amount"]) == D("-45.50") for p in e["postings"]))
+    salary = next(e["canonical_id"] for e in entries if any(Decimal_str(p["amount"]) == D("12000.00") for p in e["postings"]))
+    before = _board("2026-11", "SAR")
+    assert (D(before[0]), D(before[1])) == (D("45.50"), D("12000.00"))
+    loan = client.post(f"{API}/people-loans", headers=OWNER, json={"direction": "lent", "person": "Friend B", "amount": "45.50", "currency": "SAR",
+                                                                   "lent_on": "2026-11-03"}).json()
+    assert client.post(f"{API}/people-loans/{loan['id']}/links", headers=OWNER, json={"canonical_id": out, "kind": "handed"}).status_code == 201
+    other = client.post(f"{API}/people-loans", headers=OWNER, json={"direction": "borrowed", "person": "Friend C", "amount": "12000", "currency": "SAR",
+                                                                    "lent_on": "2026-11-01"}).json()
+    assert client.post(f"{API}/people-loans/{other['id']}/links", headers=OWNER, json={"canonical_id": salary, "kind": "handed"}).status_code == 201
+    expenses, income = _board("2026-11", "SAR")
+    month = client.get(f"{API}/summary", headers=OWNER, params={"month": "2026-11"}).json()
+    assert (D(expenses), D(income)) == (D(0), D(0))
+    assert month["spend"] == [] and month["income"] == []
+
+
+def Decimal_str(value: str) -> D:  # noqa: N802
+    return D(str(value))
+
+
+@pytest.mark.parametrize("kind", ["person_loan", "payslip", "remittance"])
+def test_a_retried_link_with_the_same_key_replays_instead_of_refusing(kind: str) -> None:
+    bank = account(balance="1000")
+    if kind == "person_loan":
+        made = client.post(f"{API}/people-loans", headers=OWNER, json={"direction": "lent", "person": "Friend A", "amount": "100", "lent_on": "2026-11-02"}).json()
+        canonical, path, body = record(bank["id"], "-100", "2026-11-02", "To Friend A"), f"people-loans/{made['id']}", {"kind": "handed"}
+    elif kind == "payslip":
+        made = client.post(f"{API}/payslips", headers=OWNER, json={"employer": "Example Co", "month": "2026-10", "gross": "100"}).json()
+        canonical, path, body = record(bank["id"], "100", "2026-10-28", "SALARY", "income"), f"payslips/{made['id']}", {}
+    else:
+        made = client.post(f"{API}/remittances", headers=OWNER, json={"sent_on": "2026-11-02", "amount": "100", "recipient": "Family",
+                                                                      "provider": "Exchange A"}).json()
+        canonical, path, body = record(bank["id"], "-100", "2026-11-02", "EXCHANGE A"), f"remittances/{made['id']}", {}
+    headers = {**OWNER, "Idempotency-Key": f"retry-{kind}"}
+    first = client.post(f"{API}/{path}/links", headers=headers, json={"canonical_id": canonical, **body})
+    again = client.post(f"{API}/{path}/links", headers=headers, json={"canonical_id": canonical, **body})
+    assert first.status_code == 201, first.text
+    assert again.status_code == 201, again.text
+    assert again.json()["link"]["id"] == first.json()["link"]["id"] and again.json()["replayed"] is True
+    assert again.json()["link"]["amount"] == "100.00"

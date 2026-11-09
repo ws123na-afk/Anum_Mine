@@ -1084,17 +1084,21 @@ def ledger_dashboard(
         # entries (and the reversals of them) are skipped so nothing counts twice.
         plain_kinds = {L.EntrySource.MANUAL.value, L.EntrySource.STATEMENT.value}
         plain = {e.source_ref for e in entries if e.kind in plain_kinds and e.source_ref}
+        # Money lent or borrowed with a person is a transfer on both paths (flows.py, obligations.Links.lending_ids).
+        lending = links.lending_ids
         for entry in entries:
             if entry.kind in plain_kinds:
                 continue
+            lent = bool(lending) and any(p.transaction_id in lending for p in entry.postings if p.transaction_id)
             for p in entry.postings:
-                rows.append(L.Row(day=entry.posted_on, ledger_account=p.ledger_account, account_id=p.account_id, amount=p.amount, currency=p.currency,
+                ledger_account = L.lending_account(p.ledger_account, p.account_id) if lent else p.ledger_account
+                rows.append(L.Row(day=entry.posted_on, ledger_account=ledger_account, account_id=p.account_id, amount=p.amount, currency=p.currency,
                                   kind=entry.kind, category=entry.category, merchant=entry.merchant, entry_id=entry.id))
         for txn in finance.transactions_between(context, window_start, window_end):
             account = by_id.get(txn.account_id)
             if (txn.id in linked and txn.id not in plain) or account is None:
                 continue
-            for leg in L.derived_legs(txn, account):
+            for leg in L.derived_legs(txn, account, lending=txn.id in lending):
                 rows.append(L.Row(day=txn.posted_on, ledger_account=leg.ledger_account, account_id=leg.account_id, amount=leg.amount, currency=leg.currency,
                                   kind="statement", category=txn.category.value, merchant=txn.description[:60] if leg.account_id is None else None,
                                   entry_id=f"txn:{txn.id}"))
