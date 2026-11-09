@@ -2,7 +2,7 @@
 // budgets and the Debts and goals pages. Each sends the whole record; fields a form does not show (a goal
 // paused elsewhere) are left out, so the API keeps them.
 import { useId, useState, type FormEvent } from 'react';
-import type { FinanceAccount, FinanceBill, FinanceCadence, FinanceCategory, FinanceDebt, FinanceDebtKind, FinanceGoal } from '@anum/contracts';
+import { FINANCE_GOAL_PURPOSES, type FinanceAccount, type FinanceBill, type FinanceCadence, type FinanceCategory, type FinanceDebt, type FinanceDebtKind, type FinanceGoal, type FinanceGoalPurpose } from '@anum/contracts';
 import * as api from './lib/financeApi';
 import { categoryLabel, parseAmount } from './lib/finance';
 import { describeError } from './lib/errors';
@@ -96,6 +96,7 @@ export function GoalForm({ goal, base, onDone }: { goal: FinanceGoal | null; bas
   const [name, setName] = useState(goal?.name ?? ''), [currency, setCurrency] = useState(goal?.currency ?? base), [target, setTarget] = useState(goal?.target_amount ?? '');
   const [saved, setSaved] = useState(goal?.saved_amount ?? '0'), [by, setBy] = useState(goal?.target_on ?? ''), [error, setError] = useState<string | null>(null), [busy, setBusy] = useState(false);
   const [monthly, setMonthly] = useState(goal?.monthly_contribution ?? '');
+  const [purpose, setPurpose] = useState<FinanceGoalPurpose>(goal?.purpose ?? 'general');
   const errorId = useId(), monthlyHelp = useId();
   async function submit(event: FormEvent) {
     event.preventDefault();
@@ -106,7 +107,7 @@ export function GoalForm({ goal, base, onDone }: { goal: FinanceGoal | null; bas
     const monthlyAmount = monthly.trim() ? parseAmount(monthly, currency, { signed: false }) : null;
     if (monthlyAmount && !monthlyAmount.ok) { setError(monthlyAmount.error); return; }
     setBusy(true); setError(null);
-    const body = { name: name.trim(), currency, target_amount: goalAmount.value, saved_amount: savedAmount.value, target_on: by || null, monthly_contribution: monthlyAmount?.ok ? monthlyAmount.value : null };
+    const body = { name: name.trim(), currency, target_amount: goalAmount.value, saved_amount: savedAmount.value, target_on: by || null, monthly_contribution: monthlyAmount?.ok ? monthlyAmount.value : null, purpose };
     try { if (goal) await api.updateGoal(goal.id, body); else await api.createGoal(body); onDone(t('finance.item.saved', { name: body.name })); }
     catch (e) { setError(describeError(e)); } finally { setBusy(false); }
   }
@@ -118,6 +119,8 @@ export function GoalForm({ goal, base, onDone }: { goal: FinanceGoal | null; bas
       <label className="field"><span>{t('finance.form.saved', { currency })}</span><input value={saved} onChange={(e) => setSaved(e.target.value)} inputMode="decimal" dir="ltr" /></label>
       <label className="field"><span>{t('finance.form.by')}</span><input type="date" value={by} onChange={(e) => setBy(e.target.value)} /></label>
       <label className="field"><span>{t('finance.form.monthly', { currency })}</span><input value={monthly} onChange={(e) => setMonthly(e.target.value)} inputMode="decimal" dir="ltr" aria-describedby={monthlyHelp} /></label>
+      <label className="field"><span>{t('fpm.goal.purpose')}</span><select value={purpose} onChange={(e) => setPurpose(e.target.value as FinanceGoalPurpose)}>
+        {FINANCE_GOAL_PURPOSES.map((p) => <option key={p} value={p}>{t(`fpm.goal.purpose.${p}` as MessageKey)}</option>)}</select></label>
     </div>
     <p id={monthlyHelp} className="muted finHelp">{t('finance.form.monthlyHelp')}</p>
     <FormError id={errorId} text={error} />

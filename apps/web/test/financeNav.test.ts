@@ -11,9 +11,9 @@ describe('finance section nav', () => {
     assert.deepEqual([...tabs].sort(), [...FINANCE_TABS].sort());
     assert.equal(new Set(tabs).size, tabs.length);
   });
-  it('keeps the mockup order of the Finance group', () => {
+  it('keeps the mockup order of the Finance group, with the personal money sections after Goals', () => {
     const finance = FINANCE_NAV[0].entries.map((e) => (e.kind === 'tab' ? e.tab : e.id));
-    const order = ['overview', 'transactions', 'accounts', 'bills', 'budgets', 'debts', 'goals', 'reports', 'safe', 'advisor', 'guardian'].filter((id) => finance.includes(id as never));
+    const order = ['overview', 'transactions', 'accounts', 'bills', 'budgets', 'debts', 'goals', 'commitments', 'people', 'payslips', 'remittances', 'reports', 'safe', 'advisor', 'guardian'].filter((id) => finance.includes(id as never));
     assert.deepEqual(finance, order);
   });
   it('ends with Business Expenses and P&L, a link to the business books', () => {

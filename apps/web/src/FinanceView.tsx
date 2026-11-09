@@ -47,6 +47,7 @@ const SafePage = lazy(() => import('./FinanceSafePage').then((m) => ({ default: 
 const AdvisorPage = lazy(() => import('./FinanceAdvisorPage').then((m) => ({ default: m.FinanceAdvisorPage })));
 // Bills and budgets, debts and goals (docs/finance.md#bills-and-budgets): two pages in their own lazy chunk.
 const BillsBudgetsPage = lazy(() => import('./FinanceBillsBudgets').then((m) => ({ default: m.BillsBudgetsPage })));
+const PersonalMoneyPage = lazy(() => import('./FinancePersonalMoney').then((m) => ({ default: m.PersonalMoneyPage })));
 const DebtsGoalsPage = lazy(() => import('./FinanceDebtsGoals').then((m) => ({ default: m.DebtsGoalsPage })));
 const PLANNING_TABS: ReadonlySet<FinanceTab> = new Set<FinanceTab>(['bills', 'budgets', 'debts', 'goals']);
 // Accounts and Transactions and ledger draw their own page head (docs/finance.md#register-and-account-overview).
@@ -109,7 +110,9 @@ export function FinanceView() {
       <Suspense fallback={<Notice busy>{t('finance.loading')}</Notice>}>
         {tab === 'reports' && <ReportsPage onOpen={pick} />}
         {tab === 'safe' && <SafePage onOpen={pick} onChanged={refresh} />}
-        {tab === 'advisor' && <AdvisorPage onOpen={pick} />}
+        {tab === 'advisor' && <AdvisorPage onOpen={pick} base={summary.kind === 'ready' ? summary.value.base_currency : 'AED'} />}
+        {(tab === 'people' || tab === 'payslips' || tab === 'remittances' || tab === 'commitments') && <PersonalMoneyPage tab={tab} onOpen={pick}
+          base={summary.kind === 'ready' ? summary.value.base_currency : 'AED'} />}
         {tab === 'accounts' && <AccountsPage accounts={accounts} base={summary.kind === 'ready' ? summary.value.base_currency : 'AED'} onChanged={refresh}
           onOpenTransactions={(accountId) => { setTxOpen((o) => ({ accountId, key: o.key + 1 })); pick('transactions'); }}
           onImport={() => { setTxOpen((o) => ({ tab: 'imports', key: o.key + 1 })); pick('transactions'); }} />}

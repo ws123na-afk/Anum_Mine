@@ -1,0 +1,55 @@
+/* Lent and borrowed, Payslips, Send home, Fixed costs and the Money advisor's Plan view (docs/finance.md#lent-and-borrowed).
+   Built on the Finance shell and the shared tokens; content-driven heights, no fixed section heights. */
+.fpmPage, .fpmPage > .finTabPanel, .fpmPlan { display: grid; gap: var(--d-s4); min-width: 0; }
+.fpmGrid { align-items: start; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+@media (max-width: 1100px) { .fpmGrid { grid-template-columns: minmax(0, 1fr); } }
+.fpmPayoff .finAdvisorBad { align-items: center; display: flex; gap: var(--d-s1); }
+.fpmPayoff .finAdvisorBad svg { flex: none; height: 16px; width: 16px; }
+.fpmFilters { align-items: end; display: flex; flex-wrap: wrap; gap: var(--d-s2) var(--d-s3); margin-block-end: var(--d-s3); }
+.fpmFilters .field { flex: 1 1 180px; margin: 0; min-width: 0; }
+.fpmFilters .field span { align-items: center; display: inline-flex; gap: var(--d-s1); }
+.fpmFilters .field svg { height: 14px; width: 14px; }
+.fpmRowActions { display: flex; flex-wrap: nowrap; gap: var(--d-s1); justify-content: flex-end; }
+.fpmRowActions button { align-items: center; display: inline-flex; gap: var(--d-s1); min-height: 36px; white-space: nowrap; }
+.fpmRowActions button svg { height: 16px; width: 16px; }
+.fpmPager { align-items: center; justify-content: center; margin-block-start: var(--d-s3); }
+.fpmDialog { max-width: min(760px, calc(100vw - 2 * var(--d-s3))); width: 100%; }
+.fpmCandidates li { gap: var(--d-s2); }
+.fpmChoice { border: 0; display: flex; flex-wrap: wrap; gap: var(--d-s2) var(--d-s4); margin: 0 0 var(--d-s3); padding: 0; }
+.fpmChoice legend { font-weight: 600; margin-block-end: var(--d-s1); }
+.fpmChoice label { align-items: center; display: inline-flex; gap: var(--d-s2); }
+.fpmDeductions { border: 1px solid var(--d-line); border-radius: var(--d-r-control); display: grid; gap: var(--d-s2); margin: var(--d-s3) 0; padding: var(--d-s3); }
+.fpmDeductions legend { font-weight: 600; padding: 0 var(--d-s1); }
+.fpmDeduction { align-items: end; display: grid; gap: var(--d-s2); grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr) minmax(0, 1.2fr) auto; }
+.fpmDeduction .field { margin: 0; min-width: 0; }
+.fpmDeductions > button { justify-self: start; }
+.fpmNet { font-size: var(--text-lg); font-weight: 700; margin: 0 0 var(--d-s3); }
+.fpmGroup + .fpmGroup { border-block-start: 1px solid var(--d-line); margin-block-start: var(--d-s3); padding-block-start: var(--d-s3); }
+.fpmGroup h3 { align-items: baseline; display: flex; gap: var(--d-s2); justify-content: space-between; }
+.fpmInline { align-items: end; display: flex; flex-wrap: wrap; gap: var(--d-s2) var(--d-s3); margin-block-end: var(--d-s3); }
+.fpmInline .field { flex: 1 1 200px; margin: 0; min-width: 0; }
+.fpmEmptyLine { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2) var(--d-s3); justify-content: space-between; }
+.fpmEmptyLine p { margin: 0; }
+.fpmPayoff + .fpmPayoff { border-block-start: 1px solid var(--d-line); margin-block-start: var(--d-s3); padding-block-start: var(--d-s3); }
+.fpmHeadline { font-size: var(--text-lg); font-weight: 700; margin: 0 0 var(--d-s2); }
+.fpmResult { border-block-start: 1px solid var(--d-line); margin-block-start: var(--d-s3); padding-block-start: var(--d-s3); }
+.fpmVerdict { border-inline-start: 4px solid var(--d-line); font-weight: 700; margin: 0 0 var(--d-s3); padding-inline-start: var(--d-s3); }
+.fpmVerdict.good { border-color: var(--d-ok); }
+.fpmVerdict.warn { border-color: var(--d-warn); }
+.fpmVerdict.bad { border-color: var(--d-stop); }
+.fpmCompareGrid { grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); }
+.fpmLive { border-block-start: 1px solid var(--d-line); margin-block-start: var(--d-s3); padding-block-start: var(--d-s3); }
+.fpmLive summary { align-items: center; cursor: pointer; display: inline-flex; font-weight: 600; gap: var(--d-s2); min-height: 36px; }
+.fpmLive summary svg { height: 16px; width: 16px; }
+.fpmLive[open] summary { margin-block-end: var(--d-s2); }
+.fpmLiveList { display: grid; gap: var(--d-s2); list-style: none; margin: 0; padding: 0; }
+.fpmLiveList li { border: 1px solid var(--d-line); border-radius: var(--d-r-control); display: grid; gap: 4px; min-width: 0; padding: var(--d-s2) var(--d-s3); }
+.fpmLiveList small { color: var(--d-muted); overflow-wrap: anywhere; }
+.fpmFigures { display: flex; flex-wrap: wrap; gap: var(--d-s1); }
+@media (max-width: 640px) {
+  .fpmDeduction { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  .fpmDeduction .field:nth-child(3) { grid-column: 1 / 2; }
+  .fpmRowActions { justify-content: flex-start; }
+}
+/* A visually hidden table heading is positioned: keep it inside the scrolling table, not the page. */
+.fpmPage .finTableWrap, .fpmPlan .finTableWrap { position: relative; }

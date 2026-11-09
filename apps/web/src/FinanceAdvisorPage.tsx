@@ -3,7 +3,7 @@
 // ranked next steps), past weeks from GET /advisor/notes, "Generate now" (POST /advisor/generate) and the
 // weekly switches (PUT /advisor/settings). Figures are the API's; ANUM only advises: it never moves money,
 // pays a bill or touches a bank or card, and the page says so on every view.
-import { useCallback, useEffect, useId, useState, type FormEvent, type ReactNode } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useId, useState, type FormEvent, type ReactNode } from 'react';
 import {
   CalendarClock, CreditCard, Gauge, History, Lightbulb, ListChecks, PieChart, RefreshCw, Settings2, ShieldCheck, TriangleAlert, Wallet,
 } from 'lucide-react';
@@ -20,13 +20,17 @@ import { delta } from './lib/financeNav';
 import { describeError } from './lib/errors';
 import { formatDateTime, getLocale, intlLocale, t, type MessageKey } from './lib/i18n';
 import { Denied, Empty, LoadError, Money, Notice, failed, type Load } from './FinanceParts';
-import { DeltaChip, FinBanner, FinCard, FinancePageHead, KpiCard, KpiRow, StatusChip } from './FinanceShell';
+import { DeltaChip, FinBanner, FinCard, FinancePageHead, FinanceTabs, KpiCard, KpiRow, StatusChip, tabPanel } from './FinanceShell';
 import './financePages.css';
 import './financeAdvisor.css';
 
+const AdvisorPlan = lazy(() => import('./FinanceAdvisorPlan').then((m) => ({ default: m.AdvisorPlan })));
+type AdvisorView = 'note' | 'plan';
+
 const day = (value: string) => formatDateTime(`${value}T12:00:00Z`, { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' });
 
-export function FinanceAdvisorPage({ onOpen }: { onOpen: (tab: FinanceTab) => void }) {
+export function FinanceAdvisorPage({ onOpen, base = 'AED', initialView = 'note' }: { onOpen: (tab: FinanceTab) => void; base?: string; initialView?: AdvisorView }) {
+  const [view, setView] = useState<AdvisorView>(initialView);
   const [overview, setOverview] = useState<Load<FinanceAdvisorOverview>>({ kind: 'loading' });
   const [shown, setShown] = useState<FinanceAdvisorNoteView | null>(null);
   const [currency, setCurrency] = useState<string | null>(null);
@@ -62,7 +66,15 @@ export function FinanceAdvisorPage({ onOpen }: { onOpen: (tab: FinanceTab) => vo
   const latestId = data?.latest?.id ?? null;
   const viewingPast = Boolean(shown && latestId && shown.id !== latestId);
 
-  const head = <FinancePageHead title={t('finance.tab.advisor')} subtitle={t('fadv.subtitle')}
+  const tabs = <FinanceTabs label={t('fplanx.views')} idPrefix="fadvv" value={view} onChange={setView}
+    items={[{ id: 'note', label: t('fplanx.view.note') }, { id: 'plan', label: t('fplanx.view.plan') }]} />;
+  if (view === 'plan') return <div className="finPage finAdvisorPage">
+    <FinancePageHead title={t('finance.tab.advisor')} subtitle={t('fplanx.subtitle')} tabs={tabs} />
+    <FinBanner tone="info" icon={<ShieldCheck />} title={t('fadv.onlyAdvises.title')}>{t('fplanx.onlyAdvises')} {t('fplanx.banner')}</FinBanner>
+    <div {...tabPanel('fadvv', 'plan')}><Suspense fallback={<Notice busy>{t('fpm.loading')}</Notice>}><AdvisorPlan base={base} onOpen={onOpen} /></Suspense></div>
+  </div>;
+
+  const head = <FinancePageHead title={t('finance.tab.advisor')} subtitle={t('fadv.subtitle')} tabs={tabs}
     actions={overview.kind === 'ready' ? <button type="button" onClick={() => void generate()} disabled={busy} aria-busy={busy || undefined}>
       <RefreshCw aria-hidden="true" />{busy ? t('fadv.generating') : t('fadv.generate')}</button> : undefined}
     controls={shown ? <>
@@ -95,7 +107,7 @@ export function FinanceAdvisorPage({ onOpen }: { onOpen: (tab: FinanceTab) => vo
     {notice && <Notice error={notice.error}>{notice.text}</Notice>}
     {viewingPast && shown && <FinBanner tone="info" icon={<History />} title={t('fadv.viewingPast', { date: isolate(day(shown.week_start)) })}
       action={<button type="button" className="secondary" onClick={() => setShown(data?.latest ?? null)}>{t('fadv.backToLatest')}</button>} />}
-    {body}
+    <div {...tabPanel('fadvv', 'note')}>{body}</div>
     {data && <div className="finReportGrid finAdvisorGridBottom">
       <HistoryCard key={historyKey} shownId={shown?.id ?? null} onShow={setShown} />
       <SettingsCard overview={data} onSaved={load} />
