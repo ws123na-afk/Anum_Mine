@@ -5,7 +5,9 @@ import '../../src/widgets/anum_components.dart';
 import '../../src/widgets/depth.dart';
 import 'finance_controller.dart';
 import 'finance_intel_view.dart';
+import '../admin/admin_models.dart' show configuredWebAppUrl;
 import 'finance_models.dart';
+import 'finance_personal_view.dart';
 import 'finance_plan_models.dart';
 import 'finance_strings.dart';
 import 'finance_trading_models.dart';
@@ -14,8 +16,19 @@ import 'finance_trading_models.dart';
 /// transactions, accounts, bills, debts and goals. Read only: nothing here
 /// pays, transfers or trades. Statement import is on the web.
 class FinanceScreen extends StatefulWidget {
-  const FinanceScreen({required this.controller, super.key});
+  const FinanceScreen(
+      {required this.controller,
+      this.webAppUrl = configuredWebAppUrl,
+      this.openLink = openMoneyLink,
+      super.key});
   final FinanceController controller;
+
+  /// The web app's address (`ANUM_WEB_APP_URL`), for the pages that stay on
+  /// the web (Payslips, Send home); empty when the build does not know it.
+  final String webAppUrl;
+
+  /// Opens planner sources and web pages in the browser; replaced in tests.
+  final MoneyLinkOpener openLink;
 
   @override
   State<FinanceScreen> createState() => _FinanceScreenState();
@@ -65,6 +78,9 @@ class _FinanceScreenState extends State<FinanceScreen> {
                   style: TextStyle(color: context.palette.muted)),
               Text(s.t('importOnWeb'),
                   style: TextStyle(color: context.palette.muted)),
+              if (c.personal != null)
+                FinanceWebOnlyLine(
+                    appUrl: widget.webAppUrl, openLink: widget.openLink),
             ],
           ),
         );
@@ -81,10 +97,26 @@ class _FinanceScreenState extends State<FinanceScreen> {
     }
     return switch (c.section) {
       FinanceSection.overview => _overview(context, c, s),
+      FinanceSection.planner => [
+          if (c.personal != null)
+            MoneyPlannerView(controller: c.personal!, openLink: widget.openLink)
+        ],
+      FinanceSection.people => [
+          if (c.personal != null) PeopleLoansView(controller: c.personal!)
+        ],
+      FinanceSection.fixed => [
+          if (c.personal != null)
+            FixedCostsView(
+                controller: c.personal!,
+                onOpenBills: () => c.select(FinanceSection.bills))
+        ],
+      FinanceSection.debts => [
+          if (c.personal != null) DebtPayoffCard(controller: c.personal!),
+          ..._items(context, c, s, 'debts'),
+        ],
       FinanceSection.transactions => _transactions(context, c, s),
       FinanceSection.accounts => _accounts(context, c, s),
       FinanceSection.bills => _items(context, c, s, 'bills'),
-      FinanceSection.debts => _items(context, c, s, 'debts'),
       FinanceSection.goals => _items(context, c, s, 'goals'),
       FinanceSection.safe => _safe(context, c, s),
       FinanceSection.guardian => _guardian(context, c, s),
@@ -1141,7 +1173,7 @@ class _Sections extends StatelessWidget {
         container: true,
         child: Wrap(spacing: 8, runSpacing: 8, children: [
           for (final section in FinanceSection.values)
-            if (section != FinanceSection.intel || controller.intel != null)
+            if (controller.offers(section))
               ChoiceChip(
                 label: Text(strings.t('section.${section.name}')),
                 selected: controller.section == section,

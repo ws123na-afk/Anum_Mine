@@ -37,6 +37,7 @@ On a phone the bottom bar has **Assistant**, **Home**, **Tasks**, **Resources** 
 | [Settings, language and right to left](#settings-language-and-right-to-left) | Partial | Settings, Language menu |
 | [Tyre planning](#tyre-planning) | Done for everything an operator does; connecting the source is web only | Home › Tyre planning |
 | [Integrations and skills](#integrations-and-skills) | Partial (connectors in progress) | Resources › Skills, Resources › Services, Home › Connected services |
+| [Personal money](#personal-money) | Done for the four phone screens; Payslips and Send home are web only | Finance › Money planner, Lent and borrowed, Fixed costs, Debts |
 | [Commerce](#commerce) | Done for everything an operator does; connecting a channel and alert rules are web only | Home › Sales and orders |
 | [Business](#business) | Done on the phone for everything the desk edits; research, drafts, CSV import and proposal writing are web only | More › Business |
 | [Marketing](#marketing-whatsapp-autonomy-learning-and-agents) | Done on the phone, except media upload and the month grid | Marketing (Posts, Calendar, Campaigns, Accounts, Analytics) |
@@ -291,6 +292,22 @@ Screen: **Settings › Notifications** with the **Phone push** card. Without the
 | Connect email (Gmail, Outlook, Zoho), WhatsApp Business, Amazon, Noon or the owner's own apps | In progress |
 
 Details: [Skills](skills.md), [Tools and integrations](tools-and-integrations.md#workspace-configuration).
+
+## Personal money
+
+A small set of phone screens inside **Finance** for the person's own money ([Lent and borrowed](finance.md#lent-and-borrowed), [Fixed commitments](finance.md#fixed-commitments), [Planning and advice](finance.md#planning-and-advice)). Everything is the caller's own records; the server checks `finance:read` and `finance:manage` on every call. **Advice only: nothing here pays, buys or transfers money.**
+
+| What you can do | State |
+| --- | --- |
+| **Money planner**: type a money question in English or Arabic ("Can I afford a car of 60,000 SAR?", "أي دين أسدد أولا؟") or tap an example; the question goes to the Assistant, whose finance skill runs the planner (`finance.plan.*`) on your own records and, when web search is on, live sources. The answer shows with "Advice only", each live source's address as a link (opened in the browser) and the date it was read; Stop ends the answer. The question and answer stay in the Assistant's conversations | Done |
+| **Lent and borrowed**: what they owe me and what I owe, per currency, the overdue count, each entry with its due date and an Overdue, Due soon, Open, Repaid or Closed badge, a filter (All, They owe me, I owe) and paging | Done |
+| Lent and borrowed: add an entry (person, amount, currency, who owes whom, date, due date, notes) and record a repayment by linking a recorded transaction (money in when someone repays you, money out when you repay) | Done (owners and members) |
+| **Fixed costs**: one total per currency and the list (rent, bills, subscriptions, installments, debt minimums, regular transfers home), plus what is left out so nothing counts twice; empty opens Bills | Done (read only) |
+| **Debt payoff** (top of Debts): avalanche against snowball per currency with months to debt-free, total interest, the order, which is cheaper and by how much, and the debts with no rate | Done (read only) |
+| Loan reminders (`finance_loan_due`, in-app only) open Finance, Lent and borrowed from the notification list | Done |
+| Payslips, Send home, editing or deleting an entry, unlinking a repayment, the Plan view's afford and compare forms, live research by topic | Web only (Finance shows "Payslips and Send home are on the web", a link when the build has `ANUM_WEB_APP_URL`) |
+
+Every screen has loading, empty with a next action, error with what failed and Retry, permission denied (who can), offline, Arabic right to left and 200 percent text. Code: `apps/mobile/lib/features/finance/finance_personal_*.dart`; tests: `test/finance_personal_test.dart` (model parsing, the API routes and bodies, the planner over the Assistant's stream with an error and Stop, every state, adding an entry and a repayment, Arabic right to left, and 360x640, 390x844 and 768x1024 at 200 percent text in English and Arabic).
 
 ## Commerce
 

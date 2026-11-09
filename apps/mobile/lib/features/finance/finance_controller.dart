@@ -4,6 +4,8 @@ import '../../data/api_client.dart';
 import 'finance_intel_controller.dart';
 import 'finance_intel_models.dart';
 import 'finance_models.dart';
+import 'finance_personal_controller.dart';
+import 'finance_personal_repository.dart';
 import 'finance_plan_models.dart';
 import 'finance_repository.dart';
 import 'finance_trading_models.dart';
@@ -13,11 +15,14 @@ enum FinanceLoad { idle, loading, ready, denied, error }
 /// Sections of the phone's Finance screen.
 enum FinanceSection {
   overview,
+  planner,
   safe,
   transactions,
   accounts,
   bills,
+  fixed,
   debts,
+  people,
   goals,
   guardian,
   connections,
@@ -30,12 +35,33 @@ enum FinanceSection {
 /// a searchable, paged transaction list, accounts, bills, debts and goals.
 /// Each part loads and fails on its own, so a failed list keeps the summary.
 class FinanceController extends ChangeNotifier {
-  FinanceController(this.repository, {FinanceIntelRepository? intelRepository})
+  FinanceController(this.repository,
+      {FinanceIntelRepository? intelRepository,
+      FinancePersonalRepository? personalRepository,
+      MoneyPlanner? planner})
       : intel = intelRepository == null
             ? null
-            : FinanceIntelController(intelRepository);
+            : FinanceIntelController(intelRepository),
+        personal = personalRepository == null
+            ? null
+            : FinancePersonalController(personalRepository, planner: planner);
 
   final FinanceRepository repository;
+
+  /// Personal money (docs/finance.md#lent-and-borrowed): the Money planner,
+  /// Lent and borrowed, Fixed costs and the debt payoff card; null when no
+  /// source was given, and then those sections are not offered.
+  final FinancePersonalController? personal;
+
+  /// Whether [section] is offered on this phone.
+  bool offers(FinanceSection section) => switch (section) {
+        FinanceSection.intel => intel != null,
+        FinanceSection.planner ||
+        FinanceSection.people ||
+        FinanceSection.fixed =>
+          personal != null,
+        _ => true,
+      };
 
   /// The trading intelligence section (docs/finance-trading-intel.md); null
   /// when no intel source was given, and then the section is not offered.
@@ -101,7 +127,14 @@ class FinanceController extends ChangeNotifier {
       case FinanceSection.bills:
         await loadItems('bills');
       case FinanceSection.debts:
-        await loadItems('debts');
+        await Future.wait(
+            [loadItems('debts'), if (personal != null) personal!.loadPayoff()]);
+      case FinanceSection.people:
+        await personal?.loadLoans();
+      case FinanceSection.fixed:
+        await personal?.loadCommitments();
+      case FinanceSection.planner:
+        break;
       case FinanceSection.goals:
         await loadItems('goals');
       case FinanceSection.accounts:
@@ -396,6 +429,13 @@ class FinanceController extends ChangeNotifier {
     execution = null;
     live = null;
     tradingState = executionLoad = FinanceLoad.idle;
+    personal?.reset();
     notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    personal?.dispose();
+    super.dispose();
   }
 }
