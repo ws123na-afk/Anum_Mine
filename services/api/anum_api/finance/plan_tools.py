@@ -390,8 +390,38 @@ SEND_HOME = re.compile(
     r"|تحويل للأهل|تحويل الى الأهل|تحويل إلى الأهل|أرخص طريقة للتحويل|ارخص طريقة للتحويل|أرخص تحويل|ارخص تحويل",
     re.IGNORECASE,
 )
-_ITEM = re.compile(r"\b(?:afford|buy|get|purchase)\s+(?:a|an|the|this|that|my)?\s*([a-z][a-z0-9 '-]{1,60}?)(?=\s+(?:for|at|costing|worth|with|on|in|from)\b|[?.!,]|$)",
-                   re.IGNORECASE)
+# "afford a used car for 80,000": the words after the verb (and an optional article) up to a stop word or
+# punctuation, read word by word rather than with a pattern over free text.
+_ITEM_VERBS = frozenset({"afford", "buy", "get", "purchase"})
+_ITEM_ARTICLES = frozenset({"a", "an", "the", "this", "that", "my"})
+_ITEM_STOPS = frozenset({"for", "at", "costing", "worth", "with", "on", "in", "from"})
+_ITEM_WORD = re.compile(r"[a-z0-9'-]{1,60}", re.IGNORECASE)
+
+
+def _item(words: list[str]) -> str | None:
+    """What the person wants to buy, at most 61 characters starting with a letter, or None."""
+    for i, verb in enumerate(words):
+        if verb.lower() not in _ITEM_VERBS:
+            continue
+        j = i + 1
+        if j < len(words) and words[j].lower() in _ITEM_ARTICLES:
+            j += 1
+        taken: list[str] = []
+        ended = False
+        while j < len(words) and not ended:
+            core = words[j].rstrip("?.!,")
+            if taken and core.lower() in _ITEM_STOPS:
+                ended = True
+                break
+            if not _ITEM_WORD.fullmatch(core):
+                break
+            taken.append(core)
+            ended = core != words[j] or j == len(words) - 1
+            j += 1
+        item = " ".join(taken)
+        if ended and 2 <= len(item) <= 61 and item[0].isascii() and item[0].isalpha():
+            return item
+    return None
 
 
 def _amounts(text: str) -> list[Decimal]:
@@ -443,8 +473,8 @@ def plan_call(text: str) -> ToolCall | None:
             args["basis"] = "flat"
         if re.search(r"installments?|تقسيط|أقساط|اقساط|tamara|tabby|تمارا|تابي", text, re.IGNORECASE):
             args["installments"] = True
-        if (item := _ITEM.search(text)) is not None:
-            args["item"] = item.group(1).strip()
+        if (item := _item(words)) is not None:
+            args["item"] = item
         return ToolCall(name="finance.plan.compare", arguments=args)
     if AFFORD.search(text):
         args = {**cur}
@@ -452,8 +482,8 @@ def plan_call(text: str) -> ToolCall | None:
             args["price"] = str(amounts[0])
         if monthly is not None:
             args["monthly_cost"] = monthly[0]
-        if (item := _ITEM.search(text)) is not None:
-            args["item"] = item.group(1).strip()
+        if (item := _item(words)) is not None:
+            args["item"] = item
         return ToolCall(name="finance.plan.afford", arguments=args)
     return None
 
