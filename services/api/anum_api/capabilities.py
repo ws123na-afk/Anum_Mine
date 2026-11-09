@@ -261,12 +261,17 @@ def _act(context: TenantContext, tools: Collection[str]) -> Capability:
     from .browser_research.tool import service_problem
     from .settings import settings
 
+    # The reasons name the operator's switch (docs/action-browser.md#switches-and-availability); the
+    # third one, the browser service's action mode, is reported by the tool and Integrations health.
     if "web.act" not in tools or service_problem(settings.browser_research_url, settings.browser_research_token):
-        return _off("act", "not set up on this server: the operator sets up the browser service",
-                    "غير مجهز على هذا الخادم: يجهز المشغل خدمة المتصفح")
+        return _off("act", "not set up on this server: the operator sets up the browser service "
+                    "(ANUM_BROWSER_RESEARCH_URL and ANUM_BROWSER_RESEARCH_TOKEN)",
+                    "غير مجهز على هذا الخادم: يجهز المشغل خدمة المتصفح "
+                    "(ANUM_BROWSER_RESEARCH_URL و ANUM_BROWSER_RESEARCH_TOKEN)")
     if not settings.action_browser_enabled:
-        return _off("act", "not set up on this server: the operator turns on the action browser",
-                    "غير مجهز على هذا الخادم: يشغل المشغل متصفح الإجراءات")
+        return _off("act", "not set up on this server: the operator turns on the action browser "
+                    "(ANUM_ACTION_BROWSER_ENABLED=true)",
+                    "غير مجهز على هذا الخادم: يشغل المشغل متصفح الإجراءات (ANUM_ACTION_BROWSER_ENABLED=true)")
     if not _switched_on(ACTION_INTEGRATION_ID, context, default=False):
         return _off("act", "off: a workspace owner turns it on under Integrations > Action browser",
                     "متوقف: يشغله مالك مساحة العمل من التكاملات > متصفح الإجراءات")
@@ -465,6 +470,28 @@ def capability_block(capabilities: list[Capability]) -> str:
     return "\n".join(parts)
 
 
+# The task planner's version (agent_planning.py): a task, a Command Center step or a chat or
+# voice request that became a task is answered as text by the planner model when no tool fits.
+TASK_RULES = (
+    "You are ANUM answering this task in text. Never say you have no access to, or cannot use, something "
+    "on this list, and never describe yourself as a chatbot without tools: ANUM does it as a task under the "
+    "workspace's approvals. A website errand (book, buy, a form) runs in the Action browser once the request "
+    "names the site's https address, and stops for the owner's approval before paying or booking. For "
+    "something listed as not available, say it is off, the reason and who turns it on. Read a mistyped word "
+    "from its context (a ticker to Riyadh is a ticket) without remarking on the spelling."
+)
+
+
+def task_capability_block(capabilities: list[Capability]) -> str:
+    """What ANUM can do here, for the task planner's text answer (short; no secrets)."""
+    on, off = capability_lines(capabilities)
+    parts = [CAPABILITY_HEADER, "On:", *(on or ["- none"])]
+    if off:
+        parts += ["Not available yet:", *off]
+    parts.append(TASK_RULES)
+    return "\n".join(parts)
+
+
 def spoken_capabilities(capabilities: list[Capability], *, arabic: bool = False) -> str:
     """What voice says to "what can you do?" (and gives its model): two short sentences."""
     on = [LABELS[item.id][1 if arabic else 0] for item in capabilities if item.available and item.id != "approvals"]
@@ -505,11 +532,11 @@ _CAPABILITY_QUESTION = re.compile(
 _ERRAND_VERBS = frozenset({
     "book", "reserve", "buy", "purchase", "order", "checkout", "fill", "submit", "register", "signup",
     "sign-up", "renew", "subscribe", "download", "apply",
-    "احجز", "احجزي", "اشتر", "اشتري", "اطلب", "املأ", "املا", "سجل", "جدد", "نزل", "حمل", "قدم", "اشترك",
+    "احجز", "احجزي", "اشتر", "اشتري", "اطلب", "املأ", "املا", "سجل", "جدد", "نزل", "حمل", "قدم", "اشترك", "أحجز", "أشتري",
 })
 _LEAD = re.compile(
     r"^\s*(?:(?:hey|hi|ok|okay)\s+)?(?:anum[,!.]?\s+)?(?:please\s+|pls\s+|kindly\s+)?"
-    r"(?:(?:can|could|would|will)\s+(?:you|anum)\s+(?:please\s+)?|i\s+(?:want|need)\s+(?:you\s+)?to\s+|help\s+me\s+|go\s+(?:and\s+)?)?"
+    r"(?:(?:can|could|would|will)\s+(?:you|anum)\s+(?:please\s+)?|i\s+(?:want|need)\s+(?:you\s+)?to\s+|i(?:'d|\s+would)\s+like\s+(?:you\s+)?to\s+|help\s+me\s+|go\s+(?:and\s+)?)?"
     r"(?:من\s+فضلك\s+|لو\s+سمحت\s+|ممكن\s+|أريد\s+أن\s+|اريد\s+ان\s+)?",
     re.IGNORECASE,
 )
@@ -538,6 +565,87 @@ def asks_web_errand(question: str) -> bool:
     if first and first[0] in _ERRAND_VERBS:
         return True
     return bool(_GO_TO_SITE.search(text))
+
+
+# A booking noun (and common typos of it): with a soft verb ("get me a ticket", "find me a flight")
+# the request is an errand too. "ticker" next to a booking verb is read as "ticket", never remarked on.
+_BOOKING_NOUNS = frozenset({
+    "ticket", "tickets", "ticker", "tickers", "tiket", "tikets", "tickt", "flight", "flights", "flght", "fligt",
+    "hotel", "hotels", "hotle", "room", "rooms", "table", "seat", "seats", "appointment", "reservation", "visa",
+    "تذكرة", "تذكره", "تذاكر", "رحلة", "رحله", "طيران", "فندق", "غرفة", "طاولة", "مقعد", "موعد", "تأشيرة", "حجز",
+})
+_SOFT_VERBS = frozenset({"get", "find", "arrange", "sort", "need", "want", "أبغى", "ابغى", "ابي", "أبي", "أريد", "اريد", "ابحث"})
+_STATUS_WORDS = frozenset({"status", "track", "tracking", "where", "حالة", "تتبع", "وين", "أين"})
+# Typos fixed only in the search query built from the request (never in the goal the owner approves).
+_QUERY_TYPOS = {
+    "ticker": "ticket", "tickers": "tickets", "tiket": "ticket", "tikets": "tickets", "tickt": "ticket",
+    "flght": "flight", "fligt": "flight", "hotle": "hotel",
+}
+# Any site named without https:// ("on emirates.com"): then the address is asked for, not searched.
+_BARE_SITE = re.compile(
+    r"\b(?:www\.)?[a-z0-9-]+(?:\.[a-z0-9-]+)*"
+    r"\.(?:com|net|org|ae|sa|qa|om|kw|bh|io|co|uk|gov|edu|info|biz|me|app|store|shop|travel)\b",
+    re.IGNORECASE,
+)
+
+
+def _lead_words(question: str) -> list[str]:
+    text = (question or "").strip()
+    lead = _LEAD.match(text)
+    return re.findall(r"[\w-]+", text[lead.end() if lead else 0:].lower())
+
+
+def asks_booking(question: str) -> bool:
+    """"get me a ticker to Riyadh", "I need a flight Friday": a soft verb near the start and a booking noun."""
+    words = _lead_words(question)
+    return bool(set(words[:4]) & _SOFT_VERBS) and bool(set(words) & _BOOKING_NOUNS)
+
+
+def site_errand(question: str) -> bool:
+    """An errand on a website that names no site at all ("book me a flight to Riyadh on Friday").
+
+    ANUM then searches for sites that can do it and asks which one to use (or asks for the
+    address when web search is off); it never refuses and never picks a site itself.
+    """
+    text = question or ""
+    if "https://" in text.lower() or "http://" in text.lower() or _BARE_SITE.search(text):
+        return False
+    if not (asks_web_errand(text) or asks_booking(text)):
+        return False
+    if set(re.findall(r"[\w-]+", text.lower())) & _STATUS_WORDS:
+        # "order status for 123": a check on something that exists, not an errand to search sites for.
+        return False
+    return errand_capability(text) == "act"
+
+
+def errand_query(question: str) -> str:
+    """The web search for sites that can do the errand, from the user's own words only."""
+    words = re.findall(r"[\w-]+", (question or "").strip())
+    lead = _LEAD.match((question or "").strip())
+    if lead and lead.end():
+        words = re.findall(r"[\w-]+", (question or "").strip()[lead.end():])
+    fixed = [_QUERY_TYPOS.get(word.lower(), word) for word in words if word.lower() not in {"me", "please", "pls", "لي"}]
+    arabic = any(_ARABIC_CHAR.match(word) for word in fixed)
+    query = " ".join(fixed)[:300]
+    return f"{query} {'موقع' if arabic else 'online'}".strip()
+
+
+def errand_route(question: str, category: str | None, tool: str) -> bool:
+    """Whether chat or voice treats the request as a website errand without its address: a plain
+    reply's route that leads with an errand verb, or the site search the planner chose for one."""
+    if category is None:
+        return asks_web_errand(question)
+    return tool == "web_search" and site_errand(question)
+
+
+def errand_goal(question: str) -> str:
+    """The request as the owner would send it again with a site (typos fixed, one line)."""
+    words = (question or "").split()
+    fixed = [_QUERY_TYPOS.get(word.lower(), word) for word in words]
+    return " ".join(fixed).rstrip(".!?؟")[:300]
+
+
+_ARABIC_CHAR = re.compile(r"[\u0600-\u06FF]")
 
 
 def errand_capability(question: str) -> str:

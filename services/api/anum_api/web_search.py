@@ -23,6 +23,7 @@ from __future__ import annotations
 import asyncio
 import json
 from collections.abc import Callable
+from datetime import UTC, date, datetime
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
 
@@ -122,6 +123,60 @@ def _summary(results: list[dict[str, str]]) -> str:
     return "\n".join(lines)
 
 
+FIND_SITE = "find_site"
+MAX_SITE_OPTIONS = 4
+_MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+
+
+def site_options(results: list[dict[str, str]]) -> list[dict[str, str]]:
+    """At most four https results, one per site, in the search's order (the action browser
+    opens https addresses only). Real results only: never a site ANUM made up."""
+    options: list[dict[str, str]] = []
+    hosts: set[str] = set()
+    for item in results:
+        parts = urlsplit(item["url"])
+        host = (parts.hostname or "").lower().removeprefix("www.")
+        if parts.scheme.lower() != "https" or not host or host in hosts:
+            continue
+        hosts.add(host)
+        options.append({**item, "site": host})
+        if len(options) >= MAX_SITE_OPTIONS:
+            break
+    return options
+
+
+def site_options_text(goal: str, options: list[dict[str, str]], *, arabic: bool, today: date) -> str:
+    """The answer to a website errand without a site: the options, dated, and which to use."""
+    from .punctuation import plain_dashes
+
+    example = options[0]["url"] if options else "https://www.example.com"
+    if arabic:
+        stamp = today.isoformat()
+        if options:
+            lines = [f"مواقع يمكن تنفيذ ذلك عليها، من بحث في الويب بتاريخ {stamp}:"]
+            lines += [f"{index}. {item['title']}: {item['url']}" for index, item in enumerate(options, 1)]
+            lines.append("أي موقع يستخدم ANUM؟")
+        else:
+            lines = [f"لم يجد البحث في الويب بتاريخ {stamp} موقعا لهذا الطلب. أي موقع يستخدم ANUM؟"]
+        lines.append(
+            f"أرسل الطلب مع عنوان الموقع، مثلا: {goal} على {example}، فينفذه ANUM في متصفح الإجراءات "
+            "ويتوقف لموافقتك قبل أن يدفع أو يحجز."
+        )
+    else:
+        stamp = f"{today.day} {_MONTHS[today.month - 1]} {today.year}"
+        if options:
+            lines = [f"Sites where this can be done, from a web search on {stamp}:"]
+            lines += [f"{index}. {item['title']}: {item['url']}" for index, item in enumerate(options, 1)]
+            lines.append("Which one should ANUM use?")
+        else:
+            lines = [f"A web search on {stamp} found no site for this. Which site should ANUM use?"]
+        lines.append(
+            f"Send the request with the site's address, for example: {goal} on {example}, and ANUM does it "
+            "in the Action browser, stopping for your approval before it pays or books."
+        )
+    return plain_dashes("\n".join(lines))
+
+
 class SearxngWebSearch:
     """The ``web_search`` tool handler: GET ``<base>/search?format=json`` on SearXNG."""
 
@@ -149,6 +204,7 @@ class SearxngWebSearch:
         self.max_response_bytes = max_response_bytes
         self._client = client
         self._enabled = enabled
+        self._today: Callable[[], date] = lambda: datetime.now(UTC).date()
 
     async def __call__(self, call: ToolCall, context: TenantContext) -> ToolResult:
         query = " ".join(str(call.arguments.get("query", "")).split())
@@ -201,12 +257,30 @@ class SearxngWebSearch:
                 "failed", "The search service returned a response ANUM could not read.", audit, "bad_response"
             )
         audit.update(result_count=len(results), dropped_results=dropped, outcome="succeeded")
+        if call.arguments.get("purpose") == FIND_SITE:
+            # A website errand without a site (docs/action-browser.md#how-it-is-used): options to
+            # choose from and the question which to use; nothing is opened or booked here.
+            options = site_options(results)
+            arabic = call.arguments.get("language") == "ar"
+            goal = " ".join(str(call.arguments.get("goal") or query).split())[:300]
+            audit["options"] = len(options)
+            return ToolResult(
+                status="succeeded",
+                summary=site_options_text(goal, options, arabic=arabic, today=self._today()),
+                output={"query": query, "results": options, "purpose": FIND_SITE},
+                audit_metadata=audit,
+            )
         return ToolResult(
             status="succeeded",
             summary=_summary(results),
             output={"query": query, "results": results},
             audit_metadata=audit,
         )
+
+    async def switched_on(self, context: TenantContext) -> bool:
+        """Whether the workspace allows web search (Integrations > SearXNG web search); the planner
+        asks before it plans a site search for a website errand."""
+        return self._enabled is None or bool(await asyncio.to_thread(self._enabled, context))
 
     async def _search(self, query: str) -> Any:
         params = {

@@ -1,4 +1,5 @@
 import asyncio
+import logging
 from collections.abc import Callable, Sequence
 from contextlib import AbstractContextManager
 from datetime import datetime, timedelta
@@ -49,6 +50,7 @@ from .schemas import (
     RiskLevel,
 )
 
+logger = logging.getLogger("anum.runtime")
 
 # Skills whose output is a draft the user sends or keeps: they get the learned style block.
 DRAFTING_SKILLS = frozenset({"anum.document-drafting"})
@@ -259,8 +261,14 @@ class AgentRuntime:
         time_line = (
             await asyncio.to_thread(self._time_line, task, context) if offload else self._time_line(task, context)
         )
+        capabilities = (
+            await asyncio.to_thread(self._capability_block, task, context)
+            if offload
+            else self._capability_block(task, context)
+        )
         planned = await self.planner.plan(
-            task, context_blocks=blocks, learned_block=learned, agent=agent, time_line=time_line
+            task, context_blocks=blocks, learned_block=learned, agent=agent, time_line=time_line,
+            capabilities=capabilities,
         )
         return planned, learned
 
@@ -364,6 +372,26 @@ class AgentRuntime:
         from .voice_figures import is_arabic
 
         return time_line_for(context, "ar" if is_arabic(task.prompt) else "en")
+
+    def _capability_block(self, task: Task, context: TenantContext) -> str | None:
+        """What ANUM can do in this workspace, for a task the model answers in text
+        (capabilities.py): without it the model describes itself as a chatbot with no access
+        to booking or browsing. None for the mock provider (it repeats its prompt) and for a
+        task a tool answers. Blocking reads, cached briefly per caller."""
+        if getattr(getattr(self.planner, "model_gateway", None), "provider", "") == "mock":
+            return None
+        from .agent_planning import choose_tool_call
+
+        names = self.tools.names
+        if choose_tool_call(task.prompt, self.skills.select(task.prompt, names), "", names).name != "anum.respond":
+            return None
+        from .capabilities import task_capability_block, workspace_capabilities
+
+        try:
+            return task_capability_block(workspace_capabilities(context, tools=names))
+        except Exception as exc:  # the task is still answered, without the list
+            logger.warning("task_capabilities_failed error_class=%s", type(exc).__name__)
+            return None
 
     def _learned_block(self, task: Task, context: TenantContext) -> str | None:
         """The user's learned style and preferences, for drafting tasks only (docs/learning.md)."""
