@@ -10,9 +10,13 @@ import { FINANCE_TABS, type FinanceTab } from './finance.ts';
 
 export type FinanceNavGroupId = 'finance' | 'capture' | 'invest' | 'trading' | 'business';
 
-/** A sidebar entry: a Finance tab, or a link to another module (Business Expenses and P&L). */
+/**
+ * A sidebar entry: a Finance tab, or a link to another module (Business Expenses and P&L). A tab entry
+ * with `also` stands for a page that has its own tabs: it opens `tab`, stays current on every tab in
+ * `also` and is labelled `fshell.nav.<tab>` instead of the tab's own title.
+ */
 export type FinanceNavEntry =
-  | { kind: 'tab'; tab: FinanceTab }
+  | { kind: 'tab'; tab: FinanceTab; also?: readonly FinanceTab[] }
   | { kind: 'link'; id: 'books'; href: string; badge: 'new' };
 
 export interface FinanceNavGroup { id: FinanceNavGroupId; entries: readonly FinanceNavEntry[] }
@@ -21,12 +25,13 @@ const tab = (id: FinanceTab): FinanceNavEntry => ({ kind: 'tab', tab: id });
 
 /**
  * The mockups' order: the Finance group (Overview, Transactions, Accounts, Bills, Budgets, Debts,
- * Goals, Fixed costs, Lent and borrowed, Payslips, Send home, Reports, Safe to spend, Money advisor, Guardian), then data capture (Connections, SMS capture, Import,
+ * Goals, Personal money (one entry for Lent and borrowed, Payslips, Send home and Fixed costs, which share
+ * one page with its own tabs, so the sidebar stays short enough to keep Finance in view), Reports, Safe to spend, Money advisor, Guardian), then data capture (Connections, SMS capture, Import,
  * Ledger), Holdings and Research, Trading (Paper trading, Trading intelligence, Execution, Broker
  * connections) and Business Expenses and P&L, which opens the business books.
  */
 const ALL_GROUPS: readonly FinanceNavGroup[] = [
-  { id: 'finance', entries: [tab('overview'), tab('transactions'), tab('accounts'), tab('bills'), tab('budgets'), tab('debts'), tab('goals'), tab('commitments'), tab('people'), tab('payslips'), tab('remittances'), tab('reports'), tab('safe'), tab('advisor'), tab('guardian')] },
+  { id: 'finance', entries: [tab('overview'), tab('transactions'), tab('accounts'), tab('bills'), tab('budgets'), tab('debts'), tab('goals'), { kind: 'tab', tab: 'people', also: ['payslips', 'remittances', 'commitments'] }, tab('reports'), tab('safe'), tab('advisor'), tab('guardian')] },
   { id: 'capture', entries: [tab('connections'), tab('sms'), tab('import'), tab('ledger')] },
   { id: 'invest', entries: [tab('holdings'), tab('research')] },
   { id: 'trading', entries: [tab('trading'), tab('intel'), tab('execution'), tab('ibkr')] },
@@ -34,17 +39,23 @@ const ALL_GROUPS: readonly FinanceNavGroup[] = [
 ];
 
 export const FINANCE_NAV: readonly FinanceNavGroup[] = ALL_GROUPS
-  .map((group) => ({ ...group, entries: group.entries.filter((e) => e.kind === 'link' || FINANCE_TABS.includes(e.tab)) }))
+  .map((group) => ({ ...group, entries: group.entries.filter((e) => e.kind === 'link' || FINANCE_TABS.includes(e.tab))
+    .map((e) => (e.kind === 'tab' && e.also ? { ...e, also: e.also.filter((id) => FINANCE_TABS.includes(id)) } : e)) }))
   .filter((group) => group.entries.length > 0);
 
 /** Every tab the nav offers, in order (a test checks it matches FINANCE_TABS one to one). */
 export function navTabs(groups: readonly FinanceNavGroup[] = FINANCE_NAV): FinanceTab[] {
-  return groups.flatMap((g) => g.entries.flatMap((e) => (e.kind === 'tab' ? [e.tab] : [])));
+  return groups.flatMap((g) => g.entries.flatMap((e) => (e.kind === 'tab' ? [e.tab, ...(e.also ?? [])] : [])));
 }
 
 /** The group a tab lives in: the trading group stays open while one of its pages is shown. */
 export function groupOf(tabId: FinanceTab, groups: readonly FinanceNavGroup[] = FINANCE_NAV): FinanceNavGroupId | null {
-  return groups.find((g) => g.entries.some((e) => e.kind === 'tab' && e.tab === tabId))?.id ?? null;
+  return groups.find((g) => g.entries.some((e) => isCurrent(e, tabId)))?.id ?? null;
+}
+
+/** Whether a sidebar entry is the one to mark current while `tabId` is shown. */
+export function isCurrent(entry: FinanceNavEntry, tabId: FinanceTab): boolean {
+  return entry.kind === 'tab' && (entry.tab === tabId || (entry.also?.includes(tabId) ?? false));
 }
 
 /**

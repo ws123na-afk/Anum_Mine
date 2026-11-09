@@ -1,17 +1,19 @@
 /* The Finance shell (FinanceShell.tsx, docs/finance.md#finance-shell). Shared tokens only; the
    mockups' dark green maps to --d-primary (filled pill, primary buttons) and --d-accent (underline). */
 
-/* ---- Section navigation: in the sidebar under Finance ---- */
+/* ---- Section navigation: in the sidebar under Finance ----
+   Rows are 28px (above the 24px target minimum) so Finance and its last section fit together in a
+   900px-tall window (e2e/finance-pages.spec.ts, the sidebar keeps Finance in view). */
 .navSub:empty { display: none; }
 .navSub { margin: 2px 0 var(--d-s2); }
 .finNav { display: grid; gap: var(--d-s1); }
-.finNavGroup { display: grid; gap: 1px; list-style: none; margin: 0; padding: 0; }
+.finNavGroup { display: grid; gap: 0; list-style: none; margin: 0; padding: 0; }
 .finNavSidebar { border-inline-start: 1px solid var(--d-line); margin-inline-start: 21px; padding-inline-start: var(--d-s2); }
 .finNavSidebar .finNavGroup + .finNavGroup { border-top: 1px solid var(--d-line); padding-top: var(--d-s1); }
 .finNavHeading { color: var(--d-faint); font-size: var(--text-xs); font-weight: 600; letter-spacing: .02em; padding: var(--d-s1) var(--d-s3) 0; }
 .finNavItem {
   align-items: center; background: transparent; border: 0; border-radius: var(--d-r-control); color: var(--d-muted); cursor: pointer; display: flex;
-  font: inherit; font-size: var(--text-sm); gap: var(--d-s2); justify-content: space-between; min-height: 32px; padding: 4px var(--d-s3); text-align: start;
+  font: inherit; font-size: var(--text-sm); gap: var(--d-s2); justify-content: space-between; min-height: 28px; padding: 3px var(--d-s3); text-align: start;
   text-decoration: none; transition: background var(--d-fast) var(--d-ease), color var(--d-fast) var(--d-ease); width: 100%;
 }
 .finNavItem:hover { background: var(--d-glass-1); color: var(--d-text); }

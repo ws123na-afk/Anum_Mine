@@ -8,6 +8,7 @@ export const financeShellEn = {
   'fshell.group.invest': 'Investments',
   'fshell.group.trading': 'Trading',
   'fshell.nav.books': 'Business Expenses and P&L',
+  'fshell.nav.people': 'Personal money',
   'fshell.badge.new': 'NEW',
   'fshell.scope': 'Scope',
   'fshell.scope.personal': 'Personal',

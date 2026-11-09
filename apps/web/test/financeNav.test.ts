@@ -2,8 +2,10 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import { FINANCE_TABS } from '../src/lib/finance.ts';
-import { FINANCE_NAV, OWN_HEAD_TABS, delta, groupOf, monthRange, monthsEnding, navTabs } from '../src/lib/financeNav.ts';
+import { FINANCE_NAV, OWN_HEAD_TABS, delta, groupOf, isCurrent, monthRange, monthsEnding, navTabs } from '../src/lib/financeNav.ts';
 import { NAV } from '../src/lib/shell.ts';
+import { en } from '../src/lib/messages/en.ts';
+import { ar } from '../src/lib/messages/ar.ts';
 
 describe('finance section nav', () => {
   it('offers every Finance tab exactly once and nothing that is not a page', () => {
@@ -11,10 +13,27 @@ describe('finance section nav', () => {
     assert.deepEqual([...tabs].sort(), [...FINANCE_TABS].sort());
     assert.equal(new Set(tabs).size, tabs.length);
   });
-  it('keeps the mockup order of the Finance group, with the personal money sections after Goals', () => {
+  it('keeps the mockup order of the Finance group, with one Personal money entry after Goals', () => {
     const finance = FINANCE_NAV[0].entries.map((e) => (e.kind === 'tab' ? e.tab : e.id));
-    const order = ['overview', 'transactions', 'accounts', 'bills', 'budgets', 'debts', 'goals', 'commitments', 'people', 'payslips', 'remittances', 'reports', 'safe', 'advisor', 'guardian'].filter((id) => finance.includes(id as never));
+    const order = ['overview', 'transactions', 'accounts', 'bills', 'budgets', 'debts', 'goals', 'people', 'reports', 'safe', 'advisor', 'guardian'].filter((id) => finance.includes(id as never));
     assert.deepEqual(finance, order);
+  });
+  it('marks Personal money current on each of its page tabs, in the Finance group', () => {
+    const entry = FINANCE_NAV[0].entries.find((e) => e.kind === 'tab' && e.tab === 'people');
+    assert.ok(entry);
+    for (const tab of ['people', 'payslips', 'remittances', 'commitments'] as const) {
+      assert.ok(isCurrent(entry, tab), tab);
+      assert.equal(groupOf(tab), 'finance');
+    }
+    assert.ok(!isCurrent(entry, 'reports'));
+  });
+  it('labels every combined entry in both languages and never with a money-moving verb', () => {
+    for (const entry of FINANCE_NAV.flatMap((g) => g.entries)) {
+      if (entry.kind !== 'tab' || !entry.also) continue;
+      const key = `fshell.nav.${entry.tab}`;
+      assert.ok(key in en && key in ar, key);
+      assert.doesNotMatch(String(en[key as keyof typeof en]), /^(pay|transfer|buy|sell|trade)/i);
+    }
   });
   it('ends with Business Expenses and P&L, a link to the business books', () => {
     const last = FINANCE_NAV[FINANCE_NAV.length - 1].entries[0];
