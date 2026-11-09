@@ -10,13 +10,13 @@ from __future__ import annotations
 
 import hashlib
 import re
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from typing import Any
 
 from ..authorization import ROLE_PERMISSIONS, Permission
 from ..finance.money import MoneyError, normalize_currency, to_money
-from ..schemas import TenantContext, new_id
+from ..schemas import TenantContext, new_id, utc_now
 from .books_models import (
     Adjustment,
     AdjustmentKind,
@@ -102,8 +102,14 @@ def idem_hash(key: str | None, *parts: str) -> str | None:
     return hashlib.sha256("\x1f".join((*parts, key)).encode()).hexdigest()
 
 
+def latest_day(today: date) -> date:
+    """The last date that is not in the future: ``today`` (UTC), or the date already begun somewhere (UTC+14), whichever is later.
+    The owner's own calendar (Asia/Dubai, Riyadh) runs up to a day ahead of UTC, so their today is never refused as the future."""
+    return max(today, (utc_now() + timedelta(hours=14)).date())
+
+
 def not_future(day: date, today: date, what: str) -> date:
-    if day > today:
+    if day > latest_day(today):
         raise BooksError(422, f"The {what} cannot be in the future.", "date_in_future")
     return day
 
