@@ -12,7 +12,7 @@ import type {
 import * as api from './lib/financeApi';
 import {
   PDF_STATEMENT_MAX_BYTES, amountTone, categoryLabel, checkFile, formatAmount, formatAmounts, hashForTab, isLast4, monthLabel, parseAmount, pickAmount,
-  rangeLabel, tabFromHash, type FinanceTab,
+  openingNeedsSign, rangeLabel, tabFromHash, type FinanceTab,
 } from './lib/finance';
 import { describeError, isPermissionDenied } from './lib/errors';
 import { isPdf } from './lib/financePdf';
@@ -233,8 +233,10 @@ export function AccountForm({ account, base, onDone }: { account: FinanceAccount
   const [name, setName] = useState(account?.name ?? ''), [kind, setKind] = useState<FinanceAccountKind>(account?.kind ?? 'bank');
   const [currency, setCurrency] = useState(account?.currency ?? base), [institution, setInstitution] = useState(account?.institution ?? '');
   const [last4, setLast4] = useState(account?.last4 ?? ''), [opening, setOpening] = useState(account?.opening_balance ?? '0');
+  const [inCredit, setInCredit] = useState(false);
   const [error, setError] = useState<string | null>(null), [busy, setBusy] = useState(false);
-  const errorId = useId(), last4Help = useId();
+  const errorId = useId(), last4Help = useId(), openingHelp = useId();
+  const owes = kind === 'card' || kind === 'loan';
   async function submit(event: FormEvent) {
     event.preventDefault();
     if (!name.trim()) { setError(t('finance.error.name')); return; }
@@ -242,8 +244,9 @@ export function AccountForm({ account, base, onDone }: { account: FinanceAccount
     if (!isLast4(last4.trim())) { setError(t('finance.error.last4')); return; }
     const amount = parseAmount(opening || '0', currency.trim().toUpperCase());
     if (!amount.ok) { setError(amount.error); return; }
+    if (openingNeedsSign(kind, amount.value, inCredit)) { setError(t('finance.error.openingOwed')); return; }
     setBusy(true); setError(null);
-    const body = { name: name.trim(), kind, institution: institution.trim() || null, last4: last4.trim() || null, opening_balance: amount.value };
+    const body = { name: name.trim(), kind, institution: institution.trim() || null, last4: last4.trim() || null, opening_balance: amount.value, credit_balance: owes && inCredit };
     try {
       if (account) await api.updateAccount(account.id, body);
       else await api.createAccount({ ...body, currency: currency.trim().toUpperCase() });
@@ -257,7 +260,9 @@ export function AccountForm({ account, base, onDone }: { account: FinanceAccount
       <label className="field"><span>{t('finance.form.currency')}</span><input value={currency} onChange={(e) => setCurrency(e.target.value.toUpperCase())} maxLength={3} disabled={!!account} dir="ltr" required /></label>
       <label className="field"><span>{t('finance.form.institution')}</span><input value={institution} onChange={(e) => setInstitution(e.target.value)} maxLength={120} dir="auto" /></label>
       <label className="field"><span>{t('finance.form.last4')}</span><input value={last4} onChange={(e) => setLast4(e.target.value.replace(/\D/g, '').slice(0, 4))} inputMode="numeric" maxLength={4} dir="ltr" aria-describedby={last4Help} /><small id={last4Help} className="muted">{t('finance.form.last4Help')}</small></label>
-      <label className="field"><span>{t('finance.form.opening', { currency })}</span><input value={opening} onChange={(e) => setOpening(e.target.value)} inputMode="decimal" dir="ltr" /></label>
+      <label className="field"><span>{t('finance.form.opening', { currency })}</span><input value={opening} onChange={(e) => setOpening(e.target.value)} inputMode="decimal" dir="ltr"
+        aria-describedby={owes ? openingHelp : undefined} />{owes && <small id={openingHelp} className="muted">{t('finance.form.openingOwedHelp')}</small>}</label>
+      {owes && <label className="finCheck"><input type="checkbox" checked={inCredit} onChange={(e) => setInCredit(e.target.checked)} /><span>{t('finance.form.inCredit')}</span></label>}
     </div>
     <FormError id={errorId} text={error} />
     <FormActions busy={busy} onCancel={() => onDone(null)} />

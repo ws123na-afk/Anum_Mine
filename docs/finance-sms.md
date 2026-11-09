@@ -40,7 +40,7 @@ The answer is JSON the Shortcut can show: `status` (`posted`, `review`, `duplica
 Apple Pay (the Wallet "Transaction" automation) and a bank SMS often report the **same** payment. They are two **sources** of one canonical transaction (one journal entry), never two transactions (owner decision, 4 November 2026; `finance/wallet.py`).
 
 - **Endpoint:** `POST /api/v1/finance/wallet/ingest` with the same device token. Body: `{"source": "apple_wallet", "amount": ..., "merchant": ..., "card": ..., "name": ...}`; nothing else is accepted, and there is no event time: ANUM stamps the server's reception time.
-- **Amounts** may arrive as text with a currency symbol or code and either decimal mark (`SAR 125.00`, `125,00 ر.س`, `$1,234.56`, `1.234,56 €`, Arabic-Indic digits) or as a number. A negative amount is a refund. With no currency in the text, the mapped account's currency is used and the event is marked `currency_inferred` (shown in Review); a currency that differs from the account's waits for review (`needs_converted_amount`).
+- **Amounts** may arrive as text with a currency symbol or code and either decimal mark (`SAR 125.00`, `125,00 ر.س`, `$1,234.56`, `1.234,56 €`, Arabic-Indic digits) or as a number. A negative amount is a refund. When only one kind of separator is written, one or two digits after it are decimals; three digits are decimals only for a currency with three (`KWD 1.250`) and thousands for the others (`SAR 1.250` is 1,250); without a currency that case is a guess and waits for review (`ambiguous_amount`), as do more decimals than any currency has. With no currency in the text, the mapped account's currency is shown (`currency_inferred`) but the event **waits for review** (`wallet_currency_missing`): the purchase may have been in another currency, and booking it in the card's currency would become a second purchase when the bank's message with the charged amount arrives. A currency that differs from the account's waits for review (`needs_converted_amount`).
 - **Card mapping:** Apple Pay uses a virtual card number (the Device Account Number), so its last four digits differ from the physical card a bank SMS names. The owner maps each Wallet card or pass (its name as Wallet shows it, and optionally its Wallet last four) to the account its payments hit (Settings, Apple Wallet cards), and maps the physical card's last four to the same account (Card and account numbers). An unmapped card waits for review (`wallet_card_unknown`); ANUM never guesses.
 - **Matching** (`wallet.same_payment`), never on the amount alone: the same account, direction, amount and currency; within 30 minutes when both carry a time, else within 2 days and the merchants must share a word; merchants that do not disagree; no conflicting reference; and the existing transaction has no source of the same kind (a second Wallet event is a second purchase). One candidate attaches (status `attached`, reason `attached_to_existing`); more than one waits for review (`ambiguous_match`); none posts a new entry. Either source may arrive first, and a delayed SMS still attaches within the window.
 - **Atomic:** ingestion for one person runs under a per-owner lock in the process and a PostgreSQL transaction-level advisory lock (`pg_advisory_xact_lock`), held only for the short unit of work that matches and writes (no model or provider call inside), so two reports arriving together cannot both post. A unique index allows at most one recorded or attached source of each kind per entry (`uq_finance_sms_messages_entry_source`), and the idempotency key makes a retried delivery a no-op.
@@ -91,17 +91,25 @@ Every recorded message is a journal entry whose postings sum to zero in each cur
 
 | Message | Debit | Credit |
 |---|---|---|
-| Salary, deposit, incoming transfer | the account | `income:<kind>` |
-| Card purchase, outgoing transfer | `expense:<category>` (plus `expense:fees` for a stated fee) | the account (a card's debt goes up) |
+| Salary, deposit | the account | `income:<kind>` |
+| Incoming transfer | the account | `income:transfer_in` (a transfer: not counted as income) |
+| Card purchase | `expense:<category>` (plus `expense:fees` for a stated fee) | the account (a card's debt goes up) |
+| Outgoing transfer | `expense:transfer` (a transfer: not counted as spending) | the account |
 | ATM withdrawal | the cash account, else `expense:cash` | the account |
 | Bank fee | `expense:fees` | the account |
 | Card repayment | the card (debt down) | the paying account; never an expense |
 | Own-account transfer | the receiving account | the sending account; neither income nor expense |
 | Loan proceeds | the account | the loan (debt up) |
-| Loan repayment | the loan for the principal, `expense:interest` for interest | the account |
-| Refund, reversal | the account | the original purchase's category (found by merchant within 120 days), else `expense:other` |
+| Loan repayment | the loan for the whole payment, and `expense:interest` for the interest | the account, and the loan for the interest (charged on the loan) |
+| Refund, reversal | the account | the original purchase's category (found by merchant within 120 days), else `income:refunds` (its own line, never income) |
 
 A side no message has named yet (the paying account of a card's "payment received") waits in `suspense:own_transfer`, shown as "in transit", until a later message names it. Stated balances are **observations** shown next to the ledger's figure, never posted.
+
+The stage 2 row of each account leg takes its category from the leg that balances it exactly: another own account makes it a transfer, so a loan repayment's bank row is a transfer and the loan's interest row is the only spending. The dashboard counts by the shared rules in [How figures are counted](finance.md#how-figures-are-counted): transfers are neither income nor expenses, cashback and unmatched refunds are their own lines, and the surplus is income plus those less expenses (the summary's net). Statement and hand-entered rows are read from the rows themselves by the current rules, so a row stored under older rules is counted the same way as a new one.
+
+### Own transfers told by two messages
+
+Some banks report one move between the person's own accounts as two messages: "transferred to (a name) from account 5678" and "received from (a name) to account 9999". Read alone, they are an outgoing and an incoming transfer. When the second one posts, `sms_service.pair_own_transfer` looks for exactly one opposite transfer of the same amount and currency on a different own bank, cash or investment account within 2 days; with one, both entries are reversed (the journal keeps them) and one `own_transfer` entry is posted in the first entry's canonical chain. The first message keeps that entry, the second is attached to it (`own_transfer_pair`). None or several candidates leave both as they are. The matching itself (`own_transfer_partner`) is pure, so the statement import can use it for its own rows.
 
 Statement and hand-entered transactions recorded before this release have no stored entry; the dashboard builds their postings on the fly from their category, so every source is counted once ([Canonical transactions](#canonical-transactions)).
 

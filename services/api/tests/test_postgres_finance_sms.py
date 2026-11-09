@@ -249,3 +249,41 @@ def test_repeated_and_undone_repayments_under_rls(client: TestClient, app_sessio
     with app_session(tenant_context()) as session:
         session.execute(text("select set_config('anum.user_id', 'user_test', true)"))
         assert session.execute(text("select coalesce(sum(amount), 0) from finance_postings where ledger_account = 'suspense:own_transfer'")).scalar_one() == 0
+
+
+def test_dashboard_summary_and_safe_to_spend_with_debts_under_rls(client: TestClient) -> None:
+    """A debt on the ledger dashboard (it used to fail), and net worth counting a card kept as an account and a debt once."""
+    api = client
+    s = _setup(api)
+    linked = api.post(f"{API}/debts", headers=ME, json={"name": "Card", "kind": "card", "balance": "500", "currency": "SAR", "apr_percent": "30",
+                                                      "minimum_payment": "50", "account_id": s["card"]})
+    loose = api.post(f"{API}/debts", headers=ME, json={"name": "Loan", "kind": "loan", "balance": "1000", "currency": "SAR", "apr_percent": "5",
+                                                     "minimum_payment": "100"})
+    assert linked.status_code == 201 and loose.status_code == 201, (linked.text, loose.text)
+    board = api.get(f"{API}/ledger/dashboard", headers=ME, params={"month": "2026-11"})
+    assert board.status_code == 200, board.text
+    assert next(d for d in board.json()["debts"] if d["name"] == "Loan")["months_to_clear"] == 11
+    summary = api.get(f"{API}/summary", headers=ME, params={"month": "2026-11"}).json()
+    balances = Decimal(next((r["amount"] for r in summary["balances"] if r["currency"] == "SAR"), "0"))
+    assert summary["unlinked_debts"] == [{"currency": "SAR", "amount": "1000.00"}]
+    assert Decimal(summary["net_worth"][0]["amount"]) == balances - Decimal("1000.00")
+    assert api.get(f"{API}/safe-to-spend", headers=ME).status_code == 200
+    assert api.get(f"{API}/ledger/dashboard", headers=SOMEONE, params={"month": "2026-11"}).json()["debts"] == []
+
+
+def test_a_loan_repayment_keeps_both_loan_rows_under_rls(client: TestClient) -> None:
+    """A loan repayment posts two rows on the loan (the transfer and the interest): the unique key keeps both."""
+    api = client
+    s = _setup(api)
+    loan = api.post(f"{API}/accounts", headers=ME, json={"name": "Car loan", "kind": "loan", "currency": "SAR", "opening_balance": "-10000"}).json()
+    review = _send(api, s["token"], "SYNTHETIC. Your account ***5678 was debited.")
+    assert review["status"] == "review"
+    posted = api.post(f"{API}/sms/messages/{review['message_id']}/post", headers=ME, json={
+        "kind": "loan_repayment", "amount": "2000", "currency": "SAR", "account_id": s["bank"], "counter_account_id": loan["id"],
+        "interest": "300", "occurred_on": "2026-11-04"})
+    assert posted.status_code == 200, posted.text
+    accounts = {a["id"]: a for a in api.get(f"{API}/accounts", headers=ME).json()}
+    assert accounts[loan["id"]]["balance"] == "-8300.00" and accounts[s["bank"]]["balance"] == "-2000.00"
+    summary = api.get(f"{API}/summary", headers=ME, params={"month": "2026-11"}).json()
+    assert summary["spend"] == [{"currency": "SAR", "amount": "300.00"}]
+

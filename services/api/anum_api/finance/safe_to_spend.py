@@ -6,10 +6,13 @@ promised. Per currency, line by line, from their own records only:
 1. **Money you have:** the balance of every bank and cash account that is not archived.
    Cards, loans and investments are listed as not counted: what a card owes is covered by
    its minimum payment below, and an investment is not spending money.
-2. **Bills:** every active bill's due dates from today to the end of the month.
+2. **Bills:** every active bill's due dates from today to the end of the month that have
+   no matched payment (a bill paid early is not taken off again), and this month's passed
+   due dates that still have none (overdue: the money has not gone out yet).
 3. **Minimum debt payments:** each debt's minimum payment, unless its due day has already
    passed this month (then it is listed as not counted: it is taken as paid). A debt with
-   no due day is counted.
+   no due day is counted. A minimum that is also saved as a bill is counted once, as the
+   bill, and a debt's balance follows its matched payments (``obligations.py``).
 4. **Goals:** the monthly amount the person set for a goal, or, with a target date, what
    is left divided by the months left (rounded up to the minor unit). A goal without
    either, or already reached, is listed as not counted.
@@ -37,10 +40,11 @@ from pydantic import BaseModel, Field
 
 from ..schemas import TenantContext
 from . import fx
+from . import obligations as O
 from .models import Account, AccountKind, Bill, Debt, FxRate, Goal, PlanSettings
 from .money import fmt, minor_digits, quantize
 from .store import FinanceStore
-from .summary import due_dates, settings_for, today_in
+from .summary import settings_for, today_in
 
 SPENDABLE = frozenset({AccountKind.BANK, AccountKind.CASH})
 NOTE = "An estimate from your own records: not advice and not a forecast."
@@ -48,7 +52,7 @@ NOTE = "An estimate from your own records: not advice and not a forecast."
 LineKind = Literal["balance", "bill", "minimum_payment", "goal", "buffer"]
 # Why a line is there or not counted; clients show these in the person's language.
 NoteCode = Literal[
-    "account_balance", "bill_due", "minimum_due", "minimum_no_day", "minimum_passed", "goal_set", "goal_derived",
+    "account_balance", "bill_due", "bill_overdue", "minimum_due", "minimum_no_day", "minimum_passed", "minimum_in_bill", "goal_set", "goal_derived",
     "goal_no_plan", "goal_reached", "goal_paused", "buffer", "account_card", "account_loan", "account_investment", "account_archived",
 ]
 
@@ -128,8 +132,11 @@ def compute(
     goals: list[Goal],
     plan: PlanSettings,
     rates: list[FxRate],
+    bill_links: list | None = None,
 ) -> SafeToSpend:
-    """The pure calculation: the same inputs always give the same figure."""
+    """The pure calculation: the same inputs always give the same figure.
+
+    ``bill_links`` are the person's ``bill`` links: a due date with an active matched payment is paid."""
     month_end = date(today.year, today.month, calendar.monthrange(today.year, today.month)[1])
     days_left = (month_end - today).days + 1
     lines: list[SafeLine] = []
@@ -157,10 +164,13 @@ def compute(
             excluded.append(SafeLine(kind="balance", label=account.name, ref_id=account.id, currency=account.currency, amount=balance,
                                      note=f"account_{account.kind.value}", detail=reason))  # type: ignore[arg-type]
 
-    for bill in bills:
-        if not bill.active:
-            continue
-        for due in due_dates(bill, today, month_end):
+    for found in O.unpaid(bills, bill_links or [], today, month_end):
+        bill, due = found.bill, found.due_on
+        if found.overdue:
+            lines.append(SafeLine(kind="bill", label=bill.name, ref_id=bill.id, currency=bill.currency, amount=-bill.amount,
+                                  note="bill_overdue", params={"date": due.isoformat()},
+                                  detail=f"Bill was due {due.isoformat()} and no payment is matched to it yet."))
+        else:
             lines.append(SafeLine(kind="bill", label=bill.name, ref_id=bill.id, currency=bill.currency, amount=-bill.amount,
                                   note="bill_due", params={"date": due.isoformat()}, detail=f"Bill due {due.isoformat()}."))
 
@@ -168,6 +178,12 @@ def compute(
         if debt.minimum_payment <= 0 or debt.balance <= 0:
             continue
         payment = min(debt.minimum_payment, debt.balance)
+        covering = O.bill_for_debt(debt, bills)
+        if covering is not None:
+            excluded.append(SafeLine(kind="minimum_payment", label=debt.name, ref_id=debt.id, currency=debt.currency, amount=-payment,
+                                     note="minimum_in_bill", params={"bill": covering.name},
+                                     detail=f"Saved as the bill {covering.name}: counted once, as the bill."))
+            continue
         if debt.due_day is None:
             lines.append(SafeLine(kind="minimum_payment", label=debt.name, ref_id=debt.id, currency=debt.currency, amount=-payment,
                                   note="minimum_no_day", detail="Minimum payment, no due day set: counted."))
@@ -259,15 +275,19 @@ def compute(
     )
 
 
-def build_safe_to_spend(store: FinanceStore, context: TenantContext, *, now: datetime | None = None) -> SafeToSpend:
+def build_safe_to_spend(store: FinanceStore, context: TenantContext, *, now: datetime | None = None, links: O.Links | None = None) -> SafeToSpend:
+    """``links`` come from ``obligations.load``, read in its own short unit of work before this one."""
     settings = settings_for(store, context)
     today = today_in(settings, now)
     plan = store.get_plan(context) or PlanSettings()
+    accounts = store.list_accounts(context)
+    balances = store.account_sums(context)
     return compute(
         today=today, base_currency=settings.base_currency, timezone=settings.timezone,
-        accounts=store.list_accounts(context), balances=store.account_sums(context),
+        accounts=accounts, balances=balances,
         bills=[b for b in store.list_items(context, "bill") if isinstance(b, Bill)],
-        debts=[d for d in store.list_items(context, "debt") if isinstance(d, Debt)],
-        goals=[g for g in store.list_items(context, "goal") if isinstance(g, Goal)],
+        debts=O.current_debts([d for d in store.list_items(context, "debt") if isinstance(d, Debt)], accounts, balances, links),
+        goals=O.current_goals([g for g in store.list_items(context, "goal") if isinstance(g, Goal)], accounts, balances),
         plan=plan, rates=store.list_fx_rates(context, limit=2000) if plan.combine_currencies else [],
+        bill_links=links.bill_links if links is not None else None,
     )

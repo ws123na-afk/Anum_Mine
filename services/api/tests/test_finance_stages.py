@@ -94,7 +94,16 @@ def _today() -> date:
 # -- Stage 3: safe-to-spend -----------------------------------------------------------------------
 
 
-def _scenario(plan: PlanSettings | None = None, rates: list[FxRate] | None = None):  # type: ignore[no-untyped-def]
+def _paid_link(bill_id: str, due: date):  # type: ignore[no-untyped-def]
+    """An active matched payment for one due date (commitments.py), as the readers see it."""
+    from anum_api.finance.links_store import FinanceLink
+
+    return FinanceLink(**_owned(id=f"lnk-{bill_id}", canonical_id=f"je-{bill_id}", dimension="bill", role="payment", target_type="finance_bill_due",
+                                target_id=f"{bill_id}:{due.isoformat()}", amount=Decimal("80.00"), currency="AED", idem_key=f"k-{bill_id}",
+                                created_by="u"))
+
+
+def _scenario(plan: PlanSettings | None = None, rates: list[FxRate] | None = None, bill_links: list | None = None):  # type: ignore[no-untyped-def]
     accounts = [
         _account("current", AccountKind.BANK, opening="5000.00"), _account("wallet", AccountKind.CASH, opening="250.00"),
         _account("card", AccountKind.CARD, opening="-900.00"), _account("old", AccountKind.BANK, opening="99.00", archived=True),
@@ -120,7 +129,7 @@ def _scenario(plan: PlanSettings | None = None, rates: list[FxRate] | None = Non
     return compute(
         today=_today(), base_currency="AED", timezone="Asia/Dubai", accounts=accounts, balances={"current": Decimal("-1000.00")},
         bills=bills, debts=debts, goals=goals, plan=plan or PlanSettings(buffers=[CurrencyBuffer(currency="AED", amount=Decimal("500.00"))]),
-        rates=rates or [],
+        rates=rates or [], bill_links=[_paid_link("paid", date(2026, 10, 2))] if bill_links is None else bill_links,
     )
 
 
@@ -128,7 +137,8 @@ def test_safe_to_spend_is_built_line_by_line_per_currency() -> None:
     result = _scenario()
     assert result.days_left == 18 and result.month_end == date(2026, 10, 31) and result.accounts_counted == 3
     aed = next(c for c in result.currencies if c.currency == "AED")
-    # 4000 + 250 available; bills: rent 1500 + gym on 15, 22 and 29 (150); minimum: card 100 (loan's day 5 passed);
+    # 4000 + 250 available; bills: rent 1500 + gym on 15, 22 and 29 (150), water (2 Oct) paid by a matched payment;
+    # minimum: card 100 (loan's day 5 passed);
     # goals: fund 1000 over Oct, Nov, Dec = 333.34 (rounded up), trip 200 set; buffer 500.
     assert aed.available == Decimal("4250.00") and aed.bills == Decimal("1650.00") and aed.minimum_payments == Decimal("100.00")
     assert aed.goals == Decimal("533.34") and aed.buffer == Decimal("500.00")

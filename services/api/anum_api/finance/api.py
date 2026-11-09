@@ -29,6 +29,7 @@ from ..dependencies import repository_context, require_permission, tenant_contex
 from ..repository import AnumRepository
 from ..schemas import TenantContext, new_id, utc_now
 from . import csv_import
+from . import obligations
 from . import statement_import as SI
 from .categories import categorize, suspected_direction
 from .csv_import import ColumnMapping, ImportError_, safe_cell
@@ -232,8 +233,9 @@ def summary(
 ) -> FinanceSummary:
     """Balances, the month's spend by category, income versus spend, bills due in 30 days, debts."""
     _read(context)
+    links = obligations.load(context)
     with open_finance_store(context) as store:
-        return build_summary(store, context, month)
+        return build_summary(store, context, month, links=links)
 
 
 # -- accounts --------------------------------------------------------------------------------
@@ -248,6 +250,9 @@ class AccountInput(BaseModel):
     institution: str | None = Field(default=None, max_length=120)
     last4: str | None = Field(default=None, pattern=r"^\d{4}$", description="Last four digits only, never the full number")
     opening_balance: Amount = "0"
+    # Cards and loans: a positive opening balance is refused unless the account really starts in credit
+    # (an overpaid card). What a card or loan owes is a negative balance (docs/finance.md#accounts).
+    credit_balance: bool = False
     archived: bool = False
 
 
@@ -259,7 +264,20 @@ class AccountPatch(BaseModel):
     institution: str | None = Field(default=None, max_length=120)
     last4: str | None = Field(default=None, pattern=r"^\d{4}$")
     opening_balance: Amount | None = None
+    credit_balance: bool = False
     archived: bool | None = None
+
+
+LIABILITY_ACCOUNTS = frozenset({AccountKind.CARD, AccountKind.LOAN})
+
+
+def _opening(kind: AccountKind, value: Decimal, credit_balance: bool) -> Decimal:
+    """A card or loan opens with what it owes as a negative balance; a positive one only when it is in credit."""
+    if kind in LIABILITY_ACCOUNTS and value > 0 and not credit_balance:
+        raise _invalid(
+            "Opening balance: what a card or loan owes is entered as a negative amount (owes 3,000 is -3000). "
+            "Tick 'In credit' only if the account was overpaid.")
+    return value
 
 
 class AccountView(BaseModel):
@@ -317,7 +335,8 @@ def create_account(
         account = Account(
             id=new_id("fin_acct"), tenant_id=context.tenant_id, workspace_id=context.workspace_id, owner_user_id=context.user_id,
             name=_clean(body.name, 120) or "Account", kind=body.kind, currency=currency, institution=_clean(body.institution, 120),
-            last4=body.last4, opening_balance=_money(body.opening_balance, currency, field="Opening balance"),
+            last4=body.last4,
+            opening_balance=_opening(body.kind, _money(body.opening_balance, currency, field="Opening balance"), body.credit_balance),
             archived=body.archived, created_at=now, updated_at=now,
         )
         store.save_account(account)
@@ -353,7 +372,8 @@ def update_account(
         if "last4" in changes:
             account.last4 = body.last4
         if "opening_balance" in changes:
-            account.opening_balance = _money(body.opening_balance, account.currency, field="Opening balance")
+            account.opening_balance = _opening(account.kind, _money(body.opening_balance, account.currency, field="Opening balance"),
+                                               body.credit_balance)
         if "archived" in changes and body.archived is not None:
             account.archived = body.archived
         account.updated_at = utc_now()
@@ -531,7 +551,7 @@ def record_manual_transaction(context: TenantContext, body: TransactionInput, *,
         if body.category is not None:
             category, source = body.category, CategorySource.MANUAL
         else:
-            category, source = categorize(description, amount, settings_for(store, context).category_rules)
+            category, source = categorize(description, amount, settings_for(store, context).category_rules, account.kind)
         now = utc_now()
         item = Transaction(
             id=transaction_id or new_id("fin_txn"), tenant_id=context.tenant_id, workspace_id=context.workspace_id, owner_user_id=context.user_id,
@@ -611,7 +631,9 @@ def update_transaction(
         if body.category is not None:
             item.category, item.category_source = body.category, CategorySource.MANUAL
         elif item.category_source != CategorySource.MANUAL and ({"description", "amount"} & set(changes)) and (entry is None or plain):
-            item.category, item.category_source = categorize(item.description, item.amount, settings_for(store, context).category_rules)
+            owning = store.get_account(context, item.account_id)
+            item.category, item.category_source = categorize(item.description, item.amount, settings_for(store, context).category_rules,
+                                                             owning.kind if owning is not None else None)
         item.updated_at = utc_now()
         if match:
             settings = settings_for(store, context)
@@ -640,12 +662,14 @@ def delete_transaction(
     repository: AnumRepository = Depends(repository_context),
 ) -> Response:
     _manage(context)
-    from .sms_service import reverse
+    from .sms_service import owner_lock, reverse
     from .sms_store import open_sms_stores
 
     # A transaction an SMS recorded is part of a journal entry: deleting it reverses the whole
-    # entry (docs/finance-sms.md#ledger), so the journal keeps the record and stays balanced.
-    with open_sms_stores(context) as (store, sms):
+    # entry (docs/finance-sms.md#ledger), so the journal keeps the record and stays balanced. The owner's
+    # lock is taken as create and update take it, so a message being posted cannot race the reversal.
+    with owner_lock(context), open_sms_stores(context) as (store, sms):
+        sms.lock_owner(context)
         entry = sms.entry_for_transaction(context, transaction_id)
         if entry is not None:
             reverse(store, sms, context, entry, now=utc_now(), why="transaction deleted by the owner")
@@ -828,7 +852,7 @@ def preview_import(body: ImportInput, context: TenantContext = Depends(tenant_co
         rows=[
             PreviewRow(
                 line=row.line, posted_on=row.posted_on, amount=row.amount, currency=account.currency, description=row.description,
-                category=categorize(row.description, row.amount, rules)[0], duplicate=by_line[row.line].status == "exact_duplicate",
+                category=categorize(row.description, row.amount, rules, account.kind)[0], duplicate=by_line[row.line].status == "exact_duplicate",
                 direction_warning=suspected_direction(row.description, row.amount),
                 notes=row.notes, original_amount=row.original_amount, original_currency=row.original_currency,
                 reported_fee=row.fee, balance=row.balance, reference=row.reference, match=SI.match_view(by_line[row.line]),
@@ -935,7 +959,7 @@ def record_import(
             choice = decisions.get(row.line)
             action = getattr(choice, "action", None)
             reference = (references or {}).get(row.dedupe_hash) or row.reference
-            category, source = categorize(row.description, row.amount, rules)
+            category, source = categorize(row.description, row.amount, rules, account.kind)
             item = Transaction(
                 id=new_id("fin_txn"), tenant_id=context.tenant_id, workspace_id=context.workspace_id,
                 owner_user_id=context.user_id, account_id=account.id, posted_on=row.posted_on, amount=row.amount,
@@ -1248,11 +1272,16 @@ def _original_balance(body: DebtInput, currency: str, existing: Debt | None) -> 
 def _build_debt(store: FinanceStore, context: TenantContext, body: DebtInput, existing: Debt | None) -> Debt:
     account = _linked_account(store, context, body.account_id)
     currency = _currency(body.currency or (account.currency if account else None), settings_for(store, context).base_currency)
-    now = utc_now()
+    balance = _money(body.balance, currency, field="Balance", positive=True)
+    # ``updated_at`` is when what is owed was last entered: the payments matched after it are taken off the balance
+    # (obligations.py). A name, rate, minimum or due-day edit keeps it, so earlier matched payments still count.
+    same_owed = existing is not None and existing.balance == balance and existing.currency == currency and existing.account_id == (
+        account.id if account else None)
+    now = existing.updated_at if same_owed and existing is not None else utc_now()
     return Debt(
         id=existing.id if existing else new_id("fin_debt"), tenant_id=context.tenant_id, workspace_id=context.workspace_id,
         owner_user_id=context.user_id, name=_clean(body.name, 120) or "Debt", kind=body.kind,
-        balance=_money(body.balance, currency, field="Balance", positive=True), currency=currency, apr_percent=_apr(body.apr_percent),
+        balance=balance, currency=currency, apr_percent=_apr(body.apr_percent),
         minimum_payment=_money(body.minimum_payment, currency, field="Minimum payment", positive=True), due_day=body.due_day,
         account_id=account.id if account else None, original_balance=_original_balance(body, currency, existing),
         notes=_clean(body.notes, 1000),
@@ -1308,10 +1337,11 @@ _ITEMS: dict[str, dict[str, Any]] = {
 def bills_upcoming(days: int = Query(default=30, ge=1, le=366), context: TenantContext = Depends(tenant_context)) -> list[UpcomingBill]:
     """Every active bill's due dates in the next ``days`` days, soonest first."""
     _read(context)
+    links = obligations.load(context)
     with open_finance_store(context) as store:
         today = today_in(settings_for(store, context))
         bills = [b for b in store.list_items(context, "bill") if isinstance(b, Bill)]
-    return upcoming_bills(bills, today, days)
+    return upcoming_bills(bills, today, days, links=links.bill_links)
 
 
 @router.get("/bills/suggestions", response_model=list[BillSuggestion])

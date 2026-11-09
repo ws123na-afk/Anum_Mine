@@ -254,6 +254,25 @@ test('empty: a new person is led to add an account, then to import', async ({ pa
   await expect(page.getByText('Salary account added.')).toBeVisible();
 });
 
+test('a card opens with what it owes as a negative balance, or In credit when it was overpaid', async ({ page }) => {
+  const { sent } = await mockApi(page, { empty: true });
+  await page.goto('/#finance');
+  await page.getByRole('region', { name: 'Start with an account' }).getByRole('button', { name: 'Add account' }).click();
+  await page.getByRole('button', { name: 'Add account' }).first().click();
+  const dialog = page.getByRole('dialog', { name: 'Add account' });
+  await dialog.getByLabel('Name').fill('Sample card');
+  await dialog.getByLabel('Type').selectOption('card');
+  await expect(dialog.getByText('Cards and loans: what is owed is negative (owes 3,000 is -3000).')).toBeVisible();
+  await dialog.getByLabel('Opening balance (AED)').fill('3000');
+  await dialog.getByRole('button', { name: 'Save' }).click();
+  await expect(dialog.getByRole('alert')).toContainText('enter what it owes as a negative amount');
+  await dialog.getByLabel('In credit (overpaid)').check();
+  await dialog.getByRole('button', { name: 'Save' }).click();
+  await expect(page.getByText('Sample card added.')).toBeVisible();
+  const created = sent.find((r) => r.method === 'POST' && (r.body as { name?: string } | null)?.name === 'Sample card');
+  expect(created?.body).toMatchObject({ kind: 'card', opening_balance: '3000', credit_balance: true });
+});
+
 test('a viewer is told who can use Finance; a failed load says what failed and offers a retry', async ({ page }) => {
   await mockApi(page, { denied: true, role: 'viewer' });
   await page.goto('/#finance');

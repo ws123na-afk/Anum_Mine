@@ -12,7 +12,7 @@ import * as api from './lib/financeApi';
 import * as books from './lib/businessBooksApi';
 import { categoryLabel, describeRules, formatAmount, isolate, monthLabel, shiftMonth, type FinanceTab } from './lib/finance';
 import { monthRange, type FinanceScope } from './lib/financeNav';
-import { add, dailyPace, guardrails, runway } from './lib/financeStatements';
+import { add, dailyPace, guardrails, runway, spendOutsideBills } from './lib/financeStatements';
 import { formatDateTime, formatNumber, t } from './lib/i18n';
 import { Denied, Empty, LoadError, Money, Notice, failed, type Load } from './FinanceParts';
 import { FinBanner, FinCard, FinancePageHead, FinanceTabs, KpiCard, KpiRow, ScopeSwitch, StatusChip, tabPanel } from './FinanceShell';
@@ -107,8 +107,10 @@ function AvailableNow({ data, currency, summaries, bills, guardian, latest, repo
   const committed = add(currency, row.bills, row.minimum_payments);
   const setAside = add(currency, row.goals, row.buffer);
   const dueBills = bills.kind === 'ready' ? bills.value.filter((b) => b.currency === currency && b.due_on <= data.month_end) : [];
-  const pace = summaries.kind === 'ready' ? dailyPace(summaries.value[0].spend.find((s) => s.currency === currency)?.amount ?? '0', Number(data.today.slice(8, 10)),
-    summaries.value[1].spend.find((s) => s.currency === currency)?.amount ?? '0', Number(monthRange(summaries.value[1].month).to.slice(8, 10)), currency) : null;
+  // The pace leaves out the categories bills cover: the runway takes those off on their due day instead.
+  const billRows = bills.kind === 'ready' ? bills.value : [];
+  const pace = summaries.kind === 'ready' ? dailyPace(spendOutsideBills(summaries.value[0], currency, billRows), Number(data.today.slice(8, 10)),
+    spendOutsideBills(summaries.value[1], currency, billRows), Number(monthRange(summaries.value[1].month).to.slice(8, 10)), currency) : null;
   const points = pace !== null ? runway(data, currency, dueBills, pace) : [];
   const newest = latest.kind === 'ready' ? latest.value.items[0]?.posted_on ?? null : null;
   const age = newest ? daysBetween(newest, data.today) : null;

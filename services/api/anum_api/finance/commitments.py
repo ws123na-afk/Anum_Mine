@@ -26,7 +26,7 @@ from typing import Any, Literal
 from pydantic import BaseModel
 
 from ..schemas import TenantContext
-from .categories import NOT_SPEND
+from .flows import spend_rows
 from .guardian import GuardianRules
 from .links_store import FinanceLink, LinkStatus
 from .models import Bill, BudgetAlert, Cadence, Category, Debt, Transaction
@@ -179,7 +179,8 @@ def alert_for(alerts: list[BudgetAlert], category: Category, currency: str) -> B
 
 
 def _spend_rows(rows: list[Transaction]) -> list[Transaction]:
-    return [t for t in rows if t.amount < 0 and t.category not in NOT_SPEND]
+    # The shared rule (flows.py): purchases, less the refunds filed in their category.
+    return spend_rows(rows)
 
 
 def budget_report(rules: GuardianRules, version: int, alerts: list[BudgetAlert], rows: list[Transaction], *, month: str, start: date, end: date,
@@ -198,7 +199,7 @@ def budget_report(rules: GuardianRules, version: int, alerts: list[BudgetAlert],
     days = calendar.monthrange(start.year, start.month)[1]
     lines: list[BudgetLine] = []
     for cap in rules.category_caps:
-        spent = quantize(by_cat.get((cap.category, cap.currency), Decimal(0)), cap.currency)
+        spent = quantize(max(by_cat.get((cap.category, cap.currency), Decimal(0)), Decimal(0)), cap.currency)
         alert = alert_for(alerts, cap.category, cap.currency)
         percent = int(spent * 100 / cap.amount) if cap.amount > 0 else 0
         state: BudgetState = "over" if spent > cap.amount else "near" if spent * 100 >= cap.amount * alert.alert_percent else "ok"

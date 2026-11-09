@@ -124,8 +124,8 @@ export function FinanceOverviewPage({ summary, accounts, month, onMonth, onOpen,
     <KpiCard key="in" icon={<TrendingUp />} label={t('finance.figure.income')} value={<bdi>{formatAmount(income, cur)}</bdi>} delta={dIncome} deltaText={words(dIncome)} />,
     <KpiCard key="out" icon={<Wallet />} label={t('finance.figure.spent')} value={<bdi>{formatAmount(spent, cur)}</bdi>} delta={dSpent} deltaText={words(dSpent)} />,
     <KpiCard key="net" icon={<Layers />} label={t('fov.kpi.personalNet')} value={<bdi>{formatAmount(net, cur)}</bdi>} delta={dNet} deltaText={words(dNet)} tone={net.startsWith('-') ? 'bad' : ''} />,
-    <KpiCard key="cashback" icon={<PiggyBank />} label={t('finance.category.cashback')} value={<bdi>{formatAmount(cashback, cur)}</bdi>} hint="Card rewards, not salary" />,
-    <KpiCard key="refunds" icon={<Wallet />} label={t('finance.category.refunds')} value={<bdi>{formatAmount(refunds, cur)}</bdi>} hint="Returned purchases, not earned income" />]
+    <KpiCard key="cashback" icon={<PiggyBank />} label={t('finance.category.cashback')} value={<bdi>{formatAmount(cashback, cur)}</bdi>} hint={t('fov.kpi.cashbackHint')} />,
+    <KpiCard key="refunds" icon={<Wallet />} label={t('finance.category.refunds')} value={<bdi>{formatAmount(refunds, cur)}</bdi>} hint={t('fov.kpi.refundsHint')} />]
     : shownScope === 'business' ? [bizCard('income', <Briefcase />), bizCard('expenses', <Layers />), bizCard('net', <TrendingUp />),
       <KpiCard key="cash" icon={<Landmark />} label={t('books.dash.cash')} value={b ? <bdi>{formatAmount(amountOf(b.current.cash_flow.net, b.current.base_currency), b.current.base_currency)}</bdi> : '-'}
         hint={b ? t('books.fig.cashHint') : businessUnavailable} />]

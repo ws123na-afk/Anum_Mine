@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import type { FinanceSafeToSpend, FinanceSummary } from '@anum/contracts';
 import {
-  add, categoryRows, dailyPace, fromMilli, guardrails, keyMovements, netWorth, percentOf, personalFlows, reportCurrencies, reportQuality, runway, subtract, toMilli,
+  add, categoryRows, dailyPace, fromMilli, guardrails, keyMovements, netWorth, parseImportAmount, percentOf, personalFlows, remainingOf, reportCurrencies, reportQuality,
+  runway, spendOutsideBills, subtract, toMilli,
 } from '../src/lib/financeStatements.ts';
 
 const summary = (month: string, over: Partial<FinanceSummary> = {}): FinanceSummary => ({
@@ -16,8 +17,28 @@ describe('decimal money', () => {
     assert.equal(add('SAR', '0.10', '0.20'), '0.30');
     assert.equal(subtract('7140.00', '7760.00', 'SAR'), '-620.00');
     assert.equal(add('KWD', '1.005', '2.005'), '3.010');
-    assert.equal(fromMilli(toMilli('12.5'), 'JPY'), '13');
+    assert.equal(fromMilli(toMilli('13.5'), 'JPY'), '14');
     assert.equal(toMilli('abc'), 0n);
+  });
+  it('reads imported amounts per currency, thousands separators included, without floats', () => {
+    assert.equal(parseImportAmount('1,250.00', 'SAR'), '1250.00');
+    assert.equal(parseImportAmount('1.250', 'KWD'), '1.250');
+    assert.equal(parseImportAmount('1.250', 'SAR'), null);
+    assert.equal(parseImportAmount('0.1', 'AED'), '0.10');
+    assert.equal(parseImportAmount('0', 'AED'), null);
+    assert.equal(parseImportAmount('abc', 'AED'), null);
+    assert.equal(remainingOf('1000.00', '999.99', 'AED'), '0.01');
+    assert.equal(remainingOf('1.000', '1.250', 'KWD'), '0.000');
+  });
+  it('rounds half to even like the server', () => {
+    assert.equal(fromMilli(toMilli('2.125'), 'SAR'), '2.12');
+    assert.equal(fromMilli(toMilli('2.135'), 'SAR'), '2.14');
+    assert.equal(fromMilli(toMilli('-2.125'), 'SAR'), '-2.12');
+    assert.equal(fromMilli(toMilli('2.5'), 'JPY'), '2');
+    // Past three decimals the thousandths round too, never cut.
+    assert.equal(toMilli('1.0006'), 1001n);
+    assert.equal(toMilli('1.0005'), 1000n);
+    assert.equal(fromMilli(toMilli('1.2346'), 'KWD'), '1.235');
   });
   it('gives a percentage to one decimal and none from a zero whole', () => {
     assert.equal(percentOf('20220.00', '31280.00'), 64.6);
@@ -66,6 +87,14 @@ describe('personal reports', () => {
       { currency: 'USD', assets: '50.00', debts: '0.00', net: '50.00' },
     ]);
   });
+  it('counts a card kept as an account and as a debt once', () => {
+    const account = (id: string, kind: 'bank' | 'card' | 'loan', balance: string) => ({ id, name: id, kind, currency: 'SAR', institution: null, last4: null, balance, archived: false });
+    const s = summary('2026-11', {
+      accounts: [account('bank', 'bank', '2000.00'), account('card', 'card', '-5000.00'), account('loan', 'loan', '-1000.00')],
+      balances: [{ currency: 'SAR', amount: '-4000.00' }], debts: [{ currency: 'SAR', amount: '6300.00' }], unlinked_debts: [{ currency: 'SAR', amount: '300.00' }],
+    });
+    assert.deepEqual(netWorth(s), [{ currency: 'SAR', assets: '2000.00', debts: '6300.00', net: '-4300.00' }]);
+  });
 });
 
 describe('safe to spend', () => {
@@ -80,6 +109,19 @@ describe('safe to spend', () => {
     assert.deepEqual(points.map((p) => p.balance), ['8500.00', '8400.00', '7800.00', '7700.00']);
     assert.deepEqual(points[2].bills, [{ name: 'Internet', amount: '500.00' }]);
     assert.deepEqual(runway(data, 'USD', [], '1'), []);
+  });
+  it('takes an overdue bill off today, and leaves out a past one that was paid', () => {
+    const late = { id: 'w', name: 'Water', amount: '80.00', currency: 'SAR', cadence: 'monthly' as const, due_on: '2026-11-20', days_until: -7, category: 'utilities' as const, overdue: true };
+    const paid = { ...late, id: 'p', overdue: false };
+    assert.deepEqual(runway(data, 'SAR', [late, paid], '0').map((p) => p.balance), ['8420.00', '8420.00', '8420.00', '8420.00']);
+  });
+  it('paces spending without the categories bills already cover', () => {
+    const s = summary('2026-11', { spend: [{ currency: 'SAR', amount: '6000.00' }], spend_by_category: [
+      { category: 'housing', currency: 'SAR', amount: '5000.00', count: 1 }, { category: 'dining', currency: 'SAR', amount: '1000.00', count: 9 }] });
+    const rent = { category: 'housing' as const, currency: 'SAR' };
+    assert.equal(spendOutsideBills(s, 'SAR', [rent]), '1000.00');
+    assert.equal(spendOutsideBills(s, 'SAR', []), '6000.00');
+    assert.equal(spendOutsideBills(s, 'SAR', [{ category: 'housing', currency: 'USD' }]), '6000.00');
   });
   it('averages the daily pace over the last 30 days', () => {
     assert.equal(dailyPace('500.00', 5, '3000.00', 30, 'SAR'), '100.00');

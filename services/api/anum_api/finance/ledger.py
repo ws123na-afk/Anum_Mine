@@ -35,6 +35,7 @@ from enum import StrEnum
 
 from pydantic import BaseModel, Field
 
+from .flows import Flow, classify, ledger_flow
 from .models import Account, AccountKind, Category, Transaction
 from .money import quantize
 from .sms_parser import Kind
@@ -177,7 +178,9 @@ def plan(
         legs.append(_leg(account, -(amount + fee)))
         return legs
     if kind in (Kind.REFUND, Kind.REVERSAL):
-        return [_leg(account, amount), Leg("expense:" + category, -amount, cur)]
+        # A refund that found its purchase lowers that category's spending; one that found none is its own line.
+        other = {Category.REFUNDS.value: "income:refunds", Category.CASHBACK.value: "income:cashback"}.get(category, "expense:" + category)
+        return [_leg(account, amount), Leg(other, -amount, cur)]
     if kind == Kind.CARD_REPAYMENT:
         # Never an expense: money moves from the paying account to the card.
         card, payer = (account, counter) if account.kind == AccountKind.CARD else (counter, account)
@@ -203,10 +206,11 @@ def plan(
             raise PlanError("loan_account_unknown", "Pick the loan account this payment was for.")
         if interest >= amount:
             raise PlanError("interest_too_large", "The interest must be less than the payment.")
-        legs = [_leg(counter, amount - interest)]
+        # The whole payment moves from the bank to the loan (a transfer); the interest is charged on the
+        # loan as its own pair, so only the interest is spending and the loan falls by the principal.
+        legs = [_leg(counter, amount), _leg(account, -amount)]
         if interest:
-            legs.append(Leg("expense:interest", interest, cur))
-        legs.append(_leg(account, -amount))
+            legs += [Leg("expense:interest", interest, cur), _leg(counter, -interest)]
         return legs
     raise PlanError("unknown_kind", "Pick what kind of transaction this is.")
 
@@ -222,20 +226,44 @@ def reversal_legs(entry: JournalEntry) -> list[Leg]:
     return [Leg(p.ledger_account, -p.amount, p.currency, p.account_id) for p in entry.postings]
 
 
+def _category_for(ledger_account: str) -> Category | None:
+    flow = ledger_flow(ledger_account)
+    if flow is None:
+        return None
+    if flow == Flow.TRANSFER:
+        return Category.TRANSFER
+    if flow == Flow.CASHBACK:
+        return Category.CASHBACK
+    if flow == Flow.REFUND:
+        return Category.REFUNDS
+    if flow == Flow.INCOME:
+        return Category.INCOME
+    name = ledger_account.split(":", 1)[1]
+    if name == "interest":
+        return Category.FEES
+    try:
+        return Category(name)
+    except ValueError:
+        return Category.OTHER
+
+
 def transaction_category(legs: list[Leg], leg: Leg) -> Category:
-    """The stage 2 category for the transaction a finance-account leg becomes."""
-    others = [other for other in legs if other is not leg and other.account_id != leg.account_id]
-    for other in others:
-        if other.ledger_account.startswith("income:"):
-            return Category.INCOME
-        if other.ledger_account.startswith("expense:"):
-            name = other.ledger_account.split(":", 1)[1]
-            if name == "interest":
-                return Category.FEES
-            try:
-                return Category(name)
-            except ValueError:
-                return Category.OTHER
+    """The stage 2 category for the transaction a finance-account leg becomes.
+
+    The leg that balances it exactly decides: another own account (or suspense) makes it a transfer, an
+    income or expense account its category. A loan payment's bank leg is balanced by the loan, so it is a
+    transfer, and the interest charged on the loan is the only spending (docs/finance.md#how-figures-are-counted)."""
+    partner = next((o for o in legs if o is not leg and o.currency == leg.currency and o.amount == -leg.amount), None)
+    if partner is not None:
+        if partner.account_id is not None or partner.ledger_account.startswith("suspense:"):
+            return Category.TRANSFER
+        found = _category_for(partner.ledger_account)
+        if found is not None:
+            return found
+    for other in (o for o in legs if o is not leg and o.account_id != leg.account_id):
+        found = _category_for(other.ledger_account)
+        if found is not None:
+            return found
     return Category.TRANSFER
 
 
@@ -243,14 +271,14 @@ def transaction_category(legs: list[Leg], leg: Leg) -> Category:
 
 
 def derived_legs(transaction: Transaction, account: Account) -> list[Leg]:
-    """The postings a statement or hand-entered transaction stands for (never stored)."""
+    """The postings a statement or hand-entered transaction stands for, by the shared rules (``flows.py``)."""
     amount = transaction.amount
     own = _leg(account, amount)
-    if transaction.category == Category.INCOME:
-        return [own, Leg("income:other", -amount, transaction.currency)]
-    if transaction.category == Category.TRANSFER:
-        return [own, Leg("suspense:transfer", -amount, transaction.currency)]
-    return [own, Leg("expense:" + transaction.category.value, -amount, transaction.currency)]
+    flow = classify(transaction.category, amount, account.kind, transaction.category_source)
+    other = {
+        Flow.INCOME: "income:other", Flow.TRANSFER: "suspense:transfer", Flow.CASHBACK: "income:cashback", Flow.REFUND: "income:refunds",
+    }.get(flow, "expense:" + transaction.category.value)
+    return [own, Leg(other, -amount, transaction.currency)]
 
 
 @dataclass
@@ -314,7 +342,9 @@ class Dashboard(BaseModel):
     month: str
     income: list[Money]
     expenses: list[Money]
-    surplus: list[Money]
+    surplus: list[Money]  # income, cashback and unmatched refunds less expenses (the summary's net)
+    cashback: list[Money] = Field(default_factory=list)
+    refunds: list[Money] = Field(default_factory=list)
     assets: list[Money]
     liabilities: list[Money]
     net_worth: list[Money]
@@ -368,7 +398,9 @@ def dashboard(
     """Every figure per currency, never added across currencies.
 
     Income is every credit to an ``income:`` account and expenses every debit to an
-    ``expense:`` account (a refund's credit lowers them) in the month. ``balances`` are the
+    ``expense:`` account (a refund's credit lowers them) in the month, by the shared rules
+    (``flows.ledger_flow``): transfers (``expense:transfer``, ``income:transfer_in``) are neither,
+    cashback and unmatched refunds are their own lines. ``balances`` are the
     accounts' balances (opening balance plus every transaction, which includes every posting on
     a finance account), ``suspense`` the open own-transfer sides per currency.
     """
@@ -398,6 +430,8 @@ def dashboard(
     flow = [row for row in rows if keep(row) and touches(row)]
     income: dict[str, Decimal] = defaultdict(Decimal)
     expenses: dict[str, Decimal] = defaultdict(Decimal)
+    cashback: dict[str, Decimal] = defaultdict(Decimal)
+    refunds: dict[str, Decimal] = defaultdict(Decimal)
     categories: dict[tuple[str, str], list[Decimal]] = defaultdict(list)
     merchants: dict[tuple[str, str], list[Decimal]] = defaultdict(list)
     by_month: dict[tuple[str, str], list[Decimal]] = defaultdict(lambda: [Decimal(0), Decimal(0)])
@@ -405,13 +439,17 @@ def dashboard(
     by_year: dict[str, list[Decimal]] = defaultdict(lambda: [Decimal(0), Decimal(0)])
     for row in flow:
         row_month = row.day.strftime("%Y-%m")
-        if row.ledger_account.startswith("income:"):
+        kind = ledger_flow(row.ledger_account)
+        if kind in (Flow.CASHBACK, Flow.REFUND):
+            if row_month == month:
+                (cashback if kind == Flow.CASHBACK else refunds)[row.currency] += -row.amount
+        elif kind == Flow.INCOME:
             by_month[(row_month, row.currency)][0] += -row.amount
             if row_month[:4] == year:
                 by_year[row.currency][0] += -row.amount
             if row_month == month:
                 income[row.currency] += -row.amount
-        elif row.ledger_account.startswith("expense:"):
+        elif kind == Flow.SPEND:
             by_month[(row_month, row.currency)][1] += row.amount
             if row_month[:4] == year:
                 by_year[row.currency][1] += row.amount
@@ -457,9 +495,12 @@ def dashboard(
     # A month whose entries were all undone nets to zero: no figure rather than "0.00".
     income = defaultdict(Decimal, {c: v for c, v in income.items() if v != 0})
     expenses = defaultdict(Decimal, {c: v for c, v in expenses.items() if v != 0})
+    cashback = defaultdict(Decimal, {c: v for c, v in cashback.items() if v != 0})
+    refunds = defaultdict(Decimal, {c: v for c, v in refunds.items() if v != 0})
     currencies = sorted({*assets, *liabilities, *income, *expenses})
     worth = {c: assets.get(c, Decimal(0)) - liabilities.get(c, Decimal(0)) for c in currencies if c in assets or c in liabilities}
-    surplus = {c: income.get(c, Decimal(0)) - expenses.get(c, Decimal(0)) for c in sorted({*income, *expenses})}
+    surplus = {c: income.get(c, Decimal(0)) + cashback.get(c, Decimal(0)) + refunds.get(c, Decimal(0)) - expenses.get(c, Decimal(0))
+               for c in sorted({*income, *expenses, *cashback, *refunds})}
     trend = []
     for m in _months_back(month, 12):
         for cur in sorted({c for (mm, c) in by_month if mm == m}):
@@ -470,6 +511,8 @@ def dashboard(
         income=_money(income),
         expenses=_money(expenses),
         surplus=_money(surplus),
+        cashback=_money(cashback),
+        refunds=_money(refunds),
         assets=_money(assets),
         liabilities=_money(liabilities),
         net_worth=_money(worth),

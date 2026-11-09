@@ -11,7 +11,7 @@ import type { FinanceAccount, FinanceAccountActivity, FinanceAccountOverview, Fi
 import * as api from './lib/financeApi';
 import { getAccountActivity, getAccountsOverview, getRegister } from './lib/financeRegisterApi';
 import { NO_REGISTER_FILTERS, accountTab, activityScale, compact, maskedNumber, percentOf, plainAmount, primarySource, type AccountsTab } from './lib/financeRegister';
-import { amountTone, formatAmount, isolate, minorDigits, parseAmount } from './lib/finance';
+import { amountTone, formatAmount, isolate, minorDigits, openingNeedsSign, parseAmount } from './lib/finance';
 import { describeError } from './lib/errors';
 import { formatDateTime, getLocale, intlLocale, t, type MessageKey } from './lib/i18n';
 import { ConfirmDialog, Modal } from './Dialog';
@@ -331,18 +331,23 @@ function SourcesTable({ accounts, info }: { accounts: FinanceAccount[]; info: Ma
 
 function OpeningForm({ account, onDone }: { account: FinanceAccount; onDone: (message: string | null) => void }) {
   const [value, setValue] = useState(account.opening_balance);
+  const [inCredit, setInCredit] = useState(false);
   const [error, setError] = useState<string | null>(null), [busy, setBusy] = useState(false);
+  const owes = account.kind === 'card' || account.kind === 'loan';
   async function submit(event: FormEvent) {
     event.preventDefault();
     const checked = parseAmount(value || '0', account.currency);
     if (!checked.ok) { setError(checked.error); return; }
+    if (openingNeedsSign(account.kind, checked.value, inCredit)) { setError(t('finance.error.openingOwed')); return; }
     setBusy(true); setError(null);
-    try { await api.updateAccount(account.id, { opening_balance: checked.value }); onDone(t('facct.opening.saved', { name: account.name })); }
+    try { await api.updateAccount(account.id, { opening_balance: checked.value, credit_balance: owes && inCredit }); onDone(t('facct.opening.saved', { name: account.name })); }
     catch (e) { setError(describeError(e)); } finally { setBusy(false); }
   }
   return <form className="finForm" onSubmit={(e) => void submit(e)}>
     <p className="muted">{t('facct.opening.text')}</p>
-    <label className="field"><span>{t('finance.form.opening', { currency: account.currency })}</span><input value={value} onChange={(e) => setValue(e.target.value)} inputMode="decimal" dir="ltr" autoFocus /></label>
+    <label className="field"><span>{t('finance.form.opening', { currency: account.currency })}</span><input value={value} onChange={(e) => setValue(e.target.value)} inputMode="decimal" dir="ltr" autoFocus />
+      {owes && <small className="muted">{t('finance.form.openingOwedHelp')}</small>}</label>
+    {owes && <label className="finCheck"><input type="checkbox" checked={inCredit} onChange={(e) => setInCredit(e.target.checked)} /><span>{t('finance.form.inCredit')}</span></label>}
     <FormError id={`opening-${account.id}`} text={error} />
     <FormActions busy={busy} onCancel={() => onDone(null)} />
   </form>;

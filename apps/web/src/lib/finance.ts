@@ -124,7 +124,8 @@ export function checkFile(file: { name: string; size: number }, maxBytes: number
 
 /** "Due in 3 days", "Due today", "Due tomorrow". */
 export function dueLabel(days: number): string {
-  if (days <= 0) return t('finance.bills.dueToday');
+  if (days < 0) return t('finance.bills.overdue');
+  if (days === 0) return t('finance.bills.dueToday');
   if (days === 1) return t('finance.bills.dueTomorrow');
   return t('finance.bills.dueIn', { count: days });
 }
@@ -140,6 +141,11 @@ export function amountTone(value: string): 'in' | 'out' | '' {
   return value.startsWith('-') ? 'out' : Number(value) > 0 ? 'in' : '';
 }
 
+/** A card or loan opens with what it owes as a negative balance; a positive one only when it is really in credit (the API refuses it too). */
+export function openingNeedsSign(kind: string, value: string, inCredit: boolean): boolean {
+  return (kind === 'card' || kind === 'loan') && !inCredit && /^\d*\.?\d+$/.test(value.trim()) && Number(value) > 0;
+}
+
 /** A date, amount or code kept left to right inside a sentence, also in Arabic (Unicode isolates). */
 export function isolate(value: string): string {
   return `\u2066${value}\u2069`;
@@ -152,6 +158,8 @@ export function isolate(value: string): string {
 export function safeNote(line: Pick<FinanceSafeLine, 'note' | 'params' | 'currency'>): string {
   const { note, params } = line;
   if (note === 'bill_due') return t('finance.safe.note.bill_due', { date: isolate(params.date ?? '') });
+  if (note === 'bill_overdue') return t('finance.safe.note.bill_overdue', { date: isolate(params.date ?? '') });
+  if (note === 'minimum_in_bill') return t('finance.safe.note.minimum_in_bill', { bill: isolate(params.bill ?? '') });
   if (note === 'minimum_due' || note === 'minimum_passed') return t(`finance.safe.note.${note}`, { day: isolate(params.day ?? '') });
   if (note === 'goal_derived') return t('finance.safe.note.goal_derived', { left: isolate(formatAmount(params.left ?? '0', line.currency)), count: Number(params.months ?? 1) });
   return t(`finance.safe.note.${note}` as MessageKey);

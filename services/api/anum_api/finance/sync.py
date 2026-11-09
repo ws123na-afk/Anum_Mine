@@ -68,7 +68,7 @@ def import_transactions(store: FinanceStore, context: TenantContext, connection:
             counts["transactions_unmapped"] += 1
             continue
         description = csv_import.clean_text(remote.description, 500) or "Transaction"
-        category, source = categorize(description, remote.amount, rules)
+        category, source = categorize(description, remote.amount, rules, account.kind)
         rows.append(Transaction(
             id=new_id("fin_txn"), tenant_id=context.tenant_id, workspace_id=context.workspace_id, owner_user_id=context.user_id,
             account_id=account.id, posted_on=remote.posted_on, amount=remote.amount, currency=account.currency,

@@ -128,10 +128,11 @@ class _Path:
     via: str | None
 
 
-def _latest(rates: Iterable[FxRate], oldest: date) -> dict[tuple[str, str], FxRate]:
+def _latest(rates: Iterable[FxRate], oldest: date, newest: date | None = None) -> dict[tuple[str, str], FxRate]:
     best: dict[tuple[str, str], FxRate] = {}
     for item in rates:
-        if item.as_of < oldest:
+        # A rate dated after today (typed ahead, or stored before the date check) never wins as "newest".
+        if item.as_of < oldest or (newest is not None and item.as_of > newest):
             continue
         key = (item.base, item.quote)
         current = best.get(key)
@@ -145,7 +146,7 @@ def find_rate(rates: Iterable[FxRate], source: str, target: str, today: date, ma
     """1 ``source`` in ``target``: direct, inverse, or a cross through a shared base."""
     if source == target:
         return _Path(Decimal(1), today, "same currency", None)
-    table = _latest(rates, today - timedelta(days=max_age_days))
+    table = _latest(rates, today - timedelta(days=max_age_days), today)
     direct = table.get((source, target))
     if direct is not None:
         return _Path(direct.rate, direct.as_of, direct.source, None)

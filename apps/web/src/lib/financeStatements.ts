@@ -6,12 +6,21 @@ import { minorDigits } from './finance.ts';
 
 const SCALE = 1000n;
 
-/** "1234.5" to thousandths; anything that is not a decimal reads as zero. */
+/** Round `value / step` half to even, the server's one rounding rule (services/api/anum_api/finance/money.py). */
+function halfEven(value: bigint, step: bigint): bigint {
+  const quotient = value / step, rest = value % step;
+  if (rest * 2n > step || (rest * 2n === step && quotient % 2n === 1n)) return quotient + 1n;
+  return quotient;
+}
+
+/** "1234.5" to thousandths; anything that is not a decimal reads as zero. More than three decimals round half to even. */
 export function toMilli(value: string | null | undefined): bigint {
   if (!value || !/^-?\d+(\.\d+)?$/.test(value)) return 0n;
   const negative = value.startsWith('-');
   const [whole, fraction = ''] = value.replace('-', '').split('.');
-  const milli = BigInt(whole) * SCALE + BigInt((fraction + '000').slice(0, 3));
+  const extra = Math.max(0, fraction.length - 3);
+  const exact = BigInt(whole + (fraction + '000').slice(0, Math.max(3, fraction.length)));
+  const milli = extra ? halfEven(exact, 10n ** BigInt(extra)) : exact;
   return negative ? -milli : milli;
 }
 
@@ -20,13 +29,30 @@ export function fromMilli(milli: bigint, currency: string): string {
   const digits = minorDigits(currency);
   const negative = milli < 0n;
   let abs = negative ? -milli : milli;
-  // Round half away from zero to the currency's digits.
+  // Round half to even to the currency's digits, as the server does.
   const step = 10n ** BigInt(3 - digits);
-  abs = ((abs + step / 2n) / step) * step;
+  abs = halfEven(abs, step) * step;
   const whole = abs / SCALE;
   const fraction = (abs % SCALE).toString().padStart(3, '0').slice(0, digits);
   const text = digits ? `${whole}.${fraction}` : `${whole}`;
   return negative && abs !== 0n ? `-${text}` : text;
+}
+
+/**
+ * A positive amount typed or imported in `currency` as the wire string ("1,250.00" to "1250.00", KWD "1.250"), or null.
+ * Exact decimals, never floats; thousands separators are dropped; more decimals than the currency has are refused.
+ */
+export function parseImportAmount(value: string, currency: string): string | null {
+  const raw = value.trim().replace(/,(?=\d{3}(?:\D|$))/g, '');
+  if (!/^\d+(?:\.\d+)?$/.test(raw) || (raw.split('.')[1] ?? '').length > minorDigits(currency)) return null;
+  const milli = toMilli(raw);
+  return milli > 0n ? fromMilli(milli, currency) : null;
+}
+
+/** What is left of a budget, never below zero, in exact decimals. */
+export function remainingOf(budget: string, spent: string, currency: string): string {
+  const left = toMilli(budget) - toMilli(spent);
+  return fromMilli(left > 0n ? left : 0n, currency);
 }
 
 export const add = (currency: string, ...values: (string | null | undefined)[]) => fromMilli(values.reduce((sum, v) => sum + toMilli(v), 0n), currency);
@@ -109,12 +135,33 @@ export function businessTotals(report: BooksReport): BusinessTotals {
 
 export interface NetWorthRow { currency: string; assets: string; debts: string; net: string }
 
-/** Account balances less debts, per currency (never combined across currencies). */
+const LIABILITY_KINDS = new Set(['card', 'loan']);
+
+/**
+ * Net worth per currency (never combined across currencies), counted once (docs/finance.md#how-figures-are-counted):
+ * assets are bank, cash and investment balances (and a card in credit); debts are what cards and loans owe by their
+ * balances plus only the debts that have no account of their own (`unlinked_debts`). A card kept as an account and as
+ * a debt is therefore counted once.
+ */
 export function netWorth(summary: FinanceSummary): NetWorthRow[] {
-  const currencies = [...new Set([...summary.balances, ...summary.debts].map((r) => r.currency))].sort();
+  const loose = summary.unlinked_debts ?? summary.debts;
+  const accounts = summary.accounts.filter((a) => !a.archived);
+  const assets = new Map<string, bigint>(), owed = new Map<string, bigint>();
+  const bump = (map: Map<string, bigint>, currency: string, value: bigint) => map.set(currency, (map.get(currency) ?? 0n) + value);
+  for (const a of accounts) {
+    const balance = toMilli(a.balance);
+    if (LIABILITY_KINDS.has(a.kind)) {
+      if (balance < 0n) bump(owed, a.currency, -balance);
+      else bump(assets, a.currency, balance);
+    } else bump(assets, a.currency, balance);
+  }
+  // A summary without its accounts (an older reply) still has the per-currency balances.
+  for (const row of summary.balances) if (!accounts.some((a) => a.currency === row.currency)) bump(assets, row.currency, toMilli(row.amount));
+  for (const row of loose) bump(owed, row.currency, toMilli(row.amount));
+  const currencies = [...new Set([...assets.keys(), ...owed.keys()])].sort();
   return currencies.map((currency) => {
-    const assets = amountIn(summary.balances, currency), debts = amountIn(summary.debts, currency);
-    return { currency, assets: fromMilli(toMilli(assets), currency), debts: fromMilli(toMilli(debts), currency), net: subtract(assets, debts, currency) };
+    const a = assets.get(currency) ?? 0n, d = owed.get(currency) ?? 0n;
+    return { currency, assets: fromMilli(a, currency), debts: fromMilli(d, currency), net: fromMilli(a - d, currency) };
   });
 }
 
@@ -126,7 +173,8 @@ const addDays = (day: string, n: number) => new Date(Date.parse(`${day}T00:00:00
 
 /**
  * The month's runway in one currency: today's estimate after goals and buffer, then each bill taken
- * off on its due day and the average daily spend (`perDay`, from the last 30 days) taken off every day.
+ * off on its due day (an overdue one, not paid yet, today) and the average daily spend (`perDay`, from
+ * the last 30 days without the categories bills cover, `spendOutsideBills`) taken off every day.
  * A projection of the person's own inputs, not a forecast: the page says so.
  */
 export function runway(data: FinanceSafeToSpend, currency: string, bills: readonly FinanceUpcomingBill[], perDay: string): RunwayPoint[] {
@@ -135,15 +183,26 @@ export function runway(data: FinanceSafeToSpend, currency: string, bills: readon
   // Start: what you have less goals and buffer; bills come off on their day.
   let balance = toMilli(row.available) - toMilli(row.goals) - toMilli(row.buffer) - toMilli(row.minimum_payments);
   const daily = toMilli(perDay);
-  const due = bills.filter((b) => b.currency === currency && b.due_on >= data.today && b.due_on <= data.month_end);
+  const due = bills.filter((b) => b.currency === currency && b.due_on <= data.month_end && (b.due_on >= data.today || b.overdue));
   const points: RunwayPoint[] = [];
   for (let day = data.today, i = 0; day <= data.month_end && i < 40; day = addDays(day, 1), i++) {
-    const today = due.filter((b) => b.due_on === day);
+    const today = due.filter((b) => (i === 0 ? b.due_on <= day : b.due_on === day));
     if (i > 0) balance -= daily;
     for (const b of today) balance -= toMilli(b.amount);
     points.push({ day, balance: fromMilli(balance, currency), bills: today.map((b) => ({ name: b.name, amount: b.amount })) });
   }
   return points;
+}
+
+/**
+ * A month's spend without the categories the person's bills cover, so the daily pace does not count rent or
+ * utilities that the runway already takes off on their due day.
+ */
+export function spendOutsideBills(summary: FinanceSummary, currency: string, bills: readonly Pick<FinanceUpcomingBill, 'category' | 'currency'>[]): string {
+  const covered = new Set(bills.filter((b) => b.currency === currency).map((b) => b.category));
+  const inBills = summary.spend_by_category.filter((r) => r.currency === currency && covered.has(r.category)).reduce((sum, r) => sum + toMilli(r.amount), 0n);
+  const outside = toMilli(amountIn(summary.spend, currency)) - inBills;
+  return fromMilli(outside > 0n ? outside : 0n, currency);
 }
 
 /** Average daily spending over the last 30 days from the two months' spend (the current month to date and the month before). */

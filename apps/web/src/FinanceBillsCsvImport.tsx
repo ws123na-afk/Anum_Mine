@@ -3,6 +3,7 @@ import type { FinanceBill, FinanceBillInput, FinanceInstallmentStatementEntry } 
 import * as api from './lib/financeApi';
 import * as plan from './lib/financePlanningApi';
 import { describeError } from './lib/errors';
+import { fromMilli, parseImportAmount, toMilli } from './lib/financeStatements';
 
 type Entry = { line: number; date: string; merchant: string; amount: string; order: string; installment: string; status: string; currency: string };
 const aliases = {
@@ -45,15 +46,12 @@ export function parseBillCsv(source: string): string[][] {
 }
 
 const isIso = (s: string) => /^\d{4}-\d{2}-\d{2}$/.test(s) && !Number.isNaN(Date.parse(s + 'T12:00:00Z')) && new Date(s + 'T12:00:00Z').toISOString().slice(0, 10) === s;
-const decimal = (s: string) => {
-  const raw = s.trim().replace(/,/g, '');
-  if (!/^\d+(?:\.\d{1,2})?$/.test(raw) || Number(raw) <= 0) return null;
-  return Number(raw).toFixed(2);
-};
+const decimal = parseImportAmount;
+const sameAmount = (a: string, b: string) => toMilli(a) === toMilli(b);
 const pending = (s: string) => /^(pending|unpaid|due|planned|scheduled|overdue|due soon|due_soon)$/i.test(s.trim());
 const excluded = (s: string) => /^(paid|completed|refunded|refund|cancelled|canceled|void|disputed|review|needs review)$/i.test(s.trim()) || /refund|review|disput|cancel/i.test(s);
 export function importBillKey(date: string, name: string, amount: string, currency: string) {
-  return [date, normalize(name), Number(amount).toFixed(2), currency.toUpperCase()].join('|');
+  return [date, normalize(name), fromMilli(toMilli(amount), currency.toUpperCase()), currency.toUpperCase()].join('|');
 }
 
 
@@ -61,19 +59,20 @@ export function importBillKey(date: string, name: string, amount: string, curren
 export function summarizeImportedCsv(headers: string[], data: string[][], mapping: Record<Field, string>, fallbackCurrency: string) {
   const index = (field: Field) => headers.indexOf(mapping[field]);
   const read = (r: string[], field: Field) => index(field) >= 0 ? (r[index(field)] ?? '').trim() : '';
-  const orders = new Map<string, { merchant: string; reference: string; currency: string; paid: number; pending: number; review: number; paidAmount: number; pendingAmount: number; nextDue: string | null; finalDue: string | null }>();
+  // Sums in whole thousandths (BigInt), shown with the currency's own digits: never floating point.
+  const orders = new Map<string, { merchant: string; reference: string; currency: string; paid: number; pending: number; review: number; paidAmount: bigint; pendingAmount: bigint; nextDue: string | null; finalDue: string | null }>();
   if (!mapping.date || !mapping.merchant || !mapping.amount || !mapping.status) return [];
   for (const r of data) {
     const merchant = read(r, 'merchant'), reference = read(r, 'order');
-    const amount = decimal(read(r, 'amount')), due = read(r, 'date');
     const currency = (read(r, 'currency') || fallbackCurrency).toUpperCase();
+    const amount = decimal(read(r, 'amount'), currency), due = read(r, 'date');
     if (!merchant || !amount || !isIso(due)) continue;
     const key = [currency, reference || merchant.toLowerCase()].join('|');
-    const item = orders.get(key) ?? { merchant, reference, currency, paid: 0, pending: 0, review: 0, paidAmount: 0, pendingAmount: 0, nextDue: null, finalDue: null };
+    const item = orders.get(key) ?? { merchant, reference, currency, paid: 0, pending: 0, review: 0, paidAmount: 0n, pendingAmount: 0n, nextDue: null, finalDue: null };
     const status = read(r, 'status');
-    if (/^paid$/i.test(status)) { item.paid++; item.paidAmount += Number(amount); }
+    if (/^paid$/i.test(status)) { item.paid++; item.paidAmount += toMilli(amount); }
     else if (pending(status)) {
-      item.pending++; item.pendingAmount += Number(amount);
+      item.pending++; item.pendingAmount += toMilli(amount);
       if (!item.nextDue || due < item.nextDue) item.nextDue = due;
     } else item.review++;
     if (!item.finalDue || due > item.finalDue) item.finalDue = due;
@@ -116,16 +115,17 @@ export function BillsCsvImport({ existing, onDone, onClose }: { existing: Financ
     const read = (r: string[], key: Field) => mapping[key] ? (r[headers.indexOf(mapping[key])] ?? '').trim() : '';
     const seen = new Set(existing.map((b) => importBillKey(b.next_due_on, b.name, b.amount, b.currency)));
     for (let i = 0; i < data.length; i++) {
-      const r = data[i], date = read(r, 'date'), merchant = read(r, 'merchant'), amount = decimal(read(r, 'amount'));
+      const r = data[i], date = read(r, 'date'), merchant = read(r, 'merchant');
       const status = read(r, 'status'), order = read(r, 'order'), installment = read(r, 'installment');
       const currency = (read(r, 'currency') || defaultCurrency).toUpperCase();
+      const amount = /^[A-Z]{3}$/.test(currency) ? decimal(read(r, 'amount'), currency) : null;
       if (excluded(status)) { skipped.push(`Row ${i + 2}: ${status}`); continue; }
       if (!pending(status)) { errors.push(`Row ${i + 2}: unknown status "${status}".`); continue; }
       if (!isIso(date) || !merchant || !amount || !/^[A-Z]{3}$/.test(currency)) { errors.push(`Row ${i + 2}: invalid date, merchant, amount or currency.`); continue; }
       const name = `Tamara | ${merchant}${installment ? ` | ${installment}` : ''}`.slice(0, 120);
       const key = importBillKey(date, name, amount, currency);
       // Also recognise bills imported with the same stable order reference in notes.
-      const byReference = !!order && existing.some((b) => b.next_due_on === date && b.notes?.includes(`Order: ${order}`) && Number(b.amount) === Number(amount) && b.currency === currency);
+      const byReference = !!order && existing.some((b) => b.next_due_on === date && b.notes?.includes(`Order: ${order}`) && sameAmount(b.amount, amount) && b.currency === currency);
       if (seen.has(key) || byReference) { skipped.push(`Row ${i + 2}: already present`); continue; }
       seen.add(key);
       entries.push({ line: i + 2, date, merchant, amount, order, installment, status, currency });
@@ -140,9 +140,10 @@ export function BillsCsvImport({ existing, onDone, onClose }: { existing: Financ
     const cell = (r: string[], field: Field) => mapping[field] ? (r[headers.indexOf(mapping[field])] ?? '').trim() : '';
     return data.flatMap((r): FinanceInstallmentStatementEntry[] => {
       const order_id = cell(r, 'order'), merchant = cell(r, 'merchant'), due_on = cell(r, 'date');
-      const amount = decimal(cell(r, 'amount')), installment = Number(cell(r, 'installment'));
+      const installment = Number(cell(r, 'installment'));
       const total_installments = Number(cell(r, 'total') || installment);
       const currency = (cell(r, 'currency') || defaultCurrency).toUpperCase();
+      const amount = /^[A-Z]{3}$/.test(currency) ? decimal(cell(r, 'amount'), currency) : null;
       const status = cell(r, 'status');
       const source_status: FinanceInstallmentStatementEntry['source_status'] =
         /^paid$/i.test(status) ? 'paid' : pending(status) ? 'scheduled' : /^(refunded|cancell?ed|void|voided)$/i.test(status.trim()) ? 'refunded' : 'review';
@@ -168,17 +169,18 @@ export function BillsCsvImport({ existing, onDone, onClose }: { existing: Financ
     for (let i = 0; i < data.length; i++) {
       const cells = data[i], order = get(cells, 'order'), merchant = get(cells, 'merchant');
       const date = get(cells, 'date'), installment = get(cells, 'installment');
-      const amount = decimal(get(cells, 'amount')), currency = (get(cells, 'currency') || defaultCurrency).toUpperCase();
+      const currency = (get(cells, 'currency') || defaultCurrency).toUpperCase();
+      const amount = /^[A-Z]{3}$/.test(currency) ? decimal(get(cells, 'amount'), currency) : null;
       const status = get(cells, 'status');
       if ((!pending(status) && !excluded(status)) || !amount || !isIso(date)) continue;
       const byOrder = order && existing.find(b => b.name.startsWith('Tamara |') && b.currency === currency &&
         b.notes?.includes(`Order: ${order}`) && (installment ? b.notes?.includes(`Installment: ${installment}`) : b.next_due_on === date));
       const byLegacy = existing.find(b => b.name.startsWith('Tamara |') && b.currency === currency &&
-        b.next_due_on === date && Number(b.amount) === Number(amount) && b.name.includes(`| ${merchant}`));
+        b.next_due_on === date && sameAmount(b.amount, amount) && b.name.includes(`| ${merchant}`));
       const bill = byOrder || byLegacy;
       if (!bill || matched.has(bill.id)) continue;
       matched.add(bill.id);
-      if (bill.next_due_on !== date || Number(bill.amount) !== Number(amount)) {
+      if (bill.next_due_on !== date || !sameAmount(bill.amount, amount)) {
         if (pending(status)) {
           conflicts.push(`Row ${i + 2}: ${merchant} ${order || ''} changed amount or due date. Review manually; original bill terms were preserved.`);
           continue;
@@ -188,7 +190,7 @@ export function BillsCsvImport({ existing, onDone, onClose }: { existing: Financ
       }
       const summary = orderFor(order, merchant, currency);
       if (!summary) continue;
-      const history = `CSV Paid Count: ${summary.paid} | CSV Paid Amount: ${summary.paidAmount.toFixed(2)} | CSV Scheduled Count: ${summary.pending} | CSV Review Count: ${summary.review} | CSV Total: ${(summary.paidAmount + summary.pendingAmount).toFixed(2)}`;
+      const history = `CSV Paid Count: ${summary.paid} | CSV Paid Amount: ${fromMilli(summary.paidAmount, currency)} | CSV Scheduled Count: ${summary.pending} | CSV Review Count: ${summary.review} | CSV Total: ${fromMilli(summary.paidAmount + summary.pendingAmount, currency)}`;
       const original = (bill.notes ?? '').split(' | ').filter(t => !/^CSV (?:Paid|Scheduled|Review|Total):|^CSV installment import;|^CSV Paid Count:|^CSV Paid Amount:|^CSV Scheduled Count:|^CSV Review Count:/.test(t));
       const preserved = original.filter(t => t && t !== 'CSV installment import; historical paid statuses are unverified until matched in the transaction ledger.' && !t.startsWith('CSV source status:'));
       if (order && !preserved.some(t => t.startsWith('Order: '))) preserved.push(`Order: ${order}`);
@@ -236,7 +238,7 @@ export function BillsCsvImport({ existing, onDone, onClose }: { existing: Financ
       const name = `Tamara | ${row.merchant}${row.installment ? ` | ${row.installment}` : ''}`.slice(0, 120);
       const summary = orderSummary.find(s => s.currency === row.currency && (row.order ? s.reference === row.order : s.merchant === row.merchant));
       const history = summary
-        ? `CSV Paid Count: ${summary.paid} | CSV Paid Amount: ${summary.paidAmount.toFixed(2)} | CSV Scheduled Count: ${summary.pending} | CSV Review Count: ${summary.review} | CSV Total: ${(summary.paidAmount + summary.pendingAmount).toFixed(2)}` : '';
+        ? `CSV Paid Count: ${summary.paid} | CSV Paid Amount: ${fromMilli(summary.paidAmount, summary.currency)} | CSV Scheduled Count: ${summary.pending} | CSV Review Count: ${summary.review} | CSV Total: ${fromMilli(summary.paidAmount + summary.pendingAmount, summary.currency)}` : '';
       const body: FinanceBillInput = {
         name, amount: row.amount, currency: row.currency, cadence: 'once', next_due_on: row.date, category: 'shopping',
         source: 'manual', active: true,
@@ -273,7 +275,7 @@ export function BillsCsvImport({ existing, onDone, onClose }: { existing: Financ
           <tbody>{orderSummary.map(r => <tr key={r.currency + '/' + (r.reference || r.merchant)}>
             <td>{r.merchant}{r.reference && <small style={{ display: 'block' }}>{r.reference}</small>}</td>
             <td>{r.paid}</td><td>{r.pending}</td><td>{r.review}</td>
-            <td>{r.paidAmount.toFixed(2)} {r.currency}</td><td>{r.pendingAmount.toFixed(2)} {r.currency}</td>
+            <td>{fromMilli(r.paidAmount, r.currency)} {r.currency}</td><td>{fromMilli(r.pendingAmount, r.currency)} {r.currency}</td>
             <td>{r.nextDue ?? 'None'}</td><td>{r.finalDue ?? 'None'}</td>
           </tr>)}</tbody>
         </table></div>

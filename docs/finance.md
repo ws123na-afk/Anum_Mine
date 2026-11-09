@@ -44,7 +44,7 @@ A request to pay or transfer ("pay the DEWA bill", "transfer 500 to the landlord
 | Table | What it holds |
 |---|---|
 | `finance_settings` | Base currency, time zone and the person's category rules (one row per person and workspace) |
-| `finance_accounts` | Name, kind (`bank`, `card`, `cash`, `loan`, `investment`), currency, institution, at most the **last four digits** (a check constraint refuses more), opening balance, archived |
+| `finance_accounts` | Name, kind (`bank`, `card`, `cash`, `loan`, `investment`), currency, institution, at most the **last four digits** (a check constraint refuses more), opening balance (a card or loan owes money as a **negative** balance: owes 3,000 is -3000; the API refuses a positive one unless `credit_balance` says the account was overpaid), archived |
 | `finance_transactions` | Account, posted date, signed amount, currency, description (from the statement), category and what set it (`rule`, `owner_rule`, `manual`, `none`), notes, the import it came from, and a dedupe hash unique per account |
 | `finance_imports` | One row per confirmed import: file name, layout, date format, counts (rows, imported, duplicates, unread) and the file's SHA-256 (not the file) |
 | `finance_bills` | Name, amount, currency, cadence (`weekly`, `monthly`, `quarterly`, `yearly`, `once`), next due date, category, optional account, source (`manual` or `detected`), active |
@@ -183,24 +183,50 @@ The preview checks the statement against its own balances: the opening balance p
 
 Rule-based only, no AI and no network (`finance/categories.py`): the person's own rules first ("description contains" a phrase), then built-in keyword rules for common UAE merchants and statement wording (Carrefour, Lulu, Spinneys: groceries; DEWA, SEWA, ADDC: utilities; Etisalat, du: phone and internet; Salik, RTA, Careem: transport; ENOC, ADNOC: fuel; salary and WPS: income; transfers; ATM; fees), matched as whole words. Anything else is income for money in or other for money out. A category picked by hand is never changed by a rule.
 
+Order matters, and these win over the generic words:
+
+- **Card payments** ("credit card payment", "CC payment", "card repayment", "autopay", "payment received, thank you", "سداد بطاقة الائتمان", "تسديد البطاقة") are transfers.
+- **Money in on a card or loan account** is the payment from the person's own bank: a transfer, unless a rule files it as cashback, a refund or a merchant's credit (a merchant's credit on a card, "CARREFOUR" +45, is a refund in groceries).
+- **Salary and WPS** win over "transfer" ("WPS SALARY TRANSFER" is income), a **specific spending word** (rent, landlord, school fees, tuition) wins over "transfer" (rent paid by transfer is housing spending), and **interest earned** or a savings profit credit is income, while interest charged stays a fee.
+
+## How figures are counted
+
+One definition of spend, income, refunds, cashback and transfers (`finance/flows.py`), used by the summary, the ledger dashboard, the Money advisor, budgets, the Guardian's caps and every web page that reads them, so the same row is counted the same way everywhere. Bills and debts are read with the person's matched payments (`finance/obligations.py`). This follows what mature personal-finance apps do: a card payment is a transfer between two of the person's accounts, never spending ([YNAB](https://support.ynab.com/en_us/credit-card-payments-a-guide-r1_506Q1j.md)); transfers and card payments are left out of spending, income and cash flow, and paying a card lowers the cash and the debt by the same amount, so net worth does not move; only a loan payment's interest is an expense ([Monarch](https://help.monarch.com/hc/en-us/articles/360048393292), [Monarch tips](https://help.monarch.com/hc/en-us/articles/28953573066260-Tips-Tricks-for-Using-Monarch)); a refund goes back into the purchase's category and lowers its spending, it is not income ([Copilot](https://help.copilot.money/en/articles/5325170-refund-and-reimbursement-transactions), [Rocket Money](https://help.rocketmoney.com/en/articles/3584530-tracking-refunds), [PocketSmith](https://learn.pocketsmith.com/categorising-your-transactions/6a6X8SseDAvLKFX67jnPeQ/managing-refund-or-reimbursement-transactions-within-pocketsmith/8jrtdmUE4Y3X8gSki3Benh)).
+
+- **Spend**: money out in a spending category, **net of the refunds filed in that category**. A category can be below zero in a month that only has a refund. Budgets never show less than zero spent.
+- **Income**: money in filed as `income` (salary, payroll, dividends, interest earned, a deposit). A negative `income` row (a salary reversal typed by hand) lowers it.
+- **Refunds**: money in filed under a spending category lowers that category (an SMS or Apple Pay refund is filed under the purchase it gives back, found by merchant within 120 days). A refund whose purchase is not found is filed as `refunds` and shown on its own line. Neither is income.
+- **Cashback**: card rewards, their own line, neither income nor spend. The month's net (cash flow) is income plus cashback plus unmatched refunds, less spend.
+- **Transfers**: category `transfer` (between the person's own accounts, to or from someone else, an SMS "transferred to" or "received from") are neither spend nor income on either side. A transfer that was really spending (rent sent to a landlord) or earning (a client paying by transfer) is recategorised by the person or by their own rule, and then counts.
+- **Card payments**: a transfer on both sides. Money in on a card or loan account that a built-in rule (or nothing) filed as income is read as a card payment received, also for rows stored before this rule; a category the person chose by hand or with their own rule is kept.
+- **Own transfers told by two messages** ("transferred to" from one own account, "received from" on another, same amount and currency, within 2 days) become one own transfer ([iPhone SMS](finance-sms.md#own-transfers-told-by-two-messages)).
+- **Loans**: a repayment moves the whole payment from the bank to the loan (a transfer); the interest is charged on the loan as its own row (`fees`), so only the interest is spending, the same on the summary and the ledger dashboard.
+- **Net worth**: account balances, where cards and loans count by their sign (what they owe is a negative balance), less only the debts that have **no account of their own**. A card kept both as an account and as a debt is counted once.
+- **Debts**: a debt kept on a card or loan account (`account_id`) owes what that account's ledger says. Any other debt owes the balance the person saved, less the principal of the payments matched to it since then (with a rate, each payment's interest, balance times APR over 12, is taken out first). It is an estimate from the person's own figures. Entering a different balance (or currency or account) makes it the new starting point; editing the name, rate, minimum or due day keeps the earlier matched payments.
+- **Goals** kept in one of the person's own bank, cash or investment accounts in the goal's currency have saved what that account holds; other goals keep what the person entered.
+- **Bills**: a due date with an active matched payment is paid and is not taken off again anywhere (upcoming bills, Safe to spend, the advisor's coming payments, the ledger dashboard). This month's due dates that passed without a matched payment stay in as **overdue** until a payment is matched or the person moves the bill's next due date. A debt minimum that is also saved as a bill (same currency, and the same name or the same account) is counted once, as the bill.
+
+Rounding is the server's one rule everywhere, also on the web: half to even, to the currency's minor unit (`lib/financeStatements.ts` `fromMilli`). Classification at read time never rewrites a stored row: older rows keep their stored category and are read by these rules.
+
 ## Summary
 
-`GET /api/v1/finance/summary?month=YYYY-MM` (default: this month in the person's time zone):
+`GET /api/v1/finance/summary?month=YYYY-MM` (default: this month in the person's time zone), by the rules in [How figures are counted](#how-figures-are-counted):
 
 - balances per account (opening balance plus every transaction) and per currency;
-- spend by category for the month (money out, transfers and income excluded), per currency;
-- income versus spend and the net, per currency;
-- bills due in the next 30 days (a past due date of a recurring bill rolls forward);
-- debts owed and minimum payments, per currency;
-- goals and how far along they are.
+- spend by category for the month (net of refunds in the category; transfers, income, cashback and unmatched refunds excluded), per currency;
+- income, cashback, unmatched refunds, spend and the net, per currency;
+- bills due in the next 30 days without a matched payment, and this month's overdue ones (`overdue: true`, `days_until` below zero);
+- debts owed now and minimum payments, per currency; `unlinked_debts` (debts with no account of their own) and `net_worth` (balances less `unlinked_debts`);
+- goals and how far along they are;
+- `month_rows_capped` when the month had more rows than one read returns (50,000): the figures are then partial.
 
-`GET /api/v1/finance/bills/suggestions` finds recurring payments: money out with the same payee at a steady interval (weekly, monthly, quarterly or yearly) and amount (within 15 percent), three or more times, not yet saved as a bill. The person keeps the ones that are bills.
+`GET /api/v1/finance/bills/suggestions` finds recurring payments: money out with the same payee at a steady interval (weekly, monthly, quarterly or yearly) and amount (within 15 percent), three or more times, not yet saved as a bill. One payee is one group across accounts, and one missed period (a gap of about two) does not break the pattern. A saved bill with the same currency, cadence and amount (within 15 percent) counts as already saved even when its name differs from the bank's wording ("Electricity" and "DEWA BILL PAYMENT"), so the advisor never counts it twice. The person keeps the ones that are bills.
 
 ## Finance overview
 
 `#finance` (`src/FinanceOverviewPage.tsx`) has its own page head with Settings, Import statement, the scope switch (All finance, Personal, Business), the month and, for personal figures in more than one currency, a currency choice.
 
-- **All finance**: personal net worth (balances less debts) and the business month from the books (income, expenses, net result, each against the month before). **Personal**: net worth, income, spending and net against the month before. **Business**: the business figures and cash flow. People who may not read the books see Personal only, and the switch says why; the chart then reads their own six months whatever scope was chosen.
+- **All finance**: personal net worth (balances, with cards and loans as what they owe, less debts with no account of their own) and the business month from the books (income, expenses, net result, each against the month before). **Personal**: net worth, income, spending and net against the month before. **Business**: the business figures and cash flow. People who may not read the books see Personal only, and the switch says why; the chart then reads their own six months whatever scope was chosen.
 - Accounts, bills due (total and the next date) and items to review (Guardian flags waiting plus business allocations in review), each opening its page.
 - Income and outflow over six months (the books, or the person's own ledger on Personal) with the month's P&L beside it; business spending by category with Open Expenses and P&L, or the person's spending by category.
 - Recent activity: the month's newest transactions (on Business, the newest bills). Safe to spend, bills due soon with the review queue, the read-only note, balances and goals.
@@ -224,8 +250,8 @@ The scope switch on both pages shows this workspace's ledger kind (Finance, iPho
 `GET /api/v1/finance/safe-to-spend` (stage 3, `finance/safe_to_spend.py`): what the person can spend from today to the end of this month (in their own time zone), and per day, per currency, line by line, from their own records only. It is arithmetic, not advice and not a forecast; the page and the assistant say so.
 
 1. **Money you have:** the balance of every bank and cash account that is not archived. Cards, loans and investments are listed under "Not counted" with the reason (a card's debt is covered by its minimum payment; an investment is not spending money); so are archived accounts.
-2. **Bills:** every active bill's due dates from today to the month's end (a weekly bill can count several times).
-3. **Minimum debt payments:** each debt's minimum payment (at most what is owed) if its due day is today or later this month, or if it has no due day. A due day already passed is listed as not counted ("taken as paid").
+2. **Bills:** every active bill's due dates from today to the month's end without a matched payment (a weekly bill can count several times; one paid early is not taken off again), and this month's passed due dates that still have none (`bill_overdue`: the money has not gone out yet).
+3. **Minimum debt payments:** each debt's minimum payment (at most what is owed now) if its due day is today or later this month, or if it has no due day. A due day already passed is listed as not counted ("taken as paid"). A minimum also saved as a bill is listed as not counted (`minimum_in_bill`): the bill counts it once.
 4. **Goals:** the monthly amount the person set on the goal (`monthly_contribution`), else what is left divided by the months left to the target date, this month included, rounded **up** to the minor unit. A goal without either, or already reached, is not counted.
 5. **Buffer:** what the person always keeps back, per currency (`PUT /plan`).
 
@@ -305,12 +331,12 @@ Finance, **Debts and goals** (`#finance-debts`, `#finance-goals`; web `FinanceDe
 - **The plan** (`GET, PUT /debt-plan`, `{plans: [{currency, strategy, monthly_payment}]}`): avalanche (highest rate first) or snowball (smallest balance first), and the monthly payment for all debts of that currency (empty: the minimums only). Stored with the safe-to-spend settings (`finance_plans.debt_plans`) without changing them.
 - **The maths** is pure and runs on the debts as entered: each month a twelfth of the yearly rate on the balance is added (rounded to the minor unit), every debt gets its minimum, the rest of the payment goes in strategy order, and a paid-off debt frees its minimum for the next. It gives the payoff month with the minimums only and with the plan, the interest, the payoff order, the what-if (an extra amount a month: months sooner and interest saved) and the 12-month outlook of total debt and goal savings. A payment below the minimums together is refused; payments that never cover the interest say so instead of a date. The page says plainly that rates and balances are the person's own estimates.
 - **Payoff progress** needs a starting balance: `finance_debts.original_balance` (filled with today's balance when a debt is added on the web; left out of an edit, it is kept; `""` clears it).
-- **Debt payments** are links in the `debt` dimension (target `finance_debt`): `POST /debts/{id}/payments`, `DELETE /debts/{id}/payments/{link_id}`, `GET /debt-payments?debt_id&limit&offset` (date, account, amount, status and what was paid per debt). The balance stays what the person entered: ANUM does not split a payment into interest and principal.
+- **Debt payments** are links in the `debt` dimension (target `finance_debt`): `POST /debts/{id}/payments`, `DELETE /debts/{id}/payments/{link_id}`, `GET /debt-payments?debt_id&limit&offset` (date, account, amount, status and what was paid per debt). The stored balance stays what the person entered; every figure that reads it (the summary, net worth, Safe to spend, the advisor and the ledger dashboard) takes off the principal of the payments matched since it was saved, with the interest estimated from the person's own rate ([How figures are counted](#how-figures-are-counted)). A debt kept on a card or loan account follows that account instead.
 - **Goals** show progress, the monthly target (the amount set, else what is left over the months left) and the due date. `finance_goals.paused`: a paused goal keeps what is saved, is not set aside by safe to spend (`goal_paused`, under "Not counted") and is left out of the commitments and the outlook. Upcoming commitments list each debt's next minimum payment and the goal contributions for the month.
 
 Code: `finance/commitments.py` (pure figures and the link targets), `finance/commitments_api.py` (routes); migration `0142_finance_debts_bills` (expand only: `paused`, `original_balance`, the two plan columns and the `bill` and `debt` link dimensions); contracts `packages/contracts/src/financePlanning.ts`. Tests: `tests/test_finance_debts_bills.py`, `tests/test_postgres_finance_debts_bills.py`, web `test/financeDebtPlan.test.ts`, `test/financeBills.test.ts`, `e2e/finance-planning.spec.ts`.
 
-Not built yet: bill reminders a set number of days before the due date (a daily job like the purchase reminders: the mockup's Reminder column is left out until it exists), splitting a debt payment into interest and principal, automatic matching without a person's pick, and business bills and budgets on these pages (they are in the business books).
+Not built yet: bill reminders a set number of days before the due date (a daily job like the purchase reminders: the mockup's Reminder column is left out until it exists), splitting a debt payment into interest and principal from the lender's own figures (the split is estimated from the rate the person entered), automatic matching without a person's pick, and business bills and budgets on these pages (they are in the business books).
 
 ## Exchange rates
 

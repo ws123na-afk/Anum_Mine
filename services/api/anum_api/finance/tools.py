@@ -100,8 +100,11 @@ async def _summary(call: ToolCall, context: TenantContext) -> ToolResult:
     import asyncio
 
     def work() -> Any:
+        from . import obligations
+
+        links = obligations.load(context)
         with open_finance_store(context) as store:
-            return build_summary(store, context, _month(call.arguments.get("month")))
+            return build_summary(store, context, _month(call.arguments.get("month")), links=links)
 
     data = await asyncio.to_thread(work)
     top = [f"{row.category.value} {row.currency} {row.amount:,}" for row in data.spend_by_category[:5]]
@@ -168,12 +171,14 @@ async def _bills(call: ToolCall, context: TenantContext) -> ToolResult:
     days = max(1, min(366, int(call.arguments.get("days") or 30)))
 
     def work() -> Any:
+        from . import obligations
         from .models import Bill
 
+        links = obligations.load(context)
         with open_finance_store(context) as store:
             today = today_in(settings_for(store, context))
             bills = [b for b in store.list_items(context, "bill") if isinstance(b, Bill)]
-        return upcoming_bills(bills, today, days)
+        return upcoming_bills(bills, today, days, links=links.bill_links)
 
     rows = await asyncio.to_thread(work)
     if not rows:
@@ -232,8 +237,11 @@ async def _safe_to_spend(call: ToolCall, context: TenantContext) -> ToolResult:
     from .safe_to_spend import build_safe_to_spend
 
     def work() -> Any:
+        from . import obligations
+
+        links = obligations.load(context)
         with open_finance_store(context) as store:
-            return build_safe_to_spend(store, context)
+            return build_safe_to_spend(store, context, links=links)
 
     data = await asyncio.to_thread(work)
     if not data.currencies:

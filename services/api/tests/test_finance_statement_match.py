@@ -378,12 +378,18 @@ def test_find_transfers_over_existing_rows_previews_then_pairs_only_what_is_tick
     assert (found["strong"], found["weak"]) == (1, 1)
     strong = next(p for p in found["pairs"] if p["strength"] == "strong")
     assert strong["into_last4"] == "5377" and strong["lag_days"] == 3
-    assert all(t["category"] != "transfer" for t in transactions())  # a preview changes nothing
+    # A preview changes nothing. (A credit on a card, and card payment wording, may already be filed as a
+    # transfer when recorded: docs/finance.md#how-figures-are-counted.)
+    before = {t["id"]: t["category"] for t in transactions()}
+    client.get(f"{API}/transfers/candidates", headers=OWNER, params={"start": "2026-11-01", "end": "2026-11-30"})
+    assert {t["id"]: t["category"] for t in transactions()} == before
     assert client.post(f"{API}/transfers", headers=VIEWER, json={"start": "2026-11-01", "end": "2026-11-30", "pairs": [
         {"out_record_id": strong["out"]["record_id"], "into_record_id": strong["into"]["record_id"]}]}).status_code == 403
     made = client.post(f"{API}/transfers", headers=OWNER, json={"start": "2026-11-01", "end": "2026-11-30", "pairs": [
         {"out_record_id": strong["out"]["record_id"], "into_record_id": strong["into"]["record_id"]}]})
     assert made.status_code == 201, made.text
+    # Both rows are filed by the pair (their category source becomes the pairing), even where a rule had
+    # already put one of them under transfers.
     assert made.json()["paired"] == 1 and made.json()["recategorized"] == 2
     assert sorted(t["category"] for t in transactions() if abs(Decimal(t["amount"])) == 1000) == ["transfer", "transfer"]
     left = client.get(f"{API}/transfers/candidates", headers=OWNER, params={"start": "2026-11-01", "end": "2026-11-30"}).json()

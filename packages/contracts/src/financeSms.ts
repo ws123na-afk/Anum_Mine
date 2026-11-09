@@ -199,7 +199,11 @@ export interface FinanceLedgerDashboard {
   month: string;
   income: FinanceCurrencyAmount[];
   expenses: FinanceCurrencyAmount[];
+  /** Income, cashback and unmatched refunds less expenses: the summary's net. */
   surplus: FinanceCurrencyAmount[];
+  /** Card rewards and refunds that found no purchase: never income (docs/finance.md#how-figures-are-counted). */
+  cashback?: FinanceCurrencyAmount[];
+  refunds?: FinanceCurrencyAmount[];
   assets: FinanceCurrencyAmount[];
   liabilities: FinanceCurrencyAmount[];
   net_worth: FinanceCurrencyAmount[];
