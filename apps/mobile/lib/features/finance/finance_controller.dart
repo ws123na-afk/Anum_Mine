@@ -1,6 +1,8 @@
 import 'package:flutter/foundation.dart';
 
 import '../../data/api_client.dart';
+import 'finance_depth_controller.dart';
+import 'finance_depth_models.dart';
 import 'finance_intel_controller.dart';
 import 'finance_intel_models.dart';
 import 'finance_models.dart';
@@ -28,6 +30,7 @@ enum FinanceSection {
   goals,
   guardian,
   connections,
+  settings,
   trading,
   intel,
   execution
@@ -40,8 +43,12 @@ class FinanceController extends ChangeNotifier {
   FinanceController(this.repository,
       {FinanceIntelRepository? intelRepository,
       FinancePersonalRepository? personalRepository,
+      FinanceDepthRepository? depthRepository,
       MoneyPlanner? planner})
-      : intel = intelRepository == null
+      : depth = depthRepository == null
+            ? null
+            : FinanceDepthController(depthRepository),
+        intel = intelRepository == null
             ? null
             : FinanceIntelController(intelRepository),
         personal = personalRepository == null
@@ -55,10 +62,16 @@ class FinanceController extends ChangeNotifier {
   /// source was given, and then those sections are not offered.
   final FinancePersonalController? personal;
 
+  /// Finance settings, the reserve form, a transaction's FX section and the
+  /// exception notices (docs/finance.md#finance-settings); null when no
+  /// source was given, and then the settings section is not offered.
+  final FinanceDepthController? depth;
+
   /// Whether [section] is offered on this phone.
   bool offers(FinanceSection section) => switch (section) {
         FinanceSection.intel => intel != null,
         FinanceSection.planner => personal != null,
+        FinanceSection.settings => depth != null,
         _ => true,
       };
 
@@ -178,6 +191,12 @@ class FinanceController extends ChangeNotifier {
       case FinanceSection.connections:
         await Future.wait(
             [loadConnections(), loadLastImport(), loadReconciliation()]);
+      case FinanceSection.settings:
+        await Future.wait([
+          if (depth != null) depth!.load(),
+          loadAccounts(),
+          if (personal != null) personal!.loadSalary(),
+        ]);
       case FinanceSection.trading:
         await loadTrading();
       case FinanceSection.intel:
@@ -597,12 +616,14 @@ class FinanceController extends ChangeNotifier {
     live = null;
     tradingState = executionLoad = FinanceLoad.idle;
     personal?.reset();
+    depth?.reset();
     notifyListeners();
   }
 
   @override
   void dispose() {
     personal?.dispose();
+    depth?.dispose();
     super.dispose();
   }
 }

@@ -223,8 +223,16 @@ class Suggestion {
     this.confidence,
     this.href,
     this.occurredOn,
+    this.hasLink = false,
+    this.transactionIds = const [],
   });
   final String key, kind, why, actionKind, payloadHash;
+
+  /// Accept makes a link (or a business allocation) through the links API.
+  final bool hasLink;
+
+  /// The rows the proposal is about (the purchase of an FX fee item).
+  final List<String> transactionIds;
   final Map<String, String> params;
   final List<SuggestionEffect> effects;
   final String? confidence, href, occurredOn;
@@ -234,9 +242,26 @@ class Suggestion {
   /// own page on the web).
   String get acceptMode => switch (actionKind) {
         'classify' || 'confirm_refund' => 'apply',
+        'link' when hasLink => 'link',
         'acknowledge' => 'acknowledge',
         _ => 'none',
       };
+
+  /// The words of an attribution, payment or FX fee item, one per linked
+  /// module (docs/finance.md#attribution-suggestions), or null.
+  String? get variant {
+    if (kind == 'attribution') {
+      final dimension = params['dimension'] ?? 'business';
+      return dimension == 'vehicle' && params['record'] == 'none'
+          ? 'vehicle_record'
+          : dimension;
+    }
+    if (kind == 'payment_match') return actionKind == 'link' ? 'link' : null;
+    if (kind == 'fx_fee') {
+      return params['source'] == 'fee_row' ? 'link' : 'split';
+    }
+    return null;
+  }
 
   /// The confidence as a whole percentage, or null (0 is "not recognised",
   /// not a confidence worth showing).
@@ -255,6 +280,9 @@ class Suggestion {
         },
         effects: r.optObjects('effect', SuggestionEffect.fromJson),
         actionKind: r.optObject('action')?.optString('kind') ?? 'open',
+        hasLink: r.optObject('action')?.optObject('link') != null,
+        transactionIds:
+            r.optObject('action')?.optStrings('transaction_ids') ?? const [],
         payloadHash: r.string('payload_hash'),
         confidence: _decimal(r, 'confidence'),
         href: r.optString('href'),

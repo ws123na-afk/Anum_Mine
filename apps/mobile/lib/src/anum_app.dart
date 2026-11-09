@@ -38,6 +38,7 @@ import '../features/commerce/commerce_controller.dart';
 import '../features/commerce/commerce_ops_data.dart';
 import '../features/commerce/commerce_repository.dart';
 import '../features/finance/finance_controller.dart';
+import '../features/finance/finance_depth_models.dart';
 import '../features/finance/finance_intel_models.dart';
 import '../features/finance/finance_personal_repository.dart';
 import '../features/finance/finance_repository.dart';
@@ -402,6 +403,7 @@ class _AnumAppState extends State<AnumApp> {
     finance = FinanceController(ApiFinanceRepository(api),
         intelRepository: ApiFinanceIntelRepository(api),
         personalRepository: ApiFinancePersonalRepository(api),
+        depthRepository: ApiFinanceDepthRepository(api),
         planner: ChatMoneyPlanner(ChatRepository(api, events)));
     // The post-close trading report notice opens Finance, Trading
     // intelligence, where the daily reports are listed.
@@ -426,6 +428,17 @@ class _AnumAppState extends State<AnumApp> {
     // The unresolved-suggestions notice opens Finance, Suggestions
     // (docs/finance.md#suggestions).
     NotificationsScreen.openers['finance_suggestions'] = (context) async {
+      final loading = finance.select(FinanceSection.suggestions);
+      await Navigator.push(
+          context,
+          MaterialPageRoute<void>(
+              builder: (_) => FinanceScreen(controller: finance)));
+      await loading;
+    };
+    // An exception notice (kind `finance_exceptions`, in-app only) opens
+    // Finance, Suggestions, where the items wait and the notices are turned
+    // off (docs/finance.md#exception-notices).
+    NotificationsScreen.openers['finance_exceptions'] = (context) async {
       final loading = finance.select(FinanceSection.suggestions);
       await Navigator.push(
           context,
