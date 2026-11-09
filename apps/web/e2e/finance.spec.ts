@@ -114,8 +114,29 @@ test('transactions and ledger: period, search, server filters and paging; the dr
   await tab(page, 'Bills').click();
   await expect(page).toHaveURL(/#finance-bills$/);
   await page.goBack();
-  await expect(page).toHaveURL(/#finance-transactions$/);
+  // The period picked (All dates) is kept in the URL, so Back returns to the same view.
+  await expect(page).toHaveURL(/#finance-transactions\?month=all$/);
+  await expect(page.getByRole('combobox', { name: 'Period', exact: true })).toHaveValue('');
   await expect(tab(page, 'Transactions')).toHaveAttribute('aria-current', 'page');
+});
+
+test('an empty current month says where the latest records are and opens that month', async ({ page }) => {
+  const { state } = await mockApi(page);
+  // Every SYNTHETIC row moved to two months ago: the current month (Finance time zone) has none.
+  const now = new Date();
+  const older = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - 2, 10)).toISOString().slice(0, 10);
+  state.transactions = state.transactions.map((row) => ({ ...row, posted_on: older }));
+  await page.goto('/#finance-transactions');
+  const banner = page.getByText(/^No transactions in .+; your latest records are in .+\.$/);
+  await expect(banner).toBeVisible({ timeout: 20_000 });
+  await page.locator('.finBanner').getByRole('button', { name: /^Show / }).click();
+  await expect(page.getByRole('combobox', { name: 'Period', exact: true })).toHaveValue(older.slice(0, 7));
+  await expect(page).toHaveURL(new RegExp(`#finance-transactions\\?month=${older.slice(0, 7)}$`));
+  await expect(page.locator('.fregTable tbody tr').first()).toBeVisible();
+  await expect(banner).toHaveCount(0);
+  // A reload keeps the month.
+  await page.reload();
+  await expect(page.getByRole('combobox', { name: 'Period', exact: true })).toHaveValue(older.slice(0, 7), { timeout: 20_000 });
 });
 
 test('a receipt is attached from the drawer to the vault and linked to the payment; SMS review and Imports open the existing flows', async ({ page }) => {

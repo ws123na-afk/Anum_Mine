@@ -11,7 +11,9 @@ import {
 import type { FinanceAccount, FinanceCategory, FinanceRegisterDetail, FinanceRegisterPage, FinanceRegisterRow, FinanceSmsSettings } from '@anum/contracts';
 import * as api from './lib/financeApi';
 import { getRegister, getRegisterDetail } from './lib/financeRegisterApi';
-import { NO_REGISTER_FILTERS, ORIGINS, ROW_STATUSES, monthBounds, narrowed, percentOf, statusTone, type RegisterFilters } from './lib/financeRegister';
+import {
+  NO_REGISTER_FILTERS, ORIGINS, ROW_STATUSES, hashWithMonth, latestMonthHint, monthBounds, monthFromHash, monthIn, narrowed, percentOf, statusTone, type RegisterFilters,
+} from './lib/financeRegister';
 import { categoryLabel, formatAmount, formatAmounts, isolate, monthLabel, rangeLabel, shiftMonth } from './lib/finance';
 import { describeError } from './lib/errors';
 import { formatDateTime, t, type MessageKey } from './lib/i18n';
@@ -35,12 +37,15 @@ const CATEGORIES: FinanceCategory[] = [
   'subscriptions', 'travel', 'insurance', 'fees', 'cash', 'transfer', 'income', 'other',
 ];
 
-/** The months the period picker offers: this one and the 23 before it. */
-function recentMonths(today: string): string[] {
+/** The months the period picker offers: this one and the 23 before it, plus the chosen one when it is older. */
+function recentMonths(today: string, chosen: string): string[] {
   const out = [today];
   for (let i = 1; i < 24; i += 1) out.push(shiftMonth(today, -i));
+  if (chosen && !out.includes(chosen)) out.push(chosen);
   return out;
 }
+
+const urlMonth = () => (typeof location === 'undefined' ? null : monthFromHash(location.hash));
 
 const SOURCE_ICON = { sms: MessageSquare, apple_pay: Smartphone, statement: FileText, manual: PenLine } as const;
 
@@ -68,9 +73,19 @@ function Evidence({ row }: { row: FinanceRegisterRow }) {
 export function TransactionsPage({ accounts, initialAccountId, initialTab, onChanged, onAddAccount }: {
   accounts: FinanceAccount[]; initialAccountId?: string; initialTab?: TxTab; onChanged: () => void; onAddAccount: () => void;
 }) {
-  const thisMonth = useMemo(() => new Date().toISOString().slice(0, 7), []);
+  // The month is the Finance time zone's (Finance settings), not UTC: a UAE evening on the last day of a month is still that month.
+  const [timeZone, setTimeZone] = useState<string | null>(null);
+  const thisMonth = useMemo(() => monthIn(timeZone), [timeZone]);
   const [tab, setTab] = useState<TxTab>(initialTab ?? 'transactions');
-  const [period, setPeriod] = useState<string>(thisMonth);
+  // The period lives in the URL (`#finance-transactions?month=2026-10`): a reload or a shared link opens the same month.
+  const [period, setPeriodState] = useState<string>(() => urlMonth() ?? monthIn(null));
+  const chosen = useRef(urlMonth() !== null);
+  const setPeriod = useCallback((next: string) => {
+    chosen.current = true;
+    setPeriodState(next);
+    if (location.hash.startsWith('#finance-transactions')) history.replaceState(null, '', hashWithMonth(location.hash, next));
+  }, []);
+  const [latest, setLatest] = useState<string | null>(null);
   const [accountId, setAccountId] = useState(initialAccountId ?? '');
   const [draft, setDraft] = useState<RegisterFilters>(NO_REGISTER_FILTERS);
   const [applied, setApplied] = useState<RegisterFilters>(NO_REGISTER_FILTERS);
@@ -88,9 +103,25 @@ export function TransactionsPage({ accounts, initialAccountId, initialTab, onCha
   }, [filters, offset]);
   useEffect(() => { void load(); }, [load]);
   useEffect(() => { void smsSettings().then(setSms, () => setSms(null)); }, []);
+  useEffect(() => {
+    void api.getSettings().then((s) => setTimeZone(s.timezone), () => setTimeZone(null));
+  }, []);
+  // Until the person picks a month, the page follows the Finance time zone's current month.
+  useEffect(() => { if (!chosen.current) setPeriodState(thisMonth); }, [thisMonth]);
+  // An empty month: find the newest row (any month) so the page can say where the records are.
+  const emptyMonth = page.kind === 'ready' && page.value.total === 0 && !!period && !narrowed(applied);
+  useEffect(() => {
+    setLatest(null);
+    if (!emptyMonth) return;
+    let live = true;
+    getRegister({ ...NO_REGISTER_FILTERS, account_id: accountId }, 1, 0)
+      .then((found) => { if (live) setLatest(found.items[0]?.posted_on ?? null); }, () => { if (live) setLatest(null); });
+    return () => { live = false; };
+  }, [emptyMonth, accountId, period]);
+  const hint = latestMonthHint(period, page.kind === 'ready' ? page.value.total : 1, latest);
   const changed = () => { void load(); onChanged(); };
   const account = accounts.find((a) => a.id === accountId) ?? null;
-  const months = recentMonths(thisMonth);
+  const months = recentMonths(thisMonth, period);
 
   async function download() {
     try { await api.downloadTransactions({ q: applied.q, account_id: accountId, category: applied.category, from: filters.from, to: filters.to }); setNotice({ text: t('finance.transactions.exported') }); }
@@ -129,6 +160,8 @@ export function TransactionsPage({ accounts, initialAccountId, initialTab, onCha
         {page.kind === 'error' && <LoadError message={t('finance.error.transactions', { message: page.message })} retry={() => void load()} />}
         {page.kind === 'loading' && <Notice busy>{t('finance.transactions.loading')}</Notice>}
         {ready && <>
+          {hint && <FinBanner tone="info" title={t('freg.empty.month', { month: monthLabel(period), latest: monthLabel(hint) })}
+            action={<button type="button" className="secondary" onClick={() => { setPeriod(hint); setOffset(0); }}>{t('freg.empty.show', { month: monthLabel(hint) })}</button>} />}
           <Reconciliation page={ready} account={account} period={period} />
           <Kpis page={ready} />
           <div className={`fregWork ${selected && wide ? 'withDrawer' : ''}`}>
