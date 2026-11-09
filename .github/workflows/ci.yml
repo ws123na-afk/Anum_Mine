@@ -12,6 +12,11 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
+# onnxruntime-node downloads optional CUDA binaries from GitHub releases in its postinstall.
+# Runners have no GPU, and that download fails the install whenever GitHub answers 504.
+env:
+  ONNXRUNTIME_NODE_INSTALL_CUDA: skip
+
 jobs:
   changed-paths:
     name: Detect platform changes
