@@ -141,6 +141,8 @@ export function DebtsGoalsPage({ initial, accounts, base, today, onOpen, onChang
   const views = payoffs.kind === 'ready' ? payoffs.value : null;
   const now = views?.now ? payoffFor(views.now, strategy) : null, planned = views?.planned ? payoffFor(views.planned, strategy) : null;
   const startMonth = today.slice(0, 7);
+  // The plan's own starting total: today's balances, money borrowed from a person included (the API's debts).
+  const planTotal = views?.planned ? views.planned.debts.reduce((s, d) => s + toMinor(d.balance, currency), 0) : totalDebt;
   const payoffState = payoffs.kind === 'loading' ? <Notice busy>{t('fplan.loading')}</Notice>
     : payoffs.kind === 'denied' ? <Denied />
       : payoffs.kind === 'error' ? <LoadError message={t('fplan.error.payoff', { message: payoffs.message })} retry={() => void loadPayoffs()} /> : null;
@@ -156,7 +158,7 @@ export function DebtsGoalsPage({ initial, accounts, base, today, onOpen, onChang
     onRemove={(g) => setRemoving({ kind: 'goal', id: g.id, name: g.name })} />;
   const outlookCard = (pd.length > 0 || myGoals.length > 0) && <FinCard title={t('fplan.outlook.title')} icon={<BarChart3 />} subtitle={t('fplan.outlook.sub', { currency })}>
     {pd.length > 0 && !planned ? payoffState
-      : <OutlookChart points={outlook(totalDebt, planned?.balances ?? [], planned ? planned.months !== null : true, myGoals, currency, today, 12)} currency={currency} digits={minorDigits(currency)} />}
+      : <OutlookChart points={outlook(planTotal, planned?.balances ?? [], planned ? planned.months !== null : true, myGoals, currency, today, 12)} currency={currency} digits={minorDigits(currency)} />}
   </FinCard>;
   const whatIfCard = pd.length > 0 && planned && <WhatIfCard currency={currency} strategy={strategy} base={planned} />;
   const historyCard = (full: boolean) => <HistoryCard state={history} accounts={accounts} full={full} onPage={setOffset} retry={() => void loadHistory()} onAll={() => setSection('history')}

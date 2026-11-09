@@ -114,7 +114,8 @@ describe('safe-to-spend', () => {
     assert.equal(openingNeedsSign('card', '3000', true), false);
     assert.equal(openingNeedsSign('loan', '-3000', false), false);
     assert.equal(openingNeedsSign('bank', '3000', false), false);
-    assert.equal(safeNote({ note: 'minimum_passed', params: { day: '5' }, currency: 'AED' }), 'Due on day \u20665\u2069, already passed this month: taken as paid');
+    assert.equal(safeNote({ note: 'minimum_passed', params: { day: '5' }, currency: 'AED' }), 'Due on day \u20665\u2069: a payment is matched to it this month, so it is paid');
+    assert.equal(safeNote({ note: 'minimum_overdue', params: { date: '2026-10-05' }, currency: 'AED' }), 'Overdue since \u20662026-10-05\u2069: no payment is matched yet, so still counted');
     assert.match(safeNote({ note: 'goal_derived', params: { left: '1000.00', months: '3' }, currency: 'AED' }), /AED.1,000\.00.* left over 3 months/);
     setLocale('ar');
     assert.match(safeNote({ note: 'goal_derived', params: { left: '1000.00', months: '3' }, currency: 'AED' }), /أشهر/);

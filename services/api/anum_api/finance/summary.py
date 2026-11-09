@@ -247,7 +247,7 @@ def build_summary(store: FinanceStore, context: TenantContext, month: str | None
     )
     bills = [b for b in store.list_items(context, "bill") if isinstance(b, Bill)]
     upcoming = upcoming_bills(bills, today, links=links.bill_links if links else None)
-    debts = O.current_debts([d for d in store.list_items(context, "debt") if isinstance(d, Debt)], raw_accounts, sums, links)
+    debts = O.current_debts([d for d in store.list_items(context, "debt") if isinstance(d, Debt)], raw_accounts, sums, links, today)
     goals = O.current_goals([g for g in store.list_items(context, "goal") if isinstance(g, Goal)], raw_accounts, sums)
     balances = totals((a.currency, a.balance) for a in accounts if not a.archived)
     loose = totals((d.currency, d.balance) for d in O.unlinked(debts, raw_accounts) if d.balance > 0)

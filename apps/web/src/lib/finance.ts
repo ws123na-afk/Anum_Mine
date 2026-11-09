@@ -158,7 +158,7 @@ export function isolate(value: string): string {
 export function safeNote(line: Pick<FinanceSafeLine, 'note' | 'params' | 'currency'>): string {
   const { note, params } = line;
   if (note === 'bill_due') return t('finance.safe.note.bill_due', { date: isolate(params.date ?? '') });
-  if (note === 'bill_overdue') return t('finance.safe.note.bill_overdue', { date: isolate(params.date ?? '') });
+  if (note === 'bill_overdue' || note === 'minimum_overdue') return t(`finance.safe.note.${note}`, { date: isolate(params.date ?? '') });
   if (note === 'minimum_in_bill') return t('finance.safe.note.minimum_in_bill', { bill: isolate(params.bill ?? '') });
   if (note === 'minimum_due' || note === 'minimum_passed') return t(`finance.safe.note.${note}`, { day: isolate(params.day ?? '') });
   if (note === 'goal_derived') return t('finance.safe.note.goal_derived', { left: isolate(formatAmount(params.left ?? '0', line.currency)), count: Number(params.months ?? 1) });

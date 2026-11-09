@@ -74,7 +74,7 @@ def gather(context: TenantContext, *, now: datetime | None = None) -> AdvisorInp
             accounts=accounts, balances=sums,
             transactions=finance.transactions_between(context, today - timedelta(days=LOOKBACK_DAYS), today),
             bills=[b for b in finance.list_items(context, "bill") if isinstance(b, Bill)],
-            debts=obligations.current_debts([d for d in finance.list_items(context, "debt") if isinstance(d, Debt)], accounts, sums, links),
+            debts=obligations.current_debts([d for d in finance.list_items(context, "debt") if isinstance(d, Debt)], accounts, sums, links, today),
             bill_links=links.bill_links,
             lending_ids=links.lending_ids,
             card_limits={k: Decimal(v) for k, v in limits.items() if v is not None},

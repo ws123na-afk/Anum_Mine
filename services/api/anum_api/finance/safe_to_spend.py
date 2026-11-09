@@ -9,10 +9,13 @@ promised. Per currency, line by line, from their own records only:
 2. **Bills:** every active bill's due dates from today to the end of the month that have
    no matched payment (a bill paid early is not taken off again), and this month's passed
    due dates that still have none (overdue: the money has not gone out yet).
-3. **Minimum debt payments:** each debt's minimum payment, unless its due day has already
-   passed this month (then it is listed as not counted: it is taken as paid). A debt with
-   no due day is counted. A minimum that is also saved as a bill is counted once, as the
-   bill, and a debt's balance follows its matched payments (``obligations.py``).
+3. **Minimum debt payments:** each debt's minimum payment. Once its due day has passed this
+   month it is paid only when a payment is matched to the debt this month (then it is listed
+   as not counted); without one it stays counted and is called overdue. A debt with no due
+   day is counted. A minimum that is also saved as a bill is counted once, as the bill, and
+   a debt's balance follows its matched payments (``obligations.py``). Money borrowed from a
+   person is a debt here too (``obligations.borrowed_debts``): the amount left is counted
+   when its due date is in this month, and called overdue once the date has passed.
 4. **Goals:** the monthly amount the person set for a goal, or, with a target date, what
    is left divided by the months left (rounded up to the minor unit). A goal without
    either, or already reached, is listed as not counted.
@@ -52,7 +55,8 @@ NOTE = "An estimate from your own records: not advice and not a forecast."
 LineKind = Literal["balance", "bill", "minimum_payment", "goal", "buffer"]
 # Why a line is there or not counted; clients show these in the person's language.
 NoteCode = Literal[
-    "account_balance", "bill_due", "bill_overdue", "minimum_due", "minimum_no_day", "minimum_passed", "minimum_in_bill", "goal_set", "goal_derived",
+    "account_balance", "bill_due", "bill_overdue", "minimum_due", "minimum_no_day", "minimum_passed", "minimum_overdue", "minimum_in_bill", "goal_set",
+    "goal_derived",
     "goal_no_plan", "goal_reached", "goal_paused", "buffer", "account_card", "account_loan", "account_investment", "account_archived",
 ]
 
@@ -118,6 +122,12 @@ def _ceil(amount: Decimal, currency: str) -> Decimal:
 months_between = M.months_between
 
 
+def paid_this_month(debt: Debt, payments: list[O.DebtPayment], today: date) -> bool:
+    """A payment matched to the debt (in its currency) was made this month: its minimum is paid."""
+    start = M.month_start(today)
+    return any(p.debt_id == debt.id and p.currency == debt.currency and start <= p.posted_on <= today for p in payments)
+
+
 def compute(
     *,
     today: date,
@@ -131,10 +141,12 @@ def compute(
     plan: PlanSettings,
     rates: list[FxRate],
     bill_links: list | None = None,
+    debt_payments: list[O.DebtPayment] | None = None,
 ) -> SafeToSpend:
     """The pure calculation: the same inputs always give the same figure.
 
-    ``bill_links`` are the person's ``bill`` links: a due date with an active matched payment is paid."""
+    ``bill_links`` are the person's ``bill`` links: a due date with an active matched payment is paid.
+    ``debt_payments`` are the payments matched to debts: a passed due day is paid only by one this month."""
     month_end = M.month_end(today)
     days_left = (month_end - today).days + 1
     lines: list[SafeLine] = []
@@ -182,15 +194,27 @@ def compute(
                                      note="minimum_in_bill", params={"bill": covering.name},
                                      detail=f"Saved as the bill {covering.name}: counted once, as the bill."))
             continue
+        if isinstance(debt, O.PersonDebt) and debt.overdue and debt.due_on is not None:
+            # Borrowed from a person and not repaid by its date: the amount left is still to pay.
+            lines.append(SafeLine(kind="minimum_payment", label=debt.name, ref_id=debt.id, currency=debt.currency, amount=-payment,
+                                  note="minimum_overdue", params={"date": debt.due_on.isoformat()},
+                                  detail=f"Was due {debt.due_on.isoformat()} and is not repaid yet: counted."))
+            continue
         if debt.due_day is None:
             lines.append(SafeLine(kind="minimum_payment", label=debt.name, ref_id=debt.id, currency=debt.currency, amount=-payment,
                                   note="minimum_no_day", detail="Minimum payment, no due day set: counted."))
             continue
         day = min(debt.due_day, month_end.day)
         if day < today.day:
-            excluded.append(SafeLine(kind="minimum_payment", label=debt.name, ref_id=debt.id, currency=debt.currency, amount=-payment,
-                                     note="minimum_passed", params={"day": str(day)},
-                                     detail=f"Due on day {day}, already passed this month: taken as paid."))
+            due_on = today.replace(day=day)
+            if paid_this_month(debt, debt_payments or [], today):
+                excluded.append(SafeLine(kind="minimum_payment", label=debt.name, ref_id=debt.id, currency=debt.currency, amount=-payment,
+                                         note="minimum_passed", params={"day": str(day)},
+                                         detail=f"Due on day {day}: a payment is matched to it this month, so it is paid."))
+            else:
+                lines.append(SafeLine(kind="minimum_payment", label=debt.name, ref_id=debt.id, currency=debt.currency, amount=-payment,
+                                      note="minimum_overdue", params={"date": due_on.isoformat()},
+                                      detail=f"Was due {due_on.isoformat()} and no payment is matched to it yet: counted."))
         else:
             lines.append(SafeLine(kind="minimum_payment", label=debt.name, ref_id=debt.id, currency=debt.currency, amount=-payment,
                                   note="minimum_due", params={"day": str(day)}, detail=f"Minimum payment due on day {day}."))
@@ -284,8 +308,9 @@ def build_safe_to_spend(store: FinanceStore, context: TenantContext, *, now: dat
         today=today, base_currency=settings.base_currency, timezone=settings.timezone,
         accounts=accounts, balances=balances,
         bills=[b for b in store.list_items(context, "bill") if isinstance(b, Bill)],
-        debts=O.current_debts([d for d in store.list_items(context, "debt") if isinstance(d, Debt)], accounts, balances, links),
+        debts=O.current_debts([d for d in store.list_items(context, "debt") if isinstance(d, Debt)], accounts, balances, links, today),
         goals=O.current_goals([g for g in store.list_items(context, "goal") if isinstance(g, Goal)], accounts, balances),
         plan=plan, rates=store.list_fx_rates(context, limit=2000) if plan.combine_currencies else [],
         bill_links=links.bill_links if links is not None else None,
+        debt_payments=links.debt_payments if links is not None else None,
     )

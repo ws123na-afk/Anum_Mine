@@ -172,9 +172,9 @@ export interface FinanceCommitment {
   name: string;
   currency: string;
   monthly: string;
-  source: 'bill' | 'installment' | 'debt' | 'remittance';
+  source: 'bill' | 'installment' | 'debt' | 'person_loan' | 'remittance';
   ref_id: string;
-  /** weekly, quarterly, yearly, once, in_bill (counted as the bill), with_fee. */
+  /** weekly, quarterly, yearly, once, in_bill (counted as the bill), with_fee, due_this_month (money borrowed from a person, due this month). */
   note: string | null;
 }
 
@@ -188,6 +188,8 @@ export interface FinanceCommitments {
 
 export interface FinancePayoffDebt {
   id: string; name: string; balance: string; apr_percent: string; minimum: string; avalanche_month: number | null; snowball_month: number | null;
+  /** `person_loan`: money borrowed from a person (Lent and borrowed), no interest. Older servers leave it out (a Debt). */
+  source?: 'debt' | 'person_loan';
 }
 
 export interface FinancePayoffOrder {

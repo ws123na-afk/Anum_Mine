@@ -781,6 +781,8 @@ class PayoffDebtView(BaseModel):
     minimum: Decimal
     avalanche_month: int | None
     snowball_month: int | None
+    # "person_loan": money borrowed from a person (Lent and borrowed), counted as a debt with no interest.
+    source: Literal["debt", "person_loan"] = "debt"
 
 
 class PayoffOrderView(BaseModel):
@@ -821,6 +823,7 @@ def payoff_views(ctx: S.PlanContext, context: TenantContext, currency: str | Non
         if currency and cur != currency:
             continue
         debts = S.plan_debts(ctx, cur)
+        people = {d.id for d in ctx.debts if getattr(d, "source", None) == "person_loan"}
         planned = S.planned_payment(context, cur)
         chosen = payment if payment is not None and (currency or len(S.debt_currencies(ctx)) == 1) else planned
         if minimums_only:
@@ -834,7 +837,8 @@ def payoff_views(ctx: S.PlanContext, context: TenantContext, currency: str | Non
         out.append(PayoffView(
             currency=cur, payment=r.avalanche.payment, planned_payment=planned, minimums_only=minimums_only, below_minimums=r.avalanche.below_minimums,
             debts=[PayoffDebtView(id=d.id, name=d.name, balance=quantize(d.balance, cur), apr_percent=d.apr_percent, minimum=quantize(d.minimum, cur),
-                                  avalanche_month=r.avalanche.paid_off_in.get(d.id), snowball_month=r.snowball.paid_off_in.get(d.id)) for d in debts],
+                                  avalanche_month=r.avalanche.paid_off_in.get(d.id), snowball_month=r.snowball.paid_off_in.get(d.id),
+                                  source="person_loan" if d.id in people else "debt") for d in debts],
             avalanche=order(r.avalanche), snowball=order(r.snowball), cheaper=r.cheaper, interest_saved=r.interest_saved,
             first_win_months=r.first_win_months, missing_rates=[d.name for d in debts if d.apr_percent <= 0],
         ))

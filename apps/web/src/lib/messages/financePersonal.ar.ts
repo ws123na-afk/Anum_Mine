@@ -180,6 +180,7 @@ export const financePersonalAr = {
   'fpm.fixed.note.once': 'فاتورة لمرة واحدة، ليست شهرية',
   'fpm.fixed.note.in_bill': 'محسوبة كفاتورة محفوظة',
   'fpm.fixed.note.with_fee': 'شاملة الرسوم',
+  'fpm.fixed.note.due_this_month': 'مقترض من شخص، مستحق هذا الشهر',
   'fpm.kind.rent': 'الإيجار',
   'fpm.kind.bill': 'الفواتير',
   'fpm.kind.subscription': 'الاشتراكات',

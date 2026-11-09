@@ -491,6 +491,11 @@ def _coming(today: date, bills: list[Bill], debts: list[Debt], card_debt_ids: se
             continue  # its minimum is saved as a bill above: counted once
         kind: ComingKind = "card_minimum" if debt.id in card_debt_ids or debt.kind == DebtKind.CARD else "minimum"
         amount = _q(M.debt_minimum(debt), currency)
+        if isinstance(debt, O.PersonDebt) and debt.due_on is not None:
+            # Borrowed from a person: due on its own date (an overdue one is still to pay).
+            items.append(ComingPayment(kind=kind, name=debt.name, ref_id=debt.id, amount=amount, due_on=debt.due_on,
+                                       days_until=(debt.due_on - today).days))
+            continue
         if debt.due_day is None:
             items.append(ComingPayment(kind=kind, name=debt.name, ref_id=debt.id, amount=amount, due_on=None, days_until=None))
             continue

@@ -181,6 +181,7 @@ export const financePersonalEn = {
   'fpm.fixed.note.once': 'a one-off bill, not monthly',
   'fpm.fixed.note.in_bill': 'already counted as a saved bill',
   'fpm.fixed.note.with_fee': 'includes the fee',
+  'fpm.fixed.note.due_this_month': 'borrowed from a person, due this month',
   'fpm.kind.rent': 'Rent',
   'fpm.kind.bill': 'Bills',
   'fpm.kind.subscription': 'Subscriptions',

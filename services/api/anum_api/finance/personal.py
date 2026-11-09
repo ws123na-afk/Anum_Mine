@@ -356,6 +356,8 @@ def fixed_commitments(bills: list[Bill], debts: list[Debt], installments: list[I
     * Installment plans (Tamara, Tabby, ...): this month's unpaid installments per order; an order whose merchant or
       provider is also saved as a bill is the bill.
     * Debt minimums (at most what is owed); a minimum also saved as a bill is the bill (``commitment_math.bill_for_debt``).
+      Money borrowed from a person comes in as a debt (``obligations.borrowed_debts``) with the amount left as its
+      minimum in the month it is due (source ``person_loan``, note ``due_this_month``).
     * Regular remittances: the newest per recipient and currency, amount plus fee; one also saved as a bill is the bill.
     """
     counted: list[Commitment] = []
@@ -387,7 +389,10 @@ def fixed_commitments(bills: list[Bill], debts: list[Debt], installments: list[I
         if not M.owes_minimum(debt):
             continue
         kind: CommitmentKind = "card_minimum" if debt.kind == DebtKind.CARD else "loan_minimum"
-        row = Commitment(kind=kind, name=debt.name, currency=debt.currency, monthly=M.debt_minimum(debt), source="debt", ref_id=debt.id)
+        # Money borrowed from a person (``obligations.PersonDebt``) has a minimum only in the month it is due.
+        person = getattr(debt, "source", None) == "person_loan"
+        row = Commitment(kind=kind, name=debt.name, currency=debt.currency, monthly=M.debt_minimum(debt), source="person_loan" if person else "debt",
+                         ref_id=debt.id, note="due_this_month" if person else None)
         if M.bill_for_debt(debt, active) is not None:
             skipped.append(Commitment(**{**row.__dict__, "note": "in_bill"}))
         else:
