@@ -93,8 +93,91 @@ PDF statements (text, scanned or password protected) are read and reviewed on th
 - **Amounts.** `1,234.50`, `1.234,50`, `-12.00`, `(12.00)`, `12.00 DR`, `5.00 CR`, `AED 9`, Arabic-Indic digits.
 - **Limits.** 2 MB, 5,000 rows, 50 columns, 1,000 characters a cell, 500 characters a description. Larger files are refused with what to do ("export one month at a time").
 - **Untrusted input.** The file is text only: never evaluated or opened by a spreadsheet program. Descriptions are stripped of control, format and direction-override characters. Nothing in a file can choose an account, a tool or a rule.
-- **Duplicates.** Each row's hash covers the account, date, amount, currency, cleaned description and its occurrence number among identical rows in the same file. The hash is unique per account, so importing the same or an overlapping statement again adds only new rows; two identical purchases on one day in one file stay two rows.
+- **Duplicates.** Each row's hash covers the account, date, amount, currency, cleaned description and its occurrence number among identical rows in the same file. The hash is unique per account, so importing the same or an overlapping statement again adds only new rows; two identical purchases on one day in one file stay two rows. Beyond the hash, every row goes through the [statement matching engine](#statement-matching): rows that SMS, Apple Pay or the person already recorded are attached to that record instead of being added, and the preview groups rows by what the import will do.
+- **Running balance and reference.** A `balance` column (the balance after the row) feeds the [balance check](#reconciliation); a `reference` column is the bank's reference, used by the matching engine. Both are detected from common names and can be mapped.
+- **Balances.** `opening_balance` and `closing_balance` (optional, as printed on the statement) are checked against the rows.
 - **Export.** `GET /api/v1/finance/transactions/export.csv` (same filters as the list, at most 10,000 rows). Text cells that start with `=`, `+`, `-`, `@`, `|`, `%`, a tab or a carriage return get a leading apostrophe so a spreadsheet does not run them as formulas.
+
+## Statement matching
+
+One engine reads every statement row against what the person's ledger already holds, for CSV and PDF alike (`finance/statement_match.py`, pure; `finance/statement_ledger.py` reads and writes the stores; `finance/statement_import.py` holds the views and the transfer routes). It runs when the preview is built and again, on the live ledger and under the owner's lock, when the rows are imported, so a preview that went stale cannot double count. It compares each row with the records on that account from any source: an earlier statement, an iPhone SMS, Apple Pay, an entry the person made (including installment payments once they are in the ledger). Reversal entries are not records of their own.
+
+Every row gets one status, with a reason code and the record it matched:
+
+| Status | When | What the import does by default |
+|---|---|---|
+| `exact_duplicate` | The same statement row was imported or confirmed before (same dedupe hash, including rows that only confirmed an SMS), is waiting in Review from an earlier import, or another statement already recorded the same day, amount and merchant (`same_statement_row`) | Left out. A `same_statement_row` duplicate may be ticked to import anyway; a row seen before by its hash never can |
+| `matched_existing` | An SMS, Apple Pay or hand-entered record of the same purchase | No new transaction: the row is attached to the record as a `statement` source and the record is marked reconciled. If the bank billed a different amount for the same foreign purchase, the record is corrected to the billed amount (unless unticked) |
+| `possible_duplicate` | Same amount and dates but the merchants say nothing or disagree, or two different records fit | Held in Finance, iPhone SMS, Review (`ambiguous_match`). Ticked: imported as a separate payment. Skipped: left out |
+| `new` | Nothing recorded fits | Imported. Unticked: left out |
+
+### How matching works
+
+Stages run strongest first and stop at the first one that gives a unique, one to one answer; anything ambiguous goes to the person.
+
+| Stage | Rule | Window |
+|---|---|---|
+| 0. Same row | Dedupe hash (account, date, amount, currency, cleaned description, occurrence) already in the ledger or in an attached or waiting statement row | Same date |
+| 1. Identifier | The bank's reference on the row agrees with the record's; a conflicting reference rules the record out | Statement posts 0 to 3 days after the record |
+| 2. Amount and merchant | Same direction, amount and currency, and the merchant words agree | 0 to 3 days |
+| 2b. Foreign amount | The same original foreign amount and currency (the row's text or columns against the SMS reading), the billed amounts within 10 % of each other, merchants not disagreeing | 0 to 3 days |
+| 3. Weak | Same amount and window, nothing else agrees | Never attached: `possible_duplicate` |
+
+- **Descriptors are normalized first:** card numbers, masked digits, dates and times, `POS`/`VIS`/`DEB`/`MADA` style prefixes and common city and country suffixes are removed before words are compared, and a word with digits in it (a reference such as `88AB12`) is not a merchant word.
+- **One to one.** A record absorbs at most one statement row. Rows are taken in date then line order, candidates in a fixed order (fewest days apart, most words shared, oldest), so the answer is the same every time.
+- **Two identical purchases on one day stay two rows.** Two records nobody could tell apart (same day, amount and merchant) are interchangeable, so two such rows match two such records; with one record, the second row is `new`. Two records that differ (other days) make the row `possible_duplicate`. A PDF row's printed time can pick between them when exactly one is within 30 minutes.
+- **No amount tolerance** for same-currency matches: amounts are equal or they are not. The only tolerance is for the same foreign purchase billed differently, and that difference is shown and corrected, never absorbed silently.
+- **Corrections go through the audited path.** A hand-entered or statement record is reposted in its canonical chain (as `PATCH /transactions` does); an SMS or Apple Pay record is reversed and posted again from its message with the original amount and the billed amount (as Finance, iPhone SMS, Review does). The journal keeps both entries; the import's audit row counts `corrected`.
+- **Not built:** one statement row matched to several SMS rows (one to many). Banks rarely split one card purchase into several SMS; if it happens the row is `new` or `possible_duplicate` and the person decides.
+
+The preview answers, for every row, `match` (`status`, `code`, `reason` in English, `record`, `candidates`, `lag_days`, `amount_difference`, `bill`, `transfer`, `default_import`) and `fx`, plus `counts` per status. The import takes the person's choices as `decisions: [{line, action: "import" | "skip", bill: false, transfer: true | false, correct: false}]` (CSV, by line) or the same fields on each PDF row, and answers `reconciled`, `held_for_review`, `corrected`, `skipped`, `bills_paid`, `bills_review` and `transfers` next to the counts it always had.
+
+### FX details from the row text
+
+`finance/fx_text.py` is the one reader of money in words, shared with the SMS parser (it holds the currency words, the amount pattern and the "second amount in another currency is the billed one" rule). For a statement row it reads, from the description and any mapped columns (columns win): the original amount and currency (`USD 20.00`, `20.00 USD`, `20.00 دولار`), the rate (`@ 3.84`, `FX rate 3.8400`, `rate: 3.84`, `سعر الصرف 3.84`), a markup (`markup 2.5%`, `هامش 2.5%`) and a fee (`intl txn fee SAR 1.20`, `رسوم 1.20 ر.س`). A fee or markup on a row with no foreign amount or rate is not an FX detail: a row that is only a fee is its own `fees` expense.
+
+- The posted ledger amount stays the bank-billed amount in the account's currency. The original amount, rate, fee and markup go in the transaction's notes (as before) and in the preview.
+- **A rate is never invented.** It is printed (`printed`), from a mapped column (`column`) or worked out from two printed amounts (`implied`, labelled "computed from the two amounts").
+- The preview checks billed against original x rate, plus the printed fee or markup when that comes closer, and shows the difference. Within two minor units of the account's currency (0.02 SAR, 0.002 KWD) it ties. When the rate is printed it also shows the markup the billed amount implies, labelled as computed.
+- A fee printed inside the purchase row is informational; a separate fee row is its own `fees` expense (unchanged).
+
+### Bills
+
+A row that pays one of the person's saved, active bills is recorded as that due date's payment through the same path the Bills page uses (`links.create`, dimension `bill`, docs: [Bills and budgets](#bills-and-budgets)); the due date's status is then `paid`. A due date absorbs at most one row, and a due date already matched is not offered.
+
+| Strength | Rule | On import |
+|---|---|---|
+| Strong | The bill's name shares a word with the row, the amount is within 10 % of the bill's expected amount, and the row is from 7 days before to 10 days after the due date | Recorded as paid (untick to skip) |
+| Weak | The name agrees but the amount or the date does not (within 30 days) | A link waiting for review (`needs_review`, reason `weak_match`): the due date shows `review`, never `paid`, until the person confirms or removes it under Bills |
+
+Without the bill's name in the row there is no bill match at all, whatever the amount.
+
+### Own transfers
+
+Money out of one of the person's accounts and the same money into another of them is one transfer, not an expense and an income (for example 1000 leaving the salary account and 1000 arriving on the card ending 5377).
+
+| Rule | Detail |
+|---|---|
+| Accounts | Two different accounts of the same person in the same workspace; never two rows on one account |
+| Amount | Equal and opposite; in different currencies, one side must state the other side's amount (an original amount) |
+| Date | The money in arrives 0 to 5 days after the money out |
+| Strong | Plus a transfer or card payment word in either text (`transfer`, `TRF`, `card payment`, `payment received`, `تحويل`, `سداد`), or the other account's last four digits or its own name in the text |
+| Weak | Amount and date only: listed under "Needs your decision", paired only when ticked |
+
+The pairing runs against rows already in the ledger too (the other side may have been imported earlier or come from an SMS), one to one, and skips records already paired. On import both sides become category `transfer` (out of spend and income in every summary, as before) where they are hand-entered or statement records; an SMS or Apple Pay side keeps its reading (an SMS transfer is already a transfer) and is corrected under Review if it is not. The pair is kept as a finance link in the new `transfer` dimension: the money-out side's canonical transaction links to the money-in side's (`target_type: finance_transfer`), once (`single_payment`), checked by `commitments.vet_transfer` (money out, two different accounts). Removing the link (`DELETE` on the links API) unpairs it; the categories stay as they are.
+
+**Find transfers** pairs rows that are already in the ledger: `GET /api/v1/finance/transfers/candidates?start&end` (a preview, at most 400 days, nothing changes) and `POST /api/v1/finance/transfers {start, end, pairs: [{out_record_id, into_record_id}]}` (only the ticked pairs; each is checked again and refused with `not_available` or `not_a_transfer` if it changed). Both need `finance:manage` and read only the caller's own ledger. Finance, Import shows it under "Transfers between your accounts"; nothing pairs on its own.
+
+### Reconciliation
+
+The preview checks the statement against its own balances: the opening balance plus every row (new, already recorded and matched alike) against the closing balance. The balances come from the person (opening and closing fields, as printed on the statement), from a mapped running balance column (CSV: `Balance`, `Running balance`, `الرصيد`; a newest-first export is put in date order first) or from the PDF reader. The answer is `tied`, `differs` (with the difference and the rows after which the running balance breaks) or `unknown` (nothing to check against). It is stored on the import (`finance_imports.reconciliation`, migration `0145_finance_statement_match`) and `GET /accounts/overview` reads it: a tied statement counts as the account's last reconciliation (`last_reconciled_at`), the newest one is `last_statement`, and a statement that does not tie adds `statement_differs` to what needs attention. Finance, Accounts shows "Last statement ties" or the difference on the account's card.
+
+### Fixed in this pass
+
+- Re-importing a statement whose row only confirmed an SMS added it again (the confirming row had no transaction of its own, so its hash was never found). Such rows are now `exact_duplicate` (`reconciled_before`).
+- A reference such as `88AB12` counted as a merchant word and made merchants disagree.
+- A PDF row billed in another currency showed English-only, SAR-only help text; it is now in the message catalogs and names the account's currency.
+- A preview showed only the first 20 rows; it now answers every row, grouped and paged in the web.
 
 ## Categories
 
@@ -330,6 +413,7 @@ All under `/api/v1/finance`, every route checking permissions on the server:
 | `GET, POST /accounts`; `GET, PATCH, DELETE /accounts/{id}` | read for GET, manage otherwise |
 | `GET, POST /transactions`; `GET, PATCH, DELETE /transactions/{id}`; `GET /transactions/export.csv` (`q`, `account_id`, `category`, `from`, `to`, `direction`, `limit`, `offset`) | read for GET, manage otherwise |
 | `POST /imports/preview`, `POST /imports`, `GET /imports`, `DELETE /imports/{id}` | manage (GET: read) |
+| `GET /transfers/candidates`, `POST /transfers` ([own transfers](#own-transfers)) | manage |
 | `GET /bills/upcoming?days=`, `GET /bills/suggestions` | `finance:read` |
 | `GET /bill-schedule`, `/payment-candidates`, `/debt-payments`, `/debt-plan`, `/budgets` | `finance:read` |
 | `POST, DELETE /bills/{id}/matches`, `/debts/{id}/payments`; `PUT /debt-plan`, `/budgets/alerts` | `finance:manage` |

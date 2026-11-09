@@ -12,10 +12,12 @@ import { formatAmount, rangeLabel } from './lib/finance';
 import { formatDateTime } from './lib/i18n';
 import {
   LOW_CONFIDENCE, PDF_PAGE_SIZE, PDF_ROLES, checkRoles, directionHint, filterRows, flagLabel, foreignDetail, importBody, liveCheck, liveSummary, pdfErrorCode, reviewRows,
-  roleLabel, rowProblem, type ReviewRow,
+  roleLabel, rowProblem, type PdfChoice, type ReviewRow,
 } from './lib/financePdf';
 import { t } from './lib/i18n';
 import { ConfirmDialog } from './Dialog';
+import { MatchPreview } from './FinanceStatementMatch';
+import type { MatchRow } from './lib/financeMatch';
 import { FormError, Notice, failed, type Load } from './FinanceParts';
 
 type Phase = { kind: 'reading' } | { kind: 'password'; wrong: boolean } | { kind: 'error'; message: string } | { kind: 'ready' };
@@ -38,6 +40,8 @@ export function PdfStatementImport({ file, account, onImported, onCancel }: {
   const [query, setQuery] = useState(''), [offset, setOffset] = useState(0);
   const [accept, setAccept] = useState(false), [keep, setKeep] = useState(false), [remember, setRemember] = useState(false);
   const [busy, setBusy] = useState(false), [error, setError] = useState<string | null>(null);
+  // The person's ticks on the matching engine's answers, by row key (docs/finance.md#statement-matching).
+  const [choices, setChoices] = useState<Record<string, PdfChoice>>({});
   const passwordId = useId(), errorId = useId(), searchId = useId(), headId = useId(), checkId = useId();
   const reviewRef = useRef<HTMLHeadingElement>(null);
   const currency = account.currency;
@@ -50,7 +54,7 @@ export function PdfStatementImport({ file, account, onImported, onCancel }: {
       setView(result); setRoles(result.roles); setDateFormat(options.dateFormat ?? '');
       // A layout the owner corrected (other roles or date format) is offered to be remembered.
       setRemember(Boolean(options.roles?.length || options.dateFormat));
-      setRows(reviewRows(result)); setOpening(result.check.opening ?? ''); setClosing(result.check.closing ?? '');
+      setRows(reviewRows(result)); setChoices({}); setOpening(result.check.opening ?? ''); setClosing(result.check.closing ?? '');
       setOffset(0); setAccept(false); setPasswordError(null); setPhase({ kind: 'ready' });
       requestAnimationFrame(() => reviewRef.current?.focus());
     } catch (e) {
@@ -91,6 +95,9 @@ export function PdfStatementImport({ file, account, onImported, onCancel }: {
   const included = rows.filter((row) => row.include);
   const left = rows.length - included.length;
   const fresh = included.filter((row) => !row.duplicate).length;
+  const matchRows: MatchRow[] = useMemo(() => rows.filter((row) => row.include && row.match).map((row) => ({
+    id: row.key, line: row.line, posted_on: row.posted_on, description: row.description, amount: row.amount, match: row.match!, fx: row.fx,
+  })), [rows]);
 
   function change(key: string, patch: Partial<ReviewRow>) {
     // Editing an amount is the owner's answer to a guessed sign.
@@ -104,7 +111,7 @@ export function PdfStatementImport({ file, account, onImported, onCancel }: {
       const layout = view.fingerprint && view.layout === 'table'
         ? { fingerprint: view.fingerprint, labels: view.columns.map((c) => c.label), roles, date_format: dateFormat || null, remember }
         : null;
-      const result = await api.importPdfStatement(importBody(view, account.id, rows, opening, closing, (check.status === 'mismatch' || summaryOff) && accept, layout));
+      const result = await api.importPdfStatement(importBody(view, account.id, rows, opening, closing, (check.status === 'mismatch' || summaryOff) && accept, layout, choices));
       let vault: string | null = null;
       if (keep) {
         try {
@@ -205,6 +212,9 @@ export function PdfStatementImport({ file, account, onImported, onCancel }: {
       </div>
     </section>
 
+    {matchRows.length > 0 && <MatchPreview rows={matchRows} currency={currency} choices={choices}
+      onChoose={(id, patch) => setChoices((current) => ({ ...current, [id]: { ...current[id], ...patch } }))} />}
+
     <div className="cmFilters">
       <label className="cmInline cmSearch" htmlFor={searchId}><span>{t('fpdf.rows.search')}</span>
         <input id={searchId} type="search" value={query} onChange={(e) => { setQuery(e.target.value); setOffset(0); }} /></label>
@@ -231,14 +241,14 @@ export function PdfStatementImport({ file, account, onImported, onCancel }: {
               <small>{t('fpdf.rows.page', { page: row.page })}{row.reference ? ` · ${t('fpdf.rows.reference', { reference: row.reference })}` : ''}</small>
               {(row.kind || row.time) && <small dir="auto">{[row.kind, row.time ? t('fpdf.row.time', { time: row.time }) : null].filter(Boolean).join(' · ')}</small>}
               {row.parent_line && <small>{t('fpdf.row.charge', { line: row.parent_line })}</small>}
-              {row.currency && row.currency !== currency && <label className="field" style={{ marginBlock: 6 }}>
-                <span>Actual amount billed by bank ({currency})</span>
+              {row.currency && row.currency !== currency && <label className="field finPdfBilled">
+                <span>{t('fpdf.billed.label', { currency })}</span>
                 <input className="finPdfAmount" dir="ltr" inputMode="decimal"
                   value={row.billed_amount ?? ''}
-                  placeholder={`Enter posted ${currency} amount, with sign`}
-                  aria-label={`Bank-billed ${currency} for row ${row.line}`}
+                  placeholder={t('fpdf.billed.placeholder', { currency })}
+                  aria-label={t('fpdf.billed.aria', { currency, line: row.line })}
                   onChange={(e) => change(row.key, { billed_amount: e.target.value, billed_currency: currency })} />
-                <small>The displayed {row.currency} amount stays as original purchase evidence. Do not guess the SAR conversion.</small>
+                <small>{t('fpdf.billed.help', { original: row.currency, currency })}</small>
               </label>}
               {directionHint(row) && <small role="alert" className="finPdfFlag">{directionHint(row)}</small>}
               {foreignDetail(row) && <small dir="auto">{foreignDetail(row)}</small>}

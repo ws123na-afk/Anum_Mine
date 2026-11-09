@@ -145,6 +145,9 @@ class ImportRecord(_Owned):
     error_count: int
     file_sha256: str
     created_at: datetime
+    # The statement's balance check when it was imported (docs/finance.md#reconciliation): ``status`` ("tied",
+    # "differs" or "unknown"), ``opening``, ``closing``, ``rows_total``, ``difference`` as decimal strings.
+    reconciliation: dict[str, str | None] | None = None
 
 
 class Bill(_Owned):

@@ -12,7 +12,7 @@ import type {
   FinanceAgentDecision, FinanceEquity, FinanceIntelAgent, FinanceIntelOverview, FinanceStrategy, FinanceStrategyRun, FinanceStrategyState,
   FinanceIntelBarsInput, FinanceIntelBarsResult, FinanceIntelCycle, FinanceIntelInstrument, FinanceIntelInstrumentInput, FinanceIntelPhase,
   FinanceIntelRule, FinanceStrategyInput, FinanceDailyReport, FinanceDailyReportItem, FinancePreflight, FinancePreflightInput,
-  FinancePdfImportInput, FinancePdfRole, FinancePdfStatement, FinancePdfTemplate,
+  FinancePdfImportInput, FinancePdfRole, FinancePdfStatement, FinancePdfTemplate, FinanceTransferCandidates, FinanceTransferResult,
   FinanceAdvisorNotePage, FinanceAdvisorNoteView, FinanceAdvisorOverview, FinanceAdvisorSettings,
 } from '@anum/contracts';
 import { apiBaseUrl, apiRequest, apiRequestVoid, authHeaders } from './api';
@@ -52,6 +52,10 @@ export const previewImport = (body: FinanceImportInput) => send<FinanceImportPre
 export const confirmImport = (body: FinanceImportInput) => send<FinanceImport>('POST', '/imports', body);
 export const listImports = (limit: number, offset: number) => get<FinancePage<FinanceImport>>(`/imports${query({ limit, offset })}`);
 export const deleteImport = (importId: string) => remove(`/imports/${id(importId)}`);
+/** Own transfers already in the ledger, not yet paired (docs/finance.md#own-transfers). A preview: nothing changes. */
+export const findTransfers = (start: string, end: string) => get<FinanceTransferCandidates>(`/transfers/candidates${query({ start, end })}`);
+export const pairTransfers = (body: { start: string; end: string; pairs: { out_record_id: string; into_record_id: string }[] }) =>
+  send<FinanceTransferResult>('POST', '/transfers', body);
 
 export interface PdfReadOptions { account_id: string; filename: string; roles?: readonly FinancePdfRole[] | null; date_format?: string | null }
 

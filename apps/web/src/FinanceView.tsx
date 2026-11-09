@@ -17,6 +17,8 @@ import {
 import { describeError, isPermissionDenied } from './lib/errors';
 import { isPdf } from './lib/financePdf';
 import type { PdfImported } from './FinancePdfImport';
+import { decisionsFor, tally, type Choice, type MatchRow } from './lib/financeMatch';
+import { importNotice } from './lib/financeImportNotice';
 import { formatDateTime, t, type MessageKey } from './lib/i18n';
 import { figure, type Figure } from './lib/pageSummary';
 import { viewLabel } from './lib/shell';
@@ -41,6 +43,9 @@ const ResearchPanel = lazy(() => import('./FinanceResearch').then((m) => ({ defa
 const LedgerPanel = lazy(() => import('./FinanceSms').then((m) => ({ default: m.LedgerPanel })));
 const PdfStatementImport = lazy(() => import('./FinancePdfImport').then((m) => ({ default: m.PdfStatementImport })));
 const PdfTemplates = lazy(() => import('./FinancePdfImport').then((m) => ({ default: m.PdfTemplates })));
+const MatchPreview = lazy(() => import('./FinanceStatementMatch').then((m) => ({ default: m.MatchPreview })));
+const ReconciliationBanner = lazy(() => import('./FinanceStatementMatch').then((m) => ({ default: m.ReconciliationBanner })));
+const TransferFinder = lazy(() => import('./FinanceStatementMatch').then((m) => ({ default: m.TransferFinder })));
 // Pages with their own head (lib/financeNav.ts OWN_HEAD_TABS, docs/finance.md#finance-shell), each its own lazy chunk.
 const ReportsPage = lazy(() => import('./FinanceReportsPage').then((m) => ({ default: m.FinanceReportsPage })));
 const SafePage = lazy(() => import('./FinanceSafePage').then((m) => ({ default: m.FinanceSafePage })));
@@ -269,7 +274,10 @@ export function Import({ accounts, onChanged, onAddAccount, onDone }: { accounts
   const [pdf, setPdf] = useState<File | null>(null), [pdfOpen, setPdfOpen] = useState(false), [inputKey, setInputKey] = useState(0);
   const [templatesRefresh, setTemplatesRefresh] = useState(0);
   const [preset, setPreset] = useState(''), [dateFormat, setDateFormat] = useState('');
-  const [mapping, setMapping] = useState<{ date: string; description: string; amount: string; debit: string; credit: string; direction: string; currency: string; original_amount: string; original_currency: string; billed_amount: string; billed_currency: string; fx_rate: string; fee: string } | null>(null);
+  const [mapping, setMapping] = useState<{ date: string; description: string; amount: string; debit: string; credit: string; direction: string; currency: string; original_amount: string; original_currency: string; billed_amount: string; billed_currency: string; fx_rate: string; fee: string; balance: string; reference: string } | null>(null);
+  // The person's ticks on the matching engine's answers (docs/finance.md#statement-matching), by row line.
+  const [choices, setChoices] = useState<Record<string, Choice>>({});
+  const [opening, setOpening] = useState(''), [closing, setClosing] = useState('');
   const [preview, setPreview] = useState<FinanceImportPreview | null>(null);
   const [error, setError] = useState<string | null>(null), [notice, setNotice] = useState<string | null>(null), [busy, setBusy] = useState(false);
   const [history, setHistory] = useState<Load<FinancePage<FinanceImport>>>({ kind: 'loading' });
@@ -286,10 +294,14 @@ export function Import({ accounts, onChanged, onAddAccount, onDone }: { accounts
     account_id: accountId, filename: file?.name ?? 'statement.csv', content: file?.content ?? '', preset: preset || null, date_format: dateFormat || null,
     mapping: mapping ? { date: mapping.date, description: mapping.description, amount: mapping.amount || null, debit: mapping.debit || null, credit: mapping.credit || null, direction: mapping.direction || null,
       currency: mapping.currency || null, original_amount: mapping.original_amount || null, original_currency: mapping.original_currency || null,
-      billed_amount: mapping.billed_amount || null, billed_currency: mapping.billed_currency || null, fx_rate: mapping.fx_rate || null, fee: mapping.fee || null } : null,
+      billed_amount: mapping.billed_amount || null, billed_currency: mapping.billed_currency || null, fx_rate: mapping.fx_rate || null, fee: mapping.fee || null,
+      balance: mapping.balance || null, reference: mapping.reference || null } : null,
+    opening_balance: opening.trim() || null, closing_balance: closing.trim() || null,
   });
+  const matchRows: MatchRow[] = (preview?.rows ?? []).map((row) => ({ id: String(row.line), line: row.line, posted_on: row.posted_on, description: row.description,
+    amount: row.amount, match: row.match, fx: row.fx ?? null }));
   async function pickFile(list: FileList | null) {
-    setPreview(null); setNotice(null); setError(null); setMapping(null); setPdf(null); setPdfOpen(false);
+    setPreview(null); setNotice(null); setError(null); setMapping(null); setPdf(null); setPdfOpen(false); setChoices({}); setOpening(''); setClosing('');
     const picked = list?.[0];
     if (!picked) { setFile(null); return; }
     const checked = checkFile(picked, maxBytes);
@@ -304,23 +316,20 @@ export function Import({ accounts, onChanged, onAddAccount, onDone }: { accounts
     setBusy(true); setError(null); setNotice(null);
     try { const result = await api.previewImport(body()); setPreview(result); setMapping({ date: result.mapping.date, description: result.mapping.description, amount: result.mapping.amount ?? '', debit: result.mapping.debit ?? '', credit: result.mapping.credit ?? '', direction: result.mapping.direction ?? '',
         currency: result.mapping.currency ?? '', original_amount: result.mapping.original_amount ?? '', original_currency: result.mapping.original_currency ?? '',
-        billed_amount: result.mapping.billed_amount ?? '', billed_currency: result.mapping.billed_currency ?? '', fx_rate: result.mapping.fx_rate ?? '', fee: result.mapping.fee ?? '' }); }
+        billed_amount: result.mapping.billed_amount ?? '', billed_currency: result.mapping.billed_currency ?? '', fx_rate: result.mapping.fx_rate ?? '', fee: result.mapping.fee ?? '',
+        balance: result.mapping.balance ?? '', reference: result.mapping.reference ?? '' }); }
     catch (e) { setPreview(null); setError(describeError(e)); } finally { setBusy(false); }
   }
   async function confirm() {
     setBusy(true); setError(null);
     try {
-      const result = await api.confirmImport(body());
-      const matched = (result.reconciled ?? 0) || (result.held_for_review ?? 0)
-        ? ` ${t('fsms.import.reconciled', { reconciled: result.reconciled ?? 0, review: result.held_for_review ?? 0 })}` : '';
-      setNotice(t('finance.import.done', { imported: result.imported_count, duplicates: result.duplicate_count, errors: result.error_count }) + matched);
-      setPreview(null); setFile(null); setMapping(null); onChanged(); void loadHistory();
+      const result = await api.confirmImport({ ...body(), decisions: decisionsFor(matchRows, choices) });
+      setNotice(importNotice(result));
+      setPreview(null); setFile(null); setMapping(null); setChoices({}); onChanged(); void loadHistory();
     } catch (e) { setError(describeError(e)); } finally { setBusy(false); }
   }
   function pdfImported({ result, vault }: PdfImported) {
-    const matched = (result.reconciled ?? 0) || (result.held_for_review ?? 0)
-      ? ` ${t('fsms.import.reconciled', { reconciled: result.reconciled ?? 0, review: result.held_for_review ?? 0 })}` : '';
-    setNotice(t('finance.import.done', { imported: result.imported_count, duplicates: result.duplicate_count, errors: result.error_count }) + matched + (vault ? ` ${vault}` : ''));
+    setNotice(importNotice(result) + (vault ? ` ${vault}` : ''));
     setPdf(null); setPdfOpen(false); setInputKey((k) => k + 1); setTemplatesRefresh((n) => n + 1); onChanged(); void loadHistory();
   }
   function pdfCancelled() { setPdf(null); setPdfOpen(false); setInputKey((k) => k + 1); }
@@ -331,6 +340,9 @@ export function Import({ accounts, onChanged, onAddAccount, onDone }: { accounts
     catch (e) { setError(describeError(e)); setUndoing(null); } finally { setBusy(false); }
   }
   const headers = preview?.headers ?? [];
+  const totals = tally(matchRows, choices);
+  // Confirming a recorded payment, holding a row for Review or pairing a transfer is work too, not only new rows.
+  const nothingToDo = totals.import + totals.attach + totals.review === 0;
   const columnSelect = (key: keyof NonNullable<typeof mapping>, label: string, optional: boolean) => <label className="cmInline"><span>{label}</span>
     <select value={mapping?.[key] ?? ''} onChange={(e) => mapping && setMapping({ ...mapping, [key]: e.target.value })}>{optional && <option value="">{t('finance.import.noColumn')}</option>}{headers.filter(Boolean).map((h) => <option key={h} value={h}>{h}</option>)}</select></label>;
   return <>
@@ -373,22 +385,30 @@ export function Import({ accounts, onChanged, onAddAccount, onDone }: { accounts
           {columnSelect('billed_currency', t('finance.import.fxBilledCurrency'), true)}
           {columnSelect('fx_rate', t('finance.import.fxRate'), true)}
           {columnSelect('fee', t('finance.import.fxFee'), true)}
+          {columnSelect('balance', t('finance.import.balanceColumn'), true)}
+          {columnSelect('reference', t('finance.import.referenceColumn'), true)}
           <button type="button" className="secondary" disabled={busy} onClick={() => void runPreview()}><RefreshCw aria-hidden="true" />{t('finance.import.recheck')}</button>
         </div>
       </fieldset>
-      {preview.rows.length > 0 && <div className="cmTableWrap" tabIndex={0}><table className="cmTable finTable">
-        <caption className="visuallyHidden">{t('finance.import.sample')}</caption>
-        <thead><tr><th scope="col">{t('finance.import.line')}</th><th scope="col">{t('finance.col.date')}</th><th scope="col">{t('finance.col.description')}</th><th scope="col">{t('finance.col.category')}</th><th scope="col" className="num">{t('finance.col.amount')}</th></tr></thead>
-        <tbody>{preview.rows.map((row) => <tr key={row.line} className={row.duplicate ? 'finDuplicate' : undefined}>
-          <td>{row.line}</td><td><bdi dir="ltr">{row.posted_on}</bdi></td><td className="finDescription"><strong dir="auto">{row.description}</strong>{row.direction_warning && <small role="alert" style={{ display: "block" }}>{row.direction_warning}</small>}{row.notes && <small style={{ display: 'block' }}>{row.notes}</small>}{row.duplicate && <small>{t('finance.import.duplicate')}</small>}</td><td>{categoryLabel(row.category)}</td><td className="num"><Money value={row.amount} currency={row.currency} signed /></td>
-        </tr>)}</tbody>
-      </table></div>}
+      <fieldset className="finMapping"><legend>{t('fmatch.recon.title')}</legend>
+        <p className="muted">{t('fmatch.recon.optional')}</p>
+        <div className="cmFilters">
+          <label className="cmInline"><span>{t('fmatch.recon.opening', { currency: selected?.currency ?? '' })}</span><input inputMode="decimal" dir="ltr" value={opening} onChange={(e) => setOpening(e.target.value)} /></label>
+          <label className="cmInline"><span>{t('fmatch.recon.closing', { currency: selected?.currency ?? '' })}</span><input inputMode="decimal" dir="ltr" value={closing} onChange={(e) => setClosing(e.target.value)} /></label>
+          <button type="button" className="secondary" disabled={busy} onClick={() => void runPreview()}><RefreshCw aria-hidden="true" />{t('fmatch.recon.recheck')}</button>
+        </div>
+      </fieldset>
+      <Suspense fallback={null}>
+        <ReconciliationBanner check={preview.reconciliation} currency={preview.currency} />
+        {matchRows.length > 0 && <MatchPreview rows={matchRows} currency={preview.currency} choices={choices}
+          onChoose={(id, patch) => setChoices((current) => ({ ...current, [id]: { ...current[id], ...patch } }))} />}
+      </Suspense>
       {preview.errors.length > 0 && <details className="finErrors"><summary>{t('finance.import.errors', { count: preview.error_count })}</summary><ul>{preview.errors.map((e) => <li key={e.line}>{t('finance.import.errorLine', { line: e.line, message: e.message })}</li>)}</ul></details>}
       <div className="actions">
-        <button type="button" disabled={busy || preview.new_count === 0} onClick={() => void confirm()}>{busy ? t('finance.import.importing') : t('finance.import.confirm', { count: preview.new_count })}</button>
+        <button type="button" disabled={busy || nothingToDo} onClick={() => void confirm()}>{busy ? t('finance.import.importing') : t('finance.import.confirm', { count: totals.import })}</button>
         <button type="button" className="secondary" disabled={busy} onClick={() => setPreview(null)}>{t('common.cancel')}</button>
       </div>
-      {preview.new_count === 0 && <p className="muted">{t('finance.import.nothingNew')}</p>}
+      {nothingToDo && <p className="muted">{t('finance.import.nothingNew')}</p>}
     </section>}
     <section className="surface cmPanel" aria-labelledby="fin-import-history">
       <h2 id="fin-import-history">{t('finance.import.history')}</h2>
@@ -399,6 +419,7 @@ export function Import({ accounts, onChanged, onAddAccount, onDone }: { accounts
         <button type="button" className="secondary" onClick={() => setUndoing(item)}><Undo2 aria-hidden="true" />{t('finance.import.undo')}</button>
       </li>)}</ul>)}
     </section>
+    <Suspense fallback={null}><TransferFinder onPaired={onChanged} /></Suspense>
     <Suspense fallback={null}><PdfTemplates refresh={templatesRefresh} /></Suspense>
     {undoing && <ConfirmDialog title={t('finance.import.undoTitle')} confirmLabel={t('finance.import.undo')} danger busy={busy} onConfirm={() => void undo()} onCancel={() => setUndoing(null)}>
       <p dir="auto">{t('finance.import.undoText', { file: undoing.filename, count: undoing.imported_count })}</p>
