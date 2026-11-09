@@ -1,6 +1,8 @@
 // The transaction register and account overview (docs/finance.md#register-and-account-overview).
 // Read only; amounts are decimal strings and never added across currencies.
-import type { FinanceCategory, FinanceCategorySource, FinanceCurrencyAmount, FinanceTransaction } from './finance.js';
+import type {
+  FinanceCategory, FinanceCategorySource, FinanceCurrencyAmount, FinanceTransaction, FinanceTransactionType, FinanceTypeSource,
+} from './finance.js';
 
 export type FinanceOrigin = 'sms' | 'apple_pay' | 'statement' | 'manual';
 export type FinanceRowStatus = 'linked' | 'needs_review' | 'duplicate_candidate' | 'uncategorized' | 'recorded';
@@ -27,6 +29,8 @@ export interface FinanceRegisterRow extends FinanceTransaction {
 export interface FinanceRegisterTotals {
   count: number;
   categorized: number;
+  /** Rows of type `uncategorized`: held for review, in neither income nor spend. */
+  uncategorized?: number;
   receipts_missing: number;
   needs_review: number;
   duplicate_candidates: number;
@@ -68,6 +72,9 @@ export interface FinanceRegisterDetail {
   reference: string | null;
   suggested_category: FinanceCategory;
   suggested_by: FinanceCategorySource;
+  /** What the rules make of the row today, read on its own account's kind. */
+  suggested_type?: FinanceTransactionType | null;
+  suggested_type_by?: FinanceTypeSource | null;
   sources: FinanceRegisterSource[];
   receipt_document_ids: string[];
   duplicate: FinanceRegisterRow | null;

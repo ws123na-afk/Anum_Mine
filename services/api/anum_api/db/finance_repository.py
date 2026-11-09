@@ -120,6 +120,12 @@ class FinanceTransactionRecord(Base, _Owned):
     dedupe_hash: Mapped[str] = mapped_column(String(64))
     created_at: Mapped[datetime] = mapped_column(TS)
     updated_at: Mapped[datetime] = mapped_column(TS)
+    # Migration 0148_finance_txn_types (docs/finance.md#transaction-types); NULL on rows stored before it.
+    transaction_type: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    type_source: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    type_confidence: Mapped[Decimal | None] = mapped_column(Numeric(3, 2), nullable=True)
+    type_reason: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    related_transaction_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
 
 
 class FinanceBillRecord(Base, _Owned):

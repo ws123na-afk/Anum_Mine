@@ -33,7 +33,7 @@ from anum_api.finance import ledger as L
 from anum_api.finance import obligations as O
 from anum_api.finance import sms_parser as P
 from anum_api.finance.advisor import AdvisorInputs, build_note
-from anum_api.finance.categories import categorize
+from anum_api.finance.categories import categorize, classify_text
 from anum_api.finance.links_store import FinanceLink, links_memory_store
 from anum_api.finance.models import (
     Account,
@@ -49,6 +49,7 @@ from anum_api.finance.models import (
     Goal,
     PlanSettings,
     Transaction,
+    TransactionType,
 )
 from anum_api.finance.sms_store import sms_memory_store
 
@@ -124,12 +125,42 @@ def test_ledger_dashboard_works_with_a_debt_and_plans_its_payoff() -> None:
     ("CASHBACK CREDIT", "5", AccountKind.CARD, Category.CASHBACK),
     ("WPS SALARY TRANSFER ACME", "10000", None, Category.INCOME),
     ("TRANSFER TO SAMPLE PERSON RENT", "-3000", None, Category.HOUSING),
-    ("INTEREST EARNED", "5", None, Category.INCOME),
-    ("LATE PAYMENT INTEREST", "-50", None, Category.FEES),
-    ("SOMETHING IN", "20", AccountKind.BANK, Category.INCOME),
+    # Interest received is income filed under interest; interest charged is interest, not a bank fee (audit C7, C8).
+    ("INTEREST EARNED", "5", None, Category.INTEREST),
+    ("INTEREST", "5", AccountKind.BANK, Category.INTEREST),
+    ("LATE PAYMENT INTEREST", "-50", None, Category.INTEREST),
+    ("LATE FEE", "-50", None, Category.FEES),
+    # A credit is not automatically income (the owner's rule, November 2026; audit C1): nothing matched, so it is
+    # held as uncategorized under "other", counted as neither income nor spend.
+    ("SOMETHING IN", "20", AccountKind.BANK, Category.OTHER),
+    ("SOMETHING OUT", "-20", AccountKind.BANK, Category.OTHER),
 ])
 def test_built_in_rules(text: str, value: str, kind: AccountKind | None, expected: Category) -> None:
     assert categorize(text, Decimal(value), None, kind)[0] == expected
+
+
+@pytest.mark.parametrize(("text", "value", "kind", "expected"), [
+    ("SOMETHING IN", "20", AccountKind.BANK, TransactionType.UNCATEGORIZED),
+    ("SOMETHING OUT", "-20", AccountKind.BANK, TransactionType.UNCATEGORIZED),
+    ("WPS SALARY TRANSFER ACME", "10000", AccountKind.BANK, TransactionType.INCOME),
+    ("INTEREST EARNED", "5", AccountKind.BANK, TransactionType.INCOME),
+    ("INTEREST", "5", AccountKind.BANK, TransactionType.INCOME),
+    ("LATE PAYMENT INTEREST", "-50", AccountKind.CARD, TransactionType.INTEREST),
+    ("FINANCE CHARGE", "-50", AccountKind.CARD, TransactionType.INTEREST),
+    ("ANNUAL FEE", "-50", AccountKind.CARD, TransactionType.BANK_FEE),
+    ("CASHBACK CREDIT", "5", AccountKind.CARD, TransactionType.CASHBACK),
+    ("REFUND SAMPLE SHOP", "40", AccountKind.BANK, TransactionType.REFUND),
+    ("CARREFOUR", "45", AccountKind.CARD, TransactionType.REFUND),
+    ("CREDIT CARD PAYMENT 1234", "-500", AccountKind.BANK, TransactionType.CARD_PAYMENT),
+    ("PAYMENT RECEIVED - THANK YOU", "500", AccountKind.CARD, TransactionType.CARD_PAYMENT),
+    ("SOME CREDIT", "500", AccountKind.LOAN, TransactionType.CARD_PAYMENT),
+    ("OWN ACCOUNT TRANSFER", "-300", AccountKind.BANK, TransactionType.INTERNAL_TRANSFER),
+    ("TRANSFER TO SAMPLE PERSON", "-300", AccountKind.BANK, TransactionType.UNCATEGORIZED),
+    ("TRANSFER FROM SAMPLE PERSON", "300", AccountKind.BANK, TransactionType.UNCATEGORIZED),
+    ("CARREFOUR CITY CENTRE", "-120", AccountKind.BANK, TransactionType.EXPENSE),
+])
+def test_built_in_types(text: str, value: str, kind: AccountKind, expected: TransactionType) -> None:
+    assert classify_text(text, Decimal(value), None, kind).type == expected
 
 
 def test_owner_rules_and_manual_categories_still_win() -> None:
@@ -161,6 +192,8 @@ def test_a_card_payment_stored_as_income_by_older_rules_is_read_as_a_transfer() 
     row = manual(card["id"], "500", "SAMPLE CREDIT", category="income")
     stored = finance_store.transactions[row["id"]]
     stored.category_source = CategorySource.NONE
+    # Rows stored before transaction types existed have none: the type is derived from the category (the backfill rule).
+    stored.transaction_type = stored.type_source = stored.type_confidence = stored.type_reason = None
     assert amount(summary()["income"]) == Decimal(0)
     assert money(dashboard()["income"]) == Decimal(0)
 
@@ -235,8 +268,12 @@ def test_a_transfer_to_someone_else_is_not_paired() -> None:
     send(s["token"], IN.replace("300.00", "299.00"))
     kinds = sorted(e.kind for e in sms_memory_store.entries.values() if e.status == L.EntryStatus.POSTED)
     assert kinds == ["transfer_in", "transfer_out"]
-    # Transfers are neither income nor spend: the same everywhere.
-    assert amount(summary()["income"]) == Decimal(0) and money(dashboard()["expenses"]) == Decimal(0)
+    # Not paired, so not an own transfer: money sent to another person and money received from one are neither
+    # spending nor income until the owner files them (held as uncategorized). The same everywhere (audit C1, C2, C3).
+    sm, board = summary(), dashboard()
+    assert amount(sm["income"]) == Decimal(0) and money(board["income"]) == Decimal(0)
+    assert amount(sm["spend"]) == Decimal(0) and money(board["expenses"]) == Decimal(0)
+    assert sm["uncategorized_count"] == 2 and board["uncategorized_count"] == 2
 
 
 def test_own_transfer_partner_is_pure_and_needs_exactly_one_candidate() -> None:
@@ -387,7 +424,7 @@ def test_a_loan_repayment_is_a_transfer_and_only_its_interest_is_spending() -> N
     assert L.balanced(legs)
     rows = [_txn(i, leg.account_id or "", str(leg.amount), L.transaction_category(legs, leg)) for i, leg in enumerate(legs) if leg.account_id]
     assert sorted((t.account_id, t.amount, t.category) for t in rows) == [
-        ("b", Decimal("-2000"), Category.TRANSFER), ("l", Decimal("-300"), Category.FEES), ("l", Decimal("2000"), Category.TRANSFER)]
+        ("b", Decimal("-2000"), Category.TRANSFER), ("l", Decimal("-300"), Category.INTEREST), ("l", Decimal("2000"), Category.TRANSFER)]
     found = flows.figures(rows, {"b": AccountKind.BANK, "l": AccountKind.LOAN})
     assert found.spend == {"SAR": Decimal("300")} and found.income == {}
     ledger_spend = sum((leg.amount for leg in legs if flows.ledger_flow(leg.ledger_account) == flows.Flow.SPEND), Decimal(0))
@@ -409,7 +446,11 @@ def test_a_loan_repayment_posted_through_the_journal_keeps_both_loan_rows() -> N
     assert posted.status_code == 200, posted.text
     rows = sorted((t.account_id, t.amount, t.category) for t in finance_store.transactions.values() if t.account_id in (s["bank"]["id"], loan["id"]))
     assert rows == sorted([(s["bank"]["id"], Decimal("-2000.00"), Category.TRANSFER), (loan["id"], Decimal("2000.00"), Category.TRANSFER),
-                           (loan["id"], Decimal("-300.00"), Category.FEES)])
+                           (loan["id"], Decimal("-300.00"), Category.INTEREST)])
+    # The principal moves bank to loan (loan principal, never spend); the interest charged on the loan is interest (spend).
+    types = sorted((t.amount, t.transaction_type) for t in finance_store.transactions.values() if t.account_id in (s["bank"]["id"], loan["id"]))
+    assert types == [(Decimal("-2000.00"), TransactionType.LOAN_PRINCIPAL), (Decimal("-300.00"), TransactionType.INTEREST),
+                     (Decimal("2000.00"), TransactionType.LOAN_PRINCIPAL)]
     sm = summary()
     balances = {a["id"]: Decimal(a["balance"]) for a in sm["accounts"]}
     assert balances[loan["id"]] == Decimal("-8300.00") and balances[s["bank"]["id"]] == Decimal("-2000.00")

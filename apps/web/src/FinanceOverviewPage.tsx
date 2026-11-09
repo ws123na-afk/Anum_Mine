@@ -142,6 +142,9 @@ export function FinanceOverviewPage({ summary, accounts, month, onMonth, onOpen,
     </section>}
     {accountsError}
     <KpiRow label={t('fov.kpis')}>{kpis}</KpiRow>
+    {shownScope !== 'business' && (s.uncategorized_count ?? 0) > 0 && <FinBanner tone="warn"
+      action={<button type="button" className="secondary" onClick={() => onOpen('transactions')}>{t('freg.tx.showUncategorized')}</button>}>
+      {t('finance.summary.uncategorized', { count: s.uncategorized_count ?? 0 })}</FinBanner>}
     <ul className="fovLinks" aria-label={t('fov.links')}>
       <li><button type="button" className="fovLink" onClick={() => onOpen('accounts')}><span className="fovLinkIcon" aria-hidden="true"><Landmark /></span>
         <span><strong>{t('fov.link.accounts', { count: accountList.length })}</strong><small dir="auto">{accountList.length ? accountList.slice(0, 3).map((a) => a.name).join(', ') : t('finance.accounts.none')}</small></span>

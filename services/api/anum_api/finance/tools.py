@@ -111,6 +111,8 @@ async def _summary(call: ToolCall, context: TenantContext) -> ToolResult:
     parts = [
         f"Finance for {data.month} ({data.timezone}).",
         f"Spent {describe({a.currency: a.amount for a in data.spend})}; income {describe({a.currency: a.amount for a in data.income})}.",
+        *([f"{data.uncategorized_count} uncategorized, not counted (held for review under Finance, Transactions)."]
+          if data.uncategorized_count else []),
         f"Top categories: {', '.join(top)}." if top else "No spending recorded this month.",
         f"Balances: {describe({a.currency: a.amount for a in data.balances})}.",
         f"{len(data.upcoming_bills)} bill(s) due in 30 days ({describe({a.currency: a.amount for a in data.bills_due})}).",

@@ -217,6 +217,8 @@ export interface FinanceLedgerDashboard {
   year: FinanceLedgerMonthLine[];
   currencies: string[];
   entry_count: number;
+  /** The month's rows no rule recognised: in neither income nor expenses (docs/finance.md#transaction-types). */
+  uncategorized_count?: number;
   ledger_kind: FinanceLedgerKind;
   base_currency: string;
   bills_due: { id: string; name: string; amount: string; currency: string; due_on: string; days_until: number }[];

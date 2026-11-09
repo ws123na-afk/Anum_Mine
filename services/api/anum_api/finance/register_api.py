@@ -23,11 +23,12 @@ from pydantic import BaseModel
 
 from ..dependencies import tenant_context
 from ..schemas import TenantContext, utc_now
-from .api import TransactionView, _filter, _read, _view
-from .categories import categorize
+from . import txn_types as TT
+from .api import TransactionView, _filter, _read, _txn_view
+from .categories import classify_text
 from .ledger import EntrySource, EntryStatus, JournalEntry
 from .links_store import open_link_stores
-from .models import Account, AccountKind, Category, CategorySource, Transaction
+from .models import Account, AccountKind, Category, CategorySource, Transaction, TransactionType, TypeSource
 from .money import quantize
 from .sms_service import settings_for as sms_settings_for
 from .sms_store import MessageStatus, SmsMessage, source_kind
@@ -68,6 +69,8 @@ class RegisterRow(TransactionView):
 class RegisterTotals(BaseModel):
     count: int
     categorized: int
+    # Rows no rule recognised (type ``uncategorized``): held for review, in neither income nor spend.
+    uncategorized: int = 0
     receipts_missing: int
     needs_review: int
     duplicate_candidates: int
@@ -111,6 +114,9 @@ class RegisterDetail(BaseModel):
     reference: str | None
     suggested_category: Category
     suggested_by: CategorySource
+    # What the rules would make of the row today, read on its own account's kind (audit C5).
+    suggested_type: TransactionType | None = None
+    suggested_type_by: TypeSource | None = None
     sources: list[SourceView]
     receipt_document_ids: list[str]
     duplicate: RegisterRow | None
@@ -220,19 +226,23 @@ def _row(txn: Transaction, facts: _Facts, duplicates: dict[str, str], running: D
     receipts = sum(1 for link in live if link.dimension == "document" and link.role == "evidence")
     review_links = sum(1 for link in live if link.status == "needs_review")
     reconciled = bool(entry is not None and (entry.reconciled_at is not None or len(set(kinds)) > 1))
-    evidence: Evidence = "linked" if receipts else ("missing" if txn.amount < 0 and txn.category not in (Category.TRANSFER,) else "not_needed")
+    account = facts.accounts.get(txn.account_id)
+    kind = TT.effective(txn, account.kind if account is not None else None)
+    spending = kind in TT.SPEND_TYPES or kind == TransactionType.UNCATEGORIZED
+    evidence: Evidence = "linked" if receipts else ("missing" if txn.amount < 0 and spending else "not_needed")
     duplicate_of = duplicates.get(txn.id)
     if duplicate_of:
         row_status: RowStatus = "duplicate_candidate"
     elif review_links:
         row_status = "needs_review"
-    elif txn.category_source == CategorySource.NONE:
+    elif kind == TransactionType.UNCATEGORIZED or txn.category_source == CategorySource.NONE:
+        # Held for review: counted as neither income nor spend until the person files it (``type_reason`` says why).
         row_status = "uncategorized"
     elif receipts:
         row_status = "linked"
     else:
         row_status = "recorded"
-    return RegisterRow(**_view(txn), canonical_id=canonical, origin=origin, statement_format=statement_format, sources=sorted(set(kinds)),
+    return RegisterRow(**_txn_view(txn, account.kind if account is not None else None), canonical_id=canonical, origin=origin, statement_format=statement_format, sources=sorted(set(kinds)),
                        reconciled=reconciled, receipts=receipts, evidence=evidence, links_need_review=review_links, duplicate_of=duplicate_of,
                        status=row_status, running_balance=running)
 
@@ -288,6 +298,7 @@ def register(
     origin: Origin | None = None,
     evidence: Literal["linked", "missing"] | None = None,
     row_status: RowStatus | None = Query(default=None, alias="status"),
+    transaction_type: TransactionType | None = Query(default=None, alias="type"),
     limit: int = Query(default=25, ge=1, le=MAX_PAGE),
     offset: int = Query(default=0, ge=0, le=1_000_000),
     context: TenantContext = Depends(tenant_context),
@@ -316,12 +327,15 @@ def register(
         rows = [r for r in rows if r.evidence == evidence]
     if row_status:
         rows = [r for r in rows if r.status == row_status]
+    if transaction_type:
+        rows = [r for r in rows if r.transaction_type == transaction_type]
     inflow: dict[str, Decimal] = defaultdict(Decimal)
     outflow: dict[str, Decimal] = defaultdict(Decimal)
     for r in rows:
         (inflow if r.amount > 0 else outflow)[r.currency] += r.amount
     totals = RegisterTotals(
-        count=len(rows), categorized=sum(1 for r in rows if r.category_source != CategorySource.NONE),
+        count=len(rows), categorized=sum(1 for r in rows if r.category_source != CategorySource.NONE and r.transaction_type != TransactionType.UNCATEGORIZED),
+        uncategorized=sum(1 for r in rows if r.transaction_type == TransactionType.UNCATEGORIZED),
         receipts_missing=sum(1 for r in rows if r.evidence == "missing"), needs_review=sum(1 for r in rows if r.status == "needs_review"),
         duplicate_candidates=sum(1 for r in rows if r.status == "duplicate_candidate"), matched=sum(1 for r in rows if r.reconciled),
         inflow=_per_currency(inflow), outflow=_per_currency({c: -v for c, v in outflow.items()}),
@@ -359,14 +373,15 @@ def register_detail(transaction_id: str, context: TenantContext = Depends(tenant
     sources = [_source_view(m, now) for m in facts.sources.get(entry.id, [])] if entry else []
     match_id = duplicates.get(txn.id) or twins.get(txn.id)
     match = next((t for t in facts.window if t.id == match_id), None) if match_id else None
-    suggested, by = categorize(txn.description, txn.amount, facts.settings.category_rules)
+    account = facts.accounts.get(txn.account_id)
+    suggestion = classify_text(txn.description, txn.amount, facts.settings.category_rules, account.kind if account is not None else None)
     canonical = row.canonical_id or ""
     receipts = [link.target_id for link in facts.links.get(canonical, [])
                 if link.status != "void" and link.dimension == "document" and link.role == "evidence"]
-    account = facts.accounts.get(txn.account_id)
     return RegisterDetail(row=row, account_name=account.name if account else "", kind=entry.kind if entry else None,
                           merchant=entry.merchant if entry else None, reference=entry.reference if entry else None,
-                          suggested_category=suggested, suggested_by=by, sources=sources, receipt_document_ids=receipts,
+                          suggested_category=suggestion.category, suggested_by=suggestion.source, suggested_type=suggestion.type,
+                          suggested_type_by=suggestion.typed.source, sources=sources, receipt_document_ids=receipts,
                           duplicate=_row(match, facts, duplicates, None) if match else None)
 
 

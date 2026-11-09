@@ -31,7 +31,9 @@ from ..schemas import TenantContext, new_id, utc_now
 from . import csv_import
 from . import obligations
 from . import statement_import as SI
-from .categories import categorize, suspected_direction
+from . import refunds
+from . import txn_types as TT
+from .categories import categorize, classify_text, suspected_direction
 from .csv_import import ColumnMapping, ImportError_, safe_cell
 from .models import (
     Account,
@@ -50,6 +52,8 @@ from .models import (
     Holding,
     ImportRecord,
     Transaction,
+    TransactionType,
+    TypeSource,
 )
 from .guardian import Decision
 from .money import MoneyError, normalize_currency, quantize, to_money
@@ -158,6 +162,15 @@ def _currency(value: str | None, fallback: str) -> str:
 
 def _view(item: BaseModel) -> dict[str, Any]:
     return item.model_dump(mode="json", exclude=SCOPE_FIELDS)
+
+
+def _txn_view(item: Transaction, kind: AccountKind | None = None) -> dict[str, Any]:
+    """A transaction as the API shows it: with its type, derived when the row predates types (``txn_types.typed``)."""
+    return _view(TT.fill(item.model_copy(), kind))
+
+
+def _kinds(store: FinanceStore, context: TenantContext) -> dict[str, AccountKind]:
+    return {a.id: a.kind for a in store.list_accounts(context)}
 
 
 def _clean(value: str | None, limit: int) -> str | None:
@@ -418,6 +431,8 @@ class TransactionInput(BaseModel):
     amount: Amount = Field(description="Signed: money in is positive, money out negative")
     description: str = Field(min_length=1, max_length=500)
     category: Category | None = None
+    # The owner's own reading of what the row is (docs/finance.md#transaction-types); never changed by a machine.
+    transaction_type: TransactionType | None = None
     notes: str | None = Field(default=None, max_length=1000)
 
 
@@ -428,6 +443,7 @@ class TransactionPatch(BaseModel):
     amount: Amount | None = None
     description: str | None = Field(default=None, min_length=1, max_length=500)
     category: Category | None = None
+    transaction_type: TransactionType | None = None
     notes: str | None = Field(default=None, max_length=1000)
     remember_category_match: str | None = Field(default=None, min_length=4, max_length=80)
 
@@ -445,6 +461,13 @@ class TransactionView(BaseModel):
     import_id: str | None
     created_at: Any
     updated_at: Any
+    # docs/finance.md#transaction-types: always set in answers (a row stored before types existed shows the type its
+    # category stands for, ``type_reason`` ``legacy_category``). ``uncategorized`` rows count as neither income nor spend.
+    transaction_type: TransactionType | None = None
+    type_source: TypeSource | None = None
+    type_confidence: Decimal | None = None
+    type_reason: str | None = None
+    related_transaction_id: str | None = None
     # Stage 4: what your Guardian rules say about this record (create and change only).
     # Recording money already gone is never blocked; a rule it breaks is a warning.
     guardian: Decision | None = None
@@ -484,7 +507,8 @@ def list_transactions(
     flt = _filter(q, account_id, category, start, end, direction)
     with open_finance_store(context) as store:
         items, total = store.list_transactions(context, flt, limit=limit, offset=offset)
-    return TransactionPage(items=[TransactionView(**_view(t)) for t in items], total=total, limit=limit, offset=offset)
+        kinds = _kinds(store, context)
+    return TransactionPage(items=[TransactionView(**_txn_view(t, kinds.get(t.account_id))) for t in items], total=total, limit=limit, offset=offset)
 
 
 @router.get("/transactions/export.csv", response_class=Response)
@@ -504,13 +528,14 @@ def export_transactions(
     with open_finance_store(context) as store:
         names = {a.id: a.name for a in store.list_accounts(context)}
         items, _ = store.list_transactions(context, flt, limit=EXPORT_LIMIT, offset=0)
+        kinds = _kinds(store, context)
     buffer = io.StringIO()
     writer = csv.writer(buffer)
-    writer.writerow(["date", "account", "description", "category", "amount", "currency", "notes"])
+    writer.writerow(["date", "account", "description", "category", "amount", "currency", "notes", "type"])
     for t in items:
         writer.writerow([
             t.posted_on.isoformat(), safe_cell(names.get(t.account_id, "")), safe_cell(t.description), t.category.value,
-            str(t.amount), t.currency, safe_cell(t.notes or ""),
+            str(t.amount), t.currency, safe_cell(t.notes or ""), TT.effective(t, kinds.get(t.account_id)).value,
         ])
     return Response(
         content=buffer.getvalue(),
@@ -549,10 +574,15 @@ def record_manual_transaction(context: TenantContext, body: TransactionInput, *,
         description = _clean(body.description, 500)
         if not description:
             raise _invalid("Description: enter what the transaction was.")
+        found = classify_text(description, amount, settings_for(store, context).category_rules, account.kind)
+        category, source, typed = found.category, found.source, found.typed
         if body.category is not None:
             category, source = body.category, CategorySource.MANUAL
-        else:
-            category, source = categorize(description, amount, settings_for(store, context).category_rules, account.kind)
+            typed = TT.for_category(category, amount, account.kind, TypeSource.OWNER, "1", "owner_category")
+        if body.transaction_type is not None:
+            typed = TT.Typed(body.transaction_type, TypeSource.OWNER, Decimal(1), "owner_type")
+            if body.category is None:
+                category, source = TT.default_category(body.transaction_type, category, amount), CategorySource.MANUAL
         now = utc_now()
         item = Transaction(
             id=transaction_id or new_id("fin_txn"), tenant_id=context.tenant_id, workspace_id=context.workspace_id, owner_user_id=context.user_id,
@@ -562,6 +592,8 @@ def record_manual_transaction(context: TenantContext, body: TransactionInput, *,
             dedupe_hash=csv_import.dedupe_hash(account.id, body.posted_on, amount, account.currency, f"manual {new_id('m')}", 0),
             created_at=now, updated_at=now,
         )
+        TT.apply(item, typed)
+        refunds.link_refund(store, context, item, account.kind)
         store.save_transaction(item)
         # The canonical transaction: hand-entered money has its journal entry like every other source.
         entry = record_plain(sms, context, item, account, EntrySource.MANUAL, now=now)
@@ -578,14 +610,16 @@ def create_transaction(
     _manage(context)
     item, decision, _canonical = record_manual_transaction(context, body)
     _audit(repository, context, "finance.transaction.create", item.id, _guardian_meta(decision))
-    return TransactionView(**_view(item), guardian=decision)
+    return TransactionView(**_txn_view(item), guardian=decision)
 
 
 @router.get("/transactions/{transaction_id}", response_model=TransactionView)
 def get_transaction(transaction_id: str, context: TenantContext = Depends(tenant_context)) -> TransactionView:
     _read(context)
     with open_finance_store(context) as store:
-        return TransactionView(**_view(_own_transaction(store, context, transaction_id)))
+        found = _own_transaction(store, context, transaction_id)
+        owning = store.get_account(context, found.account_id)
+        return TransactionView(**_txn_view(found, owning.kind if owning is not None else None))
 
 
 @router.patch("/transactions/{transaction_id}", response_model=TransactionView)
@@ -614,13 +648,16 @@ def update_transaction(
         item = _own_transaction(store, context, transaction_id)
         entry = sms.entry_for_transaction(context, transaction_id)
         plain = entry is not None and entry.source in (EntrySource.MANUAL, EntrySource.STATEMENT)
-        if entry is not None and not plain and {"amount", "posted_on", "category"} & set(changes):
+        if entry is not None and not plain and {"amount", "posted_on", "category", "transaction_type"} & set(changes):
             raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=(
                 "An iPhone SMS or Apple Pay recorded this transaction. Correct its amount, date or category under Finance, iPhone SMS, "
                 "Review, so the ledger records the change as a correction."))
         if match and match not in item.description.casefold():
             raise _invalid("The learning phrase must appear in this transaction description.")
-        before = (item.posted_on, item.amount, item.category)
+        owning = store.get_account(context, item.account_id)
+        kind = owning.kind if owning is not None else None
+        TT.fill(item, kind)  # a row stored before types existed gets its type now (the backfill, docs/finance.md#transaction-types)
+        before = (item.posted_on, item.amount, item.category, item.transaction_type)
         if body.posted_on is not None:
             item.posted_on = body.posted_on
         if "amount" in changes and body.amount is not None:
@@ -631,10 +668,16 @@ def update_transaction(
             item.notes = _clean(body.notes, 1000)
         if body.category is not None:
             item.category, item.category_source = body.category, CategorySource.MANUAL
-        elif item.category_source != CategorySource.MANUAL and ({"description", "amount"} & set(changes)) and (entry is None or plain):
-            owning = store.get_account(context, item.account_id)
-            item.category, item.category_source = categorize(item.description, item.amount, settings_for(store, context).category_rules,
-                                                             owning.kind if owning is not None else None)
+            if body.transaction_type is None:
+                TT.apply(item, TT.for_category(body.category, item.amount, kind, TypeSource.OWNER, "1", "owner_category"))
+        elif not TT.owner_locked(item) and ({"description", "amount"} & set(changes)) and (entry is None or plain):
+            found = classify_text(item.description, item.amount, settings_for(store, context).category_rules, kind)
+            item.category, item.category_source = found.category, found.source
+            TT.apply(item, found.typed)
+        if body.transaction_type is not None:
+            TT.apply(item, TT.Typed(body.transaction_type, TypeSource.OWNER, Decimal(1), "owner_type"))
+            if body.category is None:
+                item.category, item.category_source = TT.default_category(body.transaction_type, item.category, item.amount), CategorySource.MANUAL
         item.updated_at = utc_now()
         if match:
             settings = settings_for(store, context)
@@ -648,12 +691,12 @@ def update_transaction(
             settings.updated_at = item.updated_at
             store.save_settings(context, settings)
         store.save_transaction(item)
-        if plain and entry is not None and (item.posted_on, item.amount, item.category) != before:
+        if plain and entry is not None and (item.posted_on, item.amount, item.category, item.transaction_type) != before:
             # A correction reverses the entry and reposts it in the same canonical chain; the row keeps its id.
             repost_plain(store, sms, context, entry, item, now=item.updated_at)
         decision = check_record(store, context, item, utc_now())
     _audit(repository, context, "finance.transaction.update", transaction_id, {"fields": sorted(changes), "learned_category": bool(match), **_guardian_meta(decision)})
-    return TransactionView(**_view(item), guardian=decision)
+    return TransactionView(**_txn_view(item, kind), guardian=decision)
 
 
 @router.delete("/transactions/{transaction_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -960,13 +1003,13 @@ def record_import(
             choice = decisions.get(row.line)
             action = getattr(choice, "action", None)
             reference = (references or {}).get(row.dedupe_hash) or row.reference
-            category, source = categorize(row.description, row.amount, rules, account.kind)
-            item = Transaction(
+            found = classify_text(row.description, row.amount, rules, account.kind)
+            item = TT.apply(Transaction(
                 id=new_id("fin_txn"), tenant_id=context.tenant_id, workspace_id=context.workspace_id,
                 owner_user_id=context.user_id, account_id=account.id, posted_on=row.posted_on, amount=row.amount,
-                currency=account.currency, description=row.description, category=category, category_source=source,
+                currency=account.currency, description=row.description, category=found.category, category_source=found.source,
                 notes=row.notes, import_id=record.id, dedupe_hash=row.dedupe_hash, created_at=now, updated_at=now,
-            )
+            ), found.typed)
             if action == "skip":
                 outcome.skipped += 1
                 continue
@@ -995,9 +1038,10 @@ def record_import(
                 follow.append((None, matched.canonical_id, match))
                 continue
             if _wants_transfer(match, choice):
-                item.category, item.category_source = Category.TRANSFER, CategorySource.MANUAL
+                SL.mark_transfer(item, account.kind, by_owner=getattr(choice, "transfer", None) is True)
             fresh.append(item)
             follow.append((item, None, match))
+        refunds.link_refunds(store, context, fresh, account.kind)
         added = store.add_transactions(fresh)
         canonical: dict[str, str] = {}
         originals = {row.dedupe_hash: (row.original_amount, row.original_currency) for row in parsed.rows

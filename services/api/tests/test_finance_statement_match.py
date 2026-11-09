@@ -347,7 +347,8 @@ def test_a_statement_row_pays_a_saved_bill_and_a_weak_one_waits_for_review() -> 
 def test_own_transfer_from_the_salary_account_to_the_card_is_paired_on_import() -> None:
     bank = account(name="Salary account", last4="5678")
     card = account(name="Card", kind="card", last4="5377")
-    do_import(bank["id"], "Date,Description,Amount\n2026-11-03,TRANSFER TO CARD 5377,-1000.00\n2026-11-03,EXAMPLE GROCER,-50.00\n")
+    # A purchase a rule recognises (an unrecognised one would be held as uncategorized and counted in neither figure).
+    do_import(bank["id"], "Date,Description,Amount\n2026-11-03,TRANSFER TO CARD 5377,-1000.00\n2026-11-03,EXAMPLE GROCERY,-50.00\n")
     view = preview(card["id"], "Date,Description,Amount\n2026-11-05,PAYMENT RECEIVED THANK YOU,1000.00\n")
     transfer = view["rows"][0]["match"]["transfer"]
     assert transfer["direction"] == "from" and transfer["account_id"] == bank["id"] and transfer["strength"] == "strong"

@@ -4,7 +4,8 @@ import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import type { FinanceAccount, FinanceAccountOverview } from '@anum/contracts';
 import {
-  NO_REGISTER_FILTERS, accountTab, activityScale, maskedNumber, monthBounds, narrowed, percentOf, primarySource, registerQuery, statusTone,
+  NO_REGISTER_FILTERS, TRANSACTION_TYPES, accountTab, activityScale, maskedNumber, monthBounds, narrowed, percentOf, primarySource, registerQuery,
+  statusTone,
 } from '../src/lib/financeRegister.ts';
 import { placeholdersOf } from '../src/lib/i18n.ts';
 import { financeRegisterAr } from '../src/lib/messages/financeRegister.ar.ts';
@@ -24,6 +25,16 @@ describe('register filters', () => {
     assert.deepEqual(registerQuery({ ...NO_REGISTER_FILTERS, q: 'fuel', from: '2026-11-01', to: '2026-11-30' }), { q: 'fuel', from: '2026-11-01', to: '2026-11-30' });
     assert.equal(narrowed({ ...NO_REGISTER_FILTERS, from: '2026-11-01' }), false);
     assert.equal(narrowed({ ...NO_REGISTER_FILTERS, origin: 'sms' }), true);
+  });
+  test('the type filter reaches the API as `type` and narrows the list', () => {
+    assert.deepEqual(registerQuery({ ...NO_REGISTER_FILTERS, type: 'uncategorized' }), { type: 'uncategorized' });
+    assert.equal(narrowed({ ...NO_REGISTER_FILTERS, type: 'income' }), true);
+  });
+  test('every transaction type is listed once and has a label in both languages', () => {
+    assert.equal(TRANSACTION_TYPES.length, 21);
+    assert.equal(new Set(TRANSACTION_TYPES).size, TRANSACTION_TYPES.length);
+    const en = financeRegisterEn as Record<string, string>, ar = financeRegisterAr as Record<string, string>;
+    for (const type of TRANSACTION_TYPES) assert.ok(en[`freg.type.${type}`] && ar[`freg.type.${type}`], type);
   });
   test('month bounds include the last day, leap years too', () => {
     assert.deepEqual(monthBounds('2026-11'), { from: '2026-11-01', to: '2026-11-30' });

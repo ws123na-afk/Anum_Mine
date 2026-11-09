@@ -24,7 +24,7 @@ import './financeSms.css';
 const PAGE = 20;
 const CATEGORIES: FinanceCategory[] = [
   'groceries', 'dining', 'food', 'room_rent', 'transport', 'fuel', 'utilities', 'telecom', 'housing', 'shopping', 'health', 'education', 'entertainment',
-  'subscriptions', 'travel', 'insurance', 'fees', 'cash', 'transfer', 'income', 'cashback', 'refunds', 'other',
+  'subscriptions', 'travel', 'insurance', 'fees', 'interest', 'cash', 'transfer', 'income', 'cashback', 'refunds', 'other',
 ];
 const when = (value: string | null | undefined) => (value ? formatDateTime(value) : '-');
 
@@ -547,6 +547,7 @@ export function LedgerPanel() {
         <div><dt>{t('fsms.section.review')}</dt><dd>{b.sync.review_count}</dd></div>
       </dl>
       {b.in_transit.length > 0 && <p className="notice">{t('fledger.inTransitText', { amount: formatAmounts(b.in_transit) })}</p>}
+      {(b.uncategorized_count ?? 0) > 0 && <p className="notice">{t('fledger.uncategorized', { count: b.uncategorized_count ?? 0 })}</p>}
       {b.entry_count === 0 && <Empty icon={<MessageSquareText aria-hidden="true" />} title={t('fledger.empty')} text={t('fledger.emptyText')} />}
     </section>
     <div className="finSmsGrid">
