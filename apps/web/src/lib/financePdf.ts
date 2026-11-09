@@ -169,6 +169,8 @@ export function importBody(view: FinancePdfStatement, accountId: string, rows: r
     // The statement's printed counts and totals: the server checks the rows against them again.
     summary: view.check.summary.map((item) => ({ name: item.name, stated: item.stated })),
     dropped: (view.dropped_rows ?? []).map((item) => ({ page: item.page, reason: item.reason, text: item.text, posted_on: item.posted_on, amount: item.amount })),
+    // The printed period, stored with the import for reconciliation and connection health (docs/finance.md#reconciliation-sessions).
+    period_start: view.period_start ?? null, period_end: view.period_end ?? null,
   };
 }
 

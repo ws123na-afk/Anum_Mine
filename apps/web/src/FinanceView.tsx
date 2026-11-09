@@ -66,6 +66,8 @@ const SuggestionsPage = lazy(() => import('./FinanceSuggestions').then((m) => ({
 // Connections and data capture (docs/finance.md#connections-and-data-capture): accounts, SMS capture,
 // iPhone Shortcuts, import history and permissions; `#finance-sms` opens its SMS capture tab.
 const ConnectionsPage = lazy(() => import('./FinanceConnections').then((m) => ({ default: m.ConnectionsPage })));
+// Reconciliation and connection health (docs/finance.md#reconciliation-sessions), its own lazy chunk.
+const ReconciliationPage = lazy(() => import('./FinanceReconciliation').then((m) => ({ default: m.ReconciliationPage })));
 const KINDS: FinanceAccountKind[] = ['bank', 'card', 'cash', 'loan', 'investment'];
 const CATEGORIES: FinanceCategory[] = [
   'groceries', 'dining', 'food', 'room_rent', 'transport', 'fuel', 'utilities', 'telecom', 'housing', 'shopping', 'health', 'education', 'entertainment',
@@ -145,6 +147,7 @@ export function FinanceView() {
         {/* Until the summary arrives, the settings' default base currency (AED) prefills Test and new limits. */}
         {tab === 'guardian' && <GuardianPage base={summary.kind === 'ready' ? summary.value.base_currency : 'AED'} onOpen={pick} />}
         {(tab === 'connections' || tab === 'sms') && <ConnectionsPage from={tab} onOpen={pick} />}
+        {tab === 'reconciliation' && <ReconciliationPage onOpen={pick} />}
       </Suspense>
     </div>;
   }

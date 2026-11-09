@@ -76,6 +76,8 @@ async function undo(batchId: string, setFlash: (f: Flash) => void, after: () => 
 
 function headText(item: FinanceSuggestion): string {
   const p = item.params ?? {};
+  // A reconciliation exception reads with the reconciliation page's own words for its kind.
+  if (item.kind === 'reconciliation') return t('fsug.head.reconciliation', { account: p.account ?? '', exception: t(`frec.kind.${p.exception}` as MessageKey) });
   const vars: Record<string, string | number> = { ...p, category: p.category ? categoryLabel(p.category as FinanceCategory) : '', current: p.current ? categoryLabel(p.current as FinanceCategory) : '' };
   if (item.kind === 'bill_due') vars.count = Number(p.days ?? 0);
   return t(`fsug.head.${item.kind}` as MessageKey, vars);
@@ -83,6 +85,11 @@ function headText(item: FinanceSuggestion): string {
 
 function whyText(item: FinanceSuggestion): string {
   if (item.kind === 'external') return item.why;
+  if (item.kind === 'reconciliation') {
+    const p = item.params ?? {};
+    if (p.exception === 'missing_period') return t('fsug.why.reconciliation.missing', { month: p.month ?? '' });
+    return t(p.severity === 'blocking' ? 'fsug.why.reconciliation.blocking' : 'fsug.why.reconciliation.warning', { start: p.start ?? '', end: p.end ?? '' });
+  }
   const p = item.params ?? {};
   return t(`fsug.why.${item.kind}` as MessageKey, { ...p, category: p.category ? categoryLabel(p.category as FinanceCategory) : '', current: p.current ? categoryLabel(p.current as FinanceCategory) : '' });
 }

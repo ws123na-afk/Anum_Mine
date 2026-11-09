@@ -1,0 +1,58 @@
+/* Finance, Reconciliation (docs/finance.md#reconciliation-sessions). Built on the Finance shell and the shared tokens;
+   content-driven heights, no fixed section heights, nothing wider than its column. */
+.frecPage, .frecDetail { display: grid; gap: var(--d-s4); min-width: 0; }
+.frecGrid { align-items: start; display: grid; gap: var(--d-s4); grid-template-columns: minmax(0, 1.4fr) minmax(0, 1fr); }
+@media (max-width: 1100px) { .frecGrid { grid-template-columns: minmax(0, 1fr); } }
+.frecSessions, .frecHealth, .frecExceptions { display: grid; gap: var(--d-s2); list-style: none; margin: 0; padding: 0; }
+.frecSession, .frecHealthRow, .frecException { align-items: center; border: 1px solid var(--d-line); border-radius: var(--d-r-control); display: grid; gap: var(--d-s2) var(--d-s3);
+  min-width: 0; padding: var(--d-s3); }
+.frecSession { grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) auto; }
+.frecSessionMain, .frecExceptionMain { display: grid; gap: 2px; min-width: 0; }
+.frecSessionMain strong, .frecExceptionText { overflow-wrap: anywhere; }
+.frecSessionFacts { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s1) var(--d-s2); min-width: 0; }
+.frecHealthRow { align-items: stretch; }
+.frecHealthHead { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); justify-content: space-between; }
+.frecFacts { display: grid; gap: var(--d-s2) var(--d-s4); grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); margin: 0; }
+.frecFacts dt { color: var(--d-muted, inherit); font-size: .85em; }
+.frecFacts dd { font-weight: 600; margin: 0; overflow-wrap: anywhere; }
+.frecCard { border-block-start: 1px solid var(--d-line); margin-block-start: var(--d-s3); padding-block-start: var(--d-s3); }
+.frecFlag { align-items: flex-start; color: rgb(var(--c-stop)); display: flex; gap: var(--d-s1); margin: 0; overflow-wrap: anywhere; }
+.frecFlag svg { flex: none; height: 16px; margin-block-start: 2px; width: 16px; }
+.frecNext { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2) var(--d-s3); justify-content: space-between; }
+.frecNext button { align-items: center; display: inline-flex; gap: var(--d-s1); min-height: 40px; }
+.frecNext svg, .frecComplete svg, .frecDetailHead svg { height: 16px; width: 16px; }
+.frecDetailHead { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2) var(--d-s3); }
+.frecDetailHead h2 { flex: 1 1 240px; font-size: var(--text-lg); margin: 0; min-width: 0; overflow-wrap: anywhere; }
+.frecDetailHead h2 .muted { font-size: var(--text-sm); font-weight: 400; }
+.frecEquation { display: grid; gap: 0; margin: 0; }
+.frecEquation > div { align-items: baseline; border-block-end: 1px solid var(--d-line); display: flex; gap: var(--d-s3); justify-content: space-between; padding: var(--d-s2) 0; }
+.frecEquation > div:last-child { border-block-end: 0; }
+.frecEquation dt { min-width: 0; }
+.frecEquation dd { font-variant-numeric: tabular-nums; margin: 0; white-space: nowrap; }
+.frecEquation .frecTotal { font-weight: 700; }
+.frecEquation .frecTotal.ok dd { color: rgb(var(--c-ok)); }
+.frecEquation .frecTotal.bad dd { color: rgb(var(--c-stop)); }
+.frecComplete { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2) var(--d-s3); margin-block-start: var(--d-s3); }
+.frecComplete p { flex: 1 1 100%; margin: 0; }
+.frecComplete button { align-items: center; display: inline-flex; gap: var(--d-s1); min-height: 40px; }
+.frecSubhead { font-size: var(--text-sm); margin: var(--d-s3) 0 var(--d-s1); }
+.frecException { grid-template-columns: minmax(0, 1fr) auto auto; }
+.frecException.blocking { border-inline-start: 4px solid rgb(var(--c-stop)); }
+.frecException.warning { border-inline-start: 4px solid var(--d-warn); }
+.frecExceptionHead { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s1) var(--d-s2); }
+.frecExceptionText { margin: 0; }
+.frecAmount { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.frecException .fpmRowActions { flex-wrap: wrap; }
+.frecNone { margin: var(--d-s3) 0 0; }
+.frecChoices { border: 0; display: grid; gap: var(--d-s2); margin: 0 0 var(--d-s3); padding: 0; }
+.frecChoices legend { font-weight: 600; margin-block-end: var(--d-s1); }
+.frecChoices label { align-items: center; display: flex; gap: var(--d-s2); min-height: 40px; overflow-wrap: anywhere; }
+.frecLegs { border-collapse: collapse; width: 100%; }
+.frecLegs th, .frecLegs td { border-block-end: 1px solid var(--d-line); padding: var(--d-s1) var(--d-s2); text-align: start; }
+.frecLegs td:last-child, .frecLegs th:last-child { text-align: end; }
+@media (max-width: 760px) {
+  .frecSession, .frecException { grid-template-columns: minmax(0, 1fr); }
+  .frecSession > button, .frecException .fpmRowActions { justify-self: stretch; }
+  .frecException .fpmRowActions button { flex: 1 1 140px; justify-content: center; }
+  .frecEquation dd { white-space: normal; text-align: end; }
+}

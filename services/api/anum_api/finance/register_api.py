@@ -58,7 +58,11 @@ class RegisterRow(TransactionView):
     origin: Origin
     statement_format: Literal["csv", "pdf"] | None
     sources: list[str]
+    # Covered by a completed reconciliation of its account (docs/finance.md#reconciliation-sessions); for an account never
+    # reconciled, the older meaning: a statement confirmed it (``statement_confirmed``).
     reconciled: bool
+    statement_confirmed: bool = False
+    reconciliation_id: str | None = None
     receipts: int
     evidence: Evidence
     links_need_review: int
@@ -193,6 +197,19 @@ class _Facts:
             self.sums = finance.account_sums(context)
             self.settings = settings_for(finance, context)
             self.finance = finance
+            from .reconciliation_api import account_sessions, completed_coverage
+            from .reconciliation_store import recon_store_for
+
+            recon = recon_store_for(sms)
+            self.completed = completed_coverage(finance, recon, context, self.accounts)
+            self.sessions = account_sessions(recon, context)
+
+    def reconciliation_for(self, txn: Transaction) -> str | None:
+        """The completed, unchanged reconciliation whose period holds the row (not marked pending in it)."""
+        for rec, pending in self.completed.get(txn.account_id, []):
+            if rec.period_start <= txn.posted_on <= rec.period_end and txn.id not in pending:
+                return rec.id
+        return None
 
     def canon(self, txn_id: str) -> str | None:
         entry = self.entries.get(txn_id)
@@ -222,7 +239,9 @@ def _row(txn: Transaction, facts: _Facts, duplicates: dict[str, str], running: D
     live = [link for link in facts.links.get(canonical or "", []) if link.status != "void"]
     receipts = sum(1 for link in live if link.dimension == "document" and link.role == "evidence")
     review_links = sum(1 for link in live if link.status == "needs_review")
-    reconciled = bool(entry is not None and (entry.reconciled_at is not None or len(set(kinds)) > 1))
+    confirmed = bool(entry is not None and (entry.reconciled_at is not None or len(set(kinds)) > 1))
+    reconciliation_id = facts.reconciliation_for(txn)
+    reconciled = reconciliation_id is not None if facts.completed.get(txn.account_id) else confirmed
     account = facts.accounts.get(txn.account_id)
     kind = TT.effective(txn, account.kind if account is not None else None)
     spending = kind in TT.SPEND_TYPES or kind == TransactionType.UNCATEGORIZED
@@ -240,7 +259,7 @@ def _row(txn: Transaction, facts: _Facts, duplicates: dict[str, str], running: D
     else:
         row_status = "recorded"
     return RegisterRow(**_txn_view(txn, account.kind if account is not None else None), canonical_id=canonical, origin=origin, statement_format=statement_format, sources=sorted(set(kinds)),
-                       reconciled=reconciled, receipts=receipts, evidence=evidence, links_need_review=review_links, duplicate_of=duplicate_of,
+                       reconciled=reconciled, statement_confirmed=confirmed, reconciliation_id=reconciliation_id, receipts=receipts, evidence=evidence, links_need_review=review_links, duplicate_of=duplicate_of,
                        status=row_status, running_balance=running)
 
 
@@ -334,7 +353,7 @@ def register(
         count=len(rows), categorized=sum(1 for r in rows if r.category_source != CategorySource.NONE and r.transaction_type != TransactionType.UNCATEGORIZED),
         uncategorized=sum(1 for r in rows if r.transaction_type == TransactionType.UNCATEGORIZED),
         receipts_missing=sum(1 for r in rows if r.evidence == "missing"), needs_review=sum(1 for r in rows if r.status == "needs_review"),
-        duplicate_candidates=sum(1 for r in rows if r.status == "duplicate_candidate"), matched=sum(1 for r in rows if r.reconciled),
+        duplicate_candidates=sum(1 for r in rows if r.status == "duplicate_candidate"), matched=sum(1 for r in rows if r.statement_confirmed),
         inflow=_per_currency(inflow), outflow=_per_currency({c: -v for c, v in outflow.items()}),
     )
     today = today_in(facts.settings)
@@ -410,6 +429,16 @@ class StatementCheck(BaseModel):
     not_in_ledger: int = 0
 
 
+class AccountReconciliation(BaseModel):
+    """The account's latest reconciliation session (docs/finance.md#reconciliation-sessions)."""
+
+    id: str
+    status: Literal["open", "completed", "changed"]
+    period_start: date
+    period_end: date
+    completed_at: datetime | None
+
+
 class AccountOverview(BaseModel):
     account_id: str
     sources: list[Literal["manual", "sms", "apple_wallet", "statement"]]
@@ -422,9 +451,12 @@ class AccountOverview(BaseModel):
     last_reconciled_at: datetime | None
     imported: int
     matched: int
-    needs_attention: list[Literal["balance_differs", "links_need_review", "possible_duplicates", "statement_differs", "statement_rows_missing"]]
+    needs_attention: list[Literal["balance_differs", "links_need_review", "possible_duplicates", "statement_differs", "statement_rows_missing",
+                                  "reconciliation_changed"]]
     payment_due: PaymentDue | None
     last_statement: StatementCheck | None = None
+    # The latest completed (or open, or changed) reconciliation; ``last_reconciled_at`` is its completion once there is one.
+    reconciliation: AccountReconciliation | None = None
 
 
 class AccountsOverview(BaseModel):
@@ -525,12 +557,25 @@ def accounts_overview(context: TenantContext = Depends(tenant_context)) -> Accou
                 attention.append("statement_rows_missing")
         due = next((b for b in bills if bill_accounts.get(b.id) == account.id), None) if account.kind == AccountKind.CARD else None
         reconciled = item["reconciled"]
+        done = facts.completed.get(account.id, [])
+        if done:
+            # A completed reconciliation is the source of "reconciled"; the statement evidence above is the fallback.
+            reconciled = max(rec.completed_at for rec, _ in done if rec.completed_at)
+        latest = None
+        valid = {rec.id for rec, _ in done}
+        mine = sorted(facts.sessions.get(account.id, []), key=lambda r: (r.period_end, r.created_at), reverse=True)
+        if mine:
+            top = mine[0]
+            state: Literal["open", "completed", "changed"] = "open" if top.status == "open" else ("completed" if top.id in valid else "changed")
+            latest = AccountReconciliation(id=top.id, status=state, period_start=top.period_start, period_end=top.period_end, completed_at=top.completed_at)
+        if any(r.status == "completed" and r.id not in valid for r in mine):
+            attention.append("reconciliation_changed")
         out.append(AccountOverview(
             account_id=account.id, sources=sorted(sources), credit_limit=limits.get(account.id), observed_balance=seen[0] if seen else None,
             observed_at=seen[1] if seen else None, difference=difference, last_activity_on=item["last"], last_import_at=last_import.get(account.id),
             last_reconciled_at=reconciled, imported=item["imported"], matched=item["matched"], needs_attention=attention,
             payment_due=PaymentDue(name=due.name, due_on=due.due_on, amount=due.amount, currency=due.currency) if due else None,
-            last_statement=statement,
+            last_statement=statement, reconciliation=latest,
         ))
     stamps = [a.last_reconciled_at for a in out if a.last_reconciled_at]
     return AccountsOverview(accounts=out, review_count=facts.review_count, last_reconciled_at=max(stamps) if stamps else None,

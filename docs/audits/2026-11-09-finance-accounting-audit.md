@@ -21,7 +21,7 @@ The fixes are delivered as functional-area pull requests in this order: transact
 - Business Books keep **no journal**: every report is derived from invoices, bills, allocations and adjustments (`business/books_report.py`, `books_service.py:4-6`). There is no chart of accounts, general ledger, trial balance, balance sheet, opening balance, close or lock.
 - Classification had **no transaction type**: an unrecognised credit counted as income and an unrecognised debit as spending (`finance/categories.py:106-108`, `flows.py:58-67`). Fixed in the transaction-correctness PR (C1 to C7 below).
 - The most likely reasons statement rows look missing are the Transactions page defaulting to the current month, rows held in review or attached to other records by amount alone, and rows the PDF reader drops without saying so (details below).
-- There is no reconciliation workspace, no accountant review, no unified suggestion queue and no period close.
+- There is no accountant review (the reconciliation workspace came with the reconciliation PR), no unified suggestion queue and no period close.
 
 ## Accounting foundation and Business Books
 
@@ -64,7 +64,7 @@ Confirmed defects:
 - **B4** Over-reimbursement and over-repayment are accepted (`books_service.py:300-333`), so owed-to-members and debt can go negative.
 - **B5** Loan interest is always treated as cash paid on its date (`books_report.py:329, 515`).
 - **B6** Closed periods can be restated without a trace: settings (`api_books.py:196-216`), paid bill dates and categories (`api_books.py:523-525`); bills and intercompany rows have no freeze trigger.
-- **B7** The personal balance trigger fires on posting insert and delete only (0131:250-251), so an entry with no postings is never checked.
+- **B7** The personal balance trigger fires on posting insert and delete only (0131:250-251), so an entry with no postings is never checked. **Fixed in the reconciliation PR**: a deferred constraint trigger on `finance_journal_entries` refuses at commit an entry with fewer than two postings (migration `0153_finance_reconciliation`, `tests/test_postgres_finance_reconciliation.py`).
 - **B8** Draft-bill approval needs only `business:write`, including by its author (`api_books.py:532-548`).
 - **B9** The consolidated `complete` flag ignores truncation (`books_group.py:203`).
 - **B10** `gather` reads projects and accounts without the truncation check (`books_service.py:440-441`).
@@ -84,9 +84,9 @@ Confirmed defects:
 | One canonical entry per event | 1 | `record_plain`, balanced postings trigger |
 | Cross-source dedupe | 3 | Too aggressive (I1 to I3) |
 | Statement self-check (opening plus rows equals closing, running balance) | 1 | `engine.py:440-444`, `pdf_api.py:470-485` |
-| Statement closing against book balance | 4 | Only an SMS-observed balance is compared |
-| Reconciliation workspace (bank and card) | 4 | Not built |
-| Reversal pairing, pending versus posted, unrecognised fees, missing periods | 4 | Not built |
+| Statement closing against book balance | 1 (was 4) | Reconciliation PR: book opening + movements = book closing against the statement's closing, per account and period, never forced (`finance/reconciliation.py`, [docs/finance.md](../finance.md#reconciliation-sessions)) |
+| Reconciliation workspace (bank and card) | 1 (was 4) | Reconciliation PR: sessions with exceptions, owner resolutions, approved correcting entries, completion history and reopen (migration `0153_finance_reconciliation`, web Finance, Reconciliation); card amount due against the card liability |
+| Reversal pairing, pending versus posted, unrecognised fees, missing periods | 1 (was 4) | Reconciliation PR: exceptions `reversal_pair` (suggestion), `pending`, `unrecognized_fee`, `missing_period`, plus `wrong_direction`, `unknown_currency`, `possible_duplicate` |
 | Multi-currency (original amount, billed amount, no invented rates, Decimal, per-currency totals) | 1 | `csv_import.py:521-585`, `fx.py` |
 | Realised and unrealised FX in personal Finance | 4 | Not built |
 
@@ -97,7 +97,7 @@ Confirmed defects:
 - **I3** Occurrence numbering for identical rows counts ticked rows at import but all rows in the preview (`pdf_api.py:490` against `:261`), so a row imported later collides as `imported_before`.
 - **I4** Any "credit card" text marks a current account as a card statement (`engine.py:253`, `meta.py:40`), which switches off the balance check that would reveal dropped rows.
 - **I5** Import history has no held, attached or skipped counts (`models.py:147-161`); attached rows count as duplicates (`api.py:994`).
-- **I6** A "tied" statement marks the account reconciled even when rows were held or skipped (`pdf_api.py:486-489`).
+- **I6** A "tied" statement marks the account reconciled even when rows were held or skipped (`pdf_api.py:486-489`). Since the reconciliation PR a completed reconciliation session is the source of "reconciled" (register and account card); the tie-and-every-row rule is the fallback for accounts never reconciled.
 - **I7** Rows outside the period window are dropped silently; with no period line the window falls back to the statement date (`engine.py:402, 515-525`).
 - **I8** A line with two dates and no amount is read as a period line (`engine.py:324-333`), which loses Gregorian plus Hijri rows.
 - **I9** Pages with "terms and conditions", "example of" or "مثال" are skipped whole (`engine.py:187-191, 271-275`).
@@ -123,7 +123,7 @@ Confirmed defects:
 | Account-scoped, amount or reference rules, history reuse | 1 (was 4) | `RuleMatch` scope fields; `rules.history_suggestion` learns only from rows the owner categorised by hand |
 | Unified review queue and suggestion object | 1 (was 4) | One `Suggestion` object and queue with pluggable producers, dismissal memory and one-wins decisions (`suggestions.py`; [Suggestions](../finance.md#suggestions)); the four existing review pages stay and are linked |
 | Upcoming bills, subscriptions | 1 and 2 | `detect_recurring`, `/bills/suggestions`; reminders not built |
-| Missing statement periods, exception notifications, reconciliation prompts | 2 (was 4) | Missing statement months and the daily unresolved notice (owner policy) are built ([Automation policies](../finance.md#automation-policies)); reconciliation exceptions plug in as a producer once the reconciliation workspace lands |
+| Missing statement periods, exception notifications, reconciliation prompts | 2 (was 4) | Missing statement months and the daily unresolved notice (owner policy) are built ([Automation policies](../finance.md#automation-policies)); the reconciliation PR adds missing months and the next step per account (`GET /reconciliations/health`) and open exceptions (`GET /reconciliations/exceptions`), which the suggestion queue lists as a producer ([Suggestions](../finance.md#suggestions)) |
 
 Confirmed defects:
 
@@ -148,7 +148,7 @@ Confirmed defects:
 | Category budgets | 2 | Set only through the Guardian confirm flow |
 | Emergency reserve | 2 | Indirect only |
 | Month-end forecast | 2 | Web only (`financeStatements.ts:180`), ignores expected income |
-| Reconciliation, Accountant review, Automations and suggestions, Finance settings pages | 4, except Suggestions (1) | Finance, Suggestions (queue, rules, merchants, automation) is built ([Suggestions](../finance.md#suggestions)); the others are not built (settings is a dialog) |
+| Reconciliation, Accountant review, Automations and suggestions, Finance settings pages | 2 (was 4): Suggestions and Reconciliation 1, the others 4 | Finance, Suggestions (queue, rules, merchants, automation) and the Reconciliation page are built ([Suggestions](../finance.md#suggestions)); Accountant review and a settings page are not (settings is a dialog) |
 | English and Arabic | 1 | Paired catalogs, parity tests |
 
 Confirmed defects:

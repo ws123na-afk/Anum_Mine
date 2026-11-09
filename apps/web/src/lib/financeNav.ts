@@ -27,13 +27,13 @@ const tab = (id: FinanceTab): FinanceNavEntry => ({ kind: 'tab', tab: id });
  * The mockups' order: the Finance group (Overview, Transactions, Suggestions, Accounts, Bills, Budgets, Debts,
  * Goals, Reports, Safe to spend, Money advisor, Guardian; Lent and borrowed is a section of Debts, Send home of
  * Goals, Monthly fixed costs of Bills and Payslips with the salary of the Money advisor), then data capture
- * (Connections with its SMS capture tab, Import, Ledger), Holdings and Research, Trading (Paper trading, Trading intelligence, Execution, Broker
+ * (Connections with its SMS capture tab, Import, Reconciliation, Ledger), Holdings and Research, Trading (Paper trading, Trading intelligence, Execution, Broker
  * connections) and Business Expenses and P&L, which opens the business books.
  */
 const ALL_GROUPS: readonly FinanceNavGroup[] = [
   { id: 'finance', entries: [tab('overview'), tab('transactions'), tab('suggestions'), tab('accounts'), tab('bills'), tab('budgets'), tab('debts'), tab('goals'), tab('reports'), tab('safe'), tab('advisor'), tab('guardian')] },
   // Connections and SMS capture are one page (its SMS tab is `#finance-sms`): one entry.
-  { id: 'capture', entries: [{ kind: 'tab', tab: 'connections', also: ['sms'] }, tab('import'), tab('ledger')] },
+  { id: 'capture', entries: [{ kind: 'tab', tab: 'connections', also: ['sms'] }, tab('import'), tab('reconciliation'), tab('ledger')] },
   { id: 'invest', entries: [tab('holdings'), tab('research')] },
   { id: 'trading', entries: [tab('trading'), tab('intel'), tab('execution'), tab('ibkr')] },
   { id: 'business', entries: [{ kind: 'link', id: 'books', href: '#business-books', badge: 'new' }] },
@@ -63,7 +63,7 @@ export function isCurrent(entry: FinanceNavEntry, tabId: FinanceTab): boolean {
  * Sections that draw their own head with <FinancePageHead> (title, scope, period, tabs). Finance's
  * generic header, summary band and breadcrumbs are left out for them, so the page head is never doubled.
  */
-export const OWN_HEAD_TABS: ReadonlySet<FinanceTab> = new Set<FinanceTab>(['reports', 'suggestions', 'safe', 'guardian', 'holdings', 'trading', 'accounts', 'transactions', 'bills', 'budgets', 'debts', 'goals', 'advisor', 'connections', 'sms']);
+export const OWN_HEAD_TABS: ReadonlySet<FinanceTab> = new Set<FinanceTab>(['reports', 'suggestions', 'safe', 'guardian', 'holdings', 'trading', 'accounts', 'transactions', 'bills', 'budgets', 'debts', 'goals', 'advisor', 'connections', 'sms', 'reconciliation']);
 
 /** Personal is the person's own ledger (/api/v1/finance), Business the workspace books (/api/v1/business/books). */
 export type FinanceScope = 'personal' | 'business' | 'all';

@@ -103,7 +103,7 @@ export interface FinanceAiSuggestion { category: FinanceCategory | null; transac
 
 export type FinanceSuggestionKind =
   | 'classification' | 'conflict' | 'uncategorized' | 'statement_hold' | 'sms_review' | 'duplicate' | 'refund_match' | 'payment_match'
-  | 'bill_due' | 'subscription' | 'unusual_spend' | 'missing_statement' | 'cash_shortage' | 'external';
+  | 'bill_due' | 'subscription' | 'unusual_spend' | 'missing_statement' | 'cash_shortage' | 'reconciliation' | 'external';
 
 export interface FinanceSuggestion {
   key: string;

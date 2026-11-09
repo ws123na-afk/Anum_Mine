@@ -14,8 +14,15 @@ export interface FinanceRegisterRow extends FinanceTransaction {
   origin: FinanceOrigin;
   statement_format: 'csv' | 'pdf' | null;
   sources: ('sms' | 'wallet' | 'statement')[];
-  /** A statement confirmed an SMS or Apple Pay record of the same payment. */
+  /**
+   * Covered by a completed reconciliation of its account (docs/finance.md#reconciliation-sessions). For an account never
+   * reconciled, the older meaning (`statement_confirmed`): a statement confirmed an SMS or Apple Pay record of it.
+   */
   reconciled: boolean;
+  /** A statement confirmed an SMS or Apple Pay record of the same payment. */
+  statement_confirmed?: boolean;
+  /** The completed reconciliation whose period holds this row. */
+  reconciliation_id?: string | null;
   receipts: number;
   evidence: FinanceEvidence;
   links_need_review: number;
@@ -81,7 +88,8 @@ export interface FinanceRegisterDetail {
 }
 
 export type FinanceAccountSource = 'manual' | 'sms' | 'apple_wallet' | 'statement';
-export type FinanceAttention = 'balance_differs' | 'links_need_review' | 'possible_duplicates' | 'statement_differs' | 'statement_rows_missing';
+export type FinanceAttention = 'balance_differs' | 'links_need_review' | 'possible_duplicates' | 'statement_differs' | 'statement_rows_missing'
+  | 'reconciliation_changed';
 
 export interface FinanceAccountOverview {
   account_id: string;
@@ -100,6 +108,8 @@ export interface FinanceAccountOverview {
   /** The balance check of the account's newest statement import (docs/finance.md#reconciliation). */
   /** `not_in_ledger`: statement rows the ledger does not hold. A tied statement reconciles the account only when it is 0. */
   last_statement?: { import_id: string; filename: string; imported_at: string; status: 'tied' | 'differs' | 'unknown'; closing: string | null; difference: string | null; not_in_ledger?: number } | null;
+  /** The latest reconciliation session; `last_reconciled_at` is its completion once one is completed and unchanged. */
+  reconciliation?: { id: string; status: 'open' | 'completed' | 'changed'; period_start: string; period_end: string; completed_at: string | null } | null;
 }
 
 export interface FinanceAccountsOverview {

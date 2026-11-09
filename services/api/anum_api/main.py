@@ -183,6 +183,7 @@ from .finance.statement_import import router as finance_statement_router
 from .finance.advisor_api import router as finance_advisor_router
 from .finance.personal_api import router as finance_personal_router
 from .finance.salary_api import router as finance_salary_router
+from .finance.reconciliation_api import router as finance_reconciliation_router
 from .finance.rules_api import router as finance_rules_router
 from .finance.statement_pdf import MAX_PDF_BYTES as PDF_STATEMENT_MAX_BYTES
 from .finance.ibkr_api import router as finance_ibkr_router
@@ -598,6 +599,7 @@ app.include_router(finance_statement_router)
 app.include_router(finance_advisor_router)
 app.include_router(finance_personal_router)
 app.include_router(finance_salary_router)
+app.include_router(finance_reconciliation_router)
 app.include_router(finance_ibkr_router)
 app.include_router(finance_research_router)
 app.include_router(finance_intel_control_router)

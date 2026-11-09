@@ -6,7 +6,7 @@ the built-in ones below read what the existing pages already work out (uncategor
 statement rows held for review, SMS messages waiting, possible duplicates, refunds and their purchases, payments that
 may be a bill, bills due, recurring payments not yet saved as bills, unusual spending, missing statement months and a
 possible cash shortage), and other modules add theirs with :func:`register_producer` (the reconciliation workspace's
-exceptions plug in here). A producer only reads: it returns suggestions and never changes a record.
+exceptions come in through ``reconciliation_suggestions.py``). A producer only reads: it returns suggestions and never changes a record.
 
 The owner's decision on a suggestion is stored once per suggestion key (``rules_store.SuggestionDecision``): Accept
 and Reject are each claimed with an insert that only one request can win, and a rejected suggestion stays dismissed
@@ -37,12 +37,12 @@ logger = logging.getLogger("anum_api.finance.suggestions")
 
 Kind = Literal[
     "classification", "conflict", "uncategorized", "statement_hold", "sms_review", "duplicate", "refund_match", "payment_match", "bill_due",
-    "subscription", "unusual_spend", "missing_statement", "cash_shortage", "external",
+    "subscription", "unusual_spend", "missing_statement", "cash_shortage", "reconciliation", "external",
 ]
 ActionKind = Literal["classify", "confirm_refund", "acknowledge", "open"]
 # The order the queue lists kinds in: money at risk first, then what blocks figures, then tidying.
 KIND_ORDER: tuple[str, ...] = (
-    "cash_shortage", "bill_due", "unusual_spend", "duplicate", "conflict", "classification", "uncategorized", "statement_hold", "sms_review",
+    "cash_shortage", "bill_due", "unusual_spend", "reconciliation", "duplicate", "conflict", "classification", "uncategorized", "statement_hold", "sms_review",
     "refund_match", "payment_match", "missing_statement", "subscription", "external",
 )
 RECENT_DAYS = 120  # rows a classification suggestion looks at
@@ -484,3 +484,6 @@ __all__ = [
     "Effect", "Evidence", "KIND_ORDER", "ProposedAction", "Queue", "Snapshot", "Suggestion", "build", "producers", "register_producer", "seal",
     "snapshot", "unregister_producer",
 ]
+
+# The reconciliation workspace's exceptions (its module registers itself; imported last, once this module is complete).
+from . import reconciliation_suggestions as _reconciliation_suggestions  # noqa: F401
