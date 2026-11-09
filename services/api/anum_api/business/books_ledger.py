@@ -138,6 +138,12 @@ def reverse(store: BooksStore, context: TenantContext, entry: JournalEntry, *, a
     return reversal
 
 
+# Events a person recorded as already done, dated in their own calendar and checked "not in the future" by
+# ``books_service.latest_day``: personal payments allocated to the business, adjustments and payments. Only the event itself
+# (``kind:id``); what it schedules (a reversal, a release, depreciation) waits for its UTC day.
+RECORDED_KINDS = frozenset({"allocation", "adjustment", "invoice_payment", "bill_payment"})
+
+
 def _plan(context: TenantContext, store: BooksStore, today: date) -> tuple[Any, Chart, list[Proposal], list[JournalEntry], date | None]:
     from .books_service import gather
 
@@ -152,6 +158,14 @@ def post(context: TenantContext, *, actor: str = SYSTEM_POSTER, today: date | No
     a run would do (the reports' "not posted yet")."""
     moment = now or utc_now()
     day = today or moment.date()
+    # A recorded event carries its owner's local date (Asia/Dubai by default), up to a day ahead of UTC. It has happened, so it
+    # is due once its date has begun anywhere (UTC+14); scheduled events (depreciation, reversals, bills dated ahead) wait.
+    recorded_day = today or (moment + timedelta(hours=14)).date()
+
+    def is_due(proposal: Proposal) -> bool:
+        recorded = proposal.source_kind in RECORDED_KINDS and proposal.event_key.count(":") == 1
+        return proposal.event_date <= (recorded_day if recorded else day)
+
     result = PostResult()
     with _one_run(context), open_books_store(context) as store:
         settings = store.get_settings()
@@ -164,12 +178,12 @@ def post(context: TenantContext, *, actor: str = SYSTEM_POSTER, today: date | No
         inputs, chart, proposals, live, locked = _plan(context, store, day)
         result.truncated = inputs.truncated
         if dry_run and not chart.by_key:
-            due = [p for p in proposals if p.event_date <= day]
+            due = [p for p in proposals if is_due(p)]
             result.posted = len(due)
             result.scheduled = len(proposals) - len(due)
             return result
         converter = R.Converter(inputs.rates, settings.base_currency, settings.rate_max_age_days)
-        due = {p.event_key: p for p in proposals if p.event_date <= day}
+        due = {p.event_key: p for p in proposals if is_due(p)}
         result.scheduled = len(proposals) - len(due)
         live_by_key = {entry.event_key: entry for entry in live}
         issues: list[Issue] = []
@@ -264,7 +278,7 @@ def manual_entry(store: BooksStore, context: TenantContext, *, entry_date: date,
         raise LedgerError(409, "Set the business's base currency and financial year first (Books, Settings).", "books_not_set_up")
     store.lock_books()
     ensure_chart(store, context, now, context.user_id)
-    if entry_date > today:
+    if entry_date > max(today, (utc_now() + timedelta(hours=14)).date()):  # the owner's local today is not the future
         raise LedgerError(422, "A journal entry cannot be dated in the future.", "date_in_future")
     locked = locked_through(store)
     if locked is not None and entry_date <= locked:

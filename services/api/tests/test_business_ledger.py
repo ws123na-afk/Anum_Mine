@@ -213,14 +213,16 @@ def test_an_owner_paid_business_expense_is_owed_to_the_member_and_reimbursement_
     post()
     expense = entries(source_kind="allocation")[0]
     assert lines_of(expense) == {("operating", "150.00", "0.00"), ("owed_to_members", "0.00", "150.00")}
-    paid = adjust(kind="owner_reimbursement", amount="100")
+    # Repaid on the day the expense is dated (the owner's local date, which can be a day ahead of UTC), never before it.
+    on = expense["entry_date"]
+    paid = adjust(kind="owner_reimbursement", amount="100", entry_date=on)
     assert paid.status_code == 201, paid.text
     assert lines_of(entries(source_kind="adjustment")[0]) == {("owed_to_members", "100.00", "0.00"), ("bank", "0.00", "100.00")}
     # Defect B4: never more than is owed.
-    over = adjust(kind="owner_reimbursement", amount="60")
+    over = adjust(kind="owner_reimbursement", amount="60", entry_date=on)
     assert over.status_code == 422 and over.json()["code"] == "more_than_owed" and over.json()["remaining"] == "50.00"
-    assert balance(statements(), "owed_to_members") == "-50.00"
-    repay = adjust(kind="loan_repayment", amount="1")
+    assert balance(statements(to=on), "owed_to_members") == "-50.00"
+    repay = adjust(kind="loan_repayment", amount="1", entry_date=on)
     assert repay.status_code == 422 and repay.json()["remaining"] == "0"
 
 
@@ -531,3 +533,16 @@ def test_the_daily_job_backfills_a_business_that_had_books_before_the_journal() 
     assert first["ledgers"] == 1 and first["entries_posted"] == 2 and first["not_posted"] == 0
     assert books_jobs.run()["entries_posted"] == 0
     assert len(chart()) >= 29
+
+
+def test_the_owners_local_today_is_not_the_future_late_in_the_utc_evening(monkeypatch: pytest.MonkeyPatch) -> None:
+    from datetime import UTC, datetime
+
+    from anum_api.business import books_service as S
+
+    late = datetime(2026, 11, 9, 21, 30, tzinfo=UTC)  # already 10 November in Dubai and Riyadh
+    monkeypatch.setattr(S, "utc_now", lambda: late)
+    assert S.not_future(date(2026, 11, 10), date(2026, 11, 9), "date") == date(2026, 11, 10)
+    with pytest.raises(S.BooksError) as refused:
+        S.not_future(date(2026, 11, 11), date(2026, 11, 9), "date")
+    assert refused.value.code == "date_in_future"
