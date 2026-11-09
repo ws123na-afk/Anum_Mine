@@ -11,6 +11,7 @@ import { financeSmsEn } from './financeSms.en.ts';
 import { financePdfEn } from './financePdf.en.ts';
 import { financeConnectionsEn } from './financeConnections.en.ts';
 import { financeRegisterEn } from './financeRegister.en.ts';
+import { financeMatchEn } from './financeMatch.en.ts';
 import { financeIntelEn } from './financeIntel.en.ts';
 import { financeEquityEn } from './financeEquity.en.ts';
 import { financeHoldingsEn } from './financeHoldings.en.ts';
@@ -112,6 +113,7 @@ import { chatEn } from './chat.en.ts';
 import { setupEn } from './setup.en.ts';
 import { pagesEn } from './pages.en.ts';
 import { calendarEn } from './calendar.en.ts';
+import { teamPageEn } from './teamPage.en.ts';
 import { tasksPageEn } from './tasksPage.en.ts';
 import { pages2En } from './pages2.en.ts';
 
@@ -127,6 +129,7 @@ export const en = {
   ...financePdfEn,
   ...financeConnectionsEn,
   ...financeRegisterEn,
+  ...financeMatchEn,
   ...financeIntelEn,
   ...financeEquityEn,
   ...financeHoldingsEn,
@@ -194,6 +197,7 @@ export const en = {
   ...setupEn,
   ...pagesEn,
   ...calendarEn,
+  ...teamPageEn,
   ...tasksPageEn,
   ...pages2En,
   // ---- Common ----

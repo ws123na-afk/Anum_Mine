@@ -59,7 +59,7 @@ When the owner corrects the column mapping or the date format and imports with "
 
 ## Reconciliation with SMS
 
-Statement rows go through `sms_service.reconcile_rows` like CSV rows. A PDF row also carries its bank reference (an agreeing reference confirms a match and a conflicting one rules it out) and its printed time: when the day alone leaves more than one recorded payment, the one within the precise time window is picked. The time never turns a day match into a new transaction.
+PDF rows go through the [statement matching engine](finance.md#statement-matching) like CSV rows: at read time every row gets its `match` (new, already recorded, matched to an SMS, Apple Pay or hand entry, or a possible duplicate), its FX details and any bill or own transfer it pays, and `counts` sums them; at import the engine runs again on the live ledger. The person's ticks travel on each row (`action`, `bill`, `transfer`, `correct`). A PDF row also carries its bank reference (an agreeing reference confirms a match and a conflicting one rules it out) and its printed time: when the day alone leaves more than one recorded payment, the one within 30 minutes is picked. The time never turns a day match into a new transaction. The statement's balance check is stored with the import (see [Reconciliation](finance.md#reconciliation)).
 
 ## Not built (stated plainly)
 

@@ -380,6 +380,17 @@ class PaymentDue(BaseModel):
     currency: str
 
 
+class StatementCheck(BaseModel):
+    """The balance check of the account's newest statement import (docs/finance.md#reconciliation)."""
+
+    import_id: str
+    filename: str
+    imported_at: datetime
+    status: Literal["tied", "differs", "unknown"]
+    closing: Decimal | None
+    difference: Decimal | None
+
+
 class AccountOverview(BaseModel):
     account_id: str
     sources: list[Literal["manual", "sms", "apple_wallet", "statement"]]
@@ -392,8 +403,9 @@ class AccountOverview(BaseModel):
     last_reconciled_at: datetime | None
     imported: int
     matched: int
-    needs_attention: list[Literal["balance_differs", "links_need_review", "possible_duplicates"]]
+    needs_attention: list[Literal["balance_differs", "links_need_review", "possible_duplicates", "statement_differs"]]
     payment_due: PaymentDue | None
+    last_statement: StatementCheck | None = None
 
 
 class AccountsOverview(BaseModel):
@@ -438,8 +450,18 @@ def accounts_overview(context: TenantContext = Depends(tenant_context)) -> Accou
         if entry is not None and entry.reconciled_at is not None:
             item["reconciled"] = max(item["reconciled"] or entry.reconciled_at, entry.reconciled_at)
     last_import: dict[str, datetime] = {}
+    last_check: dict[str, Any] = {}
     for record in facts.imports.values():
         last_import[record.account_id] = max(last_import.get(record.account_id, record.created_at), record.created_at)
+        check = record.reconciliation or {}
+        if check.get("status") in ("tied", "differs", "unknown"):
+            current = last_check.get(record.account_id)
+            if current is None or (record.created_at, record.id) > (current.created_at, current.id):
+                last_check[record.account_id] = record
+            if check.get("status") == "tied":
+                # A statement whose rows add up from its opening to its closing balance reconciles the account.
+                item = per[record.account_id]
+                item["reconciled"] = max(item["reconciled"] or record.created_at, record.created_at)
     out: list[AccountOverview] = []
     for account in facts.accounts.values():
         item = per[account.id]
@@ -462,6 +484,15 @@ def accounts_overview(context: TenantContext = Depends(tenant_context)) -> Accou
             attention.append("links_need_review")
         if item["dups"]:
             attention.append("possible_duplicates")
+        checked = last_check.get(account.id)
+        statement = None
+        if checked is not None:
+            data = checked.reconciliation or {}
+            statement = StatementCheck(import_id=checked.id, filename=checked.filename, imported_at=checked.created_at, status=data["status"],
+                                       closing=Decimal(data["closing"]) if data.get("closing") else None,
+                                       difference=Decimal(data["difference"]) if data.get("difference") else None)
+            if statement.status == "differs":
+                attention.append("statement_differs")
         due = next((b for b in bills if bill_accounts.get(b.id) == account.id), None) if account.kind == AccountKind.CARD else None
         reconciled = item["reconciled"]
         out.append(AccountOverview(
@@ -469,6 +500,7 @@ def accounts_overview(context: TenantContext = Depends(tenant_context)) -> Accou
             observed_at=seen[1] if seen else None, difference=difference, last_activity_on=item["last"], last_import_at=last_import.get(account.id),
             last_reconciled_at=reconciled, imported=item["imported"], matched=item["matched"], needs_attention=attention,
             payment_due=PaymentDue(name=due.name, due_on=due.due_on, amount=due.amount, currency=due.currency) if due else None,
+            last_statement=statement,
         ))
     stamps = [a.last_reconciled_at for a in out if a.last_reconciled_at]
     return AccountsOverview(accounts=out, review_count=facts.review_count, last_reconciled_at=max(stamps) if stamps else None,

@@ -74,7 +74,7 @@ export interface FinanceRegisterDetail {
 }
 
 export type FinanceAccountSource = 'manual' | 'sms' | 'apple_wallet' | 'statement';
-export type FinanceAttention = 'balance_differs' | 'links_need_review' | 'possible_duplicates';
+export type FinanceAttention = 'balance_differs' | 'links_need_review' | 'possible_duplicates' | 'statement_differs';
 
 export interface FinanceAccountOverview {
   account_id: string;
@@ -90,6 +90,8 @@ export interface FinanceAccountOverview {
   matched: number;
   needs_attention: FinanceAttention[];
   payment_due: { name: string; due_on: string; amount: string; currency: string } | null;
+  /** The balance check of the account's newest statement import (docs/finance.md#reconciliation). */
+  last_statement?: { import_id: string; filename: string; imported_at: string; status: 'tied' | 'differs' | 'unknown'; closing: string | null; difference: string | null } | null;
 }
 
 export interface FinanceAccountsOverview {

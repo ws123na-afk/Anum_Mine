@@ -12,6 +12,7 @@ import { financeSmsAr } from './financeSms.ar.ts';
 import { financePdfAr } from './financePdf.ar.ts';
 import { financeConnectionsAr } from './financeConnections.ar.ts';
 import { financeRegisterAr } from './financeRegister.ar.ts';
+import { financeMatchAr } from './financeMatch.ar.ts';
 import { financeIntelAr } from './financeIntel.ar.ts';
 import { financeEquityAr } from './financeEquity.ar.ts';
 import { financeHoldingsAr } from './financeHoldings.ar.ts';
@@ -113,6 +114,7 @@ import { chatAr } from './chat.ar.ts';
 import { setupAr } from './setup.ar.ts';
 import { pagesAr } from './pages.ar.ts';
 import { calendarAr } from './calendar.ar.ts';
+import { teamPageAr } from './teamPage.ar.ts';
 import { tasksPageAr } from './tasksPage.ar.ts';
 import { pages2Ar } from './pages2.ar.ts';
 
@@ -128,6 +130,7 @@ export const ar: Record<MessageKey, Message> = {
   ...financePdfAr,
   ...financeConnectionsAr,
   ...financeRegisterAr,
+  ...financeMatchAr,
   ...financeIntelAr,
   ...financeEquityAr,
   ...financeHoldingsAr,
@@ -195,6 +198,7 @@ export const ar: Record<MessageKey, Message> = {
   ...setupAr,
   ...pagesAr,
   ...calendarAr,
+  ...teamPageAr,
   ...tasksPageAr,
   ...pages2Ar,
   // ---- Common ----

@@ -2,8 +2,9 @@
 // the activity feed and people. Everything comes from the live API; who may change what is the
 // API's answer (its 403 is shown in place), and every list pages through the server.
 import { AvatarStyleEditor, roleFamilyOf } from './AvatarStyleEditor';
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
-import { ArrowLeft, Bot, CheckSquare, CircleDot, ClipboardList, Download, Gauge, History, MessageSquare, Paperclip, Plus, RefreshCw, Search, Send, Sparkles, Trash2, UserRound, Users } from 'lucide-react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { ArrowLeft, Bot, Building2, Mail, MailPlus, CheckSquare, CircleDot, ClipboardList, Download, Gauge, History, MessageSquare, Paperclip, Plus, RefreshCw, Search, Send, Sparkles, Trash2, UserRound, Users } from 'lucide-react';
+import type { MembersSummary, WorkspacePermissions } from '@anum/contracts';
 import type { ActivityEntry, AssistantProfile, CommandPreview, TeamPerson, WorkItem, WorkItemDetail, WorkItemPage, WorkStatus, Workload, WorkPriority } from '@anum/contracts';
 import * as team from './lib/teamApi';
 import { apiRequest, currentUserId, downloadFile, getFiles, uploadFile, type FileRecord } from './lib/api';
@@ -12,19 +13,34 @@ import { formatDateTime, t, type MessageKey } from './lib/i18n';
 import { BOARD_COLUMNS, PRIORITIES, STATUSES, assigneeOptions, assigneeValue, boardColumn, draftBody, dueState, emptyDraft, isoToLocalInput, loadTone, localInputToIso, parseAssignee, workloadTotals, workQuery, type WorkDraft } from './lib/team';
 import { figure, type Load } from './lib/pageSummary';
 import { viewLabel } from './lib/shell';
-import { loadFailure, PageHeader, PageSummary } from './PageParts';
+import { loadFailure } from './PageParts';
+import { FinancePageHead, FinanceTabs, KpiCard, KpiRow, tabPanel } from './FinanceShell';
+import { getMembersSummary, getWorkspacePermissions, getWorkspaceRoles, type RolePermissions } from './lib/adminApi';
+import { formatNumber } from './lib/i18n';
+import { profileHash } from './lib/orgChart';
+import { openByHash, OrgChartView } from './OrgChartView';
+import { AuditLogView } from './AuditLogView';
+import { DepartmentsTab, DirectoryTab, InvitationsTab, RolesTab } from './TeamPeople';
 import { Modal } from './Dialog';
 import { DEPARTMENTS } from './hqBuilder/labels';
 import { CallButtons } from './AppCalls';
 import { CallHistory } from './CallHistory';
 import './team.css';
 
-// The board and the workload table are one "Team dashboard" tab (docs/team-work.md#dashboard).
-type Tab = 'mine' | 'board' | 'activity' | 'people' | 'calls';
+// Team (docs/team-work.md#team-page): Directory, Org chart, Departments, Roles and access,
+// Invitations and Activity from the owner's mockups, then the work tabs (My work, Team dashboard
+// with the board and workload, Calls). The board and the workload table are one "Team dashboard" tab.
+type Tab = 'directory' | 'org' | 'departments' | 'roles' | 'invitations' | 'activity' | 'mine' | 'board' | 'calls';
 /** Every department a person can be placed in (matches the rooms' department list, `OFFICE_TEAM_DEPARTMENTS`). */
 const TEAM_DEPARTMENT_CHOICES = DEPARTMENTS;
-const TABS: Tab[] = ['mine', 'board', 'activity', 'people', 'calls'];
-const savedTab = (): Tab => { const saved = sessionStorageGet('anum.team.tab'); return saved === 'workload' ? 'board' : (TABS as string[]).includes(saved ?? '') ? saved as Tab : 'mine'; };
+const TABS: Tab[] = ['directory', 'org', 'departments', 'roles', 'invitations', 'activity', 'mine', 'board', 'calls'];
+const WORK_TABS: ReadonlySet<Tab> = new Set(['mine', 'board', 'activity']);
+const savedTab = (): Tab => {
+  const saved = sessionStorageGet('anum.team.tab');
+  if (saved === 'workload') return 'board';
+  if (saved === 'people') return 'directory';
+  return (TABS as string[]).includes(saved ?? '') ? saved as Tab : 'directory';
+};
 type Flash = { text: string; error?: boolean } | null;
 
 const statusLabel = (s: WorkStatus) => t(`team.status.${s}` as MessageKey);
@@ -68,48 +84,82 @@ export function useDirectory() {
 }
 
 export function TeamView({ focusItemId = null, onFocusChange, live = 0 }: { focusItemId?: string | null; onFocusChange?(id: string | null): void; live?: number }) {
-  const [tab, setTab] = useState<Tab>(savedTab);
+  const [tab, setTab] = useState<Tab>(() => (focusItemId ? 'mine' : savedTab()));
   const [selected, setSelected] = useState<string | null>(focusItemId);
   const [creating, setCreating] = useState(false);
   const [revision, setRevision] = useState(0);
   const [workload, setWorkload] = useState<Load<Workload>>({ state: 'loading' });
+  const [people, setPeople] = useState<Load<TeamPerson[]>>({ state: 'loading' });
+  const [roles, setRoles] = useState<Load<RolePermissions[]>>({ state: 'loading' });
+  const [permissions, setPermissions] = useState<WorkspacePermissions | null>(null);
+  const [summary, setSummary] = useState<Load<MembersSummary>>({ state: 'loading' });
   const dir = useDirectory();
+  const ids = useId();
   const changed = () => setRevision((n) => n + 1);
-  useEffect(() => { if (focusItemId) setSelected(focusItemId); }, [focusItemId]);
+  useEffect(() => { if (focusItemId) { setSelected(focusItemId); if (!WORK_TABS.has(tab)) setTab('mine'); } }, [focusItemId]); // eslint-disable-line react-hooks/exhaustive-deps
   // Live events (someone else's change) reload the lists; an open form or detail keeps its state.
   useEffect(() => { if (live) setRevision((n) => n + 1); }, [live]);
   const loadWorkload = useCallback(() => { team.getWorkload().then((value) => setWorkload({ state: 'ready', value }), (e: unknown) => setWorkload(loadFailure(e))); }, []);
+  const loadPeople = useCallback(() => { team.getPeople().then((value) => setPeople({ state: 'ready', value }), (e: unknown) => setPeople(loadFailure(e))); }, []);
+  const loadRoles = useCallback(() => { getWorkspaceRoles().then((value) => setRoles({ state: 'ready', value }), (e: unknown) => setRoles(loadFailure(e))); }, []);
   useEffect(loadWorkload, [loadWorkload, revision]);
+  useEffect(loadPeople, [loadPeople, revision]);
+  useEffect(loadRoles, [loadRoles]);
+  useEffect(() => { getWorkspacePermissions().then(setPermissions, () => setPermissions(null)); }, []);
+  useEffect(() => {
+    if (!permissions?.canManageMembers) { setSummary(permissions ? { state: 'denied', message: t('teamPage.inv.ownersOnly') } : { state: 'loading' }); return; }
+    getMembersSummary().then((value) => setSummary({ state: 'ready', value }), (e: unknown) => setSummary(loadFailure(e)));
+  }, [permissions, revision]);
   const pick = (next: Tab) => { setTab(next); sessionStorageSet('anum.team.tab', next); };
   const open = (id: string | null) => { setSelected(id); onFocusChange?.(id); };
   const totals = workload.state === 'ready' ? workloadTotals(workload.value) : null;
-  const figures = [
-    figure('open', t('pages2.team.fig.open'), workload, () => ({ value: String(totals!.open), hint: t('pages2.team.fig.openHint', { count: totals!.people }) })),
-    figure('progress', t('team.status.in_progress'), workload, () => ({ value: String(totals!.inProgress), hint: totals!.blocked ? t('pages2.team.fig.blocked', { count: totals!.blocked }) : t('pages2.team.fig.noneBlocked'), tone: totals!.blocked ? 'warn' : '' })),
-    figure('overdue', t('team.load.overdue'), workload, () => ({ value: String(totals!.overdue), hint: totals!.overdue ? t('pages2.team.fig.overdueHint') : t('pages2.team.fig.noneOverdue'), tone: totals!.overdue ? 'danger' : '' })),
-    figure('unassigned', t('pages2.team.fig.unassigned'), workload, () => ({ value: String(totals!.unassigned), hint: t('pages2.team.fig.week', { count: totals!.dueThisWeek }), tone: totals!.unassigned ? 'warn' : '' })),
-  ];
+  const peopleList = people.state === 'ready' ? people.value : [];
+  const departments = new Set(peopleList.map((p) => p.department).filter(Boolean)).size;
+  const reloadPeople = () => { loadPeople(); void dir.reload(); changed(); };
+  const items = TABS.map((id) => ({ id, label: id === 'calls' ? t('team.tab.calls') : t(`teamPage.tab.${id}` as MessageKey), badge: id === 'invitations' && summary.state === 'ready' && summary.value.pendingInvitations ? summary.value.pendingInvitations : undefined }));
+  const workTab = WORK_TABS.has(tab);
+  // The work item's detail sits beside My work and the Team dashboard; Activity keeps its full width.
+  const showWorkDetail = Boolean(selected) && tab !== 'activity';
 
-  return <div className="teamView">
-    <PageHeader title={viewLabel('team')} subtitle={t('team.intro')} actions={<button type="button" onClick={() => setCreating(true)} aria-haspopup="dialog"><Plus aria-hidden="true" />{t('team.newWork')}</button>} />
-    <PageSummary label={t('pages2.team.summary')} figures={figures} onRetry={loadWorkload} />
-    <CommandBox options={dir.options} onCreated={(item) => { changed(); open(item.id); }} />
-    {creating && <Modal title={t('team.newWork')} className="formDialog workDialog" onClose={() => setCreating(false)}>
-      <WorkForm options={dir.options} onCancel={() => setCreating(false)} onCreated={(item) => { setCreating(false); changed(); open(item.id); }} />
-    </Modal>}
-    {dir.error && <Notice error>{t('team.directoryFailed', { message: dir.error })}</Notice>}
-    <nav className="settingsTabs teamTabs" aria-label={t('team.sections')}>
-      {TABS.map((id) => <button key={id} type="button" aria-current={tab === id ? 'page' : undefined} onClick={() => pick(id)}>{t(`team.tab.${id}` as MessageKey)}</button>)}
-    </nav>
-    <div className={`teamSplit ${selected ? 'hasDetail' : ''}`}>
-      <div className="teamMain">
-        {tab === 'mine' && <WorkList key={`mine-${revision}`} scope="mine" selected={selected} onOpen={open} onCreate={() => setCreating(true)} />}
-        {tab === 'board' && <Board key={`board-${revision}`} workload={workload} onRetryWorkload={loadWorkload} selected={selected} onOpen={open} onCreate={() => setCreating(true)} />}
-        {tab === 'activity' && <ActivityFeed key={`feed-${revision}`} onOpen={open} />}
-        {tab === 'people' && <PeoplePanel people={dir.people} onChanged={() => { void dir.reload(); changed(); }} />}
-        {tab === 'calls' && <CallHistory />}
-      </div>
-      {selected && <WorkDetail key={selected} itemId={selected} options={dir.options} onClose={() => open(null)} onChanged={changed} />}
+  return <div className="teamView tpPage">
+    <FinancePageHead title={viewLabel('team')} subtitle={t('teamPage.subtitle')} actions={<>
+      {permissions?.canManageMembers && <button type="button" className="secondary" onClick={() => pick('invitations')}><MailPlus aria-hidden="true" />{t('teamPage.invite')}</button>}
+      <button type="button" onClick={() => setCreating(true)} aria-haspopup="dialog"><Plus aria-hidden="true" />{t('team.newWork')}</button>
+    </>} tabs={<FinanceTabs label={t('team.sections')} idPrefix={`${ids}-team`} items={items} value={tab} onChange={pick} />} />
+    <div {...tabPanel(`${ids}-team`, tab)}>
+      <KpiRow label={t('pages2.team.summary')}>
+        <KpiCard icon={<Users />} label={t('teamPage.kpi.members')} value={people.state === 'ready' ? formatNumber(peopleList.length) : '-'}
+          hint={people.state === 'ready' ? t('teamPage.kpi.assignable', { count: peopleList.filter((p) => p.assignable).length }) : people.state === 'loading' ? undefined : t('page.figure.unavailable')} />
+        <KpiCard icon={<Building2 />} label={t('teamPage.kpi.departments')} value={people.state === 'ready' ? formatNumber(departments) : '-'}
+          hint={people.state === 'ready' ? t('teamPage.kpi.noDepartment', { count: peopleList.filter((p) => !p.department).length }) : undefined} />
+        <KpiCard icon={<Mail />} label={t('teamPage.kpi.invites')} value={summary.state === 'ready' ? formatNumber(summary.value.pendingInvitations) : '-'}
+          hint={summary.state === 'ready' ? (summary.value.pendingInvitations ? t('teamPage.kpi.invitesHint') : t('teamPage.kpi.invitesNone')) : summary.state === 'denied' ? t('teamPage.kpi.ownersSee') : summary.state === 'error' ? t('page.figure.unavailable') : undefined}
+          tone={summary.state === 'ready' && summary.value.pendingInvitations ? 'warn' : ''} />
+        <KpiCard icon={<ClipboardList />} label={t('pages2.team.fig.open')} value={totals ? formatNumber(totals.open) : '-'}
+          hint={totals ? (totals.overdue ? t('teamPage.kpi.overdue', { count: totals.overdue }) : t('pages2.team.fig.noneOverdue')) : workload.state === 'loading' ? undefined : t('page.figure.unavailable')} tone={totals?.overdue ? 'bad' : ''} />
+      </KpiRow>
+      {creating && <Modal title={t('team.newWork')} className="formDialog workDialog" onClose={() => setCreating(false)}>
+        <WorkForm options={dir.options} onCancel={() => setCreating(false)} onCreated={(item) => { setCreating(false); changed(); pick('mine'); open(item.id); }} />
+      </Modal>}
+      {tab === 'directory' && <DirectoryTab people={peopleList} peopleLoad={people} workload={workload.state === 'ready' ? workload.value : null} roles={roles} onReload={reloadPeople} onOpenOrg={() => pick('org')} />}
+      {tab === 'org' && <OrgChartView role={permissions?.role ?? null} onOpenProfile={(ref) => openByHash(profileHash(ref).slice(1))} onOpenAgent={(id) => openByHash(profileHash({ kind: 'agent', id }).slice(1))}
+        onEditAgent={() => openByHash('agents')} onCreate={() => openByHash('agents')} />}
+      {tab === 'departments' && <DepartmentsTab people={peopleList} peopleLoad={people} workload={workload.state === 'ready' ? workload.value : null} onReload={reloadPeople} onPickPerson={() => pick('directory')} />}
+      {tab === 'roles' && <RolesTab roles={roles} people={peopleList} onRetry={loadRoles} permissions={permissions} />}
+      {tab === 'invitations' && <InvitationsTab permissions={permissions} onChanged={changed} />}
+      {tab === 'mine' && <CommandBox options={dir.options} onCreated={(item) => { changed(); open(item.id); }} />}
+      {dir.error && workTab && <Notice error>{t('team.directoryFailed', { message: dir.error })}</Notice>}
+      {workTab && <div className={`teamSplit ${showWorkDetail ? 'hasDetail' : ''}`}>
+        <div className="teamMain">
+          {tab === 'mine' && <WorkList key={`mine-${revision}`} scope="mine" selected={selected} onOpen={open} onCreate={() => setCreating(true)} />}
+          {tab === 'board' && <Board key={`board-${revision}`} workload={workload} onRetryWorkload={loadWorkload} selected={selected} onOpen={open} onCreate={() => setCreating(true)} />}
+          {tab === 'activity' && <ActivityFeed key={`feed-${revision}`} onOpen={(id) => { pick('mine'); open(id); }} />}
+          {tab === 'activity' && permissions?.canReadAudit && <AuditLogView onOpenMembers={() => openByHash('members')} />}
+          {tab === 'activity' && permissions && !permissions.canReadAudit && <p className="muted tpNote">{t('teamPage.activity.auditOwners')}</p>}
+        </div>
+        {showWorkDetail && selected && <WorkDetail key={selected} itemId={selected} options={dir.options} onClose={() => open(null)} onChanged={changed} />}
+      </div>}
+      {tab === 'calls' && <CallHistory />}
     </div>
   </div>;
 }
@@ -380,26 +430,7 @@ function ActivityFeed({ onOpen }: { onOpen(id: string): void }) {
 
 // ------------------------------------------------------------------------- people
 
-function PeoplePanel({ people, onChanged }: { people: TeamPerson[]; onChanged(): void }) {
-  const me = currentUserId();
-  const [editing, setEditing] = useState<string | null>(null);
-  if (!people.length) return <section className="surface teamPanel"><Empty icon={<Users aria-hidden="true" />} title={t('team.empty.people')} text={t('team.empty.peopleText')} /></section>;
-  return <section className="surface teamPanel" aria-labelledby="people-title">
-    <h2 id="people-title">{t('team.tab.people')}</h2>
-    <p className="muted">{t('team.peopleHelp')}</p>
-    <ul className="peopleList">{people.map((p) => <li key={p.user_id} className="person">
-      <div><strong>{p.display_name}</strong><small>{[t(`team.role.${p.role}` as MessageKey), p.job_title, p.department ? t(`team.dept.${p.department}` as MessageKey) : null, p.email].filter(Boolean).join(' · ')}</small>
-        {!p.has_profile && <small className="warnText">{t('team.noProfile')}</small>}</div>
-      <div className="personActions">
-        {p.user_id !== me && <CallButtons person={p} />}
-        <button type="button" className="secondary" onClick={() => setEditing(editing === p.user_id ? null : p.user_id)} aria-expanded={editing === p.user_id}>{p.user_id === me ? t('team.editMine') : t('team.edit')}</button>
-      </div>
-      {editing === p.user_id && <ProfileForm person={p} onDone={() => { setEditing(null); onChanged(); }} />}
-    </li>)}</ul>
-  </section>;
-}
-
-function ProfileForm({ person, onDone }: { person: TeamPerson; onDone(): void }) {
+export function ProfileForm({ person, onDone }: { person: TeamPerson; onDone(): void }) {
   const [name, setName] = useState(person.has_profile ? person.display_name : '');
   const [email, setEmail] = useState(person.email ?? '');
   const [title, setTitle] = useState(person.job_title ?? '');

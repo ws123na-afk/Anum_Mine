@@ -26,7 +26,7 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy.exc import IntegrityError
 
 from .audit import AuditRecord
-from .authorization import Permission
+from .authorization import ROLE_PERMISSIONS, Permission, Role
 from .dependencies import (
     _unit_of_work,
     has_permission,
@@ -124,6 +124,31 @@ async def workspace_permissions(
         can_read_audit=_can(context, Permission.AUDIT_READ),
         can_export_audit=_can(context, Permission.AUDIT_EXPORT),
     )
+
+
+class RolePermissions(BaseModel):
+    role: str
+    permissions: list[str]
+
+
+class WorkspaceRoles(BaseModel):
+    roles: list[RolePermissions]
+
+
+@router.get("/workspaces/current/roles", response_model=WorkspaceRoles)
+def workspace_roles(
+    context: TenantContext = Depends(tenant_context),
+    repository: AnumRepository = Depends(repository_context),
+) -> WorkspaceRoles:
+    """What each workspace role may do (``authorization.ROLE_PERMISSIONS``), for the Team page's
+    Roles and access tab. Fixed by the code, the same in every workspace; any member may read it."""
+    membership = repository.get_membership(context)
+    if membership is None or not membership.active or not has_permission(context, Permission.TASK_READ):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Roles and access are shown to members of this workspace (viewer, member or owner).")
+    return WorkspaceRoles(roles=[
+        RolePermissions(role=role.value, permissions=sorted(permission.value for permission in ROLE_PERMISSIONS[role]))
+        for role in (Role.OWNER, Role.MEMBER, Role.VIEWER)
+    ])
 
 
 @router.post("/organization/workspaces", response_model=Workspace, status_code=status.HTTP_201_CREATED)
