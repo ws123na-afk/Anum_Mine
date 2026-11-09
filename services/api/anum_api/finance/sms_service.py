@@ -352,7 +352,6 @@ class Draft:
 def post(finance: FinanceStore, store: SmsStore, context: TenantContext, settings: SmsSettings, draft: Draft,
          *, source: EntrySource, source_ref: str | None, now: datetime, canonical_id: str | None = None) -> tuple[JournalEntry, list[Transaction]]:
     """Write one balanced entry and the stage 2 transactions of its account legs."""
-    from .summary import settings_for as finance_settings
 
     resolved = draft.resolved
     if resolved.amount is None:
@@ -366,7 +365,10 @@ def post(finance: FinanceStore, store: SmsStore, context: TenantContext, setting
     if draft.kind in (P.Kind.CARD_PURCHASE, P.Kind.TRANSFER_OUT) and not category:
         # A purchase, or a transfer to another person, is spending filed by the words that name what it paid for (rent is
         # housing), the same rule a statement row of the same payment follows (audit C3); else ``other``.
-        found, _ = categorize(draft.merchant or "", -resolved.amount, finance_settings(finance, context).category_rules)
+        from .rules_store import owner_rules
+
+        found, _ = categorize(draft.merchant or "", -resolved.amount, owner_rules(finance, context),
+                              account_id=getattr(resolved.account, "id", None), reference=draft.reference)
         category = Category.OTHER.value if found in (Category.INCOME, Category.TRANSFER, Category.REFUNDS, Category.CASHBACK) else found.value
     legs = plan(draft.kind, resolved.amount, account=resolved.account, counter=resolved.counter, category=category or Category.OTHER.value,
                 cash_account=cash, interest=draft.interest, fee=draft.fee)

@@ -193,6 +193,9 @@ class Transaction(_Owned):
     # Another of the person's transactions this one relates to: the purchase a refund gives back (a match when
     # ``type_confidence`` is high, a suggestion otherwise). Never a link to someone else's record.
     related_transaction_id: str | None = None
+    # The owner's subcategory under ``category`` (``rules.Subcategory``, docs/finance.md#subcategories); optional, so summaries
+    # that group by category are unchanged. Migration ``0152_finance_rules_learning``.
+    subcategory_id: str | None = Field(default=None, max_length=80)
 
 
 class ImportRecord(_Owned):

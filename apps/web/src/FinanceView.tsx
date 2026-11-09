@@ -61,6 +61,8 @@ const TransactionsPage = lazy(() => import('./FinanceTransactionsPage').then((m)
 const HoldingsPage = lazy(() => import('./FinanceHoldings').then((m) => ({ default: m.HoldingsPage })));
 const LabPage = lazy(() => import('./FinanceLab').then((m) => ({ default: m.LabPage })));
 const GuardianPage = lazy(() => import('./FinanceGuardian').then((m) => ({ default: m.GuardianPage })));
+// One queue for everything that waits for the owner, with rules and automation (docs/finance.md#suggestions).
+const SuggestionsPage = lazy(() => import('./FinanceSuggestions').then((m) => ({ default: m.SuggestionsPage })));
 // Connections and data capture (docs/finance.md#connections-and-data-capture): accounts, SMS capture,
 // iPhone Shortcuts, import history and permissions; `#finance-sms` opens its SMS capture tab.
 const ConnectionsPage = lazy(() => import('./FinanceConnections').then((m) => ({ default: m.ConnectionsPage })));
@@ -137,6 +139,7 @@ export function FinanceView() {
         {tab === 'transactions' && (accounts.kind === 'loading' ? <Notice busy>{t('finance.loading')}</Notice>
           : <TransactionsPage key={txOpen.key} accounts={accounts.kind === 'ready' ? accounts.value : []} initialAccountId={txOpen.accountId} initialTab={txOpen.tab}
             onChanged={refresh} onAddAccount={() => pick('accounts')} />)}
+        {tab === 'suggestions' && <SuggestionsPage onOpenHash={(hash) => { location.hash = hash; }} />}
         {tab === 'holdings' && <HoldingsPage onOpen={pick} />}
         {tab === 'trading' && <LabPage base={summary.kind === 'ready' ? summary.value.base_currency : 'AED'} onOpen={pick} />}
         {/* Until the summary arrives, the settings' default base currency (AED) prefills Test and new limits. */}

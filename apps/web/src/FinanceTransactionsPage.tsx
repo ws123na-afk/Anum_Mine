@@ -9,7 +9,7 @@ import {
   Scale, Search, Smartphone, Tags, Upload, X,
 } from 'lucide-react';
 import type {
-  FinanceAccount, FinanceCategory, FinanceRegisterDetail, FinanceRegisterPage, FinanceRegisterRow, FinanceSmsSettings, FinanceTransactionType,
+  FinanceAccount, FinanceCategory, FinanceRegisterDetail, FinanceRegisterPage, FinanceRegisterRow, FinanceSmsSettings, FinanceSubcategory, FinanceTransactionType,
 } from '@anum/contracts';
 import * as api from './lib/financeApi';
 import { getRegister, getRegisterDetail } from './lib/financeRegisterApi';
@@ -20,6 +20,7 @@ import { categoryLabel, formatAmount, formatAmounts, isolate, monthLabel, rangeL
 import { describeError } from './lib/errors';
 import { formatDateTime, t, type MessageKey } from './lib/i18n';
 import { smsSettings } from './lib/financeSmsApi';
+import { aiSuggestion, listSubcategories } from './lib/financeRulesApi';
 import { kindLabel } from './lib/financeSms';
 import { upload as uploadToVault, addLink as linkDocument } from './lib/vaultApi';
 import { ConfirmDialog, Modal } from './Dialog';
@@ -31,6 +32,8 @@ import './financeRegister.css';
 
 const SmsReview = lazy(() => import('./FinanceSms').then((m) => ({ default: m.Review })));
 const LedgerPanel = lazy(() => import('./FinanceSms').then((m) => ({ default: m.LedgerPanel })));
+// Apply to similar (docs/finance.md#rules-and-learning): its own chunk, loaded only when opened.
+const SimilarDialog = lazy(() => import('./FinanceApplySimilar').then((m) => ({ default: m.SimilarDialog })));
 
 const PAGE = 25;
 export type TxTab = 'transactions' | 'ledger' | 'sms' | 'imports';
@@ -313,11 +316,17 @@ function TransactionDrawer({ id, onClose, onOpen, onChanged, inModal }: {
   const [busy, setBusy] = useState<'' | 'category' | 'receipt' | 'delete' | 'direction'>('');
   const [notice, setNotice] = useState<{ error?: boolean; text: string } | null>(null);
   const [removing, setRemoving] = useState(false);
+  const [similar, setSimilar] = useState(false);
+  const [fromAi, setFromAi] = useState<FinanceCategory | null>(null);
+  const [undoBatch, setUndoBatch] = useState<string | null>(null);
+  const [subs, setSubs] = useState<FinanceSubcategory[]>([]);
+  const [sub, setSub] = useState('');
+  useEffect(() => { listSubcategories().then(setSubs).catch(() => setSubs([])); }, []);
   const fileRef = useRef<HTMLInputElement>(null);
-  const headingId = useId(), categoryId = useId(), typeId = useId();
+  const headingId = useId(), categoryId = useId(), typeId = useId(), subId = useId();
   const load = useCallback(async () => {
     try { const value = await getRegisterDetail(id); setState({ kind: 'ready', value }); setCategory(value.row.category_source === 'none' ? value.suggested_category : value.row.category);
-      setKind(value.row.transaction_type ?? ''); setCategoryTouched(false);
+      setKind(value.row.transaction_type ?? ''); setCategoryTouched(false); setSub(value.row.subcategory_id ?? '');
       setLearn(false);
       setLearnPhrase((value.merchant && value.row.description.toLowerCase().includes(value.merchant.toLowerCase()) ? value.merchant : value.row.description).slice(0, 80)); }
     catch (e) { setState(failed(e)); }
@@ -328,16 +337,33 @@ function TransactionDrawer({ id, onClose, onOpen, onChanged, inModal }: {
     if (!category) return;
     const typeChanged = Boolean(kind) && kind !== row.transaction_type;
     // A type picked on its own files the row under that type's category on the server; the suggested category is sent only when chosen.
-    const categoryChanged = categoryTouched || learn || !typeChanged;
+    const subChanged = sub !== (row.subcategory_id ?? '');
+    const categoryChanged = categoryTouched || learn || (!typeChanged && !subChanged);
     setBusy('category'); setNotice(null);
     try {
       await api.updateTransaction(row.id, {
         ...(categoryChanged ? { category } : {}), ...(typeChanged && kind ? { transaction_type: kind } : {}),
         ...(learn ? { remember_category_match: learnPhrase.trim() } : {}),
+        ...(fromAi && categoryChanged && fromAi === category ? { from_ai_suggestion: true } : {}),
+        ...(subChanged || (categoryChanged && sub) ? { subcategory_id: sub || null } : {}),
       });
+      setFromAi(null); setUndoBatch(null);
       setNotice({ text: typeChanged && kind && !categoryChanged ? t('freg.drawer.typeSaved', { type: typeLabel(kind) }) : t('freg.drawer.categorySaved', { category: categoryLabel(category) }) });
       await load(); onChanged();
     }
+    catch (e) { setNotice({ error: true, text: describeError(e) }); } finally { setBusy(''); }
+  }
+  async function askAi(row: FinanceRegisterRow) {
+    setBusy('category'); setNotice(null);
+    try {
+      const found = await aiSuggestion(row.id);
+      if (found.category) { setCategory(found.category); setCategoryTouched(true); setFromAi(found.category); setNotice({ text: t('fsug.ai.result', { category: categoryLabel(found.category) }) }); }
+      else setNotice({ text: t('fsug.ai.none') });
+    } catch (e) { setNotice({ error: true, text: describeError(e) }); } finally { setBusy(''); }
+  }
+  async function undoSimilar(batchId: string) {
+    setBusy('category');
+    try { const done = await (await import('./lib/financeRulesApi')).undoBatch(batchId); setUndoBatch(null); setNotice({ text: t('fsug.undone', { count: done.restored }) }); await load(); onChanged(); }
     catch (e) { setNotice({ error: true, text: describeError(e) }); } finally { setBusy(''); }
   }
   async function correctDirection(row: FinanceRegisterRow) {
@@ -431,9 +457,15 @@ function TransactionDrawer({ id, onClose, onOpen, onChanged, inModal }: {
     {row.receipts > 0 && <p className="fregReceiptsLink"><a href="#vault">{t('freg.drawer.openVault')}</a></p>}
     <div className="fregCategory">
       <label htmlFor={categoryId}>{t('freg.drawer.chooseCategory')}</label>
-      <select id={categoryId} value={category} onChange={(e) => { setCategory(e.target.value as FinanceCategory); setCategoryTouched(true); }}>
+      <select id={categoryId} value={category} onChange={(e) => { setCategory(e.target.value as FinanceCategory); setCategoryTouched(true); setSub(''); }}>
         {CATEGORIES.map((c) => <option key={c} value={c}>{c === d.suggested_category ? t('freg.drawer.suggestedOption', { category: categoryLabel(c) }) : categoryLabel(c)}</option>)}
       </select>
+      {subs.some((s) => s.parent === category && !s.archived) && <>
+        <label htmlFor={subId}>{t('fsug.editor.subcategory')}</label>
+        <select id={subId} value={sub} onChange={(e) => setSub(e.target.value)}>
+          <option value="">{t('fsug.editor.none')}</option>
+          {subs.filter((s) => s.parent === category && (!s.archived || s.id === sub)).map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+        </select></>}
       <label htmlFor={typeId}>{t('freg.drawer.chooseType')}</label>
       <select id={typeId} value={kind} onChange={(e) => setKind(e.target.value as FinanceTransactionType)}>
         {!kind && <option value="">-</option>}
@@ -449,20 +481,27 @@ function TransactionDrawer({ id, onClose, onOpen, onChanged, inModal }: {
       <small>Applies to future imports only. Review the phrase so unrelated payments are not affected.</small>
     </label>}
     {notice && <Notice error={notice.error}>{notice.text}</Notice>}
+    {undoBatch && <button type="button" className="secondary" disabled={Boolean(busy)} onClick={() => void undoSimilar(undoBatch)}>{t('fsug.undo')}</button>}
     <div className="fregDrawerActions">
       <button type="button" disabled={Boolean(busy) || !category || !['manual', 'statement'].includes(row.origin)
-        || (category === row.category && row.category_source === 'manual' && !learn && (!kind || kind === row.transaction_type))} onClick={() => void saveCategory(row)}>
+        || (category === row.category && row.category_source === 'manual' && !learn && (!kind || kind === row.transaction_type) && sub === (row.subcategory_id ?? ''))} onClick={() => void saveCategory(row)}>
         <Tags aria-hidden="true" />{busy === 'category' ? t('finance.saving') : kind && kind !== row.transaction_type ? t('freg.drawer.save') : t('freg.drawer.saveCategory')}</button>
       {Number(row.amount) > 0 && ['statement', 'manual'].includes(row.origin) &&
         <button type="button" className="secondary" disabled={Boolean(busy)} onClick={() => setReversePending(true)}>
           <AlertTriangle aria-hidden="true" />Correct to money out
         </button>}
+      {['manual', 'statement'].includes(row.origin) && row.category_source === 'manual' &&
+        <button type="button" className="secondary" disabled={Boolean(busy)} onClick={() => setSimilar(true)}>{t('fsug.similar.button')}</button>}
+      {row.transaction_type === 'uncategorized' && ['manual', 'statement'].includes(row.origin) &&
+        <button type="button" className="secondary" disabled={Boolean(busy)} onClick={() => void askAi(row)}>{t('fsug.ai.button')}</button>}
       {d.duplicate && <button type="button" className="secondary danger" disabled={Boolean(busy)} onClick={() => setRemoving(true)}>{t('freg.drawer.deleteCopy')}</button>}
       <button type="button" className="secondary" onClick={onClose}>{t('freg.drawer.done')}</button>
     </div>
     {reversePending && <ConfirmDialog title="Confirm outgoing payment" confirmLabel="Correct to money out" danger busy={busy === 'direction'} onConfirm={() => void correctDirection(row)} onCancel={() => setReversePending(false)}>
       <p>Only confirm after checking the bank statement and selecting the correct expense category. This changes {row.currency} {row.amount} from incoming to outgoing, updates the ledger and may change your balance. The original record remains auditable.</p>
     </ConfirmDialog>}
+    {similar && <Suspense fallback={null}><SimilarDialog transactionId={row.id} onClose={() => setSimilar(false)}
+      onDone={(text, batchId) => { setSimilar(false); setNotice({ text }); setUndoBatch(batchId ?? null); onChanged(); }} /></Suspense>}
     {removing && <ConfirmDialog title={t('finance.transactions.deleteTitle')} confirmLabel={t('finance.delete')} danger busy={busy === 'delete'} onConfirm={() => void remove(row)} onCancel={() => setRemoving(false)}>
       <p dir="auto">{t('finance.transactions.deleteText', { description: row.description, amount: isolate(formatAmount(row.amount, row.currency)) })}</p>
     </ConfirmDialog>}

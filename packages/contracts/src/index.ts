@@ -278,6 +278,7 @@ export * from './financeLinks.js';
 export * from './financePlanning.js';
 export * from './financePersonal.js';
 export * from './financeRegister.js';
+export * from './financeRules.js';
 export * from './iphoneIntegrations.js';
 export * from './documents.js';
 export * from './vehicles.js';

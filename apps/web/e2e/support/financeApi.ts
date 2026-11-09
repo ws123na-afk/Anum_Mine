@@ -2,6 +2,7 @@
 // (accessibility, localization and page-layout specs). Synthetic values only: example merchants and
 // round amounts, never real account numbers.
 import { equityBody } from './financeEquity';
+import { suggestionsReply, suggestionsState, type SuggestionsState } from './financeSuggestionsApi';
 import { planningReply } from './financePlanningApi';
 import { reportDetail, reportList } from './financeReports';
 import { advisorReply, advisorState, type AdvisorState } from './financeAdvisor';
@@ -42,6 +43,8 @@ export interface FinanceState {
   failSafe: boolean;
   // Stages 6 to 8: SIMULATED paper and shadow trading, the gateway, limited live (off).
   trading: TradingState;
+  /** Finance, Suggestions: the queue, rules, spellings and automation (made on first use unless a spec sets it). */
+  suggestions?: SuggestionsState;
 }
 
 export interface TradingState {
@@ -625,6 +628,8 @@ export function financeReply(state: FinanceState, method: string, url: URL, body
   const ok = (value: unknown, status = 200) => ({ status, body: value });
   const sub = path.slice('/api/v1/finance'.length);
   if (sub.startsWith('/advisor')) return advisorReply((state.advisor ??= advisorState(1)), method, url, body);
+  const learned = suggestionsReply((state.suggestions ??= suggestionsState()), method, sub, url, body);
+  if (learned) return learned;
   const stages = financeStagesReply(state, method, sub, body, url);
   if (stages) return stages;
   const planned = planningReply(state, method, sub, body, url);

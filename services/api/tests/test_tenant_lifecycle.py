@@ -221,6 +221,9 @@ def test_every_purged_table_is_covered_by_the_purge_migration() -> None:
             **{name: "0143_finance_money_advisor" for name in ("finance_advisor_reports", "finance_advisor_settings")},
             **{name: "0147_finance_personal_money" for name in ("finance_person_loans", "finance_payslips", "finance_remittances")},
             "finance_salary_profiles": "0150_finance_salary_profile",
+            **{name: "0152_finance_rules_learning" for name in (
+                "finance_rules", "finance_merchant_aliases", "finance_subcategories", "finance_suggestion_decisions", "finance_rule_batches",
+                "finance_automation_settings")},
             **{name: "0136_purchases" for name in ("purchases", "purchase_items", "purchase_events", "purchase_shipments", "purchase_returns", "purchase_reminders", "purchase_preferences")},
             **{name: "0135_vehicles" for name in ("vehicles", "vehicle_odometer_readings", "vehicle_fuel_entries", "vehicle_trips", "vehicle_service_records", "vehicle_reminders", "vehicle_preferences")},
             **{name: "0130_action_browser" for name in (

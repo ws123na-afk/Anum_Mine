@@ -58,6 +58,7 @@ from .models import (
 from .guardian import Decision
 from .money import MoneyError, normalize_currency, quantize, to_money
 from .policy import check_record
+from .rules_store import owner_rules
 from .store import (
     MAX_ACCOUNTS,
     MAX_ITEMS,
@@ -446,6 +447,10 @@ class TransactionPatch(BaseModel):
     transaction_type: TransactionType | None = None
     notes: str | None = Field(default=None, max_length=1000)
     remember_category_match: str | None = Field(default=None, min_length=4, max_length=80)
+    # docs/finance.md#subcategories: one of the owner's subcategories under the row's (new) category; null clears it.
+    subcategory_id: str | None = Field(default=None, max_length=80)
+    # The owner took the category from the AI suggestion: kept, but history never learns from it (rules.learnable).
+    from_ai_suggestion: bool = False
 
 
 class TransactionView(BaseModel):
@@ -468,6 +473,7 @@ class TransactionView(BaseModel):
     type_confidence: Decimal | None = None
     type_reason: str | None = None
     related_transaction_id: str | None = None
+    subcategory_id: str | None = None
     # Stage 4: what your Guardian rules say about this record (create and change only).
     # Recording money already gone is never blocked; a rule it breaks is a warning.
     guardian: Decision | None = None
@@ -574,8 +580,9 @@ def record_manual_transaction(context: TenantContext, body: TransactionInput, *,
         description = _clean(body.description, 500)
         if not description:
             raise _invalid("Description: enter what the transaction was.")
-        found = classify_text(description, amount, settings_for(store, context).category_rules, account.kind)
+        found = classify_text(description, amount, owner_rules(store, context), account.kind, account_id=account.id, currency=account.currency)
         category, source, typed = found.category, found.source, found.typed
+        subcategory = found.subcategory_id if body.category is None and body.transaction_type is None else None
         if body.category is not None:
             category, source = body.category, CategorySource.MANUAL
             typed = TT.for_category(category, amount, account.kind, TypeSource.OWNER, "1", "owner_category")
@@ -590,7 +597,7 @@ def record_manual_transaction(context: TenantContext, body: TransactionInput, *,
             category=category, category_source=source, notes=_clean(body.notes, 1000), import_id=None,
             # A hand-entered row is never a duplicate of another.
             dedupe_hash=csv_import.dedupe_hash(account.id, body.posted_on, amount, account.currency, f"manual {new_id('m')}", 0),
-            created_at=now, updated_at=now,
+            created_at=now, updated_at=now, subcategory_id=subcategory,
         )
         TT.apply(item, typed)
         refunds.link_refund(store, context, item, account.kind)
@@ -671,14 +678,20 @@ def update_transaction(
             if body.transaction_type is None:
                 TT.apply(item, TT.for_category(body.category, item.amount, kind, TypeSource.OWNER, "1", "owner_category"))
         elif not TT.owner_locked(item) and ({"description", "amount"} & set(changes)) and (entry is None or plain):
-            found = classify_text(item.description, item.amount, settings_for(store, context).category_rules, kind)
-            item.category, item.category_source = found.category, found.source
+            found = classify_text(item.description, item.amount, owner_rules(store, context), kind, account_id=item.account_id, currency=item.currency)
+            item.category, item.category_source, item.subcategory_id = found.category, found.source, found.subcategory_id
             TT.apply(item, found.typed)
         if body.transaction_type is not None:
             TT.apply(item, TT.Typed(body.transaction_type, TypeSource.OWNER, Decimal(1), "owner_type"))
             if body.category is None:
                 item.category, item.category_source = TT.default_category(body.transaction_type, item.category, item.amount), CategorySource.MANUAL
+        if body.category is not None or body.transaction_type is not None or "subcategory_id" in changes:
+            _set_subcategory(store, context, item, body.subcategory_id if "subcategory_id" in changes else None)
+        if body.from_ai_suggestion and (body.category is not None or body.transaction_type is not None):
+            item.type_reason = "owner_ai"  # the owner's choice, but history never learns from an AI answer
         item.updated_at = utc_now()
+        if match and _learn_as_rule(store, context, item, match):
+            match = ""  # saved as a versioned rule (docs/finance.md#rules-and-learning)
         if match:
             settings = settings_for(store, context)
             existing = next((r for r in settings.category_rules if r.match.casefold() == match), None)
@@ -697,6 +710,42 @@ def update_transaction(
         decision = check_record(store, context, item, utc_now())
     _audit(repository, context, "finance.transaction.update", transaction_id, {"fields": sorted(changes), "learned_category": bool(match), **_guardian_meta(decision)})
     return TransactionView(**_txn_view(item, kind), guardian=decision)
+
+
+def _set_subcategory(store: FinanceStore, context: TenantContext, item: Transaction, subcategory_id: str | None) -> None:
+    """The row's subcategory: one of the owner's under the row's category, or none. Choosing one is the owner's choice."""
+    from .rules_store import rules_store_for
+
+    if not subcategory_id:
+        item.subcategory_id = None
+        return
+    found = next((s for s in rules_store_for(store).list_subcategories(context) if s.id == subcategory_id), None)
+    if found is None or found.archived:
+        raise _invalid("That subcategory does not exist. Choose another or add it under Finance, Suggestions, Rules.")
+    if found.parent != item.category:
+        raise _invalid("That subcategory belongs to another category. Choose the category first.")
+    item.subcategory_id = subcategory_id
+    item.category_source = CategorySource.MANUAL
+
+
+def _learn_as_rule(store: FinanceStore, context: TenantContext, item: Transaction, match: str) -> bool:
+    """"Remember" once the owner has versioned rules: a learned rule, approved at once (the owner ticked it on this
+    row). Before that, the phrase goes to the older list as it always did (copied in on the first save)."""
+    from . import rules_service as RS
+    from .rules import RuleContent, RuleMatch
+    from .rules_store import rules_store_for
+
+    rules = rules_store_for(store)
+    if not rules.list_versions(context):
+        return False
+    content = RuleContent(match=RuleMatch(words=[match]), category=item.category, subcategory_id=item.subcategory_id)
+    try:
+        made = RS.propose(store, rules, context, content, provenance="learned", by=context.user_id, now=item.updated_at,
+                          source_transaction_id=item.id)
+        RS.decide(rules, context, made.rule_id, made.version, approve=True, payload=made.payload_hash, by=context.user_id, now=item.updated_at)
+    except RS.RuleError as exc:
+        raise HTTPException(status_code=exc.status, detail=exc.message) from None
+    return True
 
 
 @router.delete("/transactions/{transaction_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -927,7 +976,7 @@ def preview_import(body: ImportInput, context: TenantContext = Depends(tenant_co
     _manage(context)
     with open_finance_store(context) as store:
         account, parsed, _existing = _parse(store, context, body)
-        rules = settings_for(store, context).category_rules
+        rules = owner_rules(store, context)
     matches = preview_matches(context, account, statement_lines(parsed))
     by_line = {m.line.key: m for m in matches}
     tally = SI.counts(matches)
@@ -940,7 +989,7 @@ def preview_import(body: ImportInput, context: TenantContext = Depends(tenant_co
         rows=[
             PreviewRow(
                 line=row.line, posted_on=row.posted_on, amount=row.amount, currency=account.currency, description=row.description,
-                category=categorize(row.description, row.amount, rules, account.kind)[0], duplicate=by_line[row.line].status == "exact_duplicate",
+                category=categorize(row.description, row.amount, rules, account.kind, account_id=account.id, currency=account.currency)[0], duplicate=by_line[row.line].status == "exact_duplicate",
                 direction_warning=suspected_direction(row.description, row.amount),
                 notes=row.notes, original_amount=row.original_amount, original_currency=row.original_currency,
                 reported_fee=row.fee, balance=row.balance, reference=row.reference, match=SI.match_view(by_line[row.line]),
@@ -1045,7 +1094,7 @@ def record_import(
         wanted = [line for line in lines if line.key not in left_out]
         ledger = SL.gather(store, sms, links, context, account, [line.posted_on for line in (wanted or lines)])
         found = {m.line.key: m for m in SL.run(ledger, wanted, file_hashes={line.dedupe_hash for line in lines})}
-        rules = settings_for(store, context).category_rules
+        rules = owner_rules(store, context)
         now = utc_now()
         record = ImportRecord(
             id=new_id("fin_imp"), tenant_id=context.tenant_id, workspace_id=context.workspace_id, owner_user_id=context.user_id,
@@ -1070,12 +1119,14 @@ def record_import(
             choice = decisions.get(row.line)
             action = getattr(choice, "action", None)
             reference = (references or {}).get(row.dedupe_hash) or row.reference
-            classified = classify_text(row.description, row.amount, rules, account.kind)
+            classified = classify_text(row.description, row.amount, rules, account.kind, account_id=account.id, currency=account.currency,
+                                       reference=reference)
             item = TT.apply(Transaction(
                 id=new_id("fin_txn"), tenant_id=context.tenant_id, workspace_id=context.workspace_id,
                 owner_user_id=context.user_id, account_id=account.id, posted_on=row.posted_on, amount=row.amount,
                 currency=account.currency, description=row.description, category=classified.category, category_source=classified.source,
                 notes=row.notes, import_id=record.id, dedupe_hash=row.dedupe_hash, created_at=now, updated_at=now,
+                subcategory_id=classified.subcategory_id,
             ), classified.typed)
             if match.status == "exact_duplicate" and match.code == "waiting_review":
                 # The same row already waits in Review from an earlier import: not in the ledger yet.

@@ -91,6 +91,7 @@ export const GATE_PAGES: GatePage[] = [
   { hash: 'commerce', view: 'commerce', mock: workspace, ready: '.cmChart svg' },
   { hash: 'finance', view: 'finance', mock: operations, ready: '.fovRow .opsShares li' },
   { hash: 'finance-transactions', view: 'finance', mock: workspace, ready: '.fregTable tbody tr' },
+  { hash: 'finance-suggestions', view: 'finance', mock: workspace, ready: '.fsugCard' },
   { hash: 'finance-import', view: 'finance', mock: workspace, ready: '.finMapping, input[type="file"]' },
   { hash: 'finance-safe', view: 'finance', mock: workspace, ready: '.finBuild' },
   { hash: 'finance-advisor', view: 'finance', mock: workspace, ready: '.finScenarios' },

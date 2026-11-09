@@ -688,5 +688,6 @@ def test_the_worker_registers_the_same_finance_tools_as_the_api() -> None:
     context = TenantContext(tenant_id=TENANT, workspace_id=WORKSPACE, user_id="owner_fin")
     runtime = build_activities(config_settings).runtime_factory(context, memory_repository)
     finance = {name for name in main.tool_registry.names if name.startswith("finance.")}
-    # 11 finance tools (with fund research, docs/finance-research.md) plus the trading intelligence tools (five reads and the pause).
-    assert len(finance) == 21 and finance <= runtime.tools.names
+    # 11 finance tools (with fund research, docs/finance-research.md), the trading intelligence tools (five reads and the pause)
+    # and the suggestion queue's two (list, propose a rule; docs/finance.md#suggestions).
+    assert len(finance) == 23 and finance <= runtime.tools.names

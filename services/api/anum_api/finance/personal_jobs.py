@@ -47,7 +47,7 @@ def notice_text(loan: P.PersonLoan, figures: P.LoanFigures, which: str) -> tuple
     return title, body
 
 
-def notify(context: TenantContext, title: str, body: str) -> bool:
+def notify(context: TenantContext, title: str, body: str, *, kind: str = NOTICE_KIND) -> bool:
     """One in-app notification. Never an email (``email=None``) and never a phone push (in-app only kind)."""
     from ..events import CanonicalEventName, create_event
     from ..notifications import create_notification
@@ -55,10 +55,10 @@ def notify(context: TenantContext, title: str, body: str) -> bool:
 
     try:
         with open_team_unit(context) as unit:
-            item = create_notification(unit.store, context, user_id=context.user_id, kind=NOTICE_KIND, title=title, body=body,
+            item = create_notification(unit.store, context, user_id=context.user_id, kind=kind, title=title, body=body,
                                        work_item_id=None, email=None)
             unit.repository.record_event(create_event(
-                CanonicalEventName.NOTIFICATION_CREATED, context, item.id, {"recipient": context.user_id, "kind": NOTICE_KIND, "work_item_id": None},
+                CanonicalEventName.NOTIFICATION_CREATED, context, item.id, {"recipient": context.user_id, "kind": kind, "work_item_id": None},
             ).event)
         return True
     except Exception as exc:  # noqa: BLE001 - one person's failure never stops the run

@@ -751,6 +751,19 @@ def register_finance_tools(registry: ToolRegistry) -> ToolRegistry:
         ),
         _widen_propose,
     )
+    # The suggestion queue (docs/finance.md#suggestions): list it (read only) and propose a rule; never accept or approve.
+    from . import suggestion_tools as ST
+
+    registry.register(
+        ToolDefinition(name=ST.LIST_TOOL, description=ST.DESCRIPTIONS[ST.LIST_TOOL], risk_level=RiskLevel.LOW, idempotent=True, timeout_seconds=45,
+                       category="general", action_kind="read", input_schema=ST.SCHEMAS[ST.LIST_TOOL]),
+        ST.HANDLERS[ST.LIST_TOOL],
+    )
+    registry.register(
+        ToolDefinition(name=ST.PROPOSE_RULE_TOOL, description=ST.DESCRIPTIONS[ST.PROPOSE_RULE_TOOL], risk_level=RiskLevel.LOW, idempotent=False,
+                       timeout_seconds=30, category="general", action_kind="create", input_schema=ST.SCHEMAS[ST.PROPOSE_RULE_TOOL]),
+        ST.HANDLERS[ST.PROPOSE_RULE_TOOL],
+    )
     # Trading intelligence (docs/finance-trading-intel.md#skills-and-tools): four read tools and the pause.
     from .intel.agent_tools import register_intel_tools
 
