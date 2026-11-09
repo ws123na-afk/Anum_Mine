@@ -212,6 +212,13 @@ def _personal_memory():  # type: ignore[no-untyped-def]
     return personal_memory_store
 
 
+def _recon_memory():  # type: ignore[no-untyped-def]
+    """Reconciliation sessions and their resolutions (``reconciliation_store``), deleted and counted with the rest of finance."""
+    from .reconciliation_store import recon_memory_store
+
+    return recon_memory_store
+
+
 def _sms_memory():  # type: ignore[no-untyped-def]
     """The in-memory SMS and journal store (``sms_store``), deleted and counted with the rest of finance."""
     from .sms_store import sms_memory_store
@@ -903,7 +910,7 @@ class InMemoryFinanceStore:
             return (rows + sum(int(self._key(context) in table) for table in keyed) + _ibkr_memory().count_everything(context)
                     + _sms_memory().count_everything(context) + _links_memory().count_everything(context)
                     + _templates_memory().count_everything(context) + _advisor_memory().count_everything(context)
-                    + _personal_memory().count_everything(context))
+                    + _personal_memory().count_everything(context) + _recon_memory().count_everything(context))
 
     def delete_everything(self, context: TenantContext) -> int:
         with self._lock:
@@ -917,7 +924,8 @@ class InMemoryFinanceStore:
                     removed += 1
             return (removed + _ibkr_memory().delete_everything(context) + _sms_memory().delete_everything(context)
                     + _links_memory().delete_everything(context) + _templates_memory().delete_everything(context)
-                    + _advisor_memory().delete_everything(context) + _personal_memory().delete_everything(context))
+                    + _advisor_memory().delete_everything(context) + _personal_memory().delete_everything(context)
+                    + _recon_memory().delete_everything(context))
 
 
 finance_store = InMemoryFinanceStore()

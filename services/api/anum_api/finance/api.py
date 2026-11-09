@@ -416,6 +416,9 @@ def delete_account(
             reverse_for_transactions(store, sms, context, [t.id for t in rows], now=utc_now(), why="account deleted")
         if not store.delete_account(context, account_id):
             raise _not_found("Account")
+        from .reconciliation_store import recon_store_for
+
+        recon_store_for(sms).delete_for_account(context, account_id)
     _audit(repository, context, "finance.account.delete", account_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
@@ -1054,6 +1057,13 @@ def record_import(
             duplicate_count=0, error_count=len(parsed.errors), file_sha256=parsed.file_sha256,
             created_at=now, reconciliation=(checks or {}).get("reconciliation"),
         )
+        if record.reconciliation is not None:
+            # The statement period it covers (docs/finance.md#reconciliation-sessions): the printed one, else its rows' dates.
+            period = (checks or {}).get("period")
+            days = [row.posted_on for row in parsed.rows]
+            if period or days:
+                first, last = period or (min(days), max(days))
+                record.reconciliation = {**record.reconciliation, "period_start": first.isoformat(), "period_end": last.isoformat()}
         store.save_import(record)
         by_line = {row.line: row for row in parsed.rows}
         by_hash_line = {row.dedupe_hash: row.line for row in parsed.rows}

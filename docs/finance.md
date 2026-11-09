@@ -52,6 +52,7 @@ A request to pay or transfer ("pay the DEWA bill", "transfer 500 to the landlord
 | `finance_goals` | Name, target, saved so far, target date |
 | `finance_advisor_reports`, `finance_advisor_settings` | The weekly [Money advisor](#money-advisor) notes (one per advice week, the note as JSON, when its notice went out) and the person's switches (on or off, weekday) |
 | `finance_holdings` | Investment account, symbol, name, quantity and total cost. No prices |
+| `finance_reconciliations`, `finance_reconciliation_items` | [Reconciliation sessions](#reconciliation-sessions): per account and statement period the statement's balances, a card's amount and minimum due, open or completed with who, when, the figures and what was matched, the ledger fingerprint and the history; and the owner's resolutions in each (match, attach, pending, reversal, correction), one live resolution per statement row and ledger record (migration `0152_finance_reconciliation`) |
 
 | `finance_plans` | Safe-to-spend settings: a buffer per currency, whether to show one total in the base currency, the oldest rate to use (days) |
 | `finance_guardian_versions` | Every confirmed version of the person's rules (`rules` JSON, version unique per person, the change it came from, who confirmed it) |
@@ -174,7 +175,7 @@ The pairing runs against rows already in the ledger too (the other side may have
 
 The preview checks the statement against its own balances: the opening balance plus every row (new, already recorded and matched alike) against the closing balance. The balances come from the person (opening and closing fields, as printed on the statement), from a mapped running balance column (CSV: `Balance`, `Running balance`, `الرصيد`; a newest-first export is put in date order first) or from the PDF reader. The answer is `tied`, `differs` (with the difference and the rows after which the running balance breaks) or `unknown` (nothing to check against). It is stored on the import (`finance_imports.reconciliation`, migration `0145_finance_statement_match`) with `not_in_ledger`: how many of the statement's rows the ledger does not hold after the import (held for review, or left out by the person).
 
-**Balances that tie are not enough.** `GET /accounts/overview` counts a statement as the account's last reconciliation (`last_reconciled_at`) only when it ties **and** every one of its rows is in the ledger (imported, attached to the record it confirms, or already recorded). A tied statement with rows held or left out says "Last statement balances (file), N rows not in the ledger" on the account's card and adds `statement_rows_missing` to what needs attention; `last_statement.not_in_ledger` gives N, and the rows are listed on the import (`GET /imports/{id}?disposition=not_in_ledger`, [Import history](#import-history)). A statement that does not tie adds `statement_differs`. Rows the reader could not use (an unreadable CSV line such as a footer, a PDF row outside the statement period) are listed on the import but do not block reconciliation: they are not part of the balance check. Imports made before migration `0149_finance_import_rows` have no `not_in_ledger` and are read as before.
+**Balances that tie are not enough.** Once an account has a completed [reconciliation session](#reconciliation-sessions), `last_reconciled_at` is that completion. Before that, `GET /accounts/overview` counts a statement as the account's last reconciliation (`last_reconciled_at`) only when it ties **and** every one of its rows is in the ledger (imported, attached to the record it confirms, or already recorded). A tied statement with rows held or left out says "Last statement balances (file), N rows not in the ledger" on the account's card and adds `statement_rows_missing` to what needs attention; `last_statement.not_in_ledger` gives N, and the rows are listed on the import (`GET /imports/{id}?disposition=not_in_ledger`, [Import history](#import-history)). A statement that does not tie adds `statement_differs`. Rows the reader could not use (an unreadable CSV line such as a footer, a PDF row outside the statement period) are listed on the import but do not block reconciliation: they are not part of the balance check. Imports made before migration `0149_finance_import_rows` have no `not_in_ledger` and are read as before.
 
 ### Import history
 
@@ -202,6 +203,59 @@ Every import stores what happened to each row of the statement (`finance_imports
 - A PDF row billed in another currency showed English-only, SAR-only help text; it is now in the message catalogs and names the account's currency.
 - A preview showed only the first 20 rows; it now answers every row, grouped and paged in the web.
 - November 2026 import audit (the owner saw statement rows "not complete, not showing even though added"): a different merchant with the same amount no longer holds a row; generic banking words no longer merge two merchants; identical rows keep their occurrence when one is unticked; card statements are told from their header; a tied statement with rows not in the ledger no longer reconciles the account; every row's outcome is stored and listed ([Import history](#import-history)); the PDF reader reports every row it leaves out.
+
+## Reconciliation sessions
+
+Finance, Reconciliation (`#finance-reconciliation`, under data capture in the sidebar) checks one account's statement for one period against the books at the same dates, per bank or card account (cash and loan accounts may be reconciled too; investment accounts are checked under Holdings). Owner only: sessions and resolutions are the person's own (forced RLS, `owner_only_*`). Code: `finance/reconciliation.py` (the figures and the exceptions, pure, plus the reader), `finance/reconciliation_api.py` (routes), `finance/reconciliation_store.py` and `db/reconciliation_repository.py` (migration `0152_finance_reconciliation`); contracts `packages/contracts/src/financeReconciliation.ts`; web `apps/web/src/FinanceReconciliation.tsx`, `lib/financeReconciliation.ts`, `lib/financeReconciliationApi.ts`, `lib/messages/financeRecon.{en,ar}.ts`, `financeRecon.css`.
+
+**Starting one.** From an imported statement (`import_id`: its period and its opening and closing balances; an import now stores the period it covers in `finance_imports.reconciliation`, the printed period of a PDF or the first and last row date) or from the balances the owner types as printed. Balances are in the ledger's sign: a card or loan that owes money is negative (the web asks "owed" and sends it negative). A card statement also takes the amount due, the minimum payment and the due date. One session per account and exact period (409 `period_taken`); the period ends no later than today and spans at most 400 days.
+
+**The equation, never forced.**
+
+| Figure | Meaning |
+|---|---|
+| Book opening | The account's opening balance plus every ledger row before the period |
+| Money in, money out | The period's rows |
+| Book closing | Opening plus the period's rows |
+| Marked not on this statement | Rows the owner marked `pending`: in the books, not yet on the bank's statement |
+| Adjusted book closing | Book closing less the rows marked pending |
+| Unexplained difference | Statement closing less the adjusted book closing |
+
+A session is `balanced` when the unexplained difference is 0 and no statement row is missing from the books; otherwise `unresolved`, with the blockers `difference` and `statement_rows_not_in_ledger`. There is no plug or balancing entry anywhere: completing an unresolved session is refused (409 `unresolved`), and a correcting entry exists only for a real statement row, at that row's own date and amount.
+
+**Exceptions** (each with a severity: `blocking`, `warning` or `info`, and the actions that settle it):
+
+| Kind | When | Actions |
+|---|---|---|
+| `not_in_ledger` | A row of the account's imports dated in the period that the books do not hold, from the import's [dispositions](#import-history): held for review or unticked (blocking), left out by the reader (warning), skipped as a duplicate (information). A held row that Review has since confirmed, attached or dismissed is gone | match, post a correcting entry |
+| `unmatched_payment`, `unmatched_deposit` | A row of the period no statement confirmed (not imported from one, not attached to one) | on this statement (attach), not on this statement (pending), match |
+| `pending` | An SMS or Apple Pay record no statement confirmed; a warning once older than 10 days | attach, pending, match |
+| `possible_duplicate` | Same amount within 3 days and a shared merchant word ([merchant matching](#how-matching-works)); a duplicate SMS and the statement row that confirmed it are one record and never listed | open Transactions |
+| `wrong_direction` | Rent shown as money in, an income, refund or cashback type paid out, or a spending type paid in | open Transactions |
+| `reversal_pair` | A debit and an equal credit within 7 days with reversal words (`reversal`, `void`, `chargeback`, `cancelled`, `عكس`, `إلغاء`) or the same bank reference. A suggestion | accept as reversal |
+| `unknown_currency` | A row in another currency than the account's, or an original currency that is not an ISO code | open Transactions |
+| `unrecognized_fee` | Money out with fee words (`fee`, `commission`, `markup`, `service charge`, `رسوم`, `عمولة`) whose type is not bank fee, interest or tax | open Transactions |
+| `missing_period` | A month in the period with activity on a day no imported statement covers, or a whole month inside a gap between two statement periods | import |
+| `opening_differs` | The statement's opening balance is not the book opening | check the previous period |
+| `amount_due_differs` | A card's amount due is not the card's liability in the books at the period's end | |
+
+The card check shows the amount due, what the books say is owed (minus the closing), the difference, the minimum payment, the money paid into the card after the period (up to the due date) and whether that covers the minimum.
+
+**Resolutions** are the owner's, one at a time, under the owner's lock: `match` a statement row to a ledger record (equal amounts only), `attach` (this record is on the statement), `pending` (not on this statement: it leaves the adjusted book closing), `reversal` (accept a debit and its equal credit as a pair; the types are not changed, set `reversal` under Transactions if wanted) and `correction`. A statement row and a ledger record have at most one live resolution per session: the store refuses a second (409 `already_resolved`), and in PostgreSQL partial unique indexes enforce it, so two requests resolving the same row at the same moment cannot both win. Any resolution but a correction can be undone while the session is open.
+
+**Correcting entry.** `POST /reconciliations/{id}/corrections/preview {statement_ref, category?}` shows the transaction and its journal legs (account and category, balanced) with a payload hash; `POST /reconciliations/{id}/corrections {statement_ref, payload_hash}` posts exactly that (409 `payload_changed` if anything moved) through the hand-entry path: one transaction and one balanced journal entry, with a deterministic id so a retried approval posts once. Audit `finance.reconciliation.correct` with ids only. Change or delete a posted correction under Transactions.
+
+**Completing and reopening.** `POST /reconciliations/{id}/complete {version}` records who, when, the figures, the counts, the confirmed rows and the resolutions (`snapshot`) and a fingerprint of every ledger row of the account up to the period's end and its opening balance. A later change that moves the book closing (a row added, edited or deleted up to that date) makes the session `changed`: it shows "Changed since completed", the account card adds `reconciliation_changed` to what needs attention, and resolving needs a reopen first. `POST /reconciliations/{id}/reopen {version, reason}` keeps the completion in the `history` with the reason. Both compare and set on `version` (409 `stale`). A session that was ever completed cannot be deleted.
+
+**Where "reconciled" comes from.** The register's `reconciled` is now "covered by a completed, unchanged reconciliation of its account" (`reconciliation_id`, rows marked pending excluded) once the account has one; before that it keeps its older meaning, a statement confirmed the record, which stays available as `statement_confirmed` (the totals' `matched` counts it). The account card's `last_reconciled_at` is the latest completed, unchanged session; `reconciliation` gives the latest session's id, status (`open`, `completed`, `changed`) and period.
+
+**Connection health** (`GET /reconciliations/health`, the page's lower card): per account the last statement period covered, the last import, the last SMS and Apple Pay record, months with activity no statement covers (bank and card accounts, before the current month), gaps between statement periods, the date it is reconciled through and the next step in plain words (`import_statement` with the month, `reconcile`, `finish_reconciliation`, `review_changes`, `up_to_date`). `bank_feed` is always `not_connected`: ANUM has no live bank connection and never says otherwise. The ECB rates connector keeps its own health under [Connectors](#connectors).
+
+**For the review queue.** `GET /reconciliations/exceptions?account_id=&limit=&offset=` (Python: `finance.reconciliation_api.list_open_exceptions(context, account_id=None, limit=50, offset=0)`) lists every blocking and warning exception of each account's open or changed session, then the missing months of accounts with no open session, each with its session, account and period. Read only: an exception is settled on its session.
+
+Every route: reading `finance:read`, every change `finance:manage`; audit rows (`finance.reconciliation.create`, `.update`, `.delete`, `.resolve`, `.undo`, `.correct`, `.complete`, `.reopen`) hold ids and codes only. Deleting an account deletes its sessions; "Delete my data" and the export include them.
+
+**Not built:** reconciling against a live bank feed (none exists); pairing one statement row with several ledger rows; reading a card statement's minimum payment from the PDF facts into a session (typed for now); a Flutter view of the status (the app points to the web).
 
 ## Categories
 
@@ -574,6 +628,8 @@ All under `/api/v1/finance`, every route checking permissions on the server:
 | `GET, POST /transactions`; `GET, PATCH, DELETE /transactions/{id}` (`POST` and `PATCH` take an optional `transaction_type`); `GET /transactions/export.csv` (`q`, `account_id`, `category`, `from`, `to`, `direction`, `limit`, `offset`; the last column is the type) | read for GET, manage otherwise |
 | `POST /imports/preview`, `POST /imports`, `GET /imports`, `GET /imports/{id}`, `DELETE /imports/{id}` | manage (GET: read) |
 | `GET /transfers/candidates`, `POST /transfers` ([own transfers](#own-transfers)) | manage |
+| `GET /reconciliations`, `GET /reconciliations/{id}`, `GET /reconciliations/health`, `GET /reconciliations/exceptions` ([reconciliation sessions](#reconciliation-sessions)) | `finance:read` |
+| `POST /reconciliations`, `PATCH, DELETE /reconciliations/{id}`, `POST, DELETE /reconciliations/{id}/resolutions[/{resolution_id}]`, `POST /reconciliations/{id}/corrections[/preview]`, `POST /reconciliations/{id}/complete`, `POST /reconciliations/{id}/reopen` | `finance:manage` |
 | `GET /bills/upcoming?days=`, `GET /bills/suggestions` | `finance:read` |
 | `GET /bill-schedule`, `/payment-candidates`, `/debt-payments`, `/debt-plan`, `/budgets` | `finance:read` |
 | `POST, DELETE /bills/{id}/matches`, `/debts/{id}/payments`; `PUT /debt-plan`, `/budgets/alerts` | `finance:manage` |

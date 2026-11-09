@@ -427,6 +427,8 @@ class PdfImportInput(BaseModel):
     layout: PdfLayout | None = None
     summary: list[PdfStatedFact] = Field(default_factory=list, max_length=8, description="The statement's printed counts and totals, from the read")
     dropped: list[PdfDroppedInput] = Field(default_factory=list, max_length=500, description="The rows the reader left out, from the read")
+    period_start: date | None = Field(default=None, description="The statement period printed on the statement, from the read")
+    period_end: date | None = None
 
     @field_validator("rows")
     @classmethod
@@ -528,6 +530,8 @@ def import_pdf_statement(
             status={"matched": "tied", "mismatch": "differs"}.get(check.status, "unknown"), opening=check.opening, closing=check.closing,  # type: ignore[arg-type]
             rows_total=check.rows_total, expected_closing=check.expected_closing, difference=check.difference, opening_source=check.opening_source,
             closing_source=check.closing_source, breaks=check.breaks[:50]))
+        if body.period_start and body.period_end and body.period_start <= body.period_end:
+            checks["period"] = (body.period_start, body.period_end)
         hashes = _occurrence_hashes(account.id, currency, [(posted, amount, description) for posted, amount, description, _, _, _, _, _, _, _ in items])
         tz = zone(settings_for(store, context).timezone)
         rows = []

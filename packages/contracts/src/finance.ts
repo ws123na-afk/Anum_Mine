@@ -467,6 +467,9 @@ export interface FinancePdfImportInput {
   summary?: { name: FinancePdfCheck['summary'][number]['name']; stated: string }[];
   /** The rows the reader left out, from the read: listed on the import, never imported. */
   dropped?: { page: number; reason: FinancePdfDroppedRow['reason']; text: string; posted_on: string | null; amount: string | null }[];
+  /** The statement period printed on it, from the read. */
+  period_start?: string | null;
+  period_end?: string | null;
 }
 
 export interface FinanceBill {

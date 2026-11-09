@@ -1177,6 +1177,24 @@ def finance_export(finance: Any, context: TenantContext) -> dict[str, Any]:
         **_advisor_export(finance, context, hidden),
         # Money lent and borrowed with people, payslips and remittances (docs/finance.md#lent-and-borrowed).
         **_personal_export(finance, context, hidden),
+        # Reconciliation sessions and the owner's resolutions in them (docs/finance.md#reconciliation-sessions).
+        **_recon_export(finance, context, hidden),
+    }
+
+
+def _recon_export(finance: Any, context: TenantContext, hidden: set[str]) -> dict[str, Any]:
+    session = getattr(finance, "session", None)
+    if session is not None:
+        from .db.reconciliation_repository import SqlAlchemyReconciliationStore
+
+        recon: Any = SqlAlchemyReconciliationStore(session)
+    else:
+        from .finance.reconciliation_store import recon_memory_store
+
+        recon = recon_memory_store
+    return {
+        "reconciliations": [r.model_dump(mode="json", exclude=hidden) for r in recon.list(context)],
+        "reconciliation_items": [i.model_dump(mode="json", exclude=hidden) for i in recon.items(context)],
     }
 
 

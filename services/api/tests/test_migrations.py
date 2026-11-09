@@ -1293,6 +1293,24 @@ def test_demo_records_migration_is_expand_only_with_forced_rls() -> None:
     assert "drop " not in upgrade and "bypassrls" not in upgrade and "security definer" not in upgrade
 
 
+def test_finance_reconciliation_migration_is_expand_only_with_owner_rls_and_a_postings_check() -> None:
+    versions = Path(__file__).parents[1] / "migrations" / "versions"
+    revision_text = (versions / "0152_finance_reconciliation.py").read_text(encoding="utf-8")
+    assert 'revision = "0152_finance_reconciliation"' in revision_text and len("0152_finance_reconciliation") <= 32
+    assert 'down_revision = "0151_business_ledger"' in revision_text
+    upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
+    for table in ("finance_reconciliations", "finance_reconciliation_items"):
+        assert f'"{table}"' in upgrade
+        assert f"create policy lifecycle_purge_{table}" in upgrade
+    rls = revision_text.split("def _rls", 1)[1].split("def upgrade", 1)[0].lower()
+    assert "_rls(table)" in upgrade and "force row level security" in rls and "owner_only_" in rls and "as restrictive" in rls
+    # One live resolution per statement row and per ledger record: two concurrent matches cannot both be stored.
+    assert "uq_finance_reconciliation_items_row" in upgrade and "uq_finance_reconciliation_items_txn" in upgrade
+    # Audit B7: an entry without postings is refused at commit, by an invoker function.
+    assert "constraint trigger finance_journal_entry_has_postings" in upgrade and "deferrable initially deferred" in upgrade
+    assert "drop " not in upgrade and "bypassrls" not in upgrade and "security definer" not in upgrade
+
+
 def test_calendar_sync_migration_is_expand_only_with_forced_rls_and_discovery_only_grants() -> None:
     versions = Path(__file__).parents[1] / "migrations" / "versions"
     revision_text = (versions / "0092_calendar_sync.py").read_text(encoding="utf-8")
