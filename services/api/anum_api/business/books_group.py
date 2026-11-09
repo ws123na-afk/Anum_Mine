@@ -46,7 +46,7 @@ ZERO = Decimal(0)
 PNL_ROWS = ("revenue", "cost_of_sales", "gross_profit", "operating_expenses", "operating_profit", "other_income", "finance_costs", "fx_differences",
             "net_profit")
 BALANCE_ROWS = ("receivables", "payables", "owed_to_members", "debt", "intercompany_receivable", "intercompany_payable")
-CASH_ROWS = ("customers_paid", "suppliers_paid", "capital_spend", "loans_received", "loans_repaid", "interest_paid", "owner_contributions",
+CASH_ROWS = ("customers_paid", "suppliers_paid", "capital_spend", "asset_sales", "loans_received", "loans_repaid", "interest_paid", "owner_contributions",
              "owner_drawings", "members_reimbursed", "intercompany_in", "intercompany_out", "intercompany_lent", "intercompany_borrowed", "net",
              "paid_by_members")
 _GROUP_ROW = {REVENUE: "revenue", COST_OF_SALES: "cost_of_sales", OPERATING: "operating_expenses", OTHER_INCOME: "other_income",

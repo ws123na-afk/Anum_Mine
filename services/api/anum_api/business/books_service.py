@@ -460,7 +460,8 @@ def gather(context: TenantContext, rates_since: date | None = None) -> Inputs:
     with open_books_store(context) as store:
         settings = settings_or_409(store)
         found: dict[str, list[Any]] = {}
-        for kind in ("bills", "bill_payments", "adjustments", "intercompany", "budgets", "allocation_tags", "vendors", "cost_centres", "templates"):
+        for kind in ("bills", "bill_payments", "adjustments", "intercompany", "budgets", "allocation_tags", "vendors", "cost_centres", "templates",
+                     "assets", "asset_impairments", "loans", "loan_repayments"):
             # Voided bill payments never count, so they are not read (and never crowd out the ones that do).
             rows, total = store.find(kind, where={"voided_at": None} if kind == "bill_payments" else None, limit=MAX_SCAN)
             truncated = truncated or total > MAX_SCAN
@@ -487,7 +488,8 @@ def gather(context: TenantContext, rates_since: date | None = None) -> Inputs:
         adjustments=found["adjustments"], intercompany=found["intercompany"], budgets=found["budgets"], rates=found["rates"],
         projects={p.id: (p.name, p.account_id) for p in projects}, accounts={a.id: a.name for a in accounts},
         vendors={v.id: v.name for v in found["vendors"]}, cost_centres={c.id: f"{c.code} {c.name}" for c in found["cost_centres"]},
-        templates=found["templates"], truncated=truncated,
+        templates=found["templates"], assets=found["assets"], asset_impairments=found["asset_impairments"], loans=found["loans"],
+        loan_repayments=found["loan_repayments"], truncated=truncated,
     )
 
 

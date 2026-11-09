@@ -671,9 +671,11 @@ export const LEDGER_SUBTYPES: LedgerSubtype[] = [
   'finance_cost', 'fx',
 ];
 export type LedgerSourceKind =
-  | 'invoice' | 'credit_note' | 'invoice_payment' | 'bill' | 'bill_payment' | 'allocation' | 'adjustment' | 'intercompany' | 'manual' | 'closing';
+  | 'invoice' | 'credit_note' | 'invoice_payment' | 'bill' | 'bill_payment' | 'allocation' | 'adjustment' | 'intercompany' | 'manual' | 'closing'
+  | 'asset' | 'loan' | 'loan_repayment' | 'revaluation';
 export const LEDGER_SOURCE_KINDS: LedgerSourceKind[] = [
   'invoice', 'credit_note', 'invoice_payment', 'bill', 'bill_payment', 'allocation', 'adjustment', 'intercompany', 'manual', 'closing',
+  'asset', 'loan', 'loan_repayment', 'revaluation',
 ];
 
 export interface LedgerAccount {
@@ -763,8 +765,9 @@ export interface LedgerIssue {
   source_kind: LedgerSourceKind;
   source_id: string | null;
   event_date: string;
-  /** ``missing_rate``: no exchange rate for that currency and day (ANUM never guesses one); ``too_small``. */
-  reason: 'missing_rate' | 'too_small';
+  /** ``missing_rate``: no exchange rate for that currency and day (ANUM never guesses one); ``too_small``;
+   * ``missing_closing_rate``: no rate on a month end, so that currency is not revalued (docs/business-books.md#period-end-revaluation). */
+  reason: 'missing_rate' | 'too_small' | 'missing_closing_rate';
   currency: string | null;
   rate_date: string | null;
   description: string;
@@ -890,7 +893,9 @@ export interface LedgerStatements {
   balance_sheet: LedgerBalanceSheet;
   pnl: LedgerPnl;
   /** The journal's P&L next to the P&L derived from the records (accrual), line by line. */
-  reconciliation: { rows: { key: string; journal: string; derived: string; difference: string }[]; agrees: boolean; to: string } | null;
+  reconciliation: { rows: { key: string; journal: string; derived: string; difference: string; explained?: boolean }[]; agrees: boolean; to: string } | null;
+  /** Unrealised exchange differences of the period-end revaluation in the period (only in the journal). */
+  unrealised_fx?: string;
   equity: { currency: string; rows: { key: string; capital: string; drawings: string; retained_earnings: string; result: string; total: string }[];
     balanced: boolean };
   cash_flow: { by_currency: { currency: string; opening: string; operating: LedgerCashActivity; investing: LedgerCashActivity;

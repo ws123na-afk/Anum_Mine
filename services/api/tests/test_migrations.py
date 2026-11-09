@@ -1331,6 +1331,34 @@ def test_business_tax_migration_is_expand_only_with_forced_rls_and_a_forward_onl
     assert "drop " not in upgrade and "op.drop" not in upgrade and "bypassrls" not in upgrade and "security definer" not in upgrade
 
 
+def test_books_assets_fx_migration_is_expand_only_with_forced_rls_and_widened_checks() -> None:
+    versions = Path(__file__).parents[1] / "migrations" / "versions"
+    revision_text = (versions / "0155_books_assets_fx.py").read_text(encoding="utf-8")
+    assert 'revision = "0155_books_assets_fx"' in revision_text and len("0155_books_assets_fx") <= 32
+    assert 'down_revision = "0154_business_tax"' in revision_text
+    upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
+    tables = ("business_book_assets", "business_book_asset_impairments", "business_book_loans", "business_book_loan_repayments")
+    for table in tables:
+        assert f'"{table}"' in upgrade
+    rls = revision_text.split("def _rls", 1)[1].split("new_period_open", 1)[0].lower()
+    assert "for table in tables:\n        _rls(table)" in upgrade and "force row level security" in rls and "lifecycle_purge_" in rls
+    # One asset per source, one match per bill or adjustment, and maker and checker in the database.
+    assert "uq_business_book_assets_source" in upgrade and "uq_business_book_loan_repayments_bill" in upgrade
+    assert "uq_business_book_loan_repayments_adjustment" in upgrade and "decided_by <> requested_by" in upgrade
+    assert "interest + principal = amount" in upgrade
+    # Expand only: the only drops are checks recreated wider at once (every old value stays valid), never a table or a column.
+    assert "op.drop_table" not in upgrade and "drop_column" not in upgrade and "alter_column" not in upgrade
+    assert upgrade.count("op.drop_constraint(") == upgrade.count("op.create_check_constraint(") == 2
+    assert "old_source_kinds" in revision_text.lower() and "source_kinds = (*old_source_kinds" in revision_text.lower()
+    assert "reasons = (*old_reasons" in revision_text.lower() and "flows = (*old_flows" in revision_text.lower()
+    # The closed-period rule covers the new tables, through an invoker function.
+    function = revision_text.split("NEW_PERIOD_OPEN = ", 1)[1].split("OLD_PERIOD_OPEN = ", 1)[0].lower()
+    for table in ("business_book_assets", "business_book_asset_impairments", "business_book_loan_repayments"):
+        assert f"tg_table_name = '{table}'" in function
+    assert "op.execute(new_period_open)" in upgrade and "security definer" not in function
+    assert "bypassrls" not in upgrade and "security definer" not in upgrade
+
+
 def test_calendar_sync_migration_is_expand_only_with_forced_rls_and_discovery_only_grants() -> None:
     versions = Path(__file__).parents[1] / "migrations" / "versions"
     revision_text = (versions / "0092_calendar_sync.py").read_text(encoding="utf-8")

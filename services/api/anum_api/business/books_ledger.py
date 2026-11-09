@@ -44,11 +44,12 @@ from .books_chart import accounts as chart_accounts
 from .books_chart import ensure_chart
 from .books_models import PNL_TYPES, AccountType, JournalEntry, JournalLine, LedgerAccount, PeriodClose, PostingIssue
 from .books_posting import Chart, Issue, Line, Proposal, propose, realise
-from .books_store import MAX_SCAN, AtMost, Between, BooksStore, DuplicateError, open_books_store
+from .books_store import MAX_SCAN, AtMost, Between, BooksStore, DuplicateError, Not, open_books_store
 
 logger = logging.getLogger("anum_api.business.books_ledger")
 
-AUTO_KINDS = frozenset({"invoice", "credit_note", "invoice_payment", "bill", "bill_payment", "allocation", "adjustment", "intercompany"})
+AUTO_KINDS = frozenset({"invoice", "credit_note", "invoice_payment", "bill", "bill_payment", "allocation", "adjustment", "intercompany",
+                        "asset", "loan", "loan_repayment"})
 SYSTEM_POSTER = "system:books"
 _process_locks: dict[tuple[str, str], RLock] = {}
 _guard = RLock()
@@ -143,7 +144,7 @@ def _plan(context: TenantContext, store: BooksStore, today: date) -> tuple[Any, 
 
     inputs = gather(context)
     chart = Chart.of(chart_accounts(store))
-    return inputs, chart, propose(inputs, chart), _live_entries(store), locked_through(store)
+    return inputs, chart, propose(inputs, chart, today), _live_entries(store), locked_through(store)
 
 
 def post(context: TenantContext, *, actor: str = SYSTEM_POSTER, today: date | None = None, now: datetime | None = None,
@@ -161,6 +162,9 @@ def post(context: TenantContext, *, actor: str = SYSTEM_POSTER, today: date | No
         if not dry_run:
             store.lock_books()
             ensure_chart(store, context, moment, actor)
+            from .books_register import sync as register_assets
+
+            register_assets(store, context, moment, actor)  # every capital purchase is in the fixed asset register
         inputs, chart, proposals, live, locked = _plan(context, store, day)
         result.truncated = inputs.truncated
         if dry_run and not chart.by_key:
@@ -183,34 +187,68 @@ def post(context: TenantContext, *, actor: str = SYSTEM_POSTER, today: date | No
             elif proposal.fingerprint != entry.fingerprint:
                 to_reverse.append(entry)
         changed = {entry.event_key for entry in to_reverse}
+        settling: list[Proposal] = []
         for key, proposal in due.items():
             if key in live_by_key and key not in changed:
                 result.unchanged += 1
+                continue
+            if not dry_run and any(leg.carrying for leg in proposal.legs):
+                settling.append(proposal)  # realised after the others are written: it reads the balance it settles
                 continue
             realised = realise(proposal, converter, chart)
             if isinstance(realised, Issue):
                 issues.append(realised)
             else:
                 to_post.append((proposal, realised))
-        result.issues = len(issues)
-        result.issue_rows = [_issue_view(issue) for issue in sorted(issues, key=lambda item: (item.event_date, item.event_key))[:50]]
         result.reversed = len(to_reverse)
-        result.posted = len(to_post)
         result.late = sum(1 for proposal, _ in to_post if locked is not None and proposal.event_date <= locked)
         if dry_run:
+            result.issues = len(issues)
+            result.issue_rows = [_issue_view(issue) for issue in sorted(issues, key=lambda item: (item.event_date, item.event_key))[:50]]
+            result.posted = len(to_post)
             return result
         for entry in to_reverse:
             reverse(store, context, entry, actor=actor, now=moment, locked=locked)
         for proposal, lines in to_post:
-            entry, rows = _entry_rows(context, entry_date=_open_day(proposal.event_date, locked), event_date=proposal.event_date,
-                                      source_kind=proposal.source_kind, source_id=proposal.source_id, event_key=proposal.event_key,
-                                      fingerprint=proposal.fingerprint, description=proposal.description, lines=lines, actor=actor, now=moment)
-            try:
-                store.add_entry(entry, rows)
-            except DuplicateError:
-                continue  # posted by another run in the meantime
+            _write(store, context, proposal, lines, locked, actor, moment)
+        # Settlements of a balance in another currency, in date order, each at the carrying rate of what is booked by then.
+        reader = _carrying_reader(store)
+        for proposal in sorted(settling, key=lambda item: (item.event_date, item.event_key)):
+            realised = realise(proposal, converter, chart, reader)
+            if isinstance(realised, Issue):
+                issues.append(realised)
+                continue
+            result.late += int(locked is not None and proposal.event_date <= locked)
+            to_post.append((proposal, realised))
+            _write(store, context, proposal, realised, locked, actor, moment)
+        result.issues = len(issues)
+        result.issue_rows = [_issue_view(issue) for issue in sorted(issues, key=lambda item: (item.event_date, item.event_key))[:50]]
+        result.posted = len(to_post)
         _replace_issues(store, context, issues, moment)
     return result
+
+
+def _write(store: BooksStore, context: TenantContext, proposal: Proposal, lines: list[Line], locked: date | None, actor: str, now: datetime) -> None:
+    entry, rows = _entry_rows(context, entry_date=_open_day(proposal.event_date, locked), event_date=proposal.event_date,
+                              source_kind=proposal.source_kind, source_id=proposal.source_id, event_key=proposal.event_key,
+                              fingerprint=proposal.fingerprint, description=proposal.description, lines=lines, actor=actor, now=now)
+    try:
+        store.add_entry(entry, rows)
+    except DuplicateError:
+        pass  # posted by another run in the meantime
+
+
+def _carrying_reader(store: BooksStore) -> Any:
+    """What a balance in another currency is booked at on a day: (original amount, base value), debit positive. Revaluation
+    lines are in the base currency, so the carrying value is always the historical one."""
+
+    def read(account_id: str, currency: str, day: date) -> tuple[Decimal, Decimal] | None:
+        rows = store.ledger_totals({"account_id": account_id, "currency": currency, "entry_date": AtMost(day)}, ("account_id",))
+        if not rows:
+            return None
+        return rows[0]["amount"], rows[0]["debit"] - rows[0]["credit"]
+
+    return read
 
 
 def _issue_view(issue: Issue) -> dict[str, Any]:
@@ -223,6 +261,8 @@ def _replace_issues(store: BooksStore, context: TenantContext, issues: list[Issu
     current, _ = store.find("posting_issues", limit=MAX_SCAN)
     wanted = {issue.event_key: issue for issue in issues}
     for row in current:
+        if row.source_kind == "revaluation":
+            continue  # the period-end revaluation keeps its own (books_revalue)
         found = wanted.get(row.event_key)
         if found is None or (found.reason, found.currency, found.rate_date) != (row.reason, row.currency, row.rate_date):
             store.delete("posting_issues", row.id)
@@ -324,7 +364,7 @@ def _between(start: date | None, end: date) -> Any:
     return Between(start, end) if start is not None else AtMost(end)
 
 
-AUTO_AND_MANUAL = set(AUTO_KINDS) | {"manual"}
+AUTO_AND_MANUAL = set(AUTO_KINDS) | {"manual", "revaluation"}  # every entry but year-end closing entries
 
 
 @dataclass
@@ -376,11 +416,19 @@ def statements(context: TenantContext, start: date, end: date, *, today: date, c
         closing_moves = read.totals(end, start, closing=True)
         cumulative = read.totals(end)
         bank_ids = {account.id for account in accounts if account.subtype == "bank"}
-        movements = [row for row in store.ledger_totals({"entry_date": Between(start, end), "account_id": bank_ids}, ("flow", "currency"))] if bank_ids else []
-        cash_open = {row["currency"]: row["amount"] for row in store.ledger_totals({"entry_date": AtMost(before), "account_id": bank_ids}, ("currency",))} if bank_ids else {}
-        cash_close = {row["currency"]: row["amount"] for row in store.ledger_totals({"entry_date": AtMost(end), "account_id": bank_ids}, ("currency",))} if bank_ids else {}
-        cash_base = {row["account_id"]: row["debit"] - row["credit"] for row in store.ledger_totals({"entry_date": Between(start, end), "account_id": bank_ids},
+        # A revaluation moves no cash: the cash flow per original currency leaves its (base-currency) lines out.
+        real = Not("revaluation")
+        movements = [row for row in store.ledger_totals({"entry_date": Between(start, end), "account_id": bank_ids, "source_kind": real},
+                                                        ("flow", "currency"))] if bank_ids else []
+        cash_open = {row["currency"]: row["amount"] for row in store.ledger_totals({"entry_date": AtMost(before), "account_id": bank_ids,
+                                                                                    "source_kind": real}, ("currency",))} if bank_ids else {}
+        cash_close = {row["currency"]: row["amount"] for row in store.ledger_totals({"entry_date": AtMost(end), "account_id": bank_ids,
+                                                                                     "source_kind": real}, ("currency",))} if bank_ids else {}
+        cash_base = {row["account_id"]: row["debit"] - row["credit"] for row in store.ledger_totals({"entry_date": Between(start, end), "account_id": bank_ids,
+                                                                                                     "source_kind": real},
                                                                                                     ("account_id",))} if bank_ids else {}
+        unrealised_ids = {account.id for account in accounts if account.system_key == "fx_unrealised"}
+        unrealised = sum((credit - debit for account_id, (debit, credit) in period.items() if account_id in unrealised_ids), Decimal(0))
         issues, _ = store.find("posting_issues", where={"event_date": AtMost(end)}, limit=1)
         closes, _ = store.find("closes", where={"status": "closed"}, order_by="period_end", limit=1)
         comparatives: dict[str, Any] = {}
@@ -417,7 +465,8 @@ def statements(context: TenantContext, start: date, end: date, *, today: date, c
         "trial_balance": LR.trial_balance(accounts, opening, period_all, base),
         "balance_sheet": {**LR.balance_sheet(accounts, cumulative, base), "as_of": end.isoformat(), "complete": complete and not issues},
         "pnl": journal_pnl,
-        "reconciliation": {**LR.reconciliation(journal_pnl, derived, base), "to": upto.isoformat()} if derived is not None else None,
+        "reconciliation": {**LR.reconciliation(journal_pnl, derived, base, unrealised), "to": upto.isoformat()} if derived is not None else None,
+        "unrealised_fx": LR.s(unrealised, base),
         "equity": LR.equity_statement(accounts, opening, period, closing_moves, cumulative, base),
         "cash_flow": LR.cash_flow(cash_open, cash_close, movements, {"net": sum(cash_base.values(), Decimal(0))}, base),
         "comparatives": comparatives,
@@ -624,6 +673,14 @@ def close(context: TenantContext, through: date, *, today: date, now: datetime) 
         if locked is not None and through <= locked:
             raise LedgerError(409, f"The books are already closed through {locked.isoformat()}.", "already_closed", locked_through=locked.isoformat())
         first = locked + timedelta(days=1) if locked else None
+        # Revalue balances in other currencies at each month end the close covers (IAS 21); a currency without a closing rate
+        # leaves a posting issue, which keeps the close waiting, and the other currencies are revalued.
+        from .books_revalue import run as revalue_run
+
+        month = R.month_start(first) if first else R.month_start(through)
+        while month <= through:
+            revalue_run(store, context, settings, month_end(month), now=now, actor=context.user_id, locked=locked)
+            month = R.add_months(month, 1)
         checks = _checklist(context, store, first, through)
         if checks["issues"] or checks["drafts"] or checks["allocations_in_review"]:
             raise LedgerError(409, "Finish the period first: post or fix every item, approve or void draft bills and confirm allocations in review.",
@@ -679,6 +736,27 @@ def reopen(context: TenantContext, month: date, reason: str, *, now: datetime) -
     return {"closed_through": after.isoformat() if after else None, "previous": before.isoformat(), "reopened": [close_view(row) for row in rows]}
 
 
+def revalue(context: TenantContext, period_end: date, *, today: date, now: datetime, actor: str) -> dict[str, Any]:
+    """Revalue balances in other currencies on a month end that has passed and is open (on demand; a close does it too)."""
+    from .books_revalue import run as revalue_run
+
+    if period_end != month_end(period_end):
+        raise LedgerError(422, "Choose the last day of a month.", "not_month_end")
+    if period_end >= today:
+        raise LedgerError(422, "Only a month that has ended can be revalued: its closing rate is the rate of its last day.", "month_not_ended")
+    post(context, actor=SYSTEM_POSTER, today=today, now=now)
+    with _one_run(context), open_books_store(context) as store:
+        settings = store.get_settings()
+        if settings is None:
+            raise LedgerError(409, "Set the business's base currency and financial year first (Books, Settings).", "books_not_set_up")
+        store.lock_books()
+        locked = locked_through(store)
+        if locked is not None and period_end <= locked:
+            raise LedgerError(409, f"That month is closed (closed through {locked.isoformat()}). Reopen it first.", "period_locked",
+                              locked_through=locked.isoformat())
+        return revalue_run(store, context, settings, period_end, now=now, actor=actor, locked=locked)
+
+
 def require_open(store: BooksStore, *days: date | None, what: str = "This") -> None:
     """Refuse a change to a record dated in a closed period (the database refuses it too)."""
     locked = locked_through(store)
@@ -691,4 +769,4 @@ def require_open(store: BooksStore, *days: date | None, what: str = "This") -> N
 
 
 __all__ = ["LedgerError", "PostResult", "close", "close_status", "general_ledger", "journal", "locked_through", "manual_entry", "post", "post_quietly",
-           "reopen", "require_open", "reverse_manual", "statements", "status"]
+           "reopen", "require_open", "revalue", "reverse_manual", "statements", "status"]
