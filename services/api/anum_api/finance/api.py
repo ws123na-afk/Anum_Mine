@@ -1112,11 +1112,16 @@ def _original_balance(body: DebtInput, currency: str, existing: Debt | None) -> 
 def _build_debt(store: FinanceStore, context: TenantContext, body: DebtInput, existing: Debt | None) -> Debt:
     account = _linked_account(store, context, body.account_id)
     currency = _currency(body.currency or (account.currency if account else None), settings_for(store, context).base_currency)
-    now = utc_now()
+    balance = _money(body.balance, currency, field="Balance", positive=True)
+    # ``updated_at`` is when what is owed was last entered: the payments matched after it are taken off the balance
+    # (obligations.py). A name, rate, minimum or due-day edit keeps it, so earlier matched payments still count.
+    same_owed = existing is not None and existing.balance == balance and existing.currency == currency and existing.account_id == (
+        account.id if account else None)
+    now = existing.updated_at if same_owed and existing is not None else utc_now()
     return Debt(
         id=existing.id if existing else new_id("fin_debt"), tenant_id=context.tenant_id, workspace_id=context.workspace_id,
         owner_user_id=context.user_id, name=_clean(body.name, 120) or "Debt", kind=body.kind,
-        balance=_money(body.balance, currency, field="Balance", positive=True), currency=currency, apr_percent=_apr(body.apr_percent),
+        balance=balance, currency=currency, apr_percent=_apr(body.apr_percent),
         minimum_payment=_money(body.minimum_payment, currency, field="Minimum payment", positive=True), due_day=body.due_day,
         account_id=account.id if account else None, original_balance=_original_balance(body, currency, existing),
         notes=_clean(body.notes, 1000),

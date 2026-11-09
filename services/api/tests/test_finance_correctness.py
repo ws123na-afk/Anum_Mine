@@ -394,6 +394,55 @@ def test_a_loan_repayment_is_a_transfer_and_only_its_interest_is_spending() -> N
     assert ledger_spend == Decimal("300")  # the dashboard counts the same 300
 
 
+def test_a_loan_repayment_posted_through_the_journal_keeps_both_loan_rows() -> None:
+    """Through the review queue and post(): the loan falls by the principal only and the interest is spending."""
+    from anum_api.finance.store import finance_store
+    from test_finance_sms import NO_AMOUNT
+
+    s = setup()
+    loan = account(name="Car loan", kind="loan", opening_balance="-10000")
+    review = send(s["token"], NO_AMOUNT).json()
+    assert review["status"] == "review"
+    posted = client.post(f"{API}/sms/messages/{review['message_id']}/post", headers=OWNER, json={
+        "kind": "loan_repayment", "amount": "2000", "currency": "SAR", "account_id": s["bank"]["id"], "counter_account_id": loan["id"],
+        "interest": "300", "occurred_on": "2026-11-04"})
+    assert posted.status_code == 200, posted.text
+    rows = sorted((t.account_id, t.amount, t.category) for t in finance_store.transactions.values() if t.account_id in (s["bank"]["id"], loan["id"]))
+    assert rows == sorted([(s["bank"]["id"], Decimal("-2000.00"), Category.TRANSFER), (loan["id"], Decimal("2000.00"), Category.TRANSFER),
+                           (loan["id"], Decimal("-300.00"), Category.FEES)])
+    sm = summary()
+    balances = {a["id"]: Decimal(a["balance"]) for a in sm["accounts"]}
+    assert balances[loan["id"]] == Decimal("-8300.00") and balances[s["bank"]["id"]] == Decimal("-2000.00")
+    assert amount(sm["spend"]) == Decimal("300.00") and money(dashboard()["expenses"]) == Decimal("300.00")
+
+
+def test_editing_a_debts_name_rate_or_minimum_keeps_its_matched_payments() -> None:
+    from datetime import datetime as moment
+
+    today = moment.now(timezone.utc).date().isoformat()
+    bank = account(name="Bank")
+    made = client.post(f"{API}/debts", headers=OWNER, json={"name": "Family loan", "kind": "other", "balance": "5000", "currency": "SAR"})
+    assert made.status_code == 201, made.text
+    debt = made.json()
+    pay = manual(bank["id"], "-2000", "SAMPLE LOAN PAYMENT", on=today, category="transfer")
+    entries = client.get(f"{API}/ledger/entries", headers=OWNER).json()["items"]
+    canonical = next(e["canonical_id"] for e in entries if e["source_ref"] == pay["id"])
+    matched = client.post(f"{API}/debts/{debt['id']}/payments", headers=OWNER, json={"canonical_id": canonical, "amount": "2000"})
+    assert matched.status_code == 201, matched.text
+
+    def owed() -> Decimal:
+        return amount(summary(today[:7])["debts"])
+
+    assert owed() == Decimal("3000.00")
+    edit = {"name": "Family loan (home)", "kind": "other", "balance": "5000", "currency": "SAR", "apr_percent": "12", "minimum_payment": "250", "due_day": 10}
+    assert client.patch(f"{API}/debts/{debt['id']}", headers=OWNER, json=edit).status_code == 200
+    # The rate now estimates 50 of the payment as interest; the paid principal is not restored.
+    assert owed() == Decimal("3050.00")
+    # Entering a new balance (from the lender's statement) is the new starting point.
+    assert client.patch(f"{API}/debts/{debt['id']}", headers=OWNER, json={**edit, "balance": "4000"}).status_code == 200
+    assert owed() == Decimal("4000.00")
+
+
 # -- 8. Apple Pay without a currency ----------------------------------------------------------------------------
 
 

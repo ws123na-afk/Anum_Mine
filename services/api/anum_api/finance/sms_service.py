@@ -389,6 +389,7 @@ def post(finance: FinanceStore, store: SmsStore, context: TenantContext, setting
     description = _description(draft.kind, draft.merchant)
     transactions: list[Transaction] = []
     postings: list[Posting] = []
+    legs_on: dict[str, int] = {}
     for leg in legs:
         transaction_id = None
         if leg.account_id is not None:
@@ -398,7 +399,7 @@ def post(finance: FinanceStore, store: SmsStore, context: TenantContext, setting
                 id=new_id("fin_txn"), tenant_id=context.tenant_id, workspace_id=context.workspace_id, owner_user_id=context.user_id,
                 account_id=account.id, posted_on=draft.occurred_at.date(), amount=leg.amount, currency=account.currency,
                 description=description, category=txn_category, category_source=CategorySource.RULE, notes="From an iPhone SMS",
-                import_id=None, dedupe_hash=hashlib.sha256(f"sms\x1f{entry_id}\x1f{account.id}".encode()).hexdigest(),
+                import_id=None, dedupe_hash=leg_dedupe_hash(entry_id, account.id, legs_on),
                 created_at=now, updated_at=now,
             )
             transactions.append(transaction)
@@ -421,6 +422,16 @@ def post(finance: FinanceStore, store: SmsStore, context: TenantContext, setting
     )
     store.add_entry(entry)
     return entry, transactions
+
+
+def leg_dedupe_hash(entry_id: str, account_id: str, seen: dict[str, int]) -> str:
+    """The stage 2 row key of an entry's leg on one account. The first leg on an account keeps the key every
+    earlier row has; a further leg on the same account (a loan repayment's interest charged on the loan) adds its
+    place, so the store's (account, key) uniqueness never drops it."""
+    place = seen.get(account_id, 0)
+    seen[account_id] = place + 1
+    text = f"sms\x1f{entry_id}\x1f{account_id}" + (f"\x1f{place}" if place else "")
+    return hashlib.sha256(text.encode()).hexdigest()
 
 
 def reverse(finance: FinanceStore, store: SmsStore, context: TenantContext, entry: JournalEntry, *, now: datetime, why: str,
