@@ -100,6 +100,7 @@ export function createTeamMock(options: TeamMockOptions = {}) {
       const found = items.filter((i) => (status === 'open' ? ['todo', 'in_progress', 'blocked'].includes(i.status) : status === 'all' ? true : i.status === status))
         .filter((i) => scope !== 'mine' || (i.assignee_type === 'user' && i.assignee_id === 'user_local'))
         .filter((i) => !assigneeId || i.assignee_id === assigneeId)
+        .filter((i) => !url.searchParams.get('assignee_type') || i.assignee_type === url.searchParams.get('assignee_type'))
         .filter((i) => !q || i.title.toLowerCase().includes(q));
       const page = found.slice(offset, offset + limit);
       return json({ items: page.map(view), total: found.length, limit, offset, next_offset: offset + page.length < found.length ? offset + page.length : null });
