@@ -560,3 +560,15 @@ def test_planner_still_reads_ordinary_amounts() -> None:
     assert compare is not None and compare.name == "finance.plan.compare"
     assert compare.arguments["price"] == "45000" and compare.arguments["rate_percent"] == "4.5"
     assert compare.arguments["months"] == 36 and compare.arguments["down_payment"] == "5000"
+
+
+def test_planner_reads_monthly_and_down_amounts_across_spacing_and_punctuation() -> None:
+    from anum_api.finance.plan_tools import plan_call
+
+    call = plan_call("Can I afford a phone for 4,000 AED with 350\ta   month.")
+    assert call is not None and call.arguments["monthly_cost"] == "350" and call.arguments["price"] == "4000"
+    compare = plan_call("Which loan is better for 30000, 3% over 24 months, 2,000 deposit?")
+    assert compare is not None and compare.arguments["down_payment"] == "2000"
+    assert compare.arguments["price"] == "30000" and compare.arguments["months"] == 24
+    nothing = plan_call("Can I afford a sofa a month from now?")
+    assert nothing is not None and "monthly_cost" not in nothing.arguments
