@@ -528,3 +528,35 @@ def test_a_retried_link_with_the_same_key_replays_instead_of_refusing(kind: str)
     assert again.status_code == 201, again.text
     assert again.json()["link"]["id"] == first.json()["link"]["id"] and again.json()["replayed"] is True
     assert again.json()["link"]["amount"] == "100.00"
+
+
+def test_planner_question_parsing_stays_fast_on_hostile_input() -> None:
+    """CodeQL flagged polynomial patterns: long runs of zeros, digits or tabs must not slow the planner."""
+    import time
+
+    from anum_api.finance.plan_tools import plan_call
+
+    hostile = [
+        "can i afford " + "0" * 20000,
+        "can i afford a car " + "0," * 10000 + " per month",
+        "which loan " + "\t" * 20000 + "a month",
+        "cheapest way to send money " + "x" * 20000 + " home",
+        "1" * 20000 + " down " + "9" * 20000 + "%",
+    ]
+    started = time.perf_counter()
+    for text in hostile:
+        plan_call(text)
+    assert time.perf_counter() - started < 1.0
+
+
+def test_planner_still_reads_ordinary_amounts() -> None:
+    from anum_api.finance.plan_tools import plan_call
+
+    call = plan_call("Can I afford a car for 60,000 SAR with 2,500 per month?")
+    assert call is not None and call.name == "finance.plan.afford"
+    assert call.arguments["price"] == "60000" and call.arguments["monthly_cost"] == "2500"
+    assert call.arguments["currency"] == "SAR"
+    compare = plan_call("Which loan is better for 45k at 4.5% over 3 years with 5000 down?")
+    assert compare is not None and compare.name == "finance.plan.compare"
+    assert compare.arguments["price"] == "45000" and compare.arguments["rate_percent"] == "4.5"
+    assert compare.arguments["months"] == 36 and compare.arguments["down_payment"] == "5000"
