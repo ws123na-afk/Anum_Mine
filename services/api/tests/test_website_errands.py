@@ -91,12 +91,14 @@ def clean() -> Iterator[None]:
     reset()
 
 
-def searx(queries: list[str], payload: dict[str, Any] = SEARX_RESULTS) -> SearxngWebSearch:
+def searx(queries: list[str], payload: dict[str, Any] = SEARX_RESULTS, enabled: Any = None) -> SearxngWebSearch:
     def handler(request: httpx.Request) -> httpx.Response:
         queries.append(request.url.params["q"])
         return httpx.Response(200, json=payload)
 
-    search = SearxngWebSearch(base_url="http://searxng:8080", client=httpx.AsyncClient(transport=httpx.MockTransport(handler)))
+    search = SearxngWebSearch(
+        base_url="http://searxng:8080", client=httpx.AsyncClient(transport=httpx.MockTransport(handler)), enabled=enabled
+    )
     search._today = lambda: TODAY
     return search
 
@@ -317,7 +319,10 @@ def action_browser_on(monkeypatch: pytest.MonkeyPatch) -> None:
 @pytest.fixture
 def web_search_on(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     queries: list[str] = []
-    tools = default_tool_registry(web_search_handler=searx(queries))
+    # As main.py registers it: the workspace's SearXNG switch decides at run time.
+    tools = default_tool_registry(
+        web_search_handler=searx(queries, enabled=main.integration_registry.workspace_enabled(SEARXNG_INTEGRATION_ID))
+    )
     monkeypatch.setitem(main.tool_registry._definitions, "web_search", tools.definition("web_search"))
     monkeypatch.setitem(main.tool_registry._handlers, "web_search", tools.handler("web_search"))
     main.integration_registry.configure(SEARXNG_INTEGRATION_ID, CONTEXT, IntegrationConfiguration(enabled=True))
@@ -399,3 +404,40 @@ def test_chat_asks_for_the_site_when_the_owner_switched_search_off(action_browse
     [card] = [data["card"] for kind, data in stream if kind == "tool"]
     assert card["state"] == "needs_input" and "https://" in card["summary"] and web_search_on == []
     assert store.tasks == {}
+
+
+# -- web search configured on the server but switched off for the workspace (review on #416) -----
+
+
+def test_a_task_asks_for_the_site_when_the_workspace_switched_search_off() -> None:
+    queries: list[str] = []
+    tools = registry(search=searx(queries, enabled=lambda _context: False), act=act_tool())
+    call = plan("book me a ticker to Riyadh on Friday", tools)
+    assert call.name == "anum.respond" and call.arguments["errand"] is True
+    assert call.arguments["text"].startswith("Which site should ANUM use?")
+    assert "book me a ticket to Riyadh on Friday on https://" in call.arguments["text"]
+    arabic = plan("احجز لي تذكرة إلى الرياض يوم الجمعة", tools)
+    assert arabic.arguments["text"].startswith("أي موقع يستخدم ANUM؟")
+    # Switched on, the same request searches.
+    on = plan("book me a ticker to Riyadh on Friday", registry(search=searx(queries, enabled=lambda _context: True), act=act_tool()))
+    assert on.name == "web_search" and queries == []
+
+
+def test_a_direct_task_run_asks_for_the_site_when_search_is_switched_off(action_browser_on: None, web_search_on: list[str]) -> None:
+    main.integration_registry.configure(SEARXNG_INTEGRATION_ID, CONTEXT, IntegrationConfiguration(enabled=False))
+    created = client.post("/api/v1/tasks", headers=OWNER, json={"title": "Flight", "prompt": "book me a flight to Riyadh on Friday"})
+    assert created.status_code == 201, created.text
+    ran = client.post(f"/api/v1/tasks/{created.json()['id']}/run", headers=OWNER)
+    assert ran.status_code == 200, ran.text
+    body = ran.json()
+    run = body.get("run") or body
+    assert run["status"] == "completed", body
+    assert run["result"].startswith("Which site should ANUM use?") and web_search_on == []
+    assert "turned off" not in run["result"]
+
+
+def test_command_center_asks_for_the_site_when_search_is_switched_off(action_browser_on: None, web_search_on: list[str]) -> None:
+    main.integration_registry.configure(SEARXNG_INTEGRATION_ID, CONTEXT, IntegrationConfiguration(enabled=False))
+    _step, view = command_result("Book me a flight to Riyadh on Friday")
+    assert view["status"] == "completed"
+    assert view["steps"][0]["result"].startswith("Which site should ANUM use?") and web_search_on == []

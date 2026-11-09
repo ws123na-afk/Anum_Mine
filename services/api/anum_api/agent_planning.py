@@ -101,6 +101,8 @@ class AgentPlanner:
         # is off here is answered with the sentence naming the switch, never a scope approval for
         # nothing or a model refusal (docs/action-browser.md#switches-and-availability).
         call = await self._act_refusal(task, call) or call
+        # Web search registered here but switched off for this workspace: ask for the site instead.
+        call = await self._search_off(task, call) or call
         if call.name == "web.act":
             # The logins saved for the approved sites and the cards the prompt names, as handles
             # only (docs/action-browser.md#how-it-is-used): read from the vault, never decrypted.
@@ -115,6 +117,24 @@ class AgentPlanner:
             ),
             model_response=response,
         )
+
+    async def _search_off(self, task: Task, call: ToolCall) -> ToolCall | None:
+        if call.name != "web_search" or call.arguments.get("purpose") != FIND_SITE:
+            return None
+        handler = self.tools.handler("web_search") if hasattr(self.tools, "handler") else None
+        check = getattr(handler, "switched_on", None)
+        if not callable(check):
+            return None
+        from .schemas import TenantContext
+
+        context = TenantContext(tenant_id=task.tenant_id, workspace_id=task.workspace_id, user_id=task.created_by or "", roles=[])
+        try:
+            if await check(context):
+                return None
+        except Exception:  # unreadable: plan the search; the tool reports the real state
+            return None
+        goal = str(call.arguments.get("goal") or task.prompt)
+        return ToolCall(name="anum.respond", arguments={"text": ask_site_text(goal, arabic=_is_arabic(task.prompt)), "errand": True})
 
     async def _act_refusal(self, task: Task, call: ToolCall) -> ToolCall | None:
         errand = call.arguments.get("purpose") == FIND_SITE or (call.name == "anum.respond" and call.arguments.get("errand") is True)

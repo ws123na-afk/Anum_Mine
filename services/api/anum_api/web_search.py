@@ -277,6 +277,11 @@ class SearxngWebSearch:
             audit_metadata=audit,
         )
 
+    async def switched_on(self, context: TenantContext) -> bool:
+        """Whether the workspace allows web search (Integrations > SearXNG web search); the planner
+        asks before it plans a site search for a website errand."""
+        return self._enabled is None or bool(await asyncio.to_thread(self._enabled, context))
+
     async def _search(self, query: str) -> Any:
         params = {
             "q": query,
