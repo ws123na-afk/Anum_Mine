@@ -328,7 +328,7 @@ class Intercompany(_Scoped):
     void_reason: str = ""
 
 
-# -- the journal (migration 0148_business_ledger, docs/business-books.md#the-journal) ---------------------------------
+# -- the journal (migration 0151_business_ledger, docs/business-books.md#the-journal) ---------------------------------
 
 
 class AccountType(StrEnum):

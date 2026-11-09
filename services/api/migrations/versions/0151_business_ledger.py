@@ -42,15 +42,15 @@ are invoker functions.
 Expand only: new tables, a column with a default, a widened check and triggers on the book tables
 that refuse only rows dated in a closed period (the previous release closes nothing, so they never
 fire for it). The previous release ignores the journal; an adjustment of a new kind read by it would
-fail to load, so roll back only before one is recorded. Chained after ``0147_finance_personal_money``.
+fail to load, so roll back only before one is recorded. Chained after ``0150_finance_salary_profile``.
 """
 
 import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
-revision = "0148_business_ledger"
-down_revision = "0147_finance_personal_money"
+revision = "0151_business_ledger"
+down_revision = "0150_finance_salary_profile"
 branch_labels = None
 depends_on = None
 

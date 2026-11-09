@@ -1,4 +1,4 @@
-"""The business journal in PostgreSQL (migration ``0148_business_ledger``, docs/business-books.md#the-journal).
+"""The business journal in PostgreSQL (migration ``0151_business_ledger``, docs/business-books.md#the-journal).
 
 The API runs as the non-owner ``anum_test_app`` role under forced RLS. The database itself refuses an
 entry that does not balance or has no lines, any change to a journal line, any change to an entry but
