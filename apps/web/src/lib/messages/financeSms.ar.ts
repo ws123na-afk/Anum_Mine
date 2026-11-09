@@ -257,6 +257,7 @@ export const financeSmsAr: Record<keyof typeof financeSmsEn, Message> = {
   'fledger.netWorth': "صافي الثروة",
   'fledger.net': "الصافي",
   'fledger.inTransit': "قيد التحويل",
+  'fledger.uncategorized': '{count} غير مصنفة هذا الشهر، غير محسوبة في الدخل ولا المصروفات. صنّفها من المعاملات.',
   'fledger.inTransitText': "قيد التحويل بين حساباتك: {amount}. يظهر الجانب الآخر عند وصول رسالته.",
   'fledger.empty': "لا شيء مسجل هذا الشهر",
   'fledger.emptyText': "تظهر هنا الرسائل المسجلة والكشوف والإدخالات اليدوية.",

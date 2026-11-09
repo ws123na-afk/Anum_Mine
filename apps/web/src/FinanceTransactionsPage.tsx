@@ -8,11 +8,13 @@ import {
   AlertTriangle, CheckCircle2, Copy, Download, FileText, Landmark, MessageSquare, MoreHorizontal, Paperclip, PenLine, Plus, ReceiptText,
   Scale, Search, Smartphone, Tags, Upload, X,
 } from 'lucide-react';
-import type { FinanceAccount, FinanceCategory, FinanceRegisterDetail, FinanceRegisterPage, FinanceRegisterRow, FinanceSmsSettings } from '@anum/contracts';
+import type {
+  FinanceAccount, FinanceCategory, FinanceRegisterDetail, FinanceRegisterPage, FinanceRegisterRow, FinanceSmsSettings, FinanceTransactionType,
+} from '@anum/contracts';
 import * as api from './lib/financeApi';
 import { getRegister, getRegisterDetail } from './lib/financeRegisterApi';
 import {
-  NO_REGISTER_FILTERS, ORIGINS, ROW_STATUSES, hashWithMonth, latestMonthHint, monthBounds, monthFromHash, monthIn, narrowed, percentOf, statusTone, type RegisterFilters,
+  NO_REGISTER_FILTERS, ORIGINS, ROW_STATUSES, TRANSACTION_TYPES, hashWithMonth, latestMonthHint, monthBounds, monthFromHash, monthIn, narrowed, percentOf, statusTone, type RegisterFilters,
 } from './lib/financeRegister';
 import { categoryLabel, formatAmount, formatAmounts, isolate, monthLabel, rangeLabel, shiftMonth } from './lib/finance';
 import { describeError } from './lib/errors';
@@ -34,7 +36,7 @@ const PAGE = 25;
 export type TxTab = 'transactions' | 'ledger' | 'sms' | 'imports';
 const CATEGORIES: FinanceCategory[] = [
   'groceries', 'dining', 'food', 'room_rent', 'transport', 'fuel', 'utilities', 'telecom', 'housing', 'shopping', 'health', 'education', 'entertainment',
-  'subscriptions', 'travel', 'insurance', 'fees', 'cash', 'transfer', 'income', 'other',
+  'subscriptions', 'travel', 'insurance', 'fees', 'interest', 'cash', 'transfer', 'income', 'other',
 ];
 
 /** The months the period picker offers: this one and the 23 before it, plus the chosen one when it is older. */
@@ -62,6 +64,11 @@ export function StatusLabel({ row }: { row: Pick<FinanceRegisterRow, 'status'> }
 
 export function CategoryChip({ category }: { category: FinanceCategory }) {
   return <span className={`fregCat cat-${category}`}>{categoryLabel(category)}</span>;
+}
+
+/** The transaction type (docs/finance.md#transaction-types) in the person's language. */
+export function typeLabel(type: FinanceTransactionType): string {
+  return t(`freg.type.${type}` as MessageKey);
 }
 
 function Evidence({ row }: { row: FinanceRegisterRow }) {
@@ -177,10 +184,15 @@ export function TransactionsPage({ accounts, initialAccountId, initialTab, onCha
                   options={ORIGINS.map((o) => [o, t(`freg.source.${o}` as MessageKey)])} />
                 <FilterSelect label={t('freg.filter.status')} value={draft.status} all={t('freg.filter.anyStatus')} onChange={(v) => setDraft({ ...draft, status: v as RegisterFilters['status'] })}
                   options={ROW_STATUSES.map((s) => [s, t(`freg.status.${s}` as MessageKey)])} />
+                <FilterSelect label={t('freg.filter.type')} value={draft.type} all={t('freg.filter.anyType')} onChange={(v) => setDraft({ ...draft, type: v as RegisterFilters['type'] })}
+                  options={TRANSACTION_TYPES.map((k) => [k, typeLabel(k)])} />
                 <button type="submit" className="secondary"><Search aria-hidden="true" />{t('common.search')}</button>
                 {narrowed(applied) && <button type="button" className="secondary" onClick={() => { setDraft(NO_REGISTER_FILTERS); setApplied(NO_REGISTER_FILTERS); setOffset(0); }}>{t('finance.filter.clear')}</button>}
               </form>
               {ready.truncated && <FinBanner tone="warn" icon={<AlertTriangle />}>{t('freg.tx.truncated')}</FinBanner>}
+              {(ready.totals.uncategorized ?? 0) > 0 && applied.status !== 'uncategorized' && <FinBanner tone="warn" icon={<AlertTriangle />}
+                action={<button type="button" className="cmLinkButton" onClick={() => { const next = { ...applied, status: 'uncategorized' as const }; setDraft(next); setApplied(next); setOffset(0); }}>{t('freg.tx.showUncategorized')}</button>}>
+                {t('freg.tx.uncategorized', { count: ready.totals.uncategorized ?? 0 })}</FinBanner>}
               {ready.items.length === 0
                 ? <Empty icon={<ReceiptText aria-hidden="true" />}
                   title={narrowed(applied) ? t('finance.transactions.noMatch') : period ? t('freg.tx.emptyMonth', { month: monthLabel(period) }) : t('finance.transactions.empty')}
@@ -263,7 +275,7 @@ function RegisterTable({ page, accounts, selected, onOpen, onPage }: { page: Fin
         <tbody>{page.items.map((row) => <tr key={row.id} className={selected === row.id ? 'selected' : undefined} onClick={() => onOpen(row.id)}>
           <td className="fregDate"><bdi dir="ltr">{row.posted_on}</bdi></td>
           <td className="fregDesc"><strong dir="auto">{row.description}</strong>{row.notes && <small dir="auto">{row.notes}</small>}</td>
-          <td><CategoryChip category={row.category} /></td>
+          <td className="fregCatCell"><CategoryChip category={row.category} />{row.transaction_type && <small className="fregType">{typeLabel(row.transaction_type)}</small>}</td>
           <td className="fregHideMd" dir="auto">{names.get(row.account_id) ?? '-'}</td>
           <td className="fregHideMd"><Evidence row={row} /></td>
           <td className="fregHideSm"><SourceLabel row={row} /></td>
@@ -293,6 +305,8 @@ function TransactionDrawer({ id, onClose, onOpen, onChanged, inModal }: {
 }) {
   const [state, setState] = useState<Load<FinanceRegisterDetail>>({ kind: 'loading' });
   const [category, setCategory] = useState<FinanceCategory | ''>('');
+  const [kind, setKind] = useState<FinanceTransactionType | ''>('');
+  const [categoryTouched, setCategoryTouched] = useState(false);
   const [learn, setLearn] = useState(false);
   const [learnPhrase, setLearnPhrase] = useState('');
   const [reversePending, setReversePending] = useState(false);
@@ -300,9 +314,10 @@ function TransactionDrawer({ id, onClose, onOpen, onChanged, inModal }: {
   const [notice, setNotice] = useState<{ error?: boolean; text: string } | null>(null);
   const [removing, setRemoving] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
-  const headingId = useId(), categoryId = useId();
+  const headingId = useId(), categoryId = useId(), typeId = useId();
   const load = useCallback(async () => {
     try { const value = await getRegisterDetail(id); setState({ kind: 'ready', value }); setCategory(value.row.category_source === 'none' ? value.suggested_category : value.row.category);
+      setKind(value.row.transaction_type ?? ''); setCategoryTouched(false);
       setLearn(false);
       setLearnPhrase((value.merchant && value.row.description.toLowerCase().includes(value.merchant.toLowerCase()) ? value.merchant : value.row.description).slice(0, 80)); }
     catch (e) { setState(failed(e)); }
@@ -311,8 +326,18 @@ function TransactionDrawer({ id, onClose, onOpen, onChanged, inModal }: {
 
   async function saveCategory(row: FinanceRegisterRow) {
     if (!category) return;
+    const typeChanged = Boolean(kind) && kind !== row.transaction_type;
+    // A type picked on its own files the row under that type's category on the server; the suggested category is sent only when chosen.
+    const categoryChanged = categoryTouched || learn || !typeChanged;
     setBusy('category'); setNotice(null);
-    try { await api.updateTransaction(row.id, { category, ...(learn ? { remember_category_match: learnPhrase.trim() } : {}) }); setNotice({ text: t('freg.drawer.categorySaved', { category: categoryLabel(category) }) }); await load(); onChanged(); }
+    try {
+      await api.updateTransaction(row.id, {
+        ...(categoryChanged ? { category } : {}), ...(typeChanged && kind ? { transaction_type: kind } : {}),
+        ...(learn ? { remember_category_match: learnPhrase.trim() } : {}),
+      });
+      setNotice({ text: typeChanged && kind && !categoryChanged ? t('freg.drawer.typeSaved', { type: typeLabel(kind) }) : t('freg.drawer.categorySaved', { category: categoryLabel(category) }) });
+      await load(); onChanged();
+    }
     catch (e) { setNotice({ error: true, text: describeError(e) }); } finally { setBusy(''); }
   }
   async function correctDirection(row: FinanceRegisterRow) {
@@ -377,6 +402,7 @@ function TransactionDrawer({ id, onClose, onOpen, onChanged, inModal }: {
       <div><dt>{t('freg.col.source')}</dt><dd><SourceLabel row={row} /></dd></div>
       {d.reference && <div><dt>{t('freg.drawer.reference')}</dt><dd dir="ltr">{d.reference}</dd></div>}
       <div><dt>{t('freg.drawer.suggested')}</dt><dd><CategoryChip category={d.suggested_category} /> <small className="muted">{t(`freg.suggestedBy.${d.suggested_by}` as MessageKey)}</small></dd></div>
+      {row.transaction_type && <div><dt>{t('freg.drawer.type')}</dt><dd>{typeLabel(row.transaction_type)}{row.type_source && <> <small className="muted">{t(`freg.typeBy.${row.type_source}` as MessageKey)}</small></>}</dd></div>}
       <div><dt>{t('freg.drawer.statement')}</dt><dd>{row.reconciled ? <StatusChip tone="ok">{t('freg.drawer.reconciled')}</StatusChip> : t('freg.drawer.notReconciled')}</dd></div>
     </dl>
     {sms?.text && <section className="fregSms" aria-label={t('freg.drawer.sms')}>
@@ -393,6 +419,8 @@ function TransactionDrawer({ id, onClose, onOpen, onChanged, inModal }: {
       <FinBanner tone="warn" icon={<AlertTriangle />} title="Check payment direction">
         This room-rent entry is incoming. If you paid it, verify the statement debit and correct it to money out. Nothing is changed automatically.
       </FinBanner>}
+    {row.transaction_type === 'uncategorized' && <FinBanner tone="warn" icon={<AlertTriangle />} title={t('freg.drawer.uncategorizedTitle')}>{t('freg.drawer.uncategorizedText')}</FinBanner>}
+    {row.type_reason === 'refund_suggested' && <FinBanner icon={<ReceiptText />}>{t('freg.drawer.refundSuggested')}</FinBanner>}
     {row.links_need_review > 0 && <FinBanner tone="warn" icon={<AlertTriangle />}>{t('freg.drawer.linksReview', { count: row.links_need_review })}</FinBanner>}
     <div className="fregAttach">
       <div><strong><Paperclip aria-hidden="true" />{t('freg.drawer.receipt')}</strong>
@@ -403,8 +431,13 @@ function TransactionDrawer({ id, onClose, onOpen, onChanged, inModal }: {
     {row.receipts > 0 && <p className="fregReceiptsLink"><a href="#vault">{t('freg.drawer.openVault')}</a></p>}
     <div className="fregCategory">
       <label htmlFor={categoryId}>{t('freg.drawer.chooseCategory')}</label>
-      <select id={categoryId} value={category} onChange={(e) => setCategory(e.target.value as FinanceCategory)}>
+      <select id={categoryId} value={category} onChange={(e) => { setCategory(e.target.value as FinanceCategory); setCategoryTouched(true); }}>
         {CATEGORIES.map((c) => <option key={c} value={c}>{c === d.suggested_category ? t('freg.drawer.suggestedOption', { category: categoryLabel(c) }) : categoryLabel(c)}</option>)}
+      </select>
+      <label htmlFor={typeId}>{t('freg.drawer.chooseType')}</label>
+      <select id={typeId} value={kind} onChange={(e) => setKind(e.target.value as FinanceTransactionType)}>
+        {!kind && <option value="">-</option>}
+        {TRANSACTION_TYPES.map((k) => <option key={k} value={k}>{typeLabel(k)}</option>)}
       </select>
     </div>
     {["sms", "apple_pay"].includes(row.origin) && <p className="muted">This transaction is linked to an SMS or Apple Pay journal entry. Make its category correction under Finance → iPhone SMS → Review to preserve the audit trail.</p>}
@@ -417,8 +450,9 @@ function TransactionDrawer({ id, onClose, onOpen, onChanged, inModal }: {
     </label>}
     {notice && <Notice error={notice.error}>{notice.text}</Notice>}
     <div className="fregDrawerActions">
-      <button type="button" disabled={Boolean(busy) || !category || !['manual', 'statement'].includes(row.origin) || (category === row.category && row.category_source === 'manual' && !learn)} onClick={() => void saveCategory(row)}>
-        <Tags aria-hidden="true" />{busy === 'category' ? t('finance.saving') : t('freg.drawer.saveCategory')}</button>
+      <button type="button" disabled={Boolean(busy) || !category || !['manual', 'statement'].includes(row.origin)
+        || (category === row.category && row.category_source === 'manual' && !learn && (!kind || kind === row.transaction_type))} onClick={() => void saveCategory(row)}>
+        <Tags aria-hidden="true" />{busy === 'category' ? t('finance.saving') : kind && kind !== row.transaction_type ? t('freg.drawer.save') : t('freg.drawer.saveCategory')}</button>
       {Number(row.amount) > 0 && ['statement', 'manual'].includes(row.origin) &&
         <button type="button" className="secondary" disabled={Boolean(busy)} onClick={() => setReversePending(true)}>
           <AlertTriangle aria-hidden="true" />Correct to money out

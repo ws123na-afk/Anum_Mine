@@ -8,6 +8,8 @@ the person's own (``FinanceSettings.timezone``, Asia/Dubai by default): "this mo
 * Spend, income, refunds, cashback and transfers: counted by the one shared rule
   (``flows.py``, docs/finance.md#how-figures-are-counted). Spend by category is net of the
   refunds filed in that category; transfers and card payments are neither spend nor income.
+* Uncategorized: rows no rule recognised are in none of those figures; the summary counts them
+  (``uncategorized_count`` and the amounts in and out) so the page says what it left out.
 * Upcoming bills: every active bill's due dates in the next ``days`` days (default 30) that
   have no matched payment, and this month's passed ones that still have none (overdue).
 * Debts: what is owed (following matched payments and linked accounts, ``obligations.py``)
@@ -121,6 +123,11 @@ class FinanceSummary(BaseModel):
     debt_count: int
     goals: list[GoalProgress]
     month_rows_capped: bool = False  # the month had more rows than one read takes: figures are partial
+    # Rows no rule recognised (type ``uncategorized``): in none of the figures above, held for review. Shown as
+    # "N uncategorized, not counted" so a missing income or spend is never a silent zero.
+    uncategorized_count: int = 0
+    uncategorized_in: list[CurrencyAmount] = Field(default_factory=list)
+    uncategorized_out: list[CurrencyAmount] = Field(default_factory=list)
 
 
 class BillSuggestion(BaseModel):
@@ -258,6 +265,8 @@ def build_summary(store: FinanceStore, context: TenantContext, month: str | None
         spend_by_category=category_rows,
         income=_amounts(found.income), cashback=_amounts(found.cashback), refunds=_amounts(found.refunds), spend=_amounts(found.spend),
         net=_amounts(found.net()),
+        uncategorized_count=found.uncategorized_count, uncategorized_in=_amounts(found.uncategorized_in),
+        uncategorized_out=_amounts(found.uncategorized_out),
         transaction_count=len(month_rows), month_rows_capped=len(month_rows) >= MONTH_ROW_LIMIT,
         upcoming_bills=upcoming,
         bills_due=_amounts(totals((b.currency, b.amount) for b in upcoming)),

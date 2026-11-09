@@ -67,6 +67,23 @@ Importing a CSV or PDF statement ([PDF bank statements](finance-statements.md)) 
 
 `salary`, `deposit`, `transfer_in`, `transfer_out`, `own_transfer`, `card_purchase`, `atm_withdrawal`, `card_repayment`, `loan_disbursement`, `loan_repayment`, `bank_fee`, `refund`, `reversal`, `unknown`. A foreign-currency transaction is any kind whose amount is in another currency than the account's.
 
+Each kind gives the stage 2 rows of the entry a [transaction type](finance.md#transaction-types) (source `sms`, `sms_service.sms_type`):
+
+| Kind | Type of the row on the account |
+|---|---|
+| `salary` | `income` |
+| `deposit`, `transfer_in` | `uncategorized` (held for review: money arrived, not why; a credit is not automatically income) |
+| `transfer_out` | `expense`, filed by the other party's words like the same row from a statement (rent is housing, else `other`) |
+| `card_purchase` | `expense` in the merchant's category |
+| `own_transfer`, `atm_withdrawal` to the cash account | `internal_transfer` |
+| `atm_withdrawal` with no cash account | `expense` (`cash`) |
+| `card_repayment` | `card_payment` on both sides |
+| `loan_disbursement` | `loan_received` |
+| `loan_repayment` | `loan_principal` on the bank and the loan; the interest row on the loan is `interest` |
+| `bank_fee` | `bank_fee` |
+| `refund` | `refund` (`cashback` when filed as cashback) |
+| `reversal` | `reversal` |
+
 ### Masking and retention
 
 Account, card and IBAN numbers are cut to `***` and their last four digits (`mask`) before anything is stored. The masked text is kept for `body_retention_days` (default 30, 0 keeps none) for review and teaching, then erased; a refused message never keeps text (a database check). Logs never contain a message, an amount or a number; audit rows hold ids and codes only.
@@ -91,16 +108,17 @@ Every recorded message is a journal entry whose postings sum to zero in each cur
 
 | Message | Debit | Credit |
 |---|---|---|
-| Salary, deposit | the account | `income:<kind>` |
+| Salary | the account | `income:salary` |
+| Deposit | the account | `suspense:uncategorized` (not income until the person files it; before November 2026 `income:deposit`) |
 | Incoming transfer | the account | `income:transfer_in` (a transfer: not counted as income) |
 | Card purchase | `expense:<category>` (plus `expense:fees` for a stated fee) | the account (a card's debt goes up) |
-| Outgoing transfer | `expense:transfer` (a transfer: not counted as spending) | the account |
+| Outgoing transfer | `expense:<category>`, the other party's words deciding (rent is housing, else `other`): money sent to someone else is spending (audit C3; before November 2026 `expense:transfer`, a transfer) | the account |
 | ATM withdrawal | the cash account, else `expense:cash` | the account |
 | Bank fee | `expense:fees` | the account |
 | Card repayment | the card (debt down) | the paying account; never an expense |
 | Own-account transfer | the receiving account | the sending account; neither income nor expense |
 | Loan proceeds | the account | the loan (debt up) |
-| Loan repayment | the loan for the whole payment, and `expense:interest` for the interest | the account, and the loan for the interest (charged on the loan) |
+| Loan repayment | the loan for the whole payment, and `expense:interest` for the interest (category `interest`, no longer `fees`) | the account, and the loan for the interest (charged on the loan) |
 | Refund, reversal | the account | the original purchase's category (found by merchant within 120 days), else `income:refunds` (its own line, never income) |
 
 A side no message has named yet (the paying account of a card's "payment received") waits in `suspense:own_transfer`, shown as "in transit", until a later message names it. Stated balances are **observations** shown next to the ledger's figure, never posted.
@@ -127,7 +145,7 @@ For an import whose rows were added anyway, `GET /sms/reconcile/{import_id}` mat
 
 ## Dashboard
 
-`GET /api/v1/finance/ledger/dashboard?month=&account_id=&currency=&category=&kind=`: income, expenses and surplus for the month; balances (with the bank's last stated balance and the difference); cards with what is owed, the limit and utilization; loans; assets, liabilities and net worth per currency (never added across currencies); spending by category and by merchant; the last 12 months and this year; money in transit; bills due; goals; debts with the months to clear them at the minimum payment; and sync status. `GET /ledger/entries` lists the journal.
+`GET /api/v1/finance/ledger/dashboard?month=&account_id=&currency=&category=&kind=`: income, expenses and surplus for the month; balances (with the bank's last stated balance and the difference); cards with what is owed, the limit and utilization; loans; assets, liabilities and net worth per currency (never added across currencies); spending by category and by merchant; the last 12 months and this year; money in transit; `uncategorized_count` (the month's rows no rule recognised, in neither income nor expenses, shown as "N uncategorized, not counted"); bills due; goals; debts with the months to clear them at the minimum payment; and sync status. `GET /ledger/entries` lists the journal.
 
 **Personal and business:** each workspace has its own ledger per person, so books are never mixed. The ledger's kind (`personal` or `business`, Settings) labels it; keep personal banking in the workspace you use for yourself.
 

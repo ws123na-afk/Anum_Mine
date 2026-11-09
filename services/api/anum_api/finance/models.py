@@ -52,6 +52,7 @@ class Category(StrEnum):
     TRAVEL = "travel"
     INSURANCE = "insurance"
     FEES = "fees"
+    INTEREST = "interest"  # interest or profit: received on savings (income) or charged on a card or loan (spend)
     CASH = "cash"
     OTHER = "other"
 
@@ -61,6 +62,46 @@ class CategorySource(StrEnum):
     OWNER_RULE = "owner_rule"  # one of the owner's own rules matched
     MANUAL = "manual"  # the owner picked it
     NONE = "none"  # nothing matched: "other"
+    MATCH = "match"  # set by matching with another record (an own-transfer pair, a refund's purchase); never the owner's choice
+    SYSTEM = "system"  # set by ANUM itself for another reason; never the owner's choice
+
+
+class TransactionType(StrEnum):
+    """What a transaction is, separate from what it was for (its category): the type decides how it counts
+    (docs/finance.md#transaction-types). ``uncategorized`` is money ANUM could not recognise: held for review and
+    counted as neither income nor spend."""
+
+    INCOME = "income"
+    EXPENSE = "expense"
+    INTERNAL_TRANSFER = "internal_transfer"
+    CARD_PAYMENT = "card_payment"
+    LOAN_RECEIVED = "loan_received"
+    LOAN_PRINCIPAL = "loan_principal"
+    INTEREST = "interest"  # interest charged (spend); interest received is ``income`` with category ``interest``
+    REFUND = "refund"
+    CASHBACK = "cashback"
+    BANK_FEE = "bank_fee"
+    INVESTMENT_CONTRIBUTION = "investment_contribution"
+    INVESTMENT_WITHDRAWAL = "investment_withdrawal"
+    OWNER_CONTRIBUTION = "owner_contribution"
+    OWNER_DRAWING = "owner_drawing"
+    REIMBURSEMENT = "reimbursement"
+    RECEIVABLE_COLLECTION = "receivable_collection"
+    PAYABLE_SETTLEMENT = "payable_settlement"
+    FX_EXCHANGE = "fx_exchange"
+    TAX = "tax"
+    REVERSAL = "reversal"
+    UNCATEGORIZED = "uncategorized"
+
+
+class TypeSource(StrEnum):
+    """What decided a transaction's type."""
+
+    RULE = "rule"  # a built-in or owner rule read the description, or the stored category (older rows)
+    OWNER = "owner"  # the owner chose it (or chose the category it follows): never changed by a machine
+    SYSTEM = "system"  # ANUM set it for another reason
+    SMS = "sms"  # the kind an SMS or Apple Pay message described
+    MATCH = "match"  # matching with another record (an own-transfer pair, a refund's purchase)
 
 
 class Cadence(StrEnum):
@@ -143,6 +184,15 @@ class Transaction(_Owned):
     dedupe_hash: str
     created_at: datetime
     updated_at: datetime
+    # The transaction type (docs/finance.md#transaction-types). None on rows stored before the type existed:
+    # ``txn_types.typed`` derives it from the category, the sign and the account kind, deterministically.
+    transaction_type: TransactionType | None = None
+    type_source: TypeSource | None = None
+    type_confidence: Decimal | None = Field(default=None, ge=0, le=1)
+    type_reason: str | None = Field(default=None, max_length=40)  # a short machine code, for example ``no_rule_matched``
+    # Another of the person's transactions this one relates to: the purchase a refund gives back (a match when
+    # ``type_confidence`` is high, a suggestion otherwise). Never a link to someone else's record.
+    related_transaction_id: str | None = None
 
 
 class ImportRecord(_Owned):
@@ -161,7 +211,7 @@ class ImportRecord(_Owned):
     # "differs" or "unknown"), ``opening``, ``closing``, ``rows_total``, ``difference`` as decimal strings, and
     # ``not_in_ledger``: how many statement rows the ledger does not hold (held for review or left out by the person).
     reconciliation: dict[str, str | None] | None = None
-    # What happened to every row (docs/finance.md#import-history), counted and listed (migration 0148_finance_import_rows):
+    # What happened to every row (docs/finance.md#import-history), counted and listed (migration 0149_finance_import_rows):
     # attached to a record already there, held for review, left out by the person, left out by the reader, corrected.
     attached_count: int = 0
     held_count: int = 0

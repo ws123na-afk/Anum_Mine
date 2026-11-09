@@ -2,6 +2,7 @@
 // No network and no DOM, so `pnpm --filter @anum/web test:unit` covers them.
 import type {
   FinanceAccount, FinanceAccountActivity, FinanceAccountOverview, FinanceAccountSource, FinanceCategory, FinanceOrigin, FinanceRowStatus,
+  FinanceTransactionType,
 } from '@anum/contracts';
 
 export interface RegisterFilters {
@@ -13,12 +14,20 @@ export interface RegisterFilters {
   origin: FinanceOrigin | '';
   evidence: 'linked' | 'missing' | '';
   status: FinanceRowStatus | '';
+  /** A transaction type (docs/finance.md#transaction-types); the API's `type` filter. */
+  type: FinanceTransactionType | '';
 }
 
-export const NO_REGISTER_FILTERS: RegisterFilters = { q: '', account_id: '', category: '', from: '', to: '', origin: '', evidence: '', status: '' };
+export const NO_REGISTER_FILTERS: RegisterFilters = { q: '', account_id: '', category: '', from: '', to: '', origin: '', evidence: '', status: '', type: '' };
 
 export const ORIGINS: readonly FinanceOrigin[] = ['sms', 'apple_pay', 'statement', 'manual'];
 export const ROW_STATUSES: readonly FinanceRowStatus[] = ['linked', 'needs_review', 'duplicate_candidate', 'uncategorized', 'recorded'];
+/** Every transaction type, in the order the filter and the drawer list them. */
+export const TRANSACTION_TYPES: readonly FinanceTransactionType[] = [
+  'expense', 'income', 'internal_transfer', 'card_payment', 'refund', 'cashback', 'bank_fee', 'interest', 'tax', 'loan_received', 'loan_principal',
+  'investment_contribution', 'investment_withdrawal', 'owner_contribution', 'owner_drawing', 'reimbursement', 'receivable_collection',
+  'payable_settlement', 'fx_exchange', 'reversal', 'uncategorized',
+];
 
 /** The query the API takes: empty values are left out. */
 export function registerQuery(filters: RegisterFilters): Record<string, string> {
@@ -29,7 +38,7 @@ export function registerQuery(filters: RegisterFilters): Record<string, string> 
 
 /** True when anything but the period narrows the list (the period always applies). */
 export function narrowed(filters: RegisterFilters): boolean {
-  return Boolean(filters.q || filters.account_id || filters.category || filters.origin || filters.evidence || filters.status);
+  return Boolean(filters.q || filters.account_id || filters.category || filters.origin || filters.evidence || filters.status || filters.type);
 }
 
 /** First and last day of a "YYYY-MM" month. */

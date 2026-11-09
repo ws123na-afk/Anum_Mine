@@ -332,7 +332,7 @@ def _import(account_id: str, content: str) -> dict:
 def test_statement_after_sms_reconciles_instead_of_creating() -> None:
     s = setup()
     send(s["token"], SALARY_EN)
-    imported = _import(s["bank"]["id"], "Date,Description,Amount\n2026-11-01,SALARY NOV,12000.00\n2026-11-02,SHOP NOT ON SMS,-10.00\n")
+    imported = _import(s["bank"]["id"], "Date,Description,Amount\n2026-11-01,SALARY NOV,12000.00\n2026-11-02,PHARMACY NOT ON SMS,-10.00\n")
     assert imported["reconciled"] == 1 and imported["imported_count"] == 1 and imported["held_for_review"] == 0
     board = dashboard()
     assert money(board["income"]) == Decimal("12000.00") and money(board["expenses"]) == Decimal("10.00")
@@ -342,7 +342,7 @@ def test_statement_after_sms_reconciles_instead_of_creating() -> None:
     assert sorted(src["kind"] for src in canonical["current"]["sources"]) == ["sms", "statement"]
     # Nothing is left for the manual comparison, and importing the same file again adds nothing.
     assert client.get(f"{API}/sms/reconcile/{imported['id']}", headers=OWNER).json()["matched"] == []
-    assert _import(s["bank"]["id"], "Date,Description,Amount\n2026-11-02,SHOP NOT ON SMS,-10.00\n")["imported_count"] == 0
+    assert _import(s["bank"]["id"], "Date,Description,Amount\n2026-11-02,PHARMACY NOT ON SMS,-10.00\n")["imported_count"] == 0
 
 
 def test_sms_after_statement_attaches_to_the_statement_transaction() -> None:

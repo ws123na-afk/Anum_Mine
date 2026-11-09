@@ -13,15 +13,15 @@ docs/finance.md#import-history.
 
 Row level security is unchanged: ``finance_imports`` already has its forced owner policies. Expand only: columns
 with defaults and a nullable column; the previous release ignores them. Chained after
-``0147_finance_personal_money``.
+``0148_finance_txn_types``.
 """
 
 import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
-revision = "0148_finance_import_rows"
-down_revision = "0147_finance_personal_money"
+revision = "0149_finance_import_rows"
+down_revision = "0148_finance_txn_types"
 branch_labels = None
 depends_on = None
 

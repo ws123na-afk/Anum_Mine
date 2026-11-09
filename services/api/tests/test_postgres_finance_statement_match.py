@@ -85,7 +85,7 @@ def test_balance_check_and_transfer_pair_are_stored_and_private(client: TestClie
 
 
 def test_an_import_stores_every_rows_disposition_and_a_tied_statement_with_a_held_row_does_not_reconcile(client: TestClient) -> None:
-    """Migration ``0148_finance_import_rows``: the counts and the per-row dispositions are stored under forced RLS."""
+    """Migration ``0149_finance_import_rows``: the counts and the per-row dispositions are stored under forced RLS."""
     bank = _account(client, name="Current", last4="5678")
     content = ("Date,Description,Amount,Balance\n2026-11-03,EXAMPLE CAFE,-15.00,985.00\n2026-11-03,EXAMPLE CAFE,-15.00,970.00\n"
                "2026-11-04,SAMPLE BOOKS,-20.00,950.00\nnot a date,FOOTER,,\n")
