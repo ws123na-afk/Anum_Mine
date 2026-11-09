@@ -1070,13 +1070,13 @@ def record_import(
             choice = decisions.get(row.line)
             action = getattr(choice, "action", None)
             reference = (references or {}).get(row.dedupe_hash) or row.reference
-            found = classify_text(row.description, row.amount, rules, account.kind)
+            classified = classify_text(row.description, row.amount, rules, account.kind)
             item = TT.apply(Transaction(
                 id=new_id("fin_txn"), tenant_id=context.tenant_id, workspace_id=context.workspace_id,
                 owner_user_id=context.user_id, account_id=account.id, posted_on=row.posted_on, amount=row.amount,
-                currency=account.currency, description=row.description, category=found.category, category_source=found.source,
+                currency=account.currency, description=row.description, category=classified.category, category_source=classified.source,
                 notes=row.notes, import_id=record.id, dedupe_hash=row.dedupe_hash, created_at=now, updated_at=now,
-            ), found.typed)
+            ), classified.typed)
             if match.status == "exact_duplicate" and match.code == "waiting_review":
                 # The same row already waits in Review from an earlier import: not in the ledger yet.
                 outcome.review += 1
