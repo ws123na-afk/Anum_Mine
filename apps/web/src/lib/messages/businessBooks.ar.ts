@@ -10,7 +10,7 @@ export const businessBooksAr = {
   'books.tab.vendors': 'الموردون',
   'books.tab.allocations': 'المخصصات',
   'books.tab.budgets': 'الميزانيات',
-  'books.tab.journal': 'القيود',
+  'books.tab.journal': 'التسويات',
   'books.tab.intercompany': 'بين الشركات',
   'books.tab.settings': 'الإعدادات',
   'books.loading': 'جارٍ قراءة الدفاتر...',

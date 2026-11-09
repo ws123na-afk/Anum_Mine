@@ -325,7 +325,8 @@ def entries(book: Book, basis: Basis, start: date, end: date, converter: Convert
         if item.kind == AdjustmentKind.CAPITAL_ITEM and item.start_month and item.months:
             for month, part in zip(_months(item.start_month, item.months), _spread(item.amount, item.currency, item.months), strict=True):
                 add(Entry(month, OPERATING, "depreciation", item.currency, part, project, account, centre, "depreciation"))
-        elif item.kind == AdjustmentKind.LOAN_INTEREST:
+        elif item.kind in (AdjustmentKind.LOAN_INTEREST, AdjustmentKind.LOAN_INTEREST_ACCRUED):
+            # Interest owed is a cost when it is charged; paying it later (``loan_interest_paid``) is cash only (defect B5).
             add(Entry(item.entry_date, FINANCE_COSTS, "loan_interest", item.currency, item.amount, project, account, centre, category))
         elif basis == Basis.ACCRUAL and item.kind == AdjustmentKind.ACCRUAL:
             add(Entry(item.entry_date, group, category, item.currency, item.amount, project, account, centre, category))
@@ -513,6 +514,7 @@ def cash_flows(book: Book, start: date, end: date) -> list[Flow]:
             put("capital_spend" if bill.section == Section.CAPITAL else "suppliers_paid", bill.currency, payment.amount, payment.paid_on)
     flows = {
         AdjustmentKind.LOAN_RECEIVED: "loans_received", AdjustmentKind.LOAN_REPAYMENT: "loans_repaid", AdjustmentKind.LOAN_INTEREST: "interest_paid",
+        AdjustmentKind.LOAN_INTEREST_PAID: "interest_paid",
         AdjustmentKind.OWNER_CONTRIBUTION: "owner_contributions", AdjustmentKind.OWNER_DRAWING: "owner_drawings",
         AdjustmentKind.OWNER_REIMBURSEMENT: "members_reimbursed",
     }
@@ -607,6 +609,7 @@ def balances(book: Book, end: date, today: date | None = None) -> dict[str, Any]
         if allocation.treatment == "reimbursable" and allocation.posted_on <= end:
             owed_members[allocation.currency] += Decimal(allocation.amount)
     debt: dict[str, Decimal] = defaultdict(Decimal)
+    interest: dict[str, Decimal] = defaultdict(Decimal)
     for item in book.adjustments:
         if item.entry_date > end:
             continue
@@ -616,6 +619,10 @@ def balances(book: Book, end: date, today: date | None = None) -> dict[str, Any]
             debt[item.currency] += item.amount
         elif item.kind == AdjustmentKind.LOAN_REPAYMENT:
             debt[item.currency] -= item.amount
+        elif item.kind == AdjustmentKind.LOAN_INTEREST_ACCRUED:
+            interest[item.currency] += item.amount
+        elif item.kind == AdjustmentKind.LOAN_INTEREST_PAID:
+            interest[item.currency] -= item.amount
 
     intercompany: dict[tuple[str, str], Decimal] = defaultdict(Decimal)
     names: dict[str, str] = {}
@@ -643,6 +650,7 @@ def balances(book: Book, end: date, today: date | None = None) -> dict[str, Any]
         "unpaid_bills_count": len(unpaid_bills),
         "owed_to_members": _per_currency(owed_members),
         "debt": _per_currency(debt),
+        "interest_payable": _per_currency(interest),
         "intercompany": [{"workspace_id": w, "name": names.get(w, ""), "currency": c, "amount": _s(v, c)}
                          for (w, c), v in sorted(intercompany.items()) if v != 0],
     }
@@ -667,15 +675,17 @@ def equity(book: Book, start: date, end: date) -> dict[str, Any]:
 # -- dashboard breakdowns ---------------------------------------------------------------------------------
 
 
-def _by(items: list[Entry], converter: Converter, key: str) -> dict[str, dict[str, Decimal]]:
-    """Revenue and costs in the base currency per ``key`` (converted figures only)."""
-    out: dict[str, dict[str, Decimal]] = defaultdict(lambda: {"revenue": ZERO, "costs": ZERO})
+def _by(items: list[Entry], converter: Converter, key: str) -> dict[str, dict[str, Any]]:
+    """Revenue and costs in the base currency per ``key``, and what could not be converted (per currency, kept apart: never a
+    false zero, defect B1)."""
+    out: dict[str, dict[str, Any]] = defaultdict(lambda: {"revenue": ZERO, "costs": ZERO, "unconverted": defaultdict(Decimal)})
     for entry in items:
         name = getattr(entry, key)
         if not name or entry.group == FX_DIFFERENCE:
             continue
         value = converter.convert(entry.amount, entry.currency, entry.on)
         if value is None:
+            out[name]["unconverted"][entry.currency] += entry.amount if entry.group in (REVENUE, OTHER_INCOME) else -entry.amount
             continue
         if entry.group in (REVENUE, OTHER_INCOME):
             out[name]["revenue"] += value
@@ -684,34 +694,42 @@ def _by(items: list[Entry], converter: Converter, key: str) -> dict[str, dict[st
     return out
 
 
-def breakdown(items: list[Entry], converter: Converter, key: str, names: dict[str, str], limit: int = 50) -> list[dict[str, Any]]:
+BREAKDOWN_LIMIT = 50
+
+
+def breakdown(items: list[Entry], converter: Converter, key: str, names: dict[str, str], limit: int | None = BREAKDOWN_LIMIT) -> list[dict[str, Any]]:
+    """Rows sorted by revenue, then costs. A row with figures that could not be converted says so (``complete: false`` and the
+    amounts per currency); ``limit=None`` keeps every row."""
     base = converter.base
     rows = []
     for name, figures in _by(items, converter, key).items():
         margin = figures["revenue"] - figures["costs"]
+        missing = [{"currency": c, "net": _s(v, c)} for c, v in sorted(figures["unconverted"].items()) if v != 0]
         rows.append({"id": name, "name": names.get(name, ""), "revenue": _s(figures["revenue"], base), "costs": _s(figures["costs"], base),
-                     "margin": _s(margin, base), "margin_pct": _pct(margin, figures["revenue"])})
+                     "margin": _s(margin, base), "margin_pct": _pct(margin, figures["revenue"]), "complete": not missing, "not_converted": missing})
     rows.sort(key=lambda row: (-Decimal(row["revenue"]), -Decimal(row["costs"]), row["id"]))
-    return rows[:limit]
+    return rows if limit is None else rows[:limit]
 
 
 def trend(book: Book, basis: Basis, end: date, converter: Converter, months: int = 12) -> list[dict[str, Any]]:
     first = add_months(month_start(end), -(months - 1))
     items = entries(book, basis, first, end, converter, set())
     base = converter.base
-    rows: dict[date, dict[str, Any]] = {m: {"revenue": ZERO, "costs": ZERO, "unconverted": False} for m in _months(first, months)}
+    rows: dict[date, dict[str, Any]] = {m: {"revenue": ZERO, "costs": ZERO, "fx": ZERO, "unconverted": False} for m in _months(first, months)}
     for entry in items:
         bucket = rows[month_start(entry.on)]
         value = converter.convert(entry.amount, entry.currency, entry.on)
         if value is None:
             bucket["unconverted"] = True
             continue
-        if entry.group in (REVENUE, OTHER_INCOME) or entry.group == FX_DIFFERENCE:
+        if entry.group == FX_DIFFERENCE:
+            bucket["fx"] += value  # an exchange difference is neither revenue nor a cost (defect B3); it is in the profit
+        elif entry.group in (REVENUE, OTHER_INCOME):
             bucket["revenue"] += value
         else:
             bucket["costs"] += value
-    return [{"month": m.isoformat()[:7], "revenue": _s(v["revenue"], base), "costs": _s(v["costs"], base),
-             "profit": _s(v["revenue"] - v["costs"], base), "unconverted": v["unconverted"]} for m, v in sorted(rows.items())]
+    return [{"month": m.isoformat()[:7], "revenue": _s(v["revenue"], base), "costs": _s(v["costs"], base), "fx_differences": _s(v["fx"], base),
+             "profit": _s(v["revenue"] - v["costs"] + v["fx"], base), "unconverted": v["unconverted"]} for m, v in sorted(rows.items())]
 
 
 def budget_vs_actual(book: Book, basis: Basis, start: date, end: date, converter: Converter) -> list[dict[str, Any]]:
@@ -833,6 +851,9 @@ def report(inputs: Inputs, start: date, end: date, basis: Basis, cost_centres: d
     recurring = recurring_costs(book)
     project_names = {key: value[0] for key, value in inputs.projects.items()}
     quiet = converter.silent()
+    customers = breakdown(items, quiet, "account_id", inputs.accounts, limit=None)
+    projects = breakdown(items, quiet, "project_id", project_names, limit=None)
+    centres = breakdown(items, quiet, "cost_centre_id", cost_centres if cost_centres is not None else inputs.cost_centres, limit=None)
     return {
         "period": {"from": start.isoformat(), "to": end.isoformat(), "basis": basis.value},
         "base_currency": settings.base_currency,
@@ -842,9 +863,10 @@ def report(inputs: Inputs, start: date, end: date, basis: Basis, cost_centres: d
         "balances": balances(book, end, today),
         "equity": equity(book, start, end),
         "trend": trend(book, basis, min(end, today) if today else end, quiet),
-        "customers": breakdown(items, quiet, "account_id", inputs.accounts),
-        "projects": breakdown(items, quiet, "project_id", project_names),
-        "cost_centres": breakdown(items, quiet, "cost_centre_id", cost_centres if cost_centres is not None else inputs.cost_centres),
+        # Each list keeps its first rows; ``*_total`` says how many there are, so the page says "N more not shown", never 0 (B1).
+        "customers": customers[:BREAKDOWN_LIMIT], "customers_total": len(customers),
+        "projects": projects[:BREAKDOWN_LIMIT], "projects_total": len(projects),
+        "cost_centres": centres[:BREAKDOWN_LIMIT], "cost_centres_total": len(centres),
         "budgets": budget_vs_actual(book, basis, start, end, quiet),
         "recurring": {"items": recurring, "per_month": recurring_totals(recurring), "upcoming": upcoming_bills(inputs.templates, inputs.vendors, today or end)},
         "allocations_in_review": len(review),

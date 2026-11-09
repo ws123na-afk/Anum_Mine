@@ -106,7 +106,8 @@ test('a bill is recorded, part paid by hand and paid with a member allocation th
 test('a member reads everything but cannot adjust, set rates, void or record intercompany entries', async ({ page }) => {
   await mockBooks(page, { role: 'member' });
   await page.goto('/#business-books/journal');
-  await expect(page.getByText('Only workspace owners can change this. You can read everything.')).toBeVisible();
+  // Adjustments are for owners and accountants (docs/business-books.md#who-can-do-what).
+  await expect(page.getByText('Only an owner or an accountant of this business can do this. You can read everything.')).toBeVisible();
   await expect(page.getByRole('button', { name: 'New adjustment' })).toHaveCount(0);
   await books(page, 'Intercompany').click();
   await expect(page.getByRole('button', { name: 'New intercompany entry' })).toHaveCount(0);

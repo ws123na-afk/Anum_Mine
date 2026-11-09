@@ -9,8 +9,11 @@ import { formatAmount } from './finance.ts';
 import { t, type MessageKey } from './i18n.ts';
 import type { Tone } from './business.ts';
 
-export type BooksTab = 'overview' | 'group' | 'bills' | 'recurring' | 'vendors' | 'allocations' | 'budgets' | 'journal' | 'intercompany' | 'settings';
-export const BOOKS_TABS: readonly BooksTab[] = ['overview', 'group', 'bills', 'recurring', 'vendors', 'allocations', 'budgets', 'journal', 'intercompany', 'settings'];
+export type BooksTab = 'overview' | 'group' | 'bills' | 'recurring' | 'vendors' | 'allocations' | 'budgets' | 'journal' | 'ledger' | 'statements' | 'accounts'
+  | 'close' | 'intercompany' | 'settings';
+/** ``journal`` is the adjustments; ``ledger``, ``statements``, ``accounts`` and ``close`` are the double-entry journal (docs/business-books.md#the-journal). */
+export const BOOKS_TABS: readonly BooksTab[] = ['overview', 'group', 'bills', 'recurring', 'vendors', 'allocations', 'budgets', 'journal', 'ledger', 'statements', 'accounts',
+  'close', 'intercompany', 'settings'];
 /** Sections only owners see in the navigation (the API refuses everyone else anyway). */
 export const OWNER_TABS: readonly BooksTab[] = ['group'];
 export const BOOKS_PAGE = 25;
@@ -106,14 +109,15 @@ export function billBody(draft: BillDraft): BooksBillInput {
 }
 
 export function settingsBody(form: { base_currency: string; country: string; fiscal_year_start_month: number; basis: BooksBasis; tax_label: string;
-  rate_max_age_days: string; mappings: { category: string; section: BooksTagSection }[] }, current: BooksSettings | null): BooksSettingsInput {
+  rate_max_age_days: string; mappings: { category: string; section: BooksTagSection }[]; policy_note?: string }, current: BooksSettings | null): BooksSettingsInput {
   const category_sections: Record<string, BooksTagSection> = {};
   for (const row of form.mappings) {
     const key = normalizeCategory(row.category);
     if (key) category_sections[key] = row.section;
   }
   return { base_currency: form.base_currency, country: form.country || null, fiscal_year_start_month: form.fiscal_year_start_month, basis: form.basis,
-    tax_label: form.tax_label.trim(), category_sections, rate_max_age_days: Number(form.rate_max_age_days) || 31, version: current ? current.version : null };
+    tax_label: form.tax_label.trim(), category_sections, rate_max_age_days: Number(form.rate_max_age_days) || 31,
+    ...(form.policy_note !== undefined ? { policy_note: form.policy_note.trim() } : {}), version: current ? current.version : null };
 }
 
 export function budgetProblem(form: BooksBudgetInput): MessageKey | null {

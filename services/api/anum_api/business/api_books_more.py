@@ -34,6 +34,7 @@ from . import books_service as S
 from .api_books import MAX_SPAN_DAYS, _audit, _csv, _found, _manage, _page, _read, _stale, _today, _write, bill_view, rates_since, refusals
 from .books_models import Basis, BillTemplate, Frequency, RateFeed, Section, TemplateStatus, dump
 from .books_recurring import materialize, resume, template_from
+from . import books_ledger as L
 from .books_store import MAX_PAGE, MAX_SCAN, open_books_store
 
 router = APIRouter(prefix="/api/v1/business/books", tags=["business"])
@@ -252,6 +253,7 @@ def create_recurring(payload: TemplateInput, context: TenantContext = Depends(te
         store.add("templates", template)
         _, made = materialize(store, template.id, today=today, now=now, actor=context.user_id)
     _audit(repository, context, "recurring_created", template.id, {"frequency": template.frequency.value, "bills_made": len(made)})
+    L.post_quietly(context)
     return _template_detail(context, template.id)
 
 
@@ -278,6 +280,7 @@ def update_recurring(template_id: str, payload: TemplateUpdate, context: TenantC
             raise _stale()
         materialize(store, template_id, today=today, now=now, actor=context.user_id)
     _audit(repository, context, "recurring_updated", template_id)
+    L.post_quietly(context)
     return _template_detail(context, template_id)
 
 
@@ -306,6 +309,7 @@ def _act(context: TenantContext, repository: AnumRepository, template_id: str, v
         if action == "resume":
             materialize(store, template_id, today=today, now=now, actor=context.user_id)
     _audit(repository, context, f"recurring_{action}", template_id)
+    L.post_quietly(context)
     return _template_detail(context, template_id)
 
 
@@ -412,6 +416,7 @@ def refresh_rate_feed(context: TenantContext = Depends(tenant_context), reposito
         error = str(exc)
     added = refresh_feed(context, published, error, now=now, actor=context.user_id)
     _audit(repository, context, "rate_feed_refreshed", feed.id, {"added": added, "failed": error is not None})
+    L.post_quietly(context)
     with open_books_store(context) as store:
         fresh = store.first("rate_feeds")
     return {**_feed_view(context, fresh, settings.base_currency if settings else None), "added": added}

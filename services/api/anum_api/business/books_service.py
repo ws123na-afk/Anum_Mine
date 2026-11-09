@@ -288,6 +288,9 @@ def pay_bill(context: TenantContext, store: BooksStore, bill_id: str, *, kind: P
         payment = BillPayment(id=new_id("bpay"), tenant_id=context.tenant_id, workspace_id=context.workspace_id, created_at=now, bill_id=bill.id,
                               kind=kind, amount=value, currency=bill.currency, paid_on=day, method=method, reference=clean(reference, 120),
                               note=clean(note, 300), recorded_by=context.user_id, idem_key=stored_key)
+    from .books_ledger import require_open
+
+    require_open(store, payment.paid_on, what="This payment")
     store.add("bill_payments", payment)
     # Bump the bill so a stale edit form cannot change the money under a payment.
     store.save("bills", bill.model_copy(update={"version": bill.version + 1, "updated_at": now}), expected_version=bill.version)
@@ -331,6 +334,33 @@ def adjustment_from(context: TenantContext, store: BooksStore, payload: dict[str
         project_id=require_project(context, payload.get("project_id")), description=description, start_month=start_month, months=months,
         reverse_on=reverse_on, idem_key=idem_key, created_by=context.user_id,
     )
+
+
+SETTLES = {
+    AdjustmentKind.OWNER_REIMBURSEMENT: ("owed_to_members", "what the business owes its members", "nothing_owed"),
+    AdjustmentKind.LOAN_REPAYMENT: ("debt", "the loans outstanding", "nothing_owed"),
+    AdjustmentKind.LOAN_INTEREST_PAID: ("interest_payable", "the interest owed", "nothing_owed"),
+}
+
+
+def check_settlement(context: TenantContext, item: Adjustment) -> None:
+    """A reimbursement, a loan repayment or interest paid is at most what is owed in its currency, on its day and today (defect B4:
+    owed-to-members, debt and interest payable never go below zero). Refuses with 422 and the amount still owed."""
+    if item.kind not in SETTLES:
+        return
+    from .books_report import Book, balances
+
+    key, words, _ = SETTLES[item.kind]
+    book = Book(gather(context))
+    owed = None
+    for day in (item.entry_date, date.max):
+        figures = balances(book, day)
+        found = next((Decimal(row["amount"]) for row in figures[key] if row["currency"] == item.currency), Decimal(0))
+        owed = found if owed is None else min(owed, found)
+    remaining = max(owed or Decimal(0), Decimal(0))
+    if item.amount > remaining:
+        raise BooksError(422, f"This is more than {words} in {item.currency} ({remaining}). Record at most that amount.", "more_than_owed",
+                         remaining=str(remaining), currency=item.currency)
 
 
 # -- intercompany -----------------------------------------------------------------------------------------
@@ -437,8 +467,10 @@ def gather(context: TenantContext, rates_since: date | None = None) -> Inputs:
         truncated = truncated or total > MAX_SCAN
         notes, total = business.find("credit_notes", Query(order_by="created_at", limit=MAX_SCAN))
         truncated = truncated or total > MAX_SCAN
-        projects, _ = business.find("projects", Query(order_by="created_at", limit=MAX_SCAN))
-        accounts, _ = business.find("accounts", Query(order_by="created_at", limit=MAX_SCAN))
+        projects, total = business.find("projects", Query(order_by="created_at", limit=MAX_SCAN))
+        truncated = truncated or total > MAX_SCAN  # defect B10: names beyond the window would read as missing
+        accounts, total = business.find("accounts", Query(order_by="created_at", limit=MAX_SCAN))
+        truncated = truncated or total > MAX_SCAN
     allocations = list(allocations_by_id(context).values())
     truncated = truncated or len(allocations) >= MAX_SCAN
     return Inputs(

@@ -40,7 +40,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from anum_api.business.books_models import KINDS, TABLES, BookSettings
-from anum_api.business.books_store import After, AtLeast, AtMost, DuplicateError, plain
+from anum_api.business.books_store import After, AtLeast, AtMost, Between, DuplicateError, Not, PeriodLocked, Unbalanced, plain
 from anum_api.schemas import TenantContext
 
 from .scope import require_workspace
@@ -104,6 +104,8 @@ class SqlBooksStore:
         except IntegrityError as exc:
             if getattr(exc.orig, "sqlstate", None) == "23505" or "unique" in str(exc.orig).lower():
                 raise DuplicateError(str(exc.orig).splitlines()[0]) from None
+            if "closed period" in str(exc.orig):
+                raise PeriodLocked(str(exc.orig).splitlines()[0]) from None
             raise
 
     @contextmanager
@@ -153,6 +155,10 @@ class SqlBooksStore:
                 clauses.append(column <= wanted.value)
             elif isinstance(wanted, After):
                 clauses.append(column > wanted.value)
+            elif isinstance(wanted, Between):
+                clauses.append(column.between(wanted.low, wanted.high))
+            elif isinstance(wanted, Not):
+                clauses.append(column.is_not(None) if wanted.value is None else column != plain(wanted.value))
             elif isinstance(wanted, (set, frozenset, list, tuple)):
                 clauses.append(column.in_([plain(value) for value in wanted]))
             elif wanted is None:
@@ -195,6 +201,35 @@ class SqlBooksStore:
         values = {k: v for k, v in _values(value).items() if k not in ("id", "tenant_id", "workspace_id", "created_at")}
         result = self.session.execute(_SETTINGS.update().where(*self._scope(_SETTINGS), _SETTINGS.c.version == expected_version).values(**values))
         return bool(result.rowcount)
+
+    def lock_books(self) -> None:
+        """Serialises posting runs and closes of this business until the unit of work ends (a row lock on its settings)."""
+        self.session.execute(select(_SETTINGS.c.id).where(*self._scope(_SETTINGS)).with_for_update())
+
+    def release_books(self) -> None:
+        """The row lock ends with the transaction."""
+
+    def add_entry(self, entry: Any, lines: list[Any]) -> None:
+        # The deferred trigger checks the balance at commit; checking here first gives a plain refusal and keeps the unit usable.
+        if len(lines) < 2 or sum((line.debit - line.credit for line in lines), Decimal(0)) != 0:
+            raise Unbalanced(f"business journal entry {entry.id} does not balance")
+        require_workspace(self.session, self.context.tenant_id, self.context.workspace_id)
+        with self._write():
+            self.session.execute(_TABLES["journal_entries"].insert().values(**_values(entry)))
+            self.session.execute(_TABLES["journal_lines"].insert().values([_values(line) for line in lines]))
+
+    def ledger_totals(self, where: dict[str, Any], group_by: tuple[str, ...]) -> list[dict[str, Any]]:
+        table = _TABLES["journal_lines"]
+        keys = [table.c[name] for name in group_by]
+        statement = (select(*keys, func.coalesce(func.sum(table.c.debit), 0), func.coalesce(func.sum(table.c.credit), 0),
+                            func.coalesce(func.sum(table.c.amount), 0))
+                     .where(*self._scope(table), *self._where(table, where)).group_by(*keys))
+        out = []
+        for row in self.session.execute(statement).all():
+            values = list(row)
+            out.append({**dict(zip(group_by, values[:len(group_by)], strict=True)), "debit": Decimal(values[-3]), "credit": Decimal(values[-2]),
+                        "amount": Decimal(values[-1])})
+        return out
 
     def add_elsewhere(self, kind: str, item: Any) -> Any:
         if item.tenant_id != self.context.tenant_id:

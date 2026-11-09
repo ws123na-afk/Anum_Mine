@@ -28,6 +28,7 @@ import {
   AdjustmentDialog, BillDialog, BillDrawer, BudgetDialog, IntercompanyDialog, SettingsSection, TagDialog, VendorDialog,
 } from './BusinessBooksForms';
 import { GroupSection, RateFeedCard, Recurring, Upcoming } from './BusinessBooksMore';
+import { AccountantsCard, AccountsSection, CloseSection, LedgerSection, StatementsSection } from './BusinessBooksLedger';
 import './businessBooks.css';
 
 type SetupLoad = { kind: 'loading' } | { kind: 'ready'; setup: BooksSetup } | { kind: 'denied'; text: string } | { kind: 'error'; text: string };
@@ -70,8 +71,12 @@ export function BooksTab({ section, onSection, crumbs }: { section: string | nul
     {ready && tab === 'allocations' && <Allocations setup={setup} />}
     {ready && tab === 'budgets' && <Budgets setup={setup} />}
     {ready && tab === 'journal' && <Journal setup={setup} />}
+    {ready && tab === 'ledger' && <LedgerSection setup={setup} />}
+    {ready && tab === 'statements' && <StatementsSection setup={setup} onSection={(next) => onSection(booksTabFromId(next))} />}
+    {ready && tab === 'accounts' && <AccountsSection setup={setup} />}
+    {ready && tab === 'close' && <CloseSection setup={setup} onSection={(next) => onSection(booksTabFromId(next))} />}
     {ready && tab === 'intercompany' && <Intercompany setup={setup} />}
-    {tab === 'settings' && <SettingsSection setup={setup} onSaved={() => void reload()} extra={ready ? <RateFeedCard setup={setup} /> : null} />}
+    {tab === 'settings' && <SettingsSection setup={setup} onSaved={() => void reload()} extra={ready ? <><RateFeedCard setup={setup} /><AccountantsCard setup={setup} /></> : null} />}
     {recording && <BillDialog setup={setup} onClose={() => setRecording(false)}
       onSaved={(bill) => { setRecording(false); setRecorded(t('books.page.recorded', { vendor: bill.vendor_name })); setTick((n) => n + 1); }} />}
   </section>;
@@ -443,7 +448,7 @@ function Journal({ setup }: { setup: BooksSetup }) {
   const [adding, setAdding] = useState(false), [voiding, setVoiding] = useState<BooksAdjustment | null>(null);
   const list = usePaged((offset) => api.listAdjustments(kind, includeVoid, offset, BOOKS_PAGE), [kind, includeVoid, tick]);
   const kindId = useId();
-  const manage = setup.permissions.manage;
+  const manage = setup.permissions.account ?? setup.permissions.manage;  // owners and accountants
   const filtered = Boolean(kind || includeVoid);
   return <>
     <p className="muted bzHint">{t('books.journal.help')}</p>
@@ -454,7 +459,7 @@ function Journal({ setup }: { setup: BooksSetup }) {
       <label className="bzCheck"><input type="checkbox" checked={includeVoid} onChange={(event) => setIncludeVoid(event.target.checked)} />{t('books.showVoid')}</label>
       <div className="bzToolbarEnd">{manage && <button type="button" onClick={() => setAdding(true)}><Plus aria-hidden="true" />{t('books.journal.new')}</button>}</div>
     </div>
-    {!manage && <Note>{t('books.ownersOnly')}</Note>}
+    {!manage && <Note>{t('ledger.accountantsOnly')}</Note>}
     <ListState load={list.load} empty={list.items.length === 0} filtered={filtered} onRetry={() => void list.first()} onClear={() => { setKind(''); setIncludeVoid(false); }} />
     {list.load.kind === 'ready' && list.items.length === 0 && !filtered && <Empty title={t('books.journal.emptyTitle')} text={t('books.journal.emptyText')}
       action={manage ? <button type="button" onClick={() => setAdding(true)}><Plus aria-hidden="true" />{t('books.journal.new')}</button> : undefined} />}

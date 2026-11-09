@@ -32,6 +32,7 @@ PAGE = 200  # due recurring bills read per page
 logger = logging.getLogger("anum_api.business.books_jobs")
 
 _DISCOVER_FEEDS = text("select tenant_id, workspace_id from business_book_rate_feeds where enabled order by 1, 2")
+_DISCOVER_BOOKS = text("select tenant_id, workspace_id from business_book_settings order by 1, 2")
 _DISCOVER_TEMPLATES = text(
     "select distinct tenant_id, workspace_id from business_book_bill_templates "
     "where status = 'active' and next_date is not null and next_date <= :today order by 1, 2"
@@ -47,6 +48,11 @@ class BooksJobResult:
     businesses: int = 0
     bills_made: int = 0
     failed: int = 0
+    # The posting run (docs/business-books.md#the-journal): every business with books, after its rates and recurring bills.
+    ledgers: int = 0
+    entries_posted: int = 0
+    entries_reversed: int = 0
+    not_posted: int = 0
 
 
 def _context(tenant_id: str, workspace_id: str) -> TenantContext:
@@ -74,6 +80,36 @@ def discover_templates(today: date) -> list[tuple[str, str]]:
     from ..maintenance import default_session_factory, discover
 
     return [(row[0], row[1]) for row in discover(default_session_factory, _DISCOVER_TEMPLATES, {"today": today})]
+
+
+def discover_books() -> list[tuple[str, str]]:
+    """Every business with book settings (``anum_maintenance`` reads only their scope columns, migration 0148)."""
+    if settings.repository_backend == "memory":
+        return sorted(books_memory_store.settings)
+    from ..maintenance import default_session_factory, discover
+
+    return [(row[0], row[1]) for row in discover(default_session_factory, _DISCOVER_BOOKS)]
+
+
+def run_ledgers(result: BooksJobResult, *, now: datetime, dry_run: bool) -> None:
+    """Post every business's source documents to its journal: the daily run and the backfill of businesses that had books before
+    the journal existed. Re-runnable: an event is posted once; what cannot be posted is counted (``not_posted``) with its reason
+    kept in the business's posting issues."""
+    from .books_ledger import post
+
+    for tenant_id, workspace_id in discover_books():
+        context = _context(tenant_id, workspace_id)
+        try:
+            if _archived(context):
+                continue
+            outcome = post(context, actor=SYSTEM_ACTOR, now=now, dry_run=dry_run)
+            result.ledgers += 1
+            result.entries_posted += outcome.posted
+            result.entries_reversed += outcome.reversed
+            result.not_posted += outcome.issues
+        except Exception as exc:  # noqa: BLE001 - one business's failure never stops the run
+            logger.warning("books_ledger_business_failed error_class=%s", type(exc).__name__)
+            result.failed += 1
 
 
 def refresh_feed(context: TenantContext, published: auto.Published | None, error: str | None, *, now: datetime, actor: str) -> int:
@@ -146,7 +182,8 @@ def run(*, dry_run: bool = False, now: datetime | None = None) -> dict[str, Any]
     result = BooksJobResult(dry_run=dry_run)
     run_rates(result, now=moment, dry_run=dry_run)
     run_templates(result, now=moment, dry_run=dry_run)
+    run_ledgers(result, now=moment, dry_run=dry_run)
     return asdict(result)
 
 
-__all__ = ["BooksJobResult", "discover_feeds", "discover_templates", "refresh_feed", "run"]
+__all__ = ["BooksJobResult", "discover_books", "discover_feeds", "run_ledgers", "discover_templates", "refresh_feed", "run"]
