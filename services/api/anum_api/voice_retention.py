@@ -27,7 +27,8 @@ reported under ``record_retention``, and then sends document expiry reminders an
 vault's trash (``anum_api.vault.jobs``), reported under ``documents``, so the daily retention CronJob
 covers every one of them. Last, it writes the weekly Money advisor notes that are due
 (``anum_api.finance.advisor_jobs``), reported under ``finance_advisor``, and the due and overdue reminders for
-money lent and borrowed with people (``anum_api.finance.personal_jobs``), reported under ``finance_loan_reminders``.
+money lent and borrowed with people (``anum_api.finance.personal_jobs``), reported under ``finance_loan_reminders``, and the
+owner's Finance automation policies (``anum_api.finance.suggestion_jobs``), reported under ``finance_suggestions``.
 """
 
 from __future__ import annotations
@@ -127,6 +128,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     from .finance.personal_jobs import run as run_loan_reminders
 
     report["finance_loan_reminders"] = run_loan_reminders(dry_run=args.dry_run)
+    # Finance automation policies the owner turned on: auto-classify and the unresolved-suggestions notice (docs/finance.md#automation-policies).
+    from .finance.suggestion_jobs import run as run_suggestions
+
+    report["finance_suggestions"] = run_suggestions(dry_run=args.dry_run)
     print(json.dumps(report, indent=2))
     return 0
 

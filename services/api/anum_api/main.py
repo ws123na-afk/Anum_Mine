@@ -183,6 +183,7 @@ from .finance.statement_import import router as finance_statement_router
 from .finance.advisor_api import router as finance_advisor_router
 from .finance.personal_api import router as finance_personal_router
 from .finance.salary_api import router as finance_salary_router
+from .finance.rules_api import router as finance_rules_router
 from .finance.statement_pdf import MAX_PDF_BYTES as PDF_STATEMENT_MAX_BYTES
 from .finance.ibkr_api import router as finance_ibkr_router
 from .finance.research_api import router as finance_research_router
@@ -580,6 +581,7 @@ app.include_router(push_router)
 app.include_router(commerce_router)
 # Before the finance router: GET /accounts/overview must not be read as an account id.
 app.include_router(finance_register_router)
+app.include_router(finance_rules_router)
 app.include_router(finance_router)
 app.include_router(finance_plan_router)
 app.include_router(finance_trading_router)

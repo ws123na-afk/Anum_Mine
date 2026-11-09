@@ -355,8 +355,11 @@ def register_detail(transaction_id: str, context: TenantContext = Depends(tenant
     """One transaction for the details drawer: its sources (with the masked SMS while it is kept), receipts,
     the rule-based category suggestion and the record it may duplicate."""
     _read(context)
+    from .rules_store import owner_rules
+
     with open_link_stores(context) as (finance, _sms, _links):
         txn = finance.get_transaction(context, transaction_id)
+        rules = owner_rules(finance, context)
     if txn is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Transaction not found. It may have been deleted.")
     facts = _Facts(context, start=txn.posted_on, end=txn.posted_on)
@@ -371,7 +374,8 @@ def register_detail(transaction_id: str, context: TenantContext = Depends(tenant
     match_id = duplicates.get(txn.id) or twins.get(txn.id)
     match = next((t for t in facts.window if t.id == match_id), None) if match_id else None
     account = facts.accounts.get(txn.account_id)
-    suggestion = classify_text(txn.description, txn.amount, facts.settings.category_rules, account.kind if account is not None else None)
+    suggestion = classify_text(txn.description, txn.amount, rules, account.kind if account is not None else None, account_id=txn.account_id,
+                               currency=txn.currency, reference=entry.reference if entry else None)
     canonical = row.canonical_id or ""
     receipts = [link.target_id for link in facts.links.get(canonical, [])
                 if link.status != "void" and link.dimension == "document" and link.role == "evidence"]

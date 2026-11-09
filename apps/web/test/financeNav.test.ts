@@ -15,7 +15,7 @@ describe('finance section nav', () => {
   });
   it('keeps the mockup order of the Finance group: the personal money sections live inside their pages', () => {
     const finance = FINANCE_NAV[0].entries.map((e) => (e.kind === 'tab' ? e.tab : e.id));
-    const order = ['overview', 'transactions', 'accounts', 'bills', 'budgets', 'debts', 'goals', 'reports', 'safe', 'advisor', 'guardian'].filter((id) => finance.includes(id as never));
+    const order = ['overview', 'transactions', 'suggestions', 'accounts', 'bills', 'budgets', 'debts', 'goals', 'reports', 'safe', 'advisor', 'guardian'].filter((id) => finance.includes(id as never));
     assert.deepEqual(finance, order);
   });
   it('has one entry for Connections and SMS capture, current on both of its tabs', () => {
