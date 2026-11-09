@@ -1009,62 +1009,6 @@ def reverse_for_transactions(finance: FinanceStore, store: SmsStore, context: Te
     return done
 
 
-@dataclass
-class StatementOutcome:
-    attached: int = 0
-    review: int = 0
-
-
-def reconcile_rows(finance: FinanceStore, store: SmsStore, context: TenantContext, account: Account, rows: list[Transaction],
-                   import_id: str, *, now: datetime, references: dict[str, str] | None = None,
-                   times: dict[str, datetime] | None = None) -> tuple[list[Transaction], StatementOutcome]:
-    """Statement rows that report a payment already recorded from an SMS, Apple Pay or by hand are attached
-    to that transaction instead of creating another; a row that could be more than one waits for review.
-    Returns the rows to import as new transactions. The caller holds the owner's lock. ``references`` (by
-    ``dedupe_hash``) carries a PDF statement row's bank reference: an agreeing reference confirms a match and a
-    conflicting one rules it out, as for SMS. ``times`` (by ``dedupe_hash``) carries the time a PDF row prints:
-    when the day alone leaves more than one candidate, the one within the precise window is picked."""
-    outcome = StatementOutcome()
-    fresh: list[Transaction] = []
-    for row in rows:
-        fp = plain_fingerprint(row.amount, row.currency, account.id)
-        day = datetime.combine(row.posted_on, datetime.min.time()).replace(hour=12, tzinfo=now.tzinfo)
-        reference = (references or {}).get(row.dedupe_hash) or None
-        report = W.Report(source="statement", when=day, precise=False, merchant=row.description, reference=reference)
-        found = [c for c in candidates(store, context, fp)]
-        decision, picked = W.choose(report, found)
-        at = (times or {}).get(row.dedupe_hash)
-        if decision == "ambiguous" and at is not None:
-            # The printed time narrows it down; it never turns a day match into a new transaction.
-            precise = W.Report(source="statement", when=at, precise=True, merchant=row.description, reference=reference)
-            narrowed, chosen = W.choose(precise, found)
-            if narrowed == "attach" and chosen is not None:
-                decision, picked = narrowed, chosen
-        if decision == "new" or (decision == "attach" and picked is None):
-            fresh.append(row)
-            continue
-        key = hashlib.sha256(f"statement\x1f{import_id}\x1f{row.dedupe_hash}".encode()).hexdigest()
-        parsed: dict[str, object] = {"kind": (P.Kind.DEPOSIT if row.amount > 0 else P.Kind.CARD_PURCHASE).value, "amount": str(abs(row.amount)),
-                                     "currency": row.currency, "occurred_on": row.posted_on.isoformat(), "merchant": row.description[:60],
-                                     "account_id": account.id, "import_id": import_id, "dedupe_hash": row.dedupe_hash}
-        if reference:
-            parsed["reference"] = reference[:60]
-        message = SmsMessage(
-            id=new_id("fin_sms"), tenant_id=context.tenant_id, workspace_id=context.workspace_id, owner_user_id=context.user_id,
-            device_id=None, source="statement", idem_key=key, received_at=now, sender="statement", body_masked="", status=MessageStatus.REVIEW,
-            parsed=parsed, rule="statement", fingerprint=fp, created_at=now, updated_at=now,
-        )
-        if decision == "attach" and picked is not None:
-            message.status, message.reason, message.entry_id = MessageStatus.ATTACHED, "attached_to_existing", picked.entry_id
-            store.mark_entry(context, picked.entry_id, reconciled_at=now, reconciled_ref=f"{import_id}:{row.dedupe_hash[:16]}")
-            outcome.attached += 1
-        else:
-            message.reason = "ambiguous_match"
-            outcome.review += 1
-        store.add_message(message)
-    return fresh, outcome
-
-
 __all__ = [
     "INGEST_PATH",
     "IngestError",

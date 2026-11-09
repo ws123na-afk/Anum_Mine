@@ -100,6 +100,7 @@ class FinanceImportRecord(Base, _Owned):
     error_count: Mapped[int] = mapped_column(Integer)
     file_sha256: Mapped[str] = mapped_column(String(64))
     created_at: Mapped[datetime] = mapped_column(TS)
+    reconciliation: Mapped[dict[str, Any] | None] = mapped_column(JSONB, nullable=True)
 
 
 class FinanceTransactionRecord(Base, _Owned):

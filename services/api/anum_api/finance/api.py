@@ -29,6 +29,7 @@ from ..dependencies import repository_context, require_permission, tenant_contex
 from ..repository import AnumRepository
 from ..schemas import TenantContext, new_id, utc_now
 from . import csv_import
+from . import statement_import as SI
 from .categories import categorize, suspected_direction
 from .csv_import import ColumnMapping, ImportError_, safe_cell
 from .models import (
@@ -657,6 +658,18 @@ def delete_transaction(
 # -- imports ---------------------------------------------------------------------------------
 
 
+class RowDecision(BaseModel):
+    """The person's choice for one previewed row (by its line); anything not listed follows the preview's default."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    line: int = Field(ge=1, le=1_000_000)
+    action: Literal["import", "skip"] | None = None  # import a duplicate or a possible duplicate anyway, or leave a row out
+    bill: bool | None = None  # False: do not record the row as the bill's payment
+    transfer: bool | None = None  # True: pair a weak transfer; False: do not pair
+    correct: bool | None = None  # False: keep the recorded amount when the bank billed another
+
+
 class ImportInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -666,6 +679,9 @@ class ImportInput(BaseModel):
     preset: str | None = Field(default=None, max_length=40)
     date_format: str | None = Field(default=None, max_length=20)
     mapping: ColumnMapping | None = None
+    decisions: list[RowDecision] = Field(default_factory=list, max_length=csv_import.MAX_ROWS)
+    opening_balance: Decimal | None = Field(default=None, description="The statement's opening balance, when it prints one")
+    closing_balance: Decimal | None = Field(default=None, description="The statement's closing balance, when it prints one")
 
     @field_validator("preset")
     @classmethod
@@ -690,6 +706,10 @@ class PreviewRow(BaseModel):
     original_amount: Decimal | None = None
     original_currency: str | None = None
     reported_fee: Decimal | None = None
+    balance: Decimal | None = None
+    reference: str | None = None
+    match: SI.RowMatchView
+    fx: SI.FxView | None = None
 
 
 class PreviewError(BaseModel):
@@ -714,6 +734,8 @@ class ImportPreview(BaseModel):
     error_count: int
     rows: list[PreviewRow]
     errors: list[PreviewError]
+    counts: SI.MatchCounts
+    reconciliation: SI.ReconciliationView
 
 
 class ImportView(BaseModel):
@@ -731,6 +753,12 @@ class ImportView(BaseModel):
     created_at: Any
     # Stage 4: imported rows that break one of your Guardian rules (see Guardian, alerts).
     rule_breaks: int = 0
+    corrected: int = 0  # records corrected to the bank-billed amount
+    skipped: int = 0  # rows the person left out
+    bills_paid: int = 0
+    bills_review: int = 0  # possible bill payments waiting for the person under Bills
+    transfers: int = 0  # own transfers paired
+    reconciliation: dict[str, str | None] | None = None
 
 
 class ImportPage(BaseModel):
@@ -753,31 +781,64 @@ def _parse(store: FinanceStore, context: TenantContext, body: ImportInput) -> tu
     return account, parsed, existing
 
 
+def csv_reconciliation(parsed: csv_import.ParsedFile, currency: str, opening: Decimal | None, closing: Decimal | None) -> SI.ReconciliationView:
+    try:
+        opening = quantize(opening, currency) if opening is not None else None
+        closing = quantize(closing, currency) if closing is not None else None
+    except MoneyError as exc:
+        raise _invalid(str(exc)) from None
+    items = SI.chronological([(row.line, row.posted_on, row.amount, row.balance) for row in parsed.rows])
+    return SI.reconcile(items, opening, closing, currency)
+
+
+def statement_lines(parsed: csv_import.ParsedFile, references: dict[str, str] | None = None, times: dict[str, Any] | None = None) -> list[Any]:
+    from .statement_match import Line
+
+    return [Line(key=row.line, posted_on=row.posted_on, amount=row.amount, description=row.description, dedupe_hash=row.dedupe_hash,
+                 reference=(references or {}).get(row.dedupe_hash) or row.reference, original_amount=row.original_amount,
+                 original_currency=row.original_currency, at=(times or {}).get(row.dedupe_hash)) for row in parsed.rows]
+
+
+def preview_matches(context: TenantContext, account: Account, lines: list[Any]) -> list[Any]:
+    """The engine's answer for a preview, read in one short unit of work (nothing is written)."""
+    from . import statement_ledger as SL
+    from .links_store import open_link_stores
+
+    with open_link_stores(context) as (finance, sms, links):
+        ledger = SL.gather(finance, sms, links, context, account, [line.posted_on for line in lines])
+    return SL.run(ledger, lines)
+
+
 @router.post("/imports/preview", response_model=ImportPreview)
 def preview_import(body: ImportInput, context: TenantContext = Depends(tenant_context)) -> ImportPreview:
-    """Read a statement and show what an import would do. Nothing is saved."""
+    """Read a statement and show what an import would do, row by row. Nothing is saved."""
     _manage(context)
     with open_finance_store(context) as store:
-        account, parsed, existing = _parse(store, context, body)
+        account, parsed, _existing = _parse(store, context, body)
         rules = settings_for(store, context).category_rules
-    duplicates = sum(1 for row in parsed.rows if row.dedupe_hash in existing)
+    matches = preview_matches(context, account, statement_lines(parsed))
+    by_line = {m.line.key: m for m in matches}
+    tally = SI.counts(matches)
     return ImportPreview(
         account_id=account.id, currency=account.currency, filename=_clean(body.filename, 200) or "statement.csv",
         preset=parsed.preset, headers=parsed.headers, mapping=parsed.mapping, date_format=parsed.date_format,
         date_formats=parsed.date_formats, date_format_ambiguous=parsed.date_format_ambiguous, row_count=parsed.row_count,
-        valid_count=len(parsed.rows), new_count=len(parsed.rows) - duplicates, duplicate_count=duplicates,
+        valid_count=len(parsed.rows), new_count=tally.new, duplicate_count=tally.exact_duplicate,
         error_count=len(parsed.errors),
         rows=[
             PreviewRow(
                 line=row.line, posted_on=row.posted_on, amount=row.amount, currency=account.currency, description=row.description,
-                category=categorize(row.description, row.amount, rules)[0], duplicate=row.dedupe_hash in existing,
+                category=categorize(row.description, row.amount, rules)[0], duplicate=by_line[row.line].status == "exact_duplicate",
                 direction_warning=suspected_direction(row.description, row.amount),
                 notes=row.notes, original_amount=row.original_amount, original_currency=row.original_currency,
-                reported_fee=row.fee,
+                reported_fee=row.fee, balance=row.balance, reference=row.reference, match=SI.match_view(by_line[row.line]),
+                fx=SI.fx_view(row.description, row.amount, account.currency, original_amount=row.original_amount,
+                              original_currency=row.original_currency, rate=row.fx_rate, fee=row.fee, fee_currency=row.fee_currency),
             )
-            for row in parsed.rows[: csv_import.PREVIEW_ROWS]
+            for row in parsed.rows
         ],
         errors=[PreviewError(line=e.line, message=e.message) for e in parsed.errors[: csv_import.MAX_ERRORS_SHOWN]],
+        counts=tally, reconciliation=csv_reconciliation(parsed, account.currency, body.opening_balance, body.closing_balance),
     )
 
 
@@ -787,16 +848,37 @@ def confirm_import(
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
 ) -> ImportView:
-    """Import the statement previewed with the same choices; duplicates are skipped."""
+    """Import the statement previewed with the same choices; the matching engine runs again on the live ledger."""
     _manage(context)
+    checks: dict[str, Any] = {}
 
     def build(store: FinanceStore, account: Account) -> csv_import.ParsedFile:
-        return _parse(store, context, body)[1]
+        parsed = _parse(store, context, body)[1]
+        checks["reconciliation"] = SI.stored(csv_reconciliation(parsed, account.currency, body.opening_balance, body.closing_balance))
+        return parsed
 
-    record, rows_added, breaks, reconciled = record_import(context, body.account_id, _clean(body.filename, 200) or "statement.csv", build)
-    _audit(repository, context, "finance.import.create", record.id, {"imported": rows_added, "duplicates": record.duplicate_count, "rule_breaks": breaks,
-                                                                     "reconciled": reconciled.attached, "review": reconciled.review})
-    return ImportView(**_view(record), rule_breaks=breaks, reconciled=reconciled.attached, held_for_review=reconciled.review)
+    record, rows_added, breaks, outcome = record_import(context, body.account_id, _clean(body.filename, 200) or "statement.csv", build,
+                                                        decisions={d.line: d for d in body.decisions}, checks=checks)
+    _audit(repository, context, "finance.import.create", record.id, outcome.audit(rows_added, record.duplicate_count, breaks))
+    return outcome.view(record, breaks)
+
+
+class ImportOutcome:
+    """What one import did, beyond the rows it added."""
+
+    def __init__(self) -> None:
+        self.attached = self.review = self.corrected = self.skipped = 0
+        self.bills_paid = self.bills_review = self.transfers = 0
+        self.failed: list[str] = []
+
+    def audit(self, imported: int, duplicates: int, breaks: int) -> dict[str, Any]:
+        return {"imported": imported, "duplicates": duplicates, "rule_breaks": breaks, "reconciled": self.attached, "review": self.review,
+                "corrected": self.corrected, "skipped": self.skipped, "bills_paid": self.bills_paid, "bills_review": self.bills_review,
+                "transfers": self.transfers, "link_failures": sorted(set(self.failed))}
+
+    def view(self, record: ImportRecord, breaks: int) -> ImportView:
+        return ImportView(**_view(record), rule_breaks=breaks, reconciled=self.attached, held_for_review=self.review, corrected=self.corrected,
+                          skipped=self.skipped, bills_paid=self.bills_paid, bills_review=self.bills_review, transfers=self.transfers)
 
 
 def record_import(
@@ -807,55 +889,131 @@ def record_import(
     *,
     references: dict[str, str] | None = None,
     times: dict[str, Any] | None = None,
-) -> tuple[ImportRecord, int, int, Any]:
-    """The one import path for every statement format (CSV and PDF): under the owner's lock, skip rows
-    already in the ledger, attach rows that report a payment already recorded (SMS, Apple Pay, by hand),
-    hold ambiguous ones for review, journal the rest as ``statement`` entries and keep the import so it
-    can be undone. ``build(store, account)`` returns the parsed rows."""
+    decisions: dict[int, Any] | None = None,
+    checks: dict[str, Any] | None = None,
+) -> tuple[ImportRecord, int, int, ImportOutcome]:
+    """The one import path for every statement format (CSV and PDF), under the owner's lock: the matching engine
+    (docs/finance.md#statement-matching) runs again on the live ledger, then each row follows its status and the
+    person's choice (``decisions`` by line): already recorded rows are skipped, rows that confirm an SMS, Apple Pay or
+    hand-entered record are attached to it (and its amount corrected to the bank-billed one), possible duplicates wait
+    in Review unless ticked, the rest are journalled as ``statement`` entries. Own transfers are categorized
+    ``transfer`` on both sides. After the unit of work, bill payments and transfer pairs are recorded as finance links.
+    ``build(store, account)`` returns the parsed rows (and may put the balance check in ``checks``)."""
+    from . import statement_ledger as SL
+    from .commitments import bill_target_id
     from .ledger import EntrySource
-    from .sms_service import owner_lock, reconcile_rows, record_plain
-    from .sms_store import open_sms_stores
+    from .links_store import open_link_stores
+    from .sms_service import owner_lock, record_plain
 
-    with owner_lock(context), open_sms_stores(context) as (store, sms):
+    decisions = decisions or {}
+    outcome = ImportOutcome()
+    jobs: list[SL.LinkJob] = []
+    with owner_lock(context), open_link_stores(context) as (store, sms, links):
         sms.lock_owner(context)
         account = _own_account(store, context, account_id)
         parsed: csv_import.ParsedFile = build(store, account)
-        existing = store.existing_hashes(context, account.id, [row.dedupe_hash for row in parsed.rows])
-        fresh = [row for row in parsed.rows if row.dedupe_hash not in existing]
         if not parsed.rows:
             raise _invalid("No row of this file could be read. Check the column mapping and the date format.")
+        lines = statement_lines(parsed, references, times)
+        ledger = SL.gather(store, sms, links, context, account, [line.posted_on for line in lines])
+        matches = SL.run(ledger, lines)
         rules = settings_for(store, context).category_rules
         now = utc_now()
         record = ImportRecord(
             id=new_id("fin_imp"), tenant_id=context.tenant_id, workspace_id=context.workspace_id, owner_user_id=context.user_id,
             account_id=account.id, filename=filename, preset=parsed.preset,
             date_format=parsed.date_format, row_count=parsed.row_count, imported_count=0,
-            duplicate_count=len(parsed.rows) - len(fresh), error_count=len(parsed.errors), file_sha256=parsed.file_sha256,
-            created_at=now,
+            duplicate_count=0, error_count=len(parsed.errors), file_sha256=parsed.file_sha256,
+            created_at=now, reconciliation=(checks or {}).get("reconciliation"),
         )
         store.save_import(record)
-        rows = []
-        for row in fresh:
+        by_line = {row.line: row for row in parsed.rows}
+        fresh: list[Transaction] = []
+        follow: list[tuple[Transaction | None, str | None, Any]] = []  # (new row, canonical of an attached record, match)
+        for match in matches:
+            row = by_line[match.line.key]
+            choice = decisions.get(row.line)
+            action = getattr(choice, "action", None)
+            reference = (references or {}).get(row.dedupe_hash) or row.reference
             category, source = categorize(row.description, row.amount, rules)
-            rows.append(
-                Transaction(
-                    id=new_id("fin_txn"), tenant_id=context.tenant_id, workspace_id=context.workspace_id,
-                    owner_user_id=context.user_id, account_id=account.id, posted_on=row.posted_on, amount=row.amount,
-                    currency=account.currency, description=row.description, category=category, category_source=source,
-                    notes=row.notes, import_id=record.id, dedupe_hash=row.dedupe_hash, created_at=now, updated_at=now,
-                )
+            item = Transaction(
+                id=new_id("fin_txn"), tenant_id=context.tenant_id, workspace_id=context.workspace_id,
+                owner_user_id=context.user_id, account_id=account.id, posted_on=row.posted_on, amount=row.amount,
+                currency=account.currency, description=row.description, category=category, category_source=source,
+                notes=row.notes, import_id=record.id, dedupe_hash=row.dedupe_hash, created_at=now, updated_at=now,
             )
-        # A row that reports a payment an SMS, Apple Pay or the person already recorded is attached to that
-        # transaction instead of creating another; a row that could be more than one waits for review.
-        rows, reconciled = reconcile_rows(store, sms, context, account, rows, record.id, now=now, references=references, times=times)
-        added = store.add_transactions(rows)
-        for row in rows:
-            record_plain(sms, context, row, account, EntrySource.STATEMENT, now=now)
+            if action == "skip":
+                outcome.skipped += 1
+                continue
+            if match.status == "exact_duplicate" and not (action == "import" and match.code == "same_statement_row"):
+                record.duplicate_count += 1
+                continue
+            if match.status == "possible_duplicate" and action != "import":
+                SL.hold(sms, context, account, item, record.id, now=now, reference=reference)
+                outcome.review += 1
+                continue
+            if match.status == "matched_existing" and action != "import" and match.record is not None:
+                matched = match.record
+                entry_id = matched.entry_id
+                if match.amount_difference is not None and getattr(choice, "correct", None) is not False:
+                    original = None
+                    if match.line.original_amount and match.line.original_currency:
+                        original = (match.line.original_amount, match.line.original_currency)
+                    corrected = SL.correct_amount(store, sms, context, account, matched, row.amount, now=now, original=original)
+                    if corrected is not None or matched.entry_id is None:
+                        outcome.corrected += 1
+                        entry_id = corrected or entry_id
+                if entry_id is not None:
+                    SL.attach(sms, context, account, item, entry_id, record.id, now=now, reference=reference)
+                outcome.attached += 1
+                record.duplicate_count += 1
+                follow.append((None, matched.canonical_id, match))
+                continue
+            if _wants_transfer(match, choice):
+                item.category, item.category_source = Category.TRANSFER, CategorySource.MANUAL
+            fresh.append(item)
+            follow.append((item, None, match))
+        added = store.add_transactions(fresh)
+        canonical: dict[str, str] = {}
+        for item in fresh:
+            entry = record_plain(sms, context, item, account, EntrySource.STATEMENT, now=now)
+            if entry is not None:
+                canonical[item.id] = entry.canonical_id or entry.id
+        for item, attached_canonical, match in follow:
+            choice = decisions.get(match.line.key)
+            mine = canonical.get(item.id) if item is not None else attached_canonical
+            if mine is None:
+                continue
+            if _wants_transfer(match, choice):
+                other = match.transfer.other
+                if item is None and match.record is not None:
+                    SL.recategorize_transfer(store, sms, context, match.record, now=now)
+                SL.recategorize_transfer(store, sms, context, other, now=now)
+                theirs = other.canonical_id
+                if other.transaction_id and theirs is None:
+                    theirs = SL.canonical_for(sms, context, other.transaction_id)
+                if theirs is not None:
+                    out_id, in_id = (mine, theirs) if match.line.amount < 0 else (theirs, mine)
+                    out_amount = abs(match.line.amount) if match.line.amount < 0 else abs(other.amount)
+                    out_currency = account.currency if match.line.amount < 0 else other.currency
+                    jobs.append(SL.LinkJob("transfer", out_id, in_id, out_amount, out_currency))
+            if match.bill is not None and getattr(choice, "bill", None) is not False:
+                jobs.append(SL.LinkJob("bill", mine, bill_target_id(match.bill.bill.bill_id, match.bill.bill.due_on), abs(match.line.amount),
+                                       account.currency, review=match.bill.strength != "strong"))
         record.imported_count = added
-        record.duplicate_count += reconciled.attached
         store.save_import(record)
-        breaks = _import_rule_breaks(store, context, rows)
-    return record, added, breaks, reconciled
+        breaks = _import_rule_breaks(store, context, fresh)
+    made = SL.make_links(context, jobs)
+    outcome.bills_paid, outcome.bills_review, outcome.transfers, outcome.failed = made.bills_paid, made.bills_review, made.transfers, made.failed
+    return record, added, breaks, outcome
+
+
+def _wants_transfer(match: Any, choice: Any) -> bool:
+    """A strong transfer pair unless the person unticked it; a weak one only when they ticked it."""
+    if match.transfer is None:
+        return False
+    wanted = getattr(choice, "transfer", None)
+    return wanted is not False if match.transfer.strength == "strong" else wanted is True
 
 
 def _import_rule_breaks(store: FinanceStore, context: TenantContext, rows: list[Transaction]) -> int:
