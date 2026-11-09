@@ -118,6 +118,35 @@ test('transactions and ledger: period, search, server filters and paging; the dr
   await expect(tab(page, 'Transactions')).toHaveAttribute('aria-current', 'page');
 });
 
+test('transactions: an uncategorized row is counted in neither figure, says why, filters by type and is filed by the owner', async ({ page }) => {
+  const { state, sent } = await mockApi(page);
+  // A statement row no rule recognised (docs/finance.md#transaction-types): row 2 came from a statement.
+  Object.assign(state.transactions[2], { description: 'SAMPLE TRANSFER 002', category: 'other', category_source: 'none', transaction_type: 'uncategorized',
+    type_source: 'rule', type_confidence: '0', type_reason: 'no_rule_matched' });
+  await page.goto('/#finance-transactions');
+  await page.getByRole('combobox', { name: 'Period', exact: true }).selectOption({ label: 'All dates' });
+  const table = page.locator('.fregTable');
+  await expect(table.locator('tbody tr').first()).toBeVisible();
+  await expect(page.getByText('1 uncategorized, not counted in income or spending.', { exact: false })).toBeVisible();
+  await expect(table.getByText('Spending').first()).toBeVisible();
+  await page.getByRole('button', { name: 'Show them' }).click();
+  await expect(page.getByText('1 to 1 of 1')).toBeVisible();
+  expect(sent.some((r) => r.path === '/api/v1/finance/register')).toBe(true);
+  await page.getByRole('button', { name: 'Clear filters' }).click();
+  await page.getByLabel('Type', { exact: true }).selectOption('uncategorized');
+  await page.getByRole('button', { name: 'Search', exact: true }).click();
+  await expect(page.getByText('1 to 1 of 1')).toBeVisible();
+  await table.locator('tbody tr').first().click();
+  const drawer = page.locator('.fregDrawer');
+  await expect(drawer.getByText('Not counted yet')).toBeVisible();
+  await drawer.getByLabel('What is this?').selectOption('income');
+  await drawer.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(drawer.getByText('Saved as Income.')).toBeVisible();
+  const patch = sent.find((r) => r.method === 'PATCH');
+  expect((patch?.body as { transaction_type?: string } | undefined)?.transaction_type).toBe('income');
+  await expect(drawer.getByText('Not counted yet')).toHaveCount(0);
+});
+
 test('a receipt is attached from the drawer to the vault and linked to the payment; SMS review and Imports open the existing flows', async ({ page }) => {
   const { state } = await mockApi(page);
   const vault: string[] = [];

@@ -318,6 +318,8 @@ export const financeAr: Record<keyof typeof financeEn, Message> = {
   'finance.category.education': 'التعليم',
   'finance.category.entertainment': 'الترفيه',
   'finance.category.subscriptions': 'الاشتراكات',
+  'finance.category.interest': 'الفوائد',
+  'finance.summary.uncategorized': '{count} غير مصنفة، غير محسوبة في الدخل ولا الإنفاق.',
   'finance.category.travel': 'السفر',
   'finance.category.insurance': 'التأمين',
   'finance.category.fees': 'الرسوم',

@@ -317,6 +317,8 @@ export const financeEn = {
   'finance.category.education': 'Education',
   'finance.category.entertainment': 'Entertainment',
   'finance.category.subscriptions': 'Subscriptions',
+  'finance.category.interest': 'Interest',
+  'finance.summary.uncategorized': '{count} uncategorized, not counted in income or spending.',
   'finance.category.travel': 'Travel',
   'finance.category.insurance': 'Insurance',
   'finance.category.fees': 'Fees',
