@@ -42,6 +42,14 @@ class FinancePersonalController extends ChangeNotifier {
   PayoffPage? payoff;
   String? payoffError;
 
+  // -- salary ----------------------------------------------------------------
+  MoneyLoad salaryState = MoneyLoad.idle;
+  SalaryView? salary;
+  String? salaryError;
+
+  /// The month being confirmed or rejected, so its buttons wait.
+  String? decidingSalary;
+
   // -- the planner -----------------------------------------------------------
   MoneyLoad plannerState = MoneyLoad.idle;
   String question = '';
@@ -155,6 +163,41 @@ class FinancePersonalController extends ChangeNotifier {
     _notify();
   }
 
+  Future<void> loadSalary() async {
+    salaryState = MoneyLoad.loading;
+    salaryError = null;
+    _notify();
+    try {
+      salary = await repository.salary();
+      salaryState = MoneyLoad.ready;
+    } catch (error) {
+      salaryState = failedState(error);
+      salaryError = reason(error);
+    }
+    _notify();
+  }
+
+  /// Confirms or rejects the salary found for [month], then reloads.
+  /// Returns null on success, else the server's refusal.
+  Future<String?> decideSalary(SalaryMonth month,
+      {required bool confirm}) async {
+    final found = month.found;
+    if (found == null || decidingSalary != null) return null;
+    decidingSalary = month.month;
+    _notify();
+    try {
+      await repository.decideSalary(month.month,
+          transactionId: found.transactionId, confirm: confirm);
+      decidingSalary = null;
+      await loadSalary();
+      return null;
+    } catch (error) {
+      decidingSalary = null;
+      _notify();
+      return reason(error);
+    }
+  }
+
   bool get asking => plannerState == MoneyLoad.loading;
 
   /// Asks the planner [text]; the answer or what failed replaces the last.
@@ -195,6 +238,10 @@ class FinancePersonalController extends ChangeNotifier {
     direction = null;
     commitments = null;
     payoff = null;
+    salary = null;
+    decidingSalary = null;
+    salaryError = null;
+    salaryState = MoneyLoad.idle;
     answer = null;
     question = '';
     loansError = commitmentsError = payoffError = plannerError = null;
