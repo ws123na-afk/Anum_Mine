@@ -7,8 +7,8 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
-revision = "0145_installment_refunds"
-down_revision = "0144_installment_stmt"
+revision = "0146_installment_refunds"
+down_revision = "0145_finance_statement_match"
 branch_labels = None
 depends_on = None
 
