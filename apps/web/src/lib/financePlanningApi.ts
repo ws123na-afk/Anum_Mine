@@ -4,6 +4,7 @@
 import type {
   FinanceBillSchedule, FinanceBudgetAlert, FinanceBudgetReport, FinanceDebtPaymentPage, FinanceDebtPlan, FinanceDebtPlanView, FinanceLinkResult,
   FinanceMatchInput, FinancePaymentCandidate, FinanceInstallmentStatementEntry, FinanceInstallmentStatementView, FinanceInstallmentStatementSyncResult,
+  FinanceInstallmentRefundNotice, FinanceRefundApplyResult, FinanceRefundPreview,
 } from '@anum/contracts';
 import { apiRequest, apiRequestVoid } from './api';
 import { query } from './financeApi';
@@ -18,15 +19,22 @@ const send = <T>(method: string, path: string, body: unknown, key?: string) => a
 export interface FinanceGmailMailbox { id: string; address: string; selected: boolean }
 export interface TamaraGmailPreview {
   account_id: string; address: string; messages_checked: number; messages_matched: number;
-  rows: FinanceInstallmentStatementEntry[]; warnings: string[];
+  rows: FinanceInstallmentStatementEntry[]; refunds?: FinanceInstallmentRefundNotice[]; warnings: string[];
 }
 export const installmentGmailMailboxes = () => get<FinanceGmailMailbox[]>('/installment-email/mailboxes');
 export const previewTamaraGmail = (accountId: string, limit = 500) =>
   get<TamaraGmailPreview>(`/installment-email/preview${query({ account_id: accountId, limit })}`);
 
 export const installmentStatement = () => get<FinanceInstallmentStatementView>('/installment-statement');
-export const syncInstallmentStatement = (entries: FinanceInstallmentStatementEntry[]) =>
-  send<FinanceInstallmentStatementSyncResult>('POST', '/installment-statement/sync', { entries });
+export const syncInstallmentStatement = (entries: FinanceInstallmentStatementEntry[], refundNotices: FinanceInstallmentRefundNotice[] = []) =>
+  send<FinanceInstallmentStatementSyncResult>('POST', '/installment-statement/sync', { entries, refund_notices: refundNotices });
+
+// Tamara refunds (docs/finance.md#tamara-refunds): evidence, the new schedule, apply on confirmation, undo.
+export const installmentRefunds = () => get<FinanceRefundPreview>('/installment-refunds');
+export const applyInstallmentRefunds = (orders: { provider: string; order_id: string; plan_hash: string }[]) =>
+  send<FinanceRefundApplyResult>('POST', '/installment-refunds/apply', { orders });
+export const undoInstallmentRefund = (recordId: string) =>
+  send<FinanceRefundPreview>('POST', `/installment-refunds/${id(recordId)}/undo`, {});
 
 export const billSchedule = (from: string, to: string) => get<FinanceBillSchedule>(`/bill-schedule${query({ from, to })}`);
 export const paymentCandidates = (kind: 'bill' | 'debt', opts: { around?: string | null; amount?: string | null; currency?: string | null; q?: string | null }) =>

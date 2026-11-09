@@ -201,6 +201,8 @@ class FinancePlanRecord(Base):
     debt_plans: Mapped[list[dict[str, Any]]] = mapped_column(JSONB)
     budget_alerts: Mapped[list[dict[str, Any]]] = mapped_column(JSONB)
     installment_entries: Mapped[list[dict[str, Any]]] = mapped_column(JSONB)
+    installment_refund_notices: Mapped[list[dict[str, Any]]] = mapped_column(JSONB)
+    installment_refunds: Mapped[list[dict[str, Any]]] = mapped_column(JSONB)
     updated_at: Mapped[datetime] = mapped_column(TS)
 
 
@@ -823,7 +825,9 @@ class SqlAlchemyFinanceStore:
         found = self.session.scalar(select(FinancePlanRecord).where(*self._mine(FinancePlanRecord, context)))
         if found is None:
             return Planning()
-        return Planning.model_validate({"debt_plans": found.debt_plans or [], "budget_alerts": found.budget_alerts or [], "installment_entries": found.installment_entries or []})
+        return Planning.model_validate({"debt_plans": found.debt_plans or [], "budget_alerts": found.budget_alerts or [], "installment_entries": found.installment_entries or [],
+                                       "installment_refund_notices": found.installment_refund_notices or [],
+                                       "installment_refunds": found.installment_refunds or []})
 
     def save_planning(self, context: TenantContext, planning: Planning) -> Planning:
         require_workspace(self.session, context.tenant_id, context.workspace_id)
@@ -831,6 +835,8 @@ class SqlAlchemyFinanceStore:
             "debt_plans": [p.model_dump(mode="json") for p in planning.debt_plans],
             "budget_alerts": [a.model_dump(mode="json") for a in planning.budget_alerts],
             "installment_entries": [a.model_dump(mode="json") for a in planning.installment_entries],
+            "installment_refund_notices": [a.model_dump(mode="json") for a in planning.installment_refund_notices],
+            "installment_refunds": [a.model_dump(mode="json") for a in planning.installment_refunds],
         }
         # A new row keeps the safe-to-spend defaults (no buffer, no combined total, rates up to 7 days old).
         statement = insert(FinancePlanRecord).values(

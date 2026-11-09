@@ -69,6 +69,15 @@ def scope_language(headers: Mapping[str, str] | list[tuple[bytes, bytes]]) -> La
 # Exact English messages the clients show, with their Arabic. Keep the English identical to the
 # raising code: tests/test_localization.py checks that every key is still raised somewhere.
 ARABIC_MESSAGES: dict[str, str] = {
+    # Tamara refunds on the installment statement (anum_api/finance/installment_refunds_api.py)
+    "Each order can be listed once.": "يمكن إدراج كل طلب مرة واحدة.",
+    "That order is not on your installment statement.": "هذا الطلب ليس في كشف الأقساط الخاص بك.",
+    "The refund evidence for this order changed. Reload and check it again.": "تغيّرت أدلة الاسترداد لهذا الطلب. أعد التحميل وتحقق منها مجددًا.",
+    "This order has nothing to apply, or only an estimate that needs your review.": "لا يوجد ما يُطبَّق على هذا الطلب، أو لديه تقدير فقط يحتاج إلى مراجعتك.",
+    "Too many refund records are kept. Contact support.": "عدد سجلات الاسترداد المحفوظة كبير جدًا. تواصل مع الدعم.",
+    "Refund record not found.": "لم يُعثر على سجل الاسترداد.",
+    "This refund was already undone.": "تم التراجع عن هذا الاسترداد من قبل.",
+    "Undo the newer refund on this order first.": "تراجع أولًا عن الاسترداد الأحدث لهذا الطلب.",
     # Agent controls (anum_api/agent_controls.py)
     "The emergency stop is on for this organization: agents, automations and outbound sends are paused. The organization owner can turn it off under Agent controls.": "الإيقاف الطارئ مفعّل لهذه المؤسسة: الوكلاء والأتمتة والإرسال الخارجي متوقفة مؤقتًا. يمكن لمالك المؤسسة إيقافه من «تحكم الوكلاء».",
     "Only a workspace owner or the organization administrator can turn on the emergency stop.": "لا يمكن تفعيل الإيقاف الطارئ إلا لمالك مساحة العمل أو مسؤول المؤسسة.",
