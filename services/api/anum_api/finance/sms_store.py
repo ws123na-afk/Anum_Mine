@@ -221,7 +221,8 @@ class SmsStore(Protocol):
     def mark_entry(self, context: TenantContext, entry_id: str, *, status: EntryStatus | None = None, reversed_by_id: str | None = None,
                    reconciled_at: datetime | None = None, reconciled_ref: str | None = None) -> None: ...
     def list_entries(self, context: TenantContext, *, start: date | None = None, end: date | None = None, limit: int = 50_000) -> list[JournalEntry]: ...
-    def entries_with_fingerprint(self, context: TenantContext, fingerprint: str) -> list[JournalEntry]: ...
+    def entries_with_fingerprint(self, context: TenantContext, fingerprint: str, *, start: date | None = None,
+                                 end: date | None = None) -> list[JournalEntry]: ...
     def chain(self, context: TenantContext, canonical_id: str) -> list[JournalEntry]: ...
     def entry_for_transaction(self, context: TenantContext, transaction_id: str) -> JournalEntry | None: ...
     def linked_transaction_ids(self, context: TenantContext) -> set[str]: ...
@@ -391,8 +392,14 @@ class InMemorySmsStore:
         rows = [e for e in self.entries.values() if _mine(e, context) and e.canonical_id == canonical_id]
         return [e.model_copy(deep=True) for e in sorted(rows, key=lambda e: (e.created_at, e.id))]
 
-    def entries_with_fingerprint(self, context: TenantContext, fingerprint: str) -> list[JournalEntry]:
-        return [e.model_copy(deep=True) for e in self.entries.values() if _mine(e, context) and e.fingerprint == fingerprint]
+    def entries_with_fingerprint(self, context: TenantContext, fingerprint: str, *, start: date | None = None,
+                                 end: date | None = None) -> list[JournalEntry]:
+        """Every entry with the fingerprint posted from ``start`` to ``end`` (both optional), newest first, ties by
+        creation and id: complete for the window and in one fixed order."""
+        rows = [e for e in self.entries.values() if _mine(e, context) and e.fingerprint == fingerprint
+                and (start is None or e.posted_on >= start) and (end is None or e.posted_on <= end)]
+        rows.sort(key=lambda e: (e.posted_on, e.created_at, e.id), reverse=True)
+        return [e.model_copy(deep=True) for e in rows]
 
     def entry_for_transaction(self, context: TenantContext, transaction_id: str) -> JournalEntry | None:
         for entry in sorted(self.entries.values(), key=lambda e: (e.created_at, e.id), reverse=True):

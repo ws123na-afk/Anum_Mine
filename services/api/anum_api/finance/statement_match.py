@@ -13,8 +13,9 @@ entry), and gives every row one status:
   references agree). No second transaction: the statement row is attached to it as confirming evidence.
   When the bank billed a different amount (the FX settled differently) the record is corrected through
   the normal audited path, and the preview says so first.
-* ``possible_duplicate``: a weaker match (same amount and dates, but merchants do not agree or say nothing,
-  or two different records fit). Imported only if the person ticks it; otherwise held for Review.
+* ``possible_duplicate``: a weaker match (same amount and dates, but a merchant says nothing, or two different
+  records fit, or the merchants disagree while the row prints the record's own time). Imported only if the person
+  ticks it; otherwise held for Review. Two merchants that disagree with nothing stronger are two purchases: ``new``.
 * ``new``: nothing recorded fits.
 
 Rules that keep it honest: deterministic (rows in date then line order, candidates in a fixed order),
@@ -38,35 +39,10 @@ from decimal import Decimal
 from typing import Any
 
 from . import fx_text
-from .wallet import merchant_words as _wallet_words
+from .merchant_match import SAME_PAYMENT_DAYS, merchant_words, merchants_agree
+from .merchant_match import overlap as _overlap
 
-# Bank descriptor noise removed before words are compared: card-network and channel prefixes, card numbers,
-# dates and times, and the country or city suffixes banks add ("POS VIS 1234 CARREFOUR RIYADH SA 03/11").
-_NOISE_WORDS = frozenset({
-    "pos", "vis", "visa", "deb", "debit", "mc", "mastercard", "mada", "atm", "purchase", "purch", "txn", "trx", "card", "ecom",
-    "online", "intl", "international", "ref", "riyadh", "jeddah", "dubai", "abudhabi", "sharjah", "dammam", "khobar", "makkah",
-    "madinah", "uae", "ksa", "sau", "are", "usa", "gbr", "irl", "nld", "lux", "sgp",
-})
-_NOISE = re.compile(r"\d{1,2}[/.-]\d{1,2}(?:[/.-]\d{2,4})?|\d{1,2}:\d{2}(?::\d{2})?|[x*#]{2,}\d{2,4}|\d{4,}")
-
-
-def normalize_descriptor(text: str | None) -> str:
-    """A bank descriptor without card numbers, dates, times and masked digits: what the words are read from."""
-    return _NOISE.sub(" ", fx_text.fold(text or ""))
-
-
-def merchant_words(text: str | None) -> set[str]:
-    return {w for w in _wallet_words(normalize_descriptor(text)) if w not in _NOISE_WORDS and not any(c.isdigit() for c in w)}
-
-
-def merchants_agree(a: str | None, b: str | None) -> bool | None:
-    """True when both name a merchant and share a word, False when both do and share none, None otherwise."""
-    left, right = merchant_words(a), merchant_words(b)
-    if not left or not right:
-        return None
-    return bool(left & right)
-
-LAG_DAYS = 3  # a bank posts a card purchase 0 to 3 days after the SMS or Apple Pay notice
+LAG_DAYS = SAME_PAYMENT_DAYS  # a bank posts a card purchase 0 to 3 days after the SMS or Apple Pay notice
 TRANSFER_DAYS = 5  # the money in arrives 0 to 5 days after the money out
 BILL_EARLY_DAYS = 7  # a bill paid up to a week before its due date
 BILL_LATE_DAYS = 10  # or up to ten days after it
@@ -203,10 +179,6 @@ def _same_sign(a: Decimal, b: Decimal) -> bool:
     return (a > 0) == (b > 0)
 
 
-def _overlap(a: str | None, b: str | None) -> int:
-    return len(merchant_words(a) & merchant_words(b))
-
-
 def _fx_same(line: Line, record: Recorded) -> bool:
     """The same original foreign amount, billed within ``FX_SPREAD`` of what was recorded."""
     if line.original_amount is None or record.original_amount is None or not line.original_currency:
@@ -216,6 +188,16 @@ def _fx_same(line: Line, record: Recorded) -> bool:
     if not _same_sign(line.amount, record.amount) or record.amount == 0:
         return False
     return abs(abs(line.amount) - abs(record.amount)) <= abs(record.amount) * FX_SPREAD
+
+
+def _same_moment(line: Line, record: Recorded) -> bool:
+    """The row prints a time within ``PRECISE_MINUTES`` of the record's own time: a stronger signal than the merchant name."""
+    if line.at is None or record.occurred_at is None:
+        return False
+    try:
+        return abs(record.occurred_at - line.at) <= timedelta(minutes=PRECISE_MINUTES)
+    except TypeError:  # one aware, one naive: no comparable instant
+        return False
 
 
 def _interchangeable(a: Recorded, b: Recorded) -> bool:
@@ -302,7 +284,9 @@ def _match_one(line: Line, pool: list[Recorded], taken: set[str]) -> Match:
         if same_reference or merchants is True or (fx_same and merchants is not False):
             rank = (lag, -_overlap(line.description, record.description), *_order(record))
             strong.append((rank, record))
-        elif same_amount:
+        elif same_amount and (merchants is None or _same_moment(line, record)):
+            # Same amount and dates but no merchant to compare: the person decides. Two merchants that disagree are two
+            # purchases (never held) unless the row prints the record's own time.
             weak.append(record)
     if strong:
         strong.sort(key=lambda item: item[0])
@@ -531,7 +515,7 @@ def explain(match: Match) -> str:
         return "More than one recorded payment fits. Tick it only if it is a separate payment."
     if match.code == "amount_date_only":
         other = match.candidates[0] if match.candidates else None
-        return (f"Same amount and date as {source_label(other)}, but the merchant does not match. Tick it only if it is a separate payment."
+        return (f"Same amount and date as {source_label(other)}, but there is no merchant name to compare. Tick it only if it is a separate payment."
                 if other else "Same amount and date as a recorded payment.")
     return "Nothing recorded matches this row."
 

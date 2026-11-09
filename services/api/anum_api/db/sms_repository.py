@@ -342,9 +342,17 @@ class SqlAlchemySmsStore:
                                         .order_by(record.created_at, record.id).limit(500)))
         return self._with_postings(rows)
 
-    def entries_with_fingerprint(self, context: TenantContext, fingerprint: str) -> list[JournalEntry]:
+    def entries_with_fingerprint(self, context: TenantContext, fingerprint: str, *, start: date | None = None,
+                                 end: date | None = None) -> list[JournalEntry]:
+        """Every entry with the fingerprint posted from ``start`` to ``end``, newest first (ties by creation and id):
+        complete for the window and in one fixed order, never an arbitrary first page."""
         record = FinanceJournalEntryRecord
-        rows = list(self.session.scalars(select(record).where(*_mine(record, context), record.fingerprint == fingerprint).limit(200)))
+        clauses = [*_mine(record, context), record.fingerprint == fingerprint]
+        if start is not None:
+            clauses.append(record.posted_on >= start)
+        if end is not None:
+            clauses.append(record.posted_on <= end)
+        rows = list(self.session.scalars(select(record).where(*clauses).order_by(record.posted_on.desc(), record.created_at.desc(), record.id.desc())))
         return self._with_postings(rows)
 
     def entry_for_transaction(self, context: TenantContext, transaction_id: str) -> JournalEntry | None:

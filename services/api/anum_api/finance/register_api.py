@@ -27,6 +27,7 @@ from .api import TransactionView, _filter, _read, _view
 from .categories import categorize
 from .ledger import EntrySource, EntryStatus, JournalEntry
 from .links_store import open_link_stores
+from .merchant_match import SAME_PAYMENT_DAYS, merchants_agree
 from .models import Account, AccountKind, Category, CategorySource, Transaction
 from .money import quantize
 from .sms_service import settings_for as sms_settings_for
@@ -38,7 +39,7 @@ router = APIRouter(prefix="/api/v1/finance", tags=["finance"])
 
 # The register reads at most this many matching rows (the CSV export's cap); beyond it the answer says so.
 SCAN_LIMIT = 10_000
-DUPLICATE_DAYS = 2  # the ledger's own window for "the same payment" when no time is known
+DUPLICATE_DAYS = SAME_PAYMENT_DAYS  # the ledger's window for "the same payment" when no time is known (one constant with the statement engine)
 MAX_LINKS = 50_000
 
 Origin = Literal["sms", "apple_pay", "statement", "manual"]
@@ -128,13 +129,9 @@ def _active_entries(entries: list[JournalEntry]) -> dict[str, JournalEntry]:
     return out
 
 
-def _words(text: str) -> set[str]:
-    return {w for w in "".join(c.lower() if c.isalnum() else " " for c in text).split() if len(w) >= 3 and not w.isdigit()}
-
-
 def _duplicates(rows: list[Transaction], canon: dict[str, str | None]) -> dict[str, str]:
     """A row that looks like another record of the same payment: the same account, amount and currency within
-    two days, descriptions sharing a word, and not already the same canonical transaction. The older row is the
+    ``SAME_PAYMENT_DAYS``, descriptions sharing a meaningful merchant word (``merchant_match``), and not already the same canonical transaction. The older row is the
     original; the newer one is the candidate. A signal for the person, never acted on."""
     by_key: dict[tuple[str, Decimal, str], list[Transaction]] = defaultdict(list)
     for row in rows:
@@ -151,7 +148,7 @@ def _duplicates(rows: list[Transaction], canon: dict[str, str | None]) -> dict[s
                 if (newer.posted_on - older.posted_on).days > DUPLICATE_DAYS:
                     continue
                 same_canon = canon.get(newer.id) is not None and canon.get(newer.id) == canon.get(older.id)
-                if same_canon or not (_words(newer.description) & _words(older.description)):
+                if same_canon or merchants_agree(newer.description, older.description) is not True:
                     continue
                 if newer.import_id is not None and newer.import_id == older.import_id:
                     continue  # one statement listing two identical purchases keeps both (docs/finance.md#csv-import)
