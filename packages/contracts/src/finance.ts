@@ -7,8 +7,19 @@ export type FinanceMoney = string;
 export type FinanceAccountKind = 'bank' | 'card' | 'cash' | 'loan' | 'investment';
 export type FinanceCategory =
   | 'income' | 'cashback' | 'refunds' | 'transfer' | 'groceries' | 'dining' | 'transport' | 'fuel' | 'utilities' | 'telecom' | 'housing'
-  | 'food' | 'room_rent' | 'shopping' | 'health' | 'education' | 'entertainment' | 'subscriptions' | 'travel' | 'insurance' | 'fees' | 'cash' | 'other';
-export type FinanceCategorySource = 'rule' | 'owner_rule' | 'manual' | 'none';
+  | 'food' | 'room_rent' | 'shopping' | 'health' | 'education' | 'entertainment' | 'subscriptions' | 'travel' | 'insurance' | 'fees' | 'interest'
+  | 'cash' | 'other';
+/** `match`: set by matching with another record (an own-transfer pair, a refund's purchase); `system`: by ANUM. Never the owner's choice. */
+export type FinanceCategorySource = 'rule' | 'owner_rule' | 'manual' | 'none' | 'match' | 'system';
+/**
+ * What a transaction is, separate from its category (docs/finance.md#transaction-types); it decides how the row counts.
+ * `uncategorized`: no rule recognised it, held for review and counted as neither income nor spend.
+ */
+export type FinanceTransactionType =
+  | 'income' | 'expense' | 'internal_transfer' | 'card_payment' | 'loan_received' | 'loan_principal' | 'interest' | 'refund' | 'cashback'
+  | 'bank_fee' | 'investment_contribution' | 'investment_withdrawal' | 'owner_contribution' | 'owner_drawing' | 'reimbursement'
+  | 'receivable_collection' | 'payable_settlement' | 'fx_exchange' | 'tax' | 'reversal' | 'uncategorized';
+export type FinanceTypeSource = 'rule' | 'owner' | 'system' | 'sms' | 'match';
 export type FinanceCadence = 'weekly' | 'monthly' | 'quarterly' | 'yearly' | 'once';
 export type FinanceBillSource = 'manual' | 'detected';
 export type FinanceDebtKind = 'loan' | 'card' | 'mortgage' | 'other';
@@ -75,6 +86,15 @@ export interface FinanceTransaction {
   import_id: string | null;
   created_at: string;
   updated_at: string;
+  /** The transaction type and why (docs/finance.md#transaction-types). Optional: older API releases do not send it. */
+  transaction_type?: FinanceTransactionType | null;
+  type_source?: FinanceTypeSource | null;
+  /** 0 to 1, a decimal string. */
+  type_confidence?: string | null;
+  /** A short machine code, for example `no_rule_matched` or `transfer_out_third_party`. */
+  type_reason?: string | null;
+  /** The person's own purchase a refund gives back (a match, or a suggestion when the confidence is low). */
+  related_transaction_id?: string | null;
   /** Stage 4: what the Guardian rules say about this record (on create and change only). */
   guardian?: FinanceGuardianDecision | null;
 }
@@ -85,6 +105,8 @@ export interface FinanceTransactionInput {
   amount: FinanceMoney;
   description: string;
   category?: FinanceCategory | null;
+  /** The owner's own reading of what the row is; never changed by a rule or a match. */
+  transaction_type?: FinanceTransactionType | null;
   notes?: string | null;
   remember_category_match?: string | null;
 }
@@ -580,6 +602,10 @@ export interface FinanceSummary {
   debt_count: number;
   /** The month had more rows than one read returns: the figures are partial. */
   month_rows_capped?: boolean;
+  /** Rows no rule recognised: in none of the figures above, shown as "N uncategorized, not counted". */
+  uncategorized_count?: number;
+  uncategorized_in?: FinanceCurrencyAmount[];
+  uncategorized_out?: FinanceCurrencyAmount[];
   goals: { id: string; name: string; currency: string; target_amount: FinanceMoney; saved_amount: FinanceMoney; percent: number; target_on: string | null }[];
 }
 

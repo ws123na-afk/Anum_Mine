@@ -21,8 +21,9 @@ from typing import Any
 from ..schemas import TenantContext, new_id
 from . import sms_parser as P
 from . import statement_match as M
+from . import txn_types as TT
 from .ledger import EntrySource, EntryStatus, JournalEntry
-from .models import Account, Bill, Category, CategorySource, Transaction
+from .models import Account, AccountKind, Bill, Category, CategorySource, Transaction, TransactionType, TypeSource
 from .money import quantize
 from .sms_store import MessageStatus, SmsMessage, SmsStore, source_kind
 from .store import FinanceStore
@@ -260,9 +261,27 @@ def correct_amount(finance: FinanceStore, sms: SmsStore, context: TenantContext,
     return new.id
 
 
-def recategorize_transfer(finance: FinanceStore, sms: SmsStore, context: TenantContext, record: M.Recorded, *, now: datetime) -> bool:
+def mark_transfer(row: Transaction, account_kind: AccountKind | None, *, by_owner: bool = False, card: bool = False) -> bool:
+    """File ``row`` as an own transfer (a card payment when a card or loan is on either side) because it was paired with
+    its other side. A match never overwrites the owner's own choice (audit C4): a category or type the owner picked
+    stays, and the answer is False. Paired by a match the source is ``match``; ticked by the owner it is ``manual``."""
+    if TT.owner_locked(row) and not by_owner:
+        return False
+    kind = TransactionType.CARD_PAYMENT if card or account_kind in TT.LIABILITY_KINDS else TransactionType.INTERNAL_TRANSFER
+    if by_owner:
+        row.category, row.category_source = Category.TRANSFER, CategorySource.MANUAL
+        TT.apply(row, TT.Typed(kind, TypeSource.OWNER, Decimal(1), "owner_paired_transfer"))
+    else:
+        row.category, row.category_source = Category.TRANSFER, CategorySource.MATCH
+        TT.apply(row, TT.Typed(kind, TypeSource.MATCH, Decimal("0.9"), "paired_own_transfer"))
+    return True
+
+
+def recategorize_transfer(finance: FinanceStore, sms: SmsStore, context: TenantContext, record: M.Recorded, *, now: datetime,
+                          by_owner: bool = False) -> bool:
     """Mark a statement or hand-entered record as an own transfer (out of spend and income). An SMS or Apple Pay
-    record keeps its reading; its category is corrected under Review. True when the record is now a transfer."""
+    record keeps its reading; its category is corrected under Review. A record whose category or type the owner
+    chose keeps it (audit C4) unless ``by_owner`` (the owner paired it themselves). True when the record is now a transfer."""
     from .sms_service import repost_plain
 
     if record.category == Category.TRANSFER.value:
@@ -272,7 +291,10 @@ def recategorize_transfer(finance: FinanceStore, sms: SmsStore, context: TenantC
     row = finance.get_transaction(context, record.transaction_id)
     if row is None:
         return False
-    row.category, row.category_source, row.updated_at = Category.TRANSFER, CategorySource.MANUAL, now
+    account = finance.get_account(context, row.account_id)
+    if not mark_transfer(row, account.kind if account is not None else None, by_owner=by_owner):
+        return False
+    row.updated_at = now
     finance.save_transaction(row)
     if record.entry_id:
         entry = sms.get_entry(context, record.entry_id)
@@ -351,6 +373,7 @@ __all__ = [
     "gather",
     "hold",
     "make_links",
+    "mark_transfer",
     "paired_canonicals",
     "recategorize_transfer",
     "records",

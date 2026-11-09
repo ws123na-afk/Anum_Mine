@@ -27,7 +27,8 @@ from ..schemas import TenantContext, new_id, utc_now
 from ..secret_box import SecretDecryptionError
 from ..settings import settings
 from . import csv_import
-from .categories import categorize
+from . import txn_types as TT
+from .categories import classify_text
 from .config import finance_config
 from .connectors import (
     ADAPTERS,
@@ -68,15 +69,15 @@ def import_transactions(store: FinanceStore, context: TenantContext, connection:
             counts["transactions_unmapped"] += 1
             continue
         description = csv_import.clean_text(remote.description, 500) or "Transaction"
-        category, source = categorize(description, remote.amount, rules, account.kind)
-        rows.append(Transaction(
+        found = classify_text(description, remote.amount, rules, account.kind)
+        rows.append(TT.apply(Transaction(
             id=new_id("fin_txn"), tenant_id=context.tenant_id, workspace_id=context.workspace_id, owner_user_id=context.user_id,
             account_id=account.id, posted_on=remote.posted_on, amount=remote.amount, currency=account.currency,
-            description=description, category=category, category_source=source, import_id=None,
+            description=description, category=found.category, category_source=found.source, import_id=None,
             dedupe_hash=csv_import.dedupe_hash(account.id, remote.posted_on, remote.amount, account.currency,
                                                f"{connection.provider}:{remote.external_id}", 0),
             created_at=now, updated_at=now,
-        ))
+        ), found.typed))
     added = store.add_transactions(rows) if rows else 0
     counts["transactions_new"] = added
     counts["transactions_duplicate"] = len(rows) - added

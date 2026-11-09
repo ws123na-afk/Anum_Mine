@@ -35,7 +35,7 @@ from enum import StrEnum
 
 from pydantic import BaseModel, Field
 
-from .flows import Flow, classify, ledger_flow
+from .flows import UNCATEGORIZED_LEDGER, Flow, classify, ledger_flow
 from .models import Account, AccountKind, Category, Transaction
 from .money import quantize
 from .sms_parser import Kind
@@ -158,11 +158,16 @@ def plan(
     cur = account.currency
     fee = fee or Decimal(0)
     interest = interest or Decimal(0)
-    if kind in (Kind.SALARY, Kind.DEPOSIT, Kind.TRANSFER_IN):
+    if kind == Kind.DEPOSIT:
+        # A deposit says money arrived, not why: it is not income until the person says so (docs/finance.md#transaction-types).
+        return [_leg(account, amount), Leg(UNCATEGORIZED_LEDGER, -amount, cur)]
+    if kind in (Kind.SALARY, Kind.TRANSFER_IN):
         source = "income:" + kind.value
         return [_leg(account, amount), Leg(source, -amount, cur)]
     if kind in (Kind.CARD_PURCHASE, Kind.TRANSFER_OUT):
-        expense = "expense:" + (Category.TRANSFER.value if kind == Kind.TRANSFER_OUT else category)
+        # A transfer to another person is spending, filed like the same row from a statement (audit C3): its category
+        # comes from the words that name what it paid for, else ``other``.
+        expense = "expense:" + category
         legs = [Leg(expense, amount, cur)]
         if fee:
             legs.append(Leg("expense:fees", fee, cur))
@@ -230,6 +235,8 @@ def _category_for(ledger_account: str) -> Category | None:
     flow = ledger_flow(ledger_account)
     if flow is None:
         return None
+    if flow == Flow.UNCATEGORIZED:
+        return Category.OTHER
     if flow == Flow.TRANSFER:
         return Category.TRANSFER
     if flow == Flow.CASHBACK:
@@ -239,8 +246,6 @@ def _category_for(ledger_account: str) -> Category | None:
     if flow == Flow.INCOME:
         return Category.INCOME
     name = ledger_account.split(":", 1)[1]
-    if name == "interest":
-        return Category.FEES
     try:
         return Category(name)
     except ValueError:
@@ -255,6 +260,8 @@ def transaction_category(legs: list[Leg], leg: Leg) -> Category:
     transfer, and the interest charged on the loan is the only spending (docs/finance.md#how-figures-are-counted)."""
     partner = next((o for o in legs if o is not leg and o.currency == leg.currency and o.amount == -leg.amount), None)
     if partner is not None:
+        if partner.ledger_account == UNCATEGORIZED_LEDGER:
+            return Category.OTHER
         if partner.account_id is not None or partner.ledger_account.startswith("suspense:"):
             return Category.TRANSFER
         found = _category_for(partner.ledger_account)
@@ -276,9 +283,10 @@ def derived_legs(transaction: Transaction, account: Account, *, lending: bool = 
     ``lending``: the transaction is linked to money lent or borrowed with a person, so its other side is a transfer."""
     amount = transaction.amount
     own = _leg(account, amount)
-    flow = classify(transaction.category, amount, account.kind, transaction.category_source, lending=lending)
+    flow = classify(transaction.category, amount, account.kind, transaction.category_source, lending=lending, txn_type=transaction.transaction_type)
     other = {
         Flow.INCOME: "income:other", Flow.TRANSFER: "suspense:transfer", Flow.CASHBACK: "income:cashback", Flow.REFUND: "income:refunds",
+        Flow.UNCATEGORIZED: UNCATEGORIZED_LEDGER,
     }.get(flow, "expense:" + transaction.category.value)
     return [own, Leg(other, -amount, transaction.currency)]
 
@@ -368,6 +376,9 @@ class Dashboard(BaseModel):
     year: list[MonthLine]  # this calendar year, one line per currency (``month`` is the year)
     currencies: list[str]
     entry_count: int
+    # Rows of the month no rule recognised (posted to ``suspense:uncategorized``): in no figure above, so the
+    # dashboard says how many were left out instead of showing a silent zero.
+    uncategorized_count: int = 0
 
 
 def _months_back(month: str, count: int) -> list[str]:
@@ -404,6 +415,7 @@ def dashboard(
     observed: dict[str, tuple[Decimal, datetime]] | None = None,
     balances: dict[str, Decimal] | None = None,
     suspense: dict[str, Decimal] | None = None,
+    uncategorized_count: int = 0,
 ) -> Dashboard:
     """Every figure per currency, never added across currencies.
 
@@ -518,6 +530,7 @@ def dashboard(
             trend.append(MonthLine(month=m, currency=cur, income=quantize(inc, cur), expenses=quantize(exp, cur), net=quantize(inc - exp, cur)))
     return Dashboard(
         month=month,
+        uncategorized_count=uncategorized_count,
         income=_money(income),
         expenses=_money(expenses),
         surplus=_money(surplus),

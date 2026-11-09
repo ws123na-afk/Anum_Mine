@@ -423,9 +423,10 @@ def payment_from_link(link: Any, *, original: str | None = None) -> PaymentRef:
 
 
 def is_expense(entry: Any) -> bool:
-    """Money spent: an expense account is debited and no income account is touched."""
+    """Money spent: an expense account is debited and no income account is touched. Money out that no rule recognised
+    yet (``suspense:uncategorized``, docs/finance.md#transaction-types) may be spending, so the owner may link it too."""
     postings = getattr(entry, "postings", []) or []
-    return (any(p.ledger_account.startswith("expense:") and p.amount > 0 for p in postings)
+    return (any((p.ledger_account.startswith("expense:") or p.ledger_account == "suspense:uncategorized") and p.amount > 0 for p in postings)
             and not any(p.ledger_account.startswith("income:") for p in postings))
 
 

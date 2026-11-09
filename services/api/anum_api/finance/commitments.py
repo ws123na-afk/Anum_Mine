@@ -5,9 +5,12 @@ finance link (docs/finance-links.md) in the ``bill`` dimension: target ``finance
 id ``<bill id>:<YYYY-MM-DD>``, pointing at the payment's ``canonical_id``. Nothing here marks a bill
 paid any other way: the status of a due date is worked out from its live links on every read.
 
-A debt payment is a link in the ``debt`` dimension (target ``finance_debt``, the debt's id). The
-debt's balance stays what the person entered: ANUM does not split a payment into interest and
-principal, because it does not know the lender's terms.
+A debt payment is a link in the ``debt`` dimension (target ``finance_debt``, the debt's id). The one loan
+policy (docs/finance.md#transaction-types): a repayment is ``loan_principal`` (a transfer) and only the interest
+is spending (type ``interest``). The split comes from what the message or the person states (an SMS loan
+repayment's interest is charged on the loan as its own row, ``ledger.plan``); for a debt with no account of its
+own, ``obligations.current_debts`` estimates each matched payment's interest from the debt's rate (balance times
+APR over 12) and lowers the balance by the rest. Nothing here invents the lender's terms beyond that estimate.
 
 A **budget** is one of the person's Guardian category caps (a monthly limit per category and
 currency); the alert threshold per budget is kept with the plan (``Planning.budget_alerts``).

@@ -19,7 +19,7 @@ The fixes are delivered as functional-area pull requests in this order: transact
 
 - Personal Finance keeps a real double-entry journal: per-currency balance enforced by a deferred database trigger (`migrations/versions/0131_finance_sms_ledger.py`, `finance_postings_balanced`), postings immutable, forced RLS. Every channel (statement, CSV, SMS, Apple Pay, manual) ends at one canonical journal entry.
 - Business Books keep **no journal**: every report is derived from invoices, bills, allocations and adjustments (`business/books_report.py`, `books_service.py:4-6`). There is no chart of accounts, general ledger, trial balance, balance sheet, opening balance, close or lock.
-- Classification has **no transaction type**: an unrecognised credit counts as income and an unrecognised debit as spending (`finance/categories.py:106-108`, `flows.py:58-67`).
+- Classification had **no transaction type**: an unrecognised credit counted as income and an unrecognised debit as spending (`finance/categories.py:106-108`, `flows.py:58-67`). Fixed in the transaction-correctness PR (C1 to C7 below).
 - The most likely reasons statement rows look missing are the Transactions page defaulting to the current month, rows held in review or attached to other records by amount alone, and rows the PDF reader drops without saying so (details below).
 - There is no reconciliation workspace, no accountant review, no unified suggestion queue and no period close.
 
@@ -108,18 +108,18 @@ Confirmed defects:
 
 | Capability | Class | Evidence |
 |---|---|---|
-| Transaction type separate from category | 2 and 5 | No type on `Transaction` (`models.py:131-144`); SMS-only `sms_parser.Kind`; categories mix types (TRANSFER, INCOME, CASHBACK, REFUNDS) |
+| Transaction type separate from category | 1 (was 2 and 5) | Fixed in the transaction-correctness PR: `TransactionType` (21 types) with source, confidence and reason on every transaction (migration `0148_finance_txn_types`, `txn_types.py`); `flows.classify` counts by type; SMS kinds map to types (`sms_service.sms_type`); rows stored earlier read the type their category stands for ([docs/finance.md](../finance.md#transaction-types)) |
 | Direction | 1 | Signed amount, `suspected_direction` hint |
 | Subcategories | 4 | 23 flat categories |
 | Merchant and aliases | 2 and 4 | SMS merchant only; no aliases |
 | Personal or business per transaction | 2 | `business` link dimension and allocations |
 | Duplicate suggestion | 1 | `statement_match` statuses |
-| Confidence and explanation | 2 | SMS high or low, matches strong or weak; category has none |
-| Refund linked to purchase | 2 | SMS only (`sms_service.py:333`) |
+| Confidence and explanation | 2 | SMS high or low, matches strong or weak; since the transaction-correctness PR every row has a type confidence and reason code, the category still has none |
+| Refund linked to purchase | 1 (was 2) | SMS (`sms_service.py:333`); statement, CSV, PDF and hand-entered refunds since the transaction-correctness PR (`refunds.py`: a same-amount purchase with agreeing merchant words is a match, anything less a suggestion) |
 | Cashback separate from refund | 1 | `flows.py:63-66` |
 | Card payment not double counted | 1 | `categories.py:95-105`, `flows.py:60`, tests |
-| Loan principal and interest | 3 and 5 | Three treatments: SMS when stated (`ledger.py:204-214`), estimate (`obligations.py:146-152`), stale "no split" docstring (`commitments.py`); interest mapped to fees |
-| Rules engine and owner rules | 1 and 2 | `categories.py`; owner rules are plain substrings with no scope, version, provenance or rollback (`models.py:96`, `api.py:206`) |
+| Loan principal and interest | 2 (was 3 and 5) | One documented policy since the transaction-correctness PR: `loan_principal` is a transfer, interest charged is type and category `interest` (no longer fees); the stated split (SMS, owner) or the debt estimate (`obligations.py:146-152`); `commitments.py` docstring corrected. Statements still cannot split a payment on their own |
+| Rules engine and owner rules | 1 and 2 | `categories.py`; owner rules match whole words and respect the sign guards since the transaction-correctness PR, but still have no scope, version, provenance or rollback (`models.py:96`, `api.py:206`) |
 | Account-scoped, amount or reference rules, history reuse | 4 | Not built |
 | Unified review queue and suggestion object | 4 | Four separate queues (SMS review, statement holds, Guardian review, link review) |
 | Upcoming bills, subscriptions | 1 and 2 | `detect_recurring`, `/bills/suggestions`; reminders not built |
@@ -127,13 +127,13 @@ Confirmed defects:
 
 Confirmed defects:
 
-- **C1** Unrecognised credits count as income (`categories.py:106-107`, `flows.py:58-62`), locked in by the test case at `test_finance_correctness.py:129`.
-- **C2** Unrecognised debits count as spending (`categories.py:108`, `flows.py:67`).
-- **C3** The same payment is classified differently by source: an SMS transfer out is never spend (`ledger.py:164-165`) while the statement row becomes housing spend.
-- **C4** Transfer pairing overwrites manual categories and stamps them `MANUAL` (`statement_ledger.py:268-275`, `api.py:998, 1043`).
-- **C5** The register suggestion ignores the account kind (`register_api.py:362`).
-- **C6** Owner rules match inside words and skip the sign guards (`categories.py:93`).
-- **C7** A bare "INTEREST" credit lands in fees (`categories.py:40`).
+- **C1** Unrecognised credits count as income (`categories.py:106-107`, `flows.py:58-62`), locked in by the test case at `test_finance_correctness.py:129`. **Fixed in the transaction-correctness PR**: type `uncategorized`, held for review, counted in neither figure and reported as "N uncategorized, not counted" (the test now states the owner's rule).
+- **C2** Unrecognised debits count as spending (`categories.py:108`, `flows.py:67`). **Fixed in the transaction-correctness PR**, as C1; the Guardian still watches such money out.
+- **C3** The same payment is classified differently by source: an SMS transfer out is never spend (`ledger.py:164-165`) while the statement row becomes housing spend. **Fixed in the transaction-correctness PR**: a transfer to someone else is spending from both sources, filed by the same words (rent is housing, else `other`); only own-account words or a match make it an internal transfer.
+- **C4** Transfer pairing overwrites manual categories and stamps them `MANUAL` (`statement_ledger.py:268-275`, `api.py:998, 1043`). **Fixed in the transaction-correctness PR**: a machine pair records source `match` and never touches a category or type the owner chose; a pair the owner ticks is the owner's.
+- **C5** The register suggestion ignores the account kind (`register_api.py:362`). **Fixed in the transaction-correctness PR**, and the suggestion now includes the type.
+- **C6** Owner rules match inside words and skip the sign guards (`categories.py:93`). **Fixed in the transaction-correctness PR**.
+- **C7** A bare "INTEREST" credit lands in fees (`categories.py:40`). **Fixed in the transaction-correctness PR**: interest received is income under category `interest`; interest charged is type `interest`.
 
 ## Personal finance and the Finance screens
 

@@ -339,7 +339,9 @@ def pair_transfers(body: TransferInput, context: TenantContext = Depends(tenant_
                 failed.append("not_a_transfer")
                 continue
             used.update({out_id, into_id})
-            recategorized += SL.recategorize_transfer(finance, sms, context, out, now=now) + SL.recategorize_transfer(finance, sms, context, into, now=now)
+            # The owner picked this pair, so the rows are filed as the owner's choice (audit C4: only machines never overwrite).
+            recategorized += (SL.recategorize_transfer(finance, sms, context, out, now=now, by_owner=True)
+                              + SL.recategorize_transfer(finance, sms, context, into, now=now, by_owner=True))
             jobs.append(SL.LinkJob("transfer", out.canonical_id, into.canonical_id, -out.amount, out.currency))
     made = SL.make_links(context, jobs)
     failed.extend(made.failed)
