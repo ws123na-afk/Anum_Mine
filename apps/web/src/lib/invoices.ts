@@ -3,7 +3,7 @@
 // browser. The API is the authority: it recomputes every total and rechecks every rule.
 import type {
   Billable, BillingProfile, BusinessCurrency, CreditNoteInput, CreditNoteStatus, InvoiceCreate, InvoiceListItem, InvoicePaymentState, InvoiceStatus, InvoiceSummary,
-  InvoiceUpdate, LineKind, ManualInvoiceLine, PaymentInput, PaymentMethod, PaymentNoticeStatus, InvoiceEmailInput, InvoiceMessage, InvoiceMessageStatus,
+  InvoiceUpdate, LineKind, ManualInvoiceLine, SalesTaxCode, PaymentInput, PaymentMethod, PaymentNoticeStatus, InvoiceEmailInput, InvoiceMessage, InvoiceMessageStatus,
   BusinessPaymentProvider, CardProvider, InvoicePaymentLink,
 } from '@anum/contracts';
 import { t, type MessageKey } from './i18n.ts';
@@ -88,7 +88,11 @@ export function lineTotals(quantity: number, unitPrice: number, taxPct: number):
 
 // ---- new invoice and edit forms --------------------------------------------------------------
 
-export interface ManualLineDraft { description: string; kind: LineKind; quantity: string; unitPrice: string; taxPct: string }
+export interface ManualLineDraft {
+  description: string; kind: LineKind; quantity: string; unitPrice: string; taxPct: string;
+  /** docs/business-tax.md#tax-codes: with a code the server takes the rate from the rate table. */
+  taxCode?: SalesTaxCode | '';
+}
 export const emptyManualLine = (taxPct = ''): ManualLineDraft => ({ description: '', kind: 'service', quantity: '1', unitPrice: '', taxPct });
 
 export interface FieldsDraft {
@@ -123,7 +127,8 @@ export function manualLines(drafts: readonly ManualLineDraft[]): Check<ManualInv
     if (price === null) return { ok: false, error: t('inv.form.linePrice') };
     if (qty === null) return { ok: false, error: t('inv.form.lineQuantity') };
     if (tax === null) return { ok: false, error: t('inv.form.taxInvalid') };
-    lines.push({ description: draft.description.trim(), kind: draft.kind, quantity: qty, unit_price: price, ...(tax !== undefined ? { tax_rate_pct: tax } : {}) });
+    lines.push({ description: draft.description.trim(), kind: draft.kind, quantity: qty, unit_price: price, ...(tax !== undefined ? { tax_rate_pct: tax } : {}),
+      ...(draft.taxCode ? { tax_code: draft.taxCode } : {}) });
   }
   return { ok: true, value: lines };
 }
@@ -192,6 +197,13 @@ export function updateBody(draft: FieldsDraft, newLines: readonly ManualLineDraf
   if (lines.value.length || replaceManual) body.lines = lines.value;
   if (removed.length) body.remove_lines = [...removed].sort((a, b) => a - b);
   return { ok: true, value: body };
+}
+
+/** Adds the tax code of every line after the edit (docs/business-tax.md#tax-codes): the kept contract, milestone, usage and offer
+ * lines first, in their order, then the manual lines, the order the API builds. Sent only when a kept line has a code. */
+export function withTaxCodes(body: InvoiceUpdate, kept: readonly (SalesTaxCode | null)[]): InvoiceUpdate {
+  if (!kept.some(Boolean)) return body;
+  return { ...body, tax_codes: [...kept, ...(body.lines ?? []).map((line) => line.tax_code ?? null)] };
 }
 
 // ---- payments ---------------------------------------------------------------------------------

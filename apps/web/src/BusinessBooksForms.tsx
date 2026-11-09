@@ -9,7 +9,7 @@ import type {
   BooksIntercompanyInput, BooksIntercompanyKind, BooksDirection, BooksPaymentMethod, BooksRate, BooksSection, BooksSetup, BooksTagSection, BooksVendor,
   BusinessProject,
 } from '@anum/contracts';
-import { BOOKS_ADJUSTMENT_KINDS, BOOKS_INTERCOMPANY_KINDS, BOOKS_PAYMENT_METHODS, BOOKS_RECURRENCES, BOOKS_SECTIONS } from '@anum/contracts';
+import { BOOKS_ADJUSTMENT_KINDS, BOOKS_INTERCOMPANY_KINDS, BOOKS_PAYMENT_METHODS, BOOKS_RECURRENCES, BOOKS_SECTIONS, TAX_CODES } from '@anum/contracts';
 import * as api from './lib/businessBooksApi';
 import {
   BOOK_CURRENCIES, COUNTRIES, adjustmentHasSection, adjustmentLabel, adjustmentSpreads, billBody, billProblem, budgetProblem, emptyBill, intercompanyProblem,
@@ -236,13 +236,13 @@ export function BillDialog({ setup, bill, onClose, onSaved }: { setup: BooksSetu
   const [draft, setDraft] = useState<BillDraft>(() => bill ? {
     vendor_id: bill.vendor_id, reference: bill.reference, description: bill.description, bill_date: bill.bill_date, due_date: bill.due_date, currency: bill.currency,
     subtotal: bill.subtotal, tax: bill.tax, category: bill.category, section: bill.section, cost_centre_id: bill.cost_centre_id ?? '', project_id: bill.project_id ?? '',
-    recurrence: bill.recurrence ?? '', useful_life_months: bill.useful_life_months ? String(bill.useful_life_months) : '',
+    recurrence: bill.recurrence ?? '', useful_life_months: bill.useful_life_months ? String(bill.useful_life_months) : '', tax_code: bill.tax_code ?? '',
   } : emptyBill(todayIso(), base));
   const [vendors, setVendors] = useState<BooksVendor[] | null>(null), [busy, setBusy] = useState(false), [problem, setProblem] = useState<string | null>(null);
   const [key] = useState(() => newKey('bill'));
   const projects = useProjects();
   const ids = { vendor: useId(), ref: useId(), description: useId(), date: useId(), due: useId(), currency: useId(), net: useId(), tax: useId(), category: useId(),
-    section: useId(), centre: useId(), project: useId(), recurrence: useId(), life: useId() };
+    section: useId(), centre: useId(), project: useId(), recurrence: useId(), life: useId(), taxCode: useId() };
   const [vendorQuery, setVendorQuery] = useState(''), [vendorTotal, setVendorTotal] = useState(0);
   const findId = useId();
   useEffect(() => {
@@ -288,6 +288,10 @@ export function BillDialog({ setup, bill, onClose, onSaved }: { setup: BooksSetu
         <label className="field" htmlFor={ids.currency}><span>{t('books.col.currency')}</span><CurrencySelect id={ids.currency} value={draft.currency} disabled={moneyLocked} onChange={(value) => set({ currency: value })} /></label>
         <label className="field" htmlFor={ids.net}><span>{t('books.bills.net')}</span><input id={ids.net} inputMode="decimal" value={draft.subtotal} disabled={moneyLocked} onChange={(event) => set({ subtotal: event.target.value })} /></label>
         <label className="field" htmlFor={ids.tax}><span>{t('books.bills.tax')}</span><input id={ids.tax} inputMode="decimal" value={draft.tax} disabled={moneyLocked} onChange={(event) => set({ tax: event.target.value })} /></label>
+        <label className="field" htmlFor={ids.taxCode}><span>{t('tax.code.label')}</span><select id={ids.taxCode} value={draft.tax_code ?? ''} aria-describedby={`${ids.taxCode}-help`}
+          onChange={(event) => set({ tax_code: event.target.value as BillDraft['tax_code'] })}><option value="">{t('tax.code.unknown')}</option>
+          {TAX_CODES.map((code) => <option key={code} value={code}>{label(`tax.code.${code}`)}</option>)}</select>
+          <small id={`${ids.taxCode}-help`} className="muted">{t('tax.code.help')}</small></label>
         <p className="bkTotal" aria-live="polite">{t('books.bills.total', { amount: total ? money(total, draft.currency) : '-' })}</p>
       </div>
       {moneyLocked && <p className="muted bzHint">{t('books.bills.moneyLocked')}</p>}

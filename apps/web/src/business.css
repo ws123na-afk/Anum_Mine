@@ -174,7 +174,8 @@
 .invAddress { margin: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
 .invParty { color: var(--d-muted); font-size: var(--text-xs); margin: 0 0 var(--d-s1); }
 .bzSpanAll { grid-column: 1 / -1; }
-@media (min-width: 640px) { .invLineRow { grid-template-columns: minmax(0, 3fr) minmax(0, 1.4fr) minmax(0, .8fr) minmax(0, 1.1fr) minmax(0, .9fr) 40px; } }
+@media (min-width: 640px) { .invLineRow { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (min-width: 1200px) { .invLineRow { grid-template-columns: minmax(0, 3fr) minmax(0, 1.4fr) minmax(0, .8fr) minmax(0, 1.1fr) minmax(0, .9fr) minmax(0, 1.5fr) 40px; } }
 .invAccess > li { display: grid; gap: 2px; }
 /* The global input rule makes inputs full width; a checkbox keeps its own size. */
 .bzCheck input[type="checkbox"] { accent-color: var(--d-violet); flex: none; height: 18px; margin: 0; min-height: 0; padding: 0; width: 18px; }
@@ -229,3 +230,4 @@
 @media (max-width: 640px) {
   .invTile { border-inline-start: 0; padding-inline: 0; }
 }
+.invLineCode { margin: 0 0 var(--d-s2); max-inline-size: 22rem; }

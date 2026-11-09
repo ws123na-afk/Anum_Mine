@@ -93,6 +93,7 @@
 .finSafeFigure { align-items: baseline; display: flex; flex-wrap: wrap; gap: var(--d-s1) var(--d-s3); margin: 0; }
 .finSafeFigure > strong { font-size: var(--text-fluid-figure-lg); font-variant-numeric: tabular-nums; }
 .finSafeFigure > .muted { font-size: var(--text-sm); }
+.finSafeFigure > .finSafeAhead, .finSafeFigure > .finShort:not(strong) { flex-basis: 100%; font-size: var(--text-sm); }
 .finSafeCurrency .finSafeFigure { display: grid; gap: 2px; }
 .finShort .finMoney { color: var(--d-warn); }
 .finSafeIntro { margin: 0; }

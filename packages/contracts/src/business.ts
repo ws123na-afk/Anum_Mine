@@ -1,6 +1,7 @@
 // Wire shapes of /api/v1/business (services/api/anum_api/business, docs/business.md), snake_case as
 // the API sends them. Money is a number with two decimals in the record's currency. Values marked as
 // assumptions (an opportunity's value and probability, a version's cost) are the owner's estimates.
+import type { SalesTaxCode } from './businessTax.js';
 
 export type BusinessCurrency = 'SAR' | 'AED' | 'USD';
 export type ProductKind = 'product' | 'service_package';
@@ -354,6 +355,8 @@ export interface BillingProfile {
 export interface InvoiceLine {
   description: string; kind: LineKind; quantity: number; unit_price: number; tax_rate_pct: number; source: InvoiceLineSource; source_id: string | null;
   gross_total: number | null;
+  /** docs/business-tax.md#tax-codes: with a code the rate comes from the business's rate table; null before tax codes. */
+  tax_code?: SalesTaxCode | null;
   /** Worked out by the server. */
   net: number; tax: number; total: number;
 }
@@ -465,7 +468,7 @@ export interface Billable {
   offers: BillableOffer[];
 }
 
-export interface ManualInvoiceLine { description: string; kind?: LineKind; quantity?: number; unit_price: number; tax_rate_pct?: number | null }
+export interface ManualInvoiceLine { description: string; kind?: LineKind; quantity?: number; unit_price: number; tax_rate_pct?: number | null; tax_code?: SalesTaxCode | null }
 export interface InvoiceFields {
   due_in_days?: number | null; customer_reference?: string | null; notes?: string | null; payment_terms?: string | null;
   bill_to_name?: string | null; bill_to_address?: string | null; bill_to_email?: string | null; bill_to_tax_number?: string | null;
@@ -475,7 +478,11 @@ export interface InvoiceCreate extends InvoiceFields {
   milestone_ids?: string[]; contract_amount?: number; usage_ids?: string[]; usage_markup_pct?: number;
   offer_id?: string; offer_quantity?: number; offer_unit_price?: number; lines?: ManualInvoiceLine[]; tax_rate_pct?: number;
 }
-export interface InvoiceUpdate extends InvoiceFields { lines?: ManualInvoiceLine[]; remove_lines?: number[]; tax_rate_pct?: number }
+export interface InvoiceUpdate extends InvoiceFields {
+  lines?: ManualInvoiceLine[]; remove_lines?: number[]; tax_rate_pct?: number;
+  /** The tax code of every line after the edit, by position (docs/business-tax.md#tax-codes). */
+  tax_codes?: (SalesTaxCode | null)[];
+}
 export interface PaymentInput { amount: number; paid_on: string; method?: PaymentMethod; reference?: string; note?: string }
 export interface CreditNoteInput { amount: number; reason: string }
 

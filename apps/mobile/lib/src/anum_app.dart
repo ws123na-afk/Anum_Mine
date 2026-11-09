@@ -414,9 +414,19 @@ class _AnumAppState extends State<AnumApp> {
       await loading;
     };
     // A loan reminder (kind `finance_loan_due`, in-app only) opens Finance,
-    // Lent and borrowed (docs/finance.md#lent-and-borrowed).
+    // Debts, where Lent and borrowed is (docs/finance.md#lent-and-borrowed).
     NotificationsScreen.openers['finance_loan_due'] = (context) async {
-      final loading = finance.select(FinanceSection.people);
+      final loading = finance.select(FinanceSection.debts);
+      await Navigator.push(
+          context,
+          MaterialPageRoute<void>(
+              builder: (_) => FinanceScreen(controller: finance)));
+      await loading;
+    };
+    // The unresolved-suggestions notice opens Finance, Suggestions
+    // (docs/finance.md#suggestions).
+    NotificationsScreen.openers['finance_suggestions'] = (context) async {
+      final loading = finance.select(FinanceSection.suggestions);
       await Navigator.push(
           context,
           MaterialPageRoute<void>(

@@ -46,6 +46,9 @@ class PlanContext:
     late_fees: dict[str, tuple[Decimal, int]] = field(default_factory=dict)  # currency: (late fees, count) in 400 days
     salary_profile: P.SalaryProfile | None = None
     payslips: list[P.Payslip] = field(default_factory=list)
+    # The provider statements' installments and the links (bill matches, debt payments), for the forecast.
+    installments: list = field(default_factory=list)
+    links: obligations.Links | None = None
 
 
 _LATE = re.compile(r"(?<![\w])(late|overdue|penalty|غرامة|تأخير)(?![\w])", re.IGNORECASE)
@@ -84,6 +87,7 @@ def load(context: TenantContext, *, now: datetime | None = None) -> PlanContext:
         bills=inputs.bills, debts=inputs.debts, goals=goals, commitments=counted, skipped=skipped, remittances=remittances,
         safe={c.currency: c.safe_to_spend for c in safe.currencies}, fx_fees=fx, late_fees=late,
         salary_profile=links.salary_profile if isinstance(links.salary_profile, P.SalaryProfile) else None, payslips=links.payslips,
+        installments=list(planning.installment_entries), links=links,
     )
 
 

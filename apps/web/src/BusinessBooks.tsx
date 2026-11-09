@@ -13,8 +13,8 @@ import type {
 import { BOOKS_ADJUSTMENT_KINDS, BOOKS_BILL_FILTERS } from '@anum/contracts';
 import * as api from './lib/businessBooksApi';
 import {
-  BOOKS_PAGE, BOOKS_TABS, OWNER_TABS, PERIOD_PRESETS, adjustmentLabel, basisLabel, billFilterLabel, booksTabFromId, booksTabLabel, isNegative, lineLabel, money,
-  moneyList, paymentStateLabel, paymentStateTone, pct, presetPeriod, reportIsEmpty, sectionLabel, statementRows, type BooksTab, type PeriodPreset,
+  BOOKS_PAGE, BOOKS_TABS, PERIOD_PRESETS, adjustmentLabel, basisLabel, billFilterLabel, booksTabFromId, booksTabLabel, isNegative, lineLabel, money,
+  moneyList, paymentStateLabel, paymentStateTone, pct, presetPeriod, reportIsEmpty, sectionLabel, statementRows, tabShown, type BooksTab, type PeriodPreset,
 } from './lib/businessBooks';
 import { describeError, isPermissionDenied } from './lib/errors';
 import { t, type MessageKey } from './lib/i18n';
@@ -30,6 +30,9 @@ import {
 } from './BusinessBooksForms';
 import { GroupSection, RateFeedCard, Recurring, Upcoming } from './BusinessBooksMore';
 import { AccountantsCard, AccountsSection, CloseSection, EvidenceWarning, LedgerSection, StatementsSection } from './BusinessBooksLedger';
+import { ReviewBanner, ReviewSection } from './BusinessBooksReview';
+import { TaxSection } from './BusinessBooksTax';
+import { AssetsSection, GroupBalanceSheetCard, LoansSection, RevaluationSection } from './BusinessBooksAssets';
 import './businessBooks.css';
 
 type SetupLoad = { kind: 'loading' } | { kind: 'ready'; setup: BooksSetup } | { kind: 'denied'; text: string } | { kind: 'error'; text: string };
@@ -52,7 +55,7 @@ export function BooksTab({ section, onSection, crumbs }: { section: string | nul
   // The page head of Expenses and P&L (docs/business-books.md#overview-dashboard): its own title, the primary action and the sections.
   const head = <FinancePageHead title={t('books.page.title')} subtitle={t('books.page.subtitle')} crumbs={crumbs}
     actions={ready && write ? <button type="button" onClick={() => setRecording(true)}><Plus aria-hidden="true" />{t('books.page.record')}</button> : undefined}
-    tabs={load.kind === 'ready' ? <nav className="finTabs bkNav" aria-label={t('books.sections')}>{BOOKS_TABS.filter((item) => load.setup.permissions.manage || !OWNER_TABS.includes(item)).map((item) =>
+    tabs={load.kind === 'ready' ? <nav className="finTabs bkNav" aria-label={t('books.sections')}>{BOOKS_TABS.filter((item) => tabShown(item, load.setup.permissions)).map((item) =>
       <button key={item} type="button" aria-current={tab === item ? 'page' : undefined} onClick={() => onSection(item)}>{booksTabLabel(item)}</button>)}</nav> : undefined} />;
   if (load.kind === 'loading') return <section className="bkPage opsPage">{head}<Note>{t('books.loading')}</Note></section>;
   if (load.kind === 'denied') return <section className="bkPage opsPage">{head}<Denied text={load.text} /></section>;
@@ -65,7 +68,9 @@ export function BooksTab({ section, onSection, crumbs }: { section: string | nul
     {!ready && tab !== 'settings' && <Empty title={t('books.setupTitle')} text={setup.permissions.manage ? t('books.setupText') : t('books.setupMember')}
       action={setup.permissions.manage ? <button type="button" onClick={() => onSection('settings')}>{t('books.setupAction')}</button> : undefined} />}
     {ready && tab === 'overview' && <Overview key={tick} setup={setup} onSection={onSection} />}
-    {ready && tab === 'group' && (setup.permissions.manage ? <GroupSection setup={setup} /> : <Denied text={t('books.group.ownersOnly')} />)}
+    {ready && tab === 'review' && <ReviewSection setup={setup} onSection={onSection} />}
+    {ready && tab === 'group' && (setup.permissions.manage ? <><GroupSection setup={setup} /><GroupBalanceSheetCard base={setup.settings!.base_currency} /></>
+      : <Denied text={t('books.group.ownersOnly')} />)}
     {ready && tab === 'bills' && <Bills key={tick} setup={setup} />}
     {ready && tab === 'recurring' && <Recurring setup={setup} />}
     {ready && tab === 'vendors' && <Vendors setup={setup} />}
@@ -76,6 +81,10 @@ export function BooksTab({ section, onSection, crumbs }: { section: string | nul
     {ready && tab === 'statements' && <><StatementsSection setup={setup} onSection={(next) => onSection(booksTabFromId(next))} /><EvidencePackCard setup={setup} /></>}
     {ready && tab === 'accounts' && <AccountsSection setup={setup} />}
     {ready && tab === 'close' && <CloseSection setup={setup} onSection={(next) => onSection(booksTabFromId(next))} />}
+    {ready && tab === 'tax' && <TaxSection setup={setup} />}
+    {ready && tab === 'assets' && <div className="bkAssets"><AssetsSection setup={setup} /></div>}
+    {ready && tab === 'loans' && <div className="bkLoans"><LoansSection setup={setup} /></div>}
+    {ready && tab === 'revaluation' && <RevaluationSection onSection={(next) => onSection(booksTabFromId(next))} />}
     {ready && tab === 'intercompany' && <Intercompany setup={setup} />}
     {tab === 'settings' && <SettingsSection setup={setup} onSaved={() => void reload()} extra={ready ? <><RateFeedCard setup={setup} /><AccountantsCard setup={setup} /></> : null} />}
     {recording && <BillDialog setup={setup} onClose={() => setRecording(false)}
@@ -127,6 +136,7 @@ function Overview({ setup, onSection }: { setup: BooksSetup; onSection: (tab: Bo
     {report.state === 'error' && <Failed text={report.message} onRetry={() => void load()} />}
     {value && reportIsEmpty(value) && <Empty title={t('books.emptyTitle')} text={t('books.emptyText')}
       action={<><button type="button" onClick={() => onSection('bills')}>{t('books.goBills')}</button><button type="button" className="secondary" onClick={() => onSection('allocations')}>{t('books.goAllocations')}</button></>} />}
+    <ReviewBanner setup={setup} onSection={onSection} />
     {value && !reportIsEmpty(value) && <>
       <BooksDashboard report={value} setup={setup} single={singleMonth(period)} onSection={onSection} />
       <h2 className="bkDetailsTitle">{t('books.page.details')}</h2>

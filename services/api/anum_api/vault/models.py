@@ -38,7 +38,7 @@ COUNTRY = re.compile(r"[A-Z]{2}")
 TAG = re.compile(r"[^\x00-\x1f\x7f]{1,40}")
 MAX_TAGS = 12
 LINK_TYPES: tuple[str, ...] = ("vehicle", "person", "business", "purchase", "finance_transaction")
-# Evidence on a business's books (migration 0156_finance_evidence, docs/business-books.md#supporting-documents-and-evidence):
+# Evidence on a business's books (migration 0157_finance_evidence, docs/business-books.md#supporting-documents-and-evidence):
 # made only through the books' evidence routes, which check that the bill, invoice, adjustment or manual entry exists.
 BOOKS_LINK_TYPES: tuple[str, ...] = ("business_bill", "business_invoice", "business_adjustment", "business_journal")
 

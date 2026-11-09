@@ -23,6 +23,8 @@ import { financePagesEn } from './financePages.en.ts';
 import { financeAdvisorEn } from './financeAdvisor.en.ts';
 import { financePersonalEn } from './financePersonal.en.ts';
 import { financeReconEn } from './financeRecon.en.ts';
+import { financeForecastEn } from './financeForecast.en.ts';
+import { booksReviewEn } from './booksReview.en.ts';
 import { financeSuggestionsEn } from './financeSuggestions.en.ts';
 import { financePlanningEn } from './financePlanning.en.ts';
 import { financeRefundsEn } from './financeRefunds.en.ts';
@@ -77,6 +79,8 @@ import { opsEn } from './ops.en.ts';
 import { purchasesEn } from './purchases.en.ts';
 import { businessBooksEn } from './businessBooks.en.ts';
 import { businessLedgerEn } from './businessLedger.en.ts';
+import { businessTaxEn } from './businessTax.en.ts';
+import { businessAssetsEn } from './businessAssets.en.ts';
 import { iphoneEn } from './iphone.en.ts';
 import { asPageEn } from './asPage.en.ts';
 import { vaultEn } from './vault.en.ts';
@@ -145,6 +149,8 @@ export const en = {
   ...financeAdvisorEn,
   ...financePersonalEn,
   ...financeReconEn,
+  ...financeForecastEn,
+  ...booksReviewEn,
   ...financeSuggestionsEn,
   ...financePlanningEn,
   ...financeRefundsEn,
@@ -171,6 +177,8 @@ export const en = {
   ...purchasesEn,
   ...businessBooksEn,
   ...businessLedgerEn,
+  ...businessTaxEn,
+  ...businessAssetsEn,
   ...iphoneEn,
   ...vaultEn,
   ...asPageEn,

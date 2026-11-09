@@ -3,7 +3,7 @@
 A receipt, contract or statement already in the business workspace's **Document vault** is attached to a bill, an
 invoice, a journal adjustment or a manual journal entry as a vault document link (``vault_document_links``, target
 types ``business_bill``, ``business_invoice``, ``business_adjustment`` and ``business_journal``, migration
-``0156_finance_evidence``). There is no second store: the bytes stay the vault's Files object, its access rules and
+``0157_finance_evidence``). There is no second store: the bytes stay the vault's Files object, its access rules and
 its access log apply, and removing the link in the vault removes the evidence here.
 
 * **Who attaches.** ``business:write`` for bills and invoices; an owner or an accountant for adjustments and manual

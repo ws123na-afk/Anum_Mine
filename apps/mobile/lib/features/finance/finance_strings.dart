@@ -11,8 +11,11 @@ class FinanceStrings {
   static FinanceStrings of(BuildContext context) =>
       FinanceStrings(AnumLocalizations.maybeOf(context).isArabic);
 
+  /// The text for [key], or null when neither catalog has it.
+  String? maybe(String key) => (arabic ? _ar : _en)[key] ?? _en[key];
+
   String t(String key, [Map<String, Object> values = const {}]) {
-    var text = (arabic ? _ar : _en)[key] ?? _en[key] ?? key;
+    var text = maybe(key) ?? key;
     values
         .forEach((name, value) => text = text.replaceAll('{$name}', '$value'));
     return text;
@@ -93,9 +96,8 @@ class FinanceStrings {
     'readOnly': 'Read only: ANUM never pays, transfers or trades from here.',
     'section.overview': 'Overview',
     'section.planner': 'Money planner',
-    'section.fixed': 'Fixed costs',
-    'section.people': 'Lent and borrowed',
     'section.transactions': 'Transactions',
+    'section.suggestions': 'Suggestions',
     'section.accounts': 'Accounts',
     'section.bills': 'Bills',
     'section.debts': 'Debts',
@@ -208,6 +210,21 @@ class FinanceStrings {
         'Bills, payments, goals and your buffer are more than you have.',
     'safe.perDay': '{amount} a day for {n} day(s)',
     'safe.howBuilt': 'How it is built',
+    'forecast.expected': 'Expected on {date} (estimate)',
+    'forecast.range': 'Likely between {low} and {high}',
+    'forecast.warn.below_zero': 'Your money may run out on {date}.',
+    'forecast.warn.below_reserve':
+        'Your money may drop below your reserve of {amount} on {date}.',
+    'forecast.warn.may_go_below_zero':
+        'On a busy month your money could go below zero on {date}.',
+    'forecast.failed':
+        'The forecast could not be loaded. Open Safe to spend again to retry.',
+    'forecast.note':
+        'An estimate from your own records, not a promise. Change the reserve on the web, in Finance settings.',
+    'reserve.title': 'Emergency reserve',
+    'reserve.of': '{saved} of {target}',
+    'reserve.progress': 'Emergency reserve: {percent}% of the target',
+    'reserve.covers': 'Covers {months} months of essential spending',
     'safe.buffer': 'Buffer',
     'safe.combined': 'Together in {currency}',
     'safe.notCounted': 'Not counted ({n})',
@@ -224,6 +241,9 @@ class FinanceStrings {
         'Due on day {day}: a payment is matched this month, so paid',
     'safe.note.minimum_overdue':
         'Overdue since {date}: no payment matched yet, so counted',
+    'safe.nextPay': 'Next pay day {date}, in {n} day(s): {amount} expected',
+    'safe.overdue':
+        'Minimum payments overdue: {n}. Still counted until a payment is matched.',
     'safe.note.goal_set': 'The monthly amount you set',
     'safe.note.goal_derived': '{left} left over {n} month(s)',
     'safe.note.goal_no_plan': 'No monthly amount or target date',
@@ -360,9 +380,8 @@ class FinanceStrings {
     'readOnly': 'للقراءة فقط: لا يدفع ANUM ولا يحوّل ولا يتداول من هنا أبدًا.',
     'section.overview': 'نظرة عامة',
     'section.planner': 'مخطط المال',
-    'section.fixed': 'التكاليف الثابتة',
-    'section.people': 'الإقراض والاقتراض',
     'section.transactions': 'المعاملات',
+    'section.suggestions': 'الاقتراحات',
     'section.accounts': 'الحسابات',
     'section.bills': 'الفواتير',
     'section.debts': 'الديون',
@@ -472,6 +491,20 @@ class FinanceStrings {
     'safe.shortHint': 'الفواتير والدفعات والأهداف والاحتياطي أكثر مما لديك.',
     'safe.perDay': '{amount} في اليوم، الأيام المتبقية {n}',
     'safe.howBuilt': 'كيف حُسب',
+    'forecast.expected': 'المتوقع في {date} (تقدير)',
+    'forecast.range': 'على الأرجح بين {low} و{high}',
+    'forecast.warn.below_zero': 'قد تنفد أموالك في {date}.',
+    'forecast.warn.below_reserve':
+        'قد تنزل أموالك تحت احتياطيك البالغ {amount} في {date}.',
+    'forecast.warn.may_go_below_zero':
+        'في شهر مزدحم قد ينزل رصيدك تحت الصفر في {date}.',
+    'forecast.failed': 'تعذّر تحميل التوقع. افتح المتاح للصرف مجددًا للمحاولة.',
+    'forecast.note':
+        'تقدير من سجلاتك، وليس وعدًا. غيّر الاحتياطي على الويب في إعدادات المالية.',
+    'reserve.title': 'الاحتياطي الطارئ',
+    'reserve.of': '{saved} من {target}',
+    'reserve.progress': 'الاحتياطي الطارئ: {percent}% من الهدف',
+    'reserve.covers': 'يغطي {months} أشهر من الإنفاق الأساسي',
     'safe.buffer': 'الاحتياطي',
     'safe.combined': 'المجموع بعملة {currency}',
     'safe.notCounted': 'غير محسوب ({n})',
@@ -488,6 +521,8 @@ class FinanceStrings {
         'مستحقة في اليوم {day}: طوبقت معها دفعة هذا الشهر، فهي مدفوعة',
     'safe.note.minimum_overdue':
         'متأخرة منذ {date}: لم تُطابق دفعة بعد، لذا ما زالت محسوبة',
+    'safe.nextPay': 'يوم الصرف التالي {date}، بعد {n} يوم: {amount} متوقع',
+    'safe.overdue': 'دفعات حد أدنى متأخرة: {n}. تبقى محسوبة حتى تُطابق دفعة.',
     'safe.note.goal_set': 'المبلغ الشهري الذي حددته',
     'safe.note.goal_derived': 'بقي {left}، عدد الأشهر {n}',
     'safe.note.goal_no_plan': 'لا مبلغ شهري ولا تاريخ مستهدف',

@@ -201,7 +201,8 @@ def test_rows_are_the_callers_own_and_viewers_are_refused() -> None:
 def test_statement_lines_reconciled_onto_an_sms_payment_count_as_imported_and_matched() -> None:
     card, token = sms_card()
     assert send(token)["status"] == "posted"
-    today = utc_now().date().isoformat()
+    # The bank prints the date in the person's time zone (Asia/Dubai by default), the same calendar the SMS is dated in.
+    today = utc_now().astimezone(ZoneInfo(DEFAULT_TIMEZONE)).date().isoformat()
     made = client.post(f"{API}/imports", headers=OWNER, json={
         "account_id": card["id"], "filename": "card.csv",
         "content": f"Date,Description,Amount\n{today},PETROMIN FUEL,-150.00\n{today},BOOKSHOP NOT ON SMS,-20.00\n"})

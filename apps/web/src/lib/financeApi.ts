@@ -13,7 +13,7 @@ import type {
   FinanceIntelBarsInput, FinanceIntelBarsResult, FinanceIntelCycle, FinanceIntelInstrument, FinanceIntelInstrumentInput, FinanceIntelPhase,
   FinanceIntelRule, FinanceStrategyInput, FinanceDailyReport, FinanceDailyReportItem, FinancePreflight, FinancePreflightInput,
   FinancePdfImportInput, FinancePdfRole, FinancePdfStatement, FinancePdfTemplate, FinanceTransferCandidates, FinanceTransferResult,
-  FinanceAdvisorNotePage, FinanceAdvisorNoteView, FinanceAdvisorOverview, FinanceAdvisorSettings,
+  FinanceAdvisorNotePage, FinanceAdvisorNoteView, FinanceAdvisorOverview, FinanceAdvisorSettings, FinanceForecast, FinanceReserves,
 } from '@anum/contracts';
 import { apiBaseUrl, apiRequest, apiRequestVoid, authHeaders } from './api';
 import { apiErrorFromResponse } from './errors';
@@ -111,6 +111,9 @@ export async function downloadTransactions(q: Omit<TransactionQuery, 'limit' | '
 
 // ---- Stage 3: safe-to-spend ----
 export const getSafeToSpend = () => get<FinanceSafeToSpend>('/safe-to-spend');
+// The cash-flow forecast and the emergency reserve (docs/finance.md#forecast): read only; the reserve is a goal.
+export const getForecast = () => get<FinanceForecast>('/forecast');
+export const getReserve = () => get<FinanceReserves>('/reserve');
 
 // The weekly Money advisor (docs/finance.md#money-advisor). Read-outs only: nothing here moves money.
 export const getAdvisor = () => get<FinanceAdvisorOverview>('/advisor');

@@ -24,6 +24,8 @@ import { financePagesAr } from './financePages.ar.ts';
 import { financeAdvisorAr } from './financeAdvisor.ar.ts';
 import { financePersonalAr } from './financePersonal.ar.ts';
 import { financeReconAr } from './financeRecon.ar.ts';
+import { financeForecastAr } from './financeForecast.ar.ts';
+import { booksReviewAr } from './booksReview.ar.ts';
 import { financeSuggestionsAr } from './financeSuggestions.ar.ts';
 import { financePlanningAr } from './financePlanning.ar.ts';
 import { financeRefundsAr } from './financeRefunds.ar.ts';
@@ -78,6 +80,8 @@ import { opsAr } from './ops.ar.ts';
 import { purchasesAr } from './purchases.ar.ts';
 import { businessBooksAr } from './businessBooks.ar.ts';
 import { businessLedgerAr } from './businessLedger.ar.ts';
+import { businessTaxAr } from './businessTax.ar.ts';
+import { businessAssetsAr } from './businessAssets.ar.ts';
 import { iphoneAr } from './iphone.ar.ts';
 import { asPageAr } from './asPage.ar.ts';
 import { vaultAr } from './vault.ar.ts';
@@ -146,6 +150,8 @@ export const ar: Record<MessageKey, Message> = {
   ...financeAdvisorAr,
   ...financePersonalAr,
   ...financeReconAr,
+  ...financeForecastAr,
+  ...booksReviewAr,
   ...financeSuggestionsAr,
   ...financePlanningAr,
   ...financeRefundsAr,
@@ -172,6 +178,8 @@ export const ar: Record<MessageKey, Message> = {
   ...purchasesAr,
   ...businessBooksAr,
   ...businessLedgerAr,
+  ...businessTaxAr,
+  ...businessAssetsAr,
   ...iphoneAr,
   ...vaultAr,
   ...asPageAr,

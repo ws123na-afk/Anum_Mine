@@ -134,7 +134,7 @@ class FinanceAutomationSettingsRecord(Base, _Owned):
 
 
 class FinanceNoticeClaimRecord(Base, _Owned):
-    """Migration 0156_finance_evidence: one exception notice per person, kind, item and day (docs/finance.md#exception-notices)."""
+    """Migration 0157_finance_evidence: one exception notice per person, kind, item and day (docs/finance.md#exception-notices)."""
 
     __tablename__ = "finance_notice_claims"
 

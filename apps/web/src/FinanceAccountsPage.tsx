@@ -18,7 +18,7 @@ import { formatDateTime, getLocale, intlLocale, t, type MessageKey } from './lib
 import { ConfirmDialog, Modal } from './Dialog';
 import { Denied, Empty, FormActions, FormError, LoadError, Money, Notice, failed, type Load } from './FinanceParts';
 import { FinBanner, FinCard, FinancePageHead, FinanceTabs, KpiCard, KpiRow, StatusChip, tabPanel } from './FinanceShell';
-import { AccountForm, SettingsDialog } from './FinanceView';
+import { AccountForm } from './FinanceView';
 import { CategoryChip, LedgerScope } from './FinanceTransactionsPage';
 import './financeRegister.css';
 
@@ -36,7 +36,6 @@ export function AccountsPage({ accounts, base, onChanged, onOpenTransactions, on
   const [editing, setEditing] = useState<FinanceAccount | 'new' | null>(null);
   const [opening, setOpening] = useState<FinanceAccount | null>(null);
   const [removing, setRemoving] = useState<FinanceAccount | null>(null);
-  const [rulesOpen, setRulesOpen] = useState(false);
   const [notice, setNotice] = useState<{ error?: boolean; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const loadOverview = useCallback(async () => {
@@ -129,7 +128,7 @@ export function AccountsPage({ accounts, base, onChanged, onOpenTransactions, on
           </div>
           <div className="facctSide">
             {selected && tab !== 'sources' && <ReconcileCard account={selected} info={info.get(selected.id)} reviewCount={overview.kind === 'ready' ? overview.value.review_count : 0} onImport={onImport} />}
-            <RulesCard onManage={() => setRulesOpen(true)} />
+            <RulesCard onManage={() => { location.hash = '#finance-settings'; }} />
             {selected && tab !== 'sources' && <ActivityCard account={selected} />}
             <FinBanner icon={<Info />} title={t('facct.important.title')}>{t('facct.important.text')}</FinBanner>
           </div>
@@ -145,7 +144,6 @@ export function AccountsPage({ accounts, base, onChanged, onOpenTransactions, on
     {removing && <ConfirmDialog title={t('finance.accounts.deleteTitle')} confirmLabel={t('finance.delete')} danger busy={busy} onConfirm={() => void confirmRemove()} onCancel={() => setRemoving(null)}>
       <p dir="auto">{t('finance.accounts.deleteText', { name: removing.name, count: removing.transaction_count })}</p>
     </ConfirmDialog>}
-    {rulesOpen && <SettingsDialog onClose={(saved) => { setRulesOpen(false); if (saved) changed(); }} />}
   </div>;
 }
 

@@ -273,6 +273,9 @@ class Goal(_Owned):
     # A paused goal keeps what is saved; nothing is set aside for it until it is resumed.
     paused: bool = False
     purpose: GoalPurpose = GoalPurpose.GENERAL
+    # An emergency reserve sized in months of essential spending (docs/finance.md#emergency-reserve): the months
+    # chosen. None: a fixed amount (``target_amount``). Only an emergency goal carries it.
+    reserve_months: int | None = Field(default=None, ge=1, le=24)
     notes: str | None = None
     created_at: datetime
     updated_at: datetime

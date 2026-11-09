@@ -6,8 +6,8 @@ import type {
 } from '@anum/contracts';
 import { getLocale, intlLocale, t, type Locale, type MessageKey } from './i18n.ts';
 
-export type FinanceTab = 'overview' | 'ledger' | 'safe' | 'advisor' | 'reports' | 'transactions' | 'suggestions' | 'accounts' | 'import' | 'bills' | 'budgets' | 'debts' | 'goals' | 'holdings' | 'guardian' | 'connections' | 'trading' | 'intel' | 'execution' | 'ibkr' | 'research' | 'sms' | 'reconciliation';
-export const FINANCE_TABS: readonly FinanceTab[] = ['overview', 'ledger', 'safe', 'advisor', 'transactions', 'suggestions', 'accounts', 'import', 'bills', 'budgets', 'debts', 'goals', 'reports', 'holdings', 'guardian', 'connections', 'sms', 'reconciliation', 'trading', 'intel', 'execution', 'ibkr', 'research'];
+export type FinanceTab = 'overview' | 'ledger' | 'safe' | 'advisor' | 'reports' | 'transactions' | 'suggestions' | 'accounts' | 'import' | 'bills' | 'budgets' | 'debts' | 'goals' | 'holdings' | 'guardian' | 'connections' | 'trading' | 'intel' | 'execution' | 'ibkr' | 'research' | 'sms' | 'reconciliation' | 'settings';
+export const FINANCE_TABS: readonly FinanceTab[] = ['overview', 'ledger', 'safe', 'advisor', 'transactions', 'suggestions', 'accounts', 'import', 'bills', 'budgets', 'debts', 'goals', 'reports', 'holdings', 'guardian', 'connections', 'sms', 'reconciliation', 'settings', 'trading', 'intel', 'execution', 'ibkr', 'research'];
 
 /**
  * Sections inside a Finance page, each deep-linked as `#finance-<tab>-<section>` (docs/finance.md#finance-shell).

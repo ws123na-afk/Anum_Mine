@@ -15,7 +15,7 @@ import { categoryLabel, formatAmount, isolate } from './lib/finance';
 import { TRANSACTION_TYPES } from './lib/financeRegister';
 import {
   EMPTY_RULE, NEVER_AUTOMATED, NOTICE_KINDS, RULE_CATEGORIES, SUGGESTION_VIEWS, acceptMode, confidencePercent, confidenceTone, fromContent, kindChips,
-  matchSummary, toContent, toggleNotice, variantOf, type RuleForm, type SuggestionsView,
+  matchSummary, suggestionsViewFromHash, toContent, toggleNotice, variantOf, type RuleForm, type SuggestionsView,
 } from './lib/financeSuggestions';
 import { describeError } from './lib/errors';
 import { formatDateTime, t, type MessageKey } from './lib/i18n';
@@ -30,7 +30,7 @@ const when = (value: string) => formatDateTime(value, { day: 'numeric', month: '
 type Flash = { text: string; error?: boolean; undo?: string } | null;
 
 export function SuggestionsPage({ onOpenHash }: { onOpenHash?: (hash: string) => void }) {
-  const [view, setView] = useState<SuggestionsView>('queue');
+  const [view, setView] = useState<SuggestionsView>(() => suggestionsViewFromHash(typeof location === 'undefined' ? '' : location.hash));
   const [ruleSeed, setRuleSeed] = useState(0);
   return <div className="fsugPage">
     <FinancePageHead title={t('fsug.title')} subtitle={t('fsug.subtitle')} icon={<ListChecks />}
@@ -80,6 +80,10 @@ function headText(item: FinanceSuggestion): string {
   if (item.kind === 'reconciliation') return t('fsug.head.reconciliation', { account: p.account ?? '', exception: t(`frec.kind.${p.exception}` as MessageKey) });
   const vars: Record<string, string | number> = { ...p, category: p.category ? categoryLabel(p.category as FinanceCategory) : '', current: p.current ? categoryLabel(p.current as FinanceCategory) : '' };
   if (item.kind === 'bill_due') vars.count = Number(p.days ?? 0);
+  // The forecast's shortage (docs/finance.md#forecast) names the day it expects the balance to go below zero or the reserve.
+  if (item.kind === 'cash_shortage' && (p.reason === 'below_zero' || p.reason === 'below_reserve')) {
+    return t(`fsug.head.cash_shortage.${p.reason}` as MessageKey, { currency: p.currency ?? '', date: isolate(p.date ?? '') });
+  }
   const variant = variantOf(item);
   if (item.kind === 'attribution' || item.kind === 'fx_fee') return t(`fsug.head.${item.kind}.${variant}` as MessageKey, vars);
   return t(`fsug.head.${item.kind}` as MessageKey, vars);
@@ -93,6 +97,9 @@ function whyText(item: FinanceSuggestion): string {
     return t(p.severity === 'blocking' ? 'fsug.why.reconciliation.blocking' : 'fsug.why.reconciliation.warning', { start: p.start ?? '', end: p.end ?? '' });
   }
   const p = item.params ?? {};
+  if (item.kind === 'cash_shortage' && (p.reason === 'below_zero' || p.reason === 'below_reserve')) {
+    return t(`fsug.why.cash_shortage.${p.reason}` as MessageKey, { amount: isolate(formatAmount(p.threshold ?? '0', p.currency ?? 'AED')) });
+  }
   const vars = { ...p, category: p.category ? categoryLabel(p.category as FinanceCategory) : '', current: p.current ? categoryLabel(p.current as FinanceCategory) : '',
     treatment: p.treatment ? t(`fsug.treatment.${p.treatment}` as MessageKey) : '' };
   const variant = variantOf(item);

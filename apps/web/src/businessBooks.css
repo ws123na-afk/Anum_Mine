@@ -55,6 +55,31 @@
 .bkFacts dd { font-weight: 600; margin: 0; }
 .bkInlineIcon { block-size: 1em; inline-size: 1em; vertical-align: -0.125em; }
 @media (max-width: 560px) { .bkManualRow { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } .bkManualRow .field:first-child { grid-column: 1 / -1; } }
+/* Accountant review (docs/business-books.md#accountant-review). */
+.bkReviewBanner h2 { align-items: center; display: flex; gap: var(--d-s2); }
+.bkReviewBanner h2 svg { height: 20px; width: 20px; }
+.bkReviewList { display: grid; gap: var(--d-s2); list-style: none; margin: var(--d-s3) 0 0; padding: 0; }
+.bkReviewList > li { align-items: center; border-bottom: 1px solid var(--d-line); display: flex; flex-wrap: wrap; gap: var(--d-s2) var(--d-s4); justify-content: space-between; min-width: 0; padding-block: var(--d-s2); }
+.bkReviewMain { display: grid; flex: 1 1 320px; gap: 2px; min-width: 0; overflow-wrap: anywhere; }
+.bkReviewHead { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); }
+.bkMoney { font-variant-numeric: tabular-nums; }
+/* Business tax (docs/business-tax.md): the section switch, the not-verified notice, the return boxes and the e-invoice cells. */
+.taxParts { margin-block-end: var(--d-s1); }
+.taxNotice { border-inline-start: 3px solid var(--d-warn, var(--d-accent)); }
+.taxStatus { align-items: center; flex-wrap: wrap; gap: var(--d-s2); }
+.taxBoxes .num { font-variant-numeric: tabular-nums; text-align: end; }
+.taxBoxes .bk-group th { color: var(--d-muted); font-size: var(--text-sm); font-weight: 600; text-align: start; }
+.taxDoc { align-items: center; flex-wrap: wrap; gap: var(--d-s1) var(--d-s2); }
+.taxDoc small { overflow-wrap: anywhere; }
+.taxZatcaFields { border-top: 1px solid var(--d-line); padding-block-start: var(--d-s3); }
+.taxZatcaFields legend { float: inline-start; inline-size: 100%; margin-block-end: var(--d-s2); }
+.taxMissing { columns: 2 16rem; }
+/* Fixed assets, loans, revaluation and the group balance sheet (docs/business-books.md#fixed-asset-register). */
+.bkProgress { background: var(--d-line); block-size: 4px; border-radius: 2px; inline-size: 100%; margin-block-start: var(--d-s1); min-inline-size: 4rem; overflow: hidden; }
+.bkProgress span { background: var(--d-accent); block-size: 100%; display: block; }
+.bkAssets .bkList small, .bkLoans .bkList small { color: var(--d-muted); display: block; font-size: var(--text-xs); }
+.groupBs .bzInline { flex-wrap: wrap; gap: var(--d-s2); }
+.drawerBody .bzCard { margin-block: var(--d-s3); }
 
 /* Supporting documents (docs/business-books.md#supporting-documents-and-evidence). */
 .bkEvidence h3 { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s1); }

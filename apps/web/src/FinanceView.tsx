@@ -68,6 +68,8 @@ const SuggestionsPage = lazy(() => import('./FinanceSuggestions').then((m) => ({
 const ConnectionsPage = lazy(() => import('./FinanceConnections').then((m) => ({ default: m.ConnectionsPage })));
 // Reconciliation and connection health (docs/finance.md#reconciliation-sessions), its own lazy chunk.
 const ReconciliationPage = lazy(() => import('./FinanceReconciliation').then((m) => ({ default: m.ReconciliationPage })));
+// Finance settings (docs/finance.md#finance-settings): currency, time zone, keyword rules, buffer, reserve and links.
+const SettingsPage = lazy(() => import('./FinanceSettingsPage').then((m) => ({ default: m.FinanceSettingsPage })));
 const KINDS: FinanceAccountKind[] = ['bank', 'card', 'cash', 'loan', 'investment'];
 const CATEGORIES: FinanceCategory[] = [
   'groceries', 'dining', 'food', 'room_rent', 'transport', 'fuel', 'utilities', 'telecom', 'housing', 'shopping', 'health', 'education', 'entertainment',
@@ -112,7 +114,6 @@ export function FinanceView() {
   const [month, setMonth] = useState<string | null>(null);
   const [summary, setSummary] = useState<Load<FinanceSummary>>({ kind: 'loading' });
   const [accounts, setAccounts] = useState<Load<FinanceAccount[]>>({ kind: 'loading' });
-  const [settingsOpen, setSettingsOpen] = useState(false);
   // Accounts hands an account (and optionally the Imports tab) to Transactions and ledger.
   const [txOpen, setTxOpen] = useState<{ accountId?: string; tab?: 'imports'; key: number }>({ key: 0 });
   const loadSummary = useCallback(async () => {
@@ -148,6 +149,7 @@ export function FinanceView() {
         {tab === 'guardian' && <GuardianPage base={summary.kind === 'ready' ? summary.value.base_currency : 'AED'} onOpen={pick} />}
         {(tab === 'connections' || tab === 'sms') && <ConnectionsPage from={tab} onOpen={pick} />}
         {tab === 'reconciliation' && <ReconciliationPage onOpen={pick} />}
+        {tab === 'settings' && <SettingsPage onOpen={pick} />}
       </Suspense>
     </div>;
   }
@@ -155,15 +157,14 @@ export function FinanceView() {
   // The overview draws its own head, scope and period (docs/finance.md#finance-overview), in every load state.
   if (tab === 'overview') return <>
     <FinanceOverviewPage summary={summary} accounts={accounts} month={month} onMonth={setMonth} onOpen={pick} onRetry={refresh}
-      onSettings={() => setSettingsOpen(true)} onImport={() => pick('import')} onAddAccount={() => pick('accounts')}
+      onSettings={() => pick('settings')} onImport={() => pick('import')} onAddAccount={() => pick('accounts')}
       accountsError={accounts.kind === 'error' ? <LoadError message={t('finance.error.accounts', { message: accounts.message })} retry={() => void loadAccounts()} /> : null} />
-    {settingsOpen && <SettingsDialog onClose={(saved) => { setSettingsOpen(false); if (saved) refresh(); }} />}
   </>;
 
   const crumbs: Crumb[] = [{ label: viewLabel('home'), href: '#home' }, { label: viewLabel('finance'), href: '#finance', onClick: () => pick('overview') }];
   crumbs.push({ label: t(`finance.tab.${tab}` as MessageKey) });
   const header = <PageHeader title={viewLabel('finance')} subtitle={t('finance.subtitle')} crumbs={crumbs} actions={summary.kind === 'ready' ? <>
-    <button type="button" className="secondary" onClick={() => setSettingsOpen(true)}><Settings2 aria-hidden="true" />{t('finance.settings.open')}</button>
+    <button type="button" className="secondary" onClick={() => pick('settings')}><Settings2 aria-hidden="true" />{t('finance.settings.open')}</button>
     {tab !== 'import' && <button type="button" onClick={() => pick('import')}><FileUp aria-hidden="true" />{t('finance.import.open')}</button>}
   </> : undefined} />;
 
@@ -205,7 +206,6 @@ export function FinanceView() {
     {tab === 'import' && <Import accounts={accountList} onChanged={onChanged} onAddAccount={() => pick('accounts')} onDone={() => pick('transactions')} />}
     {(tab === 'bills' || tab === 'budgets') && <Suspense fallback={planning}><BillsBudgetsPage key={`${tab}-${section ?? ''}`} initial={section === 'fixed' ? 'fixed' : tab} accounts={accountList} base={base} today={s.today} onOpen={pick} onChanged={onChanged} /></Suspense>}
     {(tab === 'debts' || tab === 'goals') && <Suspense fallback={planning}><DebtsGoalsPage key={`${tab}-${section ?? ''}`} initial={section === 'people' || section === 'send-home' ? section : tab} accounts={accountList} base={base} today={s.today} onOpen={pick} onChanged={onChanged} /></Suspense>}
-    {settingsOpen && <SettingsDialog onClose={(saved) => { setSettingsOpen(false); if (saved) refresh(); }} />}
   </div>;
 }
 
@@ -459,42 +459,4 @@ export function Import({ accounts, onChanged, onAddAccount, onDone }: { accounts
 // ---- Bills, debts, goals, holdings ------------------------------------------------------------
 
 /** Shared list frame for the four record kinds: load, empty with a next action, error, add, edit, delete. */
-// ---- Settings --------------------------------------------------------------------------------
-
-export function SettingsDialog({ onClose }: { onClose: (saved: boolean) => void }) {
-  const [state, setState] = useState<Load<FinanceSettings>>({ kind: 'loading' });
-  const [currency, setCurrency] = useState('AED'), [zone, setZone] = useState('Asia/Dubai'), [rules, setRules] = useState<{ match: string; category: FinanceCategory }[]>([]);
-  const [error, setError] = useState<string | null>(null), [busy, setBusy] = useState(false);
-  const errorId = useId();
-  useEffect(() => { void api.getSettings().then((value) => { setState({ kind: 'ready', value }); setCurrency(value.base_currency); setZone(value.timezone); setRules(value.category_rules); }).catch((e) => setState(failed(e))); }, []);
-  async function submit(event: FormEvent) {
-    event.preventDefault();
-    if (!/^[A-Za-z]{3}$/.test(currency)) { setError(t('finance.error.currency')); return; }
-    const kept = rules.filter((r) => r.match.trim());
-    if (kept.some((r) => r.match.trim().length < 2)) { setError(t('finance.error.rule')); return; }
-    setBusy(true); setError(null);
-    try { await api.saveSettings({ base_currency: currency.toUpperCase(), timezone: zone.trim(), category_rules: kept.map((r) => ({ match: r.match.trim(), category: r.category })) }); onClose(true); }
-    catch (e) { setError(describeError(e)); } finally { setBusy(false); }
-  }
-  return <Modal title={t('finance.settings.title')} className="formDialog" onClose={() => onClose(false)}>
-    {state.kind === 'loading' && <Notice busy>{t('finance.loading')}</Notice>}
-    {(state.kind === 'error' || state.kind === 'denied') && <Notice error>{state.message}</Notice>}
-    {state.kind === 'ready' && <form className="finForm" onSubmit={(e) => void submit(e)} aria-describedby={error ? errorId : undefined}>
-      <div className="cmFormGrid">
-        <label className="field"><span>{t('finance.settings.currency')}</span><input value={currency} onChange={(e) => setCurrency(e.target.value.toUpperCase().slice(0, 3))} maxLength={3} dir="ltr" required /></label>
-        <label className="field"><span>{t('finance.settings.timezone')}</span><input value={zone} onChange={(e) => setZone(e.target.value)} maxLength={64} dir="ltr" required /></label>
-      </div>
-      <fieldset className="finMapping"><legend>{t('finance.settings.rules')}</legend>
-        <p className="muted">{t('finance.settings.rulesText')}</p>
-        {rules.map((rule, index) => <div key={index} className="cmFilters">
-          <label className="cmInline cmSearch"><span>{t('finance.settings.match')}</span><input value={rule.match} onChange={(e) => setRules(rules.map((r, i) => i === index ? { ...r, match: e.target.value } : r))} maxLength={80} dir="auto" /></label>
-          <label className="cmInline"><span>{t('finance.col.category')}</span><select value={rule.category} onChange={(e) => setRules(rules.map((r, i) => i === index ? { ...r, category: e.target.value as FinanceCategory } : r))}>{CATEGORIES.map((c) => <option key={c} value={c}>{categoryLabel(c)}</option>)}</select></label>
-          <button type="button" className="iconButton" onClick={() => setRules(rules.filter((_, i) => i !== index))} aria-label={t('finance.settings.removeRule', { match: rule.match || String(index + 1) })}><Trash2 aria-hidden="true" /></button>
-        </div>)}
-        <button type="button" className="secondary" disabled={rules.length >= 100} onClick={() => setRules([...rules, { match: '', category: 'other' }])}><Plus aria-hidden="true" />{t('finance.settings.addRule')}</button>
-      </fieldset>
-      <FormError id={errorId} text={error} />
-      <FormActions busy={busy} onCancel={() => onClose(false)} />
-    </form>}
-  </Modal>;
-}
+// ---- Settings: a page of its own since the forecast release (FinanceSettingsPage.tsx, #finance-settings). ----

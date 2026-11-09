@@ -222,7 +222,11 @@ def test_every_purged_table_is_covered_by_the_purge_migration() -> None:
             **{name: "0147_finance_personal_money" for name in ("finance_person_loans", "finance_payslips", "finance_remittances")},
             "finance_salary_profiles": "0150_finance_salary_profile",
             **{name: "0153_finance_reconciliation" for name in ("finance_reconciliations", "finance_reconciliation_items")},
-            "finance_notice_claims": "0156_finance_evidence",
+            **{name: "0154_business_tax" for name in (
+                "business_tax_settings", "business_tax_rates", "business_zatca_chains", "business_zatca_documents")},
+            **{name: "0155_books_assets_fx" for name in (
+                "business_book_assets", "business_book_asset_impairments", "business_book_loans", "business_book_loan_repayments")},
+            "finance_notice_claims": "0157_finance_evidence",
             **{name: "0152_finance_rules_learning" for name in (
                 "finance_rules", "finance_merchant_aliases", "finance_subcategories", "finance_suggestion_decisions", "finance_rule_batches",
                 "finance_automation_settings")},

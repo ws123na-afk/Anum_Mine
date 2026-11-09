@@ -13,19 +13,19 @@ docs/business-books.md#supporting-documents-and-evidence, docs/finance.md#except
   ``0153``: ``tenant_isolation_<table>``, a restrictive ``owner_only_<table>`` policy (also admitting the tenant
   purge role, which can only delete) and ``lifecycle_purge_<table>``. No grant to a maintenance role.
 
-Chained after ``0153_finance_reconciliation``; parallel branches may take 0154 and 0155 (renumbered at merge).
+Chained after ``0156_finance_reserve``.
 
 Expand only. The previous release ignores the new column and table; it would fail to load a vault link of a new
 type, so roll back only before a business document is attached (or delete those links first). Rollback:
-``alembic downgrade 0153_finance_reconciliation`` restores the narrower check (after deleting rows of the new
+``alembic downgrade 0156_finance_reserve`` restores the narrower check (after deleting rows of the new
 types), drops the column and the table (only for an empty test workspace; production restores a backup).
 """
 
 import sqlalchemy as sa
 from alembic import op
 
-revision = "0156_finance_evidence"
-down_revision = "0153_finance_reconciliation"
+revision = "0157_finance_evidence"
+down_revision = "0156_finance_reserve"
 branch_labels = None
 depends_on = None
 

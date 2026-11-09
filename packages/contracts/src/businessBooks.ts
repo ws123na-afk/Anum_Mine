@@ -3,6 +3,7 @@
 // costs are vendor bills and the allocation rows members made from their own Finance ledger. Nothing here
 // posts money. Amounts are exact decimal strings in their own currency; figures in the base currency are
 // converted only with a dated rate whose source is listed, else they stay apart as "not converted".
+import type { TaxCode } from './businessTax.js';
 
 export type BooksSection = 'cost_of_sales' | 'operating_expense' | 'capital';
 export type BooksTagSection = BooksSection | 'excluded';
@@ -166,6 +167,10 @@ export interface BooksBill {
   project_id: string | null;
   recurrence: BooksRecurrence | null;
   useful_life_months: number | null;
+  /** docs/business-tax.md#tax-codes; null for a bill recorded before tax codes ("unknown" in the VAT return). */
+  tax_code?: TaxCode | null;
+  /** VAT the business accounts for itself on a reverse-charge purchase. */
+  reverse_charge_tax?: string;
   status: 'open' | 'void' | 'draft';
   version: number;
   created_by: string;
@@ -206,6 +211,7 @@ export interface BooksBillInput {
   project_id: string | null;
   recurrence: BooksRecurrence | null;
   useful_life_months: number | null;
+  tax_code?: TaxCode | null;
 }
 
 export interface BooksPaymentInput {
@@ -670,9 +676,11 @@ export const LEDGER_SUBTYPES: LedgerSubtype[] = [
   'finance_cost', 'fx',
 ];
 export type LedgerSourceKind =
-  | 'invoice' | 'credit_note' | 'invoice_payment' | 'bill' | 'bill_payment' | 'allocation' | 'adjustment' | 'intercompany' | 'manual' | 'closing';
+  | 'invoice' | 'credit_note' | 'invoice_payment' | 'bill' | 'bill_payment' | 'allocation' | 'adjustment' | 'intercompany' | 'manual' | 'closing'
+  | 'asset' | 'loan' | 'loan_repayment' | 'revaluation';
 export const LEDGER_SOURCE_KINDS: LedgerSourceKind[] = [
   'invoice', 'credit_note', 'invoice_payment', 'bill', 'bill_payment', 'allocation', 'adjustment', 'intercompany', 'manual', 'closing',
+  'asset', 'loan', 'loan_repayment', 'revaluation',
 ];
 
 export interface LedgerAccount {
@@ -765,8 +773,9 @@ export interface LedgerIssue {
   source_kind: LedgerSourceKind;
   source_id: string | null;
   event_date: string;
-  /** ``missing_rate``: no exchange rate for that currency and day (ANUM never guesses one); ``too_small``. */
-  reason: 'missing_rate' | 'too_small';
+  /** ``missing_rate``: no exchange rate for that currency and day (ANUM never guesses one); ``too_small``;
+   * ``missing_closing_rate``: no rate on a month end, so that currency is not revalued (docs/business-books.md#period-end-revaluation). */
+  reason: 'missing_rate' | 'too_small' | 'missing_closing_rate';
   currency: string | null;
   rate_date: string | null;
   description: string;
@@ -893,7 +902,9 @@ export interface LedgerStatements {
   balance_sheet: LedgerBalanceSheet;
   pnl: LedgerPnl;
   /** The journal's P&L next to the P&L derived from the records (accrual), line by line. */
-  reconciliation: { rows: { key: string; journal: string; derived: string; difference: string }[]; agrees: boolean; to: string } | null;
+  reconciliation: { rows: { key: string; journal: string; derived: string; difference: string; explained?: boolean }[]; agrees: boolean; to: string } | null;
+  /** Unrealised exchange differences of the period-end revaluation in the period (only in the journal). */
+  unrealised_fx?: string;
   equity: { currency: string; rows: { key: string; capital: string; drawings: string; retained_earnings: string; result: string; total: string }[];
     balanced: boolean };
   cash_flow: { by_currency: { currency: string; opening: string; operating: LedgerCashActivity; investing: LedgerCashActivity;
@@ -931,6 +942,56 @@ export interface LedgerAccountant {
   user_id: string;
   added_by: string;
   added_at: string;
+}
+
+// ---- Accountant review (docs/business-books.md#accountant-review) ------------------------------------------------
+
+export type BooksReviewKind = 'draft_bill' | 'posting_issue' | 'unconverted' | 'allocation_review' | 'external';
+export const BOOKS_REVIEW_KINDS: readonly BooksReviewKind[] = ['draft_bill', 'unconverted', 'posting_issue', 'allocation_review', 'external'];
+
+/** One thing waiting on an owner or an accountant, with the Books section where it is acted on. */
+export interface BooksReviewItem {
+  key: string;
+  producer: string;
+  kind: BooksReviewKind;
+  detected: string;
+  params: Record<string, string>;
+  /** blocking: the month cannot close until it is resolved. */
+  severity: 'blocking' | 'warning';
+  occurred_on: string | null;
+  amount: string | null;
+  currency: string | null;
+  ref_id: string | null;
+  section: string;
+  action: 'approve' | 'open';
+  can_act: boolean;
+  /** own_draft: this person made the draft (or its recurring bill), so someone else approves it. */
+  why_not: string | null;
+}
+
+export interface BooksReviewMonth {
+  month: string;
+  start: string;
+  end: string;
+  status: 'closed' | 'open' | 'not_ended';
+  issues: number;
+  drafts: number;
+  allocations_in_review: number;
+  ready: boolean;
+}
+
+export interface BooksReview {
+  items: BooksReviewItem[];
+  total: number;
+  limit: number;
+  offset: number;
+  counts: Partial<Record<BooksReviewKind, number>>;
+  blocking: number;
+  close_months: BooksReviewMonth[];
+  closed_through: string | null;
+  to_post: number;
+  producers: string[];
+  unavailable: string[];
 }
 
 // -- supporting documents and the evidence pack (docs/business-books.md#supporting-documents-and-evidence) -------------

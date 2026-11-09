@@ -576,6 +576,8 @@ export interface FinanceGoal {
   paused?: boolean;
   /** What the goal is for (docs/finance.md#debts-and-goals); the planner keeps an emergency fund aside. */
   purpose?: FinanceGoalPurpose;
+  /** An emergency reserve sized in months of essential spending (docs/finance.md#emergency-reserve); null: a fixed amount. */
+  reserve_months?: number | null;
   notes: string | null;
   created_at: string;
   updated_at: string;
@@ -596,6 +598,8 @@ export interface FinanceGoalInput {
   paused?: boolean | null;
   /** Left out: kept as it is (a new goal is general). */
   purpose?: FinanceGoalPurpose | null;
+  /** Months of essential spending (emergency goals only); 0 makes it a fixed amount, left out keeps it. */
+  reserve_months?: number | null;
   notes?: string | null;
 }
 

@@ -1,4 +1,5 @@
 import type { Page, Route } from '@playwright/test';
+import { groupBalanceSheet } from './businessAssetsApi';
 import { mockBusiness } from './businessApi';
 
 // A stateful mock of /api/v1/business/books (docs/business-books.md#api) for the Books tab specs and the UI gates.
@@ -443,6 +444,10 @@ export function booksReply(state: BooksState, method: string, url: URL, body: Js
   const budgetMatch = path.match(/^\/budgets\/([^/]+)$/);
   if (budgetMatch && method === 'DELETE') { state.budgets = state.budgets.filter((b) => b.id !== budgetMatch[1]); return { status: 204, body: null }; }
   if (budgetMatch && method === 'PATCH') { const budget = state.budgets.find((b) => b.id === budgetMatch[1]); Object.assign(budget ?? {}, body); return ok(budget); }
+  if (path === '/group/balance-sheet' && method === 'GET') {
+    if (!owner) return refuse(403, 'forbidden', 'Only workspace owners can do this (settings, exchange rates, adjustments, voiding and intercompany entries).');
+    return ok(state.group === 'one' ? { enough: false, as_of: '2026-11-09', skipped: [], available: [] } : groupBalanceSheet());
+  }
   if (path === '/group' && method === 'GET') {
     if (!owner) return refuse(403, 'forbidden', 'Only workspace owners can do this (settings, exchange rates, adjustments, voiding and intercompany entries).');
     if (state.group === 'fail') { state.group = 'two'; return refuse(500, 'error', 'The combined books could not be read.'); }
@@ -617,6 +622,28 @@ function ledgerReply(state: BooksState, method: string, url: URL, path: string, 
     if (ledger.failStatements > 0) { ledger.failStatements -= 1; return h.refuse(500, 'internal', 'The statements could not be read.'); }
     if (ledger.accounts.length === 0) return h.ok({ ...statements(state, false), trial_balance: { rows: [], totals: {}, balanced: true, difference: '0.00' } });
     return h.ok(statements(state, url.searchParams.get('compare') === 'true'));
+  }
+  // Accountant review (docs/business-books.md#accountant-review): owners and accountants only; the draft's maker cannot approve it.
+  if (path === '/review' && method === 'GET') {
+    if (!h.account) return h.refuse(403, 'forbidden', 'Only an owner or an accountant of this business can do this. An owner can name accountants in Books, Settings.');
+    const drafts = state.bills.filter((b) => b.status === 'draft').map((b) => ({
+      key: `draft_bill:${b.id}`, producer: 'bills', kind: 'draft_bill', detected: 'A draft bill waits for approval.',
+      params: { vendor: String(state.vendors.find((v) => v.id === b.vendor_id)?.name ?? ''), reference: '', version: String(b.version ?? 1), due: String(b.due_date) },
+      severity: 'blocking', occurred_on: b.bill_date, amount: b.total, currency: b.currency, ref_id: b.id, section: 'bills', action: 'approve',
+      can_act: h.owner ? false : true, why_not: h.owner ? 'own_draft' : null }));
+    const unconverted = ledger.issues.filter((i) => i.reason === 'missing_rate').map((i) => ({
+      key: `unconverted:${i.currency}`, producer: 'rates', kind: 'unconverted', detected: '', params: { count: '1', first: i.event_date }, severity: 'blocking',
+      occurred_on: i.event_date, amount: null, currency: i.currency, ref_id: null, section: 'settings', action: 'open', can_act: true, why_not: null }));
+    const all = [...drafts, ...unconverted];
+    const kind = url.searchParams.get('kind');
+    const chosen = all.filter((i) => !kind || i.kind === kind);
+    const counts: Json = {};
+    for (const i of all) counts[i.kind] = Number(counts[i.kind] ?? 0) + 1;
+    const month = (start: string, end: string, status: string) => ({ month: start.slice(0, 7), start, end, status, issues: status === 'not_ended' ? ledger.issues.length : 0,
+      drafts: drafts.length, allocations_in_review: 0, ready: status === 'open' && drafts.length === 0 });
+    return h.ok({ items: chosen, total: chosen.length, limit: 25, offset: 0, counts, blocking: all.length,
+      close_months: [month('2026-10-01', '2026-10-31', locked() && String(locked()) >= '2026-10-31' ? 'closed' : 'open'), month('2026-11-01', '2026-11-30', 'not_ended')],
+      closed_through: locked(), to_post: ledger.pending, producers: ['bills', 'ledger', 'rates', 'allocations'], unavailable: [] });
   }
   if (path === '/close' && method === 'GET') {
     const through = locked() === '2026-09-30' ? '2026-10-31' : '2026-11-30';

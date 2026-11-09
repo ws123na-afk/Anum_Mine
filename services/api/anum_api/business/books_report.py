@@ -86,6 +86,11 @@ class Inputs:
     vendors: dict[str, str] = field(default_factory=dict)  # id -> name
     cost_centres: dict[str, str] = field(default_factory=dict)  # id -> "code name"
     templates: list[Any] = field(default_factory=list)  # books_models.BillTemplate (recurring bills)
+    # The fixed asset register and loan schedules (migration 0155): an asset replaces its source's depreciation.
+    assets: list[Any] = field(default_factory=list)  # books_models.Asset
+    asset_impairments: list[Any] = field(default_factory=list)  # books_models.AssetImpairment
+    loans: list[Any] = field(default_factory=list)  # books_models.Loan
+    loan_repayments: list[Any] = field(default_factory=list)  # books_models.LoanRepayment
     truncated: bool = False
 
 
@@ -223,6 +228,8 @@ class Book:
         self.payments = [item for item in inputs.payments if item.invoice_id in self.invoices]
         self.adjustments = [item for item in inputs.adjustments if item.status == "active"]
         self.intercompany = [item for item in inputs.intercompany if item.status == "active"]
+        # Bills that are a loan repayment (the loan schedules split them into principal and interest).
+        self.loan_bills = {row.bill_id for row in inputs.loan_repayments if row.status == "active" and row.bill_id}
 
     def allocation_section(self, allocation: Any) -> str:
         tag = self.inputs.tags.get(allocation.id)
@@ -271,7 +278,7 @@ def entries(book: Book, basis: Basis, start: date, end: date, converter: Convert
             add(Entry(note.issue_date, REVENUE, "credit_notes", _cur(note), -Decimal(note.subtotal), invoice.project_id, invoice.account_id))
         for bill in book.bills.values():
             group = _expense(bill.section.value)
-            if group:
+            if group and bill.id not in book.loan_bills:
                 add(Entry(bill.bill_date, group, bill.category, bill.currency, bill.subtotal, bill.project_id, book.project_account(bill.project_id),
                           bill.cost_centre_id, bill.category))
     else:
@@ -294,7 +301,7 @@ def entries(book: Book, basis: Basis, start: date, end: date, converter: Convert
         for payment in book.bill_payments:
             bill = book.bills[payment.bill_id]
             group = _expense(bill.section.value)
-            if group:
+            if group and bill.id not in book.loan_bills:
                 net = quantize(payment.amount * bill.subtotal / bill.total, bill.currency)
                 add(Entry(payment.paid_on, group, bill.category, bill.currency, net, bill.project_id, book.project_account(bill.project_id),
                           bill.cost_centre_id, bill.category))
@@ -309,9 +316,12 @@ def entries(book: Book, basis: Basis, start: date, end: date, converter: Convert
             add(Entry(allocation.posted_on, group, allocation.category, allocation.currency, Decimal(allocation.amount), allocation.project_id,
                       book.project_account(allocation.project_id), tag.cost_centre_id if tag else None, allocation.category))
 
-    # Depreciation of capital bills with a useful life, straight line from the bill's month (both bases).
+    # Depreciation of capital bills with a useful life, straight line from the bill's month (both bases), unless the fixed asset
+    # register holds the bill: then the register's depreciation, impairments and disposal count instead.
+    registered = {(asset.source_kind, asset.source_id) for asset in book.inputs.assets}
+    out.extend(_register(book, start, end))
     for bill in book.bills.values():
-        if bill.section == Section.CAPITAL and bill.useful_life_months:
+        if bill.section == Section.CAPITAL and bill.useful_life_months and ("bill", bill.id) not in registered:
             for month, part in zip(_months(month_start(bill.bill_date), bill.useful_life_months),
                                    _spread(bill.subtotal, bill.currency, bill.useful_life_months), strict=True):
                 add(Entry(month, OPERATING, "depreciation", bill.currency, part, bill.project_id, book.project_account(bill.project_id),
@@ -323,6 +333,8 @@ def entries(book: Book, basis: Basis, start: date, end: date, converter: Convert
         group = _expense(item.section.value if item.section else Section.OPERATING_EXPENSE.value) or OPERATING
         category = item.category or item.kind.value
         if item.kind == AdjustmentKind.CAPITAL_ITEM and item.start_month and item.months:
+            if ("adjustment", item.id) in registered:
+                continue
             for month, part in zip(_months(item.start_month, item.months), _spread(item.amount, item.currency, item.months), strict=True):
                 add(Entry(month, OPERATING, "depreciation", item.currency, part, project, account, centre, "depreciation"))
         elif item.kind in (AdjustmentKind.LOAN_INTEREST, AdjustmentKind.LOAN_INTEREST_ACCRUED):
@@ -337,6 +349,8 @@ def entries(book: Book, basis: Basis, start: date, end: date, converter: Convert
             for month, part in zip(_months(item.start_month, item.months), _spread(item.amount, item.currency, item.months), strict=True):
                 add(Entry(month, group, category, item.currency, part, project, account, centre, category))
 
+    out.extend(_loan_interest(book, basis, start, end))
+
     for item in book.intercompany:
         if item.kind == IntercompanyKind.RECHARGE:
             group = OTHER_INCOME if item.direction == Direction.RECEIVABLE else OPERATING
@@ -347,6 +361,60 @@ def entries(book: Book, basis: Basis, start: date, end: date, converter: Convert
 
     if basis == Basis.ACCRUAL:
         out.extend(_fx_differences(book, start, end, converter, notes))
+    return out
+
+
+def _register(book: Book, start: date, end: date) -> list[Entry]:
+    """The fixed asset register's P&L figures: depreciation, impairments and gains or losses on disposal (both bases)."""
+    from .books_assets import approved, disposal, schedule
+
+    out: list[Entry] = []
+    bills = book.bills
+    adjustments = {item.id: item for item in book.adjustments if item.kind == AdjustmentKind.CAPITAL_ITEM}
+    for asset in book.inputs.assets:
+        source = bills.get(asset.source_id) if asset.source_kind == "bill" else adjustments.get(asset.source_id)
+        if source is None or (asset.source_kind == "bill" and source.section != Section.CAPITAL):
+            continue
+        project, centre = source.project_id, source.cost_centre_id
+        account = book.project_account(project)
+        impairments = book.inputs.asset_impairments
+        for row in schedule(asset, impairments):
+            if start <= row.month <= end:
+                out.append(Entry(row.month, OPERATING, "depreciation", asset.currency, row.amount, project, account, centre, "depreciation"))
+        for loss in approved(impairments, asset.id):
+            if start <= loss.entry_date <= end:
+                out.append(Entry(loss.entry_date, OPERATING, "impairment", asset.currency, Decimal(loss.amount), project, account, centre, "impairment"))
+        sold = disposal(asset, impairments)
+        if sold is not None and asset.disposed_on is not None and start <= asset.disposed_on <= end and sold["gain"] != 0:
+            if sold["gain"] > 0:
+                out.append(Entry(asset.disposed_on, OTHER_INCOME, "disposal_gain", asset.currency, sold["gain"], project, account, centre, "disposal"))
+            else:
+                out.append(Entry(asset.disposed_on, OPERATING, "disposal_loss", asset.currency, -sold["gain"], project, account, centre, "disposal"))
+    return out
+
+
+def _loan_interest(book: Book, basis: Basis, start: date, end: date) -> list[Entry]:
+    """Interest of the loan schedules: each repayment's interest when paid; on the accrual basis also the interest accrued and
+    unpaid at each month end, reversed the next day (as the journal posts it)."""
+    from .books_loans import month_end_accruals, replay
+
+    out: list[Entry] = []
+    for loan in book.inputs.loans:
+        if loan.status != "active":
+            continue
+        repayments = [row for row in book.inputs.loan_repayments if row.loan_id == loan.id]
+        _, splits = replay(loan, repayments)
+        for split in splits:
+            if start <= split.paid_on <= end and split.interest > 0:
+                out.append(Entry(split.paid_on, FINANCE_COSTS, "loan_interest", loan.currency, split.interest, category="loan_interest"))
+        if basis != Basis.ACCRUAL:
+            continue
+        for month_end, amount in month_end_accruals(loan, repayments, end):
+            following = month_end + timedelta(days=1)
+            if start <= month_end <= end:
+                out.append(Entry(month_end, FINANCE_COSTS, "loan_interest", loan.currency, amount, category="loan_interest"))
+            if start <= following <= end:
+                out.append(Entry(following, FINANCE_COSTS, "loan_interest", loan.currency, -amount, category="loan_interest"))
     return out
 
 
@@ -494,7 +562,7 @@ class Flow:
     counterparty: str | None = None  # the other business of an intercompany settlement or loan
 
 
-CASH_IN = ("customers_paid", "loans_received", "owner_contributions", "intercompany_in", "intercompany_borrowed")
+CASH_IN = ("customers_paid", "loans_received", "owner_contributions", "intercompany_in", "intercompany_borrowed", "asset_sales")
 MEMBERS = "paid_by_members:"
 
 
@@ -530,7 +598,35 @@ def cash_flows(book: Book, start: date, end: date) -> list[Flow]:
                 item.counterparty_workspace_id)
     for allocation in book.live_allocations.values():
         put(MEMBERS + allocation.treatment, allocation.currency, Decimal(allocation.amount), allocation.posted_on)
+    _register_and_loan_flows(book, put)
     return out
+
+
+def _register_and_loan_flows(book: Book, put: Any) -> None:
+    """Cash of the loan schedules (received, principal repaid, interest paid; a repayment matched to an adjustment or a bill is
+    already that record's cash) and of assets sold."""
+    from .books_loans import replay
+
+    live_adjustments = {item.id for item in book.adjustments}
+    for loan in book.inputs.loans:
+        if loan.status != "active":
+            continue
+        if not (loan.received_adjustment_id and loan.received_adjustment_id in live_adjustments):
+            put("loans_received", loan.currency, Decimal(loan.principal), loan.start_date)
+        repayments = [row for row in book.inputs.loan_repayments if row.loan_id == loan.id]
+        rows = {row.id: row for row in repayments}
+        _, splits = replay(loan, repayments)
+        for split in splits:
+            row = rows[split.repayment_id]  # type: ignore[index]
+            if row.adjustment_id or row.bill_id:
+                continue
+            if split.principal > 0:
+                put("loans_repaid", loan.currency, split.principal, split.paid_on)
+            if split.interest > 0:
+                put("interest_paid", loan.currency, split.interest, split.paid_on)
+    for asset in book.inputs.assets:
+        if asset.status == "disposed" and asset.disposed_on and Decimal(asset.proceeds or 0) > 0:
+            put("asset_sales", asset.currency, Decimal(asset.proceeds), asset.disposed_on)
 
 
 def cash_flow(book: Book, start: date, end: date) -> dict[str, Any]:
@@ -551,6 +647,12 @@ def cash_flow(book: Book, start: date, end: date) -> dict[str, Any]:
         "net": _per_currency(net),
         "paid_by_members": {key: _per_currency(values) for key, values in sorted(paid_by_members.items())},
     }
+
+
+def _today() -> date:
+    from ..schemas import utc_now
+
+    return utc_now().date()
 
 
 def _age(due: date | None, end: date) -> str:
@@ -623,6 +725,26 @@ def balances(book: Book, end: date, today: date | None = None) -> dict[str, Any]
             interest[item.currency] += item.amount
         elif item.kind == AdjustmentKind.LOAN_INTEREST_PAID:
             interest[item.currency] -= item.amount
+
+    from .books_loans import owed_on
+
+    by_id = {item.id: item for item in book.adjustments}
+    for loan in book.inputs.loans:
+        if loan.status != "active" or loan.start_date > end:
+            continue
+        repayments = [row for row in book.inputs.loan_repayments if row.loan_id == loan.id]
+        # Interest accrues day by day: what is owed on a day still to come is what is owed today (no interest guessed ahead).
+        principal, unpaid = owed_on(loan, repayments, min(end, today or _today()))
+        debt[loan.currency] += principal
+        interest[loan.currency] += unpaid
+        # Adjustments matched to the schedule already moved the debt above: the schedule's figure replaces theirs.
+        received = by_id.get(loan.received_adjustment_id or "")
+        if received is not None and received.entry_date <= end:
+            debt[received.currency] -= received.amount
+        for row in repayments:
+            matched = by_id.get(row.adjustment_id or "")
+            if row.status == "active" and matched is not None and matched.entry_date <= end:
+                debt[matched.currency] += matched.amount
 
     intercompany: dict[tuple[str, str], Decimal] = defaultdict(Decimal)
     names: dict[str, str] = {}

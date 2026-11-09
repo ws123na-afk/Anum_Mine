@@ -26,8 +26,12 @@ function useLoad<T>(load: () => Promise<T>): [Load<T>, () => Promise<void>] {
 /** The overview's short version: the base currency's figure and the way to the full build. */
 export function SafeToSpendCard({ base, onOpen }: { base: string; onOpen: (tab: FinanceTab) => void }) {
   const [state, reload] = useLoad(api.getSafeToSpend);
+  // The month end comes from the API's one forecast (docs/finance.md#forecast), never worked out here.
+  const [forecast] = useLoad(api.getForecast);
   const headingId = useId();
   const row = state.kind === 'ready' ? state.value.currencies.find((c) => c.currency === base) ?? state.value.currencies[0] : undefined;
+  const ahead = row && forecast.kind === 'ready' ? forecast.value.currencies.find((c) => c.currency === row.currency) ?? null : null;
+  const warning = ahead ? ahead.warnings.find((w) => w.on <= ahead.month_end.on && w.kind !== 'may_go_below_zero') ?? null : null;
   return <section className="surface cmPanel finSafeCard" aria-labelledby={headingId}>
     <div className="sectionHeader"><h2 id={headingId}>{t('finance.tab.safe')}</h2><button type="button" className="cmLinkButton" onClick={() => onOpen('safe')}>{t('finance.safe.howBuilt')}</button></div>
     {state.kind === 'loading' && <Notice busy>{t('finance.safe.loading')}</Notice>}
@@ -35,6 +39,8 @@ export function SafeToSpendCard({ base, onOpen }: { base: string; onOpen: (tab: 
     {state.kind === 'ready' && (!row ? <p className="muted">{t('finance.safe.emptyShort')}</p> : <div className="finSafeFigure">
       <strong className={row.short ? 'finShort' : ''}><Money value={row.short ? row.safe_to_spend.replace(/^-/, '') : row.safe_to_spend} currency={row.currency} /></strong>
       <span className="muted">{row.short ? t('finance.safe.shortBy') : t('finance.safe.perDay', { amount: isolate(formatAmount(row.per_day, row.currency)), count: state.value.days_left })}</span>
+      {ahead && <span className="finSafeAhead">{t('ffc.kpi.expected', { date: isolate(formatDateTime(`${ahead.month_end.on}T12:00:00Z`, { day: 'numeric', month: 'short', timeZone: 'UTC' })) })}: <Money value={ahead.month_end.expected} currency={ahead.currency} /></span>}
+      {warning && <span className="finShort">{t(`ffc.warn.${warning.kind}` as MessageKey, { date: isolate(formatDateTime(`${warning.on}T12:00:00Z`, { day: 'numeric', month: 'short', timeZone: 'UTC' })), amount: isolate(formatAmount(warning.threshold, ahead!.currency)) })}</span>}
     </div>)}
   </section>;
 }

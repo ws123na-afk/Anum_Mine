@@ -5,6 +5,13 @@ import type { FinanceRuleContent, FinanceRuleMatch, FinanceSuggestion, FinanceSu
 export type SuggestionsView = 'queue' | 'rules' | 'merchants' | 'automation';
 export const SUGGESTION_VIEWS: readonly SuggestionsView[] = ['queue', 'rules', 'merchants', 'automation'];
 
+/** The view a link opens (`#finance-suggestions?view=automation`, from Finance settings); the queue otherwise. */
+export function suggestionsViewFromHash(hash: string): SuggestionsView {
+  const query = hash.split('?')[1] ?? '';
+  const view = new URLSearchParams(query).get('view');
+  return (SUGGESTION_VIEWS as readonly string[]).includes(view ?? '') ? view as SuggestionsView : 'queue';
+}
+
 /** What the Accept button does for a suggestion: change rows, make a link (through the links API), only record that it was seen,
  * or nothing here. */
 export function acceptMode(item: Pick<FinanceSuggestion, 'action'>): 'apply' | 'link' | 'acknowledge' | 'none' {

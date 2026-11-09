@@ -37,11 +37,13 @@ from .invoice_models import (
     InvoiceStatus,
     LineSource,
     PaymentMethod,
+    SalesTaxCode,
     InvoiceMessage,
     PaymentLink,
     PaymentNotice,
     PaymentNoticeStatus,
 )
+from .zatca import qr_for_invoice, tax_settings_for
 from .invoice_pdf import (
     credit_note_filename,
     invoice_filename,
@@ -62,6 +64,8 @@ from .invoice_service import (
     release_milestones,
 )
 from .invoices import apply_lines, invoice_hash, payment_state, problems
+from .tax_rules import TaxRuleError
+from .tax_service import coded_lines, table_for
 from .models import (
     BillingProfile,
     Currency,
@@ -412,6 +416,8 @@ class ManualLine(BaseModel):
     quantity: Quantity = Decimal("1")
     unit_price: Money = Decimal("0")
     tax_rate_pct: Percent | None = None
+    # docs/business-tax.md#tax-codes: with a code the rate comes from the business's rate table.
+    tax_code: SalesTaxCode | None = None
 
 
 class InvoiceFields(BaseModel):
@@ -447,11 +453,22 @@ class InvoiceUpdate(InvoiceFields):
     # Drop lines that came from the contract, the ledger or an offer, by position.
     remove_lines: list[int] = Field(default_factory=list, max_length=60)
     tax_rate_pct: Percent | None = None
+    # The tax code of every line after this edit, by position (docs/business-tax.md#tax-codes); omitted keeps the codes.
+    tax_codes: list[SalesTaxCode | None] | None = Field(default=None, max_length=60)
 
 
 def _manual(items: list[ManualLine], default_tax: Decimal) -> list[InvoiceLine]:
     return [InvoiceLine(description=_clean(item.description, 300), kind=item.kind, quantity=item.quantity, unit_price=item.unit_price,
-                        tax_rate_pct=item.tax_rate_pct if item.tax_rate_pct is not None else default_tax) for item in items if _clean(item.description, 300)]
+                        tax_rate_pct=item.tax_rate_pct if item.tax_rate_pct is not None else default_tax, tax_code=item.tax_code)
+            for item in items if _clean(item.description, 300)]
+
+
+def _coded(lines: list[InvoiceLine], table: Any) -> list[InvoiceLine]:
+    """Lines with a tax code take the rate of their code on today's date (the day a draft is priced)."""
+    try:
+        return coded_lines(lines, table, utc_now().date())
+    except TaxRuleError as exc:
+        raise http_error(422, exc.message) from None
 
 
 def _bill_to(store: BusinessStore, account: Any, contact_id: str | None) -> dict[str, str]:
@@ -528,6 +545,7 @@ def _source_lines(store: BusinessStore, payload: InvoiceCreate, account: Any, pr
 def create_invoice(payload: InvoiceCreate, context: TenantContext = Depends(tenant_context), repository: AnumRepository = Depends(repository_context)) -> InvoiceView:
     write(context)
     now = utc_now()
+    table = table_for(context) if any(item.tax_code for item in payload.lines) else None  # read before the invoice unit of work
     with open_business_store(context) as store:
         project = get_or_404(store, "projects", payload.project_id, "Project") if payload.project_id else None
         account_id = project.account_id if project else payload.account_id
@@ -541,7 +559,7 @@ def create_invoice(payload: InvoiceCreate, context: TenantContext = Depends(tena
             raise http_error(422, f"The project is in {project.currency.value}.")
         profile = store.get_settings().billing
         tax = payload.tax_rate_pct if payload.tax_rate_pct is not None else _default_tax(store, project)
-        lines = _source_lines(store, payload, account, project, currency, tax) + _manual(payload.lines, tax)
+        lines = _coded(_source_lines(store, payload, account, project, currency, tax) + _manual(payload.lines, tax), table)
         if not lines:
             raise http_error(422, "Choose what to invoice: milestones, billable costs, an offer or a line you write.")
         if len(lines) > 60:
@@ -677,7 +695,8 @@ def update_invoice(invoice_id: str, payload: InvoiceUpdate, context: TenantConte
     """Edit a draft. Editing one waiting for approval lapses that request and returns it to a draft."""
     write(context)
     now = utc_now()
-    changes = payload.model_dump(exclude_unset=True, exclude={"lines", "remove_lines", "tax_rate_pct"})
+    changes = payload.model_dump(exclude_unset=True, exclude={"lines", "remove_lines", "tax_rate_pct", "tax_codes"})
+    table = table_for(context)  # read before the invoice unit of work: kept codes are repriced from the table
     with open_business_store(context) as store:
         invoice = get_or_404(store, "invoices", invoice_id, "Invoice", for_update=True)
         if invoice.status not in OPEN_INVOICE_STATES:
@@ -708,7 +727,11 @@ def update_invoice(invoice_id: str, payload: InvoiceUpdate, context: TenantConte
             lines = [item for item in lines if item.source != LineSource.MANUAL] + _manual(payload.lines, default_tax)
         if len(lines) > 60:
             raise http_error(422, "An invoice has at most 60 lines.")
-        invoice = apply_lines(invoice, lines)
+        if payload.tax_codes is not None:
+            if len(payload.tax_codes) != len(lines):
+                raise http_error(422, "Send one tax code (or none) for every line of the invoice.")
+            lines = [item.model_copy(update={"tax_code": code}) for item, code in zip(lines, payload.tax_codes, strict=True)]
+        invoice = apply_lines(invoice, _coded(lines, table))
         store.save("invoices", invoice)
         view = invoice_view(store, repository, context, invoice)
     audit(repository, context, "business.invoice.updated", invoice_id, metadata={"fields": sorted(changes), "lines": len(invoice.lines)})
@@ -898,9 +921,11 @@ def pdf_response(invoice: Invoice, content: bytes) -> Response:
 def invoice_pdf(invoice_id: str, context: TenantContext = Depends(tenant_context)) -> Response:
     """The invoice as a PDF file made on the server, labelled in English and Arabic (Arabic text prints as Arabic). A draft says so on every page."""
     read(context)
+    tax = tax_settings_for(context)  # read first: the ZATCA QR is printed only when the business turned it on
     with open_business_store(context) as store:
         invoice = get_or_404(store, "invoices", invoice_id, "Invoice")
         content = render_invoice_pdf(invoice, payments_of(store, invoice.id), credit_notes_of(store, invoice.id), store.get_settings().billing,
+                                     zatca_qr=qr_for_invoice(tax, invoice),
                                      payment_link=open_link_url(store, invoice))
     return pdf_response(invoice, content)
 
