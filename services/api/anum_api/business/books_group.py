@@ -200,7 +200,8 @@ def consolidate(members: list[Member], start: date, end: date, basis: Basis, cur
         "balances": columns(owed, BALANCE_ROWS, {row: -amount for row, amount in eliminated["balances"].items()}, owed_total),
         "cash_flow": columns(cash, CASH_ROWS, {row: -amount for row, amount in eliminated["cash"].items()}, cash_total),
         "not_converted": not_converted,
-        "complete": not any(not_converted.values()),
+        # Incomplete when a figure is not converted or a business had more records than were read (defect B9).
+        "complete": not any(not_converted.values()) and not any(m.inputs.truncated for m in members),
         "conversions": conversions,
         "eliminated": any(amount != 0 for section in eliminated.values() for amount in section.values()),
     }

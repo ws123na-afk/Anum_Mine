@@ -180,6 +180,9 @@ def test_draft_status_is_admitted_and_anything_else_refused(client: TestClient, 
                                                             "start_date": utc_now().date().isoformat()})
     draft = made.json()["bills"][0]
     assert draft["status"] == "draft"
+    # Maker and checker: the owner made the recurring bill, so the colleague approves once named accountant.
+    assert client.post(f"{API}/bills/{draft['id']}/approve", headers=COLLEAGUE, json={"version": draft["version"]}).status_code == 403
+    assert client.post(f"{API}/accountants", headers=ME, json={"user_id": "colleague"}).status_code == 201
     approved = client.post(f"{API}/bills/{draft['id']}/approve", headers=COLLEAGUE, json={"version": draft["version"]})
     assert approved.status_code == 200 and approved.json()["status"] == "open"
     with pytest.raises(DBAPIError):

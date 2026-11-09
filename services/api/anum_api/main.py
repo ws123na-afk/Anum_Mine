@@ -301,6 +301,7 @@ from .purchases.api import router as purchases_router  # docs/purchases.md
 from .purchases.devices import router as purchases_device_router
 from .business.api_books import router as business_books_router  # docs/business-books.md
 from .business.api_books_more import router as business_books_more_router  # docs/business-books.md (consolidated, recurring, ECB rates)
+from .business.api_ledger import router as business_ledger_router  # docs/business-books.md#the-journal (journal, statements, close)
 
 # Fail fast: header mode and anum_local_* sessions must never serve a non-local environment.
 validate_auth_configuration(settings)
@@ -632,6 +633,7 @@ app.include_router(purchases_device_router)  # before /api/v1/purchases/{purchas
 app.include_router(purchases_router)
 app.include_router(business_books_router)
 app.include_router(business_books_more_router)
+app.include_router(business_ledger_router)
 repository = memory_repository
 model_gateway = build_default_model_gateway()
 integration_registry = default_integration_registry(settings)

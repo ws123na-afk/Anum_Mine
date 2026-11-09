@@ -202,7 +202,8 @@ def test_viewers_are_refused_members_cannot_change_settings_and_reports_wait_for
     denied = client.get(f"{API}/setup", headers=VIEWER)
     assert denied.status_code == 403 and denied.json()["code"] == "forbidden" and "owner" in denied.json()["detail"]
     first = client.get(f"{API}/setup", headers=MEMBER).json()
-    assert first["settings"] is None and first["permissions"] == {"read": True, "write": True, "manage": False}
+    assert first["settings"] is None and first["permissions"] == {"read": True, "write": True, "manage": False, "accountant": False,
+                                                                                 "account": False}
     assert client.get(f"{API}/report", headers=MEMBER).json()["code"] == "books_not_set_up"
     refused = client.put(f"{API}/settings", headers=MEMBER, json={"base_currency": "SAR", "version": None})
     assert refused.status_code == 403
@@ -489,7 +490,8 @@ def test_budgets_tags_cost_centres_projects_and_recurring_costs() -> None:
     row = next(b for b in data["budgets"] if b["id"] == budget.json()["id"])
     assert (row["actual"], row["variance"], row["used_pct"]) == ("1000.00", "200.00", "83.3")
     assert data["cost_centres"][0]["name"] == "OPS Operations" and data["cost_centres"][0]["costs"] == "1000.00"
-    assert data["projects"][0] == {"id": project.id, "name": project.name, "revenue": "3000.00", "costs": "1150.00", "margin": "1850.00", "margin_pct": "61.7"}
+    assert data["projects"][0] == {"id": project.id, "name": project.name, "revenue": "3000.00", "costs": "1150.00", "margin": "1850.00", "margin_pct": "61.7",
+                                   "complete": True, "not_converted": []}
     assert data["customers"][0]["name"] == "Synthetic Co"
     assert data["recurring"]["per_month"] == [{"currency": "SAR", "amount": "1000.00"}]
     # Leaving the allocation out of the books removes it from the P&L only.
@@ -607,7 +609,9 @@ def test_every_state_changing_books_route_is_audited_without_amounts_or_text() -
     template = call("POST", "/recurring", json={"vendor_id": seller["id"], "description": secret, "currency": "SAR", "subtotal": "100", "tax": "0",
                                                 "category": "rent", "frequency": "monthly", "start_date": today().isoformat(), "create_as": "draft"}).json()
     draft = template["bills"][0]
-    call("POST", f"/bills/{draft['id']}/approve", json={"version": draft["version"]})
+    # The owner made the recurring bill, so an accountant approves its draft (maker and checker).
+    call("POST", "/accountants", json={"user_id": "member_books"})
+    call("POST", f"/bills/{draft['id']}/approve", MEMBER, json={"version": draft["version"]})
     template = call("PATCH", f"/recurring/{template['id']}", json={"vendor_id": seller["id"], "description": secret, "currency": "SAR", "subtotal": "120",
                                                                     "tax": "0", "category": "rent", "frequency": "monthly", "start_date": today().isoformat(),
                                                                     "create_as": "draft", "version": template["version"]}).json()
@@ -624,6 +628,19 @@ def test_every_state_changing_books_route_is_audited_without_amounts_or_text() -
     with pytest.MonkeyPatch.context() as patch:
         patch.setattr(connectors, "finance_transport", httpx.MockTransport(lambda request: httpx.Response(200, text=xml)))
         call("POST", "/rates/auto/refresh")
+    # The journal: accounts, Post now, a manual entry and its reversal, closing and reopening a period, accountants.
+    call("POST", "/ledger/post")
+    chart = client.get(f"{API}/ledger/accounts", headers=OWNER).json()["items"]
+    bank, capital = (next(a for a in chart if a["system_key"] == key) for key in ("bank", "capital"))
+    account = call("POST", "/ledger/accounts", json={"code": "6200", "name": "Synthetic rent", "subtype": "operating_expense", "category": "rent"}).json()
+    call("PATCH", f"/ledger/accounts/{account['id']}", json={"code": "6210", "name": "Synthetic rent", "category": "rent", "version": account["version"]})
+    entry = call("POST", "/ledger/journal", json={"entry_date": today().isoformat(), "description": secret, "lines": [
+        {"account_id": bank["id"], "debit": "10"}, {"account_id": capital["id"], "credit": "10"}]}).json()
+    call("POST", f"/ledger/journal/{entry['id']}/reverse", json={"reason": secret})
+    last_month = today().replace(day=1) - timedelta(days=1)
+    call("POST", "/close", json={"through": last_month.isoformat()})
+    call("POST", "/reopen", json={"month": last_month.replace(day=1).isoformat(), "reason": secret})
+    call("DELETE", "/accountants/member_books")
     probe.assert_covered()
 
 

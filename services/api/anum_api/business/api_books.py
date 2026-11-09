@@ -36,6 +36,7 @@ from ..finance import fx
 from ..finance.csv_import import safe_cell
 from ..repository import AnumRepository
 from ..schemas import TenantContext, new_id, utc_now
+from . import books_ledger as L
 from . import books_report as R
 from . import books_service as S
 from .books_models import (
@@ -58,7 +59,7 @@ from .books_models import (
     Vendor,
     dump,
 )
-from .books_store import MAX_PAGE, MAX_SCAN, BooksStore, DuplicateError, open_books_store
+from .books_store import MAX_PAGE, MAX_SCAN, BooksStore, DuplicateError, PeriodLocked, Unbalanced, open_books_store
 
 router = APIRouter(prefix="/api/v1/business/books", tags=["business"])
 
@@ -79,6 +80,13 @@ def refusals(route: Callable[..., Any]) -> Callable[..., Any]:
             return JSONResponse(status_code=exc.status_code, content={"detail": exc.message, "code": exc.code, **exc.extra})
         except DuplicateError as exc:
             return JSONResponse(status_code=409, content={"detail": _duplicate(str(exc)), "code": "duplicate"})
+        except L.LedgerError as exc:
+            return JSONResponse(status_code=exc.status_code, content={"detail": exc.message, "code": exc.code, **exc.extra})
+        except PeriodLocked:
+            return JSONResponse(status_code=409, content={"detail": "This is dated in a closed period. An owner can reopen the period with a reason.",
+                                                          "code": "period_locked"})
+        except Unbalanced:
+            return JSONResponse(status_code=422, content={"detail": "Debits and credits must be equal, on two lines or more.", "code": "unbalanced"})
 
     return wrapper
 
@@ -114,6 +122,43 @@ def _write(context: TenantContext) -> None:
 def _manage(context: TenantContext) -> None:
     _read(context)
     _need(context, Permission.BUSINESS_MANAGE, MANAGE_DENIED)
+
+
+ACCOUNTING_DENIED = "Only an owner or an accountant of this business can do this. An owner can name accountants in Books, Settings."
+
+
+def _accountant(context: TenantContext) -> bool:
+    if not has_permission(context, Permission.BUSINESS_WRITE):
+        return False
+    with open_books_store(context) as store:
+        return store.first("accountants", user_id=context.user_id) is not None
+
+
+def _accounting(context: TenantContext) -> None:
+    """Owners, and members an owner named accountant (adjustments, approving draft bills, the journal and closing periods)."""
+    _read(context)
+    if not (has_permission(context, Permission.BUSINESS_MANAGE) or _accountant(context)):
+        raise S.BooksError(403, ACCOUNTING_DENIED, "forbidden")
+
+
+def _summary(record: Any, *names: str) -> dict[str, str]:
+    """A before or after summary for the audit trail: figures, dates, codes and states, never a description, a note or a name."""
+    out: dict[str, str] = {}
+    for name in names:
+        value = getattr(record, name, None)
+        value = getattr(value, "value", value)
+        out[name] = "" if value is None else str(value)
+    return out
+
+
+BILL_FIELDS = ("bill_date", "due_date", "currency", "subtotal", "tax", "total", "category", "section", "status", "project_id", "cost_centre_id",
+               "useful_life_months")
+
+
+def _changes(before: Any, after: Any, names: tuple[str, ...]) -> dict[str, Any]:
+    old, new = _summary(before, *names), _summary(after, *names)
+    changed = [name for name in names if old[name] != new[name]]
+    return {"before": {name: old[name] for name in changed}, "after": {name: new[name] for name in changed}}
 
 
 def _audit(repository: AnumRepository, context: TenantContext, action: str, target: str, metadata: dict[str, Any] | None = None) -> None:
@@ -156,7 +201,10 @@ def _csv(rows: list[list[Any]], filename: str) -> Response:
 
 
 def _permissions(context: TenantContext) -> dict[str, bool]:
-    return {"read": True, "write": has_permission(context, Permission.BUSINESS_WRITE), "manage": has_permission(context, Permission.BUSINESS_MANAGE)}
+    manage = has_permission(context, Permission.BUSINESS_MANAGE)
+    accountant = _accountant(context)
+    return {"read": True, "write": has_permission(context, Permission.BUSINESS_WRITE), "manage": manage, "accountant": accountant,
+            "account": manage or accountant}
 
 
 @router.get("/setup")
@@ -170,7 +218,10 @@ def setup(context: TenantContext = Depends(tenant_context)) -> Any:
         centres, _ = store.find("cost_centres", where={"archived": False}, order_by="code", descending=False, limit=MAX_PAGE)
     allocations = S.allocations_by_id(context)
     period = R.default_period(settings, _today()) if settings else None
+    with open_books_store(context) as store:
+        locked = L.locked_through(store)
     return {
+        "closed_through": locked.isoformat() if locked else None,
         "settings": dump(settings) if settings else None,
         "permissions": _permissions(context),
         "counts": {**counts, "allocations": len(allocations)},
@@ -190,7 +241,11 @@ class SettingsInput(BaseModel):
     tax_label: str = Field(default="", max_length=40)
     category_sections: dict[str, str] = Field(default_factory=dict)
     rate_max_age_days: int = Field(default=31, ge=1, le=366)
+    policy_note: str = Field(default="", max_length=1000)
     version: int | None = None
+
+
+SETTINGS_FIELDS = ("base_currency", "country", "fiscal_year_start_month", "basis", "rate_max_age_days")
 
 
 @router.put("/settings")
@@ -208,12 +263,28 @@ def put_settings(payload: SettingsInput, context: TenantContext = Depends(tenant
             created_at=current.created_at if current else now, base_currency=S.currency_of(payload.base_currency), country=S.country_of(payload.country),
             fiscal_year_start_month=payload.fiscal_year_start_month, basis=payload.basis, tax_label=S.clean(payload.tax_label, 40),
             category_sections=S.section_map(payload.category_sections), rate_max_age_days=payload.rate_max_age_days,
-            version=(current.version + 1) if current else 1, updated_by=context.user_id, updated_at=now,
+            policy_note=(payload.policy_note or "").strip()[:1000], version=(current.version + 1) if current else 1, updated_by=context.user_id,
+            updated_at=now,
         )
+        if current is not None:
+            _frozen_settings(store, current, value)
         if not store.save_settings(value, expected_version=payload.version):
             raise _stale()
-    _audit(repository, context, "settings_saved", value.id, {"basis": value.basis.value})
+    _audit(repository, context, "settings_saved", value.id, {"basis": value.basis.value, **(_changes(current, value, SETTINGS_FIELDS) if current else {})})
+    L.post_quietly(context)
     return dump(value)
+
+
+def _frozen_settings(store: BooksStore, current: BookSettings, value: BookSettings) -> None:
+    """Once a period is closed the base currency, the financial year and the basis stay (defect B6); once anything is posted the
+    base currency stays (the journal is kept in it)."""
+    if L.locked_through(store) is not None or store.find("closes", limit=1)[1]:
+        for name, label in (("base_currency", "base currency"), ("fiscal_year_start_month", "first month of the financial year"), ("basis", "basis")):
+            if getattr(current, name) != getattr(value, name):
+                raise S.BooksError(409, f"A period has been closed, so the {label} stays as it is.", "period_closed", field=name)
+    if current.base_currency != value.base_currency and store.find("journal_entries", limit=1)[1]:
+        raise S.BooksError(409, f"The journal is kept in {current.base_currency}, so the base currency stays as it is.", "journal_exists",
+                           field="base_currency")
 
 
 # -- cost centres ------------------------------------------------------------------------------------------
@@ -481,9 +552,11 @@ def create_bill(payload: BillInput, response: Response, context: TenantContext =
                 raise S.BooksError(409, "This request was already used for another bill. Reload the page.", "idempotency_mismatch")
             response.status_code = status.HTTP_200_OK
             return {**bill_view(context, earlier, [], set(), _vendor_names(store), _today()), "replayed": True}
+        L.require_open(store, bill.bill_date, what="This bill")
         store.add("bills", bill)
         vendors = _vendor_names(store)
-    _audit(repository, context, "bill_created", bill.id, {"section": bill.section.value})
+    _audit(repository, context, "bill_created", bill.id, {"section": bill.section.value, "after": _summary(bill, *BILL_FIELDS)})
+    L.post_quietly(context)
     return bill_view(context, bill, [], set(), vendors, _today())
 
 
@@ -523,9 +596,13 @@ def update_bill(bill_id: str, payload: BillUpdate, context: TenantContext = Depe
         money_changed = (updated.currency, updated.subtotal, updated.tax) != (current.currency, current.subtotal, current.tax)
         if money_changed and S.live_payments(store, current.id, holding):
             raise S.BooksError(409, "This bill has payments: its amounts and currency stay as paid. Void the payments first.", "has_payments")
+        trail = _changes(current, updated, (*BILL_FIELDS, "vendor_id"))
+        if trail["after"]:  # dates, money, category or section of a bill in a closed period stay (defect B6); its words may change
+            L.require_open(store, current.bill_date, updated.bill_date, what="This bill")
         if not store.save("bills", updated, expected_version=current.version):
             raise _stale()
-    _audit(repository, context, "bill_updated", bill_id)
+    _audit(repository, context, "bill_updated", bill_id, trail)
+    L.post_quietly(context)
     return _bill_detail(context, bill_id)
 
 
@@ -533,18 +610,29 @@ def update_bill(bill_id: str, payload: BillUpdate, context: TenantContext = Depe
 @refusals
 def approve_bill(bill_id: str, payload: VersionInput, context: TenantContext = Depends(tenant_context),
                  repository: AnumRepository = Depends(repository_context)) -> Any:
-    """A draft bill (made by a recurring bill set to drafts) becomes a normal open bill: it counts from now on."""
-    _write(context)
+    """A draft bill (made by a recurring bill set to drafts) becomes a normal open bill: it counts from now on.
+
+    Maker and checker (defect B8): an owner or an accountant approves, and never one who made the draft (who created or last
+    changed its recurring bill, or the bill itself)."""
+    _accounting(context)
     with open_books_store(context) as store:
         current = _found(store, "bills", bill_id, "Bill", for_update=True)
         if current.version != payload.version:
             raise _stale()
         if current.status != BillStatus.DRAFT:
             raise S.BooksError(409, "Only a draft bill is approved.", "not_draft")
+        makers = {current.created_by}
+        if current.template_id and (template := store.get("templates", current.template_id)) is not None:
+            makers |= {template.created_by, template.updated_by}
+        if context.user_id in makers:
+            raise S.BooksError(403, "You made this draft (or its recurring bill), so someone else approves it: another owner or an accountant.",
+                               "own_draft")
+        L.require_open(store, current.bill_date, what="This bill")
         item = current.model_copy(update={"status": BillStatus.OPEN, "version": current.version + 1, "updated_at": utc_now()})
         if not store.save("bills", item, expected_version=current.version):
             raise _stale()
-    _audit(repository, context, "bill_approved", bill_id)
+    _audit(repository, context, "bill_approved", bill_id, _changes(current, item, ("status",)))
+    L.post_quietly(context)
     return _bill_detail(context, bill_id)
 
 
@@ -559,12 +647,14 @@ def void_bill(bill_id: str, payload: VoidInput, context: TenantContext = Depends
             raise S.BooksError(409, "This bill is already void.", "bill_void")  # a draft may be voided: it was never counted
         if S.live_payments(store, current.id, None):  # every payment not voided, an allocation in review included
             raise S.BooksError(409, "Void this bill's payments first.", "has_payments")
+        L.require_open(store, current.bill_date, what="This bill")
         now = utc_now()
         item = current.model_copy(update={"status": BillStatus.VOID, "voided_by": context.user_id, "voided_at": now,
                                           "void_reason": S.clean(payload.reason, 300), "version": current.version + 1, "updated_at": now})
         if not store.save("bills", item, expected_version=current.version):
             raise _stale()
-    _audit(repository, context, "bill_voided", bill_id)
+    _audit(repository, context, "bill_voided", bill_id, _changes(current, item, ("status", "total", "currency", "bill_date")))
+    L.post_quietly(context)
     return _bill_detail(context, bill_id)
 
 
@@ -585,7 +675,9 @@ def pay(bill_id: str, payload: PaymentInput, response: Response, context: Tenant
     if replayed:
         response.status_code = status.HTTP_200_OK
     else:
-        _audit(repository, context, "bill_paid", bill_id, {"payment_id": payment.id, "kind": payment.kind.value})
+        _audit(repository, context, "bill_paid", bill_id, {"payment_id": payment.id, "kind": payment.kind.value,
+                                                           "after": _summary(payment, "amount", "currency", "paid_on")})
+        L.post_quietly(context)
     return {**_bill_detail(context, bill_id), "payment_id": payment.id, "replayed": replayed}
 
 
@@ -599,11 +691,15 @@ def void_payment(bill_id: str, payment_id: str, payload: VoidInput, context: Ten
         payment = store.get("bill_payments", payment_id)
         if payment is None or payment.bill_id != bill_id:
             raise S.BooksError(404, "Payment not found.", "payment_not_found")
-        if payment.voided_at is None:
+        voided = payment.voided_at is None
+        if voided:
+            L.require_open(store, payment.paid_on, what="This payment")
             now = utc_now()
             store.save("bill_payments", payment.model_copy(update={"voided_at": now, "voided_by": context.user_id,
                                                                    "void_reason": S.clean(payload.reason, 300)}))
-            _audit(repository, context, "bill_payment_voided", bill_id, {"payment_id": payment_id})
+    if voided:
+        _audit(repository, context, "bill_payment_voided", bill_id, {"payment_id": payment_id, "before": _summary(payment, "amount", "currency", "paid_on")})
+        L.post_quietly(context)
     return _bill_detail(context, bill_id)
 
 
@@ -674,10 +770,12 @@ def list_allocations(status_filter: str | None = Query(default=None, alias="stat
 def tag_allocation(allocation_id: str, payload: TagInput, context: TenantContext = Depends(tenant_context),
                    repository: AnumRepository = Depends(repository_context)) -> Any:
     _write(context)
-    if allocation_id not in S.allocations_by_id(context):
+    allocation = S.allocations_by_id(context).get(allocation_id)
+    if allocation is None:
         raise S.BooksError(404, "Allocation not found in this business.", "allocation_not_found")
     now = utc_now()
     with open_books_store(context) as store:
+        L.require_open(store, allocation.posted_on, what="This allocation")
         current = store.first("allocation_tags", allocation_id=allocation_id)
         centre = S.require_cost_centre(store, payload.cost_centre_id, keep=current.cost_centre_id if current else None)
         if current is None:
@@ -694,7 +792,9 @@ def tag_allocation(allocation_id: str, payload: TagInput, context: TenantContext
                                              "version": current.version + 1, "updated_by": context.user_id, "updated_at": now})
             if not store.save("allocation_tags", tag, expected_version=current.version):
                 raise _stale()
-    _audit(repository, context, "allocation_tagged", allocation_id, {"section": payload.section or ""})
+    _audit(repository, context, "allocation_tagged", allocation_id, {"section": payload.section or "",
+                                                                    "before": {"section": (current.section or "") if current else ""}})
+    L.post_quietly(context)
     return dump(tag)
 
 
@@ -822,7 +922,9 @@ def create_rate(payload: RateInput, context: TenantContext = Depends(tenant_cont
             store.delete("rates", fetched.id)
             replaced = fetched.id
         store.add("rates", item)
-    _audit(repository, context, "rate_recorded", item.id, {"pair": f"{base}{quote}", **({"replaced": replaced} if replaced else {})})
+    _audit(repository, context, "rate_recorded", item.id, {"pair": f"{base}{quote}", "after": _summary(item, "rate", "as_of"),
+                                                           **({"replaced": replaced} if replaced else {})})
+    L.post_quietly(context)  # an item waiting for this rate can be posted now
     return dump(item)
 
 
@@ -875,7 +977,7 @@ def list_adjustments(kind: AdjustmentKind | None = None, include_void: bool = Fa
 def create_adjustment(payload: AdjustmentInput, response: Response, context: TenantContext = Depends(tenant_context),
                       repository: AnumRepository = Depends(repository_context),
                       idempotency_key: str | None = Header(default=None, alias="Idempotency-Key", max_length=120)) -> Any:
-    _manage(context)
+    _accounting(context)
     key = S.idem_hash(idempotency_key, "adjustment")
     with open_books_store(context) as store:
         S.settings_or_409(store)
@@ -885,8 +987,12 @@ def create_adjustment(payload: AdjustmentInput, response: Response, context: Ten
                 raise S.BooksError(409, "This request was already used for another adjustment. Reload the page.", "idempotency_mismatch")
             response.status_code = status.HTTP_200_OK
             return {**dump(earlier), "replayed": True}
+        L.require_open(store, item.entry_date, item.start_month, what="This adjustment")
+    S.check_settlement(context, item)  # never pay back more than is owed (defect B4)
+    with open_books_store(context) as store:
         store.add("adjustments", item)
-    _audit(repository, context, "adjustment_recorded", item.id, {"kind": item.kind.value})
+    _audit(repository, context, "adjustment_recorded", item.id, {"kind": item.kind.value, "after": _summary(item, "entry_date", "currency", "amount")})
+    L.post_quietly(context)
     return dump(item)
 
 
@@ -894,14 +1000,17 @@ def create_adjustment(payload: AdjustmentInput, response: Response, context: Ten
 @refusals
 def void_adjustment(adjustment_id: str, payload: VoidInput, context: TenantContext = Depends(tenant_context),
                     repository: AnumRepository = Depends(repository_context)) -> Any:
-    _manage(context)
+    _accounting(context)
     with open_books_store(context) as store:
         current = _found(store, "adjustments", adjustment_id, "Adjustment", for_update=True)
         if current.status == "void":
             raise S.BooksError(409, "This adjustment is already void.", "already_void")
+        L.require_open(store, current.entry_date, current.start_month, current.reverse_on, what="This adjustment")
         item = current.model_copy(update={"status": "void", "voided_by": context.user_id, "voided_at": utc_now(), "void_reason": S.clean(payload.reason, 300)})
         store.save("adjustments", item)
-    _audit(repository, context, "adjustment_voided", adjustment_id)
+    _audit(repository, context, "adjustment_voided", adjustment_id, {"kind": current.kind.value, **_changes(current, item, ("status",)),
+                                                                     "amount": str(current.amount), "currency": current.currency})
+    L.post_quietly(context)
     return dump(item)
 
 
@@ -946,10 +1055,17 @@ def create_intercompany(payload: IntercompanyInput, context: TenantContext = Dep
     if name is None:
         raise S.BooksError(403, "You can record an intercompany entry only with another business where you are an owner.", "workspace_not_allowed")
     mine, theirs = S.intercompany_pair(context, payload.model_dump(), name, today=_today(), now=utc_now())
+    other = context.model_copy(update={"workspace_id": payload.workspace_id})
+    with open_books_store(other) as store:
+        L.require_open(store, theirs.entry_date, what="This entry (in the other business)")
     with open_books_store(context) as store:
+        L.require_open(store, mine.entry_date, what="This entry")
         store.add("intercompany", mine)
         store.add_elsewhere("intercompany", theirs)
-    _audit(repository, context, "intercompany_recorded", mine.id, {"pair_id": mine.pair_id, "kind": mine.kind.value})
+    _audit(repository, context, "intercompany_recorded", mine.id, {"pair_id": mine.pair_id, "kind": mine.kind.value,
+                                                                    "after": _summary(mine, "entry_date", "currency", "amount", "direction")})
+    L.post_quietly(context)
+    L.post_quietly(other)
     return dump(mine)
 
 
@@ -967,7 +1083,11 @@ def void_intercompany(entry_id: str, payload: VoidInput, context: TenantContext 
         raise S.BooksError(403, "Both businesses must agree: you need to be an owner of the other business to void this entry.", "workspace_not_allowed")
     now = utc_now()
     changes = {"status": "void", "voided_by": context.user_id, "voided_at": now, "void_reason": S.clean(payload.reason, 300)}
+    other_scope = context.model_copy(update={"workspace_id": mine.counterparty_workspace_id})
+    with open_books_store(other_scope) as store:
+        L.require_open(store, mine.entry_date, what="This entry (in the other business)")
     with open_books_store(context) as store:
+        L.require_open(store, mine.entry_date, what="This entry")
         current = _found(store, "intercompany", entry_id, "Intercompany entry", for_update=True)
         if current.status == "void":
             raise S.BooksError(409, "This entry is already void.", "already_void")
@@ -976,7 +1096,9 @@ def void_intercompany(entry_id: str, payload: VoidInput, context: TenantContext 
         other = store.get_elsewhere("intercompany", current.counterparty_workspace_id, pair_id=current.pair_id)
         if other is not None and other.status != "void":
             store.save_elsewhere("intercompany", other.model_copy(update=changes))
-    _audit(repository, context, "intercompany_voided", entry_id, {"pair_id": current.pair_id})
+    _audit(repository, context, "intercompany_voided", entry_id, {"pair_id": current.pair_id, **_changes(current, item, ("status",))})
+    L.post_quietly(context)
+    L.post_quietly(other_scope)
     return dump(item)
 
 
@@ -1041,6 +1163,27 @@ def export_report(start: date | None = Query(default=None, alias="from"), end: d
     for line, values in data["cash_flow"]["lines"].items():
         for value in values:
             rows.append(["cash_flow", line, value["currency"], value["amount"]])
+    for line, values in data["cash_flow"]["paid_by_members"].items():
+        for value in values:
+            rows.append(["paid_by_members", line, value["currency"], value["amount"]])
+    # Completeness first-hand in the file (defect B2): whether every figure is in, and why not.
+    rows.append(["complete", "yes" if pnl["complete"] and not data["truncated"] and not data["allocations_in_review"] else "no", "", ""])
+    rows.append(["truncated", "yes" if data["truncated"] else "no", "", ""])
+    rows.append(["allocations_in_review", "", "", data["allocations_in_review"]])
+    for note in data["notes"]:
+        rows.append(["note", note, "", ""])
+    balances = data["balances"]
+    for key in ("receivables", "payables"):
+        for item in balances[key]:
+            rows.append([f"owed_{key}", f"as of {balances['as_of']}", item["currency"], item["total"]])
+    for key in ("owed_to_members", "debt", "interest_payable"):
+        for item in balances.get(key, []):
+            rows.append([key, f"as of {balances['as_of']}", item["currency"], item["amount"]])
+    for item in balances["intercompany"]:
+        rows.append(["intercompany", item["name"] or item["workspace_id"], item["currency"], item["amount"]])
+    for key in ("contributions", "drawings"):
+        for item in data["equity"][key]:
+            rows.append(["equity", key, item["currency"], item["amount"]])
     for conversion in data["conversions"]:
         rows.append(["rate", f"1 {conversion['from_currency']} = {conversion['rate']} {conversion['to_currency']} on {conversion['as_of']}",
                      conversion["source"], ""])
@@ -1061,7 +1204,11 @@ def list_projects(limit: int = Query(default=25, ge=1, le=100), offset: int = Qu
     inputs = S.gather(context, rates_since(start, end))
     first, last = _period(inputs.settings, start, end)
     data = R.report(inputs, first, last, inputs.settings.basis)
-    figures = {row["id"]: row for row in data["projects"]}
+    # Every project's figures, not only the report's first rows (defect B1): a project beyond them is never shown as 0.
+    book = R.Book(inputs)
+    converter = R.Converter(inputs.rates, inputs.settings.base_currency, inputs.settings.rate_max_age_days)
+    rows = R.entries(book, inputs.settings.basis, first, last, converter, set())
+    figures = {row["id"]: row for row in R.breakdown(rows, converter, "project_id", {key: value[0] for key, value in inputs.projects.items()}, limit=None)}
     with open_business_store(context) as business:
         projects, total = business.find("projects", BusinessQuery(order_by="updated_at", limit=limit, offset=offset))
     items = []
@@ -1073,10 +1220,12 @@ def list_projects(limit: int = Query(default=25, ge=1, le=100), offset: int = Qu
         books = figures.get(project.id)
         items.append({"id": project.id, "name": project.name, "account_id": project.account_id, "status": getattr(project.status, "value", project.status),
                       "currency": getattr(project.currency, "value", project.currency),
-                      "books": books or {"revenue": "0", "costs": "0", "margin": "0", "margin_pct": None},
+                      "books": books or {"revenue": "0", "costs": "0", "margin": "0", "margin_pct": None, "complete": not inputs.truncated,
+                                         "not_converted": [], "recorded": False},
                       "contract": None if contract is None else {key: contract.get(key) for key in (
                           "revenue", "contract_total", "cash_collected", "outstanding", "gross_margin", "gross_margin_pct", "currency")}})
-    return {**_page(items, total, limit, offset), "base_currency": inputs.settings.base_currency, "period": data["period"]}
+    return {**_page(items, total, limit, offset), "base_currency": inputs.settings.base_currency, "period": data["period"],
+            "complete": not inputs.truncated}
 
 
 __all__ = ["router"]

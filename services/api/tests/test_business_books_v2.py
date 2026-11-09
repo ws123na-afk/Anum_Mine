@@ -312,7 +312,9 @@ def test_only_owners_turn_rates_on_and_fetch_now_waits_ten_minutes(ecb: dict) ->
 
 def test_no_fetch_happens_when_no_business_opted_in(ecb: dict) -> None:
     setup_books()
-    assert books_jobs.run() == {"dry_run": False, "feeds": 0, "rates_added": 0, "fetch_failed": False, "businesses": 0, "bills_made": 0, "failed": 0}
+    # The posting run reads this business's books (nothing new to post: settings were saved and posted already).
+    assert books_jobs.run() == {"dry_run": False, "feeds": 0, "rates_added": 0, "fetch_failed": False, "businesses": 0, "bills_made": 0, "failed": 0,
+                                "ledgers": 1, "entries_posted": 0, "entries_reversed": 0, "not_posted": 0}
     assert ecb["calls"] == 0
 
 
@@ -393,10 +395,15 @@ def test_draft_bills_count_nowhere_until_approved_and_cannot_be_paid() -> None:
     assert refused.status_code == 409 and refused.json()["code"] == "bill_draft"
     assert client.get(f"{API}/bills", headers=OWNER, params={"status": "draft"}).json()["total"] == 1
     assert client.post(f"{API}/bills/{draft['id']}/approve", headers=VIEWER, json={"version": draft["version"]}).status_code == 403
-    approved = client.post(f"{API}/bills/{draft['id']}/approve", headers=MEMBER, json={"version": draft["version"]})
+    # Maker and checker (defect B8): a member who is not an accountant cannot approve, nor can the owner who made the recurring bill.
+    member = client.post(f"{API}/bills/{draft['id']}/approve", headers=MEMBER, json={"version": draft["version"]})
+    assert member.status_code == 403 and member.json()["code"] == "forbidden"
+    own = client.post(f"{API}/bills/{draft['id']}/approve", headers=OWNER, json={"version": draft["version"]})
+    assert own.status_code == 403 and own.json()["code"] == "own_draft"
+    approved = client.post(f"{API}/bills/{draft['id']}/approve", headers=OWNER_TWO, json={"version": draft["version"]})
     assert approved.status_code == 200 and approved.json()["status"] == "open" and approved.json()["payment_state"] == "unpaid"
     assert report()["pnl"]["operating_expenses"]["total"] == "1000.00"
-    again = client.post(f"{API}/bills/{draft['id']}/approve", headers=MEMBER, json={"version": approved.json()["version"]})
+    again = client.post(f"{API}/bills/{draft['id']}/approve", headers=OWNER_TWO, json={"version": approved.json()["version"]})
     assert again.status_code == 409 and again.json()["code"] == "not_draft"
 
 
@@ -474,7 +481,9 @@ def test_the_daily_job_reports_counts_only_and_a_dry_run_changes_nothing(ecb: di
     dry = books_jobs.run(dry_run=True, now=utc_now() + timedelta(days=2))
     assert dry["dry_run"] is True and dry["bills_made"] == 0 and ecb["calls"] == 0
     assert client.get(f"{API}/bills", headers=OWNER).json()["total"] == 0
-    assert set(dry) == {"dry_run", "feeds", "rates_added", "fetch_failed", "businesses", "bills_made", "failed"}
+    assert set(dry) == {"dry_run", "feeds", "rates_added", "fetch_failed", "businesses", "bills_made", "failed", "ledgers", "entries_posted",
+                        "entries_reversed", "not_posted"}
+    assert client.get(f"{API}/ledger/journal", headers=OWNER).json()["total"] == 0  # the dry run posted nothing either
 
 
 def test_templates_in_memory_follow_the_status_rules() -> None:
