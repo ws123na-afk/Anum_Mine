@@ -58,6 +58,10 @@ export function FinanceTamaraGmailSync({ existing, onDone, onClose }: {
     const add: FinanceInstallmentStatementEntry[] = [], review: string[] = [], paused: FinanceBill[] = [];
     for (const row of preview.rows) {
       const old = history.get(orderKey(row));
+      // A refund already applied in Finance > Refunds owns this installment's bill: never re-create or re-flag it.
+      if (old && Number(old.refunded_amount ?? 0) > 0) continue;
+      // Same due date, lower amount: Tamara's new schedule after a refund, saved as refund evidence by the sync.
+      if (old && old.due_on === row.due_on && Number(row.amount) < Number(old.amount) && old.source_status !== 'paid') continue;
       if (old && (old.due_on !== row.due_on || Number(old.amount) !== Number(row.amount))) {
         review.push(row.merchant + ' / ' + row.order_id + ' #' + row.installment + ': due date or amount changed'); continue;
       }
@@ -74,14 +78,15 @@ export function FinanceTamaraGmailSync({ existing, onDone, onClose }: {
     acc[r.source_status].count++;
     acc[r.source_status].amount += Number(r.amount);
     return acc;
-  }, { paid: { count: 0, amount: 0 }, scheduled: { count: 0, amount: 0 }, review: { count: 0, amount: 0 } }), [preview]);
+  }, { paid: { count: 0, amount: 0 }, scheduled: { count: 0, amount: 0 }, review: { count: 0, amount: 0 }, refunded: { count: 0, amount: 0 } }), [preview]);
 
   async function apply() {
     if (!preview || busy || reconciliation.review.length) return;
     setBusy(true); setError(''); setDone('');
     let created = 0, paused = 0;
     try {
-      const sync = await plan.syncInstallmentStatement(preview.rows);
+      // Refund emails go with the rows as refund evidence; Finance > Refunds shows what they cancel.
+      const sync = await plan.syncInstallmentStatement(preview.rows, preview.refunds ?? []);
       if (sync.conflicts.length) {
         setError('Statement changes require manual reconciliation: ' + sync.conflicts.join('; ')); return;
       }
@@ -103,7 +108,9 @@ export function FinanceTamaraGmailSync({ existing, onDone, onClose }: {
         };
         await billsApi.createBill(body); created++;
       }
-      setDone(`Saved ${preview.rows.length} email installment entries; created ${created} new Bills and paused ${paused} source-paid/review Bills. No bank transactions were created.`);
+      const refunds = (sync.notices_saved ?? 0) + (sync.refund_signals?.length ?? 0);
+      setDone(`Saved ${preview.rows.length} email installment entries; created ${created} new Bills and paused ${paused} source-paid/review Bills. No bank transactions were created.`
+        + (refunds ? ` ${refunds} refund signals found: check Refunds above the statement.` : ''));
       onDone();
     } catch (e) {
       setError(`Partial synchronization: ${created} new Bills, ${paused} paused. ${describeError(e)}. Re-open the tool and refresh the preview before retrying.`);
@@ -127,7 +134,7 @@ export function FinanceTamaraGmailSync({ existing, onDone, onClose }: {
     </div>
     {preview && <>
       <h3>Preview from {preview.address}</h3>
-      <p>Messages checked: {preview.messages_checked}. Tamara messages read: {preview.messages_matched}. Installments found: {preview.rows.length}.</p>
+      <p>Messages checked: {preview.messages_checked}. Tamara messages read: {preview.messages_matched}. Installments found: {preview.rows.length}. Refund emails: {preview.refunds?.length ?? 0}.</p>
       <div className="finTableWrap"><table className="finGrid">
         <thead><tr><th>Status from Gmail</th><th>Installments</th><th>Amount</th></tr></thead>
         <tbody>{(['paid', 'scheduled', 'review'] as const).map(status => <tr key={status}><td>{status}</td><td>{totals[status].count}</td><td>{format(totals[status].amount)}</td></tr>)}</tbody>

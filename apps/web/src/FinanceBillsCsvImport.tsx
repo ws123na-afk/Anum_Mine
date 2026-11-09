@@ -145,7 +145,7 @@ export function BillsCsvImport({ existing, onDone, onClose }: { existing: Financ
       const currency = (cell(r, 'currency') || defaultCurrency).toUpperCase();
       const status = cell(r, 'status');
       const source_status: FinanceInstallmentStatementEntry['source_status'] =
-        /^paid$/i.test(status) ? 'paid' : pending(status) ? 'scheduled' : 'review';
+        /^paid$/i.test(status) ? 'paid' : pending(status) ? 'scheduled' : /^(refunded|cancell?ed|void|voided)$/i.test(status.trim()) ? 'refunded' : 'review';
       const purchase = cell(r, 'purchase'), purchase_on = isIso(purchase) ? purchase : null;
       if (!order_id || !merchant || !isIso(due_on) || !amount || !Number.isInteger(installment) ||
           installment < 1 || !Number.isInteger(total_installments) || total_installments < installment ||

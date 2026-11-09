@@ -177,6 +177,7 @@ from .finance.sms_api import router as finance_sms_router
 from .finance.links_api import router as finance_links_router
 from .finance.commitments_api import router as finance_commitments_router
 from .finance.tamara_email_api import router as finance_tamara_email_router
+from .finance.installment_refunds_api import router as finance_installment_refunds_router
 from .finance.pdf_api import router as finance_pdf_router
 from .finance.advisor_api import router as finance_advisor_router
 from .finance.statement_pdf import MAX_PDF_BYTES as PDF_STATEMENT_MAX_BYTES
@@ -585,6 +586,7 @@ app.include_router(finance_sms_router)
 app.include_router(finance_links_router)
 app.include_router(finance_commitments_router)
 app.include_router(finance_tamara_email_router)
+app.include_router(finance_installment_refunds_router)
 app.include_router(finance_pdf_router)
 app.include_router(finance_advisor_router)
 app.include_router(finance_ibkr_router)
