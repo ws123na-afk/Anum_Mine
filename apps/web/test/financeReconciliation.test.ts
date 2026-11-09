@@ -5,7 +5,7 @@ import { describe, test } from 'node:test';
 import type { FinanceReconException, FinanceReconHealth } from '@anum/contracts';
 import { FINANCE_TABS, hashForTab, tabFromHash } from '../src/lib/finance.ts';
 import { FINANCE_NAV, OWN_HEAD_TABS, groupOf } from '../src/lib/financeNav.ts';
-import { REASONS, isZero, lastMonth, ledgerClosing, matchCandidates, nextStep, sessionStatus, sessionTone } from '../src/lib/financeReconciliation.ts';
+import { REASONS, isZero, lastMonth, ledgerClosing, matchCandidates, nextStep, sessionFromHash, sessionStatus, sessionTone } from '../src/lib/financeReconciliation.ts';
 import { placeholdersOf } from '../src/lib/i18n.ts';
 import { financeReconAr } from '../src/lib/messages/financeRecon.ar.ts';
 import { financeReconEn } from '../src/lib/messages/financeRecon.en.ts';
@@ -28,6 +28,14 @@ describe('reconciliation page', () => {
     assert.equal(groupOf('reconciliation'), 'capture');
     assert.ok(OWN_HEAD_TABS.has('reconciliation'));
     assert.equal(FINANCE_NAV.flatMap((g) => g.entries).filter((e) => e.kind === 'tab' && e.tab === 'reconciliation').length, 1);
+  });
+
+  test('a suggestion queue link opens its session on the reconciliation tab', () => {
+    assert.equal(tabFromHash('#finance-reconciliation?session=fin_recon_1'), 'reconciliation');
+    assert.equal(sessionFromHash('#finance-reconciliation?session=fin_recon_1'), 'fin_recon_1');
+    assert.equal(sessionFromHash('#finance-reconciliation'), null);
+    assert.equal(sessionFromHash('#finance-transactions?session=fin_recon_1'), null);
+    assert.equal(sessionFromHash('#finance-reconciliation?session=%3Cscript%3E'), null);
   });
 
   test('a card or loan typed as owed becomes negative in the ledger; a bank balance keeps its sign', () => {

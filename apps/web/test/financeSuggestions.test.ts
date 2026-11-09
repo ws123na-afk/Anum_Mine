@@ -53,8 +53,9 @@ describe('finance suggestions model', () => {
     const keys = [
       ...SUGGESTION_VIEWS.map((v) => `fsug.view.${v}`),
       ...['classification', 'conflict', 'uncategorized', 'statement_hold', 'sms_review', 'duplicate', 'refund_match', 'payment_match', 'bill_due', 'subscription',
-        'unusual_spend', 'missing_statement', 'cash_shortage', 'external'].flatMap((k) => [`fsug.kind.${k}`, `fsug.head.${k}`]),
+        'unusual_spend', 'missing_statement', 'cash_shortage', 'reconciliation', 'external'].flatMap((k) => [`fsug.kind.${k}`, `fsug.head.${k}`]),
       ...NEVER_AUTOMATED.map((k) => `fsug.never.${k}`),
+      'fsug.why.reconciliation.blocking', 'fsug.why.reconciliation.warning', 'fsug.why.reconciliation.missing',
       'finance.tab.suggestions',
     ];
     for (const key of keys) {

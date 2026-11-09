@@ -341,20 +341,20 @@ def test_the_queue_lists_every_kind_with_evidence_and_links_into_the_existing_pa
 def test_an_external_producer_plugs_into_the_queue_and_a_failing_one_hides_nothing_else() -> None:
     from anum_api.finance import suggestions as SG
 
-    def reconciliation(snap: SG.Snapshot) -> list[SG.Suggestion]:
-        return [SG.Suggestion(key="recon:demo", producer="reconciliation", kind="external", detected="A statement line has no ledger row.",
+    def demo(snap: SG.Snapshot) -> list[SG.Suggestion]:
+        return [SG.Suggestion(key="demo:external", producer="demo_external", kind="external", detected="A statement line has no ledger row.",
                               why="Reconciliation exception.", action=SG.ProposedAction(kind="acknowledge"), href="#finance-reconciliation")]
 
     def broken(snap: SG.Snapshot) -> list[SG.Suggestion]:
         raise RuntimeError("down")
 
-    SG.register_producer("reconciliation", reconciliation)
+    SG.register_producer("demo_external", demo)
     SG.register_producer("broken", broken)
     try:
         body = queue()
-        assert "recon:demo" in {s["key"] for s in body["items"]} and body["unavailable"] == ["broken"]
+        assert "demo:external" in {s["key"] for s in body["items"]} and body["unavailable"] == ["broken"]
     finally:
-        SG.unregister_producer("reconciliation")
+        SG.unregister_producer("demo_external")
         SG.unregister_producer("broken")
 
 

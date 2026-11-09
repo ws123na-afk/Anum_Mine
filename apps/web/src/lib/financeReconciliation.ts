@@ -4,6 +4,17 @@
 import type { FinanceReconException, FinanceReconHealth, FinanceReconSeverity } from '@anum/contracts';
 
 export const EXCEPTIONS_PAGE = 20;
+
+/**
+ * The session a link opens: `#finance-reconciliation?session=<id>` (the suggestion queue's Review action), else null.
+ * Only an id of letters, digits, `_` and `-` is taken.
+ */
+export function sessionFromHash(hash: string): string | null {
+  const [path, query = ''] = hash.split('?');
+  if (path !== '#finance-reconciliation') return null;
+  const id = new URLSearchParams(query).get('session');
+  return id && /^[A-Za-z0-9_-]{1,80}$/.test(id) ? id : null;
+}
 export type SeverityFilter = 'all' | FinanceReconSeverity;
 
 /** A card or loan statement prints what is owed as a positive figure; the ledger keeps it negative. */

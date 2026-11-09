@@ -31,7 +31,8 @@ export function ReconciliationPage({ onOpen }: { onOpen: (tab: FinanceTab) => vo
   const [health, setHealth] = useState<Load<FinanceReconHealthPage>>({ kind: 'loading' });
   const [sessions, setSessions] = useState<Load<FinanceReconPage>>({ kind: 'loading' });
   const [offset, setOffset] = useState(0);
-  const [selected, setSelected] = useState<string | null>(null);
+  // A link from the suggestion queue opens its session (`#finance-reconciliation?session=<id>`).
+  const [selected, setSelected] = useState<string | null>(() => (typeof location === 'undefined' ? null : rc.sessionFromHash(location.hash)));
   const [creating, setCreating] = useState<{ accountId?: string } | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const loadHealth = useCallback(() => {
@@ -63,7 +64,7 @@ export function ReconciliationPage({ onOpen }: { onOpen: (tab: FinanceTab) => vo
       <KpiCard icon={<CalendarClock />} label={t('frec.kpi.missing')} value={health.kind === 'ready' ? missing : '-'} tone={missing ? 'warn' : ''} hint={t('frec.kpi.missingHint')} />
     </KpiRow>
     {selected
-      ? <SessionDetail key={selected} id={selected} onBack={() => { setSelected(null); refresh(); }} onChanged={refresh} onOpen={onOpen} />
+      ? <SessionDetail key={selected} id={selected} onBack={() => { setSelected(null); if (rc.sessionFromHash(location.hash)) history.replaceState(null, '', '#finance-reconciliation'); refresh(); }} onChanged={refresh} onOpen={onOpen} />
       : <>
         <SessionsCard state={sessions} retry={loadSessions} offset={offset} onOffset={setOffset} onPick={setSelected} onNew={() => setCreating({})} />
         <HealthCard state={health} retry={loadHealth} onImport={() => onOpen('import')} onReconcile={(accountId) => setCreating({ accountId })} onPick={setSelected} />

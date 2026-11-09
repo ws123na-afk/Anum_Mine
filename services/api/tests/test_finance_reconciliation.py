@@ -25,6 +25,7 @@ from anum_api.finance import sms_service as svc
 from anum_api.finance.links_store import links_memory_store
 from anum_api.finance.reconciliation_api import list_open_exceptions
 from anum_api.finance.reconciliation_store import recon_memory_store
+from anum_api.finance.rules_store import rules_memory_store
 from anum_api.finance.sms_store import sms_memory_store
 from anum_api.finance.store import finance_store
 from anum_api.schemas import TenantContext
@@ -41,11 +42,11 @@ client = TestClient(main.app)
 
 @pytest.fixture(autouse=True)
 def clean() -> Iterator[None]:
-    for store in (finance_store, sms_memory_store, links_memory_store, recon_memory_store):
+    for store in (finance_store, sms_memory_store, links_memory_store, recon_memory_store, rules_memory_store):
         store.clear()
     svc._last_notified.clear()
     yield
-    for store in (finance_store, sms_memory_store, links_memory_store, recon_memory_store):
+    for store in (finance_store, sms_memory_store, links_memory_store, recon_memory_store, rules_memory_store):
         store.clear()
 
 
@@ -327,6 +328,35 @@ def test_the_queue_lists_open_exceptions_only() -> None:
     # Paging keeps the total.
     first = client.get(f"{API}/reconciliations/{detail['id']}", headers=OWNER, params={"limit": 1}).json()
     assert len(first["items"]) == 1 and first["total"] >= 1
+
+
+def test_an_open_exception_is_in_the_suggestion_queue_with_a_review_link_and_a_dismissed_one_stays_dismissed() -> None:
+    bank = account(opening_balance="1000")
+    imported = csv_import(bank["id"], STATEMENT, opening_balance="1000.00", closing_balance="930.00", decisions=[{"line": 3, "action": "skip"}])
+    detail = start(account_id=bank["id"], import_id=imported["id"])
+
+    def recon_items() -> list[dict]:
+        found = client.get(f"{API}/suggestions", headers=OWNER, params={"limit": 100})
+        assert found.status_code == 200, found.text
+        assert "reconciliation" not in found.json()["unavailable"]
+        return [s for s in found.json()["items"] if s["producer"] == "reconciliation"]
+
+    items = recon_items()
+    missing = next(s for s in items if s["params"]["exception"] == "not_in_ledger")
+    # What was found, why, the evidence and the money, and Review opens the session.
+    assert missing["kind"] == "reconciliation" and missing["params"]["severity"] == "blocking" and missing["params"]["account"] == "Current"
+    assert missing["detected"] and missing["why"] and any(e["label"] == "SAMPLE BOOKS" for e in missing["evidence"])
+    assert missing["effect"] == [{"amount": "20.00", "currency": "SAR", "direction": "out", "note": None}]
+    assert missing["href"] == f"#finance-reconciliation?session={detail['id']}"
+    # The queue never changes the ledger: Accept is refused, the session is where it is resolved.
+    before = len(transactions(bank["id"]))
+    accepted = client.post(f"{API}/suggestions/accept", headers=OWNER, json={"key": missing["key"], "payload_hash": missing["payload_hash"]})
+    assert accepted.status_code == 409 and len(transactions(bank["id"])) == before
+    # Dismissed, it stays dismissed while the exception is still open on the session.
+    assert client.post(f"{API}/suggestions/reject", headers=OWNER, json={"key": missing["key"]}).status_code == 200
+    assert missing["key"] not in {s["key"] for s in recon_items()}
+    assert any(i["kind"] == "not_in_ledger" for i in client.get(f"{API}/reconciliations/{detail['id']}", headers=OWNER).json()["items"])
+    assert missing["key"] not in {s["key"] for s in recon_items()}
 
 
 def test_a_pdf_import_keeps_its_printed_period_for_coverage_and_a_new_session() -> None:

@@ -64,7 +64,7 @@ Confirmed defects:
 - **B4** Over-reimbursement and over-repayment are accepted (`books_service.py:300-333`), so owed-to-members and debt can go negative.
 - **B5** Loan interest is always treated as cash paid on its date (`books_report.py:329, 515`).
 - **B6** Closed periods can be restated without a trace: settings (`api_books.py:196-216`), paid bill dates and categories (`api_books.py:523-525`); bills and intercompany rows have no freeze trigger.
-- **B7** The personal balance trigger fires on posting insert and delete only (0131:250-251), so an entry with no postings is never checked. **Fixed in the reconciliation PR**: a deferred constraint trigger on `finance_journal_entries` refuses at commit an entry with fewer than two postings (migration `0152_finance_reconciliation`, `tests/test_postgres_finance_reconciliation.py`).
+- **B7** The personal balance trigger fires on posting insert and delete only (0131:250-251), so an entry with no postings is never checked. **Fixed in the reconciliation PR**: a deferred constraint trigger on `finance_journal_entries` refuses at commit an entry with fewer than two postings (migration `0153_finance_reconciliation`, `tests/test_postgres_finance_reconciliation.py`).
 - **B8** Draft-bill approval needs only `business:write`, including by its author (`api_books.py:532-548`).
 - **B9** The consolidated `complete` flag ignores truncation (`books_group.py:203`).
 - **B10** `gather` reads projects and accounts without the truncation check (`books_service.py:440-441`).
@@ -85,7 +85,7 @@ Confirmed defects:
 | Cross-source dedupe | 3 | Too aggressive (I1 to I3) |
 | Statement self-check (opening plus rows equals closing, running balance) | 1 | `engine.py:440-444`, `pdf_api.py:470-485` |
 | Statement closing against book balance | 1 (was 4) | Reconciliation PR: book opening + movements = book closing against the statement's closing, per account and period, never forced (`finance/reconciliation.py`, [docs/finance.md](../finance.md#reconciliation-sessions)) |
-| Reconciliation workspace (bank and card) | 1 (was 4) | Reconciliation PR: sessions with exceptions, owner resolutions, approved correcting entries, completion history and reopen (migration `0152_finance_reconciliation`, web Finance, Reconciliation); card amount due against the card liability |
+| Reconciliation workspace (bank and card) | 1 (was 4) | Reconciliation PR: sessions with exceptions, owner resolutions, approved correcting entries, completion history and reopen (migration `0153_finance_reconciliation`, web Finance, Reconciliation); card amount due against the card liability |
 | Reversal pairing, pending versus posted, unrecognised fees, missing periods | 1 (was 4) | Reconciliation PR: exceptions `reversal_pair` (suggestion), `pending`, `unrecognized_fee`, `missing_period`, plus `wrong_direction`, `unknown_currency`, `possible_duplicate` |
 | Multi-currency (original amount, billed amount, no invented rates, Decimal, per-currency totals) | 1 | `csv_import.py:521-585`, `fx.py` |
 | Realised and unrealised FX in personal Finance | 4 | Not built |
