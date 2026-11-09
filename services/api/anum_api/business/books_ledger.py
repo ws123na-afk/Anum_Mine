@@ -489,7 +489,8 @@ def journal(context: TenantContext, *, start: date | None, end: date | None, sou
     for entry in entries:
         own = sorted(by_entry.get(entry.id, []), key=lambda line: line.line_no)
         items.append({**entry_view(entry), "lines": [{**line_view(line, read.base), "account_code": names[line.account_id].code if line.account_id in names else "",
-                                                      "account_name": names[line.account_id].name if line.account_id in names else ""} for line in own],
+                                                      "account_name": names[line.account_id].name if line.account_id in names else "",
+                                                      "account_key": names[line.account_id].system_key if line.account_id in names else None} for line in own],
                       "total": LR.s(sum((line.debit for line in own), Decimal(0)), read.base)})
     return {"items": items, "total": total, "limit": limit, "offset": offset, "base_currency": read.base}
 

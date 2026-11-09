@@ -61,6 +61,7 @@ def trial_balance(accounts: Iterable[LedgerAccount], opening: Totals, period: To
             continue
         open_net, close_net = od - oc, od - oc + pd - pc
         rows.append({"account_id": account.id, "code": account.code, "name": account.name, "subtype": account.subtype, "type": account.type.value,
+                     "system_key": account.system_key,
                      "opening_debit": s(max(open_net, ZERO), base), "opening_credit": s(max(-open_net, ZERO), base),
                      "debit": s(pd, base), "credit": s(pc, base),
                      "closing_debit": s(max(close_net, ZERO), base), "closing_credit": s(max(-close_net, ZERO), base)})
