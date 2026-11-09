@@ -61,7 +61,7 @@ test('the ledger shows posted entries with their lines, posts now, and takes a b
   await page.getByRole('button', { name: 'General ledger' }).click();
   const drawer = page.getByRole('dialog', { name: 'General ledger' });
   await drawer.getByLabel('Account').selectOption({ label: '1000 Bank and cash' });
-  await expect(drawer.getByText('Closing balance')).toBeVisible();
+  await expect(drawer.getByText('Closing balance', { exact: true })).toBeVisible();
   await expect(drawer.getByRole('row', { name: /Opening balance/ }).first()).toContainText('2,000.00');
   await noSeriousAxe(page);
 });

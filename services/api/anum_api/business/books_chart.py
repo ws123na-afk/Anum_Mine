@@ -61,6 +61,8 @@ REVENUE_KEYS = {"service": "revenue_service", "labor": "revenue_labor", "externa
 class ChartError(ValueError):
     def __init__(self, message: str, code: str) -> None:
         super().__init__(message)
+        # The plain sentence shown to the person; only ever text this module writes.
+        self.message = message
         self.code = code
 
 

@@ -72,7 +72,7 @@ def _ledger(route: Any) -> Any:
         except L.LedgerError as exc:
             return JSONResponse(status_code=exc.status_code, content={"detail": exc.message, "code": exc.code, **exc.extra})
         except ChartError as exc:
-            return JSONResponse(status_code=422, content={"detail": str(exc), "code": exc.code})
+            return JSONResponse(status_code=422, content={"detail": exc.message, "code": exc.code})
 
     return wrapper
 
