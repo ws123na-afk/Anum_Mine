@@ -167,7 +167,7 @@ def upgrade() -> None:
         op.execute(f"create policy owner_only_{table} on {table} as restrictive "
                    f"using (({OWNER_PREDICATE}) or (current_user = 'anum_tenant_purger'::name)) with check ({OWNER_PREDICATE})")
         op.execute(f"grant select (tenant_id, ctid, workspace_id), delete on {table} to anum_tenant_purger")
-        op.execute(f"create policy lifecycle_purge_{table} on {table} for all to anum_tenant_purger "
+        op.execute(f"create policy lifecycle_purge_{table} on {table} for all to anum_tenant_purger "  # nosec B608: fixed table name
                    "using (tenant_id = nullif(current_setting('anum.tenant_id', true), '') "
                    f"and exists (select 1 from tenant_lifecycle_jobs j where j.tenant_id = {table}.tenant_id and j.status = 'purging' "
                    f"and (j.kind = 'organisation_deletion' or (j.kind = 'workspace_deletion' and j.workspace_id = {table}.workspace_id)))) "
