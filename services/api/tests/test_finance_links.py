@@ -251,8 +251,10 @@ def test_a_business_member_sees_the_allocation_but_never_the_personal_ledger() -
     row = page.json()["items"][0]
     assert Decimal(row["amount"]) == 90 and row["currency"] == "SAR" and row["category"] == "fuel" and row["memo"] == "Client visit"
     assert row["source_ref"] == canonical[-6:] and Decimal(page.json()["totals"]["SAR"]) == 90
-    # Timestamps are left out of the leak check: their microseconds can read "1234" by chance.
-    text = re.sub(r"\d{4}-\d{2}-\d{2}T[0-9:.]+(?:Z|[+-]\d{2}:\d{2})?", "<time>", str(page.json()))
+    # Random ids, the short source reference and timestamps are left out of the leak check: their hex digits or
+    # microseconds can read "1234" by chance. Everything else in the answer is checked.
+    shown = {**page.json(), "items": [{k: v for k, v in item.items() if k not in {"id", "source_ref"}} for item in page.json()["items"]]}
+    text = re.sub(r"\d{4}-\d{2}-\d{2}T[0-9:.]+(?:Z|[+-]\d{2}:\d{2})?", "<time>", str(shown))
     assert "PETROMIN" not in text.upper() and "1234" not in text and "My Visa" not in text and "account" not in row
     # The member's own view of finance in the business workspace has none of the owner's rows.
     assert client.get(f"{API}/ledger/entries", headers=BUSINESS_MEMBER).json()["items"] == []
