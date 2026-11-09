@@ -29,10 +29,11 @@ import re
 import unicodedata
 from dataclasses import dataclass, field
 from datetime import date, datetime, time
-from decimal import Decimal, InvalidOperation
+from decimal import Decimal
 from enum import StrEnum
 from typing import Any
 
+from . import fx_text
 from .money import MoneyError, quantize
 
 MAX_TEXT = 1_000
@@ -103,23 +104,12 @@ BANKS: tuple[Bank, ...] = (
 BANK_BY_KEY = {bank.key: bank for bank in BANKS}
 _SENDER_INDEX = {sender: bank for bank in BANKS for sender in bank.senders}
 
-# Currency words to ISO codes. Longer spellings first so "SAR" wins over "SR".
-CURRENCY_WORDS: tuple[tuple[str, str], ...] = (
-    ("ر.س", "SAR"), ("ريال سعودي", "SAR"), ("ريال", "SAR"), ("رس", "SAR"), ("SAR", "SAR"), ("SR", "SAR"),
-    ("د.إ", "AED"), ("درهم", "AED"), ("AED", "AED"), ("DHS", "AED"), ("DH", "AED"),
-    ("USD", "USD"), ("US$", "USD"), ("$", "USD"), ("دولار", "USD"),
-    ("EUR", "EUR"), ("€", "EUR"), ("يورو", "EUR"), ("GBP", "GBP"), ("£", "GBP"),
-    ("KWD", "KWD"), ("د.ك", "KWD"), ("QAR", "QAR"), ("BHD", "BHD"), ("OMR", "OMR"), ("EGP", "EGP"),
-    ("INR", "INR"), ("PKR", "PKR"), ("JOD", "JOD"), ("TRY", "TRY"), ("CHF", "CHF"), ("JPY", "JPY"),
-)
-_CURRENCY_ALT = "|".join(re.escape(word) for word, _ in sorted(CURRENCY_WORDS, key=lambda item: -len(item[0])))
-_CURRENCY_CODE = {word.upper(): code for word, code in CURRENCY_WORDS}
-_NUMBER = r"\d{1,3}(?:,\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?"
-# A currency word, then the number; or the number, then the currency word.
-_AMOUNT = re.compile(
-    rf"(?:(?P<c1>{_CURRENCY_ALT})\s?(?P<n1>{_NUMBER}))|(?:(?<![\d.,])(?P<n2>{_NUMBER})\s?(?P<c2>{_CURRENCY_ALT}))",
-    re.IGNORECASE,
-)
+# Currency words, numbers and amounts are shared with statement imports (fx_text): one reader.
+CURRENCY_WORDS = fx_text.CURRENCY_WORDS
+_CURRENCY_ALT = fx_text.CURRENCY_ALT
+_CURRENCY_CODE = fx_text.CURRENCY_CODE
+_NUMBER = fx_text.NUMBER
+_AMOUNT = fx_text.AMOUNT
 
 # Refusals. Checked on the lower-cased, normalized text.
 _OTP = re.compile(
@@ -295,40 +285,10 @@ def refusal(text: str) -> Rejection | None:
 # -- field readers ------------------------------------------------------------------------------
 
 
-def _number(raw: str) -> Decimal | None:
-    try:
-        return Decimal(raw.replace(",", ""))
-    except InvalidOperation:
-        return None
-
-
-def _currency(raw: str) -> str:
-    return _CURRENCY_CODE.get(raw.upper(), _CURRENCY_CODE.get(raw, raw.upper()))
-
-
-def _money_match(match: re.Match[str]) -> tuple[Decimal, str] | None:
-    number = match.group("n1") or match.group("n2")
-    word = match.group("c1") or match.group("c2")
-    value = _number(number or "")
-    if value is None or not word:
-        return None
-    currency = _currency(word)
-    try:
-        return quantize(value, currency), currency
-    except MoneyError:
-        return None
-
-
-def _amounts(text: str, skip: list[tuple[int, int]]) -> list[tuple[Decimal, str, int]]:
-    """Every amount with a currency, in order, except those inside ``skip`` spans."""
-    found = []
-    for match in _AMOUNT.finditer(text):
-        if any(start <= match.start() < end for start, end in skip):
-            continue
-        read = _money_match(match)
-        if read is not None:
-            found.append((read[0], read[1], match.start()))
-    return found
+_number = fx_text.number
+_currency = fx_text.currency_code
+_money_match = fx_text.money_match
+_amounts = fx_text.amounts
 
 
 def _date(raw: str, day_first: bool = True) -> date | None:
@@ -459,10 +419,9 @@ def _generic(body: str) -> Parsed:
         return result
     result.amount, result.currency = amounts[0][0], amounts[0][1]
     # A second amount in another currency is the converted (billed) amount: "USD 20.00 (SAR 75.40)".
-    for amount, currency, _ in amounts[1:]:
-        if currency != result.currency:
-            result.converted_amount, result.converted_currency = amount, currency
-            break
+    _spent, converted = fx_text.split_converted(amounts)
+    if converted is not None:
+        result.converted_amount, result.converted_currency = converted
     if result.kind == Kind.BANK_FEE and result.fee is None:
         result.fee = result.amount
     _fill_details(result, body)

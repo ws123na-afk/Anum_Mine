@@ -113,9 +113,14 @@ export interface FinanceInstallmentStatementEntry {
   total_installments: number;
   amount: string;
   currency: string;
-  source_status: 'paid' | 'scheduled' | 'review';
+  /** `refunded`: the provider's own statement marks this installment refunded or cancelled. */
+  source_status: 'paid' | 'scheduled' | 'review' | 'refunded';
   source_email: string | null;
   review_notes: string | null;
+  /** Set only by ANUM when the owner applies refund evidence: how much of `amount` is no longer due. */
+  refunded_amount?: string;
+  /** A lower amount a later statement import reported for the same installment and due date. */
+  reported_amount?: string | null;
 }
 export interface FinanceInstallmentStatementView { items: FinanceInstallmentStatementEntry[]; total: number }
 export interface FinanceInstallmentStatementSyncResult {
@@ -124,4 +129,113 @@ export interface FinanceInstallmentStatementSyncResult {
   unchanged: number;
   conflicts: string[];
   total: number;
+  refund_signals?: string[];
+  notices_saved?: number;
+}
+
+/** A Tamara refund or order-updated email kept as refund evidence (never as money received). */
+export interface FinanceInstallmentRefundNotice {
+  provider: string;
+  order_id: string;
+  amount: string | null;
+  currency: string;
+  full: boolean;
+  received_on: string;
+  message_ref: string;
+  source_email: string | null;
+}
+
+export type FinanceRefundEvidenceCode =
+  | 'email_amount' | 'email_full' | 'email_duplicate' | 'email_no_amount'
+  | 'statement_refunded' | 'statement_lower_amount' | 'statement_review'
+  | 'ledger_order' | 'ledger_matches_email' | 'ledger_merchant' | 'ledger_amount_only';
+export type FinanceRefundReason =
+  | 'estimate_only' | 'weak_only' | 'more_than_order' | 'applied_more_than_evidence' | 'statement_differs' | 'email_without_amount';
+export type FinanceRefundOrderState = 'active' | 'partly_refunded' | 'refunded' | 'needs_review';
+export type FinanceRefundInstallmentState = 'paid' | 'due' | 'partly_refunded' | 'refunded';
+
+export interface FinanceRefundEvidence {
+  id: string;
+  kind: 'email' | 'statement' | 'ledger';
+  strength: 'strong' | 'weak';
+  role: 'counted' | 'schedule' | 'money_back' | 'review';
+  code: FinanceRefundEvidenceCode;
+  amount: string | null;
+  currency: string;
+  on: string | null;
+  installment: number | null;
+  link: string | null;
+  transaction_id: string | null;
+}
+
+export interface FinanceRefundInstallment {
+  installment: number;
+  total_installments: number;
+  due_on: string;
+  amount: string;
+  source_status: string;
+  refunded_before: string;
+  refunded_after: string;
+  due_before: string;
+  due_after: string;
+  /** Only for a partial refund without Tamara's new schedule: an estimate, never applied. */
+  estimate_due: string | null;
+  state_before: FinanceRefundInstallmentState;
+  state_after: FinanceRefundInstallmentState;
+}
+
+export interface FinanceOrderRefundPlan {
+  provider: string;
+  order_id: string;
+  merchant: string;
+  currency: string;
+  state: FinanceRefundOrderState;
+  applied_state: FinanceRefundOrderState;
+  mode: 'none' | 'cancel_all' | 'schedule' | 'estimate';
+  applicable: boolean;
+  pending: boolean;
+  order_total: string;
+  paid_total: string;
+  refund_total: string;
+  credit_back: string;
+  credit_received: string;
+  outstanding_before: string;
+  outstanding_after: string;
+  next_due_before: string | null;
+  next_due_after: string | null;
+  evidence: FinanceRefundEvidence[];
+  installments: FinanceRefundInstallment[];
+  reasons: FinanceRefundReason[];
+  plan_hash: string;
+}
+
+export interface FinanceRefundRecord {
+  id: string;
+  provider: string;
+  order_id: string;
+  currency: string;
+  applied_at: string;
+  refund_total: string;
+  credit_back: string;
+  installments: number;
+  bills: number;
+  undone: boolean;
+  can_undo: boolean;
+}
+
+export interface FinanceRefundPreview {
+  today: string;
+  orders: FinanceOrderRefundPlan[];
+  pending: number;
+  needs_review: number;
+  records: FinanceRefundRecord[];
+}
+
+export interface FinanceRefundApplyResult {
+  applied: number;
+  installments: number;
+  bills_paused: number;
+  bills_lowered: number;
+  record_ids: string[];
+  preview: FinanceRefundPreview;
 }

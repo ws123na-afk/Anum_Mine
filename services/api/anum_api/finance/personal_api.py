@@ -138,6 +138,13 @@ def _left(context: TenantContext, canonical_id: str, dimension: str, currency: s
 
 def _link(context: TenantContext, repository: AnumRepository, *, dimension: str, target: str, target_id: str, role: str, currency: str,
           body: LinkInput, expected: Decimal, key: str | None, action: str) -> LinkResult:
+    # A retry of a request that already succeeded returns its link before anything is worked out again: the first
+    # link used the capacity, so a fresh "what is left" would refuse the replay.
+    with open_link_stores(context) as (_finance, _store, links):
+        existing = links.link_by_idem(context, K.idem_key(context, body.canonical_id, dimension, target, target_id, role, key))
+    if existing is not None and (existing.canonical_id, existing.dimension, existing.target_type, existing.target_id, existing.role) == (
+            body.canonical_id, dimension, target, target_id, role) and (body.amount is None or existing.amount == quantize(body.amount, currency)):
+        return LinkResult(link=_view(existing), replayed=True)
     amount = _left(context, body.canonical_id, dimension, currency, body.amount, expected)
     made = K.create(context, K.LinkRequest(canonical_id=body.canonical_id, dimension=dimension, role=role, target_type=target,
                                            target_id=target_id, amount=amount, currency=currency, idempotency_key=key))

@@ -34,6 +34,8 @@ export function planningReply(state: FinanceState, method: string, sub: string, 
   const ok = (value: unknown, status = 200) => ({ status, body: value });
   const p = planning(state);
   const today = iso(new Date());
+  // Tamara refunds (docs/finance.md#tamara-refunds): none unless a spec mocks its own.
+  if (sub === '/installment-refunds' && method === 'GET') return ok({ today, orders: [], pending: 0, needs_review: 0, records: [] });
   if (sub === '/bill-schedule') {
     const from = url.searchParams.get('from') ?? today.slice(0, 8) + '01', to = url.searchParams.get('to') ?? today;
     const items: Row[] = [];

@@ -40,6 +40,7 @@ from decimal import Decimal, InvalidOperation
 
 from pydantic import BaseModel, Field, model_validator
 
+from . import fx_text
 from .money import MoneyError, quantize
 
 MAX_BYTES = 2_000_000
@@ -124,6 +125,14 @@ class ColumnMapping(BaseModel):
     billed_currency: str | None = Field(default=None, max_length=120)
     fx_rate: str | None = Field(default=None, max_length=120)
     fee: str | None = Field(default=None, max_length=120)
+    balance: str | None = Field(default=None, max_length=120)  # the running balance after the row
+    reference: str | None = Field(default=None, max_length=120)  # the bank's reference for the row
+
+    def names(self) -> list[str]:
+        """Every column this mapping names."""
+        return [n for n in (self.date, self.description, self.amount, self.debit, self.credit, self.direction, self.currency,
+                            self.original_amount, self.original_currency, self.billed_amount, self.billed_currency, self.fx_rate,
+                            self.fee, self.balance, self.reference) if n]
 
     @model_validator(mode="after")
     def _money_columns(self) -> ColumnMapping:
@@ -145,6 +154,11 @@ class ParsedRow:
     original_amount: Decimal | None = None
     original_currency: str | None = None
     fee: Decimal | None = None
+    balance: Decimal | None = None
+    reference: str | None = None
+    fx_rate: Decimal | None = None
+    fee_currency: str | None = None
+
 
 @dataclass
 class RowError:
@@ -320,6 +334,8 @@ def mapping_for(preset: Preset, headers: list[str]) -> ColumnMapping | None:
         "billed_currency": _find(headers, ("billing currency", "billed currency", "settlement currency", "account currency")),
         "fx_rate": _find(headers, ("exchange rate", "fx rate", "conversion rate")),
         "fee": _find(headers, ("foreign transaction fee", "fx fee", "transaction fee", "fee amount")),
+        "balance": _find(headers, ("balance", "running balance", "available balance", "ledger balance", "closing balance", "الرصيد")),
+        "reference": _find(headers, ("reference", "reference number", "ref", "ref no", "transaction reference", "cheque no", "المرجع", "رقم المرجع")),
     }
     if amount_col and not (debit_col and credit_col):
         return ColumnMapping(date=date_col, description=desc_col, amount=amount_col, **extra)
@@ -341,8 +357,7 @@ def _locate_header(rows: list[list[str]], preset: str | None, mapping: ColumnMap
     for index, row in enumerate(rows[:HEADER_SEARCH_ROWS]):
         headers = [clean_text(c, 120) for c in row]
         if mapping is not None:
-            wanted = [mapping.date, mapping.description, mapping.amount, mapping.debit, mapping.credit, mapping.direction, mapping.currency, mapping.original_amount, mapping.original_currency, mapping.billed_amount, mapping.billed_currency, mapping.fx_rate, mapping.fee]
-            if all(name in headers for name in wanted if name):
+            if all(name in headers for name in mapping.names()):
                 return index
         elif preset is not None and preset in PRESETS:
             if mapping_for(PRESETS[preset], headers):
@@ -353,6 +368,11 @@ def _locate_header(rows: list[list[str]], preset: str | None, mapping: ColumnMap
     if first is None:
         raise ImportError_("The file is empty.")
     return first
+
+
+def _reference(value: str) -> str | None:
+    clean = re.sub(r"[^\w\-/]", "", clean_text(value or "", 60))[:60]
+    return clean or None
 
 
 def dedupe_hash(account_id: str, posted_on: date, amount: Decimal, currency: str, description: str, occurrence: int) -> str:
@@ -394,7 +414,7 @@ def parse_file(
             )
         mapping = found
     else:
-        missing = [n for n in (mapping.date, mapping.description, mapping.amount, mapping.debit, mapping.credit, mapping.direction, mapping.currency, mapping.original_amount, mapping.original_currency, mapping.billed_amount, mapping.billed_currency, mapping.fx_rate, mapping.fee) if n and n not in headers]
+        missing = [n for n in mapping.names() if n not in headers]
         if missing:
             raise ImportError_(f"These columns are not in the file: {', '.join(missing)}.")
         chosen = "custom"
@@ -529,6 +549,18 @@ def parse_file(
                 )
             if fee is not None and fee < 0:
                 fee = abs(fee)
+            balance = quantize(money_cell(mapping.balance), currency) if mapping.balance and cell(row, mapping.balance).strip() else None
+            # The row's own words: "USD 20.00 @ 3.84", "intl txn fee SAR 1.20" (fx_text). Columns win; the text fills gaps.
+            # The recorded amount stays the bank-billed one; these figures are evidence only.
+            text = fx_text.read_fx(description, currency)
+            fee_currency = currency if fee is not None else None
+            if foreign is None and text.original_amount is not None:
+                foreign, original_ccy = text.original_amount, text.original_currency
+            column_rate = rate
+            if rate is None and text.rate is not None and text.rate_source == "printed":
+                rate = text.rate
+            if fee is None and text.fee is not None:
+                fee, fee_currency = text.fee, text.fee_currency
             notes_parts = []
             if foreign is not None:
                 if not original_ccy:
@@ -541,7 +573,9 @@ def parse_file(
                     raise MoneyError("The exchange rate must be positive.")
                 notes_parts.append(f"Bank FX rate: {rate}")
             if fee is not None:
-                notes_parts.append(f"FX/transaction fee reported: {fee} {currency} (informational; not an additional ledger posting)")
+                notes_parts.append(f"FX/transaction fee reported: {fee} {fee_currency or currency} (informational; not an additional ledger posting)")
+            if text.markup_percent is not None:
+                notes_parts.append(f"FX markup reported: {text.markup_percent}%")
         except MoneyError as exc:
             result.errors.append(RowError(line, str(exc)))
             continue
@@ -549,6 +583,8 @@ def parse_file(
         occurrence = seen.get(key, 0)
         seen[key] = occurrence + 1
         result.rows.append(
-            ParsedRow(line, posted, amount, description, dedupe_hash(account_id, posted, amount, currency, description, occurrence), " | ".join(notes_parts) or None, foreign, original_ccy if foreign is not None else None, fee)
+            ParsedRow(line, posted, amount, description, dedupe_hash(account_id, posted, amount, currency, description, occurrence), " | ".join(notes_parts) or None,
+                      abs(foreign) if foreign is not None else None, original_ccy if foreign is not None else None, fee, balance,
+                      _reference(cell(row, mapping.reference)), column_rate, fee_currency if fee is not None else None)
         )
     return result

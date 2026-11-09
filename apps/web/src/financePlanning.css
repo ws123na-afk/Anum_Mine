@@ -195,3 +195,37 @@
 
 /* The strip button is a small grid: keep its hidden label out of the layout. */
 .fplStrip ol button { position: relative; }
+
+/* Tamara refunds (docs/finance.md#tamara-refunds): one card above the installment statement. */
+.frefundCard { container: frefund / inline-size; min-width: 0; }
+.frefundFilters { display: flex; flex-wrap: wrap; gap: var(--d-s3); margin-block: 0 var(--d-s3); }
+.frefundFilters .field { flex: 1 1 220px; min-width: 0; }
+.frefundTotals { display: block; }
+.frefundRef { color: var(--d-muted); display: block; overflow-wrap: anywhere; }
+.frefundChips { display: inline-flex; flex-wrap: wrap; gap: var(--d-s1); }
+.frefundTable td, .frefundTable th { vertical-align: top; }
+.frefundTable td[data-label] { white-space: nowrap; }
+.frefundDetail { display: grid; gap: var(--d-s2); min-width: 0; }
+.frefundDetail h4, .frefundDetail p { margin: 0; }
+.frefundReasons { display: grid; gap: var(--d-s1); margin: 0; padding-inline-start: var(--d-s4); }
+.frefundEvidence { display: grid; gap: var(--d-s2); list-style: none; margin: 0; padding: 0; }
+.frefundEvidence li { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); }
+.frefundMore { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s3); justify-content: space-between; margin-block-start: var(--d-s3); }
+.frefundHistory { border-block-start: 1px solid var(--d-line); margin-block-start: var(--d-s4); padding-block-start: var(--d-s3); }
+.frefundHistory h3 { margin: 0 0 var(--d-s1); }
+.frefundHistory ul { display: grid; gap: var(--d-s2); list-style: none; margin: var(--d-s2) 0 0; padding: 0; }
+.frefundHistory li { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2) var(--d-s3); justify-content: space-between; }
+.frefundHistory button svg { block-size: 16px; inline-size: 16px; }
+/* A narrow card (phones, tablets beside the sidebar): each order and installment is a stacked block with its labels. */
+@container frefund (max-width: 640px) {
+  .frefundTable thead, .frefundInst thead { block-size: 1px; clip: rect(0 0 0 0); inline-size: 1px; overflow: hidden; position: absolute; white-space: nowrap; }
+  .frefundTable, .frefundTable tbody, .frefundInst, .frefundInst tbody { display: block; }
+  .frefundTable tr, .frefundInst tr { border-block-end: 1px solid var(--d-line); display: grid; gap: var(--d-s1) var(--d-s3); grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); padding-block: var(--d-s2); }
+  .frefundTable td, .frefundInst td { border: 0; display: grid; gap: 2px; justify-items: start; padding: 0; }
+  .frefundTable td[data-label]::before, .frefundInst td[data-label]::before { color: var(--d-muted); content: attr(data-label); font-size: var(--text-xs); }
+  .frefundTable .frefundLead, .frefundInst .frefundLead { grid-column: 1 / -1; }
+  .frefundTable .frefundAction { align-self: end; justify-items: start; }
+  .frefundTable .frefundDetailRow { display: block; }
+  .frefundTable .frefundDetailRow > td { display: block; }
+  .frefundDetail .finTableWrap { overflow: visible; }
+}

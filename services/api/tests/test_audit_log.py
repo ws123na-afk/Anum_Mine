@@ -317,6 +317,18 @@ def test_an_expired_invitation_can_be_resent(client: TestClient) -> None:
 # --------------------------------------------------------------------------- workspaces
 
 
+def test_roles_list_what_each_role_may_do(client: TestClient) -> None:
+    _join(client, "member_1", "member")
+    roles = {row["role"]: set(row["permissions"]) for row in client.get("/api/v1/workspaces/current/roles", headers=MEMBER).json()["roles"]}
+    assert list(roles) == ["owner", "member", "viewer"]
+    assert "membership:manage" in roles["owner"] and "membership:manage" not in roles["member"]
+    assert "task:create" in roles["member"] and "task:create" not in roles["viewer"]
+    assert roles["viewer"] <= roles["member"] <= roles["owner"]
+    assert "platform:operate" not in roles["owner"]
+    outsider = client.get("/api/v1/workspaces/current/roles", headers=headers_for("stranger", roles="", tenant="tenant_other"))
+    assert outsider.status_code in (401, 403)
+
+
 def test_permissions_report_what_the_caller_may_do(client: TestClient) -> None:
     _join(client, "member_1", "member")
     owner = client.get("/api/v1/workspaces/current/permissions", headers=OWNER).json()

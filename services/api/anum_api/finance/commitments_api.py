@@ -21,7 +21,7 @@ from decimal import Decimal
 from typing import Any, Literal
 
 from fastapi import APIRouter, Depends, Header, Query, Response, status
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from ..dependencies import repository_context, tenant_context
 from ..repository import AnumRepository
@@ -44,7 +44,7 @@ from .commitments import (
 from .links_api import LinkResult, _view, refusals
 from .links_store import LinkStatus, open_link_stores
 from .money import quantize
-from .models import Bill, BudgetAlert, Category, Debt, DebtPlan, DebtStrategy, InstallmentStatementEntry, Planning
+from .models import Bill, BudgetAlert, Category, Debt, DebtPlan, DebtStrategy, InstallmentRefundNotice, InstallmentStatementEntry, Planning
 from .policy import current_rules
 from .store import open_finance_store
 from .summary import month_range, settings_for, today_in
@@ -64,7 +64,16 @@ class InstallmentStatementView(BaseModel):
 
 class InstallmentStatementSyncInput(BaseModel):
     model_config = ConfigDict(extra="forbid")
-    entries: list[InstallmentStatementEntry] = Field(min_length=1, max_length=1000)
+    # Empty when a Gmail read found only refund emails: those are still saved as evidence for orders already imported.
+    entries: list[InstallmentStatementEntry] = Field(default_factory=list, max_length=1000)
+    # Refund and order-updated emails read with this import, kept as refund evidence (docs/finance.md#tamara-refunds).
+    refund_notices: list[InstallmentRefundNotice] = Field(default_factory=list, max_length=500)
+
+    @model_validator(mode="after")
+    def _something(self) -> "InstallmentStatementSyncInput":
+        if not self.entries and not self.refund_notices:
+            raise ValueError("Send statement entries, refund notices or both.")
+        return self
 
 
 class InstallmentStatementSyncResult(BaseModel):
@@ -73,6 +82,17 @@ class InstallmentStatementSyncResult(BaseModel):
     unchanged: int
     conflicts: list[str]
     total: int
+    # Installments a later statement shows with a lower amount: refund evidence, reviewed in Refunds.
+    refund_signals: list[str] = Field(default_factory=list)
+    notices_saved: int = 0
+
+
+_ANUM_FIELDS = {"refunded_amount", "reported_amount"}
+
+
+def _source_terms(row: InstallmentStatementEntry) -> dict:
+    """What the statement itself says about a row, without what ANUM applied to it."""
+    return row.model_dump(exclude=_ANUM_FIELDS)
 
 
 def _installment_key(row: InstallmentStatementEntry) -> tuple[str, str, int]:
@@ -100,16 +120,20 @@ def sync_installment_statement(
     for entry in body.entries:
         if entry.installment > entry.total_installments:
             raise _invalid("Installment number cannot exceed the plan length.")
-        normalized = entry.model_copy(update={"amount": quantize(entry.amount, entry.currency)})
+        # The refunded and reported amounts are ANUM's own, never taken from an upload.
+        normalized = entry.model_copy(update={"amount": quantize(entry.amount, entry.currency), "refunded_amount": Decimal(0),
+                                              "reported_amount": None})
         key = _installment_key(normalized)
         if key in incoming:
             raise _invalid(f"Duplicate provider order installment in upload: {entry.order_id} #{entry.installment}")
         incoming[key] = normalized
-    created = updated = unchanged = 0
+    created = updated = unchanged = notices_saved = 0
     conflicts: list[str] = []
+    signals: list[str] = []
     with open_finance_store(context) as store:
         planning = store.get_planning(context)
         current = {_installment_key(entry): entry for entry in planning.installment_entries}
+        changed_reported = False
         for key, row in incoming.items():
             old = current.get(key)
             if old is None:
@@ -118,23 +142,40 @@ def sync_installment_statement(
                 current[key] = row
                 created += 1
                 continue
+            label = f"{row.provider} / {row.order_id} / {row.installment}"
+            if old.currency == row.currency and old.due_on == row.due_on and row.amount < old.amount and old.source_status != "paid":
+                # Same installment and due date, lower amount: Tamara's own new schedule after a refund. The original
+                # terms stay; the lower figure is kept as refund evidence for the owner to apply.
+                if old.reported_amount != row.amount:
+                    current[key] = old.model_copy(update={"reported_amount": row.amount})
+                    changed_reported = True
+                signals.append(f"{label}: lower amount reported")
+                continue
             # A different amount or date may mean a reschedule, refund or incorrect source file.
             # Keep the prior financial terms until the person reconciles the difference.
             if old.amount != row.amount or old.due_on != row.due_on or old.currency != row.currency:
-                conflicts.append(f"{row.provider} / {row.order_id} / {row.installment}: due date or amount changed")
+                conflicts.append(f"{label}: due date or amount changed")
                 continue
-            if old == row:
+            if _source_terms(old) == _source_terms(row):
                 unchanged += 1
             else:
-                current[key] = row
+                # The applied refund and any reported amount survive a reimport.
+                current[key] = row.model_copy(update={"refunded_amount": old.refunded_amount, "reported_amount": old.reported_amount})
                 updated += 1
-        if created or updated:
+        known = {n.message_ref for n in planning.installment_refund_notices}
+        for notice in body.refund_notices:
+            if notice.message_ref not in known and len(planning.installment_refund_notices) < 3000:
+                planning.installment_refund_notices.append(notice)
+                known.add(notice.message_ref)
+                notices_saved += 1
+        if created or updated or changed_reported or notices_saved:
             planning.installment_entries = sorted(current.values(), key=lambda r: (r.due_on, r.order_id, r.installment))
             store.save_planning(context, planning)
     _audit(repository, context, "finance.installment_statement.sync", context.user_id,
-           {"created": created, "updated": updated, "unchanged": unchanged, "conflicts": len(conflicts)})
+           {"created": created, "updated": updated, "unchanged": unchanged, "conflicts": len(conflicts),
+            "refund_signals": len(signals), "notices_saved": notices_saved})
     return InstallmentStatementSyncResult(created=created, updated=updated, unchanged=unchanged, conflicts=conflicts,
-                                          total=len(current))
+                                          total=len(current), refund_signals=signals, notices_saved=notices_saved)
 
 
 # -- bills ----------------------------------------------------------------------------------------------

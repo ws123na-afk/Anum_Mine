@@ -328,3 +328,38 @@
 .finPdfLeft td:not(:first-child) { opacity: .5; }
 .finPdfProblem td { background: rgb(var(--c-warn) / .08); }
 .finTable td small.finPdfFlag { color: var(--d-warn); }
+
+/* Statement matching engine in the import preview (docs/finance.md#statement-matching). */
+.fmatch { display: grid; gap: var(--d-s2); margin-block: var(--d-s3); }
+.fmatch h3 { font-size: var(--text-md); margin: 0; }
+.fmatchSummary { font-weight: 600; margin: 0; }
+.fmatchRecon { align-items: flex-start; }
+.fmatchRecon[data-tone="ok"] svg { color: var(--d-ok); }
+.fmatchGroup { border: 1px solid var(--d-line); border-radius: var(--d-r-control); min-width: 0; padding: 0 var(--d-s3); }
+.fmatchGroup > summary { align-items: center; cursor: pointer; display: flex; font-weight: 600; gap: var(--d-s2); min-height: 44px; }
+.fmatchGroup > summary svg { block-size: 18px; flex: none; inline-size: 18px; }
+.fmatchGroup[data-group="decide"] > summary svg { color: var(--d-warn); }
+.fmatchGroup[data-group="matched"] > summary svg, .fmatchGroup[data-group="bills"] > summary svg, .fmatchGroup[data-group="transfers"] > summary svg { color: var(--d-ok); }
+.fmatchGroup > button { margin-block-end: var(--d-s3); }
+.fmatchHelp { margin: 0 0 var(--d-s2); }
+.fmatchRows { display: grid; list-style: none; margin: 0; padding: 0; }
+.fmatchRow { border-top: 1px solid var(--d-line); display: grid; gap: var(--d-s1); min-width: 0; padding-block: var(--d-s2); }
+.fmatchHead { align-items: baseline; display: grid; gap: var(--d-s1) var(--d-s3); grid-template-columns: auto minmax(0, 1fr) auto; }
+.fmatchDate { color: var(--d-muted); font-size: var(--text-sm); font-variant-numeric: tabular-nums; }
+.fmatchDesc { min-width: 0; overflow-wrap: anywhere; }
+.fmatchAmount { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.fmatchReason, .fmatchFx, .fmatchNote { font-size: var(--text-sm); margin: 0; overflow-wrap: anywhere; }
+.fmatchFx, .fmatchNote { color: var(--d-muted); }
+.fmatchOutcome { background: var(--d-edge); border: 1px solid var(--d-line-strong); border-radius: var(--d-r-pill); font-size: var(--text-xs); font-weight: 600; padding: 1px var(--d-s2); white-space: nowrap; }
+.fmatchRow[data-outcome="review"] .fmatchOutcome { border-color: var(--d-warn); }
+.fmatchRow[data-outcome="attach"] .fmatchOutcome, .fmatchRow[data-outcome="import"] .fmatchOutcome { border-color: var(--d-ok); }
+.fmatchRow[data-outcome="duplicate"], .fmatchRow[data-outcome="skip"] { opacity: .75; }
+.fmatchCandidates { font-size: var(--text-sm); margin: 0; padding-inline-start: var(--d-s4); }
+.fmatchTicks { display: flex; flex-wrap: wrap; gap: 0 var(--d-s3); }
+.fmatchTick { font-size: var(--text-sm); min-width: 0; }
+.fmatchTick span { overflow-wrap: anywhere; }
+.finPdfBilled { margin-block: var(--d-s1); }
+@media (max-width: 560px) {
+  .fmatchHead { grid-template-columns: minmax(0, 1fr) auto; }
+  .fmatchDate { grid-column: 1 / -1; }
+}

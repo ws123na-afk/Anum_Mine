@@ -12,7 +12,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from enum import StrEnum
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 DEFAULT_CURRENCY = "AED"
 DEFAULT_TIMEZONE = "Asia/Dubai"
@@ -156,6 +156,9 @@ class ImportRecord(_Owned):
     error_count: int
     file_sha256: str
     created_at: datetime
+    # The statement's balance check when it was imported (docs/finance.md#reconciliation): ``status`` ("tied",
+    # "differs" or "unknown"), ``opening``, ``closing``, ``rows_total``, ``difference`` as decimal strings.
+    reconciliation: dict[str, str | None] | None = None
 
 
 class Bill(_Owned):
@@ -287,15 +290,70 @@ class InstallmentStatementEntry(BaseModel):
     total_installments: int = Field(ge=1, le=120)
     amount: Decimal = Field(gt=0)
     currency: str = Field(pattern=r"^[A-Z]{3}$")
-    source_status: str = Field(pattern=r"^(paid|scheduled|review)$")
+    # ``refunded``: the provider's own statement marks this installment refunded or cancelled.
+    source_status: str = Field(pattern=r"^(paid|scheduled|review|refunded)$")
     source_email: str | None = Field(default=None, max_length=500)
     review_notes: str | None = Field(default=None, max_length=500)
+    # Set only by ANUM when the owner applies refund evidence (docs/finance.md#tamara-refunds): how much of
+    # ``amount`` is no longer due. ``amount`` itself stays the original scheduled figure.
+    refunded_amount: Decimal = Field(default=Decimal(0), ge=0)
+    # A lower amount a later statement import reported for the same installment and due date (refund evidence).
+    reported_amount: Decimal | None = Field(default=None, gt=0)
+
+
+class InstallmentRefundNotice(BaseModel):
+    """One refund or order-updated email from the provider, kept as evidence (never as money received)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    provider: str = Field(default="Tamara", min_length=1, max_length=80)
+    order_id: str = Field(min_length=1, max_length=160)
+    amount: Decimal | None = Field(default=None, gt=0)  # None: the email names no amount
+    currency: str = Field(default="SAR", pattern=r"^[A-Z]{3}$")
+    full: bool = False  # the email says the whole order was refunded or cancelled
+    received_on: date
+    message_ref: str = Field(min_length=1, max_length=200)  # the provider message id, the dedupe key
+    source_email: str | None = Field(default=None, max_length=500)
+
+
+class InstallmentRefundChange(BaseModel):
+    installment: int = Field(ge=1, le=120)
+    previous_refunded: Decimal
+    refunded: Decimal
+
+
+class InstallmentRefundBillChange(BaseModel):
+    bill_id: str
+    previous_amount: Decimal
+    previous_active: bool
+    amount: Decimal
+    active: bool
+
+
+class InstallmentRefundRecord(BaseModel):
+    """One owner-confirmed application of refund evidence to one order, kept so it can be undone."""
+
+    id: str
+    provider: str
+    order_id: str
+    currency: str
+    applied_at: datetime
+    applied_by: str
+    refund_total: Decimal
+    credit_back: Decimal
+    evidence: list[str] = Field(default_factory=list, max_length=200)
+    changes: list[InstallmentRefundChange] = Field(default_factory=list, max_length=120)
+    bills: list[InstallmentRefundBillChange] = Field(default_factory=list, max_length=120)
+    undone_at: datetime | None = None
+    undone_by: str | None = None
 
 
 class Planning(BaseModel):
     debt_plans: list[DebtPlan] = Field(default_factory=list, max_length=20)
     budget_alerts: list[BudgetAlert] = Field(default_factory=list, max_length=100)
     installment_entries: list[InstallmentStatementEntry] = Field(default_factory=list, max_length=3000)
+    installment_refund_notices: list[InstallmentRefundNotice] = Field(default_factory=list, max_length=3000)
+    installment_refunds: list[InstallmentRefundRecord] = Field(default_factory=list, max_length=2000)
 
 
 # -- Stage 5: FX rates ------------------------------------------------------------------------

@@ -11,13 +11,16 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Iterable
 
-from .models import InstallmentStatementEntry
+from .models import InstallmentRefundNotice, InstallmentStatementEntry
 
 _AMOUNT = r"([0-9][0-9,]*(?:\.[0-9]{1,2})?)"
 _ORDER = re.compile(r"\bOrder\s*(?:Number|ID|No\.?|Reference)\s*[:#]?\s*\n?\s*([\w-]{5,160})", re.I)
 _LINES = re.compile(r"(Paid today|Due on\s+\d{2}[.\-/]\d{2}[.\-/]\d{4})\s*[:\-]?\s*(?:\r?\n\s*)?" + _AMOUNT + r"\s*SAR", re.I)
 _PAID = re.compile(r"(?:received your payment of|payment of)\s*SAR\s*" + _AMOUNT + r"\s+for\s+the\s+(first|second|third|fourth|fifth|sixth|seventh|eighth|ninth|tenth)\s+payment", re.I)
-_REFUND = re.compile(r"(?:Refund(?:ed)?(?:\s+Amount)?\s*[:\-]?\s*(?:SAR\s*)?)" + _AMOUNT + r"\s*SAR", re.I)
+# "Refund 580 SAR", "Refunded amount: SAR 580.00", "Refund amount\nSAR 1,200": the currency on either side.
+_REFUND = re.compile(r"\bRefund(?:ed)?(?:\s+amount)?\s*[:\-]?\s*(?:\r?\n\s*)?(?:SAR\s*" + _AMOUNT + r"|" + _AMOUNT + r"\s*SAR)", re.I)
+# Wording that means the whole order was refunded or cancelled, not one item of it.
+_FULL = re.compile(r"\b(?:full(?:y)?\s+refund(?:ed)?|refunded\s+in\s+full|order\s+(?:has\s+been|was|is)\s+(?:fully\s+)?(?:refunded|cancell?ed))\b", re.I)
 _ORDINALS = dict(zip("first second third fourth fifth sixth seventh eighth ninth tenth".split(), range(1, 11)))
 _TRUSTED_FROM = re.compile(r"^[^@\s]+@(?:[\w-]+\.)*tamara\.co$", re.I)
 
@@ -66,10 +69,40 @@ def _link(evidence: MailEvidence) -> str:
     return "https://mail.google.com/mail/u/0/#all/" + evidence.provider_message_id
 
 
+def refund_notice(message: MailEvidence, order: str) -> InstallmentRefundNotice:
+    """What one refund or order-updated email says: the refunded amount and whether it covers the whole order."""
+    found = _REFUND.search(message.text)
+    amount = _money(found.group(1) or found.group(2)) if found else None
+    return InstallmentRefundNotice(
+        provider="Tamara", order_id=order[:160], amount=amount, currency="SAR", full=bool(_FULL.search(message.text)),
+        received_on=message.received_at.date(), message_ref=message.provider_message_id[:200], source_email=_link(message),
+    )
+
+
+def extract_tamara_refunds(messages: Iterable[MailEvidence]) -> list[InstallmentRefundNotice]:
+    """Every refund or order-updated email from Tamara's own domain that names its order, oldest first."""
+    found: dict[str, InstallmentRefundNotice] = {}
+    for msg in sorted(messages, key=lambda m: (m.received_at, m.message_id)):
+        if not _TRUSTED_FROM.fullmatch(msg.from_address.strip()) or not _is_refund(msg.subject):
+            continue
+        order = _ORDER.search(msg.text)
+        if order:
+            notice = refund_notice(msg, order.group(1))
+            found.setdefault(notice.message_ref, notice)
+    return list(found.values())
+
+
+def _is_refund(subject: str) -> bool:
+    return bool(re.search(r"refund|refunded|order status has been updated", subject, re.I))
+
+
 def extract_tamara_statement(messages: Iterable[MailEvidence]) -> tuple[list[InstallmentStatementEntry], list[str]]:
     """Extract only explicit schedules and provider-reported payments.
 
-    Refunds set unresolved installment statuses to review, never silently assume a credit.
+    A refund email that names an amount, or says the whole order was refunded, is refund evidence
+    (``extract_tamara_refunds``): the schedule stays as Tamara sent it and the owner applies the refund
+    in Finance (docs/finance.md#tamara-refunds). A refund email with neither sets the unresolved
+    installments to review, never silently assuming a credit.
     Payment-confirmation lines alone cannot create an installment or infer a due date.
     """
     filtered = sorted(
@@ -86,7 +119,7 @@ def extract_tamara_statement(messages: Iterable[MailEvidence]) -> tuple[list[Ins
             skipped.append(msg.message_id + ": no identifiable Tamara order reference")
             continue
         order = found.group(1)
-        if re.search(r"refund|refunded|order status has been updated", subject, re.I):
+        if _is_refund(subject):
             refunds.setdefault(order, []).append(msg)
         if re.search(r"order confirmed", subject, re.I):
             rows = []
@@ -117,7 +150,8 @@ def extract_tamara_statement(messages: Iterable[MailEvidence]) -> tuple[list[Ins
 
     output: list[InstallmentStatementEntry] = []
     for order, rows in schedules.items():
-        notices = refunds.get(order, [])
+        # Only refund emails that say neither how much nor "the whole order" still need a person.
+        notices = [m for m in refunds.get(order, []) if not (lambda n: n.amount is not None or n.full)(refund_notice(m, order))]
         for row in rows:
             payment = payments.get(order, {}).get(row.installment)
             if payment and payment[0] == row.amount:
