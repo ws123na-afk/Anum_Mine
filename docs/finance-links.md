@@ -67,4 +67,4 @@ Unlinking a document from a payment in the Document vault voids its evidence lin
 
 ## Not built here
 
-Link screens inside the modules (each module PR adds its own), automatic matching (a fuel receipt to its payment), and automatic matching. The business books' P&L reads the allocation rows ([Business books](business-books.md)).
+Link screens inside the modules (each module PR adds its own) and automatic matching: a link is only ever proposed. [Attribution suggestions](finance.md#attribution-suggestions) propose business allocations, vehicle costs, purchases, debt and bill payments in the suggestion queue, and Accept goes through `links.create` or `links.allocate` with every rule above; no policy can link on its own. The business books' P&L reads the allocation rows ([Business books](business-books.md)); a business's own supporting documents are vault links in the business workspace, not finance links ([evidence](business-books.md#supporting-documents-and-evidence)).

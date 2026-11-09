@@ -54,7 +54,7 @@ The fixes are delivered as functional-area pull requests in this order: transact
 | ZATCA e-invoicing | 4 | Roadmap mention only |
 | Loan schedules | 2 | Loan adjustments only, no amortisation |
 | Owner-paid expense and reimbursement | 1 | Reimbursable allocations, tested |
-| Evidence attachments on bills, accountant role | 4 | Not built |
+| Evidence attachments on bills, accountant role | 1 (was 4) | Evidence PR: vault documents attached to bills, invoices, adjustments and manual entries, an evidence-missing flag above a per-business threshold with a warning in the reports, the journal drill-down and an audited evidence pack (CSV index and zip) for owners and accountants, never a member's bank details (`business/books_evidence.py`, migration `0156_finance_evidence`, [docs/business-books.md](../business-books.md#supporting-documents-and-evidence)); the accountant role came with the ledger PR |
 
 Confirmed defects:
 
@@ -88,7 +88,7 @@ Confirmed defects:
 | Reconciliation workspace (bank and card) | 1 (was 4) | Reconciliation PR: sessions with exceptions, owner resolutions, approved correcting entries, completion history and reopen (migration `0153_finance_reconciliation`, web Finance, Reconciliation); card amount due against the card liability |
 | Reversal pairing, pending versus posted, unrecognised fees, missing periods | 1 (was 4) | Reconciliation PR: exceptions `reversal_pair` (suggestion), `pending`, `unrecognized_fee`, `missing_period`, plus `wrong_direction`, `unknown_currency`, `possible_duplicate` |
 | Multi-currency (original amount, billed amount, no invented rates, Decimal, per-currency totals) | 1 | `csv_import.py:521-585`, `fx.py` |
-| Realised and unrealised FX in personal Finance | 4 | Not built |
+| Realised and unrealised FX in personal Finance | 2 (was 4) | Evidence PR: card billing differences with the original and billed amounts, the rate (printed, column or implied, never guessed) with its date and source, the FX fee or markup separated as its own `bank_fee` line by the owner; own transfers in two currencies show the realised rate and, with an earlier rate on record, the realised FX difference, shown and never posted (`finance/card_fx.py`, [docs/finance.md](../finance.md#card-fx-and-fees)). Unrealised revaluation of balances is not built |
 
 Confirmed defects:
 
@@ -112,7 +112,7 @@ Confirmed defects:
 | Direction | 1 | Signed amount, `suspected_direction` hint |
 | Subcategories | 1 (was 4) | Owner subcategories under each category, optional on a row, summaries still by category (`finance_subcategories`, migration `0152_finance_rules_learning`; [Subcategories](../finance.md#subcategories)) |
 | Merchant and aliases | 1 (was 2 and 4) | `rules.merchant_key` for every source and owner aliases in English and Arabic, folded (`finance_merchant_aliases`; [Merchants and aliases](../finance.md#merchants-and-aliases)) |
-| Personal or business per transaction | 2 | `business` link dimension and allocations |
+| Personal or business per transaction | 1 (was 2) | `business` link dimension and allocations; attribution suggestions propose the business (treatment and project from the owner's earlier allocations of the same merchant), vehicle, purchase, debt and bill links, accepted through the links API ([docs/finance.md](../finance.md#attribution-suggestions)) |
 | Duplicate suggestion | 1 | `statement_match` statuses |
 | Confidence and explanation | 1 (was 2) | Every row has a type confidence and reason code; every suggestion has a confidence, the reason and its evidence ([Suggestions](../finance.md#suggestions)) |
 | Refund linked to purchase | 1 (was 2) | SMS (`sms_service.py:333`); statement, CSV, PDF and hand-entered refunds since the transaction-correctness PR (`refunds.py`: a same-amount purchase with agreeing merchant words is a match, anything less a suggestion) |
@@ -123,7 +123,7 @@ Confirmed defects:
 | Account-scoped, amount or reference rules, history reuse | 1 (was 4) | `RuleMatch` scope fields; `rules.history_suggestion` learns only from rows the owner categorised by hand |
 | Unified review queue and suggestion object | 1 (was 4) | One `Suggestion` object and queue with pluggable producers, dismissal memory and one-wins decisions (`suggestions.py`; [Suggestions](../finance.md#suggestions)); the four existing review pages stay and are linked |
 | Upcoming bills, subscriptions | 1 and 2 | `detect_recurring`, `/bills/suggestions`; reminders not built |
-| Missing statement periods, exception notifications, reconciliation prompts | 2 (was 4) | Missing statement months and the daily unresolved notice (owner policy) are built ([Automation policies](../finance.md#automation-policies)); the reconciliation PR adds missing months and the next step per account (`GET /reconciliations/health`) and open exceptions (`GET /reconciliations/exceptions`), which the suggestion queue lists as a producer ([Suggestions](../finance.md#suggestions)) |
+| Missing statement periods, exception notifications, reconciliation prompts | 1 (was 4) | Missing statement months and the daily unresolved notice (owner policy) are built ([Automation policies](../finance.md#automation-policies)); the reconciliation PR adds missing months and the next step per account (`GET /reconciliations/health`) and open exceptions (`GET /reconciliations/exceptions`), which the suggestion queue lists as a producer ([Suggestions](../finance.md#suggestions)); the evidence PR adds exception notices (open reconciliation exceptions older than N days, missing statement months, uncategorized money above a threshold, unposted business documents, evidence missing), each owner-enabled, in-app only, once per item and day ([docs/finance.md](../finance.md#exception-notices)) |
 
 Confirmed defects:
 

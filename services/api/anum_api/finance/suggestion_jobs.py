@@ -39,6 +39,7 @@ class SuggestionJobResult:
     applied: int = 0  # rows changed by a policy
     batches: int = 0
     notices: int = 0
+    exception_notices: int = 0  # docs/finance.md#exception-notices
     skipped: int = 0
     failed: int = 0
 
@@ -173,6 +174,12 @@ def run_person(tenant_id: str, workspace_id: str, user_id: str, *, now: datetime
         result.notices += automate(context, "notify", now=moment, dry_run=dry_run)
     except RuntimeError:
         result.failed += 1
+    from . import exception_notices
+
+    require_automatable("notify")  # exception notices are notices, nothing else
+    sent, failed = exception_notices.run(context, now=moment, dry_run=dry_run)
+    result.exception_notices += sent
+    result.failed += failed
     return result
 
 
@@ -187,7 +194,7 @@ def run(*, dry_run: bool = False, now: datetime | None = None) -> dict[str, Any]
             logger.warning("finance_suggestions_person_failed error_class=%s", type(exc).__name__)
             total.failed += 1
             continue
-        for name in ("people", "applied", "batches", "notices", "skipped", "failed"):
+        for name in ("people", "applied", "batches", "notices", "exception_notices", "skipped", "failed"):
             setattr(total, name, getattr(total, name) + getattr(part, name))
     return asdict(total)
 

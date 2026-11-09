@@ -58,6 +58,8 @@ export interface BooksSettings {
   rate_max_age_days: number;
   /** The owner's own accounting policy text (at most 1,000 characters), shown with the generated policy notes. */
   policy_note?: string;
+  /** Bills and adjustments at or above this (base currency) need a supporting document; null keeps the flag off. */
+  evidence_threshold?: string | null;
   version: number;
   updated_by: string;
   updated_at: string;
@@ -73,6 +75,7 @@ export interface BooksSettingsInput {
   category_sections: Record<string, BooksTagSection>;
   rate_max_age_days: number;
   policy_note?: string;
+  evidence_threshold?: string | null;
   version: number | null;
 }
 
@@ -481,6 +484,8 @@ export interface BooksReport {
   conversions: BooksConversion[];
   notes: string[];
   truncated: boolean;
+  /** Bills and adjustments above the evidence threshold with no document attached (note ``evidence_missing``). */
+  evidence_missing?: { enabled: boolean; count: number; threshold: string | null };
 }
 
 export interface BooksProjectRow {
@@ -739,6 +744,9 @@ export interface LedgerEntry {
   can_reverse: boolean;
   lines: LedgerLine[];
   total: string;
+  /** Where its supporting documents are attached (its bill, invoice, adjustment or itself), and those the caller can see. */
+  evidence_source?: { type: BooksEvidenceSource; id: string } | null;
+  evidence?: BooksEvidenceDocument[];
 }
 
 export interface LedgerJournalPage extends BooksPage<LedgerEntry> {
@@ -878,6 +886,7 @@ export interface LedgerStatements {
   complete: boolean;
   pending: Omit<LedgerStatus, 'closed_through' | 'can_post' | 'can_account' | 'can_reopen'>;
   notes: string[];
+  evidence_missing?: { enabled: boolean; count: number; threshold: string | null };
   late_entries: number;
   closed_through: string | null;
   trial_balance: { rows: LedgerTrialRow[]; totals: Record<string, string>; balanced: boolean; difference: string };
@@ -922,4 +931,33 @@ export interface LedgerAccountant {
   user_id: string;
   added_by: string;
   added_at: string;
+}
+
+// -- supporting documents and the evidence pack (docs/business-books.md#supporting-documents-and-evidence) -------------
+
+export type BooksEvidenceSource = 'bill' | 'invoice' | 'adjustment' | 'journal';
+
+/** A Document vault document attached to a bill, an invoice, an adjustment or a manual journal entry. */
+export interface BooksEvidenceDocument {
+  link_id: string;
+  document_id: string;
+  title: string;
+  category: string;
+  added_by: string;
+  added_at: string;
+}
+
+export interface BooksEvidencePage {
+  items: Record<string, { documents: BooksEvidenceDocument[]; evidence_missing: boolean }>;
+  can_attach: boolean;
+}
+
+export interface BooksEvidenceMissing {
+  enabled: boolean;
+  threshold: string | null;
+  currency: string | null;
+  count: number;
+  items: { type: 'bill' | 'adjustment'; id: string; date: string; currency: string; amount: string; base_amount: string | null;
+    not_converted: boolean; reference: string }[];
+  period?: { from: string; to: string };
 }

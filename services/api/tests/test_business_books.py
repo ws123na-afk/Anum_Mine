@@ -641,6 +641,21 @@ def test_every_state_changing_books_route_is_audited_without_amounts_or_text() -
     call("POST", "/close", json={"through": last_month.isoformat()})
     call("POST", "/reopen", json={"month": last_month.replace(day=1).isoformat(), "reason": secret})
     call("DELETE", "/accountants/member_books")
+    # Supporting documents (docs/business-books.md#supporting-documents-and-evidence): a vault document attached and removed.
+    from anum_api import files
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(files.file_store, "storage", files.InMemoryObjectStorage())
+        receipt = client.post("/api/v1/documents", params={"name": "receipt.pdf", "title": "Synthetic receipt", "category": "receipt",
+                                                           "access_class": "workspace"}, headers=OWNER,
+                              content=b"%PDF-1.4\n1 0 obj\n<<>>\nendobj\ntrailer\n<<>>\n%%EOF\n").json()
+        kept = bill(seller["id"], description="Synthetic evidence bill").json()
+        attached = call("POST", "/evidence", json={"source_type": "bill", "source_id": kept["id"], "document_id": receipt["id"]}).json()
+        call("DELETE", f"/evidence/bill/{kept['id']}/{attached['link_id']}")
+        files.file_store.clear()
+        from anum_api.vault.store import memory_vault_store
+
+        memory_vault_store.clear()
     probe.assert_covered()
 
 

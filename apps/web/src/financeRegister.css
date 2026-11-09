@@ -180,3 +180,15 @@
   background: var(--d-primary-grad); border: 1px solid transparent; border-radius: var(--d-r-control); box-shadow: var(--d-button-shadow); color: var(--d-on-primary); font-weight: 600;
 }
 .facctSide .finCard > button:not(.secondary):hover:not(:disabled), .fregDrawerActions > button:not(.secondary):hover:not(:disabled) { background: var(--d-primary-grad-hover); }
+
+/* Card FX details in the drawer (docs/finance.md#card-fx-and-fees). */
+.ffxPanel { border-top: 1px solid var(--d-line); display: grid; gap: var(--d-s2); padding-top: var(--d-s3); }
+.ffxPanel h3 { align-items: center; display: inline-flex; font-size: var(--text-md); gap: var(--d-s1); margin: 0; }
+.ffxPanel h3 svg { height: 16px; width: 16px; }
+.ffxFacts { display: grid; gap: var(--d-s1) var(--d-s3); grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); margin: 0; }
+.ffxFacts > div { display: grid; gap: 2px; min-width: 0; }
+.ffxFacts dt { color: var(--d-muted); font-size: var(--text-xs); }
+.ffxFacts dd { margin: 0; overflow-wrap: anywhere; }
+.ffxDiff.gain bdi { color: var(--d-ok); }
+.ffxDiff.loss bdi { color: var(--d-error-text); }
+.ffxPanel > button { justify-self: start; }

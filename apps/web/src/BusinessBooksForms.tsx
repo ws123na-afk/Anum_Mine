@@ -21,6 +21,7 @@ import { minorDigits } from './lib/finance';
 import { t, type MessageKey } from './lib/i18n';
 import { ConfirmDialog, Drawer, Modal } from './Dialog';
 import { Badge, Note, ReasonDialog, day, failure } from './BusinessParts';
+import { EvidencePanel } from './BusinessBooksEvidence';
 
 const label = (key: string) => t(key as MessageKey);
 const dayText = (value: string | null | undefined) => (value ? day(value) : '-');
@@ -55,13 +56,15 @@ export function SettingsSection({ setup, onSaved, extra }: { setup: BooksSetup; 
     basis: (current?.basis ?? 'accrual') as BooksBasis, tax_label: current?.tax_label ?? '', rate_max_age_days: String(current?.rate_max_age_days ?? 31),
     mappings: Object.entries(current?.category_sections ?? {}).map(([category, section]) => ({ category, section })) as { category: string; section: BooksTagSection }[],
     policy_note: current?.policy_note ?? '',
+    evidence_threshold: current?.evidence_threshold ? String(Number(current.evidence_threshold)) : '',
   }));
   const [busy, setBusy] = useState(false), [message, setMessage] = useState<{ text: string; error?: boolean } | null>(null);
-  const ids = { currency: useId(), country: useId(), month: useId(), basis: useId(), tax: useId(), age: useId(), policy: useId() };
+  const ids = { currency: useId(), country: useId(), month: useId(), basis: useId(), tax: useId(), age: useId(), policy: useId(), evidence: useId() };
   async function save(event: FormEvent) {
     event.preventDefault();
     if (!/^\d{1,3}$/.test(form.rate_max_age_days) || Number(form.rate_max_age_days) < 1 || Number(form.rate_max_age_days) > 366) { setMessage({ text: t('books.settings.ageInvalid'), error: true }); return; }
     if (form.mappings.some((row) => row.category && !validCategory(normalizeCategory(row.category)))) { setMessage({ text: t('books.categoryInvalid'), error: true }); return; }
+    if (form.evidence_threshold.trim() && !validAmount(form.evidence_threshold.trim(), true)) { setMessage({ text: t('books.evidence.thresholdInvalid'), error: true }); return; }
     setBusy(true); setMessage(null);
     try { await api.saveSettings(settingsBody(form, current)); setMessage({ text: t('books.settings.saved') }); onSaved(); }
     catch (error) { setMessage({ text: failure(error, t('books.settings.title')), error: true }); } finally { setBusy(false); }
@@ -85,6 +88,10 @@ export function SettingsSection({ setup, onSaved, extra }: { setup: BooksSetup; 
           </div>
           <p className="muted bzHint">{t('books.settings.taxHelp')}</p>
           {setup.closed_through && <p className="muted bzHint">{t('ledger.settings.frozen', { day: setup.closed_through })}</p>}
+          <label className="field" htmlFor={ids.evidence}><span>{t('books.evidence.threshold', { currency: form.base_currency })}</span>
+            <input id={ids.evidence} inputMode="decimal" value={form.evidence_threshold} placeholder={t('books.evidence.thresholdOff')}
+              aria-describedby={`${ids.evidence}-help`} onChange={(event) => setForm({ ...form, evidence_threshold: event.target.value })} /></label>
+          <p id={`${ids.evidence}-help`} className="muted bzHint">{t('books.evidence.thresholdHelp')}</p>
           <label className="field" htmlFor={ids.policy}><span>{t('ledger.settings.policy')}</span>
             <textarea id={ids.policy} rows={3} maxLength={1000} value={form.policy_note} onChange={(event) => setForm({ ...form, policy_note: event.target.value })} /></label>
           <h3 className="bkSub">{t('books.settings.mapTitle')}</h3>
@@ -342,6 +349,7 @@ export function BillDrawer({ setup, billId, onClose, onChanged }: { setup: Books
         {bill.can.void && <button type="button" className="secondary danger" onClick={() => setMode('void')}>{t('books.bills.void')}</button>}
       </div>
       {message && <Note>{message}</Note>}
+      <EvidencePanel sourceType="bill" sourceId={bill.id} onChanged={onChanged} />
       <section className="bzBlock" aria-labelledby="bk-payments"><h3 id="bk-payments">{t('books.pay.title')}</h3>
         {(bill.payments ?? []).length === 0 ? <p className="muted">{t('books.pay.none')}</p> : <ul className="bkList">{(bill.payments ?? []).map((payment) => <li key={payment.id}>
           <span>{money(payment.amount, payment.currency)} <small>{dayText(payment.paid_on)}, {label(`books.method.${payment.method}`)}{payment.reference ? `, ${payment.reference}` : ''}</small>

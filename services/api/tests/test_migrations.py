@@ -1311,6 +1311,24 @@ def test_finance_reconciliation_migration_is_expand_only_with_owner_rls_and_a_po
     assert "drop " not in upgrade and "bypassrls" not in upgrade and "security definer" not in upgrade
 
 
+def test_finance_evidence_migration_widens_vault_links_adds_the_threshold_and_owner_only_notice_claims() -> None:
+    versions = Path(__file__).parents[1] / "migrations" / "versions"
+    revision_text = (versions / "0156_finance_evidence.py").read_text(encoding="utf-8")
+    assert 'revision = "0156_finance_evidence"' in revision_text and len("0156_finance_evidence") <= 32
+    assert 'down_revision = "0153_finance_reconciliation"' in revision_text
+    upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
+    # The only thing dropped is the vault link type check, replaced at once by a wider one every existing row passes.
+    assert upgrade.count("drop ") == 1 and "drop constraint ck_vault_document_links_type" in upgrade
+    for kind in ("business_bill", "business_invoice", "business_adjustment", "business_journal", "finance_transaction"):
+        assert kind in revision_text
+    assert 'op.add_column("business_book_settings"' in upgrade and "nullable=true" in upgrade
+    assert '"finance_notice_claims"' in revision_text and "uq_finance_notice_claims_item_day" in upgrade
+    rls = revision_text.split("def _rls", 1)[1].split("def upgrade", 1)[0].lower()
+    assert "_rls(table)" in upgrade and "force row level security" in rls and "owner_only_" in rls and "as restrictive" in rls
+    assert "create policy lifecycle_purge_finance_notice_claims" in upgrade
+    assert "bypassrls" not in upgrade and "security definer" not in upgrade
+
+
 def test_calendar_sync_migration_is_expand_only_with_forced_rls_and_discovery_only_grants() -> None:
     versions = Path(__file__).parents[1] / "migrations" / "versions"
     revision_text = (versions / "0092_calendar_sync.py").read_text(encoding="utf-8")

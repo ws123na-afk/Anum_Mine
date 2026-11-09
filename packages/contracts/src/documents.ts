@@ -4,7 +4,9 @@
 export type DocumentAccessClass = 'private' | 'workspace';
 export type DocumentStatus = 'active' | 'deleted';
 export type DocumentExpiryState = 'none' | 'valid' | 'soon' | 'expired';
-export type DocumentLinkTarget = 'vehicle' | 'person' | 'business' | 'purchase' | 'finance_transaction';
+export type DocumentLinkTarget = 'vehicle' | 'person' | 'business' | 'purchase' | 'finance_transaction'
+  // Evidence on a business's books, attached from Business, Books (docs/business-books.md#supporting-documents-and-evidence).
+  | 'business_bill' | 'business_invoice' | 'business_adjustment' | 'business_journal';
 export type DocumentExtractionKind = 'receipt' | 'dates';
 export type DocumentExtractionStatus = 'queued' | 'pending' | 'confirmed' | 'rejected' | 'failed';
 

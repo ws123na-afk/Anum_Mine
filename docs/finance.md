@@ -54,6 +54,7 @@ A request to pay or transfer ("pay the DEWA bill", "transfer 500 to the landlord
 | `finance_holdings` | Investment account, symbol, name, quantity and total cost. No prices |
 | `finance_reconciliations`, `finance_reconciliation_items` | [Reconciliation sessions](#reconciliation-sessions): per account and statement period the statement's balances, a card's amount and minimum due, open or completed with who, when, the figures and what was matched, the ledger fingerprint and the history; and the owner's resolutions in each (match, attach, pending, reversal, correction), one live resolution per statement row and ledger record (migration `0153_finance_reconciliation`) |
 
+| `finance_notice_claims` | [Exception notices](#exception-notices): one row per person, notice kind, item and local day, claimed before the notice is sent and removed when sending fails (migration `0156_finance_evidence`) |
 | `finance_plans` | Safe-to-spend settings: a buffer per currency, whether to show one total in the base currency, the oldest rate to use (days) |
 | `finance_guardian_versions` | Every confirmed version of the person's rules (`rules` JSON, version unique per person, the change it came from, who confirmed it) |
 | `finance_guardian_changes` | Proposed rules waiting for confirmation: base version, rules, who proposed it (`person` or `agent`), reason, payload hash, what it loosens, status (`pending`, `confirmed`, `rejected`, `expired`, `superseded`), expiry (24 hours) |
@@ -144,6 +145,29 @@ The preview answers, for every row, `match` (`status`, `code`, `reason` in Engli
 - **A rate is never invented.** It is printed (`printed`), from a mapped column (`column`) or worked out from two printed amounts (`implied`, labelled "computed from the two amounts").
 - The preview checks billed against original x rate, plus the printed fee or markup when that comes closer, and shows the difference. Within two minor units of the account's currency (0.02 SAR, 0.002 KWD) it ties. When the rate is printed it also shows the markup the billed amount implies, labelled as computed.
 - A fee printed inside the purchase row is informational; a separate fee row is its own `fees` expense (unchanged).
+
+### Card FX and fees
+
+A card or bank row with an original foreign amount and a billed amount (from the statement's columns or words, or the bank SMS) is read by `finance/card_fx.py` (pure) and shown in the transaction drawer, **Currency and bank fee** (`GET /transactions/{id}/fx`, web `FinanceFxDetails.tsx`, `lib/financeFx.ts`): the original amount and currency, the billed amount, the rate with its date (the day the bank posted the row) and its source (statement, column, bank message or entered), and the bank's FX fee or markup with where it comes from. Code: `finance/card_fx.py`, `finance/card_fx_api.py`; contracts `FinanceTransactionFx` in `packages/contracts/src/financeRegister.ts`; tests `services/api/tests/test_finance_card_fx.py`, web `test/financeFx.test.ts`.
+
+| Rate | When |
+|---|---|
+| `printed` | The bank printed it on the row or in its message |
+| `column` | A mapped statement column held it |
+| `implied` | Worked out from the two printed amounts (the purchase without an included fee, over the original), labelled so |
+| `not_stated` | Only the billed amount exists (no original amount): the drawer says "rate not stated". **A rate is never guessed** |
+
+**The purchase is never inflated by the bank's charge.** The fee is one of:
+
+| Source | What happens |
+|---|---|
+| `fee_row` | A separate statement row on the same account and currency, money out, 0 to 3 days after the purchase, with FX or international fee words, and an amount that fits (its own stated markup on the purchase within two minor units, else at most 10 %). One candidate only. **Link the fee row** (owner) files it as type `bank_fee`, category `fees`, pointing at its purchase (`related_transaction_id`); no amount changes |
+| `markup_stated` | A markup percentage stated on the purchase row (inline): the billed amount includes it, so the purchase is billed / (1 + markup). **Separate the fee** (owner, with the figures shown and the `plan_hash` of the view) corrects the purchase to the billed amount less the fee through the audited correction path (its journal entry is reversed and reposted in the same canonical chain) and records the fee as its own `bank_fee` line on the same account, day and statement (`related_transaction_id` the purchase, statement-confirmed), so the account's balance and the statement's balance check do not change. The purchase's notes say `FX fee separated: <fee> <currency>`, so re-reading it shows the split as done |
+| `fee_stated` | A fee amount stated on the purchase row with a printed rate, when billed = original x rate + fee ties within two minor units: as `markup_stated` |
+
+A fee stated on a row without a printed rate that shows it is part of the billed amount is shown (`fee_not_provably_included`) and never split. Rows recorded from an iPhone SMS or Apple Pay are read here and corrected only under Finance, iPhone SMS, Review (`can_correct: false`). Nothing changes without the owner: the queue lists separable fees as `fx_fee` suggestions whose Review opens the transaction ([Suggestions](#suggestions)).
+
+**Own transfers in two currencies.** For an own transfer pair ([Own transfers](#own-transfers)) whose sides are in two currencies (AED out of one account, SAR into another), the drawer shows what was sent and received and the **realised rate** (received / sent). When the person's exchange rates (`finance_fx_rates`, published or typed) hold a rate on or before the transfer day within the plan's maximum age (`finance/fx.py`, direct, inverse or cross), the money sent is valued at it and the **realised FX difference** (received less that value, in the received currency) is its own line, a gain or a loss. **Policy:** the difference is worked out on read and never posted; it counts as neither spending nor income (both sides stay an internal transfer). With no earlier rate there is no difference, only the realised rate.
 
 ### Bills
 
@@ -343,7 +367,9 @@ One queue for everything that waits for the owner (`finance/suggestions.py`, `GE
 | `statement_hold` | Statement rows held for review ([Import history](#import-history)) | Open Import |
 | `sms_review` | A bank message waiting in [SMS review](finance-sms.md) | Open iPhone SMS |
 | `refund_match` | A refund whose purchase is only a suggestion ([Refunds and purchases](#refunds-and-purchases)) | Confirms the link (undoable) |
-| `payment_match` | A bill due date that passed with no matched payment | Open Bills |
+| `payment_match` | A bill due date that passed with no matched payment; when the one payment matcher (`GET /payment-candidates`) finds a payment that fits, it is proposed | Links the payment to the due date through the links API (the bill counts as paid), else Open Bills |
+| `attribution` | What else a payment is: a business allocation, a vehicle cost, a purchase or a debt payment ([Attribution suggestions](#attribution-suggestions)) | Makes the link (or allocation) through the links API; Open Vehicles for a vehicle cost with no record yet |
+| `fx_fee` | A foreign card purchase whose FX fee can be separated or linked ([Card FX and fees](#card-fx-and-fees)) | Review opens the transaction |
 | `missing_statement` | A month with no statement rows between months that have them, or a newest statement older than 45 days | Open Import |
 | `subscription` | A steady payment not yet saved as a bill (`detect_recurring`) | Open Bills |
 | `external` | Another module's producer that has no kind of its own | Acknowledge |
@@ -354,14 +380,43 @@ Accept (`POST /suggestions/accept` with the `key` and the `payload_hash` shown) 
 
 **Producers.** `suggestions.register_producer(name, fn)` adds a source: `fn(snapshot)` gets the owner's scope and a snapshot read in one short unit of work, may open its own short unit of work, never writes, and returns suggestions with a key unique to it. A producer that fails is listed under `unavailable` and hides nothing else. The assistant reads the queue with `finance.suggestions` (read only); no tool accepts or rejects.
 
+## Attribution suggestions
+
+Producers of the suggestion queue (`finance/attribution.py`, kind `attribution`, plus the bills producer's `payment_match`) that propose, for a recorded money-out row of the last 60 days (spending, or not filed yet), the record it belongs to in another module, each with a confidence and the reason. Accept makes the link through `finance.links` (`create`, or `allocate` for a business), so ownership, the currency, the amount left, single payment targets and each module's vet apply; a refused link releases the decision and answers the refusal. Nothing is linked automatically: no automation policy can link (`rules.require_automatable` refuses `link`).
+
+| Proposes | Signals | Confidence |
+|---|---|---|
+| A business allocation (business or personal treatment, project) | The owner allocated payments to the same merchant (merchant key with the owner's aliases) to a business before: the same business, treatment and project as the last time, while the owner may still write there. The cost centre the business gave that allocation is named in the evidence; classifying the row stays the business's step in Books, Allocations | 0.5 rising with how often (to 0.9) |
+| A vehicle cost | Fuel, parking, toll, car wash, tyre or service words (English and Arabic) and a fuel entry (within 3 days) or service record (within 7 days) of the vehicles module with the same amount and currency and no payment yet. With one vehicle and no record: Open Vehicles to record it | 0.85; 0.5 |
+| A purchase | A purchase of the purchases module with the same total and currency within 7 days and no payment; two that fit and words that do not tell them apart give no suggestion | 0.85 with agreeing merchant words, else 0.6 |
+| A debt payment | The description names one of the owner's debts, or the amount is exactly its minimum payment (loan principal rows count too) | 0.85 both, 0.7 named, 0.55 amount only |
+| A bill or installment payment | The bills producer asks the one payment matcher (`commitments_api.find_candidates`, the matcher of `GET /payment-candidates`) for an overdue due date: the same amount, or words that agree within 10 %, posted 7 days before to 10 days after. Installment plans are bills, so their due dates come the same way | 0.85, 0.7, 0.55 |
+
+Trips and projects outside Business have no link target yet; a business project comes with its allocation.
+
 ## Automation policies
 
 Off by default (`GET, PUT /automation`, `finance_automation_settings`). The owner may turn on:
 
 - **Auto-classify** (`auto_classify`, `min_confidence` 0.8 to 1, default 0.9, `sources`: `history`, `rule`): the daily job applies history suggestions at or above the threshold, and rules the owner marked **auto-apply** to rows of the last 90 days they match. Each run is a batch (origin `policy`, source `system`, reason `auto_history` or `owner_rule`) that the owner can undo, recorded as `auto_applied` and in the audit log (actor `anum.automation`). Rows set by hand are never touched.
+- **Exception notices** (`notices`, per kind): see [Exception notices](#exception-notices).
 - **Unresolved notice** (`notify_unresolved`, `notify_min_items`): one in-app notice a day (kind `finance_suggestions`, never an email or a phone push) when that many suggestions wait. The day is claimed before the notice and released if it fails.
 
 The job is part of the daily job (`python -m anum_api.voice_retention`, reported under `finance_suggestions`, counts only; `finance/suggestion_jobs.py`), finds people as the Money advisor does and works in each person's scope. **Never automated**, refused in code (`rules.require_automatable`, tested) whatever a stored policy says: posting adjustments, deleting records, changing bank mappings, approving payments and changing accounting periods. The policy has no switch for them, and an unknown field is refused.
+
+## Exception notices
+
+`finance/exception_notices.py`, run by the daily job with the automation policies (`suggestion_jobs.run_person`, counted under `finance_suggestions` as `exception_notices`). Each kind is off until the owner turns it on in Finance, Suggestions, Automation (`notices`, `notice_exception_days` 1 to 90, default 7, `notice_uncategorized_min`, default 500). A notice is in-app only (kind `finance_exceptions`, never an email or a phone push):
+
+| Kind | Item |
+|---|---|
+| `reconciliation_overdue` | An open exception of a reconciliation session (blocking or warning) dated `notice_exception_days` or more ago |
+| `statement_missing` | A month with activity on an account and no statement (the reconciliation health check) |
+| `uncategorized_money` | Uncategorized money of the last 120 days at or above the threshold, per currency (never added across currencies) |
+| `business_unposted` | A business where the person is an owner or a named accountant with source documents the journal could not post (a missing rate, an amount too small) or draft bills waiting for approval |
+| `evidence_missing` | In such a business, bills and adjustments of the last 90 days above its evidence threshold with no supporting document ([Business books](business-books.md#supporting-documents-and-evidence)) |
+
+**Claim, then notify.** Each item is claimed for the person's local day in `finance_notice_claims` (unique per person, kind, item and day, insert-if-absent, owner-only RLS) before the notice is created; one notice per kind names how many items were claimed now, and when creating it fails the claims are released, so the next run sends it. An item already noticed today is not noticed again that day; claims older than 14 days are pruned. Business workspaces are read as the person in each business's own RLS scope after their membership is checked; the notice goes to the person's own Finance workspace. Tests: `services/api/tests/test_finance_exception_notices.py` (opt-out, the threshold, once a day, a failed notice released, in-app only, business evidence and unposted documents, statement months).
 
 ## How figures are counted
 
@@ -700,6 +755,8 @@ All under `/api/v1/finance`, every route checking permissions on the server:
 | `GET /rules?state=&q=&limit=&offset=`, `GET /rules/{id}`, `POST /rules/preview`, `POST /rules/{id}/preview`, `GET /rule-batches`, `POST /transactions/{id}/similar`, `GET /merchants/aliases`, `GET /subcategories`, `GET /subcategories/spend?month=`, `GET /suggestions?kind=&limit=&offset=`, `GET /automation` ([Rules and learning](#rules-and-learning), [Suggestions](#suggestions)) | `finance:read` |
 | `POST /rules`, `POST /rules/{id}/versions`, `/approve`, `/reject`, `/revert`, `/apply`; `POST /rule-batches/{id}/undo`; `POST /transactions/{id}/ai-suggestion`; `POST, PATCH, DELETE /merchants/aliases`; `POST, PATCH /subcategories`; `POST /suggestions/accept`, `/reject`, `/restore`; `PUT /automation` | `finance:manage` |
 | `GET /bill-schedule`, `/payment-candidates`, `/debt-payments`, `/debt-plan`, `/budgets` | `finance:read` |
+| `GET /transactions/{id}/fx` ([card FX and fees](#card-fx-and-fees)) | `finance:read` |
+| `POST /transactions/{id}/fx/separate` (`{plan_hash}`) | `finance:manage` |
 | `POST, DELETE /bills/{id}/matches`, `/debts/{id}/payments`; `PUT /debt-plan`, `/budgets/alerts` | `finance:manage` |
 | `GET, POST /bills`, `/debts`, `/goals`, `/holdings`; `GET, PATCH, DELETE /<kind>/{id}` | read for GET, manage otherwise |
 | `GET /safe-to-spend`, `GET /plan`; `PUT /plan` | read; manage |

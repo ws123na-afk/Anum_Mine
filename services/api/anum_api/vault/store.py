@@ -105,6 +105,7 @@ class VaultStore(Protocol):
     def links(self, context: TenantContext, document_id: str) -> list[LinkRecord]: ...
     def add_link(self, context: TenantContext, record: LinkRecord) -> LinkRecord: ...
     def delete_link(self, context: TenantContext, document_id: str, link_id: str) -> bool: ...
+    def links_to(self, context: TenantContext, target_type: str, target_ids: list[str]) -> list[tuple[LinkRecord, DocumentRecord]]: ...
     def add_extraction(self, context: TenantContext, record: ExtractionRecord) -> ExtractionRecord: ...
     def save_extraction(self, context: TenantContext, record: ExtractionRecord) -> ExtractionRecord: ...
     def extraction(self, context: TenantContext, extraction_id: str) -> ExtractionRecord | None: ...
@@ -322,6 +323,19 @@ class InMemoryVaultStore:
                 return False
             del self._links[(*self._ws(context), link_id)]
             return True
+
+    def links_to(self, context: TenantContext, target_type: str, target_ids: list[str]) -> list[tuple[LinkRecord, DocumentRecord]]:
+        """Links to these targets whose document the caller may see (the private row policy) and that is not in the trash."""
+        wanted = set(target_ids)
+        with self._lock:
+            out = []
+            for (t, w, _), link in self._links.items():
+                if (t, w) != self._ws(context) or link.target_type != target_type or link.target_id not in wanted:
+                    continue
+                doc = self._documents.get((t, w, link.document_id))
+                if doc is not None and doc.status == "active" and self._visible(context, doc):
+                    out.append((link.model_copy(), doc.model_copy(deep=True)))
+            return sorted(out, key=lambda pair: (pair[0].created_at, pair[0].id))
 
     def add_extraction(self, context: TenantContext, record: ExtractionRecord) -> ExtractionRecord:
         with self._lock:
@@ -712,6 +726,26 @@ class SqlVaultStore:
             "delete from vault_document_links where tenant_id = :t and workspace_id = :w and document_id = :d and id = :id"),
             self._p(context, d=document_id, id=link_id))
         return bool(result.rowcount)
+
+    def links_to(self, context: TenantContext, target_type: str, target_ids: list[str]) -> list[tuple[LinkRecord, DocumentRecord]]:
+        """Links to these targets; the join to ``vault_documents`` applies the private row policy, so a document the caller
+        may not see is never listed."""
+        if not target_ids:
+            return []
+        rows = self.session.execute(text(
+            "select l.id, l.document_id, l.target_type, l.target_id, l.label, l.status, l.created_by, l.created_at "
+            "from vault_document_links l join vault_documents d on d.tenant_id = l.tenant_id and d.workspace_id = l.workspace_id "
+            "and d.id = l.document_id where l.tenant_id = :t and l.workspace_id = :w and l.target_type = :type "
+            "and l.target_id = any(:targets) and d.status = 'active' order by l.created_at, l.id"),
+            self._p(context, type=target_type, targets=list(target_ids))).all()
+        links = [LinkRecord.model_validate(dict(row._mapping)) for row in rows]
+        docs = {}
+        for link in links:
+            if link.document_id not in docs:
+                found = self.get_document(context, link.document_id)
+                if found is not None:
+                    docs[link.document_id] = found
+        return [(link, docs[link.document_id]) for link in links if link.document_id in docs]
 
     # -- extractions
 

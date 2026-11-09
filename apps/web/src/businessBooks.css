@@ -55,3 +55,9 @@
 .bkFacts dd { font-weight: 600; margin: 0; }
 .bkInlineIcon { block-size: 1em; inline-size: 1em; vertical-align: -0.125em; }
 @media (max-width: 560px) { .bkManualRow { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } .bkManualRow .field:first-child { grid-column: 1 / -1; } }
+
+/* Supporting documents (docs/business-books.md#supporting-documents-and-evidence). */
+.bkEvidence h3 { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s1); }
+.bkEvidence .bkList a { align-items: center; display: inline-flex; gap: var(--d-s1); overflow-wrap: anywhere; }
+.bkEntryEvidence { color: var(--d-muted); font-size: var(--text-sm); margin: 0 0 var(--d-s2); overflow-wrap: anywhere; }
+.bkPick { max-height: min(50vh, 420px); overflow-y: auto; }

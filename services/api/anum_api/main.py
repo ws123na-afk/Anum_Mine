@@ -183,6 +183,7 @@ from .finance.statement_import import router as finance_statement_router
 from .finance.advisor_api import router as finance_advisor_router
 from .finance.personal_api import router as finance_personal_router
 from .finance.salary_api import router as finance_salary_router
+from .finance.card_fx_api import router as finance_card_fx_router  # docs/finance.md#card-fx-and-fees
 from .finance.reconciliation_api import router as finance_reconciliation_router
 from .finance.rules_api import router as finance_rules_router
 from .finance.statement_pdf import MAX_PDF_BYTES as PDF_STATEMENT_MAX_BYTES
@@ -304,6 +305,7 @@ from .purchases.api import router as purchases_router  # docs/purchases.md
 from .purchases.devices import router as purchases_device_router
 from .business.api_books import router as business_books_router  # docs/business-books.md
 from .business.api_books_more import router as business_books_more_router  # docs/business-books.md (consolidated, recurring, ECB rates)
+from .business.api_evidence import router as business_evidence_router  # docs/business-books.md#supporting-documents-and-evidence
 from .business.api_ledger import router as business_ledger_router  # docs/business-books.md#the-journal (journal, statements, close)
 
 # Fail fast: header mode and anum_local_* sessions must never serve a non-local environment.
@@ -600,6 +602,7 @@ app.include_router(finance_advisor_router)
 app.include_router(finance_personal_router)
 app.include_router(finance_salary_router)
 app.include_router(finance_reconciliation_router)
+app.include_router(finance_card_fx_router)
 app.include_router(finance_ibkr_router)
 app.include_router(finance_research_router)
 app.include_router(finance_intel_control_router)
@@ -640,6 +643,7 @@ app.include_router(purchases_router)
 app.include_router(business_books_router)
 app.include_router(business_books_more_router)
 app.include_router(business_ledger_router)
+app.include_router(business_evidence_router)
 repository = memory_repository
 model_gateway = build_default_model_gateway()
 integration_registry = default_integration_registry(settings)

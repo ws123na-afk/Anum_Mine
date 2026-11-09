@@ -242,6 +242,7 @@ class SettingsInput(BaseModel):
     category_sections: dict[str, str] = Field(default_factory=dict)
     rate_max_age_days: int = Field(default=31, ge=1, le=366)
     policy_note: str = Field(default="", max_length=1000)
+    evidence_threshold: Decimal | None = Field(default=None, ge=0, le=Decimal("1e12"))
     version: int | None = None
 
 
@@ -263,8 +264,8 @@ def put_settings(payload: SettingsInput, context: TenantContext = Depends(tenant
             created_at=current.created_at if current else now, base_currency=S.currency_of(payload.base_currency), country=S.country_of(payload.country),
             fiscal_year_start_month=payload.fiscal_year_start_month, basis=payload.basis, tax_label=S.clean(payload.tax_label, 40),
             category_sections=S.section_map(payload.category_sections), rate_max_age_days=payload.rate_max_age_days,
-            policy_note=(payload.policy_note or "").strip()[:1000], version=(current.version + 1) if current else 1, updated_by=context.user_id,
-            updated_at=now,
+            policy_note=(payload.policy_note or "").strip()[:1000], evidence_threshold=_threshold(payload.evidence_threshold, payload.base_currency),
+            version=(current.version + 1) if current else 1, updated_by=context.user_id, updated_at=now,
         )
         if current is not None:
             _frozen_settings(store, current, value)
@@ -273,6 +274,18 @@ def put_settings(payload: SettingsInput, context: TenantContext = Depends(tenant
     _audit(repository, context, "settings_saved", value.id, {"basis": value.basis.value, **(_changes(current, value, SETTINGS_FIELDS) if current else {})})
     L.post_quietly(context)
     return dump(value)
+
+
+def _threshold(value: Decimal | None, currency: str) -> Decimal | None:
+    """The evidence threshold rounded to the base currency's minor unit (``None`` keeps the flag off)."""
+    if value is None:
+        return None
+    from ..finance.money import MoneyError, quantize
+
+    try:
+        return quantize(value, S.currency_of(currency))
+    except MoneyError:
+        raise S.BooksError(422, "The evidence threshold is not a valid amount.", "invalid_amount") from None
 
 
 def _frozen_settings(store: BooksStore, current: BookSettings, value: BookSettings) -> None:
@@ -1126,7 +1139,19 @@ def rates_since(start: date | None, end: date | None) -> date:
 def _report(context: TenantContext, start: date | None, end: date | None, basis: Basis | None) -> dict[str, Any]:
     inputs = S.gather(context, rates_since(start, end))
     first, last = _period(inputs.settings, start, end)
-    return R.report(inputs, first, last, basis or inputs.settings.basis, inputs.cost_centres, _today())
+    data = R.report(inputs, first, last, basis or inputs.settings.basis, inputs.cost_centres, _today())
+    return _with_evidence_warning(context, data, first, last)
+
+
+def _with_evidence_warning(context: TenantContext, data: dict[str, Any], first: date, last: date) -> dict[str, Any]:
+    """Bills and adjustments above the evidence threshold with nothing attached: a count and a note (docs/business-books.md#supporting-documents-and-evidence)."""
+    from .books_evidence import missing
+
+    found = missing(context, first, last) if has_permission(context, Permission.DOCUMENT_READ) else {"enabled": False, "count": 0}
+    data["evidence_missing"] = {"enabled": found["enabled"], "count": found["count"], "threshold": found.get("threshold")}
+    if found["count"]:
+        data["notes"] = sorted({*data.get("notes", []), "evidence_missing"})
+    return data
 
 
 @router.get("/report")

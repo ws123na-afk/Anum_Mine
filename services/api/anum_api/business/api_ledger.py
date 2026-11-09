@@ -237,7 +237,13 @@ def list_journal(start: date | None = Query(default=None, alias="from"), end: da
     _read(context)
     if source_kind is not None and source_kind not in SOURCE_KINDS:
         raise S.BooksError(422, "Unknown source.", "invalid_filter", allowed=list(SOURCE_KINDS))
-    return {**L.journal(context, start=start, end=end, source_kind=source_kind, limit=limit, offset=offset), "can_account": can_account(context)}
+    page = L.journal(context, start=start, end=end, source_kind=source_kind, limit=limit, offset=offset)
+    if has_permission(context, Permission.DOCUMENT_READ):
+        # The drill-down shows each entry's supporting documents (docs/business-books.md#supporting-documents-and-evidence).
+        from .books_evidence import with_evidence
+
+        page["items"] = with_evidence(context, page["items"])
+    return {**page, "can_account": can_account(context)}
 
 
 class ManualLine(BaseModel):
@@ -331,7 +337,10 @@ def statements(start: date | None = Query(default=None, alias="from"), end: date
     one period, from the journal; ``compare`` adds the previous period and the same period last year."""
     _read(context)
     first, last = _period(context, start, end)
-    return {**L.statements(context, first, last, today=_today(), compare=compare), "policies": policies_for(context)}
+    from .api_books import _with_evidence_warning
+
+    data = _with_evidence_warning(context, L.statements(context, first, last, today=_today(), compare=compare), first, last)
+    return {**data, "policies": policies_for(context)}
 
 
 @router.get("/ledger/statements.csv")
