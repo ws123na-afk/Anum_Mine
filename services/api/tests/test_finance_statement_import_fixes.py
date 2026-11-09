@@ -293,3 +293,192 @@ def test_a_saudi_style_csv_is_detected_and_its_hijri_column_ignored() -> None:
     assert parsed.preset == "saudi_generic"
     assert [(r.posted_on, r.amount) for r in parsed.rows] == [(date(2026, 11, 2), Decimal("-40.00")), (date(2026, 11, 13), Decimal("3000.00"))]
     assert "unverified" in csv_import.PRESETS["saudi_generic"].label.lower()
+
+
+# -- the import record: I3, I5, I6, idempotency, ON CONFLICT ---------------------------------------------------
+
+PURCHASE = "SYNTHETIC. Purchase of SAR 50.00 at EXAMPLE CAFE with card **1234 on 03/11/2026 14:22."
+OTHER_PURCHASE = "SYNTHETIC. Purchase of SAR 30.00 at SAMPLE PHARMACY with card **1234 on 03/11/2026 15:10."
+
+
+def account(**body: object) -> dict:
+    response = client.post(f"{API}/accounts", headers=OWNER, json={"name": "Current", "kind": "bank", "currency": "SAR", **body})
+    assert response.status_code == 201, response.text
+    return response.json()
+
+
+def sms_setup() -> dict[str, Any]:
+    card = account(name="Card", kind="card", last4="1234")
+    assert client.post(f"{API}/sms/self-test", headers=OWNER).json()["passed"]
+    version = client.get(f"{API}/sms/settings", headers=OWNER).json()["version"]
+    put = client.put(f"{API}/sms/settings", headers=OWNER, json={
+        "version": version, "enabled": True, "extra_senders": [{"sender": SENDER, "bank": "test_bank"}], "verified_senders": [SENDER],
+        "account_map": [{"last4": "1234", "account_id": card["id"], "credit_limit": "5000"}]})
+    assert put.status_code == 200, put.text
+    device = client.post(f"{API}/sms/devices", headers=OWNER, json={"name": "My iPhone"})
+    return {"card": card, "token": device.json()["token"]}
+
+
+def send_sms(token: str, message: str) -> dict:
+    response = client.post(f"{API}/sms/ingest", headers={"Authorization": f"Bearer {token}"}, json={"message": message, "sender": SENDER})
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+def csv_import(account_id: str, content: str, **extra: Any) -> dict:
+    response = client.post(f"{API}/imports", headers=OWNER, json={"account_id": account_id, "content": content, "filename": "nov.csv", **extra})
+    assert response.status_code == 201, response.text
+    return response.json()
+
+
+def transactions(account_id: str) -> list[dict]:
+    return client.get(f"{API}/transactions", headers=OWNER, params={"account_id": account_id, "limit": 200}).json()["items"]
+
+
+def pdf_body(account_id: str, rows: list[dict], **extra: Any) -> dict:
+    return {"account_id": account_id, "filename": "nov.pdf", "file_sha256": "0" * 64, "source": "text", "rows": rows, **extra}
+
+
+def pdf_import(body: dict) -> dict:
+    response = client.post(f"{API}/imports/pdf", headers=OWNER, json=body)
+    assert response.status_code == 201, response.text
+    return response.json()
+
+
+def test_unticking_one_of_two_identical_pdf_rows_keeps_the_other_rows_place() -> None:
+    bank = account()
+    same = {"posted_on": "2026-11-03", "description": "EXAMPLE CAFE", "amount": "-15.00"}
+    first = pdf_import(pdf_body(bank["id"], [{**same, "include": False}, same]))
+    assert (first["imported_count"], first["skipped"]) == (1, 1)
+    # The statement again, both rows ticked: the second identical purchase is still missing, so it is added.
+    second = pdf_import(pdf_body(bank["id"], [same, same]))
+    assert second["imported_count"] == 1 and second["duplicate_count"] == 1
+    assert len(transactions(bank["id"])) == 2
+    # And once more: nothing new (idempotent).
+    third = pdf_import(pdf_body(bank["id"], [same, same]))
+    assert (third["imported_count"], third["duplicate_count"]) == (0, 2) and len(transactions(bank["id"])) == 2
+
+
+def test_a_partial_csv_reimport_of_identical_rows_adds_the_one_left_out_before() -> None:
+    bank = account()
+    content = "Date,Description,Amount\n2026-11-03,EXAMPLE CAFE,-15.00\n2026-11-03,EXAMPLE CAFE,-15.00\n"
+    first = csv_import(bank["id"], content, decisions=[{"line": 2, "action": "skip"}])
+    assert first["imported_count"] == 1
+    second = csv_import(bank["id"], content)
+    assert (second["imported_count"], second["duplicate_count"]) == (1, 1) and len(transactions(bank["id"])) == 2
+    # Rows left out are not matched at all, so the identical row imported first is never taken for the other one.
+    finance_store.clear()
+    sms_memory_store.clear()
+    bank = account()
+    csv_import(bank["id"], content, decisions=[{"line": 3, "action": "skip"}])
+    only_second = csv_import(bank["id"], content, decisions=[{"line": 2, "action": "skip"}])
+    assert (only_second["imported_count"], only_second["skipped"]) == (1, 1) and len(transactions(bank["id"])) == 2
+
+
+def test_repeating_the_same_statement_creates_nothing_new() -> None:
+    s = sms_setup()
+    send_sms(s["token"], PURCHASE)
+    send_sms(s["token"], OTHER_PURCHASE)
+    content = ("Date,Description,Amount\n2026-11-03,POS EXAMPLE CAFE,-50.00\n2026-11-03,CARD TXN 0001,-30.00\n"
+               "2026-11-04,SAMPLE BOOKS,-20.00\n")
+    first = csv_import(s["card"]["id"], content)
+    assert (first["imported_count"], first["reconciled"], first["held_for_review"]) == (1, 1, 1)
+    before = len(transactions(s["card"]["id"]))
+    for _ in range(2):
+        again = csv_import(s["card"]["id"], content)
+        assert (again["imported_count"], again["reconciled"]) == (0, 0)
+        assert len(transactions(s["card"]["id"])) == before
+    review = client.get(f"{API}/sms/messages", headers=OWNER, params={"status": "review"}).json()
+    held = [m for m in review["items"] if m.get("source") == "statement"]
+    assert len(held) == 1  # the held row waits once, not once per import
+
+
+def test_a_duplicate_sms_and_its_statement_row_are_one_canonical_record() -> None:
+    s = sms_setup()
+    send_sms(s["token"], PURCHASE)
+    send_sms(s["token"], PURCHASE)  # the bank sent the same message twice
+    done = csv_import(s["card"]["id"], "Date,Description,Amount\n2026-11-04,POS EXAMPLE CAFE RIYADH,-50.00\n")
+    assert (done["imported_count"], done["reconciled"], done["duplicate_count"]) == (0, 1, 0)
+    rows = [t for t in transactions(s["card"]["id"]) if t["amount"] == "-50.00"]
+    assert len(rows) == 1
+
+
+def test_the_import_record_stores_every_rows_disposition_and_its_counts() -> None:
+    s = sms_setup()
+    send_sms(s["token"], PURCHASE)
+    send_sms(s["token"], OTHER_PURCHASE)
+    content = ("Date,Description,Amount\n2026-11-03,POS EXAMPLE CAFE,-50.00\n2026-11-03,CARD TXN 0001,-30.00\n"
+               "2026-11-04,SAMPLE BOOKS,-20.00\n2026-11-05,SAMPLE BAKERY,-5.00\nnot a date,FOOTER,\n")
+    done = csv_import(s["card"]["id"], content, decisions=[{"line": 5, "action": "skip"}])
+    # Attached rows are no longer counted as duplicates.
+    assert (done["imported_count"], done["reconciled"], done["held_for_review"], done["skipped"], done["duplicate_count"]) == (1, 1, 1, 1, 0)
+    assert done["dropped"] == 1 and done["error_count"] == 1
+    history = client.get(f"{API}/imports", headers=OWNER).json()["items"][0]
+    assert (history["reconciled"], history["held_for_review"], history["skipped"], history["dropped"]) == (1, 1, 1, 1)
+    detail = client.get(f"{API}/imports/{done['id']}", headers=OWNER).json()
+    by_line = {r["line"]: r for r in detail["rows"]}
+    assert by_line[2]["disposition"] == "attached_to_existing" and by_line[2]["record_id"]
+    assert (by_line[3]["disposition"], by_line[3]["reason"]) == ("held_for_review", "amount_date_only")
+    assert by_line[4]["disposition"] == "imported" and by_line[4]["record_id"] in {t["id"] for t in transactions(s["card"]["id"])}
+    assert by_line[5]["disposition"] == "unticked"
+    assert by_line[6]["disposition"] == "dropped_by_reader" and by_line[6]["reason"] == "unreadable" and by_line[6]["message"]
+    missing = client.get(f"{API}/imports/{done['id']}", headers=OWNER, params={"disposition": "not_in_ledger"}).json()
+    assert [r["line"] for r in missing["rows"]] == [3, 5] and missing["rows_total"] == 2
+    assert client.get(f"{API}/imports/fin_imp_missing", headers=OWNER).status_code == 404
+
+
+def test_a_tied_statement_with_a_held_row_does_not_reconcile_the_account() -> None:
+    s = sms_setup()
+    send_sms(s["token"], PURCHASE)
+    content = "Date,Description,Amount,Balance\n2026-11-03,CARD TXN 0001,-50.00,950.00\n2026-11-04,SAMPLE BOOKS,-20.00,930.00\n"
+    done = csv_import(s["card"]["id"], content, opening_balance="1000.00", closing_balance="930.00")
+    assert done["reconciliation"]["status"] == "tied" and done["held_for_review"] == 1 and done["not_in_ledger"] == 1
+    overview = client.get(f"{API}/accounts/overview", headers=OWNER).json()
+    card = next(a for a in overview["accounts"] if a["account_id"] == s["card"]["id"])
+    assert card["last_reconciled_at"] is None
+    assert card["last_statement"]["status"] == "tied" and card["last_statement"]["not_in_ledger"] == 1
+    assert "statement_rows_missing" in card["needs_attention"]
+    # With every row in the ledger the same statement reconciles.
+    other = account(name="Savings")
+    clean = csv_import(other["id"], "Date,Description,Amount,Balance\n2026-11-04,SAMPLE BOOKS,-20.00,980.00\n",
+                       opening_balance="1000.00", closing_balance="980.00")
+    assert clean["not_in_ledger"] == 0
+    overview = client.get(f"{API}/accounts/overview", headers=OWNER).json()
+    assert next(a for a in overview["accounts"] if a["account_id"] == other["id"])["last_reconciled_at"] is not None
+
+
+def test_a_row_stored_meanwhile_gets_no_journal_entry(monkeypatch: pytest.MonkeyPatch) -> None:
+    from anum_api.finance import sms_service
+
+    bank = account()
+    calls: list[str] = []
+    real = sms_service.record_plain
+
+    def counting(sms: Any, context: Any, item: Any, *args: Any, **kwargs: Any) -> Any:
+        calls.append(item.id)
+        return real(sms, context, item, *args, **kwargs)
+
+    original = finance_store.insert_transactions
+
+    def racing(rows: list[Any]) -> set[str]:
+        # Another import stored the first row a moment earlier: ON CONFLICT DO NOTHING leaves it out.
+        original([rows[0].model_copy(update={"id": "fin_txn_other"})])
+        return original(rows)
+
+    monkeypatch.setattr(sms_service, "record_plain", counting)
+    monkeypatch.setattr(finance_store, "insert_transactions", racing)
+    done = csv_import(bank["id"], "Date,Description,Amount\n2026-11-03,EXAMPLE CAFE,-15.00\n2026-11-04,SAMPLE BOOKS,-20.00\n")
+    assert done["imported_count"] == 1 and done["duplicate_count"] == 1
+    assert len(calls) == 1  # only the row actually inserted got a journal entry
+    detail = client.get(f"{API}/imports/{done['id']}", headers=OWNER).json()
+    assert [(r["line"], r["disposition"], r["reason"]) for r in detail["rows"]][:2] == [
+        (2, "duplicate_skipped", "already_in_ledger"), (3, "imported", None)]
+
+
+def test_pdf_rows_left_out_by_the_reader_are_listed_on_the_import() -> None:
+    bank = account()
+    done = pdf_import(pdf_body(bank["id"], [{"posted_on": "2026-11-03", "description": "EXAMPLE CAFE", "amount": "-15.00"}],
+                               dropped=[{"page": 2, "reason": "outside_period", "text": "SAMPLE OLD ROW", "posted_on": "2025-01-15", "amount": "-20.00"}]))
+    assert done["dropped"] == 1
+    rows = client.get(f"{API}/imports/{done['id']}", headers=OWNER, params={"disposition": "dropped_by_reader"}).json()["rows"]
+    assert [(r["reason"], r["posted_on"], r["description"]) for r in rows] == [("outside_period", "2025-01-15", "SAMPLE OLD ROW")]

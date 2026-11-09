@@ -386,6 +386,9 @@ class StatementCheck(BaseModel):
     status: Literal["tied", "differs", "unknown"]
     closing: Decimal | None
     difference: Decimal | None
+    # Statement rows the ledger does not hold (held for review or left out). "tied" with rows not in the ledger means the
+    # statement balances but does not reconcile the account; the import lists them (GET /imports/{id}?disposition=not_in_ledger).
+    not_in_ledger: int = 0
 
 
 class AccountOverview(BaseModel):
@@ -400,7 +403,7 @@ class AccountOverview(BaseModel):
     last_reconciled_at: datetime | None
     imported: int
     matched: int
-    needs_attention: list[Literal["balance_differs", "links_need_review", "possible_duplicates", "statement_differs"]]
+    needs_attention: list[Literal["balance_differs", "links_need_review", "possible_duplicates", "statement_differs", "statement_rows_missing"]]
     payment_due: PaymentDue | None
     last_statement: StatementCheck | None = None
 
@@ -411,6 +414,13 @@ class AccountsOverview(BaseModel):
     last_reconciled_at: datetime | None
     base_currency: str
     ledger_kind: Literal["personal", "business"]
+
+
+def _not_in_ledger(check: dict[str, Any]) -> int:
+    try:
+        return max(0, int(check.get("not_in_ledger") or 0))
+    except (TypeError, ValueError):
+        return 0
 
 
 @router.get("/accounts/overview", response_model=AccountsOverview)
@@ -455,8 +465,9 @@ def accounts_overview(context: TenantContext = Depends(tenant_context)) -> Accou
             current = last_check.get(record.account_id)
             if current is None or (record.created_at, record.id) > (current.created_at, current.id):
                 last_check[record.account_id] = record
-            if check.get("status") == "tied":
-                # A statement whose rows add up from its opening to its closing balance reconciles the account.
+            if check.get("status") == "tied" and _not_in_ledger(check) == 0:
+                # A statement whose rows add up from its opening to its closing balance, and every one of whose rows is in
+                # the ledger (imported or attached), reconciles the account.
                 item = per[record.account_id]
                 item["reconciled"] = max(item["reconciled"] or record.created_at, record.created_at)
     out: list[AccountOverview] = []
@@ -487,9 +498,12 @@ def accounts_overview(context: TenantContext = Depends(tenant_context)) -> Accou
             data = checked.reconciliation or {}
             statement = StatementCheck(import_id=checked.id, filename=checked.filename, imported_at=checked.created_at, status=data["status"],
                                        closing=Decimal(data["closing"]) if data.get("closing") else None,
-                                       difference=Decimal(data["difference"]) if data.get("difference") else None)
+                                       difference=Decimal(data["difference"]) if data.get("difference") else None,
+                                       not_in_ledger=_not_in_ledger(data))
             if statement.status == "differs":
                 attention.append("statement_differs")
+            elif statement.not_in_ledger:
+                attention.append("statement_rows_missing")
         due = next((b for b in bills if bill_accounts.get(b.id) == account.id), None) if account.kind == AccountKind.CARD else None
         reconciled = item["reconciled"]
         out.append(AccountOverview(

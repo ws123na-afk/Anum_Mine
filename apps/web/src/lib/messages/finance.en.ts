@@ -219,6 +219,8 @@ export const financeEn = {
   'finance.import.historyLoading': 'Loading earlier imports...',
   'finance.import.historyEmpty': 'No statements imported yet.',
   'finance.import.historyCounts': '{imported} imported, {duplicates} skipped, {errors} unread',
+  'finance.import.historyMatched': '{matched} matched to SMS or Apple Pay, {held} held for review, {left} left out',
+  'finance.import.historyNotInLedger': { one: '{count} row not in the ledger: see Connections, Import history, Rows', other: '{count} rows not in the ledger: see Connections, Import history, Rows' },
   'finance.import.undo': 'Undo import',
   'finance.import.undoTitle': 'Undo this import?',
   'finance.import.undoText': { one: '{file}: the {count} transaction it added is deleted.', other: '{file}: the {count} transactions it added are deleted.' },

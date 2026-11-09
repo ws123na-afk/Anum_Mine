@@ -170,15 +170,10 @@ export function PdfStatementImport({ file, account, onImported, onCancel }: {
     {(view.dropped_rows ?? []).length > 0 && <details className="finPdfDropped">
       <summary>{t('fpdf.dropped.title', { count: view.dropped_rows.length })}</summary>
       <p className="muted">{t('fpdf.dropped.help')}</p>
-      <div className="cmTableWrap" tabIndex={0}><table className="cmTable">
-        <caption className="visuallyHidden">{t('fpdf.dropped.caption')}</caption>
-        <thead><tr><th scope="col">{t('fpdf.dropped.page')}</th><th scope="col">{t('finance.col.date')}</th>
-          <th scope="col">{t('fpdf.dropped.text')}</th><th scope="col" className="num">{t('finance.col.amount')}</th><th scope="col">{t('fpdf.dropped.reason')}</th></tr></thead>
-        <tbody>{view.dropped_rows.map((item, index) => <tr key={`${item.page}-${index}`}>
-          <td>{item.page}</td><td><bdi dir="ltr">{item.posted_on ?? '-'}</bdi></td><td dir="auto">{item.text}</td>
-          <td className="num"><bdi dir="ltr">{item.amount ? formatAmount(item.amount, currency) : '-'}</bdi></td>
-          <td>{t(`fpdf.dropped.${item.reason}`)}</td></tr>)}</tbody>
-      </table></div>
+      <ul className="cmList finPdfDroppedList" aria-label={t('fpdf.dropped.caption')}>{view.dropped_rows.map((item, index) => <li key={`${item.page}-${index}`}>
+        <div><strong dir="auto">{item.text || '-'}</strong>
+          <small>{t('fpdf.dropped.page')} {item.page} · <bdi dir="ltr">{item.posted_on ?? '-'}</bdi> · <bdi dir="ltr">{item.amount ? formatAmount(item.amount, currency) : '-'}</bdi></small></div>
+        <small className="muted">{t(`fpdf.dropped.${item.reason}`)}</small></li>)}</ul>
     </details>}
     {view.warnings.includes('debit_credit_swapped') && <Notice>{t('fpdf.warning.debit_credit_swapped')}</Notice>}
     {view.warnings.includes('columns_from_content') && <Notice>{t('fpdf.warning.columns_from_content')}</Notice>}

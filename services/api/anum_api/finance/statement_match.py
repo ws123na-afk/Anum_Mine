@@ -225,9 +225,11 @@ def match_lines(
     account: AccountInfo | None = None,
     others: list[Recorded] | None = None,
     accounts: list[AccountInfo] | None = None,
+    file_hashes: set[str] | None = None,
 ) -> list[Match]:
     """Every row's status, in the rows' own order. ``recorded`` are the account's records; ``others`` the
-    records on the person's other accounts (for transfers)."""
+    records on the person's other accounts (for transfers). ``file_hashes`` are the hashes of every row of this
+    statement (rows left out too): a record imported from one of them matches only that row, by its hash."""
     by_hash: dict[str, Recorded] = {}
     for record in sorted(recorded, key=_order):
         for digest in record.statement_hashes:
@@ -247,7 +249,7 @@ def match_lines(
     # 2. Everything else, oldest first, against records no row has absorbed yet.
     pool = sorted(recorded, key=_order)
     for line in sorted((l for l in lines if l.key not in results), key=lambda l: (l.posted_on, l.key)):
-        results[line.key] = _match_one(line, [r for r in pool if r.record_id not in taken], taken)
+        results[line.key] = _match_one(line, [r for r in pool if r.record_id not in taken], taken, file_hashes or set())
     ordered = [results[line.key] for line in lines]
     if bills:
         _bills(ordered, bills, account)
@@ -256,7 +258,7 @@ def match_lines(
     return ordered
 
 
-def _match_one(line: Line, pool: list[Recorded], taken: set[str]) -> Match:
+def _match_one(line: Line, pool: list[Recorded], taken: set[str], file_hashes: set[str]) -> Match:
     strong: list[tuple[tuple[Any, ...], Recorded]] = []
     weak: list[Recorded] = []
     for record in pool:
@@ -264,7 +266,11 @@ def _match_one(line: Line, pool: list[Recorded], taken: set[str]) -> Match:
             continue
         lag = (line.posted_on - record.posted_on).days
         if "statement" in record.sources or record.reconciled:
-            # Already a statement row (or confirmed by one): only the very same row from another statement matches.
+            # Already a statement row (or confirmed by one): only the very same row from another statement matches. A
+            # record that came from a row of this very statement (two identical purchases, one imported earlier) is
+            # that row's, found by its hash: never another identical row's.
+            if record.statement_hashes & file_hashes:
+                continue
             if lag == 0 and record.amount == line.amount and merchants_agree(line.description, record.description) is True:
                 taken.add(record.record_id)
                 return Match(line, "exact_duplicate", "same_statement_row", record=record, lag_days=0)

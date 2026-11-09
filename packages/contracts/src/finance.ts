@@ -239,7 +239,33 @@ export interface FinanceImport {
   bills_paid?: number;
   bills_review?: number;
   transfers?: number;
-  reconciliation?: { status: 'tied' | 'differs' | 'unknown'; opening: string | null; closing: string | null; rows_total: string | null; difference: string | null } | null;
+  reconciliation?: { status: 'tied' | 'differs' | 'unknown'; opening: string | null; closing: string | null; rows_total: string | null; difference: string | null; not_in_ledger?: string | null } | null;
+  /** Rows the reader could not use (unreadable, outside the statement period): listed on the import. */
+  dropped?: number;
+  /** Statement rows the ledger does not hold (held for review or left out by the person). */
+  not_in_ledger?: number;
+}
+
+export type FinanceRowDispositionKind = 'imported' | 'held_for_review' | 'attached_to_existing' | 'duplicate_skipped' | 'unticked' | 'dropped_by_reader';
+
+/** What an import did with one statement row (`GET /imports/{id}`). */
+export interface FinanceRowDisposition {
+  line: number;
+  posted_on: string | null;
+  amount: string | null;
+  description: string;
+  disposition: FinanceRowDispositionKind;
+  reason: string | null;
+  message: string | null;
+  /** The transaction or record the row was imported as, attached to, or duplicates. */
+  record_id: string | null;
+}
+
+export interface FinanceImportDetail extends FinanceImport {
+  rows: FinanceRowDisposition[];
+  rows_total: number;
+  limit: number;
+  offset: number;
 }
 
 /** Own transfers already in the ledger, not yet paired (`GET /transfers/candidates`). */
@@ -387,6 +413,8 @@ export interface FinancePdfImportRow {
   bill?: boolean | null;
   transfer?: boolean | null;
   correct?: boolean | null;
+  /** False: unticked. Still sent so identical rows keep their place; never checked or imported. */
+  include?: boolean;
 }
 
 /** A statement layout taught by the owner (Finance, Import): the mapping kept against the layout's fingerprint. */
@@ -415,6 +443,8 @@ export interface FinancePdfImportInput {
   layout?: { fingerprint: string; labels: string[]; roles: FinancePdfRole[]; date_format: string | null; remember: boolean } | null;
   /** The statement's printed counts and totals from the read; rows that disagree need `accept_mismatch`. */
   summary?: { name: FinancePdfCheck['summary'][number]['name']; stated: string }[];
+  /** The rows the reader left out, from the read: listed on the import, never imported. */
+  dropped?: { page: number; reason: FinancePdfDroppedRow['reason']; text: string; posted_on: string | null; amount: string | null }[];
 }
 
 export interface FinanceBill {

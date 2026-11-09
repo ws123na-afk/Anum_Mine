@@ -115,8 +115,6 @@ export const financePdfEn = {
   'fpdf.dropped.unattached_line': 'No row could take this line',
   'fpdf.dropped.page': 'Page',
   'fpdf.dropped.caption': 'Rows and lines the reader left out',
-  'fpdf.dropped.reason': 'Why',
-  'fpdf.dropped.text': 'Text',
   "fpdf.check.pageBreaks": "The balance brought forward on page {pages} is not the balance the page before ended with.",
   "fpdf.check.summaryLine": "{label}: the statement says {stated}, the rows give {found}.",
   "fpdf.summaryName.deposits_count": "Number of deposits",

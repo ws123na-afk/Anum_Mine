@@ -11,6 +11,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from decimal import Decimal
 from enum import StrEnum
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -157,8 +158,19 @@ class ImportRecord(_Owned):
     file_sha256: str
     created_at: datetime
     # The statement's balance check when it was imported (docs/finance.md#reconciliation): ``status`` ("tied",
-    # "differs" or "unknown"), ``opening``, ``closing``, ``rows_total``, ``difference`` as decimal strings.
+    # "differs" or "unknown"), ``opening``, ``closing``, ``rows_total``, ``difference`` as decimal strings, and
+    # ``not_in_ledger``: how many statement rows the ledger does not hold (held for review or left out by the person).
     reconciliation: dict[str, str | None] | None = None
+    # What happened to every row (docs/finance.md#import-history), counted and listed (migration 0148_finance_import_rows):
+    # attached to a record already there, held for review, left out by the person, left out by the reader, corrected.
+    attached_count: int = 0
+    held_count: int = 0
+    skipped_count: int = 0
+    dropped_count: int = 0
+    corrected_count: int = 0
+    # One item per statement row: line, posted_on, amount, description, disposition (imported, held_for_review,
+    # attached_to_existing, duplicate_skipped, unticked, dropped_by_reader), reason and the record it went to.
+    dispositions: list[dict[str, Any]] | None = None
 
 
 class Bill(_Owned):

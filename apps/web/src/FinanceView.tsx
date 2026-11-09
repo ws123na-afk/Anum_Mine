@@ -423,7 +423,9 @@ export function Import({ accounts, onChanged, onAddAccount, onDone }: { accounts
       {history.kind === 'loading' && <Notice busy>{t('finance.import.historyLoading')}</Notice>}
       {history.kind === 'error' && <LoadError message={history.message} retry={() => void loadHistory()} />}
       {history.kind === 'ready' && (history.value.items.length === 0 ? <p className="muted">{t('finance.import.historyEmpty')}</p> : <ul className="cmList">{history.value.items.map((item) => <li key={item.id}>
-        <div><strong dir="auto">{item.filename}</strong><small>{formatDateTime(item.created_at)} · {accounts.find((a) => a.id === item.account_id)?.name ?? ''} · {t('finance.import.historyCounts', { imported: item.imported_count, duplicates: item.duplicate_count, errors: item.error_count })}</small></div>
+        <div><strong dir="auto">{item.filename}</strong><small>{formatDateTime(item.created_at)} · {accounts.find((a) => a.id === item.account_id)?.name ?? ''} · {t('finance.import.historyCounts', { imported: item.imported_count, duplicates: item.duplicate_count, errors: item.error_count })}</small>
+          {((item.reconciled ?? 0) + (item.held_for_review ?? 0) + (item.skipped ?? 0)) > 0 && <small>{t('finance.import.historyMatched', { matched: item.reconciled ?? 0, held: item.held_for_review ?? 0, left: item.skipped ?? 0 })}</small>}
+          {(item.not_in_ledger ?? 0) > 0 && <small className="finLoosens">{t('finance.import.historyNotInLedger', { count: item.not_in_ledger ?? 0 })}</small>}</div>
         <button type="button" className="secondary" onClick={() => setUndoing(item)}><Undo2 aria-hidden="true" />{t('finance.import.undo')}</button>
       </li>)}</ul>)}
     </section>

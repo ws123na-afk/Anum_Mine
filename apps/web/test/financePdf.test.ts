@@ -22,7 +22,7 @@ const view = (): FinancePdfStatement => ({
   check: { status: 'matched', opening: '2000.00', closing: '13579.50', rows_total: '11579.50', expected_closing: '13579.50', difference: '0.00', opening_source: 'statement', closing_source: 'statement', breaks: [], page_breaks: [],
     summary: [{ name: 'deposits_count', stated: '1', found: '1', ok: true }, { name: 'withdrawals_total', stated: '420.50', found: '420.50', ok: true }] },
   fingerprint: 'f'.repeat(32), template_id: null, confidence: 1, kind: 'account', statement_date: null, due_date: null, skipped_pages: [],
-  row_count: 3, duplicate_count: 1, skipped_lines: 4, warnings: [],
+  row_count: 3, duplicate_count: 1, skipped_lines: 4, warnings: [], dropped_rows: [],
   rows: [
     { line: 1, page: 1, posted_on: '2026-11-01', description: 'SALARY NOVEMBER', amount: '12000.00', debit: null, credit: '12000.00', balance: '14000.00', reference: null, currency: null, original_amount: null, original_currency: null, fx_rate: null, fee: null, vat: null, kind: null, time: null, counterparty: null, parent_line: null, confidence: 1, category: 'income', duplicate: true, flags: [] },
     { line: 2, page: 1, posted_on: '2026-11-02', description: 'POS PANDA', amount: '-120.50', debit: '120.50', credit: null, balance: '13879.50', reference: null, currency: null, original_amount: null, original_currency: null, fx_rate: null, fee: null, vat: null, kind: null, time: null, counterparty: null, parent_line: null, confidence: 1, category: 'groceries', duplicate: false, flags: [] },
@@ -78,11 +78,20 @@ describe('PDF statement review', () => {
     assert.match(rowProblem({ ...row, amount: '1.234' }, 'AED') ?? '', /amount/);
   });
 
-  test('the import body carries only the included rows in wire form and says when the owner accepted a mismatch', () => {
+  test('the import body carries every readable row in wire form, unticked ones marked left out, and says when the owner accepted a mismatch', () => {
     const rows = reviewRows(view()).map((row) => (row.line === 2 ? { ...row, amount: '-1,120.5' } : row.line === 3 ? { ...row, include: false } : row));
     const body = importBody(view(), 'fin_acct_current', rows, '2,000', '13579.50', true);
-    assert.equal(body.rows.length, 2);
+    // The unticked row is sent (so two identical rows keep their places, audit I3) but marked: never imported or checked.
+    assert.equal(body.rows.length, 3);
+    assert.deepEqual([body.rows[2].include, body.rows[2].action], [false, 'skip']);
+    assert.equal(body.rows[1].include, undefined);
     assert.deepEqual(body.rows[1], { posted_on: '2026-11-02', description: 'POS PANDA', amount: '-1120.50', balance: '13879.50', reference: null, currency: null, time: null, original_amount: null, original_currency: null, billed_amount: null, billed_currency: null, fx_rate: null, fee: null, vat: null });
+    // An unticked row whose amount does not read cannot be placed: it is not sent.
+    const broken = rows.map((row) => (row.line === 3 ? { ...row, amount: 'abc' } : row));
+    assert.equal(importBody(view(), 'fin_acct_current', broken, '2,000', '13579.50', true).rows.length, 2);
+    // The rows the reader left out travel back so the import lists them.
+    const withDropped = { ...view(), dropped_rows: [{ page: 2, reason: 'outside_period' as const, text: 'SAMPLE OLD ROW', posted_on: '2025-01-15', amount: '-20.00' }] };
+    assert.deepEqual(importBody(withDropped, 'a', rows, '2000', '13579.50', false).dropped, withDropped.dropped_rows);
     assert.equal(body.opening_balance, '2000.00');
     assert.equal(body.accept_mismatch, true);
     assert.equal(body.file_sha256, 'a'.repeat(64));

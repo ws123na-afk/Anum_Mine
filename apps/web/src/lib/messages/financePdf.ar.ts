@@ -115,8 +115,6 @@ export const financePdfAr: Record<keyof typeof financePdfEn, Message> = {
   'fpdf.dropped.unattached_line': 'لم يأخذ أي صف هذا السطر',
   'fpdf.dropped.page': 'الصفحة',
   'fpdf.dropped.caption': 'الصفوف والأسطر التي استبعدها القارئ',
-  'fpdf.dropped.reason': 'السبب',
-  'fpdf.dropped.text': 'النص',
   "fpdf.check.pageBreaks": "الرصيد المرحل في الصفحة {pages} لا يساوي رصيد نهاية الصفحة السابقة.",
   "fpdf.check.summaryLine": "{label}: يذكر الكشف {stated}، والصفوف تعطي {found}.",
   "fpdf.summaryName.deposits_count": "عدد الإيداعات",

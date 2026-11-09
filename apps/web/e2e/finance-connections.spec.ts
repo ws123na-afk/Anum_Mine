@@ -13,7 +13,7 @@ interface Mock { empty?: boolean; denied?: boolean; failAccounts?: boolean; noDe
 
 async function mockApi(page: Page, options: Mock = {}) {
   const state = financeState({ empty: options.empty, denied: options.denied });
-  if (!options.empty) state.imports.unshift({ id: 'fin_imp_pdf', account_id: 'fin_acct_card', filename: 'card-november.pdf', preset: 'pdf', date_format: '%d/%m/%Y', row_count: 12, imported_count: 9, duplicate_count: 1, error_count: 0, reconciled: 2, held_for_review: 1, created_at: '2026-11-04T08:00:00Z' });
+  if (!options.empty) state.imports.unshift({ id: 'fin_imp_pdf', account_id: 'fin_acct_card', filename: 'card-november.pdf', preset: 'pdf', date_format: '%d/%m/%Y', row_count: 12, imported_count: 9, duplicate_count: 1, error_count: 0, reconciled: 2, held_for_review: 1, skipped: 0, dropped: 1, not_in_ledger: 1, reconciliation: { status: 'tied', opening: '0.00', closing: '-120.00', rows_total: '-120.00', difference: '0.00', not_in_ledger: '1' }, created_at: '2026-11-04T08:00:00Z' });
   const sent: { method: string; path: string; body: unknown }[] = [];
   let settings = {
     enabled: true, ledger_kind: 'personal', auto_post: true, body_retention_days: 30, verified_senders: [], extra_senders: [],
@@ -69,6 +69,18 @@ async function mockApi(page: Page, options: Mock = {}) {
     }
     if (sub === '/sms/messages') return json({ items: messages, total: messages.length, limit: 5, offset: 0 });
     if (sub === '/sms/banks' || sub === '/sms/rules') return json([]);
+    if (sub === '/imports/fin_imp_pdf' && request.method() === 'GET') {
+      // SYNTHETIC rows: what the import did with each one.
+      const rows = [
+        { line: 1, posted_on: '2026-11-02', amount: '-40.00', description: 'EXAMPLE CAFE', disposition: 'imported', reason: null, message: null, record_id: 'fin_txn_1' },
+        { line: 2, posted_on: '2026-11-03', amount: '-30.00', description: 'CARD TXN 0001', disposition: 'held_for_review', reason: 'amount_date_only', message: null, record_id: 'je_1' },
+        { line: 3, posted_on: '2026-11-03', amount: '-50.00', description: 'POS SAMPLE BOOKS', disposition: 'attached_to_existing', reason: 'same_amount_merchant', message: null, record_id: 'je_2' },
+        { line: 0, posted_on: '2025-01-15', amount: '-20.00', description: 'SAMPLE OLD ROW', disposition: 'dropped_by_reader', reason: 'outside_period', message: 'page 2', record_id: null },
+      ];
+      const wanted = url.searchParams.get('disposition');
+      const shown = wanted === 'not_in_ledger' ? rows.filter((r) => r.disposition === 'held_for_review' || r.disposition === 'unticked') : wanted ? rows.filter((r) => r.disposition === wanted) : rows;
+      return json({ ...state.imports[0], rows: shown, rows_total: shown.length, limit: 100, offset: 0 });
+    }
     const reply = financeReply(state, request.method(), url, body);
     if (reply) return reply.status === 204 ? route.fulfill({ status: 204 }) : json(reply.body, reply.status);
     return route.abort();
@@ -178,6 +190,31 @@ test('import history lists CSV and PDF statements and undoes one; permissions sa
   await expect(page.getByRole('tab', { name: 'Import history' })).toBeFocused();
   await page.getByRole('tab', { name: 'SMS capture' }).click();
   await expect(page.getByRole('heading', { name: 'iPhone SMS forwarding' })).toBeVisible();
+});
+
+test('an import lists what happened to each row, starting with the rows not in the ledger', async ({ page }) => {
+  const { sent } = await mockApi(page);
+  await page.goto('/#finance-connections');
+  await page.getByRole('tab', { name: 'Import history' }).click();
+  const history = page.getByRole('region', { name: 'Import history' });
+  const row = history.getByRole('row').filter({ hasText: 'card-november.pdf' });
+  await expect(row).toBeVisible({ timeout: 20_000 });
+  await row.getByRole('button', { name: 'See what happened to each row of card-november.pdf' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Rows of card-november.pdf' });
+  await expect(dialog.getByText(/The statement balances, but 1 row is not in the ledger/)).toBeVisible();
+  await expect(dialog.getByRole('combobox', { name: 'Show' })).toHaveValue('not_in_ledger');
+  await expect(dialog.getByRole('listitem').filter({ hasText: 'CARD TXN 0001' })).toContainText('Held for review');
+  await expect(dialog.getByRole('listitem').filter({ hasText: 'EXAMPLE CAFE' })).toHaveCount(0);
+  await dialog.getByRole('combobox', { name: 'Show' }).selectOption('all');
+  await expect(dialog.getByRole('listitem').filter({ hasText: 'POS SAMPLE BOOKS' })).toContainText('Matched to a record');
+  await expect(dialog.getByRole('listitem').filter({ hasText: 'SAMPLE OLD ROW' })).toContainText('dated outside the statement period');
+  expect(sent.some((s) => s.method === 'GET' && s.path.endsWith('/imports/fin_imp_pdf'))).toBe(true);
+  // The list fits the screen: no sideways scroll of the page on a phone or a desktop.
+  expect(await page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBeLessThanOrEqual(0);
+  expect((await new AxeBuilder({ page }).include('[role="dialog"]').analyze()).violations).toEqual([]);
+  // Held rows are confirmed in Review: the button opens it.
+  await dialog.getByRole('button', { name: 'Open Review' }).click();
+  await expect(page.getByRole('dialog', { name: 'Rows of card-november.pdf' })).toHaveCount(0);
 });
 
 test('empty, error and denied states', async ({ page }) => {

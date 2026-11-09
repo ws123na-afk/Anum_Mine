@@ -46,7 +46,7 @@ A request to pay or transfer ("pay the DEWA bill", "transfer 500 to the landlord
 | `finance_settings` | Base currency, time zone and the person's category rules (one row per person and workspace) |
 | `finance_accounts` | Name, kind (`bank`, `card`, `cash`, `loan`, `investment`), currency, institution, at most the **last four digits** (a check constraint refuses more), opening balance (a card or loan owes money as a **negative** balance: owes 3,000 is -3000; the API refuses a positive one unless `credit_balance` says the account was overpaid), archived |
 | `finance_transactions` | Account, posted date, signed amount, currency, description (from the statement), category and what set it (`rule`, `owner_rule`, `manual`, `none`), notes, the import it came from, and a dedupe hash unique per account |
-| `finance_imports` | One row per confirmed import: file name, layout, date format, counts (rows, imported, duplicates, unread) and the file's SHA-256 (not the file) |
+| `finance_imports` | One row per confirmed import: file name, layout, date format, counts (rows, imported, already recorded, unread, and since migration `0148_finance_import_rows` attached, held, left out by the person, left out by the reader, corrected), what happened to every row (`dispositions`), the balance check and the file's SHA-256 (not the file) |
 | `finance_bills` | Name, amount, currency, cadence (`weekly`, `monthly`, `quarterly`, `yearly`, `once`), next due date, category, optional account, source (`manual` or `detected`), active |
 | `finance_debts` | Name, kind (`loan`, `card`, `mortgage`, `other`), balance owed, APR in percent, minimum payment, due day |
 | `finance_goals` | Name, target, saved so far, target date |
@@ -172,7 +172,28 @@ The pairing runs against rows already in the ledger too (the other side may have
 
 ### Reconciliation
 
-The preview checks the statement against its own balances: the opening balance plus every row (new, already recorded and matched alike) against the closing balance. The balances come from the person (opening and closing fields, as printed on the statement), from a mapped running balance column (CSV: `Balance`, `Running balance`, `الرصيد`; a newest-first export is put in date order first) or from the PDF reader. The answer is `tied`, `differs` (with the difference and the rows after which the running balance breaks) or `unknown` (nothing to check against). It is stored on the import (`finance_imports.reconciliation`, migration `0145_finance_statement_match`) and `GET /accounts/overview` reads it: a tied statement counts as the account's last reconciliation (`last_reconciled_at`), the newest one is `last_statement`, and a statement that does not tie adds `statement_differs` to what needs attention. Finance, Accounts shows "Last statement ties" or the difference on the account's card.
+The preview checks the statement against its own balances: the opening balance plus every row (new, already recorded and matched alike) against the closing balance. The balances come from the person (opening and closing fields, as printed on the statement), from a mapped running balance column (CSV: `Balance`, `Running balance`, `الرصيد`; a newest-first export is put in date order first) or from the PDF reader. The answer is `tied`, `differs` (with the difference and the rows after which the running balance breaks) or `unknown` (nothing to check against). It is stored on the import (`finance_imports.reconciliation`, migration `0145_finance_statement_match`) with `not_in_ledger`: how many of the statement's rows the ledger does not hold after the import (held for review, or left out by the person).
+
+**Balances that tie are not enough.** `GET /accounts/overview` counts a statement as the account's last reconciliation (`last_reconciled_at`) only when it ties **and** every one of its rows is in the ledger (imported, attached to the record it confirms, or already recorded). A tied statement with rows held or left out says "Last statement balances (file), N rows not in the ledger" on the account's card and adds `statement_rows_missing` to what needs attention; `last_statement.not_in_ledger` gives N, and the rows are listed on the import (`GET /imports/{id}?disposition=not_in_ledger`, [Import history](#import-history)). A statement that does not tie adds `statement_differs`. Rows the reader could not use (an unreadable CSV line such as a footer, a PDF row outside the statement period) are listed on the import but do not block reconciliation: they are not part of the balance check. Imports made before migration `0148_finance_import_rows` have no `not_in_ledger` and are read as before.
+
+### Import history
+
+Every import stores what happened to each row of the statement (`finance_imports.dispositions`, migration `0148_finance_import_rows`, expand only) and the counts:
+
+| Disposition | Meaning | Counted in |
+|---|---|---|
+| `imported` | Added as a new transaction (`record_id`: the transaction) | `imported_count` |
+| `attached_to_existing` | Confirmed an SMS, Apple Pay or hand-entered record: no second transaction (`record_id`: that record; `reason`: the match code) | `reconciled` (`attached_count`) |
+| `duplicate_skipped` | Already recorded (`reason`: `imported_before`, `reconciled_before`, `same_statement_row`, or `already_in_ledger` when another import stored the same row at the same moment) | `duplicate_count` |
+| `held_for_review` | Waits in Finance, iPhone SMS, Review (`reason`: `two_candidates`, `amount_date_only`, or `waiting_review` when an earlier import already holds it) | `held_for_review` (`held_count`) |
+| `unticked` | Left out by the person (unticked, or "skip") | `skipped` (`skipped_count`) |
+| `dropped_by_reader` | Not read: an unreadable CSV line (`unreadable`, with the reader's message) or a PDF row outside the statement period or a line no row could take ([rows left out](finance-statements.md#rows-left-out)) | `dropped` (`dropped_count`) |
+
+`duplicate_count` no longer counts attached rows (it did before; attached rows are `reconciled`). `GET /api/v1/finance/imports` answers the stored counts for every import (they were 0 in the list before) plus `not_in_ledger`; `GET /api/v1/finance/imports/{id}?disposition=&limit=&offset=` lists the rows, filtered by disposition or `not_in_ledger`, at most 500 a page. **Where the owner finds them:** Finance, Connections, Import history shows per import Added, Duplicates, Matched, For review and Not in ledger, and **Rows** opens the list (it starts on "Not in the ledger" when there are any); held rows are confirmed or dismissed in Finance, iPhone SMS, Review (the list's **Open Review** button). Finance, Import's own history line adds the matched, held and left out counts and the rows not in the ledger. Re-importing the same statement adds nothing new: rows already recorded are `duplicate_skipped`, rows already waiting in Review stay held once.
+
+- **Rows the person leaves out are not matched.** A row ticked off (CSV `skip`, PDF unticked) is kept out of the matching engine, so it never takes an SMS record another row of the statement needs.
+- **Identical rows keep their place.** Two identical purchases on one day are told apart by their occurrence number in the statement. The PDF import now receives unticked rows too (`include: false`, never checked or imported), so a row keeps the occurrence number it had in the preview when another identical row is unticked; and a record imported from one row of a statement is never taken for another identical row of the same statement (`file_hashes`), so importing the second one later still adds it.
+- **No journal entry without a row.** Rows that `ON CONFLICT DO NOTHING` leaves out (another import stored them a moment earlier) get no journal entry and no links (`insert_transactions` answers the ids actually inserted).
 
 ### Fixed in this pass
 
@@ -180,6 +201,7 @@ The preview checks the statement against its own balances: the opening balance p
 - A reference such as `88AB12` counted as a merchant word and made merchants disagree.
 - A PDF row billed in another currency showed English-only, SAR-only help text; it is now in the message catalogs and names the account's currency.
 - A preview showed only the first 20 rows; it now answers every row, grouped and paged in the web.
+- November 2026 import audit (the owner saw statement rows "not complete, not showing even though added"): a different merchant with the same amount no longer holds a row; generic banking words no longer merge two merchants; identical rows keep their occurrence when one is unticked; card statements are told from their header; a tied statement with rows not in the ledger no longer reconciles the account; every row's outcome is stored and listed ([Import history](#import-history)); the PDF reader reports every row it leaves out.
 
 ## Categories
 
@@ -245,6 +267,8 @@ The Accounts and Transactions and ledger pages read a joined, **read-only** view
 - `GET /api/v1/finance/register/{id}` adds the sources with the **masked SMS text only while the retention setting keeps it** (`body_retention_days`, [Masking and retention](finance-sms.md#masking-and-retention)), the receipts' vault document ids, the rule-based category suggestion and what made it (your rule, a built-in rule or none; there is no confidence percentage because categories are rule-based) and the matching record of a possible duplicate. Attach receipt uploads the file to the document vault (category receipt, private) and links it to the canonical transaction as evidence; Save category sets a manual category, which no rule changes again.
 - `GET /api/v1/finance/accounts/overview`: per account the sources that feed it (`manual`, `sms` when its last four digits or the default account are mapped on Finance, iPhone SMS, `apple_wallet` for a mapped Wallet card, `statement` once a statement was imported), the last balance a bank message stated against the ledger's, the last import and reconciliation, what needs attention (`balance_differs`, `links_need_review`, `possible_duplicates`), a card's limit (from the SMS card mapping) and its next bill linked to that card within 60 days. Plus the review queue count, the newest reconciliation and the ledger kind.
 - `GET /api/v1/finance/accounts/{id}/activity?days=7|14|30|90`: money in and out per day, in the account's currency.
+
+**The period on Transactions and ledger** starts on the current month **in the Finance time zone** (Finance settings, `timezone`; UTC only when it cannot be read), not the browser's UTC month: a UAE evening on the last day of a month is still that month. The chosen period is kept in the page's URL (`#finance-transactions?month=2026-10`, `month=all` for every month), so a reload, Back or a shared link opens the same month. When the month shown has no rows (and no filter narrows it) but the ledger has rows in another month, the page says "No transactions in <month>; your latest records are in <month>" with a button that opens that month; it never jumps on its own. This closes the case where a statement imported for last month looked "not showing" because the page opened on an empty current month.
 
 The scope switch on both pages shows this workspace's ledger kind (Finance, iPhone SMS, Settings); each workspace keeps its own ledger, so the other options are disabled and say where that money lives. Import statement and the Imports tab open the existing CSV and PDF import; SMS review is the review queue of [iPhone SMS](finance-sms.md#review-queue), whose settings stay on the SMS capture page. Not built from the mockups: per-account "pause" and "hide from safe-to-spend" (no such setting exists), a stored "not a duplicate" decision, and live bank sync (no provider is connected).
 
@@ -497,7 +521,7 @@ All under `/api/v1/finance`, every route checking permissions on the server:
 | `PUT /settings` | `finance:manage` |
 | `GET, POST /accounts`; `GET, PATCH, DELETE /accounts/{id}` | read for GET, manage otherwise |
 | `GET, POST /transactions`; `GET, PATCH, DELETE /transactions/{id}`; `GET /transactions/export.csv` (`q`, `account_id`, `category`, `from`, `to`, `direction`, `limit`, `offset`) | read for GET, manage otherwise |
-| `POST /imports/preview`, `POST /imports`, `GET /imports`, `DELETE /imports/{id}` | manage (GET: read) |
+| `POST /imports/preview`, `POST /imports`, `GET /imports`, `GET /imports/{id}`, `DELETE /imports/{id}` | manage (GET: read) |
 | `GET /transfers/candidates`, `POST /transfers` ([own transfers](#own-transfers)) | manage |
 | `GET /bills/upcoming?days=`, `GET /bills/suggestions` | `finance:read` |
 | `GET /bill-schedule`, `/payment-candidates`, `/debt-payments`, `/debt-plan`, `/budgets` | `finance:read` |

@@ -74,7 +74,7 @@ export interface FinanceRegisterDetail {
 }
 
 export type FinanceAccountSource = 'manual' | 'sms' | 'apple_wallet' | 'statement';
-export type FinanceAttention = 'balance_differs' | 'links_need_review' | 'possible_duplicates' | 'statement_differs';
+export type FinanceAttention = 'balance_differs' | 'links_need_review' | 'possible_duplicates' | 'statement_differs' | 'statement_rows_missing';
 
 export interface FinanceAccountOverview {
   account_id: string;
@@ -91,7 +91,8 @@ export interface FinanceAccountOverview {
   needs_attention: FinanceAttention[];
   payment_due: { name: string; due_on: string; amount: string; currency: string } | null;
   /** The balance check of the account's newest statement import (docs/finance.md#reconciliation). */
-  last_statement?: { import_id: string; filename: string; imported_at: string; status: 'tied' | 'differs' | 'unknown'; closing: string | null; difference: string | null } | null;
+  /** `not_in_ledger`: statement rows the ledger does not hold. A tied statement reconciles the account only when it is 0. */
+  last_statement?: { import_id: string; filename: string; imported_at: string; status: 'tied' | 'differs' | 'unknown'; closing: string | null; difference: string | null; not_in_ledger?: number } | null;
 }
 
 export interface FinanceAccountsOverview {
