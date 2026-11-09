@@ -93,7 +93,7 @@ def test_records_are_the_owners_alone_and_lending_is_a_transfer(client: TestClie
                                                                   "expected_gross": "10000", "pay_day": 27, "rules": [
                                                                       {"kind": "advance", "amount": "500", "total": "1500", "starts": "2026-02"}]})
     assert salary.status_code == 200, salary.text
-    assert client.get(f"{API}/salary/profile", headers=ME).json()["profile"]["rules"][0]["total"] == "1500.0000"
+    assert client.get(f"{API}/salary/profile", headers=ME).json()["profile"]["rules"][0]["total"] == "1500.00"
     assert client.get(f"{API}/salary/profile", headers=COLLEAGUE).json() == {"profile": None}
     handed = _record(client, bank["id"], "-1000", "2026-11-02", "To Friend A", "other")
     assert client.post(f"{API}/people-loans/{loan['id']}/links", headers=ME, json={"canonical_id": handed, "kind": "handed"}).status_code == 201
