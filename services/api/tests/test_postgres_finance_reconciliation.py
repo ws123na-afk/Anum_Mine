@@ -1,4 +1,4 @@
-"""Reconciliation sessions in PostgreSQL (migration ``0152_finance_reconciliation``, docs/finance.md#reconciliation-sessions).
+"""Reconciliation sessions in PostgreSQL (migration ``0153_finance_reconciliation``, docs/finance.md#reconciliation-sessions).
 
 The API runs as the non-owner ``anum_test_app`` role. Both tables have forced RLS with the tenant, owner and purge
 policies; a session is visible only to its owner; completing a tied statement records the snapshot; the partial

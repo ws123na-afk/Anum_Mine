@@ -1295,9 +1295,9 @@ def test_demo_records_migration_is_expand_only_with_forced_rls() -> None:
 
 def test_finance_reconciliation_migration_is_expand_only_with_owner_rls_and_a_postings_check() -> None:
     versions = Path(__file__).parents[1] / "migrations" / "versions"
-    revision_text = (versions / "0152_finance_reconciliation.py").read_text(encoding="utf-8")
-    assert 'revision = "0152_finance_reconciliation"' in revision_text and len("0152_finance_reconciliation") <= 32
-    assert 'down_revision = "0151_business_ledger"' in revision_text
+    revision_text = (versions / "0153_finance_reconciliation.py").read_text(encoding="utf-8")
+    assert 'revision = "0153_finance_reconciliation"' in revision_text and len("0153_finance_reconciliation") <= 32
+    assert 'down_revision = "0152_finance_rules_learning"' in revision_text
     upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
     for table in ("finance_reconciliations", "finance_reconciliation_items"):
         assert f'"{table}"' in upgrade

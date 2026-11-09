@@ -22,17 +22,19 @@ posting inserts and deletes only, so an entry stored with no postings at all was
 constraint trigger on ``finance_journal_entries`` now refuses, at commit, an entry that still exists with fewer
 than two postings. The function runs as the invoker (no SECURITY DEFINER over forced-RLS tables).
 
+Chained after ``0152_finance_rules_learning`` (both branches took 0152; renumbered at merge).
+
 Expand only: two new tables and a new trigger. The previous release never reads the tables and never writes an
-entry without postings. Rollback: ``alembic downgrade 0151_business_ledger`` drops the trigger and the tables (only
-for an empty test workspace; production restores a backup, and the trigger can be dropped on its own).
+entry without postings. Rollback: ``alembic downgrade 0152_finance_rules_learning`` drops the trigger and the
+tables (only for an empty test workspace; production restores a backup, and the trigger can be dropped on its own).
 """
 
 import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
-revision = "0152_finance_reconciliation"
-down_revision = "0151_business_ledger"
+revision = "0153_finance_reconciliation"
+down_revision = "0152_finance_rules_learning"
 branch_labels = None
 depends_on = None
 

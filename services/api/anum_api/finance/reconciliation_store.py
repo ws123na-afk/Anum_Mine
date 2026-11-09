@@ -2,7 +2,7 @@
 
 With PostgreSQL the store is ``anum_api.db.reconciliation_repository.SqlAlchemyReconciliationStore`` in the same
 owner-scoped session as the finance and journal stores (``open_recon_stores``): both tables (migration
-``0152_finance_reconciliation``) are under forced RLS with the tenant policy and a restrictive owner-only policy, and
+``0153_finance_reconciliation``) are under forced RLS with the tenant policy and a restrictive owner-only policy, and
 every query repeats the scope and the owner. Partial unique indexes keep a statement row and a ledger record in one
 live resolution per session. The in-memory store serves local development and tests with the same rules. Counted,
 exported and deleted with the rest of Finance.

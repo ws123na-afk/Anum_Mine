@@ -1,4 +1,4 @@
-"""PostgreSQL store for reconciliation sessions and their resolutions (migration ``0152_finance_reconciliation``,
+"""PostgreSQL store for reconciliation sessions and their resolutions (migration ``0153_finance_reconciliation``,
 docs/finance.md#reconciliation-sessions).
 
 The session carries the tenant, workspace and user RLS context (``open_recon_stores`` opens it with the finance and
