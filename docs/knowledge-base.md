@@ -172,3 +172,8 @@ English and Arabic, right to left. Covered by `services/api/tests/test_library.p
   and lists, searches and asks; documents are uploaded on the web (or in Files) for now.
 - Changing a collection between shared and private after creation (its notes' memory
   ownership would have to move with it).
+
+### The knowledge page
+
+The Collections tab leads with five figures from `GET /retrieval/status` (total sources, indexed, stale, indexing failed, total chunks with the skipped count) and, when some sources are stale or failed, a banner saying what that means for answers and how to fix it (Re-index on the item). Not built from the design mockup: SharePoint and database sources, a parse and deduplication preview, approval before publishing a source, per-source assistant access and source version history, because the knowledge base has no such features.
+
