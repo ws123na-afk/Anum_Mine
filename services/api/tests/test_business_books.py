@@ -641,6 +641,14 @@ def test_every_state_changing_books_route_is_audited_without_amounts_or_text() -
     call("POST", "/close", json={"through": last_month.isoformat()})
     call("POST", "/reopen", json={"month": last_month.replace(day=1).isoformat(), "reason": secret})
     call("DELETE", "/accountants/member_books")
+    # Tax (docs/business-tax.md): settings, a rate added and removed, e-invoice data generated for a sent invoice.
+    call("PUT", "/tax/settings", json={"jurisdiction": "SA", "registered": True, "registration_number": "300000000000003", "zatca_enabled": True,
+                                       "seller_street": secret[:20], "version": None})
+    future = call("POST", "/tax/rates", json={"code": "standard", "rate_pct": "16", "effective_from": (today() + timedelta(days=60)).isoformat(),
+                                              "note": secret}).json()
+    call("DELETE", f"/tax/rates/{future['id']}")
+    invoice = seed_invoice(subtotal="100", tax="15")
+    call("POST", "/tax/zatca/generate", json={"source_id": invoice.id})
     probe.assert_covered()
 
 

@@ -3,6 +3,7 @@
 // costs are vendor bills and the allocation rows members made from their own Finance ledger. Nothing here
 // posts money. Amounts are exact decimal strings in their own currency; figures in the base currency are
 // converted only with a dated rate whose source is listed, else they stay apart as "not converted".
+import type { TaxCode } from './businessTax.js';
 
 export type BooksSection = 'cost_of_sales' | 'operating_expense' | 'capital';
 export type BooksTagSection = BooksSection | 'excluded';
@@ -163,6 +164,10 @@ export interface BooksBill {
   project_id: string | null;
   recurrence: BooksRecurrence | null;
   useful_life_months: number | null;
+  /** docs/business-tax.md#tax-codes; null for a bill recorded before tax codes ("unknown" in the VAT return). */
+  tax_code?: TaxCode | null;
+  /** VAT the business accounts for itself on a reverse-charge purchase. */
+  reverse_charge_tax?: string;
   status: 'open' | 'void' | 'draft';
   version: number;
   created_by: string;
@@ -203,6 +208,7 @@ export interface BooksBillInput {
   project_id: string | null;
   recurrence: BooksRecurrence | null;
   useful_life_months: number | null;
+  tax_code?: TaxCode | null;
 }
 
 export interface BooksPaymentInput {

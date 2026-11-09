@@ -15,6 +15,7 @@ import re
 from decimal import Decimal
 
 from ..pdf_writer import PdfDocument
+from ..qr_code import encode
 from .invoice_models import CreditNote, CreditNoteStatus, Invoice, InvoicePayment, InvoiceStatus
 from .models import BillingProfile
 
@@ -113,7 +114,7 @@ def credit_note_filename(note: CreditNote) -> str:
 
 
 def render_invoice_pdf(invoice: Invoice, payments: list[InvoicePayment], credit_notes: list[CreditNote], seller_fallback: BillingProfile,
-                       payment_link: str | None = None) -> bytes:
+                       payment_link: str | None = None, zatca_qr: str | None = None) -> bytes:
     """The PDF bytes. The seller printed is the one stored on a sent invoice; a draft shows the current billing profile."""
     seller = invoice.seller or seller_fallback
     currency = invoice.currency.value
@@ -140,6 +141,10 @@ def render_invoice_pdf(invoice: Invoice, payments: list[InvoicePayment], credit_
     if invoice.bill_to_tax_number:
         rows.append(_pair("buyer_tax", invoice.bill_to_tax_number))
     document.pairs(rows)
+    if zatca_qr:
+        # docs/business-tax.md#qr-code: the Phase 1 QR (seller, VAT number, time, total, VAT), for a Saudi business that turned it on.
+        document.qr(encode(zatca_qr.encode("ascii")), "ZATCA QR code (Phase 1 data). Not verified with ZATCA. "
+                    "ANUM does not claim compliance until the business completes onboarding and the invoices pass ZATCA validation.")
     document.table(f"Lines ({currency})", [L["description"], L["qty"], L["unit"], L["rate"], L["amount"]],
                    [[line.description, _plain(line.quantity), _amount(line.unit_price), _plain(line.tax_rate_pct), _amount(line.total)]
                     for line in invoice.lines], title_ar=f"{L['lines'][1]} ({currency})")

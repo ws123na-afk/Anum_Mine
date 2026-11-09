@@ -142,12 +142,17 @@ _UNIQUE: dict[str, Callable[[Any], tuple[Any, ...] | None]] = {
     "posting_issues": lambda r: ("event", r.event_key),
     "closes": lambda r: ("period", r.period_end) if r.status == "closed" else None,
     "accountants": lambda r: ("user", r.user_id),
+    "tax_settings": lambda r: ("one",),
+    "tax_rates": lambda r: ("rate", r.jurisdiction, r.code, r.effective_from),
+    "zatca_chain": lambda r: ("one",),
+    "zatca_documents": lambda r: ("source", r.source_kind, r.source_id),
 }
 _SECOND_UNIQUE: dict[str, Callable[[Any], tuple[Any, ...] | None]] = {
     "bill_payments": lambda r: ("idem", r.bill_id, r.idem_key) if r.idem_key else None,
     "bills": lambda r: ("period", r.template_id, r.period_date) if r.template_id else None,
     "ledger_accounts": lambda r: ("key", r.system_key) if r.system_key else None,
     "journal_entries": lambda r: ("reverses", r.reverses_id) if r.reverses_id else None,
+    "zatca_documents": lambda r: ("counter", r.counter),
 }
 _THIRD_UNIQUE: dict[str, Callable[[Any], tuple[Any, ...] | None]] = {
     "ledger_accounts": lambda r: ("category", r.category) if r.category else None,
@@ -155,7 +160,7 @@ _THIRD_UNIQUE: dict[str, Callable[[Any], tuple[Any, ...] | None]] = {
 
 
 _BILL_FACTS = ("bill_date", "due_date", "currency", "subtotal", "tax", "total", "category", "section", "status", "useful_life_months", "project_id",
-               "cost_centre_id", "vendor_id")
+               "cost_centre_id", "vendor_id", "tax_code", "reverse_charge_tax")
 
 
 def _bill_touched(new: Any, old: Any, locked: Any) -> bool:

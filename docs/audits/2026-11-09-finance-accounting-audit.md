@@ -50,8 +50,8 @@ The fixes are delivered as functional-area pull requests in this order: transact
 | Customers, suppliers, AR, AP, partial settlement | 1 | Aged receivables and payables, settlement tests |
 | Cost centres, business budgets | 1 | CRUD and `budget_vs_actual` with `comparable:false` for other currencies |
 | Project profitability | 3 and 5 | False zeros (defect B1); contract profitability and books figures are two calculations |
-| Tax and VAT | 2 | Output and input summary per currency; no jurisdiction rates or return |
-| ZATCA e-invoicing | 4 | Roadmap mention only |
+| Tax and VAT | 1 (was 2) | Tax PR: VAT settings per business, the rate table as data, tax codes on invoice lines and bills, VAT posted by code to 1200 and 2100, the KSA and UAE VAT 201 return from the journal with warnings and documents (migration `0154_business_tax`, [docs/business-tax.md](../business-tax.md)); never filed |
+| ZATCA e-invoicing | 2 (was 4) | Tax PR: readiness only, off by default: Phase 1 QR on invoice PDFs, UBL 2.1 XML with hash, counter and previous-hash chain, a required-fields check; no stamp, CSID, clearance or reporting, and not verified with ZATCA ([docs/business-tax.md](../business-tax.md#what-is-not-built)) |
 | Loan schedules | 2 | Loan adjustments only, no amortisation |
 | Owner-paid expense and reimbursement | 1 | Reimbursable allocations, tested |
 | Evidence attachments on bills, accountant role | 4 | Not built |

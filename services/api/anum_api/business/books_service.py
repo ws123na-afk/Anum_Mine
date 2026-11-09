@@ -215,11 +215,19 @@ def bill_from(context: TenantContext, store: BooksStore, payload: dict[str, Any]
     if life is not None and section != Section.CAPITAL:
         raise BooksError(422, "A useful life is only for a capital item.", "life_needs_capital")
     category = category_of(payload.get("category") or vendor.default_category) or "other"
+    from .tax_rules import TaxRuleError
+    from .tax_service import bill_tax, table_in
+
+    try:
+        tax_code, reverse_charge_tax = bill_tax(table_in(store), payload.get("tax_code"), subtotal, tax, bill_date)
+    except TaxRuleError as exc:
+        raise BooksError(422, exc.message, exc.code, field="tax_code") from None
     fields = dict(
         vendor_id=vendor.id, reference=clean(payload.get("reference"), 80), description=clean(payload["description"], 300), bill_date=bill_date,
         due_date=due_date, currency=currency, subtotal=subtotal, tax=tax, total=subtotal + tax, category=category, section=section,
         cost_centre_id=require_cost_centre(store, payload.get("cost_centre_id"), keep=existing.cost_centre_id if existing else None),
         project_id=require_project(context, payload.get("project_id")), recurrence=payload.get("recurrence"), useful_life_months=life, updated_at=now,
+        tax_code=tax_code, reverse_charge_tax=reverse_charge_tax,
     )
     if len(fields["description"]) < 2:
         raise BooksError(422, "Describe what the bill is for.", "invalid_description")
@@ -230,7 +238,7 @@ def bill_from(context: TenantContext, store: BooksStore, payload: dict[str, Any]
 
 
 def same_bill(found: Bill, fresh: Bill) -> bool:
-    keys = ("vendor_id", "bill_date", "currency", "subtotal", "tax", "category", "section", "reference")
+    keys = ("vendor_id", "bill_date", "currency", "subtotal", "tax", "category", "section", "reference", "tax_code")
     return all(getattr(found, key) == getattr(fresh, key) for key in keys)
 
 

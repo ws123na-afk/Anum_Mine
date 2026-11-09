@@ -125,7 +125,8 @@ def reverse(store: BooksStore, context: TenantContext, entry: JournalEntry, *, a
     open, else on the first open day."""
     lines, _ = store.find("journal_lines", where={"entry_id": entry.id}, order_by="line_no", descending=False, limit=500)
     mirrored = [Line(line.account_id, line.credit, line.debit, line.currency, -line.amount, line.rate, line.rate_date, line.rate_source, line.category,
-                     line.project_id, line.cost_centre_id, line.customer_id, line.counterparty_workspace_id, line.pair_id, line.flow) for line in lines]
+                     line.project_id, line.cost_centre_id, line.customer_id, line.counterparty_workspace_id, line.pair_id, line.flow, line.tax_code)
+                for line in lines]
     day = _open_day(entry.entry_date, locked)
     reversal, rows = _entry_rows(context, entry_date=day, event_date=entry.entry_date, source_kind=entry.source_kind, source_id=entry.source_id,
                                  event_key=f"reversal:{entry.id}", fingerprint=entry.fingerprint,

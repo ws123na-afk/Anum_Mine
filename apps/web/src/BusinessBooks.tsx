@@ -29,6 +29,7 @@ import {
 } from './BusinessBooksForms';
 import { GroupSection, RateFeedCard, Recurring, Upcoming } from './BusinessBooksMore';
 import { AccountantsCard, AccountsSection, CloseSection, LedgerSection, StatementsSection } from './BusinessBooksLedger';
+import { TaxSection } from './BusinessBooksTax';
 import './businessBooks.css';
 
 type SetupLoad = { kind: 'loading' } | { kind: 'ready'; setup: BooksSetup } | { kind: 'denied'; text: string } | { kind: 'error'; text: string };
@@ -75,6 +76,7 @@ export function BooksTab({ section, onSection, crumbs }: { section: string | nul
     {ready && tab === 'statements' && <StatementsSection setup={setup} onSection={(next) => onSection(booksTabFromId(next))} />}
     {ready && tab === 'accounts' && <AccountsSection setup={setup} />}
     {ready && tab === 'close' && <CloseSection setup={setup} onSection={(next) => onSection(booksTabFromId(next))} />}
+    {ready && tab === 'tax' && <TaxSection setup={setup} />}
     {ready && tab === 'intercompany' && <Intercompany setup={setup} />}
     {tab === 'settings' && <SettingsSection setup={setup} onSaved={() => void reload()} extra={ready ? <><RateFeedCard setup={setup} /><AccountantsCard setup={setup} /></> : null} />}
     {recording && <BillDialog setup={setup} onClose={() => setRecording(false)}

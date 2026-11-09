@@ -204,7 +204,7 @@ Roadmap P2. `anum_api/business/api_invoices.py` (routes), `invoices.py` (rules),
 | Catalog offer (`offer_id`, `offer_quantity`, `offer_unit_price`) | An active offer version; a fixed price is used as it is, any other price type needs the price entered |
 | Manual lines (`lines`) | Description, kind, quantity, net unit price, optional tax rate |
 
-Tax is per line (the contract's rate for contract lines, the invoice's `tax_rate_pct`, else the project's or the profile's default, for the rest). Net, tax and total of every line and of the invoice are computed in `Decimal` (two places, half up) by the server; whatever a client sends in those fields is replaced. Currency follows the project (or the request); mixing currencies is refused. The buyer is the account and its first contact with an e-mail address, editable on a draft.
+Tax is per line (the contract's rate for contract lines, the invoice's `tax_rate_pct`, else the project's or the profile's default, for the rest). A line may carry a [tax code](business-tax.md#tax-codes) (`tax_code` on a manual line, `tax_codes` by position on `PATCH`): its rate then comes from the business's rate table on the day the draft is priced. A line without a code works as before and the VAT return lists it as unknown; the approval hash of an uncoded line is unchanged. Net, tax and total of every line and of the invoice are computed in `Decimal` (two places, half up) by the server; whatever a client sends in those fields is replaced. Currency follows the project (or the request); mixing currencies is refused. The buyer is the account and its first contact with an e-mail address, editable on a draft.
 
 ### Status flow
 

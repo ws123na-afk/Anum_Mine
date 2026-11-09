@@ -39,6 +39,11 @@ class LineSource(StrEnum):
     USAGE = "usage"
 
 
+# The tax code of a sales line (``tax_rules.SALES_CODES``, docs/business-tax.md#tax-codes). A line without one was
+# written before tax codes existed and reads as "unknown".
+SalesTaxCode = Literal["standard", "zero_rated", "export", "exempt", "out_of_scope"]
+
+
 class InvoiceLine(BaseModel):
     """One priced line. ``unit_price`` is net of tax. A line with ``gross_total`` is a tax
     inclusive amount from a contract (a milestone or a share of the contract total): its
@@ -52,6 +57,7 @@ class InvoiceLine(BaseModel):
     source: LineSource = LineSource.MANUAL
     source_id: str | None = Field(default=None, max_length=80)
     gross_total: Money | None = None
+    tax_code: SalesTaxCode | None = None
     # Computed by the server (``price_line``); whatever a client sends is replaced.
     net: Money = Decimal("0")
     tax: Money = Decimal("0")

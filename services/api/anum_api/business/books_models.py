@@ -185,6 +185,11 @@ class Bill(_Scoped):
     # A bill made by a recurring bill: the template and the period it is for (one bill per template and period).
     template_id: str | None = None
     period_date: date | None = None
+    # The bill's tax code (``tax_rules.TaxCode``, migration 0154); None for a bill recorded before tax codes: "unknown".
+    tax_code: str | None = None
+    # VAT the business accounts for itself on a reverse-charge purchase (the supplier charged none), worked out from the
+    # business's rate table when the bill is saved; zero otherwise.
+    reverse_charge_tax: Decimal = Decimal(0)
 
 
 class BillTemplate(_Scoped):
@@ -407,6 +412,7 @@ class JournalLine(_Scoped):
     counterparty_workspace_id: str | None = None
     pair_id: str | None = None
     flow: str | None = None  # how a bank line shows in the cash-flow statement
+    tax_code: str | None = None  # the tax code of a revenue, cost or VAT line (migration 0154); None before tax codes
 
 
 class PostingIssue(_Scoped):
@@ -438,6 +444,74 @@ class Accountant(_Scoped):
     added_by: str
 
 
+# -- tax (migration 0154_business_tax, docs/business-tax.md) ---------------------------------------------------------------
+
+
+class TaxSettings(_Scoped):
+    """One business's VAT registration and its e-invoicing switch. ZATCA e-invoicing stays off until an owner turns it on;
+    ``zatca_onboarding`` is only ever ``not_started`` in this release (no credentials are stored)."""
+
+    jurisdiction: str  # tax_rules.Jurisdiction
+    registered: bool = False
+    registration_number: str = ""
+    registration_date: date | None = None
+    filing_frequency: str = "quarterly"  # tax_rules.Frequency
+    period_start_month: int = 1  # the first month of a quarter cycle (1, 2 or 3)
+    zatca_enabled: bool = False
+    zatca_onboarding: str = "not_started"
+    seller_crn: str = ""  # commercial registration number (the seller's other identifier in the e-invoice)
+    seller_street: str = ""
+    seller_building: str = ""
+    seller_district: str = ""
+    seller_city: str = ""
+    seller_postal_code: str = ""
+    version: int = 1
+    updated_by: str
+    updated_at: datetime
+
+
+class TaxRate(_Scoped):
+    """A row of a business's rate table: a code's rate from a day (to a day)."""
+
+    jurisdiction: str
+    code: str
+    rate_pct: Decimal
+    effective_from: date
+    effective_to: date | None = None
+    note: str = ""
+    created_by: str
+
+
+class ZatcaChain(_Scoped):
+    """The e-invoice counter (ICV) and the hash of the last generated document of one business (one row per business)."""
+
+    last_counter: int = 0
+    last_hash: str = ""
+    version: int = 1
+    updated_at: datetime
+
+
+class ZatcaDocument(_Scoped):
+    """E-invoice data generated for one sent invoice or credit note: UBL 2.1 XML, its hash, its place in the chain and what
+    the required-fields check found missing. Generated, never cleared or reported: ANUM is not onboarded with ZATCA."""
+
+    source_kind: str  # invoice or credit_note
+    source_id: str
+    document_number: str
+    type_code: str  # 388 tax invoice, 381 credit note
+    subtype: str  # 0100000 standard, 0200000 simplified
+    counter: int
+    uuid: str
+    invoice_hash: str
+    previous_hash: str
+    issue_date: date
+    xml: str
+    qr: str = ""
+    missing: list[str] = Field(default_factory=list)
+    status: str = "generated"
+    created_by: str
+
+
 KINDS: dict[str, type[BaseModel]] = {
     "cost_centres": CostCentre,
     "vendors": Vendor,
@@ -456,6 +530,10 @@ KINDS: dict[str, type[BaseModel]] = {
     "posting_issues": PostingIssue,
     "closes": PeriodClose,
     "accountants": Accountant,
+    "tax_settings": TaxSettings,
+    "tax_rates": TaxRate,
+    "zatca_chain": ZatcaChain,
+    "zatca_documents": ZatcaDocument,
 }
 
 TABLES: dict[str, str] = {
@@ -476,10 +554,14 @@ TABLES: dict[str, str] = {
     "posting_issues": "business_book_posting_issues",
     "closes": "business_book_closes",
     "accountants": "business_book_accountants",
+    "tax_settings": "business_tax_settings",
+    "tax_rates": "business_tax_rates",
+    "zatca_chain": "business_zatca_chains",
+    "zatca_documents": "business_zatca_documents",
 }
 
 
-MONEY_FIELDS = ("subtotal", "tax", "total", "amount")
+MONEY_FIELDS = ("subtotal", "tax", "total", "amount", "reverse_charge_tax")
 
 
 def dump(record: BaseModel, *hidden: str) -> dict[str, Any]:

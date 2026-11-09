@@ -78,6 +78,7 @@ import { opsAr } from './ops.ar.ts';
 import { purchasesAr } from './purchases.ar.ts';
 import { businessBooksAr } from './businessBooks.ar.ts';
 import { businessLedgerAr } from './businessLedger.ar.ts';
+import { businessTaxAr } from './businessTax.ar.ts';
 import { iphoneAr } from './iphone.ar.ts';
 import { asPageAr } from './asPage.ar.ts';
 import { vaultAr } from './vault.ar.ts';
@@ -172,6 +173,7 @@ export const ar: Record<MessageKey, Message> = {
   ...purchasesAr,
   ...businessBooksAr,
   ...businessLedgerAr,
+  ...businessTaxAr,
   ...iphoneAr,
   ...vaultAr,
   ...asPageAr,
