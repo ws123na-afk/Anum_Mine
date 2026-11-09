@@ -10,7 +10,7 @@ export const businessBooksEn = {
   'books.tab.vendors': 'Vendors',
   'books.tab.allocations': 'Allocations',
   'books.tab.budgets': 'Budgets',
-  'books.tab.journal': 'Journal',
+  'books.tab.journal': 'Adjustments',
   'books.tab.intercompany': 'Intercompany',
   'books.tab.settings': 'Settings',
   'books.loading': 'Reading the books...',

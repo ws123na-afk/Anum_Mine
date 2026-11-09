@@ -54,9 +54,10 @@ export function SettingsSection({ setup, onSaved, extra }: { setup: BooksSetup; 
     base_currency: current?.base_currency ?? 'SAR', country: current?.country ?? '', fiscal_year_start_month: current?.fiscal_year_start_month ?? 1,
     basis: (current?.basis ?? 'accrual') as BooksBasis, tax_label: current?.tax_label ?? '', rate_max_age_days: String(current?.rate_max_age_days ?? 31),
     mappings: Object.entries(current?.category_sections ?? {}).map(([category, section]) => ({ category, section })) as { category: string; section: BooksTagSection }[],
+    policy_note: current?.policy_note ?? '',
   }));
   const [busy, setBusy] = useState(false), [message, setMessage] = useState<{ text: string; error?: boolean } | null>(null);
-  const ids = { currency: useId(), country: useId(), month: useId(), basis: useId(), tax: useId(), age: useId() };
+  const ids = { currency: useId(), country: useId(), month: useId(), basis: useId(), tax: useId(), age: useId(), policy: useId() };
   async function save(event: FormEvent) {
     event.preventDefault();
     if (!/^\d{1,3}$/.test(form.rate_max_age_days) || Number(form.rate_max_age_days) < 1 || Number(form.rate_max_age_days) > 366) { setMessage({ text: t('books.settings.ageInvalid'), error: true }); return; }
@@ -83,6 +84,9 @@ export function SettingsSection({ setup, onSaved, extra }: { setup: BooksSetup; 
             <label className="field" htmlFor={ids.age}><span>{t('books.settings.rateAge')}</span><input id={ids.age} inputMode="numeric" value={form.rate_max_age_days} onChange={(event) => setForm({ ...form, rate_max_age_days: event.target.value })} /></label>
           </div>
           <p className="muted bzHint">{t('books.settings.taxHelp')}</p>
+          {setup.closed_through && <p className="muted bzHint">{t('ledger.settings.frozen', { day: setup.closed_through })}</p>}
+          <label className="field" htmlFor={ids.policy}><span>{t('ledger.settings.policy')}</span>
+            <textarea id={ids.policy} rows={3} maxLength={1000} value={form.policy_note} onChange={(event) => setForm({ ...form, policy_note: event.target.value })} /></label>
           <h3 className="bkSub">{t('books.settings.mapTitle')}</h3>
           <p className="muted bzHint">{t('books.settings.mapHelp')}</p>
           {form.mappings.map((row, index) => <div key={index} className="bkRow">

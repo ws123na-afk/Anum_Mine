@@ -7,7 +7,9 @@ import { mockBusiness } from './businessApi';
 // its refusals (403 for a member's owner-only action, 409 for an allocation already paying a bill).
 type Json = Record<string, unknown>;
 type Role = 'owner' | 'member' | 'viewer';
-export interface BooksOptions { role?: Role; setUp?: boolean; empty?: boolean; failReport?: number; bills?: number; group?: 'two' | 'one' | 'fail' | 'many'; feedFails?: boolean }
+export interface BooksOptions { role?: Role; setUp?: boolean; empty?: boolean; failReport?: number; bills?: number; group?: 'two' | 'one' | 'fail' | 'many'; feedFails?: boolean;
+  /** The journal: ``issues`` adds an item waiting for an exchange rate; ``accountant`` makes the member an accountant. */
+  ledger?: 'full' | 'empty' | 'issues'; failStatements?: number; accountant?: boolean }
 export interface BooksMock { calls: { method: string; path: string; body: unknown; key: string | null }[]; state: BooksState }
 
 const at = '2026-11-01T09:00:00Z';
@@ -32,6 +34,89 @@ export interface BooksState {
   feed: Json;
   group: 'two' | 'one' | 'fail' | 'many';
   feedFails: boolean;
+  ledger: { accounts: Json[]; entries: Json[]; closes: Json[]; accountants: Json[]; issues: Json[]; pending: number; failStatements: number };
+}
+
+const CHART: [string, string, string, string, string][] = [
+  ['bank', '1000', 'Bank and cash', 'bank', 'asset'], ['ar', '1100', 'Accounts receivable', 'receivable', 'asset'],
+  ['tax_receivable', '1200', 'VAT receivable (input tax)', 'tax_receivable', 'asset'], ['fixed_assets', '1500', 'Fixed assets at cost', 'fixed_asset', 'asset'],
+  ['ap', '2000', 'Accounts payable', 'payable', 'liability'], ['tax_payable', '2100', 'VAT payable (output tax)', 'tax_payable', 'liability'],
+  ['loans', '2300', 'Loans', 'loan', 'liability'], ['capital', '3000', 'Owner capital', 'capital', 'equity'],
+  ['retained_earnings', '3200', 'Retained earnings', 'retained_earnings', 'equity'], ['revenue_service', '4000', 'Revenue: services', 'revenue', 'revenue'],
+  ['cost_of_sales', '5000', 'Cost of sales', 'cost_of_sales', 'expense'], ['operating', '6000', 'Operating expenses', 'operating_expense', 'expense'],
+  ['fx', '7000', 'Exchange gains and losses', 'fx', 'expense'],
+];
+
+function ledgerState(options: BooksOptions): BooksState['ledger'] {
+  const ledger: BooksState['ledger'] = { accounts: [], entries: [], closes: [], accountants: options.accountant ? [{ user_id: 'member_local', added_by: 'user_local', added_at: at }] : [],
+    issues: [], pending: 0, failStatements: options.failStatements ?? 0 };
+  if (options.ledger === 'empty' || options.setUp === false) return ledger;
+  ledger.accounts = CHART.map(([key, code, name, subtype, type]) => ({ id: `bacc_${key}`, code, name, subtype, type, system_key: key, category: null, archived: false, version: 1 }));
+  const line = (entry: string, no: number, account: string, debit: string, credit: string, extra: Json = {}) => ({ id: `${entry}_l${no}`, entry_id: entry, line_no: no,
+    entry_date: '2026-11-01', source_kind: 'invoice', account_id: `bacc_${account}`, account_code: CHART.find((c) => c[0] === account)?.[1],
+    account_name: CHART.find((c) => c[0] === account)?.[2], account_key: account, debit, credit, currency: 'SAR', amount: debit !== '0.00' ? debit : `-${credit}`,
+    rate: null, rate_date: null, rate_source: null, category: null, project_id: null, cost_centre_id: null, flow: null, counterparty_workspace_id: null, pair_id: null, ...extra });
+  const entry = (id: string, kind: string, description: string, lines: Json[], extra: Json = {}) => ({ id, entry_date: '2026-11-01', event_date: '2026-11-01', source_kind: kind,
+    source_id: `${kind}_1`, description, status: 'posted', reverses_id: null, reversed_by_id: null, late: false, created_by: 'system:books', created_at: at,
+    can_reverse: kind === 'manual', lines: lines.map((item) => ({ ...item, source_kind: kind })), total: lines.reduce((sum, item) => sum + Number(item.debit), 0).toFixed(2), ...extra });
+  ledger.entries.push(
+    entry('bje_inv', 'invoice', 'Invoice INV-2026-0007 issued', [line('bje_inv', 1, 'ar', '1150.00', '0.00'), line('bje_inv', 2, 'revenue_service', '0.00', '1000.00'),
+      line('bje_inv', 3, 'tax_payable', '0.00', '150.00')]),
+    entry('bje_pay', 'invoice_payment', 'Payment for invoice INV-2026-0007', [line('bje_pay', 1, 'bank', '375.00', '0.00', { currency: 'USD', amount: '100.00', rate: '3.75',
+      rate_date: '2026-11-01', rate_source: 'Synthetic central bank reference', flow: 'customers_paid' }), line('bje_pay', 2, 'ar', '0.00', '370.00'), line('bje_pay', 3, 'fx', '0.00', '5.00')]),
+    entry('bje_man', 'manual', 'Opening balance', [line('bje_man', 1, 'bank', '2000.00', '0.00'), line('bje_man', 2, 'capital', '0.00', '2000.00')]),
+  );
+  if (options.ledger === 'issues') {
+    ledger.issues.push({ event_key: 'bill:bill_usd', source_kind: 'bill', source_id: 'bill_usd', event_date: '2026-10-20', reason: 'missing_rate', currency: 'USD',
+      rate_date: '2026-10-20', description: 'Bill HOST-9 from Example Cloud Host' });
+    ledger.pending = 1;
+  }
+  ledger.closes.push({ id: 'bclose_9', period_start: '2026-09-01', period_end: '2026-09-30', kind: 'month', status: 'closed', closed_by: 'user_local', closed_at: at,
+    closing_entry_id: null, reopened_by: null, reopened_at: null, reopen_reason: '', snapshot: {} });
+  return ledger;
+}
+
+function statements(state: BooksState, compare: boolean): Json {
+  const block = (total: string, rows: [string, string, string, string][] = []) => ({ total, rows: rows.map(([key, code, name, amount]) => ({ account_id: `bacc_${key}`, code, name,
+    subtype: key, system_key: key, amount })) });
+  const pnl = { currency: 'SAR', revenue: block('1000.00', [['revenue_service', '4000', 'Revenue: services', '1000.00']]), cost_of_sales: block('0.00'), gross_profit: '1000.00',
+    gross_margin_pct: '100.0', operating_expenses: block('0.00'), operating_profit: '1000.00', other_income: block('0.00'), finance_costs: block('0.00'), fx_differences: '5.00',
+    net_profit: '1005.00', net_margin_pct: '100.5', groups: {} };
+  const sheet = { currency: 'SAR', as_of: '2026-12-31', assets: { current: block('3155.00', [['bank', '1000', 'Bank and cash', '2375.00'], ['ar', '1100', 'Accounts receivable', '780.00']]),
+    non_current: block('0.00'), total: '3155.00' }, liabilities: { current: block('150.00', [['tax_payable', '2100', 'VAT payable (output tax)', '150.00']]), non_current: block('0.00'),
+    total: '150.00' }, equity: { total: '3005.00', rows: [{ account_id: 'bacc_capital', code: '3000', name: 'Owner capital', subtype: 'capital', system_key: 'capital', amount: '2000.00' },
+    { account_id: null, code: '', name: 'Result not yet closed', subtype: 'current_result', system_key: 'unclosed_result', amount: '1005.00' }] },
+    liabilities_and_equity: '3155.00', balanced: true, difference: '0.00', complete: state.ledger.issues.length === 0 };
+  const tb = (key: string, code: string, name: string, subtype: string, type: string, debit: string, credit: string) => ({ account_id: `bacc_${key}`, code, name, subtype, type,
+    system_key: key, opening_debit: '0.00', opening_credit: '0.00', debit, credit, closing_debit: Number(debit) > Number(credit) ? (Number(debit) - Number(credit)).toFixed(2) : '0.00',
+    closing_credit: Number(credit) > Number(debit) ? (Number(credit) - Number(debit)).toFixed(2) : '0.00' });
+  const complete = state.ledger.issues.length === 0 && state.ledger.pending === 0;
+  return {
+    period: { from: '2026-01-01', to: '2026-12-31' }, base_currency: 'SAR', complete,
+    pending: { to_post: state.ledger.pending, to_reverse: 0, issues: state.ledger.issues.length, issue_rows: state.ledger.issues, scheduled: 0, truncated: false, complete },
+    notes: complete ? [] : ['not_posted'], late_entries: 0, closed_through: '2026-09-30',
+    trial_balance: { rows: [tb('bank', '1000', 'Bank and cash', 'bank', 'asset', '2375.00', '0.00'), tb('ar', '1100', 'Accounts receivable', 'receivable', 'asset', '1150.00', '370.00'),
+      tb('tax_payable', '2100', 'VAT payable (output tax)', 'tax_payable', 'liability', '0.00', '150.00'), tb('capital', '3000', 'Owner capital', 'capital', 'equity', '0.00', '2000.00'),
+      tb('revenue_service', '4000', 'Revenue: services', 'revenue', 'revenue', '0.00', '1000.00'), tb('fx', '7000', 'Exchange gains and losses', 'fx', 'expense', '0.00', '5.00')],
+    totals: { opening_debit: '0.00', opening_credit: '0.00', debit: '3525.00', credit: '3525.00', closing_debit: '3155.00', closing_credit: '3155.00' }, balanced: true, difference: '0.00' },
+    balance_sheet: sheet, pnl,
+    reconciliation: { rows: [{ key: 'revenue', journal: '1000.00', derived: '1000.00', difference: '0.00' }, { key: 'net_profit', journal: '1005.00', derived: '1005.00', difference: '0.00' }],
+      agrees: true, to: '2026-11-04' },
+    equity: { currency: 'SAR', balanced: true, rows: ['opening', 'contributions', 'drawings', 'result', 'transfer_to_retained_earnings', 'other', 'closing'].map((key) => ({ key,
+      capital: key === 'contributions' || key === 'closing' ? '2000.00' : '0.00', drawings: '0.00', retained_earnings: '0.00', result: key === 'result' || key === 'closing' ? '1005.00' : '0.00',
+      total: key === 'contributions' ? '2000.00' : key === 'result' ? '1005.00' : key === 'closing' ? '3005.00' : '0.00' })) },
+    cash_flow: { base_currency: 'SAR', base: { net: '2375.00' }, by_currency: [
+      { currency: 'SAR', opening: '0.00', operating: { lines: [], total: '0.00' }, investing: { lines: [], total: '0.00' }, financing: { lines: [{ key: 'other', amount: '2000.00' }], total: '2000.00' },
+        net: '2000.00', closing: '2000.00', reconciles: true },
+      { currency: 'USD', opening: '0.00', operating: { lines: [{ key: 'customers_paid', amount: '100.00' }], total: '100.00' }, investing: { lines: [], total: '0.00' },
+        financing: { lines: [], total: '0.00' }, net: '100.00', closing: '100.00', reconciles: true }] },
+    comparatives: compare ? { previous: { from: '2025-01-01', to: '2025-12-31', pnl: { ...pnl, revenue: block('0.00'), gross_profit: '0.00', operating_profit: '0.00', net_profit: '0.00',
+      fx_differences: '0.00' }, balance_sheet: { ...sheet, assets: { ...sheet.assets, total: '0.00' } } },
+      last_year: { from: '2025-01-01', to: '2025-12-31', pnl: { ...pnl, revenue: block('0.00'), gross_profit: '0.00', operating_profit: '0.00', net_profit: '0.00', fx_differences: '0.00' },
+        balance_sheet: { ...sheet, assets: { ...sheet.assets, total: '0.00' } } } } : {},
+    policies: [{ key: 'basis', text: 'x' }, { key: 'functional_currency', text: 'x' }, { key: 'rates', text: 'x' }, { key: 'financial_year', text: 'x' },
+      { key: 'depreciation', text: 'x' }, { key: 'revenue', text: 'x' }, { key: 'owner_note', text: 'Synthetic owner policy note.' }],
+  };
 }
 
 function settings(): Json {
@@ -44,7 +129,7 @@ export function booksState(options: BooksOptions = {}): BooksState {
     role: options.role ?? 'owner', settings: options.setUp === false ? null : settings(), vendors: [], bills: [], payments: [], allocations: [], budgets: [], adjustments: [],
     intercompany: [], rates: [], centres: [], failReport: options.failReport ?? 0, empty: Boolean(options.empty), counter: 0, templates: [],
     feed: { enabled: false, currencies: [], last_attempt_at: null, last_success_at: null, last_as_of: null, last_error: '', unavailable: [], version: null },
-    group: options.group ?? 'two', feedFails: Boolean(options.feedFails),
+    group: options.group ?? 'two', feedFails: Boolean(options.feedFails), ledger: ledgerState(options),
   };
   if (options.empty || options.setUp === false) return state;
   state.centres.push({ id: 'bcc_ops', code: 'OPS', name: 'Operations', archived: false, version: 1, created_by: 'user_local', updated_at: at, ...scope });
@@ -229,8 +314,12 @@ export function booksReply(state: BooksState, method: string, url: URL, body: Js
   const owner = state.role === 'owner';
   if (state.role === 'viewer') return refuse(403, 'forbidden', 'The business books are for workspace owners and members. Ask a workspace owner to make you a member.');
   const ownersOnly = () => refuse(403, 'forbidden', 'Only workspace owners can do this (settings, exchange rates, adjustments, voiding and intercompany entries).');
+  const accountant = state.ledger.accountants.some((item) => item.user_id === 'member_local');
+  const account = owner || accountant;
+  const accountantsOnly = () => refuse(403, 'forbidden', 'Only an owner or an accountant of this business can do this. An owner can name accountants in Books, Settings.');
   if (method === 'GET' && path === '/setup') {
-    return ok({ settings: state.settings, permissions: { read: true, write: true, manage: owner },
+    return ok({ settings: state.settings, permissions: { read: true, write: true, manage: owner, accountant, account },
+      closed_through: state.ledger.closes.filter((row) => row.status === 'closed').map((row) => row.period_end as string).sort().at(-1) ?? null,
       counts: { vendors: state.vendors.length, bills: state.bills.length, cost_centres: state.centres.length, budgets: state.budgets.length, rates: state.rates.length,
         adjustments: state.adjustments.length, intercompany: state.intercompany.length, allocations: state.allocations.length },
       default_period: state.settings ? { from: '2026-01-01', to: '2026-12-31' } : null, cost_centres: state.centres.filter((c) => !c.archived),
@@ -440,6 +529,127 @@ export function booksReply(state: BooksState, method: string, url: URL, body: Js
     Object.assign(entry ?? {}, { status: 'void', voided_by: 'user_local', voided_at: at, void_reason: body?.reason });
     return ok(entry);
   }
+  return ledgerReply(state, method, url, path, body, { owner, account, ok, refuse, accountantsOnly });
+}
+
+type Helpers = { owner: boolean; account: boolean; ok: (value: unknown, status?: number) => { status: number; body: unknown };
+  refuse: (status: number, code: string, detail: string) => { status: number; body: unknown }; accountantsOnly: () => { status: number; body: unknown } };
+
+function ledgerReply(state: BooksState, method: string, url: URL, path: string, body: Json | null, h: Helpers): { status: number; body: unknown } | null {
+  const ledger = state.ledger;
+  const locked = () => ledger.closes.filter((row) => row.status === 'closed').map((row) => row.period_end as string).sort().at(-1) ?? null;
+  if (path === '/ledger/accounts' && method === 'GET') {
+    const all = url.searchParams.get('include_archived') === 'true';
+    return h.ok({ items: ledger.accounts.filter((a) => all || !a.archived), subtypes: {}, can_edit: h.account });
+  }
+  if (path === '/ledger/accounts' && method === 'POST') {
+    if (!h.account) return h.accountantsOnly();
+    if (ledger.accounts.some((a) => a.code === body?.code)) return h.refuse(409, 'duplicate', 'An account with this code (or bound to this category) already exists.');
+    const item = { id: `bacc_${ledger.accounts.length + 1}`, ...body, type: 'expense', system_key: null, archived: false, version: 1 };
+    ledger.accounts.push(item);
+    return h.ok(item, 201);
+  }
+  const accountMatch = path.match(/^\/ledger\/accounts\/([^/]+)(\/lines)?$/);
+  if (accountMatch && accountMatch[2] && method === 'GET') {
+    const account = ledger.accounts.find((a) => a.id === accountMatch[1]);
+    if (!account) return h.refuse(404, 'account_not_found', 'Account not found.');
+    let running = 0;
+    const items = ledger.entries.flatMap((entry) => (entry.lines as Json[]).filter((line) => line.account_id === account.id).map((line) => {
+      running += Number(line.debit) - Number(line.credit);
+      return { ...line, description: entry.description, source_id: entry.source_id, late: false, reversal: Boolean(entry.reverses_id), balance: running.toFixed(2) };
+    }));
+    return h.ok({ account, base_currency: 'SAR', period: { from: url.searchParams.get('from') ?? '2026-01-01', to: url.searchParams.get('to') ?? '2026-12-31' }, opening: '0.00',
+      closing: running.toFixed(2), items, total: items.length, limit: 50, offset: 0 });
+  }
+  if (accountMatch && method === 'PATCH') {
+    if (!h.account) return h.accountantsOnly();
+    const account = ledger.accounts.find((a) => a.id === accountMatch[1]);
+    if (body?.archived && account?.system_key) return h.refuse(409, 'system_account', 'The posting rules use this account: it can be renamed or renumbered, never archived.');
+    Object.assign(account ?? {}, body, { version: Number(account?.version ?? 1) + 1 });
+    return h.ok(account);
+  }
+  if (path === '/ledger/status' && method === 'GET') {
+    return h.ok({ to_post: ledger.pending, to_reverse: 0, issues: ledger.issues.length, issue_rows: ledger.issues, scheduled: 2, truncated: false,
+      complete: ledger.pending === 0 && ledger.issues.length === 0, closed_through: locked(), can_post: true, can_account: h.account, can_reopen: h.owner });
+  }
+  if (path === '/ledger/post' && method === 'POST') {
+    const posted = ledger.pending;
+    ledger.pending = 0;
+    if (ledger.accounts.length === 0) ledgerState({}).accounts.forEach((a) => ledger.accounts.push(a));
+    return h.ok({ posted, reversed: 0, late: 0, issues: ledger.issues.length, issue_rows: ledger.issues, scheduled: 2, unchanged: ledger.entries.length, truncated: false });
+  }
+  if (path === '/ledger/issues' && method === 'GET') return h.ok({ items: ledger.issues, total: ledger.issues.length, limit: 25, offset: 0 });
+  if (path === '/ledger/journal' && method === 'GET') {
+    const kind = url.searchParams.get('source_kind');
+    const rows = ledger.entries.filter((entry) => !kind || entry.source_kind === kind).slice().reverse();
+    const offset = Number(url.searchParams.get('offset') ?? 0), limit = Number(url.searchParams.get('limit') ?? 25);
+    return h.ok({ items: rows.slice(offset, offset + limit), total: rows.length, limit, offset, base_currency: 'SAR', can_account: h.account });
+  }
+  if (path === '/ledger/journal' && method === 'POST') {
+    if (!h.account) return h.accountantsOnly();
+    const lines = (body?.lines as Json[]) ?? [];
+    const debit = lines.reduce((sum, line) => sum + Number(line.debit), 0), credit = lines.reduce((sum, line) => sum + Number(line.credit), 0);
+    if (Math.abs(debit - credit) > 0.0001) return h.refuse(422, 'unbalanced', 'Debits and credits must be equal, on two lines or more.');
+    if (locked() && String(body?.entry_date) <= String(locked())) return h.refuse(409, 'period_locked', `That day is in a closed period (closed through ${locked()}). Reopen it first.`);
+    const id = `bje_m${ledger.entries.length + 1}`;
+    const entry = { id, entry_date: body?.entry_date, event_date: body?.entry_date, source_kind: 'manual', source_id: id, description: body?.description, status: 'posted', reverses_id: null,
+      reversed_by_id: null, late: false, created_by: 'user_local', created_at: at, can_reverse: true, total: debit.toFixed(2),
+      lines: lines.map((line, index) => { const account = ledger.accounts.find((a) => a.id === line.account_id);
+        return { id: `${id}_l${index}`, entry_id: id, line_no: index + 1, entry_date: body?.entry_date, source_kind: 'manual', account_id: line.account_id, account_code: account?.code,
+          account_name: account?.name, account_key: account?.system_key, debit: Number(line.debit).toFixed(2), credit: Number(line.credit).toFixed(2), currency: 'SAR',
+          amount: Number(line.debit) ? Number(line.debit).toFixed(2) : `-${Number(line.credit).toFixed(2)}`, rate: null, rate_date: null, rate_source: null, category: null,
+          project_id: null, cost_centre_id: null, flow: null, counterparty_workspace_id: null, pair_id: null }; }) };
+    ledger.entries.push(entry);
+    return h.ok(entry, 201);
+  }
+  const reverseMatch = path.match(/^\/ledger\/journal\/([^/]+)\/reverse$/);
+  if (reverseMatch && method === 'POST') {
+    if (!h.account) return h.accountantsOnly();
+    const entry = ledger.entries.find((item) => item.id === reverseMatch[1]);
+    if (!entry || entry.source_kind !== 'manual') return h.refuse(409, 'not_manual', 'This entry comes from a source document. Change or void the document instead; the journal follows it.');
+    const reversal = { ...entry, id: `${entry.id}_r`, description: `Reversed: ${body?.reason}`, reverses_id: entry.id, can_reverse: false,
+      lines: (entry.lines as Json[]).map((line) => ({ ...line, id: `${line.id}_r`, debit: line.credit, credit: line.debit })) };
+    Object.assign(entry, { status: 'reversed', reversed_by_id: reversal.id, can_reverse: false });
+    ledger.entries.push(reversal);
+    return h.ok(reversal);
+  }
+  if (path === '/ledger/statements' && method === 'GET') {
+    if (ledger.failStatements > 0) { ledger.failStatements -= 1; return h.refuse(500, 'internal', 'The statements could not be read.'); }
+    if (ledger.accounts.length === 0) return h.ok({ ...statements(state, false), trial_balance: { rows: [], totals: {}, balanced: true, difference: '0.00' } });
+    return h.ok(statements(state, url.searchParams.get('compare') === 'true'));
+  }
+  if (path === '/close' && method === 'GET') {
+    const through = locked() === '2026-09-30' ? '2026-10-31' : '2026-11-30';
+    return h.ok({ closed_through: locked(), next: { through, year_end: false, ended: through < '2026-11-04', ready: through < '2026-11-04' && ledger.issues.length === 0 && ledger.pending === 0,
+      issues: ledger.issues.length, issue_rows: ledger.issues, drafts: 0, allocations_in_review: 0, to_post: ledger.pending },
+      history: ledger.closes.slice().reverse(), history_total: ledger.closes.length, fiscal_year_start_month: 1, can_close: h.account, can_reopen: h.owner });
+  }
+  if (path === '/close' && method === 'POST') {
+    if (!h.account) return h.accountantsOnly();
+    const end = String(body?.through);
+    ledger.closes.push({ id: `bclose_${ledger.closes.length + 1}`, period_start: `${end.slice(0, 8)}01`, period_end: end, kind: 'month', status: 'closed', closed_by: 'user_local',
+      closed_at: at, closing_entry_id: null, reopened_by: null, reopened_at: null, reopen_reason: '', snapshot: {} });
+    return h.ok({ closed_through: end, previous: '2026-09-30', closed: ledger.closes.slice(-1) });
+  }
+  if (path === '/reopen' && method === 'POST') {
+    if (!h.owner) return h.refuse(403, 'forbidden', 'Only an owner can reopen a closed period.');
+    const from = String(body?.month);
+    const rows = ledger.closes.filter((row) => row.status === 'closed' && String(row.period_end) >= from);
+    rows.forEach((row) => Object.assign(row, { status: 'reopened', reopened_by: 'user_local', reopened_at: at, reopen_reason: body?.reason }));
+    return h.ok({ closed_through: locked(), previous: '2026-10-31', reopened: rows });
+  }
+  if (path === '/accountants' && method === 'GET') return h.ok({ items: ledger.accountants, can_manage: h.owner, me: false });
+  if (path === '/accountants' && method === 'POST') {
+    if (!h.owner) return h.refuse(403, 'forbidden', 'Only workspace owners can do this.');
+    const item = { user_id: body?.user_id, added_by: 'user_local', added_at: at };
+    ledger.accountants.push(item);
+    return h.ok(item, 201);
+  }
+  const accountantMatch = path.match(/^\/accountants\/([^/]+)$/);
+  if (accountantMatch && method === 'DELETE') {
+    ledger.accountants = ledger.accountants.filter((item) => item.user_id !== decodeURIComponent(accountantMatch[1]));
+    return { status: 204, body: null };
+  }
   return null;
 }
 
@@ -456,7 +666,8 @@ export async function mockBooks(page_: Page, options: BooksOptions = {}): Promis
     const body = request.postData() ? request.postDataJSON() as Json : null;
     mock.calls.push({ method: request.method(), path: url.pathname, body, key: request.headers()['idempotency-key'] ?? null });
     if (url.pathname.endsWith('.csv')) {
-      const name = url.pathname.endsWith('bills.csv') ? 'business-bills.csv' : url.pathname.endsWith('group.csv') ? 'group-pnl-2026-01-01-2026-12-31.csv' : 'business-pnl-2026-01-01-2026-12-31.csv';
+      const name = url.pathname.endsWith('bills.csv') ? 'business-bills.csv' : url.pathname.endsWith('group.csv') ? 'group-pnl-2026-01-01-2026-12-31.csv'
+        : url.pathname.endsWith('statements.csv') ? 'business-statements-2026-01-01-2026-12-31.csv' : 'business-pnl-2026-01-01-2026-12-31.csv';
       return route.fulfill({ status: 200, contentType: 'text/csv', headers: { 'content-disposition': `attachment; filename="${name}"`, ...CSV_HEADERS }, body: 'section,line,currency,amount\n' });
     }
     const reply = booksReply(state, request.method(), url, body);
@@ -464,5 +675,9 @@ export async function mockBooks(page_: Page, options: BooksOptions = {}): Promis
     if (reply.status === 204) return route.fulfill({ status: 204 });
     return route.fulfill({ status: reply.status, contentType: 'application/json', body: JSON.stringify(reply.body) });
   });
+  // The active members an owner can name accountant (Books, Settings).
+  await page_.route('http://localhost:8000/api/v1/workspace-members**', (route: Route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([
+    { tenant_id: 'tenant_local', workspace_id: 'workspace_local', user_id: 'user_local', role: 'owner', active: true, email: 'owner@example.com', created_at: at, updated_at: at },
+    { tenant_id: 'tenant_local', workspace_id: 'workspace_local', user_id: 'member_local', role: 'member', active: true, email: 'member@example.com', created_at: at, updated_at: at }]) }));
   return mock;
 }

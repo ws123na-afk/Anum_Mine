@@ -40,3 +40,18 @@
 .bkGroup .bkTotalCell { font-weight: 600; }
 .bkGroup th, .bkGroup td { white-space: nowrap; }
 .bkChoiceLabel { font-size: var(--text-sm); font-weight: 600; inline-size: 100%; }
+/* The journal (docs/business-books.md#the-journal): entries with their lines, the manual entry rows and the ledger facts. Shared tokens only. */
+.bkEntries { display: grid; gap: var(--d-s3); list-style: none; margin: 0; padding: 0; }
+.bkEntry { display: grid; gap: var(--d-s2); min-width: 0; padding: var(--d-s3); }
+.bkEntryHead { align-items: start; display: flex; flex-wrap: wrap; gap: var(--d-s2) var(--d-s3); justify-content: space-between; min-width: 0; }
+.bkEntryHead > span:first-child { display: grid; gap: 2px; min-width: 0; overflow-wrap: anywhere; }
+.bkEntryHead small { color: var(--d-muted); font-size: var(--text-xs); }
+.bkLines th[scope="row"] { font-weight: 400; overflow-wrap: anywhere; }
+.bkLines small { color: var(--d-muted); display: block; font-size: var(--text-xs); }
+.bkManualRow { align-items: end; display: grid; gap: var(--d-s2); grid-template-columns: minmax(0, 2fr) minmax(0, 1fr) minmax(0, 1fr) auto; }
+.bkManualRow .field { margin: 0; min-width: 0; }
+.bkFacts { display: flex; flex-wrap: wrap; gap: var(--d-s3) var(--d-s5); margin: 0; }
+.bkFacts dt { color: var(--d-muted); font-size: var(--text-sm); }
+.bkFacts dd { font-weight: 600; margin: 0; }
+.bkInlineIcon { block-size: 1em; inline-size: 1em; vertical-align: -0.125em; }
+@media (max-width: 560px) { .bkManualRow { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); } .bkManualRow .field:first-child { grid-column: 1 / -1; } }

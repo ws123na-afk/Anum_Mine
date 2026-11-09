@@ -14,7 +14,7 @@ export type BooksPaymentState = 'unpaid' | 'partly_paid' | 'paid' | 'void' | 'dr
 export type BooksBillFilter = 'open' | 'unpaid' | 'partly_paid' | 'paid' | 'overdue' | 'void' | 'recurring' | 'draft';
 export type BooksAdjustmentKind =
   | 'accrual' | 'prepayment' | 'capital_item' | 'loan_received' | 'loan_repayment' | 'loan_interest'
-  | 'owner_contribution' | 'owner_drawing' | 'owner_reimbursement';
+  | 'owner_contribution' | 'owner_drawing' | 'owner_reimbursement' | 'loan_interest_accrued' | 'loan_interest_paid';
 export type BooksIntercompanyKind = 'recharge' | 'loan' | 'settlement';
 export type BooksDirection = 'receivable' | 'payable';
 export type BooksAllocationFilter = 'active' | 'needs_review' | 'unpaid_bill' | 'untagged';
@@ -30,7 +30,8 @@ export const BOOKS_FREQUENCIES: BooksFrequency[] = ['monthly', 'quarterly', 'yea
 export type BooksTemplateStatus = 'active' | 'paused' | 'ended';
 export type BooksRateOrigin = 'manual' | 'ecb';
 export const BOOKS_ADJUSTMENT_KINDS: BooksAdjustmentKind[] = [
-  'accrual', 'prepayment', 'capital_item', 'loan_received', 'loan_repayment', 'loan_interest', 'owner_contribution', 'owner_drawing', 'owner_reimbursement',
+  'accrual', 'prepayment', 'capital_item', 'loan_received', 'loan_repayment', 'loan_interest', 'loan_interest_accrued', 'loan_interest_paid',
+  'owner_contribution', 'owner_drawing', 'owner_reimbursement',
 ];
 export const BOOKS_INTERCOMPANY_KINDS: BooksIntercompanyKind[] = ['recharge', 'loan', 'settlement'];
 
@@ -55,6 +56,8 @@ export interface BooksSettings {
   tax_label: string;
   category_sections: Record<string, BooksTagSection>;
   rate_max_age_days: number;
+  /** The owner's own accounting policy text (at most 1,000 characters), shown with the generated policy notes. */
+  policy_note?: string;
   version: number;
   updated_by: string;
   updated_at: string;
@@ -69,6 +72,7 @@ export interface BooksSettingsInput {
   tax_label: string;
   category_sections: Record<string, BooksTagSection>;
   rate_max_age_days: number;
+  policy_note?: string;
   version: number | null;
 }
 
@@ -85,7 +89,10 @@ export interface BooksCostCentre {
 
 export interface BooksSetup {
   settings: BooksSettings | null;
-  permissions: { read: boolean; write: boolean; manage: boolean };
+  /** ``account``: owners and accountants (adjustments, the journal, closing periods, approving others' draft bills). */
+  permissions: { read: boolean; write: boolean; manage: boolean; accountant?: boolean; account?: boolean };
+  /** The last day of the last closed period, or null. */
+  closed_through?: string | null;
   counts: Record<'vendors' | 'bills' | 'cost_centres' | 'budgets' | 'rates' | 'adjustments' | 'intercompany' | 'allocations', number>;
   default_period: { from: string; to: string } | null;
   cost_centres: BooksCostCentre[];
@@ -403,6 +410,10 @@ export interface BooksBreakdown {
   costs: string;
   margin: string;
   margin_pct: string | null;
+  /** False when some figures could not be converted (listed per currency): never read as a zero. */
+  complete?: boolean;
+  not_converted?: { currency: string; net: string }[];
+  recorded?: boolean;
 }
 
 export interface BooksConversion {
@@ -442,13 +453,18 @@ export interface BooksReport {
     unpaid_bills_count: number;
     owed_to_members: BooksAmount[];
     debt: BooksAmount[];
+    interest_payable?: BooksAmount[];
     intercompany: { workspace_id: string; name: string; currency: string; amount: string }[];
   };
   equity: { contributions: BooksAmount[]; drawings: BooksAmount[] };
-  trend: { month: string; revenue: string; costs: string; profit: string; unconverted: boolean }[];
+  /** Exchange differences are apart from revenue (``fx_differences``); the profit includes them. */
+  trend: { month: string; revenue: string; costs: string; fx_differences?: string; profit: string; unconverted: boolean }[];
   customers: BooksBreakdown[];
   projects: BooksBreakdown[];
   cost_centres: BooksBreakdown[];
+  customers_total?: number;
+  projects_total?: number;
+  cost_centres_total?: number;
   budgets: {
     id: string; name: string; period_start: string; period_end: string; currency: string; budget: string; actual: string | null; variance: string | null;
     used_pct: string | null; comparable: boolean; unconverted?: boolean;
@@ -631,4 +647,279 @@ export interface BooksGroup {
   complete?: boolean;
   conversions?: (BooksConversion & { workspace_id: string })[];
   eliminated?: boolean;
+}
+
+
+// ---- the journal (docs/business-books.md#the-journal) ------------------------------------------------------------------
+
+export type LedgerAccountType = 'asset' | 'liability' | 'equity' | 'revenue' | 'expense';
+export type LedgerSubtype =
+  | 'bank' | 'receivable' | 'tax_receivable' | 'prepayment' | 'current_asset' | 'fixed_asset' | 'accumulated_depreciation'
+  | 'payable' | 'tax_payable' | 'accrual' | 'interest_payable' | 'owed_to_members' | 'loan' | 'current_liability'
+  | 'capital' | 'drawings' | 'retained_earnings' | 'current_result'
+  | 'revenue' | 'other_income' | 'cost_of_sales' | 'operating_expense' | 'depreciation' | 'finance_cost' | 'fx';
+export const LEDGER_SUBTYPES: LedgerSubtype[] = [
+  'bank', 'receivable', 'tax_receivable', 'prepayment', 'current_asset', 'fixed_asset', 'accumulated_depreciation',
+  'payable', 'tax_payable', 'accrual', 'interest_payable', 'owed_to_members', 'loan', 'current_liability',
+  'capital', 'drawings', 'retained_earnings', 'current_result', 'revenue', 'other_income', 'cost_of_sales', 'operating_expense', 'depreciation',
+  'finance_cost', 'fx',
+];
+export type LedgerSourceKind =
+  | 'invoice' | 'credit_note' | 'invoice_payment' | 'bill' | 'bill_payment' | 'allocation' | 'adjustment' | 'intercompany' | 'manual' | 'closing';
+export const LEDGER_SOURCE_KINDS: LedgerSourceKind[] = [
+  'invoice', 'credit_note', 'invoice_payment', 'bill', 'bill_payment', 'allocation', 'adjustment', 'intercompany', 'manual', 'closing',
+];
+
+export interface LedgerAccount {
+  id: string;
+  code: string;
+  name: string;
+  subtype: LedgerSubtype;
+  type: LedgerAccountType;
+  /** The account a posting rule uses: renamed or renumbered, never archived. */
+  system_key: string | null;
+  category: string | null;
+  archived: boolean;
+  version: number;
+}
+
+export interface LedgerAccountList {
+  items: LedgerAccount[];
+  subtypes: Record<LedgerSubtype, LedgerAccountType>;
+  can_edit: boolean;
+}
+
+export interface LedgerAccountInput {
+  code: string;
+  name: string;
+  subtype: LedgerSubtype;
+  category: string | null;
+}
+
+export interface LedgerLine {
+  id: string;
+  entry_id: string;
+  line_no: number;
+  entry_date: string;
+  source_kind: LedgerSourceKind;
+  account_id: string;
+  account_code?: string;
+  account_name?: string;
+  account_key?: string | null;
+  debit: string;
+  credit: string;
+  /** The original currency and signed amount, with the rate, its day and its source when it was converted. */
+  currency: string;
+  amount: string;
+  rate: string | null;
+  rate_date: string | null;
+  rate_source: string | null;
+  category: string | null;
+  project_id: string | null;
+  cost_centre_id: string | null;
+  flow: string | null;
+  counterparty_workspace_id: string | null;
+  pair_id: string | null;
+}
+
+export interface LedgerEntry {
+  id: string;
+  entry_date: string;
+  event_date: string;
+  source_kind: LedgerSourceKind;
+  source_id: string | null;
+  description: string;
+  status: 'posted' | 'reversed';
+  reverses_id: string | null;
+  reversed_by_id: string | null;
+  /** Dated in a closed period, so posted on the first open day. */
+  late: boolean;
+  created_by: string;
+  created_at: string;
+  can_reverse: boolean;
+  lines: LedgerLine[];
+  total: string;
+}
+
+export interface LedgerJournalPage extends BooksPage<LedgerEntry> {
+  base_currency: string;
+  can_account: boolean;
+}
+
+export interface LedgerManualInput {
+  entry_date: string;
+  description: string;
+  lines: { account_id: string; debit: string; credit: string }[];
+}
+
+export interface LedgerIssue {
+  event_key: string;
+  source_kind: LedgerSourceKind;
+  source_id: string | null;
+  event_date: string;
+  /** ``missing_rate``: no exchange rate for that currency and day (ANUM never guesses one); ``too_small``. */
+  reason: 'missing_rate' | 'too_small';
+  currency: string | null;
+  rate_date: string | null;
+  description: string;
+}
+
+export interface LedgerStatus {
+  to_post: number;
+  to_reverse: number;
+  issues: number;
+  issue_rows: LedgerIssue[];
+  scheduled: number;
+  truncated: boolean;
+  complete: boolean;
+  closed_through: string | null;
+  can_post: boolean;
+  can_account: boolean;
+  can_reopen: boolean;
+}
+
+export interface LedgerPostResult {
+  posted: number;
+  reversed: number;
+  late: number;
+  issues: number;
+  issue_rows: LedgerIssue[];
+  scheduled: number;
+  unchanged: number;
+  truncated: boolean;
+}
+
+export interface LedgerGeneralLine extends LedgerLine {
+  description: string;
+  source_id: string | null;
+  late: boolean;
+  reversal: boolean;
+  balance: string;
+}
+
+export interface LedgerGeneral {
+  account: LedgerAccount;
+  base_currency: string;
+  period: { from: string; to: string };
+  opening: string;
+  closing: string;
+  items: LedgerGeneralLine[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export interface LedgerRow {
+  account_id: string | null;
+  code: string;
+  name: string;
+  subtype: string;
+  system_key: string | null;
+  amount: string;
+}
+
+export interface LedgerBlock {
+  rows: LedgerRow[];
+  total: string;
+}
+
+export interface LedgerTrialRow {
+  account_id: string;
+  code: string;
+  name: string;
+  system_key: string | null;
+  subtype: LedgerSubtype;
+  type: LedgerAccountType;
+  opening_debit: string;
+  opening_credit: string;
+  debit: string;
+  credit: string;
+  closing_debit: string;
+  closing_credit: string;
+}
+
+export interface LedgerPnl {
+  currency: string;
+  revenue: LedgerBlock;
+  cost_of_sales: LedgerBlock;
+  gross_profit: string;
+  gross_margin_pct: string | null;
+  operating_expenses: LedgerBlock;
+  operating_profit: string;
+  other_income: LedgerBlock;
+  finance_costs: LedgerBlock;
+  fx_differences: string;
+  net_profit: string;
+  net_margin_pct: string | null;
+}
+
+export interface LedgerBalanceSheet {
+  currency: string;
+  as_of: string;
+  assets: { current: LedgerBlock; non_current: LedgerBlock; total: string };
+  liabilities: { current: LedgerBlock; non_current: LedgerBlock; total: string };
+  equity: LedgerBlock;
+  liabilities_and_equity: string;
+  /** Assets equal liabilities plus equity. */
+  balanced: boolean;
+  difference: string;
+  /** False while anything dated on or before the day is not posted. */
+  complete: boolean;
+}
+
+export interface LedgerCashActivity {
+  lines: { key: string; amount: string }[];
+  total: string;
+}
+
+export interface LedgerStatements {
+  period: { from: string; to: string };
+  base_currency: string;
+  complete: boolean;
+  pending: Omit<LedgerStatus, 'closed_through' | 'can_post' | 'can_account' | 'can_reopen'>;
+  notes: string[];
+  late_entries: number;
+  closed_through: string | null;
+  trial_balance: { rows: LedgerTrialRow[]; totals: Record<string, string>; balanced: boolean; difference: string };
+  balance_sheet: LedgerBalanceSheet;
+  pnl: LedgerPnl;
+  /** The journal's P&L next to the P&L derived from the records (accrual), line by line. */
+  reconciliation: { rows: { key: string; journal: string; derived: string; difference: string }[]; agrees: boolean; to: string } | null;
+  equity: { currency: string; rows: { key: string; capital: string; drawings: string; retained_earnings: string; result: string; total: string }[];
+    balanced: boolean };
+  cash_flow: { by_currency: { currency: string; opening: string; operating: LedgerCashActivity; investing: LedgerCashActivity;
+    financing: LedgerCashActivity; net: string; closing: string; reconciles: boolean }[]; base_currency: string; base: Record<string, string> };
+  comparatives: Record<string, { from: string; to: string; pnl: LedgerPnl; balance_sheet: LedgerBalanceSheet }>;
+  policies: { key: string; text: string }[];
+}
+
+export interface LedgerClose {
+  id: string;
+  period_start: string;
+  period_end: string;
+  kind: 'month' | 'year';
+  status: 'closed' | 'reopened';
+  closed_by: string;
+  closed_at: string;
+  closing_entry_id: string | null;
+  reopened_by: string | null;
+  reopened_at: string | null;
+  reopen_reason: string;
+}
+
+export interface LedgerCloseStatus {
+  closed_through: string | null;
+  next: { through: string; year_end: boolean; ended: boolean; ready: boolean; issues: number; issue_rows: LedgerIssue[]; drafts: number;
+    allocations_in_review: number; to_post: number };
+  history: LedgerClose[];
+  history_total: number;
+  fiscal_year_start_month: number;
+  can_close: boolean;
+  can_reopen: boolean;
+}
+
+export interface LedgerAccountant {
+  user_id: string;
+  added_by: string;
+  added_at: string;
 }
