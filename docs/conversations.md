@@ -215,6 +215,7 @@ so the static prompt stays one shared cached prefix ([Model gateway](model-gatew
 | --- | --- |
 | A tool the planner chose (`web.act`, `web.browse_page`, `web_search`) whose capability is off | an `unavailable` card (`error_code` `capability_off:<id>`): "Action browser is not available right now, off: a workspace owner turns it on under Integrations > Action browser. Once it is on, ANUM runs this request as a task under approvals." No task, no model call. |
 | An errand on a website without its address: the request leads with book, reserve, buy, order, fill, submit, register, renew, subscribe, download or apply (or the Arabic احجز, اشتر, اطلب, املأ, سجل, جدد, نزل, حمل …), or "go to example.com ..." with a site but no https:// | the Action browser on: a `needs_input` card asking for the site's https address (the address must be the user's own words); off: the `unavailable` card. Only the leading verb counts, so "a good book to read" stays conversation. |
+| The same errand with web search on (registered and switched on) and the Action browser on | a task with the site search (`web_search`, `purpose: "find_site"`): a results card whose text is the tool's own, dated list of 2 to 4 sites and the question which one to use, never a model answer ([Action browser](action-browser.md#how-it-is-used)). |
 | `web.act` with an https address and the Action browser on | a task through the runtime, as any chat task: the scope approval card, then the run's approvals. |
 
 Card text is in Arabic when the question is Arabic or the request asks for Arabic
@@ -226,7 +227,8 @@ partial states, the real state of a fresh workspace, a viewer's role reason, the
 switch, the cache, an unreadable module; "what can you do?" reaching the model with the list
 (English and Arabic); the cache placement; `web.act` routing to a task when on, the off card
 (English and Arabic), `needs_input` and the book question staying conversation; and the
-voice cases.
+voice cases. `services/api/tests/test_website_errands.py`: a booking without a site in chat becomes the
+site search card when web search is on, and the address question when an owner switched search off.
 
 ## Long-term memory
 

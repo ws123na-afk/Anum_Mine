@@ -164,6 +164,10 @@ class ToolRegistry:
     def definition(self, name: str) -> ToolDefinition | None:
         return self._definitions.get(name)
 
+    def handler(self, name: str) -> ToolHandler | None:
+        """The registered handler (for a tool's own availability check before planning it)."""
+        return self._handlers.get(name)
+
     async def execute(self, call: ToolCall, context: TenantContext) -> ToolResult:
         handler = self._handlers.get(call.name)
         if handler is None:

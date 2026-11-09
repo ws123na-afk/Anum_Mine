@@ -991,11 +991,15 @@ def _capability_route(
         return None, None
     arabic = language == "ar" or bool(_ARABIC_TEXT.search(question))
     needed = caps.TOOL_CAPABILITY.get(tool) if category is not None else None
-    if category is None and caps.asks_web_errand(question):
+    if caps.errand_route(question, category, tool):
         needed = caps.errand_capability(question)
         category = "action" if needed == "act" else "web"
         capability = caps.by_id(found, needed)
         if capability is not None and capability.available:
+            search = caps.by_id(found, "web_search")
+            if tool == "web_search" and needed == "act" and search is not None and search.available:
+                # No site named: the task searches for sites and asks which one to use.
+                return None, None
             return chat_tools.needs_input_card(category, caps.needs_site_text(needed, arabic=arabic)), None
     if needed is not None and category is not None:
         capability = caps.by_id(found, needed)

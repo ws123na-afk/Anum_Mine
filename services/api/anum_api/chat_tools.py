@@ -913,6 +913,10 @@ DATA_ONLY_TOOLS = frozenset({"finance.research"})
 def needs_summary(card: ChatCard, result: "ToolResult | None") -> bool:
     if card.tool in DATA_ONLY_TOOLS:
         return False
+    if result is not None and isinstance(result.output, dict) and result.output.get("purpose") == "find_site":
+        # Sites for a website errand: the tool's own dated options and question, never a model
+        # answer that could pick a site or say ANUM cannot book (docs/action-browser.md#how-it-is-used).
+        return False
     return card.state == "results" and result is not None and result.status == "succeeded" and (
         card.tool in {"search_email", "list_whatsapp_conversations", "web_search", "web.browse_page"}
         or card.tool in COMMERCE_READ_TOOLS
