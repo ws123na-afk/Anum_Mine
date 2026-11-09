@@ -37,10 +37,22 @@ class CurrencySafe {
       required this.safeToSpend,
       required this.perDay,
       required this.short,
-      required this.lines});
+      required this.lines,
+      this.nextPayOn,
+      this.expectedPay,
+      this.daysToPayday});
   final String currency, safeToSpend, perDay;
   final bool short;
   final List<SafeLine> lines;
+
+  /// With a salary profile in this currency: the next usual pay day, the net
+  /// expected then and the days until it (older servers leave them out).
+  final String? nextPayOn, expectedPay;
+  final int? daysToPayday;
+
+  /// Minimum payments whose due date passed with no payment matched yet.
+  List<SafeLine> get overdueMinimums =>
+      lines.where((l) => l.note == 'minimum_overdue').toList();
 
   factory CurrencySafe.fromJson(JsonReader r) => CurrencySafe(
         currency: r.string('currency'),
@@ -48,6 +60,13 @@ class CurrencySafe {
         perDay: r.string('per_day'),
         short: r.optBool('short') ?? false,
         lines: r.optObjects('lines', SafeLine.fromJson),
+        nextPayOn: r.optString('next_pay_on'),
+        expectedPay: switch (r.json['expected_pay']) {
+          final String text => text,
+          final num number => number.toString(),
+          _ => null,
+        },
+        daysToPayday: r.optInt('days_to_payday'),
       );
 }
 

@@ -204,6 +204,30 @@ class MoneyTotal {
       MoneyTotal(r.string('currency'), _decimal(r, 'amount'));
 }
 
+/// Fixed costs against income in one currency (`FinanceIncomeShare`).
+class IncomeShare {
+  const IncomeShare(
+      {required this.currency, this.monthly, this.source, this.percent});
+  final String currency;
+
+  /// The one income figure (salary profile, else the records), or null
+  /// without income.
+  final String? monthly;
+
+  /// salary_profile or records.
+  final String? source;
+
+  /// Fixed costs as a share of income, rounded; null without income.
+  final int? percent;
+
+  factory IncomeShare.fromJson(JsonReader r) => IncomeShare(
+        currency: r.string('currency'),
+        monthly: _optDecimal(r, 'monthly'),
+        source: r.optString('source'),
+        percent: r.optInt('share_percent'),
+      );
+}
+
 /// `GET /fixed-commitments` (`FinanceCommitments`).
 class FixedCommitments {
   const FixedCommitments({
@@ -211,10 +235,17 @@ class FixedCommitments {
     required this.items,
     required this.notCounted,
     required this.totals,
+    this.income = const [],
   });
   final String month;
   final List<Commitment> items, notCounted;
   final List<MoneyTotal> totals;
+
+  /// Per currency with fixed costs; older servers leave it out.
+  final List<IncomeShare> income;
+
+  IncomeShare? incomeFor(String currency) =>
+      income.where((i) => i.currency == currency).firstOrNull;
 
   bool get isEmpty => items.isEmpty;
 
@@ -223,6 +254,7 @@ class FixedCommitments {
         items: r.optObjects('items', Commitment.fromJson),
         notCounted: r.optObjects('not_counted', Commitment.fromJson),
         totals: r.optObjects('totals', MoneyTotal.fromJson),
+        income: r.optObjects('income', IncomeShare.fromJson),
       );
 }
 
@@ -253,6 +285,7 @@ class Payoff {
     required this.interestSaved,
     required this.debtNames,
     required this.missingRates,
+    this.fromPeople = const [],
     this.cheaper,
     this.firstWinMonths,
   });
@@ -270,6 +303,10 @@ class Payoff {
   /// Debts with no rate entered: counted at 0 percent, never guessed.
   final List<String> missingRates;
 
+  /// Names of the debts that are money borrowed from a person (Lent and
+  /// borrowed, no interest), counted in the order like any debt.
+  final List<String> fromPeople;
+
   factory Payoff.fromJson(JsonReader r) => Payoff(
         currency: r.string('currency'),
         payment: _decimal(r, 'payment'),
@@ -285,6 +322,11 @@ class Payoff {
             d.$1: d.$2
         },
         missingRates: r.optStrings('missing_rates') ?? const [],
+        fromPeople: [
+          for (final d in r.optObjects(
+              'debts', (d) => (d.string('name'), d.optString('source'))))
+            if (d.$2 == 'person_loan') d.$1
+        ],
       );
 
   /// The order by debt name (an id with no known name stays as it is).
@@ -302,6 +344,113 @@ class PayoffPage {
         currencies: r.optObjects('currencies', Payoff.fromJson),
         note: r.optString('note') ?? '',
       );
+}
+
+/// The salary profile, the parts the phone shows (`FinanceSalaryProfile`).
+class SalaryProfile {
+  const SalaryProfile({
+    required this.employer,
+    required this.currency,
+    required this.expectedNet,
+    required this.nextPayOn,
+    required this.payDay,
+  });
+  final String employer, currency, expectedNet, nextPayOn;
+  final int payDay;
+
+  factory SalaryProfile.fromJson(JsonReader r) => SalaryProfile(
+        employer: r.string('employer'),
+        currency: r.string('currency'),
+        expectedNet: _decimal(r, 'expected_net'),
+        nextPayOn: r.string('next_pay_on'),
+        payDay: r.optInt('pay_day') ?? 1,
+      );
+}
+
+/// The salary found in the records for a month, waiting or decided.
+class SalaryFound {
+  const SalaryFound(
+      {required this.transactionId,
+      required this.postedOn,
+      required this.amount,
+      required this.description});
+  final String transactionId, postedOn, amount, description;
+
+  factory SalaryFound.fromJson(JsonReader r) => SalaryFound(
+        transactionId: r.string('transaction_id'),
+        postedOn: r.string('posted_on'),
+        amount: _decimal(r, 'amount'),
+        description: r.optString('description') ?? '',
+      );
+}
+
+/// One month of the salary check (`FinanceSalaryMonth`).
+class SalaryMonth {
+  const SalaryMonth({
+    required this.month,
+    required this.currency,
+    required this.payOn,
+    required this.status,
+    required this.expectedNet,
+    required this.received,
+    required this.difference,
+    this.basis,
+    this.found,
+  });
+  final String month, currency, payOn, expectedNet, received, difference;
+
+  /// received, late, partial, missing or upcoming.
+  final String status;
+
+  /// confirmed, payslip, suggested (waiting for a confirm or reject) or null.
+  final String? basis;
+  final SalaryFound? found;
+
+  /// A salary was found in the records and waits for the person's word.
+  bool get waiting => basis == 'suggested' && found != null;
+
+  factory SalaryMonth.fromJson(JsonReader r) {
+    final found = r.optObject('found');
+    return SalaryMonth(
+      month: r.string('month'),
+      currency: r.string('currency'),
+      payOn: r.string('pay_on'),
+      status: r.string('status'),
+      expectedNet: _decimal(r.object('expected'), 'net'),
+      received: _decimal(r, 'received'),
+      difference: _decimal(r, 'difference'),
+      basis: r.optString('basis'),
+      found: found == null ? null : SalaryFound.fromJson(found),
+    );
+  }
+}
+
+/// `GET /salary/months` (`FinanceSalaryMonthsPage`), newest month first.
+class SalaryMonths {
+  const SalaryMonths(
+      {required this.months, required this.missing, required this.waiting});
+  final List<SalaryMonth> months;
+  final int missing, waiting;
+
+  factory SalaryMonths.fromJson(JsonReader r) => SalaryMonths(
+        months: r.optObjects('months', SalaryMonth.fromJson),
+        missing: r.optInt('missing') ?? 0,
+        waiting: r.optInt('waiting') ?? 0,
+      );
+}
+
+/// The salary card: the profile (null when none is set) and recent months.
+class SalaryView {
+  const SalaryView({this.profile, this.months});
+  final SalaryProfile? profile;
+  final SalaryMonths? months;
+
+  /// This month (the newest), or null.
+  SalaryMonth? get current => months?.months.firstOrNull;
+
+  /// Months whose salary waits for a confirm or reject, newest first.
+  List<SalaryMonth> get waiting =>
+      months?.months.where((m) => m.waiting).toList() ?? const [];
 }
 
 /// The planner's answer to a question, written by the Assistant's finance

@@ -136,8 +136,7 @@ class FinancePersonalStrings {
     'fixed.failed': 'Fixed costs could not be loaded: {message}',
     'fixed.empty': 'No fixed monthly costs yet',
     'fixed.emptyText':
-        'Add your rent and regular bills under Bills. Debt minimums, installments and regular transfers home count here too.',
-    'fixed.openBills': 'Open Bills',
+        'Add your rent and regular bills with Add bill above. Debt minimums, installments and regular transfers home count here too.',
     'fixed.month': 'Month {month}',
     'fixed.title': 'Fixed monthly costs',
     'fixed.total': 'Total in {currency}',
@@ -161,6 +160,40 @@ class FinancePersonalStrings {
     'fixed.note.in_bill': 'counted as the bill',
     'fixed.note.with_fee': 'fee included',
     'fixed.note.due_this_month': 'borrowed from a person, due this month',
+    'debts.people': 'People',
+    'debts.peopleText':
+        'Money lent to or borrowed from a person, without interest. Borrowed money also counts in the payoff order above.',
+    'fixed.share':
+        'Fixed costs take {percent}% of your income ({income} a month).',
+    'fixed.shareFrom.salary_profile': 'Income from your salary profile.',
+    'fixed.shareFrom.records': 'Income from your records.',
+    'fixed.noIncome': 'No income found in {currency} to compare with.',
+    'payoff.fromPeople': 'Includes money borrowed from: {list}',
+    'salary.title': 'Salary',
+    'salary.loading': 'Loading your salary check',
+    'salary.failed': 'The salary check could not be loaded: {message}',
+    'salary.none': 'No salary profile yet',
+    'salary.noneText':
+        'Add your employer, expected salary and pay day on the web (Money advisor, Salary). The phone then checks each month for you.',
+    'salary.employer': '{employer} · paid on day {day}',
+    'salary.month': 'Month {month}',
+    'salary.expected': 'Expected',
+    'salary.received': 'Received',
+    'salary.status.received': 'Received',
+    'salary.status.late': 'Late',
+    'salary.status.partial': 'Partly received',
+    'salary.status.missing': 'Missing',
+    'salary.status.upcoming': 'Not due yet',
+    'salary.missingCount': 'Months with no salary found: {n}',
+    'salary.nextPay': 'Next pay day {date}',
+    'salary.isThis': 'Is this your salary for {month}?',
+    'salary.found': '{amount} on {date}',
+    'salary.confirm': 'Yes, it is',
+    'salary.reject': 'No, it is not',
+    'salary.confirmed': 'Confirmed as your salary.',
+    'salary.rejected': 'Noted. It will not be suggested for this month again.',
+    'salary.onWeb':
+        'Payslips, deductions and the profile itself are edited on the web.',
     'payoff.loading': 'Comparing payoff orders',
     'payoff.failed': 'The payoff comparison could not be loaded: {message}',
     'payoff.title': 'Which debt to pay first',
@@ -186,8 +219,9 @@ class FinancePersonalStrings {
         'No rate entered for: {list}. Counted at 0 percent, never guessed.',
     'payoff.note':
         'Advice only: ANUM never moves money. Figures are estimates from your own balances, rates and minimums.',
-    'web.onWeb': 'Payslips and Send home are on the web.',
-    'web.open': 'Payslips and Send home are on the web: open',
+    'web.onWeb': 'Payslips, the salary profile and Send home are on the web.',
+    'web.open':
+        'Payslips, the salary profile and Send home are on the web: open',
   };
 
   static const _ar = <String, String>{
@@ -285,8 +319,7 @@ class FinancePersonalStrings {
     'fixed.failed': 'تعذر تحميل التكاليف الثابتة: {message}',
     'fixed.empty': 'لا تكاليف شهرية ثابتة بعد',
     'fixed.emptyText':
-        'أضف الإيجار والفواتير المنتظمة في الفواتير. الحد الأدنى للديون والأقساط والتحويلات المنتظمة للأهل تُحسب هنا أيضًا.',
-    'fixed.openBills': 'افتح الفواتير',
+        'أضف الإيجار والفواتير المنتظمة بزر إضافة فاتورة أعلاه. الحد الأدنى للديون والأقساط والتحويلات المنتظمة للأهل تُحسب هنا أيضًا.',
     'fixed.month': 'شهر {month}',
     'fixed.title': 'التكاليف الشهرية الثابتة',
     'fixed.total': 'الإجمالي بعملة {currency}',
@@ -309,6 +342,39 @@ class FinancePersonalStrings {
     'fixed.note.in_bill': 'محسوب ضمن الفاتورة',
     'fixed.note.with_fee': 'شاملًا الرسوم',
     'fixed.note.due_this_month': 'مقترض من شخص، مستحق هذا الشهر',
+    'debts.people': 'الأشخاص',
+    'debts.peopleText':
+        'مال أقرضته لشخص أو اقترضته منه، بلا فائدة. المال المقترض يُحسب أيضًا في ترتيب السداد أعلاه.',
+    'fixed.share':
+        'التكاليف الثابتة تأخذ {percent}% من دخلك ({income} شهريًا).',
+    'fixed.shareFrom.salary_profile': 'الدخل من ملف راتبك.',
+    'fixed.shareFrom.records': 'الدخل من سجلاتك.',
+    'fixed.noIncome': 'لا دخل بعملة {currency} للمقارنة به.',
+    'payoff.fromPeople': 'يشمل مالًا مقترضًا من: {list}',
+    'salary.title': 'الراتب',
+    'salary.loading': 'نحمّل فحص الراتب',
+    'salary.failed': 'تعذر تحميل فحص الراتب: {message}',
+    'salary.none': 'لا ملف راتب بعد',
+    'salary.noneText':
+        'أضف جهة العمل والراتب المتوقع ويوم الصرف على الويب (مستشار المال، الراتب). بعدها يفحص الهاتف كل شهر لك.',
+    'salary.employer': '{employer} · يُصرف في اليوم {day}',
+    'salary.month': 'شهر {month}',
+    'salary.expected': 'المتوقع',
+    'salary.received': 'المستلم',
+    'salary.status.received': 'مستلم',
+    'salary.status.late': 'متأخر',
+    'salary.status.partial': 'مستلم جزئيًا',
+    'salary.status.missing': 'غير موجود',
+    'salary.status.upcoming': 'لم يحن موعده',
+    'salary.missingCount': 'أشهر لم يُعثر فيها على راتب: {n}',
+    'salary.nextPay': 'يوم الصرف التالي {date}',
+    'salary.isThis': 'هل هذا راتبك لشهر {month}؟',
+    'salary.found': '{amount} في {date}',
+    'salary.confirm': 'نعم، هو',
+    'salary.reject': 'لا، ليس هو',
+    'salary.confirmed': 'تم تأكيده راتبًا لك.',
+    'salary.rejected': 'تم. لن يُقترح لهذا الشهر مرة أخرى.',
+    'salary.onWeb': 'قسائم الراتب والاستقطاعات والملف نفسه تُعدَّل على الويب.',
     'payoff.loading': 'نقارن ترتيب السداد',
     'payoff.failed': 'تعذر تحميل مقارنة السداد: {message}',
     'payoff.title': 'أي دين أسدد أولًا',
@@ -334,8 +400,8 @@ class FinancePersonalStrings {
         'لا نسبة مُدخلة لـ: {list}. تُحسب بصفر بالمئة، ولا نخمّنها أبدًا.',
     'payoff.note':
         'نصيحة فقط: لا يحرّك ANUM المال أبدًا. الأرقام تقديرات من أرصدتك ونسبك وحدودك الدنيا.',
-    'web.onWeb': 'قسائم الراتب والتحويل للأهل على الويب.',
-    'web.open': 'قسائم الراتب والتحويل للأهل على الويب: افتح',
+    'web.onWeb': 'قسائم الراتب وملف الراتب والتحويل للأهل على الويب.',
+    'web.open': 'قسائم الراتب وملف الراتب والتحويل للأهل على الويب: افتح',
   };
 
   static bool get catalogsMatch =>

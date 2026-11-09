@@ -8,21 +8,23 @@ import 'finance_personal_controller.dart';
 import 'finance_personal_repository.dart';
 import 'finance_plan_models.dart';
 import 'finance_repository.dart';
+import 'finance_review_models.dart';
 import 'finance_trading_models.dart';
 
 enum FinanceLoad { idle, loading, ready, denied, error }
 
-/// Sections of the phone's Finance screen.
+/// Sections of the phone's Finance screen. One place per job, as on the web
+/// (docs/finance.md#finance-shell): Lent and borrowed is part of Debts and
+/// the monthly fixed costs part of Bills.
 enum FinanceSection {
   overview,
   planner,
   safe,
   transactions,
+  suggestions,
   accounts,
   bills,
-  fixed,
   debts,
-  people,
   goals,
   guardian,
   connections,
@@ -56,10 +58,7 @@ class FinanceController extends ChangeNotifier {
   /// Whether [section] is offered on this phone.
   bool offers(FinanceSection section) => switch (section) {
         FinanceSection.intel => intel != null,
-        FinanceSection.planner ||
-        FinanceSection.people ||
-        FinanceSection.fixed =>
-          personal != null,
+        FinanceSection.planner => personal != null,
         _ => true,
       };
 
@@ -78,6 +77,13 @@ class FinanceController extends ChangeNotifier {
   final List<FinanceAccount> accounts = [];
 
   String query = '';
+
+  /// The transaction type the list is narrowed to (`uncategorized`), or null.
+  String? typeFilter;
+
+  /// Rows no rule recognised, in no income or spending figure; 0 when the
+  /// count could not be read (the list still works).
+  int uncategorized = 0;
   FinanceLoad transactionsState = FinanceLoad.idle;
   final List<FinanceTransaction> transactions = [];
   int transactionsTotal = 0;
@@ -99,6 +105,27 @@ class FinanceController extends ChangeNotifier {
   FinanceLoad connectionsState = FinanceLoad.idle;
   final List<FinanceConnection> connections = [];
   String? connectionsError;
+
+  // The last statement import and reconciliation status (on Connections).
+  FinanceLoad importState = FinanceLoad.idle;
+  ImportRecord? lastImport;
+  String? importError;
+  FinanceLoad reconState = FinanceLoad.idle;
+  ReconStatus? recon;
+  String? reconError;
+
+  // The suggestion queue.
+  FinanceLoad suggestionsState = FinanceLoad.idle;
+  final List<Suggestion> suggestions = [];
+  int suggestionsTotal = 0;
+  List<String> suggestionsUnavailable = const [];
+  String? suggestionsError;
+  bool loadingMoreSuggestions = false;
+
+  /// The suggestion being accepted or dismissed, so its buttons wait.
+  String? deciding;
+
+  bool get hasMoreSuggestions => suggestions.length < suggestionsTotal;
 
   /// The last change's outcome, shown once by the screen.
   String? message;
@@ -124,15 +151,19 @@ class FinanceController extends ChangeNotifier {
     switch (next) {
       case FinanceSection.transactions:
         if (transactionsState == FinanceLoad.idle) await loadTransactions();
+      case FinanceSection.suggestions:
+        await loadSuggestions();
       case FinanceSection.bills:
-        await loadItems('bills');
+        await Future.wait([
+          loadItems('bills'),
+          if (personal != null) personal!.loadCommitments()
+        ]);
       case FinanceSection.debts:
-        await Future.wait(
-            [loadItems('debts'), if (personal != null) personal!.loadPayoff()]);
-      case FinanceSection.people:
-        await personal?.loadLoans();
-      case FinanceSection.fixed:
-        await personal?.loadCommitments();
+        await Future.wait([
+          loadItems('debts'),
+          if (personal != null) personal!.loadPayoff(),
+          if (personal != null) personal!.loadLoans(),
+        ]);
       case FinanceSection.planner:
         break;
       case FinanceSection.goals:
@@ -140,11 +171,13 @@ class FinanceController extends ChangeNotifier {
       case FinanceSection.accounts:
         await loadAccounts();
       case FinanceSection.safe:
-        await loadSafe();
+        await Future.wait(
+            [loadSafe(), if (personal != null) personal!.loadSalary()]);
       case FinanceSection.guardian:
         await loadGuardian();
       case FinanceSection.connections:
-        await loadConnections();
+        await Future.wait(
+            [loadConnections(), loadLastImport(), loadReconciliation()]);
       case FinanceSection.trading:
         await loadTrading();
       case FinanceSection.intel:
@@ -198,13 +231,32 @@ class FinanceController extends ChangeNotifier {
     await loadTransactions();
   }
 
+  /// Shows only the uncategorized rows, or every row again.
+  Future<void> showUncategorized(bool only) async {
+    typeFilter = only ? 'uncategorized' : null;
+    await loadTransactions();
+  }
+
+  Future<void> _countUncategorized() async {
+    try {
+      uncategorized = await repository.uncategorizedCount();
+    } catch (_) {
+      // The notice is a hint; the list says what failed on its own.
+      uncategorized = 0;
+    }
+  }
+
   Future<void> loadTransactions() async {
     transactionsState = FinanceLoad.loading;
     transactionsError = null;
     notifyListeners();
     try {
-      final page = await repository.transactions(
-          query: query, offset: 0, limit: pageSize);
+      final found = await Future.wait([
+        repository.transactions(
+            query: query, offset: 0, limit: pageSize, type: typeFilter),
+        _countUncategorized(),
+      ]);
+      final page = found.first as TransactionPage;
       transactions
         ..clear()
         ..addAll(page.items);
@@ -223,7 +275,10 @@ class FinanceController extends ChangeNotifier {
     notifyListeners();
     try {
       final page = await repository.transactions(
-          query: query, offset: transactions.length, limit: pageSize);
+          query: query,
+          offset: transactions.length,
+          limit: pageSize,
+          type: typeFilter);
       transactions.addAll(page.items);
       transactionsTotal = page.total;
     } catch (error) {
@@ -281,6 +336,15 @@ class FinanceController extends ChangeNotifier {
               postedOn: postedOn,
               amount: amount,
               description: description),
+          loadTransactions);
+
+  /// Files a row as [type] (under [category] when chosen), then reloads the
+  /// list, the uncategorized count and the month's figures.
+  Future<String?> fileTransaction(FinanceTransaction row,
+          {required String type, String? category}) =>
+      _change(
+          () => repository.fileTransaction(row.id,
+              type: type, category: category),
           loadTransactions);
 
   Future<String?> deleteTransaction(String id) =>
@@ -343,6 +407,100 @@ class FinanceController extends ChangeNotifier {
       connectionsError = _reason(error);
     }
     notifyListeners();
+  }
+
+  Future<void> loadLastImport() async {
+    importState = FinanceLoad.loading;
+    importError = null;
+    notifyListeners();
+    try {
+      lastImport = await repository.lastImport();
+      importState = FinanceLoad.ready;
+    } catch (error) {
+      importState = _failed(error);
+      importError = _reason(error);
+    }
+    notifyListeners();
+  }
+
+  Future<void> loadReconciliation() async {
+    reconState = FinanceLoad.loading;
+    reconError = null;
+    notifyListeners();
+    try {
+      recon = await repository.reconciliation();
+      reconState = FinanceLoad.ready;
+    } catch (error) {
+      reconState = _failed(error);
+      reconError = _reason(error);
+    }
+    notifyListeners();
+  }
+
+  Future<void> loadSuggestions() async {
+    suggestionsState = FinanceLoad.loading;
+    suggestionsError = null;
+    notifyListeners();
+    try {
+      final page = await repository.suggestions(offset: 0, limit: pageSize);
+      suggestions
+        ..clear()
+        ..addAll(page.items);
+      suggestionsTotal = page.total;
+      suggestionsUnavailable = page.unavailable;
+      suggestionsState = FinanceLoad.ready;
+    } catch (error) {
+      suggestionsState = _failed(error);
+      suggestionsError = _reason(error);
+    }
+    notifyListeners();
+  }
+
+  /// The next page; a failure keeps the list and says why.
+  Future<void> loadMoreSuggestions() async {
+    if (loadingMoreSuggestions || !hasMoreSuggestions) return;
+    loadingMoreSuggestions = true;
+    suggestionsError = null;
+    notifyListeners();
+    try {
+      final page = await repository.suggestions(
+          offset: suggestions.length, limit: pageSize);
+      suggestions.addAll(page.items);
+      suggestionsTotal = page.total;
+    } catch (error) {
+      suggestionsError = _reason(error);
+    } finally {
+      loadingMoreSuggestions = false;
+      notifyListeners();
+    }
+  }
+
+  /// Accepts or dismisses [item], then reloads the queue (and the month,
+  /// whose figures an accept can change). Returns the rows changed (null
+  /// when none) or the server's refusal.
+  Future<({String? error, int? changed})> decideSuggestion(Suggestion item,
+      {required bool accept}) async {
+    if (deciding != null) return (error: null, changed: null);
+    deciding = item.key;
+    notifyListeners();
+    try {
+      int? changed;
+      if (accept) {
+        changed =
+            (await repository.acceptSuggestion(item.key, item.payloadHash))
+                .changed;
+      } else {
+        await repository.dismissSuggestion(item.key);
+      }
+      deciding = null;
+      await Future.wait([loadSuggestions(), if (accept) loadSummary()]);
+      return (error: null, changed: changed);
+    } catch (error) {
+      deciding = null;
+      // A suggestion that changed or was decided elsewhere leaves the list.
+      await loadSuggestions();
+      return (error: _reason(error), changed: null);
+    }
   }
 
   /// Confirms exactly the change shown, with its payload hash. Agents never
@@ -417,7 +575,16 @@ class FinanceController extends ChangeNotifier {
     items.clear();
     itemStates.clear();
     query = '';
+    typeFilter = null;
+    uncategorized = 0;
     section = FinanceSection.overview;
+    lastImport = null;
+    recon = null;
+    suggestions.clear();
+    suggestionsTotal = 0;
+    suggestionsUnavailable = const [];
+    deciding = null;
+    importState = reconState = suggestionsState = FinanceLoad.idle;
     safe = null;
     guardian = null;
     alerts = const [];

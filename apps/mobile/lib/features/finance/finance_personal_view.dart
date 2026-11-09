@@ -553,11 +553,11 @@ class _LoanRow extends StatelessWidget {
 /// Fixed monthly costs: one total per currency and the list (rent, bills,
 /// subscriptions, installments, debt minimums, regular transfers home),
 /// read only (docs/finance.md#fixed-commitments).
+/// On the phone it sits under the bills list, whose Add bill is the next
+/// step when there are no fixed costs yet.
 class FixedCostsView extends StatelessWidget {
-  const FixedCostsView(
-      {required this.controller, required this.onOpenBills, super.key});
+  const FixedCostsView({required this.controller, super.key});
   final FinancePersonalController controller;
-  final VoidCallback onOpenBills;
 
   @override
   Widget build(BuildContext context) {
@@ -576,8 +576,6 @@ class FixedCostsView extends StatelessWidget {
             title: s.t('fixed.empty'),
             message: s.t('fixed.emptyText'),
             icon: Icons.event_repeat_outlined,
-            action: s.t('fixed.openBills'),
-            onAction: onOpenBills,
           );
         }
         final muted = TextStyle(color: context.palette.muted);
@@ -591,12 +589,15 @@ class FixedCostsView extends StatelessWidget {
                           ? null
                           : s.t('fixed.month', {'month': f.month}),
                       title: s.t('fixed.title')),
-                  for (final total in f.totals)
+                  for (final total in f.totals) ...[
                     AnumRow(
                       icon: Icons.event_repeat_outlined,
                       title: s.t('fixed.total', {'currency': total.currency}),
                       detail: _money(context, total.amount, total.currency),
                     ),
+                    if (f.incomeFor(total.currency) case final share?)
+                      _IncomeShareLine(share: share, strings: s),
+                  ],
                   Text(s.t('fixed.never'), style: muted),
                 ]),
           ),
@@ -636,6 +637,7 @@ class FixedCostsView extends StatelessWidget {
   }
 
   static IconData _kindIcon(String kind) => switch (kind) {
+        'person_loan' => Icons.handshake_outlined,
         'rent' => Icons.home_outlined,
         'subscription' => Icons.subscriptions_outlined,
         'installment' => Icons.view_week_outlined,
@@ -648,6 +650,54 @@ class FixedCostsView extends StatelessWidget {
     final kind = s.maybe('fixed.kind.${item.kind}') ?? item.kind;
     final note = item.note == null ? null : s.maybe('fixed.note.${item.note}');
     return note == null ? kind : '$kind · $note';
+  }
+}
+
+/// Fixed costs as a share of income in one currency, with where the income
+/// figure comes from; says so when there is no income to compare with.
+class _IncomeShareLine extends StatelessWidget {
+  const _IncomeShareLine({required this.share, required this.strings});
+  final IncomeShare share;
+  final FinancePersonalStrings strings;
+
+  @override
+  Widget build(BuildContext context) {
+    final s = strings;
+    final p = context.palette;
+    final percent = share.percent;
+    final monthly = share.monthly;
+    if (percent == null || monthly == null) {
+      return Text(s.t('fixed.noIncome', {'currency': share.currency}),
+          style: TextStyle(color: p.muted));
+    }
+    final from = share.source == null
+        ? null
+        : s.maybe('fixed.shareFrom.${share.source}');
+    return Padding(
+      padding: const EdgeInsets.only(bottom: AnumSpacing.xs),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Text(
+            s.t('fixed.share', {
+              'percent': percent,
+              'income': _money(context, monthly, share.currency),
+            }),
+            style: TextStyle(color: percent > 50 ? p.warn : null)),
+        const SizedBox(height: AnumSpacing.xxs),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(4),
+          child: LinearProgressIndicator(
+              value: (percent / 100).clamp(0.0, 1.0),
+              minHeight: 6,
+              color: percent > 50 ? p.warn : p.violet,
+              backgroundColor: p.surface3,
+              semanticsLabel: s.t('fixed.share', {
+                'percent': percent,
+                'income': _money(context, monthly, share.currency),
+              })),
+        ),
+        if (from != null) Text(from, style: TextStyle(color: p.muted)),
+      ]),
+    );
   }
 }
 
@@ -759,6 +809,9 @@ class _PayoffPlan extends StatelessWidget {
         if (plan.firstWinMonths != null)
           Text(s.t('payoff.firstWin', {'n': plan.firstWinMonths!}),
               style: TextStyle(color: p.muted)),
+        if (plan.fromPeople.isNotEmpty)
+          Text(s.t('payoff.fromPeople', {'list': plan.fromPeople.join(', ')}),
+              style: TextStyle(color: p.muted)),
         if (plan.missingRates.isNotEmpty)
           Text(
               s.t('payoff.missingRates',
@@ -771,7 +824,172 @@ class _PayoffPlan extends StatelessWidget {
   }
 }
 
-/// The address of a web Finance page (`<app URL>#finance-payslips`), or
+// -- Salary ------------------------------------------------------------------------
+
+/// The salary check, compact: this month's expected net against what was
+/// received, a missing or late flag, the next pay day, and a confirm or
+/// reject for a month whose salary was found in the records
+/// (docs/finance.md#salary). The profile and payslips are edited on the web.
+class SalaryCard extends StatelessWidget {
+  const SalaryCard(
+      {required this.controller,
+      required this.appUrl,
+      required this.openLink,
+      super.key});
+  final FinancePersonalController controller;
+  final String appUrl;
+  final MoneyLinkOpener openLink;
+
+  @override
+  Widget build(BuildContext context) {
+    final s = FinancePersonalStrings.of(context);
+    return ListenableBuilder(
+      listenable: controller,
+      builder: (context, _) {
+        final c = controller;
+        final waiting = moneyStateView(context, s, c.salaryState,
+            c.salary != null, c.salaryError, c.loadSalary,
+            loading: s.t('salary.loading'), failed: 'salary.failed');
+        if (waiting != null) return waiting;
+        final p = context.palette;
+        final muted = TextStyle(color: p.muted);
+        final view = c.salary!;
+        final profile = view.profile;
+        final link = financeWebLink(appUrl, 'finance-advisor-salary');
+        final web = link == null
+            ? Text(s.t('salary.onWeb'), style: muted)
+            : Align(
+                alignment: AlignmentDirectional.centerStart,
+                child: TextButton.icon(
+                  onPressed: () async {
+                    final messenger = ScaffoldMessenger.maybeOf(context);
+                    if (!await openLink(link)) {
+                      messenger?.showSnackBar(
+                          SnackBar(content: Text(s.t('pm.linkFailed'))));
+                    }
+                  },
+                  icon: const Icon(Icons.open_in_new),
+                  label: Text(s.t('web.open')),
+                ),
+              );
+        if (profile == null) {
+          return AnumSurface(
+            child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  AnumHeader(title: s.t('salary.none')),
+                  Text(s.t('salary.noneText'), style: muted),
+                  if (link != null) web,
+                ]),
+          );
+        }
+        final month = view.current;
+        final missing = view.months?.missing ?? 0;
+        return AnumSurface(
+          child:
+              Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            AnumHeader(
+              eyebrow: s.t('salary.title'),
+              title: s.t('salary.employer',
+                  {'employer': profile.employer, 'day': profile.payDay}),
+              subtitle: s.t('salary.nextPay',
+                  {'date': recordsDate(context, profile.nextPayOn)}),
+            ),
+            if (month != null) ...[
+              Wrap(
+                spacing: AnumSpacing.xs,
+                runSpacing: AnumSpacing.xxs,
+                crossAxisAlignment: WrapCrossAlignment.center,
+                children: [
+                  Text(s.t('salary.month', {'month': month.month})),
+                  AnumPill(
+                    key: const Key('salary-status'),
+                    label: s.maybe('salary.status.${month.status}') ??
+                        month.status,
+                    tone: switch (month.status) {
+                      'received' => AnumTone.ok,
+                      'missing' => AnumTone.stop,
+                      'late' || 'partial' => AnumTone.warn,
+                      _ => AnumTone.neutral,
+                    },
+                  ),
+                ],
+              ),
+              AnumRow(
+                  icon: Icons.event_available_outlined,
+                  title: s.t('salary.expected'),
+                  detail: _money(context, month.expectedNet, month.currency)),
+              AnumRow(
+                  icon: Icons.south_west,
+                  tone: month.status == 'received' ? AnumTone.ok : null,
+                  title: s.t('salary.received'),
+                  detail: _money(context, month.received, month.currency)),
+            ],
+            if (missing > 0)
+              Text(s.t('salary.missingCount', {'n': missing}),
+                  style: TextStyle(color: p.warn)),
+            for (final waiting in view.waiting)
+              _SalaryQuestion(month: waiting, controller: c, strings: s),
+            web,
+          ]),
+        );
+      },
+    );
+  }
+}
+
+class _SalaryQuestion extends StatelessWidget {
+  const _SalaryQuestion(
+      {required this.month, required this.controller, required this.strings});
+  final SalaryMonth month;
+  final FinancePersonalController controller;
+  final FinancePersonalStrings strings;
+
+  Future<void> _decide(BuildContext context, bool confirm) async {
+    final s = strings;
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    final failed = await controller.decideSalary(month, confirm: confirm);
+    messenger
+      ?..hideCurrentSnackBar()
+      ..showSnackBar(SnackBar(
+          content: Text(failed ??
+              s.t(confirm ? 'salary.confirmed' : 'salary.rejected'))));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final s = strings;
+    final found = month.found!;
+    final busy = controller.decidingSalary != null;
+    return Padding(
+      padding: const EdgeInsets.only(top: AnumSpacing.sm),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        Text(s.t('salary.isThis', {'month': month.month}),
+            style: Theme.of(context).textTheme.titleSmall),
+        Text(found.description, textDirection: TextDirection.ltr),
+        Text(
+            s.t('salary.found', {
+              'amount': _money(context, found.amount, month.currency),
+              'date': recordsDate(context, found.postedOn),
+            }),
+            style: TextStyle(color: context.palette.muted)),
+        const SizedBox(height: AnumSpacing.xs),
+        Wrap(spacing: AnumSpacing.sm, runSpacing: AnumSpacing.xs, children: [
+          FilledButton(
+              key: Key('salary-confirm-${month.month}'),
+              onPressed: busy ? null : () => _decide(context, true),
+              child: Text(s.t('salary.confirm'))),
+          OutlinedButton(
+              key: Key('salary-reject-${month.month}'),
+              onPressed: busy ? null : () => _decide(context, false),
+              child: Text(s.t('salary.reject'))),
+        ]),
+      ]),
+    );
+  }
+}
+
+/// The address of a web Finance page (`<app URL>#finance-advisor-salary`), or
 /// null when this build does not know the web app's address.
 Uri? financeWebLink(String appUrl, String section) {
   final base = appUrl.trim().split('#').first;
@@ -781,7 +999,7 @@ Uri? financeWebLink(String appUrl, String section) {
   return uri.replace(fragment: section);
 }
 
-/// "Payslips and Send home are on the web", a link when the build knows the
+/// "Payslips, the salary profile and Send home are on the web", a link when the build knows the
 /// web app's address (`ANUM_WEB_APP_URL`), else plain text.
 class FinanceWebOnlyLine extends StatelessWidget {
   const FinanceWebOnlyLine(
@@ -793,7 +1011,7 @@ class FinanceWebOnlyLine extends StatelessWidget {
   Widget build(BuildContext context) {
     final s = FinancePersonalStrings.of(context);
     final muted = TextStyle(color: context.palette.muted);
-    final link = financeWebLink(appUrl, 'finance-payslips');
+    final link = financeWebLink(appUrl, 'finance-advisor-salary');
     if (link == null) return Text(s.t('web.onWeb'), style: muted);
     return Align(
       alignment: AlignmentDirectional.centerStart,
