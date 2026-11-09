@@ -2,6 +2,7 @@ import '../../data/api_client.dart';
 import '../../data/api_models.dart';
 import 'finance_models.dart';
 import 'finance_plan_models.dart';
+import 'finance_review_models.dart';
 import 'finance_trading_models.dart';
 
 /// Finance over the live API (docs/finance.md). Every record is the caller's
@@ -15,8 +16,21 @@ abstract interface class FinanceRepository {
       String? last4,
       String openingBalance = '0'});
   Future<void> deleteAccount(String id);
+
+  /// The transactions, newest first. With [type], only rows of that
+  /// transaction type (`uncategorized` for the rows not counted yet).
   Future<TransactionPage> transactions(
-      {String? query, required int offset, int limit = 25});
+      {String? query, required int offset, int limit = 25, String? type});
+
+  /// How many rows no rule recognised: held, counted as neither income nor
+  /// spending until the owner files them.
+  Future<int> uncategorizedCount();
+
+  /// Files a row as [type], under [category] when given (else the server
+  /// files it under that type's usual category). The owner's own choice: a
+  /// rule never changes it afterwards.
+  Future<void> fileTransaction(String id,
+      {required String type, String? category});
   Future<void> createTransaction(
       {required String accountId,
       required String postedOn,
@@ -47,6 +61,21 @@ abstract interface class FinanceRepository {
   Future<void> rejectChange(String id);
   Future<List<FinanceConnection>> connections();
   Future<void> syncConnection(String id);
+
+  /// The newest statement import with its counts, or null when none.
+  Future<ImportRecord?> lastImport();
+
+  /// Connection health per account with the open reconciliation sessions.
+  Future<ReconStatus> reconciliation();
+
+  /// The suggestion queue (docs/finance.md#suggestions), one page.
+  Future<SuggestionQueue> suggestions({required int offset, int limit = 25});
+
+  /// Accepts exactly the suggestion shown, with its payload hash.
+  Future<SuggestionDecision> acceptSuggestion(String key, String payloadHash);
+
+  /// Dismisses a suggestion; it does not come back.
+  Future<void> dismissSuggestion(String key);
 }
 
 class ApiFinanceRepository implements FinanceRepository {
@@ -96,14 +125,37 @@ class ApiFinanceRepository implements FinanceRepository {
 
   @override
   Future<TransactionPage> transactions(
-          {String? query, required int offset, int limit = 25}) async =>
+          {String? query,
+          required int offset,
+          int limit = 25,
+          String? type}) async =>
+      // A type filter reads the register, which filters by type on the
+      // server; its rows carry every transaction field.
       TransactionPage.fromJson(JsonReader.of(await api.request(
           'GET',
-          '$base/transactions${_q({
+          '$base/${type == null ? 'transactions' : 'register'}${_q({
                 'q': query,
+                'type': type,
                 'offset': '$offset',
                 'limit': '$limit'
               })}')));
+
+  @override
+  Future<int> uncategorizedCount() async =>
+      JsonReader.of(await api.request(
+              'GET', '$base/register?type=uncategorized&limit=1'))
+          .optInt('total') ??
+      0;
+
+  @override
+  Future<void> fileTransaction(String id,
+      {required String type, String? category}) async {
+    await api.request('PATCH', '$base/transactions/${Uri.encodeComponent(id)}',
+        body: {
+          'transaction_type': type,
+          if (category != null) 'category': category,
+        });
+  }
 
   @override
   Future<void> createTransaction(
@@ -188,6 +240,43 @@ class ApiFinanceRepository implements FinanceRepository {
   Future<void> syncConnection(String id) async {
     await api.request(
         'POST', '$base/connections/${Uri.encodeComponent(id)}/sync');
+  }
+
+  @override
+  Future<ImportRecord?> lastImport() async =>
+      JsonReader.of(await api.request('GET', '$base/imports?limit=1'))
+          .optObjects('items', ImportRecord.fromJson)
+          .firstOrNull;
+
+  @override
+  Future<ReconStatus> reconciliation() async {
+    final found = await Future.wait([
+      api.request('GET', '$base/reconciliations/health'),
+      api.request('GET', '$base/reconciliations?state=open&limit=50'),
+    ]);
+    return ReconStatus(
+      accounts:
+          JsonReader.of(found[0]).optObjects('accounts', ReconHealth.fromJson),
+      open: JsonReader.of(found[1]).optObjects('items', ReconSession.fromJson),
+    );
+  }
+
+  @override
+  Future<SuggestionQueue> suggestions(
+          {required int offset, int limit = 25}) async =>
+      SuggestionQueue.fromJson(JsonReader.of(await api.request(
+          'GET', '$base/suggestions?limit=$limit&offset=$offset')));
+
+  @override
+  Future<SuggestionDecision> acceptSuggestion(
+          String key, String payloadHash) async =>
+      SuggestionDecision.fromJson(JsonReader.of(await api.request(
+          'POST', '$base/suggestions/accept',
+          body: {'key': key, 'payload_hash': payloadHash})));
+
+  @override
+  Future<void> dismissSuggestion(String key) async {
+    await api.request('POST', '$base/suggestions/reject', body: {'key': key});
   }
 
   @override

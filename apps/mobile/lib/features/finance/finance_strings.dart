@@ -11,8 +11,11 @@ class FinanceStrings {
   static FinanceStrings of(BuildContext context) =>
       FinanceStrings(AnumLocalizations.maybeOf(context).isArabic);
 
+  /// The text for [key], or null when neither catalog has it.
+  String? maybe(String key) => (arabic ? _ar : _en)[key] ?? _en[key];
+
   String t(String key, [Map<String, Object> values = const {}]) {
-    var text = (arabic ? _ar : _en)[key] ?? _en[key] ?? key;
+    var text = maybe(key) ?? key;
     values
         .forEach((name, value) => text = text.replaceAll('{$name}', '$value'));
     return text;
@@ -93,9 +96,8 @@ class FinanceStrings {
     'readOnly': 'Read only: ANUM never pays, transfers or trades from here.',
     'section.overview': 'Overview',
     'section.planner': 'Money planner',
-    'section.fixed': 'Fixed costs',
-    'section.people': 'Lent and borrowed',
     'section.transactions': 'Transactions',
+    'section.suggestions': 'Suggestions',
     'section.accounts': 'Accounts',
     'section.bills': 'Bills',
     'section.debts': 'Debts',
@@ -224,6 +226,9 @@ class FinanceStrings {
         'Due on day {day}: a payment is matched this month, so paid',
     'safe.note.minimum_overdue':
         'Overdue since {date}: no payment matched yet, so counted',
+    'safe.nextPay': 'Next pay day {date}, in {n} day(s): {amount} expected',
+    'safe.overdue':
+        'Minimum payments overdue: {n}. Still counted until a payment is matched.',
     'safe.note.goal_set': 'The monthly amount you set',
     'safe.note.goal_derived': '{left} left over {n} month(s)',
     'safe.note.goal_no_plan': 'No monthly amount or target date',
@@ -360,9 +365,8 @@ class FinanceStrings {
     'readOnly': 'للقراءة فقط: لا يدفع ANUM ولا يحوّل ولا يتداول من هنا أبدًا.',
     'section.overview': 'نظرة عامة',
     'section.planner': 'مخطط المال',
-    'section.fixed': 'التكاليف الثابتة',
-    'section.people': 'الإقراض والاقتراض',
     'section.transactions': 'المعاملات',
+    'section.suggestions': 'الاقتراحات',
     'section.accounts': 'الحسابات',
     'section.bills': 'الفواتير',
     'section.debts': 'الديون',
@@ -488,6 +492,8 @@ class FinanceStrings {
         'مستحقة في اليوم {day}: طوبقت معها دفعة هذا الشهر، فهي مدفوعة',
     'safe.note.minimum_overdue':
         'متأخرة منذ {date}: لم تُطابق دفعة بعد، لذا ما زالت محسوبة',
+    'safe.nextPay': 'يوم الصرف التالي {date}، بعد {n} يوم: {amount} متوقع',
+    'safe.overdue': 'دفعات حد أدنى متأخرة: {n}. تبقى محسوبة حتى تُطابق دفعة.',
     'safe.note.goal_set': 'المبلغ الشهري الذي حددته',
     'safe.note.goal_derived': 'بقي {left}، عدد الأشهر {n}',
     'safe.note.goal_no_plan': 'لا مبلغ شهري ولا تاريخ مستهدف',

@@ -7,8 +7,11 @@ import 'finance_controller.dart';
 import 'finance_intel_view.dart';
 import '../admin/admin_models.dart' show configuredWebAppUrl;
 import 'finance_models.dart';
+import 'finance_personal_strings.dart';
 import 'finance_personal_view.dart';
 import 'finance_plan_models.dart';
+import 'finance_review_strings.dart';
+import 'finance_review_view.dart';
 import 'finance_strings.dart';
 import 'finance_trading_models.dart';
 
@@ -101,22 +104,32 @@ class _FinanceScreenState extends State<FinanceScreen> {
           if (c.personal != null)
             MoneyPlannerView(controller: c.personal!, openLink: widget.openLink)
         ],
-      FinanceSection.people => [
-          if (c.personal != null) PeopleLoansView(controller: c.personal!)
-        ],
-      FinanceSection.fixed => [
-          if (c.personal != null)
-            FixedCostsView(
-                controller: c.personal!,
-                onOpenBills: () => c.select(FinanceSection.bills))
-        ],
       FinanceSection.debts => [
           if (c.personal != null) DebtPayoffCard(controller: c.personal!),
           ..._items(context, c, s, 'debts'),
+          if (c.personal != null) ...[
+            Builder(builder: (context) {
+              final ps = FinancePersonalStrings.of(context);
+              return AnumHeader(
+                  title: ps.t('debts.people'),
+                  subtitle: ps.t('debts.peopleText'));
+            }),
+            PeopleLoansView(controller: c.personal!),
+          ],
         ],
       FinanceSection.transactions => _transactions(context, c, s),
+      FinanceSection.suggestions => [
+          SuggestionsView(
+              controller: c,
+              appUrl: widget.webAppUrl,
+              openLink: widget.openLink,
+              onOpenTransactions: () => c.select(FinanceSection.transactions))
+        ],
       FinanceSection.accounts => _accounts(context, c, s),
-      FinanceSection.bills => _items(context, c, s, 'bills'),
+      FinanceSection.bills => [
+          ..._items(context, c, s, 'bills'),
+          if (c.personal != null) FixedCostsView(controller: c.personal!),
+        ],
       FinanceSection.goals => _items(context, c, s, 'goals'),
       FinanceSection.safe => _safe(context, c, s),
       FinanceSection.guardian => _guardian(context, c, s),
@@ -380,6 +393,12 @@ class _FinanceScreenState extends State<FinanceScreen> {
         _state(c.safeState, c.safe != null, c.safeError, c.loadSafe, s);
     if (waiting != null) return waiting;
     final d = c.safe!;
+    final salary = c.personal == null
+        ? null
+        : SalaryCard(
+            controller: c.personal!,
+            appUrl: widget.webAppUrl,
+            openLink: widget.openLink);
     if (d.currencies.isEmpty) {
       return [
         AnumEmpty(
@@ -388,6 +407,7 @@ class _FinanceScreenState extends State<FinanceScreen> {
             icon: Icons.account_balance_outlined,
             action: s.t('addAccount'),
             onAction: () => _addAccount(context, c, s)),
+        if (salary != null) salary,
       ];
     }
     return [
@@ -412,6 +432,22 @@ class _FinanceScreenState extends State<FinanceScreen> {
                         'amount': formatAmount(row.perDay, row.currency),
                         'n': d.daysLeft
                       })),
+            if (row.nextPayOn != null)
+              AnumRow(
+                  key: Key('safe-payday-${row.currency}'),
+                  icon: Icons.event_available_outlined,
+                  title: s.t('safe.nextPay', {
+                    'date': row.nextPayOn!,
+                    'n': row.daysToPayday ?? 0,
+                    'amount':
+                        formatAmount(row.expectedPay ?? '0', row.currency),
+                  })),
+            if (row.overdueMinimums.isNotEmpty)
+              AnumRow(
+                  icon: Icons.warning_amber_outlined,
+                  tone: AnumTone.stop,
+                  title:
+                      s.t('safe.overdue', {'n': row.overdueMinimums.length})),
             AnumHeader(title: s.t('safe.howBuilt')),
             for (final line in row.lines)
               AnumRow(
@@ -420,7 +456,11 @@ class _FinanceScreenState extends State<FinanceScreen> {
                   subtitle:
                       '${s.t('safe.group.${line.kind}')} · ${_safeNote(line, s)}',
                   detail: formatAmount(line.amount, line.currency),
-                  tone: line.amount.startsWith('-') ? null : AnumTone.ok),
+                  tone: line.note == 'minimum_overdue'
+                      ? AnumTone.stop
+                      : line.amount.startsWith('-')
+                          ? null
+                          : AnumTone.ok),
           ]),
         ),
       if (d.combined != null)
@@ -437,6 +477,7 @@ class _FinanceScreenState extends State<FinanceScreen> {
               AnumRow(title: line.label, subtitle: _safeNote(line, s)),
           ]),
         ),
+      if (salary != null) salary,
       Text(s.t('safe.disclaimer'),
           style: TextStyle(color: context.palette.muted)),
     ];
@@ -572,11 +613,12 @@ class _FinanceScreenState extends State<FinanceScreen> {
       BuildContext context, FinanceController c, FinanceStrings s) {
     final waiting = _state(c.connectionsState, c.connections.isNotEmpty,
         c.connectionsError, c.loadConnections, s);
-    if (waiting != null) return waiting;
     return [
       Text(s.t('connections.intro'),
           style: TextStyle(color: context.palette.muted)),
-      if (c.connections.isEmpty)
+      if (waiting != null)
+        ...waiting
+      else if (c.connections.isEmpty)
         AnumEmpty(
             title: s.t('connections.none'),
             message: s.t('connections.connectOnWeb'),
@@ -609,6 +651,10 @@ class _FinanceScreenState extends State<FinanceScreen> {
               ),
           ]),
         ),
+      LastImportCard(
+          controller: c, appUrl: widget.webAppUrl, openLink: widget.openLink),
+      ReconciliationCard(
+          controller: c, appUrl: widget.webAppUrl, openLink: widget.openLink),
     ];
   }
 
@@ -779,38 +825,82 @@ class _FinanceScreenState extends State<FinanceScreen> {
             onRetry: c.loadTransactions),
       ];
     }
+    final rs = FinanceReviewStrings.of(context);
+    final notice = UncategorizedNotice(controller: c);
     if (c.transactions.isEmpty) {
       return [
         search,
         add,
-        c.query.isEmpty
-            ? AnumEmpty(
-                title: s.t('noTransactions'),
-                message: s.t('noTransactionsText'),
-                icon: Icons.receipt_long_outlined)
-            : AnumEmpty(title: s.t('noMatch'), message: c.query),
+        notice,
+        if (c.typeFilter != null)
+          AnumEmpty(
+              title: rs.t('tx.noneLeft'),
+              message: rs.t('tx.noneLeftText'),
+              icon: Icons.task_alt,
+              action: rs.t('tx.showAll'),
+              onAction: () => c.showUncategorized(false))
+        else if (c.query.isEmpty)
+          AnumEmpty(
+              title: s.t('noTransactions'),
+              message: s.t('noTransactionsText'),
+              icon: Icons.receipt_long_outlined)
+        else
+          AnumEmpty(title: s.t('noMatch'), message: c.query),
       ];
     }
     return [
       search,
       add,
+      notice,
       AnumSurface(
         padding: const EdgeInsets.symmetric(vertical: AnumSpacing.xs),
         child: Column(children: [
           for (final t in c.transactions)
-            AnumRow(
-              title: t.description,
-              subtitle: '${t.postedOn} · ${s.t('category.${t.category}')}',
-              detail: formatAmount(t.amount, t.currency),
-              icon: t.moneyIn ? Icons.south_west : Icons.north_east,
-              tone: t.moneyIn ? AnumTone.ok : null,
-              trailing: IconButton(
-                tooltip: '${s.t('delete')} ${t.description}',
-                icon: const Icon(Icons.delete_outline),
-                onPressed: () => _confirmDelete(
-                    context, s, t.description, () => c.deleteTransaction(t.id)),
-              ),
-            ),
+            Column(
+                key: Key('tx-${t.id}'),
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  AnumRow(
+                    title: t.description,
+                    subtitle: [
+                      t.postedOn,
+                      s.t('category.${t.category}'),
+                      if (typeLabel(rs, t.transactionType) case final type?)
+                        type,
+                    ].join(' · '),
+                    detail: formatAmount(t.amount, t.currency),
+                    icon: t.uncategorized
+                        ? Icons.help_outline
+                        : t.moneyIn
+                            ? Icons.south_west
+                            : Icons.north_east,
+                    tone: t.uncategorized
+                        ? AnumTone.warn
+                        : t.moneyIn
+                            ? AnumTone.ok
+                            : null,
+                    trailing: IconButton(
+                      tooltip: '${s.t('delete')} ${t.description}',
+                      icon: const Icon(Icons.delete_outline),
+                      onPressed: () => _confirmDelete(context, s, t.description,
+                          () => c.deleteTransaction(t.id)),
+                    ),
+                  ),
+                  if (t.uncategorized)
+                    Align(
+                      alignment: AlignmentDirectional.centerStart,
+                      child: Padding(
+                        padding: const EdgeInsetsDirectional.only(
+                            start: AnumSpacing.md, bottom: AnumSpacing.xs),
+                        child: TextButton.icon(
+                          key: Key('tx-file-${t.id}'),
+                          onPressed: () => fileTransaction(context, c, t),
+                          icon: const Icon(Icons.label_outline),
+                          label: Text(rs.t('tx.file')),
+                        ),
+                      ),
+                    ),
+                ]),
         ]),
       ),
       if (c.hasMoreTransactions)

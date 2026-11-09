@@ -189,10 +189,21 @@ class FinanceTransaction {
       required this.currency,
       required this.description,
       required this.category,
-      this.notes});
+      this.notes,
+      this.transactionType,
+      this.typeSource});
   final String id, accountId, postedOn, amount, currency, description, category;
   final String? notes;
+
+  /// What the row is (docs/finance.md#transaction-types), separate from its
+  /// category; older API releases leave it out. `uncategorized`: no rule
+  /// recognised it, so it counts as neither income nor spending.
+  final String? transactionType;
+
+  /// rule, owner, system, sms or match.
+  final String? typeSource;
   bool get moneyIn => !amount.startsWith('-') && amount != '0.00';
+  bool get uncategorized => transactionType == 'uncategorized';
 
   factory FinanceTransaction.fromJson(JsonReader r) => FinanceTransaction(
         id: r.string('id'),
@@ -203,6 +214,8 @@ class FinanceTransaction {
         description: r.string('description'),
         category: r.string('category'),
         notes: r.optString('notes'),
+        transactionType: r.optString('transaction_type'),
+        typeSource: r.optString('type_source'),
       );
 }
 
