@@ -415,7 +415,11 @@ def test_planning_arguments_come_from_the_users_words() -> None:
 def test_buying_or_sending_is_never_a_finance_tool(prompt: str) -> None:
     assert plan_call(prompt) is None
     skills = [s for s in default_skill_registry().manifests() if s.id in {"anum.finance", "anum.external-action"}]
-    assert choose_tool_call(prompt, skills, "planned", main.tool_registry.names).name == "external.action"
+    call = choose_tool_call(prompt, skills, "planned", main.tool_registry.names)
+    # Never a finance tool: either the approval-gated external action, or, for buying with no site named,
+    # the question asking which site to use in the Action browser (docs/action-browser.md#how-it-is-used).
+    assert not call.name.startswith("finance.")
+    assert call.name == "external.action" or (call.name == "anum.respond" and call.arguments["errand"] is True)
 
 
 def test_planning_tools_are_read_only_and_say_advice_only(web_search: FakeSearch) -> None:
