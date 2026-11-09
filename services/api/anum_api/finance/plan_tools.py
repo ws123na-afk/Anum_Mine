@@ -348,8 +348,24 @@ _CURRENCY = re.compile(r"\b(AED|SAR|USD|EUR|GBP|INR|PKR|PHP|EGP|QAR|KWD|OMR|BHD)
 _NUMBER = re.compile(r"(?<![\w.,])(\d{1,3}(?:,\d{3}){1,4}|\d{1,12})(?:\.(\d{1,3}))?[ \t]{0,3}(k|thousand|ألف|الف)?(?![\w])", re.IGNORECASE)
 _RATE = re.compile(r"(?<![\d.])(\d{1,2}(?:\.\d{1,2})?)[ \t]{0,3}(?:%|percent|بالمئة|٪)", re.IGNORECASE)
 _MONTHS = re.compile(r"(?<!\d)(\d{1,3})[ \t]{0,3}(months?|years?|شهر|شهرا|أشهر|اشهر|سنة|سنوات)", re.IGNORECASE)
-_MONTHLY = re.compile(r"(?<![\d,.])(\d{1,3}(?:,\d{3}){1,4}(?:\.\d{1,3})?|\d{1,12}(?:\.\d{1,3})?)[ \t]{0,3}(?:(?:a|per)[ \t]{1,3}month\b|شهريا|في الشهر)", re.IGNORECASE)
-_DOWN = re.compile(r"(?<![\d,.])(\d{1,3}(?:,\d{3}){1,4}(?:\.\d{1,3})?|\d{1,12}(?:\.\d{1,3})?)[ \t]{0,3}(?:down|deposit|دفعة أولى|مقدم)", re.IGNORECASE)
+# "2,500 a month" and "5000 down" are read word by word, not with a pattern: a number, then the phrase.
+_NUMBER_WORD = re.compile(r"\d{1,3}(?:,\d{3}){1,4}(?:\.\d{1,3})?|\d{1,12}(?:\.\d{1,3})?")
+_MONTHLY_PHRASES = (("a", "month"), ("per", "month"), ("شهريا",), ("في", "الشهر"))
+_DOWN_PHRASES = (("down",), ("deposit",), ("دفعة", "أولى"), ("مقدم",))
+_WORD_PUNCTUATION = ".,;:!?،؟"
+
+
+def _amount_before(words: list[str], phrases: tuple[tuple[str, ...], ...]) -> tuple[str, range] | None:
+    """The number written right before one of the phrases, and the words it spans, or None."""
+    folded = [w.lower().strip(_WORD_PUNCTUATION) for w in words]
+    for i in range(1, len(words)):
+        for phrase in phrases:
+            if tuple(folded[i : i + len(phrase)]) != phrase:
+                continue
+            number = words[i - 1].rstrip(_WORD_PUNCTUATION)
+            if _NUMBER_WORD.fullmatch(number):
+                return number.replace(",", ""), range(i - 1, i + len(phrase))
+    return None
 
 AFFORD = re.compile(
     r"\bcan i afford\b|\bcould i afford\b|\bshould i (?:buy|get|purchase)\b|\bafford (?:a|an|the|to)\b"
@@ -392,14 +408,16 @@ def _amounts(text: str) -> list[Decimal]:
 def plan_call(text: str) -> ToolCall | None:
     """A planning question in the user's own words, or None. Never an action: "buy it for me" is not ours."""
     # A question is short; reading at most MAX_QUESTION characters keeps every pattern below linear in practice.
-    text = text[:MAX_QUESTION]
+    text = " ".join(text[:MAX_QUESTION].split())
+    words = text.split(" ")
+    monthly = _amount_before(words, _MONTHLY_PHRASES)
+    down = _amount_before(words, _DOWN_PHRASES)
     currency = _CURRENCY.search(text)
     cur = {"currency": currency.group(1).upper()} if currency else {}
     if PAYOFF.search(text):
-        payment = _MONTHLY.search(text)
         args: dict[str, Any] = {**cur}
-        if payment:
-            args["payment"] = payment.group(1).replace(",", "")
+        if monthly is not None:
+            args["payment"] = monthly[0]
         return ToolCall(name="finance.plan.debt_order", arguments=args)
     if SEND_HOME.search(text):
         args = {**cur}
@@ -407,7 +425,8 @@ def plan_call(text: str) -> ToolCall | None:
         if amounts:
             args["amount"] = str(amounts[0])
         return ToolCall(name="finance.plan.send_home", arguments=args)
-    stripped = _MONTHS.sub(" ", _RATE.sub(" ", _DOWN.sub(" ", _MONTHLY.sub(" ", text))))
+    taken = {i for found in (monthly, down) if found is not None for i in found[1]}
+    stripped = _MONTHS.sub(" ", _RATE.sub(" ", " ".join(w for i, w in enumerate(words) if i not in taken)))
     amounts = [a for a in _amounts(stripped) if a > 0]
     if COMPARE.search(text):
         args = {**cur}
@@ -418,8 +437,8 @@ def plan_call(text: str) -> ToolCall | None:
         if (months := _MONTHS.search(text)) is not None:
             n = int(months.group(1))
             args["months"] = max(1, min(360, n * 12 if months.group(2).lower().startswith(("year", "سن")) else n))
-        if (down := _DOWN.search(text)) is not None:
-            args["down_payment"] = down.group(1).replace(",", "")
+        if down is not None:
+            args["down_payment"] = down[0]
         if re.search(r"\bflat\b|ثابت", text, re.IGNORECASE):
             args["basis"] = "flat"
         if re.search(r"installments?|تقسيط|أقساط|اقساط|tamara|tabby|تمارا|تابي", text, re.IGNORECASE):
@@ -431,8 +450,8 @@ def plan_call(text: str) -> ToolCall | None:
         args = {**cur}
         if amounts:
             args["price"] = str(amounts[0])
-        if (monthly := _MONTHLY.search(text)) is not None:
-            args["monthly_cost"] = monthly.group(1).replace(",", "")
+        if monthly is not None:
+            args["monthly_cost"] = monthly[0]
         if (item := _ITEM.search(text)) is not None:
             args["item"] = item.group(1).strip()
         return ToolCall(name="finance.plan.afford", arguments=args)
