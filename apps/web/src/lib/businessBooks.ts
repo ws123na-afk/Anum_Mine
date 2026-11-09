@@ -10,10 +10,10 @@ import { t, type MessageKey } from './i18n.ts';
 import type { Tone } from './business.ts';
 
 export type BooksTab = 'overview' | 'group' | 'bills' | 'recurring' | 'vendors' | 'allocations' | 'budgets' | 'journal' | 'ledger' | 'statements' | 'accounts'
-  | 'close' | 'tax' | 'intercompany' | 'settings';
+  | 'close' | 'tax' | 'assets' | 'loans' | 'revaluation' | 'intercompany' | 'settings';
 /** ``journal`` is the adjustments; ``ledger``, ``statements``, ``accounts`` and ``close`` are the double-entry journal (docs/business-books.md#the-journal). */
 export const BOOKS_TABS: readonly BooksTab[] = ['overview', 'group', 'bills', 'recurring', 'vendors', 'allocations', 'budgets', 'journal', 'ledger', 'statements', 'accounts',
-  'close', 'tax', 'intercompany', 'settings'];
+  'close', 'tax', 'assets', 'loans', 'revaluation', 'intercompany', 'settings'];
 /** Sections only owners see in the navigation (the API refuses everyone else anyway). */
 export const OWNER_TABS: readonly BooksTab[] = ['group'];
 export const BOOKS_PAGE = 25;

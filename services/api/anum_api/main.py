@@ -306,6 +306,7 @@ from .business.api_books import router as business_books_router  # docs/business
 from .business.api_books_more import router as business_books_more_router  # docs/business-books.md (consolidated, recurring, ECB rates)
 from .business.api_ledger import router as business_ledger_router  # docs/business-books.md#the-journal (journal, statements, close)
 from .business.api_tax import router as business_tax_router  # docs/business-tax.md (VAT settings, return, ZATCA readiness)
+from .business.api_assets import router as business_assets_router  # docs/business-books.md (fixed assets, loans, revaluation, group balance sheet)
 
 # Fail fast: header mode and anum_local_* sessions must never serve a non-local environment.
 validate_auth_configuration(settings)
@@ -642,6 +643,7 @@ app.include_router(business_books_router)
 app.include_router(business_books_more_router)
 app.include_router(business_ledger_router)
 app.include_router(business_tax_router)
+app.include_router(business_assets_router)
 repository = memory_repository
 model_gateway = build_default_model_gateway()
 integration_registry = default_integration_registry(settings)

@@ -1,4 +1,5 @@
 import type { Page, Route } from '@playwright/test';
+import { groupBalanceSheet } from './businessAssetsApi';
 import { mockBusiness } from './businessApi';
 
 // A stateful mock of /api/v1/business/books (docs/business-books.md#api) for the Books tab specs and the UI gates.
@@ -443,6 +444,10 @@ export function booksReply(state: BooksState, method: string, url: URL, body: Js
   const budgetMatch = path.match(/^\/budgets\/([^/]+)$/);
   if (budgetMatch && method === 'DELETE') { state.budgets = state.budgets.filter((b) => b.id !== budgetMatch[1]); return { status: 204, body: null }; }
   if (budgetMatch && method === 'PATCH') { const budget = state.budgets.find((b) => b.id === budgetMatch[1]); Object.assign(budget ?? {}, body); return ok(budget); }
+  if (path === '/group/balance-sheet' && method === 'GET') {
+    if (!owner) return refuse(403, 'forbidden', 'Only workspace owners can do this (settings, exchange rates, adjustments, voiding and intercompany entries).');
+    return ok(state.group === 'one' ? { enough: false, as_of: '2026-11-09', skipped: [], available: [] } : groupBalanceSheet());
+  }
   if (path === '/group' && method === 'GET') {
     if (!owner) return refuse(403, 'forbidden', 'Only workspace owners can do this (settings, exchange rates, adjustments, voiding and intercompany entries).');
     if (state.group === 'fail') { state.group = 'two'; return refuse(500, 'error', 'The combined books could not be read.'); }

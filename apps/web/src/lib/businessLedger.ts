@@ -43,6 +43,8 @@ export const STANDARD_NAMES: Record<string, string> = {
   current_result: 'Current year result', revenue_service: 'Revenue: services', revenue_labor: 'Revenue: labour', revenue_external_cost: 'Revenue: passed-on costs',
   revenue_other: 'Revenue: other', other_income: 'Other income', credit_notes: 'Credit notes', cost_of_sales: 'Cost of sales', operating: 'Operating expenses',
   depreciation: 'Depreciation', fx: 'Exchange gains and losses', finance_costs: 'Finance costs and interest',
+  disposal_gain: 'Gains on disposal of assets', impairment: 'Impairment losses', disposal_loss: 'Losses on disposal of assets',
+  fx_unrealised: 'Unrealised exchange gains and losses',
 };
 
 /** Why an account form cannot be sent, or null. */
@@ -144,6 +146,7 @@ export function balanceRows(sheet: LedgerBalanceSheet): StatementRow[] {
 /** What a posting issue says, in words. */
 export function issueText(issue: LedgerIssue): string {
   if (issue.reason === 'missing_rate') return t('ledger.issue.missingRate', { currency: issue.currency ?? '-', day: issue.rate_date ?? issue.event_date });
+  if (issue.reason === 'missing_closing_rate') return t('ledger.issue.missingClosingRate', { currency: issue.currency ?? '-', day: issue.rate_date ?? issue.event_date });
   return t('ledger.issue.tooSmall');
 }
 
@@ -156,6 +159,9 @@ export function sourceHash(kind: LedgerSourceKind, sourceId: string | null): str
   if (kind === 'allocation') return 'business-books/allocations';
   if (kind === 'invoice') return `business-invoices/${encodeURIComponent(sourceId)}`;
   if (kind === 'invoice_payment' || kind === 'credit_note') return 'business-invoices';
+  if (kind === 'asset') return 'business-books/assets';
+  if (kind === 'loan' || kind === 'loan_repayment') return 'business-books/loans';
+  if (kind === 'revaluation') return 'business-books/revaluation';
   return null;
 }
 

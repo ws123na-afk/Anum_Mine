@@ -225,7 +225,8 @@ def list_issues(limit: int = Query(default=25, ge=1, le=MAX_PAGE), offset: int =
 # -- the journal ---------------------------------------------------------------------------------------------------------
 
 
-SOURCE_KINDS = ("invoice", "credit_note", "invoice_payment", "bill", "bill_payment", "allocation", "adjustment", "intercompany", "manual", "closing")
+SOURCE_KINDS = ("invoice", "credit_note", "invoice_payment", "bill", "bill_payment", "allocation", "adjustment", "intercompany", "manual", "closing",
+                "asset", "loan", "loan_repayment", "revaluation")
 
 
 @router.get("/ledger/journal")
@@ -398,11 +399,15 @@ def policies(settings: Any, ecb: bool) -> list[dict[str, str]]:
         {"key": "rates", "text": ("Other currencies are converted at the rate of the transaction's day (IAS 21), recorded by an owner with its source"
                                   + (" or fetched from the European Central Bank" if ecb else "")
                                   + f", at most {settings.rate_max_age_days} days old. Without a rate an item is not posted."
-                                  " Settlements book the difference to exchange gains and losses; balances are not revalued at the period end.")},
+                                  " Settlements book the difference to exchange gains and losses. At each month end a close covers, monetary"
+                                  " balances in other currencies are revalued at the closing rate; the unrealised difference is reversed the next day.")},
         {"key": "financial_year", "text": f"The financial year starts in {months[settings.fiscal_year_start_month - 1]}."
                                           " At its end the result is closed to retained earnings."},
-        {"key": "depreciation", "text": "Capital items are depreciated straight line over their useful life in months, from the month of purchase,"
-                                        " at the rate of the purchase day."},
+        {"key": "depreciation", "text": "Fixed assets are depreciated monthly over their useful life, straight line or reducing balance as set in the"
+                                        " fixed asset register, down to their residual value, at the rate of the purchase day. Impairments are"
+                                        " approved by a second person; a disposal posts its gain or loss."},
+        {"key": "loans", "text": "Loan repayments are split into interest and principal from the loan schedule; interest accrued and unpaid at a"
+                                 " month end is a finance cost of that month."},
         {"key": "revenue", "text": "Revenue is recognised when an invoice is issued; credit notes reduce it."},
     ]
     if getattr(settings, "policy_note", ""):

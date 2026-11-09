@@ -30,7 +30,7 @@ CURRENT_LIABILITIES = ("payable", "tax_payable", "accrual", "interest_payable", 
 NON_CURRENT_LIABILITIES = ("loan",)
 EQUITY = ("capital", "drawings", "retained_earnings", "current_result")
 OPERATING_FLOWS = ("customers_paid", "suppliers_paid", "members_reimbursed", "interest_paid", "intercompany_in", "intercompany_out", "other")
-INVESTING_FLOWS = ("capital_spend", "intercompany_lent")
+INVESTING_FLOWS = ("capital_spend", "asset_sales", "intercompany_lent")
 FINANCING_FLOWS = ("loans_received", "loans_repaid", "owner_contributions", "owner_drawings", "intercompany_borrowed")
 
 
@@ -248,17 +248,21 @@ def cash_flow(opening: dict[str, Decimal], closing: dict[str, Decimal], movement
             "base": {key: s(value, base) for key, value in base_totals.items()}}
 
 
-def reconciliation(journal: dict[str, Any], derived: dict[str, Any], base: str) -> dict[str, Any]:
-    """The journal's P&L next to the P&L derived from the records for the same days, accrual basis, with the difference per line."""
+def reconciliation(journal: dict[str, Any], derived: dict[str, Any], base: str, unrealised: Decimal = ZERO) -> dict[str, Any]:
+    """The journal's P&L next to the P&L derived from the records for the same days, accrual basis, with the difference per line.
+    Unrealised exchange differences of the period-end revaluation exist only in the journal: they are shown as their own,
+    explained line and left out of the comparison of exchange differences and net profit."""
     rows = []
     for key, group in (("revenue", "revenue"), ("cost_of_sales", "cost_of_sales"), ("operating_expenses", "operating_expenses"),
                        ("other_income", "other_income"), ("finance_costs", "finance_costs")):
         mine, theirs = Decimal(journal[key]["total"]), Decimal(derived[group]["total"])
         rows.append({"key": key, "journal": s(mine, base), "derived": s(theirs, base), "difference": s(mine - theirs, base)})
     for key in ("fx_differences", "net_profit"):
-        mine, theirs = Decimal(journal[key]), Decimal(derived[key])
+        mine, theirs = Decimal(journal[key]) - unrealised, Decimal(derived[key])
         rows.append({"key": key, "journal": s(mine, base), "derived": s(theirs, base), "difference": s(mine - theirs, base)})
-    return {"rows": rows, "agrees": all(Decimal(row["difference"]) == 0 for row in rows)}
+    if unrealised:
+        rows.append({"key": "unrealised_fx", "journal": s(unrealised, base), "derived": s(ZERO, base), "difference": s(unrealised, base), "explained": True})
+    return {"rows": rows, "agrees": all(Decimal(row["difference"]) == 0 for row in rows if not row.get("explained"))}
 
 
 def comparative_periods(start: date, end: date) -> dict[str, tuple[date, date]]:

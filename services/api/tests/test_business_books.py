@@ -649,6 +649,26 @@ def test_every_state_changing_books_route_is_audited_without_amounts_or_text() -
     call("DELETE", f"/tax/rates/{future['id']}")
     invoice = seed_invoice(subtotal="100", tax="15")
     call("POST", "/tax/zatca/generate", json={"source_id": invoice.id})
+    # The fixed asset register, loan schedules and the period-end revaluation (docs/business-books.md#fixed-asset-register).
+    call("POST", "/accountants", json={"user_id": "member_books"})
+    capital = call("POST", "/bills", json={"vendor_id": seller["id"], "description": secret, "bill_date": today().isoformat(), "currency": "SAR",
+                                           "subtotal": "1200", "tax": "0", "category": "equipment", "section": "capital", "useful_life_months": 24}).json()
+    asset = next(item for item in client.get(f"{API}/assets", headers=OWNER).json()["items"] if item["source_id"] == capital["id"])
+    asset = call("PATCH", f"/assets/{asset['id']}", json={"name": "Synthetic laptop", "category": "equipment", "useful_life_months": 36,
+                                                          "residual_value": "0", "method": "straight_line",
+                                                          "depreciation_start": today().replace(day=1).isoformat(), "version": asset["version"]}).json()
+    first = call("POST", f"/assets/{asset['id']}/impairments", json={"entry_date": today().isoformat(), "amount": "10", "reason": secret}).json()
+    call("POST", f"/assets/{asset['id']}/impairments/{first['id']}/approve", MEMBER, json={"version": first["version"]})
+    second = call("POST", f"/assets/{asset['id']}/impairments", json={"entry_date": today().isoformat(), "amount": "10", "reason": secret}).json()
+    call("POST", f"/assets/{asset['id']}/impairments/{second['id']}/reject", MEMBER, json={"version": second["version"]})
+    asset = client.get(f"{API}/assets/{asset['id']}", headers=OWNER).json()
+    call("POST", f"/assets/{asset['id']}/dispose", json={"disposed_on": today().isoformat(), "kind": "write_off", "version": asset["version"]})
+    loan = call("POST", "/loans", json={"lender": secret, "principal": "1000", "currency": "SAR", "annual_rate": "6", "start_date": today().isoformat(),
+                                        "term_months": 12}).json()
+    repaid = call("POST", f"/loans/{loan['id']}/repayments", json={"paid_on": today().isoformat(), "amount": "100"}).json()
+    call("POST", f"/loans/{loan['id']}/repayments/{repaid['id']}/void", json={"reason": secret})
+    call("POST", f"/loans/{loan['id']}/void", json={"reason": secret})
+    call("POST", "/ledger/revaluation", json={"period_end": last_month.isoformat()})
     probe.assert_covered()
 
 

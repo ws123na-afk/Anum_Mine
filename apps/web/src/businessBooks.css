@@ -66,3 +66,9 @@
 .taxZatcaFields { border-top: 1px solid var(--d-line); padding-block-start: var(--d-s3); }
 .taxZatcaFields legend { float: inline-start; inline-size: 100%; margin-block-end: var(--d-s2); }
 .taxMissing { columns: 2 16rem; }
+/* Fixed assets, loans, revaluation and the group balance sheet (docs/business-books.md#fixed-asset-register). */
+.bkProgress { background: var(--d-line); block-size: 4px; border-radius: 2px; inline-size: 100%; margin-block-start: var(--d-s1); min-inline-size: 4rem; overflow: hidden; }
+.bkProgress span { background: var(--d-accent); block-size: 100%; display: block; }
+.bkAssets .bkList small, .bkLoans .bkList small { color: var(--d-muted); display: block; font-size: var(--text-xs); }
+.groupBs .bzInline { flex-wrap: wrap; gap: var(--d-s2); }
+.drawerBody .bzCard { margin-block: var(--d-s3); }

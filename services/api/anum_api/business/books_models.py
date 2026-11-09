@@ -380,7 +380,9 @@ class LedgerAccount(_Scoped):
 class JournalEntry(_Scoped):
     entry_date: date  # the day it is posted on: the event's day, or the first open day when that day is in a closed period
     event_date: date  # the day the source document says
-    source_kind: str  # invoice, credit_note, invoice_payment, bill, bill_payment, allocation, adjustment, intercompany, manual, closing
+    # invoice, credit_note, invoice_payment, bill, bill_payment, allocation, adjustment, intercompany, manual, closing,
+    # asset, loan, loan_repayment, revaluation (migration 0155)
+    source_kind: str
     source_id: str | None = None
     event_key: str
     fingerprint: str
@@ -420,7 +422,7 @@ class PostingIssue(_Scoped):
     source_kind: str
     source_id: str | None = None
     event_date: date
-    reason: str  # missing_rate or too_small
+    reason: str  # missing_rate, too_small or missing_closing_rate (a revaluation without the period end's rate)
     currency: str | None = None
     rate_date: date | None = None
     description: str = ""
@@ -512,6 +514,101 @@ class ZatcaDocument(_Scoped):
     created_by: str
 
 
+# -- fixed assets and loans (migration 0155_books_assets_fx, docs/business-books.md#fixed-asset-register) ------------------
+
+
+class DepreciationMethod(StrEnum):
+    STRAIGHT_LINE = "straight_line"
+    REDUCING_BALANCE = "reducing_balance"
+
+
+class Asset(_Scoped):
+    """One fixed asset, registered from the capital bill or capital-item adjustment that bought it (one asset per source).
+    Cost, currency and acquisition date come from the source; the register adds how it is depreciated, its disposal and
+    impairments. Its depreciation replaces the source's straight-line depreciation and posts under the source's event keys."""
+
+    source_kind: str  # bill or adjustment
+    source_id: str
+    name: str
+    category: str = "equipment"
+    acquired_on: date
+    currency: str
+    cost: Decimal
+    useful_life_months: int | None = None  # None: not depreciated until an owner or accountant sets it
+    residual_value: Decimal = Decimal(0)
+    method: DepreciationMethod = DepreciationMethod.STRAIGHT_LINE
+    rate_pct: Decimal | None = None  # the annual rate of the reducing balance method
+    depreciation_start: date  # the first month depreciated (a month's first day)
+    status: str = "active"  # active or disposed
+    disposed_on: date | None = None
+    disposal_kind: str | None = None  # sale or write_off
+    proceeds: Decimal = Decimal(0)
+    version: int = 1
+    created_by: str
+    updated_at: datetime
+
+
+class AssetImpairment(_Scoped):
+    """An impairment loss on an asset: requested by one owner or accountant, posted only once another one approved it."""
+
+    asset_id: str
+    entry_date: date
+    amount: Decimal
+    currency: str
+    reason: str
+    status: str = "pending"  # pending, approved or rejected
+    requested_by: str
+    decided_by: str | None = None
+    decided_at: datetime | None = None
+    version: int = 1
+
+
+class LoanMethod(StrEnum):
+    ANNUITY = "annuity"  # equal payments
+    EQUAL_PRINCIPAL = "equal_principal"  # equal principal parts ("flat" principal), interest on the balance
+
+
+class Loan(_Scoped):
+    lender: str
+    principal: Decimal
+    currency: str
+    annual_rate: Decimal  # percent a year
+    start_date: date
+    term_months: int
+    frequency: str = "monthly"  # monthly, quarterly or yearly
+    method: LoanMethod = LoanMethod.ANNUITY
+    early_repayment: str = "reduce_term"  # reduce_term or reduce_payment: how the schedule is worked out after paying more
+    received_adjustment_id: str | None = None  # an existing loan_received adjustment that already posts the money received
+    status: str = "active"  # active or void
+    idem_key: str | None = None
+    version: int = 1
+    created_by: str
+    updated_at: datetime
+    voided_by: str | None = None
+    voided_at: datetime | None = None
+    void_reason: str = ""
+
+
+class LoanRepayment(_Scoped):
+    """A repayment actually made. Split into interest (what had accrued since the last repayment) and principal when it is
+    recorded; matched to the bill or the loan repayment adjustment that already records the cash, when there is one."""
+
+    loan_id: str
+    paid_on: date
+    amount: Decimal
+    currency: str
+    interest: Decimal
+    principal: Decimal
+    bill_id: str | None = None
+    adjustment_id: str | None = None
+    status: str = "active"  # active or void
+    idem_key: str | None = None
+    created_by: str
+    voided_by: str | None = None
+    voided_at: datetime | None = None
+    void_reason: str = ""
+
+
 KINDS: dict[str, type[BaseModel]] = {
     "cost_centres": CostCentre,
     "vendors": Vendor,
@@ -534,6 +631,10 @@ KINDS: dict[str, type[BaseModel]] = {
     "tax_rates": TaxRate,
     "zatca_chain": ZatcaChain,
     "zatca_documents": ZatcaDocument,
+    "assets": Asset,
+    "asset_impairments": AssetImpairment,
+    "loans": Loan,
+    "loan_repayments": LoanRepayment,
 }
 
 TABLES: dict[str, str] = {
@@ -558,10 +659,14 @@ TABLES: dict[str, str] = {
     "tax_rates": "business_tax_rates",
     "zatca_chain": "business_zatca_chains",
     "zatca_documents": "business_zatca_documents",
+    "assets": "business_book_assets",
+    "asset_impairments": "business_book_asset_impairments",
+    "loans": "business_book_loans",
+    "loan_repayments": "business_book_loan_repayments",
 }
 
 
-MONEY_FIELDS = ("subtotal", "tax", "total", "amount", "reverse_charge_tax")
+MONEY_FIELDS = ("subtotal", "tax", "total", "amount", "reverse_charge_tax", "cost", "residual_value", "proceeds", "principal", "interest")
 
 
 def dump(record: BaseModel, *hidden: str) -> dict[str, Any]:

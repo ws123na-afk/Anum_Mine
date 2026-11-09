@@ -40,19 +40,19 @@ The fixes are delivered as functional-area pull requests in this order: transact
 | Period comparison | 2 | Month against previous month and a 12-month trend only |
 | Year-end carry-forward, monthly and yearly close, locked periods | 4 | `closeChecklist` in `lib/ops.ts:157` is a checklist only |
 | Accruals and prepayments | 1 | `books_report.py:330-337`, tests |
-| Depreciation, fixed-asset register | 2 | Straight-line depreciation tested; no register, accumulated depreciation, net book value or disposal |
+| Depreciation, fixed-asset register | 1 (was 2) | Assets PR: a register built from capital bills and items (one asset per source), straight-line or reducing-balance depreciation with residual value and start month posted monthly under the source's event keys (no double count), accumulated depreciation and net book value, disposals with gain or loss, impairments approved by a second person, the roll-forward (migration `0155_books_assets_fx`, [docs/business-books.md](../business-books.md#fixed-asset-register)) |
 | Intercompany | 1 | Mirrored pairs (`api_books.py:939-980`), tests |
-| Consolidation | 2 | Eliminations in `books_group.consolidate`; no group balance sheet or translation reserve |
+| Consolidation | 1 (was 2) | Assets PR: a group balance sheet from the businesses' journals with intercompany eliminations, a translation reserve for other functional currencies (closing rate for assets and liabilities, transaction rates for equity) and completeness flags (`books_group_bs.py`, [docs/business-books.md](../business-books.md#group-balance-sheet)); no minority interests |
 | Policy notes | 4 | Disclaimers only |
 | Cash and accrual basis | 1 | Setting and per-report override, tested |
-| IAS 21 | 2 | Dated rates with source and maximum age; realised FX on accrual only (`books_report.py:357`); no unrealised revaluation |
+| IAS 21 | 1 (was 2) | Assets PR: month-end revaluation of monetary balances in other currencies at the closing rate to 7010, reversed the next day, run by the close and on demand; a missing closing rate blocks only that currency; realised differences when loans and members' balances are settled, at their carrying rate (`books_revalue.py`, [docs/business-books.md](../business-books.md#period-end-revaluation)) |
 | Personal and business separation | 1 | Forced RLS on book tables (0137:102-104), owner-only personal policies; tests |
 | Customers, suppliers, AR, AP, partial settlement | 1 | Aged receivables and payables, settlement tests |
 | Cost centres, business budgets | 1 | CRUD and `budget_vs_actual` with `comparable:false` for other currencies |
 | Project profitability | 3 and 5 | False zeros (defect B1); contract profitability and books figures are two calculations |
 | Tax and VAT | 1 (was 2) | Tax PR: VAT settings per business, the rate table as data, tax codes on invoice lines and bills, VAT posted by code to 1200 and 2100, the KSA and UAE VAT 201 return from the journal with warnings and documents (migration `0154_business_tax`, [docs/business-tax.md](../business-tax.md)); never filed |
 | ZATCA e-invoicing | 2 (was 4) | Tax PR: readiness only, off by default: Phase 1 QR on invoice PDFs, UBL 2.1 XML with hash, counter and previous-hash chain, a required-fields check; no stamp, CSID, clearance or reporting, and not verified with ZATCA ([docs/business-tax.md](../business-tax.md#what-is-not-built)) |
-| Loan schedules | 2 | Loan adjustments only, no amortisation |
+| Loan schedules | 1 (was 2) | Assets PR: annuity or equal-principal schedules, repayments split into interest and principal, interest accrued at month ends and reversed the next day, matching to existing bills and loan adjustments, schedule against actual and early-repayment recalculation ([docs/business-books.md](../business-books.md#loan-schedules)) |
 | Owner-paid expense and reimbursement | 1 | Reimbursable allocations, tested |
 | Evidence attachments on bills, accountant role | 4 | Not built |
 
