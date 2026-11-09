@@ -975,8 +975,10 @@ def record_import(
             follow.append((item, None, match))
         added = store.add_transactions(fresh)
         canonical: dict[str, str] = {}
+        originals = {row.dedupe_hash: (row.original_amount, row.original_currency) for row in parsed.rows
+                     if row.original_amount is not None and row.original_currency and row.original_currency != account.currency}
         for item in fresh:
-            entry = record_plain(sms, context, item, account, EntrySource.STATEMENT, now=now)
+            entry = record_plain(sms, context, item, account, EntrySource.STATEMENT, now=now, original=originals.get(item.dedupe_hash))
             if entry is not None:
                 canonical[item.id] = entry.canonical_id or entry.id
         for item, attached_canonical, match in follow:

@@ -427,6 +427,49 @@ def test_preview_needs_manage_and_reads_only_the_callers_ledger() -> None:
     assert statuses(view) == ["new"]  # the owner's SMS is not someone else's match
 
 
+def test_a_timed_sms_and_an_untimed_entry_on_one_day_can_be_compared() -> None:
+    # Review finding: a timezone-aware SMS time was compared with a naive placeholder and raised TypeError.
+    s = sms_setup()
+    assert send_sms(s["token"], PURCHASE)["status"] == "posted"  # has a time (14:22)
+    hand = client.post(f"{API}/transactions", headers=OWNER, json={"account_id": s["card"]["id"], "amount": "-45.50",
+                                                                   "description": "EXAMPLE MARKET", "posted_on": "2026-11-03"})
+    assert hand.status_code == 201
+    other = client.post(f"{API}/transactions", headers=OWNER, json={"account_id": s["bank"]["id"], "amount": "45.50",
+                                                                    "description": "EXAMPLE REFUND", "posted_on": "2026-11-03"})
+    assert other.status_code == 201
+    content = "Date,Description,Amount\n2026-11-03,EXAMPLE MARKET,-45.50\n2026-11-03,EXAMPLE MARKET,-45.50\n"
+    assert statuses(preview(s["card"]["id"], content)) == ["matched_existing", "matched_existing"]
+    done = do_import(s["card"]["id"], content)
+    assert done["reconciled"] == 2 and done["imported_count"] == 0
+    found = client.get(f"{API}/transfers/candidates", headers=OWNER, params={"start": "2026-11-01", "end": "2026-11-30"})
+    assert found.status_code == 200, found.text
+
+
+@pytest.mark.parametrize("card_first", [False, True])
+def test_a_cross_currency_transfer_pairs_whichever_side_is_imported_first(card_first: bool) -> None:
+    # Review finding: the statement row's original amount was not kept on its journal entry, so a later import
+    # of the other side could not see it and the transfer never paired.
+    sar = account(name="Salary account", last4="5678")
+    usd = account(name="Dollar account", currency="USD", last4="4444")
+    sar_csv = "Date,Description,Amount\n2026-11-03,TRANSFER TO DOLLAR ACCOUNT USD 20.00,-75.40\n"
+    usd_csv = "Date,Description,Amount\n2026-11-04,TRANSFER RECEIVED,20.00\n"
+    first, second = ((usd["id"], usd_csv), (sar["id"], sar_csv)) if card_first else ((sar["id"], sar_csv), (usd["id"], usd_csv))
+    do_import(*first)
+    view = preview(*second)
+    assert view["rows"][0]["match"]["transfer"] is not None and view["rows"][0]["match"]["transfer"]["reasons"][0] == "fx_amount"
+    assert do_import(*second)["transfers"] == 1
+
+
+def test_find_transfers_sees_the_stated_foreign_amount_of_earlier_imports() -> None:
+    sar = account(name="Salary account", last4="5678")
+    usd = account(name="Dollar account", currency="USD", last4="4444")
+    do_import(usd["id"], "Date,Description,Amount\n2026-11-04,EXAMPLE CREDIT,20.00\n")
+    do_import(sar["id"], "Date,Description,Amount\n2026-11-03,EXAMPLE OUTGOING USD 20.00,-75.40\n",
+              decisions=[{"line": 2, "transfer": False}])
+    found = client.get(f"{API}/transfers/candidates", headers=OWNER, params={"start": "2026-11-01", "end": "2026-11-30"}).json()
+    assert [p["reasons"][0] for p in found["pairs"]] == ["fx_amount"]
+
+
 def _pdf(rows: list[tuple[str, str, str, str, str]]) -> bytes:
     from anum_api.pdf_writer import PdfDocument
 

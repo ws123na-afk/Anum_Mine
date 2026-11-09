@@ -224,7 +224,11 @@ def _interchangeable(a: Recorded, b: Recorded) -> bool:
 
 
 def _order(record: Recorded) -> tuple[Any, ...]:
-    return (record.posted_on, record.occurred_at or datetime.min, record.record_id)
+    """Day, then untimed before timed, then the instant (aware times compared as UTC timestamps), then the id.
+    Never a datetime against a placeholder: SMS times are timezone aware, statement and hand entries have none."""
+    when = record.occurred_at
+    instant = when.timestamp() if when is not None else 0.0
+    return (record.posted_on, when is not None, instant, record.record_id)
 
 
 # -- the row pass ------------------------------------------------------------------------------------------

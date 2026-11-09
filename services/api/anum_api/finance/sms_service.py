@@ -963,8 +963,11 @@ def plain_fingerprint(amount: Decimal, currency: str, account_id: str) -> str:
 
 
 def record_plain(store: SmsStore, context: TenantContext, transaction: Transaction, account: Account, source: EntrySource, *,
-                 now: datetime, canonical_id: str | None = None) -> JournalEntry | None:
-    """The journal entry of a statement row or a hand-entered transaction (the row stays the stage 2 record)."""
+                 now: datetime, canonical_id: str | None = None, original: tuple[Decimal, str] | None = None) -> JournalEntry | None:
+    """The journal entry of a statement row or a hand-entered transaction (the row stays the stage 2 record).
+
+    ``original``: the foreign amount and currency the statement printed for the row (positive), kept on the entry like
+    an SMS reading so later matching sees it (docs/finance.md#statement-matching)."""
     from .ledger import derived_legs
 
     if transaction.amount == 0:
@@ -976,6 +979,7 @@ def record_plain(store: SmsStore, context: TenantContext, transaction: Transacti
         canonical_id=canonical_id or entry_id, posted_on=transaction.posted_on, occurred_at=None, kind=source.value,
         category=transaction.category.value, merchant=transaction.description[:60], description=transaction.description[:500], source=source,
         source_ref=transaction.id, fingerprint=plain_fingerprint(transaction.amount, transaction.currency, account.id), created_at=now,
+        original_amount=abs(original[0]) if original else None, original_currency=original[1] if original else None,
         postings=[Posting(id=new_id("fin_post"), entry_id=entry_id, tenant_id=context.tenant_id, workspace_id=context.workspace_id,
                           owner_user_id=context.user_id, ledger_account=leg.ledger_account, account_id=leg.account_id,
                           transaction_id=transaction.id if leg.account_id else None, amount=leg.amount, currency=leg.currency, created_at=now)
@@ -993,7 +997,9 @@ def repost_plain(finance: FinanceStore, store: SmsStore, context: TenantContext,
     reverse(finance, store, context, entry, now=now, why="corrected by the owner", delete_transactions=False)
     if account is None:
         return None
-    return record_plain(store, context, transaction, account, EntrySource(entry.source), now=now, canonical_id=entry.canonical_id or entry.id)
+    original = (entry.original_amount, entry.original_currency) if entry.original_amount is not None and entry.original_currency else None
+    return record_plain(store, context, transaction, account, EntrySource(entry.source), now=now, canonical_id=entry.canonical_id or entry.id,
+                        original=original)
 
 
 def reverse_for_transactions(finance: FinanceStore, store: SmsStore, context: TenantContext, transaction_ids: list[str], *, now: datetime, why: str) -> int:
