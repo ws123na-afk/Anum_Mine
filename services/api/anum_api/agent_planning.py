@@ -46,6 +46,7 @@ class AgentPlanner:
         learned_block: str | None = None,
         agent: "AgentRunProfile | None" = None,
         time_line: str | None = None,
+        capabilities: str | None = None,
     ) -> PlanResult:
         """Plan ``task``; ``context_blocks`` are provenance-labeled retrieved data.
 
@@ -59,6 +60,9 @@ class AgentPlanner:
         selected, its persona and instructions come before the task in the model
         prompt (they never select anything), and its model route is used.
         ``time_line`` (the current date and time in the user's zone) follows the task.
+        ``capabilities`` (what ANUM can do in this workspace, ``capabilities.task_capability_block``)
+        precedes the task for a text answer, so the model never claims ANUM cannot do something it
+        can; like the persona, it never selects a skill or tool.
         """
         tools = self.tools.names
         if agent is not None:
@@ -77,7 +81,7 @@ class AgentPlanner:
             planner = bind_agent(agent.id)
         # The agent's persona, then the user's learned style, then the task: text for
         # the model only, never what selects a skill or tool.
-        preface = [part for part in (agent.persona() if agent is not None else None, learned_block) if part]
+        preface = [part for part in (capabilities, agent.persona() if agent is not None else None, learned_block) if part]
         prompt = "\n\n".join([*preface, f"Task:\n{task.prompt}"]) if preface else task.prompt
         # The current date and time (current_time.py) follows the task, outside the cached
         # instructions, so "by Friday" and "tomorrow" resolve against the user's real today.
@@ -93,6 +97,10 @@ class AgentPlanner:
         from .brevo.planning import refusal as brevo_refusal
 
         call = await brevo_refusal(task, call) or call
+        # A website errand (with its address, or without one: the site search) whose action browser
+        # is off here is answered with the sentence naming the switch, never a scope approval for
+        # nothing or a model refusal (docs/action-browser.md#switches-and-availability).
+        call = await self._act_refusal(task, call) or call
         if call.name == "web.act":
             # The logins saved for the approved sites and the cards the prompt names, as handles
             # only (docs/action-browser.md#how-it-is-used): read from the vault, never decrypted.
@@ -107,6 +115,25 @@ class AgentPlanner:
             ),
             model_response=response,
         )
+
+    async def _act_refusal(self, task: Task, call: ToolCall) -> ToolCall | None:
+        errand = call.arguments.get("purpose") == FIND_SITE or (call.name == "anum.respond" and call.arguments.get("errand") is True)
+        if call.name != "web.act" and not errand:
+            return None
+        handler = self.tools.handler("web.act") if hasattr(self.tools, "handler") else None
+        check = getattr(handler, "unavailable_reason", None)
+        if not callable(check):
+            return None
+        from .schemas import TenantContext
+
+        context = TenantContext(tenant_id=task.tenant_id, workspace_id=task.workspace_id, user_id=task.created_by or "", roles=[])
+        try:
+            reason = await check(context)
+        except Exception:  # unreadable: plan as before; the tool reports the real state when it runs
+            return None
+        if not reason:
+            return None
+        return ToolCall(name="anum.respond", arguments={"text": act_off_text(str(reason), arabic=_is_arabic(task.prompt))})
 
     @staticmethod
     async def _generate(planner: ModelGateway, prompt: str, context_blocks: Sequence[str]) -> ModelResponse:
@@ -225,6 +252,12 @@ def choose_tool_call(
         finance_call = plan_finance_call(prompt)
         if finance_call is not None:
             return finance_call
+    if "web.act" in available_tools:
+        # "book me a flight to Riyadh on Friday": an errand with no site named. Never a model
+        # refusal: find sites that can do it and ask which one to use, or ask for the address.
+        errand_call = site_errand_call(prompt, available_tools)
+        if errand_call is not None:
+            return errand_call
     if any(skill.id == "anum.external-action" for skill in skills):
         return ToolCall(
             name="external.action",
@@ -246,6 +279,52 @@ def choose_tool_call(
         # (threat model G5); the tool caps its length.
         return ToolCall(name="web_search", arguments={"query": " ".join(prompt.split())[:400]})
     return ToolCall(name="anum.respond", arguments={"text": planned_text})
+
+
+# ``web_search`` arguments for a website errand without a site (web_search.py answers with options).
+FIND_SITE = "find_site"
+_ARABIC_LETTER = re.compile(r"[\u0600-\u06FF]")
+
+
+def _is_arabic(text: str) -> bool:
+    return bool(_ARABIC_LETTER.search(text or ""))
+
+
+def site_errand_call(prompt: str, available_tools: Collection[str]) -> ToolCall | None:
+    """For a booking, buying or form errand that names no site (docs/action-browser.md#how-it-is-used):
+    a ``web_search`` for sites that can do it, answered with 2 to 4 options and the question which
+    to use, or, without web search, one sentence asking for the site's address. Never a site chosen
+    by ANUM: the owner names it, and the follow-up with its https address plans ``web.act``."""
+    from .capabilities import errand_goal, errand_query, site_errand
+
+    if not site_errand(prompt):
+        return None
+    arabic = _is_arabic(prompt)
+    goal = errand_goal(prompt)
+    if "web_search" in available_tools:
+        return ToolCall(
+            name="web_search",
+            arguments={"query": errand_query(prompt), "purpose": FIND_SITE, "goal": goal, "language": "ar" if arabic else "en"},
+        )
+    return ToolCall(name="anum.respond", arguments={"text": ask_site_text(goal, arabic=arabic), "errand": True})
+
+
+def ask_site_text(goal: str, *, arabic: bool = False) -> str:
+    """One short sentence asking for the site (web search is off here)."""
+    if arabic:
+        return (f"أي موقع يستخدم ANUM؟ أرسل الطلب مع عنوان https للموقع، مثلا: {goal} على https://www.example.com، "
+                "فينفذه ANUM في متصفح الإجراءات ويتوقف لموافقتك قبل أن يدفع أو يحجز.")
+    return (f"Which site should ANUM use? Send the request with the site's https address, for example: {goal} on "
+            "https://www.example.com, and ANUM does it in the Action browser, stopping for your approval before it pays or books.")
+
+
+def act_off_text(reason: str, *, arabic: bool = False) -> str:
+    """The action browser is off here: the tool's own sentence (which switch, who turns it on)."""
+    if arabic:
+        return (f"ينفذ ANUM هذا في متصفح الإجراءات، وهو غير متاح الآن: {reason} "
+                "عندما يعمل، أرسل الطلب مع عنوان https للموقع وسيتوقف ANUM لموافقتك قبل أن يدفع أو يحجز.")
+    return (f"ANUM does this in the Action browser, which is not available yet. {reason} "
+            "Once it is on, send the request with the site's https address and ANUM stops for your approval before it pays or books.")
 
 
 def _action_browser_call(prompt: str) -> ToolCall | None:

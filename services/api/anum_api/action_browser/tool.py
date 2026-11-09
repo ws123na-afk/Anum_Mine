@@ -236,6 +236,27 @@ class ActionBrowserTool:
             return await self._resume(args, context)
         return await self._start(args, context)
 
+    async def unavailable_reason(self, context: TenantContext, *, probe_seconds: float = 3.0) -> str | None:
+        """The sentence naming the switch that is off, or None when ``web.act`` can run here.
+
+        Checked by the planner before a task asks for the scope approval, so a request is answered
+        with this sentence at once instead of after an approval for nothing. The browser service's
+        action mode is asked from its ``/healthz`` (a short probe; an unreadable answer is not a
+        reason: the run says what failed).
+        """
+        if self.problem is not None or self.client is None:
+            return self.problem or UNAVAILABLE_SERVICE
+        if self._enabled is not None and not await asyncio.to_thread(self._enabled, context):
+            return DISABLED_TEXT
+        try:
+            async with asyncio.timeout(probe_seconds):
+                health = await self.client.health()
+        except (httpx.HTTPError, TimeoutError, ValueError):
+            return None
+        if health.get("http_status") == 200 and health.get("action_mode") is False:
+            return UNAVAILABLE_MODE
+        return None
+
     # ------------------------------------------------------------------ the scope approval
 
     async def _start(self, args: dict[str, Any], context: TenantContext) -> ToolResult:

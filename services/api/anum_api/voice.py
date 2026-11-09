@@ -854,7 +854,7 @@ def _capability_reply(context: TenantContext, text: str, route: tuple[str | None
 
     category, tool = route
     needed = caps.TOOL_CAPABILITY.get(tool) if category is not None else None
-    errand = category is None and caps.asks_web_errand(text)
+    errand = caps.errand_route(text, category, tool)
     if errand:
         needed = caps.errand_capability(text)
     if needed is None:

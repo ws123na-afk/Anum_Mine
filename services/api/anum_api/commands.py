@@ -47,7 +47,7 @@ from typing import Any, Literal, Protocol
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from pydantic import BaseModel, Field, field_validator, model_validator
 
-from .agent_planning import choose_tool_call
+from .agent_planning import FIND_SITE, choose_tool_call
 from .agent_skills import SkillManifest, SkillRegistry, default_skill_registry, prompt_words
 from .agent_tools import ToolCall, ToolPolicy, ToolPolicyOutcome, ToolRegistry
 from .approval_integrity import as_viewed
@@ -158,7 +158,22 @@ _TOOL_AGENTS: dict[str, AgentId] = {
     "web_search": AgentId.RESEARCH,
     "web.browse_page": AgentId.RESEARCH,
     "external.action": AgentId.ACTION,
+    # The action browser (docs/action-browser.md): an errand on a site the owner names.
+    "web.act": AgentId.ACTION,
 }
+
+# A website errand that names no site: ANUM never books on a site it chose itself.
+_ERRAND_SEARCH_NOTE = (
+    "No site named: this step searches the web for sites that can do it and asks which one to use. Send the request "
+    "with that site's https address and the Action browser does it, stopping for your approval before it pays or books.",
+    "لم يذكر موقع: تبحث هذه الخطوة في الويب عن مواقع تنفذ الطلب وتسألك أيها تستخدم. أرسل الطلب مع عنوان https للموقع "
+    "فينفذه متصفح الإجراءات ويتوقف لموافقتك قبل أن يدفع أو يحجز.",
+)
+_ERRAND_ASK_NOTE = (
+    "No site named: this step asks for the site's https address; then the Action browser does it, stopping for your "
+    "approval before it pays or books.",
+    "لم يذكر موقع: تطلب هذه الخطوة عنوان https للموقع؛ بعدها ينفذه متصفح الإجراءات ويتوقف لموافقتك قبل أن يدفع أو يحجز.",
+)
 
 _CALENDAR_WORDS = frozenset(
     {
@@ -378,6 +393,8 @@ class Planner:
     def _route(self, text: str) -> tuple[list[SkillManifest], ToolCall, AgentId]:
         skills = self.skills.select(text, self.tools.names)
         call = choose_tool_call(text, skills, "", self.tools.names)
+        if call.arguments.get("errand") is True:
+            return skills, call, AgentId.ACTION
         return skills, call, _agent_for(call.name, skills, prompt_words(text))
 
     def agent_of(self, text: str) -> AgentId:
@@ -396,6 +413,9 @@ class Planner:
             ToolPolicyOutcome.BLOCK: ApprovalNeed.BLOCKED,
         }[decision.outcome]
         noted = self._note(agent, call.name)
+        if call.arguments.get("purpose") == FIND_SITE or call.arguments.get("errand") is True:
+            # A website errand that names no site (docs/action-browser.md#how-it-is-used).
+            noted = (_ERRAND_SEARCH_NOTE if call.name == "web_search" else _ERRAND_ASK_NOTE), True
         note, live = (None, True) if noted is None else noted
         arabic = self.locale == "ar"
         return PlanStep(
