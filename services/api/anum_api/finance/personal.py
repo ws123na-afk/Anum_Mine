@@ -31,6 +31,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from . import commitment_math as M
 from .models import Bill, Cadence, Category, Debt, DebtKind, InstallmentStatementEntry
 from .money import quantize
 
@@ -331,18 +332,6 @@ class Commitment:
     note: str | None = None  # a code the clients word: "weekly", "quarterly", "yearly", "in_bill", ...
 
 
-def monthly_equivalent(amount: Decimal, cadence: Cadence) -> Decimal | None:
-    if cadence == Cadence.MONTHLY:
-        return amount
-    if cadence == Cadence.WEEKLY:
-        return amount * 52 / 12
-    if cadence == Cadence.QUARTERLY:
-        return amount / 3
-    if cadence == Cadence.YEARLY:
-        return amount / 12
-    return None  # a one-off bill is not monthly
-
-
 def _bill_kind(bill: Bill) -> CommitmentKind:
     if bill.category in (Category.HOUSING, Category.ROOM_RENT):
         return "rent"
@@ -351,10 +340,7 @@ def _bill_kind(bill: Bill) -> CommitmentKind:
     return "bill"
 
 
-def _key(text: str) -> str:
-    from .obligations import _name
-
-    return _name(text)
+_key = M.name_key
 
 
 def _still_due(entry: InstallmentStatementEntry) -> Decimal:
@@ -366,20 +352,18 @@ def fixed_commitments(bills: list[Bill], debts: list[Debt], installments: list[I
                       today: date) -> tuple[list[Commitment], list[Commitment]]:
     """What goes out every month, and what was left out so it is not counted twice (with the reason).
 
-    * Active bills by their monthly equivalent (weekly x 52 / 12, quarterly / 3, yearly / 12); a one-off bill is left out.
+    * Active bills by their monthly equivalent (``commitment_math.monthly_equivalent``); a one-off bill is left out.
     * Installment plans (Tamara, Tabby, ...): this month's unpaid installments per order; an order whose merchant or
       provider is also saved as a bill is the bill.
-    * Debt minimums (at most what is owed); a minimum also saved as a bill is the bill (``obligations.bill_for_debt``).
+    * Debt minimums (at most what is owed); a minimum also saved as a bill is the bill (``commitment_math.bill_for_debt``).
     * Regular remittances: the newest per recipient and currency, amount plus fee; one also saved as a bill is the bill.
     """
-    from .obligations import bill_for_debt
-
     counted: list[Commitment] = []
     skipped: list[Commitment] = []
     active = [b for b in bills if b.active]
     bill_names = {(_key(b.name), b.currency) for b in active}
     for bill in active:
-        monthly = monthly_equivalent(bill.amount, bill.cadence)
+        monthly = M.monthly_equivalent(bill.amount, bill.cadence)
         row = Commitment(kind=_bill_kind(bill), name=bill.name, currency=bill.currency,
                          monthly=quantize(monthly, bill.currency) if monthly is not None else bill.amount, source="bill", ref_id=bill.id,
                          note=None if bill.cadence == Cadence.MONTHLY else bill.cadence.value)
@@ -400,12 +384,11 @@ def fixed_commitments(bills: list[Bill], debts: list[Debt], installments: list[I
         else:
             counted.append(row)
     for debt in debts:
-        if debt.balance <= 0 or debt.minimum_payment <= 0:
+        if not M.owes_minimum(debt):
             continue
         kind: CommitmentKind = "card_minimum" if debt.kind == DebtKind.CARD else "loan_minimum"
-        row = Commitment(kind=kind, name=debt.name, currency=debt.currency, monthly=min(debt.minimum_payment, debt.balance), source="debt",
-                         ref_id=debt.id)
-        if bill_for_debt(debt, active) is not None:
+        row = Commitment(kind=kind, name=debt.name, currency=debt.currency, monthly=M.debt_minimum(debt), source="debt", ref_id=debt.id)
+        if M.bill_for_debt(debt, active) is not None:
             skipped.append(Commitment(**{**row.__dict__, "note": "in_bill"}))
         else:
             counted.append(row)
@@ -435,5 +418,5 @@ __all__ = [
     "Commitment", "Deduction", "DeductionKind", "LoanDirection", "LoanFigures", "PAYSLIP_DIMENSION", "PAYSLIP_TARGET", "PERSONAL_DIMENSIONS",
     "PERSON_LOAN_DIMENSION", "PERSON_LOAN_TARGET", "PayMonth", "Payslip", "PayslipFigures", "PersonLoan", "ProviderCost", "REMITTANCE_DIMENSION",
     "REMITTANCE_TARGET", "RemitMonth", "Remittance", "commitment_totals", "effective_rate", "fee_percent", "fixed_commitments", "handed_role",
-    "loan_figures", "monthly_equivalent", "pay_months", "payslip_figures", "provider_costs", "remit_months", "reminder_due", "repaid_role",
+    "loan_figures", "pay_months", "payslip_figures", "provider_costs", "remit_months", "reminder_due", "repaid_role",
 ]

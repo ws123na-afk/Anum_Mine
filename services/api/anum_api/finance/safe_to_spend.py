@@ -31,7 +31,6 @@ person's own records, not advice and not a forecast.
 
 from __future__ import annotations
 
-import calendar
 from datetime import date, datetime
 from decimal import ROUND_CEILING, ROUND_FLOOR, Decimal
 from typing import Literal
@@ -39,6 +38,7 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 from ..schemas import TenantContext
+from . import commitment_math as M
 from . import fx
 from . import obligations as O
 from .models import Account, AccountKind, Bill, Debt, FxRate, Goal, PlanSettings
@@ -46,7 +46,7 @@ from .money import fmt, minor_digits, quantize
 from .store import FinanceStore
 from .summary import settings_for, today_in
 
-SPENDABLE = frozenset({AccountKind.BANK, AccountKind.CASH})
+SPENDABLE = M.SPENDABLE
 NOTE = "An estimate from your own records: not advice and not a forecast."
 
 LineKind = Literal["balance", "bill", "minimum_payment", "goal", "buffer"]
@@ -115,9 +115,7 @@ def _ceil(amount: Decimal, currency: str) -> Decimal:
     return amount.quantize(Decimal(1).scaleb(-minor_digits(currency)), rounding=ROUND_CEILING)
 
 
-def months_between(today: date, target: date) -> int:
-    """Months left to save, this month included (at least one)."""
-    return max(1, (target.year - today.year) * 12 + (target.month - today.month) + 1)
+months_between = M.months_between
 
 
 def compute(
@@ -137,7 +135,7 @@ def compute(
     """The pure calculation: the same inputs always give the same figure.
 
     ``bill_links`` are the person's ``bill`` links: a due date with an active matched payment is paid."""
-    month_end = date(today.year, today.month, calendar.monthrange(today.year, today.month)[1])
+    month_end = M.month_end(today)
     days_left = (month_end - today).days + 1
     lines: list[SafeLine] = []
     excluded: list[SafeLine] = []
@@ -147,7 +145,7 @@ def compute(
 
     counted = 0
     for account in accounts:
-        balance = quantize(account.opening_balance + balances.get(account.id, Decimal(0)), account.currency)
+        balance = quantize(M.account_balance(account, balances), account.currency)
         if account.archived:
             excluded.append(SafeLine(kind="balance", label=account.name, ref_id=account.id, currency=account.currency, amount=balance,
                                      note="account_archived", detail="Archived account: not counted."))
@@ -175,10 +173,10 @@ def compute(
                                   note="bill_due", params={"date": due.isoformat()}, detail=f"Bill due {due.isoformat()}."))
 
     for debt in debts:
-        if debt.minimum_payment <= 0 or debt.balance <= 0:
+        payment = M.debt_minimum(debt)
+        if payment <= 0:
             continue
-        payment = min(debt.minimum_payment, debt.balance)
-        covering = O.bill_for_debt(debt, bills)
+        covering = M.bill_for_debt(debt, bills)
         if covering is not None:
             excluded.append(SafeLine(kind="minimum_payment", label=debt.name, ref_id=debt.id, currency=debt.currency, amount=-payment,
                                      note="minimum_in_bill", params={"bill": covering.name},

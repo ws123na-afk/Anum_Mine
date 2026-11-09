@@ -30,6 +30,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 from pydantic import BaseModel, Field
 
 from ..schemas import TenantContext
+from . import commitment_math as M
 from . import obligations as O
 from .flows import NOT_SPEND, figures, kinds_of
 from .models import (
@@ -263,7 +264,7 @@ def build_summary(store: FinanceStore, context: TenantContext, month: str | None
         bills_due=_amounts(totals((b.currency, b.amount) for b in upcoming)),
         debts=_amounts(totals((d.currency, d.balance) for d in debts)),
         unlinked_debts=_amounts(loose), net_worth=_amounts(worth),
-        minimum_payments=_amounts(totals((d.currency, min(d.minimum_payment, d.balance)) for d in debts if d.balance > 0)),
+        minimum_payments=_amounts(totals((d.currency, M.debt_minimum(d)) for d in debts if d.balance > 0)),
         debt_count=len(debts),
         goals=[
             GoalProgress(

@@ -18,6 +18,7 @@ from decimal import Decimal
 from typing import Literal
 
 from ..schemas import TenantContext, utc_now
+from . import commitment_math as M
 from . import obligations
 from . import personal as P
 from . import planner as PL
@@ -87,8 +88,7 @@ def load(context: TenantContext, *, now: datetime | None = None) -> PlanContext:
 
 
 def liquid(ctx: PlanContext, currency: str) -> Decimal:
-    return sum((a.opening_balance + ctx.balances.get(a.id, Decimal(0)) for a in ctx.accounts
-                if a.currency == currency and a.kind in SPENDABLE and not a.archived), Decimal(0))
+    return M.liquid(ctx.accounts, ctx.balances, currency)
 
 
 def income_monthly(ctx: PlanContext, currency: str) -> Decimal | None:
@@ -149,7 +149,7 @@ def how_to_pay(ctx: PlanContext, currency: str, price: Decimal) -> list[PayWay]:
     for a in ctx.accounts:
         if a.archived or a.kind in (AccountKind.LOAN, AccountKind.INVESTMENT):
             continue
-        balance = quantize(a.opening_balance + ctx.balances.get(a.id, Decimal(0)), a.currency)
+        balance = quantize(M.account_balance(a, ctx.balances), a.currency)
         if a.currency != currency:
             if a.kind in SPENDABLE or a.kind == AccountKind.CARD:
                 out.append(PayWay(a.id, a.name, a.kind.value, a.currency, balance, "fx"))
@@ -200,7 +200,7 @@ def afford(ctx: PlanContext, currency: str, price: Decimal, monthly_cost: Decima
 
 
 def plan_debts(ctx: PlanContext, currency: str) -> list[PL.PlanDebt]:
-    return [PL.PlanDebt(id=d.id, name=d.name, balance=d.balance, apr_percent=d.apr_percent, minimum=min(d.minimum_payment, d.balance))
+    return [PL.PlanDebt(id=d.id, name=d.name, balance=d.balance, apr_percent=d.apr_percent, minimum=M.debt_minimum(d))
             for d in ctx.debts if d.currency == currency and d.balance > 0]
 
 

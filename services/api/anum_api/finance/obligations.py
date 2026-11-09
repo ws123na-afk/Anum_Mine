@@ -22,12 +22,12 @@ balance follows the payments matched to it:
 
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal
 
 from ..schemas import TenantContext
+from . import commitment_math as M
 from .models import Account, AccountKind, Bill, Debt, Goal
 
 LIABILITY_KINDS = frozenset({AccountKind.CARD, AccountKind.LOAN})
@@ -109,18 +109,8 @@ def unpaid(bills: list[Bill], links: list, today: date, end: date) -> list[Due]:
     return out
 
 
-def _name(text: str) -> str:
-    return " ".join(re.sub(r"[^\w]+", " ", text.lower()).split())
-
-
-def bill_for_debt(debt: Debt, bills: list[Bill]) -> Bill | None:
-    """A saved bill that is this debt's payment (counted once, as the bill)."""
-    for bill in bills:
-        if not bill.active or bill.currency != debt.currency:
-            continue
-        if _name(bill.name) == _name(debt.name) or (debt.account_id and bill.account_id == debt.account_id):
-            return bill
-    return None
+_name = M.name_key
+bill_for_debt = M.bill_for_debt  # one rule for every reader (commitment_math.py)
 
 
 # -- debts and goals ------------------------------------------------------------------------------------
