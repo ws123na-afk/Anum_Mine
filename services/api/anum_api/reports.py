@@ -855,7 +855,10 @@ def commerce_summary(context: TenantContext, days: int, now: datetime) -> Report
     start, end = _period(days, now)
     previous_start = start - timedelta(days=days)
     with open_commerce_store(context) as store:
-        orders = store.orders_between(context, previous_start, end, limit=commerce_config.dashboard_max_orders)
+        cap = commerce_config.dashboard_max_orders
+        orders = store.orders_between(context, previous_start, end, limit=cap + 1)
+    truncated = len(orders) > cap  # judged on what was read, before the status filter
+    orders = orders[:cap]
 
     def aware(value: datetime) -> datetime:
         return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
@@ -891,6 +894,8 @@ def commerce_summary(context: TenantContext, days: int, now: datetime) -> Report
     highlights += [f"Best seller {sku}: {count} sold" for sku, count in skus.most_common(3)]
     if not current:
         highlights.append("No orders in this period (check that a sales channel is connected and synced)")
+    if truncated:
+        highlights.insert(0, f"Only the newest {cap} orders were read: these figures and the comparison are partial")
     current.sort(key=lambda o: o.purchased_at, reverse=True)
     return ReportCreate(
         type="commerce_summary",

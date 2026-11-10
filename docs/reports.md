@@ -39,7 +39,7 @@ in the API.
   - `task_summary`: tasks created in the period by status (completed, failed, waiting for
     approval), change against the previous period, failures named, the task list as data;
   - `automation_summary`: automation runs in the period by workflow and outcome;
-  - `commerce_summary`: orders synced from the connected sales channels
+  - `commerce_summary`: orders synced from the connected sales channels (at most `ANUM_COMMERCE_DASHBOARD_MAX_ORDERS` over the period and the one before it; when more exist the first highlight says the figures are partial)
     ([Commerce](commerce.md)) in the period: orders, units and revenue per currency with
     the change against the previous period, orders per channel and the best-selling SKUs.
     Cancelled and refunded orders are not counted (`COUNTED_ORDER_STATUSES`). The data

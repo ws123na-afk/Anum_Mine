@@ -33,6 +33,7 @@ from .models import (
 from .store import CommerceStore
 
 DEFAULT_TZ = "Asia/Riyadh"
+RETURNS_CAP = 10_000  # returns read for one dashboard; more than that is reported as truncated
 PERIODS = ("today", "yesterday", "last_7_days", "last_30_days", "this_month")
 
 
@@ -268,9 +269,11 @@ def dashboard(
     tz = zone(tz_name)
     start, end = _bounds(first, last, tz)
     cap = commerce_config.dashboard_max_orders
-    orders = [o for o in store.orders_between(context, start, end, limit=cap + 1) if _counted(o) and (channel is None or o.channel == channel)]
-    truncated = len(orders) > cap
-    orders = orders[:cap]
+    # Truncation is judged on what was read, before any filter: a cancelled order or another channel's order among the
+    # rows read must not hide that more orders exist than the cap.
+    read = store.orders_between(context, start, end, limit=cap + 1)
+    truncated = len(read) > cap
+    orders = [o for o in read[:cap] if _counted(o) and (channel is None or o.channel == channel)]
 
     totals: dict[str, MoneyTotal] = {}
     for order in orders:
@@ -321,7 +324,8 @@ def dashboard(
             row.title_ar = product.title_ar
             row.tyre_size = product.tyre.size
 
-    returns, _ = store.list_returns(context, since=start, limit=10_000, offset=0)
+    returns, returns_total = store.list_returns(context, since=start, limit=RETURNS_CAP, offset=0)
+    truncated = truncated or returns_total > len(returns)  # more returns since the start than were read
     returns = [r for r in returns if r.returned_at < end and (channel is None or r.channel == channel)]
     amounts: dict[str, float] = defaultdict(float)
     for record in returns:
@@ -398,7 +402,10 @@ def sales_summary(
     period = period if period in PERIODS else "today"
     tz = zone(tz_name)
     start, end, first, last = period_range(period, tz, now)
-    orders = [o for o in store.orders_between(context, start, end, limit=commerce_config.dashboard_max_orders) if _counted(o)]
+    cap = commerce_config.dashboard_max_orders
+    read = store.orders_between(context, start, end, limit=cap + 1)
+    truncated = len(read) > cap  # judged on what was read, before the filters
+    orders = [o for o in read[:cap] if _counted(o)]
     if channel is not None:
         orders = [o for o in orders if o.channel == channel]
     totals: dict[str, float] = defaultdict(float)
@@ -418,20 +425,23 @@ def sales_summary(
         "units": units,
         "revenue": {k: round(v, 2) for k, v in totals.items()},
         "top_skus": sorted(skus.items(), key=lambda kv: kv[1], reverse=True)[:3],
+        "truncated": truncated,
     }
+    partial_en = f" Only the newest {cap} orders were read, so these figures are partial." if truncated else ""
+    partial_ar = f" تمت قراءة أحدث {cap} طلب فقط، لذا هذه الأرقام جزئية." if truncated else ""
     when_en, when_ar = PERIOD_WORDS[period]
     if arabic:
         who = f"مبيعات {CHANNEL_WORDS_AR[channel]}" if channel else "مبيعاتك"
         if not orders:
-            return f"{who} {when_ar}: لا توجد طلبات بعد.", data
+            return f"{who} {when_ar}: لا توجد طلبات بعد.{partial_ar}", data
         money = " و".join(_money(v, k) for k, v in sorted(totals.items(), key=lambda kv: -kv[1]))
         text = f"{who} {when_ar}: {len(orders)} طلب، {units} قطعة، بقيمة {money}."
         if data["top_skus"]:
             text += f" الأكثر مبيعًا: {data['top_skus'][0][0]} ({data['top_skus'][0][1]} قطعة)."
-        return text, data
+        return text + partial_ar, data
     who = f"{CHANNEL_LABELS[channel]} sales" if channel else "Sales across all channels"
     if not orders:
-        return f"{who} {when_en}: no orders yet.", data
+        return f"{who} {when_en}: no orders yet.{partial_en}", data
     money = " and ".join(_money(v, k) for k, v in sorted(totals.items(), key=lambda kv: -kv[1]))
     order_word = "order" if len(orders) == 1 else "orders"
     unit_word = "unit" if units == 1 else "units"
@@ -439,4 +449,4 @@ def sales_summary(
     if data["top_skus"]:
         sku, count = data["top_skus"][0]
         text += f" Best seller: {sku} ({count} sold)."
-    return text, data
+    return text + partial_en, data
