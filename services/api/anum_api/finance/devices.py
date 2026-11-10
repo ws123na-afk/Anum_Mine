@@ -230,6 +230,7 @@ def _owner(authorization: str | None, item: Integration) -> tuple[TenantContext,
     if parsed is None:
         raise svc.IngestError(401, svc.UNKNOWN, "invalid_token")
     context, device_id, secret = parsed
+    svc.require_known_device(context, device_id, secret)  # before anything is said about the person
     context = context.model_copy(update={"roles": svc._membership_roles(context)})
     if not has_permission(context, item.permission):
         raise svc.IngestError(403, "The person this device belongs to can no longer use this integration (their role changed).", "not_allowed")

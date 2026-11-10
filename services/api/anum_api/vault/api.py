@@ -462,14 +462,21 @@ def _device_context(authorization: str | None) -> tuple[TenantContext, DeviceRec
     if parsed is None:
         raise DeviceRefused(401, "This device token is not valid.", "invalid_token")
     context, device_id, secret = parsed
+    # The secret first: the token names its tenant, workspace and user in the clear, so until the
+    # stored device matches the secret every failure is the one invalid_token answer, and nothing
+    # is said about whether that person is a member, their role or an archived workspace.
+    try:
+        with open_vault_unit(context) as unit:
+            stored = unit.store.device(context, device_id)
+    except Exception:  # an unknown tenant or workspace reads like an unknown device
+        stored = None
+    if stored is not None and stored.owner_user_id != context.user_id:
+        stored = None
+    device = check_device(stored, secret)
     membership = lookup_membership(context)
     if membership is None and settings.auth_mode == "oidc" or membership is not None and not membership.active:
         raise DeviceRefused(401, "The person this device belongs to is no longer a member of the workspace.", "not_member")
     context = context.model_copy(update={"roles": [membership.role.lower()] if membership is not None else ["member"]})
-    with open_vault_unit(context) as unit:
-        device = check_device(unit.store.device(context, device_id), secret)
-    if device.owner_user_id != context.user_id:
-        raise DeviceRefused(401, "This device token is not valid.", "invalid_token")
     if not has_permission(context, Permission.DOCUMENT_WRITE):
         raise DeviceRefused(403, "The person this device belongs to can no longer add documents (viewer role).", "not_allowed")
     if workspace_archived(context):

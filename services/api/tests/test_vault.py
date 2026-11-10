@@ -623,3 +623,43 @@ def test_the_next_expiries_come_first_and_page_by_day() -> None:
     assert [d["title"] for d in page["items"]] == ["Today", "Soon"]
     rest = client.get("/api/v1/documents", headers=ALICE, params={"sort": "expiry", "limit": 2, "cursor": page["next_cursor"]}).json()
     assert [d["title"] for d in rest["items"]] == ["Late"] and rest["next_cursor"] is None  # expired and undated documents are left out
+
+
+def test_a_wrong_device_secret_gets_one_answer_whatever_the_named_person_is(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Security audit, November 2026: the vault's device endpoint looked up the membership of the
+    person a token names before it compared the secret, so a forged token asked whether that person
+    is a member and what their role is. The stored device and its secret come first now."""
+    from anum_api import dependencies
+    from anum_api.schemas import TenantContext
+    from anum_api.vault import devices as vault_devices
+
+    token = client.post("/api/v1/documents/devices", headers=ALICE, json={"name": "phone"}).json()["token"]
+    forged = token[:-6] + ("abcdef" if not token.endswith("abcdef") else "ghijkl")
+    stranger, _, _ = vault_devices.mint(TenantContext(tenant_id=TENANT, workspace_id=WORKSPACE, user_id="never_a_member"), "vdev_" + "0" * 32)
+    asked: list[str] = []
+    real_lookup = dependencies.lookup_membership
+
+    def lookup(context: TenantContext) -> Any:
+        asked.append(context.user_id)
+        return real_lookup(context)
+
+    monkeypatch.setattr(dependencies, "lookup_membership", lookup)
+
+    def answers() -> set[tuple[int, str]]:
+        found = set()
+        for bearer in (forged, stranger):
+            refused = client.post("/api/v1/documents/device/upload", params={"name": "s.png"}, headers={"authorization": f"Bearer {bearer}"}, content=png(6))
+            found.add((refused.status_code, message(refused)))
+        return found
+
+    as_member = answers()
+    member("alice", "viewer")
+    as_viewer = answers()
+    now = utc_now()
+    memory_repository.save_membership(WorkspaceMembership(tenant_id=TENANT, workspace_id=WORKSPACE, user_id="alice", role="member", active=False,
+                                                          created_at=now, updated_at=now))
+    monkeypatch.setattr(dependencies, "workspace_archived", lambda context: True)
+    as_former_member_of_an_archived_workspace = answers()
+    assert as_member == as_viewer == as_former_member_of_an_archived_workspace
+    assert len(as_member) == 1 and next(iter(as_member))[0] == 401 and "not valid" in next(iter(as_member))[1]
+    assert asked == []  # nobody's membership was looked up for a token whose secret is wrong
