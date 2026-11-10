@@ -271,20 +271,22 @@ function RegisterTable({ page, accounts, selected, onOpen, onPage }: { page: Fin
     <div className="finTableWrap" tabIndex={0} role="region" aria-label={t('freg.tx.listTitle')}>
       <table className="finGrid fregTable">
         <thead><tr>
-          <th scope="col">{t('finance.col.date')}</th><th scope="col">{t('freg.col.merchant')}</th><th scope="col">{t('finance.col.category')}</th>
+          <th scope="col" className="fregHidePhone">{t('finance.col.date')}</th><th scope="col">{t('freg.col.merchant')}</th><th scope="col" className="fregHideXs">{t('finance.col.category')}</th>
           <th scope="col" className="fregHideMd">{t('finance.col.account')}</th><th scope="col" className="fregHideMd">{t('freg.col.receipt')}</th>
           <th scope="col" className="fregHideSm">{t('freg.col.source')}</th><th scope="col" className="num">{t('finance.col.amount')}</th>
-          <th scope="col">{t('freg.col.status')}</th><th scope="col"><span className="visuallyHidden">{t('finance.col.actions')}</span></th>
+          <th scope="col" className="fregHideXs">{t('freg.col.status')}</th><th scope="col"><span className="visuallyHidden">{t('finance.col.actions')}</span></th>
         </tr></thead>
         <tbody>{page.items.map((row) => <tr key={row.id} className={selected === row.id ? 'selected' : undefined} onClick={() => onOpen(row.id)}>
-          <td className="fregDate"><bdi dir="ltr">{row.posted_on}</bdi></td>
-          <td className="fregDesc"><strong dir="auto">{row.description}</strong>{row.notes && <small dir="auto">{row.notes}</small>}</td>
-          <td className="fregCatCell"><CategoryChip category={row.category} />{row.transaction_type && <small className="fregType">{typeLabel(row.transaction_type)}</small>}</td>
+          <td className="fregDate fregHidePhone"><bdi dir="ltr">{row.posted_on}</bdi></td>
+          <td className="fregDesc"><strong dir="auto">{row.description}</strong>{row.notes && <small dir="auto">{row.notes}</small>}
+            {/* Narrow windows: the Category and Status columns (and the Date column on phones) give way so the amount stays on screen; they show here instead (financeRegister.css). */}
+            <span className="fregRowMeta"><bdi className="fregRowDate" dir="ltr">{row.posted_on}</bdi><CategoryChip category={row.category} />{row.transaction_type && <small className="fregType">{typeLabel(row.transaction_type)}</small>}<StatusLabel row={row} /></span></td>
+          <td className="fregCatCell fregHideXs"><CategoryChip category={row.category} />{row.transaction_type && <small className="fregType">{typeLabel(row.transaction_type)}</small>}</td>
           <td className="fregHideMd" dir="auto">{names.get(row.account_id) ?? '-'}</td>
           <td className="fregHideMd"><Evidence row={row} /></td>
           <td className="fregHideSm"><SourceLabel row={row} /></td>
           <td className="num"><Money value={row.amount} currency={row.currency} signed /></td>
-          <td><StatusLabel row={row} /></td>
+          <td className="fregHideXs"><StatusLabel row={row} /></td>
           <td><button type="button" className="iconButton small" aria-label={t('freg.row.open', { description: row.description })} onClick={(e) => { e.stopPropagation(); onOpen(row.id); }}><MoreHorizontal aria-hidden="true" /></button></td>
         </tr>)}</tbody>
       </table>

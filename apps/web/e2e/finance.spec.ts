@@ -149,7 +149,8 @@ test('transactions: an uncategorized row is counted in neither figure, says why,
   const table = page.locator('.fregTable');
   await expect(table.locator('tbody tr').first()).toBeVisible();
   await expect(page.getByText('1 uncategorized, not counted in income or spending.', { exact: false })).toBeVisible();
-  await expect(table.getByText('Spending').first()).toBeVisible();
+  // The type is in the Category column, or under the merchant where that column gives way (narrow windows).
+  await expect(table.getByText('Spending').filter({ visible: true }).first()).toBeVisible();
   await page.getByRole('button', { name: 'Show them' }).click();
   await expect(page.getByText('1 to 1 of 1')).toBeVisible();
   expect(sent.some((r) => r.path === '/api/v1/finance/register')).toBe(true);
@@ -336,6 +337,44 @@ test('a failed summary shows the reason and a retry', async ({ page }) => {
   await expect(page.getByRole('alert')).toContainText('Finance could not be loaded: The database is not reachable.');
   await expect(page.getByRole('button', { name: 'Try again' })).toBeVisible();
 });
+
+// The table was 722 px wide in a 356 px card on a phone, so Amount and Status were off screen. Columns
+// now give way as the card narrows and the category, status and (on phones) date sit under the merchant.
+for (const [width, height] of [[390, 844], [768, 1024], [1024, 768], [1366, 768]] as const) {
+  for (const locale of ['en', 'ar'] as const) {
+    test(`transactions at ${width}x${height} (${locale}): every amount is on screen and the table does not scroll sideways`, async ({ page }, testInfo) => {
+      test.skip(testInfo.project.name !== 'desktop', 'sized by the test');
+      await page.setViewportSize({ width, height });
+      await mockApi(page);
+      await useSavedLocale(page, locale);
+      await page.goto('/#finance-transactions');
+      const table = page.locator('.fregTable');
+      await expect(table.locator('tbody tr').first()).toBeVisible();
+      const wrap = page.locator('.finTableWrap').filter({ has: table });
+      expect(await wrap.evaluate((el) => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(1);
+      const cells = await table.locator('tbody td.num').evaluateAll((list) => list.map((td) => { const box = td.getBoundingClientRect(); return { left: box.left, right: box.right, text: (td as HTMLElement).innerText }; }));
+      expect(cells.length).toBeGreaterThan(5);
+      for (const cell of cells) {
+        expect(cell.text).toContain('AED');
+        expect(cell.left).toBeGreaterThanOrEqual(0);
+        expect(cell.right).toBeLessThanOrEqual(width);
+      }
+      const first = table.locator('tbody tr').first();
+      if (width <= 1100) {
+        // The category and status are read under the merchant; their columns are gone.
+        await expect(first.locator('.fregRowMeta .fregCat')).toBeVisible();
+        await expect(first.locator('.fregRowMeta .finChip')).toBeVisible();
+        await expect(table.locator('thead th').nth(2)).toBeHidden();
+      } else {
+        await expect(first.locator('.fregRowMeta')).toBeHidden();
+        await expect(table.locator('thead th').nth(2)).toBeVisible();
+      }
+      // On phones the date is in that line too.
+      if (width <= 760) await expect(first.locator('.fregRowDate')).toBeVisible(); else await expect(first.locator('td.fregDate')).toBeVisible();
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth + 1)).toBe(true);
+    });
+  }
+}
 
 test('Finance reads in Arabic, right to left, with Western digits', async ({ page }) => {
   await mockApi(page);
