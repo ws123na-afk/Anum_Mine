@@ -48,27 +48,28 @@ evidence = "https://github.com/tiran/defusedxml/blob/v0.7.1/LICENSE"
 reason = "Metadata says 'PSFL' with the classifier 'Python Software Foundation License'; the LICENSE in the 0.7.1 wheel is the Python Software Foundation License Version 2."
 
 # Owner decision, 4 November 2026: psycopg is approved for its installed version and license.
+# Owner decision, 10 November 2026: psycopg 3.3.8 approved
 [[exception]]
 ecosystem = "python"
 package = "psycopg"
-versions = ["3.3.6", "3.2.3"]  # 3.3.6: API image; 3.2.3: backup image (infra/backup/Dockerfile)
+versions = ["3.3.8", "3.2.3"]  # 3.3.8: API image; 3.2.3: backup image (infra/backup/Dockerfile)
 license = "LGPL-3.0-only"
 reason = "PostgreSQL driver, used unmodified as a separate Python package that loads at run time and can be replaced; ANUM's code is not linked into it. Its LICENSE ships inside the package and in licenses/third-party/."
 reviewed_by = "owner"
 reviewed_on = "2026-11-04"
-source_url = "https://github.com/psycopg/psycopg/tree/3.3.6"
-notice = "psycopg is licensed under the GNU Lesser General Public License version 3 (licenses/third-party/psycopg-3.3.6-LICENSE.txt with licenses/third-party/GPL-3.0-only.txt). Its source is at the URL above."
+source_url = "https://github.com/psycopg/psycopg/tree/3.3.8"
+notice = "psycopg is licensed under the GNU Lesser General Public License version 3 (licenses/third-party/psycopg-3.3.8-LICENSE.txt with licenses/third-party/GPL-3.0-only.txt). Its source is at the URL above."
 
 [[exception]]
 ecosystem = "python"
 package = "psycopg-binary"
-versions = ["3.3.6", "3.2.3"]  # 3.3.6: API image; 3.2.3: backup image (infra/backup/Dockerfile)
+versions = ["3.3.8", "3.2.3"]  # 3.3.8: API image; 3.2.3: backup image (infra/backup/Dockerfile)
 license = "LGPL-3.0-only"
 reason = "Prebuilt C extension of psycopg, used unmodified as a separate shared library that can be replaced (for example by building psycopg[c]). It bundles libpq, OpenSSL and other native libraries, listed with their licenses and notices in scripts/licenses/bundled.toml."
 reviewed_by = "owner"
 reviewed_on = "2026-11-04"
-source_url = "https://github.com/psycopg/psycopg/tree/3.3.6/psycopg_c"
-notice = "psycopg-binary is licensed under the GNU Lesser General Public License version 3 (licenses/third-party/psycopg-3.3.6-LICENSE.txt with licenses/third-party/GPL-3.0-only.txt). Its source is at the URL above; the libraries it bundles are listed under Native libraries bundled inside packages."
+source_url = "https://github.com/psycopg/psycopg/tree/3.3.8/psycopg_c"
+notice = "psycopg-binary is licensed under the GNU Lesser General Public License version 3 (licenses/third-party/psycopg-3.3.8-LICENSE.txt with licenses/third-party/GPL-3.0-only.txt). Its source is at the URL above; the libraries it bundles are listed under Native libraries bundled inside packages."
 
 # Owner decision, 4 November 2026: sharp and libvips are approved as build-time only (not shipped).
 

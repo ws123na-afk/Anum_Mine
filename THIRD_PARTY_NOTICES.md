@@ -1089,19 +1089,19 @@ the reason given (docs/licenses.md).
 
 - License: LGPL-3.0-only
 - Used in: api, backup, browser
-- Source: <https://github.com/psycopg/psycopg/tree/3.3.6>
+- Source: <https://github.com/psycopg/psycopg/tree/3.3.8>
 - Why it is accepted: PostgreSQL driver, used unmodified as a separate Python package that loads at run time and can be replaced; ANUM's code is not linked into it. Its LICENSE ships inside the package and in licenses/third-party/.
-- Approved versions: 3.3.6, 3.2.3 (another version or license is reviewed again)
-- Notice: psycopg is licensed under the GNU Lesser General Public License version 3 (licenses/third-party/psycopg-3.3.6-LICENSE.txt with licenses/third-party/GPL-3.0-only.txt). Its source is at the URL above.
+- Approved versions: 3.3.8, 3.2.3 (another version or license is reviewed again)
+- Notice: psycopg is licensed under the GNU Lesser General Public License version 3 (licenses/third-party/psycopg-3.3.8-LICENSE.txt with licenses/third-party/GPL-3.0-only.txt). Its source is at the URL above.
 
 ### psycopg-binary (Python packages (PyPI))
 
 - License: LGPL-3.0-only
 - Used in: api, backup, browser
-- Source: <https://github.com/psycopg/psycopg/tree/3.3.6/psycopg_c>
+- Source: <https://github.com/psycopg/psycopg/tree/3.3.8/psycopg_c>
 - Why it is accepted: Prebuilt C extension of psycopg, used unmodified as a separate shared library that can be replaced (for example by building psycopg[c]). It bundles libpq, OpenSSL and other native libraries, listed with their licenses and notices in scripts/licenses/bundled.toml.
-- Approved versions: 3.3.6, 3.2.3 (another version or license is reviewed again)
-- Notice: psycopg-binary is licensed under the GNU Lesser General Public License version 3 (licenses/third-party/psycopg-3.3.6-LICENSE.txt with licenses/third-party/GPL-3.0-only.txt). Its source is at the URL above; the libraries it bundles are listed under Native libraries bundled inside packages.
+- Approved versions: 3.3.8, 3.2.3 (another version or license is reviewed again)
+- Notice: psycopg-binary is licensed under the GNU Lesser General Public License version 3 (licenses/third-party/psycopg-3.3.8-LICENSE.txt with licenses/third-party/GPL-3.0-only.txt). Its source is at the URL above; the libraries it bundles are listed under Native libraries bundled inside packages.
 
 ## Native libraries bundled inside packages
 
@@ -1170,7 +1170,7 @@ Notices these licenses ask for:
 - Used in: backup
 - Reviewed: 2026-11-04, for versions 3.2.3
 - Backup image (infra/backup/Dockerfile). Read from the 3.2.3 wheels for CPython 3.13 on manylinux2014 x86_64 and aarch64 (`psycopg_binary.libs/`); the libraries come from the CentOS 7 based manylinux2014 build images. psycopg itself is LGPL-3.0-only (accepted in scripts/licenses/exceptions.toml). Used unmodified.
-- Full license texts: [`licenses/third-party/psycopg-3.3.6-LICENSE.txt`](licenses/third-party/psycopg-3.3.6-LICENSE.txt), [`licenses/third-party/GPL-3.0-only.txt`](licenses/third-party/GPL-3.0-only.txt), [`licenses/third-party/LGPL-2.1-or-later.txt`](licenses/third-party/LGPL-2.1-or-later.txt), [`licenses/third-party/PostgreSQL.txt`](licenses/third-party/PostgreSQL.txt), [`licenses/third-party/Apache-2.0.txt`](licenses/third-party/Apache-2.0.txt), [`licenses/third-party/OLDAP-2.8.txt`](licenses/third-party/OLDAP-2.8.txt), [`licenses/third-party/BSD-Attribution-HPND-disclaimer.txt`](licenses/third-party/BSD-Attribution-HPND-disclaimer.txt), [`licenses/third-party/MIT.txt`](licenses/third-party/MIT.txt), [`licenses/third-party/BSD-3-Clause.txt`](licenses/third-party/BSD-3-Clause.txt)
+- Full license texts: [`licenses/third-party/psycopg-3.3.8-LICENSE.txt`](licenses/third-party/psycopg-3.3.8-LICENSE.txt), [`licenses/third-party/GPL-3.0-only.txt`](licenses/third-party/GPL-3.0-only.txt), [`licenses/third-party/LGPL-2.1-or-later.txt`](licenses/third-party/LGPL-2.1-or-later.txt), [`licenses/third-party/PostgreSQL.txt`](licenses/third-party/PostgreSQL.txt), [`licenses/third-party/Apache-2.0.txt`](licenses/third-party/Apache-2.0.txt), [`licenses/third-party/OLDAP-2.8.txt`](licenses/third-party/OLDAP-2.8.txt), [`licenses/third-party/BSD-Attribution-HPND-disclaimer.txt`](licenses/third-party/BSD-Attribution-HPND-disclaimer.txt), [`licenses/third-party/MIT.txt`](licenses/third-party/MIT.txt), [`licenses/third-party/BSD-3-Clause.txt`](licenses/third-party/BSD-3-Clause.txt)
 
 | Library | License | Copyright | Source |
 |---|---|---|---|
@@ -1189,12 +1189,12 @@ Notices these licenses ask for:
 - keyutils (libkeyutils.so.1): Weak copyleft (LGPL-2.1-or-later), used unmodified as a separate shared library that can be replaced. If the backup image is ever distributed, ship this notice with the LGPL text and provide the library's corresponding source (or a written offer for it).
 - Cyrus SASL (libsasl2.so.3): This product includes software developed by Computing Services at Carnegie Mellon University (http://www.cmu.edu/computing/).
 
-### psycopg-binary 3.3.6 (Python packages (PyPI))
+### psycopg-binary 3.3.8 (Python packages (PyPI))
 
 - Used in: api, browser
-- Reviewed: 2026-11-04, for versions 3.3.6
-- Read from the 3.3.6 wheels for CPython 3.13 on manylinux2014 x86_64 and manylinux_2_28 aarch64 (`psycopg_binary.libs/`). The libraries come from the manylinux build images: CentOS 7 packages on x86_64 and AlmaLinux 8 packages on aarch64; their exact source is those distributions' source packages. psycopg itself is LGPL-3.0-only (accepted in scripts/licenses/exceptions.toml). Used unmodified.
-- Full license texts: [`licenses/third-party/psycopg-3.3.6-LICENSE.txt`](licenses/third-party/psycopg-3.3.6-LICENSE.txt), [`licenses/third-party/GPL-3.0-only.txt`](licenses/third-party/GPL-3.0-only.txt), [`licenses/third-party/LGPL-2.1-or-later.txt`](licenses/third-party/LGPL-2.1-or-later.txt), [`licenses/third-party/PostgreSQL.txt`](licenses/third-party/PostgreSQL.txt), [`licenses/third-party/Apache-2.0.txt`](licenses/third-party/Apache-2.0.txt), [`licenses/third-party/OpenSSL.txt`](licenses/third-party/OpenSSL.txt), [`licenses/third-party/OLDAP-2.8.txt`](licenses/third-party/OLDAP-2.8.txt), [`licenses/third-party/BSD-Attribution-HPND-disclaimer.txt`](licenses/third-party/BSD-Attribution-HPND-disclaimer.txt), [`licenses/third-party/MIT.txt`](licenses/third-party/MIT.txt), [`licenses/third-party/BSD-3-Clause.txt`](licenses/third-party/BSD-3-Clause.txt)
+- Reviewed: 2026-11-10, for versions 3.3.8
+- Read from the 3.3.8 wheels for CPython 3.13 on manylinux2014 x86_64 and manylinux_2_28 aarch64 (`psycopg_binary.libs/`). The libraries come from the manylinux build images: CentOS 7 packages on x86_64 and AlmaLinux 8 packages on aarch64; their exact source is those distributions' source packages. psycopg itself is LGPL-3.0-only (accepted in scripts/licenses/exceptions.toml). Used unmodified.
+- Full license texts: [`licenses/third-party/psycopg-3.3.8-LICENSE.txt`](licenses/third-party/psycopg-3.3.8-LICENSE.txt), [`licenses/third-party/GPL-3.0-only.txt`](licenses/third-party/GPL-3.0-only.txt), [`licenses/third-party/LGPL-2.1-or-later.txt`](licenses/third-party/LGPL-2.1-or-later.txt), [`licenses/third-party/PostgreSQL.txt`](licenses/third-party/PostgreSQL.txt), [`licenses/third-party/Apache-2.0.txt`](licenses/third-party/Apache-2.0.txt), [`licenses/third-party/OpenSSL.txt`](licenses/third-party/OpenSSL.txt), [`licenses/third-party/OLDAP-2.8.txt`](licenses/third-party/OLDAP-2.8.txt), [`licenses/third-party/BSD-Attribution-HPND-disclaimer.txt`](licenses/third-party/BSD-Attribution-HPND-disclaimer.txt), [`licenses/third-party/MIT.txt`](licenses/third-party/MIT.txt), [`licenses/third-party/BSD-3-Clause.txt`](licenses/third-party/BSD-3-Clause.txt)
 
 | Library | License | Copyright | Source |
 |---|---|---|---|
