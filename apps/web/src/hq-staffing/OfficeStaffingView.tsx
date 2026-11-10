@@ -25,7 +25,12 @@ export default function OfficeStaffingView({ onGo }: { onGo(view: string): void 
   const [load, setLoad] = useState<Load>({ state: 'loading' });
   const [open, setOpen] = useState<StaffingOfficeSummary | null>(null);
 
-  useEffect(() => { const id = window.setTimeout(() => { setDebounced(query); setOffset(0); }, 250); return () => window.clearTimeout(id); }, [query]);
+  // Back to page 1 only when the search text really changed: an unchanged query must not undo a page the person just picked.
+  useEffect(() => {
+    if (query === debounced) return undefined;
+    const id = window.setTimeout(() => { setDebounced(query); setOffset(0); }, 250);
+    return () => window.clearTimeout(id);
+  }, [query, debounced]);
 
   const refresh = useCallback(async () => {
     setLoad((old) => (old.state === 'ready' ? old : { state: 'loading' }));
