@@ -123,7 +123,7 @@ test('a failed removal keeps the phone and says what failed', async ({ page }) =
   await page.goto('/#notifications');
   const push = page.getByRole('region', { name: 'Phone push' });
   await push.getByRole('button', { name: 'Remove Pixel 8 (Android, ends in 1a2b)' }).click();
-  await expect(push.getByRole('alert')).toContainText('Pixel 8 (Android, ends in 1a2b) was not removed. Device not found Try again.');
+  await expect(push.getByRole('alert')).toContainText('Pixel 8 (Android, ends in 1a2b) was not removed. Device not found. Try again.');
   await expect(push.getByRole('list', { name: 'My registered phones' }).getByRole('listitem')).toHaveCount(2);
 });
 

@@ -33,7 +33,7 @@ type Load = { state: 'loading' } | { state: 'ready' } | { state: 'denied' } | { 
  * `items` is the shell's pending snapshot: it is only the signal to reload the first page when an approval
  * event arrives (the list itself is fetched here, filtered and searched on the server).
  */
-export function ApprovalsView({ items, busy, decide, empty, userId, onOpenRules }: {
+export function ApprovalsView({ items, busy, decide, empty, userId, onOpenRules, onReload }: {
   items: Approval[];
   busy: boolean;
   decide: Decide;
@@ -44,6 +44,8 @@ export function ApprovalsView({ items, busy, decide, empty, userId, onOpenRules 
   userId?: string | null;
   /** Opens the approval rules (Governance), where AED bands and approvers are set. */
   onOpenRules?: () => void;
+  /** Reads the shell's pending snapshot again (the page's Retry calls it too). */
+  onReload?: () => void;
 }) {
   const [filter, setFilter] = useState<api.ApprovalFilter>('all');
   const [typed, setTyped] = useState('');
@@ -163,7 +165,7 @@ export function ApprovalsView({ items, busy, decide, empty, userId, onOpenRules 
       </div>
       {load.state === 'loading' && <section className="surface approvalTable" aria-busy="true"><PanelLoading label={t('approvals.loading')} /></section>}
       {load.state === 'denied' && <section className="surface approvalTable"><PanelDenied title={t('approvals.denied.title')} text={t('approvals.denied.text')} /></section>}
-      {load.state === 'error' && <section className="surface approvalTable"><PanelError message={t('approvals.error.text', { reason: load.reason })} onRetry={() => void fetchFirst(false)} /></section>}
+      {load.state === 'error' && <section className="surface approvalTable"><PanelError message={t('approvals.error.text', { reason: load.reason })} onRetry={() => { void fetchFirst(false); onReload?.(); }} /></section>}
       {ready && filter !== 'decided' && (
         // The review queue: on wide screens an index of what waits sits beside the requests, and picking
         // one brings its card into view with focus (docs/web-design-system.md#pages).

@@ -19,7 +19,7 @@ import { formatDateTime, formatNumber, t, type MessageKey } from './lib/i18n';
 import { riskLabel, statusLabel, stepLabel } from './lib/labels';
 import { figure } from './lib/pageSummary';
 import { viewLabel } from './lib/shell';
-import { PageSummary, SplitView } from './PageParts';
+import { PageSummary, PaneDenied, SplitView } from './PageParts';
 import { readTasksTab, TASKS_PANEL, TasksHead, type TasksTab } from './TasksTabs';
 import { tabPanel } from './FinanceShell';
 import './tasks.css';
@@ -54,6 +54,8 @@ export interface TasksViewProps {
   /** "Sources used": open a memory in the Memory view, or a file's detail. */
   openMemory(target: MemoryTarget): void;
   openFile(fileId: string): void;
+  /** Reads the shell's task and approval lists again (the list's "Try again" calls it too). */
+  reload?(): void;
 }
 
 const FILTERS: StatusFilter[] = ['all', 'active', 'waiting_approval', 'completed', 'failed', 'cancelled'];
@@ -247,7 +249,10 @@ function AgentTasks(p: TasksViewProps & { head: ReactNode }) {
             <button className="secondary taskSmallButton" onClick={() => { setChecked(new Set()); setConfirmBulkCancel(false); }}>{t('tasks.bulk.clear')}</button>
           </div>}
           {notice && <Notice error={notice.error}>{notice.text}</Notice>}
-          {showListError && <div className="notice errorNotice taskErrorRow" role="alert"><CircleDot aria-hidden="true" /><span>{t('tasks.listError', { reason: describeError(listError) })}</span><button className="secondary taskSmallButton" onClick={refresh}><RefreshCw aria-hidden="true" />{t('common.tryAgain')}</button></div>}
+          {/* A 403 is not something to retry: say who can open the list. Anything else says what failed, with a retry that also reloads the shell's copy. */}
+          {showListError && (isPermissionDenied(listError)
+            ? <PaneDenied title={t('tasks.denied.title')} text={t('tasks.denied.text')} />
+            : <div className="notice errorNotice taskErrorRow" role="alert"><CircleDot aria-hidden="true" /><span>{t('tasks.listError', { reason: describeError(listError) })}</span><button className="secondary taskSmallButton" onClick={() => { refresh(); p.reload?.(); }}><RefreshCw aria-hidden="true" />{t('common.tryAgain')}</button></div>)}
           {all.length > 0 && <label className="taskToggle taskSelectAll"><input type="checkbox" checked={allChecked} onChange={toggleAll} />{all.length > BULK_MAX ? t('tasks.bulk.selectFirst', { count: BULK_MAX }) : t('tasks.bulk.selectAll')}</label>}
           <div className={`compactList taskList ${stale ? 'taskListStale' : ''}`} aria-busy={listLoading}>
             {all.map((x) => <div className="taskRow" key={x.id}>

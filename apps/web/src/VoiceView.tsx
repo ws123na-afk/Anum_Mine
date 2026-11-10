@@ -35,7 +35,7 @@ import { VoiceActionCardView } from './VoiceActionCard';
 import { voiceSpaceMode } from './lib/spaceMode';
 import { heardOwnReply } from './lib/recognitionGate';
 import { enterFocus, exitFocus, focusElement, type FocusMode } from './lib/focusMode';
-import { budgetMessage, isBudgetExceeded } from './lib/errors';
+import { budgetMessage, isBudgetExceeded, describeError } from './lib/errors';
 import './voice.css';
 import { takeSentences } from './lib/chat';
 import { CopyAction } from './MessageActions';
@@ -441,7 +441,7 @@ export function VoiceView({ onOpenApprovals, onOpenDeveloper, onOpenTask }: { on
       setState('idle');
       wake.current?.resume();
       setRetryText(text);
-      setNotice(isBudgetExceeded(error) ? t('common.budgetReached', { message: budgetMessage(error) }) : error instanceof Error ? error.message : t('voice.noAnswer'));
+      setNotice(isBudgetExceeded(error) ? t('common.budgetReached', { message: budgetMessage(error) }) : describeError(error, t('voice.noAnswer')));
     } finally {
       if (replyAbort.current === abort) replyAbort.current = null;
     }
@@ -578,7 +578,7 @@ export function VoiceView({ onOpenApprovals, onOpenDeveloper, onOpenTask }: { on
       setTurns((current) => current.map((item) => item.id === turn.id ? { ...item, resolved: 'created' } : item));
       setNotice(t('voice.taskCreated', { title: created.task.title }));
     } catch (error) {
-      setNotice(isBudgetExceeded(error) ? t('common.budgetReached', { message: budgetMessage(error) }) : error instanceof Error ? error.message : t('voice.taskFailed'));
+      setNotice(isBudgetExceeded(error) ? t('common.budgetReached', { message: budgetMessage(error) }) : describeError(error, t('voice.taskFailed')));
     }
   }
 

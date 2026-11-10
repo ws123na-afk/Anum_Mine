@@ -2,6 +2,7 @@
 // "Download my data" and "Delete my data". Pure, so `pnpm --filter @anum/web test:unit`
 // exercises it without a browser; the requests live in privacyApi.ts.
 import type { PrivacyDeleteResult, PrivacyPrivateCounts, PrivacySharedCounts, PrivacySummary } from '@anum/contracts';
+import { isNetworkFailure } from './sentence.ts';
 import { t, type MessageKey } from './i18n.ts';
 
 // The wire shapes are the API's own (packages/contracts/src/account.ts).
@@ -144,6 +145,7 @@ function asStatusError(error: unknown): StatusError | null {
 function reason(error: unknown): string {
   const failure = asStatusError(error);
   if (failure?.detail) return failure.detail;
+  if (isNetworkFailure(error)) return t('common.networkError');
   return error instanceof Error && error.message ? error.message : t('common.requestFailed');
 }
 

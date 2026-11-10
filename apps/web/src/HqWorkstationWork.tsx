@@ -4,6 +4,7 @@
  * documents its runs read. Every part is a stored record; prompts and tool arguments never arrive.
  * Without the endpoint the panel falls back to the task titles the presence reading already has.
  */
+import { describeError } from './lib/errors';
 import { AlertTriangle, FileText, ShieldAlert } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { endpointMissing, loadDeskWork } from './lib/hqPresenceApi.ts';
@@ -32,7 +33,7 @@ export function WorkstationWork(props: Readonly<{ deskId: string | null; fallbac
     } catch (error) {
       if (mine !== seq.current) return;
       if (endpointMissing(error)) setState({ kind: 'missing' });
-      else setState({ kind: 'error', message: error instanceof Error ? error.message : t('hq.error.generic') });
+      else setState({ kind: 'error', message: describeError(error, t('hq.error.generic')) });
     }
   }, [props.deskId]);
   useEffect(() => { void load(false); return () => { seq.current += 1; }; }, [load]);
