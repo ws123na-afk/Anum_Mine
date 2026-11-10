@@ -42,6 +42,8 @@ Early Android versions can support offline drafts and queued user messages. Agen
 
 The Kotlin and Compose client provides task capture and execution, task status, approval decisions, voice capture with just-in-time microphone permission, typed REST access, and encrypted token storage. CI runs unit tests and assembles a debug APK.
 
+Its one activity (`MainActivity`) sets `FLAG_SECURE` on its window before the content is shown, like the Flutter app ([screen privacy](mobile.md#screen-privacy)): screenshots, screen recordings and the recent-apps thumbnail show nothing of the workspace.
+
 ## Release Gate
 
 The Kotlin client is not released (see [Status: Frozen](#status-frozen)). Local APK validation requires JDK 17, Gradle, the Android SDK, and ADB. The Android release gate for the shipping app (signing, Play App Signing, device testing) is in [Flutter mobile](mobile.md#release-builds).
