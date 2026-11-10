@@ -27,15 +27,16 @@ from __future__ import annotations
 import re
 import unicodedata
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 from decimal import Decimal, InvalidOperation
 
 from .merchant_match import merchant_words, merchants_agree
 from .money import MoneyError, minor_digits, quantize
 from .sms_parser import CURRENCY_WORDS, normalize
 
-PRECISE_WINDOW = timedelta(minutes=30)
-LOOSE_DAYS = 2
+PRECISE_WINDOW = timedelta(minutes=30)  # two different sources of one payment (Apple Pay and the bank's message), both with a time
+SAME_SOURCE_WINDOW = timedelta(minutes=10)  # the same kind of source twice (a bank's message sent again), both with a time
+LOOSE_DAYS = 2  # a message without its own date, or a statement line that posts a day or two later
 _ARABIC_DIGITS = str.maketrans("٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹٫٬", "01234567890123456789.,")
 _SYMBOLS = {word.upper(): code for word, code in CURRENCY_WORDS}
 
@@ -150,6 +151,7 @@ class Report:
     precise: bool  # ``when`` carries a real time (not only a day)
     merchant: str | None
     reference: str | None
+    dated: bool = False  # the message states its own date (``when`` is that date, not when the message arrived)
 
 
 @dataclass(frozen=True)
@@ -160,6 +162,7 @@ class Candidate:
     merchant: str | None
     reference: str | None
     sources: frozenset[str]  # "sms", "wallet"
+    stated: frozenset[date] = frozenset()  # the dates its own messages state (none: it is dated by arrival or by a statement)
 
 
 def same_payment(report: Report, candidate: Candidate) -> str:
@@ -176,7 +179,10 @@ def same_payment(report: Report, candidate: Candidate) -> str:
     if merchants is False and not statement:
         return "no"  # Apple Pay and SMS naming different merchants are two purchases
     if report.precise and candidate.when is not None:
-        return "match" if abs(candidate.when - report.when) <= PRECISE_WINDOW and merchants is not False else "no"
+        window = SAME_SOURCE_WINDOW if report.source in candidate.sources else PRECISE_WINDOW
+        return "match" if abs(candidate.when - report.when) <= window and merchants is not False else "no"
+    if report.dated and candidate.stated and report.when.date() not in candidate.stated:
+        return "no"  # both state their own date and the dates differ: two payments (the same coffee on three days)
     if abs((candidate.day.date() - report.when.date()).days) > LOOSE_DAYS:
         return "no"
     if merchants is True or (report.reference and report.reference == candidate.reference):
