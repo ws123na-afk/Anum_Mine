@@ -1,4 +1,5 @@
 import { expect, test } from '@playwright/test';
+import { openNavMenu } from './support/navMenu';
 import { mockWorkspaceApi, useSavedLocale } from './support/workspaceApi';
 
 // Accessibility checks that need a person's path through the page: the skip link and the landmarks.
@@ -26,5 +27,7 @@ test('landmarks: one main region named by the page title, and a labelled primary
   await page.goto('/#approvals');
   await expect(page.getByRole('main')).toHaveCount(1);
   await expect(page.getByRole('main', { name: 'الموافقات' })).toBeVisible();
+  // On a phone the navigation is in the drawer the menu button opens.
+  await openNavMenu(page);
   await expect(page.getByRole('navigation', { name: 'التنقل الرئيسي' })).toBeAttached();
 });

@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { openNavMenu } from './support/navMenu';
 import { useSavedLocale } from './support/workspaceApi';
 
 // Favorites, the knowledge base and reports against a stateful mocked API
@@ -136,6 +137,7 @@ test('favorites: filter by type, open a starred report, remove it, then the empt
   await expect(page).toHaveURL(/#reports\/report_00$/);
   await expect(page.getByRole('dialog', { name: 'Tyre cost report_00' })).toBeVisible();
   await page.getByRole('dialog').getByRole('button', { name: 'Close' }).click();
+  await openNavMenu(page);
   await page.getByRole('navigation', { name: 'Primary' }).getByRole('button', { name: 'Favorites' }).click();
   await page.getByRole('button', { name: 'Remove Tyre cost report_00 from favorites' }).click();
   await expect(page.getByText('Nothing starred yet')).toBeVisible();
@@ -249,6 +251,7 @@ test('Arabic: reports, knowledge base and favorites read right to left without o
   await expect(page.getByRole('heading', { name: 'التقارير', level: 2 })).toBeVisible();
   await expect(page.locator('.reportRow').first()).toContainText('تقرير الإطارات');
   await noHorizontalOverflow(page);
+  await openNavMenu(page);
   await page.getByRole('navigation', { name: 'التنقل الرئيسي' }).getByRole('button', { name: 'قاعدة المعرفة' }).click();
   // The Knowledge Base entry opens on Memories; Collections is its second tab.
   const tabs = page.getByRole('navigation', { name: 'أقسام قاعدة المعرفة' });
@@ -257,6 +260,7 @@ test('Arabic: reports, knowledge base and favorites read right to left without o
   await expect(page).toHaveURL(/#knowledge$/);
   await expect(page.getByText('ابدأ قاعدة معرفتك')).toBeVisible();
   await noHorizontalOverflow(page);
+  await openNavMenu(page);
   await page.getByRole('navigation', { name: 'التنقل الرئيسي' }).getByRole('button', { name: 'المفضلة' }).click();
   await expect(page.getByRole('button', { name: /^إزالة\W*Tyre cost report_00\W*من المفضلة$/ })).toBeVisible();
   await noHorizontalOverflow(page);

@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { closeNavMenu, openNavMenu } from './support/navMenu';
 import { mockWorkspaceApi, useSavedLocale } from './support/workspaceApi';
 
 // Web localization (docs/web-localization.md): the browser's language is the default, a choice in
@@ -69,6 +70,7 @@ test('the Assistant, Approvals, Memory, Notifications and Privacy read in Arabic
   await expect(page.getByRole('textbox', { name: 'راسل المساعد' })).toHaveAttribute('placeholder', 'اسأل المساعد...');
   await expect(page.getByRole('article', { name: 'المساعد' }).getByText('Approve the announcement')).toBeVisible();
 
+  await openNavMenu(page);
   await page.getByRole('navigation', { name: 'التنقل الرئيسي' }).getByRole('button', { name: /الموافقات/ }).click();
   const card = page.getByRole('article', { name: /^موافقة على .?external\.action.?$/ });
   await expect(card.getByRole('heading', { name: 'يريد الوكيل استدعاء external.action' })).toBeVisible();
@@ -76,12 +78,16 @@ test('the Assistant, Approvals, Memory, Notifications and Privacy read in Arabic
   await expect(card.getByText(/خطورة عالية/)).toBeVisible();
   await expect(card.getByRole('button', { name: 'موافقة' })).toBeEnabled();
   // The pending count on the navigation is announced, not just shown.
+  await openNavMenu(page);
   await expect(page.getByLabel('موافقة واحدة معلّقة')).toBeVisible();
+  await closeNavMenu(page);
 
+  await openNavMenu(page);
   await page.getByRole('navigation', { name: 'التنقل الرئيسي' }).getByRole('button', { name: 'قاعدة المعرفة' }).click();
   await expect(page.getByText(/خاصة بك · من «.?Release planning.?»/)).toBeVisible();
   await expect(page.getByRole('radio', { name: 'من محادثاتي' })).toBeVisible();
 
+  await openNavMenu(page);
   await page.getByRole('navigation', { name: 'التنقل الرئيسي' }).getByRole('button', { name: 'الإعدادات' }).click();
   // Settings › Notifications: the switches, phone push and the registered phone, in Arabic.
   await page.getByRole('navigation', { name: 'أقسام الإعدادات' }).getByRole('button', { name: 'الإشعارات' }).click();
@@ -163,6 +169,7 @@ test('Integrations, Skills and the marketplace read in Arabic, right to left, wi
   expect(await noHorizontalOverflow(page)).toBe(true);
   await page.keyboard.press('Escape');
 
+  await openNavMenu(page);
   await page.getByRole('navigation', { name: 'التنقل الرئيسي' }).getByRole('button', { name: 'متجر ANUM' }).click();
   await expect(page.getByLabel('البحث في المهارات')).toBeVisible();
   // Arabic plural forms: two skills uses the dual.
@@ -172,6 +179,7 @@ test('Integrations, Skills and the marketplace read in Arabic, right to left, wi
   expect(await noHorizontalOverflow(page)).toBe(true);
   await page.keyboard.press('Escape');
 
+  await openNavMenu(page);
   await page.getByRole('navigation', { name: 'التنقل الرئيسي' }).getByRole('button', { name: 'المؤسسة' }).click();
   await expect(page.getByRole('heading', { name: 'كتالوج السوق' })).toBeVisible();
   await expect(page.getByText(/2 من حزمتين · 1 مثبّتة/)).toBeVisible();

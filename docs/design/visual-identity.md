@@ -81,7 +81,7 @@ A distinct display face with Arabic support (for example IBM Plex Sans Arabic be
 | Pressed | Buttons settle 1 px on press. |
 | Fields | `--d-field` with a strong hairline; hover darkens the hairline; focus turns it jade with a 3 px soft ring (`--d-ring`) and keeps a transparent outline for forced colours. Checkboxes and radios use the accent. |
 | Focus | A 2 px jade outline, 2 px offset, on every focusable element. |
-| Navigation | The current view is a raised row with a 3 px jade marker at its start (a raised pill in the phone strip); icons of the current view are jade. |
+| Navigation | The current view is a raised row with a 3 px jade marker at its start (the same in the phone drawer); icons of the current view are jade. |
 | Section tabs | One underlined row on a hairline; the current tab is in the text colour with a 2 px jade bar under it. One row at every width, scrolling sideways when it does not fit. Filters and view switches use the segmented control (a well with the chosen option raised). |
 | Badges | Pills with a 12 % tint of their status colour and the status in words. |
 | Summary figures | Text colour; a status figure marks its label with a small dot. |

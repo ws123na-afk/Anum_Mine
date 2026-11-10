@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { openNavMenu } from './support/navMenu';
 import { mockWorkspaceApi } from './support/workspaceApi';
 
 // A long session (docs/realtime.md#implementation): the owner reported that the web app froze
@@ -40,6 +41,7 @@ test('many navigations keep one event stream, no hanging requests or growing tim
   await expect(page.getByRole('heading', { level: 1, name: 'Operations overview' })).toBeVisible();
 
   // Every collapsed sidebar group open, then every view in the sidebar, three times over.
+  await openNavMenu(page);
   for (const toggle of await page.locator('.navGroupToggle[aria-expanded="false"]').all()) await toggle.click();
   const items = page.locator('nav .navList > li > button.navItem').filter({ hasNot: page.locator('xpath=ancestor::*[contains(@class,"navGroup-workspaces")]') });
   const count = await items.count();
@@ -49,6 +51,7 @@ test('many navigations keep one event stream, no hanging requests or growing tim
   for (let round = 0; round < 3; round += 1) {
     for (let index = 0; index < count; index += 1) {
       const item = items.nth(index);
+      await openNavMenu(page);
       await item.click();
       // The app still answers: the clicked entry becomes the current page at once.
       await expect(item).toHaveAttribute('aria-current', 'page', { timeout: 5_000 });
@@ -59,6 +62,7 @@ test('many navigations keep one event stream, no hanging requests or growing tim
   expect(navigations).toBeGreaterThanOrEqual(60);
 
   // On ANUM Command: the composer still answers.
+  await openNavMenu(page);
   await page.locator('nav .navList > li > button.navItem', { hasText: 'ANUM Command' }).first().click();
   await expect(page.getByLabel('Your command')).toBeVisible();
 

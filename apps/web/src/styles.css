@@ -162,7 +162,10 @@ button:focus-visible, a:focus-visible, summary:focus-visible { outline: 2px soli
 /* The sidebar is one window tall: the brand stays at the top and the stream status at the bottom,
    and the nav between them is the one scroll area, so every group and entry is reachable however
    many groups there are (no nested scroll boxes that squeeze a group down to a sliver). */
-.sidebar > .brand, .sidebar > .systemState { flex: none; }
+.sidebar > .brand, .sidebar .systemState { flex: none; }
+/* The nav and the stream status share one panel: the rest of the column on desktop, a drawer on phones. */
+.navPanel { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; }
+.sidebar > .navMenuButton, .navPanelHead, .navScrim { display: none; }
 .sidebar nav {
   display: flex; flex: 1 1 auto; flex-direction: column; gap: 0; min-height: 0; overflow-x: hidden; overflow-y: auto;
   overscroll-behavior: contain; scroll-padding-block: var(--d-s2); scrollbar-gutter: stable; scrollbar-width: thin;
@@ -759,27 +762,33 @@ code { unicode-bidi: isolate; }
   .topbar .topActions .workspaceSwitch { max-width: min(100%, 220px); }
   .searchTrigger { flex-basis: 100%; max-width: none; order: 2; }
 }
-/* Below 760px the sidebar becomes a top bar with a horizontally scrolling nav strip
-   (the strip scrolls, never the page). */
+/* Below 761px the sidebar becomes a top bar: a menu button and the brand. The button opens the same
+   navigation panel as a drawer from the start edge (Shell.tsx Sidebar), with its groups and folds. */
+@keyframes navDrawerIn { from { transform: translateX(-24px); } }
+@keyframes navDrawerInRtl { from { transform: translateX(24px); } }
 @media (max-width: 760px) {
   .shell { grid-template-columns: minmax(0, 1fr); }
   .shell::before { display: none; }
   .sidebar {
-    background: var(--d-sidebar); border-bottom: 1px solid var(--d-line); border-inline-end: 0; display: grid; gap: var(--d-s2); grid-template-columns: minmax(0, 1fr);
-    height: auto; overflow: visible; padding: var(--d-s3) var(--d-s4) var(--d-s2); position: sticky; top: 0; z-index: 30;
+    align-items: center; background: var(--d-sidebar); border-bottom: 1px solid var(--d-line); border-inline-end: 0; display: grid; gap: var(--d-s2); grid-template-columns: auto minmax(0, 1fr);
+    height: auto; overflow: visible; padding: var(--d-s2) var(--d-s4); position: sticky; top: 0; z-index: 30;
   }
+  .sidebar.navOpen { z-index: var(--z-dialog); }
   .brand { padding: 0; }
   .brandName { font-size: var(--text-xl); }
-  /* One horizontal strip with every view: groups flatten, the workspace list moves to the top-bar switcher. */
-  .sidebar nav {
-    display: flex; flex-direction: row; gap: var(--d-s1); margin: 0 calc(var(--d-s4) * -1); overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain;
-    padding: 2px var(--d-s4) var(--d-s1); scroll-padding-block: 0; scroll-snap-type: x proximity; scrollbar-gutter: auto; scrollbar-width: none;
+  .sidebar > .navMenuButton { display: inline-grid; }
+  .navPanel { display: none; }
+  .navOpen .navScrim { animation: scrimIn var(--d-base) var(--d-ease); background: var(--d-scrim); display: block; inset: 0; position: fixed; touch-action: none; z-index: 1; }
+  .navOpen .navPanel {
+    animation: navDrawerIn var(--d-base) var(--d-ease); background: var(--d-sidebar); border-inline-end: 1px solid var(--d-line-strong); box-shadow: var(--d-elev-2);
+    display: flex; height: 100dvh; inset-block-start: 0; inset-inline-start: 0; padding: var(--d-s2) var(--d-s3) var(--d-s3); position: fixed; width: min(320px, 86vw); z-index: 2;
   }
-  .sidebar nav::-webkit-scrollbar { display: none; }
-  .sidebar nav ul, .sidebar nav li, .sidebar .navGroup, .sidebar .navGroup > div, .sidebar nav > div, .sidebar .navGroup > div[hidden] { display: contents; }
-  .navGroupToggle, .sidebar .navGroup-workspaces { display: none; }
-  .navItem { display: inline-flex; flex: none; gap: var(--d-s2); min-height: 44px; padding: var(--d-s2) var(--d-s3); scroll-snap-align: start; width: auto; }
-  .systemState { display: none; }
+  [dir="rtl"] .navOpen .navPanel { animation-name: navDrawerInRtl; }
+  .navPanelHead { align-items: center; display: flex; flex: none; gap: var(--d-s3); justify-content: space-between; padding: 0 var(--d-s1) var(--d-s2); }
+  .navPanelHead .brand small { display: block; }
+  /* The workspace list stays in the top-bar switcher on phones. */
+  .sidebar .navGroup-workspaces { display: none; }
+  .navItem, .navGroupToggle { min-height: 44px; }
   .workspace { padding: var(--d-s3) var(--d-s4) var(--d-s7); }
   .topbar { flex-wrap: wrap; gap: var(--d-s2); margin-bottom: var(--d-s4); }
   .topActions { flex: 1 1 auto; }
@@ -858,15 +867,16 @@ code { unicode-bidi: isolate; }
    Popovers open as sheets under the row instead of hanging off a small button. */
 @media (max-width: 760px) {
   .shell { grid-template-rows: auto minmax(0, 1fr); }
-  .brand { min-height: 40px; }
+  .brand { min-height: 44px; }
   .brand small { display: none; }
   .topbar {
-    flex-wrap: nowrap; gap: var(--d-s1); inset-block-start: var(--d-s3); inset-inline-end: var(--d-s4); margin: 0; min-height: 0;
+    flex-wrap: nowrap; gap: var(--d-s1); inset-block-start: var(--d-s2); inset-inline-end: var(--d-s4); margin: 0; min-height: 0;
     position: fixed; z-index: 31;
   }
   .topActions { flex: none; flex-wrap: nowrap; gap: var(--d-s1); }
-  .searchTrigger, .topbar .topActions .workspaceSwitch, .topActions .iconButton, .userButton {
-    flex: none; height: 40px; justify-content: center; max-width: none; min-height: 40px; padding: 0; width: 40px;
+  /* Touch targets in the phone header are 44 px (the menu button beside the brand included). */
+  .searchTrigger, .topbar .topActions .workspaceSwitch, .topActions .iconButton, .userButton, .navMenuButton, .navPanelHead .iconButton {
+    flex: none; height: 44px; justify-content: center; max-width: none; min-height: 44px; padding: 0; width: 44px;
   }
   .searchTrigger { background: var(--d-glass-1); border-color: var(--d-line); color: var(--d-text); flex-basis: auto; order: 0; }
   .searchTrigger span, .workspaceSwitch > span, .workspaceSwitch > .switchChevron {
@@ -880,9 +890,7 @@ code { unicode-bidi: isolate; }
     background: var(--d-surface-2); inset-block-start: 64px; inset-inline: var(--d-s4); max-height: calc(100dvh - 80px); overflow: auto; position: fixed; width: auto;
   }
   .pageHeaderText > p { display: none; }
-  /* In the horizontal strip the raised row alone marks the current view. */
-  .navItem.active::before { display: none; }
-  /* Section tabs: one row that scrolls sideways (the sidebar strip's pattern), never two or three rows. */
+  /* Section tabs: one row that scrolls sideways, never two or three rows. */
   .settingsTabs {
     flex-wrap: nowrap; overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain; padding-block: 2px;
     scroll-padding-inline: var(--d-s1); scroll-snap-type: x proximity; scrollbar-width: none;
@@ -892,13 +900,17 @@ code { unicode-bidi: isolate; }
   .settingsTabs > button:focus-visible { outline-offset: -2px; }
 }
 @media (max-width: 420px) {
-  /* Phones: refresh gives way so the brand keeps its name (the browser's pull to refresh reloads the page). */
+  /* Phones: refresh gives way so the row fits (the browser's pull to refresh reloads the page). */
   .topActions > .refreshButton { display: none; }
-  /* The brand row is tight beside five 40 px buttons: a closer mark keeps the name clear of them. */
-  .brand { gap: var(--d-s2); }
 }
-@media (max-width: 360px) {
-  .brandName { clip: rect(0 0 0 0); height: 1px; margin: -1px; overflow: hidden; position: absolute; white-space: nowrap; width: 1px; }
+/* The brand row holds the menu button, the mark and five 44 px actions: under 561 px the name gives
+   way to them (it is still read out, and the open drawer shows it in full). */
+@media (max-width: 560px) {
+  .sidebar > .brand .brandName { clip: rect(0 0 0 0); height: 1px; margin: -1px; overflow: hidden; position: absolute; white-space: nowrap; width: 1px; }
+}
+/* The narrowest phones have room for the menu button and the actions only. */
+@media (max-width: 359px) {
+  .sidebar > .brand :is(.brandMark, .brandLogo) { display: none; }
 }
 
 /* Why a notification switch does or does not deliver (Settings, Notifications). */
