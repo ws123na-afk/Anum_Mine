@@ -15,7 +15,10 @@ docs/tasks.md#private-tasks, docs/automation.md#accepted-version. Security audit
   (scope ids, status and timestamps through their column grants, never a title, a prompt or a result). For the policy
   sub-selects those roles get ``select`` on the id columns named below and nothing else. A session that sets no
   ``anum.user_id`` sees no private row.
-* Backfill, conservative: a task named by a chat card (``conversation_turns.card ->> 'task_id'``) becomes ``chat`` private
+* Backfill, conservative, run with FORCE ROW LEVEL SECURITY lifted on every table it writes or reads (the migrator
+  owns the tables but has no BYPASSRLS and sets no tenant context, so a forced table shows it no row; the first
+  version lifted FORCE on the four written tables only, and every sub-select on ``agent_runs``, ``agent_run_steps``,
+  ``approvals``, ``conversation_turns`` and ``automation_workflows`` matched nothing): a task named by a chat card (``conversation_turns.card ->> 'task_id'``) becomes ``chat`` private
   to the chat's person, unless one of its runs waited for an approval (those were shared with approvers and stay
   shared); a task whose run proposed a tool that reads the caller's own data (``finance.*`` and the own-mailbox reading
   tools, from ``agent_run_steps.step_metadata ->> 'tool'``) becomes ``data`` private to its creator. A task whose run read
@@ -55,9 +58,75 @@ RUN_VISIBLE = (
     "exists (select 1 from agent_runs r where r.tenant_id = agent_run_steps.tenant_id "
     "and r.workspace_id = agent_run_steps.workspace_id and r.id = agent_run_steps.run_id)"
 )
-# Tools that read the caller's own data (ToolDefinition.caller_scoped at this revision).
-CALLER_SCOPED = "tool like 'finance.%' or tool in ('summarize_mail', 'classify_mail', 'classify_mail_page', 'request_mail_action', 'draft_mail_reply')"
-BACKFILLED = ("tasks", "domain_events", "automation_schedules", "automation_triggers")
+# The backfill statements are literal SQL (no text built at run time). The tool predicate they share names the
+# tools that read the caller's own data (ToolDefinition.caller_scoped at this revision): every finance.* tool and
+# summarize_mail, classify_mail, classify_mail_page, request_mail_action, draft_mail_reply.
+# RLS is forced on every table below even for its owner, and the migrator sets no anum.tenant_id: with FORCE on,
+# a sub-select on any of them matches no row and the backfill updates nothing. FORCE is lifted on every table the
+# backfill writes OR reads for the backfill only, inside the migration transaction, and put back before the policies.
+BACKFILLED = (
+    "tasks", "domain_events", "automation_schedules", "automation_triggers",
+    "agent_runs", "agent_run_steps", "approvals", "conversation_turns", "automation_workflows",
+)
+BACKFILL_DATA_TASKS = """
+update tasks t set private_to = t.created_by_user_id, private_kind = 'data'
+where exists (
+    select 1 from agent_runs r
+    join agent_run_steps s on s.tenant_id = r.tenant_id and s.workspace_id = r.workspace_id and s.run_id = r.id
+    where r.tenant_id = t.tenant_id and r.workspace_id = t.workspace_id and r.task_id = t.id
+      and s.type = 'tool_proposal'
+      and (s.step_metadata ->> 'tool' like 'finance.%'
+           or s.step_metadata ->> 'tool' in ('summarize_mail', 'classify_mail', 'classify_mail_page', 'request_mail_action', 'draft_mail_reply'))
+)
+"""
+BACKFILL_CHAT_TASKS = """
+update tasks t set private_to = c.user_id, private_kind = 'chat'
+from conversation_turns c
+where c.tenant_id = t.tenant_id and c.workspace_id = t.workspace_id and c.card ->> 'task_id' = t.id
+  and c.user_id = t.created_by_user_id and t.private_to is null
+  and not exists (
+      select 1 from approvals a
+      where a.tenant_id = t.tenant_id and a.workspace_id = t.workspace_id and a.task_id = t.id
+  )
+"""
+BACKFILL_EVENTS = """
+update domain_events e set private_to = t.private_to
+from tasks t
+where t.private_to is not null and e.tenant_id = t.tenant_id and e.workspace_id = t.workspace_id
+  and e.correlation_id = t.id
+"""
+BACKFILL_SCHEDULE_VERSIONS = """
+update automation_schedules x set accepted_version = w.version
+from automation_workflows w
+where w.tenant_id = x.tenant_id and w.workspace_id = x.workspace_id and w.id = x.workflow_id
+"""
+BACKFILL_TRIGGER_VERSIONS = """
+update automation_triggers x set accepted_version = w.version
+from automation_workflows w
+where w.tenant_id = x.tenant_id and w.workspace_id = x.workspace_id and w.id = x.workflow_id
+"""
+UNFORCE = {
+    "tasks": "alter table tasks no force row level security",
+    "domain_events": "alter table domain_events no force row level security",
+    "automation_schedules": "alter table automation_schedules no force row level security",
+    "automation_triggers": "alter table automation_triggers no force row level security",
+    "agent_runs": "alter table agent_runs no force row level security",
+    "agent_run_steps": "alter table agent_run_steps no force row level security",
+    "approvals": "alter table approvals no force row level security",
+    "conversation_turns": "alter table conversation_turns no force row level security",
+    "automation_workflows": "alter table automation_workflows no force row level security",
+}
+REFORCE = {
+    "tasks": "alter table tasks force row level security",
+    "domain_events": "alter table domain_events force row level security",
+    "automation_schedules": "alter table automation_schedules force row level security",
+    "automation_triggers": "alter table automation_triggers force row level security",
+    "agent_runs": "alter table agent_runs force row level security",
+    "agent_run_steps": "alter table agent_run_steps force row level security",
+    "approvals": "alter table approvals force row level security",
+    "conversation_turns": "alter table conversation_turns force row level security",
+    "automation_workflows": "alter table automation_workflows force row level security",
+}
 
 
 def upgrade() -> None:
@@ -69,51 +138,16 @@ def upgrade() -> None:
     op.add_column("automation_schedules", sa.Column("accepted_version", sa.Integer(), nullable=True))
     op.add_column("automation_triggers", sa.Column("accepted_version", sa.Integer(), nullable=True))
 
-    # RLS is forced on these tables even for their owner: lift FORCE for the backfill only.
+    # Lift FORCE for the backfill only (the owner then bypasses RLS on these tables, as it does on every unforced table).
     for table in BACKFILLED:
-        op.execute(f"alter table {table} no force row level security")
-    op.execute(
-        f"""
-        update tasks t set private_to = t.created_by_user_id, private_kind = 'data'
-        where exists (
-            select 1 from agent_runs r
-            join agent_run_steps s on s.tenant_id = r.tenant_id and s.workspace_id = r.workspace_id and s.run_id = r.id
-            cross join lateral (select s.step_metadata ->> 'tool' as tool) named
-            where r.tenant_id = t.tenant_id and r.workspace_id = t.workspace_id and r.task_id = t.id
-              and s.type = 'tool_proposal' and ({CALLER_SCOPED})
-        )
-        """
-    )
-    op.execute(
-        """
-        update tasks t set private_to = c.user_id, private_kind = 'chat'
-        from conversation_turns c
-        where c.tenant_id = t.tenant_id and c.workspace_id = t.workspace_id and c.card ->> 'task_id' = t.id
-          and c.user_id = t.created_by_user_id and t.private_to is null
-          and not exists (
-              select 1 from approvals a
-              where a.tenant_id = t.tenant_id and a.workspace_id = t.workspace_id and a.task_id = t.id
-          )
-        """
-    )
-    op.execute(
-        """
-        update domain_events e set private_to = t.private_to
-        from tasks t
-        where t.private_to is not null and e.tenant_id = t.tenant_id and e.workspace_id = t.workspace_id
-          and e.correlation_id = t.id
-        """
-    )
-    for table in ("automation_schedules", "automation_triggers"):
-        op.execute(
-            f"""
-            update {table} x set accepted_version = w.version
-            from automation_workflows w
-            where w.tenant_id = x.tenant_id and w.workspace_id = x.workspace_id and w.id = x.workflow_id
-            """
-        )
+        op.execute(UNFORCE[table])
+    op.execute(BACKFILL_DATA_TASKS)
+    op.execute(BACKFILL_CHAT_TASKS)
+    op.execute(BACKFILL_EVENTS)
+    op.execute(BACKFILL_SCHEDULE_VERSIONS)
+    op.execute(BACKFILL_TRIGGER_VERSIONS)
     for table in BACKFILLED:
-        op.execute(f"alter table {table} force row level security")
+        op.execute(REFORCE[table])
 
     # The policy sub-selects are checked with the querying role's privileges: ids only.
     op.execute("grant select (id) on tasks to anum_tenant_purger")

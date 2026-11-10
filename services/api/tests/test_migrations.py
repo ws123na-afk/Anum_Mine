@@ -1467,9 +1467,17 @@ def test_private_tasks_migration_is_expand_only_with_restrictive_policies_and_id
     for table in ("tasks", "domain_events", "agent_run_steps"):
         assert f"create policy private_task_{table} on {table} as restrictive" in upgrade
     assert "create policy private_task_{table} on {table} as restrictive" in upgrade
-    assert upgrade.count("no force row level security") == 1 and upgrade.count(" force row level security") == 2
-    assert upgrade.index("no force row level security") < upgrade.index("update tasks") < upgrade.rindex(" force row level security")
-    assert upgrade.rindex(" force row level security") < upgrade.index("create policy")
+    # The backfill runs with FORCE lifted on every table it writes or reads (the migrator has no BYPASSRLS and sets no
+    # tenant context, so a forced table shows it no row), as literal statements, and FORCE is back before the policies.
+    for table in ("tasks", "domain_events", "automation_schedules", "automation_triggers",
+                  "agent_runs", "agent_run_steps", "approvals", "conversation_turns", "automation_workflows"):
+        assert f'"{table}": "alter table {table} no force row level security"' in revision_text, table
+        assert f'"{table}": "alter table {table} force row level security"' in revision_text, table
+    assert upgrade.index("op.execute(unforce[table])") < upgrade.index("op.execute(backfill_data_tasks)") < upgrade.index("op.execute(reforce[table])")
+    assert upgrade.index("op.execute(reforce[table])") < upgrade.index("create policy")
+    for name in ("backfill_data_tasks", "backfill_chat_tasks", "backfill_events", "backfill_schedule_versions", "backfill_trigger_versions"):
+        assert f"op.execute({name})" in upgrade, name
+    assert 'f"""' not in revision_text and "update {table}" not in revision_text  # bandit B608: no SQL built from text
     assert "nullif(current_setting('anum.user_id', true), '')" in revision_text
     # The relay is never admitted to private events; other roles get id columns only, for the policy sub-selects.
     events_policy = upgrade.split("create policy private_task_domain_events", 1)[1].split("for table in", 1)[0]
@@ -1482,7 +1490,7 @@ def test_private_tasks_migration_is_expand_only_with_restrictive_policies_and_id
     ]
     assert "bypassrls" not in upgrade and "security definer" not in upgrade
     # The accepted workflow version of existing schedules and triggers is backfilled, so nothing stops firing.
-    assert "set accepted_version = w.version" in upgrade
+    assert revision_text.count("set accepted_version = w.version") == 2
 
 
 def test_calendar_sync_migration_is_expand_only_with_forced_rls_and_discovery_only_grants() -> None:
