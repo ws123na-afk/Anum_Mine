@@ -41,6 +41,8 @@ export const financeDepth2Ar = {
   'fdepth2.fx.change': 'ربح أو خسارة غير محققة',
   'fdepth2.fx.rate': '1 {currency} = {rate} {base}، {date}، {source}',
   'fdepth2.fx.noRate': 'السعر غير متوفر',
+  'fdepth2.fx.tooLong': 'معاملات كثيرة جدًا لتقييمه',
+  'fdepth2.fx.tooLongHelp': 'في هذا الحساب أكثر من 20,000 معاملة، لذلك لا يقيّمه ANUM من جزء من سجله. الرصيد المعروض كامل.',
   'fdepth2.fx.noRateHelp': 'لا يوجد سعر محفوظ من {currency} إلى {base} خلال {days} يومًا. أضف سعرًا في الاتصالات، أسعار الصرف، أو اربط أسعار البنك المركزي الأوروبي. ANUM لا يخمّن سعرًا أبدًا.',
   'fdepth2.fx.noCost': 'السعر غير متوفر في {dates}',
   'fdepth2.fx.noCostHelp': 'دخلت أموال هذا الحساب في أيام بلا سعر محفوظ، فقيمتها حينها غير معروفة. أضف سعر تلك الأيام لترى الربح أو الخسارة.',

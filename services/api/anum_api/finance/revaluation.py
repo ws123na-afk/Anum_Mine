@@ -11,7 +11,8 @@ For each bank, cash or investment account in a currency other than the person's 
 * **Unrealised gain or loss**: value now less the cost, in the base currency.
 
 Display only: never posted, never counted as spending or income, never added to the ledger. Cards and loans (money owed)
-are not revalued, and an account at or below zero has nothing to revalue.
+are not revalued, and an account at or below zero has nothing to revalue. An account whose history is longer than the API
+reads at once is not valued at all ("history_too_long"): a partial history would give a wrong balance and cost.
 """
 
 from __future__ import annotations
@@ -29,7 +30,7 @@ from .money import quantize
 REVALUED_KINDS = (AccountKind.BANK, AccountKind.CASH, AccountKind.INVESTMENT)
 MAX_MISSING_DATES = 5
 
-Status = Literal["ok", "rate_not_available", "cost_rate_not_available", "nothing_to_revalue"]
+Status = Literal["ok", "rate_not_available", "cost_rate_not_available", "nothing_to_revalue", "history_too_long"]
 
 
 @dataclass
@@ -87,7 +88,8 @@ def revalue(account: Account, rows: Iterable[Transaction], base: str, rates: lis
                 cost -= cost * taken / units
             units += amount
             if units <= 0:
-                cost = Decimal(0)
+                # Nothing of the earlier money is left, so neither its cost nor a missing rate for it counts any more.
+                cost, missing = Decimal(0), []
     if missing:
         out.missing_rate_dates = sorted(set(missing))[:MAX_MISSING_DATES]
     else:
@@ -102,10 +104,20 @@ def revalue(account: Account, rows: Iterable[Transaction], base: str, rates: lis
     return out
 
 
-def revalue_all(accounts: Iterable[Account], rows: list[Transaction], base: str, rates: list[FxRate], today: date, max_age_days: int) -> list[Revaluation]:
+def revalued_accounts(accounts: Iterable[Account], base: str) -> list[Account]:
     """Every open bank, cash or investment account in another currency than ``base``, by name."""
-    return [revalue(a, rows, base, rates, today, max_age_days) for a in sorted(accounts, key=lambda a: (a.name.casefold(), a.id))
-            if not a.archived and a.kind in REVALUED_KINDS and a.currency != base]
+    return [a for a in sorted(accounts, key=lambda a: (a.name.casefold(), a.id)) if not a.archived and a.kind in REVALUED_KINDS and a.currency != base]
+
+
+def too_long(account: Account, base: str, balance: Decimal) -> Revaluation:
+    """An account whose whole history could not be read: its balance (from the stored totals) and no valuation."""
+    return Revaluation(account_id=account.id, name=account.name, currency=account.currency, base_currency=base,
+                       balance=quantize(balance, account.currency), status="history_too_long")
+
+
+def revalue_all(accounts: Iterable[Account], rows: list[Transaction], base: str, rates: list[FxRate], today: date, max_age_days: int) -> list[Revaluation]:
+    """Every revalued account (``revalued_accounts``) from one complete list of rows."""
+    return [revalue(a, rows, base, rates, today, max_age_days) for a in revalued_accounts(accounts, base)]
 
 
 __all__ = ["REVALUED_KINDS", "Revaluation", "revalue", "revalue_all"]

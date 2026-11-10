@@ -119,6 +119,17 @@ def test_no_split_is_proposed_when_the_amount_is_not_exactly_what_is_due() -> No
     assert not [i for i in queue("loan_repayment") if i["params"].get("split")]
 
 
+def test_a_split_never_proposes_more_parts_than_an_action_can_carry() -> None:
+    bank = account(balance="5000")
+    for day in range(11):
+        loan("Synthetic Neighbour", "10", today() + timedelta(days=day + 1))
+    record(bank["id"], "110", today().isoformat(), "Transfer from Synthetic Neighbour")  # needs 11 parts: not proposed
+    assert not [i for i in queue("loan_repayment") if i["params"].get("split")]
+    record(bank["id"], "100", today().isoformat(), "Transfer from Synthetic Neighbour")  # 10 parts: proposed
+    found = [i for i in queue("loan_repayment") if i["params"].get("split")]
+    assert len(found) == 1 and len(found[0]["action"]["parts"]) == 10
+
+
 # -- 2. foreign balances revalued at stored rates ---------------------------------------------------------------------------
 
 
@@ -155,6 +166,19 @@ def test_a_missing_rate_is_said_and_never_guessed() -> None:
     # Cards and accounts in the base currency are not revalued; an empty balance has nothing to revalue.
     assert R.revalue_all([acct(kind=AccountKind.CARD), acct(currency="AED")], [], "AED", [], date(2026, 4, 2), 7) == []
     assert R.revalue(acct(), [], "AED", [], date(2026, 4, 2), 7).status == "nothing_to_revalue"
+
+
+def test_money_spent_down_to_nothing_forgets_its_missing_rate() -> None:
+    # 100 USD came in with no rate for its day, all of it went out, then 100 came in at 3.70: only that last 100 is held.
+    rows = [Row(date(2026, 1, 5), "100"), Row(date(2026, 2, 1), "-100"), Row(date(2026, 3, 1), "100")]
+    rates = [rate(date(2026, 3, 1), "3.70"), rate(date(2026, 4, 1), "3.80")]
+    found = R.revalue(acct(), rows, "AED", rates, date(2026, 4, 2), 7)  # type: ignore[arg-type]
+    assert (found.status, found.cost, found.value, found.missing_rate_dates) == ("ok", D("370.00"), D("380.00"), [])
+
+
+def test_an_account_too_long_to_read_whole_is_not_valued_from_part_of_it() -> None:
+    found = R.too_long(acct(), "AED", D("1234.5"))
+    assert (found.status, found.balance, found.value, found.cost, found.unrealised) == ("history_too_long", D("1234.50"), None, None, None)
 
 
 def test_the_api_revalues_the_owners_own_foreign_accounts_and_posts_nothing() -> None:

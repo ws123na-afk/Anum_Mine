@@ -431,7 +431,7 @@ export interface FinanceFxRevaluationRow {
   currency: string;
   base_currency: string;
   balance: string;
-  status: 'ok' | 'rate_not_available' | 'cost_rate_not_available' | 'nothing_to_revalue';
+  status: 'ok' | 'rate_not_available' | 'cost_rate_not_available' | 'nothing_to_revalue' | 'history_too_long';
   value: string | null;
   rate: string | null;
   rate_as_of: string | null;

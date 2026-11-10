@@ -42,6 +42,8 @@ export const financeDepth2En = {
   'fdepth2.fx.change': 'Unrealised gain or loss',
   'fdepth2.fx.rate': '1 {currency} = {rate} {base}, {date}, {source}',
   'fdepth2.fx.noRate': 'Rate not available',
+  'fdepth2.fx.tooLong': 'Too many transactions to value',
+  'fdepth2.fx.tooLongHelp': 'This account has more than 20,000 transactions, so ANUM does not value it from part of its history. The balance shown is complete.',
   'fdepth2.fx.noRateHelp': 'No rate from {currency} to {base} within {days} days is stored. Add one under Connections, Exchange rates, or connect the ECB rates. ANUM never guesses a rate.',
   'fdepth2.fx.noCost': 'Rate not available for {dates}',
   'fdepth2.fx.noCostHelp': 'Money came into this account on days with no stored rate, so what it was worth then is not known. Add the rate of those days to see the gain or loss.',

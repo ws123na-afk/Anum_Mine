@@ -140,6 +140,9 @@ def _due_now(f: P.LoanFigures) -> Decimal:
     return f.overdue_amount if f.overdue_amount > 0 else f.next_due_amount
 
 
+MAX_SPLIT_PARTS = 10  # SG.ProposedAction.parts allows 10
+
+
 def _person_key(name: str) -> str:
     return " ".join(name.casefold().split())
 
@@ -163,7 +166,7 @@ def _split(t: Any, amount: Decimal, kind: TransactionType, open_loans: list[tupl
             continue
         rows.sort(key=lambda r: (r[1].next_due_on or r[0].due_on or r[0].lent_on, r[0].lent_on, r[0].id))
         total = Decimal(0)
-        for size, (_loan, f) in enumerate(rows, start=1):
+        for size, (_loan, f) in enumerate(rows[:MAX_SPLIT_PARTS], start=1):  # a split action carries at most 10 parts
             total += _due_now(f)
             if total == amount and size >= 2:
                 found.append(([(loan, _due_now(fig)) for loan, fig in rows[:size]], bool(agree)))
