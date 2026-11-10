@@ -8,7 +8,7 @@ import type { BooksSetup, TaxCode, TaxOverview, TaxRate, TaxReturn, TaxReturnDoc
 import { TAX_CODES, TAX_FREQUENCIES, TAX_JURISDICTIONS } from '@anum/contracts';
 import * as api from './lib/businessTaxApi';
 import {
-  boxGroups, boxLabel, codeLabel, formFrom, hasAdjustments, infoLabel, notesFor, jurisdictionLabel, missingLabel, sectionTitle, settingsBody, settingsProblem, shortHash, warningText,
+  boxGroups, boxLabel, codeLabel, deadlineSource, formFrom, presetKey, hasAdjustments, infoLabel, notesFor, jurisdictionLabel, missingLabel, sectionTitle, settingsBody, settingsProblem, shortHash, warningText,
   type TaxForm,
 } from './lib/businessTax';
 import { isNegative, money, todayIso } from './lib/businessBooks';
@@ -61,12 +61,22 @@ export function TaxSection({ setup }: { setup: BooksSetup }) {
 
 // ---- settings and rates ------------------------------------------------------------------------------------------------
 
+/** Which VAT return deadline the Accountant review will use for this form (docs/business-tax.md#filing-deadlines). */
+function DeadlineHint({ id, form }: { id: string; form: TaxForm }) {
+  const source = deadlineSource(form);
+  const rule = presetKey(form);
+  const text = source === 'owner' ? t('gaps.deadline.owner', { count: Number(form.filing_due_days) || 0 })
+    : source === 'preset' && rule ? t('gaps.deadline.preset', { rule: t(rule) })
+    : source === 'no_vat' ? t('gaps.deadline.noVat') : t('gaps.deadline.none');
+  return <p id={id} className="muted bzHint">{text} {t('gaps.deadline.portal')}</p>;
+}
+
 function SettingsPart({ overview, country, onSaved }: { overview: TaxOverview; country: string | null; onSaved: () => void }) {
   const settings = overview.settings;
   const [form, setForm] = useState<TaxForm>(() => formFrom(settings, country));
   const [busy, setBusy] = useState(false), [message, setMessage] = useState<{ text: string; error?: boolean } | null>(null);
   const edit = overview.can_edit;
-  const ids = { jurisdiction: useId(), number: useId(), date: useId(), frequency: useId(), cycle: useId(), crn: useId(), street: useId(), building: useId(),
+  const ids = { jurisdiction: useId(), number: useId(), date: useId(), frequency: useId(), cycle: useId(), country: useId(), due: useId(), deadline: useId(), crn: useId(), street: useId(), building: useId(),
     district: useId(), city: useId(), postal: useId() };
   const set = (patch: Partial<TaxForm>) => setForm((value) => ({ ...value, ...patch }));
   async function save(event: FormEvent) {
@@ -102,7 +112,16 @@ function SettingsPart({ overview, country, onSaved }: { overview: TaxOverview; c
             <select id={ids.cycle} value={form.period_start_month} aria-describedby={`${ids.cycle}-help`} onChange={(event) => set({ period_start_month: Number(event.target.value) })}>
               {[1, 2, 3].map((item) => <option key={item} value={item}>{item}</option>)}</select>
             <small id={`${ids.cycle}-help`} className="muted">{t('tax.settings.cycleHelp')}</small></label>}
+          {form.jurisdiction === 'OTHER' && <label className="field" htmlFor={ids.country}><span>{t('gaps.tax.country')}</span>
+            <input id={ids.country} maxLength={2} value={form.country} dir="ltr" autoCapitalize="characters" aria-describedby={`${ids.country}-help`}
+              onChange={(event) => set({ country: event.target.value.toUpperCase() })} />
+            <small id={`${ids.country}-help`} className="muted">{t('gaps.tax.countryHelp')}</small></label>}
+          <label className="field" htmlFor={ids.due}><span>{t('gaps.tax.dueDays')}</span>
+            <input id={ids.due} inputMode="numeric" maxLength={3} value={form.filing_due_days} dir="ltr" aria-describedby={`${ids.due}-help ${ids.deadline}`}
+              onChange={(event) => set({ filing_due_days: event.target.value })} />
+            <small id={`${ids.due}-help`} className="muted">{t('gaps.tax.dueDaysHelp')}</small></label>
         </div>
+        <DeadlineHint id={ids.deadline} form={form} />
         <label className="bzCheck"><input type="checkbox" checked={form.registered} onChange={(event) => set({ registered: event.target.checked })} />{t('tax.settings.registered')}</label>
         {form.jurisdiction === 'SA' && <fieldset className="bkFieldset taxZatcaFields">
           <legend className="bkSub">{t('tax.settings.zatcaTitle')}</legend>

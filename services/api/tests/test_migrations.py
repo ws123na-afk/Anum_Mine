@@ -1398,6 +1398,24 @@ def test_finance_depth_migration_is_expand_only_with_an_owner_only_income_table_
     assert "bypassrls" not in upgrade and "security definer" not in upgrade
 
 
+def test_finance_last_gaps_migration_is_expand_only_with_a_business_dismissals_table_and_two_nullable_tax_columns() -> None:
+    versions = Path(__file__).parents[1] / "migrations" / "versions"
+    revision_text = (versions / "0159_finance_last_gaps.py").read_text(encoding="utf-8")
+    assert 'revision = "0159_finance_last_gaps"' in revision_text and len("0159_finance_last_gaps") <= 32
+    assert 'down_revision = "0158_finance_depth"' in revision_text
+    upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
+    # Expand only: one new table and two nullable columns with their checks; nothing dropped or altered.
+    assert "op.drop" not in upgrade and "alter_column" not in upgrade and "drop " not in upgrade
+    assert upgrade.count("op.create_table(") == 1 and '"business_book_receipt_dismissals"' in revision_text
+    added = [line for line in upgrade.splitlines() if "op.add_column(" in line]
+    assert len(added) == 2 and all("nullable=true" in line for line in added)
+    assert "uq_{table}_pair" in upgrade and "filing_due_days between 1 and 120" in upgrade and "country ~ '^[a-z]{2}$'" in upgrade
+    # Forced RLS: the tenant policy and the purge policy (delete only).
+    assert "force row level security" in upgrade and "create policy tenant_isolation_{table}" in upgrade
+    assert "create policy lifecycle_purge_business_book_receipt_dismissals" in upgrade and "with check (false)" in upgrade
+    assert "bypassrls" not in upgrade and "security definer" not in upgrade and "anum_maintenance" not in upgrade
+
+
 def test_calendar_sync_migration_is_expand_only_with_forced_rls_and_discovery_only_grants() -> None:
     versions = Path(__file__).parents[1] / "migrations" / "versions"
     revision_text = (versions / "0092_calendar_sync.py").read_text(encoding="utf-8")

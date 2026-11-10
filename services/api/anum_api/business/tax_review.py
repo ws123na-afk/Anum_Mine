@@ -5,9 +5,13 @@ reads, in short units of work, and only for a business marked VAT registered. Ea
 return is filed on the authority's portal; ANUM never files a return and never says a return or an invoice complies
 with ZATCA or FTA rules.
 
-* ``return_due_soon`` / ``return_overdue``: the last ended filing period is not closed in the books and its usual
-  deadline (``tax_rules.return_deadline``: KSA the end of the next month, UAE 28 days) is within 14 days or has passed.
-  Closing the period in Books, Close (done once the return is filed) clears it.
+* ``return_due_soon`` / ``return_overdue``: the last ended filing period is not closed in the books and its deadline
+  (``tax_rules.return_deadline``: the owner's own due day first, else the built-in one: KSA and Bahrain the end of the
+  next month, the UAE 28 days, Oman 30 days) is within 14 days or has passed. Closing the period in Books, Close (done
+  once the return is filed) clears it.
+* ``filing_deadline_missing``: neither the owner's due day nor a built-in deadline exists (another country), so ANUM
+  asks for them in Tax settings instead of guessing. ``no_vat_country``: Kuwait or Qatar, which have no VAT, and no
+  due day of the owner's own: ANUM says so and asks for the period and due day only if a return applies.
 * ``missing_tax_number``: bills dated in the last ended or the current period that carry VAT while their vendor has no
   tax number saved (input VAT is normally claimed only on a tax invoice that shows the supplier's number).
 * ``missing_tax_code``: invoices, credit notes or bills of those periods with no tax code (the rate cannot be read):
@@ -26,7 +30,7 @@ from . import books_ledger as L
 from . import books_review as BR
 from . import tax_return as TR
 from .books_store import MAX_SCAN, Between, open_books_store
-from .tax_rules import return_deadline
+from .tax_rules import deadline_source, filing_country, return_deadline
 from .tax_service import settings_of
 
 logger = logging.getLogger("anum_api.business.tax_review")
@@ -62,8 +66,16 @@ def produce(ctx: BR.ReviewContext) -> list[BR.ReviewItem]:
     (prev_start, prev_end), (cur_start, cur_end) = periods(ctx, settings)
     out: list[BR.ReviewItem] = []
 
-    due = return_deadline(settings.jurisdiction, prev_end)
+    due = return_deadline(settings.jurisdiction, prev_end, country=settings.country, due_days=settings.filing_due_days)
     filed = locked is not None and locked >= prev_end
+    source = deadline_source(settings.jurisdiction, settings.country, settings.filing_due_days)
+    if source == "none":
+        out.append(_item("filing_deadline_missing", "Set your VAT filing period and due day in Tax settings: ANUM knows no VAT return deadline "
+                         "for this country and does not guess one.", prev_start, prev_end, on=ctx.today))
+    elif source == "no_vat":
+        place = filing_country(settings.jurisdiction, settings.country) or ""
+        out.append(_item("no_vat_country", f"{place} has no VAT, so ANUM knows no VAT return deadline. If a VAT return applies to you, set "
+                         "your VAT filing period and due day in Tax settings.", prev_start, prev_end, on=ctx.today, country=place))
     if due is not None and not filed:
         days = (due - ctx.today).days
         if days < 0:

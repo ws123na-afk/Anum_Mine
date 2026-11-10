@@ -377,6 +377,7 @@ _ORDER = (
     "vehicles",
     "purchase_reminders", "purchase_events", "purchase_returns", "purchase_shipments", "purchase_items", "purchase_preferences",
     "purchases",
+    "business_book_receipt_dismissals",
     "business_book_loan_repayments", "business_book_loans", "business_book_asset_impairments", "business_book_assets",
     "business_zatca_documents", "business_zatca_chains", "business_tax_rates", "business_tax_settings",
     "business_book_posting_issues", "business_book_journal_lines", "business_book_closes", "business_book_journal_entries",

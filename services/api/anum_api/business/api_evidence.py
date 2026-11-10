@@ -6,6 +6,9 @@
 * ``GET /evidence/missing?from&to`` (``business:read``): what is above the threshold with nothing attached.
 * ``GET /evidence/receipt-matches`` (``business:read`` and the Document vault): receipts proposed for bills without evidence
   (``books_receipts.py``); ``POST /evidence/receipt-matches/accept`` attaches one (the attach rules above, audited).
+* ``POST /evidence/receipt-matches/dismiss`` (owners and accountants, audited): never propose that receipt for that bill
+  again; ``GET /evidence/receipt-matches/dismissed`` lists the dismissed pairs and ``DELETE
+  /evidence/receipt-matches/dismissed/{id}`` restores one (audited).
 * ``GET /evidence-pack.csv`` and ``GET /evidence-pack.zip`` (owners and accountants, audited): the period's index and files.
 
 Audit rows hold ids and codes only. Every route is a plain ``def`` (the database and file work runs in the thread pool).
@@ -117,6 +120,23 @@ def attach_evidence(payload: AttachInput, response: Response, context: TenantCon
     return result
 
 
+# Declared before the detach route, whose path pattern would otherwise catch it.
+@router.delete("/evidence/receipt-matches/dismissed/{dismissal_id}", status_code=status.HTTP_204_NO_CONTENT)
+@refusals
+def restore_receipt_match(dismissal_id: str, context: TenantContext = Depends(tenant_context),
+                          repository: AnumRepository = Depends(repository_context)) -> Response:
+    """Restore a dismissed receipt: the pair may be proposed again (owners and accountants)."""
+    from . import books_receipts as RM
+
+    _accounting(context)
+    _documents(context)
+    if len(dismissal_id) > 80 or not re.match(SAFE_ID, dismissal_id):
+        raise S.BooksError(404, "This dismissed receipt was not found. It may have been restored already.", "not_found")
+    row = RM.restore(context, dismissal_id)
+    _audit(repository, context, "receipt_match_restored", row.bill_id, {"document": row.document_id, "dismissal": row.id})
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
 @router.delete("/evidence/{source_type}/{source_id}/{link_id}", status_code=status.HTTP_204_NO_CONTENT)
 @refusals
 def detach_evidence(source_type: SourceType, source_id: str, link_id: str, context: TenantContext = Depends(tenant_context),
@@ -156,6 +176,35 @@ def accept_receipt_match(payload: ReceiptMatchInput, context: TenantContext = De
     result.pop("replayed", None)
     _audit(repository, context, "receipt_match_accepted", payload.bill_id, {"document": payload.document_id})
     return result
+
+
+@router.post("/evidence/receipt-matches/dismiss", status_code=status.HTTP_201_CREATED)
+@refusals
+def dismiss_receipt_match(payload: ReceiptMatchInput, response: Response, context: TenantContext = Depends(tenant_context),
+                          repository: AnumRepository = Depends(repository_context)) -> Any:
+    """Never propose this receipt for this bill again (owners and accountants). Dismissing it again answers the first dismissal."""
+    from . import books_receipts as RM
+
+    _accounting(context)
+    _documents(context)
+    result, created = RM.dismiss(context, _today(), payload.bill_id, payload.document_id)
+    if created:
+        _audit(repository, context, "receipt_match_dismissed", payload.bill_id, {"document": payload.document_id, "dismissal": result["id"]})
+    else:
+        response.status_code = status.HTTP_200_OK
+    return result
+
+
+@router.get("/evidence/receipt-matches/dismissed")
+@refusals
+def dismissed_receipt_matches(limit: int = Query(default=50, ge=1, le=200), offset: int = Query(default=0, ge=0, le=100_000),
+                              context: TenantContext = Depends(tenant_context)) -> Any:
+    """The receipts dismissed for bills, newest first, so one can be restored (owners and accountants)."""
+    from . import books_receipts as RM
+
+    _accounting(context)
+    _documents(context)
+    return RM.dismissed(context, _today(), limit=limit, offset=offset)
 
 
 @router.get("/evidence/missing")

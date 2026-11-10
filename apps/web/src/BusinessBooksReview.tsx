@@ -2,10 +2,11 @@
 // or an accountant, with the close checklist of the previous and current month. The API decides who may see it (owners and
 // accountants), who may approve each draft (never its maker) and what blocks a close; this page shows what it says and links
 // to the section where each item is acted on. Approving a draft goes through POST /bills/{id}/approve, a pending adjustment through
-// POST /adjustments/{id}/approve, and a proposed receipt is attached only when the person presses Attach.
+// POST /adjustments/{id}/approve, and a proposed receipt is attached only when the person presses Attach. Dismiss stores the
+// (bill, receipt) pair so it is never proposed again; Show dismissed receipts lists them with Restore.
 import { useCallback, useEffect, useState } from 'react';
-import { CheckCircle2, ClipboardList, Paperclip } from 'lucide-react';
-import type { BooksReview, BooksReviewItem, BooksReviewKind, BooksSetup } from '@anum/contracts';
+import { CheckCircle2, ClipboardList, EyeOff, Paperclip, RotateCcw } from 'lucide-react';
+import type { BooksReceiptDismissal, BooksReview, BooksReviewItem, BooksReviewKind, BooksSetup } from '@anum/contracts';
 import { BOOKS_REVIEW_KINDS } from '@anum/contracts';
 import * as ledger from './lib/businessLedgerApi';
 import * as books from './lib/businessBooksApi';
@@ -18,6 +19,8 @@ const PAGE = 25;
 type Load = { state: 'loading' } | { state: 'ready'; value: BooksReview } | { state: 'denied'; message: string } | { state: 'error'; message: string };
 const label = (key: string, vars?: Record<string, string | number>) => t(key as MessageKey, vars);
 
+const countryName = (code: string) => { const key = `gaps.country.${code}`; const text = label(key); return text === key ? code : text; };
+
 /** What one item says, in the person's language (the API's English `detected` is for the assistant). */
 export function reviewText(item: BooksReviewItem): string {
   const p = item.params;
@@ -25,7 +28,7 @@ export function reviewText(item: BooksReviewItem): string {
   if (item.kind === 'posting_issue') return label('breview.text.posting_issue', { what: label(`ledger.source.${p.source_kind}`), reason: label(`breview.reason.${p.reason}`) });
   if (item.kind === 'adjustment_approval') return label('fdepth.review.adjustment', { kind: label(`books.adj.${p.adjustment_kind}`), description: p.description ?? '' });
   if (item.kind === 'vat') return label(`fdepth.vat.${p.code}`, { from: p.from ? day(p.from) : '-', to: p.to ? day(p.to) : '-', due: p.due ? day(p.due) : '-',
-    days: Number(p.days ?? 0), count: Number(p.count ?? p.days ?? 0) });
+    days: Number(p.days ?? 0), count: Number(p.count ?? p.days ?? 0), country: p.country ? countryName(p.country) : '-' });
   if (item.kind === 'receipt_match') return label(p.vendor_agrees === '1' ? 'fdepth.receipt.text' : 'fdepth.receipt.textNoMerchant', {
     document: p.document ?? '', vendor: p.vendor || '-', reference: p.reference || '-', date: p.receipt_date ? day(p.receipt_date) : '-' });
   return label(`breview.text.${item.kind}`, { vendor: p.vendor || '-', count: Number(p.count ?? 0), currency: item.currency ?? '', first: p.first ? day(p.first) : '-' });
@@ -58,8 +61,10 @@ export function ReviewSection({ setup, onSection }: { setup: BooksSetup; onSecti
   const [more, setMore] = useState<{ busy: boolean; error: string | null }>({ busy: false, error: null });
   const [message, setMessage] = useState<{ text: string; error?: boolean } | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
-  const run = useCallback(async () => {
-    setLoad({ state: 'loading' });
+  const [dismissedTick, setDismissedTick] = useState(0);
+  // A quiet refresh (after Dismiss or Restore) keeps the page and the open dismissed list on screen while it reads.
+  const run = useCallback(async (quiet = false) => {
+    if (!quiet) setLoad({ state: 'loading' });
     try { const value = await ledger.getReview(kind, 0, PAGE); setLoad({ state: 'ready', value }); setItems(value.items); }
     catch (error) { setLoad(isPermissionDenied(error) ? { state: 'denied', message: describeError(error) } : { state: 'error', message: describeError(error) }); }
   }, [kind]);
@@ -88,6 +93,12 @@ export function ReviewSection({ setup, onSection }: { setup: BooksSetup; onSecti
     if (!item.ref_id || !item.params.document_id) return;
     setBusy(item.key); setMessage(null);
     try { await books.acceptReceiptMatch(item.ref_id, item.params.document_id); setMessage({ text: t('fdepth.receipt.attached', { document: item.params.document ?? '' }) }); await run(); }
+    catch (error) { setMessage({ text: describeError(error), error: true }); } finally { setBusy(null); }
+  }
+  async function dismiss(item: BooksReviewItem) {
+    if (!item.ref_id || !item.params.document_id) return;
+    setBusy(item.key); setMessage(null);
+    try { await books.dismissReceiptMatch(item.ref_id, item.params.document_id); setMessage({ text: t('gaps.receipt.dismissed', { document: item.params.document ?? '' }) }); setDismissedTick((n) => n + 1); await run(true); }
     catch (error) { setMessage({ text: describeError(error), error: true }); } finally { setBusy(null); }
   }
   const total = Object.values(value.counts).reduce((sum, n) => sum + (n ?? 0), 0);
@@ -137,10 +148,67 @@ export function ReviewSection({ setup, onSection }: { setup: BooksSetup; onSecti
               ? <button type="button" disabled={busy === item.key} onClick={() => void approve(item)}><CheckCircle2 aria-hidden="true" />{t('breview.approve')}</button>
               : <small className="muted">{t(`breview.whyNot.${item.why_not ?? 'own_draft'}` as MessageKey)}</small>)}
             {item.action === 'link' && <button type="button" disabled={busy === item.key} onClick={() => void attach(item)}><Paperclip aria-hidden="true" />{t('fdepth.receipt.attach')}</button>}
+            {item.kind === 'receipt_match' && <button type="button" className="secondary" disabled={busy === item.key} aria-label={t('gaps.receipt.dismissLabel', { document: item.params.document ?? '' })}
+              onClick={() => void dismiss(item)}><EyeOff aria-hidden="true" />{t('gaps.receipt.dismiss')}</button>}
             <button type="button" className="secondary" onClick={() => onSection(booksTabFromId(item.section))}>{t('breview.open', { section: t(`books.tab.${booksTabFromId(item.section)}` as MessageKey) })}</button>
           </div>
         </li>)}</ul>}
       <Pager shown={items.length} total={value.total} busy={more.busy} error={more.error} onMore={() => void loadMore()} />
     </section>
+    <DismissedReceipts tick={dismissedTick} onRestored={(text) => { setMessage({ text }); void run(true); }} />
   </>;
+}
+
+type DismissedLoad = { state: 'loading' } | { state: 'ready'; items: BooksReceiptDismissal[]; total: number } | { state: 'error'; message: string };
+
+/** Show dismissed receipts: the pairs never proposed again, newest first, each with Restore. */
+function DismissedReceipts({ tick, onRestored }: { tick: number; onRestored: (text: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const [load, setLoad] = useState<DismissedLoad>({ state: 'loading' });
+  const [more, setMore] = useState<{ busy: boolean; error: string | null }>({ busy: false, error: null });
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const read = useCallback(async () => {
+    setLoad({ state: 'loading' });
+    try { const page = await books.listDismissedReceipts(0, PAGE); setLoad({ state: 'ready', items: page.items, total: page.total }); }
+    catch (failure) { setLoad({ state: 'error', message: describeError(failure) }); }
+  }, []);
+  useEffect(() => { if (open) void read(); }, [open, read, tick]);
+  async function loadMore() {
+    if (load.state !== 'ready') return;
+    setMore({ busy: true, error: null });
+    try { const page = await books.listDismissedReceipts(load.items.length, PAGE); setLoad({ state: 'ready', items: [...load.items, ...page.items], total: page.total }); setMore({ busy: false, error: null }); }
+    catch (failure) { setMore({ busy: false, error: describeError(failure) }); }
+  }
+  async function restore(row: BooksReceiptDismissal) {
+    setBusy(row.id); setError(null);
+    try { await books.restoreReceiptMatch(row.id); onRestored(t('gaps.receipt.restored')); await read(); }
+    catch (failure) { setError(describeError(failure)); } finally { setBusy(null); }
+  }
+  const title = (row: BooksReceiptDismissal) => row.document_found && row.document_title ? row.document_title : t('gaps.receipt.documentGone');
+  return <section className="surface bzCard bkWide" aria-labelledby="bk-review-dismissed">
+    <div className="bzToolbar">
+      <h2 id="bk-review-dismissed">{t('gaps.receipt.dismissedTitle')}</h2>
+      <button type="button" className="secondary" aria-expanded={open} aria-controls="bk-review-dismissed-list" onClick={() => setOpen(!open)}>
+        {open ? t('gaps.receipt.hideDismissed') : t('gaps.receipt.showDismissed')}</button>
+    </div>
+    {open && <div id="bk-review-dismissed-list">
+      <p className="muted bzHint">{t('gaps.receipt.dismissedHelp')}</p>
+      {error && <Note error>{error}</Note>}
+      {load.state === 'loading' ? <Note>{t('books.reading')}</Note>
+        : load.state === 'error' ? <Failed text={load.message} onRetry={() => void read()} />
+        : load.items.length === 0 ? <p className="muted">{t('gaps.receipt.dismissedEmpty')}</p>
+        : <><ul className="bkReviewList">{load.items.map((row) => <li key={row.id}>
+          <div className="bkReviewMain">
+            <strong dir="auto">{t('gaps.receipt.dismissedRow', { document: title(row), reference: row.bill_found ? row.bill_reference || '-' : t('gaps.receipt.billGone'),
+              vendor: row.vendor || '-' })}</strong>
+            {row.amount && row.currency && <span className="bkMoney" dir="ltr">{money(row.amount, row.currency)}</span>}
+            <small className="muted">{t('gaps.receipt.dismissedOn', { date: day(row.dismissed_at.slice(0, 10)) })}</small>
+          </div>
+          <div className="bzInline"><button type="button" className="secondary" disabled={busy === row.id} aria-label={t('gaps.receipt.restoreLabel', { document: title(row) })}
+            onClick={() => void restore(row)}><RotateCcw aria-hidden="true" />{t('gaps.receipt.restore')}</button></div>
+        </li>)}</ul>
+        <Pager shown={load.items.length} total={load.total} busy={more.busy} error={more.error} onMore={() => void loadMore()} /></>}
+    </div>}
+  </section>;
 }

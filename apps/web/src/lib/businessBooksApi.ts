@@ -5,7 +5,7 @@ import type {
   BooksBillFilter, BooksBillInput, BooksBillPage, BooksBudget, BooksBudgetInput, BooksCostCentre, BooksCounterparty, BooksIntercompany,
   BooksIntercompanyInput, BooksPage, BooksPaymentInput, BooksProjectPage, BooksRate, BooksRateInput, BooksReport, BooksSettings, BooksSettingsInput,
   BooksSetup, BooksTagSection, BooksVendor, BooksVendorInput, BusinessPage, BusinessProject, BooksGroup, BooksRateFeed, BooksRateOrigin, BooksTemplate,
-  BooksReceiptMatch, BooksTemplateInput, BooksTemplatePage, BooksTemplateStatus,
+  BooksReceiptDismissal, BooksReceiptDismissalPage, BooksReceiptMatch, BooksTemplateInput, BooksTemplatePage, BooksTemplateStatus,
 } from '@anum/contracts';
 import { apiBaseUrl, apiRequest, apiRequestVoid, authHeaders } from './api';
 import { apiErrorFromResponse } from './errors';
@@ -74,6 +74,13 @@ export const approveAdjustment = (adjustmentId: string) => send<BooksAdjustment>
 export const listReceiptMatches = () => get<{ items: BooksReceiptMatch[]; total: number; window_days: number }>('/evidence/receipt-matches');
 export const acceptReceiptMatch = (billId: string, documentId: string) =>
   send<unknown>('POST', '/evidence/receipt-matches/accept', { bill_id: billId, document_id: documentId });
+/** Never propose this receipt for this bill again (owners and accountants); a dismissed pair answers its first dismissal. */
+export const dismissReceiptMatch = (billId: string, documentId: string) =>
+  send<BooksReceiptDismissal>('POST', '/evidence/receipt-matches/dismiss', { bill_id: billId, document_id: documentId });
+export const listDismissedReceipts = (offset = 0, limit = 25) =>
+  get<BooksReceiptDismissalPage>(`/evidence/receipt-matches/dismissed${query({ limit, offset })}`);
+export const restoreReceiptMatch = (dismissalId: string) =>
+  apiRequestVoid(`${BASE}/evidence/receipt-matches/dismissed/${id(dismissalId)}`, { method: 'DELETE' });
 
 export const listCounterparties = () => get<{ items: BooksCounterparty[] }>('/intercompany/counterparties');
 export const listIntercompany = (includeVoid: boolean, offset: number, limit = 25) => get<BooksPage<BooksIntercompany>>(`/intercompany${query({ include_void: includeVoid, offset, limit })}`);
