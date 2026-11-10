@@ -13,7 +13,8 @@
 .filesToolbar { justify-content: flex-start; }
 .filesToolbar input[type="search"] { flex: 1 1 calc(100% - 56px); }
 .filesToolbar .iconOnly { justify-content: center; padding: 0; width: 40px; }
-.filesToolbar select { flex: 1 1 110px; }
+/* Room for the longest label ("Any index state"); the selects wrap under each other when the pane is narrow. */
+.filesToolbar select { flex: 1 1 150px; }
 .filesDetailPane .fileDetail { margin: 0; padding: 0; }
 .filesTable .cellIcon { color: var(--d-violet); flex: none; height: 16px; margin-inline-end: var(--d-s2); vertical-align: -3px; width: 16px; }
 .filesTable .cellActions button.danger, .filesTable .cellActions button.secondary { border-radius: var(--d-r-control); min-height: 34px; padding: 0 var(--d-s3); }

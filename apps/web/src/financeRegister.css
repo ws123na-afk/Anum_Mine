@@ -40,7 +40,8 @@
 .fregSearch { align-items: center; display: flex; gap: var(--d-s2); position: relative; }
 .fregSearch svg { color: var(--d-faint); height: 16px; inset-inline-start: 10px; pointer-events: none; position: absolute; width: 16px; }
 .fregSearch input { min-height: 40px; padding-inline-start: 32px; width: 100%; }
-.fregFilter select { width: 100%; }
+/* Five filters share a row with the search box: a tighter inline padding lets the longest labels ("All categories", "Any evidence") show in full. */
+.fregFilter select { padding-inline: var(--d-s2); width: 100%; }
 .fregTable tbody tr { cursor: pointer; }
 .fregTable tbody tr:hover { background: var(--d-glass-1); }
 .fregTable tbody tr.selected { background: rgb(var(--c-ok) / .08); box-shadow: inset 3px 0 0 var(--d-accent); }
