@@ -22,7 +22,7 @@ dependencies:
   flutter_secure_storage: ^11.2.0
   # 13 builds with android.builtInKotlin=false (android_file_picker applies the
   # Kotlin plugin itself); re-check before a bump. See docs/mobile.md, Dependencies.
-  file_picker: 13.1.0
+  file_picker: 13.3.2
   speech_to_text: ^7.4.0
   flutter_tts: ^4.2.5
   permission_handler: ^13.0.1
