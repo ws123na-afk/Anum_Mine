@@ -64,6 +64,10 @@ class TenantContext(BaseModel):
     roles: list[str] = Field(default_factory=list)
     # Tenant-level roles (``org_admin``) from the identity provider; never a workspace role.
     organization_roles: list[str] = Field(default_factory=list)
+    # The role template assigned to the caller's membership, as its permission names: the
+    # caller's effective permissions are the role's intersected with this list. None: the role
+    # alone (docs/governance-and-scale.md#role-templates).
+    permission_limit: list[str] | None = None
 
 
 class TenantCreate(BaseModel):
@@ -102,6 +106,10 @@ class WorkspaceMembership(BaseModel):
     active: bool = True
     created_at: datetime
     updated_at: datetime
+    # The role template this member was given and its permissions as copied at assignment
+    # (docs/governance-and-scale.md#role-templates). Owners never carry one.
+    role_template_id: str | None = None
+    permission_limit: list[str] | None = None
 
 
 class CallerMembership(BaseModel):

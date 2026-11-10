@@ -1,4 +1,4 @@
-from sqlalchemy import func, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -106,7 +106,31 @@ class SqlAlchemyGovernanceStore:
         )
         return pack.model_copy(update={"active": False})
 
+    def delete_policy_pack(self, context: TenantContext, policy_id: str) -> bool:
+        require_workspace(self.session, context.tenant_id, context.workspace_id)
+        result = self.session.execute(
+            delete(PolicyPackRecord).where(
+                PolicyPackRecord.tenant_id == context.tenant_id,
+                PolicyPackRecord.id == policy_id,
+                PolicyPackRecord.active.is_(False),
+            )
+        )
+        return bool(result.rowcount)
+
     # Role templates -----------------------------------------------------------------
+
+    def get_role_template(self, context: TenantContext, template_id: str) -> RoleTemplate | None:
+        record = self.session.scalar(
+            select(RoleTemplateRecord).where(
+                RoleTemplateRecord.tenant_id == context.tenant_id, RoleTemplateRecord.id == template_id
+            )
+        )
+        if record is None:
+            return None
+        return RoleTemplate(
+            id=record.id, tenant_id=record.tenant_id, name=record.name,
+            permissions=list(record.permissions), created_at=record.created_at,
+        )
 
     def list_role_templates(self, context: TenantContext) -> list[RoleTemplate]:
         records = self.session.scalars(

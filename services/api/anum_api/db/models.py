@@ -89,6 +89,10 @@ class WorkspaceMembershipRecord(Base, TimestampMixin, WorkspaceScopedMixin):
     workspace_id: Mapped[str] = mapped_column(String(80), primary_key=True)
     role: Mapped[str] = mapped_column(String(40), nullable=False)
     active: Mapped[bool] = mapped_column(nullable=False, server_default="true")
+    # 0166_governance_depth: the role template assigned to this member and its permissions,
+    # copied at assignment (docs/governance-and-scale.md#role-templates). Null: the role alone.
+    role_template_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    permission_limit: Mapped[list[str] | None] = mapped_column(JSONB, nullable=True)
 
     __table_args__ = (
         ForeignKeyConstraint(
@@ -746,6 +750,13 @@ class RoutingTargetRecord(Base):
     cost_per_1k_tokens: Mapped[float] = mapped_column(Double, nullable=False)
     latency_ms: Mapped[int] = mapped_column(nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    # 0166_governance_depth: in routing, and what the health probe measured
+    # (docs/governance-and-scale.md#routing-targets). Null probe columns: not yet probed.
+    enabled: Mapped[bool] = mapped_column(nullable=False, server_default="true")
+    last_checked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    measured_latency_ms: Mapped[int | None] = mapped_column(nullable=True)
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    probe_workspace_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
 
     __table_args__ = (_tenant_fk("routing_targets"),)
 

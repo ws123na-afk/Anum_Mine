@@ -154,3 +154,120 @@ def test_org_admin_of_one_tenant_cannot_change_another_tenants_policy() -> None:
 def test_summary_reports_that_an_org_admin_can_manage() -> None:
     assert client.get("/api/v1/organization/governance", headers=OWNER).json()["can_manage_organization_policy"] is True
     assert client.get("/api/v1/organization/governance", headers=MEMBER).json()["can_manage_organization_policy"] is False
+
+
+# --------------------------------------------------------------- pack versions: search, paging, delete
+
+
+def test_policy_pack_list_searches_and_pages() -> None:
+    for name in ("External actions", "Finance guard", "Mail policy"):
+        assert client.post("/api/v1/policy-packs", headers=OWNER, json=policy(name)).status_code == 201
+    assert [p["name"] for p in client.get("/api/v1/policy-packs?q=finance", headers=OWNER).json()] == ["Finance guard"]
+    # A rule's action matches too.
+    assert len(client.get("/api/v1/policy-packs?q=integration", headers=OWNER).json()) == 3
+    assert [p["name"] for p in client.get("/api/v1/policy-packs?limit=1&offset=1", headers=OWNER).json()] == ["Finance guard"]
+    assert client.get("/api/v1/policy-packs?limit=0", headers=OWNER).status_code == 422
+
+
+def test_only_an_archived_pack_version_can_be_deleted_and_the_delete_is_audited() -> None:
+    first = client.post("/api/v1/policy-packs", headers=OWNER, json=policy()).json()
+    second = client.post("/api/v1/policy-packs", headers=OWNER, json=policy()).json()
+    # Publishing v2 archived v1; v2 is active and stays.
+    active = client.delete(f"/api/v1/policy-packs/{second['id']}", headers=OWNER)
+    assert active.status_code == 409
+    assert "Archive it first" in active.json()["error"]["message"]
+    assert client.delete(f"/api/v1/policy-packs/{first['id']}", headers=WORKSPACE_OWNER).status_code == 403
+    assert client.delete(f"/api/v1/policy-packs/{first['id']}", headers=OTHER).status_code == 404
+    assert client.delete(f"/api/v1/policy-packs/{first['id']}", headers=OWNER).status_code == 204
+    assert client.delete(f"/api/v1/policy-packs/{first['id']}", headers=OWNER).status_code == 404
+    packs = client.get("/api/v1/policy-packs", headers=OWNER).json()
+    assert [(p["version"], p["active"]) for p in packs] == [(2, True)]
+    # The next version continues the numbering of the versions that stayed.
+    assert client.post("/api/v1/policy-packs", headers=OWNER, json=policy()).json()["version"] == 3
+    deleted = [r for r in store.audit_records if r.action == "policy_pack.deleted"]
+    assert len(deleted) == 1 and deleted[0].metadata == {"name": "External actions", "version": 1, "rules": 1}
+
+
+def test_role_template_list_searches_and_pages() -> None:
+    for name, permissions in (("Operator", ["task:read", "task:run"]), ("Reader", ["task:read"]), ("Approver", ["approval:decide"])):
+        assert client.post("/api/v1/role-templates", headers=OWNER, json={"name": name, "permissions": permissions}).status_code == 201
+    assert [t["name"] for t in client.get("/api/v1/role-templates?q=approval", headers=OWNER).json()] == ["Approver"]
+    assert [t["name"] for t in client.get("/api/v1/role-templates?q=task:run", headers=OWNER).json()] == ["Operator"]
+    assert [t["name"] for t in client.get("/api/v1/role-templates?limit=2&offset=1", headers=OWNER).json()] == ["Reader", "Approver"]
+
+
+# --------------------------------------------------------------- role templates on memberships
+
+
+def _persist_membership(user_id: str, role: str) -> None:
+    from anum_api.dependencies import memory_repository
+    from anum_api.schemas import WorkspaceMembership, utc_now
+
+    now = utc_now()
+    memory_repository.save_membership(WorkspaceMembership(
+        tenant_id="tenant_a", workspace_id="workspace_a", user_id=user_id, role=role, created_at=now, updated_at=now,
+    ))
+
+
+def _template(name: str = "Reader", permissions: list[str] | None = None) -> dict:
+    created = client.post("/api/v1/role-templates", headers=OWNER, json={"name": name, "permissions": permissions or ["task:read", "memory:read", "organization:read"]})
+    assert created.status_code == 201, created.text
+    return created.json()
+
+
+def test_a_role_template_narrows_a_members_permissions_until_it_is_removed() -> None:
+    store.memberships.clear()
+    _persist_membership("member_a", "member")
+    template = _template()
+    # Before: a member may create a task.
+    assert client.post("/api/v1/tasks", headers=MEMBER, json={"title": "t", "prompt": "p"}).status_code == 201
+
+    assigned = client.put("/api/v1/workspace-members/member_a/role-template", headers=OWNER, json={"role_template_id": template["id"]})
+    assert assigned.status_code == 200, assigned.text
+    body = assigned.json()
+    assert body["role_template_id"] == template["id"] and body["role_template_name"] == "Reader"
+    assert body["effective_permissions"] == ["memory:read", "organization:read", "task:read"]
+
+    # Reads inside the template still work; a write the template does not name is refused with the reason.
+    assert client.get("/api/v1/tasks", headers=MEMBER).status_code == 200
+    refused = client.post("/api/v1/tasks", headers=MEMBER, json={"title": "t", "prompt": "p"})
+    assert refused.status_code == 403
+    assert "role template does not include this permission" in refused.json()["error"]["message"]
+    # The member directory shows the template and the effective permissions.
+    listed = {m["user_id"]: m for m in client.get("/api/v1/workspace-members", headers=OWNER).json()}
+    assert listed["member_a"]["role_template_name"] == "Reader"
+    assert listed["member_a"]["effective_permissions"] == ["memory:read", "organization:read", "task:read"]
+    actions = [r.action for r in store.audit_records if r.action.startswith("workspace_member.")]
+    assert "workspace_member.role_template" in actions
+
+    removed = client.put("/api/v1/workspace-members/member_a/role-template", headers=OWNER, json={"role_template_id": None})
+    assert removed.status_code == 200 and removed.json()["role_template_id"] is None and removed.json()["effective_permissions"] is None
+    assert client.post("/api/v1/tasks", headers=MEMBER, json={"title": "t", "prompt": "p"}).status_code == 201
+
+
+def test_role_templates_are_refused_for_owners_unknown_templates_and_non_owners() -> None:
+    store.memberships.clear()
+    _persist_membership("owner_a", "owner")
+    _persist_membership("member_a", "member")
+    template = _template()
+    assert client.put("/api/v1/workspace-members/member_a/role-template", headers=OWNER, json={"role_template_id": "role_missing"}).status_code == 404
+    refused = client.put("/api/v1/workspace-members/owner_a/role-template", headers=OWNER, json={"role_template_id": template["id"]})
+    assert refused.status_code == 409 and "Owners keep the whole owner role" in refused.json()["error"]["message"]
+    assert client.put("/api/v1/workspace-members/member_a/role-template", headers=MEMBER, json={"role_template_id": template["id"]}).status_code == 403
+    assert client.put("/api/v1/workspace-members/member_a/role-template", headers=OTHER, json={"role_template_id": template["id"]}).status_code == 404
+
+
+def test_promoting_a_templated_member_to_owner_drops_the_template() -> None:
+    store.memberships.clear()
+    _persist_membership("owner_a", "owner")
+    _persist_membership("member_a", "member")
+    template = _template()
+    assert client.put("/api/v1/workspace-members/member_a/role-template", headers=OWNER, json={"role_template_id": template["id"]}).status_code == 200
+    promoted = client.put("/api/v1/workspace-members/member_a/role", headers=OWNER, json={"role": "owner"})
+    assert promoted.status_code == 200
+    assert promoted.json()["role"] == "owner" and promoted.json()["role_template_id"] is None and promoted.json()["permission_limit"] is None
+    # The template's permissions that the role does not grant never apply: a viewer with task:run stays read only.
+    _persist_membership("viewer_a", "viewer")
+    wide = _template("Wide", ["task:read", "task:run"])
+    view = client.put("/api/v1/workspace-members/viewer_a/role-template", headers=OWNER, json={"role_template_id": wide["id"]}).json()
+    assert view["effective_permissions"] == ["task:read"]

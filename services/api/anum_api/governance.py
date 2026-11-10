@@ -7,7 +7,7 @@ from enum import StrEnum
 from threading import RLock
 from typing import Any, Protocol
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from pydantic import BaseModel, Field
 
 from .approval_routing import MAX_STEPS, ApprovalConditions, ApproverStep
@@ -126,7 +126,9 @@ class GovernanceRepository(Protocol):
     def get_policy_pack(self, context: TenantContext, policy_id: str) -> PolicyPack | None: ...
     def activate_policy_pack(self, context: TenantContext, pack: PolicyPack) -> PolicyPack: ...
     def archive_policy_pack(self, context: TenantContext, pack: PolicyPack) -> PolicyPack: ...
+    def delete_policy_pack(self, context: TenantContext, policy_id: str) -> bool: ...
     def list_role_templates(self, context: TenantContext) -> list[RoleTemplate]: ...
+    def get_role_template(self, context: TenantContext, template_id: str) -> RoleTemplate | None: ...
     def add_role_template(self, context: TenantContext, template: RoleTemplate) -> RoleTemplate: ...
     def list_approval_rules(self, context: TenantContext) -> list[ApprovalRule]: ...
     def add_approval_rule(self, context: TenantContext, rule: ApprovalRule) -> ApprovalRule: ...
@@ -189,9 +191,20 @@ class GovernanceStore:
             pack.active = False
         return pack
 
+    def delete_policy_pack(self, context: TenantContext, policy_id: str) -> bool:
+        with self._lock:
+            packs = self.policy_packs.get(context.tenant_id, [])
+            kept = [item for item in packs if item.id != policy_id]
+            self.policy_packs[context.tenant_id] = kept
+            return len(kept) != len(packs)
+
     def list_role_templates(self, context: TenantContext) -> list[RoleTemplate]:
         with self._lock:
             return list(self.role_templates.get(context.tenant_id, []))
+
+    def get_role_template(self, context: TenantContext, template_id: str) -> RoleTemplate | None:
+        with self._lock:
+            return next((item for item in self.role_templates.get(context.tenant_id, []) if item.id == template_id), None)
 
     def add_role_template(self, context: TenantContext, template: RoleTemplate) -> RoleTemplate:
         with self._lock:
@@ -315,12 +328,40 @@ def create_policy_pack(payload: PolicyPackCreate, context: TenantContext = Depen
     return result
 
 
+LIST_MAX_LIMIT = 500
+
+
+def _page(items: list[Any], limit: int | None, offset: int) -> list[Any]:
+    """One offset page; without ``limit`` every item (older clients and the Flutter app)."""
+    return items[offset:] if limit is None else items[offset:offset + limit]
+
+
+def pack_matches(pack: PolicyPack, needle: str) -> bool:
+    """Case-insensitive match on the pack's name, description or a rule's action or effect."""
+    text = needle.strip().casefold()
+    if not text:
+        return True
+    return (
+        text in pack.name.casefold()
+        or text in pack.description.casefold()
+        or any(text in rule.action.casefold() or text in rule.effect.value.casefold() for rule in pack.rules)
+    )
+
+
 @router.get("/policy-packs", response_model=list[PolicyPack])
-def list_policy_packs(active_only: bool = False, context: TenantContext = Depends(tenant_context)) -> list[PolicyPack]:
+def list_policy_packs(
+    active_only: bool = False,
+    q: str | None = Query(default=None, max_length=200),
+    limit: int | None = Query(default=None, ge=1, le=LIST_MAX_LIMIT),
+    offset: int = Query(default=0, ge=0),
+    context: TenantContext = Depends(tenant_context),
+) -> list[PolicyPack]:
+    """Every stored version, oldest first; ``q`` matches name, description, rule action or effect."""
     require_permission(context, Permission.POLICY_READ)
     with open_governance_store(context) as store:
         packs = store.list_policy_packs(context)
-    return [pack for pack in packs if pack.active or not active_only]
+    matching = [pack for pack in packs if (pack.active or not active_only) and pack_matches(pack, q or "")]
+    return _page(matching, limit, offset)
 
 
 def _policy_pack(store: GovernanceRepository, policy_id: str, context: TenantContext) -> PolicyPack:
@@ -348,6 +389,24 @@ def archive_policy_pack(policy_id: str, context: TenantContext = Depends(tenant_
     return pack
 
 
+@router.delete("/policy-packs/{policy_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_policy_pack(policy_id: str, context: TenantContext = Depends(tenant_context)) -> Response:
+    """Delete an archived (inactive) version. An active version binds every workspace, so it
+    is archived first (``409``); the versions that stay keep their numbers."""
+    _organization_admin(context)
+    with open_governance_store(context) as store:
+        pack = _policy_pack(store, policy_id, context)
+        if pack.active:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"{pack.name} v{pack.version} is active and enforced in every workspace. Archive it first, then delete it.",
+            )
+        store.delete_policy_pack(context, policy_id)
+        _audit(store, context, "policy_pack.deleted", f"policy_pack:{pack.id}", {
+            "name": pack.name, "version": pack.version, "rules": len(pack.rules)})
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
 @router.post("/role-templates", response_model=RoleTemplate, status_code=status.HTTP_201_CREATED)
 def create_role_template(payload: RoleTemplateCreate, context: TenantContext = Depends(tenant_context)) -> RoleTemplate:
     _organization_admin(context)
@@ -363,10 +422,23 @@ def create_role_template(payload: RoleTemplateCreate, context: TenantContext = D
 
 
 @router.get("/role-templates", response_model=list[RoleTemplate])
-def list_role_templates(context: TenantContext = Depends(tenant_context)) -> list[RoleTemplate]:
+def list_role_templates(
+    q: str | None = Query(default=None, max_length=200),
+    limit: int | None = Query(default=None, ge=1, le=LIST_MAX_LIMIT),
+    offset: int = Query(default=0, ge=0),
+    context: TenantContext = Depends(tenant_context),
+) -> list[RoleTemplate]:
+    """Oldest first; ``q`` matches the name or a permission."""
     require_permission(context, Permission.ORGANIZATION_READ)
     with open_governance_store(context) as store:
-        return store.list_role_templates(context)
+        templates = store.list_role_templates(context)
+    needle = (q or "").strip().casefold()
+    if needle:
+        templates = [
+            item for item in templates
+            if needle in item.name.casefold() or any(needle in permission.casefold() for permission in item.permissions)
+        ]
+    return _page(templates, limit, offset)
 
 
 def _rule_audit(rule: ApprovalRule) -> dict[str, Any]:
