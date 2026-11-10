@@ -177,7 +177,7 @@ services:
   # A host-run API cannot reach it; leave ANUM_SEARXNG_URL empty there (tool off).
   searxng:
     profiles: ["app"]
-    image: searxng/searxng:2026.10.30-ffa88e3ba
+    image: searxng/searxng:2026.11.6-ac11e14c5
     environment:
       # DEV-ONLY placeholder; set SEARXNG_SECRET in your shell to override it.
       SEARXNG_SECRET: ${SEARXNG_SECRET:-local-dev-only}
