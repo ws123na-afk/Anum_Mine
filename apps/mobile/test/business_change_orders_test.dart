@@ -34,8 +34,16 @@ class FakeMoney implements ProjectMoneyRepository {
   final entries = <Map<String, Object?>>[];
   double contract = 2500;
 
-  Map<String, Object?> page(List<Map<String, Object?>> items) =>
-      {'items': items, 'total': items.length};
+  /// The next request for more rows fails.
+  bool failMore = false;
+
+  /// One page, as the API answers: the rows from [offset] and the total.
+  Map<String, Object?> slice(
+          List<Map<String, Object?>> items, int offset, int limit) =>
+      {
+        'items': items.skip(offset).take(limit).toList(),
+        'total': items.length,
+      };
 
   @override
   Future<Profitability> profitability(String projectId) async {
@@ -65,8 +73,15 @@ class FakeMoney implements ProjectMoneyRepository {
   }
 
   @override
-  Future<BusinessPage<ChangeOrder>> changeOrders(String projectId) async =>
-      BusinessPage.fromJson(JsonReader.of(page(changes)), ChangeOrder.fromJson);
+  Future<BusinessPage<ChangeOrder>> changeOrders(String projectId,
+      {int offset = 0, int limit = projectMoneyPageSize}) async {
+    calls.add('changes@$offset');
+    if (failMore && offset > 0) {
+      throw const ApiException(503, 'Try again later');
+    }
+    return BusinessPage.fromJson(
+        JsonReader.of(slice(changes, offset, limit)), ChangeOrder.fromJson);
+  }
 
   Map<String, Object?> _find(String id) =>
       changes.firstWhere((c) => c['id'] == id);
@@ -135,8 +150,12 @@ class FakeMoney implements ProjectMoneyRepository {
   }
 
   @override
-  Future<BusinessPage<UsageEntry>> usage(String projectId) async =>
-      BusinessPage.fromJson(JsonReader.of(page(entries)), UsageEntry.fromJson);
+  Future<BusinessPage<UsageEntry>> usage(String projectId,
+      {int offset = 0, int limit = projectMoneyPageSize}) async {
+    calls.add('usage@$offset');
+    return BusinessPage.fromJson(
+        JsonReader.of(slice(entries, offset, limit)), UsageEntry.fromJson);
+  }
 
   @override
   Future<UsageEntry> createUsage(Map<String, Object?> body) async {
@@ -337,6 +356,95 @@ void main() {
     await tester.pumpAndSettle();
     expect(repo.calls, contains('reject:Client declined'));
     expect(find.text('Rejected'), findsOneWidget);
+  });
+
+  group('long lists', () {
+    Map<String, Object?> cost(int n) => {
+          'id': 'busg_$n',
+          'kind': 'expense',
+          'description': 'Cost $n',
+          'occurred_on': '2026-11-01',
+          'amount': 10,
+          'currency': 'SAR',
+          'billable': false,
+        };
+    Map<String, Object?> change(int n) => {
+          'id': 'bchg_$n',
+          'number': n,
+          'title': 'Change $n',
+          'status': 'draft',
+          'currency': 'SAR',
+          'timeline_days': 0,
+          'total_delta': 100,
+          'content_hash': null,
+          'issues': <String>[],
+          'stale': false,
+          'decision_note': '',
+        };
+
+    Future<void> tapMore(WidgetTester tester, Key key) async {
+      await tester.ensureVisible(find.byKey(key));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(key));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('the cost ledger says how many there are and loads the rest',
+        (tester) async {
+      tester.view.physicalSize = const Size(390, 12000);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final repo = FakeMoney()
+        ..entries.addAll([for (var n = 1; n <= 120; n++) cost(n)]);
+      await tester.pumpWidget(screen(repo, owner));
+      await tester.pumpAndSettle();
+      expect(find.text('Cost 50'), findsOneWidget);
+      expect(find.text('Cost 51'), findsNothing);
+      expect(find.text('Load more (50 of 120)'), findsOneWidget);
+
+      await tapMore(tester, const Key('biz-usage-more'));
+      expect(repo.calls, contains('usage@50'));
+      expect(find.text('Cost 100'), findsOneWidget);
+      expect(find.text('Load more (100 of 120)'), findsOneWidget);
+
+      await tapMore(tester, const Key('biz-usage-more'));
+      expect(find.text('Cost 120'), findsOneWidget);
+      expect(find.byKey(const Key('biz-usage-more')), findsNothing);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('change orders load more, and a failure keeps what is shown',
+        (tester) async {
+      tester.view.physicalSize = const Size(390, 30000);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final repo = FakeMoney()
+        ..changes.addAll([for (var n = 1; n <= 60; n++) change(n)]);
+      await tester.pumpWidget(screen(repo, owner));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('biz-change-bchg_50')), findsOneWidget);
+      expect(find.byKey(const Key('biz-change-bchg_51')), findsNothing);
+      expect(find.text('Load more (50 of 60)'), findsOneWidget);
+
+      repo.failMore = true;
+      await tapMore(tester, const Key('biz-change-more'));
+      expect(find.textContaining('Try again later'), findsOneWidget);
+      expect(find.byKey(const Key('biz-change-bchg_50')), findsOneWidget);
+      expect(find.text('Load more (50 of 60)'), findsOneWidget);
+
+      repo.failMore = false;
+      await tapMore(tester, const Key('biz-change-more'));
+      expect(find.byKey(const Key('biz-change-bchg_60')), findsOneWidget);
+      expect(find.byKey(const Key('biz-change-more')), findsNothing);
+    });
+
+    testWidgets('a short list shows no "Load more"', (tester) async {
+      final repo = FakeMoney()..entries.add(cost(1));
+      await tester.pumpWidget(screen(repo, owner));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const Key('biz-usage-more')), findsNothing);
+      expect(find.byKey(const Key('biz-change-more')), findsNothing);
+    });
   });
 
   testWidgets('failed and denied loads explain themselves', (tester) async {

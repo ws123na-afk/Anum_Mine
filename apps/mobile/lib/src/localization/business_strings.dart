@@ -28,6 +28,7 @@ const businessEn = <String, String>{
   'biz.denied':
       'Business is for workspace owners and members: it holds contacts\' personal data. Ask an owner to make you a member.',
   'biz.more': 'Load more ({shown} of {total})',
+  'biz.moreFailed': 'Could not load more. Check the connection and try again.',
   'biz.unknown': 'Unknown',
   'biz.kpi.leads': 'Leads created',
   'biz.kpi.days': 'Last {days} days',
@@ -227,6 +228,7 @@ const businessAr = <String, String>{
   'biz.denied':
       'قسم الأعمال لمالكي مساحة العمل وأعضائها فقط لأنه يحوي بيانات شخصية لجهات الاتصال. اطلب من المالك أن يجعلك عضوًا.',
   'biz.more': 'تحميل المزيد ({shown} من {total})',
+  'biz.moreFailed': 'تعذّر تحميل المزيد. تحقّق من الاتصال وحاول مجددًا.',
   'biz.unknown': 'غير معروف',
   'biz.kpi.leads': 'عملاء محتملون جدد',
   'biz.kpi.days': 'آخر {days} يومًا',

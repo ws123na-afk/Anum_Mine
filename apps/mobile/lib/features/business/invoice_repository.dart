@@ -1,3 +1,4 @@
+import '../../data/paging.dart';
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -234,12 +235,17 @@ class ApiInvoicesRepository implements InvoicesRepository {
 
   @override
   Future<List<ProjectChoice>> projects() async {
-    final page = BusinessPage.fromJson(
-      JsonReader.of(await _call('GET', '/projects?limit=100')),
-      ProjectChoice.fromJson,
-    );
+    // Every page: the invoice form's project chooser must not stop at the
+    // first hundred projects.
+    final all = await readAllPages<ProjectChoice>((offset) async {
+      final page = BusinessPage.fromJson(
+        JsonReader.of(await _call('GET', '/projects?limit=100&offset=$offset')),
+        ProjectChoice.fromJson,
+      );
+      return (items: page.items, total: page.total);
+    });
     return [
-      for (final item in page.items)
+      for (final item in all)
         if (item.status != 'closed') item,
     ];
   }
