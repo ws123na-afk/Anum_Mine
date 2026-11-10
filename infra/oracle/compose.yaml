@@ -33,6 +33,19 @@ x-logging: &logging
 x-api-build: &api-build
   context: ../../services/api
 
+# Workspace files in an external S3-compatible bucket with versioning (Backblaze B2 or
+# AWS S3; docs/deploy-oracle.md#file-storage). Shared by the API and the retention job,
+# which deletes the bytes of what it purges: the two must always name the same bucket.
+x-object-storage: &object-storage
+  ANUM_OBJECT_STORAGE_BACKEND: s3
+  ANUM_S3_ENDPOINT: ${ANUM_S3_ENDPOINT:?set ANUM_S3_ENDPOINT in infra/oracle/.env}
+  ANUM_S3_REGION: ${ANUM_S3_REGION:?set ANUM_S3_REGION in infra/oracle/.env}
+  ANUM_S3_BUCKET: ${ANUM_S3_BUCKET:?set ANUM_S3_BUCKET in infra/oracle/.env}
+  ANUM_S3_ACCESS_KEY: ${ANUM_S3_ACCESS_KEY:?set ANUM_S3_ACCESS_KEY in infra/oracle/.env}
+  ANUM_S3_SECRET_KEY: ${ANUM_S3_SECRET_KEY:?set ANUM_S3_SECRET_KEY in infra/oracle/.env}
+  ANUM_S3_SERVER_SIDE_ENCRYPTION: AES256
+  ANUM_S3_CREATE_BUCKET: "false"
+
 services:
   # --- Reverse proxy: the only container with published ports ----------------------
   caddy:
@@ -118,13 +131,17 @@ services:
     command:
       - postgres
       - -c
-      - shared_buffers=1GB
+      # Sized for a 2 OCPU / 12 GB VM shared with other stacks
+      # (docs/deploy-oracle.md#memory-budget): change these together with mem_limit.
+      - shared_buffers=512MB
       - -c
-      - effective_cache_size=4GB
+      - effective_cache_size=1536MB
       - -c
-      - maintenance_work_mem=256MB
+      - maintenance_work_mem=128MB
       - -c
-      - work_mem=16MB
+      - work_mem=8MB
+      - -c
+      - max_parallel_workers_per_gather=1
       - -c
       - max_connections=100
       # GlitchTip (profile `monitoring`) partitions its event tables; queries over many
@@ -146,9 +163,12 @@ services:
       retries: 10
       start_period: 30s
     stop_grace_period: 60s
-    # 1 GB shared buffers plus up to 100 backends; 3.5 GB keeps the default stack's
-    # ceilings within 11 GB (docs/deploy-oracle.md#memory-budget).
-    mem_limit: 3584m
+    # 512 MB shared buffers plus up to 100 backends with 8 MB work memory; 2 GB leaves
+    # room for the other stacks on the VM (docs/deploy-oracle.md#memory-budget).
+    mem_limit: 2g
+    # If the VM runs out of memory, the kernel should pick almost anything before the
+    # database: a killed backend restarts every connection and replays the WAL.
+    oom_score_adj: -500
     logging: *logging
 
   # One-shot, on every `up`: creates or updates the roles and Keycloak's database with
@@ -251,16 +271,9 @@ services:
       ANUM_RUN_LOCK_BACKEND: valkey
       ANUM_RATE_LIMIT_BACKEND: valkey
       ANUM_RATE_LIMIT_ENABLED: "true"
-      # Workspace files in an external S3-compatible bucket with versioning (Backblaze
-      # B2 or AWS S3; docs/deploy-oracle.md#file-storage).
-      ANUM_OBJECT_STORAGE_BACKEND: s3
-      ANUM_S3_ENDPOINT: ${ANUM_S3_ENDPOINT:?set ANUM_S3_ENDPOINT in infra/oracle/.env}
-      ANUM_S3_REGION: ${ANUM_S3_REGION:?set ANUM_S3_REGION in infra/oracle/.env}
-      ANUM_S3_BUCKET: ${ANUM_S3_BUCKET:?set ANUM_S3_BUCKET in infra/oracle/.env}
-      ANUM_S3_ACCESS_KEY: ${ANUM_S3_ACCESS_KEY:?set ANUM_S3_ACCESS_KEY in infra/oracle/.env}
-      ANUM_S3_SECRET_KEY: ${ANUM_S3_SECRET_KEY:?set ANUM_S3_SECRET_KEY in infra/oracle/.env}
-      ANUM_S3_SERVER_SIDE_ENCRYPTION: AES256
-      ANUM_S3_CREATE_BUCKET: "false"
+      # Workspace files in the external bucket (x-object-storage above; the retention
+      # job gets the same block).
+      <<: *object-storage
       # Staging starts on the mock model. For Ollama (the `ai` profile) or a hosted
       # provider, change these in .env (docs/deploy-oracle.md#ai-model).
       ANUM_MODEL_PROVIDER: ${ANUM_MODEL_PROVIDER:-mock}
@@ -458,7 +471,8 @@ services:
       valkey:
         condition: service_healthy
     stop_grace_period: 30s
-    mem_limit: 2g
+    # docs/deploy-oracle.md#memory-budget: the VM is shared with other stacks.
+    mem_limit: 1536m
     # Non-root image: no Linux capabilities and no privilege gain through setuid binaries
     # (docs/security.md#pre-sale-review-november-2026).
     cap_drop: [ALL]
@@ -580,8 +594,11 @@ services:
     depends_on:
       db-init:
         condition: service_completed_successfully
-    # Keycloak sizes its heap from this limit (70%).
-    mem_limit: 2g
+    # Keycloak sizes its heap from this limit (its default MaxRAMPercentage of 70%:
+    # about 1075 MB of heap here), which leaves about 460 MB for metaspace, threads and
+    # buffers. One realm with a few hundred users needs far less heap than that
+    # (docs/deploy-oracle.md#memory-budget).
+    mem_limit: 1536m
     # Non-root image: no Linux capabilities and no privilege gain through setuid binaries
     # (docs/security.md#pre-sale-review-november-2026).
     cap_drop: [ALL]
@@ -770,10 +787,16 @@ services:
       ANUM_SECRETS_KEY: ${ANUM_SECRETS_KEY:?set ANUM_SECRETS_KEY in infra/oracle/.env}
       # The same default as the API: workspaces without their own WhatsApp retention.
       ANUM_WHATSAPP_MESSAGE_RETENTION_DAYS: ${ANUM_WHATSAPP_MESSAGE_RETENTION_DAYS:-0}
+      # The API's bucket: the job deletes the bytes of emptied vault trash, expired mail
+      # attachments and call recordings. Without these it would use the `local` backend,
+      # "delete" files that are not in the container and leave the objects in the bucket.
+      <<: *object-storage
     healthcheck:
       disable: true
     networks:
       - backend
+      # Outbound: the bucket, and the ECB exchange rates of the business books' daily job.
+      - egress
     depends_on:
       postgres:
         condition: service_healthy
@@ -1141,7 +1164,7 @@ networks:
       config:
         - subnet: 172.30.20.0/24
   # Outbound internet for the containers that need it: the API (S3 bucket, model
-  # provider), Keycloak (mail), the off-site backup upload, Ollama (model downloads),
+  # provider), the retention job (S3 bucket, exchange rates), Keycloak (mail), the off-site backup upload, Ollama (model downloads),
   # SearXNG (the search engines it queries) and clamd (signature updates).
   egress:
     ipam:

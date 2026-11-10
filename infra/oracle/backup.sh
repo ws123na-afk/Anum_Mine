@@ -5,8 +5,10 @@
 #   backup.sh backup                 nightly job (anum-backup.timer): dump ANUM's database
 #                                    (anum_backup.py, manifest with row counts per tenant)
 #                                    and Keycloak's database, keep ANUM_BACKUP_LOCAL_KEEP_DAYS
-#                                    days on the VM, copy everything new to the off-site
-#                                    bucket, encrypted on the VM first
+#                                    days on the VM (fetched and drill copies 7 days),
+#                                    copy everything new to the off-site bucket, encrypted
+#                                    on the VM first, and warn when .env changed since the
+#                                    owner last copied it (it is in no backup)
 #   backup.sh list                   what is in the off-site bucket
 #   backup.sh fetch <name prefix>    download matching off-site files into <backup dir>/fetched
 #   backup.sh drill                  restore drill: backup -> restore into a scratch
@@ -56,6 +58,21 @@ KEEP_DAYS="$(env_value ANUM_BACKUP_LOCAL_KEEP_DAYS)"
 KEEP_DAYS="${KEEP_DAYS:-7}"
 [[ "$KEEP_DAYS" =~ ^[0-9]+$ ]] || die "ANUM_BACKUP_LOCAL_KEEP_DAYS must be a number of days"
 
+# .env holds every secret (the key that decrypts provider keys, the backup passphrase,
+# the bucket keys) and is in no backup: a dump is useless without it. The owner copies it
+# to a password manager and touches the marker; a newer .env brings the warning back.
+ENV_COPIED_MARKER="$BACKUP_DIR/status/env-copied"
+env_copy_reminder() {
+  if [ ! -e "$ENV_COPIED_MARKER" ] || [ "$ENV_FILE" -nt "$ENV_COPIED_MARKER" ]; then
+    printf '\n%s\n' "WARNING: $ENV_FILE has changed since it was last copied off this VM, and it is NOT in any backup." >&2
+    echo "Without it a restored database cannot be read (ANUM_SECRETS_KEY) and the off-site copies cannot" >&2
+    echo "be decrypted (ANUM_BACKUP_ENCRYPTION_PASSPHRASE). Copy its contents into your password manager:" >&2
+    echo "  sudo cat $ENV_FILE" >&2
+    echo "then record that you did:" >&2
+    echo "  sudo touch $ENV_COPIED_MARKER" >&2
+  fi
+}
+
 # A file under the backup directory, as the containers see it (/backups/...).
 container_path() {
   local path="$1" relative
@@ -103,9 +120,20 @@ case "${1:-}" in
         find "$directory" -maxdepth 1 -type f \( -name 'anum-*' -o -name 'keycloak-*' \) -mtime +"$KEEP_DAYS" -print -delete
       fi
     done
+    # Downloaded copies (fetch, decrypted) and restore-drill leftovers are full dumps
+    # too: a week is enough to finish a restore, and they must not fill the disk. By
+    # change time, the day the file arrived here: rclone keeps the original modification
+    # time, so an old backup fetched yesterday would otherwise be deleted tonight.
+    for directory in "$BACKUP_DIR/fetched" "$BACKUP_DIR/drill"; do
+      if [ -d "$directory" ]; then
+        find "$directory" -mindepth 1 -type f -ctime +7 -print -delete
+        find "$directory" -mindepth 1 -type d -empty -delete
+      fi
+    done
     echo "== Off-site copy (encrypted)"
-    if ! dc run --rm backup-upload; then record_status offsite false; exit 1; fi
+    if ! dc run --rm backup-upload; then record_status offsite false; env_copy_reminder; exit 1; fi
     record_status offsite true
+    env_copy_reminder
     ;;
   list)
     dc run --rm backup-upload lsl sealed:
@@ -171,7 +199,7 @@ case "${1:-}" in
     echo "Done. The previous Keycloak database is kept as $previous (backup.sh drop-database $previous)."
     ;;
   *)
-    sed -n '2,22p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+    sed -n '2,24p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
     exit 2
     ;;
 esac
