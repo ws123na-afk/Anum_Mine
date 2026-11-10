@@ -1,7 +1,7 @@
 """The model that picks the action browser's next step (docs/action-browser.md#one-task-step-by-step).
 
 It gets the goal (the owner's own words), the scope as names only (sites and handles, never a
-secret), the last steps and the page snapshot as an untrusted, labelled block, and answers one
+secret), the last steps and the page snapshot as untrusted, labelled blocks, and answers one
 action as JSON. Its answer is only a proposal: ``tool`` validates it against the scope and
 ``classify`` decides, outside the model, whether it may run.
 """
@@ -58,7 +58,8 @@ Rules:
 
 
 def build_prompt(*, goal: str, scope: dict[str, Any], history: list[str], snapshot: dict[str, Any]) -> str:
-    """The planner prompt. Page content appears only inside the labelled untrusted block."""
+    """The planner prompt. Page content, and the step log that quotes it, appear only inside
+    labelled untrusted blocks."""
     page = {
         "url": snapshot.get("url"), "title": snapshot.get("title"), "held_navigation": snapshot.get("held"),
         "elements": snapshot.get("elements") or [], "text": str(snapshot.get("text") or "")[:6000],
@@ -67,11 +68,18 @@ def build_prompt(*, goal: str, scope: dict[str, Any], history: list[str], snapsh
         "allowed_sites": scope.get("sites") or [], "saved_logins": [f"{name} (for {site})" for name, site in (scope.get("logins") or {}).items()],
         "saved_cards": list(scope.get("cards") or []),
     }, ensure_ascii=False)
-    steps = "\n".join(f"- {line}" for line in history[-15:]) or "- (none yet)"
+    # The step log quotes the pages (link and button labels, the browser service's messages), so
+    # it is data too: its own labelled block, with any marker-like text inside it defanged.
+    origin = str(snapshot.get("host") or "page")
+    recent = [line for line in history[-15:] if line]
+    steps = (
+        label_untrusted("\n".join(f"- {line}" for line in recent), source=Provenance.WEB, origin=f"{origin}/steps", max_chars=6_000)
+        if recent else "- (none yet)"
+    )
     block = label_untrusted(json.dumps(page, ensure_ascii=False), source=Provenance.WEB, origin=str(snapshot.get("host") or "page"), max_chars=14_000)
     return "\n\n".join([
         INSTRUCTIONS, UNTRUSTED_DATA_RULES,
-        f"Goal (the owner's own words): {goal}", f"Scope: {scope_text}", f"Steps so far:\n{steps}",
+        f"Goal (the owner's own words): {goal}", f"Scope: {scope_text}", f"Steps so far (the browser's own log; the labels in it are quoted from the pages):\n{steps}",
         "Current page snapshot:", block,
     ])
 
