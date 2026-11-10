@@ -1,5 +1,7 @@
 // A session that ends on its own moves the app to sign-in
 // (docs/mobile.md#session-end).
+import 'dart:async';
+
 import 'package:anum_mobile/data/api_client.dart';
 import 'package:anum_mobile/data/api_models.dart';
 import 'package:anum_mobile/data/session_store.dart';
@@ -27,6 +29,12 @@ DateTime inFuture([Duration by = const Duration(hours: 1)]) =>
     DateTime.now().toUtc().add(by);
 DateTime inPast() =>
     DateTime.now().toUtc().subtract(const Duration(minutes: 1));
+
+class _Silent implements ApiTransport {
+  @override
+  Future<ApiResponse> send(ApiRequest request) =>
+      Completer<ApiResponse>().future;
+}
 
 void main() {
   group('WatchedSessionStore', () {
@@ -67,6 +75,21 @@ void main() {
       expect(await store.read(), isNull);
       expect(ended, 0);
     });
+  });
+
+  test('sign-out does not wait for a server that never answers', () async {
+    final sessions = MemorySessionStore();
+    await sessions.write(localSession(inFuture()));
+    final controller = AuthController(AuthRepository(
+        api: AnumApiClient(
+            baseUri: Uri.parse('http://127.0.0.1:8000'),
+            transport: _Silent(),
+            sessions: sessions),
+        sessions: sessions,
+        signOutTimeout: const Duration(milliseconds: 30)));
+    await controller.signOut().timeout(const Duration(seconds: 5));
+    expect(controller.phase, AuthPhase.signedOut);
+    expect(await sessions.read(), isNull);
   });
 
   group('AuthController', () {

@@ -21,7 +21,12 @@ class AuthRepository {
       required this.sessions,
       this.oidc,
       this.workspacePreferences,
-      this.sessionListener});
+      this.sessionListener,
+      this.signOutTimeout = const Duration(seconds: 10)});
+
+  /// How long sign-out waits for the server to revoke the session before it
+  /// clears this device anyway (the session then ends at its own expiry).
+  final Duration signOutTimeout;
 
   /// Phone push, in the app; null in most tests.
   final WorkspaceSessionListener? sessionListener;
@@ -334,7 +339,9 @@ class AuthRepository {
       return;
     }
     try {
-      await api.request('DELETE', '/api/v1/auth/local/session');
+      await api
+          .request('DELETE', '/api/v1/auth/local/session')
+          .timeout(signOutTimeout);
     } finally {
       await sessions.clear();
     }
