@@ -973,7 +973,7 @@ async def run_now(context: TenantContext = Depends(tenant_context), repository: 
     from .jobs import run_once
 
     result = await run_once(issuer_tenant_id=context.tenant_id)
-    _audit(repository, context, "billing.run", context.tenant_id, result)
+    await asyncio.to_thread(_audit, repository, context, "billing.run", context.tenant_id, result)  # off the event loop
     return result
 
 

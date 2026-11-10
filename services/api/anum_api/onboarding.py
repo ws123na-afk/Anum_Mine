@@ -538,7 +538,7 @@ async def reset_local_password(payload: PasswordReset) -> LocalSessionResponse:
 
 
 @router.post("/auth/local/workspace/switch", response_model=LocalSessionResponse)
-async def switch_local_workspace(
+def switch_local_workspace(
     payload: WorkspaceSwitch,
     authorization: str | None = Header(default=None),
     context: TenantContext = Depends(provisioning_tenant_context),
@@ -591,7 +591,7 @@ async def revoke_local_session(authorization: str | None = Header(default=None))
 
 
 @router.put("/onboarding", response_model=OnboardingStatus)
-async def complete_onboarding(
+def complete_onboarding(
     payload: OnboardingCreate,
     context: TenantContext = Depends(provisioning_tenant_context),
     repository: AnumRepository = Depends(provisioning_repository_context),
@@ -626,7 +626,7 @@ async def complete_onboarding(
 
 
 @router.get("/onboarding", response_model=OnboardingStatus)
-async def get_onboarding_status(
+def get_onboarding_status(
     context: TenantContext = Depends(provisioning_tenant_context),
     repository: AnumRepository = Depends(provisioning_repository_context),
 ) -> OnboardingStatus:

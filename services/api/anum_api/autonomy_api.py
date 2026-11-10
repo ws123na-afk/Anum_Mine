@@ -16,6 +16,7 @@ are made by the runtime (``anum_api.autonomy``), outside the model.
 
 from __future__ import annotations
 
+import asyncio
 import hmac
 from datetime import datetime
 from typing import Any
@@ -206,7 +207,7 @@ def _overview(context: TenantContext, store: AutonomyStore) -> AutonomyOverview:
 
 
 @router.get("/settings", response_model=AutonomyOverview)
-async def get_autonomy(
+def get_autonomy(
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
 ) -> AutonomyOverview:
@@ -215,7 +216,7 @@ async def get_autonomy(
 
 
 @router.put("/settings", response_model=AutonomyOverview)
-async def put_autonomy(
+def put_autonomy(
     payload: WorkspaceAutonomyUpdate,
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
@@ -250,7 +251,7 @@ async def put_autonomy(
 
 
 @router.get("/guardrails", response_model=OrganizationGuardrails)
-async def get_guardrails(
+def get_guardrails(
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
 ) -> OrganizationGuardrails:
@@ -259,7 +260,7 @@ async def get_guardrails(
 
 
 @router.put("/guardrails", response_model=OrganizationGuardrails)
-async def put_guardrails(
+def put_guardrails(
     payload: GuardrailsUpdate,
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
@@ -320,7 +321,7 @@ def _check_raise(
 
 
 @router.get("/rules", response_model=list[AutonomyRule])
-async def list_rules(
+def list_rules(
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
 ) -> list[AutonomyRule]:
@@ -376,7 +377,7 @@ def _save_rule(
 
 
 @router.post("/rules", response_model=AutonomyRule, status_code=status.HTTP_201_CREATED)
-async def create_rule(
+def create_rule(
     payload: RuleCreate,
     request: Request,
     context: TenantContext = Depends(tenant_context),
@@ -405,7 +406,7 @@ async def create_rule(
 
 
 @router.delete("/rules/{rule_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_rule(
+def delete_rule(
     rule_id: str,
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
@@ -423,7 +424,7 @@ async def delete_rule(
 
 
 @router.get("/proposals", response_model=list[AutonomyProposal])
-async def list_proposals(
+def list_proposals(
     status_filter: ProposalStatus | None = Query(default=ProposalStatus.PENDING, alias="status"),
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
@@ -442,7 +443,7 @@ def _pending_proposal(store: AutonomyStore, proposal_id: str, context: TenantCon
 
 
 @router.post("/proposals/{proposal_id}/accept", response_model=AutonomyRule)
-async def accept_proposal(
+def accept_proposal(
     proposal_id: str,
     request: Request,
     context: TenantContext = Depends(tenant_context),
@@ -472,7 +473,7 @@ async def accept_proposal(
 
 
 @router.post("/proposals/{proposal_id}/decline", response_model=AutonomyProposal)
-async def decline_proposal(
+def decline_proposal(
     proposal_id: str,
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
@@ -547,7 +548,7 @@ def _view(context: TenantContext, action: AutonomousAction, rules: dict[str, Aut
 
 
 @router.get("/actions", response_model=ActionPage)
-async def list_actions(
+def list_actions(
     category: ToolCategory | None = None,
     level: AutonomyLevel | None = None,
     status_filter: ActionStatus | None = Query(default=None, alias="status"),
@@ -575,7 +576,7 @@ async def list_actions(
 
 
 @router.get("/actions/{action_id}", response_model=ActionView)
-async def get_action(
+def get_action(
     action_id: str,
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
@@ -608,41 +609,74 @@ async def undo_action(
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
 ) -> ActionView | JSONResponse:
-    """Reverse one action through its tool's compensating action, within the undo window."""
-    store = _store(repository)
-    action = store.get_action(action_id, context, for_update=True)
-    if action is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Action not found")
-    if not _may_undo(context, action):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=UNDO_REQUIRED)
-    if action.status == ActionStatus.UNDONE:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="This action was already undone.")
-    if action.undo_tool is None or action.undo_token is None:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="This action cannot be undone from ANUM.")
-    if not hmac.compare_digest(action.undo_token, payload.undo_token):
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="The undo does not match this action; reload the activity and try again.")
-    now = utc_now()
-    if not action.undoable(now):
-        raise HTTPException(
-            status_code=status.HTTP_410_GONE,
-            detail="The undo window has closed; reverse it in the connected service if you still need to.",
-        )
+    """Reverse one action through its tool's compensating action, within the undo window.
+
+    The route stays ``async`` for the tool call; every store step runs in a worker thread,
+    one at a time, in the request's unit of work (the action's row lock is what makes an
+    undo single use, docs/realtime.md#event-loop).
+    """
     registry = _registry(request)
-    call = ToolCall(name=action.undo_tool, arguments=action.undo_arguments)
-    decision = ToolPolicy(registry.names).evaluate(
-        call, registry.definition(call.name), context, repository.get_approval_policy(context), repository.get_tool_governance(context)
-    )
-    if decision.outcome == ToolPolicyOutcome.BLOCK:
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"The undo is not allowed: {decision.reason}")
+
+    def claim() -> tuple[AutonomyStore, Any, datetime, ToolCall]:
+        store = _store(repository)
+        action = store.get_action(action_id, context, for_update=True)
+        if action is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Action not found")
+        if not _may_undo(context, action):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=UNDO_REQUIRED)
+        if action.status == ActionStatus.UNDONE:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="This action was already undone.")
+        if action.undo_tool is None or action.undo_token is None:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="This action cannot be undone from ANUM.")
+        if not hmac.compare_digest(action.undo_token, payload.undo_token):
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="The undo does not match this action; reload the activity and try again.")
+        now = utc_now()
+        if not action.undoable(now):
+            raise HTTPException(
+                status_code=status.HTTP_410_GONE,
+                detail="The undo window has closed; reverse it in the connected service if you still need to.",
+            )
+        call = ToolCall(name=action.undo_tool, arguments=action.undo_arguments)
+        decision = ToolPolicy(registry.names).evaluate(
+            call, registry.definition(call.name), context, repository.get_approval_policy(context), repository.get_tool_governance(context)
+        )
+        if decision.outcome == ToolPolicyOutcome.BLOCK:
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=f"The undo is not allowed: {decision.reason}")
+        return store, action, now, call
+
+    store, action, now, call = await asyncio.to_thread(claim)
     try:
         result = await registry.execute(call, context)
         failure = None if result.status not in {"failed", "blocked"} else result.summary
     except Exception as exc:  # noqa: BLE001 - any failure is reported, the action stays done
         failure = f"The connected service did not answer ({type(exc).__name__})."
-    if failure is not None:
-        action.undo_error = failure[:500]
+
+    def record_failure(reason: str) -> None:
+        action.undo_error = reason[:500]
         store.save_action(action)
         _audit(repository, context, "autonomy.undo_failed", action.id, {"tool": action.tool, "undo_tool": action.undo_tool}, outcome="failure", correlation_id=action.task_id)
+
+    def record_undone() -> ActionView:
+        action.status, action.undone_by, action.undone_at, action.undo_error = ActionStatus.UNDONE, context.user_id, now, None
+        store.save_action(action)
+        repository.record_event(
+            create_event(
+                CanonicalEventName.AUTONOMY_ACTION_UNDONE,
+                context,
+                action.id,
+                {"action_id": action.id, "task_id": action.task_id, "tool": action.tool},
+                correlation_id=action.task_id,
+            ).event
+        )
+        _audit(
+            repository, context, "autonomy.action_undone", action.id,
+            {"tool": action.tool, "undo_tool": action.undo_tool, "task_id": action.task_id}, correlation_id=action.task_id,
+        )
+        rules = {rule.pattern_key: rule.level for rule in store.list_rules(context)}
+        return _view(context, action, rules, now)
+
+    if failure is not None:
+        await asyncio.to_thread(record_failure, failure)
         # Returned, not raised, so the recorded error and audit record commit.
         return error_response(
             request,
@@ -650,27 +684,11 @@ async def undo_action(
             code=ErrorCode.SERVICE_UNAVAILABLE,
             message=f"The undo did not go through: {failure} The action is still in effect; try again.",
         )
-    action.status, action.undone_by, action.undone_at, action.undo_error = ActionStatus.UNDONE, context.user_id, now, None
-    store.save_action(action)
-    repository.record_event(
-        create_event(
-            CanonicalEventName.AUTONOMY_ACTION_UNDONE,
-            context,
-            action.id,
-            {"action_id": action.id, "task_id": action.task_id, "tool": action.tool},
-            correlation_id=action.task_id,
-        ).event
-    )
-    _audit(
-        repository, context, "autonomy.action_undone", action.id,
-        {"tool": action.tool, "undo_tool": action.undo_tool, "task_id": action.task_id}, correlation_id=action.task_id,
-    )
-    rules = {rule.pattern_key: rule.level for rule in store.list_rules(context)}
-    return _view(context, action, rules, now)
+    return await asyncio.to_thread(record_undone)
 
 
 @router.post("/actions/{action_id}/tighten", response_model=AutonomyRule, status_code=status.HTTP_201_CREATED)
-async def tighten_action(
+def tighten_action(
     action_id: str,
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),

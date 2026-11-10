@@ -217,7 +217,7 @@ def _workspace_store(memories: MemoryRepository) -> RetrievalStore:
 
 
 @router.get("/status", response_model=RetrievalIndexStatus)
-async def retrieval_status(
+def retrieval_status(
     context: TenantContext = Depends(tenant_context),
     memories: MemoryRepository = Depends(memory_repository_context),
 ) -> RetrievalIndexStatus:

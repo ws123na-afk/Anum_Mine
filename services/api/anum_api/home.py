@@ -905,7 +905,7 @@ def own_quick_commands(repository: AnumRepository, context: TenantContext) -> li
 
 
 @router.get("/commands", response_model=CommandList)
-async def list_commands(
+def list_commands(
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
 ) -> CommandList:

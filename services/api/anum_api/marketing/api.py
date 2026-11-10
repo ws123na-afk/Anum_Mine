@@ -494,7 +494,7 @@ async def validate_post(payload: PostValidate, context: TenantContext = Depends(
 
 
 @router.get("/posts/{post_id}", response_model=PostView)
-async def get_post(post_id: str, context: TenantContext = Depends(tenant_context), repository: AnumRepository = Depends(repository_context)) -> PostView:
+def get_post(post_id: str, context: TenantContext = Depends(tenant_context), repository: AnumRepository = Depends(repository_context)) -> PostView:
     _read(context)
     return _view_one(context, post_id, repository)
 

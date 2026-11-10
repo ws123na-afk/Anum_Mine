@@ -762,7 +762,7 @@ async def health() -> dict[str, str]:
 
 
 @app.post("/api/v1/tenants", response_model=Tenant, status_code=status.HTTP_201_CREATED)
-async def create_tenant(
+def create_tenant(
     payload: TenantCreate,
     context: TenantContext = Depends(provisioning_tenant_context),
     repository: AnumRepository = Depends(provisioning_repository_context),
@@ -782,13 +782,13 @@ async def create_tenant(
 
 
 @app.post("/api/v1/workspaces", response_model=Workspace, status_code=status.HTTP_201_CREATED)
-async def create_workspace(
+def create_workspace(
     payload: WorkspaceCreate,
     context: TenantContext = Depends(provisioning_tenant_context),
     repository: AnumRepository = Depends(provisioning_repository_context),
 ) -> Workspace:
     require_permission(context, Permission.WORKSPACE_CREATE)
-    await asyncio.to_thread(require_capacity, context, "workspaces", 1)
+    require_capacity(context, "workspaces", 1)
     now = utc_now()
     workspace = Workspace(
         id=context.workspace_id,
@@ -808,7 +808,7 @@ async def create_workspace(
     response_model=WorkspaceMembership,
     status_code=status.HTTP_201_CREATED,
 )
-async def create_current_membership(
+def create_current_membership(
     context: TenantContext = Depends(provisioning_tenant_context),
     repository: AnumRepository = Depends(provisioning_repository_context),
 ) -> WorkspaceMembership:
@@ -837,7 +837,7 @@ async def create_current_membership(
 
 
 @app.get("/api/v1/workspaces/current", response_model=Workspace)
-async def get_current_workspace(
+def get_current_workspace(
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
 ) -> Workspace:
@@ -849,7 +849,7 @@ async def get_current_workspace(
 
 
 @app.get("/api/v1/workspace-memberships/current", response_model=WorkspaceMembership)
-async def get_current_membership(
+def get_current_membership(
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
 ) -> WorkspaceMembership:
@@ -931,37 +931,43 @@ async def create_task(
     repository: AnumRepository = Depends(repository_context),
 ) -> Task:
     require_permission(context, Permission.TASK_CREATE)
-    if payload.agent_id is not None:
-        _usable_agent(context, payload.agent_id)
-    # The plan's agent runs per month (docs/billing.md#plans-and-limits); a database read, off the loop.
-    await asyncio.to_thread(require_capacity, context, "agent_runs", 1)
-    now = utc_now()
-    task = Task(
-        id=new_id("task"),
-        title=payload.title,
-        prompt=payload.prompt,
-        status=TaskStatus.CREATED,
-        tenant_id=context.tenant_id,
-        workspace_id=context.workspace_id,
-        created_at=now,
-        updated_at=now,
-        created_by=context.user_id,
-        priority=payload.priority,
-        due_at=_utc(payload.due_at),
-        agent_id=payload.agent_id,
-    )
-    repository.create_task(task)
-    repository.record_event(
-        create_event(
-            CanonicalEventName.TASK_CREATED,
-            context,
-            task.id,
-            {"title": task.title},
-            correlation_id=task.id,
+
+    def create() -> Task:
+        if payload.agent_id is not None:
+            _usable_agent(context, payload.agent_id)
+        # The plan's agent runs per month (docs/billing.md#plans-and-limits).
+        require_capacity(context, "agent_runs", 1)
+        now = utc_now()
+        task = Task(
+            id=new_id("task"),
+            title=payload.title,
+            prompt=payload.prompt,
+            status=TaskStatus.CREATED,
+            tenant_id=context.tenant_id,
+            workspace_id=context.workspace_id,
             created_at=now,
-        ).event
-    )
-    return task
+            updated_at=now,
+            created_by=context.user_id,
+            priority=payload.priority,
+            due_at=_utc(payload.due_at),
+            agent_id=payload.agent_id,
+        )
+        repository.create_task(task)
+        repository.record_event(
+            create_event(
+                CanonicalEventName.TASK_CREATED,
+                context,
+                task.id,
+                {"title": task.title},
+                correlation_id=task.id,
+                created_at=now,
+            ).event
+        )
+        return task
+
+    # Other modules await this function (office_assign_api, executive_pa), so it stays async;
+    # the database work runs in a worker thread, never on the event loop.
+    return await asyncio.to_thread(create)
 
 
 TASK_MANAGER_REQUIRED = "Only the task's creator or a workspace owner can change this task."
@@ -1045,7 +1051,7 @@ class _TaskListQuery:
 
 
 @app.get("/api/v1/tasks", response_model=list[Task])
-async def list_tasks(
+def list_tasks(
     limit: int = Query(default=50, ge=1, le=100),
     cursor: str | None = None,
     query: _TaskListQuery = Depends(),
@@ -1064,7 +1070,7 @@ async def list_tasks(
 
 
 @app.get("/api/v1/tasks/summary", response_model=TaskSummary)
-async def summarize_tasks(
+def summarize_tasks(
     query: _TaskListQuery = Depends(),
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
@@ -1108,7 +1114,7 @@ async def bulk_tasks(
 
 
 @app.get("/api/v1/tasks/{task_id}", response_model=Task)
-async def get_task(
+def get_task(
     task_id: str,
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
@@ -1162,7 +1168,7 @@ def _record_task_event(
 
 
 @app.put("/api/v1/tasks/{task_id}", response_model=Task)
-async def update_task(
+def update_task(
     task_id: str,
     payload: TaskUpdate,
     context: TenantContext = Depends(tenant_context),
@@ -1254,7 +1260,7 @@ def unarchive_task(
 
 
 @app.get("/api/v1/tasks/{task_id}/runs", response_model=list[AgentRun])
-async def list_task_runs(
+def list_task_runs(
     task_id: str,
     limit: int = Query(default=RUN_PAGE_DEFAULT, ge=1, le=RUN_PAGE_MAX),
     cursor: str | None = None,
@@ -1271,7 +1277,7 @@ async def list_task_runs(
 
 
 @app.get("/api/v1/tasks/{task_id}/events", response_model=list[DomainEvent])
-async def list_task_events(
+def list_task_events(
     task_id: str,
     limit: int = Query(default=EVENT_PAGE_DEFAULT, ge=1, le=EVENT_PAGE_MAX),
     cursor: str | None = None,
@@ -1289,7 +1295,7 @@ async def list_task_events(
 
 
 @app.get("/api/v1/tasks/{task_id}/export")
-async def export_task(
+def export_task(
     task_id: str,
     export_format: str = Query(default="json", alias="format", pattern="^(json|markdown)$"),
     context: TenantContext = Depends(tenant_context),
@@ -1690,7 +1696,7 @@ voice_actions.configure(
 
 
 @app.get("/api/v1/agent-runs/{run_id}", response_model=AgentRun)
-async def get_agent_run(
+def get_agent_run(
     run_id: str,
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
@@ -1703,7 +1709,7 @@ async def get_agent_run(
 
 
 @app.get("/api/v1/tasks/{task_id}/latest-run", response_model=AgentRun)
-async def get_latest_task_run(
+def get_latest_task_run(
     task_id: str,
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
@@ -1773,7 +1779,7 @@ async def resume_agent_run(
 
 
 @app.get("/api/v1/events", response_model=list[DomainEvent])
-async def list_events(
+def list_events(
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
 ) -> list[DomainEvent]:
@@ -1869,7 +1875,7 @@ async def stream_events(
 
 
 @app.get("/api/v1/approvals", response_model=list[Approval])
-async def list_approvals(
+def list_approvals(
     status_filter: ApprovalFilter | None = Query(default=None, alias="status"),
     limit: int | None = Query(default=None, ge=1, le=APPROVAL_PAGE_MAX_LIMIT * 5),
     context: TenantContext = Depends(tenant_context),
@@ -1896,7 +1902,7 @@ async def list_approvals(
 
 
 @app.get("/api/v1/approvals/page", response_model=ApprovalPage)
-async def list_approvals_page(
+def list_approvals_page(
     status_filter: ApprovalFilter = Query(default=ApprovalFilter.ALL, alias="status"),
     query: str | None = Query(default=None, max_length=APPROVAL_QUERY_MAX_CHARS),
     task_id: str | None = Query(default=None, max_length=80),
@@ -1933,7 +1939,7 @@ async def list_approvals_page(
 
 
 @app.get("/api/v1/approvals/summary", response_model=ApprovalSummary)
-async def approvals_summary(
+def approvals_summary(
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
 ) -> ApprovalSummary:
@@ -1943,7 +1949,7 @@ async def approvals_summary(
 
 
 @app.get("/api/v1/approvals/{approval_id}", response_model=Approval)
-async def get_approval(
+def get_approval(
     approval_id: str,
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
@@ -1964,22 +1970,26 @@ async def create_memory(
     memories: MemoryRepository = Depends(memory_repository_context),
 ) -> MemoryNote:
     require_permission(context, Permission.MEMORY_CREATE)
-    if repository.get_task(payload.task_id, context) is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
-    try:
-        note = MemoryService(memories).create(context, payload)
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=422,
-            detail=str(exc),
-        ) from exc
+
+    def create() -> MemoryNote:
+        if repository.get_task(payload.task_id, context) is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
+        try:
+            return MemoryService(memories).create(context, payload)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=422,
+                detail=str(exc),
+            ) from exc
+
+    note = await asyncio.to_thread(create)  # the store work, off the event loop
     # Same transaction, best effort: a failed embedding is recorded on the index row.
     await index_memory_note(context, note, memories)
     return note
 
 
 @app.get("/api/v1/memories", response_model=list[MemoryNote])
-async def list_memories(
+def list_memories(
     task_id: str | None = None,
     query: str | None = None,
     source_type: list[str] = Query(default_factory=list),
@@ -2007,7 +2017,7 @@ class MemoryBulkDeleteResult(BaseModel):
 
 
 @app.delete("/api/v1/memories", response_model=MemoryBulkDeleteResult)
-async def delete_my_conversation_memories(
+def delete_my_conversation_memories(
     source_type: str = Query(description="Only `conversation`: every memory remembered from the caller's own chats"),
     context: TenantContext = Depends(tenant_context),
     memories: MemoryRepository = Depends(memory_repository_context),
@@ -2042,7 +2052,7 @@ async def delete_my_conversation_memories(
 
 
 @app.delete("/api/v1/memories/{memory_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_memory(
+def delete_memory(
     memory_id: str,
     context: TenantContext = Depends(tenant_context),
     memories: MemoryRepository = Depends(memory_repository_context),
@@ -2126,7 +2136,7 @@ async def reject(
 
 
 @app.get("/api/v1/approval-policy", response_model=WorkspaceApprovalPolicy)
-async def get_approval_policy(
+def get_approval_policy(
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
 ) -> WorkspaceApprovalPolicy:
@@ -2135,7 +2145,7 @@ async def get_approval_policy(
 
 
 @app.put("/api/v1/approval-policy", response_model=WorkspaceApprovalPolicy)
-async def update_approval_policy(
+def update_approval_policy(
     payload: WorkspaceApprovalPolicyUpdate,
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),

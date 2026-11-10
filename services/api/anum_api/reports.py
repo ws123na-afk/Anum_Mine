@@ -1218,7 +1218,7 @@ async def save_to_files(
 
 
 @router.post("/{report_id}/ask", status_code=status.HTTP_201_CREATED)
-async def ask_about_report(
+def ask_about_report(
     report_id: str,
     payload: AskRequest,
     context: TenantContext = Depends(tenant_context),

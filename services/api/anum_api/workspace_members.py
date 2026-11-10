@@ -499,7 +499,7 @@ async def create_invitation(
 
 
 @router.get("/workspace-invitations", response_model=list[InvitationView])
-async def list_invitations(
+def list_invitations(
     invitation_status: str = Query(
         default="all", alias="status", pattern="^(all|pending|accepted|revoked|expired)$"
     ),
@@ -582,7 +582,7 @@ async def resend_invitation(
 
 
 @router.post("/workspace-invitations/{invitation_id}/revoke", response_model=InvitationView)
-async def revoke_invitation(
+def revoke_invitation(
     invitation_id: str,
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
@@ -615,7 +615,7 @@ async def revoke_invitation(
 
 
 @router.post("/workspace-invitations/accept", response_model=InvitationAccepted)
-async def accept_invitation(
+def accept_invitation(
     payload: InvitationAccept,
     identity: AuthenticatedIdentity = Depends(authenticated_identity),
     repository: AnumRepository = Depends(identity_repository_context),
@@ -750,7 +750,7 @@ def _accepted_emails(repository: AnumRepository, context: TenantContext) -> dict
 
 
 @router.get("/workspace-members", response_model=list[MemberView])
-async def list_members(
+def list_members(
     response: Response,
     q: str | None = Query(default=None, max_length=320, description="Text in the user id or email"),
     member_status: str = Query(default="all", alias="status", pattern="^(all|active|deactivated)$"),
@@ -791,7 +791,7 @@ async def list_members(
 
 
 @router.get("/workspace-members/summary", response_model=MembersSummary)
-async def members_summary(
+def members_summary(
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
 ) -> MembersSummary:
@@ -820,7 +820,7 @@ def _validated_user_id(user_id: str) -> str:
 
 
 @router.put("/workspace-members/{user_id}/role", response_model=WorkspaceMembership)
-async def change_member_role(
+def change_member_role(
     user_id: str,
     payload: MemberRoleUpdate,
     context: TenantContext = Depends(tenant_context),
@@ -850,7 +850,7 @@ async def change_member_role(
 
 
 @router.post("/workspace-members/{user_id}/deactivate", response_model=WorkspaceMembership)
-async def deactivate_member(
+def deactivate_member(
     user_id: str,
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
@@ -877,7 +877,7 @@ async def deactivate_member(
 
 
 @router.post("/workspace-members/{user_id}/reactivate", response_model=WorkspaceMembership)
-async def reactivate_member(
+def reactivate_member(
     user_id: str,
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
