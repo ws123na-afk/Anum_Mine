@@ -131,10 +131,32 @@ def test_the_lifespan_sets_the_worker_threads_before_anything_starts(monkeypatch
 
     from anum_api.settings import Settings
 
-    assert Settings().worker_threads == 32
-    for refused in (0, 3, 257):
+    # The default is the connection pool's size: pool + overflow (10 + 20). With 32 threads and
+    # 30 connections two workers always waited for a connection under load, up to the pool timeout.
+    assert Settings().worker_threads == 30 == Settings().database_pool_size + Settings().database_max_overflow
+    assert Settings(database_pool_size=5, database_max_overflow=3).worker_threads == 8
+    assert Settings(database_pool_size=1, database_max_overflow=0).worker_threads == 4  # never below the floor
+    assert Settings(database_pool_size=200, database_max_overflow=500).worker_threads == 256  # never above the cap
+    assert Settings(worker_threads=12).worker_threads == 12  # an explicit value is kept
+    assert Settings(worker_threads=4, database_pool_size=1, database_max_overflow=0).worker_threads == 4
+    assert Settings(worker_threads=0).worker_threads == 30  # 0 = unset: derive from the pool
+    for refused in (3, 257):
         with pytest.raises(ValidationError):
             Settings(worker_threads=refused)
+    with pytest.raises(ValidationError, match="ANUM_WORKER_THREADS.*ANUM_DATABASE_POOL_SIZE"):
+        Settings(worker_threads=31)  # more threads than connections: refused at startup
+    with pytest.raises(ValidationError, match="ANUM_WORKER_THREADS"):
+        Settings(worker_threads=9, database_pool_size=4, database_max_overflow=4)
+    assert Settings(worker_threads=8, database_pool_size=4, database_max_overflow=4).worker_threads == 8
+    monkeypatch.setenv("ANUM_DATABASE_POOL_SIZE", "20")
+    assert Settings().worker_threads == 40  # the environment's pool size drives the default
+    monkeypatch.setenv("ANUM_WORKER_THREADS", "41")
+    with pytest.raises(ValidationError, match="ANUM_WORKER_THREADS"):
+        Settings()
+    monkeypatch.setenv("ANUM_WORKER_THREADS", "16")
+    assert Settings().worker_threads == 16
+    monkeypatch.delenv("ANUM_WORKER_THREADS")
+    monkeypatch.delenv("ANUM_DATABASE_POOL_SIZE")
     order: list[str] = []
     real_start = main.event_runtime.start
 

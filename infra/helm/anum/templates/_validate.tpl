@@ -106,6 +106,18 @@ hosts). Failing at `helm template`/`helm upgrade` is cheaper than a crash loop.
 {{- if or (not (regexMatch "^[0-9]{1,4}$" $retention)) (gt (atoi $retention) 3650) -}}
 {{- fail (printf "config.ANUM_CONVERSATION_RETENTION_DAYS=%q must be a whole number of days from 0 (keep forever) to 3650" $retention) -}}
 {{- end -}}
+{{- /* Worker threads (docs/realtime.md#worker-threads): unset, the API derives them from the pool; an explicit
+       value above pool + overflow is refused at startup (the extra threads could only wait for a connection). */ -}}
+{{- $threads := trim (toString (default "" $c.ANUM_WORKER_THREADS)) -}}
+{{- if and $threads (ne $threads "0") -}}
+{{- $connections := add (atoi (toString (default "10" $c.ANUM_DATABASE_POOL_SIZE))) (atoi (toString (default "20" $c.ANUM_DATABASE_MAX_OVERFLOW))) -}}
+{{- if or (not (regexMatch "^[0-9]{1,3}$" $threads)) (lt (atoi $threads) 4) (gt (atoi $threads) 256) -}}
+{{- fail (printf "config.ANUM_WORKER_THREADS=%q must be unset or 0 (the API derives it from the connection pool) or a whole number from 4 to 256" $threads) -}}
+{{- end -}}
+{{- if gt (atoi $threads) (max 4 $connections) -}}
+{{- fail (printf "config.ANUM_WORKER_THREADS=%s must not exceed ANUM_DATABASE_POOL_SIZE + ANUM_DATABASE_MAX_OVERFLOW (%d): the extra threads could only wait for a connection; unset it to use the pool's size. The API refuses it at startup" $threads $connections) -}}
+{{- end -}}
+{{- end -}}
 {{- include "anum.validateModules" . -}}
 {{- if not .Values.secrets.app.name -}}
 {{- fail "secrets.app.name is required (an existing Secret with ANUM_SECRETS_KEY and ANUM_DATABASE_URL)" -}}
