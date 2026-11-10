@@ -16,7 +16,7 @@ from sqlalchemy import Boolean, Date, DateTime, Numeric, SmallInteger, String, d
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
-from anum_api.finance.personal import ExpectedIncome, Payslip, PersonalTag, PersonLoan, Remittance, SalaryProfile
+from anum_api.finance.personal import ExpectedIncome, LoanBatch, Payslip, PersonalTag, PersonLoan, Remittance, SalaryProfile
 from anum_api.schemas import TenantContext
 
 from .models import Base
@@ -139,8 +139,22 @@ class FinancePersonalTagRecord(Base, _Owned):
     updated_at: Mapped[datetime] = mapped_column(TS)
 
 
+class FinanceLoanBatchRecord(Base, _Owned):
+    """Payments accepted at once for a bank loan (migration ``0161_finance_bank_loans``, docs/finance.md#bank-loans)."""
+
+    __tablename__ = "finance_loan_batches"
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    debt_id: Mapped[str] = mapped_column(String(80))
+    suggestion_key: Mapped[str] = mapped_column(String(200))
+    status: Mapped[str] = mapped_column(String(10))
+    items: Mapped[list[dict[str, Any]]] = mapped_column(JSONB)
+    created_at: Mapped[datetime] = mapped_column(TS)
+    undone_at: Mapped[datetime | None] = mapped_column(TS, nullable=True)
+
+
 RECORDS = (FinancePersonLoanRecord, FinancePayslipRecord, FinanceRemittanceRecord, FinanceSalaryProfileRecord, FinanceExpectedIncomeRecord,
-           FinancePersonalTagRecord)
+           FinancePersonalTagRecord, FinanceLoanBatchRecord)
 _BY_KIND: dict[str, tuple[type[Any], type[Any]]] = {
     "person_loan": (FinancePersonLoanRecord, PersonLoan),
     "payslip": (FinancePayslipRecord, Payslip),
@@ -148,8 +162,10 @@ _BY_KIND: dict[str, tuple[type[Any], type[Any]]] = {
     "salary_profile": (FinanceSalaryProfileRecord, SalaryProfile),
     "expected_income": (FinanceExpectedIncomeRecord, ExpectedIncome),
     "tag": (FinancePersonalTagRecord, PersonalTag),
+    "loan_batch": (FinanceLoanBatchRecord, LoanBatch),
 }
-_ORDER = {"person_loan": "lent_on", "payslip": "month", "remittance": "sent_on", "salary_profile": "joined_on", "expected_income": "expected_on", "tag": "created_at"}
+_ORDER = {"person_loan": "lent_on", "payslip": "month", "remittance": "sent_on", "salary_profile": "joined_on", "expected_income": "expected_on", "tag": "created_at",
+          "loan_batch": "created_at"}
 
 
 def _mine(record: Any, context: TenantContext) -> list[Any]:
@@ -180,6 +196,8 @@ class SqlAlchemyPersonalStore:
         values = item.model_dump(mode="python")
         if kind == "payslip":
             values["deductions"] = [d.model_dump(mode="json") for d in item.deductions]
+        if kind == "loan_batch":
+            values["items"] = [i.model_dump(mode="json") for i in item.items]
         if kind == "salary_profile":
             values["rules"] = [r.model_dump(mode="json") for r in item.rules]
             values["decisions"] = [d.model_dump(mode="json") for d in item.decisions]
@@ -226,4 +244,4 @@ class SqlAlchemyPersonalStore:
         return sum(int(self.session.execute(delete(r).where(*_mine(r, context))).rowcount or 0) for r in RECORDS)
 
 
-__all__ = ["RECORDS", "FinanceExpectedIncomeRecord", "FinancePersonalTagRecord", "SqlAlchemyPersonalStore"]
+__all__ = ["RECORDS", "FinanceExpectedIncomeRecord", "FinanceLoanBatchRecord", "FinancePersonalTagRecord", "SqlAlchemyPersonalStore"]

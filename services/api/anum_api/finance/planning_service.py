@@ -199,7 +199,7 @@ def afford(ctx: PlanContext, currency: str, price: Decimal, monthly_cost: Decima
 
 
 def plan_debts(ctx: PlanContext, currency: str) -> list[PL.PlanDebt]:
-    return [PL.PlanDebt(id=d.id, name=d.name, balance=d.balance, apr_percent=d.apr_percent, minimum=M.debt_minimum(d))
+    return [PL.PlanDebt(id=d.id, name=d.name, balance=d.balance, apr_percent=d.apr_percent, minimum=M.plan_minimum(d))
             for d in ctx.debts if d.currency == currency and d.balance > 0]
 
 

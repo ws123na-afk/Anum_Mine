@@ -4,7 +4,7 @@
 import type {
   FinanceBillSchedule, FinanceBudgetAlert, FinanceBudgetReport, FinanceDebtPaymentPage, FinanceDebtPlan, FinanceDebtPlanView, FinanceLinkResult,
   FinanceMatchInput, FinancePaymentCandidate, FinanceInstallmentStatementEntry, FinanceInstallmentStatementView, FinanceInstallmentStatementSyncResult,
-  FinanceInstallmentRefundNotice, FinanceRefundApplyResult, FinanceRefundPreview,
+  FinanceInstallmentRefundNotice, FinanceRefundApplyResult, FinanceRefundPreview, FinanceLoanBatch, FinanceLoanList, FinanceLoanTermsInput, FinanceLoanView,
 } from '@anum/contracts';
 import { apiRequest, apiRequestVoid } from './api';
 import { query } from './financeApi';
@@ -45,6 +45,13 @@ export const unmatchBill = (billId: string, linkId: string) => apiRequestVoid(`$
 export const debtPayments = (limit: number, offset: number, debtId?: string) => get<FinanceDebtPaymentPage>(`/debt-payments${query({ limit, offset, debt_id: debtId })}`);
 export const matchDebtPayment = (debtId: string, body: FinanceMatchInput, key: string) => send<FinanceLinkResult>('POST', `/debts/${id(debtId)}/payments`, body, key);
 export const unmatchDebtPayment = (debtId: string, linkId: string) => apiRequestVoid(`${BASE}/debts/${id(debtId)}/payments/${id(linkId)}`, { method: 'DELETE' });
+
+// Bank and finance loans on a debt (docs/finance.md#bank-loans): terms, the schedule with every payment, and the accepted batch's undo.
+export const loans = () => get<FinanceLoanList>('/loans');
+export const loan = (debtId: string) => get<FinanceLoanView>(`/debts/${id(debtId)}/loan`);
+export const saveLoan = (debtId: string, body: FinanceLoanTermsInput) => send<FinanceLoanView>('PUT', `/debts/${id(debtId)}/loan`, body);
+export const removeLoan = (debtId: string) => apiRequestVoid(`${BASE}/debts/${id(debtId)}/loan`, { method: 'DELETE' });
+export const undoLoanBatch = (batchId: string) => send<FinanceLoanBatch>('POST', `/loan-batches/${id(batchId)}/undo`, {});
 
 export const getDebtPlan = () => get<FinanceDebtPlanView>('/debt-plan');
 export const saveDebtPlan = (plans: FinanceDebtPlan[]) => send<FinanceDebtPlanView>('PUT', '/debt-plan', { plans });

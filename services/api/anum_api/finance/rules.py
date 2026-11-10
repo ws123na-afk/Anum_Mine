@@ -428,7 +428,7 @@ def history_suggestion(row: Transaction, past: list[Transaction], aliases: Alias
 
 # What an owner policy may automate, and what is never automated whatever a policy says.
 AUTOMATABLE = frozenset({"classify", "notify"})
-NEVER_AUTOMATED = frozenset({"post_adjustment", "delete_record", "change_bank_mapping", "approve_payment", "change_period"})
+NEVER_AUTOMATED = frozenset({"post_adjustment", "delete_record", "change_bank_mapping", "approve_payment", "change_period", "link_loan_payments"})
 
 
 class AutomationRefused(PermissionError):

@@ -7,7 +7,7 @@
 // Nothing here pays a debt: a payment made at the bank is matched to the debt afterwards.
 import { Suspense, lazy, useCallback, useEffect, useId, useMemo, useState, type FormEvent } from 'react';
 import { AlertTriangle, BarChart3, CalendarDays, Car, CreditCard, Flag, Home, Landmark, Layers, Pause, Pencil, Play, Plus, Target, Wand2 } from 'lucide-react';
-import type { FinanceAccount, FinanceDebt, FinanceDebtKind, FinanceDebtPaymentPage, FinanceDebtPlan, FinanceDebtStrategy, FinanceGoal, FinancePayoff } from '@anum/contracts';
+import type { FinanceAccount, FinanceDebt, FinanceDebtKind, FinanceDebtPaymentPage, FinanceDebtPlan, FinanceDebtStrategy, FinanceGoal, FinanceLoanList, FinancePayoff } from '@anum/contracts';
 import * as api from './lib/financeApi';
 import * as plan from './lib/financePlanningApi';
 import * as pm from './lib/financePersonalApi';
@@ -16,6 +16,7 @@ import {
   daysBetween, debtProgress, fromMinor, goalMonthly, goalPercent, nextDueOn, orderedDebts, outlook, payoffFor, payoffMonth, planCurrencies, planDebts,
   toMinor, totalProgress, whatIf, type Payoff,
 } from './lib/financeDebtPlan';
+import { debtsWithLoans, finishedLoans } from './lib/financeLoans';
 import { describeError } from './lib/errors';
 import { formatDateTime, t, type MessageKey } from './lib/i18n';
 import { ConfirmDialog, Modal } from './Dialog';
@@ -27,12 +28,15 @@ import { MatchDialog, PersonalScope, Progress, RowMenu } from './FinancePlanning
 import './financePlanning.css';
 
 // `people`: Lent and borrowed (#finance-debts-people); `send-home`: money sent to family (#finance-goals-send-home);
-// `trips`: personal trips and projects that payments are tagged to (#finance-goals-trips).
-type Section = 'debts' | 'goals' | 'plan' | 'history' | 'people' | 'send-home' | 'trips';
-const SECTIONS: readonly Section[] = ['debts', 'goals', 'plan', 'history', 'people', 'send-home', 'trips'];
+// `trips`: personal trips and projects that payments are tagged to (#finance-goals-trips);
+// `loans`: bank and finance loans with their terms and schedule (#finance-debts-loans, docs/finance.md#bank-loans).
+type Section = 'debts' | 'loans' | 'goals' | 'plan' | 'history' | 'people' | 'send-home' | 'trips';
+const SECTIONS: readonly Section[] = ['debts', 'loans', 'goals', 'plan', 'history', 'people', 'send-home', 'trips'];
 const People = lazy(() => import('./FinancePersonalMoney').then((m) => ({ default: m.PeopleSection })));
 const SendHome = lazy(() => import('./FinancePersonalMoney').then((m) => ({ default: m.RemittancesSection })));
 const Trips = lazy(() => import('./FinanceTags').then((m) => ({ default: m.TagsSection })));
+const Loans = lazy(() => import('./FinanceBankLoan').then((m) => ({ default: m.LoansSection })));
+const FinishedLoans = lazy(() => import('./FinanceBankLoan').then((m) => ({ default: m.FinishedLoansCard })));
 const HISTORY_PAGE = 10;
 const DEBT_ICON: Record<FinanceDebtKind, typeof CreditCard> = { card: CreditCard, loan: Car, mortgage: Home, other: Landmark };
 
@@ -68,6 +72,10 @@ export function DebtsGoalsPage({ initial, accounts, base, today, onOpen, onChang
   const [editingDebt, setEditingDebt] = useState<FinanceDebt | 'new' | null>(null), [editingGoal, setEditingGoal] = useState<FinanceGoal | 'new' | null>(null);
   const [removing, setRemoving] = useState<{ kind: 'debt' | 'goal'; id: string; name: string } | null>(null), [busy, setBusy] = useState(false);
   const [matching, setMatching] = useState<FinanceDebt | null>(null);
+  // Bank and finance loans (GET /loans): their balance and instalment come from the schedule and the matched payments.
+  const [loans, setLoans] = useState<Load<FinanceLoanList>>({ kind: 'loading' });
+  const [loanId, setLoanId] = useState<string | null>(null);
+  const loadLoans = useCallback(async () => { try { setLoans({ kind: 'ready', value: await plan.loans() }); } catch (e) { setLoans(failed(e)); } }, []);
 
   const loadDebts = useCallback(async () => { try { setDebts({ kind: 'ready', value: await api.listDebts() }); } catch (e) { setDebts(failed(e)); } }, []);
   const loadGoals = useCallback(async () => { try { setGoals({ kind: 'ready', value: await api.listGoals() }); } catch (e) { setGoals(failed(e)); } }, []);
@@ -75,10 +83,11 @@ export function DebtsGoalsPage({ initial, accounts, base, today, onOpen, onChang
   const loadHistory = useCallback(async () => {
     try { setHistory({ kind: 'ready', value: await plan.debtPayments(HISTORY_PAGE, offset) }); } catch (e) { setHistory(failed(e)); }
   }, [offset]);
-  useEffect(() => { void loadDebts(); void loadGoals(); void loadPlans(); }, [loadDebts, loadGoals, loadPlans]);
+  useEffect(() => { void loadDebts(); void loadGoals(); void loadPlans(); void loadLoans(); }, [loadDebts, loadGoals, loadPlans, loadLoans]);
   useEffect(() => { void loadHistory(); }, [loadHistory]);
 
-  const debtList = debts.kind === 'ready' ? debts.value : [];
+  const loanList = loans.kind === 'ready' ? loans.value.items : [];
+  const debtList = useMemo(() => debts.kind === 'ready' ? debtsWithLoans(debts.value, loanList) : [], [debts, loanList]);
   const goalList = goals.kind === 'ready' ? goals.value : [];
   const currencies = planCurrencies(debtList, goalList, base);
   const currency = picked && currencies.includes(picked) ? picked : currencies[0] ?? base;
@@ -138,6 +147,11 @@ export function DebtsGoalsPage({ initial, accounts, base, today, onOpen, onChang
     <Suspense fallback={<Notice busy>{t('fpm.loading')}</Notice>}>{section === 'people' ? <People base={base} /> : section === 'trips' ? <Trips />
       : <SendHome base={base} onOpen={onOpen} />}</Suspense>
   </div></div>;
+  if (section === 'loans') return <div className="fplPage">{head}<div {...tabPanel('fdg', section)}>
+    <Suspense fallback={<Notice busy>{t('floan.loading')}</Notice>}><Loans debts={debts.kind === 'ready' ? debts.value : []} accounts={accounts} loans={loans} selected={loanId}
+      onSelect={setLoanId} onReload={loadLoans} onChanged={() => { void loadDebts(); void loadHistory(); onChanged(); }} /></Suspense>
+  </div></div>;
+  const openLoan = (debtId: string) => { setLoanId(debtId); setSection('loans'); };
   if (debts.kind === 'denied' || goals.kind === 'denied') return <div className="fplPage">{head}<Denied /></div>;
   const loadError = debts.kind === 'error' ? debts.message : goals.kind === 'error' ? goals.message : null;
   if (loadError) return <div className="fplPage">{head}<LoadError message={t('fplan.error.load', { message: loadError })} retry={() => { void loadDebts(); void loadGoals(); }} /></div>;
@@ -158,7 +172,8 @@ export function DebtsGoalsPage({ initial, accounts, base, today, onOpen, onChang
   const progress = totalProgress(myDebts);
 
   const debtsCard = <DebtsCard debts={myDebts} accounts={accounts} today={today} onAdd={() => setEditingDebt('new')} onEdit={setEditingDebt}
-    onRemove={(d) => setRemoving({ kind: 'debt', id: d.id, name: d.name })} onMatch={setMatching} />;
+    onRemove={(d) => setRemoving({ kind: 'debt', id: d.id, name: d.name })} onMatch={setMatching} onLoan={(d) => openLoan(d.id)}
+    loanIds={new Set(loanList.map((l) => l.debt_id))} />;
   const strategyCard = pd.length > 0 && (now && planned
     ? <StrategyCard currency={currency} strategy={strategy} payment={payment} minimums={minimums} now={now} planned={planned} startMonth={startMonth}
       progress={progress} onSave={async (next) => { await savePlan(next); setNotice({ text: t('fplan.plan.saved') }); }} />
@@ -207,7 +222,8 @@ export function DebtsGoalsPage({ initial, accounts, base, today, onOpen, onChang
             : <FinCard title={t('fplan.order.title')}>{payoffState}</FinCard>}</div>
             <div className="fplColumn">{whatIfCard}{outlookCard}</div></div>}
       </>}
-      {section === 'history' && historyCard(true)}
+      {section === 'history' && <>{historyCard(true)}
+        <Suspense fallback={<Notice busy>{t('floan.loading')}</Notice>}><FinishedLoans loans={finishedLoans(loanList)} onOpen={openLoan} /></Suspense></>}
     </div>
     {wizard && <PlanWizard currency={currency} debts={pd} saved={savedPlan} startMonth={startMonth} onAddDebt={() => { setWizard(false); setEditingDebt('new'); }}
       onClose={async (next) => { setWizard(false); if (next) { try { await savePlan(next); setNotice({ text: t('fplan.plan.saved') }); } catch (e) { setNotice({ error: true, text: describeError(e) }); } } }} />}
@@ -230,8 +246,9 @@ export function DebtsGoalsPage({ initial, accounts, base, today, onOpen, onChang
 
 // ---- Your debts --------------------------------------------------------------------------------
 
-function DebtsCard({ debts, accounts, today, onAdd, onEdit, onRemove, onMatch }: {
+function DebtsCard({ debts, accounts, today, onAdd, onEdit, onRemove, onMatch, onLoan, loanIds }: {
   debts: FinanceDebt[]; accounts: FinanceAccount[]; today: string; onAdd: () => void; onEdit: (d: FinanceDebt) => void; onRemove: (d: FinanceDebt) => void; onMatch: (d: FinanceDebt) => void;
+  onLoan: (d: FinanceDebt) => void; loanIds: Set<string>;
 }) {
   const names = new Map(accounts.map((a) => [a.id, a]));
   return <FinCard title={t('fplan.debts.yours')} actions={<button type="button" className="secondary" onClick={onAdd}><Plus aria-hidden="true" />{t('finance.debts.add')}</button>}>
@@ -251,6 +268,7 @@ function DebtsCard({ debts, accounts, today, onAdd, onEdit, onRemove, onMatch }:
           <div className="fplRowFigure"><span>{d.kind === 'loan' || d.kind === 'mortgage' ? t('fplan.debt.installment') : t('fplan.debt.minimum')}</span><Money value={d.minimum_payment} currency={d.currency} /></div>
           {due ? <StatusChip tone={days !== null && days <= 7 ? 'warn' : 'muted'}>{t('fplan.due', { date: shortDate(due) })}</StatusChip> : <StatusChip>{t('fplan.debt.noDueDay')}</StatusChip>}
           <RowMenu label={t('fplan.menu', { name: d.name })} items={[
+            { label: t(loanIds.has(d.id) ? 'floan.menu.open' : 'floan.menu.add'), onSelect: () => onLoan(d) },
             { label: t('fplan.debt.matchPayment'), onSelect: () => onMatch(d) },
             { label: t('finance.item.edit', { name: d.name }), onSelect: () => onEdit(d) },
             { label: t('finance.item.delete', { name: d.name }), onSelect: () => onRemove(d), danger: true },

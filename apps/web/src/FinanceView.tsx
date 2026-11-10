@@ -205,7 +205,7 @@ export function FinanceView() {
     {tab === 'ledger' && <Suspense fallback={<section className="surface cmPanel"><Notice busy>{t('fsms.loading')}</Notice></section>}><LedgerPanel /></Suspense>}
     {tab === 'import' && <Import accounts={accountList} onChanged={onChanged} onAddAccount={() => pick('accounts')} onDone={() => pick('transactions')} />}
     {(tab === 'bills' || tab === 'budgets') && <Suspense fallback={planning}><BillsBudgetsPage key={`${tab}-${section ?? ''}`} initial={section === 'fixed' ? 'fixed' : tab} accounts={accountList} base={base} today={s.today} onOpen={pick} onChanged={onChanged} /></Suspense>}
-    {(tab === 'debts' || tab === 'goals') && <Suspense fallback={planning}><DebtsGoalsPage key={`${tab}-${section ?? ''}`} initial={section === 'people' || section === 'send-home' || section === 'trips' ? section : tab} accounts={accountList} base={base} today={s.today} onOpen={pick} onChanged={onChanged} /></Suspense>}
+    {(tab === 'debts' || tab === 'goals') && <Suspense fallback={planning}><DebtsGoalsPage key={`${tab}-${section ?? ''}`} initial={section === 'people' || section === 'send-home' || section === 'trips' || section === 'loans' ? section : tab} accounts={accountList} base={base} today={s.today} onOpen={pick} onChanged={onChanged} /></Suspense>}
   </div>;
 }
 

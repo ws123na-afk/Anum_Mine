@@ -711,6 +711,7 @@ class DecisionView(BaseModel):
     batch: BatchView | None = None
     link_id: str | None = None  # the link an attribution or payment suggestion made
     link_ids: list[str] = Field(default_factory=list)  # every part a split suggestion made (the first is ``link_id``)
+    loan_batch_id: str | None = None  # the batch a bank loan's found payments were accepted in (undo: POST /loan-batches/{id}/undo)
 
 
 def _decision(context: TenantContext, item: SG.Suggestion, status_: str, batch_id: str | None, now: Any) -> SuggestionDecision:
@@ -770,6 +771,8 @@ def accept_suggestion(body: DecisionInput, context: TenantContext = Depends(tena
         return _accept_split(context, item, repository)
     if item.action.kind == "link":
         return _accept_link(context, item, repository)
+    if item.action.kind == "link_batch":
+        return _accept_loan_batch(context, item, repository)
     from .sms_service import owner_lock
     from .sms_store import open_sms_stores
 
@@ -844,6 +847,33 @@ def _accept_split(context: TenantContext, item: SG.Suggestion, repository: AnumR
     return DecisionView(key=item.key, status="accepted", link_id=ids[0], link_ids=ids)
 
 
+def _accept_loan_batch(context: TenantContext, item: SG.Suggestion, repository: AnumRepository) -> Any:
+    """Every payment found for a bank loan, at once (docs/finance.md#bank-loans): each bank debit is linked through
+    ``finance.links`` (every link check applies) and the salary months are recorded, as one batch that can be undone. The
+    decision is claimed first; a refused link voids the links made, releases the claim and is the answer. Only the owner's
+    accept does this: no automation policy may (``rules.NEVER_AUTOMATED``)."""
+    from fastapi.responses import JSONResponse
+
+    from . import bank_loan_service as BLS
+    from . import links as K
+
+    if item.action.debt_id is None or not (item.action.links or item.action.loan_months):
+        raise HTTPException(status_code=409, detail="This suggestion has nothing to link.")
+    now = utc_now()
+    with open_rule_stores(context) as (_finance, store):
+        if not store.claim_decision(_decision(context, item, "accepted", None, now)):
+            raise HTTPException(status_code=409, detail="This suggestion was already decided.")
+    try:
+        batch = BLS.make_batch(context, item, now)
+    except K.LinkError as exc:
+        with open_rule_stores(context) as (_finance, store):
+            store.delete_decision(context, item.key)
+        return JSONResponse(status_code=exc.status_code, content={"detail": exc.message, "code": exc.code, **exc.extra})
+    _audit(repository, context, "finance.suggestion.accept", item.producer,
+           {"kind": item.kind, "debt": item.action.debt_id, "links": len(item.action.links), "salary_months": len(item.action.loan_months), "batch": batch.id})
+    return DecisionView(key=item.key, status="accepted", loan_batch_id=batch.id)
+
+
 @router.post("/suggestions/reject", response_model=DecisionView)
 def reject_suggestion(body: DecisionInput, context: TenantContext = Depends(tenant_context),
                       repository: AnumRepository = Depends(repository_context)) -> DecisionView:
@@ -886,7 +916,7 @@ class AutomationView(BaseModel):
     never_automated: list[str]
 
 
-NEVER_TEXT = ["post_adjustment", "delete_record", "change_bank_mapping", "approve_payment", "change_period"]
+NEVER_TEXT = ["post_adjustment", "delete_record", "change_bank_mapping", "approve_payment", "change_period", "link_loan_payments"]
 
 
 @router.get("/automation", response_model=AutomationView)

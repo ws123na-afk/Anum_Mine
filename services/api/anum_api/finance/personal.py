@@ -444,6 +444,35 @@ class SalaryProfile(_Owned):
     updated_at: datetime
 
 
+# -- payments found for a bank loan, accepted in one batch ------------------------------------------
+
+
+class LoanBatchItem(BaseModel):
+    """One instalment an accepted batch covers: a bank debit linked through the links API (``link_id``), or a month the
+    salary already paid (``source``: the payslip or the salary rule that shows the loan deduction)."""
+
+    due_on: date
+    amount: Decimal
+    currency: str = Field(min_length=3, max_length=3)
+    canonical_id: str | None = None
+    link_id: str | None = None
+    source: Literal["bank_debit", "payslip", "salary_rule"] = "bank_debit"
+    source_id: str | None = None
+
+
+class LoanBatch(_Owned):
+    """The payments the owner accepted at once for a bank loan (docs/finance.md#bank-loans, migration 0161_finance_bank_loans):
+    undone together (the links are voided, the salary months forgotten)."""
+
+    id: str
+    debt_id: str = Field(min_length=1, max_length=80)
+    suggestion_key: str = Field(max_length=200)
+    status: Literal["active", "undone"] = "active"
+    items: list[LoanBatchItem] = Field(default_factory=list, max_length=600)
+    created_at: datetime
+    undone_at: datetime | None = None
+
+
 # -- remittances -----------------------------------------------------------------------------------
 
 
@@ -606,6 +635,10 @@ def fixed_commitments(bills: list[Bill], debts: list[Debt], installments: list[I
             counted.append(row)
     for debt in debts:
         if not M.owes_minimum(debt):
+            # A loan the employer takes off the salary that is already net of it (``obligations.LoanDebt``): left out, once.
+            if getattr(debt, "from_salary", False) and M.plan_minimum(debt) > 0:
+                skipped.append(Commitment(kind="loan_minimum", name=debt.name, currency=debt.currency, monthly=quantize(M.plan_minimum(debt), debt.currency),
+                                          source="debt", ref_id=debt.id, note="from_salary"))
             continue
         kind: CommitmentKind = "card_minimum" if debt.kind == DebtKind.CARD else "loan_minimum"
         # Money borrowed from a person (``obligations.PersonDebt``) has a minimum only in the month it is due.
@@ -640,7 +673,7 @@ def commitment_totals(rows: list[Commitment]) -> dict[str, Decimal]:
 
 __all__ = [
     "PROJECT_DIMENSION", "PersonalTag", "TAG_DIMENSIONS", "TAG_TARGET", "TRIP_DIMENSION", "tag_totals",
-    "Commitment", "Deduction", "DeductionKind", "ExpectedIncome", "Installment", "LoanDirection", "LoanFigures", "PAYSLIP_DIMENSION", "PAYSLIP_TARGET", "PERSONAL_DIMENSIONS",
+    "Commitment", "Deduction", "DeductionKind", "ExpectedIncome", "Installment", "LoanBatch", "LoanBatchItem", "LoanDirection", "LoanFigures", "PAYSLIP_DIMENSION", "PAYSLIP_TARGET", "PERSONAL_DIMENSIONS",
     "PERSON_LOAN_DIMENSION", "PERSON_LOAN_TARGET", "PayMonth", "Payslip", "PayslipFigures", "PersonLoan", "ProviderCost", "REMITTANCE_DIMENSION",
     "REMITTANCE_TARGET", "RemitMonth", "Remittance", "SalaryDecision", "SalaryDeductionReason", "SalaryProfile", "SalaryRule", "SalaryRuleKind",
     "commitment_totals", "effective_rate", "fee_percent", "fixed_commitments", "handed_role",

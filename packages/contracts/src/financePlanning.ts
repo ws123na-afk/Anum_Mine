@@ -239,3 +239,87 @@ export interface FinanceRefundApplyResult {
   record_ids: string[];
   preview: FinanceRefundPreview;
 }
+
+// -- bank and finance loans on a debt (docs/finance.md#bank-loans) ----------------------------------------------------
+
+export interface FinanceLoanTermsInput {
+  lender?: string | null;
+  start_on: string;
+  amount: string;
+  rate_type?: 'reducing' | 'flat';
+  /** A yearly percentage; empty when not known (never guessed). */
+  rate?: string | null;
+  term_months?: number | null;
+  /** The lender's instalment, when known: it wins over the computed one. */
+  installment?: string | null;
+  payment_day?: number | null;
+  repayment?: 'bank_debit' | 'salary_deduction' | 'manual';
+  account_id?: string | null;
+  status?: 'open' | 'paid_off' | 'closed';
+  closed_on?: string | null;
+}
+
+export interface FinanceLoanTerms {
+  lender: string | null; start_on: string; amount: string; rate_type: 'reducing' | 'flat'; rate: string | null; term_months: number | null;
+  installment: string | null; payment_day: number | null; repayment: 'bank_debit' | 'salary_deduction' | 'manual'; account_id: string | null;
+  status: 'open' | 'paid_off' | 'closed'; closed_on: string | null;
+}
+
+export interface FinanceLoanPayment { kind: 'link' | 'salary'; ref: string; on: string; amount: string; link_id: string | null; batch_id: string | null }
+export interface FinanceLoanCandidate { canonical_id: string; posted_on: string; amount: string; currency: string; merchant: string; account_id: string }
+
+export type FinanceLoanRowStatus = 'paid' | 'part_paid' | 'missed' | 'upcoming' | 'ambiguous' | 'settled';
+
+export interface FinanceLoanRow {
+  number: number;
+  due_on: string;
+  payment: string;
+  /** null without a rate: the split into principal and interest is not known. */
+  principal: string | null;
+  interest: string | null;
+  balance_after: string;
+  status: FinanceLoanRowStatus;
+  paid: string;
+  payments: FinanceLoanPayment[];
+  /** Ambiguous: the debits that fit; pick one. */
+  candidates: FinanceLoanCandidate[];
+  /** A payment found for it that waits for the suggestion's accept. */
+  found: FinanceLoanPayment | null;
+}
+
+export interface FinanceLoanTotals {
+  status: 'open' | 'paid_off' | 'closed';
+  basis: 'reducing' | 'flat' | 'plain';
+  installment: string;
+  installment_from: 'lender' | 'computed';
+  split_known: boolean;
+  never_ends: boolean;
+  effective_rate: string | null;
+  total_payable: string;
+  total_interest: string | null;
+  paid: string;
+  interest_paid: string | null;
+  principal_paid: string | null;
+  balance: string;
+  payoff_on: string | null;
+  due_count: number;
+  paid_count: number;
+  /** Instalments paid in full less those due by today: negative is behind. */
+  months_ahead: number;
+  next_due_on: string | null;
+  next_amount: string;
+  /** The salary's expected net already takes the instalment, so it is not a commitment of its own. */
+  from_salary: boolean;
+  found: number;
+  missing: number;
+  ambiguous: number;
+}
+
+export interface FinanceLoanBatch { id: string; debt_id: string; status: 'active' | 'undone'; created_at: string; undone_at: string | null; count: number; amount: string; currency: string | null }
+
+export interface FinanceLoanView {
+  debt_id: string; name: string; kind: string; currency: string; terms: FinanceLoanTerms; totals: FinanceLoanTotals; rows: FinanceLoanRow[]; batches: FinanceLoanBatch[];
+}
+
+export interface FinanceLoanSummary { debt_id: string; name: string; lender: string | null; currency: string; repayment: string; totals: FinanceLoanTotals }
+export interface FinanceLoanList { items: FinanceLoanSummary[] }

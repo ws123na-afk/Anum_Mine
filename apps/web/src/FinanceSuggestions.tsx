@@ -130,7 +130,7 @@ function QueueView({ onOpenHash, onAddRule }: { onOpenHash?: (hash: string) => v
       if (accept) {
         const done = await rx.acceptSuggestion(item.key, item.payload_hash);
         setFlash(done.batch ? { text: t('fsug.accepted', { count: done.batch.changed }), undo: done.batch.id }
-          : { text: t(done.link_id ? 'fsug.linked' : 'fsug.acknowledged') });
+          : { text: t(done.loan_batch_id ? 'fsug.linkedBatch' : done.link_id ? 'fsug.linked' : 'fsug.acknowledged') });
       } else {
         await rx.rejectSuggestion(item.key);
         setFlash({ text: t('fsug.dismissed') });
@@ -189,7 +189,7 @@ function SuggestionCard({ item, busy, disabled, onAccept, onReject, onOpen }: {
       <ul>{item.evidence.map((ev, i) => <li key={i}><span dir="auto">{ev.label}</span>{ev.value && <small className="muted" dir="ltr"> {ev.value}</small>}</li>)}</ul></details>}
     <div className="fsugActions">
       {mode !== 'none' && <button type="button" disabled={disabled} onClick={onAccept}><Check aria-hidden="true" />
-        {busy ? t('finance.saving') : t(mode === 'apply' ? 'fsug.accept.apply' : mode === 'link'
+        {busy ? t('finance.saving') : t(mode === 'apply' ? 'fsug.accept.apply' : mode === 'batch' ? 'fsug.accept.batch' : mode === 'link'
           ? (item.action.link?.dimension === 'business' ? 'fsug.accept.allocate'
             : item.action.link?.dimension === 'trip' || item.action.link?.dimension === 'project' ? 'fsug.accept.tag' : 'fsug.accept.link')
           : 'fsug.accept.acknowledge')}</button>}

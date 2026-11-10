@@ -212,6 +212,7 @@ _ORDER = (
     "finance_person_loans",
     "finance_expected_income",
     "finance_personal_tags",
+    "finance_loan_batches",
     "finance_payslips",
     "finance_salary_profiles",
     "finance_reconciliation_items",

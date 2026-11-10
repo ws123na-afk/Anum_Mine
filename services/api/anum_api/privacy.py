@@ -1239,6 +1239,7 @@ def _personal_export(finance: Any, context: TenantContext, hidden: set[str]) -> 
         "salary_profiles": [r.model_dump(mode="json", exclude=hidden) for r in personal.list(context, "salary_profile")],
         "expected_income": [r.model_dump(mode="json", exclude=hidden) for r in personal.list(context, "expected_income")],
         "trips_and_projects": [r.model_dump(mode="json", exclude=hidden) for r in personal.list(context, "tag")],
+        "loan_batches": [r.model_dump(mode="json", exclude=hidden) for r in personal.list(context, "loan_batch")],
     }
 
 

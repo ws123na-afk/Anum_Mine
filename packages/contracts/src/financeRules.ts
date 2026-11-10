@@ -104,7 +104,21 @@ export interface FinanceAiSuggestion { category: FinanceCategory | null; transac
 export type FinanceSuggestionKind =
   | 'classification' | 'conflict' | 'uncategorized' | 'statement_hold' | 'sms_review' | 'duplicate' | 'refund_match' | 'payment_match'
   | 'bill_due' | 'subscription' | 'unusual_spend' | 'missing_statement' | 'cash_shortage' | 'reconciliation' | 'attribution' | 'fx_fee'
-  | 'loan_overdue' | 'loan_repayment' | 'external';
+  | 'loan_overdue' | 'loan_repayment' | 'loan_payments' | 'external';
+
+/** One instalment of a bank loan as the finder saw it (docs/finance.md#bank-loans). */
+export interface FinanceLoanMonth {
+  number: number;
+  due_on: string;
+  state: 'found' | 'missing' | 'ambiguous';
+  expected: string;
+  currency: string;
+  amount: string | null;
+  canonical_id: string | null;
+  source: 'bank_debit' | 'payslip' | 'salary_rule' | null;
+  source_id: string | null;
+  candidates: number;
+}
 
 /** What Accept links through the finance links API (docs/finance.md#attribution-suggestions). */
 export interface FinanceSuggestionLink {
@@ -138,7 +152,7 @@ export interface FinanceSuggestion {
   confidence: string | null;
   effect: { amount: string; currency: string; direction: 'in' | 'out' | 'none'; note: string | null }[];
   action: {
-    kind: 'classify' | 'confirm_refund' | 'acknowledge' | 'open' | 'link';
+    kind: 'classify' | 'confirm_refund' | 'acknowledge' | 'open' | 'link' | 'link_batch';
     transaction_ids: string[];
     category: FinanceCategory | null;
     subcategory_id: string | null;
@@ -146,10 +160,16 @@ export interface FinanceSuggestion {
     link?: FinanceSuggestionLink | null;
     /** A split: one transaction across several records, an amount each (a repayment covering several loans). */
     parts?: FinanceSuggestionLink[];
+    /** `link_batch`: a bank loan's found payments, accepted at once (bank debits linked, salary months recorded). */
+    debt_id?: string | null;
+    links?: FinanceSuggestionLink[];
+    loan_months?: FinanceLoanMonth[];
   };
   href: string | null;
   occurred_on: string | null;
   payload_hash: string;
+  /** `loan_payments`: every instalment due so far with what was found. */
+  months?: FinanceLoanMonth[];
 }
 
 export interface FinanceSuggestionQueue {
@@ -166,6 +186,8 @@ export interface FinanceSuggestionDecision {
   key: string; status: 'accepted' | 'rejected' | 'open'; batch: FinanceRuleBatch | null; link_id?: string | null;
   /** Every part a split made. */
   link_ids?: string[];
+  /** The batch a bank loan's found payments were accepted in (undo: POST /loan-batches/{id}/undo). */
+  loan_batch_id?: string | null;
 }
 
 /** Exception notices the daily job may send, each off until the owner turns it on (docs/finance.md#exception-notices). */
