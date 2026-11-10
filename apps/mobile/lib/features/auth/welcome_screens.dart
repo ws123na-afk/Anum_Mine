@@ -452,6 +452,10 @@ class _OidcSignInViewState extends State<OidcSignInView> {
         Text(l.t(_register ? 'signupSubtitle' : 'loginSubtitle'),
             style: text.bodyMedium?.copyWith(color: p.muted)),
         const SizedBox(height: AnumSpacing.lg),
+        if (widget.controller.sessionEnded) ...[
+          const SessionEndedNotice(),
+          const SizedBox(height: AnumSpacing.md),
+        ],
         Form(
           key: _form,
           child: Column(
@@ -829,5 +833,35 @@ class PendingAccountScreen extends StatelessWidget {
           icon: const Icon(Icons.logout),
           label: Text(l.t('pendingSignOut'))),
     ]);
+  }
+}
+
+/// Shown on the sign-in screens after the session ended on its own
+/// (`AuthController.sessionEnded`), in the app's language.
+class SessionEndedNotice extends StatelessWidget {
+  const SessionEndedNotice({super.key});
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    return Semantics(
+      liveRegion: true,
+      child: DecoratedBox(
+        key: const Key('auth-session-ended'),
+        decoration: BoxDecoration(
+            color: scheme.secondaryContainer,
+            borderRadius: BorderRadius.circular(AnumRadius.md)),
+        child: Padding(
+          padding: const EdgeInsets.all(AnumSpacing.sm),
+          child: Row(children: [
+            Icon(Icons.lock_clock_outlined, color: scheme.onSecondaryContainer),
+            const SizedBox(width: AnumSpacing.sm),
+            Expanded(
+                child: Text(
+                    AnumLocalizations.maybeOf(context).t('sessionEnded'),
+                    style: TextStyle(color: scheme.onSecondaryContainer))),
+          ]),
+        ),
+      ),
+    );
   }
 }

@@ -16,6 +16,7 @@ import 'journeys/calls.dart';
 import 'journeys/chat.dart';
 import 'journeys/email.dart';
 import 'journeys/files.dart';
+import 'journeys/session.dart';
 import 'journeys/settings_language.dart';
 import 'journeys/task_approval.dart';
 
@@ -27,5 +28,6 @@ void main() {
   businessJourneys();
   callsJourneys();
   settingsLanguageJourneys();
+  sessionJourneys();
   filesJourneys();
 }

@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 
 import '../../data/api_models.dart';
@@ -182,6 +184,7 @@ class AuthController extends ChangeNotifier {
       _pendingTokens = null;
       pendingAccount = null;
       phase = AuthPhase.signedOut;
+      sessionEnded = true;
       message = 'Your session ended. Sign in again.';
     } on Object catch (error) {
       pendingError = _describe(error);
@@ -324,14 +327,59 @@ class AuthController extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// The session ended on its own while the app was in use (it expired, or
+  /// the identity provider rejected the refresh): the sign-in screen says so
+  /// in the person's language. Cleared by the next sign-in or sign-out.
+  bool sessionEnded = false;
+  bool _signingOut = false;
+
+  static const _signedInPhases = {
+    AuthPhase.ready,
+    AuthPhase.workspacePicker,
+    AuthPhase.noWorkspace,
+    AuthPhase.onboarding,
+    AuthPhase.modelSetup,
+  };
+
   Future<void> signOut() async {
-    await repository.signOut();
+    _signingOut = true;
+    try {
+      await repository.signOut();
+    } on Object {
+      // The server or the provider could not be told (offline, already
+      // revoked). The repository cleared this device's session all the same,
+      // so the app still signs out.
+    } finally {
+      _signingOut = false;
+    }
+    _clearSignedIn();
+    sessionEnded = false;
+    message = null;
+    issue = AuthIssue.none;
+    phase = AuthPhase.signedOut;
+    notifyListeners();
+  }
+
+  /// Called when a stored session that was working is gone (`WatchedSessionStore`):
+  /// moves a signed-in app to the sign-in screen with a plain notice instead
+  /// of leaving every screen to fail with "Authentication required".
+  void sessionExpired() {
+    if (_signingOut || !_signedInPhases.contains(phase)) return;
+    _clearSignedIn();
+    sessionEnded = true;
+    message = 'Your session ended. Sign in again.';
+    issue = AuthIssue.invalidSession;
+    phase = AuthPhase.signedOut;
+    notifyListeners();
+    // Nothing half-valid stays behind for the next start.
+    unawaited(repository.sessions.clear().catchError((Object _) {}));
+  }
+
+  void _clearSignedIn() {
     onboarding = null;
     workspaceChoices = const [];
     modelAvailability = null;
     modelCheckError = null;
-    phase = AuthPhase.signedOut;
-    notifyListeners();
   }
 
   void retry() {
@@ -345,6 +393,7 @@ class AuthController extends ChangeNotifier {
       AuthPhase retryPhase, Future<void> Function() action) async {
     _retryPhase = retryPhase;
     phase = AuthPhase.busy;
+    sessionEnded = false;
     message = null;
     issue = AuthIssue.none;
     notifyListeners();

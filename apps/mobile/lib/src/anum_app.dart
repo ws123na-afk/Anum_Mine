@@ -291,9 +291,14 @@ class _AnumAppState extends State<AnumApp> {
     final oidc =
         oidcConfig == null ? null : AppAuthOidcAuthenticator(oidcConfig);
     final secureSessions = SecureSessionStore();
-    final SessionStore sessions = oidc == null
-        ? secureSessions
-        : OidcSessionStore(inner: secureSessions, authenticator: oidc);
+    // A session that ends on its own (expired, refresh rejected) moves the
+    // app to sign-in instead of leaving every screen to fail.
+    final SessionStore sessions = WatchedSessionStore(
+      inner: oidc == null
+          ? secureSessions
+          : OidcSessionStore(inner: secureSessions, authenticator: oidc),
+      onEnded: () => auth.sessionExpired(),
+    );
     final api = AnumApiClient(
       baseUri: Uri.parse(configuredUrl),
       transport: HttpApiTransport(client: newClient?.call()),
@@ -376,7 +381,7 @@ class _AnumAppState extends State<AnumApp> {
       agentControls: ApiAgentControlsRepository(api),
       billing: billing,
       lifecycle: ApiLifecycleRepository(api),
-    );
+    )..onSignOut = auth.signOut;
     workspace.onApprovalDecided = _offerPushAfterApproval;
     // In-app calls between teammates (docs/in-app-calls.md#flutter).
     appCalls = calls_feature.AppCallsController(
@@ -540,7 +545,20 @@ class _AnumAppState extends State<AnumApp> {
     push.start();
   }
 
+  /// A person is signed in (any phase after sign-in), so the next
+  /// signed-out phase is a sign-out or an ended session, not a cold start.
+  bool _sessionOpen = false;
+
   void _onAuthChanged() {
+    if (const {
+      AuthPhase.ready,
+      AuthPhase.workspacePicker,
+      AuthPhase.noWorkspace,
+      AuthPhase.onboarding,
+      AuthPhase.modelSetup,
+    }.contains(auth.phase)) {
+      _sessionOpen = true;
+    }
     if (auth.phase == AuthPhase.ready && workspace.phase.name == 'initial') {
       workspace.load();
     }
@@ -556,6 +574,12 @@ class _AnumAppState extends State<AnumApp> {
     if (auth.phase == AuthPhase.signedOut) {
       if (_pushReady) push.signedOut();
       _pushReady = false;
+      if (_sessionOpen) {
+        _sessionOpen = false;
+        // Settings, Finance or any other screen opened above Home closes, so
+        // only the sign-in screen is left.
+        _navigator.currentState?.popUntil((route) => route.isFirst);
+      }
       workspace.currentUserId = null;
       appCalls.stop();
       // The next person to sign in never sees these conversations.

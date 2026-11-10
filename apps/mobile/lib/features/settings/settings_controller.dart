@@ -298,7 +298,12 @@ class SettingsController extends ChangeNotifier {
     }
   }
 
-  Future<void> signOut() => repository.signOut();
+  /// Signs the whole app out. The app wires this to `AuthController.signOut`,
+  /// which revokes the session and moves every screen to sign-in; calling the
+  /// repository alone would revoke the session and leave the app open.
+  Future<void> Function()? onSignOut;
+
+  Future<void> signOut() => (onSignOut ?? repository.signOut)();
 
   void _fail(Object error) {
     final text = error.toString();

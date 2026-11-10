@@ -158,6 +158,10 @@ class _SignInState extends State<SignInScreen> {
           key: form,
           child:
               Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+            if (widget.controller.sessionEnded) ...[
+              const SessionEndedNotice(),
+              const SizedBox(height: AnumSpacing.md),
+            ],
             _id(tenant, 'Organization ID', Icons.apartment_outlined),
             const SizedBox(height: AnumSpacing.md),
             _id(workspace, 'Workspace ID', Icons.workspaces_outlined),

@@ -73,6 +73,15 @@ After Keycloak sign-in the app reads `GET /api/v1/onboarding` and routes by its 
   - a failed list shows the error with "Try again".
 - Tests: `test/first_run_test.dart` (every workspace branch, the remembered choice, the skip only when a model answers, loading and error states, members, connecting Claude with its default routing, layouts from 360 pixels wide at 2x text to 1024 pixels); `test/settings_model_test.dart` (changing the model from Settings, including Claude from the sheet at 360x640 and 1024x768, and the routing fields sent only for Anthropic).
 
+### Session end
+
+Sign-out and a session that ends on its own both leave only the sign-in screen.
+
+- **Sign out** (Settings, Security) goes through `AuthController.signOut` (`SettingsController.onSignOut`, wired in `lib/src/anum_app.dart`): the session is revoked on the server (or the Keycloak session ended), the stored session is cleared, every screen opened above Home closes and the sign-in screen appears. It still signs out when the server cannot be told (offline, already revoked): the device's session is cleared either way.
+- **A session that ends mid-use** (the local session expired, or Keycloak rejected the refresh token) is noticed by `WatchedSessionStore` (`lib/data/session_store.dart`), which wraps the session store every API call, stream and file transfer reads. The first read that finds the working session gone calls `AuthController.sessionExpired`: the app moves to sign-in and shows "Your session ended. Sign in again." (English and Arabic) instead of every screen failing with "Authentication required". A refresh that fails because the phone is offline keeps the session.
+
+Tests: `test/session_end_test.dart` (store and controller), `test/session_journeys_test.dart` (the whole app: sign out from Settings, sign out while the server answers 503, a session that expires while the app is open; the same journeys run in `integration_test/journeys/session.dart`).
+
 ## Native Projects
 
 `android/` and `ios/` are committed; CI no longer runs `flutter create`. They were generated with
