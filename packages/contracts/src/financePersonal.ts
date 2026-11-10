@@ -21,17 +21,31 @@ export interface FinancePersonLoan {
   remind: boolean;
   remind_days_before: number;
   closed_on: string | null;
+  /** Annual interest in percent (null: interest free) and a monthly schedule (migration 0158_finance_depth). */
+  interest_rate: string | null;
+  installments: number | null;
+  first_due_on: string | null;
   repaid: string;
+  /** The amount plus scheduled interest, less what is repaid. */
   outstanding: string;
   handed: string;
   status: FinanceLoanStatus;
   days_until_due: number | null;
+  interest: string;
+  total_due: string;
+  next_due_on: string | null;
+  next_due_amount: string;
+  overdue_amount: string;
   links: number;
   created_at: string;
   updated_at: string;
 }
 
-export interface FinancePersonLoanDetail extends FinancePersonLoan { movements: FinanceMovement[] }
+export type FinanceInstallmentState = 'repaid' | 'part_repaid' | 'overdue' | 'due';
+
+export interface FinanceLoanInstallment { number: number; due_on: string; principal: string; interest: string; amount: string; state: FinanceInstallmentState }
+
+export interface FinancePersonLoanDetail extends FinancePersonLoan { movements: FinanceMovement[]; schedule: FinanceLoanInstallment[] }
 
 export interface FinancePersonLoanInput {
   direction: FinanceLoanDirection;
@@ -44,9 +58,12 @@ export interface FinancePersonLoanInput {
   remind?: boolean;
   remind_days_before?: number;
   closed?: boolean;
+  interest_rate?: string | null;
+  installments?: number | null;
+  first_due_on?: string | null;
 }
 
-export interface FinanceOwed { currency: string; they_owe_me: string; i_owe: string }
+export interface FinanceOwed { currency: string; they_owe_me: string; i_owe: string; they_owe_me_overdue: string; i_owe_overdue: string }
 
 export interface FinancePersonLoanPage {
   items: FinancePersonLoan[];

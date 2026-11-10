@@ -133,6 +133,10 @@ class BookSettings(_Scoped):
     # Bills and adjustments at or above this, in the base currency, need a supporting document (migration 0157_finance_evidence,
     # docs/business-books.md#supporting-documents-and-evidence). None: the "evidence missing" flag is off.
     evidence_threshold: Decimal | None = None
+    # An adjustment an accountant who is not an owner records at or above this, in the base currency, waits as ``pending``
+    # until another owner or accountant approves it (migration 0158_finance_depth, docs/business-books.md#adjustment-approval).
+    # None: no approval step.
+    adjustment_approval_threshold: Decimal | None = None
     version: int = 1
     updated_by: str
     updated_at: datetime
@@ -311,12 +315,14 @@ class Adjustment(_Scoped):
     start_month: date | None = None
     months: int | None = None
     reverse_on: date | None = None
-    status: str = "active"
+    status: str = "active"  # active, void, or pending (waits for a second person's approval, migration 0158)
     idem_key: str | None = None
     created_by: str
     voided_by: str | None = None
     voided_at: datetime | None = None
     void_reason: str = ""
+    approved_by: str | None = None  # who approved a pending adjustment (never its maker)
+    approved_at: datetime | None = None
 
 
 class Intercompany(_Scoped):

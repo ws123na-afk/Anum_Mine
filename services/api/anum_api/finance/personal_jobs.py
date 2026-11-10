@@ -37,13 +37,18 @@ class LoanReminderResult:
 
 
 def notice_text(loan: P.PersonLoan, figures: P.LoanFigures, which: str) -> tuple[str, str]:
-    amount = f"{loan.currency} {figures.outstanding:,}"
+    """The reminder names the next repayment: with a schedule what is left of it (overdue ones included), else what is left."""
+    scheduled = bool(loan.installments)
+    owed = (figures.overdue_amount or figures.next_due_amount) if scheduled else figures.outstanding
+    amount = f"{loan.currency} {owed:,}"
+    due_on = figures.next_due_on or loan.due_on
+    when = due_on.isoformat() if due_on else "-"
     if loan.direction == P.LoanDirection.LENT:
         title = "Money owed to you is due" if which == "due" else "Money owed to you is overdue"
-        body = f"{loan.person} owes you {amount}, due {loan.due_on.isoformat() if loan.due_on else '-'}. ANUM only reminds you: it never moves money."
+        body = f"{loan.person} owes you {amount}, due {when}. ANUM only reminds you: it never moves money."
     else:
         title = "A loan you owe is due" if which == "due" else "A loan you owe is overdue"
-        body = f"You owe {loan.person} {amount}, due {loan.due_on.isoformat() if loan.due_on else '-'}. ANUM only reminds you: it never moves money."
+        body = f"You owe {loan.person} {amount}, due {when}. ANUM only reminds you: it never moves money."
     return title, body
 
 
@@ -100,7 +105,7 @@ def run_person(tenant_id: str, workspace_id: str, user_id: str, *, now: datetime
             continue
         overdue = which == "overdue"
         with open_personal_store(context) as store:
-            claimed = store.claim_reminder(context, loan.id, loan.due_on, overdue)  # type: ignore[arg-type]
+            claimed = store.claim_reminder(context, loan.id, figures.next_due_on, overdue)  # type: ignore[arg-type]
         if not claimed:
             continue  # another run sent it first
         title, body = notice_text(loan, figures, which)

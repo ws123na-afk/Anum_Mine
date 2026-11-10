@@ -145,7 +145,20 @@ def code_allowed(code: TaxCode | str, *, sales: bool) -> bool:
     return value in (SALES_CODES if sales else PURCHASE_CODES)
 
 
+def return_deadline(jurisdiction: Jurisdiction | str, period_end: date) -> date | None:
+    """The usual last day to file and pay the VAT return of a period ending on ``period_end``: in KSA the last day of the
+    month after the period (ZATCA), in the UAE 28 days after the period ends (FTA). ``None`` elsewhere: ANUM knows no
+    deadline. A reminder only: the authority's portal shows the binding date, and ANUM never files."""
+    if str(jurisdiction) == Jurisdiction.SA.value:
+        following = date(period_end.year + (period_end.month // 12), period_end.month % 12 + 1, 1)
+        after = date(following.year + (following.month // 12), following.month % 12 + 1, 1)
+        return date.fromordinal(after.toordinal() - 1)
+    if str(jurisdiction) == Jurisdiction.AE.value:
+        return date.fromordinal(period_end.toordinal() + 28)
+    return None
+
+
 __all__ = [
     "DEFAULT_RATES", "NO_TAX_CODES", "PURCHASE_CODES", "SALES_CODES", "ZATCA_CATEGORY", "DefaultRate", "Frequency", "Jurisdiction", "TaxCode",
-    "TaxRuleError", "check_registration", "code_allowed", "rate_on", "split", "tax_of",
+    "TaxRuleError", "check_registration", "code_allowed", "rate_on", "return_deadline", "split", "tax_of",
 ]

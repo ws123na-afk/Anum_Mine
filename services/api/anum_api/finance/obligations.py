@@ -205,6 +205,9 @@ class PersonDebt(Debt):
     person_loan_id: str
     due_on: date | None = None
     overdue: bool = False
+    # The repayments of a schedule not repaid yet, as (date, what is left of it), in date order (migration 0158). Empty for a
+    # loan repaid once on its due date.
+    installments_left: list[tuple[date, Decimal]] = []
 
 
 def _open(loan: P.PersonLoan, links: list, today: date) -> Decimal:
@@ -212,25 +215,43 @@ def _open(loan: P.PersonLoan, links: list, today: date) -> Decimal:
     return figures.outstanding if figures.status not in ("repaid", "closed") else Decimal(0)
 
 
+def _left_by_installment(figures: P.LoanFigures) -> list[tuple[date, Decimal]]:
+    left = figures.repaid
+    out: list[tuple[date, Decimal]] = []
+    for item in figures.schedule:
+        covered = min(left, item.amount)
+        left -= covered
+        if item.amount - covered > 0:
+            out.append((item.due_on, item.amount - covered))
+    return out
+
+
 def borrowed_debts(loans: list, links: list, debts: list[Debt], today: date) -> list[PersonDebt]:
-    """Each open loan borrowed from a person as a debt: what is left to repay, no interest. Its minimum is the whole
-    amount left once the due date is in this month or has passed (``overdue`` then), else nothing (it is paid off
-    from what is left over, in the plan's order). A loan whose person is also a saved Debt in its currency is skipped."""
+    """Each open loan borrowed from a person as a debt: what is left to repay (scheduled interest included), at the
+    loan's interest rate (0 when interest free). Its minimum is what the schedule asks for to the end of this month (a
+    single due date: the whole amount left once it is in this month or has passed), ``overdue`` when a repayment date
+    passed unpaid, else nothing (it is paid off from what is left over, in the plan's order). A loan whose person is
+    also a saved Debt in its currency is skipped."""
     saved = {(M.name_key(d.name), d.currency) for d in debts}
     end = M.month_end(today)
     out: list[PersonDebt] = []
     for loan in loans:
         if not isinstance(loan, P.PersonLoan) or loan.direction != P.LoanDirection.BORROWED:
             continue
-        left = _open(loan, links, today)
+        figures = P.loan_figures(loan, links, today)
+        left = figures.outstanding if figures.status not in ("repaid", "closed") else Decimal(0)
         if left <= 0 or (M.name_key(loan.person), loan.currency) in saved:
             continue
-        due = loan.due_on is not None and loan.due_on <= end
+        next_on = figures.next_due_on or loan.due_on
+        minimum = min(P.due_through(figures, end), left) if figures.schedule else Decimal(0)
+        due = minimum > 0
         out.append(PersonDebt(
             tenant_id=loan.tenant_id, workspace_id=loan.workspace_id, owner_user_id=loan.owner_user_id, id=loan.id, person_loan_id=loan.id,
-            name=loan.person, kind=DebtKind.OTHER, balance=left, currency=loan.currency, minimum_payment=left if due else Decimal(0),
-            due_day=loan.due_on.day if due and loan.due_on and loan.due_on >= M.month_start(today) else None, due_on=loan.due_on,
-            overdue=bool(due and loan.due_on and loan.due_on < today), created_at=loan.created_at, updated_at=loan.updated_at,
+            name=loan.person, kind=DebtKind.OTHER, balance=left, currency=loan.currency, apr_percent=loan.interest_rate or Decimal(0),
+            minimum_payment=minimum,
+            due_day=next_on.day if due and next_on and next_on >= M.month_start(today) else None, due_on=next_on,
+            overdue=figures.overdue_amount > 0, created_at=loan.created_at, updated_at=loan.updated_at,
+            installments_left=_left_by_installment(figures) if loan.installments else [],
         ))
     return out
 

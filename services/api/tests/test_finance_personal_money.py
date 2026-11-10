@@ -150,7 +150,7 @@ def test_lending_and_being_repaid_are_neither_spend_nor_income() -> None:
     detail = client.get(f"{API}/people-loans/{loan['id']}", headers=OWNER).json()
     assert (detail["repaid"], detail["outstanding"], detail["handed"], len(detail["movements"])) == ("400.00", "600.00", "1000.00", 2)
     page = client.get(f"{API}/people-loans", headers=OWNER).json()
-    assert page["owed"] == [{"currency": "AED", "they_owe_me": "600.00", "i_owe": "0.00"}]
+    assert page["owed"] == [{"currency": "AED", "they_owe_me": "600.00", "i_owe": "0.00", "they_owe_me_overdue": "0.00", "i_owe_overdue": "0.00"}]
     # Deleting the record removes its links: the payments count by their category again.
     assert client.delete(f"{API}/people-loans/{loan['id']}", headers=OWNER).status_code == 204
     month = client.get(f"{API}/summary", headers=OWNER, params={"month": "2026-11"}).json()

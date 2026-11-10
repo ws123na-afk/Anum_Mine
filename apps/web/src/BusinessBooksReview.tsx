@@ -1,9 +1,10 @@
 // Accountant review (docs/business-books.md#accountant-review): one list of everything in the books that waits for an owner
 // or an accountant, with the close checklist of the previous and current month. The API decides who may see it (owners and
 // accountants), who may approve each draft (never its maker) and what blocks a close; this page shows what it says and links
-// to the section where each item is acted on. Approving a draft goes through POST /bills/{id}/approve, nothing else changes here.
+// to the section where each item is acted on. Approving a draft goes through POST /bills/{id}/approve, a pending adjustment through
+// POST /adjustments/{id}/approve, and a proposed receipt is attached only when the person presses Attach.
 import { useCallback, useEffect, useState } from 'react';
-import { CheckCircle2, ClipboardList } from 'lucide-react';
+import { CheckCircle2, ClipboardList, Paperclip } from 'lucide-react';
 import type { BooksReview, BooksReviewItem, BooksReviewKind, BooksSetup } from '@anum/contracts';
 import { BOOKS_REVIEW_KINDS } from '@anum/contracts';
 import * as ledger from './lib/businessLedgerApi';
@@ -22,6 +23,11 @@ export function reviewText(item: BooksReviewItem): string {
   const p = item.params;
   if (item.kind === 'external') return item.detected;
   if (item.kind === 'posting_issue') return label('breview.text.posting_issue', { what: label(`ledger.source.${p.source_kind}`), reason: label(`breview.reason.${p.reason}`) });
+  if (item.kind === 'adjustment_approval') return label('fdepth.review.adjustment', { kind: label(`books.adj.${p.adjustment_kind}`), description: p.description ?? '' });
+  if (item.kind === 'vat') return label(`fdepth.vat.${p.code}`, { from: p.from ? day(p.from) : '-', to: p.to ? day(p.to) : '-', due: p.due ? day(p.due) : '-',
+    days: Number(p.days ?? 0), count: Number(p.count ?? p.days ?? 0) });
+  if (item.kind === 'receipt_match') return label(p.vendor_agrees === '1' ? 'fdepth.receipt.text' : 'fdepth.receipt.textNoMerchant', {
+    document: p.document ?? '', vendor: p.vendor || '-', reference: p.reference || '-', date: p.receipt_date ? day(p.receipt_date) : '-' });
   return label(`breview.text.${item.kind}`, { vendor: p.vendor || '-', count: Number(p.count ?? 0), currency: item.currency ?? '', first: p.first ? day(p.first) : '-' });
 }
 
@@ -71,7 +77,17 @@ export function ReviewSection({ setup, onSection }: { setup: BooksSetup; onSecti
   async function approve(item: BooksReviewItem) {
     if (!item.ref_id) return;
     setBusy(item.key); setMessage(null);
-    try { await books.approveBill(item.ref_id, Number(item.params.version ?? 1)); setMessage({ text: t('breview.approved', { vendor: item.params.vendor || '-' }) }); await run(); }
+    try {
+      if (item.kind === 'adjustment_approval') { await books.approveAdjustment(item.ref_id); setMessage({ text: t('fdepth.review.approved') }); }
+      else { await books.approveBill(item.ref_id, Number(item.params.version ?? 1)); setMessage({ text: t('breview.approved', { vendor: item.params.vendor || '-' }) }); }
+      await run();
+    }
+    catch (error) { setMessage({ text: describeError(error), error: true }); } finally { setBusy(null); }
+  }
+  async function attach(item: BooksReviewItem) {
+    if (!item.ref_id || !item.params.document_id) return;
+    setBusy(item.key); setMessage(null);
+    try { await books.acceptReceiptMatch(item.ref_id, item.params.document_id); setMessage({ text: t('fdepth.receipt.attached', { document: item.params.document ?? '' }) }); await run(); }
     catch (error) { setMessage({ text: describeError(error), error: true }); } finally { setBusy(null); }
   }
   const total = Object.values(value.counts).reduce((sum, n) => sum + (n ?? 0), 0);
@@ -86,7 +102,8 @@ export function ReviewSection({ setup, onSection }: { setup: BooksSetup; onSecti
           : month.status === 'not_ended' ? <Badge tone="neutral">{t('breview.close.notEnded')}</Badge>
           : month.ready ? <Badge tone="success">{t('breview.close.ready')}</Badge> : <Badge tone="warning">{t('breview.close.waiting')}</Badge>}</p>
         <ul className="bkList" aria-label={t('ledger.close.checklist')}>
-          {([['issues', month.issues, 'ledger'], ['drafts', month.drafts, 'bills'], ['allocations_in_review', month.allocations_in_review, 'allocations']] as const).map(([key, count, go]) => <li key={key}>
+          {([['issues', month.issues, 'ledger'], ['drafts', month.drafts, 'bills'], ['allocations_in_review', month.allocations_in_review, 'allocations'],
+            ['adjustments_pending', month.adjustments_pending ?? 0, 'review']] as const).map(([key, count, go]) => <li key={key}>
             <span>{t(`ledger.close.check.${key}` as MessageKey, { count })}</span>
             {count === 0 ? <Badge tone="success">{t('ledger.close.ok')}</Badge> : <button type="button" className="secondary" onClick={() => onSection(go)}>{t('ledger.close.fix')}</button>}
           </li>)}
@@ -119,6 +136,7 @@ export function ReviewSection({ setup, onSection }: { setup: BooksSetup; onSecti
             {item.action === 'approve' && (item.can_act
               ? <button type="button" disabled={busy === item.key} onClick={() => void approve(item)}><CheckCircle2 aria-hidden="true" />{t('breview.approve')}</button>
               : <small className="muted">{t(`breview.whyNot.${item.why_not ?? 'own_draft'}` as MessageKey)}</small>)}
+            {item.action === 'link' && <button type="button" disabled={busy === item.key} onClick={() => void attach(item)}><Paperclip aria-hidden="true" />{t('fdepth.receipt.attach')}</button>}
             <button type="button" className="secondary" onClick={() => onSection(booksTabFromId(item.section))}>{t('breview.open', { section: t(`books.tab.${booksTabFromId(item.section)}` as MessageKey) })}</button>
           </div>
         </li>)}</ul>}

@@ -30,6 +30,8 @@ export function variantOf(item: Pick<FinanceSuggestion, 'kind' | 'params' | 'act
   }
   if (item.kind === 'payment_match') return item.action.kind === 'link' ? 'link' : null;
   if (item.kind === 'fx_fee') return p.source === 'fee_row' ? 'link' : 'split';
+  // Money lent and borrowed (docs/finance.md#lent-and-borrowed): worded by who owes whom.
+  if (item.kind === 'loan_overdue' || item.kind === 'loan_repayment') return p.direction === 'borrowed' ? 'borrowed' : 'lent';
   return null;
 }
 

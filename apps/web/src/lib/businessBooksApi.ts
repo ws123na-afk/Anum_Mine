@@ -5,7 +5,7 @@ import type {
   BooksBillFilter, BooksBillInput, BooksBillPage, BooksBudget, BooksBudgetInput, BooksCostCentre, BooksCounterparty, BooksIntercompany,
   BooksIntercompanyInput, BooksPage, BooksPaymentInput, BooksProjectPage, BooksRate, BooksRateInput, BooksReport, BooksSettings, BooksSettingsInput,
   BooksSetup, BooksTagSection, BooksVendor, BooksVendorInput, BusinessPage, BusinessProject, BooksGroup, BooksRateFeed, BooksRateOrigin, BooksTemplate,
-  BooksTemplateInput, BooksTemplatePage, BooksTemplateStatus,
+  BooksReceiptMatch, BooksTemplateInput, BooksTemplatePage, BooksTemplateStatus,
 } from '@anum/contracts';
 import { apiBaseUrl, apiRequest, apiRequestVoid, authHeaders } from './api';
 import { apiErrorFromResponse } from './errors';
@@ -68,6 +68,12 @@ export const listAdjustments = (kind: BooksAdjustmentKind | '', includeVoid: boo
   get<BooksPage<BooksAdjustment>>(`/adjustments${query({ kind, include_void: includeVoid, offset, limit })}`);
 export const createAdjustment = (body: BooksAdjustmentInput, key: string) => send<BooksAdjustment>('POST', '/adjustments', body, key);
 export const voidAdjustment = (adjustmentId: string, reason: string) => send<BooksAdjustment>('POST', `/adjustments/${id(adjustmentId)}/void`, { reason });
+// Maker and checker (docs/business-books.md#adjustment-approval): another owner or accountant approves; only then is it posted.
+export const approveAdjustment = (adjustmentId: string) => send<BooksAdjustment>('POST', `/adjustments/${id(adjustmentId)}/approve`);
+// Receipts to bills (docs/business-books.md#receipts-to-bills): suggestions only; Attach links the document.
+export const listReceiptMatches = () => get<{ items: BooksReceiptMatch[]; total: number; window_days: number }>('/evidence/receipt-matches');
+export const acceptReceiptMatch = (billId: string, documentId: string) =>
+  send<unknown>('POST', '/evidence/receipt-matches/accept', { bill_id: billId, document_id: documentId });
 
 export const listCounterparties = () => get<{ items: BooksCounterparty[] }>('/intercompany/counterparties');
 export const listIntercompany = (includeVoid: boolean, offset: number, limit = 25) => get<BooksPage<BooksIntercompany>>(`/intercompany${query({ include_void: includeVoid, offset, limit })}`);

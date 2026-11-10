@@ -669,6 +669,14 @@ def test_every_state_changing_books_route_is_audited_without_amounts_or_text() -
     call("POST", f"/loans/{loan['id']}/repayments/{repaid['id']}/void", json={"reason": secret})
     call("POST", f"/loans/{loan['id']}/void", json={"reason": secret})
     call("POST", "/ledger/revaluation", json={"period_end": last_month.isoformat()})
+    # Maker and checker for adjustments (docs/business-books.md#adjustment-approval): an accountant's adjustment waits, an owner approves.
+    current = client.get(f"{API}/setup", headers=OWNER).json()["settings"]
+    assert client.put(f"{API}/settings", headers=OWNER, json={"base_currency": "SAR", "tax_label": "VAT", "adjustment_approval_threshold": "5",
+                                                             "version": current["version"]}).status_code == 200
+    waiting = client.post(f"{API}/adjustments", headers=MEMBER, json={"kind": "accrual", "entry_date": today().isoformat(), "currency": "SAR",
+                                                                      "amount": "10", "description": secret}).json()
+    assert waiting["status"] == "pending"
+    call("POST", f"/adjustments/{waiting['id']}/approve")
     # Supporting documents (docs/business-books.md#supporting-documents-and-evidence): a vault document attached and removed.
     from anum_api import files
 
@@ -680,6 +688,19 @@ def test_every_state_changing_books_route_is_audited_without_amounts_or_text() -
         kept = bill(seller["id"], description="Synthetic evidence bill").json()
         attached = call("POST", "/evidence", json={"source_type": "bill", "source_id": kept["id"], "document_id": receipt["id"]}).json()
         call("DELETE", f"/evidence/bill/{kept['id']}/{attached['link_id']}")
+        # Receipts to bills (docs/business-books.md#receipts-to-bills): a proposed receipt attached on accept.
+        from anum_api.schemas import TenantContext
+        from anum_api.vault.store import memory_vault_store as vault_store
+
+        scanned = client.post("/api/v1/documents", params={"name": "scanned.pdf", "title": "Synthetic scanned receipt", "category": "receipt",
+                                                           "access_class": "workspace"}, headers=OWNER,
+                              content=b"%PDF-1.4\n1 0 obj\n<<>>\nendobj\n%scanned\ntrailer\n<<>>\n%%EOF\n").json()
+        owner_ctx = TenantContext(tenant_id=OWNER["x-tenant-id"], workspace_id=OWNER["x-workspace-id"], user_id=OWNER["x-user-id"])
+        record = vault_store.get_document(owner_ctx, scanned["id"])
+        vault_store.save_document(owner_ctx, record.model_copy(update={"receipt": {"merchant": "Synthetic Supplier", "date": today().isoformat(),
+                                                                                     "total": "77", "currency": "SAR", "items": []}}), record.row_version)
+        matched = bill(seller["id"], description="Synthetic matched bill", subtotal="77", tax="0").json()
+        call("POST", "/evidence/receipt-matches/accept", json={"bill_id": matched["id"], "document_id": scanned["id"]})
         files.file_store.clear()
         from anum_api.vault.store import memory_vault_store
 

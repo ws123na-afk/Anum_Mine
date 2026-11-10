@@ -177,6 +177,19 @@ class LoanInput(BaseModel):
     remind: bool = True
     remind_days_before: int = Field(default=3, ge=0, le=30)
     closed: bool = False
+    # A schedule with optional interest (migration 0158_finance_depth): an annual rate in percent, and monthly repayments.
+    interest_rate: Amount | None = None
+    installments: int | None = Field(default=None, ge=1, le=360)
+    first_due_on: date | None = None
+
+
+class InstallmentView(BaseModel):
+    number: int
+    due_on: date
+    principal: Decimal
+    interest: Decimal
+    amount: Decimal
+    state: Literal["repaid", "part_repaid", "overdue", "due"]
 
 
 class LoanView(BaseModel):
@@ -191,11 +204,19 @@ class LoanView(BaseModel):
     remind: bool
     remind_days_before: int
     closed_on: date | None
+    interest_rate: Decimal | None
+    installments: int | None
+    first_due_on: date | None
     repaid: Decimal
     outstanding: Decimal
     handed: Decimal
     status: P.LoanStatus
     days_until_due: int | None
+    interest: Decimal
+    total_due: Decimal
+    next_due_on: date | None
+    next_due_amount: Decimal
+    overdue_amount: Decimal
     links: int
     created_at: Any
     updated_at: Any
@@ -203,12 +224,17 @@ class LoanView(BaseModel):
 
 class LoanDetail(LoanView):
     movements: list[Movement]
+    schedule: list[InstallmentView]
 
 
 class Owed(BaseModel):
+    """What is still owed in one currency (never added across currencies), and the part of it that is overdue."""
+
     currency: str
     they_owe_me: Decimal
     i_owe: Decimal
+    they_owe_me_overdue: Decimal = Decimal(0)
+    i_owe_overdue: Decimal = Decimal(0)
 
 
 class LoanPage(BaseModel):
@@ -225,7 +251,36 @@ def _loan_view(loan: P.PersonLoan, links: list, today: date) -> LoanView:
     f = P.loan_figures(loan, links, today)
     return LoanView(**loan.model_dump(exclude={"tenant_id", "workspace_id", "owner_user_id", "reminded_for", "reminded_overdue_for"}),
                     repaid=f.repaid, outstanding=f.outstanding, handed=f.handed, status=f.status, days_until_due=f.days_until_due,
-                    links=sum(1 for l in links if l.target_id == loan.id))
+                    interest=f.interest, total_due=f.total_due, next_due_on=f.next_due_on, next_due_amount=f.next_due_amount,
+                    overdue_amount=f.overdue_amount, links=sum(1 for l in links if l.target_id == loan.id))
+
+
+def schedule_view(loan: P.PersonLoan, links: list, today: date) -> list[InstallmentView]:
+    """Each repayment of the schedule and how far the repaid money covers it (applied in date order)."""
+    f = P.loan_figures(loan, links, today)
+    left = f.repaid
+    out = []
+    for item in f.schedule:
+        covered = min(left, item.amount)
+        left -= covered
+        state: Literal["repaid", "part_repaid", "overdue", "due"] = (
+            "repaid" if covered >= item.amount else "overdue" if item.due_on < today else "part_repaid" if covered > 0 else "due")
+        out.append(InstallmentView(number=item.number, due_on=item.due_on, principal=item.principal, interest=item.interest, amount=item.amount,
+                                   state=state))
+    return out
+
+
+def _loan_rate(value: Amount | None) -> Decimal | None:
+    """An annual interest rate in percent: empty or 0 is interest free; more than 0 and at most 100."""
+    if value in (None, ""):
+        return None
+    try:
+        rate = Decimal(str(value).strip())
+    except Exception:  # noqa: BLE001
+        raise _invalid("The interest rate is a number of percent a year, for example 5.") from None
+    if not rate.is_finite() or rate < 0 or rate > 100:
+        raise _invalid("The interest rate is between 0 and 100 percent a year.")
+    return rate.quantize(Decimal("0.0001")) if rate > 0 else None
 
 
 def _build_loan(context: TenantContext, body: LoanInput, existing: P.PersonLoan | None, base: str, today: date) -> P.PersonLoan:
@@ -233,19 +288,31 @@ def _build_loan(context: TenantContext, body: LoanInput, existing: P.PersonLoan 
     person = _clean(body.person, 120)
     if not person:
         raise _invalid("Write the person's name.")
-    if body.due_on is not None and body.due_on < body.lent_on:
+    rate = _loan_rate(body.interest_rate)
+    if (body.installments is None) != (body.first_due_on is None):
+        raise _invalid("A repayment schedule needs both the number of monthly repayments and the first repayment's date.")
+    due_on = body.due_on
+    if body.installments is not None and body.first_due_on is not None:
+        if body.first_due_on <= body.lent_on:
+            raise _invalid("The first repayment is after the date the money changed hands.")
+        due_on = P.schedule_dates(body.first_due_on, body.installments)[-1]
+    if due_on is not None and due_on < body.lent_on:
         raise _invalid("The due date is before the date the money changed hands.")
+    if rate is not None and due_on is None:
+        raise _invalid("Interest needs a due date or a repayment schedule to be worked out.")
     now = utc_now()
     closed_on = (existing.closed_on if existing and existing.closed_on else today) if body.closed else None
-    changed_due = existing is not None and existing.due_on != body.due_on
+    changed_due = existing is not None and (existing.due_on != due_on or existing.first_due_on != body.first_due_on
+                                            or existing.installments != body.installments)
     return P.PersonLoan(
         id=existing.id if existing else new_id("fin_ploan"), tenant_id=context.tenant_id, workspace_id=context.workspace_id,
         owner_user_id=context.user_id, direction=body.direction, person=person,
-        amount=_with_currency(body.amount, currency, "Amount", allow_zero=False), currency=currency, lent_on=body.lent_on, due_on=body.due_on,
+        amount=_with_currency(body.amount, currency, "Amount", allow_zero=False), currency=currency, lent_on=body.lent_on, due_on=due_on,
         notes=_clean(body.notes, 1000), remind=body.remind, remind_days_before=body.remind_days_before,
         reminded_for=None if changed_due or existing is None else existing.reminded_for,
         reminded_overdue_for=None if changed_due or existing is None else existing.reminded_overdue_for,
-        closed_on=closed_on, created_at=existing.created_at if existing else now, updated_at=now,
+        closed_on=closed_on, interest_rate=rate, installments=body.installments, first_due_on=body.first_due_on,
+        created_at=existing.created_at if existing else now, updated_at=now,
     )
 
 
@@ -267,15 +334,18 @@ def list_people_loans(
     for v in views:
         if v.status in ("repaid", "closed"):
             continue
-        pair = owed.setdefault(v.currency, [Decimal(0), Decimal(0)])
-        pair[0 if v.direction == P.LoanDirection.LENT else 1] += v.outstanding
+        pair = owed.setdefault(v.currency, [Decimal(0), Decimal(0), Decimal(0), Decimal(0)])
+        side = 0 if v.direction == P.LoanDirection.LENT else 1
+        pair[side] += v.outstanding
+        pair[side + 2] += v.overdue_amount
     needle = (q or "").casefold().strip()
     shown = [v for v in views if (not needle or needle in f"{v.person} {v.notes or ''}".casefold())
              and (direction is None or v.direction == direction)
              and (state == "all" or (state == "open" and v.status in ("open", "due_soon", "overdue")) or (state == "overdue" and v.status == "overdue")
                   or (state == "settled" and v.status in ("repaid", "closed")))]
     return LoanPage(items=_page(shown, limit, offset), total=len(shown), limit=limit, offset=offset,
-                    owed=[Owed(currency=c, they_owe_me=quantize(a, c), i_owe=quantize(b, c)) for c, (a, b) in sorted(owed.items())],
+                    owed=[Owed(currency=c, they_owe_me=quantize(a, c), i_owe=quantize(b, c), they_owe_me_overdue=quantize(ao, c), i_owe_overdue=quantize(bo, c))
+                          for c, (a, b, ao, bo) in sorted(owed.items())],
                     overdue=sum(1 for v in views if v.status == "overdue"))
 
 
@@ -296,7 +366,8 @@ def get_people_loan(loan_id: str, context: TenantContext = Depends(tenant_contex
     _base, today = _settings(context)
     loan = _own(context, "person_loan", loan_id, "Loan")
     links, entries = _links(context, P.PERSON_LOAN_DIMENSION, loan_id)
-    return LoanDetail(**_loan_view(loan, links, today).model_dump(), movements=_movements(links, entries, loan_id))
+    return LoanDetail(**_loan_view(loan, links, today).model_dump(), movements=_movements(links, entries, loan_id),
+                      schedule=schedule_view(loan, links, today))
 
 
 @router.patch("/people-loans/{loan_id}", response_model=LoanView)

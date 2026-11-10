@@ -1,13 +1,18 @@
 // The cash-flow forecast and the emergency reserve cards (docs/finance.md#forecast, #emergency-reserve), shared by
 // Safe to spend, the Finance overview and Finance settings. Every figure comes from GET /finance/forecast and
 // GET /finance/reserve; this file only words and draws them. An estimate, never a promise; nothing here moves money.
-import { Suspense, lazy, useState } from 'react';
-import { CalendarClock, Gauge, LifeBuoy, ShieldAlert, Settings2, TriangleAlert, Wallet } from 'lucide-react';
-import type { FinanceCurrencyForecast, FinanceForecast, FinanceForecastAssumption, FinanceForecastEvent, FinanceReserves } from '@anum/contracts';
+import { Suspense, lazy, useCallback, useEffect, useId, useState, type FormEvent } from 'react';
+import { CalendarClock, CalendarPlus, Gauge, LifeBuoy, Pencil, Plus, ShieldAlert, Settings2, Trash2, TriangleAlert, Wallet } from 'lucide-react';
+import type {
+  FinanceCurrencyForecast, FinanceExpectedIncome, FinanceExpectedIncomePage, FinanceForecast, FinanceForecastAssumption, FinanceForecastEvent, FinanceReserves,
+} from '@anum/contracts';
+import * as api from './lib/financeApi';
+import { describeError } from './lib/errors';
+import { ConfirmDialog, Modal } from './Dialog';
 import { formatAmount, isolate, monthLabel } from './lib/finance';
 import { chartPoints, firstWarning, horizonEnd, eventsUntil, progressValue, reserveFor, type ForecastHorizon } from './lib/financeForecast';
 import { formatDateTime, formatNumber, t, type MessageKey } from './lib/i18n';
-import { Empty, LoadError, Money, Notice, type Load } from './FinanceParts';
+import { Empty, LoadError, Money, Notice, failed, type Load } from './FinanceParts';
 import { FinBanner, FinCard, KpiCard, KpiRow, StatusChip } from './FinanceShell';
 
 const RunwayChart = lazy(() => import('./FinanceCharts').then((m) => ({ default: m.RunwayChart })));
@@ -88,6 +93,14 @@ export function ForecastCard({ forecast, currency, onRetry, onOpenSettings, comp
             <th scope="row" dir="auto">{e.label}<small className="muted finSub">{eventKind(e)}{e.status !== 'expected' && <> <StatusChip tone="warn">{t(`ffc.status.${e.status}`)}</StatusChip></>}</small></th>
             <td className="num"><Money value={e.amount} currency={currency} signed /></td></tr>)}</tbody>
       </table></div>
+      {(row.card_interest ?? []).filter((c) => c.on <= until).length > 0 && <div className="finTableWrap" tabIndex={0}><table className="finGrid">
+        <caption>{t('fdepth.interest.title')}</caption>
+        <thead><tr><th scope="col">{t('fsafe.col.date')}</th><th scope="col">{t('ffc.col.what')}</th><th scope="col" className="num">{t('fsafe.col.amount')}</th></tr></thead>
+        <tbody>{(row.card_interest ?? []).filter((c) => c.on <= until).map((c) => <tr key={`${c.ref_id}-${c.on}`}><td className="finNoWrap"><bdi>{day(c.on)}</bdi></td>
+          <th scope="row" dir="auto">{c.label}<small className="muted finSub">
+            {t('fdepth.interest.line', { rate: Number(c.apr_percent), balance: isolate(formatAmount(c.balance, currency)) })}</small></th>
+          <td className="num"><Money value={c.amount} currency={currency} /></td></tr>)}</tbody>
+      </table><p className="muted finFoot">{t('fdepth.interest.note')}</p></div>}
     </div>}
     <p className="muted finFoot">{t('ffc.note')}</p>
   </FinCard>;
@@ -121,4 +134,83 @@ export function ReserveCard({ reserves, currency, onRetry, onOpenSettings }: {
       {reserve.paused && <li><TriangleAlert aria-hidden="true" />{t('ffc.reserve.paused')}</li>}
     </ul>
   </FinCard>;
+}
+
+// -- expected one-off income ----------------------------------------------------------------------------------
+
+const today = () => new Date().toISOString().slice(0, 10);
+
+/** One-off income the person expects (a bonus, a refund, a sale): the forecast counts it on its date until it is marked received. */
+export function ExpectedIncomeCard({ base, onChanged }: { base: string; onChanged: () => void }) {
+  const [state, setState] = useState<Load<FinanceExpectedIncomePage>>({ kind: 'loading' });
+  const [show, setShow] = useState<'open' | 'all'>('open');
+  const [editing, setEditing] = useState<FinanceExpectedIncome | 'new' | null>(null);
+  const [removing, setRemoving] = useState<FinanceExpectedIncome | null>(null);
+  const [flash, setFlash] = useState<{ text: string; error?: boolean } | null>(null);
+  const load = useCallback(() => {
+    setState((c) => (c.kind === 'ready' ? c : { kind: 'loading' }));
+    api.listExpectedIncome(show, 50, 0).then((value) => setState({ kind: 'ready', value })).catch((e) => setState(failed(e)));
+  }, [show]);
+  useEffect(() => { load(); }, [load]);
+  const changed = (text: string) => { setFlash({ text }); load(); onChanged(); };
+  const receive = async (item: FinanceExpectedIncome) => {
+    try {
+      await api.updateExpectedIncome(item.id, { label: item.label, amount: item.amount, currency: item.currency, expected_on: item.expected_on,
+        received_on: today(), notes: item.notes });
+      changed(t('fdepth.income.markedReceived', { name: item.label }));
+    } catch (e) { setFlash({ text: describeError(e), error: true }); }
+  };
+  const remove = async () => {
+    if (!removing) return;
+    try { await api.deleteExpectedIncome(removing.id); changed(t('fdepth.income.deleted', { name: removing.label })); }
+    catch (e) { setFlash({ text: describeError(e), error: true }); } finally { setRemoving(null); }
+  };
+  return <FinCard title={t('fdepth.income.title')} subtitle={t('fdepth.income.subtitle')} icon={<CalendarPlus />} className="finExpectedIncome"
+    actions={<button type="button" onClick={() => setEditing('new')}><Plus aria-hidden="true" />{t('fdepth.income.add')}</button>}>
+    {flash && <Notice error={flash.error}>{flash.text}</Notice>}
+    <label className="finCheck"><input type="checkbox" checked={show === 'all'} onChange={(e) => setShow(e.target.checked ? 'all' : 'open')} />{t('fdepth.income.showReceived')}</label>
+    {state.kind === 'loading' ? <Notice busy>{t('ffc.loading')}</Notice>
+      : state.kind !== 'ready' ? <LoadError message={t('fdepth.income.error', { message: state.message })} retry={load} />
+      : state.value.items.length === 0 ? <Empty icon={<CalendarPlus aria-hidden="true" />} title={t('fdepth.income.emptyTitle')} text={t('fdepth.income.empty')}
+        action={<button type="button" onClick={() => setEditing('new')}>{t('fdepth.income.add')}</button>} />
+      : <ul className="finMoveList">{state.value.items.map((item) => <li key={item.id}>
+        <div><span dir="auto">{item.label}</span><small><bdi>{day(item.expected_on)}</bdi> · <StatusChip tone={item.state === 'late' ? 'warn' : item.state === 'received' ? 'ok' : 'info'}>
+          {t(`fdepth.income.state.${item.state}` as MessageKey)}</StatusChip></small></div>
+        <Money value={item.amount} currency={item.currency} />
+        <div className="fpmRowActions">
+          {item.state !== 'received' && <button type="button" className="secondary" onClick={() => void receive(item)}>{t('fdepth.income.receive')}</button>}
+          <button type="button" className="secondary iconOnly" onClick={() => setEditing(item)} aria-label={t('fdepth.income.editAria', { name: item.label })}><Pencil aria-hidden="true" /></button>
+          <button type="button" className="secondary iconOnly" onClick={() => setRemoving(item)} aria-label={t('fdepth.income.deleteAria', { name: item.label })}><Trash2 aria-hidden="true" /></button>
+        </div>
+      </li>)}</ul>}
+    {editing && <Modal title={editing === 'new' ? t('fdepth.income.add') : t('fdepth.income.edit')} onClose={() => setEditing(null)}>
+      <IncomeForm item={editing === 'new' ? null : editing} base={base} onDone={(text) => { setEditing(null); if (text) changed(text); }} /></Modal>}
+    {removing && <ConfirmDialog title={t('fdepth.income.deleteTitle', { name: removing.label })} confirmLabel={t('fdepth.income.delete')} danger
+      onConfirm={() => void remove()} onCancel={() => setRemoving(null)}><p>{t('fdepth.income.deleteText')}</p></ConfirmDialog>}
+  </FinCard>;
+}
+
+function IncomeForm({ item, base, onDone }: { item: FinanceExpectedIncome | null; base: string; onDone: (text: string | null) => void }) {
+  const [label, setLabel] = useState(item?.label ?? ''), [amount, setAmount] = useState(item?.amount ?? ''), [currency, setCurrency] = useState(item?.currency ?? base);
+  const [on, setOn] = useState(item?.expected_on ?? today()), [notes, setNotes] = useState(item?.notes ?? '');
+  const [busy, setBusy] = useState(false), [error, setError] = useState<string | null>(null);
+  const errorId = useId();
+  const submit = async (event: FormEvent) => {
+    event.preventDefault(); setBusy(true); setError(null);
+    const body = { label: label.trim(), amount: amount.trim(), currency, expected_on: on, received_on: item?.received_on ?? null, notes: notes.trim() || null };
+    try { if (item) await api.updateExpectedIncome(item.id, body); else await api.createExpectedIncome(body); onDone(t('fdepth.income.saved', { name: body.label })); }
+    catch (e) { setError(describeError(e)); } finally { setBusy(false); }
+  };
+  return <form className="finForm" onSubmit={(e) => void submit(e)} aria-describedby={error ? errorId : undefined}>
+    <div className="cmFormGrid">
+      <label className="field"><span>{t('fdepth.income.label')}</span><input value={label} onChange={(e) => setLabel(e.target.value)} maxLength={120} required dir="auto"
+        placeholder={t('fdepth.income.labelPlaceholder')} /></label>
+      <label className="field"><span>{t('fpm.amount')}</span><input value={amount} onChange={(e) => setAmount(e.target.value)} inputMode="decimal" dir="ltr" required /></label>
+      <label className="field"><span>{t('fpm.currency')}</span><input value={currency} onChange={(e) => setCurrency(e.target.value.toUpperCase().slice(0, 3))} maxLength={3} dir="ltr" required /></label>
+      <label className="field"><span>{t('fdepth.income.on')}</span><input type="date" value={on} onChange={(e) => setOn(e.target.value)} required /></label>
+    </div>
+    <label className="field"><span>{t('fpm.notes')}</span><textarea value={notes} onChange={(e) => setNotes(e.target.value)} maxLength={1000} rows={2} dir="auto" /></label>
+    {error && <p id={errorId} className="formError" role="alert">{error}</p>}
+    <div className="actions"><button type="submit" disabled={busy}>{t('fpm.save')}</button><button type="button" className="secondary" onClick={() => onDone(null)}>{t('fpm.cancel')}</button></div>
+  </form>;
 }

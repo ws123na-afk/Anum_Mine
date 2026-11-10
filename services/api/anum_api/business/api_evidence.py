@@ -4,6 +4,8 @@
 * ``POST /evidence`` and ``DELETE /evidence/{source_type}/{source_id}/{link_id}``: ``business:write`` for bills and invoices,
   owners and accountants for adjustments and manual journal entries; the document rules of the vault apply too.
 * ``GET /evidence/missing?from&to`` (``business:read``): what is above the threshold with nothing attached.
+* ``GET /evidence/receipt-matches`` (``business:read`` and the Document vault): receipts proposed for bills without evidence
+  (``books_receipts.py``); ``POST /evidence/receipt-matches/accept`` attaches one (the attach rules above, audited).
 * ``GET /evidence-pack.csv`` and ``GET /evidence-pack.zip`` (owners and accountants, audited): the period's index and files.
 
 Audit rows hold ids and codes only. Every route is a plain ``def`` (the database and file work runs in the thread pool).
@@ -125,6 +127,37 @@ def detach_evidence(source_type: SourceType, source_id: str, link_id: str, conte
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
+class ReceiptMatchInput(BaseModel):
+    bill_id: str = Field(min_length=1, max_length=80, pattern=SAFE_ID)
+    document_id: str = Field(min_length=1, max_length=80, pattern=SAFE_ID)
+
+
+@router.get("/evidence/receipt-matches")
+@refusals
+def receipt_matches(context: TenantContext = Depends(tenant_context)) -> Any:
+    """Receipts in the Document vault that match a bill with no document attached, by amount, date and vendor. Suggestions only."""
+    from . import books_receipts as RM
+
+    _read(context)
+    _documents(context)
+    items = [m.view() for m in RM.candidates(context, _today())]
+    return {"items": items, "total": len(items), "window_days": RM.WINDOW_DAYS}
+
+
+@router.post("/evidence/receipt-matches/accept", status_code=status.HTTP_201_CREATED)
+@refusals
+def accept_receipt_match(payload: ReceiptMatchInput, context: TenantContext = Depends(tenant_context),
+                         repository: AnumRepository = Depends(repository_context)) -> Any:
+    """Attach a proposed receipt to its bill (only when the person accepts it)."""
+    from . import books_receipts as RM
+
+    _may_attach(context, "bill")
+    result = RM.accept(context, _today(), payload.bill_id, payload.document_id)
+    result.pop("replayed", None)
+    _audit(repository, context, "receipt_match_accepted", payload.bill_id, {"document": payload.document_id})
+    return result
+
+
 @router.get("/evidence/missing")
 @refusals
 def missing_evidence(start: date | None = Query(default=None, alias="from"), end: date | None = Query(default=None, alias="to"),
@@ -166,3 +199,7 @@ def evidence_pack(start: date | None = Query(default=None, alias="from"), end: d
 
 
 __all__ = ["router"]
+
+
+# The receipts producer of the Accountant review registers itself when imported.
+from . import books_receipts as _books_receipts  # noqa: E402,F401

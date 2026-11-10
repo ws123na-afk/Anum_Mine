@@ -6,10 +6,11 @@ Every record belongs to one tenant, one workspace and one person (``owner_user_i
 Finance. Amounts are ``Decimal`` rounded by ``money.quantize`` and sit next to their currency; nothing is
 added across currencies. ANUM only records and advises: nothing here moves money.
 
-* **Lent and borrowed** (``PersonLoan``): an interest-free loan (qard hasan) with a person, in either
-  direction. What changed hands and every repayment are finance links (``person_loan`` dimension) on real
-  ledger transactions. By the shared rule (``flows.py``) a transaction linked to a loan with a person is a
-  transfer: lending is not spending and being repaid is not income.
+* **Lent and borrowed** (``PersonLoan``): a loan with a person, in either direction, interest free (qard hasan)
+  unless the person sets an annual rate. It is repaid once on its due date or on a monthly schedule
+  (``installments`` from ``first_due_on``, :func:`loan_schedule`). What changed hands and every repayment are
+  finance links (``person_loan`` dimension) on real ledger transactions. By the shared rule (``flows.py``) a
+  transaction linked to a loan with a person is a transfer: lending is not spending and being repaid is not income.
 * **Payslips** (``Payslip``): gross pay and the deductions on one payslip; net is gross less deductions.
   The salary credit in the ledger is linked (``payslip`` dimension) and the difference is shown.
 * **Remittances** (``Remittance``): money sent home, the fee, the rate and what arrived, linked to the
@@ -77,6 +78,12 @@ class PersonLoan(_Owned):
     reminded_overdue_for: date | None = None
     # The person closed it without full repayment (forgiven, settled in kind). None: still open.
     closed_on: date | None = None
+    # Migration 0158_finance_depth. An annual interest rate in percent (None: interest free) and a monthly repayment
+    # schedule: ``installments`` repayments from ``first_due_on`` (both or neither). With a schedule ``due_on`` is the
+    # last repayment's date.
+    interest_rate: Decimal | None = Field(default=None, gt=0, le=100)
+    installments: int | None = Field(default=None, ge=1, le=360)
+    first_due_on: date | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -95,46 +102,161 @@ def repaid_role(direction: LoanDirection) -> str:
 
 
 @dataclass(frozen=True)
+class Installment:
+    """One repayment of a loan's schedule: its number, date, principal and interest (``amount`` is both)."""
+
+    number: int
+    due_on: date
+    principal: Decimal
+    interest: Decimal
+    amount: Decimal
+
+
+def _add_months(day: date, months: int, anchor: int) -> date:
+    year, month = divmod(day.month - 1 + months, 12)
+    first = date(day.year + year, month + 1, 1)
+    return first.replace(day=min(anchor, M.month_end(first).day))
+
+
+def schedule_dates(first_due_on: date, installments: int) -> list[date]:
+    """Monthly from ``first_due_on``, on the same day of the month (the month's last day when shorter)."""
+    return [_add_months(first_due_on, n, first_due_on.day) for n in range(installments)]
+
+
+def loan_schedule(loan: PersonLoan) -> list[Installment]:
+    """What is due and when, rounded to the currency's minor unit; the last repayment takes the rounding.
+
+    * With ``installments``: monthly repayments. With a rate, equal payments (an annuity at the rate over 12 on what is
+      left each month); without one, equal parts of the amount.
+    * Without a schedule but with a due date: one repayment on it. With a rate, simple interest on the amount for the
+      days from the date the money changed hands to the due date (a 365-day year).
+    * Without either: nothing is scheduled (the loan has no date to be late against).
+    """
+    c = loan.currency
+    rate = (loan.interest_rate or Decimal(0)) / Decimal(100)
+    if loan.installments and loan.first_due_on:
+        n = loan.installments
+        dates = schedule_dates(loan.first_due_on, n)
+        out: list[Installment] = []
+        left = loan.amount
+        monthly = rate / Decimal(12)
+        payment = quantize(loan.amount * monthly / (1 - (1 + monthly) ** -n), c) if monthly > 0 else None
+        for index, on in enumerate(dates):
+            interest = quantize(left * monthly, c)
+            if index == n - 1:
+                principal = quantize(left, c)
+            elif payment is not None:
+                principal = min(quantize(payment - interest, c), left)
+            else:
+                principal = quantize(loan.amount / n, c)
+            left -= principal
+            out.append(Installment(number=index + 1, due_on=on, principal=principal, interest=interest, amount=principal + interest))
+        return out
+    if loan.due_on is None:
+        return []
+    days = max((loan.due_on - loan.lent_on).days, 0)
+    interest = quantize(loan.amount * rate * Decimal(days) / Decimal(365), c)
+    return [Installment(number=1, due_on=loan.due_on, principal=quantize(loan.amount, c), interest=interest, amount=quantize(loan.amount, c) + interest)]
+
+
+@dataclass(frozen=True)
 class LoanFigures:
     repaid: Decimal
-    outstanding: Decimal
+    outstanding: Decimal  # what is still to repay: the amount plus the scheduled interest, less what is repaid
     handed: Decimal  # what the linked transactions show changed hands
     status: LoanStatus
-    days_until_due: int | None
+    days_until_due: int | None  # to the next repayment not yet covered
+    interest: Decimal = Decimal(0)  # the scheduled interest in total
+    total_due: Decimal = Decimal(0)  # the amount plus the scheduled interest
+    next_due_on: date | None = None  # the first repayment the repaid money does not cover yet
+    next_due_amount: Decimal = Decimal(0)  # what is left of it
+    overdue_amount: Decimal = Decimal(0)  # what was due before today and is not repaid
+    schedule: tuple[Installment, ...] = ()
+    paid_through: int = 0  # how many repayments the repaid money covers in full
 
 
 def loan_figures(loan: PersonLoan, links: list, today: date) -> LoanFigures:
-    """What is repaid (active repayment links in the loan's currency), what is left and the status."""
+    """What is repaid (active repayment links in the loan's currency), what is left, what is overdue and the status.
+
+    Repayments are applied to the schedule in date order, never across currencies: a repayment in another currency is
+    not linked (the links API refuses it), so it never reduces what is owed."""
+    c = loan.currency
     repaid = sum((l.amount or Decimal(0) for l in links if l.target_id == loan.id and l.role == repaid_role(loan.direction)
-                  and l.currency == loan.currency and str(getattr(l.status, "value", l.status)) == "active"), Decimal(0))
+                  and l.currency == c and str(getattr(l.status, "value", l.status)) == "active"), Decimal(0))
     handed = sum((l.amount or Decimal(0) for l in links if l.target_id == loan.id and l.role == handed_role(loan.direction)
-                  and l.currency == loan.currency and str(getattr(l.status, "value", l.status)) == "active"), Decimal(0))
-    outstanding = max(loan.amount - repaid, Decimal(0))
-    days = (loan.due_on - today).days if loan.due_on else None
+                  and l.currency == c and str(getattr(l.status, "value", l.status)) == "active"), Decimal(0))
+    schedule = loan_schedule(loan)
+    interest = sum((i.interest for i in schedule), Decimal(0))
+    total_due = loan.amount + interest
+    outstanding = max(total_due - repaid, Decimal(0))
+    cumulative = Decimal(0)
+    next_due_on: date | None = None
+    next_amount = Decimal(0)
+    overdue = Decimal(0)
+    paid_through = 0
+    for item in schedule:
+        cumulative += item.amount
+        if cumulative <= repaid:
+            paid_through = item.number
+            continue
+        if next_due_on is None:
+            next_due_on = item.due_on
+            next_amount = min(cumulative - repaid, item.amount)
+        if item.due_on < today:
+            overdue = cumulative - repaid
+    days = (next_due_on - today).days if next_due_on else None
     status: LoanStatus
     if outstanding <= 0:
         status = "repaid"
     elif loan.closed_on is not None:
         status = "closed"
-    elif days is not None and days < 0:
+    elif overdue > 0:
         status = "overdue"
     elif days is not None and days <= DUE_SOON_DAYS:
         status = "due_soon"
     else:
         status = "open"
-    return LoanFigures(repaid=quantize(repaid, loan.currency), outstanding=quantize(outstanding, loan.currency),
-                       handed=quantize(handed, loan.currency), status=status, days_until_due=days)
+    return LoanFigures(repaid=quantize(repaid, c), outstanding=quantize(outstanding, c), handed=quantize(handed, c), status=status,
+                       days_until_due=days, interest=quantize(interest, c), total_due=quantize(total_due, c), next_due_on=next_due_on,
+                       next_due_amount=quantize(next_amount, c), overdue_amount=quantize(overdue, c), schedule=tuple(schedule),
+                       paid_through=paid_through)
+
+
+def due_through(figures: LoanFigures, end: date) -> Decimal:
+    """What the schedule asks for on or before ``end`` that is not repaid yet (overdue repayments included)."""
+    cumulative = sum((i.amount for i in figures.schedule if i.due_on <= end), Decimal(0))
+    return max(cumulative - figures.repaid, Decimal(0))
 
 
 def reminder_due(loan: PersonLoan, figures: LoanFigures, today: date) -> Literal["due", "overdue"] | None:
-    """Which reminder (if any) to send today: once ``remind_days_before`` the due date, and once when it is overdue."""
-    if not loan.remind or loan.due_on is None or figures.status in ("repaid", "closed"):
+    """Which reminder (if any) to send today: once ``remind_days_before`` the next repayment's date, and once when it is
+    overdue. Each repayment date of a schedule is announced once (``reminded_for`` and ``reminded_overdue_for`` hold it)."""
+    due_on = figures.next_due_on
+    if not loan.remind or due_on is None or figures.status in ("repaid", "closed"):
         return None
-    if today > loan.due_on:
-        return "overdue" if loan.reminded_overdue_for != loan.due_on else None
-    if (loan.due_on - today).days <= loan.remind_days_before and loan.reminded_for != loan.due_on:
+    if today > due_on:
+        return "overdue" if loan.reminded_overdue_for != due_on else None
+    if (due_on - today).days <= loan.remind_days_before and loan.reminded_for != due_on:
         return "due"
     return None
+
+
+# -- expected one-off income (migration 0158_finance_depth, docs/finance.md#forecast) ---------------------------------
+
+
+class ExpectedIncome(_Owned):
+    """Money the person expects once on a date (a bonus, a refund, a sale). The forecast counts it on that date until it
+    is marked received (then the money is in the balance); never added to the low line."""
+
+    id: str
+    label: str = Field(min_length=1, max_length=120)
+    amount: Decimal
+    currency: str
+    expected_on: date
+    received_on: date | None = None
+    notes: str | None = None
+    created_at: datetime
+    updated_at: datetime
 
 
 # -- payslips --------------------------------------------------------------------------------------
@@ -481,9 +603,9 @@ def commitment_totals(rows: list[Commitment]) -> dict[str, Decimal]:
 
 
 __all__ = [
-    "Commitment", "Deduction", "DeductionKind", "LoanDirection", "LoanFigures", "PAYSLIP_DIMENSION", "PAYSLIP_TARGET", "PERSONAL_DIMENSIONS",
+    "Commitment", "Deduction", "DeductionKind", "ExpectedIncome", "Installment", "LoanDirection", "LoanFigures", "PAYSLIP_DIMENSION", "PAYSLIP_TARGET", "PERSONAL_DIMENSIONS",
     "PERSON_LOAN_DIMENSION", "PERSON_LOAN_TARGET", "PayMonth", "Payslip", "PayslipFigures", "PersonLoan", "ProviderCost", "REMITTANCE_DIMENSION",
     "REMITTANCE_TARGET", "RemitMonth", "Remittance", "SalaryDecision", "SalaryDeductionReason", "SalaryProfile", "SalaryRule", "SalaryRuleKind",
     "commitment_totals", "effective_rate", "fee_percent", "fixed_commitments", "handed_role",
-    "loan_figures", "pay_months", "payslip_figures", "provider_costs", "remit_months", "reminder_due", "repaid_role",
+    "due_through", "loan_figures", "loan_schedule", "pay_months", "payslip_figures", "provider_costs", "remit_months", "reminder_due", "repaid_role",
 ]

@@ -805,7 +805,7 @@ def _accept_link(context: TenantContext, item: SG.Suggestion, repository: AnumRe
                               category=proposal.category, project_id=proposal.project_id, memo=None, treatment=proposal.treatment or "owner_contribution",
                               idempotency_key=None)
         else:
-            made = K.create(context, K.LinkRequest(canonical_id=proposal.canonical_id, dimension=proposal.dimension, role="payment",
+            made = K.create(context, K.LinkRequest(canonical_id=proposal.canonical_id, dimension=proposal.dimension, role=proposal.role or "payment",
                                                    target_type=proposal.target_type, target_id=proposal.target_id, amount=proposal.amount,
                                                    currency=proposal.currency))
     except K.LinkError as exc:

@@ -3,7 +3,7 @@
 // converted; amounts are decimal strings. An estimate from the person's own records, never a promise.
 import type { FinanceMoney } from './finance.js';
 
-export type FinanceForecastEventKind = 'salary' | 'income' | 'bill' | 'minimum_payment' | 'installment' | 'remittance';
+export type FinanceForecastEventKind = 'salary' | 'income' | 'expected_income' | 'bill' | 'minimum_payment' | 'installment' | 'remittance';
 export type FinanceForecastEventStatus = 'expected' | 'overdue' | 'late';
 export type FinanceForecastWarningKind = 'below_zero' | 'below_reserve' | 'may_go_below_zero';
 
@@ -32,7 +32,37 @@ export interface FinanceForecastMonthEnd {
   money_in: FinanceMoney;
   money_out: FinanceMoney;
   spending: FinanceMoney;
+  /** Interest expected on cards with a known APR: owed to the card, not taken from bank money. */
+  card_interest?: FinanceMoney;
 }
+
+/** Interest a card is expected to charge on a day (balance after the minimum times APR over 12). */
+export interface FinanceInterestCharge { on: string; label: string; ref_id: string; balance: FinanceMoney; apr_percent: string; amount: FinanceMoney }
+
+/** One-off income the person expects on a date (GET|POST /expected-income, PATCH|DELETE /expected-income/{id}). */
+export interface FinanceExpectedIncome {
+  id: string;
+  label: string;
+  amount: FinanceMoney;
+  currency: string;
+  expected_on: string;
+  received_on: string | null;
+  notes: string | null;
+  state: 'expected' | 'late' | 'received';
+  created_at: string;
+  updated_at: string;
+}
+
+export interface FinanceExpectedIncomeInput {
+  label: string;
+  amount: string;
+  currency?: string | null;
+  expected_on: string;
+  received_on?: string | null;
+  notes?: string | null;
+}
+
+export interface FinanceExpectedIncomePage { items: FinanceExpectedIncome[]; total: number; limit: number; offset: number; note: string }
 
 export interface FinanceForecastWarning { kind: FinanceForecastWarningKind; on: string; balance: FinanceMoney; threshold: FinanceMoney }
 
@@ -63,6 +93,7 @@ export interface FinanceCurrencyForecast {
   warnings: FinanceForecastWarning[];
   assumptions: FinanceForecastAssumption[];
   left_out: FinanceForecastAssumption[];
+  card_interest?: FinanceInterestCharge[];
 }
 
 export interface FinanceForecast {

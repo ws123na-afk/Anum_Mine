@@ -210,6 +210,7 @@ _ORDER = (
     "finance_advisor_reports",
     "finance_advisor_settings",
     "finance_person_loans",
+    "finance_expected_income",
     "finance_payslips",
     "finance_salary_profiles",
     "finance_reconciliation_items",

@@ -61,6 +61,8 @@ export interface BooksSettings {
   policy_note?: string;
   /** Bills and adjustments at or above this (base currency) need a supporting document; null keeps the flag off. */
   evidence_threshold?: string | null;
+  /** An accountant's adjustment at or above this (base currency) waits for another owner or accountant; null: no step. */
+  adjustment_approval_threshold?: string | null;
   version: number;
   updated_by: string;
   updated_at: string;
@@ -77,6 +79,7 @@ export interface BooksSettingsInput {
   rate_max_age_days: number;
   policy_note?: string;
   evidence_threshold?: string | null;
+  adjustment_approval_threshold?: string | null;
   version: number | null;
 }
 
@@ -97,6 +100,8 @@ export interface BooksSetup {
   permissions: { read: boolean; write: boolean; manage: boolean; accountant?: boolean; account?: boolean };
   /** The last day of the last closed period, or null. */
   closed_through?: string | null;
+  /** The person asking (a pending adjustment they recorded is approved by someone else). */
+  user_id?: string;
   counts: Record<'vendors' | 'bills' | 'cost_centres' | 'budgets' | 'rates' | 'adjustments' | 'intercompany' | 'allocations', number>;
   default_period: { from: string; to: string } | null;
   cost_centres: BooksCostCentre[];
@@ -317,13 +322,32 @@ export interface BooksAdjustment {
   start_month: string | null;
   months: number | null;
   reverse_on: string | null;
-  status: 'active' | 'void';
+  /** pending: an accountant's adjustment above the approval threshold, not posted until another owner or accountant approves it. */
+  status: 'active' | 'void' | 'pending';
   created_by: string;
   created_at: string;
   voided_by: string | null;
   voided_at: string | null;
   void_reason: string;
+  approved_by?: string | null;
+  approved_at?: string | null;
   replayed?: boolean;
+}
+
+/** A receipt in the Document vault proposed for a bill without evidence (GET /evidence/receipt-matches). */
+export interface BooksReceiptMatch {
+  document_id: string;
+  document_title: string;
+  bill_id: string;
+  bill_reference: string;
+  vendor: string;
+  merchant: string;
+  bill_date: string;
+  receipt_date: string;
+  amount: string;
+  currency: string;
+  vendor_agrees: boolean;
+  confidence: string;
 }
 
 export interface BooksAdjustmentInput {
@@ -930,7 +954,7 @@ export interface LedgerClose {
 export interface LedgerCloseStatus {
   closed_through: string | null;
   next: { through: string; year_end: boolean; ended: boolean; ready: boolean; issues: number; issue_rows: LedgerIssue[]; drafts: number;
-    allocations_in_review: number; to_post: number };
+    allocations_in_review: number; adjustments_pending?: number; to_post: number };
   history: LedgerClose[];
   history_total: number;
   fiscal_year_start_month: number;
@@ -946,8 +970,9 @@ export interface LedgerAccountant {
 
 // ---- Accountant review (docs/business-books.md#accountant-review) ------------------------------------------------
 
-export type BooksReviewKind = 'draft_bill' | 'posting_issue' | 'unconverted' | 'allocation_review' | 'external';
-export const BOOKS_REVIEW_KINDS: readonly BooksReviewKind[] = ['draft_bill', 'unconverted', 'posting_issue', 'allocation_review', 'external'];
+export type BooksReviewKind = 'draft_bill' | 'adjustment_approval' | 'posting_issue' | 'unconverted' | 'allocation_review' | 'vat' | 'receipt_match' | 'external';
+export const BOOKS_REVIEW_KINDS: readonly BooksReviewKind[] = ['draft_bill', 'adjustment_approval', 'unconverted', 'posting_issue', 'allocation_review', 'vat',
+  'receipt_match', 'external'];
 
 /** One thing waiting on an owner or an accountant, with the Books section where it is acted on. */
 export interface BooksReviewItem {
@@ -963,9 +988,9 @@ export interface BooksReviewItem {
   currency: string | null;
   ref_id: string | null;
   section: string;
-  action: 'approve' | 'open';
+  action: 'approve' | 'link' | 'open';
   can_act: boolean;
-  /** own_draft: this person made the draft (or its recurring bill), so someone else approves it. */
+  /** own_draft / own_adjustment: this person made it, so someone else approves it. */
   why_not: string | null;
 }
 
@@ -977,6 +1002,7 @@ export interface BooksReviewMonth {
   issues: number;
   drafts: number;
   allocations_in_review: number;
+  adjustments_pending?: number;
   ready: boolean;
 }
 

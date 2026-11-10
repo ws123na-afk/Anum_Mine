@@ -467,6 +467,11 @@ function Journal({ setup }: { setup: BooksSetup }) {
   const kindId = useId();
   const manage = setup.permissions.account ?? setup.permissions.manage;  // owners and accountants
   const filtered = Boolean(kind || includeVoid);
+  const [approveError, setApproveError] = useState<string | null>(null);
+  async function approveRow(row: BooksAdjustment) {
+    setApproveError(null);
+    try { await api.approveAdjustment(row.id); setTick((n) => n + 1); } catch (error) { setApproveError(describeError(error)); }
+  }
   return <>
     <p className="muted bzHint">{t('books.journal.help')}</p>
     <div className="bzToolbar">
@@ -484,13 +489,19 @@ function Journal({ setup }: { setup: BooksSetup }) {
       <div className="pane dataTableWrap" tabIndex={0} role="region" aria-label={t('books.table')}><table className="dataTable bzTable"><caption className="visuallyHidden">{t('books.tab.journal')}</caption>
         <thead><tr><th scope="col">{t('books.col.adjustment')}</th><th scope="col" className="num">{t('books.col.total')}</th><th scope="col" className="bzHideMd">{t('books.col.date')}</th>{manage && <th scope="col"><span className="visuallyHidden">{t('books.col.actions')}</span></th>}</tr></thead>
         <tbody>{list.items.map((row: BooksAdjustment) => <tr key={row.id}><th scope="row">{adjustmentLabel(row.kind)}{row.status === 'void' && <> <Badge tone="neutral">{t('books.void')}</Badge></>}
+          {row.status === 'pending' && <> <Badge tone="warning">{t('fdepth.approval.pending')}</Badge></>}
           <small dir="auto">{row.description}{row.months ? `, ${t('books.journal.spread', { months: row.months, start: dayText(row.start_month) })}` : ''}{row.reverse_on ? `, ${t('books.journal.reverses', { day: dayText(row.reverse_on) })}` : ''}</small>
           {row.status === 'void' && <small dir="auto">{t('books.voidReason', { reason: row.void_reason })}</small>}</th>
           <td className="num">{money(row.amount, row.currency)}</td><td className="bzHideMd nowrap">{dayText(row.entry_date)}</td>
           {manage && <td><span className="bzInline">
             <button type="button" className="secondary" onClick={() => setEvidenceOf(row)} aria-label={t('books.evidence.openLabel', { what: adjustmentLabel(row.kind) })}>
               {t('books.evidence.title')}{flags[row.id] && <> <Badge tone="warning">{t('books.evidence.missing')}</Badge></>}</button>
-            {row.status === 'active' && <button type="button" className="secondary" onClick={() => setVoiding(row)} aria-label={t('books.voidLabel', { what: adjustmentLabel(row.kind) })}>{t('books.voidAction')}</button>}</span></td>}</tr>)}</tbody></table></div>
+            {row.status === 'pending' && (row.created_by === setup.user_id
+              ? <small className="muted">{t('breview.whyNot.own_adjustment')}</small>
+              : <button type="button" onClick={() => void approveRow(row)} aria-label={t('fdepth.approval.approveLabel', { what: adjustmentLabel(row.kind) })}>{t('breview.approve')}</button>)}
+            {row.status !== 'void' && <button type="button" className="secondary" onClick={() => setVoiding(row)} aria-label={t('books.voidLabel', { what: adjustmentLabel(row.kind) })}>
+              {row.status === 'pending' ? t('fdepth.approval.reject') : t('books.voidAction')}</button>}</span></td>}</tr>)}</tbody></table></div>
+      {approveError && <Note error>{approveError}</Note>}
       <Pager shown={list.items.length} total={list.total} busy={list.more.busy} error={list.more.error} onMore={() => void list.loadMore()} />
     </>}
     {adding && <AdjustmentDialog setup={setup} onClose={() => setAdding(false)} onSaved={() => { setAdding(false); setTick((n) => n + 1); }} />}

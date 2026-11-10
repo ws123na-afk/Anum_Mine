@@ -469,6 +469,7 @@ export function CloseSection({ onSection }: { setup: BooksSetup; onSection: (tab
   const checks: { key: string; count: number; go?: string }[] = [
     { key: 'to_post', count: next.to_post, go: 'ledger' }, { key: 'issues', count: next.issues, go: 'ledger' }, { key: 'drafts', count: next.drafts, go: 'bills' },
     { key: 'allocations_in_review', count: next.allocations_in_review, go: 'allocations' },
+    { key: 'adjustments_pending', count: next.adjustments_pending ?? 0, go: 'review' },
   ];
   return <>
     <p className="muted bzHint">{t('ledger.close.help')}</p>
