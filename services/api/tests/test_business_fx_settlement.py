@@ -25,7 +25,11 @@ from test_business_books import (  # noqa: F401  (``clean`` is the autouse fixtu
 )
 
 from anum_api.business import books_ledger
+from anum_api.business.books_models import Rate
+from anum_api.business.books_posting import CarryingRate, Chart, Leg, Proposal, realise
+from anum_api.business.books_report import Converter
 from anum_api.business.books_store import books_memory_store
+from anum_api.schemas import utc_now
 
 
 def post() -> dict:
@@ -159,3 +163,61 @@ def test_depreciation_and_prepayment_releases_keep_the_rate_their_document_was_p
     # 100 a month at the purchase's 3.75 = 375.00, every month; a rate read again would give 380.00 for the later months.
     assert len(depreciation) >= 2 and set(depreciation) == {Decimal("375.00")}
     assert len(releases) >= 2 and set(releases) == {Decimal("375.00")}
+
+
+# -- the rule itself (books_posting.realise), without a store -------------------------------------------------------------
+
+
+class _Journal:
+    """What the journal holds of one posted invoice: USD 10.00 booked at 3.755 = SAR 37.55, with ``left`` still open."""
+
+    def __init__(self, left: tuple[Decimal, Decimal] | None) -> None:
+        self.left = left
+
+    def rate(self, event_key: str, currency: str) -> CarryingRate | None:
+        return CarryingRate(Decimal("3.755"), date(2026, 11, 1), "Synthetic reference") if event_key == "invoice:inv_1" else None
+
+    def open(self, event_key: str, account_id: str, currency: str) -> tuple[Decimal, Decimal] | None:
+        return self.left
+
+
+def _payment(amount: str) -> Proposal:
+    paid = date(2026, 11, 9)
+    return Proposal("invoice_payment:pay_1", "invoice_payment", "pay_1", paid, "Payment", [
+        Leg("key:bank", True, "USD", Decimal(amount), paid, flow="customers_paid"),
+        Leg("key:ar", False, "USD", Decimal(amount), date(2026, 11, 1), absorb=True, booked_by="invoice:inv_1", settles=True)], fx_balance=True)
+
+
+def _realised(amount: str, journal: _Journal | None) -> dict[str, Decimal]:
+    now = utc_now()
+    rates = [Rate(id=f"rate_{index}", tenant_id="t", workspace_id="w", created_at=now, updated_at=now, base="USD", quote="SAR", rate=Decimal(value),
+                  as_of=day, source="Synthetic reference", created_by="owner_books")
+             for index, (day, value) in enumerate(((date(2026, 11, 1), "3.80"), (date(2026, 11, 9), "3.80")))]
+    chart = Chart(by_key={"bank": "bank", "ar": "ar", "fx": "fx"})
+    lines = realise(_payment(amount), Converter(rates, "SAR", 31), chart, None, journal)
+    assert isinstance(lines, list)
+    assert sum((line.debit - line.credit for line in lines), Decimal(0)) == 0  # every entry balances
+    return {line.account_id: line.debit - line.credit for line in lines}
+
+
+def test_the_settling_leg_takes_its_share_then_all_that_is_left_and_never_more() -> None:
+    # The whole invoice: bank 10.00 x 3.80 = 38.00, the receivable leaves at the 37.55 booked, gain 0.45.
+    assert _realised("10.00", _Journal((Decimal("10.00"), Decimal("37.55")))) == {"bank": Decimal("38.00"), "ar": Decimal("-37.55"), "fx": Decimal("-0.45")}
+    # A part: 4.00 of 10.00 booked at 37.55 = 15.02; bank 4.00 x 3.80 = 15.20; gain 0.18.
+    assert _realised("4.00", _Journal((Decimal("10.00"), Decimal("37.55")))) == {"bank": Decimal("15.20"), "ar": Decimal("-15.02"), "fx": Decimal("-0.18")}
+    # The last 3.34 takes the 12.54 that is left, not 3.34 x 3.755 = 12.5417 rounded on its own; bank 3.34 x 3.80 = 12.69.
+    assert _realised("3.34", _Journal((Decimal("3.34"), Decimal("12.54")))) == {"bank": Decimal("12.69"), "ar": Decimal("-12.54"), "fx": Decimal("-0.15")}
+    # More than is left (or nothing left, or a balance on the wrong side): the rate the invoice was posted with, 5.00 x 3.755 =
+    # 18.775 -> 18.78 (half to even), never the whole of someone else's balance. Bank 5.00 x 3.80 = 19.00.
+    for left in ((Decimal("3.34"), Decimal("12.54")), (Decimal(0), Decimal(0)), (Decimal("-10.00"), Decimal("-37.55")), None):
+        assert _realised("5.00", _Journal(left)) == {"bank": Decimal("19.00"), "ar": Decimal("-18.78"), "fx": Decimal("-0.22")}
+    # Nothing reads the journal (a dry run): the rate table, as before: both sides at 3.80, no difference.
+    assert _realised("10.00", None) == {"bank": Decimal("38.00"), "ar": Decimal("-38.00")}
+
+
+def test_the_new_leg_fields_are_not_part_of_the_fingerprint_so_nothing_posted_is_posted_again() -> None:
+    paid = date(2026, 11, 9)
+    before = Proposal("invoice_payment:pay_1", "invoice_payment", "pay_1", paid, "Payment", [
+        Leg("key:bank", True, "USD", Decimal("10.00"), paid, flow="customers_paid"),
+        Leg("key:ar", False, "USD", Decimal("10.00"), date(2026, 11, 1), absorb=True)], fx_balance=True)
+    assert before.fingerprint == _payment("10.00").fingerprint
