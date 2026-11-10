@@ -286,7 +286,7 @@ export const financeAr: Record<keyof typeof financeEn, Message> = {
   'finance.holdings.cost': 'التكلفة {amount}',
 
   'finance.item.loading': 'جارٍ التحميل...',
-  'finance.item.edit': 'عدّل {name}',
+  'finance.item.edit': 'تعديل {name}',
   'finance.item.delete': 'احذف {name}',
   'finance.item.editTitle': 'عدّل {name}',
   'finance.item.deleteTitle': 'أتحذف {name}؟',
