@@ -338,6 +338,54 @@ test('a failed summary shows the reason and a retry', async ({ page }) => {
   await expect(page.getByRole('button', { name: 'Try again' })).toBeVisible();
 });
 
+test('Add transaction: each empty field says what to enter, tied to its input, and a valid form saves', async ({ page }) => {
+  const { sent } = await mockApi(page);
+  await page.goto('/#finance-transactions');
+  await page.getByRole('button', { name: 'Record transaction' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Add transaction' });
+  const date = dialog.getByLabel('Date'), amount = dialog.getByLabel(/^Amount/), description = dialog.getByLabel('Description');
+  // The account select and the date input of the first row are the same height.
+  const [selectBox, dateBox] = [await dialog.getByLabel('Account').boundingBox(), await date.boundingBox()];
+  expect(selectBox && dateBox && Math.abs(selectBox.height - dateBox.height)).toBeLessThanOrEqual(1);
+  await date.fill('');
+  await dialog.getByRole('button', { name: 'Save' }).click();
+  // Our own, translated messages (not the browser's bubble), one under each field, and focus on the first.
+  await expect(date).toHaveAttribute('aria-invalid', 'true');
+  await expect(date).toHaveAccessibleDescription('Choose the date of the transaction.');
+  await expect(amount).toHaveAccessibleDescription('Enter an amount such as 45.50 or -45.50.');
+  await expect(description).toHaveAccessibleDescription('Enter what the transaction was.');
+  await expect(date).toBeFocused();
+  expect(sent.some((r) => r.method === 'POST' && r.path === '/api/v1/finance/transactions')).toBe(false);
+  // Typing in a field clears its message; the others stay.
+  await amount.fill('-12.50');
+  await expect(amount).not.toHaveAttribute('aria-invalid', 'true');
+  await expect(description).toHaveAttribute('aria-invalid', 'true');
+  await amount.fill('12.345');
+  await dialog.getByRole('button', { name: 'Save' }).click();
+  await expect(amount).toHaveAccessibleDescription('AED amounts have at most 2 decimals.');
+  await amount.fill('-12.50');
+  await date.fill('2026-11-10');
+  await description.fill('Example lunch');
+  await dialog.getByRole('button', { name: 'Save' }).click();
+  await expect(dialog).toHaveCount(0);
+  expect(sent.some((r) => r.method === 'POST' && r.path === '/api/v1/finance/transactions')).toBe(true);
+});
+
+test('with no account yet, Transactions says to add one first and links to Accounts', async ({ page }) => {
+  await mockApi(page, { empty: true, role: 'owner' });
+  await page.goto('/#finance-transactions');
+  const record = page.getByRole('button', { name: 'Record transaction' });
+  await expect(record).toBeDisabled();
+  await expect(record).toHaveAccessibleDescription(/A transaction is recorded in an account\./);
+  await expect(page.getByRole('button', { name: 'Download CSV' })).toHaveAccessibleDescription('There are no transactions in this view to download.');
+  await expect(page.getByText('Add an account first')).toBeVisible();
+  // Buttons in the empty state are button-sized (their icons were drawn as boxed tiles, 68 px tall).
+  const emptyButton = await page.locator('.emptyState').getByRole('button', { name: 'Import statement' }).boundingBox();
+  expect(emptyButton && emptyButton.height).toBeLessThanOrEqual(44);
+  await page.getByRole('button', { name: 'Open Accounts' }).click();
+  await expect(page).toHaveURL(/#finance-accounts$/);
+});
+
 // The table was 722 px wide in a 356 px card on a phone, so Amount and Status were off screen. Columns
 // now give way as the card narrows and the category, status and (on phones) date sit under the merchant.
 for (const [width, height] of [[390, 844], [768, 1024], [1024, 768], [1366, 768]] as const) {

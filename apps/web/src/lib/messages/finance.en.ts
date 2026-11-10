@@ -32,6 +32,8 @@ export const financeEn = {
   'finance.error.positive': 'Enter an amount of zero or more.',
   'finance.error.aboveZero': 'Enter an amount above zero.',
   'finance.error.description': 'Enter what the transaction was.',
+  'finance.error.date': 'Choose the date of the transaction.',
+  'finance.error.account': 'Choose the account the money moved in.',
   'finance.error.name': 'Enter a name.',
   'finance.error.currency': 'A currency is a three-letter code, such as AED.',
   'finance.error.last4': 'Enter only the last four digits, or leave it empty.',

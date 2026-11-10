@@ -142,11 +142,14 @@ export function TransactionsPage({ accounts, initialAccountId, initialTab, onCha
   const ready = page.kind === 'ready' ? page.value : null;
   const ledgerKind = ready?.ledger_kind ?? sms?.ledger_kind ?? 'personal';
   const reviewCount = ready?.review_count ?? 0;
+  // A disabled button never explains itself: with no account yet, say so and offer the way to add one.
+  const needsAccount = Boolean(ready) && accounts.length === 0;
   const head = <FinancePageHead title={t('freg.tx.title')} subtitle={t('freg.tx.subtitle')}
     actions={<>
       <button type="button" className="secondary" onClick={() => setTab('imports')}><Upload aria-hidden="true" />{t('freg.tx.import')}</button>
-      <button type="button" className="secondary" disabled={!ready || ready.total === 0} onClick={() => void download()}><Download aria-hidden="true" />{t('freg.tx.download')}</button>
-      <button type="button" disabled={accounts.length === 0} onClick={() => setRecording(true)}><Plus aria-hidden="true" />{t('freg.tx.record')}</button>
+      <button type="button" className="secondary" disabled={!ready || ready.total === 0} aria-describedby={ready && ready.total === 0 ? 'ftx-nothing-to-download' : undefined} onClick={() => void download()}><Download aria-hidden="true" />{t('freg.tx.download')}</button>
+      <button type="button" disabled={accounts.length === 0} aria-describedby={needsAccount ? 'ftx-needs-account' : undefined} onClick={() => setRecording(true)}><Plus aria-hidden="true" />{t('freg.tx.record')}</button>
+      {ready && ready.total === 0 && <span id="ftx-nothing-to-download" className="visuallyHidden">{t('freg.tx.downloadNone')}</span>}
     </>}
     controls={<>
       <label className="finControl"><span className="finControlLabel">{t('fshell.period')}</span>
@@ -166,6 +169,9 @@ export function TransactionsPage({ accounts, initialAccountId, initialTab, onCha
     {head}
     <div {...tabPanel('ftx', tab)}>
       {notice && <Notice error={notice.error}>{notice.text}</Notice>}
+      {needsAccount && tab !== 'imports' && <FinBanner icon={<Landmark />} title={t('freg.tx.needsAccount.title')}
+        action={<button type="button" className="secondary" onClick={onAddAccount}><Plus aria-hidden="true" />{t('freg.tx.needsAccount.action')}</button>}>
+        <span id="ftx-needs-account">{t('freg.tx.needsAccount.text')}</span></FinBanner>}
       {tab === 'transactions' && <>
         {page.kind === 'denied' && <Denied />}
         {page.kind === 'error' && <LoadError message={t('finance.error.transactions', { message: page.message })} retry={() => void load()} />}

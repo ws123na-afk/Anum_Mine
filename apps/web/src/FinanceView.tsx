@@ -2,7 +2,7 @@
 // summary band, the month's spend by category, accounts, transactions with search and paging, CSV
 // statement import with a mapping preview, bills, debts, goals and manual holdings. Nothing here
 // moves money: there is no pay, transfer or trade button anywhere, by design (Stage 2).
-import { Suspense, lazy, useCallback, useEffect, useId, useState, type FormEvent } from 'react';
+import { Suspense, lazy, useCallback, useEffect, useId, useRef, useState, type FormEvent } from 'react';
 import {
   CircleDot, Download, FileUp, Landmark, Lock, Plus, RefreshCw, Search, Settings2, Trash2, Undo2, Wallet,
 } from 'lucide-react';
@@ -212,18 +212,38 @@ export function FinanceView() {
 // ---- Transactions ----------------------------------------------------------------------------
 
 
+type TransactionField = 'account' | 'date' | 'amount' | 'description';
+
 export function TransactionForm({ accounts, transaction, onDone }: { accounts: FinanceAccount[]; transaction: FinanceTransaction | null; onDone: (message: string | null) => void }) {
   const [accountId, setAccountId] = useState(transaction?.account_id ?? accounts.find((a) => !a.archived)?.id ?? '');
   const [postedOn, setPostedOn] = useState(transaction?.posted_on ?? today()), [amount, setAmount] = useState(transaction?.amount ?? '');
   const [description, setDescription] = useState(transaction?.description ?? ''), [category, setCategory] = useState<FinanceCategory | ''>(transaction?.category ?? '');
   const [notes, setNotes] = useState(transaction?.notes ?? ''), [error, setError] = useState<string | null>(null), [busy, setBusy] = useState(false);
-  const errorId = useId();
+  // Each field says what is wrong under itself (the browser's own bubbles are off: they are not translated and name one field at a time).
+  const [problems, setProblems] = useState<Partial<Record<TransactionField, string>>>({});
+  const errorId = useId(), fieldId = useId();
+  const form = useRef<HTMLFormElement>(null);
   const currency = transaction?.currency ?? accounts.find((a) => a.id === accountId)?.currency ?? 'AED';
+  const clear = (field: TransactionField) => setProblems((old) => { if (!old[field]) return old; const next = { ...old }; delete next[field]; return next; });
+  /** aria-invalid and aria-describedby for a field with a problem; nothing otherwise. */
+  const invalid = (field: TransactionField) => (problems[field] ? { 'aria-invalid': true, 'aria-describedby': `${fieldId}-${field}` } : {});
+  const problem = (field: TransactionField) => <FormError id={`${fieldId}-${field}`} text={problems[field] ?? null} />;
   async function submit(event: FormEvent) {
     event.preventDefault();
     const checked = parseAmount(amount, currency);
-    if (!checked.ok) { setError(checked.error); return; }
-    if (!description.trim()) { setError(t('finance.error.description')); return; }
+    const found: Partial<Record<TransactionField, string>> = {};
+    if (!transaction && !accountId) found.account = t('finance.error.account');
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(postedOn)) found.date = t('finance.error.date');
+    if (!checked.ok) found.amount = checked.error;
+    if (!description.trim()) found.description = t('finance.error.description');
+    setProblems(found);
+    if (!checked.ok || Object.keys(found).length) {
+      setError(null);
+      // Focus goes to the first field to fix, in reading order.
+      const first = (['account', 'date', 'amount', 'description'] as const).find((field) => found[field]);
+      if (first) form.current?.querySelector<HTMLElement>(`[data-field="${first}"]`)?.focus();
+      return;
+    }
     setBusy(true); setError(null);
     try {
       const result = transaction
@@ -235,14 +255,14 @@ export function TransactionForm({ accounts, transaction, onDone }: { accounts: F
       onDone(broken ? `${done} ${t('finance.transactions.ruleWarning', { reasons: broken })}` : done);
     } catch (e) { setError(describeError(e)); } finally { setBusy(false); }
   }
-  return <form className="finForm" onSubmit={(e) => void submit(e)} aria-describedby={error ? errorId : undefined}>
+  return <form ref={form} className="finForm" noValidate onSubmit={(e) => void submit(e)} aria-describedby={error ? errorId : undefined}>
     <div className="cmFormGrid">
-      {!transaction && <label className="field"><span>{t('finance.col.account')}</span><select value={accountId} onChange={(e) => setAccountId(e.target.value)} required>{accounts.filter((a) => !a.archived).map((a) => <option key={a.id} value={a.id}>{a.name} ({a.currency})</option>)}</select></label>}
-      <label className="field"><span>{t('finance.col.date')}</span><input type="date" value={postedOn} onChange={(e) => setPostedOn(e.target.value)} required /></label>
-      <label className="field"><span>{t('finance.form.amountSigned', { currency })}</span><input value={amount} onChange={(e) => setAmount(e.target.value)} inputMode="decimal" placeholder="-45.00" dir="ltr" required /></label>
+      {!transaction && <div className="finField"><label className="field"><span>{t('finance.col.account')}</span><select data-field="account" value={accountId} onChange={(e) => { setAccountId(e.target.value); clear('account'); }} aria-required="true" {...invalid('account')}>{accounts.filter((a) => !a.archived).map((a) => <option key={a.id} value={a.id}>{a.name} ({a.currency})</option>)}</select></label>{problem('account')}</div>}
+      <div className="finField"><label className="field"><span>{t('finance.col.date')}</span><input data-field="date" type="date" value={postedOn} onChange={(e) => { setPostedOn(e.target.value); clear('date'); }} aria-required="true" {...invalid('date')} /></label>{problem('date')}</div>
+      <div className="finField"><label className="field"><span>{t('finance.form.amountSigned', { currency })}</span><input data-field="amount" value={amount} onChange={(e) => { setAmount(e.target.value); clear('amount'); }} inputMode="decimal" placeholder="-45.00" dir="ltr" aria-required="true" {...invalid('amount')} /></label>{problem('amount')}</div>
       <label className="field"><span>{t('finance.col.category')}</span><select value={category} onChange={(e) => setCategory(e.target.value as FinanceCategory | '')}><option value="">{t('finance.form.autoCategory')}</option>{CATEGORIES.map((c) => <option key={c} value={c}>{categoryLabel(c)}</option>)}</select></label>
     </div>
-    <label className="field"><span>{t('finance.col.description')}</span><input value={description} onChange={(e) => setDescription(e.target.value)} maxLength={500} required dir="auto" /></label>
+    <label className="field"><span>{t('finance.col.description')}</span><input data-field="description" value={description} onChange={(e) => { setDescription(e.target.value); clear('description'); }} maxLength={500} aria-required="true" dir="auto" {...invalid('description')} /></label>{problem('description')}
     <label className="field"><span>{t('finance.form.notes')}</span><input value={notes} onChange={(e) => setNotes(e.target.value)} maxLength={1000} dir="auto" /></label>
     <FormError id={errorId} text={error} />
     <FormActions busy={busy} onCancel={() => onDone(null)} />
