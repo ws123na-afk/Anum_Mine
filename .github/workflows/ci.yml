@@ -12,6 +12,12 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
+# The default for every job: read the repository, nothing else. No job here pushes, comments,
+# publishes a package or uploads a scan result; artifacts and caches need no token permission.
+# A job that needs more states it itself ("Detect platform changes" reads the pull request).
+permissions:
+  contents: read
+
 # onnxruntime-node downloads optional CUDA binaries from GitHub releases in its postinstall.
 # Runners have no GPU, and that download fails the install whenever GitHub answers 504.
 env:
@@ -31,7 +37,7 @@ jobs:
       infrastructure: ${{ steps.filter.outputs.infrastructure }}
     steps:
       - uses: actions/checkout@v7
-      - uses: dorny/paths-filter@v4
+      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
         id: filter
         with:
           filters: |
@@ -135,12 +141,74 @@ jobs:
             exit 1
           fi
 
+  # The three web bundles the Playwright suite serves (apps/web/playwright.config.ts: the app, the
+  # OIDC build and the error-reporting build), built once and handed to every shard as an artifact,
+  # instead of each of the six shards building all three. The same commands and variables as the
+  # config's own webServer entries, which still build when ANUM_E2E_PREBUILT is not set (local runs).
+  # It also fills the Playwright browser cache the shards read.
+  browser-e2e-build:
+    name: Browser end-to-end (build)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      playwright-version: ${{ steps.playwright.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
+        with:
+          version: 9.12.3
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+      - run: pnpm install --frozen-lockfile
+      - name: Build the app (port 4173)
+        run: pnpm --filter @anum/web build
+      - name: Build the app with OIDC sign-in (port 4174)
+        working-directory: apps/web
+        env:
+          VITE_ANUM_OIDC_ISSUER: http://oidc.anum.test/realms/anum
+          VITE_ANUM_OIDC_CLIENT_ID: anum-web
+        run: pnpm exec vite build --outDir dist-oidc --emptyOutDir
+      - name: Build the app with error reporting (port 4175)
+        working-directory: apps/web
+        env:
+          VITE_SENTRY_DSN: https://examplekey@errors.anum.test/7
+          VITE_SENTRY_ENVIRONMENT: e2e
+        run: pnpm exec vite build --outDir dist-sentry --emptyOutDir
+      - name: Upload the bundles
+        uses: actions/upload-artifact@v7
+        with:
+          name: web-e2e-dist
+          path: |
+            apps/web/dist/
+            apps/web/dist-oidc/
+            apps/web/dist-sentry/
+          retention-days: 1
+          if-no-files-found: error
+      # The browser download, kept between runs and replaced when Playwright's version changes.
+      - name: Read the Playwright version
+        id: playwright
+        run: echo "version=$(pnpm --filter @anum/web exec playwright --version | awk '{ print $2 }')" >> "$GITHUB_OUTPUT"
+      - name: Playwright browser cache
+        id: playwright-cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ runner.arch }}-${{ steps.playwright.outputs.version }}-chromium
+      - name: Download the browser (cache miss)
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: pnpm --filter @anum/web exec playwright install chromium
+
   # The Playwright suite in six shards, each on its own runner with the fixed ports 4173, 4174 and
   # 4175 (apps/web/playwright.config.ts). "Browser end-to-end" below is the one required check: it
   # passes only when every shard passed, and merges the shards' reports into one HTML report.
   browser-e2e-shard:
     name: Browser end-to-end (shard ${{ matrix.shard }}/6)
     runs-on: ubuntu-latest
+    needs: browser-e2e-build
+    # A shard takes about 15 minutes; a hung browser or preview server must not hold a runner
+    # for GitHub's default 6 hours.
+    timeout-minutes: 75
     strategy:
       fail-fast: false
       matrix:
@@ -154,8 +222,28 @@ jobs:
         with:
           node-version: 22
       - run: pnpm install --frozen-lockfile
-      - run: pnpm --filter @anum/web exec playwright install --with-deps chromium
-      - run: pnpm --filter @anum/web exec playwright test --shard=${{ matrix.shard }}/6
+      - name: Download the bundles
+        uses: actions/download-artifact@v8
+        with:
+          name: web-e2e-dist
+          path: apps/web
+      - name: Playwright browser cache
+        id: playwright-cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ runner.arch }}-${{ needs.browser-e2e-build.outputs.playwright-version }}-chromium
+      - name: Install the browser and its system packages (cache miss)
+        if: steps.playwright-cache.outputs.cache-hit != 'true'
+        run: pnpm --filter @anum/web exec playwright install --with-deps chromium
+      - name: Install the browser's system packages (cache hit)
+        if: steps.playwright-cache.outputs.cache-hit == 'true'
+        run: pnpm --filter @anum/web exec playwright install-deps chromium
+      - name: Run the shard
+        env:
+          # Serve the downloaded bundles; do not build them again.
+          ANUM_E2E_PREBUILT: "1"
+        run: pnpm --filter @anum/web exec playwright test --shard=${{ matrix.shard }}/6
       # The shard's blob report, merged by "Browser end-to-end". Only uploads; never changes the result.
       - name: Upload the shard's blob report
         if: ${{ !cancelled() }}
@@ -179,9 +267,11 @@ jobs:
     name: Browser end-to-end
     runs-on: ubuntu-latest
     needs: browser-e2e-shard
+    timeout-minutes: 20
     # Runs after every shard, passed or failed, to merge their reports. Not when the shards were
     # cancelled: a newer push supersedes the run (concurrency cancel-in-progress) and there are no
     # reports to merge; the newer run reports instead of a false "Directory does not exist" failure.
+    # When the build job failed the shards are skipped, and "Every shard passed" below fails.
     if: ${{ always() && needs.browser-e2e-shard.result != 'cancelled' }}
     steps:
       - uses: actions/checkout@v7
