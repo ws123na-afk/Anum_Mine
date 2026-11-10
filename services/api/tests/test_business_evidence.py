@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import csv
 import io
+import re
 import zipfile
 from collections.abc import Iterator
 from datetime import timedelta
@@ -178,8 +179,11 @@ def test_the_evidence_pack_lists_every_entry_and_never_a_members_bank_details() 
     # The allocation row carries the business's own reference only: no card, account, merchant or message text.
     allocation_row = next(row for row in body if row[4] == "allocation")
     text = index.text.casefold()
-    for personal in ("1234", card["name"].casefold(), "petromin", "my visa", "synthetic. purchase", card["id"].casefold()):
-        assert personal not in text, personal
+    assert card["id"].casefold() not in text
+    # Random ids and the short reference are hex and can hold "1234" by chance; the card digits must appear nowhere else.
+    readable = re.sub(r"\b[a-z_]+_[0-9a-f]{32}\b|#[0-9a-f]{6}\b", "", text)
+    for personal in ("1234", card["name"].casefold(), "petromin", "my visa", "synthetic. purchase"):
+        assert personal not in readable, personal
     assert allocation_row[header.index("source_reference")].startswith("#") and allocation_row[header.index("description")] == "Paid by a member"
 
     pack = client.get(f"{API}/evidence-pack.zip", headers=OWNER, params=span)
