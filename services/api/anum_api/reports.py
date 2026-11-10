@@ -750,6 +750,8 @@ def task_summary(context: TenantContext, days: int, now: datetime) -> ReportCrea
             if not page:
                 break
             for task in page:
+                if task.private_to is not None:
+                    continue  # a stored report is shared: the author's private tasks stay out of it
                 created = task.created_at if task.created_at.tzinfo else task.created_at.replace(tzinfo=timezone.utc)
                 if start <= created <= end:
                     current.append(task)

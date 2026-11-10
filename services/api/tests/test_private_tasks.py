@@ -344,3 +344,100 @@ def test_every_finance_and_own_mailbox_reading_tool_is_caller_scoped() -> None:
     # Approval-bound mailbox actions show the exact call to the approver on purpose.
     for name in ("send_mail", "delete_mail", "archive_mail_bulk", "export_mail"):
         assert not definitions[name].caller_scoped, name
+
+
+def test_no_list_route_shows_another_person_the_private_task_or_its_answer() -> None:
+    """A sweep over every parameterless GET route as another owner and as a viewer: the
+    balance and the question appear nowhere (found the autonomy activity feed, November 2026).
+    The audit log (and the office history built on it) and the activity feed name the task id and the tool,
+    never the content."""
+    people = _people("private_sweep")
+    _finance_account(people["alice"])
+    task_id = _asked_as_task(people["alice"])
+    paths = sorted(
+        path for path, methods in main.app.openapi()["paths"].items()
+        if "get" in methods and "{" not in path and (not path.endswith("/stream") or path == "/api/v1/events/stream")
+    )
+    assert len(paths) > 200
+    leaks = []
+    limited = 0
+    for name in ("omar", "vic"):  # the strongest and the weakest role
+        for index, path in enumerate(paths):
+            if index % 50 == 0:
+                main.app.state.rate_limiter.reset()  # the sweep is far more than one client's budget
+            try:
+                answer = client.get(path + ("?follow=false" if path.endswith("/stream") else ""), headers=people[name])
+            except Exception:  # noqa: S112 - a route that needs more than headers is not a list route
+                continue
+            text = answer.text
+            limited += answer.status_code == 429
+            # The audit log and the autonomy activity feed say that a tool ran for a task (ids only).
+            named_only = "/audit" in path or path in {"/api/v1/autonomy/actions", "/api/v1/office-history"}
+            if BALANCE in text or "account balance" in text or (task_id in text and not named_only):  # no bare digits: ids are hex
+                leaks.append((name, path))
+    assert leaks == [] and limited == 0
+    main.app.state.rate_limiter.reset()
+    for name in ("alice", "omar"):
+        actions = client.get("/api/v1/autonomy/actions", headers=people[name])
+        assert actions.status_code == 200 and "private to the person" in actions.text and BALANCE not in actions.text
+
+
+def test_a_shared_report_and_an_ops_brief_leave_the_authors_private_tasks_out() -> None:
+    from anum_api.green_concrete_ops import _tasks as ops_tasks
+    from anum_api.reports import task_summary
+
+    people = _people("private_report")
+    _finance_account(people["alice"])
+    task_id = _asked_as_task(people["alice"])
+    shared = client.post("/api/v1/tasks", headers=people["alice"], json={"title": "Shared", "prompt": "Say hello"}).json()
+    alice = TenantContext(tenant_id=people["alice"]["x-tenant-id"], workspace_id=people["alice"]["x-workspace-id"], user_id="alice_owner", roles=["owner"])
+    report = task_summary(alice, 7, utc_now()).model_dump_json()
+    assert shared["id"] in report and task_id not in report and "Money" not in report
+    brief = json.dumps(ops_tasks(alice, utc_now(), None), default=str)
+    assert task_id not in brief
+
+
+def test_mail_from_a_private_mailbox_makes_its_task_private_and_shared_mail_does_not() -> None:
+    from anum_api.email_inbox import Category, EmailAccount, EmailMessage, Priority, Visibility, email_backend, email_tool_registry
+    from anum_api.email_providers import EmailProvider
+
+    alice = _context("alice_mail")
+    now = utc_now()
+
+    def seed(account_id: str, visibility: Visibility, subject: str) -> None:
+        email_backend.accounts[account_id] = EmailAccount(
+            id=account_id, tenant_id=alice.tenant_id, workspace_id=alice.workspace_id, provider=EmailProvider.GMAIL,
+            address=f"{account_id}@example.com", connected_by="alice_mail", visibility=visibility, created_at=now, updated_at=now,
+        )
+        email_backend.messages[f"eml_{account_id}"] = EmailMessage(
+            id=f"eml_{account_id}", tenant_id=alice.tenant_id, workspace_id=alice.workspace_id, account_id=account_id,
+            provider_message_id=f"p_{account_id}", thread_id="t1", subject=subject, from_address="sara@example.com",
+            from_name="Sara", received_at=now, is_read=False, category=Category.CUSTOMER_QUESTION, priority=Priority.HIGH,
+            summary=subject, created_at=now, updated_at=now,
+        )
+
+    registry = email_tool_registry()
+    try:
+        seed("emb_shared", Visibility.WORKSPACE, "Shop order question")
+        shared = asyncio.run(registry.execute(ToolCall(name="search_email", arguments={"account_id": "emb_shared"}), alice))
+        assert shared.status == "succeeded" and "Shop order question" in shared.summary and shared.caller_private is False
+        seed("emb_private", Visibility.PRIVATE, "My medical results")
+        mixed = asyncio.run(registry.execute(ToolCall(name="search_email", arguments={}), alice))
+        assert "My medical results" in mixed.summary and mixed.caller_private is True
+        only_shared = asyncio.run(registry.execute(ToolCall(name="search_email", arguments={"account_id": "emb_shared"}), alice))
+        assert only_shared.caller_private is False
+
+        # Through the runtime: the task that holds the private subject line is its person's only.
+        repository = InMemoryRepository(InMemoryStore())
+
+        async def search(call: ToolCall, context: TenantContext) -> ToolResult:
+            return await registry.execute(ToolCall(name="search_email", arguments={}), context)
+
+        tools = ToolRegistry()
+        tools.register(ToolDefinition(name="anum.respond", description="test", risk_level=RiskLevel.LOW, idempotent=True), search)
+        task = repository.create_task(_task(alice))
+        run, _ = asyncio.run(AgentRuntime(MockModelGateway(), repository, tools=tools).run_task(task, alice))
+        assert "My medical results" in (run.result or "")
+        assert repository.get_task(task.id, _context("omar")) is None and repository.list_runs_for_task(task.id, _context("omar")) == []
+    finally:
+        email_backend.clear()

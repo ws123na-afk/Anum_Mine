@@ -1166,7 +1166,9 @@ class AgentRuntime:
             run_id=run.id,
             profile=profile,
             decision=info,
-            summary=result.summary,
+            # The activity feed is read by the workspace: a private task's answer is not put there
+            # (docs/tasks.md#private-tasks). The feed still says that the tool ran.
+            summary=result.summary if task.private_to is None else "The result is private to the person this task ran for.",
             undo_tool=definition.undo_tool if definition is not None else None,
             undo_arguments=undo if isinstance(undo, dict) else None,
             undo_window_seconds=definition.undo_window_seconds if definition is not None else 0,
