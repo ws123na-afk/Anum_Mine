@@ -853,10 +853,16 @@ def quarantine_message(record: FileRecord) -> str:
     )
 
 
+def may_serve(record: FileRecord) -> bool:
+    """Whether the file's bytes may leave the store at all: a quarantined (infected) file's
+    never do, by download, preview or any other feature that reads files (marketing media)."""
+    return record.scan_status != "infected"
+
+
 def _servable(file_id: str, context: TenantContext) -> FileRecord:
     """The record of a file whose bytes may be served; quarantined files answer 409."""
     record = _record(file_id, context)
-    if record.scan_status == "infected":
+    if not may_serve(record):
         raise HTTPException(409, quarantine_message(record))
     return record
 
