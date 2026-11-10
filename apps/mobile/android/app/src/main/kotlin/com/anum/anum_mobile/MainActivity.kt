@@ -6,11 +6,13 @@ import android.content.Intent
 import android.os.Bundle
 import android.provider.ContactsContract
 import android.view.WindowManager
-import io.flutter.embedding.android.FlutterActivity
+import io.flutter.embedding.android.FlutterFragmentActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
-class MainActivity : FlutterActivity() {
+// A FragmentActivity, which the app lock's system prompt needs (local_auth,
+// docs/mobile.md#app-lock).
+class MainActivity : FlutterFragmentActivity() {
     private var pendingPick: MethodChannel.Result? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {

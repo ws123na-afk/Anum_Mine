@@ -11,6 +11,9 @@ import '../data/session_store.dart';
 import '../features/books/books_data.dart';
 import '../features/autonomy/autonomy_repository.dart';
 import '../features/meetings/meetings_repository.dart';
+import '../features/app_lock/app_lock_controller.dart';
+import '../features/app_lock/app_lock_screen.dart';
+import '../features/app_lock/device_auth.dart';
 import '../features/auth/auth_controller.dart';
 import '../features/automations/automation_repository.dart';
 import '../features/automations/automations_controller.dart';
@@ -103,6 +106,7 @@ import '../features/governance/governance_controller.dart';
 import 'app_environment.dart';
 import 'infrastructure/appauth_authenticator.dart';
 import 'infrastructure/http_event_stream.dart';
+import 'infrastructure/local_auth_authenticator.dart';
 import 'infrastructure/mobile_adapters.dart';
 import 'theme/anum_theme.dart';
 import 'theme/theme_controller.dart';
@@ -221,8 +225,11 @@ class AnumApp extends StatefulWidget {
   State<AnumApp> createState() => _AnumAppState();
 }
 
-class _AnumAppState extends State<AnumApp> {
+class _AnumAppState extends State<AnumApp> with WidgetsBindingObserver {
   late final AuthController auth;
+
+  /// The optional app lock (docs/mobile.md#app-lock).
+  late final AppLockController appLock;
   late final WorkspaceController workspace;
   late final AutomationsController automations;
   late final ChatController chat;
@@ -323,6 +330,23 @@ class _AnumAppState extends State<AnumApp> {
       sessionListener: push,
     );
     auth = AuthController(authRepository);
+    appLock = AppLockController(
+      authenticator: env.deviceAuth ?? LocalAuthDeviceAuthenticator(),
+      store: SecureAppLockStore(),
+      now: env.now,
+    )
+      ..addListener(_onLockChanged)
+      ..restore();
+    // An approval decision asks the phone to check again when the last
+    // unlock is older than "Lock after"; a refused check sends nothing.
+    api.guard = (method, path) async {
+      if (!isApprovalDecision(method, path)) return null;
+      final l = _strings;
+      final confirmed = await appLock.confirmSensitiveAction(
+          reason: l.t('lock.reason.decision'));
+      return confirmed ? null : l.t('lock.decisionRefused');
+    };
+    WidgetsBinding.instance.addObserver(this);
     automations = AutomationsController(ApiAutomationTriggerRepository(api));
     final fileTransfer = HttpWorkspaceFileTransfer(
       baseUri: Uri.parse(configuredUrl),
@@ -574,6 +598,7 @@ class _AnumAppState extends State<AnumApp> {
     'email': email.reset,
     'command': command.reset,
     'tools': tools.reset,
+    'appLock': appLock.reset,
   };
 
   /// Fields that keep nothing of the signed-in person between sessions, and
@@ -592,18 +617,65 @@ class _AnumAppState extends State<AnumApp> {
     'records': 'routes; each page has its own controller',
   };
 
+  /// The catalog for sentences said outside any widget (the system prompt's
+  /// reason, a refused decision): the chosen language, else the phone's.
+  AnumLocalizations get _strings => AnumLocalizations(locale.locale ??
+      (PlatformDispatcher.instance.locale.languageCode == 'ar'
+          ? const Locale('ar')
+          : const Locale('en')));
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    // `inactive` is a system sheet or the biometric prompt above the app,
+    // not the person leaving.
+    switch (state) {
+      case AppLifecycleState.paused:
+      case AppLifecycleState.hidden:
+        appLock.paused();
+      case AppLifecycleState.resumed:
+        appLock.resumed();
+      case AppLifecycleState.inactive:
+      case AppLifecycleState.detached:
+        break;
+    }
+  }
+
+  /// A tapped push into a locked area, opened once the lock is off.
+  PushDestination? _heldPush;
+
+  void _onLockChanged() {
+    final held = _heldPush;
+    if (held != null && !appLock.blocks(_areaOfRoute(held.route))) {
+      _heldPush = null;
+      _openPush(held);
+    }
+  }
+
+  static AppLockArea _areaOfRoute(String route) =>
+      route == AnumRoutes.finance || route == AnumRoutes.financeIntel
+          ? AppLockArea.finance
+          : route == RecordModuleRoutes.books
+              ? AppLockArea.books
+              : AppLockArea.app;
+
+  /// Leaves a locked Finance or Books screen for the rest of the app.
+  void _leaveLockedArea() =>
+      _navigator.currentState?.popUntil((route) => route.isFirst);
+
+  static const _signedInPhases = {
+    AuthPhase.ready,
+    AuthPhase.workspacePicker,
+    AuthPhase.noWorkspace,
+    AuthPhase.onboarding,
+    AuthPhase.modelSetup,
+  };
+
   /// A person is signed in (any phase after sign-in), so the next
   /// signed-out phase is a sign-out or an ended session, not a cold start.
   bool _sessionOpen = false;
 
   void _onAuthChanged() {
-    if (const {
-      AuthPhase.ready,
-      AuthPhase.workspacePicker,
-      AuthPhase.noWorkspace,
-      AuthPhase.onboarding,
-      AuthPhase.modelSetup,
-    }.contains(auth.phase)) {
+    if (_signedInPhases.contains(auth.phase)) {
       _sessionOpen = true;
     }
     if (auth.phase == AuthPhase.ready && workspace.phase.name == 'initial') {
@@ -621,6 +693,11 @@ class _AnumAppState extends State<AnumApp> {
     if (auth.phase == AuthPhase.signedOut) {
       if (_pushReady) push.signedOut();
       _pushReady = false;
+      _heldPush = null;
+      // A lock without a session belongs to nobody: the next person to sign
+      // in starts without one (also after a session that ended while the
+      // app was closed).
+      if (appLock.enabled || !appLock.restored) appLock.reset();
       if (_sessionOpen) {
         _sessionOpen = false;
         // Settings, Finance or any other screen opened above Home closes, so
@@ -681,6 +758,23 @@ class _AnumAppState extends State<AnumApp> {
       );
       return;
     }
+    // Locked: the push waits. Nothing of a locked area is opened, built or
+    // shown before the person unlocks.
+    if (appLock.blocks(_areaOfRoute(destination.route))) {
+      _heldPush = destination;
+      if (!appLock.coversWindow && !appLock.authenticating) {
+        // No lock screen is up (only Finance and Books are locked and none
+        // is open), so ask here.
+        final result =
+            await appLock.unlock(reason: _strings.t('lock.reason.unlock'));
+        if (result != DeviceAuthResult.success) {
+          _heldPush = null;
+          _messenger.currentState?.showSnackBar(
+              SnackBar(content: Text(appLockFailureText(_strings, result))));
+        }
+      }
+      return;
+    }
     _navigator.currentState?.pushNamed(destination.route);
   }
 
@@ -734,6 +828,9 @@ class _AnumAppState extends State<AnumApp> {
       super.dispose();
       return;
     }
+    WidgetsBinding.instance.removeObserver(this);
+    appLock.removeListener(_onLockChanged);
+    appLock.dispose();
     auth.removeListener(_onAuthChanged);
     auth.dispose();
     workspace.dispose();
@@ -807,7 +904,22 @@ class _AnumAppState extends State<AnumApp> {
           builder: (context, child) => PortalEntryScope(
             open: _openPortal,
             child: AppCallOverlay(
-                controller: appCalls, child: child ?? const SizedBox.shrink()),
+              controller: appCalls,
+              // The app lock covers everything below while it is locked;
+              // an incoming call still rings above it, like on a locked
+              // phone.
+              child: ListenableBuilder(
+                listenable: auth,
+                builder: (context, _) => AppLockCover(
+                  controller: appLock,
+                  active: auth.phase != AuthPhase.signedOut &&
+                      auth.phase != AuthPhase.restoring,
+                  onSignOut: auth.signOut,
+                  onLeave: _leaveLockedArea,
+                  child: child ?? const SizedBox.shrink(),
+                ),
+              ),
+            ),
           ),
           home: ListenableBuilder(
             listenable: auth,

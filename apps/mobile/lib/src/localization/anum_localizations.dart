@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'agent_controls_strings.dart';
+import 'app_lock_strings.dart';
 import 'approvals_strings.dart';
 import 'calls_strings.dart';
 import 'billing_strings.dart';
@@ -48,6 +49,7 @@ class AnumLocalizations {
       (isArabic ? waOpsAr : waOpsEn)[key] ??
       (isArabic ? mkOpsAr : mkOpsEn)[key] ??
       (isArabic ? agentSkillsAr : agentSkillsEn)[key] ??
+      (isArabic ? appLockAr : appLockEn)[key] ??
       _en[key] ??
       marketingEn[key] ??
       mailCenterEn[key] ??
@@ -66,6 +68,7 @@ class AnumLocalizations {
       waOpsEn[key] ??
       mkOpsEn[key] ??
       agentSkillsEn[key] ??
+      appLockEn[key] ??
       key;
 
   /// [t] with each `{name}` placeholder replaced by its value.

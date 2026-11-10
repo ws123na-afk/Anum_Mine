@@ -96,6 +96,12 @@ class AnumApiClient {
   final ApiTransport transport;
   final SessionStore sessions;
 
+  /// Asked before every authenticated request with its method and path. A
+  /// sentence refuses the request before anything is sent (the app lock asks
+  /// the person to confirm an approval decision, docs/mobile.md#app-lock);
+  /// null lets it through.
+  Future<String?> Function(String method, String path)? guard;
+
   static Uri _normalizeBaseUri(Uri value) {
     if (!value.hasScheme || value.host.isEmpty) {
       throw ArgumentError.value(value, 'baseUri', 'must be absolute');
@@ -126,6 +132,12 @@ class AnumApiClient {
   }) async {
     final sent = <String, String>{'content-type': 'application/json'};
     if (authenticated) {
+      final refusal = await guard?.call(method, path);
+      if (refusal != null) {
+        // A refusal like the API's own 403, so every screen shows the
+        // sentence where it shows a refused action and stays usable.
+        throw ApiException(403, refusal, code: 'app_lock_required');
+      }
       final session = await sessions.read();
       if (session == null || session.isExpired) {
         if (session?.isExpired ?? false) await sessions.clear();

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../app_lock/app_lock_settings.dart';
 import '../../data/api_models.dart';
 import '../../src/localization/anum_localizations.dart';
 import '../../src/theme/anum_theme.dart';
@@ -375,6 +376,9 @@ class _Content extends StatelessWidget {
                   title: Text('Protected credentials'),
                   subtitle: Text(
                       'Provider keys are write-only and stored outside API responses.')),
+              const Divider(height: 1),
+              // The optional app lock (docs/mobile.md#app-lock).
+              const AppLockSettingsTiles(),
               const Divider(height: 1),
               ListTile(
                   leading: Icon(Icons.logout,

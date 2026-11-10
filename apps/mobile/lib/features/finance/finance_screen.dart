@@ -1,3 +1,5 @@
+import '../app_lock/app_lock_controller.dart';
+import '../app_lock/app_lock_screen.dart';
 import 'package:flutter/material.dart';
 
 import '../../src/localization/amount_input.dart';
@@ -66,8 +68,12 @@ class _FinanceScreenState extends State<FinanceScreen> {
         ?.showSnackBar(SnackBar(content: Text(text)));
   }
 
+  // Behind the app lock when it is on (docs/mobile.md#app-lock).
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) =>
+      AppLockGate(area: AppLockArea.finance, child: _content(context));
+
+  Widget _content(BuildContext context) {
     final s = FinanceStrings.of(context);
     return ListenableBuilder(
       listenable: widget.controller,

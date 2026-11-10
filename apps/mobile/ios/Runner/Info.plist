@@ -91,5 +91,7 @@
 	<array>
 		<string>remote-notification</string>
 	</array>
+	<key>NSFaceIDUsageDescription</key>
+	<string>ANUM uses Face ID to unlock the app when you turn on the app lock.</string>
 </dict>
 </plist>
