@@ -30,7 +30,7 @@ import logging
 from collections import defaultdict
 from collections.abc import Iterator
 from contextlib import contextmanager
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 from threading import RLock
@@ -201,6 +201,14 @@ def post(context: TenantContext, *, actor: str = SYSTEM_POSTER, today: date | No
                     to_reverse.append(entry)
             elif proposal.fingerprint != entry.fingerprint:
                 to_reverse.append(entry)
+        # Entries posted before a document's own rate was used for what reverses, releases or settles it: the ones whose line
+        # holds another rate than the document's entry are reversed and posted again, with a memo. Right ones are not touched.
+        corrected: dict[str, str] = {}
+        if not dry_run and not inputs.truncated:
+            taken = {entry.id for entry in to_reverse}
+            for entry in _wrong_rates(store, chart, due, [item for item in live if item.id not in taken], settings.base_currency):
+                to_reverse.append(entry)
+                corrected[entry.event_key] = entry.id
         changed = {entry.event_key for entry in to_reverse}
         settling: list[Proposal] = []
         for key, proposal in due.items():
@@ -223,7 +231,8 @@ def post(context: TenantContext, *, actor: str = SYSTEM_POSTER, today: date | No
             result.posted = len(to_post)
             return result
         for entry in to_reverse:
-            reverse(store, context, entry, actor=actor, now=moment, locked=locked)
+            memo = f"Rate corrected, reversal of entry {entry.id}: {entry.description}" if entry.event_key in corrected else None
+            reverse(store, context, entry, actor=actor, now=moment, locked=locked, description=memo)
         for proposal, lines in to_post:
             _write(store, context, proposal, lines, locked, actor, moment)
         # Settlements of a balance in another currency, in date order, each at the carrying rate of what is booked by then.
@@ -237,7 +246,21 @@ def post(context: TenantContext, *, actor: str = SYSTEM_POSTER, today: date | No
                 continue
             result.late += int(locked is not None and proposal.event_date <= locked)
             to_post.append((proposal, realised))
-            _write(store, context, proposal, realised, locked, actor, moment)
+            _write(store, context, _with_memo(proposal, corrected.get(proposal.event_key)), realised, locked, actor, moment)
+        if not inputs.truncated:
+            # A document paid in full in its own currency whose base value did not clear (payments rounded one by one before
+            # the last payment took what is left): its last payment is posted again and takes the remainder.
+            for entry, proposal in _left_behind(store, chart, due, settings.base_currency):
+                reverse(store, context, entry, actor=actor, now=moment, locked=locked,
+                        description=f"Rate corrected, reversal of entry {entry.id}: {entry.description}")
+                realised = realise(proposal, converter, chart, reader, booked)
+                result.reversed += 1
+                if isinstance(realised, Issue):
+                    issues.append(realised)
+                    continue
+                result.late += int(locked is not None and proposal.event_date <= locked)
+                to_post.append((proposal, realised))
+                _write(store, context, _with_memo(proposal, entry.id), realised, locked, actor, moment)
         result.issues = len(issues)
         result.issue_rows = [_issue_view(issue) for issue in sorted(issues, key=lambda item: (item.event_date, item.event_key))[:50]]
         result.posted = len(to_post)
@@ -266,6 +289,105 @@ def _carrying_reader(store: BooksStore) -> Any:
         return rows[0]["amount"], rows[0]["debit"] - rows[0]["credit"]
 
     return read
+
+
+def _with_memo(proposal: Proposal, replaced_id: str | None) -> Proposal:
+    """The proposal with the memo of a correction: which entry it replaces and why (the description is not a fact of the
+    event, so the fingerprint is the same)."""
+    if replaced_id is None:
+        return proposal
+    return replace(proposal, description=f"{proposal.description[:150]}. Rate corrected: replaces entry {replaced_id}, which used a rate "
+                                         "recorded after its document was posted")
+
+
+def _foreign_booked(proposal: Proposal, base: str) -> list[Any]:
+    return [leg for leg in proposal.legs if leg.booked_by and leg.currency != base]
+
+
+def _lines_of(store: BooksStore, entry_ids: set[str], **where: Any) -> list[JournalLine] | None:
+    """The lines of some entries, or None when there are more than one read holds (then nothing is corrected this run)."""
+    if not entry_ids:
+        return []
+    limit = MAX_SCAN * 20
+    lines, total = store.find("journal_lines", where={"entry_id": entry_ids, **where}, order_by="line_no", descending=False, limit=limit)
+    return lines if total <= limit else None
+
+
+def _wrong_rates(store: BooksStore, chart: Chart, due: dict[str, Proposal], live: list[JournalEntry], base: str) -> list[JournalEntry]:
+    """Live, unchanged entries that reverse, release or settle a document in another currency at another rate than the one the
+    document's own entry was posted with (posted before ``Leg.booked_by``; docs/business-books.md#what-is-posted-from-what)."""
+    watched = [(entry, due[entry.event_key]) for entry in live
+               if entry.event_key in due and due[entry.event_key].fingerprint == entry.fingerprint and _foreign_booked(due[entry.event_key], base)]
+    if not watched:
+        return []
+    by_key = {entry.event_key: entry for entry in live}
+    documents = {leg.booked_by for _, proposal in watched for leg in _foreign_booked(proposal, base)}
+    document_ids = {by_key[key].id: key for key in documents if key in by_key}
+    lines = _lines_of(store, {entry.id for entry, _ in watched} | set(document_ids), currency=Not(base))
+    if lines is None:
+        return []
+    posted: dict[tuple[str, str], Decimal] = {}  # (document event key, currency) -> the rate on its entry
+    by_entry: dict[str, list[JournalLine]] = defaultdict(list)
+    for line in lines:
+        by_entry[line.entry_id].append(line)
+        if line.entry_id in document_ids and line.rate is not None:
+            posted.setdefault((document_ids[line.entry_id], line.currency), line.rate)
+    wrong = []
+    for entry, proposal in watched:
+        for leg in _foreign_booked(proposal, base):
+            rate = posted.get((leg.booked_by, leg.currency))
+            account_id = chart.resolve(leg.account)
+            held = next((line for line in by_entry.get(entry.id, []) if line.account_id == account_id and line.currency == leg.currency
+                         and line.rate is not None and (line.debit > 0) == leg.debit), None)
+            if rate is not None and held is not None and held.rate != rate:
+                wrong.append(entry)
+                break
+    return wrong
+
+
+def _left_behind(store: BooksStore, chart: Chart, due: dict[str, Proposal], base: str) -> list[tuple[JournalEntry, Proposal]]:
+    """The last payment of each document that is paid in full in its own currency while a base-currency remainder stays on
+    its receivable or payable, when posting that payment again clears it."""
+    groups: dict[tuple[str, str, str], dict[str, Proposal]] = {}  # (document key, account id, currency) -> its events
+    for proposal in due.values():
+        for leg in _foreign_booked(proposal, base):
+            groups.setdefault((leg.booked_by, chart.resolve(leg.account), leg.currency), {})[proposal.event_key] = proposal
+    groups = {key: events for key, events in groups.items()
+              if any(leg.settles for proposal in events.values() for leg in proposal.legs if leg.booked_by == key[0])}
+    if not groups:
+        return []
+    keys = {key[0] for key in groups} | {event for events in groups.values() for event in events}
+    limit = MAX_SCAN * 20
+    entries, total = store.find("journal_entries", where={"event_key": keys, "status": "posted", "reverses_id": None}, limit=limit)
+    lines = _lines_of(store, {entry.id for entry in entries}, currency=Not(base)) if total <= limit else None
+    if lines is None:
+        return []
+    entry_by_key = {entry.event_key: entry for entry in entries}
+    by_entry: dict[str, list[JournalLine]] = defaultdict(list)
+    for line in lines:
+        by_entry[line.entry_id].append(line)
+    out: list[tuple[JournalEntry, Proposal]] = []
+    seen: set[str] = set()
+    for (document, account_id, currency), events in groups.items():
+        if document not in entry_by_key:
+            continue
+        mine = [(entry_by_key[key], line) for key in (document, *events) if key in entry_by_key
+                for line in by_entry.get(entry_by_key[key].id, []) if line.account_id == account_id and line.currency == currency]
+        original = sum((line.amount for _, line in mine), Decimal(0))
+        remainder = sum((line.debit - line.credit for _, line in mine), Decimal(0))
+        if original != 0 or remainder == 0:
+            continue
+        settled = [(entry, line) for entry, line in mine if entry.event_key in events
+                   and any(leg.settles and leg.booked_by == document for leg in events[entry.event_key].legs)]
+        if not settled:
+            continue
+        last, line = max(settled, key=lambda item: (item[0].event_date, item[0].event_key))
+        # The payment's own line moves by the remainder; it must stay a positive amount on the same side.
+        value = (line.debit - remainder) if line.debit > 0 else (line.credit + remainder)
+        if value > 0 and last.event_key not in seen:
+            seen.add(last.event_key)
+            out.append((last, events[last.event_key]))
+    return out
 
 
 class _BookedReader:

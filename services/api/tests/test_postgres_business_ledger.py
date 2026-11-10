@@ -206,3 +206,50 @@ def test_a_foreign_bill_is_paid_off_at_the_rate_it_was_posted_with(client: TestC
     assert cleared == [Decimal("12.50"), Decimal("12.51"), Decimal("12.54")]
     again = client.post(f"{API}/ledger/post", headers=ME).json()
     assert (again["posted"], again["reversed"], again["issues"]) == (0, 0, 0)
+
+
+def test_a_payment_posted_at_a_later_rate_is_corrected_by_the_posting_run(client: TestClient, app_session: Callable[..., Iterator[Session]],
+                                                                          monkeypatch: pytest.MonkeyPatch) -> None:
+    """docs/business-books.md#rate-corrections, in the database: a USD 1,000 bill posted at 3.75 and paid when 3.80 had been
+    recorded for the bill's day (posted the old way: nothing reads the journal) left SAR 50.00 on the payable. The next run
+    reverses that payment and posts it again: payable 0.00, bank -3,800.00, a loss of 50.00; a second run changes nothing."""
+    from anum_api.business import books_ledger
+
+    class Blind:
+        def __init__(self, *args: object) -> None:
+            pass
+
+        def rate(self, event_key: str, currency: str) -> None:
+            return None
+
+        def open(self, event_key: str, account_id: str, currency: str) -> None:
+            return None
+
+    def figures() -> dict[str, Decimal]:
+        return {row[0]: row[1] for row in _rows(app_session, """
+            select a.system_key, sum(l.debit - l.credit) from business_book_journal_lines l
+            join business_book_ledger_accounts a on a.id = l.account_id where a.system_key in ('ap', 'bank', 'fx') group by a.system_key""")}
+
+    _setup(client)
+    today = utc_now().date()
+    for value, on in (("3.75", today - timedelta(days=1)),):
+        assert client.post(f"{API}/rates", headers=ME, json={"base": "USD", "quote": "SAR", "rate": value, "as_of": str(on), "source": "Synthetic"}).status_code == 201
+    with monkeypatch.context() as patch:
+        patch.setattr(books_ledger, "_BookedReader", Blind)
+        patch.setattr(books_ledger, "_wrong_rates", lambda *args: [])
+        patch.setattr(books_ledger, "_left_behind", lambda *args: [])
+        bill = _bill(client, currency="USD", subtotal="1000", tax="0")
+        assert client.post(f"{API}/ledger/post", headers=ME).status_code == 200
+        assert client.post(f"{API}/rates", headers=ME, json={"base": "USD", "quote": "SAR", "rate": "3.80", "as_of": str(today), "source": "Synthetic"}).status_code == 201
+        paid = client.post(f"{API}/bills/{bill['id']}/payments", headers=ME, json={"amount": "1000", "paid_on": today.isoformat()})
+        assert paid.status_code == 201, paid.text
+        assert client.post(f"{API}/ledger/post", headers=ME).status_code == 200
+    assert figures() == {"ap": Decimal("50.00"), "bank": Decimal("-3800.00")}
+    run = client.post(f"{API}/ledger/post", headers=ME).json()
+    assert (run["reversed"], run["posted"], run["issues"]) == (1, 1, 0)
+    assert figures() == {"ap": Decimal("0.00"), "bank": Decimal("-3800.00"), "fx": Decimal("50.00")}
+    memos = [row[0] for row in _rows(app_session, "select description from business_book_journal_entries where source_kind = 'bill_payment' "
+                                                  "and description like '%Rate corrected%'")]
+    assert len(memos) == 2
+    again = client.post(f"{API}/ledger/post", headers=ME).json()
+    assert (again["reversed"], again["posted"]) == (0, 0)
