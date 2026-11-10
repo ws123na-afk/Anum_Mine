@@ -91,6 +91,14 @@ def test_a_model_that_invents_numbers_without_any_source_is_stopped() -> None:
     assert timing.figures_withheld == 3
 
 
+def test_the_data_markers_random_id_never_vouches_for_a_figure() -> None:
+    # The block's id is random hex; an id such as abcd77abcd... must not let an invented "77" through.
+    block = BLOCK.replace(BLOCK.split("id=")[1].split()[0], "abcd77abcdefabcd")
+    model = Model(["1,948 tyres are due in 30 days. ", "Also 77 are scrapped."])
+    reply, timing, _ = ask(model, "What is due on the tyres?", blocks=[block], sourced=True)
+    assert "1,948" in reply and "77" not in reply and timing.figures_withheld == 1
+
+
 def test_figures_in_the_turns_data_are_spoken_and_others_are_withheld() -> None:
     model = Model(["1,948 tyres are due in 30 days and 982 inspections are overdue. ", "Also 77 are scrapped."])
     reply, timing, _ = ask(model, "What is due on the tyres?", blocks=[BLOCK], sourced=True)

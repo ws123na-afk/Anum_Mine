@@ -123,6 +123,9 @@ def is_arabic(text: str) -> bool:
     return bool(re.search(r"[؀-ۿ]", text))
 
 
+_DATA_MARKER = re.compile(r"<<(?:end-)?untrusted-data\b[^>\n]*>>")
+
+
 class FigureGuard:
     """Sentence-level gate between the model's text and the client (see the module docstring)."""
 
@@ -144,7 +147,8 @@ class FigureGuard:
     # evidence ---------------------------------------------------------------------------
 
     def add_evidence(self, text: str) -> None:
-        self._supported |= figures_in(text)
+        # The data markers carry a random hex id, whose digits are not figures from the source.
+        self._supported |= figures_in(_DATA_MARKER.sub(" ", text))
 
     def failure(self, tool: str) -> None:
         if tool not in self.failed:
