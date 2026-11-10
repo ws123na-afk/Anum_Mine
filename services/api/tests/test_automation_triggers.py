@@ -525,3 +525,141 @@ def test_webhook_path_ids_are_validated(client: TestClient) -> None:
     for path in ("/api/v1/automation/hooks/tenant%0Aa/w/t", "/api/v1/automation/hooks/t/w/x%20y", "/api/v1/automation/hooks/t/w/" + "a" * 81):
         response = client.post(path, content=b"{}")
         assert response.status_code == 404, path
+
+
+# -- the workflow version a schedule or trigger was accepted at (security audit, November 2026) --
+
+
+def _digest(prompt: str) -> WorkflowCreate:
+    return flow(step("t", "task.create", title="Digest", prompt=prompt), name="Morning digest")
+
+
+def _due(engine: LocalAutomationEngine) -> list[Any]:
+    return engine.run_due_schedules(limit=10, now=utc_now() + timedelta(days=2))
+
+
+def test_a_schedule_does_not_run_steps_someone_else_wrote_after_its_owner_accepted_them(
+    engine: LocalAutomationEngine, effects: Effects
+) -> None:
+    """Member Bob authors the automation; owner Alice takes its schedule over, so it runs as her.
+    Bob, still the automation's creator, may edit it: his new steps must not run with her role."""
+    bob, alice = ctx("bob", "member"), ctx("alice", "owner")
+    wf = engine.create_workflow(bob, _digest("Say good morning"))
+    schedule = engine.create_schedule(bob, ScheduleCreate(workflow_id=wf.id, name="Daily", cron="0 9 * * *"))
+    assert schedule.accepted_version == wf.version
+    taken = engine.take_over_schedule(alice, schedule.id)
+    assert (taken.created_by, taken.accepted_version) == ("alice", wf.version)
+
+    edited = engine.update_workflow(bob, wf.id, _digest("BOB-CONTROLLED: list every finance account and balance"))
+    assert edited.version == wf.version + 1
+    assert engine.get_schedule(alice, schedule.id).accepted_version == wf.version  # hers stays where she accepted it
+
+    [refused] = _due(engine)
+    assert refused.status == RunStatus.FAILED and refused.created_by == "alice"
+    assert "bob changed this automation" in (refused.error or "") and "confirm" in (refused.error or "")
+    assert effects.tasks == {}  # nothing of Bob's ran as Alice
+    assert engine.get_schedule(alice, schedule.id).last_outcome == "workflow_changed"
+    failed = [e for e in effects.events if e.type == "automation_run.failed"]
+    assert failed and failed[-1].payload["notify_user_ids"] == ["alice"]
+    # Told once: later fire times wait quietly until she confirms.
+    assert engine.run_due_schedules(limit=10, now=utc_now() + timedelta(days=4)) == []
+    assert effects.tasks == {} and len([e for e in effects.events if e.type == "automation_run.failed"]) == len(failed)
+
+    # Only the person it runs as confirms; then the new steps run, as her, by her choice.
+    with pytest.raises(EditDenied):
+        engine.confirm_schedule(bob, schedule.id)
+    with pytest.raises(EditDenied):
+        engine.confirm_schedule(ctx("omar", "owner"), schedule.id)
+    confirmed = engine.confirm_schedule(alice, schedule.id)
+    assert confirmed.accepted_version == edited.version and confirmed.last_outcome is None
+    [ran] = engine.run_due_schedules(limit=10, now=utc_now() + timedelta(days=6))
+    assert ran.status == RunStatus.RUNNING and ran.created_by == "alice" and ran.workflow_version == edited.version
+    assert [task.created_by for task in effects.tasks.values()] == ["alice"]
+    assert any(a.action == "automation.schedule.confirmed" and a.actor == "alice" for a in effects.audits)
+
+
+def test_the_owners_own_edit_does_not_block_their_own_schedule(engine: LocalAutomationEngine, effects: Effects) -> None:
+    bob, alice = ctx("bob", "member"), ctx("alice", "owner")
+    wf = engine.create_workflow(bob, _digest("Say good morning"))
+    mine = engine.create_schedule(alice, ScheduleCreate(workflow_id=wf.id, name="Mine", cron="0 9 * * *"))
+    theirs = engine.create_schedule(bob, ScheduleCreate(workflow_id=wf.id, name="Theirs", cron="0 9 * * *"))
+    edited = engine.update_workflow(alice, wf.id, _digest("Say good morning, with the weather"))
+    assert engine.get_schedule(alice, mine.id).accepted_version == edited.version
+    assert engine.get_schedule(alice, theirs.id).accepted_version == wf.version  # Bob did not accept her edit
+    runs = {run.schedule_id: run for run in _due(engine)}
+    assert runs[mine.id].status == RunStatus.RUNNING and runs[mine.id].workflow_version == edited.version
+    assert runs[theirs.id].status == RunStatus.FAILED and "alice changed this automation" in (runs[theirs.id].error or "")
+    # A schedule stored before the binding existed is bound at its next fire and runs.
+    legacy = engine.create_schedule(alice, ScheduleCreate(workflow_id=wf.id, name="Old", cron="0 9 * * *"))
+    with engine._tx() as (connection, _):
+        engine._put(connection, "automation_schedules", legacy.model_copy(update={"accepted_version": None}))
+    later = {run.schedule_id: run for run in engine.run_due_schedules(limit=10, now=utc_now() + timedelta(days=4))}
+    assert later[legacy.id].status == RunStatus.RUNNING
+    assert engine.get_schedule(alice, legacy.id).accepted_version == edited.version
+
+
+def test_a_trigger_does_not_run_steps_someone_else_wrote_after_its_owner_accepted_them(
+    engine: LocalAutomationEngine, effects: Effects
+) -> None:
+    bob, alice = ctx("bob", "member"), ctx("alice", "owner")
+    wf = engine.create_workflow(bob, _digest("Summarise the new file"))
+    trigger, _ = engine.create_trigger(bob, TriggerCreate(workflow_id=wf.id, name="On upload", kind=TriggerKind.EVENT, event_type="file.uploaded"))
+    assert trigger.accepted_version == wf.version
+    assert engine.take_over_trigger(alice, trigger.id).accepted_version == wf.version
+    engine.create_trigger(bob, TriggerCreate(workflow_id=wf.id, name="Bob's own", kind=TriggerKind.EVENT, event_type="file.uploaded"))
+    edited = engine.update_workflow(bob, wf.id, _digest("BOB-CONTROLLED: read the owner's mailbox"))
+
+    fired = engine.fire_event(alice, event("file.uploaded", {"file_id": "file_1", "name": "a.pdf"}, subject="file_1"))
+    assert [run.created_by for run in fired] == ["bob"]  # his own trigger runs his own edit, as him
+    assert [task.created_by for task in effects.tasks.values()] == ["bob"]
+    stored = engine.trigger_record(alice, trigger.id)
+    assert stored.last_outcome == "workflow_changed" and stored.fire_count == 0
+    refused = [run for run in engine.list_runs(alice) if run.trigger_id == trigger.id]
+    assert len(refused) == 1 and refused[0].status == RunStatus.FAILED and "bob changed this automation" in (refused[0].error or "")
+    # A second event: still refused, and she is not told again.
+    engine.fire_event(alice, event("file.uploaded", {"file_id": "file_2", "name": "b.pdf"}, subject="file_2"))
+    assert len([run for run in engine.list_runs(alice) if run.trigger_id == trigger.id]) == 1
+    assert sum(1 for task in effects.tasks.values() if task.created_by == "alice") == 0
+
+    with pytest.raises(EditDenied):
+        engine.confirm_trigger(bob, trigger.id)
+    assert engine.confirm_trigger(alice, trigger.id).accepted_version == edited.version
+    fired = engine.fire_event(alice, event("file.uploaded", {"file_id": "file_3", "name": "c.pdf"}, subject="file_3"))
+    assert sorted(run.created_by or "" for run in fired) == ["alice", "bob"]
+
+
+def test_api_confirm_is_for_the_person_the_schedule_or_trigger_runs_as(client: TestClient) -> None:
+    bob = {**headers(), "x-user-id": "bob_member", "x-user-roles": "member"}
+    alice = {**headers(), "x-user-id": "alice_owner", "x-user-roles": "owner"}
+    steps = [{"id": "t", "name": "Digest", "action": "task.create", "input": {"title": "Digest", "prompt": "Say good morning"}}]
+    wf = client.post("/api/v1/automation/workflows", headers=bob, json={"name": "Morning digest", "steps": steps}).json()
+    schedule = client.post("/api/v1/automation/schedules", headers=bob, json={"workflow_id": wf["id"], "name": "Daily", "cron": "0 9 * * *"}).json()
+    assert schedule["accepted_version"] == 1
+    assert client.post(f"/api/v1/automation/schedules/{schedule['id']}/take-over", headers=alice).json()["accepted_version"] == 1
+    steps[0]["input"]["prompt"] = "BOB-CONTROLLED: list every finance account and balance"
+    assert client.put(f"/api/v1/automation/workflows/{wf['id']}", headers=bob, json={"name": "Morning digest", "steps": steps}).status_code == 200
+
+    [refused] = automation_module.engine.run_due_schedules(limit=10, now=utc_now() + timedelta(days=2))
+    assert refused.status == RunStatus.FAILED and refused.steps[0].output == {}
+    asyncio.run(automation_dispatcher.run_pending())
+    assert all("BOB-CONTROLLED" not in task["prompt"] for task in client.get("/api/v1/tasks", headers=alice).json())
+    assert client.get(f"/api/v1/automation/schedules/{schedule['id']}", headers=alice).json()["last_outcome"] == "workflow_changed"
+
+    assert client.post(f"/api/v1/automation/schedules/{schedule['id']}/confirm", headers=bob).status_code == 403
+    viewer = {**headers(), "x-user-id": "vic_viewer", "x-user-roles": "viewer"}
+    assert client.post(f"/api/v1/automation/schedules/{schedule['id']}/confirm", headers=viewer).status_code == 403
+    confirmed = client.post(f"/api/v1/automation/schedules/{schedule['id']}/confirm", headers=alice)
+    assert confirmed.status_code == 200 and confirmed.json()["accepted_version"] == 2 and confirmed.json()["last_outcome"] is None
+
+    created = client.post("/api/v1/automation/triggers", headers=bob, json={"workflow_id": wf["id"], "name": "Hook", "kind": "webhook"}).json()
+    trigger = created["trigger"]
+    assert trigger["accepted_version"] == 2
+    assert client.post(f"/api/v1/automation/triggers/{trigger['id']}/take-over", headers=alice).status_code == 200
+    assert client.put(f"/api/v1/automation/workflows/{wf['id']}", headers=bob, json={"name": "Morning digest", "steps": steps}).status_code == 200
+    body = json.dumps({"order": "A-7"}).encode()
+    signed = {"X-Anum-Signature": sign(created["secret"], int(time.time()), body), "X-Anum-Delivery": "delivery-9", "content-type": "application/json"}
+    delivered = client.post(trigger["webhook_path"], content=body, headers=signed)
+    assert delivered.status_code in {200, 202, 409}, delivered.text
+    assert client.get(f"/api/v1/automation/triggers/{trigger['id']}", headers=alice).json()["last_outcome"] == "workflow_changed"
+    assert client.post(f"/api/v1/automation/triggers/{trigger['id']}/confirm", headers=bob).status_code == 403
+    assert client.post(f"/api/v1/automation/triggers/{trigger['id']}/confirm", headers=alice).json()["accepted_version"] == 3

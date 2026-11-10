@@ -1054,6 +1054,8 @@ class AutomationScheduleRecord(Base, WorkspaceScopedMixin):
     # Migration 0034: what the scheduler did at the last fire time.
     last_outcome: Mapped[str | None] = mapped_column(String(40))
     created_by: Mapped[str] = mapped_column(String(160), nullable=False)
+    # 0163_private_tasks: the workflow version ``created_by`` accepted (docs/automation.md#accepted-version).
+    accepted_version: Mapped[int | None] = mapped_column()
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
@@ -1126,6 +1128,8 @@ class AutomationTriggerRecord(Base, WorkspaceScopedMixin):
     last_outcome: Mapped[str | None] = mapped_column(String(40))
     fire_count: Mapped[int] = mapped_column(nullable=False, default=0, server_default=text("0"))
     created_by: Mapped[str] = mapped_column(String(160), nullable=False)
+    # 0163_private_tasks: the workflow version ``created_by`` accepted (docs/automation.md#accepted-version).
+    accepted_version: Mapped[int | None] = mapped_column()
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 

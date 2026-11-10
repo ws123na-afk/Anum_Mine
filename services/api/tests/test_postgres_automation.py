@@ -533,3 +533,89 @@ def test_take_over_schedule_is_owner_only_and_audited(engine: PostgresAutomation
             {"id": schedule.id},
         ).one()
     assert audit[0] == "owner_user" and audit[1]["previous_owner"] == "member_user"
+
+
+def _digest(prompt: str) -> WorkflowCreate:
+    return WorkflowCreate(name="Morning digest", steps=[
+        WorkflowStep(id="t", name="Digest", action="task.create", input={"title": "Digest", "prompt": prompt})])
+
+
+def test_a_schedule_or_trigger_does_not_run_steps_someone_else_wrote_after_its_owner_accepted_them(
+    engine: PostgresAutomationEngine, database_engine: Engine
+) -> None:
+    """Security audit, November 2026 (docs/automation.md#accepted-version): member Bob authors the
+    automation, owner Alice takes its schedule and trigger over so they run as her, and Bob, still
+    the automation's creator, rewrites the steps. They must not run with her role."""
+    from anum_api.automation import EditDenied
+    from anum_api.automation_triggers import TriggerCreate, TriggerKind
+
+    bob, alice = _as("bob"), _as("alice", "owner")
+    created = engine.create_workflow(bob, _digest("Say good morning"))
+    schedule = engine.create_schedule(bob, ScheduleCreate(workflow_id=created.id, name="Daily", cron="0 9 * * *"))
+    trigger, _ = engine.create_trigger(bob, TriggerCreate(workflow_id=created.id, name="Mail", kind=TriggerKind.EVENT, event_type="email.received"))
+    own = engine.create_schedule(bob, ScheduleCreate(workflow_id=created.id, name="Bob's own", cron="0 9 * * *"))
+    assert schedule.accepted_version == trigger.accepted_version == 1
+    assert engine.take_over_schedule(alice, schedule.id).accepted_version == 1
+    assert engine.take_over_trigger(alice, trigger.id).accepted_version == 1
+    edited = engine.update_workflow(bob, created.id, _digest("BOB-CONTROLLED: list every finance account and balance"))
+    assert edited.version == 2
+    assert engine.get_schedule(alice, schedule.id).accepted_version == 1 and engine.get_schedule(bob, own.id).accepted_version == 2
+
+    _make_due(database_engine, schedule.id)
+    _make_due(database_engine, own.id)
+    runs = {run.schedule_id: run for run in engine.run_due_schedules()}
+    assert runs[own.id].status == RunStatus.RUNNING and runs[own.id].created_by == "bob"  # his own edit runs as him
+    refused = runs[schedule.id]
+    assert refused.status == RunStatus.FAILED and refused.created_by == "alice" and "bob changed this automation" in (refused.error or "")
+    assert engine.get_schedule(alice, schedule.id).last_outcome == "workflow_changed"
+    _make_due(database_engine, schedule.id)
+    assert engine.run_due_schedules() == []  # told once; it waits for her
+    assert engine.fire_event(alice, _event("email.received", {"from": "a@example.com"})) == []
+    assert engine.get_trigger(alice, trigger.id).last_outcome == "workflow_changed"
+    with database_engine.connect() as connection:
+        as_alice = connection.execute(text("select count(*) from tasks where created_by_user_id = 'alice'")).scalar_one()
+        failed = connection.execute(text(
+            "select count(*) from automation_runs where status = 'failed' and created_by = 'alice'")).scalar_one()
+    assert as_alice == 0 and failed == 2  # one notice for the schedule, one for the trigger
+
+    for confirm, item_id in ((engine.confirm_schedule, schedule.id), (engine.confirm_trigger, trigger.id)):
+        with pytest.raises(EditDenied):
+            confirm(bob, item_id)
+        with pytest.raises(EditDenied):
+            confirm(_as("omar", "owner"), item_id)
+        assert confirm(alice, item_id).accepted_version == 2
+    with database_engine.begin() as connection:  # a later fire time than the refused one (one run per fire time)
+        connection.execute(text("update automation_schedules set next_run_at = date_trunc('minute', now()) - interval '10 minutes' where id = :id"),
+                           {"id": schedule.id})
+    [ran] = engine.run_due_schedules()
+    assert ran.status == RunStatus.RUNNING and ran.created_by == "alice" and ran.workflow_version == 2
+    [fired] = engine.fire_event(alice, _event("email.received", {"from": "b@example.com"}))
+    assert fired.created_by == "alice"
+    # Her own edit keeps her schedule and trigger running, and stops Bob's until he confirms.
+    assert engine.update_workflow(alice, created.id, _digest("Say good morning, with the weather")).version == 3
+    assert engine.get_schedule(alice, schedule.id).accepted_version == 3 and engine.get_trigger(alice, trigger.id).accepted_version == 3
+    assert engine.get_schedule(bob, own.id).accepted_version == 2
+    with database_engine.connect() as connection:
+        actors = set(connection.execute(text(
+            "select actor from audit_records where action in ('automation.schedule.confirmed', 'automation.trigger.confirmed')")).scalars())
+    assert actors == {"alice"}
+
+
+def test_a_run_reads_back_the_outcome_of_a_task_private_to_its_actor(engine: PostgresAutomationEngine, database_engine: Engine) -> None:
+    """A task the run created turned private to the run's actor (its agent read their own data):
+    the engine still sees it, as that person, and copies nothing of the answer into the run."""
+    alice = _as("alice", "owner")
+    created = engine.create_workflow(alice, _digest("What is my balance?"))
+    run = engine.start(alice, created.id)
+    task_id = run.steps[0].output["task_id"]
+    with database_engine.begin() as connection:
+        connection.execute(text(
+            "update tasks set status = 'completed', private_to = 'alice', private_kind = 'data' where id = :id"), {"id": task_id})
+        connection.execute(text(
+            "insert into agent_runs (id, tenant_id, workspace_id, task_id, status, result) "
+            "values ('run_private_outcome', :t, :w, :id, 'completed', 'Balances: AED 98,765.43')"),
+            {"t": TENANT_A, "w": WORKSPACE_A, "id": task_id})
+    # Woken by the scheduler's own context, not hers: the engine acts as the run's actor.
+    [done] = engine.wake_for_task(tenant_context(), task_id)
+    assert done.status == RunStatus.COMPLETED
+    assert "98,765" not in done.model_dump_json() and "private" in done.steps[0].output["result"]

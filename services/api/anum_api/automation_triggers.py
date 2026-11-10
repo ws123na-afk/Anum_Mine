@@ -42,6 +42,8 @@ class TriggerOutcome(StrEnum):
     EMERGENCY_STOP = "emergency_stop"
     LOOP_SKIPPED = "loop_skipped"
     DISABLED = "disabled"
+    # Someone else changed the workflow after the trigger's owner accepted it: not run until they confirm.
+    WORKFLOW_CHANGED = "workflow_changed"
 
 
 class TriggerEvent(BaseModel):
@@ -221,6 +223,9 @@ class AutomationTrigger(BaseModel):
     last_outcome: str | None = None
     fire_count: int = 0
     created_by: str | None = None
+    # The workflow version ``created_by`` accepted (docs/automation.md#accepted-version); null
+    # for a trigger stored before the field existed.
+    accepted_version: int | None = None
     created_at: datetime
     updated_at: datetime
     # Event triggers: events at or after this time are still to be checked (catch-up).

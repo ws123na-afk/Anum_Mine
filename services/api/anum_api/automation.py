@@ -131,6 +131,8 @@ class ScheduleOutcome(StrEnum):
     OWNER_INACTIVE = "owner_inactive"
     # The organization's emergency stop was on: advanced without running (docs/agent-controls.md).
     EMERGENCY_STOP = "emergency_stop"
+    # Someone else changed the workflow after the schedule's owner accepted it: not run until they confirm.
+    WORKFLOW_CHANGED = "workflow_changed"
 
 
 # The step actions the engine executes. Stored workflows may still hold older free-form
@@ -426,6 +428,9 @@ class AutomationSchedule(BaseModel):
     # What the scheduler did at the last fire time (ScheduleOutcome); null before the first.
     last_outcome: str | None = None
     created_by: str | None = None
+    # The workflow version ``created_by`` accepted (docs/automation.md#accepted-version); null
+    # for a schedule stored before the field existed.
+    accepted_version: int | None = None
 
     @computed_field  # type: ignore[prop-decorator]
     @property
@@ -571,6 +576,7 @@ class AutomationEngine(Protocol):
     def resume(self, context: TenantContext, run_id: str) -> WorkflowRun: ...
     def run_due_schedules(self, *, limit: int = 100) -> list[WorkflowRun]: ...
     def take_over_schedule(self, context: TenantContext, schedule_id: str) -> AutomationSchedule: ...
+    def confirm_schedule(self, context: TenantContext, schedule_id: str) -> AutomationSchedule: ...
     # Waiting steps and retries.
     def advance(self, context: TenantContext, run_id: str, report: StepReport | None = None) -> WorkflowRun: ...
     def wake_for_task(self, context: TenantContext, task_id: str) -> list[WorkflowRun]: ...
@@ -583,6 +589,7 @@ class AutomationEngine(Protocol):
     def delete_trigger(self, context: TenantContext, trigger_id: str) -> None: ...
     def rotate_trigger_secret(self, context: TenantContext, trigger_id: str) -> tuple[AutomationTrigger, str]: ...
     def take_over_trigger(self, context: TenantContext, trigger_id: str) -> AutomationTrigger: ...
+    def confirm_trigger(self, context: TenantContext, trigger_id: str) -> AutomationTrigger: ...
     def trigger_record(self, context: TenantContext, trigger_id: str) -> AutomationTrigger: ...
     def fire_trigger(
         self, context: TenantContext, trigger_id: str, *, key: str, payload: dict[str, Any], source_task_id: str | None = None
@@ -1300,6 +1307,34 @@ def owner_inactive_message(actor: str) -> str:
     )
 
 
+def accepted_current(accepted_version: int | None, workflow: WorkflowDefinition) -> bool:
+    """Whether a schedule or trigger may still run ``workflow`` as its owner (docs/automation.md#accepted-version).
+
+    A schedule or trigger runs the workflow *as the person who owns it*, with that person's role.
+    It is bound to the workflow version that person accepted: when they created it, took it over,
+    confirmed it, or edited the workflow themselves. A newer version means someone else rewrote
+    the steps since, and running them would let that author act with the owner's access. A row
+    stored before the binding existed (null) counts as accepted and is bound at its next fire.
+    """
+    return accepted_version is None or accepted_version >= workflow.version
+
+
+def workflow_changed_message(kind: str, workflow: WorkflowDefinition, accepted_version: int | None) -> str:
+    return (
+        f"{workflow.updated_by or 'Someone else'} changed this automation (version {accepted_version} to {workflow.version}) "
+        f"after you accepted it, so your {kind} did not run. It runs as you: review the steps, then confirm the {kind} "
+        "(Review and confirm) to let it run again."
+    )
+
+
+def require_confirmer(context: TenantContext, created_by: str | None, kind: str) -> None:
+    """Only the person a schedule or trigger runs as confirms a changed workflow for it."""
+    if created_by != context.user_id:
+        raise EditDenied(
+            f"Only the person this {kind} runs as ({created_by}) can confirm it. A workspace owner can take it over instead."
+        )
+
+
 def is_owner(context: TenantContext) -> bool:
     return any(role.strip().lower() == "owner" for role in context.roles)
 
@@ -1417,6 +1452,8 @@ def trigger_decision(
         return TriggerOutcome.WORKFLOW_PAUSED
     if not actor_ok:
         return TriggerOutcome.OWNER_INACTIVE
+    if changed:
+        return TriggerOutcome.WORKFLOW_CHANGED
     if active and workflow.overlap_policy == OverlapPolicy.SKIP:
         return TriggerOutcome.SKIPPED_OVERLAP
     return TriggerOutcome.FIRED
@@ -1735,6 +1772,12 @@ class LocalAutomationEngine:
                 }
             )
             self._put(connection, "automation_workflows", updated)
+            # The editor's own schedules and triggers accept what the editor just wrote; everyone
+            # else's stay bound to the version their owner accepted.
+            for table, model in (("automation_schedules", AutomationSchedule), ("automation_triggers", AutomationTrigger)):
+                for item in self._rows(connection, table, model, context):
+                    if item.workflow_id == workflow_id and item.created_by == context.user_id:
+                        self._put(connection, table, item.model_copy(update={"accepted_version": updated.version}))
             effects.record_audit(
                 audit(context, "automation.workflow.updated", workflow_id, {"name": updated.name, "version": updated.version})
             )
@@ -1783,6 +1826,7 @@ class LocalAutomationEngine:
                 created_at=now,
                 updated_at=now,
                 created_by=context.user_id,
+                accepted_version=workflow.version,
                 next_run_at=next_fire(payload.cron, payload.timezone, now) if payload.enabled else None,
                 **payload.model_dump(),
             )
@@ -1953,7 +1997,20 @@ class LocalAutomationEngine:
                         fail_before_start(run, context, effects, owner_inactive_message(context.user_id), workflow_creator=workflow.created_by)
                         connection.execute(_SAVE_RUN, self._run_values(run))
                         runs.append(run)
+                elif not accepted_current(schedule.accepted_version, workflow):
+                    # Someone else rewrote the steps: never run them as the schedule's owner. The
+                    # owner is told once (a failed run in the history), then it waits for them.
+                    outcome = ScheduleOutcome.WORKFLOW_CHANGED
+                    run = new_run(context, workflow, idempotency_key=key, schedule_id=schedule.id)
+                    told = schedule.last_outcome == outcome.value
+                    if not told and connection.execute(_INSERT_RUN_ONCE, self._run_values(run)).rowcount:
+                        message = workflow_changed_message("schedule", workflow, schedule.accepted_version)
+                        fail_before_start(run, context, effects, message, workflow_creator=None)
+                        connection.execute(_SAVE_RUN, self._run_values(run))
+                        runs.append(run)
                 else:
+                    if schedule.accepted_version is None:
+                        schedule.accepted_version = workflow.version  # stored before the binding existed
                     active = [
                         r for r in self._runs(connection, context) if r.workflow_id == workflow.id and r.status in ACTIVE_RUN_STATUSES
                     ]
@@ -1975,10 +2032,27 @@ class LocalAutomationEngine:
             schedule = self._schedule(connection, context, schedule_id)
             require_take_over(context, schedule.created_by, "schedule")
             previous = schedule.created_by
-            updated = schedule.model_copy(update={"created_by": context.user_id, "updated_at": utc_now()})
+            accepted = self._workflow(connection, context, schedule.workflow_id).version
+            updated = schedule.model_copy(update={"created_by": context.user_id, "accepted_version": accepted, "updated_at": utc_now()})
             self._put(connection, "automation_schedules", updated)
             effects.record_audit(
-                audit(context, "automation.schedule.taken_over", schedule_id, {"previous_owner": previous, "name": schedule.name})
+                audit(context, "automation.schedule.taken_over", schedule_id,
+                      {"previous_owner": previous, "name": schedule.name, "accepted_version": accepted})
+            )
+            return updated
+
+    def confirm_schedule(self, context: TenantContext, schedule_id: str) -> AutomationSchedule:
+        with self._tx() as (connection, effects):
+            schedule = self._schedule(connection, context, schedule_id)
+            require_confirmer(context, schedule.created_by, "schedule")
+            accepted = self._workflow(connection, context, schedule.workflow_id).version
+            updated = schedule.model_copy(update={
+                "accepted_version": accepted, "updated_at": utc_now(),
+                "last_outcome": None if schedule.last_outcome == ScheduleOutcome.WORKFLOW_CHANGED.value else schedule.last_outcome,
+            })
+            self._put(connection, "automation_schedules", updated)
+            effects.record_audit(
+                audit(context, "automation.schedule.confirmed", schedule_id, {"name": schedule.name, "accepted_version": accepted})
             )
             return updated
 
@@ -2032,8 +2106,9 @@ class LocalAutomationEngine:
 
     def create_trigger(self, context: TenantContext, payload: TriggerCreate) -> tuple[AutomationTrigger, str | None]:
         with self._tx() as (connection, effects):
-            self._workflow(connection, context, payload.workflow_id)
+            workflow = self._workflow(connection, context, payload.workflow_id)
             trigger, secret = new_trigger(context, payload)
+            trigger.accepted_version = workflow.version
             self._put(connection, "automation_triggers", trigger)
             effects.record_audit(
                 audit(
@@ -2089,10 +2164,27 @@ class LocalAutomationEngine:
         with self._tx() as (connection, effects):
             trigger = self._trigger(connection, context, trigger_id)
             require_take_over(context, trigger.created_by, "trigger")
-            changed = trigger.model_copy(update={"created_by": context.user_id, "updated_at": utc_now()})
+            accepted = self._workflow(connection, context, trigger.workflow_id).version
+            changed = trigger.model_copy(update={"created_by": context.user_id, "accepted_version": accepted, "updated_at": utc_now()})
             self._put(connection, "automation_triggers", changed)
             effects.record_audit(
-                audit(context, "automation.trigger.taken_over", trigger_id, {"previous_owner": trigger.created_by, "name": trigger.name})
+                audit(context, "automation.trigger.taken_over", trigger_id,
+                      {"previous_owner": trigger.created_by, "name": trigger.name, "accepted_version": accepted})
+            )
+            return changed.public()
+
+    def confirm_trigger(self, context: TenantContext, trigger_id: str) -> AutomationTrigger:
+        with self._tx() as (connection, effects):
+            trigger = self._trigger(connection, context, trigger_id)
+            require_confirmer(context, trigger.created_by, "trigger")
+            accepted = self._workflow(connection, context, trigger.workflow_id).version
+            changed = trigger.model_copy(update={
+                "accepted_version": accepted, "updated_at": utc_now(),
+                "last_outcome": None if trigger.last_outcome == TriggerOutcome.WORKFLOW_CHANGED.value else trigger.last_outcome,
+            })
+            self._put(connection, "automation_triggers", changed)
+            effects.record_audit(
+                audit(context, "automation.trigger.confirmed", trigger_id, {"name": trigger.name, "accepted_version": accepted})
             )
             return changed.public()
 
@@ -2127,10 +2219,19 @@ class LocalAutomationEngine:
             recent=sum(1 for r in runs if r.trigger_id == trigger.id and r.created_at >= now - TRIGGER_RATE_WINDOW),
             active=sum(1 for r in mine if r.status in ACTIVE_RUN_STATUSES),
             looped=bool(source_task_id) and any(run_started_task(r, source_task_id or "") for r in mine),
+            changed=workflow is not None and not accepted_current(trigger.accepted_version, workflow),
         )
         run = None
         if outcome == TriggerOutcome.FIRED and workflow is not None:
+            if trigger.accepted_version is None:
+                trigger = trigger.model_copy(update={"accepted_version": workflow.version})  # stored before the binding existed
             run = self._launch(connection, effects, actor, workflow, idempotency_key=key, trigger=trigger, trigger_payload=payload)
+        elif outcome == TriggerOutcome.WORKFLOW_CHANGED and workflow is not None and trigger.last_outcome != outcome.value:
+            # Told once: a failed run in the history names who changed it and what to do.
+            refused = new_run(actor, workflow, idempotency_key=key, trigger=trigger, trigger_payload=payload)
+            if connection.execute(_INSERT_RUN_ONCE, self._run_values(refused)).rowcount:
+                fail_before_start(refused, actor, effects, workflow_changed_message("trigger", workflow, trigger.accepted_version), workflow_creator=None)
+                connection.execute(_SAVE_RUN, self._run_values(refused))
         changed = trigger.model_copy(
             update={
                 "last_outcome": outcome.value,
@@ -2523,6 +2624,14 @@ def take_over_schedule(schedule_id: str, context: TenantContext = Depends(tenant
         return current_engine().take_over_schedule(context, schedule_id)
 
 
+@router.post("/schedules/{schedule_id}/confirm", response_model=AutomationSchedule)
+def confirm_schedule(schedule_id: str, context: TenantContext = Depends(tenant_context)) -> AutomationSchedule:
+    """The person a schedule runs as accepts the automation's current steps (docs/automation.md#accepted-version)."""
+    _require(context, Permission.AUTOMATION_MANAGE)
+    with _handled():
+        return current_engine().confirm_schedule(context, schedule_id)
+
+
 # -- triggers ------------------------------------------------------------------------------
 
 
@@ -2584,6 +2693,14 @@ def take_over_trigger(trigger_id: str, context: TenantContext = Depends(tenant_c
     _require(context, Permission.AUTOMATION_MANAGE)
     with _handled():
         return current_engine().take_over_trigger(context, trigger_id)
+
+
+@router.post("/triggers/{trigger_id}/confirm", response_model=AutomationTrigger)
+def confirm_trigger(trigger_id: str, context: TenantContext = Depends(tenant_context)) -> AutomationTrigger:
+    """The person a trigger runs as accepts the automation's current steps (docs/automation.md#accepted-version)."""
+    _require(context, Permission.AUTOMATION_MANAGE)
+    with _handled():
+        return current_engine().confirm_trigger(context, trigger_id)
 
 
 @router.post("/triggers/{trigger_id}/{action}", response_model=AutomationTrigger)
