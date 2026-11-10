@@ -199,6 +199,16 @@ class AnumLocalizations {
     'pendingCopied': 'Copied.',
     'pendingSignOut': 'Sign out',
     'sessionEnded': 'Your session ended. Sign in again.',
+    // Amount fields (lib/src/localization/amount_input.dart).
+    'amount.empty': 'Enter an amount.',
+    'amount.notANumber': 'Use digits only, with a dot for decimals, for '
+        'example 1250.50.',
+    'amount.ambiguous': 'This amount can be read in two ways. Write it '
+        'with a dot for decimals, for example 1250.50.',
+    'amount.tooManyDecimals.one': 'Use at most {count} decimal place.',
+    'amount.tooManyDecimals.other': 'Use at most {count} decimal places.',
+    'amount.negative': 'Enter an amount above zero, without a minus sign.',
+    'amount.tooLarge': 'This amount is too large.',
     'loginOr': 'or',
     'loginGoogle': 'Continue with Google',
     'loginApple': 'Continue with Apple',
@@ -1629,6 +1639,17 @@ class AnumLocalizations {
     'pendingCopied': 'تم النسخ.',
     'pendingSignOut': 'تسجيل الخروج',
     'sessionEnded': 'انتهت جلستك. سجّل الدخول مرة أخرى.',
+    'amount.empty': 'أدخل المبلغ.',
+    'amount.notANumber': 'استخدم الأرقام فقط مع نقطة للكسور العشرية، مثل '
+        '1250.50.',
+    'amount.ambiguous': 'يمكن قراءة هذا المبلغ بطريقتين. اكتبه بنقطة للكسور '
+        'العشرية، مثل 1250.50.',
+    'amount.tooManyDecimals.one': 'استخدم خانة عشرية واحدة على الأكثر.',
+    'amount.tooManyDecimals.two': 'استخدم خانتين عشريتين على الأكثر.',
+    'amount.tooManyDecimals.few': 'استخدم {count} خانات عشرية على الأكثر.',
+    'amount.tooManyDecimals.other': 'استخدم {count} خانة عشرية على الأكثر.',
+    'amount.negative': 'أدخل مبلغًا أكبر من صفر بدون علامة سالب.',
+    'amount.tooLarge': 'هذا المبلغ كبير جدًا.',
     'loginOr': 'أو',
     'loginGoogle': 'المتابعة باستخدام Google',
     'loginApple': 'المتابعة باستخدام Apple',

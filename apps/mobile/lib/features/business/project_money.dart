@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../data/api_client.dart';
 import '../../data/json_read.dart';
+import '../../src/localization/amount_input.dart';
 import '../../src/localization/anum_localizations.dart';
 import '../../src/theme/anum_theme.dart';
 import '../../src/widgets/anum_components.dart';
@@ -622,14 +623,10 @@ class _ReasonDialogState extends State<_ReasonDialog> {
   }
 }
 
-double? _amount(String text, {bool signed = false}) {
-  final clean = text.replaceAll(',', '').trim();
-  if (!RegExp(signed ? r'^-?\d+(\.\d{1,2})?$' : r'^\d+(\.\d{1,2})?$')
-      .hasMatch(clean)) {
-    return null;
-  }
-  return double.parse(clean);
-}
+/// A typed amount with at most two decimals, read by the app's one amount
+/// parser (`readAmount`).
+double? _amount(String text, {bool signed = false}) =>
+    readAmount(text, signed: signed).number;
 
 /// One line of the scope change: added to the contract, or a line of the
 /// current contract removed (matched exactly by the API, as on the web).

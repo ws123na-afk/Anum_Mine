@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../src/localization/amount_input.dart';
 import '../../src/localization/anum_localizations.dart';
 import '../../src/theme/anum_theme.dart';
 import '../../src/widgets/anum_components.dart';
@@ -7,7 +8,7 @@ import '../../src/widgets/depth.dart';
 import 'business_controller.dart';
 import 'invoice_controller.dart';
 import 'invoice_models.dart';
-import 'invoices.dart' show friendly, parseNumber, plainNumber;
+import 'invoices.dart' show friendly, plainNumber;
 
 /// The billing profile (docs/business.md#billing-profile): who the invoices
 /// come from and how they are paid. Owners edit it; members read it. A sent
@@ -87,7 +88,7 @@ class _BillingProfileState extends State<BillingProfileScreen> {
   Future<void> _save() async {
     final l = context.anum;
     final days = int.tryParse(dueDays.text.trim());
-    final rate = parseNumber(taxRate.text);
+    final rate = typedNumber(taxRate.text);
     final next = <String, String>{
       if (!RegExp(r'^[A-Za-z0-9]{1,8}$').hasMatch(prefix.text.trim()))
         'prefix': l.t('biz.inv.profile.prefixInvalid'),
