@@ -3,6 +3,7 @@ import re
 
 from pydantic import BaseModel, Field
 
+from .prompt_provenance import trusted_text
 from .schemas import RiskLevel
 
 # Words that select the commerce skill (anum_api/commerce/tools.py parses the request).
@@ -104,6 +105,9 @@ class SkillRegistry:
         return list(self._manifests.values())
 
     def select(self, prompt: str, available_tools: set[str], *, include_agent_only: bool = False) -> list[SkillManifest]:
+        # Only the owner's own words select a skill: text inside a labelled untrusted block
+        # (an automation's trigger data or an earlier step's result) never does (threat model G5).
+        prompt = trusted_text(prompt)
         words = prompt_words(prompt)
         return [
             manifest

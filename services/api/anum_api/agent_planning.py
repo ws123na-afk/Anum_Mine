@@ -8,6 +8,7 @@ from .agent_skills import SkillManifest, SkillRegistry
 from .agent_tools import ToolCall, ToolRegistry
 from .current_time import with_time_line
 from .model_gateway import ModelGateway, ModelResponse, ModelRoute, route_gateway
+from .prompt_provenance import trusted_text
 from .retrieval import build_cache_layout_prompt, build_task_prompt
 from .schemas import Task
 from .team_commands import looks_like_assignment
@@ -67,7 +68,11 @@ class AgentPlanner:
         tools = self.tools.names
         if agent is not None:
             tools = {name for name in tools if agent.tool_allowed(name)}
-        selected = self.skills.select(task.prompt, tools, include_agent_only=agent is not None)
+        # What selects skills, the tool and its arguments: the prompt without its labelled
+        # untrusted blocks (an automation's ``{{trigger.*}}`` and ``{{steps.*}}`` values). The
+        # model still reads the full prompt below.
+        own_words = trusted_text(task.prompt)
+        selected = self.skills.select(own_words, tools, include_agent_only=agent is not None)
         if agent is not None:
             selected = [skill for skill in selected if agent.skill_allowed(skill.id)]
         # Planning is agent work: the capable model (docs/model-gateway.md#model-routing),
@@ -88,10 +93,10 @@ class AgentPlanner:
         prompt = with_time_line(prompt, time_line)
         response = await self._generate(planner, prompt, context_blocks)
         # As an agent, only its tools can be chosen (team work's ``team.assign_task`` too).
-        call = _brevo_call(task.prompt, selected) or _marketing_call(task, selected) or (
-            self._select_tool(task.prompt, selected, response)
+        call = _brevo_call(own_words, selected) or _marketing_call(task, selected) or (
+            self._select_tool(own_words, selected, response)
             if agent is None
-            else self._select_tool(task.prompt, selected, response, tools)
+            else self._select_tool(own_words, selected, response, tools)
         )
         # A Brevo call with no working connection becomes a reply that says what to fix.
         from .brevo.planning import refusal as brevo_refusal
@@ -133,8 +138,8 @@ class AgentPlanner:
                 return None
         except Exception:  # unreadable: plan the search; the tool reports the real state
             return None
-        goal = str(call.arguments.get("goal") or task.prompt)
-        return ToolCall(name="anum.respond", arguments={"text": ask_site_text(goal, arabic=_is_arabic(task.prompt)), "errand": True})
+        goal = str(call.arguments.get("goal") or trusted_text(task.prompt))
+        return ToolCall(name="anum.respond", arguments={"text": ask_site_text(goal, arabic=_is_arabic(trusted_text(task.prompt))), "errand": True})
 
     async def _act_refusal(self, task: Task, call: ToolCall) -> ToolCall | None:
         errand = call.arguments.get("purpose") == FIND_SITE or (call.name == "anum.respond" and call.arguments.get("errand") is True)
@@ -153,7 +158,7 @@ class AgentPlanner:
             return None
         if not reason:
             return None
-        return ToolCall(name="anum.respond", arguments={"text": act_off_text(str(reason), arabic=_is_arabic(task.prompt))})
+        return ToolCall(name="anum.respond", arguments={"text": act_off_text(str(reason), arabic=_is_arabic(trusted_text(task.prompt)))})
 
     @staticmethod
     async def _generate(planner: ModelGateway, prompt: str, context_blocks: Sequence[str]) -> ModelResponse:
@@ -205,7 +210,11 @@ def choose_tool_call(
     Deterministic and free of model output except ``planned_text`` (the model's answer,
     used only by ``anum.respond``), so the command plan preview (docs/command.md) can show
     exactly which tool a step will use before anything runs.
+
+    Text inside a labelled untrusted-data block (``prompt_provenance``) is dropped first: it
+    never picks the tool or fills an argument.
     """
+    prompt = trusted_text(prompt)
     if "team.assign_task" in available_tools and looks_like_assignment(prompt):
         # "ask Ahmed to call the supplier by Thursday": the tool parses the user's own
         # sentence (never model output) and resolves the person in the workspace.
@@ -387,7 +396,7 @@ def _marketing_call(task: Task, skills: Sequence[SkillManifest]) -> ToolCall | N
         return None
     from .marketing.tools import planned_call
 
-    return planned_call(task, task.prompt)
+    return planned_call(task, trusted_text(task.prompt))
 
 
 def _brevo_call(prompt: str, skills: Sequence[SkillManifest]) -> ToolCall | None:

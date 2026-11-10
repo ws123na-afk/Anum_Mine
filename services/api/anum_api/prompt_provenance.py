@@ -105,6 +105,32 @@ def label_untrusted(
     return f"{BLOCK_OPEN} {' '.join(attributes)}>>\n{body}\n{BLOCK_CLOSE} id={block_id}>>"
 
 
+# A whole labelled block: the opening marker, its content and the closing marker with the
+# same id. A block whose closing marker is missing (the prompt was cut after it opened)
+# runs to the end of the text, so cut-off content is never read as trusted.
+_BLOCK = re.compile(
+    r"<<untrusted-data\s+id=([A-Za-z0-9._:@/\-]+)[^\n]*?>>.*?(?:<<end-untrusted-data\s+id=\1>>|\Z)",
+    re.DOTALL,
+)
+_OPEN_TO_END = re.compile(r"<<untrusted-data.*\Z", re.DOTALL)
+_STRAY_CLOSE = re.compile(r"<<end-untrusted-data[^\n>]*>>")
+
+
+def trusted_text(prompt: str) -> str:
+    """``prompt`` without its untrusted-data blocks: the owner's own words only.
+
+    Deterministic selection (which skill, which tool, which arguments) reads this, never
+    the full prompt: a keyword, an address or a number inside a labelled block must not
+    pick a tool or fill its arguments (threat model G5). The model still gets the full
+    prompt. Each block is replaced by one space so the words around it do not join.
+    """
+    if BLOCK_OPEN not in prompt and BLOCK_CLOSE not in prompt:
+        return prompt
+    text = _BLOCK.sub(" ", prompt)
+    text = _OPEN_TO_END.sub(" ", text)
+    return _STRAY_CLOSE.sub(" ", text)
+
+
 def with_untrusted_rules(instructions: str, *blocks: str) -> str:
     """Instructions first, then the house punctuation rule (no long dashes, once), then
     the rules for untrusted blocks, then the blocks."""
