@@ -21,9 +21,12 @@ What goes with an old event is its line in a task's Activity list and run log ex
 reports it under ``events``, so a deployment needs no extra schedule.
 
 Scopes are discovered as ``anum_maintenance``: tenant and workspace of events older than
-7 days, nothing else (migration ``0162_event_stream_retention``). Each scope is then purged
-as the application role inside its tenant and workspace RLS context, in chunks, each in
-its own short transaction, and a workspace that lost events gets one audit record with
+7 days, and the person a private task's events belong to (``private_to``, a user id and never
+content; migrations ``0162_event_stream_retention`` and ``0163_private_tasks``), nothing else.
+Each scope is then purged as the application role inside its tenant and workspace RLS context,
+with ``anum.user_id`` set to that person for a private scope (the restrictive private-task
+policy hides their events from every other session, so without it they would never be deleted),
+in chunks, each in its own short transaction, and a workspace that lost events gets one audit record with
 the count only (never a type, a subject or a payload). A run is idempotent, and an
 interrupted run is finished by the next one.
 """
@@ -49,25 +52,32 @@ ACTOR = "system:retention"
 # Rows deleted per transaction: short enough that no lock or WAL burst is noticed by the API.
 DELETE_CHUNK = 5000
 
-# As anum_maintenance: the scopes that hold an event older than 7 days ('' = tenant-wide events).
+# As anum_maintenance: the scopes that hold an event older than 7 days ('' = tenant-wide events), and
+# for each the person a private task's events belong to ('' = workspace events). The role may read
+# tenant_id, workspace_id and private_to of such rows (0162, 0163) and nothing else: a user id, never
+# a type, a subject or a payload. A private event is hidden from a session that does not run as its
+# person (restrictive policy private_task_domain_events), so the purge of a private scope runs with
+# anum.user_id set to that person; nothing is read back, only deleted and counted.
 _DISCOVER = text(
     """
-    select tenant_id, workspace_id from (
-      select distinct tenant_id, coalesce(workspace_id, '') as workspace_id from domain_events
+    select tenant_id, workspace_id, private_to from (
+      select distinct tenant_id, coalesce(workspace_id, '') as workspace_id, coalesce(private_to, '') as private_to
+      from domain_events
     ) found
-    where (tenant_id, workspace_id) > (:after_tenant, :after_workspace)
-    order by tenant_id, workspace_id
+    where (tenant_id, workspace_id, private_to) > (:after_tenant, :after_workspace, :after_private)
+    order by tenant_id, workspace_id, private_to
     limit :limit
     """
 )
 # As the application role inside the scope's RLS context; ix_domain_events_scope_created serves all four.
 # The scope is written out twice (one workspace's events, the tenant-wide ones) so each is an index range,
-# and as literal statements: no SQL text is built at run time.
+# and as literal statements: no SQL text is built at run time. :u is the private scope ('' = workspace events).
 _COUNT = {
     True: text(
         """
         select count(*) from domain_events
         where tenant_id = :t and workspace_id = :w and created_at < :cutoff
+          and coalesce(private_to, '') = :u
           and (not :published_only or published_at is not null)
         """
     ),
@@ -75,6 +85,7 @@ _COUNT = {
         """
         select count(*) from domain_events
         where tenant_id = :t and workspace_id is null and created_at < :cutoff
+          and coalesce(private_to, '') = :u
           and (not :published_only or published_at is not null)
         """
     ),
@@ -85,6 +96,7 @@ _DELETE = {
         delete from domain_events where id in (
           select id from domain_events
           where tenant_id = :t and workspace_id = :w and created_at < :cutoff
+            and coalesce(private_to, '') = :u
             and (not :published_only or published_at is not null)
           order by created_at, id limit :chunk)
         """
@@ -94,6 +106,7 @@ _DELETE = {
         delete from domain_events where id in (
           select id from domain_events
           where tenant_id = :t and workspace_id is null and created_at < :cutoff
+            and coalesce(private_to, '') = :u
             and (not :published_only or published_at is not null)
           order by created_at, id limit :chunk)
         """
@@ -132,17 +145,17 @@ def purge_events(
         raise ValueError(f"retention_days must be 0 (keep) or at least {MIN_RETENTION_DAYS} days")
     now = now or utc_now()
     cutoff = now - timedelta(days=retention_days)
-    after = ("", "")
+    after = ("", "", "")
     while True:
         rows = discover(
             maintenance_session_factory or session_factory,
             _DISCOVER,
-            {"after_tenant": after[0], "after_workspace": after[1], "limit": batch_size},
+            {"after_tenant": after[0], "after_workspace": after[1], "after_private": after[2], "limit": batch_size},
         )
         for row in rows:
             result.scopes_scanned += 1
             deleted = _purge_scope(
-                session_factory, row.tenant_id, row.workspace_id or None,
+                session_factory, row.tenant_id, row.workspace_id or None, row.private_to or None,
                 cutoff=cutoff, published_only=published_only, now=now, retention_days=retention_days,
                 dry_run=dry_run, chunk=chunk,
             )
@@ -151,13 +164,14 @@ def purge_events(
                 result.events += deleted
         if len(rows) < batch_size:
             return result
-        after = (rows[-1].tenant_id, rows[-1].workspace_id)
+        after = (rows[-1].tenant_id, rows[-1].workspace_id, rows[-1].private_to)
 
 
 def _purge_scope(
     session_factory: SessionFactory,
     tenant_id: str,
     workspace_id: str | None,
+    private_to: str | None,
     *,
     cutoff: datetime,
     published_only: bool,
@@ -166,15 +180,18 @@ def _purge_scope(
     dry_run: bool,
     chunk: int,
 ) -> int:
-    params: dict[str, object] = {"t": tenant_id, "cutoff": cutoff, "published_only": published_only}
+    """One scope: a workspace's (or the tenant-wide) events, either the workspace's own
+    (``private_to`` None) or those private to one person, deleted as the application role with
+    that person set as ``anum.user_id`` so the private-task policy admits them."""
+    params: dict[str, object] = {"t": tenant_id, "cutoff": cutoff, "published_only": published_only, "u": private_to or ""}
     if workspace_id:
         params["w"] = workspace_id
     if dry_run:
-        with scoped_unit(session_factory, tenant_id, workspace_id or "") as session:
+        with scoped_unit(session_factory, tenant_id, workspace_id or "", user_id=private_to) as session:
             return int(session.execute(_COUNT[bool(workspace_id)], params).scalar_one())
     deleted = 0
     while True:
-        with scoped_unit(session_factory, tenant_id, workspace_id or "") as session:
+        with scoped_unit(session_factory, tenant_id, workspace_id or "", user_id=private_to) as session:
             removed = int(session.execute(_DELETE[bool(workspace_id)], {**params, "chunk": chunk}).rowcount or 0)
         deleted += removed
         if removed < chunk:

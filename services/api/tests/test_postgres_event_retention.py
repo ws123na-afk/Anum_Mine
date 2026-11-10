@@ -195,3 +195,37 @@ def test_the_daily_job_runs_the_event_purge_and_reports_it(factory, database_eng
 
     assert failed == [] and report["events"]["events"] == 1  # type: ignore[index]
     assert gone not in event_ids(database_engine) and stays in event_ids(database_engine)
+
+
+def test_purge_deletes_a_private_tasks_old_events_too_and_discovery_reads_only_whose_they_are(factory, database_engine: Engine) -> None:  # noqa: F811
+    """A private task's events are hidden from a session that does not run as its person (0163), so a
+    purge as the app role with no anum.user_id never deleted them. Discovery (anum_maintenance) now reads
+    whose they are (a user id, never content) and each person's scope is purged as that person."""
+    old_private = add_event(database_engine, TENANT_A, WORKSPACE_A, 100, name="old_private")
+    old_private_bob = add_event(database_engine, TENANT_A, WORKSPACE_A, 95, name="old_private_bob")
+    kept_private = add_event(database_engine, TENANT_A, WORKSPACE_A, 10, name="kept_private")
+    old_public = add_event(database_engine, TENANT_A, WORKSPACE_A, 100, name="old_public")
+    kept_public = add_event(database_engine, TENANT_A, WORKSPACE_A, 10, name="kept_public")
+    sql(database_engine, "update domain_events set private_to = 'alice' where id in (:a, :b)", a=old_private, b=kept_private)
+    sql(database_engine, "update domain_events set private_to = 'bob' where id = :a", a=old_private_bob)
+
+    with database_engine.connect() as connection:
+        with connection.begin():
+            connection.execute(text("set local role anum_maintenance"))
+            seen = connection.execute(text("select distinct private_to from domain_events order by 1")).all()
+        assert seen == [("alice",), ("bob",), (None,)]  # whose events (older than 7 days) there are, nothing else
+        for statement in ("select id from domain_events", "select payload from domain_events", "delete from domain_events"):
+            with pytest.raises(DBAPIError, match="permission denied"):
+                with connection.begin():
+                    connection.execute(text("set local role anum_maintenance"))
+                    connection.execute(text(statement))
+
+    dry = purge_events(factory, retention_days=90, dry_run=True)
+    assert (dry.scopes_scanned, dry.scopes_purged, dry.events) == (3, 3, 3)
+    done = purge_events(factory, retention_days=90)
+    assert (done.scopes_purged, done.events) == (3, 3)
+    assert event_ids(database_engine) == {kept_private, kept_public}
+    # One audit record per purge of the workspace: the counts only, never whose events or what they said.
+    audits = sql(database_engine, "select metadata from audit_records where action = 'event_retention.purge'")
+    assert sorted(row[0]["events"] for row in audits) == [1, 1, 1]
+    assert all("alice" not in str(row[0]) and "bob" not in str(row[0]) for row in audits)

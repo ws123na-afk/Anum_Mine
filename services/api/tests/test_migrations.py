@@ -1481,12 +1481,14 @@ def test_private_tasks_migration_is_expand_only_with_restrictive_policies_and_id
     assert "nullif(current_setting('anum.user_id', true), '')" in revision_text
     # The relay is never admitted to private events; other roles get id columns only, for the policy sub-selects.
     events_policy = upgrade.split("create policy private_task_domain_events", 1)[1].split("for table in", 1)[0]
-    assert "{purger}" in events_policy and "counters" not in events_policy and "anum_outbox_relay" not in revision_text.split("def upgrade", 1)[1]
+    assert "{retention}" in events_policy and "counters" not in events_policy and "anum_outbox_relay" not in revision_text.split("def upgrade", 1)[1]
+    assert "RETENTION = \"current_user = any (array['anum_tenant_purger', 'anum_maintenance']::name[])\"" in revision_text
     grants = [line.strip() for line in upgrade.splitlines() if "grant " in line]
     assert grants == [
         'op.execute("grant select (id) on tasks to anum_tenant_purger")',
         'op.execute("grant select (id) on agent_runs to anum_tenant_purger")',
         'op.execute("grant select (id, workspace_id) on tasks to anum_maintenance")',
+        'op.execute("grant select (private_to) on domain_events to anum_maintenance")',
     ]
     assert "bypassrls" not in upgrade and "security definer" not in upgrade
     # The accepted workflow version of existing schedules and triggers is backfilled, so nothing stops firing.

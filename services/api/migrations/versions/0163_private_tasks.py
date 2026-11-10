@@ -11,9 +11,13 @@ docs/tasks.md#private-tasks, docs/automation.md#accepted-version. Security audit
   ``private_task_tasks`` and ``private_task_domain_events`` on ``private_to is null or private_to = anum.user_id``;
   ``private_task_agent_runs`` and ``private_task_approvals`` (the row's task must be visible) and
   ``private_task_agent_run_steps`` (the step's run must be visible). The tenant purge role is admitted everywhere (it
-  only deletes); the maintenance and platform reader roles keep what they could read on ``tasks`` and ``approvals``
+  only deletes); the maintenance role is admitted to ``domain_events`` (``tenant_id``, ``workspace_id`` and
+  ``private_to`` of events older than 7 days, for the retention purge; never a type, subject or payload); the
+  maintenance and platform reader roles keep what they could read on ``tasks`` and ``approvals``
   (scope ids, status and timestamps through their column grants, never a title, a prompt or a result). For the policy
-  sub-selects those roles get ``select`` on the id columns named below and nothing else. A session that sets no
+  sub-selects those roles get ``select`` on the id columns named below and nothing else; the maintenance role also
+  reads ``domain_events.private_to`` so the event retention purge can delete a private task's old events as that
+  person (``anum_api/event_retention.py``). A session that sets no
   ``anum.user_id`` sees no private row.
 * Backfill, conservative, run with FORCE ROW LEVEL SECURITY lifted on every table it writes or reads (the migrator
   owns the tables but has no BYPASSRLS and sets no tenant context, so a forced table shows it no row; the first
@@ -48,6 +52,10 @@ depends_on = None
 ME = "nullif(current_setting('anum.user_id', true), '')"
 MINE = f"private_to is null or private_to = {ME}"
 PURGER = "current_user = 'anum_tenant_purger'::name"
+# Roles admitted to a private task's events: the tenant purger (deletes only) and the maintenance role, which reads
+# tenant_id, workspace_id and private_to of events older than 7 days (0162's policy and its column grants) so the
+# event retention purge can find whose private events are due; never the outbox relay.
+RETENTION = "current_user = any (array['anum_tenant_purger', 'anum_maintenance']::name[])"
 # Roles that read only scope ids, status and timestamps of these tables through column grants.
 COUNTERS = "current_user = any (array['anum_tenant_purger', 'anum_maintenance', 'anum_platform_reader']::name[])"
 TASK_VISIBLE = (
@@ -153,11 +161,14 @@ def upgrade() -> None:
     op.execute("grant select (id) on tasks to anum_tenant_purger")
     op.execute("grant select (id) on agent_runs to anum_tenant_purger")
     op.execute("grant select (id, workspace_id) on tasks to anum_maintenance")
+    # The event retention purge discovers, as anum_maintenance, whose private events are due (a user id, never
+    # content) and deletes each person's as the app role with anum.user_id set to them (anum_api/event_retention.py).
+    op.execute("grant select (private_to) on domain_events to anum_maintenance")
 
     op.execute(f"create policy private_task_tasks on tasks as restrictive using (({MINE}) or ({COUNTERS})) with check ({MINE})")
     op.execute(
         f"create policy private_task_domain_events on domain_events as restrictive "
-        f"using (({MINE}) or ({PURGER})) with check ({MINE})"
+        f"using (({MINE}) or ({RETENTION})) with check ({MINE})"
     )
     for table in ("agent_runs", "approvals"):
         visible = TASK_VISIBLE.format(table=table)
@@ -176,6 +187,7 @@ def downgrade() -> None:
     # Only for a test database: every private task becomes a workspace task again.
     for table in ("agent_run_steps", "approvals", "agent_runs", "domain_events", "tasks"):
         op.execute(f"drop policy if exists private_task_{table} on {table}")
+    op.execute("revoke select (private_to) on domain_events from anum_maintenance")
     op.execute("revoke select (id, workspace_id) on tasks from anum_maintenance")
     op.execute("revoke select (id) on agent_runs from anum_tenant_purger")
     op.execute("revoke select (id) on tasks from anum_tenant_purger")
