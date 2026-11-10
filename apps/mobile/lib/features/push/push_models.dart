@@ -130,6 +130,15 @@ class PushDestination {
     );
   }
 
+  /// Whether this push belongs to the signed-in session: the same workspace
+  /// and, when the push names one, the same organization. Workspace ids are
+  /// only unique inside an organization, so the workspace alone is not enough.
+  bool isFor(TenantContext session) =>
+      workspaceId == session.workspaceId &&
+      (tenantId == null ||
+          session.tenantId.isEmpty ||
+          tenantId == session.tenantId);
+
   /// The app's named route for it (AnumRoutes in src/anum_app.dart).
   String get route => switch (kind) {
         PushDestinationKind.approval => '/approvals',
@@ -150,4 +159,30 @@ class PushNotice {
   final String title;
   final String body;
   final PushDestination? destination;
+}
+
+/// What the app says when a tapped notification belongs to another workspace:
+/// the workspace's name when the person is a member of it ([memberships]),
+/// never its id.
+String pushOtherWorkspaceNotice(
+    PushDestination destination, List<CallerMembership> memberships,
+    {required bool arabic}) {
+  String? name;
+  for (final membership in memberships) {
+    if (membership.workspaceId == destination.workspaceId &&
+        (destination.tenantId == null ||
+            membership.tenantId == destination.tenantId)) {
+      name = membership.workspaceName;
+    }
+  }
+  if (name == null) {
+    return arabic
+        ? 'هذا الإشعار يخص مساحة عمل أخرى. انتقل إليها من الإعدادات لفتحه.'
+        : 'That notification is for another workspace. Switch to it in '
+            'Settings to open it.';
+  }
+  return arabic
+      ? 'هذا الإشعار يخص مساحة العمل "$name". انتقل إليها من الإعدادات لفتحه.'
+      : 'That notification is for the workspace "$name". Switch to it in '
+          'Settings to open it.';
 }

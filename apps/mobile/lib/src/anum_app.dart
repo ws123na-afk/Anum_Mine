@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 
 import '../data/api_client.dart';
+import '../data/api_models.dart';
 import '../data/session_store.dart';
 import '../features/books/books_data.dart';
 import '../features/autonomy/autonomy_repository.dart';
@@ -665,14 +666,17 @@ class _AnumAppState extends State<AnumApp> {
       return;
     }
     final session = await auth.repository.restoreSession();
-    final current = session?.context.workspaceId;
-    if (current != null && current != destination.workspaceId) {
+    if (session != null && !destination.isFor(session.context)) {
+      var memberships = const <CallerMembership>[];
+      try {
+        memberships = await auth.repository.myWorkspaces();
+      } on Object {
+        // Without the list the notice names no workspace.
+      }
       _messenger.currentState?.showSnackBar(
         SnackBar(
-          content: Text(
-            'That notification is for workspace '
-            '"${destination.workspaceId}". Switch to it in Settings to open it.',
-          ),
+          content: Text(pushOtherWorkspaceNotice(destination, memberships,
+              arabic: locale.locale?.languageCode == 'ar')),
         ),
       );
       return;
