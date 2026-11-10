@@ -41,7 +41,7 @@ On the Oracle VM it is the `browser` compose profile:
 
 ## The browser image
 
-`docker build --build-arg ANUM_BROWSER=1 services/api` installs the `browser` extra (`playwright==1.56.0`) and, with `playwright install --with-deps --only-shell chromium`, Chromium's headless shell and the libraries and fonts it needs, under `/opt/ms-playwright`. **Size cost: about 650 MB more than the API image** (an estimate from the parts, not a measured build: the headless shell is 323 MB unpacked, the Playwright package 134 MB, and the system libraries and fonts the rest). The default build (`ANUM_BROWSER=0`) is unchanged and carries no browser.
+`docker build --build-arg ANUM_BROWSER=1 services/api` installs the `browser` extra (`playwright==1.64.1`) and, with `playwright install --with-deps --only-shell chromium`, Chromium's headless shell and the libraries and fonts it needs, under `/opt/ms-playwright`. **Size cost: about 650 MB more than the API image** (an estimate from the parts, not a measured build: the headless shell is 323 MB unpacked, the Playwright package 134 MB, and the system libraries and fonts the rest). The default build (`ANUM_BROWSER=0`) is unchanged and carries no browser.
 
 ## How a page is read
 

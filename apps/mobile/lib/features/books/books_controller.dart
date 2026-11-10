@@ -2,14 +2,20 @@ import 'package:flutter/foundation.dart';
 
 import '../records_kit/records_kit.dart';
 import 'books_data.dart';
+import 'books_more_data.dart';
 
 enum BooksPeriod { year, month, last }
 
 /// The business books on the phone: setup and permissions, the P&L for a
 /// period and basis, and the bills list with its open and overdue totals.
 class BooksController extends ChangeNotifier {
-  BooksController(this.repository, {DateTime Function()? today})
-      : _today = today ?? DateTime.now {
+  BooksController(this.repository,
+      {DateTime Function()? today, BooksMoreRepository? more})
+      : _today = today ?? DateTime.now,
+        more = more ??
+            (repository is ApiBooksRepository
+                ? ApiBooksMoreRepository(repository.api)
+                : null) {
     bills = RecordsList<BooksBill>((query, filter, token) async {
       final chunk =
           await repository.bills(query: query, status: filter, token: token);
@@ -64,6 +70,10 @@ class BooksController extends ChangeNotifier {
   /// The draft bill being approved, so its button waits.
   String? approving;
   final BooksRepository repository;
+
+  /// Adjustments, manual entries, tax settings and dismissed receipts;
+  /// null when the repository is not the API's (those screens stay off).
+  final BooksMoreRepository? more;
   final DateTime Function() _today;
   late final RecordsList<BooksBill> bills;
 

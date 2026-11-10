@@ -12,10 +12,10 @@ description = "ANUM FastAPI backend foundation"
 requires-python = ">=3.11"
 dependencies = [
   "alembic==1.20.1",
-  "boto3==1.43.123",
+  "boto3==1.43.126",
   "cryptography==50.0.2",
   "defusedxml==0.7.1",
-  "dnspython==2.9.1",
+  "dnspython==2.9.2",
   "fastapi==0.162.0",
   "httpx==0.28.1",
   "nats-py==2.16.0",
@@ -28,12 +28,12 @@ dependencies = [
   "psycopg[binary]==3.3.6",
   "pydantic-settings==2.16.2",
   "pdfminer.six==20260107",
-  "pypdf==6.21.4",
+  "pypdf==7.0.0",
   "Pillow==13.0.0",
   "PyJWT[crypto]==2.15.1",
   "redis==8.1.0",
-  "sentry-sdk==2.73.0",
-  "sqlalchemy==2.1.6",
+  "sentry-sdk==2.74.0",
+  "sqlalchemy==2.1.8",
   "starlette==1.10.0",
   "temporalio==1.35.0",
   "uvicorn[standard]==0.54.0"
@@ -42,7 +42,7 @@ dependencies = [
 [project.optional-dependencies]
 # Only the browser image installs it (docs/browser-research.md#the-browser-image).
 browser = [
-  "playwright==1.56.0"
+  "playwright==1.64.1"
 ]
 test = [
   "moto[s3]==5.2.5",

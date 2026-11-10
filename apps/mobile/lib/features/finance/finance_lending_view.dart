@@ -4,6 +4,7 @@ import '../../src/localization/money_format.dart';
 import '../../src/theme/anum_theme.dart';
 import '../../src/widgets/anum_components.dart';
 import '../../src/widgets/depth.dart';
+import '../records_kit/payment_picker.dart';
 import '../records_kit/records_form.dart';
 import '../records_kit/records_widgets.dart';
 import 'finance_lending_strings.dart';
@@ -203,7 +204,7 @@ class _LoanDetailSheetState extends State<LoanDetailSheet> {
   MoneyLoad _state = MoneyLoad.loading;
   PersonLoanDetail? _detail;
   String? _error;
-  bool _all = false;
+  bool _all = false, _busy = false;
 
   @override
   void initState() {
@@ -236,6 +237,118 @@ class _LoanDetailSheetState extends State<LoanDetailSheet> {
     final loan = _detail?.loan ?? widget.loan;
     final saved = await openLoanForm(context, widget.controller, loan: loan);
     if (saved && mounted) await _load();
+  }
+
+  Future<bool> _confirm(String title, String body, String confirm) async =>
+      await showDialog<bool>(
+        context: context,
+        builder: (dialog) => AlertDialog(
+          title: Text(title),
+          content: Text(body),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(dialog, false),
+              child: Text(FinanceLendingStrings.of(dialog).t('loan.cancel')),
+            ),
+            FilledButton(
+              key: const Key('loan-confirm'),
+              onPressed: () => Navigator.pop(dialog, true),
+              child: Text(confirm),
+            ),
+          ],
+        ),
+      ) ??
+      false;
+
+  Future<void> _run(Future<void> Function() action, String done) async {
+    setState(() => _busy = true);
+    try {
+      await action();
+      if (mounted) recordsToast(context, done);
+    } catch (error) {
+      if (mounted) {
+        recordsToast(context, FinancePersonalController.reason(error));
+      }
+    }
+    if (mounted) setState(() => _busy = false);
+  }
+
+  Future<void> _unlink(LoanMovement movement) async {
+    final l = FinanceLendingStrings.of(context);
+    if (!await _confirm(
+        l.t('loan.unlinkTitle'), l.t('loan.unlinkBody'), l.t('loan.unlink'))) {
+      return;
+    }
+    final loan = _detail?.loan ?? widget.loan;
+    await _run(() => widget.controller.unlinkLoan(loan, movement.linkId),
+        l.t('loan.unlinked'));
+    if (mounted) await _load();
+  }
+
+  Future<void> _linkHanded() async {
+    final s = FinancePersonalStrings.of(context);
+    final l = FinanceLendingStrings.of(context);
+    final c = widget.controller;
+    final loan = _detail?.loan ?? widget.loan;
+    final linked = await showRecordsSheet<bool>(
+      context,
+      (_) => PaymentPickerSheet(
+        key: const Key('loan-handed-picker'),
+        text: PaymentPickerText(
+          title: l.t('loan.handedTitle', {'person': loan.person}),
+          help: l.t(loan.direction == LoanDirection.lent
+              ? 'loan.handedHelpOut'
+              : 'loan.handedHelpIn'),
+          search: s.t('repay.search'),
+          empty: s.t('repay.empty'),
+          remaining: s.t('repay.remaining'),
+          already: s.t('repay.already'),
+        ),
+        load: (query) async => [
+          for (final item
+              in await c.repository.handedCandidates(loan, query: query))
+            PaymentChoice(
+              id: item.canonicalId,
+              postedOn: item.postedOn,
+              merchant: item.merchant,
+              amount: item.amount,
+              currency: item.currency,
+              remaining: item.remaining,
+              alreadyLinked: false,
+            ),
+        ],
+        link: (choice, key) =>
+            c.recordHanded(loan, canonicalId: choice.id, idempotencyKey: key),
+      ),
+    );
+    if ((linked ?? false) && mounted) {
+      recordsToast(context, l.t('loan.handedDone'));
+      await _load();
+    }
+  }
+
+  Future<void> _delete() async {
+    final l = FinanceLendingStrings.of(context);
+    final loan = _detail?.loan ?? widget.loan;
+    if (!await _confirm(l.t('loan.deleteTitle', {'person': loan.person}),
+        l.t('loan.deleteBody'), l.t('loan.delete'))) {
+      return;
+    }
+    setState(() => _busy = true);
+    try {
+      await widget.controller.deleteLoan(loan);
+      if (!mounted) return;
+      final messenger = ScaffoldMessenger.maybeOf(context);
+      Navigator.of(context).pop();
+      messenger
+        ?..removeCurrentSnackBar()
+        ..showSnackBar(SnackBar(
+            content: Text(l.t('loan.deleted', {'person': loan.person}))));
+    } catch (error) {
+      if (!mounted) return;
+      setState(() => _busy = false);
+      recordsToast(context, FinancePersonalController.reason(error));
+    }
   }
 
   @override
@@ -280,13 +393,26 @@ class _LoanDetailSheetState extends State<LoanDetailSheet> {
               onPressed: () => Navigator.of(context).pop(),
               child: Text(l.t('loan.done')),
             ),
-            if (_state == MoneyLoad.ready)
+            if (_state == MoneyLoad.ready) ...[
+              Semantics(
+                label: l.t('loan.deleteLabel', {'person': widget.loan.person}),
+                excludeSemantics: true,
+                child: TextButton.icon(
+                  key: const Key('loan-delete'),
+                  onPressed: _busy ? null : _delete,
+                  style: TextButton.styleFrom(
+                      foregroundColor: context.palette.stop),
+                  icon: const Icon(Icons.delete_outline),
+                  label: Text(l.t('loan.delete')),
+                ),
+              ),
               FilledButton.icon(
                 key: const Key('loan-detail-edit'),
-                onPressed: _edit,
+                onPressed: _busy ? null : _edit,
                 icon: const Icon(Icons.edit_outlined),
                 label: Text(l.t('loan.edit')),
               ),
+            ],
           ],
         ),
       ],
@@ -303,6 +429,10 @@ class _LoanDetailSheetState extends State<LoanDetailSheet> {
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
         AnumRow(title: l.t('loan.amount'), detail: m(loan.amount)),
+        AnumRow(
+            key: const Key('loan-detail-handed'),
+            title: l.t('loan.handed'),
+            detail: m(loan.handed)),
         AnumRow(title: l.t('loan.repaid'), detail: m(loan.repaid)),
         AnumRow(
             key: const Key('loan-detail-left'),
@@ -367,6 +497,50 @@ class _LoanDetailSheetState extends State<LoanDetailSheet> {
               ),
             ),
         ],
+        const SizedBox(height: AnumSpacing.sm),
+        AnumHeader(title: l.t('loan.movements')),
+        if (d.movements.isEmpty)
+          Text(l.t('loan.movementsNone'),
+              key: const Key('loan-movements-none'), style: muted)
+        else
+          for (final mv in d.movements)
+            AnumRow(
+              key: Key('loan-movement-${mv.linkId}'),
+              icon:
+                  mv.role == 'deposit' ? Icons.call_received : Icons.call_made,
+              tone: mv.active ? AnumTone.neutral : AnumTone.warn,
+              title: (mv.description ?? '').isEmpty ? '-' : mv.description!,
+              subtitle: [
+                mv.postedOn == null ? '-' : recordsDate(context, mv.postedOn),
+                l.label('loan.role', mv.role),
+                if (!mv.active) l.t('loan.review'),
+              ].join(' · '),
+              detail: mv.amount != null && mv.currency != null
+                  ? _money(context, mv.amount!, mv.currency!)
+                  : '-',
+              trailing: IconButton(
+                key: Key('loan-unlink-${mv.linkId}'),
+                tooltip: l.t('loan.unlinkLabel', {
+                  'what': (mv.description ?? '').isEmpty
+                      ? l.t('loan.unlink')
+                      : mv.description!,
+                }),
+                onPressed: _busy ? null : () => _unlink(mv),
+                icon: const Icon(Icons.link_off),
+              ),
+            ),
+        const SizedBox(height: AnumSpacing.xs),
+        Align(
+          alignment: AlignmentDirectional.centerStart,
+          child: OutlinedButton.icon(
+            key: const Key('loan-link-handed'),
+            onPressed: _busy ? null : _linkHanded,
+            icon: const Icon(Icons.link),
+            label: Text(l.t(loan.direction == LoanDirection.lent
+                ? 'loan.linkLent'
+                : 'loan.linkBorrowed')),
+          ),
+        ),
       ],
     );
   }

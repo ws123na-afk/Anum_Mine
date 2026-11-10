@@ -7,6 +7,7 @@ import '../../src/localization/money_format.dart';
 import '../../src/theme/anum_theme.dart';
 import '../../src/widgets/anum_components.dart';
 import '../../src/widgets/depth.dart';
+import '../books/books_review.dart' show EvidenceSection;
 import 'billing_profile.dart';
 import 'business_controller.dart';
 import 'invoice_controller.dart';
@@ -849,6 +850,12 @@ class _InvoiceDetailState extends State<InvoiceDetailScreen> {
       if (inv.status == 'void' && inv.voidReason.isNotEmpty)
         Text('${l.t('biz.inv.voidReason')}: ${inv.voidReason}',
             style: TextStyle(color: context.palette.stop)),
+      if (c.books != null)
+        EvidenceSection(
+            key: Key('inv-evidence-${inv.id}'),
+            repository: c.books!,
+            sourceType: 'invoice',
+            sourceId: inv.id),
     ];
   }
 

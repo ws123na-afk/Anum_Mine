@@ -363,6 +363,45 @@ class FakePersonal implements FinancePersonalRepository {
   }
 
   @override
+  Future<List<LoanCandidate>> handedCandidates(PersonLoan loan,
+      {String query = ''}) async {
+    requests.add('handed candidates ${loan.id}');
+    return [
+      LoanCandidate.fromJson(JsonReader.of({
+        'canonical_id': 'fin_tx_7',
+        'posted_on': loan.lentOn,
+        'merchant': 'TRANSFER TO SARA EXAMPLE',
+        'amount': loan.amount,
+        'currency': loan.currency,
+        'remaining': loan.amount,
+      })),
+    ];
+  }
+
+  @override
+  Future<void> linkHanded(String loanId,
+      {required String canonicalId, required String idempotencyKey}) async {
+    requests.add('handed $loanId $canonicalId');
+  }
+
+  /// Fails unlinking and deleting with this when set.
+  Object? changeFailure;
+
+  @override
+  Future<void> unlinkLoan(String loanId, String linkId) async {
+    requests.add('unlink $loanId $linkId');
+    final f = changeFailure;
+    if (f != null) throw f;
+  }
+
+  @override
+  Future<void> deleteLoan(String loanId) async {
+    requests.add('delete $loanId');
+    final f = changeFailure;
+    if (f != null) throw f;
+  }
+
+  @override
   Future<FixedCommitments> fixedCommitments() async {
     requests.add('fixed');
     _check();

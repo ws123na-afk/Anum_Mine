@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 
 import '../../data/api_client.dart';
+import '../books/books_data.dart';
 import 'business_controller.dart';
 import 'business_models.dart';
 import 'invoice_models.dart';
@@ -12,7 +13,7 @@ import 'invoice_repository.dart';
 /// screen talks to [repository] and calls [refresh] after each change so the
 /// list and the tiles stay current.
 class InvoicesController extends ChangeNotifier {
-  InvoicesController(this.repository) {
+  InvoicesController(this.repository, {this.books}) {
     invoices = PagedList(
       (offset) => repository.list(filter, offset: offset, limit: pageSize),
     );
@@ -23,6 +24,11 @@ class InvoicesController extends ChangeNotifier {
   }
 
   final InvoicesRepository repository;
+
+  /// The business books, for an invoice's supporting documents from the
+  /// Document vault (docs/business-books.md#supporting-documents-and-evidence);
+  /// null hides that section.
+  final BooksRepository? books;
   static const pageSize = 20;
 
   /// Who the caller is; set from the Business setup once it is loaded.
