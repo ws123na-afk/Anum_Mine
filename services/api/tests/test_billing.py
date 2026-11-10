@@ -690,13 +690,13 @@ def test_a_stripe_overpayment_becomes_credit_and_is_applied_once() -> None:
     assert handle_stripe_event(ISSUER, payload, header)["outcome"] == "paid"
     with open_billing("acme-co") as rows:
         assert svc.get_invoice(rows, invoice["id"])["status"] == "paid"
-        assert int(svc.account_of(rows)["credit_balance_minor"]) == 5000  # nothing collected was dropped
+        assert int(svc.account_of(rows)["credit_gross_minor"]) == 5000  # nothing collected was dropped (tax included)
         stripe = [p for p in rows.select("billing_payments") if p["provider"] == "stripe"]
         assert [p["amount_minor"] for p in stripe] == [6500] and "overpaid 5000" in stripe[0]["reference"]
     again = _event(invoice, "evt_over_again")
     assert handle_stripe_event(ISSUER, again, providers.sign_stripe_payload(again, WEBHOOK_SECRET, int(now.timestamp())))["outcome"] == "duplicate_payment"
     with open_billing("acme-co") as rows:
-        assert int(svc.account_of(rows)["credit_balance_minor"]) == 5000
+        assert int(svc.account_of(rows)["credit_gross_minor"]) == 5000
 
 
 def test_a_stripe_payment_for_an_invoice_paid_another_way_is_credited() -> None:
@@ -707,7 +707,7 @@ def test_a_stripe_payment_for_an_invoice_paid_another_way_is_credited() -> None:
     payload = _event(invoice, "evt_late")
     assert handle_stripe_event(ISSUER, payload, providers.sign_stripe_payload(payload, WEBHOOK_SECRET, int(now.timestamp())))["outcome"] == "credited"
     with open_billing("acme-co") as rows:
-        assert int(svc.account_of(rows)["credit_balance_minor"]) == 11_500
+        assert int(svc.account_of(rows)["credit_gross_minor"]) == 11_500
 
 
 def test_a_reminder_is_marked_sent_only_when_it_is_queued(monkeypatch: pytest.MonkeyPatch) -> None:

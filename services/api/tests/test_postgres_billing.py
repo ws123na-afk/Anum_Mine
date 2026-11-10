@@ -252,3 +252,46 @@ def test_key_rotation_re_encrypts_stripe_secrets_inside_the_issuer(client: TestC
         after = connection.execute(text("select stripe_secret_ciphertext from billing_settings")).scalar_one()
     assert after != before and Fernet(new_key).decrypt(after.encode()) == b"sk_test_example"
     assert rotate_billing_stripe_keys(combined, session_factory=db_session.SessionLocal).already_current == 1
+
+
+def test_tax_inclusive_credit_pays_the_renewal_under_rls_and_the_checks_hold(client: TestClient, database_engine: Engine) -> None:
+    """Migration ``0164_billing_gross_credit``: plan 100.00, KSA 15 %. The first invoice (115.00) is paid, 50.00 by transfer in
+    ``_bill_acme`` and 65.00 here, then credited in full: 115.00 of tax-inclusive credit pays the 115.00 renewal."""
+    billed = _bill_acme(client)
+    first = billed["invoice"]["id"]
+    with open_billing("acme-co") as rows:
+        now = svc.live_subscription(rows)["current_period_start"]
+        svc.record_payment(rows, first, amount_minor=6500, method="bank_transfer", reference="TRX-2", received_at=now, now=now, actor="t")
+        svc.issue_credit_note(rows, first, total_minor=11_500, reason="Goodwill", now=now, actor="t")
+        account = svc.account_of(rows)
+        assert (account["credit_balance_minor"], account["credit_gross_minor"]) == (0, 11_500)
+        moment = svc.live_subscription(rows)["current_period_end"] + timedelta(minutes=1)
+        result = svc.run_tenant(rows, now=moment)
+        assert svc.run_tenant(rows, now=moment).invoices == []  # the same pass again: nothing more
+        renewal = svc.get_invoice(rows, result.invoices[0])
+        assert (renewal["status"], renewal["subtotal_minor"], renewal["tax_minor"], renewal["total_minor"], renewal["amount_paid_minor"],
+                renewal["amount_due_minor"]) == ("paid", 10_000, 1_500, 11_500, 11_500, 0)
+        paid = rows.select("billing_payments", {"invoice_id": renewal["id"]})
+        assert [(p["method"], p["amount_minor"]) for p in paid] == [("account_credit", 11_500)]
+        account = svc.account_of(rows)
+        assert (account["credit_balance_minor"], account["credit_gross_minor"]) == (0, 0)
+    admin = {"x-tenant-id": "acme-co", "x-workspace-id": "acme-co_main", "x-user-id": "admin", "x-user-roles": "owner"}
+    shown = ok(client.get("/api/v1/billing/overview", headers=admin))["account"]
+    assert (shown["credit_balance_minor"], shown["credit_net_minor"], shown["credit_gross_minor"]) == (0, 0, 0)
+    # The platform reader may read a payment's method (to leave credit payments out of "collected"), still not its reference.
+    methods = _rows(database_engine, "anum_platform_reader", "select method, amount_minor from billing_payments order by amount_minor",
+                    billing_issuer=TENANT_A)
+    assert [(r.method, r.amount_minor) for r in methods] == [("bank_transfer", 5000), ("bank_transfer", 6500), ("account_credit", 11_500)]
+    collected = _rows(database_engine, "anum_platform_reader",
+                      "select coalesce(sum(amount_minor), 0) as total from billing_payments where method <> 'account_credit'", billing_issuer=TENANT_A)
+    assert collected[0].total == 11_500  # the two transfers, not the credit payment
+    # The database refuses a negative tax-inclusive balance and a method it does not know.
+    for statement in ("update billing_accounts set credit_gross_minor = -1",
+                      "update billing_payments set method = 'gift'"):
+        with database_engine.connect() as connection:
+            transaction = connection.begin()
+            connection.execute(text(f"set local role {APP_ROLE}"))
+            _scoped(connection, tenant_id="acme-co")
+            with pytest.raises(DBAPIError):
+                connection.execute(text(statement))
+            transaction.rollback()

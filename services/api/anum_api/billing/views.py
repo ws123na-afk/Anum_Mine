@@ -79,7 +79,12 @@ def subscription_view(sub: dict[str, Any] | None) -> dict[str, Any] | None:
 def account_view(account: dict[str, Any] | None) -> dict[str, Any] | None:
     if account is None:
         return None
-    return {key: account.get(key) for key in ACCOUNT_FIELDS}
+    out = {key: account.get(key) for key in ACCOUNT_FIELDS}
+    # ``credit_balance_minor`` stays the whole credit, as clients read it; the two parts are told apart next to it: net
+    # credit lowers the next invoice before tax, tax-inclusive credit pays it after tax (docs/billing.md#account-credit).
+    net, gross = int(account.get("credit_balance_minor") or 0), int(account.get("credit_gross_minor") or 0)
+    out.update(credit_balance_minor=net + gross, credit_net_minor=net, credit_gross_minor=gross)
+    return out
 
 
 def usage_view(sub: dict[str, Any] | None, usage: Usage, now: datetime) -> dict[str, Any]:

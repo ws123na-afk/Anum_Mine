@@ -164,6 +164,7 @@ export const billingEn = {
   'billing.method.card': 'Card',
   'billing.method.stripe': 'Card (Stripe)',
   'billing.method.other': 'Other',
+  'billing.method.account_credit': 'Account credit',
   'billing.invoice.title': 'Invoice',
   'billing.invoice.loading': 'Loading the invoice...',
   'billing.invoice.failed': "Couldn't load the invoice: {message}",

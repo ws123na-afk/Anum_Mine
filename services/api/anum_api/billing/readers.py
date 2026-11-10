@@ -46,13 +46,16 @@ def _issuer_rows(issuer: str) -> tuple[list[dict[str, Any]], list[dict[str, Any]
                                "trial_end, current_period_end, cancel_at_period_end from billing_subscriptions")
         invoices = _reader(issuer, "select tenant_id, status, currency, total_minor, amount_due_minor, due_at "
                                    "from billing_invoices where status = 'open'")
-        payments = _reader(issuer, "select tenant_id, amount_minor, currency, received_at from billing_payments")
+        # A payment made from account credit is not new money: it is left out of what was collected.
+        payments = _reader(issuer, "select tenant_id, amount_minor, currency, received_at from billing_payments "
+                                   "where method <> 'account_credit'")
         return accounts, subs, invoices, payments
 
     def mine(table: str) -> list[dict[str, Any]]:
         return [r for r in memory_db.all_rows(table) if r.get("issuer_tenant_id") == issuer]
 
-    return mine("billing_accounts"), mine("billing_subscriptions"), [r for r in mine("billing_invoices") if r["status"] == "open"], mine("billing_payments")
+    return (mine("billing_accounts"), mine("billing_subscriptions"), [r for r in mine("billing_invoices") if r["status"] == "open"],
+            [r for r in mine("billing_payments") if r["method"] != "account_credit"])
 
 
 def subscriptions(issuer: str, now: datetime) -> list[dict[str, Any]]:

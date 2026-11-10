@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterator
 from datetime import timedelta
+from decimal import Decimal
 
 import pytest
 from conftest import APP_ROLE, TENANT_A, TENANT_B, WORKSPACE_A, WORKSPACE_A2, WORKSPACE_B
@@ -173,3 +174,35 @@ def test_the_daily_job_finds_businesses_through_scope_columns_only(client: TestC
                 with connection.begin():
                     connection.execute(text("set local role anum_maintenance"))
                     connection.execute(text(sql))
+
+
+def test_a_foreign_bill_is_paid_off_at_the_rate_it_was_posted_with(client: TestClient, app_session: Callable[..., Iterator[Session]]) -> None:
+    """The journal is read back in the database for the bill's own entry and what is left of it (``books_ledger._BookedReader``):
+    USD 10.00 posted at 3.755 = 37.55; 3.80 is then recorded for the same day; payments of 3.33, 3.33 and 3.34 clear 12.50,
+    12.51 and 12.54, so the payable ends at exactly zero. The bank pays 12.65 + 12.65 + 12.69 = 37.99 at 3.80: a loss of 0.44."""
+    _setup(client)
+    today = utc_now().date()
+
+    def rate(value: str, on: object) -> None:
+        made = client.post(f"{API}/rates", headers=ME, json={"base": "USD", "quote": "SAR", "rate": value, "as_of": str(on), "source": "Synthetic"})
+        assert made.status_code == 201, made.text
+
+    rate("3.755", today - timedelta(days=1))
+    bill = _bill(client, currency="USD", subtotal="10", tax="0")
+    assert client.post(f"{API}/ledger/post", headers=ME).status_code == 200
+    rate("3.80", today)
+    for amount in ("3.33", "3.33", "3.34"):
+        paid = client.post(f"{API}/bills/{bill['id']}/payments", headers=ME, json={"amount": amount, "paid_on": today.isoformat()})
+        assert paid.status_code == 201, paid.text
+        assert client.post(f"{API}/ledger/post", headers=ME).status_code == 200
+    sums = {row[0]: (row[1], row[2]) for row in _rows(app_session, """
+        select a.system_key, sum(l.debit - l.credit), sum(case when l.currency = 'USD' then l.amount else 0 end)
+        from business_book_journal_lines l join business_book_ledger_accounts a on a.id = l.account_id
+        where a.system_key in ('ap', 'bank', 'fx') group by a.system_key""")}
+    assert sums["ap"] == (0, 0) and sums["bank"] == (-Decimal("37.99"), -Decimal("10.00")) and sums["fx"][0] == Decimal("0.44")
+    cleared = [row[0] for row in _rows(app_session, """
+        select l.debit from business_book_journal_lines l join business_book_ledger_accounts a on a.id = l.account_id
+        where a.system_key = 'ap' and l.debit > 0 order by l.debit""")]
+    assert cleared == [Decimal("12.50"), Decimal("12.51"), Decimal("12.54")]
+    again = client.post(f"{API}/ledger/post", headers=ME).json()
+    assert (again["posted"], again["reversed"], again["issues"]) == (0, 0, 0)

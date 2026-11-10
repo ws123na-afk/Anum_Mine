@@ -61,6 +61,8 @@ accounts = Table(
     _s("tenant_id", 80, primary_key=True), _s("issuer_tenant_id", 80), _s("display_name"), _s("contact_name", 160),
     _s("contact_email", 254), _s("company_name"), _s("address_line1"), _s("address_line2"), _s("city", 120),
     _s("postal_code", 20), _s("country", 2), _s("vat_number", 40), _m("credit_balance_minor"), _s("state", 20),
+    # Credit that already includes tax (migration 0164_billing_gross_credit); ``credit_balance_minor`` is the net balance.
+    _m("credit_gross_minor", server_default="0"),
     _b("onboarding_dismissed"), _b("plan_confirmed"), _t("created_at"), _t("updated_at"),
 )
 subscriptions = Table(
