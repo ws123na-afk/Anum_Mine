@@ -422,6 +422,12 @@ class InMemoryRepository:
         elif current is not None and current.private_to is not None and task.private_to is not None:
             task.private_to = current.private_to  # a chat task is shared or kept, never handed over
         self.store.tasks[task.id] = task
+        # A workspace task turns private, or a chat task is shared for an approval: its events follow
+        # it, as ``SqlAlchemyRepository.create_task`` rewrites ``domain_events.private_to``. (The stored
+        # task may be the very object the caller changed, so the stamps are compared, not the tasks.)
+        for event in self.store.events:
+            if event.correlation_id == task.id and event.tenant_id == task.tenant_id and event.private_to != task.private_to:
+                event.private_to = task.private_to
         return task
 
     def get_task(self, task_id: str, context: TenantContext) -> Task | None:
@@ -477,17 +483,15 @@ class InMemoryRepository:
 
     def list_events(self, context: TenantContext, *, limit: int | None = None) -> list[DomainEvent]:
         """The caller's events oldest first; with ``limit`` only the first that many."""
-        def hidden(event: DomainEvent) -> bool:
-            # An event of a private task (correlation id = task id) is its person's only.
-            task = self.store.tasks.get(event.correlation_id)
-            return task is not None and task.tenant_id == event.tenant_id and not task_visible_to(task, context)
-
+        # An event of a private task is its person's only: ``private_to`` is stamped when the event
+        # is recorded and rewritten when the task's marker changes (``save_task``), so this read,
+        # ``events_since`` and the event-bus filter agree, as they do in SQL.
         events = [
             event
             for event in self.store.events
             if event.tenant_id == context.tenant_id
             and (event.workspace_id is None or event.workspace_id == context.workspace_id)
-            and not hidden(event)
+            and (event.private_to is None or event.private_to == context.user_id)
         ]
         return events if limit is None else events[:limit]
 
@@ -546,8 +550,9 @@ class InMemoryRepository:
 
     def record_event(self, event: DomainEvent) -> DomainEvent:
         task = self.store.tasks.get(event.correlation_id)
-        if task is not None and task.tenant_id == event.tenant_id and task.private_to is not None:
-            # An event of a private task: kept off the bus (``EventBusRuntime.after_commit``).
+        if task is not None and task.tenant_id == event.tenant_id and task.workspace_id == event.workspace_id:
+            # An event of a private task (correlation id = task id): stamped at record time, so it is
+            # kept off the bus (``EventBusRuntime.after_commit``) and out of other people's reads.
             event.private_to = task.private_to
         self.store.events.append(event)
         return event

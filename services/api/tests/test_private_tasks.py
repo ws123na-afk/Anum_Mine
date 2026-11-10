@@ -485,3 +485,24 @@ def test_a_mailbox_check_that_fails_fails_the_call_and_never_marks_the_task(monk
     assert run.status == TaskStatus.FAILED and run.result == MAILBOX_CHECK_FAILED
     assert repository.store.tasks[task.id].private_to is None
     assert repository.get_task(task.id, _context("omar")) is not None
+
+
+def test_events_follow_the_task_in_memory_as_they_do_in_sql() -> None:
+    """``private_task_checks``: the memory backend stamps events at record time and rewrites them
+    when the task's marker changes, so its activity list, cursor reads, automation triggers and the
+    event-bus filter agree with PostgreSQL (``test_postgres_private_tasks.py`` runs the same check)."""
+    from contextlib import contextmanager
+
+    from anum_api.automation import RepositoryEffects
+    from private_task_checks import check_events_follow_the_task, since
+
+    repository = InMemoryRepository(InMemoryStore())
+
+    @contextmanager
+    def as_user(user: str) -> Any:
+        yield repository
+
+    def events_since(user: str, event_type: str) -> list[DomainEvent]:
+        return RepositoryEffects(repository, lambda context: None).events_since(_context(user), event_type, since(), 50)
+
+    check_events_follow_the_task(as_user, events_since, _context, new_id("task"))

@@ -324,3 +324,20 @@ def test_a_finance_answer_over_http_is_read_by_its_creator_only(client: TestClie
         rows = connection.execute(text("select private_to, private_kind from tasks order by created_at")).all()
         assert [tuple(row) for row in rows] == [("alice_owner", "data"), ("alice_owner", "data")]
         assert connection.execute(text("select count(*) from domain_events where correlation_id in (select id from tasks) and private_to is null")).scalar_one() == 0
+
+
+def test_events_follow_the_task_in_sql_as_they_do_in_memory(seed_scopes: None, as_user: Callable[..., Any]) -> None:
+    """``private_task_checks``: the same check ``test_private_tasks.py`` runs against the memory backend."""
+    from anum_api.db.automation_repository import session_effects
+    from private_task_checks import check_events_follow_the_task, since
+
+    @contextmanager
+    def repository_as(user: str) -> Iterator[SqlAlchemyRepository]:
+        with as_user(user) as (_, repository):
+            yield repository
+
+    def events_since(user: str, event_type: str) -> list[DomainEvent]:
+        with as_user(user) as (session, _):
+            return session_effects(session, _context(user)).events_since(_context(user), event_type, since(), 50)
+
+    check_events_follow_the_task(repository_as, events_since, _context, "task_follow")
