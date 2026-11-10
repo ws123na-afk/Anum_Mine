@@ -3,8 +3,9 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from ..schemas import TenantContext, new_id
 from .invoice_models import (
@@ -27,6 +28,21 @@ from .store import BusinessStore, Query
 SCAN = 2000
 
 
+DEFAULT_ZONE = "Asia/Riyadh"
+
+
+def business_day(store: BusinessStore, now: datetime) -> date:
+    """The business's own calendar day at ``now``: in its time zone (Business, Settings: the one the support policy keeps,
+    Asia/Riyadh by default), not the UTC day. An invoice sent at 00:30 on 1 January in Riyadh (21:30 UTC on 31 December)
+    is dated 1 January and numbered in the new year, and a payment dated that day is not "in the future"."""
+    try:
+        zone = ZoneInfo(store.get_settings().support_policy.timezone)
+    except (ZoneInfoNotFoundError, ValueError):
+        zone = ZoneInfo(DEFAULT_ZONE)
+    moment = now if now.tzinfo is not None else now.replace(tzinfo=UTC)
+    return moment.astimezone(zone).date()
+
+
 def take_number(store: BusinessStore, context: TenantContext, year: int, now: datetime) -> int:
     """The next number of the year. The counter row is locked, so two sends never get the same one."""
     found, _ = store.find("invoice_counters", Query(where={"year": year}, limit=1, order_by="created_at"))
@@ -42,7 +58,7 @@ def take_number(store: BusinessStore, context: TenantContext, year: int, now: da
 
 def issue(invoice: Invoice, store: BusinessStore, context: TenantContext, now: datetime) -> Invoice:
     """The invoice as sent: numbered, dated and attributed. The caller saves it."""
-    today = now.date()
+    today = business_day(store, now)
     seq = take_number(store, context, today.year, now)
     prefix = invoice.seller.invoice_prefix if invoice.seller is not None else "INV"
     return invoice.model_copy(update={
@@ -130,7 +146,7 @@ def apply_payment(
     balance = invoice.balance_due()
     if amount > balance:
         raise http_error(422, f"The payment is more than the balance of {invoice.currency.value} {balance}.")
-    if paid_on > now.date():
+    if paid_on > business_day(store, now):
         raise http_error(422, "The payment date cannot be in the future.")
     if invoice.issue_date and paid_on < invoice.issue_date:
         raise http_error(422, f"The payment date is before the invoice was issued on {invoice.issue_date}.")

@@ -44,7 +44,7 @@ from .invoice_models import (
 )
 from .zatca import qr_for_invoice, tax_settings_for
 from .invoice_pdf import invoice_filename, render_invoice_pdf
-from .invoice_service import apply_payment, credit_notes_of, payments_of
+from .invoice_service import apply_payment, business_day, credit_notes_of, payments_of
 from .models import money
 from .service import http_error, record_activity
 from .store import MAX_SCAN, BusinessStore, Query, open_business_store
@@ -460,7 +460,7 @@ def apply_card_payment(provider: Literal["moyasar", "stripe"], issuer_tenant_id:
         applied = min(amount, invoice.balance_due())
         reference = f"{name} {payment_id}"[:120]
         note = f"Paid by card on the {name} payment page." + (f" {name} took {amount}; {amount - applied} more than the balance, refund it there." if applied < amount else "")
-        invoice, payment = apply_payment(store, context, invoice, amount=applied, paid_on=now.date(), method=PaymentMethod.CARD,
+        invoice, payment = apply_payment(store, context, invoice, amount=applied, paid_on=business_day(store, now), method=PaymentMethod.CARD,
                                          reference=reference, note=note[:300], now=now, provider=provider, provider_payment_id=payment_id[:200])
         for link in links_of(store, invoice.id):
             if link.status == PaymentLinkStatus.OPEN:

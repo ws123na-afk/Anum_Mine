@@ -30,7 +30,7 @@ from anum_api.suppression import suppression_store
 
 from test_business import BASE, MEMBER, OTHER_TENANT, OTHER_WORKSPACE, OWNER, TENANT, VIEWER, WORKSPACE, approve, lead, ok, proposal_body, qualify
 from test_business_change_orders import decide, draft as draft_change, project as make_project, submit as submit_change
-from test_business_invoices import milestone_ids, send, set_profile
+from test_business_invoices import business_today, milestone_ids, send, set_profile
 
 client = TestClient(main.app)
 PORTAL = "/api/v1/portal"
@@ -398,13 +398,13 @@ def test_a_customer_sees_sent_invoices_with_payments_and_a_printable_copy() -> N
     text = json.dumps(detail)
     for secret in ("created_by", "approval", "tenant_id", "marked_milestones", "content_hash", "decision_note", "requested"):
         assert secret not in text
-    ok(client.post(f"{BASE}/invoices/{drafted['id']}/payments", headers=MEMBER, json={"amount": 100, "paid_on": utc_now().date().isoformat(), "reference": "TRX-5"}), 201)
+    ok(client.post(f"{BASE}/invoices/{drafted['id']}/payments", headers=MEMBER, json={"amount": 100, "paid_on": business_today().isoformat(), "reference": "TRX-5"}), 201)
     paid = get(token, f"/invoices/{drafted['id']}")
     assert paid["amount_paid"] == 100 and paid["payment_state"] == "partially_paid" and paid["payments"][0]["reference"] == "TRX-5"
     page = get(token, f"/invoices/{drafted['id']}/print?lang=ar")
     assert 'dir="rtl"' in page and detail["number"] in page
     assert get(token, "/me")["counts"]["invoices_open"] == 1
-    ok(client.post(f"{BASE}/invoices/{drafted['id']}/payments", headers=MEMBER, json={"amount": float(detail["total"]) - 100, "paid_on": utc_now().date().isoformat()}), 201)
+    ok(client.post(f"{BASE}/invoices/{drafted['id']}/payments", headers=MEMBER, json={"amount": float(detail["total"]) - 100, "paid_on": business_today().isoformat()}), 201)
     assert get(token, f"/invoices/{drafted['id']}")["status"] == "paid" and get(token, "/me")["counts"]["invoices_open"] == 0
     assert [item["id"] for item in get(token, "/invoices?status=paid")] == [drafted["id"]] and get(token, "/invoices?status=sent") == []
 
@@ -424,7 +424,7 @@ def test_a_voided_invoice_stays_visible_marked_void() -> None:
 
 
 def report(token: str, invoice_id: str, amount: float = 400, **extra: Any) -> Any:
-    body = {"idempotency_key": uuid4().hex, "payer_name": "Sara Khan", "amount": amount, "paid_on": utc_now().date().isoformat(), "method": "bank_transfer", "reference": "TRX-31", **extra}
+    body = {"idempotency_key": uuid4().hex, "payer_name": "Sara Khan", "amount": amount, "paid_on": business_today().isoformat(), "method": "bank_transfer", "reference": "TRX-31", **extra}
     return client.post(f"{PORTAL}/invoices/{invoice_id}/payment-notices", headers=bearer(token), json=body)
 
 
@@ -530,7 +530,7 @@ def test_a_payment_cannot_be_reported_on_a_paid_void_or_foreign_invoice() -> Non
     other_token = grant(other["account_id"])["token"]
     assert report(other_token, invoice["id"], 10).status_code == 404  # another client's invoice looks absent
     assert report(token, "missing", 10).status_code == 404
-    ok(client.post(f"{BASE}/invoices/{invoice['id']}/payments", headers=MEMBER, json={"amount": invoice["total"], "paid_on": utc_now().date().isoformat()}), 201)
+    ok(client.post(f"{BASE}/invoices/{invoice['id']}/payments", headers=MEMBER, json={"amount": invoice["total"], "paid_on": business_today().isoformat()}), 201)
     paid = report(token, invoice["id"], 10)
     assert paid.status_code == 409 and "already paid" in paid.text
     assert get(token, f"/invoices/{invoice['id']}")["can_report_payment"] is False
@@ -673,5 +673,5 @@ def test_every_state_changing_portal_route_is_audited_without_content() -> None:
     billed = send(ok(client.post(f"{BASE}/invoices", headers=MEMBER, json={"project_id": project["id"], "milestone_ids": milestone_ids(project)[:1]}), 201))
     reporter = grant(project["account_id"])["token"]
     portal_probe.call("POST", f"{PORTAL}/invoices/{billed['id']}/payment-notices", {**bearer(reporter), **scope}, sent=["TRX-AUDIT-31", "Sara Khan", "paid by wire"],
-                      json={"idempotency_key": "audit-key-0001", "payer_name": "Sara Khan", "amount": 10, "paid_on": utc_now().date().isoformat(), "reference": "TRX-AUDIT-31", "note": "paid by wire"})
+                      json={"idempotency_key": "audit-key-0001", "payer_name": "Sara Khan", "amount": 10, "paid_on": business_today().isoformat(), "reference": "TRX-AUDIT-31", "note": "paid by wire"})
     portal_probe.assert_covered()

@@ -32,13 +32,13 @@ from anum_api.suppression import suppression_store
 
 from test_business import BASE, MEMBER, OTHER_TENANT, OTHER_WORKSPACE, OWNER, TENANT, VIEWER, ok
 from test_business_change_orders import project as make_project
-from test_business_invoices import create, send, set_profile
+from test_business_invoices import business_today, create, send, set_profile
 from test_selling_readiness import MOYASAR_KEY, WEBHOOK_TOKEN, FakeMoyasar
 from test_stripe_payments import STRIPE_KEY, FakeStripe, form_of
 from test_stripe_payments import WEBHOOK_SECRET as STRIPE_WEBHOOK_SECRET
 
 client = TestClient(main.app)
-TODAY = utc_now().date().isoformat()
+TODAY = business_today().isoformat()
 ARABIC_COMPANY = "شركة الأمل للتجارة"
 ARABIC_LINE = "استشارة إدارية"
 

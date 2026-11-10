@@ -140,9 +140,10 @@ def reverse(store: BooksStore, context: TenantContext, entry: JournalEntry, *, a
 
 
 # Events a person recorded as already done, dated in their own calendar and checked "not in the future" by
-# ``books_service.latest_day``: personal payments allocated to the business, adjustments and payments. Only the event itself
+# ``books_service.latest_day``: personal payments allocated to the business, adjustments and payments; and invoices and credit
+# notes, dated on the business's own day when they are issued (``invoice_service.business_day``). Only the event itself
 # (``kind:id``); what it schedules (a reversal, a release, depreciation) waits for its UTC day.
-RECORDED_KINDS = frozenset({"allocation", "adjustment", "invoice_payment", "bill_payment"})
+RECORDED_KINDS = frozenset({"allocation", "adjustment", "invoice_payment", "bill_payment", "invoice", "credit_note"})
 
 
 def _plan(context: TenantContext, store: BooksStore, today: date) -> tuple[Any, Chart, list[Proposal], list[JournalEntry], date | None]:

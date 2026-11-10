@@ -10,9 +10,11 @@ cross-workspace and cross-tenant isolation; and the audit walk.
 from __future__ import annotations
 
 from collections.abc import Iterator
+from datetime import date
 from decimal import Decimal
 from uuid import uuid4
 from typing import Any
+from zoneinfo import ZoneInfo
 
 import pytest
 from fastapi.testclient import TestClient
@@ -20,7 +22,7 @@ from fastapi.testclient import TestClient
 from anum_api import main
 from anum_api.business.invoice_models import InvoiceLine, price_line
 from anum_api.business.invoices import apply_lines, invoice_hash, problems
-from anum_api.business.models import BillingProfile
+from anum_api.business.models import BillingProfile, SupportPolicy
 from anum_api.business.store import business_store
 from anum_api.schemas import utc_now
 from anum_api.settings import settings
@@ -30,7 +32,15 @@ from test_business import BASE, MEMBER, OTHER_TENANT, OTHER_WORKSPACE, OWNER, VI
 from test_business_change_orders import decide, draft as draft_change, project as make_project, submit as submit_change
 
 client = TestClient(main.app)
-YEAR = utc_now().year
+
+
+def business_today() -> date:
+    """The day invoices, credit notes and payments are dated on: the business's own (its time zone, Asia/Riyadh by default),
+    which is a day ahead of the UTC day between 21:00 and midnight UTC (docs/business.md#invoices)."""
+    return utc_now().astimezone(ZoneInfo(SupportPolicy().timezone)).date()
+
+
+YEAR = business_today().year
 
 PROFILE = {
     "legal_name": "Anum Technologies LLC", "address": "Office 12, Riyadh\nSaudi Arabia", "tax_label": "VAT number", "tax_number": "300000000000003",
@@ -88,7 +98,7 @@ def portal_report(invoice: dict[str, Any], amount: float = 400, **extra: Any) ->
     """A customer's payment report, made through their portal link (returns the notice as the owner sees it)."""
     account = ok(client.get(f"{BASE}/accounts/{invoice['account_id']}", headers=OWNER))
     link = ok(client.post(f"{BASE}/portal/access", headers=OWNER, json={"account_id": invoice["account_id"], "contact_id": account["contacts"][0]["id"]}), 201)
-    body = {"idempotency_key": uuid4().hex, "payer_name": "Sara Khan", "amount": amount, "paid_on": utc_now().date().isoformat(), "method": "bank_transfer", "reference": "TRX-9", **extra}
+    body = {"idempotency_key": uuid4().hex, "payer_name": "Sara Khan", "amount": amount, "paid_on": business_today().isoformat(), "method": "bank_transfer", "reference": "TRX-9", **extra}
     created = client.post(f"/api/v1/portal/invoices/{invoice['id']}/payment-notices", headers={"authorization": f"Bearer {link['token']}"}, json=body)
     assert created.status_code == 201, created.text
     return ok(client.get(f"{BASE}/invoices/{invoice['id']}/payment-notices", headers=OWNER))[0]
@@ -157,7 +167,7 @@ def test_a_milestone_invoice_reconciles_with_the_contract_and_waits_for_an_owner
     assert ok(client.get(f"{BASE}/invoices/{invoice['id']}", headers=OWNER))["status"] == "pending_approval"
     assert approve(pending["approval"]).status_code == 200
     final = ok(client.get(f"{BASE}/invoices/{invoice['id']}", headers=OWNER))
-    assert final["status"] == "sent" and final["number"] == f"INV-{YEAR}-0001" and final["issue_date"] == utc_now().date().isoformat()
+    assert final["status"] == "sent" and final["number"] == f"INV-{YEAR}-0001" and final["issue_date"] == business_today().isoformat()
     assert final["due_date"] and final["sent_by"] == "owner_biz" and final["seller"]["legal_name"] == "Anum Technologies LLC"
     assert final["can"]["edit"] is False and final["balance"] == 2875 and final["overdue"] is False and final["payment_state"] == "unpaid"
     # A sent invoice never changes.
@@ -354,7 +364,7 @@ def test_payments_mark_the_milestones_paid_and_removing_one_undoes_it() -> None:
     project = make_project(total=2000, tax=0)
     sent = sent_invoice(project, count=1)
     pay = lambda amount, **extra: client.post(f"{BASE}/invoices/{sent['id']}/payments", headers=MEMBER,  # noqa: E731
-                                              json={"amount": amount, "paid_on": utc_now().date().isoformat(), "method": "bank_transfer", "reference": "TRX-1", **extra})
+                                              json={"amount": amount, "paid_on": business_today().isoformat(), "method": "bank_transfer", "reference": "TRX-1", **extra})
     assert pay(0).status_code == 422 and pay(1000.01).status_code == 422
     assert client.post(f"{BASE}/invoices/{sent['id']}/payments", headers=MEMBER, json={"amount": 10, "paid_on": "2999-01-01"}).status_code == 422
     assert client.post(f"{BASE}/invoices/{sent['id']}/payments", headers=MEMBER, json={"amount": 10, "paid_on": "2000-01-01"}).status_code == 422
@@ -381,7 +391,7 @@ def test_a_milestone_a_person_already_marked_paid_is_left_alone() -> None:
     project = make_project(total=2000, tax=0)
     sent = sent_invoice(project, count=1)
     ok(client.patch(f"{BASE}/milestones/{project['milestones'][0]['id']}", headers=MEMBER, json={"paid_amount": 1000, "paid_on": "2026-10-02"}))
-    full = ok(client.post(f"{BASE}/invoices/{sent['id']}/payments", headers=MEMBER, json={"amount": 1000, "paid_on": utc_now().date().isoformat()}), 201)
+    full = ok(client.post(f"{BASE}/invoices/{sent['id']}/payments", headers=MEMBER, json={"amount": 1000, "paid_on": business_today().isoformat()}), 201)
     assert full["status"] == "paid" and full["marked_milestones"] == []
     ok(client.delete(f"{BASE}/invoices/{sent['id']}/payments/{full['payments'][0]['id']}", headers=OWNER))
     assert ok(client.get(f"{BASE}/projects/{project['id']}", headers=OWNER))["milestones"][0]["paid_amount"] == 1000
@@ -390,7 +400,7 @@ def test_a_milestone_a_person_already_marked_paid_is_left_alone() -> None:
 def test_an_invoice_with_a_payment_cannot_be_voided_and_an_unpaid_one_can() -> None:
     project = make_project(total=2000, tax=0)
     sent = sent_invoice(project)
-    ok(client.post(f"{BASE}/invoices/{sent['id']}/payments", headers=MEMBER, json={"amount": 100, "paid_on": utc_now().date().isoformat()}), 201)
+    ok(client.post(f"{BASE}/invoices/{sent['id']}/payments", headers=MEMBER, json={"amount": 100, "paid_on": business_today().isoformat()}), 201)
     refused = client.post(f"{BASE}/invoices/{sent['id']}/void", headers=OWNER, json={"reason": "Mistake"})
     assert refused.status_code == 409 and "payments" in refused.text
     assert client.post(f"{BASE}/invoices/{sent['id']}/void", headers=MEMBER, json={"reason": "Mistake"}).status_code == 403
@@ -410,7 +420,7 @@ def test_overdue_invoices_are_listed_and_summarised() -> None:
     summary = ok(client.get(f"{BASE}/invoices/summary", headers=MEMBER))
     figures = summary["currencies"][0]
     assert (figures["currency"], figures["outstanding"], figures["overdue"], figures["overdue_count"]) == ("SAR", 2000, 2000, 1) and summary["counts"]["sent"] == 1
-    ok(client.post(f"{BASE}/invoices/{late_id}/payments", headers=MEMBER, json={"amount": 500, "paid_on": utc_now().date().isoformat()}), 201)
+    ok(client.post(f"{BASE}/invoices/{late_id}/payments", headers=MEMBER, json={"amount": 500, "paid_on": business_today().isoformat()}), 201)
     after = ok(client.get(f"{BASE}/invoices/summary", headers=MEMBER))["currencies"][0]
     assert after["outstanding"] == 1500 and after["collected_this_month"] == 500
 
@@ -537,7 +547,7 @@ def test_every_state_changing_invoice_route_is_audited_without_content(monkeypat
     call("POST", f"/invoices/{first['id']}/cancel-request")
     pending = call("POST", f"/invoices/{first['id']}/request-approval").json()
     assert approve(pending["approval"]).status_code == 200
-    payment = call("POST", f"/invoices/{first['id']}/payments", json={"amount": 500, "paid_on": utc_now().date().isoformat(), "reference": "TRX-AUDIT-9"}).json()
+    payment = call("POST", f"/invoices/{first['id']}/payments", json={"amount": 500, "paid_on": business_today().isoformat(), "reference": "TRX-AUDIT-9"}).json()
     call("DELETE", f"/invoices/{first['id']}/payments/{payment['payments'][0]['id']}")
     reported = portal_report(first, 20, reference="TRX-NOTICE-1")
     confirmed = call("POST", f"/invoices/{first['id']}/payment-notices/{reported['id']}/confirm", json={"note": "Seen on statement"}).json()
