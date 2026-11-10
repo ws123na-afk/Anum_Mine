@@ -248,6 +248,8 @@ def lookup_membership(context: TenantContext) -> WorkspaceMembershipRecord | Non
 
     session = SessionLocal()
     try:
+        # No anum.user_id: this session reads workspace_memberships only, never a task or an event
+        # (the private-task policies of 0163 do not apply to it).
         set_tenant_context(session, context.tenant_id, context.workspace_id)
         return SqlAlchemyRepository(session, created_by_user_id=context.user_id).get_membership(context)
     finally:
@@ -361,6 +363,7 @@ def workspace_archived(context: TenantContext) -> bool:
 
     session = SessionLocal()
     try:
+        # No anum.user_id: this session reads workspaces only, never a task or an event.
         set_tenant_context(session, context.tenant_id, context.workspace_id)
         workspace = SqlAlchemyRepository(session).get_workspace(context.workspace_id, context)
         return workspace is not None and workspace.archived_at is not None
