@@ -250,7 +250,7 @@ class AutomationDispatcher:
         engine = current_engine()
         since = utc_now()
         runs: list[WorkflowRun] = []
-        if event.type in TRIGGER_EVENTS:
+        if event.type in TRIGGER_EVENTS and event.private_to is None:  # never a private task's event
             runs.extend(await asyncio.to_thread(engine.fire_event, context, event))
         task_id = event_task_id(event)
         if task_id and event.type in TASK_PROGRESS_EVENTS:

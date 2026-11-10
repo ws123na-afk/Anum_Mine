@@ -652,7 +652,13 @@ class EventBusRuntime:
                 # The events are already durable outbox rows; just wake the relay.
                 self.relay.notify()
             elif self.outbox is not None:
-                self.outbox.enqueue(events)
+                # An event of a private task (docs/tasks.md#private-tasks) is never published:
+                # it stays in the repository, where only its person reads it. (With PostgreSQL
+                # the relay cannot see such a row.) In-process listeners above get it and
+                # resolve who may be told through the repository, which hides it from others.
+                public = [event for event in events if event.private_to is None]
+                if public:
+                    self.outbox.enqueue(public)
         except Exception:  # publication must never fail the request
             logger.exception("Could not hand committed events to publication")
 

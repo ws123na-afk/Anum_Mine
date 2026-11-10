@@ -497,6 +497,8 @@ class PushIntent:
     app_call_id: str | None = None
     # Automation pushes: the users the event names (notify_user_ids).
     named_users: tuple[str, ...] = ()
+    # The event belongs to a private task (docs/tasks.md#private-tasks): only this user is told.
+    private_to: str | None = None
 
     def data(self) -> dict[str, str]:
         """Deep-link ids only (FCM data values must be strings)."""
@@ -535,6 +537,7 @@ def intent_for(event: DomainEvent) -> PushIntent | None:
         "tenant_id": event.tenant_id,
         "workspace_id": event.workspace_id,
         "event_id": event.id,
+        "private_to": event.private_to,
     }
     if kind in {PushKind.AUTOMATION_NOTICE, PushKind.AUTOMATION_FAILED}:
         if kind == PushKind.AUTOMATION_NOTICE and not event.payload.get("push"):
@@ -599,7 +602,8 @@ def _allowed(role: str, permission: Permission) -> bool:
 def resolve_recipients(intent: PushIntent, *, limit: int | None = None) -> list[str]:
     """Who may see (and, for approvals, decide) the item, read inside its tenant and workspace."""
     limit = limit or settings.push_max_recipients
-    context = _system_context(intent)
+    # A private task's item is read as its person, the only one who can see it and be told.
+    context = _system_context(intent, intent.private_to or SYSTEM_ACTOR)
     with _unit_of_work(context, require_membership=False) as repository:
         members = {member.user_id: member.role for member in repository.list_memberships(context) if member.active}
         recipients: list[str] = []
@@ -646,6 +650,8 @@ def resolve_recipients(intent: PushIntent, *, limit: int | None = None) -> list[
             creator = request.created_by if request is not None else None
             if creator and _allowed(members.get(creator, ""), Permission.DEVELOPER_MANAGE):
                 recipients = [creator]
+    if intent.private_to is not None:
+        recipients = [user for user in recipients if user == intent.private_to]
     return sorted(set(recipients))[:limit]
 
 

@@ -879,6 +879,8 @@ All under `/api/v1/finance`, every route checking permissions on the server:
 
 ## Assistant
 
+Every finance tool is `caller_scoped`: a task whose run plans one becomes a [private task](tasks.md#private-tasks) of its creator before the tool runs, so the answer ("Balances: AED ...") is stored where only that person reads it, whether it was asked in Tasks, in the chat or by an automation, and another person's run of the same task is refused. Before November 2026 such a task and its runs were readable by every member with `task:read`, viewers included; migration `0163_private_tasks` hides the existing ones it can identify (a run that proposed a `finance.*` tool).
+
 Read-only tools (`finance/tools.py`, registered in the API's and the Temporal worker's registries by `register_finance_tools`), each with an `input_schema`, `action_kind="read"` and `RiskLevel.LOW`, on the caller's own ledger only:
 
 - `finance.summary` (`month`)

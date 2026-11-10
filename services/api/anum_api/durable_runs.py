@@ -108,7 +108,8 @@ def tenant_unit_of_work(context: TenantContext) -> Iterator[AnumRepository]:
 
     session = SessionLocal()
     try:
-        set_tenant_context(session, context.tenant_id, context.workspace_id)
+        # The user too: the run's task can be private to the person it runs for (0163_private_tasks).
+        set_tenant_context(session, context.tenant_id, context.workspace_id, user_id=context.user_id)
         session.info["user_id"] = context.user_id
         collecting = EventCollectingRepository(
             SqlAlchemyRepository(session, created_by_user_id=context.user_id)

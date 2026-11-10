@@ -700,7 +700,7 @@ def register_finance_tools(registry: ToolRegistry) -> ToolRegistry:
         registry.register(
             ToolDefinition(
                 name=name, description=description, risk_level=RiskLevel.LOW, idempotent=True, timeout_seconds=30,
-                category="general", action_kind="read", input_schema=SCHEMAS[name],
+                category="general", action_kind="read", caller_scoped=True, input_schema=SCHEMAS[name],
             ),
             handler,
         )
@@ -711,7 +711,7 @@ def register_finance_tools(registry: ToolRegistry) -> ToolRegistry:
         registry.register(
             ToolDefinition(
                 name=name, description=plan_tools.DESCRIPTIONS[name], risk_level=RiskLevel.LOW, idempotent=True, timeout_seconds=45,
-                category="general", action_kind="read", input_schema=plan_tools.SCHEMAS[name],
+                category="general", action_kind="read", caller_scoped=True, input_schema=plan_tools.SCHEMAS[name],
             ),
             plan_tools.HANDLERS[name],
         )
@@ -723,7 +723,7 @@ def register_finance_tools(registry: ToolRegistry) -> ToolRegistry:
                 "an approval amount). It only creates a proposal: you confirm it in Finance, Guardian. It can never loosen a rule."
             ),
             risk_level=RiskLevel.LOW, idempotent=False, timeout_seconds=30, category="general", action_kind="create",
-            input_schema=SCHEMAS[PROPOSE_TOOL],
+            caller_scoped=True, input_schema=SCHEMAS[PROPOSE_TOOL],
         ),
         _guardian_propose,
     )
@@ -735,7 +735,7 @@ def register_finance_tools(registry: ToolRegistry) -> ToolRegistry:
                 "your Guardian rules check and that you approve yourself in Finance, Paper trading. Nothing real is bought or sold."
             ),
             risk_level=RiskLevel.LOW, idempotent=False, timeout_seconds=30, category="general", action_kind="create",
-            input_schema=SCHEMAS[PAPER_PROPOSE_TOOL],
+            caller_scoped=True, input_schema=SCHEMAS[PAPER_PROPOSE_TOOL],
         ),
         _paper_propose,
     )
@@ -747,7 +747,7 @@ def register_finance_tools(registry: ToolRegistry) -> ToolRegistry:
                 "yourself with its code, it is refused while wider live use is off, and ANUM still places no real order."
             ),
             risk_level=RiskLevel.LOW, idempotent=False, timeout_seconds=30, category="general", action_kind="create",
-            input_schema=SCHEMAS[WIDEN_PROPOSE_TOOL],
+            caller_scoped=True, input_schema=SCHEMAS[WIDEN_PROPOSE_TOOL],
         ),
         _widen_propose,
     )
@@ -756,12 +756,12 @@ def register_finance_tools(registry: ToolRegistry) -> ToolRegistry:
 
     registry.register(
         ToolDefinition(name=ST.LIST_TOOL, description=ST.DESCRIPTIONS[ST.LIST_TOOL], risk_level=RiskLevel.LOW, idempotent=True, timeout_seconds=45,
-                       category="general", action_kind="read", input_schema=ST.SCHEMAS[ST.LIST_TOOL]),
+                       category="general", action_kind="read", caller_scoped=True, input_schema=ST.SCHEMAS[ST.LIST_TOOL]),
         ST.HANDLERS[ST.LIST_TOOL],
     )
     registry.register(
         ToolDefinition(name=ST.PROPOSE_RULE_TOOL, description=ST.DESCRIPTIONS[ST.PROPOSE_RULE_TOOL], risk_level=RiskLevel.LOW, idempotent=False,
-                       timeout_seconds=30, category="general", action_kind="create", input_schema=ST.SCHEMAS[ST.PROPOSE_RULE_TOOL]),
+                       timeout_seconds=30, category="general", action_kind="create", caller_scoped=True, input_schema=ST.SCHEMAS[ST.PROPOSE_RULE_TOOL]),
         ST.HANDLERS[ST.PROPOSE_RULE_TOOL],
     )
     # Trading intelligence (docs/finance-trading-intel.md#skills-and-tools): four read tools and the pause.

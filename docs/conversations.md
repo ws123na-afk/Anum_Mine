@@ -102,6 +102,13 @@ team assignment ("ask Ahmed to ...") and plain conversation get no card; nothing
 page or a file can select a tool, change its arguments or approve anything (threat model
 G3/G5).
 
+The chat is private to its person, so the task a question becomes is too: it is created as a
+[private task](tasks.md#private-tasks) (`private_kind` `chat`), and nobody else sees its title (the
+question), its runs, its events or a count of it. It becomes a permanent `data` private task
+when its run reads the person's own data (finance, their own or a private mailbox). It is
+shared with the workspace only when its run must wait for an approval of an ordinary action,
+because whoever decides has to see the request.
+
 | The question mentions | Task's planned tool | Card |
 | --- | --- | --- |
 | WhatsApp (`whatsapp`, `واتساب`) | `list_whatsapp_conversations` (`needs_reply` when it asks what is waiting) | results: conversations, links to WhatsApp |

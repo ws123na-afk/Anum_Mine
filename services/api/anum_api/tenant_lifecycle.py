@@ -691,10 +691,22 @@ class MemoryTenantData:
         shape, collection = found
         return list(collection.values()) if shape == "dict" else list(collection)
 
+    @staticmethod
+    def _private_to_one_person(table: TenantTable, item: Any) -> bool:
+        """A private task and its runs, approvals and events are one person's (docs/tasks.md#private-tasks):
+        the export leaves them out, as the database's row policy does for PostgreSQL."""
+        key = {"tasks": "id", "agent_runs": "task_id", "approvals": "task_id", "domain_events": "correlation_id"}.get(table.name)
+        if key is None:
+            return False
+        task = memory_repository.store.tasks.get(getattr(item, key, None) or "")
+        return task is not None and task.private_to is not None
+
     def export_batches(self, tenant_id: str, workspace_id: str, table: TenantTable) -> Iterator[list[dict[str, Any]]]:
         rows = []
         for item in self._items(table):
             if getattr(item, "tenant_id", None) != tenant_id:
+                continue
+            if self._private_to_one_person(table, item):
                 continue
             if table.workspace_column is not None and self._workspace_of(table, item) != workspace_id:
                 continue

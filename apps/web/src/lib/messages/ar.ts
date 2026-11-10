@@ -912,6 +912,8 @@ export const ar: Record<MessageKey, Message> = {
   'tasks.detail.error': 'تعذّر تحميل المهمة: {reason}',
   'tasks.detail.loading': 'جارٍ تحميل المهمة...',
   'tasks.detail.archivedBadge': 'مؤرشفة',
+  'tasks.detail.privateBadge': 'خاصة بك',
+  'tasks.detail.privateHint': 'أنت وحدك ترى هذه المهمة وتشغيلاتها ونتائجها. جاءت من محادثتك الخاصة أو قرأت بياناتك أنت.',
   'tasks.detail.archived': 'أُرشفت',
   'tasks.detail.runs': 'مرات التشغيل',
   'tasks.detail.by': '{when} بواسطة {who}',

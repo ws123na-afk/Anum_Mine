@@ -4,7 +4,7 @@ from enum import StrEnum
 from typing import Any, Literal
 from uuid import uuid4
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 
 class TaskStatus(StrEnum):
@@ -181,6 +181,21 @@ class Task(BaseModel):
     # Planning (0048_task_planning): tasks stored before it read as medium with no due date.
     priority: TaskPriority = TaskPriority.MEDIUM
     due_at: datetime | None = None
+    # Private task (0163_private_tasks, docs/tasks.md#private-tasks): the user id of the one
+    # person who may see it, its runs, approvals and events. Null for a workspace task. Every
+    # repository read returns the task to that person only. ``private_kind`` says why:
+    # ``data`` once a run planned a tool that reads the caller's own data (permanent), ``chat``
+    # for a task that came from the person's private chat (shared with the workspace only if
+    # its run has to wait for someone's approval of an ordinary action).
+    private_to: str | None = None
+    private_kind: Literal["chat", "data"] | None = None
+
+    @model_validator(mode="after")
+    def _private_pair(self) -> "Task":
+        if (self.private_to is None) != (self.private_kind is None):
+            # One without the other: a marker without a reason is permanent, a reason without a person is nothing.
+            self.private_kind = "data" if self.private_to is not None else None
+        return self
 
 
 class TaskUpdate(BaseModel):
@@ -491,6 +506,9 @@ class DomainEvent(BaseModel):
     correlation_id: str
     created_at: datetime
     payload: dict[str, Any] = Field(default_factory=dict)
+    # Set by the repository when the event belongs to a private task (docs/tasks.md#private-tasks).
+    # Never serialized: it only keeps such an event off the bus and out of in-process listeners.
+    private_to: str | None = Field(default=None, exclude=True)
 
 
 class RunTaskResponse(BaseModel):

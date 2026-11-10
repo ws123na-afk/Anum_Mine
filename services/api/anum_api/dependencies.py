@@ -279,7 +279,8 @@ def _with_events_repository(context: TenantContext, read: Callable[[Any], Any]) 
 
     session = SessionLocal()
     try:
-        set_tenant_context(session, context.tenant_id, context.workspace_id)
+        # The user too: a private task's events are its person's only (0163_private_tasks).
+        set_tenant_context(session, context.tenant_id, context.workspace_id, user_id=context.user_id)
         return read(SqlAlchemyRepository(session, created_by_user_id=context.user_id))
     finally:
         session.rollback()
@@ -399,7 +400,7 @@ def open_read_only_repository(context: TenantContext) -> Iterator[AnumRepository
 
     session = SessionLocal()
     try:
-        set_tenant_context(session, context.tenant_id, context.workspace_id)
+        set_tenant_context(session, context.tenant_id, context.workspace_id, user_id=context.user_id)
         yield SqlAlchemyRepository(session, created_by_user_id=context.user_id)
     finally:
         session.rollback()
@@ -524,7 +525,9 @@ def _unit_of_work(context: TenantContext, *, require_membership: bool) -> Iterat
 
     session = SessionLocal()
     try:
-        set_tenant_context(session, context.tenant_id, context.workspace_id)
+        # The user too: private tasks, their runs, approvals and events are readable and writable
+        # only under their person's anum.user_id (0163_private_tasks, docs/tasks.md#private-tasks).
+        set_tenant_context(session, context.tenant_id, context.workspace_id, user_id=context.user_id)
         session.info["user_id"] = context.user_id
         repository = SqlAlchemyRepository(session, created_by_user_id=context.user_id)
         if require_membership:

@@ -119,6 +119,11 @@ class TaskRecord(Base, TimestampMixin, WorkspaceScopedMixin):
     # Planning (0048_task_planning, docs/tasks.md): null priority reads as medium.
     priority: Mapped[str | None] = mapped_column(String(10))
     due_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Private task (0163_private_tasks, docs/tasks.md#private-tasks): the one user who may see
+    # the task, its runs, approvals and events; null for a workspace task.
+    private_to: Mapped[str | None] = mapped_column(String(160))
+    # Why: ``data`` (a run read the person's own data; permanent) or ``chat`` (from their chat).
+    private_kind: Mapped[str | None] = mapped_column(String(10))
 
     workspace: Mapped[Workspace] = relationship(back_populates="tasks")
     runs: Mapped[list["AgentRunRecord"]] = relationship(back_populates="task")
@@ -326,6 +331,10 @@ class DomainEventRecord(Base, TimestampMixin, TenantScopedMixin):
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
     publish_last_error: Mapped[str | None] = mapped_column(Text)
+    # 0163_private_tasks: the event belongs to a private task (its correlation id) and is that
+    # person's only. Copied from ``tasks.private_to`` when the event is recorded and when the
+    # task turns private; the outbox relay never sees such a row, so it is never published.
+    private_to: Mapped[str | None] = mapped_column(String(160))
 
     __table_args__ = (
         ForeignKeyConstraint(

@@ -294,11 +294,11 @@ def register_intel_tools(registry: ToolRegistry) -> ToolRegistry:
     }
     for name, (description, handler) in reads.items():
         registry.register(ToolDefinition(name=name, description=description, risk_level=RiskLevel.LOW, idempotent=True, timeout_seconds=30,
-                                         category="general", action_kind="read", input_schema=SCHEMAS[name]), handler)
+                                         category="general", action_kind="read", caller_scoped=True, input_schema=SCHEMAS[name]), handler)
     registry.register(ToolDefinition(
         name=PAUSE, description=("Pause every active SIMULATED paper strategy at once (it only tightens: nothing trades while paused). "
                                  "Resuming is your own action in Finance. Needs a reason."),
-        risk_level=RiskLevel.LOW, idempotent=True, timeout_seconds=30, category="general", action_kind="update", input_schema=SCHEMAS[PAUSE],
+        risk_level=RiskLevel.LOW, idempotent=True, timeout_seconds=30, category="general", action_kind="update", caller_scoped=True, input_schema=SCHEMAS[PAUSE],
     ), _pause)
     return registry
 

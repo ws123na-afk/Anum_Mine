@@ -54,6 +54,8 @@ Every `domain_events` row is its own outbox entry (migration `0007_event_outbox`
 
 #### Relay role and RLS
 
+An event of a [private task](tasks.md#private-tasks) is never published: its row carries `private_to` (migration `0163_private_tasks`), the restrictive policy `private_task_domain_events` does not admit the relay, so the relay neither claims it nor counts it in the backlog, and the in-process outbox of the memory backend drops it (`EventBusRuntime.after_commit`). Its person reads it from the API (`GET /api/v1/events`, a task's events, and the stream's catch-up); with `ANUM_EVENT_BUS=nats` it does not arrive live on their stream. If a chat task is shared for an approval its events lose the marker and are published then.
+
 The relay must read events of every tenant, but the application role must keep its tenant-isolation policy and must never bypass RLS. The relay therefore runs as a dedicated `NOLOGIN` role, `anum_outbox_relay`, created by the migration (needs `CREATEROLE`; a DBA may create the role beforehand, then the migration leaves it as is):
 
 | Privilege | Scope |

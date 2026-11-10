@@ -715,10 +715,16 @@ class RepositoryEffects:
         error = None
         if task.status == TaskStatus.FAILED and run is not None and run.steps:
             error = run.steps[-1].summary
+        result = run.result if run is not None else None
+        if task.private_to is not None:
+            # A private task's answer stays in the task, which only its person opens: the run of a
+            # workflow is read by the whole workspace (docs/tasks.md#private-tasks).
+            result = "The answer is private to the person this task ran for. They can open it in Tasks." if result else None
+            error = "The task failed. Its details are private to the person it ran for." if error else None
         return TaskOutcome(
             status=task.status,
             updated_at=task.updated_at,
-            result=run.result if run is not None else None,
+            result=result,
             run_id=run.id if run is not None else None,
             approval_id=approval.id if approval is not None else None,
             approval_status=approval.status if approval is not None else None,
@@ -730,6 +736,7 @@ class RepositoryEffects:
             event
             for event in self.repository.list_events(context)
             if event.type == event_type and event.workspace_id == context.workspace_id and event.created_at >= after
+            and event.private_to is None  # a private task's events never start a workspace workflow
         ]
         events.sort(key=lambda event: (event.created_at, event.id))
         return events[:limit]
@@ -1393,6 +1400,7 @@ def trigger_decision(
     active: int,
     looped: bool,
     stopped: bool = False,
+    changed: bool = False,
 ) -> TriggerOutcome:
     """Whether a delivery to ``trigger`` starts a run now, and if not, why."""
     if not trigger.enabled:
@@ -1767,7 +1775,7 @@ class LocalAutomationEngine:
     def create_schedule(self, context: TenantContext, payload: ScheduleCreate) -> AutomationSchedule:
         now = utc_now()
         with self._tx() as (connection, effects):
-            self._workflow(connection, context, payload.workflow_id)
+            workflow = self._workflow(connection, context, payload.workflow_id)
             schedule = AutomationSchedule(
                 id=new_id("schedule"),
                 tenant_id=context.tenant_id,

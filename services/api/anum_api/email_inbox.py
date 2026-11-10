@@ -1908,11 +1908,50 @@ TOOL_DEFINITIONS: list[tuple[ToolDefinition, Any]] = [
 FACTS = {SEND_TOOL: send_autonomy_facts}
 
 
+def _reads_private_mailbox(call: ToolCall, context: TenantContext, result: ToolResult) -> bool:
+    """Whether the call or its result names a mailbox connected as private (blocking)."""
+    output = result.output
+    listed = output.get("messages") if isinstance(output.get("messages"), list) else []
+    messages = {call.arguments.get("message_id"), output.get("message_id"), output.get("id"), *(m.get("id") for m in listed if isinstance(m, dict))}
+    drafts = {call.arguments.get("draft_id"), output.get("draft_id")}
+    accounts = {call.arguments.get("account_id"), output.get("account_id")}
+    with open_email_store(context) as store:
+        for message_id in messages:
+            message = store.get_message(str(message_id)) if isinstance(message_id, str) and message_id else None
+            accounts.add(message.account_id if message is not None else None)
+        for draft_id in drafts:
+            draft = store.get_draft(str(draft_id)) if isinstance(draft_id, str) and draft_id else None
+            accounts.add(draft.account_id if draft is not None else None)
+        for account_id in accounts:
+            account = store.get_account(str(account_id)) if isinstance(account_id, str) and account_id else None
+            if account is not None and account.visibility == Visibility.PRIVATE:
+                return True
+    return False
+
+
+def flags_private_mail(handler: Any) -> Any:
+    """Wrap an email tool: a result drawn from a mailbox connected as *private* is marked
+    ``caller_private``, so the runtime keeps its task to the person (docs/tasks.md#private-tasks).
+    If that cannot be worked out, the result counts as private."""
+
+    async def flagged(call: ToolCall, context: TenantContext) -> ToolResult:
+        result = await handler(call, context)
+        if result.caller_private:
+            return result
+        try:
+            private = await asyncio.to_thread(_reads_private_mailbox, call, context, result)
+        except Exception:  # fail closed: an unreadable store must not publish private mail
+            private = True
+        return result.model_copy(update={"caller_private": True}) if private else result
+
+    return flagged
+
+
 def register_email_tools(registry: ToolRegistry) -> ToolRegistry:
     """Add the email tools to a runtime's registry (the API's and the Temporal worker's)."""
     for definition, handler in TOOL_DEFINITIONS:
         if definition.name not in registry.names:
-            registry.register(definition, handler, autonomy_facts=FACTS.get(definition.name))
+            registry.register(definition, flags_private_mail(handler), autonomy_facts=FACTS.get(definition.name))
     return registry
 
 

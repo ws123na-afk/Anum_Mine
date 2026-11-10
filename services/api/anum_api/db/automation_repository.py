@@ -306,6 +306,8 @@ class SessionEffects(RepositoryEffects):
                 DomainEventRecord.workspace_id == context.workspace_id,
                 DomainEventRecord.type == event_type,
                 DomainEventRecord.created_at >= after,
+                # A private task's events never start a workspace workflow (docs/tasks.md#private-tasks).
+                DomainEventRecord.private_to.is_(None),
             )
             .order_by(DomainEventRecord.created_at, DomainEventRecord.id)
             .limit(limit)
@@ -329,7 +331,9 @@ class PostgresAutomationEngine:
         self.maintenance_session_factory = maintenance_session_factory or session_factory
 
     def _unit(self, context: TenantContext) -> Any:
-        return scoped_unit(self.session_factory, context.tenant_id, context.workspace_id)
+        # The user too: a task the run created can be private to the run's actor
+        # (0163_private_tasks), and its outcome is read back in this unit.
+        return scoped_unit(self.session_factory, context.tenant_id, context.workspace_id, user_id=context.user_id)
 
     @contextmanager
     def _work(self, context: TenantContext) -> Iterator[tuple[Session, RepositoryEffects]]:
@@ -868,6 +872,9 @@ class PostgresAutomationEngine:
         )
         run = _run(record, workflow.name if workflow else None)
         context = run_actor(run)
+        # The engine acts as the run's actor here: a task the run created can be private to that
+        # person (0163_private_tasks), and its outcome is read back under their anum.user_id.
+        session.execute(text("select set_config('anum.user_id', :user_id, true)"), {"user_id": context.user_id})
         effects = session_effects(session, context)
         advance_state(run, context, effects, report=report, workflow_creator=workflow.created_by if workflow else None, now=now)
         self._save_run_state(record, run)

@@ -38,6 +38,12 @@ if TYPE_CHECKING:
     from .autonomy import AutonomyStore
 
 
+def task_visible_to(task: Task, context: TenantContext) -> bool:
+    """Whether ``context``'s user may see ``task`` at all: a private task
+    (``Task.private_to``, docs/tasks.md#private-tasks) exists for one person only."""
+    return task.private_to is None or task.private_to == context.user_id
+
+
 class UnknownCursorError(LookupError):
     """A paging cursor that names no row in the caller's scope (the API answers 400)."""
 
@@ -317,6 +323,7 @@ class InMemoryRepository:
             task
             for task in self.store.tasks.values()
             if task.tenant_id == context.tenant_id and task.workspace_id == context.workspace_id
+            and task_visible_to(task, context)
         ]
 
     def list_tasks(
@@ -408,6 +415,12 @@ class InMemoryRepository:
         )
 
     def save_task(self, task: Task) -> Task:
+        current = self.store.tasks.get(task.id)
+        if current is not None and current.private_kind == "data":
+            # Permanent: such a task never becomes a workspace task or another person's.
+            task.private_to, task.private_kind = current.private_to, current.private_kind
+        elif current is not None and current.private_to is not None and task.private_to is not None:
+            task.private_to = current.private_to  # a chat task is shared or kept, never handed over
         self.store.tasks[task.id] = task
         return task
 
@@ -416,6 +429,8 @@ class InMemoryRepository:
         if not task:
             return None
         if task.tenant_id != context.tenant_id or task.workspace_id != context.workspace_id:
+            return None
+        if not task_visible_to(task, context):
             return None
         return task
 
@@ -462,11 +477,17 @@ class InMemoryRepository:
 
     def list_events(self, context: TenantContext, *, limit: int | None = None) -> list[DomainEvent]:
         """The caller's events oldest first; with ``limit`` only the first that many."""
+        def hidden(event: DomainEvent) -> bool:
+            # An event of a private task (correlation id = task id) is its person's only.
+            task = self.store.tasks.get(event.correlation_id)
+            return task is not None and task.tenant_id == event.tenant_id and not task_visible_to(task, context)
+
         events = [
             event
             for event in self.store.events
             if event.tenant_id == context.tenant_id
             and (event.workspace_id is None or event.workspace_id == context.workspace_id)
+            and not hidden(event)
         ]
         return events if limit is None else events[:limit]
 
@@ -518,6 +539,10 @@ class InMemoryRepository:
         return summary_in_memory(self.list_approvals(context), now)
 
     def record_event(self, event: DomainEvent) -> DomainEvent:
+        task = self.store.tasks.get(event.correlation_id)
+        if task is not None and task.tenant_id == event.tenant_id and task.private_to is not None:
+            # An event of a private task: kept off the bus (``EventBusRuntime.after_commit``).
+            event.private_to = task.private_to
         self.store.events.append(event)
         return event
 

@@ -799,7 +799,7 @@ AI_TOOL_DEFINITIONS: list[tuple[ToolDefinition, Any]] = [
         ToolDefinition(
             name=SUMMARIZE_TOOL,
             description="Summarise one message or its thread in the person's own or shared mailbox. Reads only; sends nothing.",
-            risk_level=RiskLevel.LOW, required_roles=_PEOPLE, idempotent=True, timeout_seconds=120, category="email", action_kind="read",
+            risk_level=RiskLevel.LOW, required_roles=_PEOPLE, idempotent=True, timeout_seconds=120, category="email", action_kind="read", caller_scoped=True,
         ),
         summarize_mail,
     ),
@@ -807,7 +807,7 @@ AI_TOOL_DEFINITIONS: list[tuple[ToolDefinition, Any]] = [
         ToolDefinition(
             name=CLASSIFY_TOOL,
             description="Label one message with a category and a priority from a fixed list. Reads only.",
-            risk_level=RiskLevel.LOW, required_roles=_PEOPLE, idempotent=True, timeout_seconds=120, category="email", action_kind="read",
+            risk_level=RiskLevel.LOW, required_roles=_PEOPLE, idempotent=True, timeout_seconds=120, category="email", action_kind="read", caller_scoped=True,
         ),
         classify_mail,
     ),
@@ -815,7 +815,7 @@ AI_TOOL_DEFINITIONS: list[tuple[ToolDefinition, Any]] = [
         ToolDefinition(
             name=PAGE_TOOL,
             description="Label up to 25 messages (category and priority from a fixed list), one model call each. Reads only.",
-            risk_level=RiskLevel.LOW, required_roles=_PEOPLE, idempotent=True, timeout_seconds=240, category="email", action_kind="read",
+            risk_level=RiskLevel.LOW, required_roles=_PEOPLE, idempotent=True, timeout_seconds=240, category="email", action_kind="read", caller_scoped=True,
         ),
         classify_mail_page,
     ),
@@ -826,7 +826,7 @@ AI_TOOL_DEFINITIONS: list[tuple[ToolDefinition, Any]] = [
                 "Ask for an owner's approval to forward, archive, export or delete messages picked from the person's own "
                 "words. Only creates the approval; the action runs after it is approved."
             ),
-            risk_level=RiskLevel.MEDIUM, required_roles=_PEOPLE, timeout_seconds=120, category="email", action_kind="draft",
+            risk_level=RiskLevel.MEDIUM, required_roles=_PEOPLE, timeout_seconds=120, category="email", action_kind="draft", caller_scoped=True,
         ),
         request_mail_action,
     ),
@@ -834,7 +834,7 @@ AI_TOOL_DEFINITIONS: list[tuple[ToolDefinition, Any]] = [
         ToolDefinition(
             name=DRAFT_TOOL,
             description="Write a reply to one message into the person's drafts in ANUM (to the original's sender). Sends nothing.",
-            risk_level=RiskLevel.MEDIUM, required_roles=_PEOPLE, timeout_seconds=120, category="email", action_kind="draft",
+            risk_level=RiskLevel.MEDIUM, required_roles=_PEOPLE, timeout_seconds=120, category="email", action_kind="draft", caller_scoped=True,
         ),
         draft_mail_reply,
     ),

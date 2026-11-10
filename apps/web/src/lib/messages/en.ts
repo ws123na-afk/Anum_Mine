@@ -911,6 +911,8 @@ export const en = {
   'tasks.detail.error': 'Could not load the task: {reason}',
   'tasks.detail.loading': 'Loading task...',
   'tasks.detail.archivedBadge': 'archived',
+  'tasks.detail.privateBadge': 'Private to you',
+  'tasks.detail.privateHint': 'Only you can see this task, its runs and its results. It came from your private chat, or it read your own data.',
   'tasks.detail.archived': 'Archived',
   'tasks.detail.runs': 'Runs',
   'tasks.detail.by': '{when} by {who}',

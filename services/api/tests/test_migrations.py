@@ -1450,6 +1450,41 @@ def test_finance_bank_loans_migration_is_expand_only_with_nullable_loan_terms_an
     assert "bypassrls" not in upgrade and "security definer" not in upgrade and "anum_maintenance" not in upgrade
 
 
+def test_private_tasks_migration_is_expand_only_with_restrictive_policies_and_id_only_grants() -> None:
+    versions = Path(__file__).parents[1] / "migrations" / "versions"
+    revision_text = (versions / "0163_private_tasks.py").read_text(encoding="utf-8")
+    assert 'revision = "0163_private_tasks"' in revision_text and len("0163_private_tasks") <= 32
+    # 0162 is another change's (an index on domain_events); this file is rechained onto it at merge.
+    assert 'down_revision = "0161_finance_bank_loans"' in revision_text or 'down_revision = "0162_' in revision_text
+    upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
+    # Expand only: nullable columns and two checks, no table, nothing dropped or altered.
+    assert "op.drop" not in upgrade and "alter_column" not in upgrade and "drop " not in upgrade and "op.create_table(" not in upgrade
+    added = [line for line in upgrade.splitlines() if "op.add_column(" in line]
+    assert len(added) == 5 and all("nullable=true" in line for line in added)
+    assert "ck_tasks_private_kind" in upgrade and "ck_tasks_private_pair" in upgrade
+    # Five restrictive policies next to the tenant policies; forced RLS is lifted for the backfill only and put back.
+    assert upgrade.count("as restrictive") == 4 and "for table in (\"agent_runs\", \"approvals\")" in upgrade
+    for table in ("tasks", "domain_events", "agent_run_steps"):
+        assert f"create policy private_task_{table} on {table} as restrictive" in upgrade
+    assert "create policy private_task_{table} on {table} as restrictive" in upgrade
+    assert upgrade.count("no force row level security") == 1 and upgrade.count(" force row level security") == 2
+    assert upgrade.index("no force row level security") < upgrade.index("update tasks") < upgrade.rindex(" force row level security")
+    assert upgrade.rindex(" force row level security") < upgrade.index("create policy")
+    assert "nullif(current_setting('anum.user_id', true), '')" in revision_text
+    # The relay is never admitted to private events; other roles get id columns only, for the policy sub-selects.
+    events_policy = upgrade.split("create policy private_task_domain_events", 1)[1].split("for table in", 1)[0]
+    assert "{purger}" in events_policy and "counters" not in events_policy and "anum_outbox_relay" not in revision_text.split("def upgrade", 1)[1]
+    grants = [line.strip() for line in upgrade.splitlines() if "grant " in line]
+    assert grants == [
+        'op.execute("grant select (id) on tasks to anum_tenant_purger")',
+        'op.execute("grant select (id) on agent_runs to anum_tenant_purger")',
+        'op.execute("grant select (id, workspace_id) on tasks to anum_maintenance")',
+    ]
+    assert "bypassrls" not in upgrade and "security definer" not in upgrade
+    # The accepted workflow version of existing schedules and triggers is backfilled, so nothing stops firing.
+    assert "set accepted_version = w.version" in upgrade
+
+
 def test_calendar_sync_migration_is_expand_only_with_forced_rls_and_discovery_only_grants() -> None:
     versions = Path(__file__).parents[1] / "migrations" / "versions"
     revision_text = (versions / "0092_calendar_sync.py").read_text(encoding="utf-8")

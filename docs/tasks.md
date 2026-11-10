@@ -42,11 +42,29 @@ PostgreSQL pages on `(created_at, id)` with `ix_tasks_scope_created` (0017); the
 
 Roles map to permissions in `services/api/anum_api/authorization.py`:
 
-- Viewers read tasks, runs, events and exports.
+- Viewers read tasks, runs, events and exports (never a [private task](#private-tasks) of someone else; that holds for every role).
 - Members also create, run and retry tasks, and rename, edit and archive **tasks they created**.
 - Owners also cancel any task and rename, edit and archive **any** task (`task:manage`).
 
 A refusal is `403` with a sentence that names who can act, for example "Only the task's creator or a workspace owner can change this task." Bulk actions check each task exactly as its single route does and report per task (`status_code`, `message`); one refused task never fails the others.
+
+### Private tasks
+
+A task can be private to one person (security audit, November 2026; migration `0163_private_tasks`). `private_to` on the task is that person's user id and `private_kind` says why; both are null for an ordinary workspace task.
+
+- **`data`.** A run planned a tool that reads the caller's own data: every `finance.*` tool and the own-mailbox reading tools (`summarize_mail`, `classify_mail`, `classify_mail_page`, `request_mail_action`, `draft_mail_reply`), marked `caller_scoped` on their `ToolDefinition`; or a tool's result said so (`ToolResult.caller_private`: `search_email`, `read_email` and the other inbox tools when the mail comes from a mailbox connected as *private*). The task turns private **before** the call runs (in the unit of work that records the proposal) or in the unit that stores the result, and stays private for good. Only the task's creator may make such a call: another person's run of the task is refused ("only the person who created the task can run it") and nothing of theirs is stored, so one person's data never lands in a task another person owns.
+- **`chat`.** The task came from the person's private chat ([Tools in chat](conversations.md#tools-in-chat)): private from its first event, because the question is the task's title. If its run has to wait for someone's approval of an ordinary action, the task is shared with the workspace at that moment (an approver must see what they approve, and the approval quotes the request); if the run reads the person's own data it becomes `data` instead and is never shared.
+
+What private means: the task, its runs and steps, its approvals and its events are returned **to that person only**. For everyone else, owners included, `GET /api/v1/tasks/{id}` and every sub-route answer `404`, the list, search, summary counts and creator list leave it out, `GET /api/v1/events` and the event stream leave its events out, and the approvals list, Home, the briefing, voice answers, reports and the organisation export never see it, because they all read through the repository. It is enforced three times: the runtime sets the marker, both repositories (`repository.task_visible_to`, `SqlAlchemyRepository._task_visible`) filter every read on it, and PostgreSQL holds restrictive row policies on `tasks`, `agent_runs`, `agent_run_steps`, `approvals` and `domain_events` keyed on `anum.user_id`, so a query that goes round the repository, or a session that sets no user, sees no private row ([Multi-tenancy](multi-tenancy.md)). A private task's events are never published to the event bus and never start a workspace automation; a push or email about it goes to its person only; an automation step that waits for it copies "the answer is private" into the run instead of the answer.
+
+Consequences to know:
+
+- A private approval can only be decided by its person. With the two-person rule on, a `data` task whose tool needs an approval cannot be approved by anyone; ask for it as a governed action without your private data, or lower the rule for that tool.
+- The emergency stop and an owner's cancel do not reach another person's private task; its person cancels it. Approval reminders skip it.
+- A person who leaves the workspace keeps their private tasks invisible to everyone; they go with the organisation's deletion, and the person's own data export includes them.
+- Tasks created before `0163` were backfilled where the source is known: a task a chat card names became `chat` private (unless one of its runs had waited for an approval), and a task whose run proposed a `caller_scoped` tool became `data` private to its creator. A task whose run read a private mailbox through `search_email` or `read_email` before the upgrade cannot be told apart from one that read a shared mailbox and stays visible; archive or delete such tasks by hand if needed.
+
+The web task detail shows the creator a "Private to you" badge. Tests: `tests/test_private_tasks.py`, `tests/test_postgres_private_tasks.py` (the row policies against PostgreSQL).
 
 ### Editing
 

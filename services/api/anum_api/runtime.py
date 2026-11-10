@@ -9,6 +9,7 @@ from .agent_policy import AgentRunProfile, apply_agent_policy
 from .agent_skills import SkillRegistry, default_skill_registry
 from .agent_tools import (
     ToolCall,
+    ToolDefinition,
     ToolPolicy,
     ToolPolicyDecision,
     ToolPolicyOutcome,
@@ -149,7 +150,45 @@ class AgentRuntime:
         agent = self.agent_of(run)
         if agent is not None:
             decision = apply_agent_policy(agent, call, definition, decision)
-        return self._with_suppression(call, definition, decision, context)
+        decision = self._with_suppression(call, definition, decision, context)
+        if task is not None and definition is not None and definition.caller_scoped:
+            refusal = self._keep_private(task, context)
+            if refusal is not None:
+                return ToolPolicyDecision(
+                    outcome=ToolPolicyOutcome.BLOCK, reason=refusal, risk_level=decision.risk_level,
+                    governance_rules=list(decision.governance_rules),
+                )
+        return decision
+
+    def _keep_private(self, task: Task, context: TenantContext) -> str | None:
+        """Make ``task`` private to its creator before a call that reads the caller's own data.
+
+        Such a tool (``ToolDefinition.caller_scoped``) or result (``ToolResult.caller_private``)
+        answers from the acting person's own ledger or mailbox, so the task, its runs, approvals
+        and events are shown to that person only from here on (docs/tasks.md#private-tasks). The
+        marker is permanent (``private_kind`` ``data``) and saved at once, in the unit of work
+        that records the proposal or the result. Only the creator's own run may make the call: anyone else's is refused (the
+        returned sentence), so one person's data never lands in a task another person owns.
+        """
+        owner = task.private_to or task.created_by
+        if owner and owner != context.user_id:
+            return (
+                "This task reads private data of the person it runs for, so only the person who created "
+                "the task can run it. Create your own task to ask about your own data."
+            )
+        if task.private_kind != "data":
+            task.private_to, task.private_kind = context.user_id, "data"
+            self.repository.save_task(task)
+        return None
+
+    def _share_for_approval(self, task: Task, definition: ToolDefinition | None) -> None:
+        """A task from the person's private chat that must wait for an approval of an ordinary
+        action is shared with the workspace from here on: whoever decides has to see what they
+        approve (the approval's reason quotes the request). A call that reads the caller's own
+        data never gets here as ``chat``: ``_keep_private`` made the task ``data`` first."""
+        if task.private_kind == "chat" and not (definition is not None and definition.caller_scoped):
+            task.private_to = task.private_kind = None
+            self.repository.save_task(task)
 
     def _with_suppression(
         self,
@@ -868,6 +907,7 @@ class AgentRuntime:
     ) -> tuple[AgentRun, Approval]:
         created_at = utc_now()
         definition = self.tools.definition(call.name)
+        self._share_for_approval(task, definition)
         ttl = self.approval_ttl if ttl_seconds is None else min(self.approval_ttl, timedelta(seconds=ttl_seconds))
         approval = Approval(
             id=new_id("approval"),
@@ -949,6 +989,11 @@ class AgentRuntime:
     ) -> AgentRun:
         """Complete the run, or fail it when the tool itself reported a failure, or pause it
         for the continuation a tool asked for (``ToolResult.continuation``)."""
+        if result.caller_private:
+            refusal = self._keep_private(task, context)
+            if refusal is not None:
+                # Another person's run read its own private data: none of it is stored on this task.
+                result = ToolResult(status="failed", summary=refusal)
         if result.status == "paused" and result.continuation is not None:
             return self._continue(task, run, context, result, approval_id)
         if result.status in {"failed", "blocked"}:

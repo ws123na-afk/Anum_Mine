@@ -368,7 +368,7 @@ function TaskDetail({ taskId, listed, recentRun, approvals: pendingForTask, puls
     <div className="paneHead taskDetailHead">
       <button type="button" className="secondary paneBack" onClick={onBack}><ArrowLeft className="flipRtl" aria-hidden="true" />{t('page.back')}</button>
       <div className="taskDetailTitle"><p className="eyebrow">{t('tasks.detail.eyebrow')}</p><h2 id="task-detail-heading" dir="auto">{task.title}</h2></div>
-      <span className="taskBadges">{task.archivedAt && <span className="statusBadge neutral">{t('tasks.detail.archivedBadge')}</span>}<Status value={task.status} /></span>
+      <span className="taskBadges">{task.privateTo && <span className="statusBadge neutral" title={t('tasks.detail.privateHint')}>{t('tasks.detail.privateBadge')}</span>}{task.archivedAt && <span className="statusBadge neutral">{t('tasks.detail.archivedBadge')}</span>}<Status value={task.status} /></span>
     </div>
     <div className="paneBody">
       <div className="taskToolbar" role="toolbar" aria-label={t('tasks.actions.label')}>
