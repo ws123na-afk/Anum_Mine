@@ -274,7 +274,7 @@ function Kpis({ page }: { page: FinanceRegisterPage }) {
 function RegisterTable({ page, accounts, selected, onOpen, onPage }: { page: FinanceRegisterPage; accounts: FinanceAccount[]; selected: string | null; onOpen: (id: string) => void; onPage: (offset: number) => void }) {
   const names = useMemo(() => new Map(accounts.map((a) => [a.id, a.name])), [accounts]);
   return <>
-    <div className="finTableWrap" tabIndex={0} role="region" aria-label={t('freg.tx.listTitle')}>
+    <div className="finTableWrap" tabIndex={0} role="region" aria-label={t('freg.tx.tableRegion')}>
       <table className="finGrid fregTable">
         <thead><tr>
           <th scope="col" className="fregHidePhone">{t('finance.col.date')}</th><th scope="col">{t('freg.col.merchant')}</th><th scope="col" className="fregHideXs">{t('finance.col.category')}</th>

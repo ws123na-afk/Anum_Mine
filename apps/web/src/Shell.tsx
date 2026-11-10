@@ -90,6 +90,13 @@ export function Sidebar({ view, views, pendingApprovals, stream, lastEvent, work
   useEffect(() => { if (wasOpen.current && !menuOpen) menuButton.current?.focus(); wasOpen.current = menuOpen; }, [menuOpen]);
   // A view opened some other way (a link, the palette, the back button) closes the drawer, and so does a window that grows past the phone layout.
   useEffect(() => { setMenuOpen(false); }, [view]);
+  // While the drawer is open the page behind it is inert: a screen reader's cursor and a pointer stay in the drawer, as focus already does.
+  useEffect(() => {
+    if (!menuOpen) return;
+    const main = document.getElementById('main');
+    main?.setAttribute('inert', '');
+    return () => main?.removeAttribute('inert');
+  }, [menuOpen]);
   useEffect(() => {
     if (!menuOpen) return;
     const wide = window.matchMedia?.(`(min-width: ${PHONE_NAV_MAX + 1}px)`);

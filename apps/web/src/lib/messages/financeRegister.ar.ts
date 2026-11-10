@@ -14,6 +14,7 @@ export const financeRegisterAr = {
   'freg.tx.downloadNone': 'لا توجد معاملات في هذا العرض لتنزيلها.',
   'freg.tx.tabs': 'أقسام المعاملات والدفتر',
   'freg.tx.listTitle': 'المعاملات',
+  'freg.tx.tableRegion': 'جدول المعاملات',
   'freg.tx.truncated': 'تطابق أكثر من 10,000 معاملة. اختر شهرًا أو حسابًا لرؤيتها كلها.',
   'freg.tx.emptyMonth': 'لا معاملات في {month}',
   'freg.tx.emptyText': 'استورد كشف حساب CSV أو PDF، أو حوّل رسائل البنك من iPhone، أو سجّل معاملة يدويًا.',

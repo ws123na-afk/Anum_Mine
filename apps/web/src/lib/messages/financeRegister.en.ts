@@ -16,6 +16,7 @@ export const financeRegisterEn = {
   'freg.tx.downloadNone': 'There are no transactions in this view to download.',
   'freg.tx.tabs': 'Transactions and ledger sections',
   'freg.tx.listTitle': 'Transactions',
+  'freg.tx.tableRegion': 'Transactions table',
   'freg.tx.truncated': 'More than 10,000 transactions match. Pick a month or an account to see them all.',
   'freg.tx.emptyMonth': 'No transactions in {month}',
   'freg.tx.emptyText': 'Import a CSV or PDF statement, forward bank messages from your iPhone, or record one by hand.',
