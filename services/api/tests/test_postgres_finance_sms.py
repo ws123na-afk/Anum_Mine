@@ -89,7 +89,12 @@ def test_every_sms_table_has_forced_rls_an_owner_policy_and_a_purge_policy(datab
             assert forced and {f"tenant_isolation_{table}", f"owner_only_{table}", f"lifecycle_purge_{table}"} <= policies
 
 
-def test_sms_to_journal_to_dashboard_under_rls(client: TestClient, app_session: Callable[..., Iterator[Session]]) -> None:
+def test_sms_to_journal_to_dashboard_under_rls(client: TestClient, app_session: Callable[..., Iterator[Session]],
+                                              monkeypatch: pytest.MonkeyPatch) -> None:
+    # A retry is recognised within the same clock minute (``idem_key``). Hold the clock still so the two
+    # sends below cannot straddle a minute boundary on a slow runner.
+    fixed = svc.utc_now().replace(second=5, microsecond=0)
+    monkeypatch.setattr(svc, "utc_now", lambda: fixed)
     api = client
     s = _setup(api)
     first = _send(api, s["token"], SALARY)
