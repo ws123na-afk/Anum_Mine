@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:file_picker/file_picker.dart';
 import 'package:http/http.dart' as http;
 
+import '../../data/transfer_guard.dart';
 import '../../data/api_client.dart';
 import '../../data/session_store.dart';
 import '../../src/infrastructure/picked_file_size.dart';
@@ -29,11 +30,17 @@ Future<(String, String, int?)?> pickVaultFile(List<String> extensions) async {
 /// with the system save dialog. The bearer token goes only to the API.
 class HttpVaultFileSaver implements VaultFileSaver {
   HttpVaultFileSaver(
-      {required this.baseUri, required this.sessions, http.Client? client})
+      {required this.baseUri,
+      required this.sessions,
+      http.Client? client,
+      this.timeout = transferTimeout})
       : _client = client ?? http.Client();
   final Uri baseUri;
   final SessionStore sessions;
   final http.Client _client;
+
+  /// The longest the download may take.
+  final Duration timeout;
 
   @override
   Future<void> save(String documentId, String name, {String? versionId}) async {
@@ -46,7 +53,9 @@ class HttpVaultFileSaver implements VaultFileSaver {
         .replace(
             queryParameters:
                 versionId == null ? null : {'version_id': versionId});
-    final response = await _client.get(uri, headers: sessionHeaders(session));
+    final response = await guardTransfer(
+        () => _client.get(uri, headers: sessionHeaders(session)),
+        timeout: timeout);
     if (response.statusCode < 200 || response.statusCode >= 300) {
       var message = 'The download failed (${response.statusCode}).';
       try {

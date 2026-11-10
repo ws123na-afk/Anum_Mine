@@ -619,6 +619,10 @@ A person never sees a program's description of an error (`ApiException(500, ...)
 
 The app's own sentences follow the app's language (English or Arabic). The workspace controller (load and every change), governance, Settings, automations, billing, calls, commerce, WhatsApp, email, files, the portal and the other controllers that used `error.toString()` or `'$error'` now use it. Tests: `test/readable_error_test.dart`.
 
+## File downloads
+
+Every download and export has a time limit and readable network errors, through `guardTransfer` (`lib/data/transfer_guard.dart`): file previews and downloads (the link request and the bytes behind it), older file versions, mail attachments and billing PDFs, the audit export and vault documents. A connection that hangs ends after five minutes (`transferTimeout`, the limit of one JSON call) with "The server did not answer in time. Check the connection and try again."; a broken connection shows "The server could not be reached. Check the connection and try again." instead of `SocketException` or `ClientException`. API refusals keep the API's sentence. Before this only mail and billing downloads had the limit. Tests: `test/file_download_guard_test.dart`.
+
 ## Amount fields
 
 Typed amounts are read by one parser, `readAmount` in `lib/src/localization/amount_input.dart`, next to the one formatter (`formatMoney`). The app shows amounts with a comma for thousands and a dot for decimals in English and Arabic, and typing follows the same reading:

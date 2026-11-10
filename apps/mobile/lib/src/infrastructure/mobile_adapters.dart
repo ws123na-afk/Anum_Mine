@@ -7,6 +7,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:http/http.dart' as http;
 
+import '../../data/transfer_guard.dart';
 import '../../data/api_client.dart';
 import "picked_file_size.dart";
 import '../../data/api_models.dart';
@@ -207,12 +208,16 @@ class HttpWorkspaceFileTransfer
     required this.sessions,
     http.Client? client,
     http.Client Function()? uploadClient,
+    this.downloadTimeout = transferTimeout,
   })  : _client = client ?? http.Client(),
         _uploadClient = uploadClient ?? http.Client.new;
 
   final Uri baseUri;
   final SessionStore sessions;
   final http.Client _client;
+
+  /// The longest a link request, a preview or a download may take.
+  final Duration downloadTimeout;
 
   /// One client per upload, so cancelling closes only that connection.
   final http.Client Function() _uploadClient;
@@ -262,11 +267,14 @@ class HttpWorkspaceFileTransfer
   /// need no link) and saved with the system dialog.
   @override
   Future<void> saveVersion(WorkspaceFile file, FileVersion version) async {
-    final response = await _client.get(
-      baseUri.resolve(
-          'api/v1/files/${Uri.encodeComponent(file.id)}/versions/${Uri.encodeComponent(version.id)}/content'),
-      headers: await _headers(),
-    );
+    final headers = await _headers();
+    final response = await guardTransfer(
+        () => _client.get(
+              baseUri.resolve(
+                  'api/v1/files/${Uri.encodeComponent(file.id)}/versions/${Uri.encodeComponent(version.id)}/content'),
+              headers: headers,
+            ),
+        timeout: downloadTimeout);
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw ApiException(response.statusCode, _detail(response.body));
     }
@@ -334,11 +342,15 @@ class HttpWorkspaceFileTransfer
 
   /// A short-lived link (no bearer token needed to read it).
   Future<Uri> _link(String fileId, String disposition) async {
-    final response = await _client.post(
-      baseUri.resolve('api/v1/files/${Uri.encodeComponent(fileId)}/links'),
-      headers: {...await _headers(), 'content-type': 'application/json'},
-      body: jsonEncode({'disposition': disposition}),
-    );
+    final headers = {...await _headers(), 'content-type': 'application/json'};
+    final response = await guardTransfer(
+        () => _client.post(
+              baseUri
+                  .resolve('api/v1/files/${Uri.encodeComponent(fileId)}/links'),
+              headers: headers,
+              body: jsonEncode({'disposition': disposition}),
+            ),
+        timeout: downloadTimeout);
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw ApiException(response.statusCode, _detail(response.body));
     }
@@ -347,7 +359,8 @@ class HttpWorkspaceFileTransfer
   }
 
   Future<Uint8List> _fetch(Uri link) async {
-    final response = await _client.get(link);
+    final response =
+        await guardTransfer(() => _client.get(link), timeout: downloadTimeout);
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw ApiException(response.statusCode, _detail(response.body));
     }
@@ -437,22 +450,10 @@ class HttpMailFileTransfer implements MailFileTransfer {
     if (session == null || session.isExpired) {
       throw const ApiException(401, 'Authentication required');
     }
-    final http.Response response;
-    try {
-      response = await _client
-          .get(baseUri.resolve(path.replaceFirst(RegExp(r'^/'), '')),
-              headers: sessionHeaders(session))
-          .timeout(HttpApiTransport.defaultTimeout);
-    } on TimeoutException {
-      throw const ApiException(0,
-          'The server did not answer in time. Check the connection and try again.');
-    } on http.ClientException {
-      throw const ApiException(0,
-          'The server could not be reached. Check the connection and try again.');
-    } on SocketException {
-      throw const ApiException(0,
-          'The server could not be reached. Check the connection and try again.');
-    }
+    final response = await guardTransfer(
+        () => _client.get(baseUri.resolve(path.replaceFirst(RegExp(r'^/'), '')),
+            headers: sessionHeaders(session)),
+        timeout: files.downloadTimeout);
     if (response.statusCode < 200 || response.statusCode >= 300) {
       String message;
       try {
@@ -481,11 +482,17 @@ class HttpMailFileTransfer implements MailFileTransfer {
 
 class HttpAuditExporter implements AuditExporter {
   HttpAuditExporter(
-      {required this.baseUri, required this.sessions, http.Client? client})
+      {required this.baseUri,
+      required this.sessions,
+      http.Client? client,
+      this.timeout = transferTimeout})
       : _client = client ?? http.Client();
   final Uri baseUri;
   final SessionStore sessions;
   final http.Client _client;
+
+  /// The longest the export may take.
+  final Duration timeout;
 
   @override
   Future<void> export(String format) async {
@@ -493,10 +500,12 @@ class HttpAuditExporter implements AuditExporter {
     if (session == null || session.isExpired) {
       throw const ApiException(401, 'Authentication required');
     }
-    final response = await _client.get(
-      baseUri.resolve('api/v1/audit/export?format=$format'),
-      headers: sessionHeaders(session),
-    );
+    final response = await guardTransfer(
+        () => _client.get(
+              baseUri.resolve('api/v1/audit/export?format=$format'),
+              headers: sessionHeaders(session),
+            ),
+        timeout: timeout);
     if (response.statusCode < 200 || response.statusCode >= 300) {
       throw ApiException(response.statusCode, 'Audit export failed');
     }
