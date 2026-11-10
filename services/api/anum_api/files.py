@@ -22,8 +22,10 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import io
 import logging
 import re
+import shutil
 from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -31,7 +33,7 @@ from datetime import datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
 from threading import RLock
-from typing import Any, Literal, Protocol
+from typing import Any, BinaryIO, Literal, Protocol
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request, Response, status
 from pydantic import BaseModel, Field
@@ -45,12 +47,31 @@ from .scoped_store import open_scoped_store
 from .settings import settings
 
 
+STREAM_CHUNK_BYTES = 1024 * 1024
+
+
 class ObjectStorage(Protocol):
     """Bytes for workspace files. Keys come from :func:`workspace_object_key`."""
 
     def put(self, key: str, content: bytes, content_type: str) -> None: ...
     def get(self, key: str) -> bytes: ...
     def delete(self, key: str) -> None: ...
+
+    # Streaming, for objects too large to hold in memory (an organisation export can be
+    # gigabytes). ``put_file`` stores what ``source`` (a binary file opened for reading)
+    # holds; ``open_stream`` finds the object now (``FileNotFoundError`` when it is missing,
+    # before a response starts) and returns its bytes in chunks.
+    def put_file(self, key: str, source: BinaryIO, content_type: str) -> None: ...
+    def open_stream(self, key: str, chunk_size: int = STREAM_CHUNK_BYTES) -> Iterator[bytes]: ...
+
+
+def _chunks(source: BinaryIO, chunk_size: int) -> Iterator[bytes]:
+    """``source`` in chunks; closes it when the reader finishes or goes away."""
+    try:
+        while chunk := source.read(chunk_size):
+            yield chunk
+    finally:
+        source.close()
 
 
 logger = logging.getLogger(__name__)
@@ -87,6 +108,21 @@ class LocalObjectStorage:
     def get(self, key: str) -> bytes:
         return self._path(key).read_bytes()
 
+    def put_file(self, key: str, source: BinaryIO, content_type: str) -> None:
+        path = self._path(key)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        # Written next to the target and renamed: a reader never sees half an object.
+        partial = path.with_name(path.name + ".partial")
+        try:
+            with partial.open("wb") as target:
+                shutil.copyfileobj(source, target, STREAM_CHUNK_BYTES)
+            partial.replace(path)
+        finally:
+            partial.unlink(missing_ok=True)
+
+    def open_stream(self, key: str, chunk_size: int = STREAM_CHUNK_BYTES) -> Iterator[bytes]:
+        return _chunks(self._path(key).open("rb"), chunk_size)
+
     def delete(self, key: str) -> None:
         self._path(key).unlink(missing_ok=True)
 
@@ -107,6 +143,12 @@ class InMemoryObjectStorage:
             if key not in self.objects:
                 raise FileNotFoundError(key)
             return self.objects[key][0]
+
+    def put_file(self, key: str, source: BinaryIO, content_type: str) -> None:
+        self.put(key, source.read(), content_type)
+
+    def open_stream(self, key: str, chunk_size: int = STREAM_CHUNK_BYTES) -> Iterator[bytes]:
+        return _chunks(io.BytesIO(self.get(key)), chunk_size)
 
     def delete(self, key: str) -> None:
         with self._lock:
@@ -167,6 +209,24 @@ class S3ObjectStorage:
                 raise FileNotFoundError(key) from exc
             raise
         return response["Body"].read()  # type: ignore[no-any-return]
+
+    def put_file(self, key: str, source: BinaryIO, content_type: str) -> None:
+        # boto3 sends a seekable file body in pieces; nothing is read into memory here. One
+        # PUT holds up to 5 GiB, above the largest export ANUM_TENANT_EXPORT_MAX_BYTES allows.
+        self.ensure_bucket()
+        extra = {"ServerSideEncryption": self.server_side_encryption} if self.server_side_encryption else {}
+        self.client.put_object(  # type: ignore[attr-defined]
+            Bucket=self.bucket, Key=key, Body=source, ContentType=content_type, **extra
+        )
+
+    def open_stream(self, key: str, chunk_size: int = STREAM_CHUNK_BYTES) -> Iterator[bytes]:
+        try:
+            response = self.client.get_object(Bucket=self.bucket, Key=key)  # type: ignore[attr-defined]
+        except Exception as exc:
+            if self._client_error_code(exc) in {"404", "NoSuchKey", "NoSuchBucket"}:
+                raise FileNotFoundError(key) from exc
+            raise
+        return _chunks(response["Body"], chunk_size)
 
     def delete(self, key: str) -> None:
         self.client.delete_object(Bucket=self.bucket, Key=key)  # type: ignore[attr-defined]

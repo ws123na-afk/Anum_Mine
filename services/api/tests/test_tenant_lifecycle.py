@@ -5,6 +5,7 @@ registry against every migration."""
 from __future__ import annotations
 
 import importlib.util
+import hashlib
 import io
 import json
 import os
@@ -394,6 +395,62 @@ def test_export_runs_in_the_background_and_downloads_with_a_signed_link(client: 
     assert b"token_hash" not in invitations
     actions = {r.action for r in store.audit_records if r.tenant_id == TENANT_A}
     assert {"organisation.export.requested", "organisation.export.ready", "organisation.export.link_issued", "organisation.export.downloaded"} <= actions
+
+
+def test_export_archive_is_streamed_to_local_storage_and_back_never_held_in_memory(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Reliability audit, November 2026: the worker read the whole archive into memory to store
+    it and the download read it whole again (up to ANUM_TENANT_EXPORT_MAX_BYTES each time)."""
+    from anum_api.files import LocalObjectStorage
+
+    class StreamOnly(LocalObjectStorage):
+        """The local backend, refusing a whole-object read or write of the archive."""
+
+        chunk_sizes: list[int] = []
+
+        def put(self, key: str, content: bytes, content_type: str) -> None:
+            assert not key.endswith("export.zip"), "the archive was stored from memory"
+            super().put(key, content, content_type)
+
+        def get(self, key: str) -> bytes:
+            assert not key.endswith("export.zip"), "the archive was read into memory"
+            return super().get(key)
+
+        def open_stream(self, key: str, chunk_size: int = 64):  # type: ignore[no-untyped-def]
+            opened = super().open_stream(key, 64)  # small chunks, so the test sees several
+
+            def counted():  # type: ignore[no-untyped-def]
+                for chunk in opened:
+                    StreamOnly.chunk_sizes.append(len(chunk))
+                    yield chunk
+
+            return counted()
+
+    monkeypatch.setattr(file_store, "storage", StreamOnly(tmp_path))
+    _put_file(TENANT_A, WORKSPACE_A, "notes.txt", b"hello from A" * 200)
+    job_id = client.post("/api/v1/organization/lifecycle/exports", headers=ADMIN_A).json()["id"]
+    assert lifecycle.run_lifecycle_pass() == {"exported": 1}
+    job = lifecycle.memory_lifecycle_store.jobs[job_id]
+    stored = tmp_path / job.archive_key
+    assert stored.is_file() and stored.stat().st_size == job.archive_bytes
+    assert not list(stored.parent.glob("*.partial"))  # written beside the target, then renamed
+
+    link = client.post(f"/api/v1/organization/lifecycle/exports/{job_id}/link", headers=ADMIN_A).json()["url"]
+    download = client.get(link)
+    assert download.status_code == 200 and download.headers["content-type"] == "application/zip"
+    assert download.headers["content-length"] == str(job.archive_bytes)
+    assert download.headers["cache-control"] == "no-store" and download.headers["x-content-type-options"] == "nosniff"
+    assert download.content == stored.read_bytes()
+    assert hashlib.sha256(download.content).hexdigest() == job.archive_sha256
+    assert len(StreamOnly.chunk_sizes) > 1 and max(StreamOnly.chunk_sizes) <= 64
+    assert zipfile.ZipFile(io.BytesIO(download.content)).read(f"files/{WORKSPACE_A}/file_notes_txt/notes.txt") == b"hello from A" * 200
+    downloaded = [r for r in store.audit_records if r.action == "organisation.export.downloaded"]
+    assert downloaded and downloaded[-1].metadata["bytes"] == job.archive_bytes
+
+    # An archive that is gone is still a 410 before any byte is sent.
+    stored.unlink()
+    assert client.get(link).status_code == 410
 
 
 def test_expired_links_and_archives_are_refused(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:

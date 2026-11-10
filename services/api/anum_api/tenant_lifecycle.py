@@ -40,7 +40,8 @@ from threading import RLock
 from typing import Any, Protocol
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from .audit import AuditRecord
@@ -528,7 +529,7 @@ def export_link(job_id: str, context: TenantContext = Depends(tenant_context)) -
 
 
 @router.get("/organization/lifecycle/exports/download/{token}")
-def download_export(token: str) -> Response:
+def download_export(token: str) -> StreamingResponse:
     """The archive behind a signed link. The link is the credential (no bearer token); it
     names the tenant, workspace, person and job, and with OIDC the person must still be an
     active owner of that workspace."""
@@ -553,17 +554,22 @@ def download_export(token: str) -> Response:
     from .files import file_store
 
     try:
-        content = file_store.storage.get(job.archive_key)
+        # Opened before the response starts, so a missing archive is still a 410; sent in
+        # chunks, never held in memory whole.
+        chunks = file_store.storage.open_stream(job.archive_key)
     except FileNotFoundError as exc:
         raise HTTPException(status.HTTP_410_GONE, "This export is no longer available. Request a new export.") from exc
-    with lifecycle_unit(context, require_membership=False) as (_, repository):
-        repository.record_audit(_audit(context, "organisation.export.downloaded", job.id, {"job_id": job.id, "bytes": len(content)}))
+    try:
+        with lifecycle_unit(context, require_membership=False) as (_, repository):
+            repository.record_audit(_audit(context, "organisation.export.downloaded", job.id, {"job_id": job.id, "bytes": job.archive_bytes}))
+    except BaseException:
+        chunks.close()  # type: ignore[attr-defined]  # the opened object, when the audit record cannot be written
+        raise
     name = f"anum-organisation-{claims.tenant_id}-{job.requested_at:%Y%m%d}.zip"
-    return Response(
-        content,
-        media_type="application/zip",
-        headers={"Content-Disposition": f'attachment; filename="{name}"', "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"},
-    )
+    headers = {"Content-Disposition": f'attachment; filename="{name}"', "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"}
+    if job.archive_bytes is not None:
+        headers["Content-Length"] = str(job.archive_bytes)
+    return StreamingResponse(chunks, media_type="application/zip", headers=headers)
 
 
 # --- deletion
@@ -935,8 +941,10 @@ def run_export(job: LifecycleJob, data: TenantData) -> None:
                 digest.update(chunk)
         size = os.path.getsize(path)
         key = workspace_object_key(job.tenant_id, job.workspace_id, "lifecycle", job.id, "export.zip")
+        # Streamed from the file: reading the archive into memory first cost its whole size
+        # (up to ANUM_TENANT_EXPORT_MAX_BYTES) in RAM on the API's host.
         with open(path, "rb") as handle_in:
-            file_store.storage.put(key, handle_in.read(), "application/zip")
+            file_store.storage.put_file(key, handle_in, "application/zip")
         rows = sum(entry["rows"] for entry in manifest["tables"].values())
         _finish_export(
             context,

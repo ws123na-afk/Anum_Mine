@@ -115,8 +115,9 @@ With `ANUM_REPOSITORY_BACKEND=memory` (local runs and tests) the export and purg
 
 Importing an export into another ANUM (or back into this one) is deliberately out of scope. The archive is a portable copy for the organisation's own records and for moving to another system; secrets are not in it, rows private to one person are not in it, and ids would collide with live data, so an import would need its own design (id remapping, re-connecting integrations, consent of each person for their private data). Nothing in the API reads an archive back.
 
+The archive never sits in memory whole (November 2026): the worker builds it in a temporary file and hands that file to object storage (`ObjectStorage.put_file`), and the download sends it in 1 MiB chunks (`open_stream`, a `StreamingResponse` with `Content-Length`). Before, the upload and every download each read the whole archive, up to `ANUM_TENANT_EXPORT_MAX_BYTES`, into the API process. A missing archive is still a `410` before the first byte. Covered by `tests/test_tenant_lifecycle.py` (local storage) and `tests/test_object_storage.py` (local, in-memory and S3).
+
 ## Not done yet
 
-- The archive is uploaded to object storage in one piece (the storage interface takes bytes), so the API process needs memory for one archive up to `ANUM_TENANT_EXPORT_MAX_BYTES`.
 - Rows of a tenant table with a null `workspace_id` (possible only in `memories`) are not exported; an organisation deletion still removes them.
 - With the memory backend only the core stores are covered (above).
