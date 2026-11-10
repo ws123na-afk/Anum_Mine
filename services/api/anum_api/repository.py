@@ -94,7 +94,9 @@ class AnumRepository(Protocol):
     def list_task_events(
         self, task_id: str, context: TenantContext, *, limit: int | None = None, after: str | None = None
     ) -> list[DomainEvent]: ...
-    def list_task_approvals(self, task_id: str, context: TenantContext) -> list[Approval]: ...
+    def list_task_approvals(
+        self, task_id: str, context: TenantContext, *, for_update: bool = False
+    ) -> list[Approval]: ...
     def save_task(self, task: Task) -> Task: ...
     def get_task(self, task_id: str, context: TenantContext) -> Task | None: ...
     def get_task_for_update(self, task_id: str, context: TenantContext) -> Task | None: ...
@@ -107,7 +109,6 @@ class AnumRepository(Protocol):
         self, approval_id: str, context: TenantContext
     ) -> Approval | None: ...
     def list_approvals(self, context: TenantContext) -> list[Approval]: ...
-    def list_approvals_for_update(self, context: TenantContext) -> list[Approval]: ...
     def list_approvals_page(
         self,
         context: TenantContext,
@@ -394,7 +395,10 @@ class InMemoryRepository:
         events.sort(key=lambda event: (event.created_at, event.id), reverse=True)
         return events if limit is None else events[:limit]
 
-    def list_task_approvals(self, task_id: str, context: TenantContext) -> list[Approval]:
+    def list_task_approvals(
+        self, task_id: str, context: TenantContext, *, for_update: bool = False
+    ) -> list[Approval]:
+        """The task's approvals, oldest first. ``for_update`` locks those rows (PostgreSQL)."""
         if not self.get_task(task_id, context):
             return []
         return sorted(
@@ -478,9 +482,6 @@ class InMemoryRepository:
         """The id of the caller's newest event (where a new event stream starts), or None."""
         events = self.list_events(context)
         return events[-1].id if events else None
-
-    def list_approvals_for_update(self, context: TenantContext) -> list[Approval]:
-        return self.list_approvals(context)
 
     def list_approvals_page(
         self,

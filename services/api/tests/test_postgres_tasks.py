@@ -169,3 +169,38 @@ def test_runs_events_and_approvals_of_a_task(seed_scopes: None, repository_facto
         assert repository.list_runs_for_task("task_runs", other) == []
         assert repository.list_task_events("task_runs", other) == []
         assert repository.list_task_approvals("task_runs", other) == []
+
+
+def test_locking_a_tasks_approvals_leaves_other_tasks_approvals_free(
+    seed_scopes: None, repository_factory: Callable[..., Any], database_engine: Any
+) -> None:
+    """Cancelling a task locks its own approvals only (it used to lock the workspace's)."""
+    from sqlalchemy import text
+    from sqlalchemy.exc import OperationalError
+
+    context = tenant_context()
+    with repository_factory(context, commit=True) as repository:
+        for name in ("lock_a", "lock_b"):
+            repository.create_task(_task(f"task_{name}"))
+            repository.save_approval(Approval(id=f"approval_{name}", task_id=f"task_{name}", action="external.action",
+                                              risk_level=RiskLevel.HIGH, status=ApprovalStatus.PENDING, reason="r",
+                                              created_at=FIXED_NOW))
+
+    with repository_factory(context) as repository:
+        held = repository.list_task_approvals("task_lock_a", context, for_update=True)
+        assert [approval.id for approval in held] == ["approval_lock_a"]
+        with database_engine.connect() as other:
+            # Another transaction can lock the other task's approval at once...
+            free = other.execute(text("select id from approvals where id = 'approval_lock_b' for update nowait")).all()
+            assert free == [("approval_lock_b",)]
+            other.rollback()
+            # ...and not the one whose task is being cancelled.
+            with pytest.raises(OperationalError, match="could not obtain lock"):
+                other.execute(text("select id from approvals where id = 'approval_lock_a' for update nowait"))
+            other.rollback()
+        # Without for_update nothing is locked.
+    with repository_factory(context) as repository:
+        assert [a.id for a in repository.list_task_approvals("task_lock_a", context)] == ["approval_lock_a"]
+        with database_engine.connect() as other:
+            assert other.execute(text("select id from approvals where id = 'approval_lock_a' for update nowait")).all()
+            other.rollback()

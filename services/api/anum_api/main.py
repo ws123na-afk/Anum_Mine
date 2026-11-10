@@ -1653,8 +1653,10 @@ def cancel_task_record(task_id: str, context: TenantContext, repository: AnumRep
         run.updated_at = task.updated_at
         repository.save_run(run)
 
-    for approval in repository.list_approvals_for_update(context):
-        if approval.task_id == task.id and approval.status == ApprovalStatus.PENDING:
+    # Only this task's approvals are locked: locking every approval of the workspace made a
+    # cancel wait for (and block) any decision on an unrelated task.
+    for approval in repository.list_task_approvals(task.id, context, for_update=True):
+        if approval.status == ApprovalStatus.PENDING:
             approval.status = ApprovalStatus.EXPIRED
             approval.decided_at = task.updated_at
             repository.save_approval(approval)

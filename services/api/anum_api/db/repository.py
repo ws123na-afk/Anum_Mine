@@ -608,8 +608,12 @@ class SqlAlchemyRepository(AnumRepository):
             statement = statement.limit(limit)
         return [self._event_from_record(record) for record in self.session.scalars(statement).all()]
 
-    def list_task_approvals(self, task_id: str, context: TenantContext) -> list[Approval]:
-        records = self.session.scalars(
+    def list_task_approvals(
+        self, task_id: str, context: TenantContext, *, for_update: bool = False
+    ) -> list[Approval]:
+        """The task's approvals, oldest first. ``for_update`` row-locks them, and only them:
+        cancelling a task used to lock every approval of the workspace to expire its own."""
+        statement = (
             select(ApprovalRecord)
             .join(TaskRecord, ApprovalRecord.task_id == TaskRecord.id)
             .where(
@@ -620,8 +624,10 @@ class SqlAlchemyRepository(AnumRepository):
                 TaskRecord.workspace_id == context.workspace_id,
             )
             .order_by(ApprovalRecord.created_at, ApprovalRecord.id)
-        ).all()
-        return [self._approval_from_record(record) for record in records]
+        )
+        if for_update:
+            statement = statement.with_for_update(of=ApprovalRecord)
+        return [self._approval_from_record(record) for record in self.session.scalars(statement).all()]
 
     def save_task(self, task: Task) -> Task:
         return self.create_task(task)
@@ -779,15 +785,7 @@ class SqlAlchemyRepository(AnumRepository):
         return self._approval_from_record(record) if record is not None else None
 
     def list_approvals(self, context: TenantContext) -> list[Approval]:
-        return self._list_approvals(context, for_update=False)
-
-    def list_approvals_for_update(self, context: TenantContext) -> list[Approval]:
-        return self._list_approvals(context, for_update=True)
-
-    def _list_approvals(
-        self, context: TenantContext, *, for_update: bool
-    ) -> list[Approval]:
-        statement = (
+        records = self.session.scalars(
             select(ApprovalRecord)
             .join(TaskRecord, ApprovalRecord.task_id == TaskRecord.id)
             .where(
@@ -797,11 +795,6 @@ class SqlAlchemyRepository(AnumRepository):
                 TaskRecord.workspace_id == context.workspace_id,
             )
             .order_by(ApprovalRecord.created_at, ApprovalRecord.id)
-        )
-        if for_update:
-            statement = statement.with_for_update(of=ApprovalRecord)
-        records = self.session.scalars(
-            statement
         ).all()
         return [self._approval_from_record(record) for record in records]
 
