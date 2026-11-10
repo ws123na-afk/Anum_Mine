@@ -123,6 +123,20 @@ def is_arabic(text: str) -> bool:
     return bool(re.search(r"[؀-ۿ]", text))
 
 
+_DATA_MARKER = re.compile(r"<<(?:end-)?untrusted-data\b[^>\n]*>>")
+# A generated id (``veh_`` + 32 hex, a bare hex token of 16 or more, a UUID). Digits only is a number, not an id.
+_GENERATED_ID = re.compile(
+    r"(?<![0-9A-Za-z])(?:[A-Za-z]+_)*"
+    r"([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}|[0-9a-fA-F]{16,})(?![0-9A-Za-z])"
+)
+
+
+def _without_ids(text: str) -> str:
+    """``text`` without the data markers and generated ids, whose random digits are not figures from the source."""
+    text = _DATA_MARKER.sub(" ", text)
+    return _GENERATED_ID.sub(lambda m: " " if re.search(r"[a-fA-F]", m.group(1)) else m.group(0), text)
+
+
 class FigureGuard:
     """Sentence-level gate between the model's text and the client (see the module docstring)."""
 
@@ -144,7 +158,7 @@ class FigureGuard:
     # evidence ---------------------------------------------------------------------------
 
     def add_evidence(self, text: str) -> None:
-        self._supported |= figures_in(text)
+        self._supported |= figures_in(_without_ids(text))
 
     def failure(self, tool: str) -> None:
         if tool not in self.failed:
