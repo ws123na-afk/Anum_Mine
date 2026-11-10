@@ -104,3 +104,47 @@ def test_the_lifespan_prepares_serving_once_on_start(monkeypatch: pytest.MonkeyP
     with TestClient(main.app) as client:
         assert client.get("/health").status_code == 200
     assert calls == [main.app.router]
+
+
+def test_the_default_executor_is_explicit_and_sized_by_the_setting() -> None:
+    """``asyncio.to_thread`` used Python's default pool: min(32, CPUs + 4), 6 on a 2-CPU server."""
+    import threading
+
+    async def scenario() -> tuple[object, int, str]:
+        executor = serving.use_worker_threads(9)
+        loop = asyncio.get_running_loop()
+        gate = threading.Barrier(9, timeout=5)
+
+        def wait_for_the_others() -> str:
+            gate.wait()  # passes only when nine calls run at the same time
+            return threading.current_thread().name
+
+        names = await asyncio.gather(*(asyncio.to_thread(wait_for_the_others) for _ in range(9)))
+        return loop._default_executor is executor, executor._max_workers, names[0]  # type: ignore[attr-defined]
+
+    is_default, size, thread_name = asyncio.run(scenario())
+    assert is_default and size == 9 and thread_name.startswith("anum-worker")
+
+
+def test_the_lifespan_sets_the_worker_threads_before_anything_starts(monkeypatch: pytest.MonkeyPatch) -> None:
+    from pydantic import ValidationError
+
+    from anum_api.settings import Settings
+
+    assert Settings().worker_threads == 32
+    for refused in (0, 3, 257):
+        with pytest.raises(ValidationError):
+            Settings(worker_threads=refused)
+    order: list[str] = []
+    real_start = main.event_runtime.start
+
+    async def started() -> None:
+        order.append("event_runtime")
+        await real_start()
+
+    monkeypatch.setattr(main, "use_worker_threads", lambda size: order.append(f"threads:{size}"))
+    monkeypatch.setattr(main.event_runtime, "start", started)
+    monkeypatch.setattr(main.settings, "worker_threads", 12)
+    with TestClient(main.app):
+        pass
+    assert order[:2] == ["threads:12", "event_runtime"]

@@ -303,7 +303,7 @@ from .integration_setup import router as integration_setup_router
 from .identity import validate_auth_configuration
 from .telemetry import HttpMetricsMiddleware, setup_telemetry, shutdown_telemetry, sqlalchemy_engines
 from .error_reporting import setup_error_reporting, shutdown_error_reporting
-from .serving import prepare_for_serving
+from .serving import prepare_for_serving, use_worker_threads
 from .attendance.api import router as attendance_router  # docs/attendance.md
 from .vehicles.api import router as vehicles_router  # docs/vehicles.md
 from .vehicles.devices import router as vehicles_device_router
@@ -322,6 +322,8 @@ validate_auth_configuration(settings)
 
 @asynccontextmanager
 async def lifespan(application: FastAPI):
+    # First: everything below may hand work to a thread (docs/realtime.md#worker-threads).
+    use_worker_threads(settings.worker_threads)
     await event_runtime.start()
     # Phone push from committed events when ANUM_FCM_SERVICE_ACCOUNT_JSON is set
     # (docs/notifications.md); the developer watcher refreshes in-progress developer

@@ -67,6 +67,12 @@ class Settings(BaseSettings):
     database_max_overflow: int = Field(default=20, ge=0, le=500)
     database_pool_timeout_seconds: float = Field(default=10.0, gt=0, le=120)
     database_lock_timeout_ms: int = Field(default=10_000, ge=0, le=600_000)
+    # Worker threads for ``asyncio.to_thread`` (docs/realtime.md#worker-threads): every store
+    # step of an async route, stream poll and background job runs in one. Python's default
+    # is min(32, CPUs + 4), which is 6 on a 2-CPU server: six slow reads then made every
+    # other one queue. The threads mostly wait for the database, so the count does not
+    # follow the CPUs.
+    worker_threads: int = Field(default=32, ge=4, le=256)
     # An inline run's claim (the task set to running before the model is asked) left by
     # a process that stopped mid-run may be taken over after this long (inline_runs.py).
     inline_run_lease_seconds: float = Field(default=900.0, ge=60, le=86_400)
