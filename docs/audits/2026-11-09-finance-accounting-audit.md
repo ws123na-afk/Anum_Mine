@@ -36,7 +36,7 @@ The fixes are delivered as functional-area pull requests in this order: transact
 | Cash-flow statement | 2 | Direct method per currency (`books_report.py:500-551`); no opening or closing cash |
 | Changes in equity | 2 | Period contributions and drawings only (`books_report.py:651`) |
 | Journal inspection | 2 | Business Journal tab lists adjustments; postings cannot be inspected |
-| Adjustments with approval and audit | 2 | Owner only, frozen by trigger except void (0137:336-358); no maker and checker; audit rows hold ids only |
+| Adjustments with approval and audit | 1 (was 2) | Depth PR: an accountant's adjustment at or above the Books settings threshold waits as pending until another owner or accountant approves it, never its maker (API and a database check), listed in the Accountant review and posted only once approved (migration `0158_finance_depth`, [docs/business-books.md](../business-books.md#adjustment-approval)); audit rows hold ids only |
 | Period comparison | 2 | Month against previous month and a 12-month trend only |
 | Year-end carry-forward, monthly and yearly close, locked periods | 4 | `closeChecklist` in `lib/ops.ts:157` is a checklist only |
 | Accruals and prepayments | 1 | `books_report.py:330-337`, tests |

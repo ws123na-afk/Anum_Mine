@@ -13,7 +13,7 @@ import * as books from './lib/businessBooksApi';
 import { categoryLabel, describeRules, formatAmount, isolate, monthLabel, shiftMonth, type FinanceTab } from './lib/finance';
 import { monthRange, type FinanceScope } from './lib/financeNav';
 import { add, guardrails } from './lib/financeStatements';
-import { ForecastCard, ReserveCard } from './FinanceForecast';
+import { ExpectedIncomeCard, ForecastCard, ReserveCard } from './FinanceForecast';
 import { formatDateTime, formatNumber, t } from './lib/i18n';
 import { Denied, Empty, LoadError, Money, Notice, failed, type Load } from './FinanceParts';
 import { FinBanner, FinCard, FinancePageHead, FinanceTabs, KpiCard, KpiRow, ScopeSwitch, StatusChip, tabPanel } from './FinanceShell';
@@ -135,6 +135,7 @@ function AvailableNow({ data, currency, summaries, bills, guardian, latest, repo
       <span className="finCalcMeta">{t('fsafe.kpi.accounts', { count: data.accounts_counted })}{data.excluded.length > 0 && ` · ${t('fsafe.review.excluded', { count: data.excluded.length })}`}</span>
     </section>
     <ForecastCard forecast={forecast} currency={currency} onRetry={onRetryForecast} onOpenSettings={() => onOpen('settings')} />
+    <ExpectedIncomeCard base={currency} onChanged={onRetryForecast} />
     <div className="finReportGrid finSafeGridTop">
       <ReserveCard reserves={reserves} currency={currency} onRetry={onRetryForecast} onOpenSettings={() => onOpen('settings')} />
       <FinCard title={t('fsafe.review.title')} icon={<ListChecks />} className="finReview">

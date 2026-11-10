@@ -57,14 +57,16 @@ export function SettingsSection({ setup, onSaved, extra }: { setup: BooksSetup; 
     mappings: Object.entries(current?.category_sections ?? {}).map(([category, section]) => ({ category, section })) as { category: string; section: BooksTagSection }[],
     policy_note: current?.policy_note ?? '',
     evidence_threshold: current?.evidence_threshold ? String(Number(current.evidence_threshold)) : '',
+    adjustment_approval_threshold: current?.adjustment_approval_threshold ? String(Number(current.adjustment_approval_threshold)) : '',
   }));
   const [busy, setBusy] = useState(false), [message, setMessage] = useState<{ text: string; error?: boolean } | null>(null);
-  const ids = { currency: useId(), country: useId(), month: useId(), basis: useId(), tax: useId(), age: useId(), policy: useId(), evidence: useId() };
+  const ids = { currency: useId(), country: useId(), month: useId(), basis: useId(), tax: useId(), age: useId(), policy: useId(), evidence: useId(), approval: useId() };
   async function save(event: FormEvent) {
     event.preventDefault();
     if (!/^\d{1,3}$/.test(form.rate_max_age_days) || Number(form.rate_max_age_days) < 1 || Number(form.rate_max_age_days) > 366) { setMessage({ text: t('books.settings.ageInvalid'), error: true }); return; }
     if (form.mappings.some((row) => row.category && !validCategory(normalizeCategory(row.category)))) { setMessage({ text: t('books.categoryInvalid'), error: true }); return; }
     if (form.evidence_threshold.trim() && !validAmount(form.evidence_threshold.trim(), true)) { setMessage({ text: t('books.evidence.thresholdInvalid'), error: true }); return; }
+    if (form.adjustment_approval_threshold.trim() && !validAmount(form.adjustment_approval_threshold.trim(), true)) { setMessage({ text: t('fdepth.approval.invalid'), error: true }); return; }
     setBusy(true); setMessage(null);
     try { await api.saveSettings(settingsBody(form, current)); setMessage({ text: t('books.settings.saved') }); onSaved(); }
     catch (error) { setMessage({ text: failure(error, t('books.settings.title')), error: true }); } finally { setBusy(false); }
@@ -92,6 +94,10 @@ export function SettingsSection({ setup, onSaved, extra }: { setup: BooksSetup; 
             <input id={ids.evidence} inputMode="decimal" value={form.evidence_threshold} placeholder={t('books.evidence.thresholdOff')}
               aria-describedby={`${ids.evidence}-help`} onChange={(event) => setForm({ ...form, evidence_threshold: event.target.value })} /></label>
           <p id={`${ids.evidence}-help`} className="muted bzHint">{t('books.evidence.thresholdHelp')}</p>
+          <label className="field" htmlFor={ids.approval}><span>{t('fdepth.approval.threshold', { currency: form.base_currency })}</span>
+            <input id={ids.approval} inputMode="decimal" value={form.adjustment_approval_threshold} placeholder={t('fdepth.approval.off')}
+              aria-describedby={`${ids.approval}-help`} onChange={(event) => setForm({ ...form, adjustment_approval_threshold: event.target.value })} /></label>
+          <p id={`${ids.approval}-help`} className="muted bzHint">{t('fdepth.approval.help')}</p>
           <label className="field" htmlFor={ids.policy}><span>{t('ledger.settings.policy')}</span>
             <textarea id={ids.policy} rows={3} maxLength={1000} value={form.policy_note} onChange={(event) => setForm({ ...form, policy_note: event.target.value })} /></label>
           <h3 className="bkSub">{t('books.settings.mapTitle')}</h3>

@@ -20,6 +20,12 @@ It reuses the shared figures, never a second calculation:
   as a bill is counted once, as the bill; money borrowed from a person counts what is left on its due date.
 * **Installments** (Tamara, Tabby, ...) still due from the provider statements, on their due dates.
 * **Regular remittances** (sending money home marked "every month"): the newest amount plus fee per recipient.
+* **Expected one-off income** the person entered (a bonus, a refund, a sale) on its date until it is marked received;
+  a date that passed without it being marked received is left out and named. Like other recurring income it is not on
+  the low line.
+* **Card interest** where the card's yearly rate (APR) is known: each month the balance left after the minimum payment
+  times the rate over 12, added to the card on its due day (the month's last day without one). It is owed to the card,
+  so it is shown beside the cash line and does not take bank money until it is paid; cards without a rate are named.
 * **Spending** that is not a saved bill: the average monthly spending from bank and cash accounts over the last
   three full months (the advisor's averaging rule, ``advisor._averages``), less the saved bills in the same
   categories, taken off every day from tomorrow. Card purchases are left to the card's minimum payment.
@@ -56,7 +62,7 @@ DAYS_PER_MONTH = Decimal("30.4375")
 DEFAULT_BAND = Decimal("0.10")
 MIN_INCOME_OCCURRENCES = 3
 
-EventKind = Literal["salary", "income", "bill", "minimum_payment", "installment", "remittance"]
+EventKind = Literal["salary", "income", "expected_income", "bill", "minimum_payment", "installment", "remittance"]
 EventStatus = Literal["expected", "overdue", "late"]
 WarningKind = Literal["below_zero", "below_reserve", "may_go_below_zero"]
 
@@ -89,6 +95,18 @@ class MonthEnd(BaseModel):
     money_in: Decimal  # expected salary and income in the month (from today)
     money_out: Decimal  # bills, minimums, installments and remittances in the month (from today)
     spending: Decimal  # the average spending taken off in the month (from tomorrow)
+    card_interest: Decimal = Decimal(0)  # interest expected on cards with a known rate (owed to the card, not cash)
+
+
+class InterestCharge(BaseModel):
+    """Interest a card is expected to charge on a day: the balance after the minimum payment times the APR over 12."""
+
+    on: date
+    label: str
+    ref_id: str
+    balance: Decimal  # what the interest is charged on
+    apr_percent: Decimal
+    amount: Decimal
 
 
 class ForecastWarning(BaseModel):
@@ -126,6 +144,7 @@ class CurrencyForecast(BaseModel):
     warnings: list[ForecastWarning]
     assumptions: list[Assumption]
     left_out: list[Assumption]
+    card_interest: list[InterestCharge] = Field(default_factory=list)
 
 
 class Forecast(BaseModel):
@@ -159,6 +178,7 @@ class ForecastInputs:
     salary_profile: P.SalaryProfile | None = None
     payslips: list[P.Payslip] = field(default_factory=list)
     payslip_credits: dict[str, set[str]] = field(default_factory=dict)
+    expected_income: list[P.ExpectedIncome] = field(default_factory=list)
 
 
 # -- helpers --------------------------------------------------------------------------------------------
@@ -324,7 +344,58 @@ def recurring_income(inputs: ForecastInputs, currency: str, end: date) -> list[F
     return out
 
 
+def expected_income_events(inputs: ForecastInputs, currency: str, end: date) -> tuple[list[ForecastEvent], list[Assumption]]:
+    """One-off income the person expects, on its date, until it is marked received. A passed date is left out and named."""
+    events: list[ForecastEvent] = []
+    left: list[Assumption] = []
+    for item in sorted(inputs.expected_income, key=lambda i: (i.expected_on, i.id)):
+        if item.currency != currency or item.received_on is not None:
+            continue
+        if item.expected_on < inputs.today:
+            left.append(Assumption(code="expected_income_late", params={"name": item.label, "date": item.expected_on.isoformat()},
+                                   detail=f"{item.label} was expected on {item.expected_on.isoformat()} and is not marked received: not counted."))
+            continue
+        if item.expected_on > end:
+            continue
+        events.append(ForecastEvent(on=item.expected_on, kind="expected_income", label=item.label, ref_id=item.id, currency=currency, amount=item.amount,
+                                    note="income_expected_once", params={"date": item.expected_on.isoformat()}))
+    return events, left
+
+
 # -- money out --------------------------------------------------------------------------------------------
+
+
+def card_interest(inputs: ForecastInputs, currency: str, end: date) -> tuple[list[InterestCharge], list[Assumption]]:
+    """Interest each card with a known APR is expected to charge, month by month: the balance left after that month's
+    minimum payment times the APR over 12, added to what is owed (so the next month's interest is on it too). A card
+    with a balance and no rate is named instead: its interest is not guessed."""
+    today = inputs.today
+    out: list[InterestCharge] = []
+    unknown: list[str] = []
+    for debt in inputs.debts:
+        if debt.currency != currency or debt.kind != DebtKind.CARD or debt.balance <= 0 or isinstance(debt, O.PersonDebt):
+            continue
+        if debt.apr_percent <= 0:
+            unknown.append(debt.name)
+            continue
+        monthly = debt.apr_percent / Decimal(1200)
+        remaining = debt.balance
+        for start, last in month_list(today):
+            on = _on_day(start, debt.due_day) if debt.due_day else last
+            if on > end:
+                break
+            if on < today:
+                continue  # this month's statement day passed: its interest is already in the balance
+            paid = min(debt.minimum_payment, remaining) if M.owes_minimum(debt) else Decimal(0)
+            base = remaining - paid
+            interest = _q(base * monthly, currency)
+            if interest <= 0:
+                break
+            remaining = base + interest
+            out.append(InterestCharge(on=on, label=debt.name, ref_id=debt.id, balance=_q(base, currency), apr_percent=debt.apr_percent, amount=interest))
+    left = [Assumption(code="card_apr_unknown", params={"name": name},
+                       detail=f"{name} has no yearly interest rate (APR) saved: its interest is not estimated.") for name in sorted(unknown)]
+    return out, left
 
 
 def bill_events(inputs: ForecastInputs, currency: str, end: date) -> list[ForecastEvent]:
@@ -348,6 +419,15 @@ def debt_events(inputs: ForecastInputs, currency: str, end: date) -> tuple[list[
         if debt.currency != currency:
             continue
         if isinstance(debt, O.PersonDebt):
+            if debt.installments_left:
+                for on, amount in debt.installments_left:
+                    if on > end:
+                        break
+                    late = on < today
+                    out.append(ForecastEvent(on=today if late else on, kind="minimum_payment", label=debt.name, ref_id=debt.id, currency=currency,
+                                             amount=-amount, status="overdue" if late else "expected", note="person_loan_overdue" if late else "person_loan_due",
+                                             params={"date": on.isoformat()}))
+                continue
             if debt.due_on is None or debt.balance <= 0:
                 continue
             if debt.overdue or debt.due_on < today:
@@ -454,6 +534,7 @@ def _currencies(inputs: ForecastInputs) -> list[str]:
     found |= {d.currency for d in inputs.debts if d.balance > 0}
     if inputs.salary_profile is not None:
         found.add(inputs.salary_profile.currency)
+    found |= {i.currency for i in inputs.expected_income if i.received_on is None and i.expected_on >= inputs.today}
     return sorted(found, key=lambda c: (c != inputs.base_currency, c))
 
 
@@ -466,6 +547,9 @@ def currency_forecast(inputs: ForecastInputs, currency: str) -> CurrencyForecast
     salary, assumptions, left_out = salary_events(inputs, currency, end)
     events = list(salary)
     events += recurring_income(inputs, currency, end)
+    once, once_left = expected_income_events(inputs, currency, end)
+    events += once
+    left_out += once_left
     events += bill_events(inputs, currency, end)
     debts, debt_left = debt_events(inputs, currency, end)
     events += debts
@@ -473,9 +557,11 @@ def currency_forecast(inputs: ForecastInputs, currency: str) -> CurrencyForecast
     events += installments
     events += remittance_events(inputs, currency, end)
     left_out += debt_left + installment_left
+    interest, interest_left = card_interest(inputs, currency, end)
+    left_out += interest_left
     if not spendable and not events:
         return None
-    order = {"salary": 0, "income": 1, "bill": 2, "minimum_payment": 3, "installment": 4, "remittance": 5}
+    order = {"salary": 0, "income": 1, "expected_income": 1, "bill": 2, "minimum_payment": 3, "installment": 4, "remittance": 5}
     events.sort(key=lambda e: (e.on, order[e.kind], e.label.casefold()))
     reserve = reserve_targets(inputs.goals).get(currency)
 
@@ -483,7 +569,7 @@ def currency_forecast(inputs: ForecastInputs, currency: str) -> CurrencyForecast
     sure_by_day: dict[date, Decimal] = defaultdict(Decimal)  # without other recurring income (the low line)
     for event in events:
         by_day[event.on] += event.amount
-        if event.kind != "income":
+        if event.kind not in ("income", "expected_income"):
             sure_by_day[event.on] += event.amount
     points: list[ForecastPoint] = []
     expected = low = high = actual
@@ -510,6 +596,7 @@ def currency_forecast(inputs: ForecastInputs, currency: str) -> CurrencyForecast
             money_in=_q(sum((e.amount for e in mine if e.amount > 0), Decimal(0)), currency),
             money_out=_q(-sum((e.amount for e in mine if e.amount < 0), Decimal(0)), currency),
             spending=_q(spend.daily * max(spend_days, 0), currency),
+            card_interest=_q(sum((i.amount for i in interest if start <= i.on <= last), Decimal(0)), currency),
         ))
 
     warnings: list[ForecastWarning] = []
@@ -537,10 +624,16 @@ def currency_forecast(inputs: ForecastInputs, currency: str) -> CurrencyForecast
                                   detail="The low line spends at your busiest month's pace and leaves out other recurring income; the high line at your quietest month's."))
     if any(e.kind == "income" for e in events):
         assumptions.append(Assumption(code="income_recurring", detail="Other income that arrived every month at least three times is expected again."))
+    if any(e.kind == "expected_income" for e in events):
+        assumptions.append(Assumption(code="expected_income", detail="One-off income you entered is expected on its date; the low line leaves it out."))
+    if interest:
+        assumptions.append(Assumption(code="card_interest", detail=("Card interest where the yearly rate is known: the balance after the minimum payment "
+                                                                    "times the rate over 12, owed to the card and not taken from your bank money until you pay it.")))
     assumptions.append(Assumption(code="cards", detail="Card purchases are counted through the card's minimum payment, not as everyday spending."))
     return CurrencyForecast(
         currency=currency, actual=actual, accounts_counted=len(spendable), reserve_target=_q(reserve, currency) if reserve else None, spend=spend,
         month_end=months[0], months=months, points=points, events=events, warnings=warnings, assumptions=assumptions, left_out=left_out,
+        card_interest=interest,
     )
 
 
@@ -633,7 +726,7 @@ def reserves(goals: list[Goal], accounts: list[Account], essentials: dict[str, t
 
 
 __all__ = [
-    "Assumption", "CurrencyForecast", "Forecast", "ForecastEvent", "ForecastInputs", "ForecastPoint", "ForecastWarning", "MonthEnd", "ReserveSuggestion",
-    "ReserveView", "Reserves", "SpendBasis", "build", "currency_forecast", "horizon_end", "month_list", "months_covered", "reserve_targets", "reserve_view",
+    "Assumption", "CurrencyForecast", "Forecast", "ForecastEvent", "ForecastInputs", "ForecastPoint", "ForecastWarning", "InterestCharge", "MonthEnd", "ReserveSuggestion",
+    "ReserveView", "Reserves", "SpendBasis", "build", "card_interest", "currency_forecast", "expected_income_events", "horizon_end", "month_list", "months_covered", "reserve_targets", "reserve_view",
     "reserves",
 ]

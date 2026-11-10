@@ -27,6 +27,8 @@ export interface FinanceState {
   debts: Record<string, unknown>[];
   goals: Record<string, unknown>[];
   holdings: Record<string, unknown>[];
+  /** One-off income the forecast expects (docs/finance.md#forecast). */
+  expectedIncome?: Record<string, unknown>[];
   denied: boolean;
   failSummary: boolean;
   // Stages 3 to 5.
@@ -218,6 +220,7 @@ function forecastOf(state: FinanceState) {
       assumptions: [{ code: 'start_balance', params: { count: '1' }, detail: '' }, { code: 'spend_months', params: { months: month, amount: '3043.75', daily: '100.00' }, detail: '' },
         { code: 'band', params: { low: '120.00', high: '80.00' }, detail: '' }, { code: 'salary_profile', params: { day: '25' }, detail: '' }],
       left_out: [],
+      card_interest: [{ on: day(6), label: 'Rewards card', ref_id: 'fin_debt_card', balance: '1750.00', apr_percent: '36', amount: '52.50' }],
     }],
   };
 }
@@ -437,6 +440,27 @@ function financeStagesReply(state: FinanceState, method: string, sub: string, bo
   const conflict = (message: string) => ({ status: 409, body: { error: { code: 'conflict', message, correlation_id: 'c', details: [] } } });
   if (sub === '/forecast') return ok(forecastOf(state));
   if (sub === '/reserve') return ok(reservesOf(state));
+  if (sub === '/expected-income' && method === 'GET') {
+    const rows = state.expectedIncome ?? [];
+    const shown = url.searchParams.get('state') === 'all' ? rows : rows.filter((r) => r.state !== 'received');
+    return ok({ items: shown, total: shown.length, limit: 50, offset: 0, note: 'x' });
+  }
+  if (sub === '/expected-income' && method === 'POST') {
+    const input = body as Record<string, string>;
+    const made = { ...input, id: `fin_xinc_${(state.expectedIncome ?? []).length + 1}`, amount: Number(input.amount).toFixed(2), currency: input.currency || 'AED',
+      received_on: null, notes: input.notes ?? null, state: 'expected', created_at: stamp, updated_at: stamp };
+    state.expectedIncome = [...(state.expectedIncome ?? []), made];
+    return ok(made, 201);
+  }
+  const income = /^\/expected-income\/([^/]+)$/.exec(sub);
+  if (income) {
+    const rows = state.expectedIncome ?? [];
+    const found = rows.find((r) => r.id === income[1]);
+    if (!found) return { status: 404, body: { error: { code: 'not_found', message: 'Expected income not found.', correlation_id: 'c', details: [] } } };
+    if (method === 'DELETE') { state.expectedIncome = rows.filter((r) => r !== found); return { status: 204, body: null }; }
+    Object.assign(found, body as object, { state: (body as Record<string, unknown>).received_on ? 'received' : 'expected' });
+    return ok(found);
+  }
   if (sub === '/salary/profile' && method === 'GET') return ok({ profile: null });
   if (sub === '/safe-to-spend') return state.failSafe ? { status: 503, body: { error: { code: 'internal_error', message: 'The database is not reachable.', correlation_id: 'c', details: [] } } } : ok(safeToSpend(state));
   if (sub === '/plan') return method === 'PUT' ? ok((state.plan = { ...state.plan, ...(body as object), updated_at: stamp })) : ok(state.plan);

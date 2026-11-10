@@ -222,6 +222,7 @@ def setup(context: TenantContext = Depends(tenant_context)) -> Any:
         locked = L.locked_through(store)
     return {
         "closed_through": locked.isoformat() if locked else None,
+        "user_id": context.user_id,  # who is asking: a pending adjustment they made is approved by someone else
         "settings": dump(settings) if settings else None,
         "permissions": _permissions(context),
         "counts": {**counts, "allocations": len(allocations)},
@@ -243,10 +244,11 @@ class SettingsInput(BaseModel):
     rate_max_age_days: int = Field(default=31, ge=1, le=366)
     policy_note: str = Field(default="", max_length=1000)
     evidence_threshold: Decimal | None = Field(default=None, ge=0, le=Decimal("1e12"))
+    adjustment_approval_threshold: Decimal | None = Field(default=None, ge=0, le=Decimal("1e12"))
     version: int | None = None
 
 
-SETTINGS_FIELDS = ("base_currency", "country", "fiscal_year_start_month", "basis", "rate_max_age_days")
+SETTINGS_FIELDS = ("base_currency", "country", "fiscal_year_start_month", "basis", "rate_max_age_days", "adjustment_approval_threshold")
 
 
 @router.put("/settings")
@@ -265,6 +267,7 @@ def put_settings(payload: SettingsInput, context: TenantContext = Depends(tenant
             fiscal_year_start_month=payload.fiscal_year_start_month, basis=payload.basis, tax_label=S.clean(payload.tax_label, 40),
             category_sections=S.section_map(payload.category_sections), rate_max_age_days=payload.rate_max_age_days,
             policy_note=(payload.policy_note or "").strip()[:1000], evidence_threshold=_threshold(payload.evidence_threshold, payload.base_currency),
+            adjustment_approval_threshold=_threshold(payload.adjustment_approval_threshold, payload.base_currency),
             version=(current.version + 1) if current else 1, updated_by=context.user_id, updated_at=now,
         )
         if current is not None:
@@ -285,7 +288,7 @@ def _threshold(value: Decimal | None, currency: str) -> Decimal | None:
     try:
         return quantize(value, S.currency_of(currency))
     except MoneyError:
-        raise S.BooksError(422, "The evidence threshold is not a valid amount.", "invalid_amount") from None
+        raise S.BooksError(422, "The threshold is not a valid amount.", "invalid_amount") from None
 
 
 def _frozen_settings(store: BooksStore, current: BookSettings, value: BookSettings) -> None:
@@ -973,16 +976,34 @@ class AdjustmentInput(BaseModel):
     reverse_on: date | None = None
 
 
+def needs_approval(context: TenantContext, store: BooksStore, item: Any) -> bool:
+    """Maker and checker (docs/business-books.md#adjustment-approval): an adjustment an accountant who is not an owner records
+    at or above the approval threshold, converted to the base currency with the business's own rates, waits for another
+    owner or accountant. A figure in another currency without a usable rate waits too (it cannot be shown to be below)."""
+    if has_permission(context, Permission.BUSINESS_MANAGE):
+        return False
+    settings = store.get_settings()
+    if settings is None or settings.adjustment_approval_threshold is None:
+        return False
+    rates, _ = store.find("rates", order_by="as_of", limit=S.RATE_SCAN)
+    base = R.Converter(rates, settings.base_currency, settings.rate_max_age_days).convert(abs(item.amount), item.currency, item.entry_date)
+    return base is None or base >= settings.adjustment_approval_threshold
+
+
 @router.get("/adjustments")
 @refusals
-def list_adjustments(kind: AdjustmentKind | None = None, include_void: bool = False, limit: int = Query(default=25, ge=1, le=MAX_PAGE),
+def list_adjustments(kind: AdjustmentKind | None = None, include_void: bool = False, status_filter: Literal["active", "pending"] | None = Query(
+                         default=None, alias="status"), limit: int = Query(default=25, ge=1, le=MAX_PAGE),
                      offset: int = Query(default=0, ge=0), context: TenantContext = Depends(tenant_context)) -> Any:
+    """Active and pending adjustments (``include_void`` adds voided ones; ``status`` picks one state)."""
     _read(context)
     where: dict[str, Any] = {}
     if kind is not None:
         where["kind"] = kind.value
-    if not include_void:
-        where["status"] = "active"
+    if status_filter is not None:
+        where["status"] = status_filter
+    elif not include_void:
+        where["status"] = {"active", "pending"}
     with open_books_store(context) as store:
         rows, total = store.find("adjustments", where=where, order_by="entry_date", limit=limit, offset=offset)
     return _page([dump(r) for r in rows], total, limit, offset)
@@ -1004,10 +1025,40 @@ def create_adjustment(payload: AdjustmentInput, response: Response, context: Ten
             response.status_code = status.HTTP_200_OK
             return {**dump(earlier), "replayed": True}
         L.require_open(store, item.entry_date, item.start_month, what="This adjustment")
+        if needs_approval(context, store, item):
+            item = item.model_copy(update={"status": "pending"})
     S.check_settlement(context, item)  # never pay back more than is owed (defect B4)
     with open_books_store(context) as store:
         store.add("adjustments", item)
-    _audit(repository, context, "adjustment_recorded", item.id, {"kind": item.kind.value, "after": _summary(item, "entry_date", "currency", "amount")})
+    _audit(repository, context, "adjustment_recorded", item.id, {"kind": item.kind.value, "status": item.status,
+                                                                  "after": _summary(item, "entry_date", "currency", "amount")})
+    if item.status == "active":
+        L.post_quietly(context)
+    return dump(item)
+
+
+@router.post("/adjustments/{adjustment_id}/approve")
+@refusals
+def approve_adjustment(adjustment_id: str, context: TenantContext = Depends(tenant_context),
+                       repository: AnumRepository = Depends(repository_context)) -> Any:
+    """Approve a pending adjustment (another owner or accountant than its maker). Only then is it posted."""
+    _accounting(context)
+    with open_books_store(context) as store:
+        current = _found(store, "adjustments", adjustment_id, "Adjustment", for_update=True)
+        if current.status != "pending":
+            raise S.BooksError(409, "This adjustment does not wait for approval.", "not_pending")
+        if current.created_by == context.user_id:
+            raise S.BooksError(403, "You recorded this adjustment: another owner or an accountant approves it.", "own_adjustment")
+        L.require_open(store, current.entry_date, current.start_month, current.reverse_on, what="This adjustment")
+        item = current.model_copy(update={"status": "active", "approved_by": context.user_id, "approved_at": utc_now()})
+    S.check_settlement(context, item)  # what is owed may have changed while it waited
+    with open_books_store(context) as store:
+        again = _found(store, "adjustments", adjustment_id, "Adjustment", for_update=True)
+        if again.status != "pending":
+            raise S.BooksError(409, "This adjustment was already decided.", "not_pending")
+        store.save("adjustments", item)
+    _audit(repository, context, "adjustment_approved", adjustment_id, {"kind": current.kind.value, "amount": str(current.amount),
+                                                                        "currency": current.currency, "maker": current.created_by})
     L.post_quietly(context)
     return dump(item)
 
@@ -1021,6 +1072,7 @@ def void_adjustment(adjustment_id: str, payload: VoidInput, context: TenantConte
         current = _found(store, "adjustments", adjustment_id, "Adjustment", for_update=True)
         if current.status == "void":
             raise S.BooksError(409, "This adjustment is already void.", "already_void")
+        # Voiding a pending adjustment rejects it (or withdraws it, for its maker): it was never posted.
         L.require_open(store, current.entry_date, current.start_month, current.reverse_on, what="This adjustment")
         item = current.model_copy(update={"status": "void", "voided_by": context.user_id, "voided_at": utc_now(), "void_reason": S.clean(payload.reason, 300)})
         store.save("adjustments", item)

@@ -590,12 +590,13 @@ def _checklist(context: TenantContext, store: BooksStore, first: date | None, th
     window: Any = Between(first, through) if first else AtMost(through)
     issues, issue_total = store.find("posting_issues", where={"event_date": window}, limit=20)
     drafts, draft_total = store.find("bills", where={"status": "draft", "bill_date": window}, limit=1)
+    _pending, pending_total = store.find("adjustments", where={"status": "pending", "entry_date": window}, limit=1)
     review = sum(1 for row in allocations_by_id(context).values() if row.status == "needs_review" and (first is None or row.posted_on >= first)
                  and row.posted_on <= through)
     return {"issues": issue_total, "issue_rows": [{"event_key": row.event_key, "source_kind": row.source_kind, "source_id": row.source_id,
                                                     "event_date": row.event_date.isoformat(), "reason": row.reason, "currency": row.currency,
                                                     "description": row.description} for row in issues],
-            "drafts": draft_total, "allocations_in_review": review}
+            "drafts": draft_total, "allocations_in_review": review, "adjustments_pending": pending_total}
 
 
 def close_status(context: TenantContext, today: date) -> dict[str, Any]:
@@ -611,7 +612,7 @@ def close_status(context: TenantContext, today: date) -> dict[str, Any]:
         checks = _checklist(context, store, first, suggested)
     can_close = suggested < today
     ready = can_close and pending["to_post"] == 0 and pending["to_reverse"] == 0 and checks["issues"] == 0 and checks["drafts"] == 0 and \
-        checks["allocations_in_review"] == 0
+        checks["allocations_in_review"] == 0 and checks["adjustments_pending"] == 0
     return {
         "closed_through": locked.isoformat() if locked else None,
         "next": {"through": suggested.isoformat(), "year_end": suggested in fiscal_year_ends(suggested.replace(day=1), suggested,
@@ -696,8 +697,9 @@ def close(context: TenantContext, through: date, *, today: date, now: datetime) 
             revalue_run(store, context, settings, month_end(month), now=now, actor=context.user_id, locked=locked)
             month = R.add_months(month, 1)
         checks = _checklist(context, store, first, through)
-        if checks["issues"] or checks["drafts"] or checks["allocations_in_review"]:
-            raise LedgerError(409, "Finish the period first: post or fix every item, approve or void draft bills and confirm allocations in review.",
+        if checks["issues"] or checks["drafts"] or checks["allocations_in_review"] or checks["adjustments_pending"]:
+            raise LedgerError(409, "Finish the period first: post or fix every item, approve or void draft bills and adjustments waiting for "
+                              "approval, and confirm allocations in review.",
                               "period_not_ready", **checks)
         accounts = chart_accounts(store)
         base = settings.base_currency

@@ -85,6 +85,9 @@ function headText(item: FinanceSuggestion): string {
     return t(`fsug.head.cash_shortage.${p.reason}` as MessageKey, { currency: p.currency ?? '', date: isolate(p.date ?? '') });
   }
   const variant = variantOf(item);
+  if (item.kind === 'loan_overdue' || item.kind === 'loan_repayment') {
+    return t(`fsug.head.${item.kind}.${variant}` as MessageKey, { person: p.person ?? '', amount: isolate(formatAmount(p.overdue ?? p.amount ?? '0', p.currency ?? 'AED')) });
+  }
   if (item.kind === 'attribution' || item.kind === 'fx_fee') return t(`fsug.head.${item.kind}.${variant}` as MessageKey, vars);
   return t(`fsug.head.${item.kind}` as MessageKey, vars);
 }
@@ -103,6 +106,9 @@ function whyText(item: FinanceSuggestion): string {
   const vars = { ...p, category: p.category ? categoryLabel(p.category as FinanceCategory) : '', current: p.current ? categoryLabel(p.current as FinanceCategory) : '',
     treatment: p.treatment ? t(`fsug.treatment.${p.treatment}` as MessageKey) : '' };
   const variant = variantOf(item);
+  if (item.kind === 'loan_overdue' || item.kind === 'loan_repayment') {
+    return t(`fsug.why.${item.kind}.${variant}` as MessageKey, { person: p.person ?? '', left: isolate(formatAmount(p.outstanding ?? '0', p.currency ?? 'AED')) });
+  }
   if (variant) return t(`fsug.why.${item.kind}.${variant}` as MessageKey, vars);
   return t(`fsug.why.${item.kind}` as MessageKey, vars);
 }

@@ -132,6 +132,15 @@ function RowActions({ name, onOpen, onEdit, onDelete }: { name: string; onOpen: 
 
 // -- lent and borrowed ------------------------------------------------------------------------------------
 
+/** What is overdue, per currency (never added across currencies), or nothing. */
+function overdueHint(owed: FinancePersonLoanPage['owed']): string | undefined {
+  const parts = owed.flatMap((o) => [
+    Number(o.they_owe_me_overdue) > 0 ? t('fdepth.loan.theyOweOverdue', { amount: formatAmount(o.they_owe_me_overdue, o.currency) }) : null,
+    Number(o.i_owe_overdue) > 0 ? t('fdepth.loan.iOweOverdue', { amount: formatAmount(o.i_owe_overdue, o.currency) }) : null,
+  ]).filter((part): part is string => part !== null);
+  return parts.length ? parts.join(' · ') : undefined;
+}
+
 function PeopleTab({ base }: { base: string }) {
   const [q, setQ] = useState(''), [direction, setDirection] = useState(''), [status, setStatus] = useState('all'), [offset, setOffset] = useState(0);
   const [page, reload] = useLoad<FinancePersonLoanPage>(() => pm.listLoans({ q, direction, status, limit: PERSONAL_PAGE, offset }), [q, direction, status, offset]);
@@ -152,7 +161,8 @@ function PeopleTab({ base }: { base: string }) {
     {data && <KpiRow label={t('fpm.people.kpis')}>
       <KpiCard icon={<ArrowDownLeft />} label={t('fpm.people.theyOwe')} value={data.owed.length ? data.owed.map((o) => formatAmount(o.they_owe_me, o.currency)).join(' · ') : '-'} />
       <KpiCard icon={<ArrowUpRight />} label={t('fpm.people.iOwe')} value={data.owed.length ? data.owed.map((o) => formatAmount(o.i_owe, o.currency)).join(' · ') : '-'} />
-      <KpiCard icon={<CalendarClock />} label={t('fpm.people.overdue')} value={String(data.overdue)} tone={data.overdue ? 'bad' : ''} />
+      <KpiCard icon={<CalendarClock />} label={t('fpm.people.overdue')} value={String(data.overdue)} tone={data.overdue ? 'bad' : ''}
+        hint={overdueHint(data.owed)} />
     </KpiRow>}
     {notice && <Notice error={notice.error}>{notice.text}</Notice>}
     <FinCard title={t('fpm.people.listTitle')} icon={<HandCoins />} actions={<button type="button" onClick={() => setEditing('new')}><Plus aria-hidden="true" />{t('fpm.people.add')}</button>}>
@@ -178,7 +188,9 @@ function PeopleTab({ base }: { base: string }) {
               <td className="num"><Money value={l.amount} currency={l.currency} /></td>
               <td className="num"><Money value={l.repaid} currency={l.currency} /></td>
               <td className="num"><Money value={l.outstanding} currency={l.currency} /></td>
-              <td>{l.due_on ? day(l.due_on) : '-'}</td>
+              <td>{(l.next_due_on ?? l.due_on) ? day((l.next_due_on ?? l.due_on) as string) : '-'}
+                {l.installments ? <small className="muted fpmBlock">{t('fdepth.loan.installmentsShort', { count: l.installments })}</small> : null}
+                {Number(l.overdue_amount) > 0 && <small className="fpmBlock fpmOverdue">{t('fdepth.loan.overdueAmount', { amount: amount(l.overdue_amount, l.currency) })}</small>}</td>
               <td><StatusChip tone={loanTone(l.status)}>{t(`fpm.people.status.${l.status}` as MessageKey)}</StatusChip></td>
               <td><RowActions name={l.person} onOpen={() => setOpen(l)} onEdit={() => setEditing(l)} onDelete={() => setRemoving(l)} /></td>
             </tr>)}</tbody>
@@ -200,11 +212,16 @@ function LoanForm({ loan, base, onDone }: { loan: FinancePersonLoan | null; base
   const [lentOn, setLentOn] = useState(loan?.lent_on ?? todayIso()), [dueOn, setDueOn] = useState(loan?.due_on ?? ''), [notes, setNotes] = useState(loan?.notes ?? '');
   const [remind, setRemind] = useState(loan?.remind ?? true), [daysBefore, setDaysBefore] = useState(loan?.remind_days_before ?? 3);
   const [closed, setClosed] = useState(Boolean(loan?.closed_on)), [busy, setBusy] = useState(false), [error, setError] = useState<string | null>(null);
+  const [rate, setRate] = useState(loan?.interest_rate ? String(Number(loan.interest_rate)) : '');
+  const [installments, setInstallments] = useState(loan?.installments ? String(loan.installments) : '');
+  const [firstDue, setFirstDue] = useState(loan?.first_due_on ?? '');
+  const scheduled = installments.trim() !== '';
   const errorId = useId();
   const submit = async (event: FormEvent) => {
     event.preventDefault(); setBusy(true); setError(null);
-    const body = { direction, person: person.trim(), amount: value.trim(), currency, lent_on: lentOn, due_on: dueOn || null, notes: notes.trim() || null,
-      remind, remind_days_before: daysBefore, closed };
+    const body = { direction, person: person.trim(), amount: value.trim(), currency, lent_on: lentOn, due_on: scheduled ? null : (dueOn || null), notes: notes.trim() || null,
+      remind, remind_days_before: daysBefore, closed, interest_rate: rate.trim() || null, installments: scheduled ? Number(installments) : null,
+      first_due_on: scheduled ? (firstDue || null) : null };
     try { if (loan) await pm.updateLoan(loan.id, body); else await pm.createLoan(body); onDone(t('fpm.saved', { name: body.person })); }
     catch (e) { setError(describeError(e)); } finally { setBusy(false); }
   };
@@ -218,9 +235,17 @@ function LoanForm({ loan, base, onDone }: { loan: FinancePersonLoan | null; base
       <label className="field"><span>{t('fpm.amount')}</span><input value={value} onChange={(e) => setValue(e.target.value)} inputMode="decimal" dir="ltr" required /></label>
       <label className="field"><span>{t('fpm.currency')}</span><input value={currency} onChange={(e) => setCurrency(e.target.value.toUpperCase().slice(0, 3))} maxLength={3} dir="ltr" required /></label>
       <label className="field"><span>{t('fpm.people.lentOn')}</span><input type="date" value={lentOn} onChange={(e) => setLentOn(e.target.value)} required /></label>
-      <label className="field"><span>{t('fpm.people.due')}</span><input type="date" value={dueOn} onChange={(e) => setDueOn(e.target.value)} /></label>
+      <label className="field"><span>{t('fpm.people.due')}</span><input type="date" value={scheduled ? '' : dueOn} onChange={(e) => setDueOn(e.target.value)}
+        disabled={scheduled} aria-describedby={scheduled ? `${errorId}-sched` : undefined} /></label>
+      <label className="field"><span>{t('fdepth.loan.rate')}</span><input value={rate} onChange={(e) => setRate(e.target.value)} inputMode="decimal" dir="ltr"
+        placeholder={t('fdepth.loan.ratePlaceholder')} /></label>
+      <label className="field"><span>{t('fdepth.loan.installments')}</span><input type="number" min={1} max={360} value={installments}
+        onChange={(e) => setInstallments(e.target.value)} dir="ltr" /></label>
+      <label className="field"><span>{t('fdepth.loan.firstDue')}</span><input type="date" value={firstDue} onChange={(e) => setFirstDue(e.target.value)}
+        required={scheduled} disabled={!scheduled} /></label>
       <label className="field"><span>{t('fpm.people.remindDays')}</span><input type="number" min={0} max={30} value={daysBefore} onChange={(e) => setDaysBefore(Number(e.target.value))} disabled={!remind} /></label>
     </div>
+    <p className="muted" id={`${errorId}-sched`}>{t(scheduled ? 'fdepth.loan.scheduleHelp' : 'fdepth.loan.rateHelp')}</p>
     <label className="field"><span>{t('fpm.notes')}</span><textarea value={notes} onChange={(e) => setNotes(e.target.value)} maxLength={1000} rows={2} dir="auto" /></label>
     <label className="finAdvisorCheck"><input type="checkbox" checked={remind} onChange={(e) => setRemind(e.target.checked)} />{t('fpm.people.remind')}</label>
     {loan && <label className="finAdvisorCheck"><input type="checkbox" checked={closed} onChange={(e) => setClosed(e.target.checked)} />{t('fpm.people.closed')}</label>}
@@ -241,7 +266,24 @@ function LoanDetail({ loan, onClose }: { loan: FinancePersonLoan; onClose: () =>
         <div><dt>{t('fpm.people.handed')}</dt><dd><Money value={l.handed} currency={l.currency} /></dd></div>
         <div><dt>{t('fpm.people.repaid')}</dt><dd><Money value={l.repaid} currency={l.currency} /></dd></div>
         <div><dt>{t('fpm.people.left')}</dt><dd><Money value={l.outstanding} currency={l.currency} /></dd></div>
+        {l.interest_rate && <div><dt>{t('fdepth.loan.interestTotal', { rate: Number(l.interest_rate) })}</dt><dd><Money value={l.interest} currency={l.currency} /></dd></div>}
+        {l.next_due_on && <div><dt>{t('fdepth.loan.next', { date: day(l.next_due_on) })}</dt><dd><Money value={l.next_due_amount} currency={l.currency} /></dd></div>}
+        {Number(l.overdue_amount) > 0 && <div><dt>{t('fpm.people.status.overdue')}</dt><dd><Money value={l.overdue_amount} currency={l.currency} /></dd></div>}
       </dl>
+      {(l.schedule ?? []).length > 1 && <>
+        <h3 className="finAdvisorSub">{t('fdepth.loan.scheduleTitle')}</h3>
+        <div className="finTableWrap" tabIndex={0}><table className="finGrid">
+          <thead><tr><th scope="col">#</th><th scope="col">{t('fpm.people.due')}</th><th scope="col" className="num">{t('fdepth.loan.principal')}</th>
+            <th scope="col" className="num">{t('fdepth.loan.interest')}</th><th scope="col" className="num">{t('fpm.amount')}</th><th scope="col">{t('fpm.status')}</th></tr></thead>
+          <tbody>{l.schedule.map((row) => <tr key={row.number}>
+            <td>{row.number}</td><td>{day(row.due_on)}</td>
+            <td className="num"><Money value={row.principal} currency={l.currency} /></td>
+            <td className="num"><Money value={row.interest} currency={l.currency} /></td>
+            <td className="num"><Money value={row.amount} currency={l.currency} /></td>
+            <td><StatusChip tone={row.state === 'repaid' ? 'ok' : row.state === 'overdue' ? 'bad' : row.state === 'part_repaid' ? 'warn' : 'muted'}>{t(`fdepth.loan.state.${row.state}` as MessageKey)}</StatusChip></td>
+          </tr>)}</tbody>
+        </table></div>
+      </>}
       {error && <Notice error>{error}</Notice>}
       <h3 className="finAdvisorSub">{t('fpm.movements.title')}</h3>
       <Movements rows={l.movements} onUnlink={(id) => { pm.unlinkLoan(l.id, id).then(reload).catch((e) => setError(describeError(e))); }} />

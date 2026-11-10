@@ -12,12 +12,16 @@ business's, not a person's, and it is not that queue:
 * ``unconverted``: events in another currency with no usable rate for their day (posting issues ``missing_rate``),
   one item per currency with the count and the earliest day: recording the rate posts them.
 * ``allocation_review``: business allocations waiting for review, which block the close.
-* ``external``: another module's producer; the tax module's VAT return warnings plug in here
-  (:func:`register_producer`) once it exists. None is registered yet.
+* ``adjustment_approval``: an adjustment an accountant recorded at or above the approval threshold, waiting for another
+  owner or accountant (``POST /adjustments/{id}/approve``); never its maker (``why_not: own_adjustment``). It is not
+  posted until approved, and it blocks the close of its month.
+* ``vat``: the tax module's VAT return warnings (``tax_review.py``, registered with :func:`register_producer`).
+* ``receipt_match``: a receipt in the business's Document vault that matches a bill without evidence by amount, date
+  and vendor (``books_receipts.py``); Accept attaches it, nothing is attached on its own.
+* ``external``: another module's producer.
 
-Adjustments have no approval step (owners and accountants record them), so none wait here. The period-close
-checklist of the previous and the current month comes with the list (``close_months``). Producers only read; the
-route answers owners and accountants only (``api_ledger.require_accounting``).
+The period-close checklist of the previous and the current month comes with the list (``close_months``). Producers
+only read; the route answers owners and accountants only (``api_ledger.require_accounting``).
 """
 
 from __future__ import annotations
@@ -38,8 +42,8 @@ from .books_store import open_books_store
 
 logger = logging.getLogger("anum_api.business.books_review")
 
-Kind = Literal["draft_bill", "posting_issue", "unconverted", "allocation_review", "external"]
-KIND_ORDER: tuple[str, ...] = ("draft_bill", "unconverted", "posting_issue", "allocation_review", "external")
+Kind = Literal["draft_bill", "adjustment_approval", "posting_issue", "unconverted", "allocation_review", "vat", "receipt_match", "external"]
+KIND_ORDER: tuple[str, ...] = ("draft_bill", "adjustment_approval", "unconverted", "posting_issue", "allocation_review", "vat", "receipt_match", "external")
 MAX_SCAN = 500
 
 
@@ -55,9 +59,9 @@ class ReviewItem(BaseModel):
     currency: str | None = None
     ref_id: str | None = None
     section: str  # the Books section where it is acted on
-    action: Literal["approve", "open"] = "open"
+    action: Literal["approve", "link", "open"] = "open"
     can_act: bool = True
-    why_not: str | None = None  # a code when this person may not act (``own_draft``)
+    why_not: str | None = None  # a code when this person may not act (``own_draft``, ``own_adjustment``)
 
 
 class CloseMonth(BaseModel):
@@ -68,6 +72,7 @@ class CloseMonth(BaseModel):
     issues: int
     drafts: int
     allocations_in_review: int
+    adjustments_pending: int = 0
     ready: bool  # ended, nothing waiting and nothing left to post
 
 
@@ -94,6 +99,7 @@ class ReviewContext:
     vendors: dict[str, str] = field(default_factory=dict)
     makers: dict[str, set[str]] = field(default_factory=dict)  # draft id: who made it (and its recurring bill)
     allocations: list[Any] = field(default_factory=list)
+    pending_adjustments: list[Any] = field(default_factory=list)
 
 
 Producer = Callable[[ReviewContext], list[ReviewItem]]
@@ -175,7 +181,22 @@ def allocation_reviews(ctx: ReviewContext) -> list[ReviewItem]:
     return out
 
 
-for _name, _fn in (("bills", draft_bills), ("ledger", posting_issues), ("rates", unconverted), ("allocations", allocation_reviews)):
+def adjustment_approvals(ctx: ReviewContext) -> list[ReviewItem]:
+    out = []
+    for row in ctx.pending_adjustments:
+        own = row.created_by == ctx.context.user_id
+        out.append(ReviewItem(
+            key=f"adjustment_approval:{row.id}", producer="adjustments", kind="adjustment_approval",
+            detected="An adjustment above the approval threshold waits for another owner or accountant.",
+            params={"adjustment_kind": row.kind.value, "description": row.description[:80]},
+            severity="blocking", occurred_on=row.entry_date, amount=row.amount, currency=row.currency, ref_id=row.id, section="journal",
+            action="approve", can_act=not own, why_not="own_adjustment" if own else None,
+        ))
+    return out
+
+
+for _name, _fn in (("bills", draft_bills), ("adjustments", adjustment_approvals), ("ledger", posting_issues), ("rates", unconverted),
+                   ("allocations", allocation_reviews)):
     register_producer(_name, _fn)
 
 
@@ -196,6 +217,7 @@ def load(context: TenantContext, today: date) -> tuple[ReviewContext, list[Close
             raise L.LedgerError(409, "Set the business's base currency and financial year first (Books, Settings).", "books_not_set_up")
         locked = L.locked_through(store)
         drafts, _ = store.find("bills", where={"status": "draft"}, order_by="bill_date", limit=MAX_SCAN)
+        pending, _ = store.find("adjustments", where={"status": "pending"}, order_by="entry_date", limit=MAX_SCAN)
         issues, _ = store.find("posting_issues", order_by="event_date", limit=MAX_SCAN)
         vendors = {}
         makers: dict[str, set[str]] = {}
@@ -216,12 +238,14 @@ def load(context: TenantContext, today: date) -> tuple[ReviewContext, list[Close
                 month=f"{start.year:04d}-{start.month:02d}", start=start, end=end,
                 status="closed" if closed else "open" if ended else "not_ended",
                 issues=checks["issues"], drafts=checks["drafts"], allocations_in_review=checks["allocations_in_review"],
-                ready=ended and not closed and checks["issues"] == 0 and checks["drafts"] == 0 and checks["allocations_in_review"] == 0,
+                adjustments_pending=checks["adjustments_pending"],
+                ready=ended and not closed and checks["issues"] == 0 and checks["drafts"] == 0 and checks["allocations_in_review"] == 0
+                and checks["adjustments_pending"] == 0,
             ))
     allocations = [row for row in allocations_by_id(context).values() if row.status == "needs_review"]
     allocations.sort(key=lambda row: (row.posted_on, row.id))
     return ReviewContext(context=context, today=today, drafts=drafts, issues=issues, vendors=vendors, makers=makers,
-                         allocations=allocations[:MAX_SCAN]), months, locked
+                         allocations=allocations[:MAX_SCAN], pending_adjustments=pending), months, locked
 
 
 def build(context: TenantContext, today: date, *, kind: str | None = None, limit: int = 50, offset: int = 0) -> Review:

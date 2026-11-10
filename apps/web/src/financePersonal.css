@@ -66,3 +66,7 @@
 .fsalFound { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s2); justify-content: space-between; }
 .fsalFound p, .fsalFlag, .fsalNote { margin: 0; overflow-wrap: anywhere; }
 .fsalFlag { color: rgb(var(--c-stop)); }
+
+/* Loan schedules (docs/finance.md#lent-and-borrowed): the next date's notes under the due date. */
+.fpmBlock { display: block; }
+.fpmOverdue { color: var(--danger, #b42318); font-weight: 600; }

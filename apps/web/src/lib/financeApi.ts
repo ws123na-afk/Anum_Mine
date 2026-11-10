@@ -13,7 +13,7 @@ import type {
   FinanceIntelBarsInput, FinanceIntelBarsResult, FinanceIntelCycle, FinanceIntelInstrument, FinanceIntelInstrumentInput, FinanceIntelPhase,
   FinanceIntelRule, FinanceStrategyInput, FinanceDailyReport, FinanceDailyReportItem, FinancePreflight, FinancePreflightInput,
   FinancePdfImportInput, FinancePdfRole, FinancePdfStatement, FinancePdfTemplate, FinanceTransferCandidates, FinanceTransferResult,
-  FinanceAdvisorNotePage, FinanceAdvisorNoteView, FinanceAdvisorOverview, FinanceAdvisorSettings, FinanceForecast, FinanceReserves,
+  FinanceAdvisorNotePage, FinanceAdvisorNoteView, FinanceAdvisorOverview, FinanceAdvisorSettings, FinanceExpectedIncome, FinanceExpectedIncomeInput, FinanceExpectedIncomePage, FinanceForecast, FinanceReserves,
 } from '@anum/contracts';
 import { apiBaseUrl, apiRequest, apiRequestVoid, authHeaders } from './api';
 import { apiErrorFromResponse } from './errors';
@@ -114,6 +114,12 @@ export const getSafeToSpend = () => get<FinanceSafeToSpend>('/safe-to-spend');
 // The cash-flow forecast and the emergency reserve (docs/finance.md#forecast): read only; the reserve is a goal.
 export const getForecast = () => get<FinanceForecast>('/forecast');
 export const getReserve = () => get<FinanceReserves>('/reserve');
+// One-off income the forecast expects on a date until it is marked received (docs/finance.md#forecast).
+export const listExpectedIncome = (state: 'open' | 'received' | 'all', limit: number, offset: number) =>
+  get<FinanceExpectedIncomePage>(`/expected-income${query({ state, limit: String(limit), offset: String(offset) })}`);
+export const createExpectedIncome = (body: FinanceExpectedIncomeInput) => send<FinanceExpectedIncome>('POST', '/expected-income', body);
+export const updateExpectedIncome = (itemId: string, body: FinanceExpectedIncomeInput) => send<FinanceExpectedIncome>('PATCH', `/expected-income/${id(itemId)}`, body);
+export const deleteExpectedIncome = (itemId: string) => remove(`/expected-income/${id(itemId)}`);
 
 // The weekly Money advisor (docs/finance.md#money-advisor). Read-outs only: nothing here moves money.
 export const getAdvisor = () => get<FinanceAdvisorOverview>('/advisor');

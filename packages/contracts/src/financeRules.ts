@@ -103,16 +103,19 @@ export interface FinanceAiSuggestion { category: FinanceCategory | null; transac
 
 export type FinanceSuggestionKind =
   | 'classification' | 'conflict' | 'uncategorized' | 'statement_hold' | 'sms_review' | 'duplicate' | 'refund_match' | 'payment_match'
-  | 'bill_due' | 'subscription' | 'unusual_spend' | 'missing_statement' | 'cash_shortage' | 'reconciliation' | 'attribution' | 'fx_fee' | 'external';
+  | 'bill_due' | 'subscription' | 'unusual_spend' | 'missing_statement' | 'cash_shortage' | 'reconciliation' | 'attribution' | 'fx_fee'
+  | 'loan_overdue' | 'loan_repayment' | 'external';
 
 /** What Accept links through the finance links API (docs/finance.md#attribution-suggestions). */
 export interface FinanceSuggestionLink {
   canonical_id: string;
-  dimension: 'bill' | 'debt' | 'vehicle' | 'purchase' | 'business';
+  dimension: 'bill' | 'debt' | 'vehicle' | 'purchase' | 'business' | 'person_loan';
   target_type: string;
   target_id: string;
   amount: string;
   currency: string;
+  /** The link role: payment (money out, the default) or deposit (money in, a repayment of money lent). */
+  role?: 'payment' | 'deposit' | null;
   treatment: 'owner_contribution' | 'reimbursable' | null;
   category: string | null;
   project_id: string | null;

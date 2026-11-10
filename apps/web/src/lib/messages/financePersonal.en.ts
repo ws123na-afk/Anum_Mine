@@ -4,7 +4,7 @@
 import type { Message } from './types.ts';
 
 export const financePersonalEn = {
-  'fpm.people.subtitle': 'Money you lent to people and money you borrowed, interest free. Lending is not spending and being repaid is not income.',
+  'fpm.people.subtitle': 'Money you lent to people and money you borrowed, interest free unless you set a rate, repaid once or on a monthly schedule. Lending is not spending and being repaid is not income.',
   'fpm.payslips.subtitle': 'Gross pay, every deduction and the net, checked against the salary that reached your account.',
   'fpm.remittances.subtitle': 'Money you send home: what you sent, the fee, the rate and what arrived, by month and by provider.',
   'fpm.commitments.subtitle': 'Everything that goes out every month, one total per currency, nothing counted twice.',

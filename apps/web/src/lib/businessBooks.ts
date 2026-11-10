@@ -125,7 +125,8 @@ export function billBody(draft: BillDraft): BooksBillInput {
 }
 
 export function settingsBody(form: { base_currency: string; country: string; fiscal_year_start_month: number; basis: BooksBasis; tax_label: string;
-  rate_max_age_days: string; mappings: { category: string; section: BooksTagSection }[]; policy_note?: string; evidence_threshold?: string },
+  rate_max_age_days: string; mappings: { category: string; section: BooksTagSection }[]; policy_note?: string; evidence_threshold?: string;
+  adjustment_approval_threshold?: string },
   current: BooksSettings | null): BooksSettingsInput {
   const category_sections: Record<string, BooksTagSection> = {};
   for (const row of form.mappings) {
@@ -137,6 +138,8 @@ export function settingsBody(form: { base_currency: string; country: string; fis
     ...(form.policy_note !== undefined ? { policy_note: form.policy_note.trim() } : {}),
     // An empty threshold turns the "evidence missing" flag off (docs/business-books.md#supporting-documents-and-evidence).
     ...(form.evidence_threshold !== undefined ? { evidence_threshold: form.evidence_threshold.trim() || null } : {}),
+    // An empty approval threshold means no approval step for adjustments (docs/business-books.md#adjustment-approval).
+    ...(form.adjustment_approval_threshold !== undefined ? { adjustment_approval_threshold: form.adjustment_approval_threshold.trim() || null } : {}),
     version: current ? current.version : null };
 }
 

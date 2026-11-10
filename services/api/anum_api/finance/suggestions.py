@@ -37,13 +37,14 @@ logger = logging.getLogger("anum_api.finance.suggestions")
 
 Kind = Literal[
     "classification", "conflict", "uncategorized", "statement_hold", "sms_review", "duplicate", "refund_match", "payment_match", "bill_due",
-    "subscription", "unusual_spend", "missing_statement", "cash_shortage", "reconciliation", "attribution", "fx_fee", "external",
+    "subscription", "unusual_spend", "missing_statement", "cash_shortage", "reconciliation", "attribution", "fx_fee", "loan_overdue", "loan_repayment",
+    "external",
 ]
 ActionKind = Literal["classify", "confirm_refund", "acknowledge", "open", "link"]
 # The order the queue lists kinds in: money at risk first, then what blocks figures, then tidying.
 KIND_ORDER: tuple[str, ...] = (
-    "cash_shortage", "bill_due", "unusual_spend", "reconciliation", "duplicate", "conflict", "classification", "uncategorized", "statement_hold", "sms_review",
-    "refund_match", "payment_match", "attribution", "fx_fee", "missing_statement", "subscription", "external",
+    "cash_shortage", "bill_due", "loan_overdue", "unusual_spend", "reconciliation", "duplicate", "conflict", "classification", "uncategorized", "statement_hold", "sms_review",
+    "refund_match", "payment_match", "loan_repayment", "attribution", "fx_fee", "missing_statement", "subscription", "external",
 )
 RECENT_DAYS = 120  # rows a classification suggestion looks at
 HISTORY_DAYS = 400  # what historical reuse learns from
@@ -68,14 +69,16 @@ class Effect(BaseModel):
 
 class LinkProposal(BaseModel):
     """What Accept links, through the finance links API (so every link check applies): a part of one canonical
-    transaction to a bill's due date, a debt, a vehicle cost, a purchase, or a business (an allocation)."""
+    transaction to a bill's due date, a debt, a vehicle cost, a purchase, a loan with a person (a repayment), or a business
+    (an allocation)."""
 
     canonical_id: str
-    dimension: Literal["bill", "debt", "vehicle", "purchase", "business"]
+    dimension: Literal["bill", "debt", "vehicle", "purchase", "business", "person_loan"]
     target_type: str
     target_id: str
     amount: Decimal
     currency: str
+    role: Literal["payment", "deposit"] | None = None  # the link role; None is ``payment`` (money out)
     # business allocations only
     treatment: Literal["owner_contribution", "reimbursable"] | None = None
     category: str | None = None
@@ -530,3 +533,4 @@ __all__ = [
 # Attribution (business, vehicle, purchase, debt) and card FX fee producers (docs/finance.md#attribution-suggestions).
 from . import attribution as _attribution  # noqa: F401
 from . import reconciliation_suggestions as _reconciliation_suggestions  # noqa: F401
+from . import loan_suggestions as _loan_suggestions  # noqa: F401

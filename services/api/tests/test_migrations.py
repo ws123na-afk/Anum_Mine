@@ -1376,6 +1376,28 @@ def test_finance_evidence_migration_widens_vault_links_adds_the_threshold_and_ow
     assert "bypassrls" not in upgrade and "security definer" not in upgrade
 
 
+def test_finance_depth_migration_is_expand_only_with_an_owner_only_income_table_and_maker_checker_in_the_database() -> None:
+    versions = Path(__file__).parents[1] / "migrations" / "versions"
+    revision_text = (versions / "0158_finance_depth.py").read_text(encoding="utf-8")
+    assert 'revision = "0158_finance_depth"' in revision_text and len("0158_finance_depth") <= 32
+    assert 'down_revision = "0157_finance_evidence"' in revision_text
+    upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
+    # Expand only: nullable columns, one new table, and the adjustment status check recreated wider at once.
+    assert "op.drop_table" not in upgrade and "drop_column" not in upgrade and "alter_column" not in upgrade
+    assert upgrade.count("op.drop_constraint(") == 1 and "ck_business_book_adjustments_status" in upgrade
+    assert "status in ('active', 'void', 'pending')" in upgrade
+    added = [line for line in upgrade.splitlines() if "op.add_column(" in line]
+    assert len(added) == 6 and all("nullable=true" in line for line in added)
+    # The new personal table: forced RLS, owner only, purge policy.
+    assert '"finance_expected_income"' in revision_text and upgrade.count("op.create_table(") == 1
+    assert "force row level security" in upgrade and "owner_only_" in upgrade and "as restrictive" in upgrade
+    assert "create policy lifecycle_purge_finance_expected_income" in upgrade
+    # Maker and checker in the database: the approver is never the maker, and a pending row carries no approval.
+    assert "approved_by <> created_by" in upgrade and "status <> 'pending' or (approved_by is null" in upgrade
+    assert "op.execute(frozen)" in upgrade
+    assert "bypassrls" not in upgrade and "security definer" not in upgrade
+
+
 def test_calendar_sync_migration_is_expand_only_with_forced_rls_and_discovery_only_grants() -> None:
     versions = Path(__file__).parents[1] / "migrations" / "versions"
     revision_text = (versions / "0092_calendar_sync.py").read_text(encoding="utf-8")

@@ -354,3 +354,8 @@ def zatca_submit(document_id: str, context: TenantContext = Depends(tenant_conte
 
 
 __all__ = ["router"]
+
+
+# The VAT return warnings in the Accountant review (docs/business-tax.md#warnings-in-the-accountant-review); the module
+# registers its producer when imported.
+from . import tax_review as _tax_review  # noqa: E402,F401

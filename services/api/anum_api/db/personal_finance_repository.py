@@ -12,11 +12,11 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 
-from sqlalchemy import Boolean, Date, DateTime, Numeric, SmallInteger, String, delete, func, select, update
+from sqlalchemy import Boolean, Date, DateTime, Numeric, SmallInteger, String, delete, func, or_, select, update
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
-from anum_api.finance.personal import Payslip, PersonLoan, Remittance, SalaryProfile
+from anum_api.finance.personal import ExpectedIncome, Payslip, PersonLoan, Remittance, SalaryProfile
 from anum_api.schemas import TenantContext
 
 from .models import Base
@@ -47,6 +47,9 @@ class FinancePersonLoanRecord(Base, _Owned):
     reminded_for: Mapped[date | None] = mapped_column(Date, nullable=True)
     reminded_overdue_for: Mapped[date | None] = mapped_column(Date, nullable=True)
     closed_on: Mapped[date | None] = mapped_column(Date, nullable=True)
+    interest_rate: Mapped[Decimal | None] = mapped_column(Numeric(9, 4), nullable=True)
+    installments: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
+    first_due_on: Mapped[date | None] = mapped_column(Date, nullable=True)
     created_at: Mapped[datetime] = mapped_column(TS)
     updated_at: Mapped[datetime] = mapped_column(TS)
 
@@ -103,14 +106,31 @@ class FinanceSalaryProfileRecord(Base, _Owned):
     updated_at: Mapped[datetime] = mapped_column(TS)
 
 
-RECORDS = (FinancePersonLoanRecord, FinancePayslipRecord, FinanceRemittanceRecord, FinanceSalaryProfileRecord)
+class FinanceExpectedIncomeRecord(Base, _Owned):
+    """Expected one-off income (migration ``0158_finance_depth``, docs/finance.md#forecast)."""
+
+    __tablename__ = "finance_expected_income"
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    label: Mapped[str] = mapped_column(String(120))
+    amount: Mapped[Decimal] = mapped_column(MONEY)
+    currency: Mapped[str] = mapped_column(String(3))
+    expected_on: Mapped[date] = mapped_column(Date)
+    received_on: Mapped[date | None] = mapped_column(Date, nullable=True)
+    notes: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(TS)
+    updated_at: Mapped[datetime] = mapped_column(TS)
+
+
+RECORDS = (FinancePersonLoanRecord, FinancePayslipRecord, FinanceRemittanceRecord, FinanceSalaryProfileRecord, FinanceExpectedIncomeRecord)
 _BY_KIND: dict[str, tuple[type[Any], type[Any]]] = {
     "person_loan": (FinancePersonLoanRecord, PersonLoan),
     "payslip": (FinancePayslipRecord, Payslip),
     "remittance": (FinanceRemittanceRecord, Remittance),
     "salary_profile": (FinanceSalaryProfileRecord, SalaryProfile),
+    "expected_income": (FinanceExpectedIncomeRecord, ExpectedIncome),
 }
-_ORDER = {"person_loan": "lent_on", "payslip": "month", "remittance": "sent_on", "salary_profile": "joined_on"}
+_ORDER = {"person_loan": "lent_on", "payslip": "month", "remittance": "sent_on", "salary_profile": "joined_on", "expected_income": "expected_on"}
 
 
 def _mine(record: Any, context: TenantContext) -> list[Any]:
@@ -168,7 +188,9 @@ class SqlAlchemyPersonalStore:
     def claim_reminder(self, context: TenantContext, loan_id: str, due_on: date, overdue: bool) -> bool:
         record = FinancePersonLoanRecord
         column = record.reminded_overdue_for if overdue else record.reminded_for
-        result = self.session.execute(update(record).where(*_mine(record, context), record.id == loan_id, record.due_on == due_on,
+        # A schedule's repayment dates move on as repayments come in; a single due date must still be the one announced.
+        result = self.session.execute(update(record).where(*_mine(record, context), record.id == loan_id,
+                                                           or_(record.due_on == due_on, record.installments.is_not(None)),
                                                            column.is_distinct_from(due_on))
                                       .values({column.key: due_on}))
         return bool(result.rowcount)
@@ -185,4 +207,4 @@ class SqlAlchemyPersonalStore:
         return sum(int(self.session.execute(delete(r).where(*_mine(r, context))).rowcount or 0) for r in RECORDS)
 
 
-__all__ = ["RECORDS", "SqlAlchemyPersonalStore"]
+__all__ = ["RECORDS", "FinanceExpectedIncomeRecord", "SqlAlchemyPersonalStore"]

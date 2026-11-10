@@ -1175,7 +1175,7 @@ def finance_export(finance: Any, context: TenantContext) -> dict[str, Any]:
         **_sms_export(finance, context, hidden),
         # The weekly Money advisor's notes and switches (docs/finance.md#money-advisor).
         **_advisor_export(finance, context, hidden),
-        # Money lent and borrowed with people, payslips and remittances (docs/finance.md#lent-and-borrowed).
+        # Money lent and borrowed with people, payslips, remittances and expected income (docs/finance.md#lent-and-borrowed).
         **_personal_export(finance, context, hidden),
         # Reconciliation sessions and the owner's resolutions in them (docs/finance.md#reconciliation-sessions).
         **_recon_export(finance, context, hidden),
@@ -1237,6 +1237,7 @@ def _personal_export(finance: Any, context: TenantContext, hidden: set[str]) -> 
         "payslips": [r.model_dump(mode="json", exclude=hidden) for r in personal.list(context, "payslip")],
         "remittances": [r.model_dump(mode="json", exclude=hidden) for r in personal.list(context, "remittance")],
         "salary_profiles": [r.model_dump(mode="json", exclude=hidden) for r in personal.list(context, "salary_profile")],
+        "expected_income": [r.model_dump(mode="json", exclude=hidden) for r in personal.list(context, "expected_income")],
     }
 
 

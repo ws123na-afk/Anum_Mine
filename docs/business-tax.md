@@ -12,6 +12,7 @@ Part of [Business books](business-books.md) (Phase 7 of the Finance upgrade, Nov
 - [Tax codes](#tax-codes)
 - [Posting](#posting)
 - [The VAT return](#the-vat-return)
+- [Warnings in the Accountant review](#warnings-in-the-accountant-review)
 - [ZATCA e-invoicing readiness](#zatca-e-invoicing-readiness)
 - [API](#api)
 - [Web](#web)
@@ -82,6 +83,17 @@ A leg without a code keeps the fingerprint it had, so turning tax on never re-po
 - a tie-out: VAT in the return plus manual entries against the movement on the VAT accounts.
 
 `GET /return/documents?from&to&box&limit&offset` pages the documents behind a box; `GET /return.csv` exports the boxes, rows outside the return, the completeness flags, warnings, notes and every document.
+
+## Warnings in the Accountant review
+
+`business/tax_review.py` registers the tax module's producer in the [Accountant review](business-books.md#accountant-review) (kind `vat`, section Tax), for a business marked VAT registered only. It reads the last ended filing period and the current one and lists:
+
+- `return_due_soon` / `return_overdue`: the ended period is not closed in the books and its usual deadline (`tax_rules.return_deadline`: in KSA the last day of the following month, in the UAE 28 days after the period ends; none for other jurisdictions) is within 14 days or has passed. Closing the period once the return is filed clears it. The authority's portal shows the binding date.
+- `missing_tax_number`: bills in the period carrying VAT whose vendor has no tax number saved.
+- `missing_tax_code`: invoices, credit notes or bills without a tax code (the return's `inferred` and `unknown` documents).
+- `vat_unreconciled`: the VAT accounts' movements do not tie to the VAT in the return.
+
+Every item says ANUM never files a return and does not check compliance with ZATCA or FTA rules. Tests: `services/api/tests/test_business_finance_depth.py`.
 
 ## ZATCA e-invoicing readiness
 
