@@ -6,7 +6,8 @@
 ``domain_events`` holds every event a workspace ever produced (the outbox the event stream
 and NATS are fed from). Nothing deleted its rows, so the table, and every read of a
 workspace's history, grew without end. An event older than ``ANUM_EVENT_RETENTION_DAYS``
-(default 90; 0 keeps every event; otherwise 7 to 3650) is deleted. What stays:
+is deleted; the setting is off by default (0 keeps every event) and takes 7 to 3650 when the
+owner turns it on. What stays:
 
 * ``audit_records``, the audit trail, is another table and is never touched here;
 * tasks, their runs with every step, approvals and results are their own tables;

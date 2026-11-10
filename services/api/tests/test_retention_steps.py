@@ -109,7 +109,7 @@ def test_event_retention_setting_is_off_or_at_least_a_week() -> None:
 
     from anum_api.settings import Settings
 
-    assert Settings().event_retention_days == 90
+    assert Settings().event_retention_days == 0  # opt-in: a deploy deletes no history by itself
     assert Settings(event_retention_days=0).event_retention_days == 0
     assert Settings(event_retention_days=7).event_retention_days == 7
     for refused in (-1, 1, 6, 3651):

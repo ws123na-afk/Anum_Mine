@@ -179,10 +179,10 @@ class Settings(BaseSettings):
     # them. Migration 0019 lets discovery see only conversations idle for a day or more.
     conversation_retention_days: int = Field(default=30, ge=0, le=3650)
     # Event history (docs/realtime.md#event-history): the daily retention job deletes
-    # ``domain_events`` rows older than this many days; 0 keeps every event, otherwise 7 to
-    # 3650 (migration 0162 lets discovery see only events older than 7 days). Audit records
-    # are another table and are never deleted by it.
-    event_retention_days: int = Field(default=90, ge=0, le=3650)
+    # ``domain_events`` rows older than this many days. Off by default (0 keeps every event):
+    # the owner chooses a period, 7 to 3650 (migration 0162 lets discovery see only events
+    # older than 7 days). Audit records are another table and are never deleted by it.
+    event_retention_days: int = Field(default=0, ge=0, le=3650)
     # Privacy (docs/privacy.md): the public URL of the deployment's privacy policy, shown
     # on the Privacy page of every client (empty: the page says the owner has not
     # published one yet), and the largest "Download my data" export the API builds; a

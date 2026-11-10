@@ -180,11 +180,17 @@ def test_purge_keeps_everything_at_zero_refuses_under_a_week_and_keeps_unpublish
 def test_the_daily_job_runs_the_event_purge_and_reports_it(factory, database_engine: Engine, monkeypatch: pytest.MonkeyPatch) -> None:  # noqa: F811
     gone = add_event(database_engine, TENANT_A, WORKSPACE_A, 200)
     stays = add_event(database_engine, TENANT_A, WORKSPACE_A, 2)
-    monkeypatch.setattr(settings, "event_retention_days", 90)
     assert ("events", ".event_retention", "purge", True) in voice_retention.STEPS
+    only_events = [step for step in voice_retention.STEPS if step[0] == "events"]
 
-    report, failed = voice_retention.run_steps([step for step in voice_retention.STEPS if step[0] == "events"],
-                                               dry_run=False, batch_size=500)
+    # Off by default: the job runs, reports the step and deletes nothing.
+    assert settings.event_retention_days == 0
+    report, failed = voice_retention.run_steps(only_events, dry_run=False, batch_size=500)
+    assert failed == [] and report["events"]["events"] == 0 and report["events"]["retention_days"] == 0  # type: ignore[index]
+    assert {gone, stays} <= event_ids(database_engine)
+
+    monkeypatch.setattr(settings, "event_retention_days", 90)
+    report, failed = voice_retention.run_steps(only_events, dry_run=False, batch_size=500)
 
     assert failed == [] and report["events"]["events"] == 1  # type: ignore[index]
     assert gone not in event_ids(database_engine) and stays in event_ids(database_engine)
