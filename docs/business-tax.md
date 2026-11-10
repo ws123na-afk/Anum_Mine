@@ -107,6 +107,8 @@ The Accountant review reminds of the VAT return of the last ended filing period 
 
 `GET /books/tax` answers `filing_deadline` (`source`: `owner`, `preset`, `no_vat` or `none`; the country, the due day and the preset's rule and source), `filing_presets`, `no_vat_countries` and `max_due_days`. Every deadline is a reminder only: the authority's portal shows the binding date, and ANUM never files.
 
+On the phone, Business books, the menu, **Tax settings** (`apps/mobile/lib/features/books/books_more_screens.dart`) edits the jurisdiction, the filing period and cycle month, the filing country of Other and the VAT return due day, with the same checks as the web, and says under the form which deadline applies as it changes. It sends the registration and ZATCA fields back as saved (they are changed on the web). Members read it with who can change it. Tests: `apps/mobile/test/books/books_more_test.dart`.
+
 ## Warnings in the Accountant review
 
 `business/tax_review.py` registers the tax module's producer in the [Accountant review](business-books.md#accountant-review) (kind `vat`, section Tax), for a business marked VAT registered only. It reads the last ended filing period and the current one and lists:

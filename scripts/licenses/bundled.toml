@@ -330,34 +330,37 @@ source = "https://github.com/SELinuxProject/selinux"
 [[bundled]]
 ecosystem = "python"
 package = "playwright"
-versions = ["1.56.0"]
-reviewed_on = "2026-11-04"
-note = "Browser image only (services/api/Dockerfile with ANUM_BROWSER=1). Read from the 1.56.0 manylinux1 x86_64 wheel: `playwright/driver/` holds a Node.js binary and the playwright-core npm package, each with its own license files, copied verbatim. At image build time `playwright install --with-deps --only-shell chromium` also downloads the Chromium headless shell (revision 1194, Chromium 141.0.7390.37) into /opt/ms-playwright and installs its Debian runtime packages; those Debian packages are in the image's Trivy SBOM. Chromium's own third-party components are NOT enumerated here: the download could not be fetched for review (its host is blocked from the review machine), so the Chromium row points at Chromium's license and credits instead."
+versions = ["1.64.1"]
+reviewed_on = "2026-11-10"
+note = "Browser image only (services/api/Dockerfile with ANUM_BROWSER=1). Read from the 1.64.1 manylinux1 x86_64 wheel: `playwright/driver/` holds a Node.js binary and the playwright-core npm package (driver build 1.64.0-beta-1791568591000), each with its own license files, copied verbatim. playwright-core now inlines its npm dependencies into `lib/utilsBundle.js` and `lib/serverRegistry.js` and ships a WebP codec (`lib/webp_codec.wasm`); each has a sidecar license file listing every inlined package with its full license text (all MIT, ISC or BSD-3-Clause), copied verbatim too. At image build time `playwright install --with-deps --only-shell chromium` also downloads the Chromium headless shell (revision 1248, Chromium 156.0.8078.4) into /opt/ms-playwright and installs its Debian runtime packages; those Debian packages are in the image's Trivy SBOM. Chromium's own third-party components are NOT enumerated here: the download could not be fetched for review (its host is blocked from the review machine), so the Chromium row points at Chromium's license and credits instead."
 license_texts = [
-  "licenses/third-party/playwright-1.56.0/nodejs-22.20.0-LICENSE.txt",
-  "licenses/third-party/playwright-1.56.0/playwright-core-1.56.1-LICENSE.txt",
-  "licenses/third-party/playwright-1.56.0/playwright-core-1.56.1-NOTICE.txt",
-  "licenses/third-party/playwright-1.56.0/playwright-core-1.56.1-ThirdPartyNotices.txt",
+  "licenses/third-party/playwright-1.64.1/nodejs-24.22.1-LICENSE.txt",
+  "licenses/third-party/playwright-1.64.1/playwright-core-1.64.0-LICENSE.txt",
+  "licenses/third-party/playwright-1.64.1/playwright-core-1.64.0-NOTICE.txt",
+  "licenses/third-party/playwright-1.64.1/playwright-core-1.64.0-ThirdPartyNotices.txt",
+  "licenses/third-party/playwright-1.64.1/playwright-core-1.64.0-utilsBundle.js.LICENSE.txt",
+  "licenses/third-party/playwright-1.64.1/playwright-core-1.64.0-serverRegistry.js.LICENSE.txt",
+  "licenses/third-party/playwright-1.64.1/playwright-core-1.64.0-webp_codec.LICENSE.txt",
   "licenses/third-party/BSD-3-Clause.txt",
 ]
 
 [[bundled.libraries]]
-name = "Node.js 22.20.0 (playwright/driver/node)"
+name = "Node.js 24.22.1 (playwright/driver/node)"
 license = "MIT"
 copyright = "Node.js contributors; Joyent, Inc. and other Node contributors"
-source = "https://nodejs.org/download/release/v22.20.0/"
-notice = "Node.js bundles V8, ICU, OpenSSL, libuv, zlib, npm and other components under their own permissive licenses; all are listed with their full texts in nodejs-22.20.0-LICENSE.txt."
+source = "https://nodejs.org/download/release/v24.22.1/"
+notice = "Node.js bundles V8, ICU, OpenSSL, libuv, zlib, npm and other components under their own permissive licenses; all are listed with their full texts in nodejs-24.22.1-LICENSE.txt."
 
 [[bundled.libraries]]
-name = "playwright-core 1.56.1 (playwright/driver/package)"
+name = "playwright-core 1.64.0 (playwright/driver/package)"
 license = "Apache-2.0"
 copyright = "Microsoft Corporation"
-source = "https://github.com/microsoft/playwright/tree/v1.56.1"
-notice = "Playwright. Copyright (c) Microsoft Corporation. This software contains code derived from the Puppeteer project (https://github.com/puppeteer/puppeteer), available under the Apache 2.0 license. playwright-core incorporates the npm packages listed in playwright-core-1.56.1-ThirdPartyNotices.txt under their own licenses."
+source = "https://github.com/microsoft/playwright/tree/v1.64.0"
+notice = "Playwright. Copyright (c) Microsoft Corporation. This software contains code derived from the Puppeteer project (https://github.com/puppeteer/puppeteer), available under the Apache 2.0 license. playwright-core inlines the npm packages listed, with their licenses, in playwright-core-1.64.0-utilsBundle.js.LICENSE.txt and playwright-core-1.64.0-serverRegistry.js.LICENSE.txt, and ships libwebp (BSD-3-Clause) and Emscripten glue (MIT) as listed in playwright-core-1.64.0-webp_codec.LICENSE.txt."
 
 [[bundled.libraries]]
-name = "Chromium headless shell 141.0.7390.37 (revision 1194, downloaded at image build time)"
+name = "Chromium headless shell 156.0.8078.4 (revision 1248, downloaded at image build time)"
 license = "BSD-3-Clause"
 copyright = "The Chromium Authors, plus third-party components under their own licenses (not enumerated)"
-source = "https://chromium.googlesource.com/chromium/src/+/refs/tags/141.0.7390.37/LICENSE"
+source = "https://chromium.googlesource.com/chromium/src/+/refs/tags/156.0.8078.4/LICENSE"
 notice = "Chromium's third-party components and their licenses are listed in Chromium's credits (generated from the README.chromium files in its source tree at that tag); they are not enumerated in this file yet."

@@ -45,7 +45,7 @@ services:
       - postgres
 
   temporal-ui:
-    image: temporalio/ui:2.57.0
+    image: temporalio/ui:2.58.1
     environment:
       TEMPORAL_ADDRESS: temporal:7233
     ports:
@@ -81,7 +81,7 @@ services:
   s3:
     # S3-compatible object storage (SeaweedFS). MinIO no longer publishes community
     # images. Credentials come from infra/seaweedfs/s3.json and are DEV-ONLY.
-    image: chrislusf/seaweedfs:4.50
+    image: chrislusf/seaweedfs:4.52
     # Small volumes keep the dev store light; SeaweedFS defaults to 30 GB volumes.
     # 4.x runs as the `seaweed` user (the entrypoint chowns /data) and allocates no
     # volumes, so uploads time out, when the disk has less than 1% free space.
@@ -117,7 +117,7 @@ services:
   # Grafana: http://localhost:3000 (anonymous viewer; dashboards from infra/observability).
   prometheus:
     profiles: ["observability"]
-    image: prom/prometheus:v3.15.1
+    image: prom/prometheus:v3.16.0
     command:
       - "--config.file=/etc/prometheus/prometheus.yaml"
       - "--storage.tsdb.retention.time=7d"
@@ -177,7 +177,7 @@ services:
   # A host-run API cannot reach it; leave ANUM_SEARXNG_URL empty there (tool off).
   searxng:
     profiles: ["app"]
-    image: searxng/searxng:2026.10.30-ffa88e3ba
+    image: searxng/searxng:2026.11.6-ac11e14c5
     environment:
       # DEV-ONLY placeholder; set SEARXNG_SECRET in your shell to override it.
       SEARXNG_SECRET: ${SEARXNG_SECRET:-local-dev-only}

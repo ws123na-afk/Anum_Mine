@@ -9,6 +9,7 @@ import '../records_kit/records_kit.dart';
 import '../records_kit/records_widgets.dart';
 import 'books_controller.dart';
 import 'books_data.dart';
+import 'books_more_screens.dart';
 import 'books_review.dart';
 import 'books_strings.dart';
 
@@ -154,7 +155,14 @@ class _BooksScreenState extends State<BooksScreen> {
             ),
           ]);
         }
-        return Scaffold(appBar: AppBar(title: Text(b.t('title'))), body: body);
+        final menu = c.phase == RecordsPhase.ready &&
+            (setup?.configured ?? false) &&
+            c.more != null;
+        return Scaffold(
+            appBar: AppBar(
+                title: Text(b.t('title')),
+                actions: [if (menu) BooksMoreMenu(controller: c)]),
+            body: body);
       },
     );
   }
