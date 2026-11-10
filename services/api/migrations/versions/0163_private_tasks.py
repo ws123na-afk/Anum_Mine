@@ -25,12 +25,11 @@ docs/tasks.md#private-tasks, docs/automation.md#accepted-version. Security audit
   schedule's or trigger's actor accepted. Backfilled with the workflow's current version, so nothing stops firing at
   the upgrade.
 
-Chained after ``0161_finance_bank_loans`` for now; ``0162`` is taken by a change in flight and this file is rechained
-onto it at merge.
+Chained after ``0162_event_stream_retention``.
 
 Expand only. The previous release ignores the new columns; while it still serves, a task it creates is a workspace
 task and a private task it cannot see stays hidden from it too (its sessions set no ``anum.user_id`` for tasks), which
-is the safe direction. Rollback: ``alembic downgrade 0161_finance_bank_loans`` drops the policies, the grants and the
+is the safe direction. Rollback: ``alembic downgrade 0162_event_stream_retention`` drops the policies, the grants and the
 columns, which makes every private task a workspace task again: only for a test database; production rolls back the
 application and keeps the schema.
 """
@@ -39,7 +38,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision = "0163_private_tasks"
-down_revision = "0161_finance_bank_loans"
+down_revision = "0162_event_stream_retention"
 branch_labels = None
 depends_on = None
 

@@ -1455,7 +1455,7 @@ def test_private_tasks_migration_is_expand_only_with_restrictive_policies_and_id
     revision_text = (versions / "0163_private_tasks.py").read_text(encoding="utf-8")
     assert 'revision = "0163_private_tasks"' in revision_text and len("0163_private_tasks") <= 32
     # 0162 is another change's (an index on domain_events); this file is rechained onto it at merge.
-    assert 'down_revision = "0161_finance_bank_loans"' in revision_text or 'down_revision = "0162_' in revision_text
+    assert 'down_revision = "0162_event_stream_retention"' in revision_text
     upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
     # Expand only: nullable columns and two checks, no table, nothing dropped or altered.
     assert "op.drop" not in upgrade and "alter_column" not in upgrade and "drop " not in upgrade and "op.create_table(" not in upgrade

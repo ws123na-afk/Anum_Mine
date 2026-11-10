@@ -12,10 +12,10 @@ docs/billing.md#account-credit.
 * ``anum_platform_reader`` may also read ``billing_payments.method``: the console's "collected this month" leaves out
   payments made from account credit (no new money arrived).
 
-Chained after ``0161_finance_bank_loans``.
+Chained after ``0163_private_tasks``.
 
 Expand only. The previous release runs against this schema: it never writes the new column (the default applies), never
-writes the new method and reads a payment's method as text. Rollback: ``alembic downgrade 0161_finance_bank_loans`` drops
+writes the new method and reads a payment's method as text. Rollback: ``alembic downgrade 0163_private_tasks`` drops
 the column and narrows the method check again; it refuses while a payment made from account credit exists (production
 restores a backup, because dropping the column loses the tax-inclusive balances).
 """
@@ -24,7 +24,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision = "0164_billing_gross_credit"
-down_revision = "0161_finance_bank_loans"
+down_revision = "0163_private_tasks"
 branch_labels = None
 depends_on = None
 
