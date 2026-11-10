@@ -8,12 +8,22 @@ import '../records_kit/records_kit.dart';
 
 class BooksPermissions {
   const BooksPermissions(
-      {required this.read, required this.write, required this.manage});
-  factory BooksPermissions.fromJson(JsonReader j) => BooksPermissions(
-      read: j.optBool('read') ?? false,
-      write: j.optBool('write') ?? false,
-      manage: j.optBool('manage') ?? false);
+      {required this.read,
+      required this.write,
+      required this.manage,
+      this.account = false});
+  factory BooksPermissions.fromJson(JsonReader j) {
+    final manage = j.optBool('manage') ?? false;
+    return BooksPermissions(
+        read: j.optBool('read') ?? false,
+        write: j.optBool('write') ?? false,
+        manage: manage,
+        account: j.optBool('account') ?? manage);
+  }
   final bool read, write, manage;
+
+  /// An owner or a named accountant: sees the Accountant review.
+  final bool account;
 }
 
 class BooksSetup {
@@ -252,6 +262,158 @@ class BooksBillsChunk extends RecordsChunk<BooksBill> {
   final List<BooksAmount> open, overdue;
 }
 
+/// One item of the Accountant review (docs/business-books.md#accountant-review).
+class ReviewItem {
+  const ReviewItem({
+    required this.key,
+    required this.kind,
+    required this.detected,
+    required this.section,
+    required this.action,
+    required this.canAct,
+    required this.blocking,
+    this.params = const {},
+    this.occurredOn,
+    this.amount,
+    this.currency,
+    this.refId,
+    this.whyNot,
+  });
+  factory ReviewItem.fromJson(JsonReader j) => ReviewItem(
+        key: j.string('key'),
+        kind: j.string('kind'),
+        detected: j.optString('detected') ?? '',
+        params: {
+          for (final e in (j.optMap('params') ?? const {}).entries)
+            if (e.value != null) e.key: '${e.value}'
+        },
+        blocking: j.optString('severity') == 'blocking',
+        occurredOn: j.optString('occurred_on'),
+        amount: switch (j['amount']) {
+          final String a => a,
+          final num n => '$n',
+          _ => null,
+        },
+        currency: j.optString('currency'),
+        refId: j.optString('ref_id'),
+        section: j.optString('section') ?? '',
+        action: j.optString('action') ?? 'open',
+        canAct: j.optBool('can_act') ?? true,
+        whyNot: j.optString('why_not'),
+      );
+  final String key, kind, detected, section, action;
+  final Map<String, String> params;
+  final bool blocking, canAct;
+  final String? occurredOn, amount, currency, refId, whyNot;
+
+  /// The draft bill's version, sent with Approve.
+  int? get version => int.tryParse(params['version'] ?? '');
+}
+
+/// One month of the close checklist.
+class CloseMonth {
+  const CloseMonth({
+    required this.month,
+    required this.status,
+    required this.issues,
+    required this.drafts,
+    required this.allocations,
+    required this.ready,
+  });
+  factory CloseMonth.fromJson(JsonReader j) => CloseMonth(
+        month: j.string('month'),
+        status: j.optString('status') ?? 'open',
+        issues: j.optInt('issues') ?? 0,
+        drafts: j.optInt('drafts') ?? 0,
+        allocations: j.optInt('allocations_in_review') ?? 0,
+        ready: j.optBool('ready') ?? false,
+      );
+  final String month, status;
+  final int issues, drafts, allocations;
+  final bool ready;
+}
+
+class ReviewChunk extends RecordsChunk<ReviewItem> {
+  ReviewChunk(
+    RecordsChunk<ReviewItem> page, {
+    this.counts = const {},
+    this.blocking = 0,
+    this.months = const [],
+    this.toPost = 0,
+    this.unavailable = const [],
+  }) : super(page.items, next: page.next, total: page.total);
+  factory ReviewChunk.fromJson(JsonReader j) => ReviewChunk(
+        RecordsChunk.offsetPage(j, ReviewItem.fromJson),
+        counts: {
+          for (final e in (j.optMap('counts') ?? const {}).entries)
+            if (e.value is num) e.key: (e.value! as num).toInt()
+        },
+        blocking: j.optInt('blocking') ?? 0,
+        months: j.optObjects('close_months', CloseMonth.fromJson),
+        toPost: j.optInt('to_post') ?? 0,
+        unavailable: j.optStrings('unavailable') ?? const [],
+      );
+  final Map<String, int> counts;
+  final int blocking, toPost;
+  final List<CloseMonth> months;
+  final List<String> unavailable;
+}
+
+/// A vault document attached to a record as evidence.
+class EvidenceDoc {
+  const EvidenceDoc(
+      {required this.linkId,
+      required this.documentId,
+      required this.title,
+      this.category = '',
+      this.addedAt});
+  factory EvidenceDoc.fromJson(JsonReader j) => EvidenceDoc(
+        linkId: j.string('link_id'),
+        documentId: j.string('document_id'),
+        title: j.optString('title') ?? '',
+        category: j.optString('category') ?? '',
+        addedAt: j.optString('added_at'),
+      );
+  final String linkId, documentId, title, category;
+  final String? addedAt;
+}
+
+/// What is attached to each record, whether it needs a document (at or
+/// above the evidence threshold with nothing attached), and whether the
+/// caller may attach one.
+class EvidencePage {
+  const EvidencePage({this.items = const {}, this.canAttach = false});
+  factory EvidencePage.fromJson(JsonReader j) {
+    final items = j.optObject('items');
+    return EvidencePage(
+      items: {
+        if (items != null)
+          for (final id in items.json.keys)
+            id: (
+              documents: items
+                  .object(id)
+                  .optObjects('documents', EvidenceDoc.fromJson),
+              missing: items.object(id).optBool('evidence_missing') ?? false,
+            ),
+      },
+      canAttach: j.optBool('can_attach') ?? false,
+    );
+  }
+  final Map<String, ({List<EvidenceDoc> documents, bool missing})> items;
+  final bool canAttach;
+}
+
+/// A workspace document of the vault that may be attached.
+class AttachableDoc {
+  const AttachableDoc(
+      {required this.id, required this.title, required this.category});
+  factory AttachableDoc.fromJson(JsonReader j) => AttachableDoc(
+      id: j.string('id'),
+      title: j.optString('title') ?? '',
+      category: j.optString('category') ?? '');
+  final String id, title, category;
+}
+
 abstract interface class BooksRepository {
   Future<BooksSetup> setup();
   Future<void> saveSettings(Map<String, Object?> body);
@@ -262,12 +424,27 @@ abstract interface class BooksRepository {
       {required String idempotencyKey});
   Future<BooksBill> voidPayment(String billId, String paymentId, String reason);
   Future<BooksBill> voidBill(String billId, String reason);
+
+  /// The Accountant review (owners and accountants), one page.
+  Future<ReviewChunk> review({String kind, String? token});
+
+  /// Approves a draft bill (never one's own: the API refuses it).
+  Future<void> approveBill(String billId, int version);
+
+  /// The documents attached to up to 100 records of one type.
+  Future<EvidencePage> evidence(String sourceType, List<String> ids);
+  Future<void> attach(String sourceType, String sourceId, String documentId);
+  Future<void> detach(String sourceType, String sourceId, String linkId);
+
+  /// Workspace documents of this business's vault, newest first.
+  Future<RecordsChunk<AttachableDoc>> documents({String query, String? token});
 }
 
 class ApiBooksRepository implements BooksRepository {
   const ApiBooksRepository(this.api);
   final AnumApiClient api;
   static const _base = '/api/v1/business/books';
+  static const _documents = '/api/v1/documents';
   static const pageSize = 25;
   String _id(String id) => Uri.encodeComponent(id);
 
@@ -331,6 +508,60 @@ class ApiBooksRepository implements BooksRepository {
       BooksBill.fromJson(JsonReader(await api.request(
           'POST', '$_base/bills/${_id(billId)}/void',
           body: {'reason': reason})));
+
+  @override
+  Future<ReviewChunk> review({String kind = '', String? token}) async =>
+      ReviewChunk.fromJson(JsonReader(await api.request(
+          'GET',
+          '$_base/review${recordsQuery({
+                'kind': kind,
+                'offset': token ?? 0,
+                'limit': pageSize,
+              })}')));
+
+  @override
+  Future<void> approveBill(String billId, int version) =>
+      api.request('POST', '$_base/bills/${_id(billId)}/approve',
+          body: {'version': version});
+
+  @override
+  Future<EvidencePage> evidence(String sourceType, List<String> ids) async =>
+      EvidencePage.fromJson(JsonReader(await api.request(
+          'GET',
+          '$_base/evidence${recordsQuery({
+                'source_type': sourceType,
+                'ids': ids.join(','),
+              })}')));
+
+  @override
+  Future<void> attach(String sourceType, String sourceId, String documentId) =>
+      api.request('POST', '$_base/evidence', body: {
+        'source_type': sourceType,
+        'source_id': sourceId,
+        'document_id': documentId,
+      });
+
+  @override
+  Future<void> detach(String sourceType, String sourceId, String linkId) =>
+      api.request('DELETE',
+          '$_base/evidence/${_id(sourceType)}/${_id(sourceId)}/${_id(linkId)}');
+
+  @override
+  Future<RecordsChunk<AttachableDoc>> documents(
+      {String query = '', String? token}) async {
+    final page = JsonReader(await api.request(
+        'GET',
+        '$_documents${recordsQuery({
+              'access_class': 'workspace',
+              'status': 'active',
+              'sort': 'updated',
+              'q': query,
+              'cursor': token,
+              'limit': 20,
+            })}'));
+    return RecordsChunk(page.objects('items', AttachableDoc.fromJson),
+        next: page.optString('next_cursor'));
+  }
 }
 
 /// The books are not set up yet (no base currency).

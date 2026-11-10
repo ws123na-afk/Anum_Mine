@@ -16,10 +16,53 @@ class BooksController extends ChangeNotifier {
       if (token == null) {
         openTotals = chunk.open;
         overdueTotals = chunk.overdue;
+        evidenceMissing.clear();
       }
+      await _readEvidence(chunk.items);
+      return chunk;
+    });
+    review = RecordsList<ReviewItem>((query, filter, token) async {
+      final chunk = await repository.review(kind: filter, token: token);
+      if (token == null) reviewSummary = chunk;
       return chunk;
     });
   }
+
+  /// Which bills of the loaded pages need a supporting document (at or
+  /// above the evidence threshold with nothing attached). Read with the
+  /// page; when the person may not read the vault the badges stay off and
+  /// the list still shows.
+  final Set<String> evidenceMissing = {};
+
+  Future<void> _readEvidence(List<BooksBill> page) async {
+    final ids = [
+      for (final b in page)
+        if (b.status != 'void') b.id
+    ];
+    if (ids.isEmpty) return;
+    try {
+      final found = await repository.evidence('bill', ids);
+      for (final entry in found.items.entries) {
+        if (entry.value.missing) {
+          evidenceMissing.add(entry.key);
+        } else {
+          evidenceMissing.remove(entry.key);
+        }
+      }
+    } on Object {
+      // A badge is a hint: a refusal (no vault access) or a failure leaves
+      // the bills list as it is.
+    }
+  }
+
+  /// The Accountant review (owners and accountants only).
+  late final RecordsList<ReviewItem> review;
+
+  /// The first page's counts, close checklist and unavailable checks.
+  ReviewChunk? reviewSummary;
+
+  /// The draft bill being approved, so its button waits.
+  String? approving;
   final BooksRepository repository;
   final DateTime Function() _today;
   late final RecordsList<BooksBill> bills;
@@ -56,7 +99,11 @@ class BooksController extends ChangeNotifier {
     _notify();
     if (phase == RecordsPhase.ready && setup!.configured) {
       basis ??= setup!.basis;
-      await Future.wait([loadReport(), bills.load()]);
+      await Future.wait([
+        loadReport(),
+        bills.load(),
+        if (setup!.permissions.account) review.load(),
+      ]);
     }
   }
 
@@ -124,9 +171,36 @@ class BooksController extends ChangeNotifier {
     await Future.wait([bills.load(), loadReport()]);
   }
 
+  /// Approves a draft bill shown in the review with its version; the API
+  /// refuses one's own draft (maker and checker). Throws the refusal.
+  Future<void> approve(ReviewItem item) async {
+    final id = item.refId, version = item.version;
+    if (id == null || version == null || approving != null) return;
+    approving = item.key;
+    _notify();
+    try {
+      await repository.approveBill(id, version);
+    } finally {
+      approving = null;
+      _notify();
+    }
+    await Future.wait([review.load(), bills.load(), loadReport()]);
+  }
+
+  /// Evidence on a bill changed: its badge follows.
+  void evidenceChanged(String billId, {required bool missing}) {
+    if (missing) {
+      evidenceMissing.add(billId);
+    } else {
+      evidenceMissing.remove(billId);
+    }
+    _notify();
+  }
+
   @override
   void dispose() {
     _disposed = true;
+    review.dispose();
     bills.dispose();
     super.dispose();
   }

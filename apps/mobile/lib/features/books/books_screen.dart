@@ -9,6 +9,7 @@ import '../records_kit/records_kit.dart';
 import '../records_kit/records_widgets.dart';
 import 'books_controller.dart';
 import 'books_data.dart';
+import 'books_review.dart';
 import 'books_strings.dart';
 
 String _money(BuildContext context, String amount, String currency) =>
@@ -96,7 +97,7 @@ class _BooksScreenState extends State<BooksScreen> {
   Widget build(BuildContext context) {
     final b = BooksStrings.of(context);
     return ListenableBuilder(
-      listenable: Listenable.merge([c, c.bills]),
+      listenable: Listenable.merge([c, c.bills, c.review]),
       builder: (context, _) {
         final setup = c.setup;
         Widget body;
@@ -124,6 +125,8 @@ class _BooksScreenState extends State<BooksScreen> {
             ),
           ]);
         } else {
+          final review = setup.permissions.account;
+          final tab = !review && _tab == 2 ? 0 : _tab;
           body = Column(children: [
             Padding(
               padding: const EdgeInsets.fromLTRB(
@@ -132,15 +135,22 @@ class _BooksScreenState extends State<BooksScreen> {
                 segments: [
                   ButtonSegment(value: 0, label: Text(b.t('tab.pnl'))),
                   ButtonSegment(value: 1, label: Text(b.t('tab.bills'))),
+                  if (review)
+                    ButtonSegment(
+                        value: 2,
+                        label: Text(b.t('tab.review'),
+                            key: const Key('books-tab-review'))),
                 ],
-                selected: {_tab},
+                selected: {tab},
                 onSelectionChanged: (v) => setState(() => _tab = v.first),
               ),
             ),
             Expanded(
-              child: _tab == 0
-                  ? _PnlView(controller: c)
-                  : _BillsView(controller: c),
+              child: switch (tab) {
+                0 => _PnlView(controller: c),
+                1 => _BillsView(controller: c),
+                _ => ReviewView(controller: c),
+              },
             ),
           ]);
         }
@@ -333,14 +343,8 @@ class _BillsView extends StatelessWidget {
   const _BillsView({required this.controller});
   final BooksController controller;
 
-  void _open(BuildContext context, BooksBill bill) {
-    Navigator.of(context).push(MaterialPageRoute<void>(
-      builder: (_) => BillScreen(
-          repository: controller.repository,
-          billId: bill.id,
-          onChanged: controller.billChanged),
-    ));
-  }
+  void _open(BuildContext context, BooksBill bill) =>
+      openBill(context, controller, bill.id);
 
   @override
   Widget build(BuildContext context) {
@@ -399,8 +403,9 @@ class _BillsView extends StatelessWidget {
         children.add(AnumSurface(
           child: Column(children: [
             for (final bill in list.items)
-              AnumRow(
+              _BillRow(
                 key: Key('bill-${bill.id}'),
+                missing: controller.evidenceMissing.contains(bill.id),
                 icon: Icons.receipt_long_outlined,
                 tone: billTone(bill),
                 title: bill.vendorName,
@@ -425,6 +430,67 @@ class _BillsView extends StatelessWidget {
   }
 }
 
+/// Opens a bill with its payments and supporting documents.
+void openBill(BuildContext context, BooksController controller, String id) {
+  Navigator.of(context).push(MaterialPageRoute<void>(
+    builder: (_) => BillScreen(
+        repository: controller.repository,
+        billId: id,
+        onChanged: controller.billChanged,
+        onEvidence: (missing) =>
+            controller.evidenceChanged(id, missing: missing)),
+  ));
+}
+
+/// A bill in the list, with the "Evidence missing" badge when it is at or
+/// above the evidence threshold and has no supporting document.
+class _BillRow extends StatelessWidget {
+  const _BillRow({
+    required this.missing,
+    required this.icon,
+    required this.tone,
+    required this.title,
+    required this.subtitle,
+    required this.detail,
+    required this.trailing,
+    required this.onTap,
+    super.key,
+  });
+  final bool missing;
+  final IconData icon;
+  final AnumTone tone;
+  final String title, subtitle, detail;
+  final Widget trailing;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final row = AnumRow(
+        icon: icon,
+        tone: tone,
+        title: title,
+        subtitle: subtitle,
+        detail: detail,
+        trailing: trailing,
+        onTap: onTap);
+    if (!missing) return row;
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      row,
+      Align(
+        alignment: AlignmentDirectional.centerStart,
+        child: Padding(
+          padding: const EdgeInsetsDirectional.only(bottom: AnumSpacing.xs),
+          child: AnumPill(
+              key: const Key('evidence-missing'),
+              icon: Icons.report_gmailerrorred_outlined,
+              label: BooksStrings.of(context).t('evidence.missing'),
+              tone: AnumTone.warn),
+        ),
+      ),
+    ]);
+  }
+}
+
 /// One bill with its payments: record a payment (members and owners),
 /// void it or a payment (owners only, with a reason).
 class BillScreen extends StatefulWidget {
@@ -432,11 +498,15 @@ class BillScreen extends StatefulWidget {
     required this.repository,
     required this.billId,
     this.onChanged,
+    this.onEvidence,
     super.key,
   });
   final BooksRepository repository;
   final String billId;
   final Future<void> Function(BooksBill bill)? onChanged;
+
+  /// The bill's evidence changed: whether it still misses a document.
+  final void Function(bool missing)? onEvidence;
 
   @override
   State<BillScreen> createState() => _BillScreenState();
@@ -640,6 +710,11 @@ class _BillScreenState extends State<BillScreen> {
                       key: const Key('bill-cannot-pay'),
                       style: TextStyle(color: context.palette.muted)),
               ]),
+              EvidenceSection(
+                  repository: widget.repository,
+                  sourceType: 'bill',
+                  sourceId: bill.id,
+                  onChanged: widget.onEvidence),
               if (bill.status != 'void')
                 RecordsSection(title: b.t('voidBill'), children: [
                   Text(b.t('ownerOnly'),

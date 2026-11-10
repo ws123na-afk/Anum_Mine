@@ -125,6 +125,72 @@ class BooksStrings extends ModuleStrings {
         'Only workspace owners can void a bill or a payment. A mistake is voided with a reason, never edited away.',
     'cannotPay':
         'Members and owners record payments; this bill is paid or void, or your role cannot change the books.',
+    'tab.review': 'Review',
+    'review.title': 'Accountant review',
+    'review.intro':
+        'Everything in these books that waits for an owner or an accountant. The person who made a draft never approves it.',
+    'review.denied':
+        'Only an owner or an accountant of this business sees the review. An owner can name accountants on the web, Books, Settings.',
+    'review.blocking': '{n} block a month from closing',
+    'review.toPost': '{n} records wait for the next posting run',
+    'review.unavailable':
+        'Some checks could not run this time: {names}. The rest are shown.',
+    'review.empty': 'Nothing waits for review',
+    'review.emptyText':
+        'Draft bills, posting issues, missing rates and allocations in review appear here. Pull to refresh.',
+    'review.kind.all': 'All',
+    'review.kind.draft_bill': 'Draft bills',
+    'review.kind.unconverted': 'No rate',
+    'review.kind.posting_issue': 'Posting issues',
+    'review.kind.allocation_review': 'Allocations',
+    'review.kind.external': 'Other',
+    'review.head.draft_bill': 'Draft bill from {vendor}',
+    'review.head.unconverted': '{count} records in {currency} have no rate',
+    'review.head.posting_issue': 'Not posted: {description}',
+    'review.head.allocation_review': 'A member allocation waits for review',
+    'review.why.draft_bill':
+        'A recurring bill set to drafts made it. It counts once someone approves it.',
+    'review.why.unconverted':
+        'Record a rate for {currency} from {first} on the web, Books, Settings; the next posting run then posts them.',
+    'review.why.posting_issue':
+        'The posting run could not post it ({reason}). Open the Ledger on the web.',
+    'review.why.allocation_review':
+        'Classify it on the web, Books, Allocations.',
+    'review.severity.blocking': 'Blocks the close',
+    'review.severity.warning': 'Warning',
+    'review.approve': 'Approve',
+    'review.approved': 'Draft approved. It now counts as an open bill.',
+    'review.ownDraft':
+        'You made this draft or its recurring bill, so another owner or an accountant approves it.',
+    'review.openBill': 'Open the bill',
+    'review.close': 'Close checklist',
+    'review.month.closed': '{month}: closed',
+    'review.month.open':
+        '{month}: {issues} issues, {drafts} drafts, {allocations} allocations in review',
+    'review.month.not_ended': '{month}: not ended yet',
+    'review.month.ready': '{month}: ready to close on the web',
+    'evidence.title': 'Supporting documents',
+    'evidence.missing': 'Evidence missing',
+    'evidence.missingText':
+        'This bill is at or above the evidence threshold and has no supporting document.',
+    'evidence.none': 'No document attached.',
+    'evidence.attach': 'Attach from the vault',
+    'evidence.attached': 'Document attached.',
+    'evidence.remove': 'Remove {title}',
+    'evidence.removed':
+        'Document removed from this bill. It stays in the vault.',
+    'evidence.denied':
+        'Supporting documents need access to the Document vault. Ask a workspace owner.',
+    'evidence.failed': 'The documents could not be loaded: {message}',
+    'evidence.cannotAttach':
+        'Attaching needs permission to change the books and to add documents to the vault. Ask a workspace owner.',
+    'evidence.pickTitle': 'Pick a workspace document',
+    'evidence.pickIntro':
+        'Only workspace documents of this business can be attached; a private one is hidden from the other owners and accountants.',
+    'evidence.pickSearch': 'Search the vault',
+    'evidence.pickEmpty': 'No workspace document yet',
+    'evidence.pickEmptyText':
+        'Add the receipt to the Document vault as a workspace document, then attach it here.',
   };
 
   static const _ar = <String, String>{
@@ -240,5 +306,69 @@ class BooksStrings extends ModuleStrings {
         'لا يلغي فاتورة المورد أو الدفعة إلا مالكو مساحة العمل. يُلغى الخطأ مع ذكر السبب ولا يُحذف.',
     'cannotPay':
         'يسجّل الأعضاء والمالكون الدفعات؛ هذه الفاتورة مدفوعة أو ملغاة، أو أن دورك لا يسمح بتغيير الدفاتر.',
+    'tab.review': 'المراجعة',
+    'review.title': 'مراجعة المحاسب',
+    'review.intro':
+        'كل ما ينتظر مالكًا أو محاسبًا في هذه الدفاتر. من أنشأ المسودة لا يعتمدها أبدًا.',
+    'review.denied':
+        'لا يرى المراجعة إلا مالك هذا النشاط أو محاسبه. يستطيع المالك تسمية المحاسبين على الويب في الدفاتر، الإعدادات.',
+    'review.blocking': '{n} تمنع إقفال الشهر',
+    'review.toPost': '{n} سجلات تنتظر جولة الترحيل القادمة',
+    'review.unavailable':
+        'تعذر تشغيل بعض الفحوص هذه المرة: {names}. البقية معروضة.',
+    'review.empty': 'لا شيء ينتظر المراجعة',
+    'review.emptyText':
+        'تظهر هنا مسودات الفواتير ومشكلات الترحيل وأسعار الصرف الناقصة والتخصيصات قيد المراجعة. اسحب للتحديث.',
+    'review.kind.all': 'الكل',
+    'review.kind.draft_bill': 'مسودات الفواتير',
+    'review.kind.unconverted': 'دون سعر صرف',
+    'review.kind.posting_issue': 'مشكلات الترحيل',
+    'review.kind.allocation_review': 'التخصيصات',
+    'review.kind.external': 'أخرى',
+    'review.head.draft_bill': 'مسودة فاتورة من {vendor}',
+    'review.head.unconverted': '{count} سجلات بعملة {currency} دون سعر صرف',
+    'review.head.posting_issue': 'لم يُرحّل: {description}',
+    'review.head.allocation_review': 'تخصيص من عضو ينتظر المراجعة',
+    'review.why.draft_bill':
+        'أنشأتها فاتورة متكررة مضبوطة على المسودات. تُحتسب بعد أن يعتمدها أحد.',
+    'review.why.unconverted':
+        'سجّل سعر صرف لعملة {currency} من {first} على الويب في الدفاتر، الإعدادات؛ ثم ترحّلها جولة الترحيل القادمة.',
+    'review.why.posting_issue':
+        'تعذر على جولة الترحيل ترحيله ({reason}). افتح دفتر الأستاذ على الويب.',
+    'review.why.allocation_review': 'صنّفه على الويب في الدفاتر، التخصيصات.',
+    'review.severity.blocking': 'يمنع الإقفال',
+    'review.severity.warning': 'تنبيه',
+    'review.approve': 'اعتماد',
+    'review.approved': 'اعتُمدت المسودة. أصبحت فاتورة مفتوحة تُحتسب.',
+    'review.ownDraft':
+        'أنشأت هذه المسودة أو فاتورتها المتكررة، لذلك يعتمدها مالك آخر أو محاسب.',
+    'review.openBill': 'افتح الفاتورة',
+    'review.close': 'قائمة الإقفال',
+    'review.month.closed': '{month}: مقفل',
+    'review.month.open':
+        '{month}: {issues} مشكلات، {drafts} مسودات، {allocations} تخصيصات قيد المراجعة',
+    'review.month.not_ended': '{month}: لم ينته بعد',
+    'review.month.ready': '{month}: جاهز للإقفال على الويب',
+    'evidence.title': 'المستندات الداعمة',
+    'evidence.missing': 'مستند داعم ناقص',
+    'evidence.missingText':
+        'هذه الفاتورة تبلغ حد المستندات الداعمة أو تتجاوزه ولا يوجد لها مستند داعم.',
+    'evidence.none': 'لا يوجد مستند مرفق.',
+    'evidence.attach': 'إرفاق من الخزنة',
+    'evidence.attached': 'أُرفق المستند.',
+    'evidence.remove': 'إزالة {title}',
+    'evidence.removed': 'أُزيل المستند من هذه الفاتورة. يبقى في الخزنة.',
+    'evidence.denied':
+        'تحتاج المستندات الداعمة إلى صلاحية خزنة المستندات. اطلبها من مالك مساحة العمل.',
+    'evidence.failed': 'تعذر تحميل المستندات: {message}',
+    'evidence.cannotAttach':
+        'يحتاج الإرفاق إلى صلاحية تغيير الدفاتر وإضافة مستندات إلى الخزنة. اطلبها من مالك مساحة العمل.',
+    'evidence.pickTitle': 'اختر مستندًا من مساحة العمل',
+    'evidence.pickIntro':
+        'لا يُرفق إلا مستند مساحة عمل لهذا النشاط؛ المستند الخاص مخفي عن المالكين والمحاسبين الآخرين.',
+    'evidence.pickSearch': 'ابحث في الخزنة',
+    'evidence.pickEmpty': 'لا يوجد مستند لمساحة العمل بعد',
+    'evidence.pickEmptyText':
+        'أضف الإيصال إلى خزنة المستندات كمستند لمساحة العمل، ثم أرفقه هنا.',
   };
 }
