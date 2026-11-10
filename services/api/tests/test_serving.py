@@ -148,3 +148,39 @@ def test_the_lifespan_sets_the_worker_threads_before_anything_starts(monkeypatch
     with TestClient(main.app):
         pass
     assert order[:2] == ["threads:12", "event_runtime"]
+
+
+def test_a_scheduler_stop_waits_for_a_running_pass_only_so_long(caplog: pytest.LogCaptureFixture) -> None:
+    """stop() waited for the pass thread with no limit (automation, team reminders, lifecycle)."""
+    import logging
+    import threading
+    import time
+
+    from anum_api.automation import AutomationScheduler
+    from anum_api.team_work import TeamReminderScheduler
+    from anum_api.tenant_lifecycle import LifecycleRunner
+
+    async def scenario() -> tuple[list[float], bool, bool]:
+        release = threading.Event()
+        waits: list[float] = []
+        for scheduler in (AutomationScheduler.__new__(AutomationScheduler), TeamReminderScheduler.__new__(TeamReminderScheduler),
+                          LifecycleRunner.__new__(LifecycleRunner)):
+            scheduler._task, scheduler._stop = None, None  # type: ignore[attr-defined]
+            scheduler._pass = asyncio.ensure_future(asyncio.to_thread(release.wait, 5))  # type: ignore[attr-defined]
+            started = time.monotonic()
+            await scheduler.stop(pass_timeout=0.05)
+            waits.append(time.monotonic() - started)
+        stuck = asyncio.ensure_future(asyncio.to_thread(release.wait, 5))
+        still_running = await serving.wait_for_pass(stuck, name="example", timeout=0.05)
+        release.set()  # the pass was not cancelled: it finishes by itself
+        finished = await serving.wait_for_pass(stuck, name="example", timeout=5)
+        return waits, still_running, finished
+
+    with caplog.at_level(logging.WARNING, logger="anum_api.serving"):
+        waits, still_running, finished = asyncio.run(scenario())
+    assert max(waits) < 2, waits
+    assert still_running is False and finished is True
+    named = [record.anum_serving["scheduler"] for record in caplog.records if record.message == "scheduler_pass_still_running_at_stop"]
+    assert named == ["automation scheduler", "team reminders", "organisation lifecycle", "example"]
+    assert asyncio.run(serving.wait_for_pass(None, name="none")) is True
+    assert serving.PASS_STOP_TIMEOUT_SECONDS == 30.0

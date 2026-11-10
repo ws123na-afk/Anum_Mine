@@ -88,6 +88,7 @@ from .events import CanonicalEventName, create_event
 from .repository import AnumRepository
 from .schemas import ApprovalStatus, DomainEvent, Task, TaskStatus, TenantContext, new_id, utc_now
 from .scoped_store import ScopeNotProvisionedError
+from .serving import PASS_STOP_TIMEOUT_SECONDS, wait_for_pass
 from .settings import settings
 
 logger = logging.getLogger(__name__)
@@ -2282,7 +2283,7 @@ class AutomationScheduler:
         self._stop = asyncio.Event()
         self._task = asyncio.create_task(self._run(), name="anum-automation-scheduler")
 
-    async def stop(self, *, timeout: float = 10.0) -> None:
+    async def stop(self, *, timeout: float = 10.0, pass_timeout: float = PASS_STOP_TIMEOUT_SECONDS) -> None:
         task, self._task = self._task, None
         if self._stop is not None:
             self._stop.set()
@@ -2299,9 +2300,9 @@ class AutomationScheduler:
                 pass
             except Exception:
                 logger.exception("Automation scheduler stopped with an error")
-        # A pass thread that outlived the timeout still finishes its own transaction.
-        if self._pass is not None and not self._pass.done():
-            await asyncio.wait({self._pass})
+        # A pass thread that outlived the timeout still finishes its own transaction; the
+        # wait for it is bounded, so a stuck pass cannot hold the shutdown.
+        await wait_for_pass(self._pass, name="automation scheduler", timeout=pass_timeout)
         self._pass = None
         self._stop = None
 

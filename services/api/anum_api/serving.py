@@ -74,6 +74,33 @@ def use_worker_threads(size: int) -> ThreadPoolExecutor:
     return executor
 
 
+# How long a scheduler's stop() waits for a pass that is still running in its worker thread.
+PASS_STOP_TIMEOUT_SECONDS = 30.0
+
+
+async def wait_for_pass(
+    running: asyncio.Future[Any] | None, *, name: str, timeout: float = PASS_STOP_TIMEOUT_SECONDS
+) -> bool:
+    """Wait, for at most ``timeout`` seconds, for a scheduler pass that outlived its loop.
+
+    A pass runs in a worker thread and cannot be cancelled; it finishes its own transaction.
+    ``stop()`` used to wait for it with no limit, so one pass stuck on the database or a
+    provider held the whole shutdown (and every stop() queued behind it) until the process
+    was killed. Returns False, with a warning naming the scheduler, when the pass is still
+    running: the thread keeps going and the interpreter still joins it on a normal exit.
+    """
+    if running is None or running.done():
+        return True
+    _, pending = await asyncio.wait({running}, timeout=timeout)
+    if pending:
+        logger.warning(
+            "scheduler_pass_still_running_at_stop",
+            extra={"anum_serving": {"scheduler": name, "waited_seconds": timeout}},
+        )
+        return False
+    return True
+
+
 def freeze_heap() -> int:
     """Collect once, then exclude every surviving object from later collections."""
     gc.collect()

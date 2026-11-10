@@ -48,6 +48,7 @@ from .audit import AuditRecord
 from .authorization import Permission
 from .dependencies import _unit_of_work, has_permission, memory_repository, tenant_context
 from .schemas import TenantContext, new_id, utc_now
+from .serving import PASS_STOP_TIMEOUT_SECONDS, wait_for_pass
 from .settings import settings
 from .tenant_lifecycle_tables import ACCESS_TABLES, EXPORTED_TABLES, PURGED_TABLES, TenantTable
 
@@ -1394,7 +1395,7 @@ class LifecycleRunner:
             self._stop = asyncio.Event()
             self._task = asyncio.create_task(self._run(), name="anum-tenant-lifecycle")
 
-    async def stop(self, *, timeout: float = 30.0) -> None:
+    async def stop(self, *, timeout: float = 30.0, pass_timeout: float = PASS_STOP_TIMEOUT_SECONDS) -> None:
         task, self._task = self._task, None
         if self._stop is not None:
             self._stop.set()
@@ -1405,8 +1406,7 @@ class LifecycleRunner:
                 task.cancel()
             except Exception:
                 logger.exception("Lifecycle runner stopped with an error")
-        if self._pass is not None and not self._pass.done():
-            await asyncio.wait({self._pass})
+        await wait_for_pass(self._pass, name="organisation lifecycle", timeout=pass_timeout)
         self._pass = None
 
     async def _run(self) -> None:
