@@ -33,6 +33,7 @@ class BooksSetup {
     required this.configured,
     required this.permissions,
     this.baseCurrency,
+    this.country,
     this.basis = 'accrual',
     this.version,
     this.periodFrom,
@@ -48,6 +49,7 @@ class BooksSetup {
       configured: settings != null,
       permissions: BooksPermissions.fromJson(j.object('permissions')),
       baseCurrency: settings?.optString('base_currency'),
+      country: settings?.optString('country'),
       basis: settings?.optString('basis') ?? 'accrual',
       version: settings?.optInt('version'),
       periodFrom: period?.optString('from'),
@@ -65,6 +67,10 @@ class BooksSetup {
   final bool configured;
   final BooksPermissions permissions;
   final String? baseCurrency, periodFrom, periodTo;
+
+  /// The books' country (two letters), which proposes the tax
+  /// jurisdiction before tax is set up.
+  final String? country;
   final String basis;
   final int? version;
   final int billCount;
@@ -100,14 +106,43 @@ bool adjustmentSpreads(String kind) =>
 /// A recorded adjustment: `active` (posted), `pending` (waits for another
 /// owner or accountant) or `void`.
 class BooksAdjustment {
-  const BooksAdjustment(
-      {required this.id, required this.kind, required this.status});
+  const BooksAdjustment({
+    required this.id,
+    required this.kind,
+    required this.status,
+    this.entryDate,
+    this.currency = '',
+    this.amount = '0',
+    this.description = '',
+    this.startMonth,
+    this.months,
+    this.reverseOn,
+    this.voidReason = '',
+    this.createdBy,
+  });
   factory BooksAdjustment.fromJson(JsonReader j) => BooksAdjustment(
-      id: j.string('id'),
-      kind: j.optString('kind') ?? '',
-      status: j.optString('status') ?? 'active');
-  final String id, kind, status;
+        id: j.string('id'),
+        kind: j.optString('kind') ?? '',
+        status: j.optString('status') ?? 'active',
+        entryDate: j.optString('entry_date'),
+        currency: j.optString('currency') ?? '',
+        amount: switch (j['amount']) {
+          final String a => a,
+          final num n => '$n',
+          _ => '0',
+        },
+        description: j.optString('description') ?? '',
+        startMonth: j.optString('start_month'),
+        months: j.optInt('months'),
+        reverseOn: j.optString('reverse_on'),
+        voidReason: j.optString('void_reason') ?? '',
+        createdBy: j.optString('created_by'),
+      );
+  final String id, kind, status, currency, amount, description, voidReason;
+  final String? entryDate, startMonth, reverseOn, createdBy;
+  final int? months;
   bool get pending => status == 'pending';
+  bool get voided => status == 'void';
 }
 
 class BooksLine {

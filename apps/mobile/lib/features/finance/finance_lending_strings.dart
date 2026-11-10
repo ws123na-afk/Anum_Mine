@@ -140,6 +140,37 @@ class FinanceLendingStrings extends ModuleStrings {
     'income.badCurrency':
         'Enter the currency as three letters, for example AED.',
     'income.failedAction': 'Not done: {message}',
+    'loan.handed': 'Handed over (linked)',
+    'loan.movements': 'Linked transactions',
+    'loan.movementsNone':
+        'No transaction is linked yet. Link the money handed over and each repayment so the figures follow your accounts.',
+    'loan.review': 'needs review',
+    'loan.role.payment': 'money out',
+    'loan.role.deposit': 'money in',
+    'loan.role.refund': 'refund',
+    'loan.role.evidence': 'evidence',
+    'loan.unlink': 'Remove link',
+    'loan.unlinkLabel': 'Remove the link to {what}',
+    'loan.unlinkTitle': 'Remove this link?',
+    'loan.unlinkBody':
+        'The transaction stays in your accounts; it no longer counts toward this entry.',
+    'loan.unlinked': 'Link removed.',
+    'loan.linkLent': 'Link the money you lent',
+    'loan.linkBorrowed': 'Link the money you received',
+    'loan.handedTitle': 'The money that changed hands with {person}',
+    'loan.handedHelpOut':
+        'Pick the money that went out of your account when you lent it. Only your own recorded transactions are shown, closest in amount first.',
+    'loan.handedHelpIn':
+        'Pick the money that came into your account when you borrowed it. Only your own recorded transactions are shown, closest in amount first.',
+    'loan.handedDone':
+        'Linked. The money handed over now counts as a transfer, not spending.',
+    'loan.delete': 'Delete',
+    'loan.deleteLabel': 'Delete the entry with {person}',
+    'loan.deleteTitle': 'Delete the entry with {person}?',
+    'loan.deleteBody':
+        'The entry and its links are removed. The transactions stay in your accounts.',
+    'loan.deleted': '{person} was deleted.',
+    'loan.cancel': 'Cancel',
   };
 
   static const _ar = <String, String>{
@@ -258,5 +289,35 @@ class FinanceLendingStrings extends ModuleStrings {
     'income.badAmount': 'أدخل مبلغًا أكبر من صفر.',
     'income.badCurrency': 'أدخل العملة بثلاثة أحرف، مثل AED.',
     'income.failedAction': 'لم يتم: {message}',
+    'loan.handed': 'المبلغ المسلم (مربوط)',
+    'loan.movements': 'المعاملات المربوطة',
+    'loan.movementsNone':
+        'لا توجد معاملة مربوطة بعد. اربط المبلغ المسلم وكل دفعة سداد لتتبع الأرقام حساباتك.',
+    'loan.review': 'تحتاج مراجعة',
+    'loan.role.payment': 'مال خارج',
+    'loan.role.deposit': 'مال داخل',
+    'loan.role.refund': 'استرداد',
+    'loan.role.evidence': 'إثبات',
+    'loan.unlink': 'إزالة الربط',
+    'loan.unlinkLabel': 'إزالة الربط مع {what}',
+    'loan.unlinkTitle': 'إزالة هذا الربط؟',
+    'loan.unlinkBody':
+        'تبقى المعاملة في حساباتك، لكنها لم تعد تُحتسب لهذا القيد.',
+    'loan.unlinked': 'أُزيل الربط.',
+    'loan.linkLent': 'ربط المبلغ الذي أقرضته',
+    'loan.linkBorrowed': 'ربط المبلغ الذي استلمته',
+    'loan.handedTitle': 'المبلغ الذي انتقل بينك وبين {person}',
+    'loan.handedHelpOut':
+        'اختر المبلغ الذي خرج من حسابك عندما أقرضته. تظهر معاملاتك المسجلة فقط، الأقرب في المبلغ أولًا.',
+    'loan.handedHelpIn':
+        'اختر المبلغ الذي دخل حسابك عندما اقترضته. تظهر معاملاتك المسجلة فقط، الأقرب في المبلغ أولًا.',
+    'loan.handedDone':
+        'تم الربط. يُحتسب المبلغ المسلم الآن تحويلًا لا إنفاقًا.',
+    'loan.delete': 'حذف',
+    'loan.deleteLabel': 'حذف القيد مع {person}',
+    'loan.deleteTitle': 'حذف القيد مع {person}؟',
+    'loan.deleteBody': 'يُحذف القيد وروابطه. تبقى المعاملات في حساباتك.',
+    'loan.deleted': 'تم حذف {person}.',
+    'loan.cancel': 'إلغاء',
   };
 }

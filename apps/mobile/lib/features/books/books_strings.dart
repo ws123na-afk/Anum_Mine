@@ -229,6 +229,10 @@ class BooksStrings extends ModuleStrings {
     'evidence.remove': 'Remove {title}',
     'evidence.removed':
         'Document removed from this bill. It stays in the vault.',
+    'evidence.removedOther':
+        'Document removed from this record. It stays in the vault.',
+    'evidence.missingText.invoice':
+        'This invoice is at or above the evidence threshold and has no supporting document.',
     'evidence.denied':
         'Supporting documents need access to the Document vault. Ask a workspace owner.',
     'evidence.failed': 'The documents could not be loaded: {message}',
@@ -453,6 +457,9 @@ class BooksStrings extends ModuleStrings {
     'evidence.attached': 'أُرفق المستند.',
     'evidence.remove': 'إزالة {title}',
     'evidence.removed': 'أُزيل المستند من هذه الفاتورة. يبقى في الخزنة.',
+    'evidence.removedOther': 'أُزيل المستند من هذا السجل. يبقى في الخزنة.',
+    'evidence.missingText.invoice':
+        'هذه الفاتورة تبلغ حد المستندات الداعمة أو تتجاوزه ولا يوجد لها مستند داعم.',
     'evidence.denied':
         'تحتاج المستندات الداعمة إلى صلاحية خزنة المستندات. اطلبها من مالك مساحة العمل.',
     'evidence.failed': 'تعذر تحميل المستندات: {message}',

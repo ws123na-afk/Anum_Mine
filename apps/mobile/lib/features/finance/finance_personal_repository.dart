@@ -52,6 +52,21 @@ abstract interface class FinancePersonalRepository {
   /// repayment. One [idempotencyKey] per sheet, so a retry links once.
   Future<void> linkRepayment(String loanId,
       {required String canonicalId, required String idempotencyKey});
+
+  /// The person's own transactions that could be the money handed over:
+  /// money out when I lent, money in when I borrowed, near the loan's date.
+  Future<List<LoanCandidate>> handedCandidates(PersonLoan loan,
+      {String query = ''});
+
+  /// Links [canonicalId] as the money that changed hands for [loanId].
+  Future<void> linkHanded(String loanId,
+      {required String canonicalId, required String idempotencyKey});
+
+  /// Removes one linked transaction from a loan; the transaction stays.
+  Future<void> unlinkLoan(String loanId, String linkId);
+
+  /// Deletes the loan and its links; the transactions stay in the ledger.
+  Future<void> deleteLoan(String loanId);
   Future<FixedCommitments> fixedCommitments();
   Future<PayoffPage> payoff();
 
@@ -181,6 +196,41 @@ class ApiFinancePersonalRepository implements FinancePersonalRepository {
         'POST', '$base/people-loans/${Uri.encodeComponent(loanId)}/links',
         body: {'canonical_id': canonicalId, 'kind': 'repayment'},
         headers: {'Idempotency-Key': idempotencyKey});
+  }
+
+  @override
+  Future<List<LoanCandidate>> handedCandidates(PersonLoan loan,
+      {String query = ''}) async {
+    final body = await api.request(
+        'GET',
+        '$base/payment-candidates${_q({
+              'for': 'person_loan',
+              'direction': loan.direction == LoanDirection.lent ? 'out' : 'in',
+              'currency': loan.currency,
+              'amount': loan.amount,
+              'around': loan.lentOn,
+              'q': query.trim(),
+            })}');
+    return JsonReader.of(body).optObjects('items', LoanCandidate.fromJson);
+  }
+
+  @override
+  Future<void> linkHanded(String loanId,
+      {required String canonicalId, required String idempotencyKey}) async {
+    await api.request('POST', '$base/people-loans/${_id(loanId)}/links',
+        body: {'canonical_id': canonicalId, 'kind': 'handed'},
+        headers: {'Idempotency-Key': idempotencyKey});
+  }
+
+  @override
+  Future<void> unlinkLoan(String loanId, String linkId) async {
+    await api.request(
+        'DELETE', '$base/people-loans/${_id(loanId)}/links/${_id(linkId)}');
+  }
+
+  @override
+  Future<void> deleteLoan(String loanId) async {
+    await api.request('DELETE', '$base/people-loans/${_id(loanId)}');
   }
 
   @override

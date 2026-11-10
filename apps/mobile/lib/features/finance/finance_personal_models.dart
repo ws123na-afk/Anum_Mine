@@ -69,9 +69,13 @@ class PersonLoan {
     this.nextDueOn,
     this.nextDueAmount = '0',
     this.overdueAmount = '0',
+    this.handed = '0',
   });
 
   final String id, person, amount, currency, lentOn, repaid, outstanding;
+
+  /// What the linked transactions show was handed over.
+  final String handed;
   final LoanDirection direction;
   final LoanStatus status;
   final String? dueOn, notes, closedOn, interestRate, firstDueOn, nextDueOn;
@@ -114,6 +118,7 @@ class PersonLoan {
         nextDueOn: r.optString('next_due_on'),
         nextDueAmount: _optDecimal(r, 'next_due_amount') ?? '0',
         overdueAmount: _optDecimal(r, 'overdue_amount') ?? '0',
+        handed: _optDecimal(r, 'handed') ?? '0',
       );
 }
 
@@ -152,14 +157,50 @@ class LoanInstallment {
 /// `GET /people-loans/{id}` (`FinancePersonLoanDetail`): the loan with its
 /// schedule, repaid money applied in date order.
 class PersonLoanDetail {
-  const PersonLoanDetail({required this.loan, required this.schedule});
+  const PersonLoanDetail(
+      {required this.loan, required this.schedule, this.movements = const []});
   final PersonLoan loan;
   final List<LoanInstallment> schedule;
+
+  /// The transactions linked to the loan: the money handed over and the
+  /// repayments.
+  final List<LoanMovement> movements;
 
   factory PersonLoanDetail.fromJson(JsonReader r) => PersonLoanDetail(
         loan: PersonLoan.fromJson(r),
         schedule: r.optObjects('schedule', LoanInstallment.fromJson),
+        movements: r.optObjects('movements', LoanMovement.fromJson),
       );
+}
+
+/// One transaction linked to a loan (`FinanceMovement`): `payment` is money
+/// out, `deposit` money in; a link that is not `active` needs review.
+class LoanMovement {
+  const LoanMovement({
+    required this.linkId,
+    required this.role,
+    required this.status,
+    this.amount,
+    this.currency,
+    this.postedOn,
+    this.description,
+  });
+  final String linkId, role, status;
+  final String? amount, currency, postedOn, description;
+  bool get active => status == 'active';
+
+  factory LoanMovement.fromJson(JsonReader r) {
+    final link = r.object('link');
+    return LoanMovement(
+      linkId: link.string('id'),
+      role: link.optString('role') ?? '',
+      status: link.optString('status') ?? 'active',
+      amount: _optDecimal(link, 'amount'),
+      currency: link.optString('currency'),
+      postedOn: r.optString('posted_on'),
+      description: r.optString('description'),
+    );
+  }
 }
 
 /// What is owed in one currency over every open loan (`FinanceOwed`), with
