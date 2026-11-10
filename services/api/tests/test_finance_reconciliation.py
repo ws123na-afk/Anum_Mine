@@ -330,6 +330,32 @@ def test_the_queue_lists_open_exceptions_only() -> None:
     assert len(first["items"]) == 1 and first["total"] >= 1
 
 
+def test_the_exceptions_route_sorts_by_a_known_column_names_the_account_and_exports_a_formula_safe_csv() -> None:
+    bank = account(opening_balance="1000", name="=Everyday")
+    imported = csv_import(bank["id"], STATEMENT, opening_balance="1000.00", closing_balance="930.00", decisions=[{"line": 3, "action": "skip"}])
+    detail = start(account_id=bank["id"], import_id=imported["id"])
+    listed = client.get(f"{API}/reconciliations/exceptions", headers=OWNER, params={"sort": "severity"})
+    assert listed.status_code == 200, listed.text
+    items = listed.json()["items"]
+    assert items and all(item["account_name"] == "=Everyday" and item["reconciliation_id"] == detail["id"] for item in items)
+    ranks = [{"blocking": 0, "warning": 1}[item["exception"]["severity"]] for item in items]
+    assert ranks == sorted(ranks)
+    reversed_ = client.get(f"{API}/reconciliations/exceptions", headers=OWNER, params={"sort": "severity", "desc": "true"}).json()["items"]
+    assert [i["exception"]["id"] for i in reversed_] == [i["exception"]["id"] for i in items][::-1]
+    for column in ("account", "period", "kind", "posted", "amount"):
+        assert client.get(f"{API}/reconciliations/exceptions", headers=OWNER, params={"sort": column}).status_code == 200
+    assert client.get(f"{API}/reconciliations/exceptions", headers=OWNER, params={"sort": "owner"}).status_code == 422
+    # Nobody else sees the owner's queue, and the export is the same list as a file.
+    assert client.get(f"{API}/reconciliations/exceptions", headers=OTHER).json()["total"] == 0
+    exported = client.get(f"{API}/reconciliations/exceptions/export", headers=OWNER, params={"sort": "severity"})
+    assert exported.status_code == 200 and exported.headers["content-type"].startswith("text/csv")
+    assert exported.headers["content-disposition"] == 'attachment; filename="anum-reconciliation-exceptions.csv"'
+    rows = exported.text.splitlines()
+    assert rows[0] == "account,period_start,period_end,severity,kind,posted_on,month,amount,currency,description,reason,actions,reconciliation_id"
+    assert len(rows) == len(items) + 1 and all(row.startswith("'=Everyday,") for row in rows[1:])
+    assert client.get(f"{API}/reconciliations/exceptions/export", headers=OTHER).text.splitlines() == [rows[0]]
+
+
 def test_an_open_exception_is_in_the_suggestion_queue_with_a_review_link_and_a_dismissed_one_stays_dismissed() -> None:
     bank = account(opening_balance="1000")
     imported = csv_import(bank["id"], STATEMENT, opening_balance="1000.00", closing_balance="930.00", decisions=[{"line": 3, "action": "skip"}])

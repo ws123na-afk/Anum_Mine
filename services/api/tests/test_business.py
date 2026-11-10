@@ -320,6 +320,29 @@ def test_lists_page_and_search() -> None:
     assert ok(client.get(f"{BASE}/accounts?q=company&limit=2", headers=MEMBER))["total"] == 7
 
 
+def test_accounts_sort_by_a_known_column_and_export_as_a_formula_safe_csv() -> None:
+    for name, city in (("Zeta Works", "Riyadh"), ("Alpha Mix", "Dubai"), ("=cmd() Ltd", "Jeddah")):
+        ok(client.post(f"{BASE}/accounts", headers=MEMBER, json={"name": name, "city": city, "country": "GCC"}), 201)
+    by_name = ok(client.get(f"{BASE}/accounts", headers=MEMBER))
+    assert [item["name"] for item in by_name["items"]] == ["=cmd() Ltd", "Alpha Mix", "Zeta Works"]
+    by_name_desc = ok(client.get(f"{BASE}/accounts?sort=name&desc=true", headers=MEMBER))
+    assert [item["name"] for item in by_name_desc["items"]] == ["Zeta Works", "Alpha Mix", "=cmd() Ltd"]
+    by_place = ok(client.get(f"{BASE}/accounts?sort=place", headers=MEMBER))
+    assert [item["city"] for item in by_place["items"]] == ["Dubai", "Jeddah", "Riyadh"]
+    assert client.get(f"{BASE}/accounts?sort=owner_id", headers=MEMBER).status_code == 422
+    assert client.get(f"{BASE}/accounts/export", headers=VIEWER).status_code == 403
+    exported = client.get(f"{BASE}/accounts/export?sort=place&desc=true", headers=MEMBER)
+    assert exported.status_code == 200 and exported.headers["content-type"].startswith("text/csv")
+    assert exported.headers["content-disposition"] == 'attachment; filename="anum-accounts.csv"'
+    rows = exported.text.splitlines()
+    assert rows[0].startswith("name,website,domain,industry,city,country,do_not_contact,dnc_reason,contacts,open_leads")
+    assert [row.split(",")[4] for row in rows[1:]] == ["Riyadh", "Jeddah", "Dubai"]
+    # A spreadsheet must not run a cell as a formula; the export carries counts, never a contact's details.
+    assert rows[2].startswith("'=cmd() Ltd,")
+    assert client.get(f"{BASE}/accounts/export?q=alpha", headers=MEMBER).text.count("\n") == 2
+    assert client.get(f"{BASE}/accounts/export", headers=OTHER_WORKSPACE).text.count("\n") == 1
+
+
 def test_other_workspaces_and_tenants_see_nothing() -> None:
     created = lead()
     lead_id, account_id, contact_id = created["lead"]["id"], created["account"]["id"], created["contact"]["id"]

@@ -12,7 +12,9 @@ codes only, never amounts, descriptions or names.
 
 from __future__ import annotations
 
+import csv
 import hashlib
+import io
 import json
 from collections import defaultdict
 from dataclasses import asdict
@@ -29,6 +31,7 @@ from ..schemas import TenantContext, new_id, utc_now
 from . import reconciliation as R
 from .api import Amount, _audit, _invalid, _manage, _money, _not_found, _read
 from .categories import classify_text
+from .csv_import import safe_cell
 from .ledger import derived_legs
 from .models import Account, AccountKind, Category, Transaction
 from .reconciliation_store import MAX_SESSIONS, PeriodTaken, ReconItem, Reconciliation, open_recon_stores
@@ -183,6 +186,7 @@ class QueueItem(BaseModel):
     source: Literal["reconciliation"] = "reconciliation"
     reconciliation_id: str | None
     account_id: str
+    account_name: str = ""
     period_start: date | None
     period_end: date | None
     exception: ExceptionView
@@ -487,7 +491,8 @@ def _health(context: TenantContext) -> dict[str, Any]:
     return {"accounts": out, "today": today}
 
 
-def list_open_exceptions(context: TenantContext, *, account_id: str | None = None, limit: int = 50, offset: int = 0) -> QueuePage:
+def list_open_exceptions(context: TenantContext, *, account_id: str | None = None, limit: int = 50, offset: int = 0,
+                         sort: str | None = None, desc: bool = False) -> QueuePage:
     """Every open reconciliation exception that needs the owner (blocking and warnings), for the unified review queue:
     the exceptions of each account's open or changed session, then the months with activity no statement covers on
     accounts without an open session. Read only; resolving one happens on its session."""
@@ -507,7 +512,7 @@ def list_open_exceptions(context: TenantContext, *, account_id: str | None = Non
             facts = R.gather(finance, sms, links, context, account, rec, recon.items(context, rec.id), today, all_rows=rows, messages=messages)
             outcome = R.compute(rec, facts)
             with_session.add(account.id)
-            queue.extend(QueueItem(reconciliation_id=rec.id, account_id=account.id, period_start=rec.period_start, period_end=rec.period_end,
+            queue.extend(QueueItem(reconciliation_id=rec.id, account_id=account.id, account_name=account.name, period_start=rec.period_start, period_end=rec.period_end,
                                    exception=_issue(i)) for i in outcome.issues if i.severity != "info")
         this_month = date(today.year, today.month, 1)
         for account in accounts.values():
@@ -516,22 +521,86 @@ def list_open_exceptions(context: TenantContext, *, account_id: str | None = Non
             rows = R.account_rows(finance, context, account.id)
             coverage = R.coverage_for(R.account_imports(finance, context, account.id), rows)
             for month in R.missing_months(sorted({t.posted_on for t in rows}), coverage, before=this_month):
-                queue.append(QueueItem(reconciliation_id=None, account_id=account.id, period_start=None, period_end=None,
+                queue.append(QueueItem(reconciliation_id=None, account_id=account.id, account_name=account.name, period_start=None, period_end=None,
                                        exception=ExceptionView(id=f"missing_period:{month}", kind="missing_period", severity="warning", actions=["import"],
                                                                month=month)))
+    if sort is not None:
+        queue = sort_queue(queue, sort, desc)
     return QueuePage(items=queue[offset:offset + limit], total=len(queue), limit=limit, offset=offset)
+
+
+# The exceptions list's sortable columns (the web table). Severity puts what blocks first; the order is stable, so
+# rows of equal rank keep the queue's own order (each session's items, then the missing months).
+QUEUE_SORTS: frozenset[str] = frozenset({"severity", "account", "period", "kind", "posted", "amount"})
+_SEVERITY_RANK = {"blocking": 0, "warning": 1, "info": 2}
+
+
+def sort_queue(queue: list[QueueItem], sort: str, desc: bool) -> list[QueueItem]:
+    if sort not in QUEUE_SORTS:
+        raise _invalid(f"Sort the exceptions by one of: {', '.join(sorted(QUEUE_SORTS))}.")
+
+    def key(item: QueueItem) -> tuple[Any, ...]:
+        e = item.exception
+        if sort == "severity":
+            return (_SEVERITY_RANK.get(e.severity, 9),)
+        if sort == "account":
+            return (item.account_name.casefold(), item.account_id)
+        if sort == "period":
+            return (item.period_end or date.min, e.month or "")
+        if sort == "kind":
+            return (e.kind,)
+        if sort == "posted":
+            return (e.posted_on or (date.fromisoformat(f"{e.month}-01") if e.month else date.min),)
+        return (e.amount if e.amount is not None else Decimal("-Infinity"),)
+
+    return sorted(queue, key=key, reverse=desc)
 
 
 @router.get("/reconciliations/exceptions", response_model=QueuePage)
 def reconciliation_exceptions(
     account_id: str | None = Query(default=None, max_length=80),
+    sort: str | None = Query(default=None, max_length=20),
+    desc: bool = False,
     limit: int = Query(default=50, ge=1, le=MAX_EXCEPTIONS_PAGE),
     offset: int = Query(default=0, ge=0, le=100_000),
     context: TenantContext = Depends(tenant_context),
 ) -> QueuePage:
-    """Open reconciliation exceptions across accounts (for the unified review queue)."""
+    """Open reconciliation exceptions across accounts (for the unified review queue and the Reconciliation page's
+    exceptions table). ``sort`` orders by severity, account, period, kind, posted or amount; without it the queue's
+    own order (each session's items, then the missing months)."""
     _read(context)
-    return list_open_exceptions(context, account_id=account_id, limit=limit, offset=offset)
+    return list_open_exceptions(context, account_id=account_id, limit=limit, offset=offset, sort=sort, desc=desc)
+
+
+EXPORT_ROWS = 20_000
+QUEUE_CSV_HEAD = ["account", "period_start", "period_end", "severity", "kind", "posted_on", "month", "amount", "currency", "description", "reason", "actions", "reconciliation_id"]
+
+
+@router.get("/reconciliations/exceptions/export")
+def export_reconciliation_exceptions(
+    account_id: str | None = Query(default=None, max_length=80),
+    sort: str | None = Query(default=None, max_length=20),
+    desc: bool = False,
+    context: TenantContext = Depends(tenant_context),
+    repository: AnumRepository = Depends(repository_context),
+) -> Response:
+    """The open exceptions as a spreadsheet file, in the list's order, up to EXPORT_ROWS rows. Formula-safe cells;
+    descriptions are the statement's own words, no account numbers."""
+    _read(context)
+    page = list_open_exceptions(context, account_id=account_id, limit=EXPORT_ROWS, offset=0, sort=sort, desc=desc)
+    with open_recon_stores(context) as (finance, _sms, _links, _recon):
+        currencies = {a.id: a.currency for a in finance.list_accounts(context)}
+    out = io.StringIO()
+    writer = csv.writer(out)
+    writer.writerow(QUEUE_CSV_HEAD)
+    for item in page.items:
+        e = item.exception
+        cells = [item.account_name, item.period_start, item.period_end, e.severity, e.kind, e.posted_on, e.month, e.amount, currencies.get(item.account_id, ""),
+                 e.description, e.reason, " ".join(e.actions), item.reconciliation_id]
+        writer.writerow([safe_cell(str(cell)) if cell is not None else "" for cell in cells])
+    _audit(repository, context, "finance.reconciliation.exceptions_export", context.workspace_id, {"rows": len(page.items)})
+    return Response(content=out.getvalue(), media_type="text/csv; charset=utf-8",
+                    headers={"Content-Disposition": 'attachment; filename="anum-reconciliation-exceptions.csv"', "Cache-Control": "no-store"})
 
 
 @router.get("/reconciliations/{reconciliation_id}", response_model=ReconciliationDetail)

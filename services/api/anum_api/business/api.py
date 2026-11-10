@@ -24,6 +24,7 @@ from ..dependencies import has_permission, repository_context, tenant_context
 from ..repository import AnumRepository
 from ..schemas import TenantContext, new_id, utc_now
 from .. import suppression
+from ..finance.csv_import import safe_cell
 from . import assist, research
 from .common import Page, clean_list, get_or_404, manage, page_bounds, read, write
 from .models import (
@@ -520,15 +521,52 @@ def check_duplicates(
         return find_duplicates(store, name=name, website=website, email=email, phone=phone, product_id=product_id)
 
 
+# The columns the account list can be ordered by (the web table's sortable headers). Counts (contacts,
+# open leads) are computed per row, so the list does not order by them. Never an arbitrary column name.
+ACCOUNT_SORTS: dict[str, str] = {"name": "name", "place": "city", "industry": "industry", "updated": "updated_at", "created": "created_at"}
+ACCOUNT_SEARCH_FIELDS = ("name", "domain", "industry", "city", "country")
+ACCOUNT_CSV_HEAD = ["name", "website", "domain", "industry", "city", "country", "do_not_contact", "dnc_reason", "contacts", "open_leads", "notes", "created_at", "updated_at"]
+
+
+def _account_views(store: BusinessStore, items: list[Account]) -> list[AccountView]:
+    return [AccountView(**item.model_dump(), contacts=store.count("contacts", Query(where={"account_id": item.id})),
+                        open_leads=store.count("leads", Query(where={"account_id": item.id, "state": OPEN_LEAD_STATES}))) for item in items]
+
+
 @router.get("/accounts", response_model=Page[AccountView])
-def list_accounts(q: str | None = Q(default=None, max_length=100), limit: int = 50, offset: int = 0, context: TenantContext = Depends(tenant_context)) -> Page[AccountView]:
+def list_accounts(q: str | None = Q(default=None, max_length=100), sort: str = Q(default="name", max_length=20), desc: bool = False,
+                  limit: int = 50, offset: int = 0, context: TenantContext = Depends(tenant_context)) -> Page[AccountView]:
     read(context)
     limit, offset = page_bounds(limit, offset)
+    order = ACCOUNT_SORTS.get(sort)
+    if order is None:
+        raise http_error(422, f"Sort the accounts by one of: {', '.join(ACCOUNT_SORTS)}.")
     with open_business_store(context) as store:
-        items, total = store.find("accounts", Query(text=q, text_fields=("name", "domain", "industry", "city", "country"), order_by="name", descending=False, limit=limit, offset=offset))
-        views = [AccountView(**item.model_dump(), contacts=store.count("contacts", Query(where={"account_id": item.id})),
-                             open_leads=store.count("leads", Query(where={"account_id": item.id, "state": OPEN_LEAD_STATES}))) for item in items]
+        items, total = store.find("accounts", Query(text=q, text_fields=ACCOUNT_SEARCH_FIELDS, order_by=order, descending=desc, limit=limit, offset=offset))
+        views = _account_views(store, items)
     return Page[AccountView](items=views, total=total, limit=limit, offset=offset)
+
+
+@router.get("/accounts/export")
+def export_accounts(q: str | None = Q(default=None, max_length=100), sort: str = Q(default="name", max_length=20), desc: bool = False,
+                    context: TenantContext = Depends(tenant_context), repository: AnumRepository = Depends(repository_context)) -> Response:
+    """The account list as a spreadsheet file (the same search and order as the list, up to MAX_SCAN rows).
+    Formula-safe cells; no contact's personal data, only the counts."""
+    read(context)
+    order = ACCOUNT_SORTS.get(sort)
+    if order is None:
+        raise http_error(422, f"Sort the accounts by one of: {', '.join(ACCOUNT_SORTS)}.")
+    with open_business_store(context) as store:
+        items, total = store.find("accounts", Query(text=q, text_fields=ACCOUNT_SEARCH_FIELDS, order_by=order, descending=desc, limit=MAX_SCAN))
+        views = _account_views(store, items)
+    out = io.StringIO()
+    writer = csv.writer(out)
+    writer.writerow(ACCOUNT_CSV_HEAD)
+    for view in views:
+        writer.writerow([safe_cell(str(getattr(view, column))) if getattr(view, column) is not None else "" for column in ACCOUNT_CSV_HEAD])
+    audit(repository, context, "business.accounts.exported", context.workspace_id, metadata={"rows": len(views), "total": total})
+    return Response(content=out.getvalue(), media_type="text/csv; charset=utf-8",
+                    headers={"Content-Disposition": 'attachment; filename="anum-accounts.csv"', "Cache-Control": "no-store"})
 
 
 def account_detail(context: TenantContext, store: BusinessStore, account: Account) -> AccountDetail:

@@ -179,6 +179,7 @@ export interface FinanceReconQueueItem {
   source: 'reconciliation';
   reconciliation_id: string | null;
   account_id: string;
+  account_name: string;
   period_start: string | null;
   period_end: string | null;
   exception: FinanceReconException;
