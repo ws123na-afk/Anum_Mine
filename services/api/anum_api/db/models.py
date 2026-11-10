@@ -347,6 +347,8 @@ class DomainEventRecord(Base, TimestampMixin, TenantScopedMixin):
             "type",
             "created_at",
         ),
+        # The event stream's cursor read and the retention delete (migration 0162_event_stream_retention).
+        Index("ix_domain_events_scope_created", "tenant_id", "workspace_id", "created_at", "id"),
         Index("ix_events_correlation", "correlation_id"),
     )
 

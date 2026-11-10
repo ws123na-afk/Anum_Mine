@@ -16,6 +16,8 @@ from .authorization import Permission
 from .dependencies import (
     event_runtime,
     has_permission,
+    EVENT_STREAM_PAGE_SIZE,
+    latest_event_id_for_stream,
     list_events_for_stream,
     memory_repository,
     memory_repository_context,
@@ -1804,56 +1806,59 @@ async def stream_events(
             live_event_source(
                 hub=event_runtime.hub,
                 context=context,
-                list_events=lambda: list_events_for_stream(context),
+                list_events=lambda after: list_events_for_stream(context, after),
                 is_disconnected=request.is_disconnected,
                 task_id=task_id,
                 follow=follow,
                 last_event_id=last_event_id,
                 visible=visible_on_workspace_stream,
+                latest_event_id=lambda: latest_event_id_for_stream(context),
+                page_size=EVENT_STREAM_PAGE_SIZE,
             ),
             media_type="text/event-stream",
             headers=sse_headers,
         )
 
+    def wanted(event: DomainEvent) -> bool:
+        if task_id and event.subject != task_id and event.payload.get("task_id") != task_id:
+            return False
+        return visible_on_workspace_stream(event)  # not the call stream wake-ups (app_call_wake.py)
+
     async def event_source():
         cursor = last_event_id
+        if follow and not cursor:
+            # A tab that connects without a cursor gets what happens from now on. It used to
+            # get the workspace's whole event history first, on every page load.
+            cursor = await asyncio.to_thread(latest_event_id_for_stream, context)
         idle_cycles = 0
         while not await request.is_disconnected():
             # Off the event loop: a blocking read here stalled every other request.
             events = await asyncio.to_thread(list_events_for_stream, context, cursor)
-            if task_id:
-                events = [
-                    event
-                    for event in events
-                    if event.subject == task_id or event.payload.get("task_id") == task_id
-                ]
-            if cursor:
-                cursor_index = next(
-                    (index for index, event in enumerate(events) if event.id == cursor),
-                    None,
+            sent = False
+            for event in events:
+                # The cursor moves past every event read, also the ones this stream does not
+                # send: a task stream with no matching event used to re-read the whole
+                # history every second.
+                cursor = event.id
+                if not wanted(event):
+                    continue
+                sent = True
+                yield (
+                    f"id: {event.id}\n"
+                    f"event: {event.type}\n"
+                    f"data: {event.model_dump_json()}\n\n"
                 )
-                events = events[cursor_index + 1 :] if cursor_index is not None else events
-
-            if events:
-                idle_cycles = 0
-                for event in events:
-                    cursor = event.id
-                    if not visible_on_workspace_stream(event):
-                        continue  # call stream wake-ups (app_call_wake.py)
-                    yield (
-                        f"id: {event.id}\n"
-                        f"event: {event.type}\n"
-                        f"data: {event.model_dump_json()}\n\n"
-                    )
-            elif not follow:
+            if len(events) >= EVENT_STREAM_PAGE_SIZE:
+                continue  # behind by more than one read: fetch the next page now
+            if not follow:
                 break
+            if sent:
+                idle_cycles = 0
             else:
                 idle_cycles += 1
                 if idle_cycles >= 15:
                     yield ": keep-alive\n\n"
                     idle_cycles = 0
-            if not follow:
-                break
             await asyncio.sleep(1)
 
     return StreamingResponse(

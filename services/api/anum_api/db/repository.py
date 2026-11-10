@@ -3,9 +3,9 @@ from collections.abc import Mapping, Sequence
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import and_, case, cast, func, literal, not_, or_, select, tuple_
+from sqlalchemy import and_, case, cast, func, literal, not_, or_, select, tuple_, union_all
 from sqlalchemy.dialects.postgresql import JSONB, JSONPATH
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, aliased
 
 from anum_api.approval_paging import ApprovalCursor, ApprovalFilter, ApprovalSummary
 from anum_api.audit import AuditCursor, AuditFilter, AuditRecord, DuplicateAuditRecordError
@@ -907,50 +907,86 @@ class SqlAlchemyRepository(AnumRepository):
             TaskRecord.workspace_id == context.workspace_id,
         )
 
-    def list_events(self, context: TenantContext) -> list[DomainEvent]:
-        records = self.session.scalars(
-            select(DomainEventRecord)
-            .where(
-                DomainEventRecord.tenant_id == context.tenant_id,
-                or_(
-                    DomainEventRecord.workspace_id.is_(None),
-                    DomainEventRecord.workspace_id == context.workspace_id,
-                ),
-            )
-            .order_by(DomainEventRecord.created_at, DomainEventRecord.id)
-        ).all()
-        return [self._event_from_record(record) for record in records]
-
-    def list_events_after(self, context: TenantContext, event_id: str) -> list[DomainEvent]:
-        """The caller's events after ``event_id`` in ``list_events`` order (an SSE cursor).
-
-        An open event stream polls every second; reading only what follows its cursor
-        keeps a poll cheap however long the workspace's history grows. An unknown or
-        invisible cursor returns the whole list, like ``list_events``.
-        """
-        visible = (
+    @staticmethod
+    def _events_visible_to(context: TenantContext) -> tuple[Any, ...]:
+        return (
             DomainEventRecord.tenant_id == context.tenant_id,
             or_(
                 DomainEventRecord.workspace_id.is_(None),
                 DomainEventRecord.workspace_id == context.workspace_id,
             ),
         )
+
+    def _events_page(
+        self, context: TenantContext, *extra: Any, limit: int, newest_first: bool = False
+    ) -> list[DomainEventRecord]:
+        """At most ``limit`` of the caller's events matching ``extra``, in (created_at, id) order.
+
+        The workspace's events and the tenant-wide ones (no workspace) are read as two
+        ordered, limited index scans of ``ix_domain_events_scope_created`` (migration 0162)
+        and merged: one ``workspace_id is null or workspace_id = :w`` predicate cannot be
+        read in order from the index, so PostgreSQL would fetch and sort the whole history.
+        """
+        def order(entity: Any) -> tuple[Any, Any]:
+            if newest_first:
+                return entity.created_at.desc(), entity.id.desc()
+            return entity.created_at, entity.id
+
+        parts = [
+            select(DomainEventRecord)
+            .where(DomainEventRecord.tenant_id == context.tenant_id, scope, *extra)
+            .order_by(*order(DomainEventRecord))
+            .limit(limit)
+            for scope in (
+                DomainEventRecord.workspace_id == context.workspace_id,
+                DomainEventRecord.workspace_id.is_(None),
+            )
+        ]
+        merged = aliased(DomainEventRecord, union_all(*parts).subquery())
+        return list(self.session.scalars(select(merged).order_by(*order(merged)).limit(limit)).all())
+
+    def list_events(self, context: TenantContext, *, limit: int | None = None) -> list[DomainEvent]:
+        """The caller's events oldest first; with ``limit`` only the first that many."""
+        if limit is not None:
+            return [self._event_from_record(record) for record in self._events_page(context, limit=limit)]
+        records = self.session.scalars(
+            select(DomainEventRecord)
+            .where(*self._events_visible_to(context))
+            .order_by(DomainEventRecord.created_at, DomainEventRecord.id)
+        ).all()
+        return [self._event_from_record(record) for record in records]
+
+    def list_events_after(
+        self, context: TenantContext, event_id: str, *, limit: int | None = None
+    ) -> list[DomainEvent]:
+        """The caller's events after ``event_id`` in ``list_events`` order (an SSE cursor).
+
+        An open event stream polls every second; reading only what follows its cursor
+        (at most ``limit`` rows) keeps a poll cheap however long the workspace's history
+        grows. An unknown or invisible cursor reads from the start, like ``list_events``.
+        """
+        visible = self._events_visible_to(context)
         cursor = self.session.execute(
             select(DomainEventRecord.created_at, DomainEventRecord.id).where(
                 DomainEventRecord.id == event_id, *visible
             )
         ).first()
         if cursor is None:
-            return self.list_events(context)
+            return self.list_events(context, limit=limit)
+        after = tuple_(DomainEventRecord.created_at, DomainEventRecord.id) > tuple_(cursor.created_at, cursor.id)
+        if limit is not None:
+            return [self._event_from_record(record) for record in self._events_page(context, after, limit=limit)]
         records = self.session.scalars(
             select(DomainEventRecord)
-            .where(
-                *visible,
-                tuple_(DomainEventRecord.created_at, DomainEventRecord.id) > tuple_(cursor.created_at, cursor.id),
-            )
+            .where(*visible, after)
             .order_by(DomainEventRecord.created_at, DomainEventRecord.id)
         ).all()
         return [self._event_from_record(record) for record in records]
+
+    def latest_event_id(self, context: TenantContext) -> str | None:
+        """The id of the caller's newest event (where a new event stream starts), or None."""
+        newest = self._events_page(context, limit=1, newest_first=True)
+        return newest[0].id if newest else None
 
     def record_event(self, event: DomainEvent) -> DomainEvent:
         record = self.session.get(DomainEventRecord, event.id)

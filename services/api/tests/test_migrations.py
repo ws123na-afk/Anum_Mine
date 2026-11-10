@@ -1544,6 +1544,35 @@ def test_migration_files_have_unique_numbers_one_head_and_one_unbroken_chain() -
     assert len(seen) == len(ids)
 
 
+def test_event_stream_retention_migration_adds_a_concurrent_index_and_scope_only_discovery() -> None:
+    versions = Path(__file__).parents[1] / "migrations" / "versions"
+    revision_text = (versions / "0162_event_stream_retention.py").read_text(encoding="utf-8")
+    assert 'revision = "0162_event_stream_retention"' in revision_text and len("0162_event_stream_retention") <= 32
+    assert 'down_revision = "0161_finance_bank_loans"' in revision_text
+    upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
+    # Expand only: one index built outside the transaction, one column grant and one select policy.
+    assert "op.drop" not in upgrade and "alter " not in upgrade and "create_table" not in upgrade and "drop table" not in upgrade
+    # The only drops: an INVALID index a failed concurrent build left behind, and the policy before it is
+    # created again, so a second run after a failure goes through.
+    assert upgrade.count("drop ") == 2 and "not i.indisvalid" in upgrade
+    assert "drop policy if exists maintenance_event_retention on domain_events" in upgrade
+    assert "autocommit_block" in upgrade and upgrade.index("create index concurrently") < upgrade.index("create policy")
+    assert "create index concurrently if not exists ix_domain_events_scope_created" in upgrade
+    assert "on domain_events (tenant_id, workspace_id, created_at, id)" in upgrade
+    # Discovery sees the scope of old events only: no content column, no write, nothing bypasses RLS.
+    assert "grant select (tenant_id, workspace_id) on domain_events to anum_maintenance" in upgrade
+    assert "create policy maintenance_event_retention on domain_events" in upgrade
+    assert "for select to anum_maintenance" in upgrade and "interval '{min_retention_days} days'" in upgrade
+    assert "bypassrls" not in upgrade and "security definer" not in upgrade and "audit_records" not in upgrade
+    downgrade = revision_text.split("def downgrade", 1)[1].lower()
+    assert "drop index concurrently if exists ix_domain_events_scope_created" in downgrade
+    assert "drop policy if exists maintenance_event_retention" in downgrade
+    # The job and the policy agree on the shortest period.
+    from anum_api import event_retention
+
+    assert f"MIN_RETENTION_DAYS = {event_retention.MIN_RETENTION_DAYS}" in revision_text
+
+
 def test_room_geometry_file_rename_kept_its_revision_ids() -> None:
     # Production databases store revision ids, not file names: the file moved from 0099 to 0100
     # (finding H-12) and its ids stayed exactly as they were.

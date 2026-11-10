@@ -120,8 +120,11 @@ class AnumRepository(Protocol):
         limit: int,
     ) -> tuple[list[Approval], bool]: ...
     def summarize_approvals(self, context: TenantContext, now: datetime) -> ApprovalSummary: ...
-    def list_events(self, context: TenantContext) -> list[DomainEvent]: ...
-    def list_events_after(self, context: TenantContext, event_id: str) -> list[DomainEvent]: ...
+    def list_events(self, context: TenantContext, *, limit: int | None = None) -> list[DomainEvent]: ...
+    def list_events_after(
+        self, context: TenantContext, event_id: str, *, limit: int | None = None
+    ) -> list[DomainEvent]: ...
+    def latest_event_id(self, context: TenantContext) -> str | None: ...
     def record_event(self, event: DomainEvent) -> DomainEvent: ...
     def get_approval_policy(self, context: TenantContext) -> WorkspaceApprovalPolicy: ...
     def save_approval_policy(
@@ -452,19 +455,29 @@ class InMemoryRepository:
             if self.get_task(approval.task_id, context)
         ]
 
-    def list_events(self, context: TenantContext) -> list[DomainEvent]:
-        return [
+    def list_events(self, context: TenantContext, *, limit: int | None = None) -> list[DomainEvent]:
+        """The caller's events oldest first; with ``limit`` only the first that many."""
+        events = [
             event
             for event in self.store.events
             if event.tenant_id == context.tenant_id
             and (event.workspace_id is None or event.workspace_id == context.workspace_id)
         ]
+        return events if limit is None else events[:limit]
 
-    def list_events_after(self, context: TenantContext, event_id: str) -> list[DomainEvent]:
-        """The caller's events after ``event_id``; the whole list when it is unknown."""
+    def list_events_after(
+        self, context: TenantContext, event_id: str, *, limit: int | None = None
+    ) -> list[DomainEvent]:
+        """The caller's events after ``event_id`` (at most ``limit``); from the start when it is unknown."""
         events = self.list_events(context)
         index = next((i for i, event in enumerate(events) if event.id == event_id), None)
-        return events if index is None else events[index + 1 :]
+        events = events if index is None else events[index + 1 :]
+        return events if limit is None else events[:limit]
+
+    def latest_event_id(self, context: TenantContext) -> str | None:
+        """The id of the caller's newest event (where a new event stream starts), or None."""
+        events = self.list_events(context)
+        return events[-1].id if events else None
 
     def list_approvals_for_update(self, context: TenantContext) -> list[Approval]:
         return self.list_approvals(context)

@@ -164,7 +164,7 @@ async def live_event_source(
     *,
     hub: RealtimeHub,
     context: TenantContext,
-    list_events: Callable[[], list[DomainEvent]],
+    list_events: Callable[[str | None], list[DomainEvent]],
     is_disconnected: Callable[[], Awaitable[bool]],
     task_id: str | None = None,
     follow: bool = True,
@@ -172,6 +172,8 @@ async def live_event_source(
     keepalive_seconds: float = 15.0,
     fallback_poll_seconds: float = 1.0,
     visible: Callable[[DomainEvent], bool] | None = None,
+    latest_event_id: Callable[[], str | None] | None = None,
+    page_size: int | None = None,
 ) -> AsyncIterator[str]:
     """SSE stream fed by the bus, with persisted-history replay and catch-up.
 
@@ -179,6 +181,12 @@ async def live_event_source(
     between the two; duplicates (at-least-once delivery, replay overlap) are
     suppressed by event id. When the bus is unavailable or this listener
     overflowed, the stream catches up from the repository instead.
+
+    ``list_events(cursor)`` returns the persisted events after ``cursor`` (from the
+    start for ``None``), at most ``page_size`` of them when one is given: a full page
+    is followed by another read, so a catch-up never loads the whole history at once.
+    A following stream opened without ``last_event_id`` starts at ``latest_event_id()``
+    when that is given: it sends what happens from now on, not the history.
     """
 
     def matches(event: DomainEvent) -> bool:
@@ -191,26 +199,34 @@ async def live_event_source(
     seen = _RecentIds()
     repository_cursor = last_event_id
 
-    async def catch_up() -> list[DomainEvent]:
+    async def catch_up() -> AsyncIterator[DomainEvent]:
         nonlocal repository_cursor
-        # A blocking database read: never on the event loop, where a slow query or a
-        # wait for a pooled connection would stall every request of the API.
-        events = await asyncio.to_thread(list_events)
-        if repository_cursor:
-            index = next(
-                (i for i, event in enumerate(events) if event.id == repository_cursor), None
-            )
-            if index is not None:
-                events = events[index + 1 :]
-        if events:
-            repository_cursor = events[-1].id
-        fresh = [event for event in events if matches(event) and event.id not in seen]
-        for event in fresh:
-            seen.add(event.id)
-        return fresh
+        while True:
+            # A blocking database read: never on the event loop, where a slow query or a
+            # wait for a pooled connection would stall every request of the API.
+            events = await asyncio.to_thread(list_events, repository_cursor)
+            full = page_size is not None and len(events) >= page_size
+            if repository_cursor:
+                index = next(
+                    (i for i, event in enumerate(events) if event.id == repository_cursor), None
+                )
+                if index is not None:
+                    events = events[index + 1 :]
+            if events:
+                # The cursor moves past everything read, also what the filters drop, so
+                # a stream that matches nothing does not read the same rows every poll.
+                repository_cursor = events[-1].id
+            for event in events:
+                if matches(event) and event.id not in seen:
+                    seen.add(event.id)
+                    yield event
+            if not full or not events:
+                return
 
     async with hub.listen(context) as listener:
-        for event in await catch_up():
+        if follow and not repository_cursor and latest_event_id is not None:
+            repository_cursor = await asyncio.to_thread(latest_event_id)
+        async for event in catch_up():
             yield format_sse(event)
         if not follow:
             return
@@ -220,11 +236,9 @@ async def live_event_source(
             if listener.lagged or not hub.live:
                 listener.lagged = False
                 listener.drain()
-                caught_up = await catch_up()
-                for event in caught_up:
-                    yield format_sse(event)
-                if caught_up:
+                async for event in catch_up():
                     idle = 0.0
+                    yield format_sse(event)
             wait = keepalive_seconds - idle if hub.live else fallback_poll_seconds
             event = await listener.next(timeout=max(0.05, min(wait, keepalive_seconds)))
             if event is None:

@@ -21,7 +21,7 @@ All paths are under `/api/v1`. Lists are newest first and keyset-paged: `cursor`
 | `POST /tasks/bulk` | per task, as its single route | `{action: archive \| unarchive \| cancel, task_ids: [...]}`, 1-100 unique ids. |
 | `GET /tasks/{id}/runs` | `task:read` | Every run with its steps; `limit` 1-100 (default 20). |
 | `GET /tasks/{id}/latest-run` | `task:read` | The newest run; `404` when the task never ran. |
-| `GET /tasks/{id}/events` | `task:read` and `event:read` | The task's domain events (correlation id = task id); `limit` 1-200 (default 50). |
+| `GET /tasks/{id}/events` | `task:read` and `event:read` | The task's domain events (correlation id = task id); `limit` 1-200 (default 50). Events older than the [event history](realtime.md#event-history) retention (90 days by default) are no longer listed; runs, steps and approvals stay. |
 | `GET /tasks/{id}/export?format=json\|markdown` | `task:read` | Download the run log (below). |
 | `GET /agent-runs/{run_id}` | `task:read` | One run. |
 | `POST /agent-runs/{run_id}/resume` | `task:run` | Resume a run stranded at an executable checkpoint (a worker stopped mid-run). |

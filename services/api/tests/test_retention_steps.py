@@ -102,3 +102,16 @@ def test_every_daily_step_names_a_function_that_exists_and_takes_its_arguments()
         accepted = inspect.signature(step).parameters
         assert "dry_run" in accepted, name
         assert ("batch_size" in accepted) is takes_batch_size, name
+
+
+def test_event_retention_setting_is_off_or_at_least_a_week() -> None:
+    from pydantic import ValidationError
+
+    from anum_api.settings import Settings
+
+    assert Settings().event_retention_days == 90
+    assert Settings(event_retention_days=0).event_retention_days == 0
+    assert Settings(event_retention_days=7).event_retention_days == 7
+    for refused in (-1, 1, 6, 3651):
+        with pytest.raises(ValidationError):
+            Settings(event_retention_days=refused)

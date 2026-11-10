@@ -21,7 +21,8 @@ reported under ``whatsapp``, deletes what ANUM keeps of each Email Center mailbo
 retention (``anum_api.mail_retention``), reported under ``mail``, deletes call recordings
 past their retention (``anum_api.calls.retention``), reported under ``call_recordings``, and
 deletes in-app calls that ended more than ``ANUM_CALLS_RETENTION_DAYS`` ago
-(``anum_api.app_calls``), reported under ``app_calls``, and, last, deletes meeting transcripts and
+(``anum_api.app_calls``), reported under ``app_calls``, deletes workspace events older than ``ANUM_EVENT_RETENTION_DAYS``
+(``anum_api.event_retention``), reported under ``events``, and deletes meeting transcripts and
 reception visitor records past each workspace's retention (``anum_api.record_retention``, owner decision O5),
 reported under ``record_retention``, and then sends document expiry reminders and empties the document
 vault's trash (``anum_api.vault.jobs``), reported under ``documents``, so the daily retention CronJob
@@ -101,6 +102,8 @@ STEPS: tuple[tuple[str, str, str, bool], ...] = (
     ("mail", ".mail_retention", "purge", True),
     ("call_recordings", ".calls.retention", "purge", True),
     ("app_calls", ".app_calls", "purge_retention", True),
+    # Workspace events older than ANUM_EVENT_RETENTION_DAYS (docs/realtime.md#event-history).
+    ("events", ".event_retention", "purge", True),
     # On SIGTERM it finishes the workspace in progress and stops (``stopped: true``).
     ("record_retention", ".record_retention", "purge", True),
     ("attendance", ".attendance.jobs", "run", True),  # docs/attendance.md#daily-job

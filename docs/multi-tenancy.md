@@ -63,6 +63,7 @@ Some jobs must find work in every tenant:
 - the voice transcript purge (expired 30-day transcripts, [Voice](voice.md#storage-and-retention));
 - the retrieval index purge (index rows of expired memories, [Memory](memory.md#retention); migration `0015_retrieval_retention`);
 - the conversation retention purge (conversations idle past `ANUM_CONVERSATION_RETENTION_DAYS`, [Conversations](conversations.md#retention); migration `0019_conversation_retention`);
+- the event history purge (events older than `ANUM_EVENT_RETENTION_DAYS`, [Realtime](realtime.md#event-history); migration `0162_event_stream_retention`);
 - `python -m anum_api.rotate_secrets` (workspaces with an encrypted provider key or integration credential, developer projects with an encrypted token, every WhatsApp account, every mailbox that holds an OAuth token, tyre connections, meeting connectors, marketing accounts, commerce connectors and customers and automation webhook triggers that hold a ciphertext: ids and scope only, never a ciphertext; migrations `0030`, `0032`, `0033`, `0035`, `0037_tyre_planning`, `0038_commerce`, `0043_meetings`, `0040_marketing`, `0049_automation_triggers` and `0050_rotation_retention`; [Runbooks](runbooks.md#rotating-anum_secrets_key));
 - the email background sync (connected mailboxes due a sync, [Email](email.md); migration `0035_email_inbox`);
 - the WhatsApp retention purge (workspaces with conversations at least a day old; each workspace's retention is read inside its own RLS context, [WhatsApp](whatsapp.md#retention); migration `0050_rotation_retention`).
