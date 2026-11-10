@@ -17,6 +17,7 @@ import io
 from collections.abc import Iterator
 from pathlib import Path
 from types import SimpleNamespace
+from unittest import mock
 from urllib.parse import urlparse
 from uuid import uuid4
 
@@ -25,6 +26,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from moto import mock_aws
 
+from anum_api import files as files_module
 from anum_api.files import (
     InMemoryObjectStorage,
     LocalObjectStorage,
@@ -101,6 +103,34 @@ def _stream_round_trip(storage: object, key: str = "tenants/t/workspaces/w/lifec
     # A missing object is reported when the stream is opened, before anything is sent.
     with pytest.raises(FileNotFoundError):
         storage.open_stream(key)  # type: ignore[attr-defined]
+
+
+def test_a_stream_closed_before_its_first_read_closes_the_source(tmp_path: Path, moto_s3: None) -> None:
+    """``_chunks`` was a generator: ``close()`` on one that had not started skipped its ``finally``,
+    so a caller that opened a stream and then gave it up (the export download whose audit write
+    failed) leaked the file handle or the S3 body."""
+    key = workspace_object_key("tenant_a", "workspace_a", "lifecycle", "job_1", "export.zip")
+    config = _s3_config()
+    stores = [LocalObjectStorage(tmp_path), InMemoryObjectStorage(), S3ObjectStorage(create_s3_client(config), config.s3_bucket, create_bucket=True)]
+    for storage in stores:
+        storage.put(key, b"zip bytes", "application/zip")
+        sources: list[object] = []
+        original = files_module._chunks
+
+        def tracking(source, chunk_size, _sources=sources, _original=original):  # type: ignore[no-untyped-def]
+            source.close = mock.Mock(wraps=source.close)  # botocore's StreamingBody has no ``closed`` of its own
+            _sources.append(source)
+            return _original(source, chunk_size)
+
+        with mock.patch.object(files_module, "_chunks", tracking):
+            stream = storage.open_stream(key)
+        assert len(sources) == 1
+        stream.close()  # type: ignore[attr-defined]
+        assert sources[0].close.called, type(storage).__name__  # type: ignore[attr-defined]
+        # Reading it all still closes the source, and a stream read to its end answers nothing more.
+        stream = storage.open_stream(key, 4)
+        assert b"".join(stream) == b"zip bytes"
+        assert list(stream) == []
 
 
 def test_local_and_in_memory_storage_stream_objects_in_and_out(tmp_path: Path) -> None:

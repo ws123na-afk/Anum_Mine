@@ -65,13 +65,34 @@ class ObjectStorage(Protocol):
     def open_stream(self, key: str, chunk_size: int = STREAM_CHUNK_BYTES) -> Iterator[bytes]: ...
 
 
-def _chunks(source: BinaryIO, chunk_size: int) -> Iterator[bytes]:
-    """``source`` in chunks; closes it when the reader finishes or goes away."""
-    try:
-        while chunk := source.read(chunk_size):
-            yield chunk
-    finally:
-        source.close()
+class _ChunkStream:
+    """``source`` in chunks; closes it when the reader finishes, goes away, or calls ``close()``.
+
+    Not a plain generator on purpose: ``close()`` on a generator that has not started skips
+    its ``finally``, so a caller that opened a stream and then gave it up before the first
+    read (the export download whose audit write failed) leaked the file handle or S3 body.
+    """
+
+    def __init__(self, source: BinaryIO, chunk_size: int) -> None:
+        self.source, self.chunk_size = source, chunk_size
+        self._done = False
+
+    def __iter__(self) -> Iterator[bytes]:
+        if self._done:
+            return  # read to the end or closed: nothing more, like a finished generator
+        try:
+            while chunk := self.source.read(self.chunk_size):
+                yield chunk
+        finally:
+            self.close()
+
+    def close(self) -> None:
+        self._done = True
+        self.source.close()
+
+
+def _chunks(source: BinaryIO, chunk_size: int) -> _ChunkStream:
+    return _ChunkStream(source, chunk_size)
 
 
 logger = logging.getLogger(__name__)

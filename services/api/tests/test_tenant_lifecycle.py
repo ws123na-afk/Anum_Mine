@@ -397,6 +397,77 @@ def test_export_runs_in_the_background_and_downloads_with_a_signed_link(client: 
     assert {"organisation.export.requested", "organisation.export.ready", "organisation.export.link_issued", "organisation.export.downloaded"} <= actions
 
 
+@pytest.mark.parametrize("backend", ["local", "memory", "s3"])
+def test_a_download_whose_audit_write_fails_leaves_no_open_archive_handle(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch, tmp_path: Path, backend: str
+) -> None:
+    """download_export opened the archive, then wrote the audit record; when that write failed it
+    called close() on a generator that had not started, which skips the generator's finally, so
+    the file handle (local) or the S3 body stayed open."""
+    from types import SimpleNamespace
+
+    from moto import mock_aws
+
+    from anum_api import files as files_module
+    from anum_api.files import (
+        InMemoryObjectStorage,
+        LocalObjectStorage,
+        S3ObjectStorage,
+        create_s3_client,
+    )
+    from anum_api.repository import InMemoryRepository
+
+    moto = mock_aws()
+    if backend == "s3":
+        moto.start()
+        config = SimpleNamespace(s3_endpoint="", s3_region="us-east-1", s3_bucket="anum-test", s3_access_key="test-access", s3_secret_key="test-secret")
+        storage = S3ObjectStorage(create_s3_client(config), config.s3_bucket, create_bucket=True)
+    elif backend == "local":
+        storage = LocalObjectStorage(tmp_path)
+    else:
+        storage = InMemoryObjectStorage()
+    original_storage = file_store.storage
+    monkeypatch.setattr(file_store, "storage", storage)
+    try:
+        _put_file(TENANT_A, WORKSPACE_A, "notes.txt", b"hello from A")
+        job_id = client.post("/api/v1/organization/lifecycle/exports", headers=ADMIN_A).json()["id"]
+        assert lifecycle.run_lifecycle_pass() == {"exported": 1}
+        link = client.post(f"/api/v1/organization/lifecycle/exports/{job_id}/link", headers=ADMIN_A).json()["url"]
+
+        sources: list[object] = []
+        original_chunks = files_module._chunks
+
+        def tracking(source, chunk_size):  # type: ignore[no-untyped-def]
+            source.close = mock.Mock(wraps=source.close)  # botocore's StreamingBody has no ``closed`` of its own
+            sources.append(source)
+            return original_chunks(source, chunk_size)
+
+        monkeypatch.setattr(files_module, "_chunks", tracking)
+        real_record_audit = InMemoryRepository.record_audit
+
+        def failing_record_audit(self, record):  # type: ignore[no-untyped-def]
+            if record.action == "organisation.export.downloaded":
+                raise RuntimeError("audit store unavailable")
+            return real_record_audit(self, record)
+
+        monkeypatch.setattr(InMemoryRepository, "record_audit", failing_record_audit)
+        with pytest.raises(RuntimeError, match="audit store unavailable"):
+            client.get(link)
+        assert sources and all(source.close.called for source in sources), f"{backend}: the archive stayed open after the audit write failed"  # type: ignore[attr-defined]
+        assert not [r for r in store.audit_records if r.action == "organisation.export.downloaded"]
+
+        # Once the audit write works again the same link downloads the archive, and reading it closes the source.
+        monkeypatch.setattr(InMemoryRepository, "record_audit", real_record_audit)
+        download = client.get(link)
+        assert download.status_code == 200 and zipfile.ZipFile(io.BytesIO(download.content)).read(f"files/{WORKSPACE_A}/file_notes_txt/notes.txt") == b"hello from A"
+        assert all(source.close.called for source in sources)  # type: ignore[attr-defined]
+    finally:
+        file_store.clear()  # while the storage (and moto) is still there; the client fixture clears again
+        file_store.storage = original_storage
+        if backend == "s3":
+            moto.stop()
+
+
 def test_export_archive_is_streamed_to_local_storage_and_back_never_held_in_memory(
     client: TestClient, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

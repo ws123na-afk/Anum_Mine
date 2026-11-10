@@ -564,7 +564,9 @@ def download_export(token: str) -> StreamingResponse:
         with lifecycle_unit(context, require_membership=False) as (_, repository):
             repository.record_audit(_audit(context, "organisation.export.downloaded", job.id, {"job_id": job.id, "bytes": job.archive_bytes}))
     except BaseException:
-        chunks.close()  # type: ignore[attr-defined]  # the opened object, when the audit record cannot be written
+        # The audit record could not be written: close the opened file handle or S3 body
+        # (files._ChunkStream.close works before the first read; a generator's did not).
+        chunks.close()  # type: ignore[attr-defined]
         raise
     name = f"anum-organisation-{claims.tenant_id}-{job.requested_at:%Y%m%d}.zip"
     headers = {"Content-Disposition": f'attachment; filename="{name}"', "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"}
