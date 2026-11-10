@@ -5,6 +5,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Bundle
 import android.speech.RecognizerIntent
+import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
@@ -24,6 +25,13 @@ import java.util.Locale
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
+        // Screen privacy, as in the Flutter app (docs/mobile.md#screen-privacy): the window is
+        // secure, so screenshots, screen recordings, casting to an insecure display and the
+        // recent-apps thumbnail show nothing of the workspace.
+        window.setFlags(
+            WindowManager.LayoutParams.FLAG_SECURE,
+            WindowManager.LayoutParams.FLAG_SECURE,
+        )
         super.onCreate(savedInstanceState)
         val vault = TokenVault(applicationContext)
         val context = SessionContext("tenant_local", "workspace_foundation", "user_local", setOf("owner", "member"))

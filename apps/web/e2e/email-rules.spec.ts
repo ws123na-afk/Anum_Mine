@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { openNavMenu } from './support/navMenu';
 import { mockMailApi } from './support/mailApi';
 import { mockMailDirectory } from './support/mailDirectoryApi';
 import { mockMailRules, ruleHash, settingsHash, type RulesOptions } from './support/mailRulesApi';
@@ -125,6 +126,8 @@ test('the sidebar badge shows the background count while the Email page is close
   await mockMailApi(page);
   const { calls } = await mockMailRules(page, { unreadTotal: 9 });
   await page.goto('/#home');
+  // On a phone the entry and its badge are in the navigation drawer.
+  await openNavMenu(page);
   const email = page.getByRole('navigation', { name: 'Primary' }).getByRole('button', { name: /Email/ }).first();
   await expect(email.locator('.navCount')).toHaveText('9');
   expect(calls.unreadReads).toBeGreaterThan(0);

@@ -167,7 +167,9 @@ def test_maintenance_role_cannot_read_ciphertexts_or_write(
             "select api_key_ciphertext from workspace_model_configs",
             "update workspace_model_configs set api_key_ciphertext = null",
             "select id from audit_records",
-            "select id from tasks",
+            # 0163_private_tasks grants the role a task's id and workspace (its row policies read them
+            # for reminders and counts); the task's content stays out of reach.
+            "select prompt from tasks",
         ):
             with pytest.raises(DBAPIError, match="permission denied"):
                 with connection.begin():

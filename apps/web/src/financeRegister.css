@@ -40,7 +40,8 @@
 .fregSearch { align-items: center; display: flex; gap: var(--d-s2); position: relative; }
 .fregSearch svg { color: var(--d-faint); height: 16px; inset-inline-start: 10px; pointer-events: none; position: absolute; width: 16px; }
 .fregSearch input { min-height: 40px; padding-inline-start: 32px; width: 100%; }
-.fregFilter select { width: 100%; }
+/* Five filters share a row with the search box: a tighter inline padding lets the longest labels ("All categories", "Any evidence") show in full. */
+.fregFilter select { padding-inline: var(--d-s2); width: 100%; }
 .fregTable tbody tr { cursor: pointer; }
 .fregTable tbody tr:hover { background: var(--d-glass-1); }
 .fregTable tbody tr.selected { background: rgb(var(--c-ok) / .08); box-shadow: inset 3px 0 0 var(--d-accent); }
@@ -49,6 +50,8 @@
 .fregDate { color: var(--d-muted); white-space: nowrap; }
 .fregDesc { max-width: 320px; min-width: 160px; }
 .fregDesc strong { display: block; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* The category and status under the merchant: phones only, where their columns are hidden. */
+.fregRowMeta { display: none; }
 .fregDesc small { color: var(--d-muted); display: block; font-size: var(--text-xs); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .fregCat { background: rgb(var(--c-ok) / .1); border: 1px solid rgb(var(--c-ok) / .25); border-radius: var(--d-r-sm); color: var(--d-text); display: inline-block; font-size: var(--text-xs); font-weight: 600; padding: 1px 8px; white-space: nowrap; }
 .fregCat.cat-income { color: var(--d-ok); }
@@ -163,13 +166,34 @@
   .facctLayout { grid-template-columns: minmax(0, 1fr); }
   .facctSide { grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
 }
+/* The transactions table gives up columns as its card narrows (the sidebar takes 248 px above 760 px),
+   so Amount never leaves the screen: Account and Receipt first, then Source; from 1100 px down the
+   category and status move under the merchant, and on phones the date does too. The row's drawer
+   keeps every field. */
+@media (max-width: 1365px) { .fregTable .fregHideMd { display: none; } }
+@media (max-width: 1279px) { .fregTable .fregHideSm { display: none; } }
 @media (max-width: 1023px) {
   .fregRecon { grid-template-columns: minmax(0, 1fr); }
   .fregHideMd { display: none; }
 }
+@media (max-width: 1100px) {
+  .fregHideXs { display: none; }
+  .fregDesc { max-width: none; min-width: 0; }
+  .fregDesc strong { overflow: visible; overflow-wrap: anywhere; white-space: normal; }
+  .fregRowMeta { align-items: center; display: flex; flex-wrap: wrap; gap: var(--d-s1); margin-top: var(--d-s1); }
+  .fregRowDate { display: none; }
+  .fregRowMeta .fregType { color: var(--d-muted); display: inline; font-size: var(--text-xs); }
+}
 @media (max-width: 760px) {
+  /* Phones: the stack above the table is shorter. The four figures sit two to a row without their
+     icon tiles, and the reconciliation card keeps its figures and drops the paragraph that explains
+     importing (the Imports tab says it where it is done). */
+  .fregPage .finKpis ul { gap: var(--d-s2); grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .fregPage .finKpi { padding: var(--d-s2) var(--d-s3); }
+  .fregPage .finKpiIcon, .fregReconNote { display: none; }
   .fregFilters > .fregSearch { flex-basis: 100%; }
-  .fregHideSm { display: none; }
+  .fregHideSm, .fregHidePhone { display: none; }
+  .fregRowDate { color: var(--d-muted); display: inline; font-size: var(--text-xs); margin-inline-end: var(--d-s1); }
   .facctSide { grid-template-columns: minmax(0, 1fr); }
   .facctActions > button { flex: 1 1 calc(50% - var(--d-s2)); justify-content: center; }
   .facctActionsTitle { flex-basis: 100%; }

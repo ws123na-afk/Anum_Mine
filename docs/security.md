@@ -180,6 +180,10 @@ Tenant data should be encrypted in transit and at rest by infrastructure default
 
 Owner decision of 12 October 2026: the phone app blocks screenshots where the platform allows it. Android sets `FLAG_SECURE` (screenshots, recordings and the recent-apps thumbnail show nothing); iOS cannot block screenshots, so the app covers itself in the app switcher and while the screen is recorded, mirrored or shared ([Flutter mobile](mobile.md#screen-privacy)). The web app and the desktop app cannot block screenshots or screen recording: a browser page or webview has no such control, so anything shown there can be captured by the person viewing it.
 
+### App lock on the phone
+
+The Flutter app has an optional app lock (off by default): the phone's fingerprint, face or screen lock in front of Finance, Books and approval decisions, or the whole app, on a cold start and after a chosen time in the background. Approving or rejecting asks again when the last unlock is older than that time. It is a guard against someone holding the unlocked phone, not a cryptographic barrier: the check's result is not bound to the session token, so the server session remains the authority and a lost phone still needs its session revoked. Android adds the `USE_BIOMETRIC` permission and iOS the Face ID usage text; ANUM stores no PIN and no biometric data, only the on or off flag, the delay and the scope, in the phone's secure storage ([Flutter mobile](mobile.md#app-lock)).
+
 ## Auditability
 
 Security-relevant events should be recorded: login, token refresh failures, tenant membership changes, role grants, integration consent, tool execution, approval decisions, memory deletion, policy changes, and administrative exports. Invitation, membership, model budget and governance changes (policy packs, role templates, approval rules, memory governance) are recorded in the append-only `audit_records` table (RLS allows select and insert only) when `ANUM_REPOSITORY_BACKEND=postgresql`; the `memory` backend keeps an in-process recorder.

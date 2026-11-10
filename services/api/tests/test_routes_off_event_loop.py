@@ -13,11 +13,19 @@ One route per pattern the fix used, through the whole app on the in-memory backe
 
 Every store opener is wrapped and any call made from a thread that runs an event loop is
 recorded, as ``test_ask_off_event_loop.py`` does for the assistant answers.
+
+Opening is not the only way onto the loop (reliability audit, November 2026): FastAPI opens
+``Depends(repository_context)`` in its thread pool, but an ``async def`` body that then calls
+``repository.list_tasks(...)`` runs that query on the event loop. 88 routes did. So every
+method of the in-memory repositories is wrapped too, and a call made on a running loop is
+recorded the same way.
 """
 
 from __future__ import annotations
 
 import asyncio
+import functools
+import inspect
 import sys
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
@@ -29,6 +37,8 @@ from fastapi.testclient import TestClient
 from anum_api import dependencies, file_policy, files, scoped_store
 from anum_api.files import file_store
 from anum_api.main import app
+from anum_api.memory import InMemoryMemoryRepository
+from anum_api.repository import InMemoryRepository
 from anum_api.retrieval import memory_retrieval_store
 
 client = TestClient(app)
@@ -58,6 +68,24 @@ def on_loop(monkeypatch: pytest.MonkeyPatch) -> Iterator[list[str]]:
         if getattr(module, "__name__", "").startswith("anum_api") and getattr(module, "open_scoped_store", None) is original_scoped:
             monkeypatch.setattr(module, "open_scoped_store", guard("open_scoped_store", original_scoped))
     monkeypatch.setattr(dependencies, "_unit_of_work", guard("_unit_of_work", dependencies._unit_of_work))
+
+    def guard_method(name: str, original: Callable[..., Any]) -> Callable[..., Any]:
+        @functools.wraps(original)
+        def wrapped(*args: Any, **kwargs: Any) -> Any:
+            try:
+                asyncio.get_running_loop()
+                calls.append(name)
+            except RuntimeError:
+                pass  # a worker thread: allowed
+            return original(*args, **kwargs)
+
+        return wrapped
+
+    # A repository or store method called on the loop is database work on the loop.
+    for repository_class in (InMemoryRepository, InMemoryMemoryRepository):
+        for name, member in vars(repository_class).items():
+            if inspect.isfunction(member) and not name.startswith("_"):
+                monkeypatch.setattr(repository_class, name, guard_method(f"{repository_class.__name__}.{name}", member))
     monkeypatch.setattr(file_store, "storage", files.InMemoryObjectStorage())
     file_store.clear()
     memory_retrieval_store.clear()
@@ -116,3 +144,32 @@ def test_one_email_and_one_lead_list_read_off_the_loop(on_loop: list[str]) -> No
     assert client.get("/api/v1/business/lead-sources/whatsapp", headers=HEADERS).status_code == 200
     assert client.get("/api/v1/business/lead-duplicates", headers=HEADERS).status_code == 200
     assert on_loop == [], f"opened on the event loop: {on_loop}"
+
+
+def test_routes_that_take_the_request_repository_never_call_it_on_the_loop(on_loop: list[str]) -> None:
+    """One route per module the audit named: lists, summaries, a create whose function other
+    modules await, a write, and the routes that stay ``async`` for an awaited step."""
+    assert client.post("/api/v1/tenants", headers=HEADERS, json={"name": "Off loop"}).status_code in {201, 409}
+    assert client.post("/api/v1/workspaces", headers=HEADERS, json={"name": "Off loop"}).status_code in {201, 409}
+    assert client.post("/api/v1/workspace-memberships/current", headers=HEADERS).status_code in {200, 201}
+    created = client.post("/api/v1/tasks", headers=HEADERS, json={"title": "Off loop", "prompt": "Say hi"})
+    assert created.status_code == 201, created.text
+    task_id = created.json()["id"]
+    reads = [
+        "/api/v1/tasks", "/api/v1/tasks/summary", f"/api/v1/tasks/{task_id}", f"/api/v1/tasks/{task_id}/events",
+        f"/api/v1/tasks/{task_id}/runs", f"/api/v1/tasks/{task_id}/export", "/api/v1/events", "/api/v1/approvals",
+        "/api/v1/approvals/page", "/api/v1/approvals/summary", "/api/v1/approval-policy", "/api/v1/workspaces/current",
+        "/api/v1/workspaces/current/permissions", "/api/v1/workspace-memberships/current", "/api/v1/workspace-members",
+        "/api/v1/workspace-members/summary", "/api/v1/workspace-invitations", "/api/v1/audit-records",
+        "/api/v1/audit-records/actions", "/api/v1/commands", "/api/v1/commands/suggestions", "/api/v1/quick-commands",
+        "/api/v1/home/commands", "/api/v1/autonomy/actions", "/api/v1/autonomy/settings", "/api/v1/autonomy/rules",
+        "/api/v1/autonomy/guardrails", "/api/v1/autonomy/proposals", "/api/v1/onboarding", "/api/v1/memories",
+    ]
+    for path in reads:
+        response = client.get(path, headers=HEADERS)
+        assert response.status_code == 200, f"{path}: {response.status_code} {response.text[:200]}"
+    updated = client.put(f"/api/v1/tasks/{task_id}", headers=HEADERS, json={"title": "Off loop, renamed"})
+    assert updated.status_code == 200, updated.text
+    memory = client.post("/api/v1/memories", headers=HEADERS, json={"task_id": task_id, "content": "Remember this.", "source_type": "user_note"})
+    assert memory.status_code == 201, memory.text
+    assert on_loop == [], f"on the event loop: {sorted(set(on_loop))}"

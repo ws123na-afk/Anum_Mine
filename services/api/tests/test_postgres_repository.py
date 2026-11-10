@@ -270,9 +270,11 @@ def test_events_after_a_cursor_follow_list_order_and_unknown_cursors_read_all(
         assert ordered == [event.id for event in events]
         for index, event_id in enumerate(ordered):
             assert [e.id for e in repository.list_events_after(context, event_id)] == ordered[index + 1 :]
-        # A missing cursor, or one from another workspace, replays the whole list.
-        assert [e.id for e in repository.list_events_after(context, "event_missing")] == ordered
-        assert [e.id for e in repository.list_events_after(context, hidden.id)] == ordered
+        # A missing cursor (retention purged it), or one from another workspace, starts at the
+        # newest event, never at the oldest: a resumed stream used to replay the whole history.
+        assert [e.id for e in repository.list_events_after(context, "event_missing")] == ordered[-1:]
+        assert [e.id for e in repository.list_events_after(context, hidden.id)] == ordered[-1:]
+        assert [e.id for e in repository.list_events_after(context, hidden.id, limit=50)] == ordered[-1:]
 
 
 def test_list_tasks_is_keyset_paged_newest_first(

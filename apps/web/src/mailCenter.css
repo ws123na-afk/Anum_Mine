@@ -31,7 +31,7 @@
 
 .mailcSearch { display: grid; gap: var(--d-s2); min-width: 0; }
 .mailcSearchRow { display: flex; gap: var(--d-s2); min-width: 0; }
-.mailcSearchRow input { flex: 1 1 auto; min-height: 40px; min-width: 0; width: auto; }
+.mailcSearchRow input { flex: 1 1 auto; min-height: 40px; min-width: 0; padding-inline: var(--d-s2); width: auto; }
 .mailcFilters { align-items: center; border: 0; display: flex; flex-wrap: wrap; gap: var(--d-s2); margin: 0; min-width: 0; padding: 0; }
 .mailcChip {
   align-items: center; border: 1px solid var(--d-line); border-radius: 999px; cursor: pointer; display: inline-flex; font-size: var(--text-sm);

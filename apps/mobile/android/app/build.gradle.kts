@@ -109,3 +109,10 @@ kotlin {
 flutter {
     source = "../.."
 }
+
+dependencies {
+    // Theme.AppCompat for the activity themes (res/values/styles.xml): the app
+    // lock's system prompt needs an AppCompat theme on Android 9 and older
+    // (docs/mobile.md#app-lock).
+    implementation("androidx.appcompat:appcompat:1.7.0")
+}

@@ -1,3 +1,4 @@
+import '../../data/readable_error.dart';
 import 'package:flutter/foundation.dart';
 
 import '../../data/api_client.dart';
@@ -40,7 +41,7 @@ class CallsList<T> extends ChangeNotifier {
       error = e.readable;
     } on Object catch (e) {
       phase = CallsPhase.error;
-      error = '$e';
+      error = readableError(e);
     }
     _notify();
   }
@@ -54,7 +55,7 @@ class CallsList<T> extends ChangeNotifier {
       items = [...items, ...page.items];
       total = page.total;
     } on Object catch (e) {
-      error = e is ApiException ? e.readable : '$e';
+      error = e is ApiException ? e.readable : readableError(e);
     } finally {
       loadingMore = false;
       _notify();
@@ -116,7 +117,7 @@ class CallsController extends ChangeNotifier {
     } on ApiException catch (e) {
       providerError = e.readable;
     } on Object catch (e) {
-      providerError = '$e';
+      providerError = readableError(e);
     } finally {
       providerLoading = false;
       _notify();
@@ -140,7 +141,7 @@ class CallsController extends ChangeNotifier {
       setupDenied = e.isPermissionDenied;
       setupError = e.readable;
     } on Object catch (e) {
-      setupError = '$e';
+      setupError = readableError(e);
     }
     _notify();
     if (!setupDenied) {

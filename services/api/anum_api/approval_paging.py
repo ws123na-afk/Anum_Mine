@@ -14,6 +14,7 @@ import binascii
 from collections.abc import Callable, Iterable
 from datetime import datetime
 from enum import StrEnum
+from typing import Any
 
 from pydantic import BaseModel, Field
 
@@ -46,6 +47,37 @@ class ApprovalSummary(BaseModel):
     approved: int = 0
     rejected: int = 0
     expired: int = 0
+
+
+# The most pending approvals a "what is waiting" read loads (pending_now). Approvals expire
+# (ANUM_APPROVAL_TTL_SECONDS, a day by default), so a workspace rarely holds more than a few.
+PENDING_READ_LIMIT = 500
+
+
+def pending_now(repository: Any, context: Any, now: datetime, *, limit: int = PENDING_READ_LIMIT) -> list[Approval]:
+    """The approvals waiting for a decision now, newest first, at most ``limit``.
+
+    Read with the paged query (``status=pending``), so the database returns the pending
+    rows only. Callers used to load every approval the workspace ever had with
+    ``list_approvals`` and pick the pending ones in Python.
+    """
+    found: list[Approval] = []
+    cursor: ApprovalCursor | None = None
+    while len(found) < limit:
+        page, more = repository.list_approvals_page(
+            context,
+            now=now,
+            status=ApprovalFilter.PENDING,
+            query=None,
+            task_id=None,
+            cursor=cursor,
+            limit=min(APPROVAL_PAGE_MAX_LIMIT, limit - len(found)),
+        )
+        found.extend(page)
+        if not more or not page:
+            break
+        cursor = (0, page[-1].created_at, page[-1].id)
+    return found
 
 
 def is_pending_now(approval: Approval, now: datetime) -> bool:

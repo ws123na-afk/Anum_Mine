@@ -1,3 +1,4 @@
+import '../../data/readable_error.dart';
 import 'package:flutter/material.dart';
 
 import '../../data/api_client.dart';
@@ -17,7 +18,7 @@ String describeIntegrationError(AnumLocalizations l, Object? error) =>
         '$message ${l.t('intOwnersOnly')}',
       ApiException(:final readable) => readable,
       null => l.t('intUnknownError'),
-      _ => '$error',
+      _ => readableError(error),
     };
 
 IconData integrationIcon(Integration i) => switch (i.kind) {

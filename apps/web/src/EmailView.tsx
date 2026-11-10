@@ -5,6 +5,7 @@
 // moves, and delete for good (an approval too) act on one message or a selection. Phase 3: several
 // mailboxes (own and shared), sharing, sender identities and contacts (MailDirectory.tsx), and All
 // inboxes over every readable mailbox (MailAllInboxes.tsx).
+import { listTime } from './lib/listTime';
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { HUB_FOLDERS_SLOT } from './lib/emailHub';
@@ -452,7 +453,7 @@ function Mailbox({ setup, account, owner, note, setNote, header, onOpenApprovals
               onChange={() => undefined} onClick={(e) => { setSelected((s) => toggleSelection(items, s, m.uid, anchor, e.shiftKey)); setAnchor(m.uid); }} /></label>}
             {canAct && <StarButton flagged={m.flagged} subject={subject} disabled={busy !== null} onToggle={() => void act(m.flagged ? 'unstar' : 'star', [m.uid])} />}
             <button type="button" className="mailRowOpen" data-uid={m.uid} aria-current={active ? 'true' : undefined} onFocus={() => setCursor(m.uid)} onClick={() => open(m.uid)}>
-              <span className="mailRowTop"><strong dir="auto">{personLabel(person) || t('mail.draft.noRecipient')}</strong><time dateTime={m.date}>{when(m.date)}</time></span>
+              <span className="mailRowTop"><strong dir="auto">{personLabel(person) || t('mail.draft.noRecipient')}</strong><time dateTime={m.date} title={when(m.date)}>{listTime(m.date)}</time></span>
               <span className="mailRowSubject" dir="auto">{!m.seen && <span className="mailUnreadDot" role="img" aria-label={t('mail.list.unread')} />}{subject}{m.maybe_attachments && <Paperclip className="mailClip" role="img" aria-label={t('mail.list.attachment')} />}</span>
               <RowLabels label={mailLabels.labels.get(m.uid)} />
             </button>

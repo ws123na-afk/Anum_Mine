@@ -1,6 +1,14 @@
 import re
 
-from pydantic import AliasChoices, BaseModel, Field, SecretStr, ValidationInfo, field_validator
+from pydantic import (
+    AliasChoices,
+    BaseModel,
+    Field,
+    SecretStr,
+    ValidationInfo,
+    field_validator,
+    model_validator,
+)
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -54,6 +62,11 @@ DEFAULT_MODEL_PRICES: dict[str, ModelPrice] = {
 SIGN_IN_PROVIDERS = ("google", "apple")
 
 
+# Worker threads for asyncio.to_thread (docs/realtime.md#worker-threads).
+WORKER_THREADS_MIN = 4
+WORKER_THREADS_MAX = 256
+
+
 class Settings(BaseSettings):
     app_name: str = "ANUM API"
     environment: str = "local"
@@ -67,6 +80,15 @@ class Settings(BaseSettings):
     database_max_overflow: int = Field(default=20, ge=0, le=500)
     database_pool_timeout_seconds: float = Field(default=10.0, gt=0, le=120)
     database_lock_timeout_ms: int = Field(default=10_000, ge=0, le=600_000)
+    # Worker threads for ``asyncio.to_thread`` (docs/realtime.md#worker-threads): every store
+    # step of an async route, stream poll and background job runs in one. Python's default
+    # is min(32, CPUs + 4), which is 6 on a 2-CPU server: six slow reads then made every
+    # other one queue. The threads mostly wait for the database, so the count follows the
+    # connection pool, not the CPUs: unset, it is ``database_pool_size + database_max_overflow``
+    # (30 with the defaults; 4 to 256); 0 means the same. An explicit ANUM_WORKER_THREADS above that sum is
+    # refused at startup: the extra threads could only wait for a connection, up to
+    # ``database_pool_timeout_seconds``, and then fail (``_worker_threads_fit_the_pool``).
+    worker_threads: int = Field(default=0, ge=0, le=256, description="0 (unset) derives the count from the pool")
     # An inline run's claim (the task set to running before the model is asked) left by
     # a process that stopped mid-run may be taken over after this long (inline_runs.py).
     inline_run_lease_seconds: float = Field(default=900.0, ge=60, le=86_400)
@@ -172,6 +194,11 @@ class Settings(BaseSettings):
     # same 30 days as voice transcripts by default; 0 keeps them until the user deletes
     # them. Migration 0019 lets discovery see only conversations idle for a day or more.
     conversation_retention_days: int = Field(default=30, ge=0, le=3650)
+    # Event history (docs/realtime.md#event-history): the daily retention job deletes
+    # ``domain_events`` rows older than this many days. Off by default (0 keeps every event):
+    # the owner chooses a period, 7 to 3650 (migration 0162 lets discovery see only events
+    # older than 7 days). Audit records are another table and are never deleted by it.
+    event_retention_days: int = Field(default=0, ge=0, le=3650)
     # Privacy (docs/privacy.md): the public URL of the deployment's privacy policy, shown
     # on the Privacy page of every client (empty: the page says the owner has not
     # published one yet), and the largest "Download my data" export the API builds; a
@@ -541,6 +568,28 @@ class Settings(BaseSettings):
         # Startup validation errors must never echo secrets (keys, passwords) into logs.
         hide_input_in_errors=True,
     )
+
+    @model_validator(mode="after")
+    def _worker_threads_fit_the_pool(self) -> "Settings":
+        connections = self.database_pool_size + self.database_max_overflow
+        if self.worker_threads == 0:
+            self.worker_threads = max(WORKER_THREADS_MIN, min(WORKER_THREADS_MAX, connections))
+            return self
+        if self.worker_threads < WORKER_THREADS_MIN:
+            raise ValueError(f"ANUM_WORKER_THREADS must be unset or 0 (derived from the pool) or {WORKER_THREADS_MIN} to {WORKER_THREADS_MAX}")
+        if self.worker_threads > max(WORKER_THREADS_MIN, connections):
+            raise ValueError(
+                f"ANUM_WORKER_THREADS ({self.worker_threads}) must not exceed ANUM_DATABASE_POOL_SIZE + ANUM_DATABASE_MAX_OVERFLOW "
+                f"({connections}): the extra threads could only wait for a connection; unset it to use the pool's size"
+            )
+        return self
+
+    @field_validator("event_retention_days")
+    @classmethod
+    def _event_retention_is_off_or_at_least_a_week(cls, value: int) -> int:
+        if 0 < value < 7:
+            raise ValueError("ANUM_EVENT_RETENTION_DAYS must be 0 (keep every event) or 7 to 3650 days")
+        return value
 
     @field_validator("model_allowed_hosts")
     @classmethod

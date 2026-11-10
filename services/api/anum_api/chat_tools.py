@@ -699,6 +699,9 @@ def _new_task(question: str, context: TenantContext) -> "Task":
         created_at=now,
         updated_at=now,
         created_by=context.user_id,
+        # The chat is private to its person, so the task it becomes is too (docs/tasks.md#private-tasks).
+        private_to=context.user_id,
+        private_kind="chat",
     )
 
 
@@ -724,6 +727,7 @@ def create_task(question: str, context: TenantContext) -> "Task":
                 {"title": task.title},
                 correlation_id=task.id,
                 created_at=task.created_at,
+                private_to=task.private_to,
             ).event
         )
     return task

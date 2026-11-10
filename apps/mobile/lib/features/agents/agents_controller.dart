@@ -1,3 +1,4 @@
+import '../../data/readable_error.dart';
 import 'package:flutter/foundation.dart';
 
 import '../../data/api_client.dart';
@@ -8,7 +9,7 @@ enum AgentsPhase { loading, ready, error }
 
 /// The server's own sentence (it says who may do what), or the error's text.
 String agentError(Object error) =>
-    error is ApiException ? error.message : '$error';
+    error is ApiException ? error.message : readableError(error);
 
 /// The Agents list: category filter, search, paging, and the catalog the
 /// editor builds from (docs/agents.md).
@@ -29,6 +30,22 @@ class AgentsController extends ChangeNotifier {
   int _generation = 0;
 
   bool get filtered => category != null || query.trim().isNotEmpty;
+
+  /// Forgets the agents and filters (sign-out); an answer on its way is dropped.
+  void reset() {
+    _generation++;
+    phase = AgentsPhase.loading;
+    items = const [];
+    counts = const {};
+    category = null;
+    query = '';
+    nextCursor = null;
+    error = null;
+    loadingMore = false;
+    catalog = null;
+    catalogError = null;
+    notifyListeners();
+  }
 
   Future<void> load() async {
     final generation = ++_generation;

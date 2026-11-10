@@ -1,3 +1,4 @@
+import '../../data/readable_error.dart';
 import 'dart:async';
 import 'dart:convert';
 
@@ -39,7 +40,7 @@ class CommandFailure {
     if (error is FormatException) {
       return CommandFailure(FailureKind.other, error.message);
     }
-    return CommandFailure(FailureKind.other, '$error');
+    return CommandFailure(FailureKind.other, readableError(error));
   }
 
   final FailureKind kind;

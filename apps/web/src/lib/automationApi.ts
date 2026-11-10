@@ -59,6 +59,7 @@ export const startRun = (workflowId: string, idempotencyKey: string) =>
 export const transitionRun = (runId: string, action: 'cancel' | 'resume' | 'retry') => apiRequest<AutomationRun>(`${base}/runs/${id(runId)}/${action}`, json('POST'));
 
 export const takeOverSchedule = (scheduleId: string) => apiRequest<AutomationSchedule>(`${base}/schedules/${id(scheduleId)}/take-over`, json('POST'));
+export const confirmSchedule = (scheduleId: string) => apiRequest<AutomationSchedule>(`${base}/schedules/${id(scheduleId)}/confirm`, json('POST'));
 
 export const listTriggerEvents = () => apiRequest<TriggerEventInfo[]>(`${base}/trigger-events`, json('GET'));
 export const listTriggers = (workflowId: string) => page<AutomationTrigger>(`${base}/triggers${query({ workflow_id: workflowId, limit: 500 })}`);
@@ -70,6 +71,7 @@ export const setTriggerEnabled = (triggerId: string, enabled: boolean) =>
   apiRequest<AutomationTrigger>(`${base}/triggers/${id(triggerId)}/${enabled ? 'enable' : 'disable'}`, json('POST'));
 export const rotateTriggerSecret = (triggerId: string) => apiRequest<TriggerWithSecret>(`${base}/triggers/${id(triggerId)}/rotate-secret`, json('POST'));
 export const takeOverTrigger = (triggerId: string) => apiRequest<AutomationTrigger>(`${base}/triggers/${id(triggerId)}/take-over`, json('POST'));
+export const confirmTrigger = (triggerId: string) => apiRequest<AutomationTrigger>(`${base}/triggers/${id(triggerId)}/confirm`, json('POST'));
 export const deleteTrigger = (triggerId: string) => remove(`${base}/triggers/${id(triggerId)}`);
 
 /** Agents an automation's task step may run as: the ones the caller can see (docs/automation.md#run-as-an-agent). */

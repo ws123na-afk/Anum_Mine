@@ -44,6 +44,13 @@ dependencies:
   # while android.builtInKotlin=false (checked in its android/build.gradle, the
   # AGP 9 note in CLAUDE.md); a major bump needs that check again.
   flutter_webrtc: 1.6.3
+  # App lock (docs/mobile.md#app-lock): the system biometric or screen-lock
+  # prompt. local_auth_android is held at 2.0.7, the last release written in
+  # Java: 2.0.8+ are Kotlin and 2.0.9+ declare only com.android.library, so
+  # they rely on AGP 9 built-in Kotlin and would compile nothing while
+  # android.builtInKotlin=false (checked in each android/build.gradle.kts).
+  local_auth: ^3.0.2
+  local_auth_android: 2.0.7
 
 dev_dependencies:
   flutter_test:

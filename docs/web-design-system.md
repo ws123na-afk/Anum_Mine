@@ -47,7 +47,7 @@ All tokens live in the first two blocks of `apps/web/src/styles.css` (dark in `:
 
 ## Shell
 
-- **Sidebar**: an opaque column (no blur), 36 px rows on desktop, the current page a raised row with the 3 px jade marker at its start. Under 761 px it becomes the scrolling pill strip.
+- **Sidebar**: an opaque column (no blur), 36 px rows on desktop, the current page a raised row with the 3 px jade marker at its start. Under 761 px it becomes a top bar with a menu button: the button opens the same navigation as a drawer from the start edge (the right in Arabic) with the same groups and folds, 44 px rows, focus kept inside, Escape or a tap outside to close, and focus back on the button (`Shell.tsx` `Sidebar`, `e2e/sidebar.spec.ts`).
 - **Header**: one row of 40 px controls: search, workspace switcher, refresh, help, notifications and the account menu. The notification count uses the danger token, not a raw red.
 - **Popovers** (notifications, account, workspace): opaque raised surface, hairline, `--d-elev-2`; no blur.
 - **Command palette**: the shared `Modal`, the current option marked by a jade bar at its start (logical in Arabic).

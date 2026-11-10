@@ -221,10 +221,7 @@ def handle_moyasar_event(issuer_tenant_id: str, payload: bytes, *, now: datetime
 
 
 def _credit(rows: Rows, amount_minor: int, now: datetime) -> None:
-    account = svc.account_of(rows)
-    if account is not None and amount_minor > 0:
-        rows.update("billing_accounts", {"tenant_id": rows.tenant_id},
-                    {"credit_balance_minor": int(account["credit_balance_minor"]) + amount_minor, "updated_at": now})
+    svc.add_gross_credit(rows, amount_minor, now)  # collected from a card: tax included
 
 
 def _apply_moyasar_payment(issuer_tenant_id: str, tenant_id: str, invoice_id: str, payment: moy.MoyasarPayment, now: datetime) -> str:

@@ -100,6 +100,15 @@ refuses "backup.persistentVolumeClaim" --set backup.enabled=true
 refuses "ANUM_CONVERSATION_RETENTION_DAYS" --set-string config.ANUM_CONVERSATION_RETENTION_DAYS=-1
 refuses "ANUM_CONVERSATION_RETENTION_DAYS" --set-string config.ANUM_CONVERSATION_RETENTION_DAYS=3651
 refuses "ANUM_CONVERSATION_RETENTION_DAYS" --set-string config.ANUM_CONVERSATION_RETENTION_DAYS=30d
+# Worker threads (docs/realtime.md#worker-threads): never more than the pool has connections (10 + 20 by default).
+refuses "ANUM_WORKER_THREADS=31 must not exceed" --set-string config.ANUM_WORKER_THREADS=31
+refuses "ANUM_WORKER_THREADS=41 must not exceed" --set-string config.ANUM_WORKER_THREADS=41 --set-string config.ANUM_DATABASE_POOL_SIZE=20 --set-string config.ANUM_DATABASE_MAX_OVERFLOW=20
+refuses "must be unset or 0 (the API derives it" --set-string config.ANUM_WORKER_THREADS=3
+refuses "must be unset or 0 (the API derives it" --set-string config.ANUM_WORKER_THREADS=many
+helm template anum "$CHART" -f "$CHART/values-staging.yaml" --set-string config.ANUM_WORKER_THREADS=30 >/dev/null || fail "the chart must accept ANUM_WORKER_THREADS=30 with the default pool (30 connections), as the API does"
+helm template anum "$CHART" -f "$CHART/values-staging.yaml" --set-string config.ANUM_WORKER_THREADS=40 --set-string config.ANUM_DATABASE_POOL_SIZE=20 \
+  --set-string config.ANUM_DATABASE_MAX_OVERFLOW=20 >/dev/null || fail "the chart must accept ANUM_WORKER_THREADS=40 with a pool of 40 connections, as the API does"
+log "accepted as expected: ANUM_WORKER_THREADS within the pool"
 refuses "ANUM_SENTRY_DSN must use https" --set config.ANUM_SENTRY_DSN=http://examplekey@errors.anum.example/1
 refuses "ANUM_SENTRY_DSN must use https" --set config.ANUM_SENTRY_DSN=http://examplekey@localhost:8000/1
 refuses "ANUM_SENTRY_DSN must use https" --set extraEnv.ANUM_SENTRY_DSN=http://examplekey@10.0.0.5:8000/1

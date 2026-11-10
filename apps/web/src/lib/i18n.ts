@@ -6,6 +6,7 @@
 import { en, type MessageKey } from './messages/en.ts';
 import { ar } from './messages/ar.ts';
 import type { Message, PluralMessage } from './messages/types.ts';
+import { SENTENCE_PLACEHOLDERS, fitSentence } from './sentence.ts';
 
 export type { MessageKey } from './messages/en.ts';
 export type { Message, PluralMessage } from './messages/types.ts';
@@ -79,10 +80,12 @@ export const FSI = '\u2068', PDI = '\u2069';
 
 function interpolate(text: string, vars: Vars | undefined, locale: Locale, isolate: boolean): string {
   if (!vars) return text;
-  return text.replace(/\{(\w+)\}/g, (whole, name: string) => {
-    const value = vars[name];
-    if (value === undefined) return whole;
-    if (typeof value === 'number') return formatNumber(value, locale);
+  return text.replace(/\{(\w+)\}/g, (whole, name: string, offset: number) => {
+    const given = vars[name];
+    if (given === undefined) return whole;
+    if (typeof given === 'number') return formatNumber(given, locale);
+    // An error's sentence gets or loses its full stop to suit the text after it (lib/sentence.ts).
+    const value = SENTENCE_PLACEHOLDERS.has(name) ? fitSentence(given, text.slice(offset + whole.length)) : given;
     // In right-to-left text, a left-to-right value (an id, a name, an English server message)
     // is isolated so its punctuation and digits do not reorder the sentence around it.
     return isolate && /[A-Za-z]/.test(value) ? `${FSI}${value}${PDI}` : value;

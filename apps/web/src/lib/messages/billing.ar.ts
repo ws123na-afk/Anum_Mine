@@ -162,6 +162,7 @@ export const billingAr: Record<keyof typeof billingEn, Message> = {
   'billing.method.card': 'بطاقة',
   'billing.method.stripe': 'بطاقة (Stripe)',
   'billing.method.other': 'أخرى',
+  'billing.method.account_credit': 'رصيد الحساب',
   'billing.invoice.title': 'الفاتورة',
   'billing.invoice.loading': 'جارٍ تحميل الفاتورة...',
   'billing.invoice.failed': 'تعذّر تحميل الفاتورة: {message}',

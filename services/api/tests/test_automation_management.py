@@ -501,6 +501,9 @@ def test_every_state_changing_automation_route_is_audited(tmp_path: Path, monkey
     ).json()
     probe.secrets.append(their_trigger["secret"])
     probe.call("POST", f"{base}/triggers/{their_trigger['trigger']['id']}/take-over", owner)
+    # The owner now runs both: confirming the automation's current steps is audited too.
+    probe.call("POST", f"{base}/schedules/{their_schedule['id']}/confirm", owner)
+    probe.call("POST", f"{base}/triggers/{their_trigger['trigger']['id']}/confirm", owner)
 
     probe.call("DELETE", f"{base}/workflows/{workflow['id']}", owner)
     probe.assert_covered()

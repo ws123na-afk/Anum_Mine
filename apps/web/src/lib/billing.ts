@@ -25,6 +25,8 @@ export interface Account {
   display_name: string | null; contact_name: string | null; contact_email: string | null; company_name: string | null;
   address_line1: string | null; address_line2: string | null; city: string | null; postal_code: string | null; country: string | null;
   vat_number: string | null; credit_balance_minor: number; state: 'active' | 'read_only';
+  /** The parts of `credit_balance_minor` (their sum): net credit lowers the next invoice before tax, tax-inclusive credit pays it after tax. */
+  credit_net_minor?: number; credit_gross_minor?: number;
 }
 export type AccountBody = Record<'contact_name' | 'contact_email' | 'company_name' | 'address_line1' | 'address_line2' | 'city' | 'postal_code' | 'country' | 'vat_number', string>;
 

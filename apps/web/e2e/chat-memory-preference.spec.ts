@@ -104,7 +104,7 @@ test('a failed save keeps the previous choice and says what to do', async ({ pag
   // uncheck() throws when that revert lands before it reads the state again.
   await toggle.click();
   await expect.poll(() => state.puts).toEqual([{ remember_conversations: false }]);
-  await expect(section.getByRole('alert')).toContainText('Your choice was not saved. Complete onboarding for this workspace first Try again.');
+  await expect(section.getByRole('alert')).toContainText('Your choice was not saved. Complete onboarding for this workspace first. Try again.');
   await expect(toggle).toBeChecked();
 });
 

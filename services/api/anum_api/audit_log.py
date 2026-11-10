@@ -204,7 +204,7 @@ def _require_reader(context: TenantContext, permission: Permission) -> None:
 
 
 @router.get("/audit-records", response_model=AuditPage)
-async def list_audit_records(
+def list_audit_records(
     limit: int = Query(default=DEFAULT_PAGE_SIZE, ge=1, le=MAX_PAGE_SIZE),
     cursor: str | None = Query(default=None, max_length=400),
     filters: AuditFilter = Depends(audit_filter),
@@ -221,7 +221,7 @@ async def list_audit_records(
 
 
 @router.get("/audit-records/actions", response_model=AuditActions)
-async def list_audit_actions(
+def list_audit_actions(
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
 ) -> AuditActions:
@@ -231,7 +231,7 @@ async def list_audit_actions(
 
 
 @router.get("/audit-records/{record_id}", response_model=AuditRecordView)
-async def get_audit_record(
+def get_audit_record(
     record_id: str,
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
@@ -301,7 +301,7 @@ def _csv_body(context: TenantContext, filters: AuditFilter) -> Iterator[str]:
 
 
 @router.get("/audit/export")
-async def export_audit(
+def export_audit(
     format: str = Query(default="json", pattern="^(json|csv)$"),
     filters: AuditFilter = Depends(audit_filter),
     context: TenantContext = Depends(tenant_context),

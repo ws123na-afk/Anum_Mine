@@ -239,8 +239,15 @@ def create_event(
     causation_id: str | None = None,
     event_id: str | None = None,
     created_at: datetime | None = None,
+    private_to: str | None = None,
 ) -> EventEnvelope:
-    """Create a canonical, tenant-scoped event with safe payload data."""
+    """Create a canonical, tenant-scoped event with safe payload data.
+
+    ``private_to``: the task's ``private_to`` when the event belongs to a task the caller holds
+    (docs/tasks.md#private-tasks). The repository stamps it on the stored event; a session that
+    is not that person's cannot see the task, so this is the one reliable source for it, and
+    PostgreSQL refuses the write from any other session.
+    """
 
     clean_subject = subject.strip()
     if not clean_subject:
@@ -264,6 +271,7 @@ def create_event(
         correlation_id=resolved_correlation,
         created_at=created_at or utc_now(),
         payload=sanitize_payload(payload or {}),
+        private_to=private_to,
     )
     return EventEnvelope(
         event=domain_event,

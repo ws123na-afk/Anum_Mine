@@ -1,3 +1,4 @@
+import '../../data/readable_error.dart';
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
@@ -38,6 +39,23 @@ class MeetingsController extends ChangeNotifier {
   bool get canCreate => setup?.canCreate ?? false;
   bool get hasMore => items.length < total;
 
+  /// Forgets the meetings and stops polling and any upload (sign-out).
+  void reset() {
+    _poll?.cancel();
+    _poll = null;
+    _upload?.cancel();
+    _upload = null;
+    uploadProgress = null;
+    phase = MeetingsPhase.loading;
+    setup = null;
+    error = notice = null;
+    items = const [];
+    total = 0;
+    query = status = '';
+    loadingMore = false;
+    if (!_disposed) notifyListeners();
+  }
+
   /// "Call summary" entries: the newest meetings with notes.
   List<Meeting> get recentActivity {
     final ready = items
@@ -70,7 +88,7 @@ class MeetingsController extends ChangeNotifier {
       error = e.message;
     } on Object catch (e) {
       phase = MeetingsPhase.error;
-      error = '$e';
+      error = readableError(e);
     }
     _schedulePoll();
     _notify();
@@ -116,7 +134,7 @@ class MeetingsController extends ChangeNotifier {
       items = [...items, ...page.items.where((m) => !seen.contains(m.id))];
       total = page.total;
     } on Object catch (e) {
-      notice = e is ApiException ? e.message : '$e';
+      notice = e is ApiException ? e.message : readableError(e);
     } finally {
       loadingMore = false;
       _notify();

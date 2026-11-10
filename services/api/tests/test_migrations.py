@@ -1450,6 +1450,51 @@ def test_finance_bank_loans_migration_is_expand_only_with_nullable_loan_terms_an
     assert "bypassrls" not in upgrade and "security definer" not in upgrade and "anum_maintenance" not in upgrade
 
 
+def test_private_tasks_migration_is_expand_only_with_restrictive_policies_and_id_only_grants() -> None:
+    versions = Path(__file__).parents[1] / "migrations" / "versions"
+    revision_text = (versions / "0163_private_tasks.py").read_text(encoding="utf-8")
+    assert 'revision = "0163_private_tasks"' in revision_text and len("0163_private_tasks") <= 32
+    # 0162 is another change's (an index on domain_events); this file is rechained onto it at merge.
+    assert 'down_revision = "0162_event_stream_retention"' in revision_text
+    upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
+    # Expand only: nullable columns and two checks, no table, nothing dropped or altered.
+    assert "op.drop" not in upgrade and "alter_column" not in upgrade and "drop " not in upgrade and "op.create_table(" not in upgrade
+    added = [line for line in upgrade.splitlines() if "op.add_column(" in line]
+    assert len(added) == 5 and all("nullable=true" in line for line in added)
+    assert "ck_tasks_private_kind" in upgrade and "ck_tasks_private_pair" in upgrade
+    # Five restrictive policies next to the tenant policies; forced RLS is lifted for the backfill only and put back.
+    assert upgrade.count("as restrictive") == 4 and "for table in (\"agent_runs\", \"approvals\")" in upgrade
+    for table in ("tasks", "domain_events", "agent_run_steps"):
+        assert f"create policy private_task_{table} on {table} as restrictive" in upgrade
+    assert "create policy private_task_{table} on {table} as restrictive" in upgrade
+    # The backfill runs with FORCE lifted on every table it writes or reads (the migrator has no BYPASSRLS and sets no
+    # tenant context, so a forced table shows it no row), as literal statements, and FORCE is back before the policies.
+    for table in ("tasks", "domain_events", "automation_schedules", "automation_triggers",
+                  "agent_runs", "agent_run_steps", "approvals", "conversation_turns", "automation_workflows"):
+        assert f'"{table}": "alter table {table} no force row level security"' in revision_text, table
+        assert f'"{table}": "alter table {table} force row level security"' in revision_text, table
+    assert upgrade.index("op.execute(unforce[table])") < upgrade.index("op.execute(backfill_data_tasks)") < upgrade.index("op.execute(reforce[table])")
+    assert upgrade.index("op.execute(reforce[table])") < upgrade.index("create policy")
+    for name in ("backfill_data_tasks", "backfill_chat_tasks", "backfill_events", "backfill_schedule_versions", "backfill_trigger_versions"):
+        assert f"op.execute({name})" in upgrade, name
+    assert 'f"""' not in revision_text and "update {table}" not in revision_text  # bandit B608: no SQL built from text
+    assert "nullif(current_setting('anum.user_id', true), '')" in revision_text
+    # The relay is never admitted to private events; other roles get id columns only, for the policy sub-selects.
+    events_policy = upgrade.split("create policy private_task_domain_events", 1)[1].split("for table in", 1)[0]
+    assert "{retention}" in events_policy and "counters" not in events_policy and "anum_outbox_relay" not in revision_text.split("def upgrade", 1)[1]
+    assert "RETENTION = \"current_user = any (array['anum_tenant_purger', 'anum_maintenance']::name[])\"" in revision_text
+    grants = [line.strip() for line in upgrade.splitlines() if "grant " in line]
+    assert grants == [
+        'op.execute("grant select (id) on tasks to anum_tenant_purger")',
+        'op.execute("grant select (id) on agent_runs to anum_tenant_purger")',
+        'op.execute("grant select (id, workspace_id) on tasks to anum_maintenance")',
+        'op.execute("grant select (private_to) on domain_events to anum_maintenance")',
+    ]
+    assert "bypassrls" not in upgrade and "security definer" not in upgrade
+    # The accepted workflow version of existing schedules and triggers is backfilled, so nothing stops firing.
+    assert revision_text.count("set accepted_version = w.version") == 2
+
+
 def test_calendar_sync_migration_is_expand_only_with_forced_rls_and_discovery_only_grants() -> None:
     versions = Path(__file__).parents[1] / "migrations" / "versions"
     revision_text = (versions / "0092_calendar_sync.py").read_text(encoding="utf-8")
@@ -1542,6 +1587,35 @@ def test_migration_files_have_unique_numbers_one_head_and_one_unbroken_chain() -
         seen.append(current)
         current = by_id[current]
     assert len(seen) == len(ids)
+
+
+def test_event_stream_retention_migration_adds_a_concurrent_index_and_scope_only_discovery() -> None:
+    versions = Path(__file__).parents[1] / "migrations" / "versions"
+    revision_text = (versions / "0162_event_stream_retention.py").read_text(encoding="utf-8")
+    assert 'revision = "0162_event_stream_retention"' in revision_text and len("0162_event_stream_retention") <= 32
+    assert 'down_revision = "0161_finance_bank_loans"' in revision_text
+    upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
+    # Expand only: one index built outside the transaction, one column grant and one select policy.
+    assert "op.drop" not in upgrade and "alter " not in upgrade and "create_table" not in upgrade and "drop table" not in upgrade
+    # The only drops: an INVALID index a failed concurrent build left behind, and the policy before it is
+    # created again, so a second run after a failure goes through.
+    assert upgrade.count("drop ") == 2 and "not i.indisvalid" in upgrade
+    assert "drop policy if exists maintenance_event_retention on domain_events" in upgrade
+    assert "autocommit_block" in upgrade and upgrade.index("create index concurrently") < upgrade.index("create policy")
+    assert "create index concurrently if not exists ix_domain_events_scope_created" in upgrade
+    assert "on domain_events (tenant_id, workspace_id, created_at, id)" in upgrade
+    # Discovery sees the scope of old events only: no content column, no write, nothing bypasses RLS.
+    assert "grant select (tenant_id, workspace_id) on domain_events to anum_maintenance" in upgrade
+    assert "create policy maintenance_event_retention on domain_events" in upgrade
+    assert "for select to anum_maintenance" in upgrade and "interval '{min_retention_days} days'" in upgrade
+    assert "bypassrls" not in upgrade and "security definer" not in upgrade and "audit_records" not in upgrade
+    downgrade = revision_text.split("def downgrade", 1)[1].lower()
+    assert "drop index concurrently if exists ix_domain_events_scope_created" in downgrade
+    assert "drop policy if exists maintenance_event_retention" in downgrade
+    # The job and the policy agree on the shortest period.
+    from anum_api import event_retention
+
+    assert f"MIN_RETENTION_DAYS = {event_retention.MIN_RETENTION_DAYS}" in revision_text
 
 
 def test_room_geometry_file_rename_kept_its_revision_ids() -> None:

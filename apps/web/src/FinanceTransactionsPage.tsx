@@ -142,11 +142,14 @@ export function TransactionsPage({ accounts, initialAccountId, initialTab, onCha
   const ready = page.kind === 'ready' ? page.value : null;
   const ledgerKind = ready?.ledger_kind ?? sms?.ledger_kind ?? 'personal';
   const reviewCount = ready?.review_count ?? 0;
+  // A disabled button never explains itself: with no account yet, say so and offer the way to add one.
+  const needsAccount = Boolean(ready) && accounts.length === 0;
   const head = <FinancePageHead title={t('freg.tx.title')} subtitle={t('freg.tx.subtitle')}
     actions={<>
       <button type="button" className="secondary" onClick={() => setTab('imports')}><Upload aria-hidden="true" />{t('freg.tx.import')}</button>
-      <button type="button" className="secondary" disabled={!ready || ready.total === 0} onClick={() => void download()}><Download aria-hidden="true" />{t('freg.tx.download')}</button>
-      <button type="button" disabled={accounts.length === 0} onClick={() => setRecording(true)}><Plus aria-hidden="true" />{t('freg.tx.record')}</button>
+      <button type="button" className="secondary" disabled={!ready || ready.total === 0} aria-describedby={ready && ready.total === 0 ? 'ftx-nothing-to-download' : undefined} onClick={() => void download()}><Download aria-hidden="true" />{t('freg.tx.download')}</button>
+      <button type="button" disabled={accounts.length === 0} aria-describedby={needsAccount ? 'ftx-needs-account' : undefined} onClick={() => setRecording(true)}><Plus aria-hidden="true" />{t('freg.tx.record')}</button>
+      {ready && ready.total === 0 && <span id="ftx-nothing-to-download" className="visuallyHidden">{t('freg.tx.downloadNone')}</span>}
     </>}
     controls={<>
       <label className="finControl"><span className="finControlLabel">{t('fshell.period')}</span>
@@ -166,6 +169,9 @@ export function TransactionsPage({ accounts, initialAccountId, initialTab, onCha
     {head}
     <div {...tabPanel('ftx', tab)}>
       {notice && <Notice error={notice.error}>{notice.text}</Notice>}
+      {needsAccount && tab !== 'imports' && <FinBanner icon={<Landmark />} title={t('freg.tx.needsAccount.title')}
+        action={<button type="button" className="secondary" onClick={onAddAccount}><Plus aria-hidden="true" />{t('freg.tx.needsAccount.action')}</button>}>
+        <span id="ftx-needs-account">{t('freg.tx.needsAccount.text')}</span></FinBanner>}
       {tab === 'transactions' && <>
         {page.kind === 'denied' && <Denied />}
         {page.kind === 'error' && <LoadError message={t('finance.error.transactions', { message: page.message })} retry={() => void load()} />}
@@ -268,23 +274,25 @@ function Kpis({ page }: { page: FinanceRegisterPage }) {
 function RegisterTable({ page, accounts, selected, onOpen, onPage }: { page: FinanceRegisterPage; accounts: FinanceAccount[]; selected: string | null; onOpen: (id: string) => void; onPage: (offset: number) => void }) {
   const names = useMemo(() => new Map(accounts.map((a) => [a.id, a.name])), [accounts]);
   return <>
-    <div className="finTableWrap" tabIndex={0} role="region" aria-label={t('freg.tx.listTitle')}>
+    <div className="finTableWrap" tabIndex={0} role="region" aria-label={t('freg.tx.tableRegion')}>
       <table className="finGrid fregTable">
         <thead><tr>
-          <th scope="col">{t('finance.col.date')}</th><th scope="col">{t('freg.col.merchant')}</th><th scope="col">{t('finance.col.category')}</th>
+          <th scope="col" className="fregHidePhone">{t('finance.col.date')}</th><th scope="col">{t('freg.col.merchant')}</th><th scope="col" className="fregHideXs">{t('finance.col.category')}</th>
           <th scope="col" className="fregHideMd">{t('finance.col.account')}</th><th scope="col" className="fregHideMd">{t('freg.col.receipt')}</th>
           <th scope="col" className="fregHideSm">{t('freg.col.source')}</th><th scope="col" className="num">{t('finance.col.amount')}</th>
-          <th scope="col">{t('freg.col.status')}</th><th scope="col"><span className="visuallyHidden">{t('finance.col.actions')}</span></th>
+          <th scope="col" className="fregHideXs">{t('freg.col.status')}</th><th scope="col"><span className="visuallyHidden">{t('finance.col.actions')}</span></th>
         </tr></thead>
         <tbody>{page.items.map((row) => <tr key={row.id} className={selected === row.id ? 'selected' : undefined} onClick={() => onOpen(row.id)}>
-          <td className="fregDate"><bdi dir="ltr">{row.posted_on}</bdi></td>
-          <td className="fregDesc"><strong dir="auto">{row.description}</strong>{row.notes && <small dir="auto">{row.notes}</small>}</td>
-          <td className="fregCatCell"><CategoryChip category={row.category} />{row.transaction_type && <small className="fregType">{typeLabel(row.transaction_type)}</small>}</td>
+          <td className="fregDate fregHidePhone"><bdi dir="ltr">{row.posted_on}</bdi></td>
+          <td className="fregDesc"><strong dir="auto">{row.description}</strong>{row.notes && <small dir="auto">{row.notes}</small>}
+            {/* Narrow windows: the Category and Status columns (and the Date column on phones) give way so the amount stays on screen; they show here instead (financeRegister.css). */}
+            <span className="fregRowMeta"><bdi className="fregRowDate" dir="ltr">{row.posted_on}</bdi><CategoryChip category={row.category} />{row.transaction_type && <small className="fregType">{typeLabel(row.transaction_type)}</small>}<StatusLabel row={row} /></span></td>
+          <td className="fregCatCell fregHideXs"><CategoryChip category={row.category} />{row.transaction_type && <small className="fregType">{typeLabel(row.transaction_type)}</small>}</td>
           <td className="fregHideMd" dir="auto">{names.get(row.account_id) ?? '-'}</td>
           <td className="fregHideMd"><Evidence row={row} /></td>
           <td className="fregHideSm"><SourceLabel row={row} /></td>
           <td className="num"><Money value={row.amount} currency={row.currency} signed /></td>
-          <td><StatusLabel row={row} /></td>
+          <td className="fregHideXs"><StatusLabel row={row} /></td>
           <td><button type="button" className="iconButton small" aria-label={t('freg.row.open', { description: row.description })} onClick={(e) => { e.stopPropagation(); onOpen(row.id); }}><MoreHorizontal aria-hidden="true" /></button></td>
         </tr>)}</tbody>
       </table>

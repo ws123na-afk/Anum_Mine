@@ -824,3 +824,37 @@ def test_weekly_report_delivery_asks_for_approval_by_email_and_reports_missing_c
         assert "تقرير التسويق الأسبوعي" in approval["arguments"]["body"]
     finally:
         email_inbox.email_backend.clear()
+
+
+def test_a_quarantined_file_is_never_published_served_or_offered_as_media(fake: FakePlatforms) -> None:
+    """Security audit, November 2026: the signed media link and the publisher read a file's bytes
+    without the quarantine check that downloads make (``files.may_serve``)."""
+    connect("meta", "meta-code")
+    instagram = account("instagram")
+    images = [upload(f"q{n}.jpg", jpeg(1080, 1350), "image/jpeg") for n in range(2)]
+    first = create([{"account_id": instagram["id"], "text": "Clean first", "media": [{"file_id": images[0]}]}])[0]
+    schedule_and_approve(first["id"])
+    assert publish_due() == 1
+    link = urlsplit(fake.ig_containers[0]["image_url"]).path
+    assert client.get(link).status_code == 200
+
+    def quarantine(file_id: str) -> None:
+        record = file_store.records[file_id]
+        file_store.records[file_id] = record.model_copy(update={"scan_status": "infected", "scan_signature": "Eicar-Test-Signature"})
+
+    # Found infected after its link was signed: the link answers like a file that is gone.
+    quarantine(images[0])
+    assert client.get(link).status_code == 404
+    assert client.get(f"/api/v1/files/{images[0]}/content", headers=OWNER).status_code == 409  # as downloads already did
+
+    # Found infected after it was attached: the post fails with what to do, and nothing is sent.
+    second = create([{"account_id": instagram["id"], "text": "Infected later", "media": [{"file_id": images[1]}]}])[0]
+    schedule_and_approve(second["id"])
+    quarantine(images[1])
+    sent_before = len(fake.ig_containers)
+    publish_due()
+    failed = client.get(f"{BASE}/posts/{second['id']}", headers=OWNER).json()
+    assert failed["status"] == "failed" and failed["last_error"]["code"] == "media_quarantined"
+    assert len(fake.ig_containers) == sent_before
+    offered = {item["id"] for item in client.get(f"{BASE}/media", headers=OWNER).json()}
+    assert not offered & set(images)

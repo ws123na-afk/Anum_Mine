@@ -1,6 +1,9 @@
 import '../../data/json_read.dart';
 import '../../src/localization/money_format.dart';
 
+// The app's one amount parser; Finance sends its decimal string as typed.
+export '../../src/localization/amount_input.dart' show parseAmount;
+
 /// Finance (docs/finance.md): what the phone reads from `/api/v1/finance`.
 /// Money stays a decimal string next to its currency, exactly as the API sends
 /// it; the phone only formats it for display and never adds two currencies.
@@ -14,17 +17,6 @@ String formatAmount(String value, String currency) =>
 String formatAmounts(List<CurrencyAmount> amounts) => amounts.isEmpty
     ? '-'
     : amounts.map((a) => formatAmount(a.amount, a.currency)).join(' · ');
-
-/// A typed amount as the wire string, or null when it is not a number with at
-/// most [decimals] decimals ("1,234.5" and "-45" are read).
-String? parseAmount(String input, {int decimals = 2, bool signed = true}) {
-  final text = input.trim().replaceAll(',', '').replaceAll(' ', '');
-  final match = RegExp(r'^(-?)(\d{1,12})(?:\.(\d+))?$').firstMatch(text);
-  if (match == null) return null;
-  if ((match.group(3)?.length ?? 0) > decimals) return null;
-  if (!signed && match.group(1)!.isNotEmpty) return null;
-  return text;
-}
 
 class CurrencyAmount {
   const CurrencyAmount(this.currency, this.amount);

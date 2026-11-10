@@ -1,3 +1,4 @@
+import '../../data/readable_error.dart';
 import 'package:flutter/material.dart';
 
 import '../../data/api_client.dart';
@@ -34,7 +35,7 @@ class SetupPlansController extends ChangeNotifier {
       error = e.readable;
     } on Object catch (e) {
       phase = SetupPlansPhase.error;
-      error = '$e';
+      error = readableError(e);
     }
     notifyListeners();
   }
@@ -88,7 +89,7 @@ class SetupPlanDetailController extends ChangeNotifier {
     } on Object catch (e) {
       if (id != _request) return;
       this.phase = SetupPlansPhase.error;
-      error = '$e';
+      error = readableError(e);
     }
     notifyListeners();
   }

@@ -1,14 +1,16 @@
 // Modal dialog and side drawer with the keyboard basics: focus moves in on open, Tab stays
 // inside, Escape closes, and focus returns to whatever opened it.
-import { useEffect, useId, useRef, type ReactNode } from 'react';
+import { useEffect, useId, useRef, type ReactNode, type RefObject } from 'react';
 import { X } from 'lucide-react';
 import { t } from './lib/i18n';
 import './dialog.css';
 
 const FOCUSABLE = 'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
-export function useModal(onClose: () => void) {
-  const panel = useRef<HTMLDivElement>(null);
+/** `given` lets a panel that is already on the page (the phone navigation drawer, Shell.tsx) take the same keyboard behaviour. */
+export function useModal(onClose: () => void, given?: RefObject<HTMLDivElement | null>) {
+  const own = useRef<HTMLDivElement>(null);
+  const panel = given ?? own;
   const close = useRef(onClose);
   close.current = onClose;
   useEffect(() => {

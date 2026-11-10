@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { openNavMenu } from './support/navMenu';
 import { fakeMedia, mockCallApi, startCall } from './support/callMocks';
 
 // The Voice page listens at once and reliably, has a focus mode with nothing but the scene and the
@@ -237,6 +238,7 @@ test('another window taking focus stops listening too, and so does leaving the p
   await probe(page, (p) => p.show());
   await voice.locator('.voiceSpaceTalk').click();
   await expect(voice).toHaveAttribute('data-state', 'listening');
+  await openNavMenu(page);
   await page.getByRole('navigation', { name: 'Primary' }).getByRole('button', { name: 'Tasks', exact: true }).click();
   await expect(page.locator('.voiceSpace')).toHaveCount(0);
   await expect.poll(() => probe(page, (p) => p.live())).toBe(0);

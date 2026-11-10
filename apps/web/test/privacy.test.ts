@@ -160,8 +160,8 @@ describe('privacyErrorMessage', () => {
     assert.equal(privacyErrorMessage(apiError(422, 'Type DELETE MY DATA exactly to confirm. Nothing was deleted.'), 'delete'), 'Type DELETE MY DATA exactly to confirm. Nothing was deleted.');
   });
   test('says what failed and how to retry otherwise', () => {
-    assert.match(privacyErrorMessage(apiError(500, 'boom'), 'export'), /^Could not prepare your download: boom Check your connection/);
-    assert.match(privacyErrorMessage(new TypeError('Failed to fetch'), 'delete'), /^Could not delete your data: Failed to fetch Reload/);
+    assert.match(privacyErrorMessage(apiError(500, 'boom'), 'export'), /^Could not prepare your download: boom\. Check your connection/);
+    assert.match(privacyErrorMessage(new TypeError('Failed to fetch'), 'delete'), /^Could not delete your data: Could not reach the server\. Reload/);
     assert.match(privacyErrorMessage(apiError(401), 'load'), /Sign in again/);
   });
 });

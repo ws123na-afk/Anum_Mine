@@ -37,6 +37,7 @@ from ..email_api import _pause_for_approval, _retire
 from ..model_gateway import MockModelGateway
 from ..repository import AnumRepository
 from ..runtime import AgentRuntime
+from ..approval_paging import pending_now
 from ..schemas import Approval, ApprovalStatus, RiskLevel, TenantContext, utc_now
 from . import mailcow
 from .api import _audit
@@ -199,8 +200,8 @@ def _summary(arguments: dict[str, Any]) -> str:
 def _pending(repository: AnumRepository, context: TenantContext) -> list[PendingChange]:
     now = utc_now()
     out: list[PendingChange] = []
-    for approval in repository.list_approvals(context):
-        if approval.action != DOMAIN_TOOL or approval.status != ApprovalStatus.PENDING or (approval.expires_at is not None and approval.expires_at <= now):
+    for approval in pending_now(repository, context, now):  # the pending rows only
+        if approval.action != DOMAIN_TOOL:
             continue
         args = approval.arguments
         out.append(PendingChange(

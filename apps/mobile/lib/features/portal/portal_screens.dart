@@ -1,3 +1,4 @@
+import '../../data/readable_error.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'dart:math' show Random;
@@ -5,6 +6,7 @@ import 'dart:math' show Random;
 import 'package:clock/clock.dart';
 
 import '../../data/api_client.dart';
+import '../../src/localization/amount_input.dart';
 import '../../src/localization/anum_localizations.dart';
 import '../../src/localization/money_format.dart';
 import '../../src/theme/anum_theme.dart';
@@ -763,7 +765,7 @@ class _PortalOfferState extends State<PortalOfferScreen>
             : e.readable);
       }
     } catch (e) {
-      if (mounted) setState(() => problem = '$e');
+      if (mounted) setState(() => problem = readableError(e));
     } finally {
       if (mounted) setState(() => busy = false);
     }
@@ -1037,7 +1039,7 @@ class _PortalChangeState extends State<PortalChangeScreen>
             : e.readable);
       }
     } catch (e) {
-      if (mounted) setState(() => problem = '$e');
+      if (mounted) setState(() => problem = readableError(e));
     } finally {
       if (mounted) setState(() => busy = false);
     }
@@ -1580,7 +1582,8 @@ class _PortalReportState extends State<PortalReportDialog> {
   void _submit() {
     final l = context.anum;
     final who = name.text.replaceAll(RegExp(r'\s+'), ' ').trim();
-    final value = double.tryParse(amount.text.trim().replaceAll(',', '.'));
+    final typed = readAmount(amount.text);
+    final value = typed.number;
     final text = date.text.trim();
     final when = DateTime.tryParse(text);
     final shape = RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(text);
@@ -1591,7 +1594,7 @@ class _PortalReportState extends State<PortalReportDialog> {
               ? l.t('portal.report.nameInvalid')
               : null;
       amountError = value == null || value <= 0
-          ? l.t('portal.report.amountInvalid')
+          ? amountHint(l, typed) ?? l.t('portal.report.amountInvalid')
           : value > widget.balance + 0.004
               ? l.f('portal.report.tooMuch', {
                   'balance': formatMoney(widget.balance, widget.currency,
@@ -1931,7 +1934,7 @@ class _PortalNewTicketState extends State<PortalNewTicketScreen> {
     } catch (e) {
       if (mounted) {
         setState(() {
-          error = '$e';
+          error = readableError(e);
           busy = false;
         });
       }

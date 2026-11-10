@@ -12,6 +12,9 @@ test keeps it that way as routes are added:
 * no new ``async def`` route opens a store or a unit of work on the event loop
   (docs/realtime.md#event-loop); the routes that still do are frozen in
   ``event_loop_store_baseline.txt`` and the list may only shrink;
+* no new ``async def`` route calls the request's repository or store on the event loop either
+  (the session is opened in FastAPI's thread pool, but a call from the async body runs its SQL
+  on the loop); what is left is frozen in ``repository_on_loop_baseline.txt``;
 * every narrow NOLOGIN role that widens row visibility is granted to the application login
   ``WITH INHERIT FALSE`` in ``infra/helm/bootstrap-database.sql``.
 
@@ -36,6 +39,7 @@ from anum_api.main import app
 
 REPO = Path(__file__).resolve().parents[3]
 BASELINE = Path(__file__).with_name("event_loop_store_baseline.txt")
+REPOSITORY_BASELINE = Path(__file__).with_name("repository_on_loop_baseline.txt")
 
 AUTH_DEPENDENCIES = frozenset(
     {"tenant_context", "provisioning_tenant_context", "authenticated_identity", "directory_identity"}
@@ -260,6 +264,64 @@ def _opens_store_on_loop(fn: Callable[..., Any]) -> bool:
     return bool(called & set(nested))
 
 
+_WORKER_CALLS = ("to_thread", "run_in_threadpool", "run_in_unit", "run_in_executor")
+
+
+def _session_parameters(fn: Callable[..., Any]) -> set[str]:
+    """Parameters that hold the request's repository or store: a ``Depends`` on a dependency
+    whose name says so (``repository_context``, ``memory_repository_context``, a ``*_store``).
+    ``units_of_work`` is not one: it opens nothing until ``run_in_unit`` runs it in a thread."""
+    found: set[str] = set()
+    for name, parameter in inspect.signature(fn).parameters.items():
+        dependency = getattr(getattr(parameter.default, "dependency", None), "__name__", "")
+        if ("repository" in dependency or "store" in dependency) and "units" not in dependency:
+            found.add(name)
+    return found
+
+
+def _uses_repository(nodes: list[ast.AST], names: set[str]) -> list[str]:
+    """What ``nodes`` do with the repository parameters ``names`` where they run: a method
+    call on one (``repository.list_tasks(...)``), or handing one to a plain call
+    (``_get_task(task_id, context, repository)``). Not counted: a call that is awaited (an
+    ``async`` helper; ``request_unit_across_await_baseline.txt`` covers those) and a call
+    that hands the work to a worker thread."""
+    awaited = {id(node.value) for node in nodes if isinstance(node, ast.Await)}
+    used: list[str] = []
+    for node in nodes:
+        if not isinstance(node, ast.Call):
+            continue
+        callee = ast.unparse(node.func)
+        if isinstance(node.func, ast.Attribute) and isinstance(node.func.value, ast.Name) and node.func.value.id in names:
+            used.append(callee)
+        elif id(node) not in awaited and not any(marker in callee for marker in _WORKER_CALLS):
+            arguments = [*node.args, *(keyword.value for keyword in node.keywords)]
+            if any(isinstance(argument, ast.Name) and argument.id in names for argument in arguments):
+                used.append(callee)
+    return used
+
+
+def _repository_calls_on_loop(fn: Callable[..., Any]) -> list[str]:
+    """Repository or store calls an ``async def`` route makes on the event loop: in its own
+    body, or in a nested plain function the body calls directly. The session was opened in
+    FastAPI's thread pool, but a call made from the async body runs its SQL on the loop and
+    stalls every user while it waits (reliability audit, November 2026)."""
+    fn = inspect.unwrap(fn)
+    if not inspect.iscoroutinefunction(fn):
+        return []
+    names = _session_parameters(fn)
+    tree = _source_tree(fn)
+    if not names or tree is None or not isinstance(tree.body[0], ast.AsyncFunctionDef):
+        return []
+    route = tree.body[0]
+    on_loop = list(_loop_nodes(route.body))
+    used = _uses_repository(on_loop, names)
+    called = {node.func.id for node in on_loop if isinstance(node, ast.Call) and isinstance(node.func, ast.Name)}
+    for node in ast.walk(route):
+        if isinstance(node, ast.FunctionDef) and node.name in called:
+            used += _uses_repository(list(_loop_nodes(node.body)), names)
+    return used
+
+
 @pytest.fixture(scope="module")
 def routes() -> list[Any]:
     found = list(_route_contexts())
@@ -317,6 +379,85 @@ def test_no_new_async_route_opens_a_store_on_the_event_loop(routes: list[Any]) -
         f"user while it waits (docs/realtime.md#event-loop): {added}"
     )
     assert not fixed, f"These routes no longer open a store on the loop; remove them from {BASELINE.name}: {fixed}"
+
+
+def test_no_new_async_route_calls_its_repository_on_the_event_loop(routes: list[Any]) -> None:
+    """The session of ``Depends(repository_context)`` is opened in FastAPI's thread pool, but an
+    ``async def`` body runs on the event loop, so ``repository.list_tasks(...)`` there is SQL on
+    the loop: every user waits while it runs, waits for a pooled connection or waits for a row
+    lock. 88 routes did this (reliability audit, November 2026)."""
+    found = {_key(route): calls for route in routes if (calls := _repository_calls_on_loop(route.endpoint))}
+    baseline = {
+        line.strip()
+        for line in REPOSITORY_BASELINE.read_text(encoding="utf-8").splitlines()
+        if line.strip() and not line.startswith("#")
+    }
+    added = {key: calls for key, calls in sorted(found.items()) if key not in baseline}
+    fixed = sorted(baseline - set(found))
+    assert not added, (
+        "Async routes call their repository or store on the event loop. Make the route a plain "
+        "def route (FastAPI runs it in its thread pool) or run the store steps in "
+        f"asyncio.to_thread (docs/realtime.md#event-loop): {added}"
+    )
+    assert not fixed, f"These routes no longer use a repository on the loop; remove them from {REPOSITORY_BASELINE.name}: {fixed}"
+
+
+def _repository_detector_cases() -> dict[str, Callable[..., Any]]:
+    import asyncio
+
+    from fastapi import Depends
+
+    from anum_api.dependencies import repository_context, units_of_work
+
+    def helper(*_: Any) -> None: ...
+
+    async def async_helper(*_: Any) -> None: ...
+
+    async def calls_a_method(repository: Any = Depends(repository_context)) -> None:
+        repository.list_tasks()
+
+    async def hands_it_to_a_plain_call(repository: Any = Depends(repository_context)) -> None:
+        helper("task", repository)
+
+    async def nested_called_on_the_loop(repository: Any = Depends(repository_context)) -> None:
+        def load() -> None:
+            repository.list_tasks()
+
+        load()
+
+    async def nested_in_a_thread(repository: Any = Depends(repository_context)) -> None:
+        def load() -> None:
+            repository.list_tasks()
+            helper(repository)
+
+        await asyncio.to_thread(load)
+        await asyncio.to_thread(helper, repository)
+
+    async def awaits_an_async_helper(repository: Any = Depends(repository_context)) -> None:
+        await async_helper(repository)
+
+    async def takes_units_of_work(units: Any = Depends(units_of_work)) -> None:
+        helper(units)
+
+    def plain_route(repository: Any = Depends(repository_context)) -> None:
+        repository.list_tasks()
+
+    cases = (calls_a_method, hands_it_to_a_plain_call, nested_called_on_the_loop, nested_in_a_thread,
+             awaits_an_async_helper, takes_units_of_work, plain_route)
+    return {fn.__name__: fn for fn in cases}
+
+
+def test_the_repository_detector_follows_where_a_call_runs() -> None:
+    found = {name: bool(_repository_calls_on_loop(fn)) for name, fn in _repository_detector_cases().items()}
+    assert found == {
+        "calls_a_method": True,
+        "hands_it_to_a_plain_call": True,
+        "nested_called_on_the_loop": True,
+        "nested_in_a_thread": False,
+        "awaits_an_async_helper": False,  # request_unit_across_await_baseline.txt covers these
+        "takes_units_of_work": False,
+        "plain_route": False,
+    }
 
 
 def test_narrow_roles_are_granted_without_inherit() -> None:

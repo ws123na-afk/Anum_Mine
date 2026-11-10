@@ -883,7 +883,7 @@ def _propose_listing_change(repository: AnumRepository, context: TenantContext, 
 
 
 @router.post("/listings/{listing_id}/price-change", response_model=ChangeProposal)
-async def request_price_change(
+def request_price_change(
     listing_id: str,
     payload: PriceChange,
     context: TenantContext = Depends(tenant_context),
@@ -894,7 +894,7 @@ async def request_price_change(
 
 
 @router.post("/listings/{listing_id}/stock-change", response_model=ChangeProposal)
-async def request_stock_change(
+def request_stock_change(
     listing_id: str,
     payload: StockChange,
     context: TenantContext = Depends(tenant_context),

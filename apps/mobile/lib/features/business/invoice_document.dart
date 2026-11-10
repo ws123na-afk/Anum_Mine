@@ -1,3 +1,4 @@
+import '../../data/readable_error.dart';
 import 'dart:convert';
 
 import 'package:file_picker/file_picker.dart';
@@ -327,7 +328,9 @@ class _InvoicePreviewState extends State<InvoicePreviewScreen> {
     } on ApiException catch (e) {
       if (mounted) _say(l.f('biz.inv.doc.saveFailed', {'message': e.readable}));
     } on Object catch (e) {
-      if (mounted) _say(l.f('biz.inv.doc.saveFailed', {'message': '$e'}));
+      if (mounted) {
+        _say(l.f('biz.inv.doc.saveFailed', {'message': readableError(e)}));
+      }
     } finally {
       if (mounted) setState(() => busy = false);
     }
@@ -345,7 +348,9 @@ class _InvoicePreviewState extends State<InvoicePreviewScreen> {
     } on ApiException catch (e) {
       if (mounted) _say(l.f('biz.inv.doc.saveFailed', {'message': e.readable}));
     } on Object catch (e) {
-      if (mounted) _say(l.f('biz.inv.doc.saveFailed', {'message': '$e'}));
+      if (mounted) {
+        _say(l.f('biz.inv.doc.saveFailed', {'message': readableError(e)}));
+      }
     } finally {
       if (mounted) setState(() => busy = false);
     }

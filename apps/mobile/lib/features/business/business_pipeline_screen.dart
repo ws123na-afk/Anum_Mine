@@ -1,3 +1,4 @@
+import '../../data/readable_error.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -113,7 +114,7 @@ class _BusinessPipelineScreenState extends State<BusinessPipelineScreen> {
       if (!mounted) return;
       setState(() {
         load = _Load.error;
-        error = '$e';
+        error = readableError(e);
       });
     }
   }

@@ -1,7 +1,9 @@
+import '../../data/readable_error.dart';
 import 'package:flutter/material.dart';
 
 import '../../data/api_client.dart';
 import '../../data/json_read.dart';
+import '../../src/localization/amount_input.dart';
 import '../../src/localization/anum_localizations.dart';
 import '../../src/theme/anum_theme.dart';
 import '../../src/widgets/anum_components.dart';
@@ -131,16 +133,26 @@ class UsageEntry {
 }
 
 /// The project money routes. `ApiBusinessRepository` implements it.
+/// Rows per request on the project money lists (the API's default page).
+const projectMoneyPageSize = 50;
+
 abstract interface class ProjectMoneyRepository {
   Future<Profitability> profitability(String projectId);
-  Future<BusinessPage<ChangeOrder>> changeOrders(String projectId);
+
+  /// One page of the project's change orders, newest first; the page carries
+  /// the total so the screen can say "N of total" and load more.
+  Future<BusinessPage<ChangeOrder>> changeOrders(String projectId,
+      {int offset = 0, int limit = projectMoneyPageSize});
   Future<ChangeOrder> createChangeOrder(
       String projectId, Map<String, Object?> body);
   Future<ChangeOrder> submitChangeOrder(String id);
   Future<ChangeOrder> approveChangeOrder(String id, String contentHash);
   Future<ChangeOrder> rejectChangeOrder(String id, String reason);
   Future<ChangeOrder> withdrawChangeOrder(String id, String reason);
-  Future<BusinessPage<UsageEntry>> usage(String projectId);
+
+  /// One page of the project's cost ledger.
+  Future<BusinessPage<UsageEntry>> usage(String projectId,
+      {int offset = 0, int limit = projectMoneyPageSize});
   Future<UsageEntry> createUsage(Map<String, Object?> body);
 }
 
@@ -160,10 +172,13 @@ class ApiProjectMoney implements ProjectMoneyRepository {
           await _call('GET', '/projects/${_id(projectId)}/profitability'));
 
   @override
-  Future<BusinessPage<ChangeOrder>> changeOrders(String projectId) async =>
+  Future<BusinessPage<ChangeOrder>> changeOrders(String projectId,
+          {int offset = 0, int limit = projectMoneyPageSize}) async =>
       BusinessPage.fromJson(
         await _call(
-            'GET', '/projects/${_id(projectId)}/change-orders?limit=50'),
+            'GET',
+            '/projects/${_id(projectId)}/change-orders'
+                '?limit=$limit&offset=$offset'),
         ChangeOrder.fromJson,
       );
 
@@ -194,10 +209,13 @@ class ApiProjectMoney implements ProjectMoneyRepository {
           'POST', '/change-orders/${_id(id)}/withdraw', {'reason': reason}));
 
   @override
-  Future<BusinessPage<UsageEntry>> usage(String projectId) async =>
+  Future<BusinessPage<UsageEntry>> usage(String projectId,
+          {int offset = 0, int limit = projectMoneyPageSize}) async =>
       BusinessPage.fromJson(
-        await _call('GET',
-            '/usage?project_id=${Uri.encodeQueryComponent(projectId)}&limit=50'),
+        await _call(
+            'GET',
+            '/usage?project_id=${Uri.encodeQueryComponent(projectId)}'
+                '&limit=$limit&offset=$offset'),
         UsageEntry.fromJson,
       );
 
@@ -232,6 +250,12 @@ class _ProjectMoneyScreenState extends State<ProjectMoneyScreen> {
   Profitability? profit;
   List<ChangeOrder> changes = [];
   List<UsageEntry> entries = [];
+
+  /// How many the server has; the lists load a page at a time.
+  int changesTotal = 0, entriesTotal = 0;
+  bool moreChanges = false, moreEntries = false;
+  String? moreError;
+  int _generation = 0;
   bool busy = false;
 
   ProjectMoneyRepository get repo => widget.repository;
@@ -244,9 +268,12 @@ class _ProjectMoneyScreenState extends State<ProjectMoneyScreen> {
   }
 
   Future<void> load() async {
+    _generation++;
     setState(() {
       state = MoneyLoad.loading;
       error = null;
+      moreError = null;
+      moreChanges = moreEntries = false;
     });
     try {
       final results = await Future.wait<Object>([
@@ -257,8 +284,12 @@ class _ProjectMoneyScreenState extends State<ProjectMoneyScreen> {
       if (!mounted) return;
       setState(() {
         profit = results[0] as Profitability;
-        changes = (results[1] as BusinessPage<ChangeOrder>).items;
-        entries = (results[2] as BusinessPage<UsageEntry>).items;
+        final changePage = results[1] as BusinessPage<ChangeOrder>;
+        final entryPage = results[2] as BusinessPage<UsageEntry>;
+        changes = [...changePage.items];
+        changesTotal = changePage.total;
+        entries = [...entryPage.items];
+        entriesTotal = entryPage.total;
         state = MoneyLoad.ready;
       });
     } catch (e) {
@@ -267,10 +298,87 @@ class _ProjectMoneyScreenState extends State<ProjectMoneyScreen> {
         state = e is ApiException && e.isPermissionDenied
             ? MoneyLoad.denied
             : MoneyLoad.error;
-        error = e is ApiException ? e.message : '$e';
+        error = e is ApiException ? e.message : readableError(e);
       });
     }
   }
+
+  /// The next page of change orders, added below the ones shown.
+  Future<void> loadMoreChanges() async {
+    if (moreChanges || changes.length >= changesTotal) return;
+    final generation = _generation;
+    setState(() {
+      moreChanges = true;
+      moreError = null;
+    });
+    try {
+      final page = await repo.changeOrders(projectId, offset: changes.length);
+      if (!mounted || generation != _generation) return;
+      final seen = {for (final c in changes) c.id};
+      setState(() {
+        changes.addAll(page.items.where((c) => !seen.contains(c.id)));
+        // An empty page ends the list even when the total moved meanwhile.
+        changesTotal = page.items.isEmpty ? changes.length : page.total;
+      });
+    } catch (e) {
+      if (!mounted || generation != _generation) return;
+      setState(() => moreError = e is ApiException ? e.readable : null);
+      _moreFailed();
+    } finally {
+      if (mounted && generation == _generation) {
+        setState(() => moreChanges = false);
+      }
+    }
+  }
+
+  /// The next page of the cost ledger.
+  Future<void> loadMoreEntries() async {
+    if (moreEntries || entries.length >= entriesTotal) return;
+    final generation = _generation;
+    setState(() {
+      moreEntries = true;
+      moreError = null;
+    });
+    try {
+      final page = await repo.usage(projectId, offset: entries.length);
+      if (!mounted || generation != _generation) return;
+      final seen = {for (final e in entries) e.id};
+      setState(() {
+        entries.addAll(page.items.where((e) => !seen.contains(e.id)));
+        entriesTotal = page.items.isEmpty ? entries.length : page.total;
+      });
+    } catch (e) {
+      if (!mounted || generation != _generation) return;
+      setState(() => moreError = e is ApiException ? e.readable : null);
+      _moreFailed();
+    } finally {
+      if (mounted && generation == _generation) {
+        setState(() => moreEntries = false);
+      }
+    }
+  }
+
+  void _moreFailed() {
+    final l = context.anum;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text(moreError == null
+            ? l.t('biz.moreFailed')
+            : l.f('biz.failed', {'message': moreError!}))));
+  }
+
+  /// "Load more (N of total)", as the other Business lists show it.
+  Widget _more(BuildContext context,
+          {required Key key,
+          required int shown,
+          required int total,
+          required bool loading,
+          required VoidCallback onMore}) =>
+      OutlinedButton(
+        key: key,
+        onPressed: loading ? null : onMore,
+        child:
+            Text(context.anum.f('biz.more', {'shown': shown, 'total': total})),
+      );
 
   Future<void> act(Future<Object?> Function() action, String done) async {
     final messenger = ScaffoldMessenger.of(context);
@@ -496,6 +604,13 @@ class _ProjectMoneyScreenState extends State<ProjectMoneyScreen> {
             ],
           ),
         ),
+      if (changes.length < changesTotal)
+        _more(context,
+            key: const Key('biz-change-more'),
+            shown: changes.length,
+            total: changesTotal,
+            loading: moreChanges,
+            onMore: loadMoreChanges),
     ];
   }
 
@@ -533,6 +648,13 @@ class _ProjectMoneyScreenState extends State<ProjectMoneyScreen> {
           detail: _money(e.amount, e.currency),
           icon: Icons.payments_outlined,
         ),
+      if (entries.length < entriesTotal)
+        _more(context,
+            key: const Key('biz-usage-more'),
+            shown: entries.length,
+            total: entriesTotal,
+            loading: moreEntries,
+            onMore: loadMoreEntries),
     ];
   }
 
@@ -622,14 +744,10 @@ class _ReasonDialogState extends State<_ReasonDialog> {
   }
 }
 
-double? _amount(String text, {bool signed = false}) {
-  final clean = text.replaceAll(',', '').trim();
-  if (!RegExp(signed ? r'^-?\d+(\.\d{1,2})?$' : r'^\d+(\.\d{1,2})?$')
-      .hasMatch(clean)) {
-    return null;
-  }
-  return double.parse(clean);
-}
+/// A typed amount with at most two decimals, read by the app's one amount
+/// parser (`readAmount`).
+double? _amount(String text, {bool signed = false}) =>
+    readAmount(text, signed: signed).number;
 
 /// One line of the scope change: added to the contract, or a line of the
 /// current contract removed (matched exactly by the API, as on the web).

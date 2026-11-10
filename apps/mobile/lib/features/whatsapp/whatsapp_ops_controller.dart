@@ -1,3 +1,4 @@
+import '../../data/readable_error.dart';
 import 'dart:math';
 
 import 'package:flutter/foundation.dart';
@@ -7,7 +8,7 @@ import 'whatsapp_controller.dart';
 import 'whatsapp_models.dart';
 import 'whatsapp_repository.dart';
 
-String _message(Object e) => e is ApiException ? e.readable : '$e';
+String _message(Object e) => e is ApiException ? e.readable : readableError(e);
 
 /// The Templates screen (docs/whatsapp.md#templates-and-setup): Meta's
 /// message templates with search, refresh from Meta and, for owners, the
@@ -92,7 +93,7 @@ class WaTemplatesController extends ChangeNotifier {
     } on Object catch (e) {
       if (token != _token || _disposed) return;
       phase = WaPhase.error;
-      error = '$e';
+      error = readableError(e);
     }
     busy = null;
     _notify();
@@ -201,7 +202,7 @@ class WaSetupController extends ChangeNotifier {
     } on Object catch (e) {
       if (token != _token || _disposed) return;
       phase = WaPhase.error;
-      error = '$e';
+      error = readableError(e);
     }
     _notify();
   }

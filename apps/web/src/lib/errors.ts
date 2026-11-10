@@ -2,6 +2,7 @@
 // Pure, so `pnpm --filter @anum/web test:unit` can exercise it without a browser.
 import type { ApiErrorCode } from '@anum/contracts';
 import { t } from './i18n.ts';
+import { isNetworkFailure } from './sentence.ts';
 
 /** A non-2xx API answer: HTTP status, the envelope's stable code and its message. */
 export class ApiError extends Error {
@@ -92,6 +93,8 @@ export function describeError(error: unknown, fallback = t('common.operationFail
     if (error.detail) return error.detail;
     return error.message;
   }
+  // The browser's own words for a request that got no answer ("Failed to fetch") are not a sentence for a person.
+  if (isNetworkFailure(error)) return t('common.networkError');
   return error instanceof Error && error.message ? error.message : fallback;
 }
 

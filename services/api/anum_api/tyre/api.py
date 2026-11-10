@@ -634,7 +634,7 @@ def _set_alert(context: TenantContext, alert_id: str, acknowledge: bool) -> Tyre
 
 
 @router.post("/alerts/{alert_id}/acknowledge", response_model=TyreAlert)
-async def acknowledge_alert(
+def acknowledge_alert(
     alert_id: str,
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
@@ -646,7 +646,7 @@ async def acknowledge_alert(
 
 
 @router.post("/alerts/{alert_id}/reopen", response_model=TyreAlert)
-async def reopen_alert(
+def reopen_alert(
     alert_id: str,
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
@@ -700,7 +700,7 @@ class ReportPage(BaseModel):
 
 
 @router.post("/reports", response_model=TyreReport, status_code=status.HTTP_201_CREATED)
-async def create_report(
+def create_report(
     payload: ReportCreate,
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),

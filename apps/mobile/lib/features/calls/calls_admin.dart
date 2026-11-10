@@ -104,7 +104,7 @@ class _ProviderScreenState extends State<ProviderScreen> {
         });
       }
     } on Object catch (e) {
-      if (mounted) setState(() => _loadError = '$e');
+      if (mounted) setState(() => _loadError = readableError(e));
     }
   }
 

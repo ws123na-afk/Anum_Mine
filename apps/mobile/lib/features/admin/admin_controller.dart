@@ -1,3 +1,4 @@
+import '../../data/readable_error.dart';
 import 'package:flutter/foundation.dart';
 
 import '../../data/api_client.dart';
@@ -16,8 +17,7 @@ String describeAdminError(Object error) {
     }
     return error.message;
   }
-  final text = error.toString();
-  return text.isEmpty ? 'Something went wrong.' : text;
+  return readableError(error);
 }
 
 bool _offline(Object error) =>

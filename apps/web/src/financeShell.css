@@ -135,6 +135,8 @@
   .finCard { padding: var(--d-s4); }
   .finTableWrap { margin: 0 calc(var(--d-s4) * -1); padding: 0 var(--d-s4); }
   .finHeadText h1 { font-size: var(--text-3xl); }
+  /* Phones: the title names the page; its one-line description gives way (as under the shared page header, styles.css). */
+  .finHeadText > p { display: none; }
   .finHeadButtons { width: 100%; }
 }
 

@@ -1,5 +1,9 @@
+import '../app_lock/app_lock_controller.dart';
+import '../app_lock/app_lock_screen.dart';
 import 'package:flutter/material.dart';
 
+import '../../src/localization/amount_input.dart';
+import '../../src/localization/anum_localizations.dart';
 import '../../src/theme/anum_theme.dart';
 import '../../src/widgets/anum_components.dart';
 import '../../src/widgets/depth.dart';
@@ -64,8 +68,12 @@ class _FinanceScreenState extends State<FinanceScreen> {
         ?.showSnackBar(SnackBar(content: Text(text)));
   }
 
+  // Behind the app lock when it is on (docs/mobile.md#app-lock).
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) =>
+      AppLockGate(area: AppLockArea.finance, child: _content(context));
+
+  Widget _content(BuildContext context) {
     final s = FinanceStrings.of(context);
     return ListenableBuilder(
       listenable: widget.controller,
@@ -1237,7 +1245,7 @@ class _FinanceScreenState extends State<FinanceScreen> {
         (v) => v['description']!.isEmpty
             ? s.t('badText')
             : parseAmount(v['amount']!) == null
-                ? s.t('badAmount')
+                ? _amountError(s, v['amount']!, signed: true)
                 : !RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(v['date']!)
                     ? s.t('badDate')
                     : null,
@@ -1268,7 +1276,7 @@ class _FinanceScreenState extends State<FinanceScreen> {
         (v) => v['name']!.isEmpty
             ? s.t('badText')
             : parseAmount(v['amount']!, signed: false) == null
-                ? s.t('badAmount')
+                ? _amountError(s, v['amount']!, signed: false)
                 : !RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(v['date']!)
                     ? s.t('badDate')
                     : null,
@@ -1426,3 +1434,10 @@ class _SpendBar extends StatelessWidget {
     );
   }
 }
+
+/// Why a typed amount was refused: the specific reason when it has two
+/// readings or too many decimals, else Finance's own "enter an amount".
+String _amountError(FinanceStrings s, String text, {required bool signed}) =>
+    amountHint(AnumLocalizations(Locale(s.arabic ? 'ar' : 'en')),
+        readAmount(text, signed: signed)) ??
+    s.t('badAmount');

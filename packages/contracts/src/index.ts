@@ -38,6 +38,8 @@ export interface Task {
   /** Set while the task is archived (hidden from the default list, history kept; docs/tasks.md). */
   archivedAt?: string | null;
   archivedBy?: string | null;
+  /** Set when only this user may see the task, its runs, approvals and events (docs/tasks.md#private-tasks). */
+  privateTo?: string | null;
   /** Planning fields (docs/tasks.md): never change what the agent may do. */
   priority?: TaskPriority;
   /** When the result is wanted, UTC; null for no due date. */

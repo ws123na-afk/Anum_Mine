@@ -973,7 +973,7 @@ async def run_now(context: TenantContext = Depends(tenant_context), repository: 
     from .jobs import run_once
 
     result = await run_once(issuer_tenant_id=context.tenant_id)
-    _audit(repository, context, "billing.run", context.tenant_id, result)
+    await asyncio.to_thread(_audit, repository, context, "billing.run", context.tenant_id, result)  # off the event loop
     return result
 
 
@@ -1157,10 +1157,7 @@ def _sync_stripe_refunds(rows: Rows, issuer_tenant_id: str, metadata: dict[str, 
 
 def _credit_overpayment(rows: Rows, amount_minor: int, now: datetime) -> None:
     """Add money Stripe collected beyond what was due to the organisation's credit balance."""
-    account = svc.account_of(rows)
-    if account is not None and amount_minor > 0:
-        rows.update("billing_accounts", {"tenant_id": rows.tenant_id},
-                    {"credit_balance_minor": int(account["credit_balance_minor"]) + amount_minor, "updated_at": now})
+    svc.add_gross_credit(rows, amount_minor, now)  # collected from a card: tax included
 
 
 def _apply_checkout(rows: Rows, issuer_tenant_id: str, session: dict[str, Any], now: datetime) -> str:

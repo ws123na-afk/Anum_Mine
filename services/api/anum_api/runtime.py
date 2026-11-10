@@ -9,6 +9,7 @@ from .agent_policy import AgentRunProfile, apply_agent_policy
 from .agent_skills import SkillRegistry, default_skill_registry
 from .agent_tools import (
     ToolCall,
+    ToolDefinition,
     ToolPolicy,
     ToolPolicyDecision,
     ToolPolicyOutcome,
@@ -149,7 +150,45 @@ class AgentRuntime:
         agent = self.agent_of(run)
         if agent is not None:
             decision = apply_agent_policy(agent, call, definition, decision)
-        return self._with_suppression(call, definition, decision, context)
+        decision = self._with_suppression(call, definition, decision, context)
+        if task is not None and definition is not None and definition.caller_scoped:
+            refusal = self._keep_private(task, context)
+            if refusal is not None:
+                return ToolPolicyDecision(
+                    outcome=ToolPolicyOutcome.BLOCK, reason=refusal, risk_level=decision.risk_level,
+                    governance_rules=list(decision.governance_rules),
+                )
+        return decision
+
+    def _keep_private(self, task: Task, context: TenantContext) -> str | None:
+        """Make ``task`` private to its creator before a call that reads the caller's own data.
+
+        Such a tool (``ToolDefinition.caller_scoped``) or result (``ToolResult.caller_private``)
+        answers from the acting person's own ledger or mailbox, so the task, its runs, approvals
+        and events are shown to that person only from here on (docs/tasks.md#private-tasks). The
+        marker is permanent (``private_kind`` ``data``) and saved at once, in the unit of work
+        that records the proposal or the result. Only the creator's own run may make the call: anyone else's is refused (the
+        returned sentence), so one person's data never lands in a task another person owns.
+        """
+        owner = task.private_to or task.created_by
+        if owner and owner != context.user_id:
+            return (
+                "This task reads private data of the person it runs for, so only the person who created "
+                "the task can run it. Create your own task to ask about your own data."
+            )
+        if task.private_kind != "data":
+            task.private_to, task.private_kind = context.user_id, "data"
+            self.repository.save_task(task)
+        return None
+
+    def _share_for_approval(self, task: Task, definition: ToolDefinition | None) -> None:
+        """A task from the person's private chat that must wait for an approval of an ordinary
+        action is shared with the workspace from here on: whoever decides has to see what they
+        approve (the approval's reason quotes the request). A call that reads the caller's own
+        data never gets here as ``chat``: ``_keep_private`` made the task ``data`` first."""
+        if task.private_kind == "chat" and not (definition is not None and definition.caller_scoped):
+            task.private_to = task.private_kind = None
+            self.repository.save_task(task)
 
     def _with_suppression(
         self,
@@ -595,7 +634,7 @@ class AgentRuntime:
         if record_resume:
             self._record_event(
                 "agent_run.resumed", context, run.id,
-                {"task_id": task.id, "checkpoint_version": str(run.checkpoint.version)}, task.id,
+                {"task_id": task.id, "checkpoint_version": str(run.checkpoint.version)}, task,
             )
         return call
 
@@ -644,7 +683,7 @@ class AgentRuntime:
             return run
         self._record_event(
             "agent_run.resumed", context, run.id,
-            {"task_id": task.id, "checkpoint_version": str(run.checkpoint.version)}, task.id,
+            {"task_id": task.id, "checkpoint_version": str(run.checkpoint.version)}, task,
         )
         run.checkpoint.version += 1
         result = await self._execute_tool(call, task, run, context)
@@ -699,7 +738,7 @@ class AgentRuntime:
         approval.decided_at = now
         self.repository.save_approval(approval)
         self._record_event(
-            CanonicalEventName.APPROVAL_EXPIRED.value, context, approval.id, {"task_id": task.id}, task.id
+            CanonicalEventName.APPROVAL_EXPIRED.value, context, approval.id, {"task_id": task.id}, task
         )
         if (
             run is not None
@@ -739,7 +778,7 @@ class AgentRuntime:
             context,
             approval.id,
             {"task_id": task.id},
-            task.id,
+            task,
         )
         self._audit(
             context,
@@ -868,6 +907,7 @@ class AgentRuntime:
     ) -> tuple[AgentRun, Approval]:
         created_at = utc_now()
         definition = self.tools.definition(call.name)
+        self._share_for_approval(task, definition)
         ttl = self.approval_ttl if ttl_seconds is None else min(self.approval_ttl, timedelta(seconds=ttl_seconds))
         approval = Approval(
             id=new_id("approval"),
@@ -913,7 +953,7 @@ class AgentRuntime:
             context,
             approval.id,
             requested_payload,
-            task.id,
+            task,
         )
         return run, approval
 
@@ -949,6 +989,11 @@ class AgentRuntime:
     ) -> AgentRun:
         """Complete the run, or fail it when the tool itself reported a failure, or pause it
         for the continuation a tool asked for (``ToolResult.continuation``)."""
+        if result.caller_private:
+            refusal = self._keep_private(task, context)
+            if refusal is not None:
+                # Another person's run read its own private data: none of it is stored on this task.
+                result = ToolResult(status="failed", summary=refusal)
         if result.status == "paused" and result.continuation is not None:
             return self._continue(task, run, context, result, approval_id)
         if result.status in {"failed", "blocked"}:
@@ -1056,7 +1101,7 @@ class AgentRuntime:
         payload = {"task_id": task.id}
         if approval_id:
             payload["approval_id"] = approval_id
-        self._record_event("agent_run.completed", context, run.id, payload, task.id)
+        self._record_event("agent_run.completed", context, run.id, payload, task)
         self._after_success(task, run, context, result, approval_id)
         return run
 
@@ -1098,7 +1143,7 @@ class AgentRuntime:
                     context,
                     proposal.id,
                     {"pattern_key": proposal.pattern_key, "tool": proposal.tool, "approvals": str(proposal.approvals)},
-                    task.id,
+                    task,
                 )
                 self._audit(
                     context,
@@ -1121,7 +1166,9 @@ class AgentRuntime:
             run_id=run.id,
             profile=profile,
             decision=info,
-            summary=result.summary,
+            # The activity feed is read by the workspace: a private task's answer is not put there
+            # (docs/tasks.md#private-tasks). The feed still says that the tool ran.
+            summary=result.summary if task.private_to is None else "The result is private to the person this task ran for.",
             undo_tool=definition.undo_tool if definition is not None else None,
             undo_arguments=undo if isinstance(undo, dict) else None,
             undo_window_seconds=definition.undo_window_seconds if definition is not None else 0,
@@ -1139,7 +1186,7 @@ class AgentRuntime:
             }
             if action.undo_expires_at is not None:
                 payload["undo_until"] = action.undo_expires_at.isoformat()
-            self._record_event("autonomy.action_taken", context, action.id, payload, task.id)
+            self._record_event("autonomy.action_taken", context, action.id, payload, task)
         self._audit(
             context,
             "autonomy.action_taken",
@@ -1182,7 +1229,7 @@ class AgentRuntime:
         payload = {"task_id": task.id}
         if approval_id:
             payload["approval_id"] = approval_id
-        self._record_event("agent_run.failed", context, run.id, payload, task.id)
+        self._record_event("agent_run.failed", context, run.id, payload, task)
 
     def _record_event(
         self,
@@ -1190,14 +1237,18 @@ class AgentRuntime:
         context: TenantContext,
         subject: str,
         payload: dict[str, str],
-        correlation_id: str,
+        task: Task,
     ) -> None:
+        """Record an event of ``task`` (its id is the correlation id). The task's privacy goes with
+        it: a session that is not the task's person cannot look the task up, so the runtime's own
+        copy is the one reliable source (docs/tasks.md#private-tasks)."""
         envelope = create_event(
             CanonicalEventName(event_type),
             context,
             subject,
             payload,
-            correlation_id=correlation_id,
+            correlation_id=task.id,
+            private_to=task.private_to,
         )
         self.repository.record_event(envelope.event)
 

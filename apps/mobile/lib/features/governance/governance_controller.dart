@@ -1,3 +1,4 @@
+import '../../data/readable_error.dart';
 import 'package:flutter/foundation.dart';
 import '../../data/api_client.dart';
 import 'governance_models.dart';
@@ -12,6 +13,16 @@ class GovernanceController extends ChangeNotifier {
   GovernanceSnapshot? snapshot;
   String? message;
   bool mutating = false;
+
+  /// Forgets the audit, policy and member data (sign-out).
+  void reset() {
+    phase = GovernancePhase.initial;
+    snapshot = null;
+    message = null;
+    mutating = false;
+    notifyListeners();
+  }
+
   Future<void> load() async {
     phase = GovernancePhase.loading;
     message = null;
@@ -24,7 +35,7 @@ class GovernanceController extends ChangeNotifier {
       message = e.message;
     } catch (e) {
       phase = GovernancePhase.error;
-      message = e.toString();
+      message = readableError(e);
     }
     notifyListeners();
   }
@@ -52,7 +63,7 @@ class GovernanceController extends ChangeNotifier {
       message = e.statusCode == 403 ? 'Not allowed: ${e.message}' : e.message;
       phase = GovernancePhase.error;
     } catch (e) {
-      message = e.toString();
+      message = readableError(e);
       phase = GovernancePhase.error;
     } finally {
       mutating = false;

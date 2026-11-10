@@ -1,4 +1,5 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
+import { openNavMenu } from './support/navMenu';
 import { useSavedLocale } from './support/workspaceApi';
 import { fakeMedia, mockCallApi, startCall } from './support/callMocks';
 
@@ -334,11 +335,13 @@ test('going to and from the Voice page ten times leaves no animation loop behind
   await expect(page.locator('main')).toBeVisible();
   const elsewhere = await steadyLoops(page);
   for (let i = 0; i < 10; i += 1) {
+    await openNavMenu(page);
     await nav.getByRole('button', { name: 'Voice', exact: true }).click();
     await expect(page.locator('.voiceSpace .spaceOrb.full')).toBeVisible();
     // One loop for the page's scene.
     expect(await steadyLoops(page)).toBe(elsewhere + 1);
     // Leave through the Call lobby (no orb) or straight to Tasks.
+    await openNavMenu(page);
     await nav.getByRole('button', { name: i % 2 ? 'Call' : 'Tasks', exact: true }).click();
     await expect(page.locator('.spaceOrb')).toHaveCount(0);
     expect(await steadyLoops(page)).toBe(elsewhere);

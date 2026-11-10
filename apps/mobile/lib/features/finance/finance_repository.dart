@@ -1,3 +1,4 @@
+import '../../data/paging.dart';
 import '../../data/api_client.dart';
 import '../../data/api_models.dart';
 import 'finance_models.dart';
@@ -302,10 +303,20 @@ class ApiFinanceRepository implements FinanceRepository {
       PortfolioSummary.fromJson);
 
   @override
-  Future<List<TradeIntent>> pendingIntents() async =>
-      JsonReader.of(await api.request('GET',
-              '$base/execution/intents?status=pending_approval&limit=50'))
-          .optObjects('items', TradeIntent.fromJson);
+  Future<List<TradeIntent>> pendingIntents() =>
+      // Every page: an order waiting for approval must not be hidden behind
+      // the first fifty.
+      readAllPages<TradeIntent>((offset) async {
+        final page = JsonReader.of(await api.request(
+            'GET',
+            '$base/execution/intents?status=pending_approval&limit=50'
+                '&offset=$offset'));
+        final items = page.optObjects('items', TradeIntent.fromJson);
+        return (
+          items: items,
+          total: page.optInt('total') ?? offset + items.length
+        );
+      });
 
   @override
   Future<void> approveIntent(String id, String payloadHash) async {

@@ -53,6 +53,11 @@
 .finFill { background: rgb(var(--c-violet)); block-size: 100%; border-radius: inherit; display: block; }
 .finProgress > small { color: var(--d-muted); font-size: var(--text-xs); font-variant-numeric: tabular-nums; }
 .finForm { display: grid; gap: var(--d-s1); min-width: 0; }
+/* A field with its own error line under it (TransactionForm); the controls of one row share a height, so a date input and a select line up. */
+.finField { align-content: start; display: grid; gap: var(--d-s1); min-width: 0; }
+.finForm .cmFormGrid .field { align-content: start; }
+.finForm .cmFormGrid :is(input, select) { height: var(--d-control-h); }
+.finForm :is(input, select)[aria-invalid="true"] { border-color: var(--d-stop); }
 .finCheck { align-items: center; display: flex; gap: var(--d-s2); min-height: 44px; }
 .finCheck input { accent-color: var(--d-violet); block-size: 18px; inline-size: 18px; min-height: 0; }
 .finMapping { border: 1px solid var(--d-line); border-radius: var(--d-r-control); display: grid; gap: var(--d-s3); margin: 0; min-width: 0; padding: var(--d-s3) var(--d-s4); }

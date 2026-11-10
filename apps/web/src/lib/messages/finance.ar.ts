@@ -33,6 +33,8 @@ export const financeAr: Record<keyof typeof financeEn, Message> = {
   'finance.error.positive': 'أدخل مبلغًا يساوي صفرًا أو أكثر.',
   'finance.error.aboveZero': 'أدخل مبلغًا أكبر من صفر.',
   'finance.error.description': 'أدخل وصف المعاملة.',
+  'finance.error.date': 'اختر تاريخ المعاملة.',
+  'finance.error.account': 'اختر الحساب الذي تحرّك فيه المال.',
   'finance.error.name': 'أدخل اسمًا.',
   'finance.error.currency': 'العملة رمز من ثلاثة أحرف، مثل AED.',
   'finance.error.last4': 'أدخل آخر أربعة أرقام فقط، أو اتركه فارغًا.',
@@ -284,7 +286,7 @@ export const financeAr: Record<keyof typeof financeEn, Message> = {
   'finance.holdings.cost': 'التكلفة {amount}',
 
   'finance.item.loading': 'جارٍ التحميل...',
-  'finance.item.edit': 'عدّل {name}',
+  'finance.item.edit': 'تعديل {name}',
   'finance.item.delete': 'احذف {name}',
   'finance.item.editTitle': 'عدّل {name}',
   'finance.item.deleteTitle': 'أتحذف {name}؟',

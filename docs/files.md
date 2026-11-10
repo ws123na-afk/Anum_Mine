@@ -110,6 +110,8 @@ Any other scanner (a cloud scanning API, for example) can be installed with `fil
 | `memory` | `InMemoryObjectStorage` | Per process; tests and throwaway runs. |
 | `s3` | `S3ObjectStorage` | Any S3-compatible endpoint (SeaweedFS locally, compose service `s3`) through a pinned boto3 client: SigV4, path-style addressing, bounded retries and timeouts. |
 
+Every adapter also streams: `put_file(key, file, content_type)` stores an open binary file without reading it into memory (local: written beside the target and renamed, so a reader never sees half an object; S3: one `PutObject` with the file as its body, up to 5 GiB) and `open_stream(key)` finds the object at once (`FileNotFoundError` when it is missing) and returns it in 1 MiB chunks (`files._ChunkStream`: iterating it closes the source at the end, and `close()` closes it at once, also before the first read, for a caller that gives the stream up). The organisation export uses both ([Organisation lifecycle](organisation-lifecycle.md)).
+
 S3 settings: `ANUM_S3_ENDPOINT`, `ANUM_S3_REGION` (`us-east-1`), `ANUM_S3_BUCKET`, `ANUM_S3_ACCESS_KEY`, `ANUM_S3_SECRET_KEY`, `ANUM_S3_SERVER_SIDE_ENCRYPTION` (for example `AES256` or `aws:kms`; sent on every write) and `ANUM_S3_CREATE_BUCKET` (create the bucket on first write; local storage only, real environments provision buckets, encryption and lifecycle rules with OpenTofu). Outside `local` the API refuses the compose development secret.
 
 Object keys always start with the tenant and workspace, so bucket policies, lifecycle rules and exports can be scoped by prefix:

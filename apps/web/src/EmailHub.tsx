@@ -5,6 +5,7 @@
 // Reading, replies, Email AI and sending stay with the back end that owns the mailbox: the reader and
 // composer are that back end's own (InboxView.tsx for providers, EmailView.tsx for the own server), so
 // permissions, tenant scoping and the approval of every send are exactly as before.
+import { listTime } from './lib/listTime';
 import { useCallback, useEffect, useId, useMemo, useState, type FormEvent, type ReactNode } from 'react';
 import { AlertTriangle, AtSign, CheckCircle2, CircleDot, Inbox, Lock, Mail, MailOpen, Paperclip, PenLine, Plug, RefreshCw, Search, Server, Settings, Share2, ShieldCheck } from 'lucide-react';
 import { FinCard, KpiCard, KpiRow, StatusChip } from './FinanceShell';
@@ -300,7 +301,7 @@ function HubAllInboxes({ found, write, onOpenMailbox, onOpenConnections, onOpenA
           const subject = m.subject || t('emailHub.noSubject');
           return <li key={m.ref} className={`mailRow hubRow ${m.unread ? 'unread' : ''} ${active ? 'selected' : ''}`}>
             <button type="button" className="mailRowOpen" aria-current={active ? 'true' : undefined} onClick={() => openMessage(m)}>
-              <span className="mailRowTop"><strong dir="auto">{m.from_name || m.from_address || t('emailHub.unknownSender')}</strong><time dateTime={m.received_at}>{when(m.received_at)}</time></span>
+              <span className="mailRowTop"><strong dir="auto">{m.from_name || m.from_address || t('emailHub.unknownSender')}</strong><time dateTime={m.received_at} title={when(m.received_at)}>{listTime(m.received_at)}</time></span>
               <span className="mailRowSubject" dir="auto">{m.unread && <span className="mailUnreadDot" role="img" aria-label={t('emailHub.unread')} />}{subject}{m.has_attachments && <Paperclip className="mailClip" role="img" aria-label={t('emailHub.attachment')} />}</span>
               {m.snippet && <span className="hubRowSnippet" dir="auto">{m.snippet}</span>}
               <span className="hubRowMeta"><SourceBadge source={m.source} /><span dir="ltr" className="hubAddress">{m.mailbox_address}</span></span>

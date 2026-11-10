@@ -142,6 +142,35 @@ def test_cancel_created_task() -> None:
     assert any(event["type"] == "task.cancelled" for event in events)
 
 
+def test_cancel_expires_only_its_own_approvals_and_locks_no_others(monkeypatch) -> None:  # type: ignore[no-untyped-def]
+    """Reliability audit, November 2026: cancelling one task row-locked every approval of the
+    workspace (``list_approvals_for_update``) to expire its own."""
+    from anum_api.repository import InMemoryRepository
+
+    waiting = []
+    for title in ("Publish one", "Publish two"):
+        created = client.post("/api/v1/tasks", headers=headers, json={"title": title, "prompt": "Publish the final update"})
+        started = client.post(f"/api/v1/tasks/{created.json()['id']}/run", headers=headers).json()
+        waiting.append((created.json()["id"], started["approval"]["id"]))
+    (first_task, first_approval), (_second_task, second_approval) = waiting
+    locked: list[tuple[str, bool]] = []
+    real = InMemoryRepository.list_task_approvals
+
+    def spy(self, task_id, context, *, for_update=False):  # type: ignore[no-untyped-def]
+        locked.append((task_id, for_update))
+        return real(self, task_id, context, for_update=for_update)
+
+    monkeypatch.setattr(InMemoryRepository, "list_task_approvals", spy)
+
+    assert client.post(f"/api/v1/tasks/{first_task}/cancel", headers=headers).status_code == 200
+
+    assert (first_task, True) in locked
+    assert {task_id for task_id, for_update in locked if for_update} == {first_task}
+    assert not hasattr(InMemoryRepository, "list_approvals_for_update")  # nothing locks a whole workspace
+    states = {a["id"]: a["status"] for a in client.get("/api/v1/approvals", headers=headers).json()}
+    assert states[first_approval] == "expired" and states[second_approval] == "pending"
+
+
 def test_completed_task_cannot_be_cancelled() -> None:
     created = client.post(
         "/api/v1/tasks",

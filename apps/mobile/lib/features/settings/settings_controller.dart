@@ -1,3 +1,4 @@
+import '../../data/readable_error.dart';
 import 'package:flutter/foundation.dart';
 
 import '../../data/api_client.dart';
@@ -88,6 +89,26 @@ class SettingsController extends ChangeNotifier {
   String? chatMemoryError;
   String? chatMemoryNotice;
   bool chatMemoryBusy = false;
+
+  /// Forgets the profile, session details, model and preferences (sign-out),
+  /// so Settings loads the next person's own.
+  void reset() {
+    phase = SettingsPhase.initial;
+    session = null;
+    model = null;
+    notifications = const NotificationPreferences();
+    message = null;
+    modelError = null;
+    chatMemory = null;
+    chatMemoryError = null;
+    chatMemoryNotice = null;
+    chatMemoryBusy = false;
+    channels = null;
+    emailTest = null;
+    emailTestError = null;
+    emailTestBusy = false;
+    notifyListeners();
+  }
 
   Future<void> load() async {
     phase = SettingsPhase.loading;
@@ -298,7 +319,12 @@ class SettingsController extends ChangeNotifier {
     }
   }
 
-  Future<void> signOut() => repository.signOut();
+  /// Signs the whole app out. The app wires this to `AuthController.signOut`,
+  /// which revokes the session and moves every screen to sign-in; calling the
+  /// repository alone would revoke the session and leave the app open.
+  Future<void> Function()? onSignOut;
+
+  Future<void> signOut() => (onSignOut ?? repository.signOut)();
 
   void _fail(Object error) {
     final text = error.toString();
@@ -326,7 +352,7 @@ String modelPermissionMessage(String action) =>
     'an owner to do it, or to change your role.';
 
 String _describe(Object error) {
-  final text = error is ApiException ? error.message : error.toString();
+  final text = error is ApiException ? error.message : readableError(error);
   return text.endsWith('.') ? text : '$text.';
 }
 

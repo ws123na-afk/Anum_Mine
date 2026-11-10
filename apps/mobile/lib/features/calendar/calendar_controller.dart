@@ -1,3 +1,4 @@
+import '../../data/readable_error.dart';
 import 'package:flutter/foundation.dart';
 
 import '../../data/api_client.dart';
@@ -6,7 +7,7 @@ import 'calendar_repository.dart';
 
 enum CalendarPhase { idle, loading, ready, error, denied }
 
-String _describe(Object e) => e is ApiException ? e.readable : '$e';
+String _describe(Object e) => e is ApiException ? e.readable : readableError(e);
 
 /// Calendar & next actions (docs/calendar.md): a week of days, the selected
 /// day's timeline, suggested next steps, and changes to events.

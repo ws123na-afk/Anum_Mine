@@ -1,7 +1,9 @@
+import '../../data/readable_error.dart';
 import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
 
 import '../../data/api_client.dart';
+import '../../src/localization/amount_input.dart';
 import '../../src/localization/anum_localizations.dart';
 import '../../src/localization/money_format.dart';
 import '../../src/theme/anum_theme.dart';
@@ -25,10 +27,6 @@ import 'invoice_models.dart';
 String money(BuildContext context, double? amount, String currency) =>
     formatMoney(amount, currency, locale: context.anum.locale);
 
-/// Parses a typed number; a comma is accepted as the decimal mark.
-double? parseNumber(String text) =>
-    double.tryParse(text.trim().replaceAll(',', '.'));
-
 String plainNumber(double value) =>
     value == value.roundToDouble() ? value.toStringAsFixed(0) : '$value';
 
@@ -47,7 +45,7 @@ String invoiceTitle(AnumLocalizations l, String? number, String status) =>
     number ?? l.t('biz.inv.status.$status');
 
 String friendly(Object error) =>
-    error is ApiException ? error.readable : '$error';
+    error is ApiException ? error.readable : readableError(error);
 
 /// The Invoices section of Business.
 class InvoicesView extends StatefulWidget {
@@ -1175,11 +1173,12 @@ class _CreditDialogState extends State<CreditDialog> {
 
   void _submit() {
     final l = context.anum;
-    final value = parseNumber(amount.text);
+    final typed = readAmount(amount.text);
+    final value = typed.number;
     final why = reason.text.replaceAll(RegExp(r'\s+'), ' ').trim();
     setState(() {
       amountError = value == null || value <= 0
-          ? l.t('biz.inv.amountInvalid')
+          ? amountHint(l, typed) ?? l.t('biz.inv.amountInvalid')
           : value > widget.balance + 0.004
               ? l.f('biz.inv.credit.tooMuch', {
                   'balance': formatMoney(widget.balance, widget.currency,
@@ -1299,12 +1298,13 @@ class _PaymentDialogState extends State<PaymentDialog> {
 
   void _submit() {
     final l = context.anum;
-    final value = parseNumber(amount.text);
+    final typed = readAmount(amount.text);
+    final value = typed.number;
     final when = DateTime.tryParse(date.text.trim());
     final shape = RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(date.text.trim());
     setState(() {
       amountError = value == null || value <= 0
-          ? l.t('biz.inv.amountInvalid')
+          ? amountHint(l, typed) ?? l.t('biz.inv.amountInvalid')
           : value > widget.balance + 0.004
               ? l.f('biz.inv.amountTooBig', {
                   'balance': formatMoney(widget.balance, widget.currency,

@@ -34,6 +34,7 @@ from .dependencies import has_permission, require_permission, tenant_context
 from .events import CanonicalEventName, create_event
 from .schemas import RiskLevel, Task, TaskStatus, TenantContext, new_id, utc_now
 from .scoped_store import ScopeNotProvisionedError
+from .serving import PASS_STOP_TIMEOUT_SECONDS, wait_for_pass
 from .settings import settings
 from .team_commands import CommandError, match_people, parse_command
 from .team_models import (
@@ -892,7 +893,8 @@ def hand_off(item_id: str, context: TenantContext = Depends(tenant_context)) -> 
         )
         unit.repository.create_task(task)
         unit.repository.record_event(
-            create_event(CanonicalEventName.TASK_CREATED, context, task.id, {"title": task.title}, correlation_id=task.id, created_at=now).event
+            create_event(CanonicalEventName.TASK_CREATED, context, task.id, {"title": task.title}, correlation_id=task.id, created_at=now,
+                         private_to=task.private_to).event
         )
         item.agent_task_id = task.id
         if item.status == WorkStatus.TODO:
@@ -1226,7 +1228,7 @@ class TeamReminderScheduler:
             self._stop = asyncio.Event()
             self._task = asyncio.create_task(self._run(), name="anum-team-reminders")
 
-    async def stop(self, *, timeout: float = 10.0) -> None:
+    async def stop(self, *, timeout: float = 10.0, pass_timeout: float = PASS_STOP_TIMEOUT_SECONDS) -> None:
         task, self._task = self._task, None
         if self._stop is not None:
             self._stop.set()
@@ -1237,8 +1239,7 @@ class TeamReminderScheduler:
                 task.cancel()
             except Exception:
                 logger.exception("Team reminder loop stopped with an error")
-        if self._pass is not None and not self._pass.done():
-            await asyncio.wait({self._pass})
+        await wait_for_pass(self._pass, name="team reminders", timeout=pass_timeout)
         self._pass = None
 
     async def _run(self) -> None:

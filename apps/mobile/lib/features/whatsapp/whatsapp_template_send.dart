@@ -1,3 +1,4 @@
+import '../../data/readable_error.dart';
 import 'package:flutter/material.dart';
 
 import '../../data/api_client.dart';
@@ -76,7 +77,7 @@ class _WaTemplateSendSheetState extends State<WaTemplateSendSheet> {
       setState(() {
         _templates = const [];
         _denied = e is ApiException && e.isPermissionDenied;
-        _loadError = e is ApiException ? e.readable : '$e';
+        _loadError = e is ApiException ? e.readable : readableError(e);
       });
     }
   }

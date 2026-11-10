@@ -3,9 +3,9 @@ from collections.abc import Mapping, Sequence
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import and_, case, cast, func, literal, not_, or_, select, tuple_
+from sqlalchemy import and_, case, cast, func, literal, not_, or_, select, tuple_, union_all, update
 from sqlalchemy.dialects.postgresql import JSONB, JSONPATH
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, aliased
 
 from anum_api.approval_paging import ApprovalCursor, ApprovalFilter, ApprovalSummary
 from anum_api.audit import AuditCursor, AuditFilter, AuditRecord, DuplicateAuditRecordError
@@ -415,6 +415,16 @@ class SqlAlchemyRepository(AnumRepository):
             metadata=dict(row.record_metadata or {}),
         )
 
+    @staticmethod
+    def _task_visible(context: TenantContext) -> Any:
+        """Private tasks (``tasks.private_to``) exist for one person only; the restrictive RLS
+        policy of ``0163_private_tasks`` says the same in the database."""
+        return or_(TaskRecord.private_to.is_(None), TaskRecord.private_to == context.user_id)
+
+    @staticmethod
+    def _event_visible(context: TenantContext) -> Any:
+        return or_(DomainEventRecord.private_to.is_(None), DomainEventRecord.private_to == context.user_id)
+
     def create_task(self, task: Task) -> Task:
         record = self.session.get(TaskRecord, task.id)
         if record is None:
@@ -445,6 +455,25 @@ class SqlAlchemyRepository(AnumRepository):
         record.due_at = task.due_at
         record.created_at = task.created_at
         record.updated_at = task.updated_at
+        if record.private_kind == "data":
+            pass  # permanent: never cleared, never another person's
+        elif record.private_to is not None and task.private_to is not None:
+            record.private_kind = task.private_kind  # chat stays chat or becomes data; same person
+        elif record.private_to != task.private_to:
+            # A workspace task turns private, or a chat task is shared for an approval: the
+            # task's events follow it (0163_private_tasks).
+            record.private_to, record.private_kind = task.private_to, task.private_kind
+            self.session.flush()
+            self.session.execute(
+                update(DomainEventRecord)
+                .where(
+                    DomainEventRecord.tenant_id == record.tenant_id,
+                    DomainEventRecord.workspace_id == record.workspace_id,
+                    DomainEventRecord.correlation_id == record.id,
+                )
+                .values(private_to=record.private_to)
+            )
+        task.private_to, task.private_kind = record.private_to, record.private_kind
         self.session.flush()
         return self._task_from_record(record)
 
@@ -454,6 +483,7 @@ class SqlAlchemyRepository(AnumRepository):
             TaskRecord.tenant_id == context.tenant_id,
             TaskRecord.workspace_id == context.workspace_id,
             TaskRecord.archived_at.is_not(None) if filters.archived else TaskRecord.archived_at.is_(None),
+            SqlAlchemyRepository._task_visible(context),
         ]
         if filters.statuses:
             conditions.append(TaskRecord.status.in_(sorted(status.value for status in filters.statuses)))
@@ -496,6 +526,7 @@ class SqlAlchemyRepository(AnumRepository):
             statement = select(TaskRecord).where(
                 TaskRecord.tenant_id == context.tenant_id,
                 TaskRecord.workspace_id == context.workspace_id,
+                self._task_visible(context),
             )
         if after is not None:
             anchor = self.session.execute(
@@ -534,6 +565,7 @@ class SqlAlchemyRepository(AnumRepository):
             .where(
                 TaskRecord.tenant_id == context.tenant_id,
                 TaskRecord.workspace_id == context.workspace_id,
+                self._task_visible(context),
             )
             .distinct()
             .order_by(TaskRecord.created_by_user_id)
@@ -559,6 +591,7 @@ class SqlAlchemyRepository(AnumRepository):
                 AgentRunRecord.workspace_id == context.workspace_id,
                 TaskRecord.tenant_id == context.tenant_id,
                 TaskRecord.workspace_id == context.workspace_id,
+                self._task_visible(context),
             )
         )
         if after is not None:
@@ -588,6 +621,7 @@ class SqlAlchemyRepository(AnumRepository):
             DomainEventRecord.tenant_id == context.tenant_id,
             DomainEventRecord.workspace_id == context.workspace_id,
             DomainEventRecord.correlation_id == task_id,
+            self._event_visible(context),
         )
         if after is not None:
             anchor = self.session.execute(
@@ -608,8 +642,12 @@ class SqlAlchemyRepository(AnumRepository):
             statement = statement.limit(limit)
         return [self._event_from_record(record) for record in self.session.scalars(statement).all()]
 
-    def list_task_approvals(self, task_id: str, context: TenantContext) -> list[Approval]:
-        records = self.session.scalars(
+    def list_task_approvals(
+        self, task_id: str, context: TenantContext, *, for_update: bool = False
+    ) -> list[Approval]:
+        """The task's approvals, oldest first. ``for_update`` row-locks them, and only them:
+        cancelling a task used to lock every approval of the workspace to expire its own."""
+        statement = (
             select(ApprovalRecord)
             .join(TaskRecord, ApprovalRecord.task_id == TaskRecord.id)
             .where(
@@ -618,10 +656,13 @@ class SqlAlchemyRepository(AnumRepository):
                 ApprovalRecord.workspace_id == context.workspace_id,
                 TaskRecord.tenant_id == context.tenant_id,
                 TaskRecord.workspace_id == context.workspace_id,
+                self._task_visible(context),
             )
             .order_by(ApprovalRecord.created_at, ApprovalRecord.id)
-        ).all()
-        return [self._approval_from_record(record) for record in records]
+        )
+        if for_update:
+            statement = statement.with_for_update(of=ApprovalRecord)
+        return [self._approval_from_record(record) for record in self.session.scalars(statement).all()]
 
     def save_task(self, task: Task) -> Task:
         return self.create_task(task)
@@ -632,6 +673,7 @@ class SqlAlchemyRepository(AnumRepository):
                 TaskRecord.id == task_id,
                 TaskRecord.tenant_id == context.tenant_id,
                 TaskRecord.workspace_id == context.workspace_id,
+                self._task_visible(context),
             )
         )
         return self._task_from_record(record) if record is not None else None
@@ -643,6 +685,7 @@ class SqlAlchemyRepository(AnumRepository):
                 TaskRecord.id == task_id,
                 TaskRecord.tenant_id == context.tenant_id,
                 TaskRecord.workspace_id == context.workspace_id,
+                self._task_visible(context),
             )
             .with_for_update()
         )
@@ -688,6 +731,7 @@ class SqlAlchemyRepository(AnumRepository):
                 AgentRunRecord.workspace_id == context.workspace_id,
                 TaskRecord.tenant_id == context.tenant_id,
                 TaskRecord.workspace_id == context.workspace_id,
+                self._task_visible(context),
             )
         )
         return self._run_from_record(record) if record is not None else None
@@ -702,6 +746,7 @@ class SqlAlchemyRepository(AnumRepository):
                 AgentRunRecord.workspace_id == context.workspace_id,
                 TaskRecord.tenant_id == context.tenant_id,
                 TaskRecord.workspace_id == context.workspace_id,
+                self._task_visible(context),
             )
             .order_by(AgentRunRecord.created_at.desc(), AgentRunRecord.id.desc())
             .limit(1)
@@ -757,6 +802,7 @@ class SqlAlchemyRepository(AnumRepository):
                 ApprovalRecord.workspace_id == context.workspace_id,
                 TaskRecord.tenant_id == context.tenant_id,
                 TaskRecord.workspace_id == context.workspace_id,
+                self._task_visible(context),
             )
         )
         return self._approval_from_record(record) if record is not None else None
@@ -773,21 +819,14 @@ class SqlAlchemyRepository(AnumRepository):
                 ApprovalRecord.workspace_id == context.workspace_id,
                 TaskRecord.tenant_id == context.tenant_id,
                 TaskRecord.workspace_id == context.workspace_id,
+                self._task_visible(context),
             )
             .with_for_update(of=ApprovalRecord)
         )
         return self._approval_from_record(record) if record is not None else None
 
     def list_approvals(self, context: TenantContext) -> list[Approval]:
-        return self._list_approvals(context, for_update=False)
-
-    def list_approvals_for_update(self, context: TenantContext) -> list[Approval]:
-        return self._list_approvals(context, for_update=True)
-
-    def _list_approvals(
-        self, context: TenantContext, *, for_update: bool
-    ) -> list[Approval]:
-        statement = (
+        records = self.session.scalars(
             select(ApprovalRecord)
             .join(TaskRecord, ApprovalRecord.task_id == TaskRecord.id)
             .where(
@@ -795,13 +834,9 @@ class SqlAlchemyRepository(AnumRepository):
                 ApprovalRecord.workspace_id == context.workspace_id,
                 TaskRecord.tenant_id == context.tenant_id,
                 TaskRecord.workspace_id == context.workspace_id,
+                self._task_visible(context),
             )
             .order_by(ApprovalRecord.created_at, ApprovalRecord.id)
-        )
-        if for_update:
-            statement = statement.with_for_update(of=ApprovalRecord)
-        records = self.session.scalars(
-            statement
         ).all()
         return [self._approval_from_record(record) for record in records]
 
@@ -905,52 +940,104 @@ class SqlAlchemyRepository(AnumRepository):
             ApprovalRecord.workspace_id == context.workspace_id,
             TaskRecord.tenant_id == context.tenant_id,
             TaskRecord.workspace_id == context.workspace_id,
+            SqlAlchemyRepository._task_visible(context),
         )
 
-    def list_events(self, context: TenantContext) -> list[DomainEvent]:
-        records = self.session.scalars(
-            select(DomainEventRecord)
-            .where(
-                DomainEventRecord.tenant_id == context.tenant_id,
-                or_(
-                    DomainEventRecord.workspace_id.is_(None),
-                    DomainEventRecord.workspace_id == context.workspace_id,
-                ),
-            )
-            .order_by(DomainEventRecord.created_at, DomainEventRecord.id)
-        ).all()
-        return [self._event_from_record(record) for record in records]
-
-    def list_events_after(self, context: TenantContext, event_id: str) -> list[DomainEvent]:
-        """The caller's events after ``event_id`` in ``list_events`` order (an SSE cursor).
-
-        An open event stream polls every second; reading only what follows its cursor
-        keeps a poll cheap however long the workspace's history grows. An unknown or
-        invisible cursor returns the whole list, like ``list_events``.
-        """
-        visible = (
+    @staticmethod
+    def _events_visible_to(context: TenantContext) -> tuple[Any, ...]:
+        return (
             DomainEventRecord.tenant_id == context.tenant_id,
             or_(
                 DomainEventRecord.workspace_id.is_(None),
                 DomainEventRecord.workspace_id == context.workspace_id,
             ),
+            SqlAlchemyRepository._event_visible(context),
         )
+
+    def _events_page(
+        self, context: TenantContext, *extra: Any, limit: int, newest_first: bool = False
+    ) -> list[DomainEventRecord]:
+        """At most ``limit`` of the caller's events matching ``extra``, in (created_at, id) order.
+
+        The workspace's events and the tenant-wide ones (no workspace) are read as two
+        ordered, limited index scans of ``ix_domain_events_scope_created`` (migration 0162)
+        and merged: one ``workspace_id is null or workspace_id = :w`` predicate cannot be
+        read in order from the index, so PostgreSQL would fetch and sort the whole history.
+        """
+        def order(entity: Any) -> tuple[Any, Any]:
+            if newest_first:
+                return entity.created_at.desc(), entity.id.desc()
+            return entity.created_at, entity.id
+
+        parts = [
+            select(DomainEventRecord)
+            .where(
+                DomainEventRecord.tenant_id == context.tenant_id,
+                scope,
+                self._event_visible(context),
+                *extra,
+            )
+            .order_by(*order(DomainEventRecord))
+            .limit(limit)
+            for scope in (
+                DomainEventRecord.workspace_id == context.workspace_id,
+                DomainEventRecord.workspace_id.is_(None),
+            )
+        ]
+        merged = aliased(DomainEventRecord, union_all(*parts).subquery())
+        return list(self.session.scalars(select(merged).order_by(*order(merged)).limit(limit)).all())
+
+    def list_events(self, context: TenantContext, *, limit: int | None = None) -> list[DomainEvent]:
+        """The caller's events oldest first; with ``limit`` only the first that many."""
+        if limit is not None:
+            return [self._event_from_record(record) for record in self._events_page(context, limit=limit)]
+        records = self.session.scalars(
+            select(DomainEventRecord)
+            .where(*self._events_visible_to(context))
+            .order_by(DomainEventRecord.created_at, DomainEventRecord.id)
+        ).all()
+        return [self._event_from_record(record) for record in records]
+
+    def list_events_after(
+        self, context: TenantContext, event_id: str, *, limit: int | None = None
+    ) -> list[DomainEvent]:
+        """The caller's events after ``event_id`` in ``list_events`` order (an SSE cursor).
+
+        An open event stream polls every second; reading only what follows its cursor
+        (at most ``limit`` rows) keeps a poll cheap however long the workspace's history
+        grows. An unknown or invisible cursor (retention purged it, or it is another
+        workspace's) starts at the newest event: that one event is returned, so the stream's
+        cursor becomes one the workspace has and the next read sees only what follows. It
+        used to read from the start, so a resumed stream replayed the whole history in pages.
+        """
+        visible = self._events_visible_to(context)
         cursor = self.session.execute(
             select(DomainEventRecord.created_at, DomainEventRecord.id).where(
                 DomainEventRecord.id == event_id, *visible
             )
         ).first()
         if cursor is None:
-            return self.list_events(context)
+            newest = self._events_page(context, limit=1, newest_first=True)
+            return [self._event_from_record(record) for record in newest]
+        after = tuple_(DomainEventRecord.created_at, DomainEventRecord.id) > tuple_(cursor.created_at, cursor.id)
+        if limit is not None:
+            return [self._event_from_record(record) for record in self._events_page(context, after, limit=limit)]
         records = self.session.scalars(
             select(DomainEventRecord)
-            .where(
-                *visible,
-                tuple_(DomainEventRecord.created_at, DomainEventRecord.id) > tuple_(cursor.created_at, cursor.id),
-            )
+            .where(*visible, after)
             .order_by(DomainEventRecord.created_at, DomainEventRecord.id)
         ).all()
         return [self._event_from_record(record) for record in records]
+
+    def latest_event_id(self, context: TenantContext) -> str | None:
+        """The id of the caller's newest event (where a new event stream starts), or None."""
+        newest = self._events_page(context, limit=1, newest_first=True)
+        return newest[0].id if newest else None
+
+    def list_recent_events(self, context: TenantContext, limit: int) -> list[DomainEvent]:
+        """The caller's newest ``limit`` events, oldest first."""
+        newest = self._events_page(context, limit=limit, newest_first=True)
+        return [self._event_from_record(record) for record in reversed(newest)]
 
     def record_event(self, event: DomainEvent) -> DomainEvent:
         record = self.session.get(DomainEventRecord, event.id)
@@ -968,6 +1055,21 @@ class SqlAlchemyRepository(AnumRepository):
         record.correlation_id = event.correlation_id
         record.payload = dict(event.payload)
         record.created_at = event.created_at
+        if record.private_to is None:
+            # An event of a private task (correlation id = task id) is that person's only. The task
+            # row is read under the private-task policy: this session sees it only when the task is
+            # a workspace task or its own person's. When the row is hidden, the caller's own copy
+            # of the task decides (``create_event(..., private_to=task.private_to)``); the restrictive
+            # policy then refuses the insert from anyone but that person, so an event of a private
+            # task is never recorded as public by a session that cannot see the task.
+            owner = self.session.execute(
+                select(TaskRecord.id, TaskRecord.private_to).where(
+                    TaskRecord.tenant_id == event.tenant_id,
+                    TaskRecord.workspace_id == event.workspace_id,
+                    TaskRecord.id == event.correlation_id,
+                )
+            ).first()
+            record.private_to = owner.private_to if owner is not None else event.private_to
         self.session.flush()
         return self._event_from_record(record)
 
@@ -1173,6 +1275,8 @@ class SqlAlchemyRepository(AnumRepository):
             priority=TaskPriority(record.priority) if record.priority else TaskPriority.MEDIUM,
             due_at=record.due_at,
             agent_id=record.agent_id,
+            private_to=record.private_to,
+            private_kind=record.private_kind,  # type: ignore[arg-type]
         )
 
     @staticmethod
@@ -1273,6 +1377,7 @@ class SqlAlchemyRepository(AnumRepository):
             correlation_id=record.correlation_id,
             created_at=record.created_at,
             payload=dict(record.payload),
+            private_to=record.private_to,
         )
 
 

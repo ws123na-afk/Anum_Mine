@@ -107,7 +107,7 @@ def _current(repository: AnumRepository, context: TenantContext) -> Workspace:
 
 
 @router.get("/workspaces/current/permissions", response_model=WorkspacePermissions)
-async def workspace_permissions(
+def workspace_permissions(
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
 ) -> WorkspacePermissions:
@@ -224,7 +224,7 @@ def _source_audit(context: TenantContext, workspace_id: str, name: str, now: dat
 
 
 @router.patch("/workspaces/current", response_model=Workspace)
-async def rename_workspace(
+def rename_workspace(
     payload: WorkspaceName,
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
@@ -249,7 +249,7 @@ async def rename_workspace(
 
 
 @router.post("/workspaces/current/archive", response_model=Workspace)
-async def archive_workspace(
+def archive_workspace(
     payload: WorkspaceArchiveRequest,
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
@@ -278,7 +278,7 @@ async def archive_workspace(
 
 
 @router.post("/workspaces/current/restore", response_model=Workspace)
-async def restore_workspace(
+def restore_workspace(
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
 ) -> Workspace:

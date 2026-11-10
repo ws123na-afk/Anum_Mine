@@ -8,7 +8,7 @@ import { ArrowLeft, CircleDot, Download, FileText, Inbox, Lock, Printer, ShieldA
 import type {
   PortalChange, PortalChangeSummary, PortalInvoice, PortalInvoiceSummary, PortalMe, PortalOffer, PortalOfferSummary, PortalTicket, PortalTicketSummary,
 } from '@anum/contracts';
-import { ApiError } from './lib/errors';
+import { ApiError, describeError } from './lib/errors';
 import { LOCALES, LOCALE_NAMES, chooseLocale, formatDateTime, getLocale, t, type Locale } from './lib/i18n';
 import { formatMoney, formatPct } from './lib/business';
 import {
@@ -454,12 +454,12 @@ function InvoiceDetail({ id, onBack, onLinkLost }: { id: string; onBack: () => v
   async function print() {
     setNote(t('pt.print.opening')); setFailed(null);
     try { await printHtml(() => p.invoicePrintable(invoice.id, language)); setNote(t('pt.print.opened')); }
-    catch (error) { setNote(''); setFailed(error instanceof ApiError ? detailOf(error) ?? t('pt.err.generic') : error instanceof Error ? error.message : t('pt.err.generic')); }
+    catch (error) { setNote(''); setFailed(error instanceof ApiError ? detailOf(error) ?? t('pt.err.generic') : describeError(error, t('pt.err.generic'))); }
   }
   async function downloadPdf() {
     setNote(t('pt.pdf.working')); setFailed(null);
     try { setNote(t('pt.pdf.saved', { name: await p.downloadInvoicePdf(invoice.id) })); }
-    catch (error) { setNote(''); setFailed(error instanceof ApiError ? detailOf(error) ?? t('pt.err.generic') : error instanceof Error ? error.message : t('pt.err.generic')); }
+    catch (error) { setNote(''); setFailed(error instanceof ApiError ? detailOf(error) ?? t('pt.err.generic') : describeError(error, t('pt.err.generic'))); }
   }
   const c = invoice.currency;
   const settled = invoice.payment_state === 'paid' || invoice.payment_state === 'credited';

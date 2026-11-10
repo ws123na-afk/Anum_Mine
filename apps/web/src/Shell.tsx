@@ -2,11 +2,11 @@
 // (views, the person's workspaces with switch and Add workspace, More and Admin), and the top bar
 // (global search with the Cmd+K command palette, notifications, the user menu). App state stays
 // in main.tsx; these components only render it and report what the person picked.
-import { useCallback, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore, type FormEvent, type KeyboardEvent as ReactKeyboardEvent, type ReactNode, type RefObject } from 'react';
 import {
   Activity, Bell, BellOff, BookOpen, GraduationCap, Phone, ShoppingCart, Wallet, Bot, Building2, ChevronDown, CircleAlert, FileLock2, FileText, Gauge, Hammer, House, ListTodo, LogOut, Mail, MessageCircle,
   MessageSquare, Mic, Plug, Plus, RefreshCw, Scale, ScrollText, Search, Settings, ShieldCheck, SlidersHorizontal, Sparkles, Store, Users, Workflow, Disc3, PhoneCall, FileBarChart, Library, Star,
-  ClipboardCheck, ClipboardList, Building, BriefcaseBusiness, Megaphone, SunMoon, CalendarDays, AtSign, Handshake, PhoneOutgoing, ShieldAlert, Landmark, Compass, Clock3, CarFront, PackageOpen } from 'lucide-react';
+  ClipboardCheck, ClipboardList, Building, BriefcaseBusiness, Megaphone, SunMoon, CalendarDays, AtSign, Handshake, PhoneOutgoing, ShieldAlert, Landmark, Compass, Clock3, CarFront, PackageOpen, Menu, X } from 'lucide-react';
 import type { Approval, Task } from '@anum/contracts';
 import type { WorkspacePermissions } from '@anum/contracts';
 import * as api from './lib/api';
@@ -23,7 +23,7 @@ import type { ActionNotice } from './lib/autonomy';
 import type { EmailMessage } from './lib/email';
 import { searchEmails, searchFiles, searchTasks } from './lib/commandApi';
 import { NAV, badgeText, initials, isPaletteShortcut, matchViews, moveActive, notificationCount, viewLabel, type NavGroup, type PaletteItem, type View } from './lib/shell';
-import { Modal } from './Dialog';
+import { Modal, useModal } from './Dialog';
 import { WorkspaceSwitcher } from './WorkspaceSwitcher';
 import { getPeople } from './lib/teamApi';
 import { TeamNotificationsSection, type TeamNotifications } from './NotificationBell';
@@ -79,6 +79,32 @@ export function Sidebar({ view, views, pendingApprovals, stream, lastEvent, work
   // nav's scroll position only: scrollIntoView would also move the keyboard's starting point, so
   // the first Tab would skip the "Skip to content" link.
   const navRef = useRef<HTMLElement>(null);
+  // Phones (760 px and narrower, styles.css): the navigation is a drawer behind a menu button in the
+  // brand row. It is the same panel as the desktop column, so groups, folds and counts are one code path.
+  const [menuOpen, setMenuOpen] = useState(false);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const menuButton = useRef<HTMLButtonElement>(null);
+  const closeMenu = useCallback(() => setMenuOpen(false), []);
+  // Focus goes back to the menu button however the drawer closed (Safari does not focus a button on click, so the opener is not always known).
+  const wasOpen = useRef(false);
+  useEffect(() => { if (wasOpen.current && !menuOpen) menuButton.current?.focus(); wasOpen.current = menuOpen; }, [menuOpen]);
+  // A view opened some other way (a link, the palette, the back button) closes the drawer, and so does a window that grows past the phone layout.
+  useEffect(() => { setMenuOpen(false); }, [view]);
+  // While the drawer is open the page behind it is inert: a screen reader's cursor and a pointer stay in the drawer, as focus already does.
+  useEffect(() => {
+    if (!menuOpen) return;
+    const main = document.getElementById('main');
+    main?.setAttribute('inert', '');
+    return () => main?.removeAttribute('inert');
+  }, [menuOpen]);
+  useEffect(() => {
+    if (!menuOpen) return;
+    const wide = window.matchMedia?.(`(min-width: ${PHONE_NAV_MAX + 1}px)`);
+    if (!wide) return;
+    const sync = () => { if (wide.matches) setMenuOpen(false); };
+    wide.addEventListener('change', sync);
+    return () => wide.removeEventListener('change', sync);
+  }, [menuOpen]);
   useEffect(() => {
     const nav = navRef.current, entry = nav?.querySelector<HTMLElement>('.navItem.active');
     if (!nav || !entry) return;
@@ -87,8 +113,8 @@ export function Sidebar({ view, views, pendingApprovals, stream, lastEvent, work
     else if (at.bottom > box.bottom) nav.scrollTop += at.bottom - box.bottom;
     if (at.left < box.left) nav.scrollLeft -= box.left - at.left;
     else if (at.right > box.right) nav.scrollLeft += at.right - box.right;
-  }, [view, views.length]);
-  const item = (id: View) => <li key={id}><button type="button" className={`navItem ${view === id ? 'active' : ''}`} aria-current={view === id ? 'page' : undefined} onClick={() => onGo(id)}>
+  }, [view, views.length, menuOpen]);
+  const item = (id: View) => <li key={id}><button type="button" className={`navItem ${view === id ? 'active' : ''}`} aria-current={view === id ? 'page' : undefined} onClick={() => { setMenuOpen(false); onGo(id); }}>
     {ICONS[id]}<span>{viewLabel(id)}</span>
     {id === 'approvals' && pendingApprovals > 0 && <span className="navCount" aria-label={t('nav.pendingCount', { count: pendingApprovals })}>{pendingApprovals}</span>}
     {id === 'email' && mailUnreadCount > 0 && <span className="navCount" aria-label={t('mailc.unreadBadge', { count: mailUnreadCount })}>{badgeText(mailUnreadCount)}</span>}
@@ -104,20 +130,36 @@ export function Sidebar({ view, views, pendingApprovals, stream, lastEvent, work
       <div id={listId} hidden={!open}>{body}</div>
     </div>;
   };
-  return <aside className="sidebar">
-    <div className="brand">{branding?.logo ? <img className="brandLogo" src={branding.logo} alt="" /> : <AnumMark className="brandMark" size={36} />}<div><span className="brandName">{t('brand.name')}</span><small>{branding?.name ?? t('brand.tagline')}</small></div></div>
-    <nav ref={navRef} aria-label={t('nav.primary')}>
-      <ul className="navList">
-        {NAV[0].views.filter((id) => allowed.has(id)).map(item)}
-      </ul>
-      {group('workspaces', 'sidebar.workspaces', <SidebarWorkspaces workspaceId={workspaceId} onSwitchWorkspace={onSwitchWorkspace} />)}
-      {NAV.slice(1).map((g) => {
-        const ids = g.views.filter((id) => allowed.has(id));
-        return ids.length ? <div key={g.group}>{group(g.group, `sidebar.group.${g.group}` as MessageKey, <ul className="navList">{ids.map(item)}</ul>)}</div> : null;
-      })}
-    </nav>
-    <div className="systemState" role="status"><span className={`onlineDot ${stream}`} aria-hidden="true" />{t(`shell.stream.${stream}`)}<small>{lastEvent ?? t('shell.waitingEvents')}</small></div>
+  const brand = <div className="brand">{branding?.logo ? <img className="brandLogo" src={branding.logo} alt="" /> : <AnumMark className="brandMark" size={36} />}<div><span className="brandName">{t('brand.name')}</span><small>{branding?.name ?? t('brand.tagline')}</small></div></div>;
+  return <aside className={`sidebar ${menuOpen ? 'navOpen' : ''}`}>
+    <button type="button" ref={menuButton} className="iconButton navMenuButton" aria-label={t('nav.openMenu')} title={t('nav.openMenu')} aria-haspopup="dialog" aria-expanded={menuOpen} aria-controls="primary-nav-panel" onClick={() => setMenuOpen(true)}><Menu aria-hidden="true" /></button>
+    {brand}
+    {menuOpen && <div className="navScrim" onClick={closeMenu} />}
+    <div id="primary-nav-panel" className="navPanel" ref={panelRef} role={menuOpen ? 'dialog' : undefined} aria-modal={menuOpen ? true : undefined} aria-label={menuOpen ? t('nav.menu') : undefined}>
+      {menuOpen && <div className="navPanelHead">{brand}<button type="button" className="iconButton" aria-label={t('nav.closeMenu')} title={t('nav.closeMenu')} onClick={closeMenu}><X aria-hidden="true" /></button></div>}
+      <nav ref={navRef} aria-label={t('nav.primary')}>
+        <ul className="navList">
+          {NAV[0].views.filter((id) => allowed.has(id)).map(item)}
+        </ul>
+        {group('workspaces', 'sidebar.workspaces', <SidebarWorkspaces workspaceId={workspaceId} onSwitchWorkspace={onSwitchWorkspace} />)}
+        {NAV.slice(1).map((g) => {
+          const ids = g.views.filter((id) => allowed.has(id));
+          return ids.length ? <div key={g.group}>{group(g.group, `sidebar.group.${g.group}` as MessageKey, <ul className="navList">{ids.map(item)}</ul>)}</div> : null;
+        })}
+      </nav>
+      <div className="systemState" role="status"><span className={`onlineDot ${stream}`} aria-hidden="true" />{t(`shell.stream.${stream}`)}<small>{lastEvent ?? t('shell.waitingEvents')}</small></div>
+    </div>
+    {menuOpen && <NavDrawerKeys panel={panelRef} onClose={closeMenu} />}
   </aside>;
+}
+
+/** The widest window that gets the phone layout (the `max-width: 760px` blocks in styles.css). */
+const PHONE_NAV_MAX = 760;
+
+/** While the phone drawer is open: focus moves in, Tab stays inside, Escape closes, and focus returns to the menu button (Dialog.tsx useModal). */
+function NavDrawerKeys({ panel, onClose }: { panel: RefObject<HTMLDivElement | null>; onClose: () => void }) {
+  useModal(onClose, panel);
+  return null;
 }
 
 function SidebarWorkspaces({ workspaceId, onSwitchWorkspace }: { workspaceId: string; onSwitchWorkspace: (workspaceId: string) => Promise<void> }) {

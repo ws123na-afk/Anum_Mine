@@ -1,3 +1,5 @@
+import '../app_lock/app_lock_controller.dart';
+import '../app_lock/app_lock_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
@@ -94,8 +96,12 @@ class _BooksScreenState extends State<BooksScreen> {
     }
   }
 
+  // Behind the app lock when it is on (docs/mobile.md#app-lock).
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) =>
+      AppLockGate(area: AppLockArea.books, child: _content(context));
+
+  Widget _content(BuildContext context) {
     final b = BooksStrings.of(context);
     return ListenableBuilder(
       listenable: Listenable.merge([c, c.bills, c.review]),

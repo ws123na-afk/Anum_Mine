@@ -51,6 +51,10 @@ class ToolDefinition(BaseModel):
     # browser, docs/action-browser.md): after an approval on the inline path it runs in the
     # background, so the approve request answers at once and the task drawer follows it live.
     long_running: bool = False
+    # The tool reads the caller's own data, which no other member may see (the personal ledger,
+    # the person's own mailbox). A task that plans such a call becomes private to its creator
+    # before the call runs, and only the creator's run may make it (docs/tasks.md#private-tasks).
+    caller_scoped: bool = False
 
 
 def holds_organization_permission(context: TenantContext, permission: str) -> bool:
@@ -89,6 +93,11 @@ class ToolResult(BaseModel):
     # call and pauses for an approval bound to it by the payload hash (``runtime._settle``).
     # ``continuation_reason`` opens the approval's reason; ``continuation_ttl_seconds`` can
     # only shorten the approval's expiry.
+    # The result holds the caller's own data that no other member may see (mail from a mailbox
+    # connected as private): the runtime makes the task private to its creator in the unit of
+    # work that stores the result (docs/tasks.md#private-tasks). Tools whose every result is
+    # like that declare ``ToolDefinition.caller_scoped`` instead.
+    caller_private: bool = False
     continuation: ToolCall | None = None
     continuation_reason: str | None = None
     continuation_ttl_seconds: int | None = Field(default=None, ge=30, le=86_400)

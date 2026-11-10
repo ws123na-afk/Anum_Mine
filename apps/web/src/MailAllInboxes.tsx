@@ -3,6 +3,7 @@
 // mailbox badge; filters by mailbox, unread, starred and received date, server-side search and paging.
 // A message opens in its own mailbox: the reader and composer are the Email page's own, given that
 // mailbox, so a reply is a draft of that mailbox, sent from its address after an owner approves it.
+import { listTime } from './lib/listTime';
 import { useCallback, useEffect, useId, useMemo, useState, type ReactNode } from 'react';
 import { CircleDot, Inbox, Lock, Mail, MailOpen, Paperclip, PenLine, RefreshCw, Share2 } from 'lucide-react';
 import { Composer, Notice, Panel, Reader, mailError } from './EmailView';
@@ -149,7 +150,7 @@ export function AllInboxes({ setup, owner, header, onOpenMailbox, onOpenApproval
           return <li key={key} className={`mailRow mailAllRow ${m.seen ? '' : 'unread'} ${active ? 'selected' : ''}`}>
             {canFlag && <StarButton flagged={m.flagged} subject={subject} disabled={busy !== null} onToggle={() => void flag(m, m.flagged ? 'unstar' : 'star')} />}
             <button type="button" className="mailRowOpen" aria-current={active ? 'true' : undefined} onClick={() => openMessage(m)}>
-              <span className="mailRowTop"><strong dir="auto">{personLabel(listPerson(m, 'inbox')) || t('mail.draft.noRecipient')}</strong><time dateTime={m.date}>{when(m.date)}</time></span>
+              <span className="mailRowTop"><strong dir="auto">{personLabel(listPerson(m, 'inbox')) || t('mail.draft.noRecipient')}</strong><time dateTime={m.date} title={when(m.date)}>{listTime(m.date)}</time></span>
               <span className="mailRowSubject" dir="auto">{!m.seen && <span className="mailUnreadDot" role="img" aria-label={t('mail.list.unread')} />}{subject}{m.maybe_attachments && <Paperclip className="mailClip" role="img" aria-label={t('mail.list.attachment')} />}</span>
               <span className="mailAllBadge" title={m.account_address}>
                 {shared && <Share2 aria-hidden="true" />}<span dir="auto" aria-hidden="true">{mailbox}</span>

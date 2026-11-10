@@ -80,6 +80,9 @@ String configureAndroidManifest(String manifest) {
     'android.permission.CAMERA',
     'android.permission.MODIFY_AUDIO_SETTINGS',
     'android.permission.ACCESS_NETWORK_STATE',
+    // The app lock's system prompt (docs/mobile.md#app-lock). A normal
+    // permission: granted at install, no question to the person.
+    'android.permission.USE_BIOMETRIC',
   ]) {
     if (!value.contains(permission)) {
       value = value.replaceFirst(
@@ -283,6 +286,12 @@ String configureIosInfoPlist(String plist) {
   if (!value.contains('NSCameraUsageDescription')) {
     value = _insertBeforeLastDictClose(value,
         '\t<key>NSCameraUsageDescription</key>\n\t<string>ANUM uses the camera only during a video call with a teammate.</string>\n');
+  }
+  // The app lock (docs/mobile.md#app-lock): iOS shows this the first time
+  // Face ID is used and refuses Face ID without it.
+  if (!value.contains('NSFaceIDUsageDescription')) {
+    value = _insertBeforeLastDictClose(value,
+        '\t<key>NSFaceIDUsageDescription</key>\n\t<string>ANUM uses Face ID to unlock the app when you turn on the app lock.</string>\n');
   }
   // AppAuth on iOS returns from the sign-in browser through this scheme.
   if (!value.contains('<string>$oidcRedirectScheme</string>')) {

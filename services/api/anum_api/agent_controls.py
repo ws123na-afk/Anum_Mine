@@ -427,7 +427,7 @@ def _cancel_batch(scoped: TenantContext) -> tuple[int, list[str]]:
             repository.record_event(
                 create_event(
                     CanonicalEventName.TASK_CANCELLED, scoped, task.id, {"task_id": task.id, "reason": "emergency_stop"},
-                    correlation_id=task.id,
+                    correlation_id=task.id, private_to=task.private_to,
                 ).event
             )
             done.append(task.id)
@@ -849,19 +849,16 @@ HELD_SOURCE_LIMIT = 500
 def _held_items(context: TenantContext, repository: Any) -> list[HeldItem]:
     """What the stop holds in this workspace: pending approvals, the caller's own scheduled
     mail (mailboxes are private to their owner) and scheduled social posts."""
-    from .schemas import ApprovalStatus
+    from .approval_paging import pending_now
 
     items: list[HeldItem] = []
-    for approval in repository.list_approvals(context):
-        if approval.status != ApprovalStatus.PENDING:
-            continue
+    # The pending rows only (the paged query), oldest first as before.
+    for approval in reversed(pending_now(repository, context, utc_now(), limit=HELD_SOURCE_LIMIT)):
         items.append(HeldItem(
             kind="approval", id=approval.id, title=approval.action,
             detail=str(getattr(approval, "target", None) or approval.reason or "")[:200],
             at=approval.created_at, by=getattr(approval, "requested_by", None),
         ))
-        if len(items) >= HELD_SOURCE_LIMIT:
-            break
     try:
         from .mailbox.store import open_mail_store
 

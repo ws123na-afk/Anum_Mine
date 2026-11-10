@@ -119,6 +119,11 @@ class TaskRecord(Base, TimestampMixin, WorkspaceScopedMixin):
     # Planning (0048_task_planning, docs/tasks.md): null priority reads as medium.
     priority: Mapped[str | None] = mapped_column(String(10))
     due_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Private task (0163_private_tasks, docs/tasks.md#private-tasks): the one user who may see
+    # the task, its runs, approvals and events; null for a workspace task.
+    private_to: Mapped[str | None] = mapped_column(String(160))
+    # Why: ``data`` (a run read the person's own data; permanent) or ``chat`` (from their chat).
+    private_kind: Mapped[str | None] = mapped_column(String(10))
 
     workspace: Mapped[Workspace] = relationship(back_populates="tasks")
     runs: Mapped[list["AgentRunRecord"]] = relationship(back_populates="task")
@@ -326,6 +331,10 @@ class DomainEventRecord(Base, TimestampMixin, TenantScopedMixin):
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
     publish_last_error: Mapped[str | None] = mapped_column(Text)
+    # 0163_private_tasks: the event belongs to a private task (its correlation id) and is that
+    # person's only. Copied from ``tasks.private_to`` when the event is recorded and when the
+    # task turns private; the outbox relay never sees such a row, so it is never published.
+    private_to: Mapped[str | None] = mapped_column(String(160))
 
     __table_args__ = (
         ForeignKeyConstraint(
@@ -347,6 +356,8 @@ class DomainEventRecord(Base, TimestampMixin, TenantScopedMixin):
             "type",
             "created_at",
         ),
+        # The event stream's cursor read and the retention delete (migration 0162_event_stream_retention).
+        Index("ix_domain_events_scope_created", "tenant_id", "workspace_id", "created_at", "id"),
         Index("ix_events_correlation", "correlation_id"),
     )
 
@@ -1043,6 +1054,8 @@ class AutomationScheduleRecord(Base, WorkspaceScopedMixin):
     # Migration 0034: what the scheduler did at the last fire time.
     last_outcome: Mapped[str | None] = mapped_column(String(40))
     created_by: Mapped[str] = mapped_column(String(160), nullable=False)
+    # 0163_private_tasks: the workflow version ``created_by`` accepted (docs/automation.md#accepted-version).
+    accepted_version: Mapped[int | None] = mapped_column()
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
@@ -1115,6 +1128,8 @@ class AutomationTriggerRecord(Base, WorkspaceScopedMixin):
     last_outcome: Mapped[str | None] = mapped_column(String(40))
     fire_count: Mapped[int] = mapped_column(nullable=False, default=0, server_default=text("0"))
     created_by: Mapped[str] = mapped_column(String(160), nullable=False)
+    # 0163_private_tasks: the workflow version ``created_by`` accepted (docs/automation.md#accepted-version).
+    accepted_version: Mapped[int | None] = mapped_column()
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
@@ -1286,6 +1301,7 @@ class AutonomousActionRecord(Base):
     undone_by: Mapped[str | None] = mapped_column(String(160))
     undone_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     undo_error: Mapped[str | None] = mapped_column(String(500))
+    undo_claimed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))  # 0165_autonomy_undo_claim
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
     __table_args__ = (

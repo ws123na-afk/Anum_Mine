@@ -157,6 +157,24 @@ def _membership_roles(context: TenantContext) -> list[str]:
     return ["member"]  # header sign-in: local and test environments only
 
 
+def require_known_device(context: TenantContext, device_id: str, secret: str) -> None:
+    """The secret first. A device token names its tenant, workspace and user in the clear, so
+    anyone can forge one for any person: until the stored device row matches the secret (compared
+    in constant time) every failure gets the one ``invalid_token`` answer, and nothing is said
+    about whether that person is a member, what their role is or whether the workspace is
+    archived. The status and scope checks stay in :func:`check_device`."""
+    from .sms_store import open_sms_stores
+
+    try:
+        with open_sms_stores(context) as (_finance, store):
+            device = store.get_device(context, device_id)
+    except Exception:  # an unknown tenant or workspace reads like an unknown device
+        device = None
+    expected = device.token_hash if device is not None else secret_hash("")
+    if not hmac.compare_digest(expected, secret_hash(secret)) or device is None:
+        raise IngestError(401, UNKNOWN, "invalid_token")
+
+
 def authorize(authorization: str | None) -> tuple[TenantContext, str, str]:
     """``Authorization: Bearer <device token>`` to ``(owner context with role, device id, secret)``."""
     from ..authorization import Permission
@@ -168,6 +186,7 @@ def authorize(authorization: str | None) -> tuple[TenantContext, str, str]:
     if parsed is None:
         raise IngestError(401, UNKNOWN, "invalid_token")
     context, device_id, secret = parsed
+    require_known_device(context, device_id, secret)
     roles = _membership_roles(context)
     context = context.model_copy(update={"roles": roles})
     if not has_permission(context, Permission.FINANCE_MANAGE):

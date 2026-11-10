@@ -1,0 +1,13 @@
+# Async routes whose body calls the request's repository or store, or hands it to a plain
+# function, on the event loop (reliability audit, November 2026; docs/realtime.md#event-loop).
+# 88 routes did when the check was added; these are what is left. Frozen by
+# tests/test_security_inventory.py: the list may only shrink. Never add a line: make the route a
+# plain def route, or run its store steps in asyncio.to_thread.
+#
+# Reads and writes through the request repository in helpers it calls on the loop; needs its own pass:
+POST /api/v1/executive-pa/invoke
+# These only wrap the repository in an object on the loop (home._scope, retrieval_api._workspace_store);
+# every query behind it runs in a worker thread (tests/test_routes_off_event_loop.py):
+GET /api/v1/home/insights
+GET /api/v1/home/summary
+POST /api/v1/retrieval/index

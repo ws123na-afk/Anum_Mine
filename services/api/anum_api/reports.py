@@ -750,6 +750,8 @@ def task_summary(context: TenantContext, days: int, now: datetime) -> ReportCrea
             if not page:
                 break
             for task in page:
+                if task.private_to is not None:
+                    continue  # a stored report is shared: the author's private tasks stay out of it
                 created = task.created_at if task.created_at.tzinfo else task.created_at.replace(tzinfo=timezone.utc)
                 if start <= created <= end:
                     current.append(task)
@@ -1218,7 +1220,7 @@ async def save_to_files(
 
 
 @router.post("/{report_id}/ask", status_code=status.HTTP_201_CREATED)
-async def ask_about_report(
+def ask_about_report(
     report_id: str,
     payload: AskRequest,
     context: TenantContext = Depends(tenant_context),

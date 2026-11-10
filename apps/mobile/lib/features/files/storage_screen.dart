@@ -1,3 +1,4 @@
+import '../../data/readable_error.dart';
 import 'package:flutter/material.dart';
 
 import '../../data/api_client.dart';
@@ -31,7 +32,7 @@ class StorageController extends ChangeNotifier {
       error = e.message;
     } catch (e) {
       phase = StoragePhase.error;
-      error = '$e';
+      error = readableError(e);
     }
     notifyListeners();
   }

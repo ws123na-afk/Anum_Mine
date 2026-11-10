@@ -385,6 +385,8 @@ def _tasks(context: TenantContext, now: datetime, since: datetime | None) -> lis
     with _unit_of_work(context, require_membership=False) as repository:
         summary = repository.summarize_tasks(context, TaskFilters())
         open_tasks = repository.list_tasks(context, limit=200, filters=TaskFilters(statuses=OPEN_TASK))
+    # The brief is a tool result others may read: the caller's private tasks are not listed in it.
+    open_tasks = [task for task in open_tasks if task.private_to is None]
     return task_sections(summary.by_status, open_tasks, now, since)
 
 

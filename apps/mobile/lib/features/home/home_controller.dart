@@ -1,3 +1,4 @@
+import '../../data/readable_error.dart';
 import 'package:flutter/foundation.dart';
 
 import '../../data/api_client.dart';
@@ -42,7 +43,8 @@ class HomeController extends ChangeNotifier {
   /// screen's snack bar would sit under them).
   String? lastError;
 
-  static String _describe(Object e) => e is ApiException ? e.readable : '$e';
+  static String _describe(Object e) =>
+      e is ApiException ? e.readable : readableError(e);
 
   List<QuickCommand> get modeCommands =>
       commands.where((c) => c.mode == mode).toList();

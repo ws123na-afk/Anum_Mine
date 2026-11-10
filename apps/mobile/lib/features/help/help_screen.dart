@@ -1,3 +1,4 @@
+import '../../data/readable_error.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -81,7 +82,8 @@ class _HelpScreenState extends State<HelpScreen> {
           if (snapshot.hasError) {
             return _Message(
                 icon: Icons.error_outline,
-                text: _s(context, 'error', {'message': '${snapshot.error}'}));
+                text: _s(context, 'error',
+                    {'message': readableError(snapshot.error)}));
           }
           if (!snapshot.hasData) {
             return _Message(

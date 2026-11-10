@@ -1,3 +1,4 @@
+import '../../data/readable_error.dart';
 import 'package:flutter/foundation.dart';
 
 import '../../data/api_client.dart';
@@ -44,7 +45,7 @@ class PortalController extends ChangeNotifier {
   bool get canDecide => me?.canDecide ?? false;
 
   static String messageOf(Object error) =>
-      error is ApiException ? error.readable : '$error';
+      error is ApiException ? error.readable : readableError(error);
 
   /// Records a 401 as a refused link. Returns true when it was one.
   bool noteError(Object error) {

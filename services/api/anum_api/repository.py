@@ -38,6 +38,12 @@ if TYPE_CHECKING:
     from .autonomy import AutonomyStore
 
 
+def task_visible_to(task: Task, context: TenantContext) -> bool:
+    """Whether ``context``'s user may see ``task`` at all: a private task
+    (``Task.private_to``, docs/tasks.md#private-tasks) exists for one person only."""
+    return task.private_to is None or task.private_to == context.user_id
+
+
 class UnknownCursorError(LookupError):
     """A paging cursor that names no row in the caller's scope (the API answers 400)."""
 
@@ -94,7 +100,9 @@ class AnumRepository(Protocol):
     def list_task_events(
         self, task_id: str, context: TenantContext, *, limit: int | None = None, after: str | None = None
     ) -> list[DomainEvent]: ...
-    def list_task_approvals(self, task_id: str, context: TenantContext) -> list[Approval]: ...
+    def list_task_approvals(
+        self, task_id: str, context: TenantContext, *, for_update: bool = False
+    ) -> list[Approval]: ...
     def save_task(self, task: Task) -> Task: ...
     def get_task(self, task_id: str, context: TenantContext) -> Task | None: ...
     def get_task_for_update(self, task_id: str, context: TenantContext) -> Task | None: ...
@@ -107,7 +115,6 @@ class AnumRepository(Protocol):
         self, approval_id: str, context: TenantContext
     ) -> Approval | None: ...
     def list_approvals(self, context: TenantContext) -> list[Approval]: ...
-    def list_approvals_for_update(self, context: TenantContext) -> list[Approval]: ...
     def list_approvals_page(
         self,
         context: TenantContext,
@@ -120,8 +127,12 @@ class AnumRepository(Protocol):
         limit: int,
     ) -> tuple[list[Approval], bool]: ...
     def summarize_approvals(self, context: TenantContext, now: datetime) -> ApprovalSummary: ...
-    def list_events(self, context: TenantContext) -> list[DomainEvent]: ...
-    def list_events_after(self, context: TenantContext, event_id: str) -> list[DomainEvent]: ...
+    def list_events(self, context: TenantContext, *, limit: int | None = None) -> list[DomainEvent]: ...
+    def list_events_after(
+        self, context: TenantContext, event_id: str, *, limit: int | None = None
+    ) -> list[DomainEvent]: ...
+    def latest_event_id(self, context: TenantContext) -> str | None: ...
+    def list_recent_events(self, context: TenantContext, limit: int) -> list[DomainEvent]: ...
     def record_event(self, event: DomainEvent) -> DomainEvent: ...
     def get_approval_policy(self, context: TenantContext) -> WorkspaceApprovalPolicy: ...
     def save_approval_policy(
@@ -312,6 +323,7 @@ class InMemoryRepository:
             task
             for task in self.store.tasks.values()
             if task.tenant_id == context.tenant_id and task.workspace_id == context.workspace_id
+            and task_visible_to(task, context)
         ]
 
     def list_tasks(
@@ -391,7 +403,10 @@ class InMemoryRepository:
         events.sort(key=lambda event: (event.created_at, event.id), reverse=True)
         return events if limit is None else events[:limit]
 
-    def list_task_approvals(self, task_id: str, context: TenantContext) -> list[Approval]:
+    def list_task_approvals(
+        self, task_id: str, context: TenantContext, *, for_update: bool = False
+    ) -> list[Approval]:
+        """The task's approvals, oldest first. ``for_update`` locks those rows (PostgreSQL)."""
         if not self.get_task(task_id, context):
             return []
         return sorted(
@@ -400,7 +415,19 @@ class InMemoryRepository:
         )
 
     def save_task(self, task: Task) -> Task:
+        current = self.store.tasks.get(task.id)
+        if current is not None and current.private_kind == "data":
+            # Permanent: such a task never becomes a workspace task or another person's.
+            task.private_to, task.private_kind = current.private_to, current.private_kind
+        elif current is not None and current.private_to is not None and task.private_to is not None:
+            task.private_to = current.private_to  # a chat task is shared or kept, never handed over
         self.store.tasks[task.id] = task
+        # A workspace task turns private, or a chat task is shared for an approval: its events follow
+        # it, as ``SqlAlchemyRepository.create_task`` rewrites ``domain_events.private_to``. (The stored
+        # task may be the very object the caller changed, so the stamps are compared, not the tasks.)
+        for event in self.store.events:
+            if event.correlation_id == task.id and event.tenant_id == task.tenant_id and event.private_to != task.private_to:
+                event.private_to = task.private_to
         return task
 
     def get_task(self, task_id: str, context: TenantContext) -> Task | None:
@@ -408,6 +435,8 @@ class InMemoryRepository:
         if not task:
             return None
         if task.tenant_id != context.tenant_id or task.workspace_id != context.workspace_id:
+            return None
+        if not task_visible_to(task, context):
             return None
         return task
 
@@ -452,22 +481,43 @@ class InMemoryRepository:
             if self.get_task(approval.task_id, context)
         ]
 
-    def list_events(self, context: TenantContext) -> list[DomainEvent]:
-        return [
+    def list_events(self, context: TenantContext, *, limit: int | None = None) -> list[DomainEvent]:
+        """The caller's events oldest first; with ``limit`` only the first that many."""
+        # An event of a private task is its person's only: ``private_to`` is stamped when the event
+        # is recorded and rewritten when the task's marker changes (``save_task``), so this read,
+        # ``events_since`` and the event-bus filter agree, as they do in SQL.
+        events = [
             event
             for event in self.store.events
             if event.tenant_id == context.tenant_id
             and (event.workspace_id is None or event.workspace_id == context.workspace_id)
+            and (event.private_to is None or event.private_to == context.user_id)
         ]
+        return events if limit is None else events[:limit]
 
-    def list_events_after(self, context: TenantContext, event_id: str) -> list[DomainEvent]:
-        """The caller's events after ``event_id``; the whole list when it is unknown."""
+    def list_events_after(
+        self, context: TenantContext, event_id: str, *, limit: int | None = None
+    ) -> list[DomainEvent]:
+        """The caller's events after ``event_id`` (at most ``limit``).
+
+        An unknown cursor (retention purged it, or it is another workspace's) starts at the
+        newest event: that one event is returned, so the stream's cursor becomes one the
+        workspace has, and the next read sees only what follows. It used to start at the
+        oldest event, so a resumed stream replayed the whole history.
+        """
         events = self.list_events(context)
         index = next((i for i, event in enumerate(events) if event.id == event_id), None)
-        return events if index is None else events[index + 1 :]
+        events = events[-1:] if index is None else events[index + 1 :]
+        return events if limit is None else events[:limit]
 
-    def list_approvals_for_update(self, context: TenantContext) -> list[Approval]:
-        return self.list_approvals(context)
+    def latest_event_id(self, context: TenantContext) -> str | None:
+        """The id of the caller's newest event (where a new event stream starts), or None."""
+        events = self.list_events(context)
+        return events[-1].id if events else None
+
+    def list_recent_events(self, context: TenantContext, limit: int) -> list[DomainEvent]:
+        """The caller's newest ``limit`` events, oldest first."""
+        return self.list_events(context)[-limit:] if limit > 0 else []
 
     def list_approvals_page(
         self,
@@ -499,6 +549,11 @@ class InMemoryRepository:
         return summary_in_memory(self.list_approvals(context), now)
 
     def record_event(self, event: DomainEvent) -> DomainEvent:
+        task = self.store.tasks.get(event.correlation_id)
+        if task is not None and task.tenant_id == event.tenant_id and task.workspace_id == event.workspace_id:
+            # An event of a private task (correlation id = task id): stamped at record time, so it is
+            # kept off the bus (``EventBusRuntime.after_commit``) and out of other people's reads.
+            event.private_to = task.private_to
         self.store.events.append(event)
         return event
 

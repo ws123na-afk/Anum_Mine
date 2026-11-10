@@ -96,6 +96,7 @@ A tool is reversible when its definition names a compensating tool (`undo_tool`)
 - may be called by an owner (`approval:decide`) or the person whose task did it (`403` otherwise, naming who can);
 - `409` when already undone, not reversible or the token does not match, `410` after the window, `404` in another workspace;
 - runs the compensating tool through the tool registry (the tool policy can still block it), and on success marks the action `undone` (`autonomy.action_undone` event and audit record). A failed undo answers `502`, keeps the action in effect and records `undo_error` and an `autonomy.undo_failed` audit record.
+- claims the action before the tool runs (`undo_claimed_at`, committed in its own short transaction) and runs the compensating tool with no transaction or row lock open ([Event loop](realtime.md#event-loop)); a second undo while one is in flight answers `409` "already in progress" at once, and the feed shows no Undo for it (`undo_available` false). A finished or failed undo releases the claim; one left by a process that stopped mid-undo may be taken over after `ANUM_INLINE_RUN_LEASE_SECONDS` (15 minutes). An undo whose tool call outlived that lease and was taken over records nothing more and answers `409`.
 
 `GET /api/v1/autonomy/actions` lists the workspace's actions newest first, with `category`, `level`, `status` and `q` (summary, tool, template) filters and keyset paging (`limit` up to 100, `cursor`); each item says whether the caller may undo it now (`can_undo`, and `undo_token` only then) and the current rule level for its pattern. `GET /api/v1/autonomy/actions/{id}` reads one (a notification's Undo uses it).
 
@@ -106,7 +107,7 @@ A tool is reversible when its definition names a compensating tool (`undo_tool`)
 
 ## Storage
 
-Migration `0034_autonomy` (expand only): `autonomy_guardrails` (one row per tenant, JSON settings), `workspace_autonomy_settings`, `autonomy_rules` and `autonomy_proposals` (unique per pattern), `autonomy_actions` (feed index on tenant, workspace, created_at, id) and `autonomy_recipients`. Every table has forced RLS on `anum.tenant_id` (and `anum.workspace_id` for the workspace tables); nothing is granted to a cross-tenant role. The in-memory backend keeps the same data in process. Every change is audited in the same transaction (`autonomy.settings_updated`, `autonomy.guardrails_updated`, `autonomy.rule_created`, `autonomy.rule_deleted`, `autonomy.proposal_*`, `autonomy.action_*`, `autonomy.undo_failed`).
+Migration `0034_autonomy` (expand only): `autonomy_guardrails` (one row per tenant, JSON settings), `workspace_autonomy_settings`, `autonomy_rules` and `autonomy_proposals` (unique per pattern), `autonomy_actions` (feed index on tenant, workspace, created_at, id) and `autonomy_recipients`. Migration `0165_autonomy_undo_claim` (expand only) adds `autonomy_actions.undo_claimed_at`, the undo claim above. Every table has forced RLS on `anum.tenant_id` (and `anum.workspace_id` for the workspace tables); nothing is granted to a cross-tenant role. The in-memory backend keeps the same data in process. Every change is audited in the same transaction (`autonomy.settings_updated`, `autonomy.guardrails_updated`, `autonomy.rule_created`, `autonomy.rule_deleted`, `autonomy.proposal_*`, `autonomy.action_*`, `autonomy.undo_failed`).
 
 ## Tests
 

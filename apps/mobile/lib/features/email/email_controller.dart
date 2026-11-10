@@ -1,3 +1,4 @@
+import '../../data/readable_error.dart';
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
@@ -50,13 +51,35 @@ class EmailController extends ChangeNotifier {
 
   bool get hasFilters => query.trim().isNotEmpty || unreadOnly;
 
+  /// Forgets the mailboxes, messages, the opened message and drafts (sign-out).
+  void reset() {
+    phase = InboxPhase.idle;
+    error = null;
+    accounts = const [];
+    messages = const [];
+    nextCursor = null;
+    loadingMore = false;
+    query = '';
+    unreadOnly = false;
+    newDrafts = const [];
+    detail = null;
+    detailLoading = false;
+    detailError = null;
+    draftApproval = null;
+    busy = null;
+    notice = null;
+    noticeIsError = false;
+    notifyListeners();
+  }
+
   /// Mailboxes a new email can be sent from (not waiting for a reconnect).
   List<EmailAccount> get sendableAccounts => [
         for (final account in accounts)
           if (!account.needsReconnect) account,
       ];
 
-  String _describe(Object e) => e is ApiException ? e.message : '$e';
+  String _describe(Object e) =>
+      e is ApiException ? e.message : readableError(e);
 
   Future<void> load() async {
     phase = InboxPhase.loading;
@@ -366,7 +389,7 @@ class ComposeController extends ChangeNotifier {
     } on ApiException catch (e) {
       error = e.readable;
     } on Object catch (e) {
-      error = '$e';
+      error = readableError(e);
     }
     busy = null;
     _notify();

@@ -143,7 +143,7 @@ jobs:
 
   # The three web bundles the Playwright suite serves (apps/web/playwright.config.ts: the app, the
   # OIDC build and the error-reporting build), built once and handed to every shard as an artifact,
-  # instead of each of the six shards building all three. The same commands and variables as the
+  # instead of each of the twelve shards building all three. The same commands and variables as the
   # config's own webServer entries, which still build when ANUM_E2E_PREBUILT is not set (local runs).
   # It also fills the Playwright browser cache the shards read.
   browser-e2e-build:
@@ -199,20 +199,22 @@ jobs:
         if: steps.playwright-cache.outputs.cache-hit != 'true'
         run: pnpm --filter @anum/web exec playwright install chromium
 
-  # The Playwright suite in six shards, each on its own runner with the fixed ports 4173, 4174 and
+  # The Playwright suite in twelve shards, each on its own runner with the fixed ports 4173, 4174 and
   # 4175 (apps/web/playwright.config.ts). "Browser end-to-end" below is the one required check: it
   # passes only when every shard passed, and merges the shards' reports into one HTML report.
   browser-e2e-shard:
-    name: Browser end-to-end (shard ${{ matrix.shard }}/6)
+    name: Browser end-to-end (shard ${{ matrix.shard }}/12)
     runs-on: ubuntu-latest
     needs: browser-e2e-build
-    # A shard takes about 15 minutes; a hung browser or preview server must not hold a runner
-    # for GitHub's default 6 hours.
+    # Shards split the ordered test list, so the 61 three-dimensional headquarters specs (hq-*,
+    # software rendering, up to 240 s each) land in adjacent shards: with six shards two of them
+    # took 50 to 75 minutes while the rest took 15. Twelve keep the heaviest under about 40.
+    # A hung browser or preview server must not hold a runner for GitHub's default 6 hours.
     timeout-minutes: 75
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4, 5, 6]
+        shard: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]
     steps:
       - uses: actions/checkout@v7
       - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
@@ -243,7 +245,7 @@ jobs:
         env:
           # Serve the downloaded bundles; do not build them again.
           ANUM_E2E_PREBUILT: "1"
-        run: pnpm --filter @anum/web exec playwright test --shard=${{ matrix.shard }}/6
+        run: pnpm --filter @anum/web exec playwright test --shard=${{ matrix.shard }}/12
       # The shard's blob report, merged by "Browser end-to-end". Only uploads; never changes the result.
       - name: Upload the shard's blob report
         if: ${{ !cancelled() }}

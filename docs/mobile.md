@@ -73,6 +73,19 @@ After Keycloak sign-in the app reads `GET /api/v1/onboarding` and routes by its 
   - a failed list shows the error with "Try again".
 - Tests: `test/first_run_test.dart` (every workspace branch, the remembered choice, the skip only when a model answers, loading and error states, members, connecting Claude with its default routing, layouts from 360 pixels wide at 2x text to 1024 pixels); `test/settings_model_test.dart` (changing the model from Settings, including Claude from the sheet at 360x640 and 1024x768, and the routing fields sent only for Anthropic).
 
+### Session end
+
+Sign-out and a session that ends on its own both leave only the sign-in screen.
+
+- **Sign out** (Settings, Security) goes through `AuthController.signOut` (`SettingsController.onSignOut`, wired in `lib/src/anum_app.dart`): the session is revoked on the server (or the Keycloak session ended), the stored session is cleared, every screen opened above Home closes and the sign-in screen appears. It still signs out when the server cannot be told (offline, already revoked): the device's session is cleared either way. Sign-out waits at most ten seconds for the server (`AuthRepository.signOutTimeout`); a session the server could not be told about ends at its own expiry.
+- **A session that ends mid-use** (the local session expired, or Keycloak rejected the refresh token) is noticed by `WatchedSessionStore` (`lib/data/session_store.dart`), which wraps the session store every API call, stream and file transfer reads. The first read that finds the working session gone calls `AuthController.sessionExpired`: the app moves to sign-in and shows "Your session ended. Sign in again." (English and Arabic) instead of every screen failing with "Authentication required". A refresh that fails because the phone is offline keeps the session.
+
+Tests: `test/session_end_test.dart` (store and controller), `test/session_journeys_test.dart` (the whole app: sign out from Settings, sign out while the server answers 503, a session that expires while the app is open; the same journeys run in `integration_test/journeys/session.dart`).
+
+### Per-user state
+
+The app creates its controllers once and keeps them for its whole life, so each one that holds a person's data has a `reset()` and is listed in `_userData` in `lib/src/anum_app.dart` (workspace with its files and meetings, automations, chat, voice, settings, governance, developer, marketing, business, commerce, finance, tyre, agents, in-app calls, WhatsApp, email, Command and the workspace tools). Sign-out and an ended session run every entry, so the next person to sign in on the phone loads their own workspace, profile and lists; an answer that was still on its way for the previous person is dropped (`WorkspaceController` counts resets). Fields that keep nothing of the person (repositories, page builders, the device's language, theme and intro) are named in `_noUserData` with the reason. `test/architecture/user_data_reset_test.dart` fails when a new app-wide field is in neither list; `test/workspace_reset_test.dart` and the journey "the next person to sign in sees nothing of the previous one" cover the behaviour. Voice keeps the device's own preferences (assistant name, language, mute).
+
 ## Native Projects
 
 `android/` and `ios/` are committed; CI no longer runs `flutter create`. They were generated with
@@ -202,6 +215,8 @@ Every amount goes through one formatter, `lib/src/localization/money_format.dart
 `intl` (`^0.20.2`, the range `flutter_localizations` pins) is a direct dependency for money formatting ([Money and KPI tiles](#money-and-kpi-tiles)); it was already in the build through `flutter_localizations`.
 
 `firebase_core` 5.0 and `firebase_messaging` 17.0 (phone push) were checked against `android.builtInKotlin=false`: `firebase_messaging`'s Android code is Java only, and `firebase_core` applies `kotlin-android` itself when built-in Kotlin is off, so neither needs a pin. Their iOS side builds on Firebase Apple SDK 13 and needs iOS 15, which is the app's deployment target (`ios/Podfile`, `IPHONEOS_DEPLOYMENT_TARGET`). Version 17 deprecates `getToken`, `deleteToken` and `onTokenRefresh` in favour of installation-ID registration (`register`, `onRegistered`); the API still addresses a phone by its FCM registration token, so `FirebasePushMessaging` keeps the token calls behind narrow `ignore: deprecated_member_use` comments until the server can send by installation ID.
+
+`local_auth` (`^3.0.2`) shows the system biometric or screen-lock prompt for the [app lock](#app-lock). Its Android implementation `local_auth_android` is held at **2.0.7**, the last release written in Java (three `.java` files, `com.android.library` only, `androidx.biometric` 1.1.0, minSdk 24): 2.0.8 moved to Kotlin (it applies `kotlin-android` itself) and 2.0.9 and later declare only `com.android.library` with Kotlin sources, so they rely on AGP 9 built-in Kotlin and would compile nothing while `android.builtInKotlin=false` (checked in each version's `android/build.gradle.kts`). Its dependency `flutter_plugin_android_lifecycle` 2.0.35 is Java. Check both files again before any bump. iOS uses `local_auth_darwin` 2.0.5 (deployment target 13, below the app's 15).
 
 `url_launcher` opens pull request and run links in the browser. `url_launcher_android` is held at 6.3.29, the last release written in Java: 6.3.30 and later keep Kotlin sources and rely on AGP 9 built-in Kotlin (6.3.33 declares only `com.android.library`), so they would compile nothing while `android.builtInKotlin=false`. `AndroidManifest.xml` declares the `https` VIEW intent in `<queries>` for Android 11 package visibility.
 
@@ -544,6 +559,35 @@ Owner decision of 12 October 2026: screenshots of the app are blocked where the 
 
 Device checks are in the [checklist](#real-device-test-checklist).
 
+### App lock
+
+Owner decision of 10 November 2026: an optional lock in front of the money parts of the app (`lib/features/app_lock/`). It is off by default and uses the phone's own check: fingerprint or face where set up, with the screen lock's PIN, pattern or passcode as the fallback. ANUM stores no PIN and no biometric data.
+
+**Settings, Security.**
+
+- **App lock** switch. Turning it on asks the phone once ("Confirm it is you to turn on the app lock"); a cancelled or failed check leaves it off and says so. On a phone with no screen lock, fingerprint or face set up it stays off and a dialog explains why, with **How to set a screen lock** (the steps for Android and for iPhone or iPad; the app cannot open the phone's security settings itself). A phone that cannot check at all says so.
+- **Lock after**: Immediately, 1 minute (the default), 5 minutes or 15 minutes. It is how long ANUM may be in the background before it locks again, and how long one unlock covers approval decisions.
+- **What to lock**: "Finance, Books and approval decisions" (the default) or "The whole app".
+- Turning the lock off and changing the delay or the scope each need a successful check, so someone holding the unlocked phone cannot switch it off.
+
+The settings are per phone, in platform secure storage (`SecureAppLockStore`, key `anum.app-lock`: on or off, the delay in seconds, the scope; device-only keychain class on iOS, never in a backup). Sign-out, and a session that ended, turn the lock off and delete the settings: the lock belongs to the person who set it, and the next person to sign in starts without one.
+
+**When it locks.** On a cold start (the lock state is kept in memory only) and when the app returns from the background after "Lock after" or longer ("Immediately" locks on every return). A clock set back while away locks. Only the app going to the background counts (`paused` / `hidden`), not a system sheet or the biometric prompt above the app (`inactive`). A prompt left open while the phone is put away is no way in: a check that does not pass after that long away locks.
+
+**What a locked app shows.** The lock screen (`AppLockScreen`): the ANUM name, "ANUM is locked" (or "This part of ANUM is locked"), **Unlock**, and **Sign out** (with a confirmation) as the way out for someone who cannot unlock. The check starts by itself once when the screen appears. A cancelled or failed check stays locked and says what happened; the system's lockouts are explained ("wait about 30 seconds", or "lock the phone, unlock it with its PIN, pattern or passcode"); a phone whose screen lock was removed is told to set one or sign out. With "The whole app" the cover (`AppLockCover`, in `MaterialApp.builder` above the navigator) hides everything after sign-in: the screens stay mounted but are not painted, not focusable and not reachable by touch or a screen reader, and dialogs and sheets are under the cover too. With "Finance, Books and approval decisions" the rest of the app stays open; `FinanceScreen` and `BooksScreen` sit behind an `AppLockGate`, so opening either (from the menu, a notification, a named route or a deep link) shows the lock screen with **Go back**, which returns to Home without unlocking. Until the stored settings are read at start-up a plain cover is shown, so nothing flashes. The narrower scope covers the Finance and Books screens only: figures shown elsewhere (Home's money tiles, Business invoices, an Assistant answer about money) stay visible, so someone who wants those hidden chooses "The whole app". An incoming in-app call still rings above the lock screen, as on a locked phone. The sign-in screens are never covered.
+
+**Pushes.** A tapped push into a locked area waits: nothing of that area is opened or built until the person unlocks, then it opens. With only Finance and Books locked, a push into Finance asks for the check at once and says "Still locked" when it does not pass.
+
+**Approval decisions.** With the lock on, approving or rejecting asks the phone again whenever the last successful check is older than "Lock after" (always, with "Immediately"), whatever the scope. This is enforced in one place, the API client (`AnumApiClient.guard` with `isApprovalDecision`), so it covers every screen that decides: Approvals, a task's approval card, email, WhatsApp, marketing, Command, the Assistant, developer requests, change orders, trade orders, bills, adjustments, guardian changes and salary months. A check that does not pass sends nothing and the card says "Not sent: confirm it is you ...".
+
+**Fail closed.** Settings that cannot be read lock the whole app immediately; a check that breaks counts as not passed; unknown stored values fall to the stricter choice.
+
+**What it is and is not.** The app lock keeps someone who picks up the unlocked phone out of the money screens and from deciding approvals. It is not a cryptographic barrier: the plugin reports pass or fail, the session token is not bound to the check, so on a rooted or instrumented phone the check can be bypassed (OWASP MASTG-TEST-0326). The server session stays the real authority; a lost phone needs the session revoked (Keycloak, or Settings on another device).
+
+**Plugin and native projects.** `local_auth` 3.0.2, behind `DeviceAuthenticator` (`lib/features/app_lock/device_auth.dart`); only `lib/src/infrastructure/local_auth_authenticator.dart` imports it. See [Dependencies](#dependencies) for the Android pin. Android: `MainActivity` is a `FlutterFragmentActivity` (the prompt needs a `FragmentActivity`; `FLAG_SECURE` and the contact picker are unchanged), the manifest has `USE_BIOMETRIC` (a normal permission, no question to the person), and the activity themes have `Theme.AppCompat` parents with `androidx.appcompat:appcompat` declared in `android/app/build.gradle.kts` (the prompt shows an AppCompat dialog on Android 9 and older). iOS: `NSFaceIDUsageDescription` in `Info.plist` ("ANUM uses Face ID to unlock the app when you turn on the app lock."). `tool/configure_native.dart` adds the permission and the plist key.
+
+Tests (all with a fake `DeviceAuthenticator`): `test/app_lock/app_lock_controller_test.dart` (enabling, each delay, scope, cold start, coming back, cancel, lockouts, decisions, sign-out), `app_lock_widgets_test.dart` (lock screen, right to left at 200% text on small screens, the gate, the Settings tiles, no enrolment), `app_lock_app_test.dart` (the whole app: Settings, cold start, return, Sign out from the lock screen, pushes, an approval decision), `local_auth_authenticator_test.dart` (the plugin's answers) and `test/configure_native_test.dart`. Not built or run on a device here: see the [checklist](#real-device-test-checklist).
+
 ### Typed JSON Parsing
 
 Models and repositories read API responses and the stored session through `JsonReader` (`lib/data/json_read.dart`, exported by `api_models.dart`): `string`, `integer`, `number`, `boolean`, `date`, `object`, `objects` and `strings`, each with an `opt…` variant that returns null (or an empty list for `optObjects`) when the field is missing or null. A field that is missing or has the wrong type fails with one `JsonShapeException`, a `FormatException` whose message names the field path and the expected type, for example `Unexpected response: "data[1].approvers[0]" should be an object, found a string.` Valid payloads read exactly as the casts they replaced did (numbers accept ints and doubles; optional fields keep their defaults). Every caller that handled the old cast errors catches all errors (`catch (e)` or `on Object`), so a malformed response still lands in the screen's error state, now with that sentence as its message; the stored-session reader still clears an unreadable session. Tolerant reads that never fail (budget usage numbers, invitation timestamps, the approval policy's `updated_at`, the retrieval step's metadata) keep checking types themselves. `test/json_parsing_test.dart` covers missing fields, wrong types and wrong list elements on the main models and repositories.
@@ -588,12 +632,53 @@ Voice
 - [ ] An incoming call or another app taking audio focus stops listening cleanly.
 - [ ] Backgrounding the app or pressing back out of the workspace stops listening immediately (the microphone indicator goes off).
 
+App lock ([App lock](#app-lock))
+- [ ] The Android release build compiles with `local_auth_android` 2.0.7 and the `FlutterFragmentActivity`, and the app starts (the launch screen and the first frame look as before with the AppCompat theme parents, light and dark).
+- [ ] Settings, Security, App lock on: the system prompt appears (fingerprint or face, with "Use PIN" or the passcode as the fallback), and a wrong finger several times ends in the lockout message, not a crash. Check one phone on Android 9 or older.
+- [ ] On an iPhone with Face ID the first use shows the Face ID permission text; denying it still lets the passcode unlock.
+- [ ] With "The whole app": kill and reopen the app, and return after the chosen delay: the lock screen shows and the app switcher card shows nothing of the workspace.
+- [ ] With "Finance, Books and approval decisions": Home opens without a prompt, Finance and Books ask, and approving in Approvals asks again after the delay.
+- [ ] A notification tapped while locked opens its screen only after the unlock.
+- [ ] Remove the phone's screen lock while the app lock is on: the lock screen says so and Sign out works.
+- [ ] TalkBack and VoiceOver read the lock screen (title, message, Unlock, Sign out) and nothing behind it.
+
 Platform behaviour
 - [ ] Deep links to task URLs open the right task after sign-in; process death and restore keep the current destination.
 - [ ] As an owner, Developer › a request › Pull request and Coding run open in the system browser (not inside the app); as a member, Developer is not in the navigation.
 - [ ] File upload uses the system picker; download uses the save picker; both work with large files on mobile data.
 - [ ] Tablets switch to the navigation rail at 840 logical pixels in both orientations; iPad split view and Android multi-window do not break layout.
 - [ ] Safe areas: nothing is hidden under the notch, Dynamic Island, gesture bar or keyboard.
+
+## Error text
+
+A person never sees a program's description of an error (`ApiException(500, ...)`, `Bad state: ...`, `Instance of 'Foo'`, `SocketException: ...`). Every place that shows a failure goes through `readableError` (`lib/data/readable_error.dart`):
+
+- an API refusal shows the API's own sentence (`ApiException.readable`: the 422 field messages first, else the message);
+- no connection and no answer in time show "The server could not be reached. Check the connection and try again." and "The server did not answer in time. Check the connection and try again.";
+- a sentence the app wrote itself (a form's `FormatException`, an unexpected-response message, an exception whose text is already a sentence) is kept;
+- anything else shows "Something went wrong. Try again."
+
+The app's own sentences follow the app's language (English or Arabic). The workspace controller (load and every change), governance, Settings, automations, billing, calls, commerce, WhatsApp, email, files, the portal and the other controllers that used `error.toString()` or `'$error'` now use it. Tests: `test/readable_error_test.dart`.
+
+## File downloads
+
+Every download and export has a time limit and readable network errors, through `guardTransfer` (`lib/data/transfer_guard.dart`): file previews and downloads (the link request and the bytes behind it), older file versions, mail attachments and billing PDFs, the audit export and vault documents. A connection that hangs ends after five minutes (`transferTimeout`, the limit of one JSON call) with "The server did not answer in time. Check the connection and try again."; a broken connection shows "The server could not be reached. Check the connection and try again." instead of `SocketException` or `ClientException`. API refusals keep the API's sentence. Before this only mail and billing downloads had the limit. Tests: `test/file_download_guard_test.dart`.
+
+## Amount fields
+
+Typed amounts are read by one parser, `readAmount` in `lib/src/localization/amount_input.dart`, next to the one formatter (`formatMoney`). The app shows amounts with a comma for thousands and a dot for decimals in English and Arabic, and typing follows the same reading:
+
+- Latin, Arabic-Indic and Eastern Arabic-Indic digits are accepted, with the Arabic thousands and decimal marks; spaces are ignored.
+- Commas that group thousands exactly are thousands separators: `1,250` is 1250, `12,500` is 12500, `1,250.50` is 1250.50.
+- Without a dot, one comma followed by one or two digits is a decimal comma: `12,5` is 12.5.
+- Anything that can be read in two ways (`1.250,50`, `1,2345`, `1,25,000`) is refused under the field with "This amount can be read in two ways. Write it with a dot for decimals, for example 1250.50." The app never guesses. Too many decimals, a minus sign where none is allowed, letters and an empty field each have their own sentence (English and Arabic, `amount.*`).
+- The result is the API's decimal string (`1250.50`); screens whose API takes JSON numbers convert that string once (`AmountInput.number`, `typedNumber`).
+
+It is used by invoice payments, credit notes, the new-invoice form (line quantity and price, contract share, markup, offer, tax rate), the billing profile, project money (change orders and billable costs), the customer portal's "I have paid" and Finance (`parseAmount`). Before this, an invoice payment typed as `1,250` was recorded as 1.25. Forms that only accept plain digits with a dot (catalogue prices, deal values, commerce cost, the record modules) still refuse a comma with their own message rather than reading it. Tests: `test/amount_input_test.dart`.
+
+## Long lists
+
+No list stops silently at its first page. Lists a person scrolls show "Load more (N of total)" and fetch the next page by offset, as the Business lists do (`AccountsController.more`): the project money screen's change orders and cost ledger now page fifty at a time (`ProjectMoneyRepository.changeOrders` and `usage` take `offset`; a failed "Load more" keeps what is shown and says why). Lists a screen needs whole are read page by page by `readAllPages` (`lib/data/paging.dart`): the invoice form's project chooser (it stopped at 100 projects) and Finance's orders waiting for approval (it stopped at 50). Tests: `test/paging_test.dart`, "long lists" in `test/business_change_orders_test.dart`.
 
 ## Business invoices and the customer portal
 

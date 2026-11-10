@@ -7,7 +7,7 @@ import { listEmailAccounts } from './lib/emailApi';
 import * as api from './lib/api';
 import * as automationApi from './lib/automationApi';
 import {
-  OVERLAP_POLICIES, SCHEDULE_PRESETS, STEP_ACTIONS, manageHint, actionLabel, automationError, browserTimeZone, canEdit, canManage, canTakeOver, checkDraft,
+  OVERLAP_POLICIES, SCHEDULE_PRESETS, STEP_ACTIONS, manageHint, actionLabel, automationError, browserTimeZone, canEdit, canManage, canTakeOver, needsConfirm, checkDraft,
   createdTaskId, cronShapeError, stepCounts, cronWords, runStatusLabel, waitingLabel, draftFromWorkflow, editHint, emptyDraft, formatTime, intervalCron, moveStep, newStep, nextRunLabel, nextTimes, outcomeLabel,
   overlapLabel, pageLabel, relativeTime, removeStep, runDuration, runProgress, statusLabel, statusTone, timeZones, triggerLabel,
   type AutomationRun, type AutomationSchedule, type AutomationWorkflow, type FieldErrors, type Page, type RunStatus, type SchedulePreview,
@@ -511,6 +511,7 @@ function Schedules({ workflow, viewer, tick, onChanged }: { workflow: Automation
             : <button type="button" title={t('auto.sched.turnOn')} aria-label={t('auto.sched.turnOnNamed', { name: schedule.name })} disabled={busy} onClick={() => void act(() => automationApi.setScheduleEnabled(schedule.id, true), t('auto.sched.turnedOn', { name: schedule.name }))}><Play aria-hidden="true" size={16} /></button>}
           <button type="button" title={t('auto.edit')} aria-label={t('auto.sched.editNamed', { name: schedule.name })} disabled={busy} onClick={() => setEditing(schedule)}><Pencil aria-hidden="true" size={16} /></button>
           <button type="button" title={t('auto.delete')} aria-label={t('auto.sched.deleteNamed', { name: schedule.name })} disabled={busy} onClick={() => { if (window.confirm(t('auto.sched.confirmDelete', { name: schedule.name }, { isolate: false }))) void act(() => automationApi.deleteSchedule(schedule.id), t('auto.sched.deleted', { name: schedule.name })); }}><Trash2 aria-hidden="true" size={16} /></button>
+          {needsConfirm(viewer, schedule) && <button type="button" title={t('auto.confirmChanged')} aria-label={t('auto.sched.confirmChangedNamed', { name: schedule.name })} disabled={busy} onClick={() => { if (window.confirm(t('auto.sched.confirmChangedAsk', { name: schedule.name }, { isolate: false }))) void act(() => automationApi.confirmSchedule(schedule.id), t('auto.sched.confirmedChanged', { name: schedule.name })); }}><ShieldCheck aria-hidden="true" size={16} /></button>}
           {canTakeOver(viewer, schedule.created_by) && <button type="button" title={t('auto.takeOver')} aria-label={t('auto.sched.takeOverNamed', { name: schedule.name })} disabled={busy} onClick={() => { if (window.confirm(t('auto.sched.confirmTakeOver', { name: schedule.name, user: schedule.created_by ?? '' }, { isolate: false }))) void act(() => automationApi.takeOverSchedule(schedule.id), t('auto.sched.takenOver', { name: schedule.name })); }}><UserCheck aria-hidden="true" size={16} /></button>}
         </div>}
       </li>;

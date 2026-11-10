@@ -7,6 +7,7 @@
  * a record behind it reads "Presence unavailable" or "Not connected".
  * Extension points are documented in docs/ANUM_MINE_HQ_EXTENSION_POINTS.md.
  */
+import { describeError } from './lib/errors';
 import { AlertTriangle, Building2, CheckCircle2, Compass, DoorOpen, Eye, Gauge, History, Layers, LayoutGrid, Lock, RefreshCcw, Users, Wrench } from 'lucide-react';
 import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { BuildingView, type AgentStyleInfo } from './BuildingView';
@@ -337,7 +338,7 @@ export function HeadquartersLive(props: HeadquartersProps) {
       setCampusError(null);
     } catch (error) {
       const status = (error as { status?: number }).status;
-      setCampusError({ denied: status === 403 || status === 401, message: error instanceof Error ? error.message : t('hq.error.generic') });
+      setCampusError({ denied: status === 403 || status === 401, message: describeError(error, t('hq.error.generic')) });
     }
   }, []);
   // The campus does not wait for the office registry: it loads at once, then at most every 30 seconds with the scene.
@@ -412,7 +413,7 @@ export function HeadquartersLive(props: HeadquartersProps) {
       }
     } catch (error) {
       hqCommands.takePending();
-      setCampusError({ denied: false, message: error instanceof Error ? error.message : t('hq.error.generic') });
+      setCampusError({ denied: false, message: describeError(error, t('hq.error.generic')) });
     }
   }, []);
 
@@ -551,7 +552,7 @@ export function HeadquartersLive(props: HeadquartersProps) {
       const status = (error as { status?: number }).status;
       if (status === 409) return t('hq.profile.conflict');
       if (status === 403) return t('hq.profile.ownerOnly');
-      return error instanceof Error ? error.message : t('hq.error.generic');
+      return describeError(error, t('hq.error.generic'));
     }
   }, [refreshCampus]);
 

@@ -494,7 +494,7 @@ async def validate_post(payload: PostValidate, context: TenantContext = Depends(
 
 
 @router.get("/posts/{post_id}", response_model=PostView)
-async def get_post(post_id: str, context: TenantContext = Depends(tenant_context), repository: AnumRepository = Depends(repository_context)) -> PostView:
+def get_post(post_id: str, context: TenantContext = Depends(tenant_context), repository: AnumRepository = Depends(repository_context)) -> PostView:
     _read(context)
     return _view_one(context, post_id, repository)
 
@@ -674,7 +674,7 @@ def list_media(
 ) -> list[MediaFile]:
     """Images and videos from the workspace's Files (upload new ones through ``/api/v1/files``)."""
     _read(context)
-    from ..files import open_file_metadata_store
+    from ..files import may_serve, open_file_metadata_store
 
     with open_file_metadata_store(context) as files:
         records = files.list_files(context, 500)
@@ -683,6 +683,7 @@ def list_media(
         MediaFile(id=record.id, name=record.name, content_type=record.content_type, kind="image" if record.content_type.startswith("image/") else "video", size_bytes=record.size_bytes, created_at=record.created_at)
         for record in records
         if record.content_type.startswith(("image/", "video/")) and (not needle or needle in record.name.lower())
+        and may_serve(record)  # a quarantined file is never offered as media
     ]
     result.sort(key=lambda item: item.created_at, reverse=True)
     return result[:limit]
@@ -694,14 +695,15 @@ def public_media(link: str) -> Response:
 
     No sign-in: the link itself is the credential (encrypted with ``ANUM_SECRETS_KEY``,
     naming one file of one workspace, valid for ``ANUM_MARKETING_MEDIA_LINK_SECONDS``)."""
-    from ..files import file_store, open_file_metadata_store
+    from ..files import file_store, may_serve, open_file_metadata_store
 
     if len(link) > 1000:
         raise http_error(404, "Not found")
     context, file_id = read_media_link(link)
     with open_file_metadata_store(context) as files:
         record = files.get(context, file_id)
-    if record is None or not record.content_type.startswith(("image/", "video/")):
+    # A file quarantined after its link was signed answers like a file that is gone.
+    if record is None or not record.content_type.startswith(("image/", "video/")) or not may_serve(record):
         raise http_error(404, "Not found")
     try:
         content = file_store.storage.get(record.storage_key)

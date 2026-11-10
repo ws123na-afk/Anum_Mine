@@ -796,3 +796,50 @@ def test_a_standalone_bank_fee_is_read_and_posted(text: str) -> None:
     s = setup()
     assert send(s["token"], text).json()["status"] == "posted"
     assert [(c["category"], c["amount"]) for c in dashboard()["categories"]] == [("fees", "25.00")]
+
+
+def test_a_wrong_secret_gets_one_answer_whatever_the_named_person_is(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Security audit, November 2026: a device token names its tenant, workspace and user in the
+    clear, and the membership, role and archive checks ran before the secret was compared, so a
+    forged token asked "is this person a member here, and with what role?". The stored device and
+    its secret come first now: every failure before that is the one ``invalid_token`` answer."""
+    from anum_api import dependencies
+    from anum_api.schemas import TenantContext
+
+    s = setup()
+    forged = s["token"][:-6] + "abcdef"  # the real ids and device, a wrong secret
+    stranger, _, _ = svc.mint(TenantContext(tenant_id=TENANT, workspace_id=WORKSPACE, user_id="never_a_member"), "fin_smsdev_guess")
+    asked: list[str] = []
+
+    def not_member(context: Any) -> list[str]:
+        asked.append(context.user_id)
+        raise svc.IngestError(401, "The person this device belongs to is no longer a member of the workspace.", "not_member")
+
+    def answers() -> set[tuple[int, str, str]]:
+        found = set()
+        for token in (forged, stranger):
+            ingest = send(token, PURCHASE_EN)
+            scoped = client.post("/api/v1/attendance/device/events", headers={"Authorization": f"Bearer {token}"},
+                                 json={"event": "arrive", "site": "Head office", "idempotency_key": "guess-0001"})
+            for response in (ingest, scoped):
+                body = response.json()
+                error = body.get("error", body)  # the endpoint's own shape, or the API's error envelope
+                found.add((response.status_code, str(error.get("code")), str(error.get("message") or error.get("detail"))))
+        return found
+
+    from anum_api.finance import devices as D
+
+    D.plug_module_authorities()
+    as_member = answers()
+    monkeypatch.setattr(svc, "_membership_roles", not_member)
+    as_stranger = answers()
+    monkeypatch.setattr(svc, "_membership_roles", lambda context: ["viewer"])
+    as_viewer = answers()
+    monkeypatch.setattr(svc, "_membership_roles", lambda context: ["owner"])
+    monkeypatch.setattr(dependencies, "workspace_archived", lambda context: True)
+    as_archived = answers()
+    assert as_member == as_stranger == as_viewer == as_archived
+    assert {status for status, _, _ in as_member} == {401}, as_member
+    assert {code for _, code, _ in as_member} <= {"invalid_token", "unauthorized"}, as_member
+    assert asked == []  # the membership was never looked up for a token whose secret is wrong
+    assert not sms_memory_store.entries

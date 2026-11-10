@@ -1,9 +1,9 @@
 import { useEffect, useId, useState } from 'react';
-import { Copy, KeyRound, Pause, Pencil, Play, Plus, RefreshCw, Trash2, UserCheck, X, Zap } from 'lucide-react';
+import { Copy, KeyRound, Pause, Pencil, Play, Plus, RefreshCw, ShieldCheck, Trash2, UserCheck, X, Zap } from 'lucide-react';
 import { apiBaseUrl } from './lib/api';
 import * as automationApi from './lib/automationApi';
 import {
-  CONDITION_OPERATORS, MAX_CONDITIONS, automationError, canEdit, canManage, canTakeOver, checkTriggerDraft, conditionText, emptyTriggerDraft, eventLabel,
+  CONDITION_OPERATORS, MAX_CONDITIONS, automationError, canEdit, canManage, canTakeOver, needsConfirm, checkTriggerDraft, conditionText, emptyTriggerDraft, eventLabel,
   newCondition, relativeTime, signingExample, triggerDraftFrom, triggerOutcomeLabel, webhookUrl,
   type AutomationTrigger, type AutomationWorkflow, type ConditionOperator, type FieldErrors, type TriggerDraft, type TriggerEventInfo, type TriggerKind, type Viewer,
 } from './lib/automation';
@@ -87,6 +87,7 @@ export function AutomationTriggers({ workflow, viewer, tick, onChanged }: { work
             }}><KeyRound aria-hidden="true" size={16} /></button>}
             <button type="button" title={t('auto.delete')} aria-label={t('auto.trig.deleteNamed', { name: trigger.name })} disabled={busy} onClick={() => { if (window.confirm(t('auto.trig.confirmDelete', { name: trigger.name }, { isolate: false }))) void act(() => automationApi.deleteTrigger(trigger.id), t('auto.trig.deleted', { name: trigger.name })); }}><Trash2 aria-hidden="true" size={16} /></button>
           </>}
+          {needsConfirm(viewer, trigger) && <button type="button" title={t('auto.confirmChanged')} aria-label={t('auto.trig.confirmChangedNamed', { name: trigger.name })} disabled={busy} onClick={() => { if (window.confirm(t('auto.trig.confirmChangedAsk', { name: trigger.name }, { isolate: false }))) void act(() => automationApi.confirmTrigger(trigger.id), t('auto.trig.confirmedChanged', { name: trigger.name })); }}><ShieldCheck aria-hidden="true" size={16} /></button>}
           {canTakeOver(viewer, trigger.created_by) && <button type="button" title={t('auto.takeOver')} aria-label={t('auto.trig.takeOverNamed', { name: trigger.name })} disabled={busy} onClick={() => { if (window.confirm(t('auto.trig.confirmTakeOver', { name: trigger.name, user: trigger.created_by ?? '' }, { isolate: false }))) void act(() => automationApi.takeOverTrigger(trigger.id), t('auto.trig.takenOver', { name: trigger.name })); }}><UserCheck aria-hidden="true" size={16} /></button>}
         </div>}
       </li>;

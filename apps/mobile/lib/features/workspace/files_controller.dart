@@ -1,3 +1,4 @@
+import '../../data/readable_error.dart';
 import 'package:flutter/foundation.dart';
 
 import '../../data/api_client.dart';
@@ -49,6 +50,23 @@ class FilesController extends ChangeNotifier {
   final List<FileUpload> uploads = [];
   int _counter = 0;
 
+  /// Forgets the list, the usage and the uploads (sign-out); uploads still
+  /// running are cancelled.
+  void reset() {
+    for (final upload in uploads) {
+      if (upload.state == UploadState.uploading) upload.cancellation.cancel();
+    }
+    uploads.clear();
+    phase = FilesPhase.loading;
+    items = const [];
+    hasMore = paging = false;
+    query = '';
+    sort = 'created_at:desc';
+    usage = null;
+    error = notice = null;
+    notifyListeners();
+  }
+
   bool get canUpload => usage?.canUpload ?? true;
 
   Future<void> load() async {
@@ -65,7 +83,7 @@ class FilesController extends ChangeNotifier {
       error = e.message;
     } catch (e) {
       phase = FilesPhase.error;
-      error = '$e';
+      error = readableError(e);
     }
     notifyListeners();
     await loadUsage();

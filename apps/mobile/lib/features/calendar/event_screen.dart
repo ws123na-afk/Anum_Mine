@@ -1,3 +1,4 @@
+import '../../data/readable_error.dart';
 import 'package:flutter/material.dart';
 
 import '../../data/api_client.dart';
@@ -85,7 +86,7 @@ class _EventScreenState extends State<EventScreen> {
       _error = e.readable;
     } on Object catch (e) {
       _missing = false;
-      _error = '$e';
+      _error = readableError(e);
     }
     if (mounted) setState(() => _loading = false);
   }

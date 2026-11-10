@@ -16,6 +16,8 @@ from .authorization import Permission
 from .dependencies import (
     event_runtime,
     has_permission,
+    EVENT_STREAM_PAGE_SIZE,
+    latest_event_id_for_stream,
     list_events_for_stream,
     memory_repository,
     memory_repository_context,
@@ -301,7 +303,7 @@ from .integration_setup import router as integration_setup_router
 from .identity import validate_auth_configuration
 from .telemetry import HttpMetricsMiddleware, setup_telemetry, shutdown_telemetry, sqlalchemy_engines
 from .error_reporting import setup_error_reporting, shutdown_error_reporting
-from .serving import prepare_for_serving
+from .serving import prepare_for_serving, use_worker_threads
 from .attendance.api import router as attendance_router  # docs/attendance.md
 from .vehicles.api import router as vehicles_router  # docs/vehicles.md
 from .vehicles.devices import router as vehicles_device_router
@@ -320,6 +322,8 @@ validate_auth_configuration(settings)
 
 @asynccontextmanager
 async def lifespan(application: FastAPI):
+    # First: everything below may hand work to a thread (docs/realtime.md#worker-threads).
+    use_worker_threads(settings.worker_threads)
     await event_runtime.start()
     # Phone push from committed events when ANUM_FCM_SERVICE_ACCOUNT_JSON is set
     # (docs/notifications.md); the developer watcher refreshes in-progress developer
@@ -760,7 +764,7 @@ async def health() -> dict[str, str]:
 
 
 @app.post("/api/v1/tenants", response_model=Tenant, status_code=status.HTTP_201_CREATED)
-async def create_tenant(
+def create_tenant(
     payload: TenantCreate,
     context: TenantContext = Depends(provisioning_tenant_context),
     repository: AnumRepository = Depends(provisioning_repository_context),
@@ -780,13 +784,13 @@ async def create_tenant(
 
 
 @app.post("/api/v1/workspaces", response_model=Workspace, status_code=status.HTTP_201_CREATED)
-async def create_workspace(
+def create_workspace(
     payload: WorkspaceCreate,
     context: TenantContext = Depends(provisioning_tenant_context),
     repository: AnumRepository = Depends(provisioning_repository_context),
 ) -> Workspace:
     require_permission(context, Permission.WORKSPACE_CREATE)
-    await asyncio.to_thread(require_capacity, context, "workspaces", 1)
+    require_capacity(context, "workspaces", 1)
     now = utc_now()
     workspace = Workspace(
         id=context.workspace_id,
@@ -806,7 +810,7 @@ async def create_workspace(
     response_model=WorkspaceMembership,
     status_code=status.HTTP_201_CREATED,
 )
-async def create_current_membership(
+def create_current_membership(
     context: TenantContext = Depends(provisioning_tenant_context),
     repository: AnumRepository = Depends(provisioning_repository_context),
 ) -> WorkspaceMembership:
@@ -835,7 +839,7 @@ async def create_current_membership(
 
 
 @app.get("/api/v1/workspaces/current", response_model=Workspace)
-async def get_current_workspace(
+def get_current_workspace(
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
 ) -> Workspace:
@@ -847,7 +851,7 @@ async def get_current_workspace(
 
 
 @app.get("/api/v1/workspace-memberships/current", response_model=WorkspaceMembership)
-async def get_current_membership(
+def get_current_membership(
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
 ) -> WorkspaceMembership:
@@ -929,37 +933,44 @@ async def create_task(
     repository: AnumRepository = Depends(repository_context),
 ) -> Task:
     require_permission(context, Permission.TASK_CREATE)
-    if payload.agent_id is not None:
-        _usable_agent(context, payload.agent_id)
-    # The plan's agent runs per month (docs/billing.md#plans-and-limits); a database read, off the loop.
-    await asyncio.to_thread(require_capacity, context, "agent_runs", 1)
-    now = utc_now()
-    task = Task(
-        id=new_id("task"),
-        title=payload.title,
-        prompt=payload.prompt,
-        status=TaskStatus.CREATED,
-        tenant_id=context.tenant_id,
-        workspace_id=context.workspace_id,
-        created_at=now,
-        updated_at=now,
-        created_by=context.user_id,
-        priority=payload.priority,
-        due_at=_utc(payload.due_at),
-        agent_id=payload.agent_id,
-    )
-    repository.create_task(task)
-    repository.record_event(
-        create_event(
-            CanonicalEventName.TASK_CREATED,
-            context,
-            task.id,
-            {"title": task.title},
-            correlation_id=task.id,
+
+    def create() -> Task:
+        if payload.agent_id is not None:
+            _usable_agent(context, payload.agent_id)
+        # The plan's agent runs per month (docs/billing.md#plans-and-limits).
+        require_capacity(context, "agent_runs", 1)
+        now = utc_now()
+        task = Task(
+            id=new_id("task"),
+            title=payload.title,
+            prompt=payload.prompt,
+            status=TaskStatus.CREATED,
+            tenant_id=context.tenant_id,
+            workspace_id=context.workspace_id,
             created_at=now,
-        ).event
-    )
-    return task
+            updated_at=now,
+            created_by=context.user_id,
+            priority=payload.priority,
+            due_at=_utc(payload.due_at),
+            agent_id=payload.agent_id,
+        )
+        repository.create_task(task)
+        repository.record_event(
+            create_event(
+                CanonicalEventName.TASK_CREATED,
+                context,
+                task.id,
+                {"title": task.title},
+                correlation_id=task.id,
+                private_to=task.private_to,
+                created_at=now,
+            ).event
+        )
+        return task
+
+    # Other modules await this function (office_assign_api, executive_pa), so it stays async;
+    # the database work runs in a worker thread, never on the event loop.
+    return await asyncio.to_thread(create)
 
 
 TASK_MANAGER_REQUIRED = "Only the task's creator or a workspace owner can change this task."
@@ -1043,7 +1054,7 @@ class _TaskListQuery:
 
 
 @app.get("/api/v1/tasks", response_model=list[Task])
-async def list_tasks(
+def list_tasks(
     limit: int = Query(default=50, ge=1, le=100),
     cursor: str | None = None,
     query: _TaskListQuery = Depends(),
@@ -1062,7 +1073,7 @@ async def list_tasks(
 
 
 @app.get("/api/v1/tasks/summary", response_model=TaskSummary)
-async def summarize_tasks(
+def summarize_tasks(
     query: _TaskListQuery = Depends(),
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
@@ -1106,7 +1117,7 @@ async def bulk_tasks(
 
 
 @app.get("/api/v1/tasks/{task_id}", response_model=Task)
-async def get_task(
+def get_task(
     task_id: str,
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
@@ -1155,12 +1166,12 @@ def _record_task_event(
     payload: dict[str, object],
 ) -> None:
     repository.record_event(
-        create_event(name, context, task.id, {"task_id": task.id, **payload}, correlation_id=task.id).event
+        create_event(name, context, task.id, {"task_id": task.id, **payload}, correlation_id=task.id, private_to=task.private_to).event
     )
 
 
 @app.put("/api/v1/tasks/{task_id}", response_model=Task)
-async def update_task(
+def update_task(
     task_id: str,
     payload: TaskUpdate,
     context: TenantContext = Depends(tenant_context),
@@ -1252,7 +1263,7 @@ def unarchive_task(
 
 
 @app.get("/api/v1/tasks/{task_id}/runs", response_model=list[AgentRun])
-async def list_task_runs(
+def list_task_runs(
     task_id: str,
     limit: int = Query(default=RUN_PAGE_DEFAULT, ge=1, le=RUN_PAGE_MAX),
     cursor: str | None = None,
@@ -1269,7 +1280,7 @@ async def list_task_runs(
 
 
 @app.get("/api/v1/tasks/{task_id}/events", response_model=list[DomainEvent])
-async def list_task_events(
+def list_task_events(
     task_id: str,
     limit: int = Query(default=EVENT_PAGE_DEFAULT, ge=1, le=EVENT_PAGE_MAX),
     cursor: str | None = None,
@@ -1287,7 +1298,7 @@ async def list_task_events(
 
 
 @app.get("/api/v1/tasks/{task_id}/export")
-async def export_task(
+def export_task(
     task_id: str,
     export_format: str = Query(default="json", alias="format", pattern="^(json|markdown)$"),
     context: TenantContext = Depends(tenant_context),
@@ -1645,8 +1656,10 @@ def cancel_task_record(task_id: str, context: TenantContext, repository: AnumRep
         run.updated_at = task.updated_at
         repository.save_run(run)
 
-    for approval in repository.list_approvals_for_update(context):
-        if approval.task_id == task.id and approval.status == ApprovalStatus.PENDING:
+    # Only this task's approvals are locked: locking every approval of the workspace made a
+    # cancel wait for (and block) any decision on an unrelated task.
+    for approval in repository.list_task_approvals(task.id, context, for_update=True):
+        if approval.status == ApprovalStatus.PENDING:
             approval.status = ApprovalStatus.EXPIRED
             approval.decided_at = task.updated_at
             repository.save_approval(approval)
@@ -1657,6 +1670,7 @@ def cancel_task_record(task_id: str, context: TenantContext, repository: AnumRep
             task.id,
             {"task_id": task.id},
             correlation_id=task.id,
+            private_to=task.private_to,
         ).event
     )
     return task, run
@@ -1688,7 +1702,7 @@ voice_actions.configure(
 
 
 @app.get("/api/v1/agent-runs/{run_id}", response_model=AgentRun)
-async def get_agent_run(
+def get_agent_run(
     run_id: str,
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
@@ -1701,7 +1715,7 @@ async def get_agent_run(
 
 
 @app.get("/api/v1/tasks/{task_id}/latest-run", response_model=AgentRun)
-async def get_latest_task_run(
+def get_latest_task_run(
     task_id: str,
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
@@ -1770,13 +1784,22 @@ async def resume_agent_run(
     return RunTaskResponse(task=task, run=run, approval=await run_in_unit(units, context, shown))
 
 
+# GET /api/v1/approvals and GET /api/v1/events return a plain list; both are bounded.
+APPROVAL_LIST_MAX_LIMIT = APPROVAL_PAGE_MAX_LIMIT * 5
+EVENT_LIST_DEFAULT_LIMIT = 500
+EVENT_LIST_MAX_LIMIT = 1000
+
+
 @app.get("/api/v1/events", response_model=list[DomainEvent])
-async def list_events(
+def list_events(
+    limit: int = Query(default=EVENT_LIST_DEFAULT_LIMIT, ge=1, le=EVENT_LIST_MAX_LIMIT),
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
 ) -> list[DomainEvent]:
+    """The workspace's newest ``limit`` events, oldest first (it used to be every event the
+    workspace ever produced). A task's own events are ``GET /tasks/{id}/events``."""
     require_permission(context, Permission.EVENT_READ)
-    return [event for event in repository.list_events(context) if visible_on_workspace_stream(event)]
+    return [event for event in repository.list_recent_events(context, limit) if visible_on_workspace_stream(event)]
 
 
 @app.get("/api/v1/events/stream")
@@ -1804,56 +1827,59 @@ async def stream_events(
             live_event_source(
                 hub=event_runtime.hub,
                 context=context,
-                list_events=lambda: list_events_for_stream(context),
+                list_events=lambda after: list_events_for_stream(context, after),
                 is_disconnected=request.is_disconnected,
                 task_id=task_id,
                 follow=follow,
                 last_event_id=last_event_id,
                 visible=visible_on_workspace_stream,
+                latest_event_id=lambda: latest_event_id_for_stream(context),
+                page_size=EVENT_STREAM_PAGE_SIZE,
             ),
             media_type="text/event-stream",
             headers=sse_headers,
         )
 
+    def wanted(event: DomainEvent) -> bool:
+        if task_id and event.subject != task_id and event.payload.get("task_id") != task_id:
+            return False
+        return visible_on_workspace_stream(event)  # not the call stream wake-ups (app_call_wake.py)
+
     async def event_source():
         cursor = last_event_id
+        if follow and not cursor:
+            # A tab that connects without a cursor gets what happens from now on. It used to
+            # get the workspace's whole event history first, on every page load.
+            cursor = await asyncio.to_thread(latest_event_id_for_stream, context)
         idle_cycles = 0
         while not await request.is_disconnected():
             # Off the event loop: a blocking read here stalled every other request.
             events = await asyncio.to_thread(list_events_for_stream, context, cursor)
-            if task_id:
-                events = [
-                    event
-                    for event in events
-                    if event.subject == task_id or event.payload.get("task_id") == task_id
-                ]
-            if cursor:
-                cursor_index = next(
-                    (index for index, event in enumerate(events) if event.id == cursor),
-                    None,
+            sent = False
+            for event in events:
+                # The cursor moves past every event read, also the ones this stream does not
+                # send: a task stream with no matching event used to re-read the whole
+                # history every second.
+                cursor = event.id
+                if not wanted(event):
+                    continue
+                sent = True
+                yield (
+                    f"id: {event.id}\n"
+                    f"event: {event.type}\n"
+                    f"data: {event.model_dump_json()}\n\n"
                 )
-                events = events[cursor_index + 1 :] if cursor_index is not None else events
-
-            if events:
-                idle_cycles = 0
-                for event in events:
-                    cursor = event.id
-                    if not visible_on_workspace_stream(event):
-                        continue  # call stream wake-ups (app_call_wake.py)
-                    yield (
-                        f"id: {event.id}\n"
-                        f"event: {event.type}\n"
-                        f"data: {event.model_dump_json()}\n\n"
-                    )
-            elif not follow:
+            if len(events) >= EVENT_STREAM_PAGE_SIZE:
+                continue  # behind by more than one read: fetch the next page now
+            if not follow:
                 break
+            if sent:
+                idle_cycles = 0
             else:
                 idle_cycles += 1
                 if idle_cycles >= 15:
                     yield ": keep-alive\n\n"
                     idle_cycles = 0
-            if not follow:
-                break
             await asyncio.sleep(1)
 
     return StreamingResponse(
@@ -1864,34 +1890,36 @@ async def stream_events(
 
 
 @app.get("/api/v1/approvals", response_model=list[Approval])
-async def list_approvals(
+def list_approvals(
     status_filter: ApprovalFilter | None = Query(default=None, alias="status"),
-    limit: int | None = Query(default=None, ge=1, le=APPROVAL_PAGE_MAX_LIMIT * 5),
+    limit: int | None = Query(default=None, ge=1, le=APPROVAL_LIST_MAX_LIMIT),
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
 ) -> list[Approval]:
-    """Every approval, oldest first (the original shape). ``status`` and ``limit`` narrow it:
-    ``?status=pending&limit=200`` is the cheap list the shell uses; use ``/page`` for history."""
+    """At most ``limit`` approvals (default and maximum 500): every pending one first, then
+    the newest of the rest. Without ``status`` and ``limit`` the list is returned oldest first
+    (the original shape); it used to be every approval the workspace ever had. With either,
+    the order is the paged one: ``?status=pending&limit=200`` is the list the shell uses.
+    Use ``/page`` for history."""
     require_permission(context, Permission.APPROVAL_READ)
     now = utc_now()
-    if status_filter is not None or limit is not None:
-        rows, _more = repository.list_approvals_page(
-            context,
-            now=now,
-            status=status_filter or ApprovalFilter.ALL,
-            query=None,
-            task_id=None,
-            cursor=None,
-            limit=limit or APPROVAL_PAGE_MAX_LIMIT * 5,
-        )
-        narrowed = [as_viewed(approval, now) for approval in rows]
-        return _with_progress(narrowed, context, repository)
-    approvals = [as_viewed(approval, now) for approval in repository.list_approvals(context)]
-    return _with_progress(approvals, context, repository, siblings=approvals)
+    rows, _more = repository.list_approvals_page(
+        context,
+        now=now,
+        status=status_filter or ApprovalFilter.ALL,
+        query=None,
+        task_id=None,
+        cursor=None,
+        limit=limit or APPROVAL_LIST_MAX_LIMIT,
+    )
+    approvals = [as_viewed(approval, now) for approval in rows]
+    if status_filter is None and limit is None:
+        approvals.sort(key=lambda approval: (approval.created_at, approval.id))
+    return _with_progress(approvals, context, repository)
 
 
 @app.get("/api/v1/approvals/page", response_model=ApprovalPage)
-async def list_approvals_page(
+def list_approvals_page(
     status_filter: ApprovalFilter = Query(default=ApprovalFilter.ALL, alias="status"),
     query: str | None = Query(default=None, max_length=APPROVAL_QUERY_MAX_CHARS),
     task_id: str | None = Query(default=None, max_length=80),
@@ -1928,7 +1956,7 @@ async def list_approvals_page(
 
 
 @app.get("/api/v1/approvals/summary", response_model=ApprovalSummary)
-async def approvals_summary(
+def approvals_summary(
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
 ) -> ApprovalSummary:
@@ -1938,7 +1966,7 @@ async def approvals_summary(
 
 
 @app.get("/api/v1/approvals/{approval_id}", response_model=Approval)
-async def get_approval(
+def get_approval(
     approval_id: str,
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
@@ -1959,22 +1987,26 @@ async def create_memory(
     memories: MemoryRepository = Depends(memory_repository_context),
 ) -> MemoryNote:
     require_permission(context, Permission.MEMORY_CREATE)
-    if repository.get_task(payload.task_id, context) is None:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
-    try:
-        note = MemoryService(memories).create(context, payload)
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=422,
-            detail=str(exc),
-        ) from exc
+
+    def create() -> MemoryNote:
+        if repository.get_task(payload.task_id, context) is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Task not found")
+        try:
+            return MemoryService(memories).create(context, payload)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=422,
+                detail=str(exc),
+            ) from exc
+
+    note = await asyncio.to_thread(create)  # the store work, off the event loop
     # Same transaction, best effort: a failed embedding is recorded on the index row.
     await index_memory_note(context, note, memories)
     return note
 
 
 @app.get("/api/v1/memories", response_model=list[MemoryNote])
-async def list_memories(
+def list_memories(
     task_id: str | None = None,
     query: str | None = None,
     source_type: list[str] = Query(default_factory=list),
@@ -2002,7 +2034,7 @@ class MemoryBulkDeleteResult(BaseModel):
 
 
 @app.delete("/api/v1/memories", response_model=MemoryBulkDeleteResult)
-async def delete_my_conversation_memories(
+def delete_my_conversation_memories(
     source_type: str = Query(description="Only `conversation`: every memory remembered from the caller's own chats"),
     context: TenantContext = Depends(tenant_context),
     memories: MemoryRepository = Depends(memory_repository_context),
@@ -2037,7 +2069,7 @@ async def delete_my_conversation_memories(
 
 
 @app.delete("/api/v1/memories/{memory_id}", status_code=status.HTTP_204_NO_CONTENT)
-async def delete_memory(
+def delete_memory(
     memory_id: str,
     context: TenantContext = Depends(tenant_context),
     memories: MemoryRepository = Depends(memory_repository_context),
@@ -2121,7 +2153,7 @@ async def reject(
 
 
 @app.get("/api/v1/approval-policy", response_model=WorkspaceApprovalPolicy)
-async def get_approval_policy(
+def get_approval_policy(
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
 ) -> WorkspaceApprovalPolicy:
@@ -2130,7 +2162,7 @@ async def get_approval_policy(
 
 
 @app.put("/api/v1/approval-policy", response_model=WorkspaceApprovalPolicy)
-async def update_approval_policy(
+def update_approval_policy(
     payload: WorkspaceApprovalPolicyUpdate,
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
@@ -2425,6 +2457,22 @@ def _route_refusal_response(
     )
 
 
+def _private_self_decision(task: Task, approval: Approval, context: TenantContext) -> bool:
+    """The one case a person decides their own request (docs/tasks.md#private-tasks, docs/approvals-and-risk.md#approval-routing).
+
+    A ``data``-private task's approval of a ``caller_scoped`` tool concerns the person's own
+    ledger or mailbox and their own action, and nobody else can see the task or the approval
+    (the repository filter and the row policies hide both). Routing an approval nobody else
+    can see to owners would leave the run stuck for good, and sharing it would publish the
+    private data, so the task's own person decides it: a confirm step, not a second pair of
+    eyes. Owners, routes and the two-person rule still apply to every other approval.
+    """
+    if task.private_kind != "data" or task.private_to != context.user_id:
+        return False
+    definition = tool_registry.definition(approval.action)
+    return definition is not None and definition.caller_scoped
+
+
 def _delegated_refusal(
     request: Request,
     context: TenantContext,
@@ -2503,11 +2551,14 @@ def _route_for(
     *,
     governance: object | None = None,
     siblings: list[Approval] | None = None,
+    by_task: dict[str, list[Approval]] | None = None,
 ) -> Route:
     """The approval route (docs/approvals-and-risk.md#approval-routing), re-read now.
 
     The rules come from the tenant's governance in the caller's RLS scope; the amounts
-    of the task's other pending or approved approvals are added (no splitting).
+    of the task's other pending or approved approvals are added (no splitting). The
+    task's approvals are read only when a routing rule matches, once per task when the
+    caller passes ``by_task`` (a list of approvals shares it).
     """
     match = match_governance(
         governance if governance is not None else repository.get_tool_governance(context),  # type: ignore[arg-type]
@@ -2518,7 +2569,14 @@ def _route_for(
     if not match.approval_rules:
         return Route()
     now = utc_now()
-    others = siblings if siblings is not None else repository.list_task_approvals(approval.task_id, context)
+    if siblings is not None:
+        others = siblings
+    elif by_task is None:
+        others = repository.list_task_approvals(approval.task_id, context)
+    else:
+        if approval.task_id not in by_task:
+            by_task[approval.task_id] = repository.list_task_approvals(approval.task_id, context)
+        others = by_task[approval.task_id]
     related = related_actions([as_viewed(other, now) for other in others], approval.id, approval.task_id)
     return build_route(match.approval_rules, approval.arguments, related)
 
@@ -2528,11 +2586,23 @@ def _routing_view(
     route: Route,
     context: TenantContext,
     recorded: list[ApprovalApproverRecord],
-    task_creator: str | None,
+    task: Task | None,
     two_person_rule: bool,
 ) -> ApprovalRouting:
     """Who may approve this approval, why, and what the caller may do now."""
+    task_creator = task.created_by if task is not None else None
     pending = approval.status == ApprovalStatus.PENDING
+    if task is not None and _private_self_decision(task, approval, context):
+        # The task's own person, for a caller-scoped tool on their data-private task: the one approver.
+        refusal = "not_pending" if not pending else "no_hash" if not approval.payload_hash else None
+        return ApprovalRouting(
+            routed=False,
+            steps=[ApprovalStepView(approvers=[[f"user:{context.user_id}"]])],
+            can_approve=refusal is None,
+            can_reject=pending,
+            refusal=refusal,  # type: ignore[arg-type]
+            summary="This task reads your own data, so you decide this approval yourself.",
+        )
     owner_decides = has_permission(context, Permission.APPROVAL_DECIDE)
     own = context.user_id in {task_creator, approval.requested_by}
     already = any(row.user_id == context.user_id for row in recorded)
@@ -2607,18 +2677,12 @@ def _with_progress(
     governance = repository.get_tool_governance(context)
     two_person_rule = repository.get_approval_policy(context).two_person_rule
     by_task: dict[str, list[Approval]] = {}
-    creators: dict[str, str | None] = {}
+    tasks: dict[str, Task | None] = {}
     result = []
     for approval in approvals:
         rows = recorded.get(approval.id, [])
         approvers = [row.view() for row in rows]
-        if siblings is not None:
-            others = siblings
-        else:
-            if approval.task_id not in by_task:
-                by_task[approval.task_id] = repository.list_task_approvals(approval.task_id, context)
-            others = by_task[approval.task_id]
-        route = _route_for(approval, context, repository, governance=governance, siblings=others)
+        route = _route_for(approval, context, repository, governance=governance, siblings=siblings, by_task=by_task)
         if approval.status == ApprovalStatus.APPROVED:
             required = max(1, len(approvers))
         elif route.routed:
@@ -2628,10 +2692,9 @@ def _with_progress(
                 governance, tool=approval.action, target=approval.target, risk_level=approval.risk_level
             )
             required = required_approvals(decision_requirements(match)[0])
-        if approval.task_id not in creators:
-            task = repository.get_task(approval.task_id, context)
-            creators[approval.task_id] = task.created_by if task else None
-        routing = _routing_view(approval, route, context, rows, creators[approval.task_id], two_person_rule)
+        if approval.task_id not in tasks:
+            tasks[approval.task_id] = repository.get_task(approval.task_id, context)
+        routing = _routing_view(approval, route, context, rows, tasks[approval.task_id], two_person_rule)
         suppressed = (
             suppressed_for_call(context, approval.action, approval.arguments, tool_registry.definition(approval.action))
             if approval.status == ApprovalStatus.PENDING
@@ -2691,10 +2754,12 @@ def _decide_in_unit(
     if approval.status != ApprovalStatus.PENDING:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Approval already decided")
 
-    # Who may decide: owners (approval:decide), or a person an approval route lists.
+    # Who may decide: owners (approval:decide), a person an approval route lists, or the task's own
+    # person for a caller-scoped tool on their data-private task (the one allowed self-approval).
     route = _route_for(approval, context, repository)
     recorded = repository.list_approval_approvers([approval.id], context).get(approval.id, [])
-    if not has_permission(context, Permission.APPROVAL_DECIDE):
+    own_private = _private_self_decision(task, approval, context)
+    if not own_private and not has_permission(context, Permission.APPROVAL_DECIDE):
         delegated_refusal = _delegated_refusal(request, context, repository, task, approval, route, recorded, decision)
         if delegated_refusal is not None:
             return _Decided(delegated_refusal)
@@ -2730,7 +2795,9 @@ def _decide_in_unit(
                 detail="Approval payload does not match what was shown; reload and review it again",
             )
     requirements = _DecisionRequirements()
-    if decision == ApprovalStatus.APPROVED:
+    if decision == ApprovalStatus.APPROVED and own_private:
+        pass  # one decision by the task's own person; routes and chains cannot reach a private approval
+    elif decision == ApprovalStatus.APPROVED:
         if route.routed:
             refusal, requirements = _routing_refusal(
                 request, context, repository, task, approval, route, recorded, now
@@ -2743,6 +2810,7 @@ def _decide_in_unit(
             return _Decided(refusal)
     if (
         decision == ApprovalStatus.APPROVED
+        and not own_private
         and approval.risk_level in TWO_PERSON_RISK_LEVELS
         and context.user_id in {task.created_by, approval.requested_by}
         and repository.get_approval_policy(context).two_person_rule
@@ -2845,6 +2913,7 @@ def _decide_in_unit(
             approval.id,
             decided_payload,
             correlation_id=task.id,
+            private_to=task.private_to,
             created_at=approval.decided_at,
         ).event
     )
@@ -2867,6 +2936,8 @@ def _decide_in_unit(
                 "target": approval.target,
                 "reason": reason,
                 **chain_metadata,
+                # The task's own person decided their own request: visible in the audit log, which is shared.
+                **({"private_self_decision": True} if own_private else {}),
             },
         )
     )
@@ -2942,6 +3013,7 @@ def _record_partial_approval(
             approval.id,
             event_payload,
             correlation_id=task.id,
+            private_to=task.private_to,
             created_at=now,
         ).event
     )

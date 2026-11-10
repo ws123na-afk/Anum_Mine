@@ -72,6 +72,41 @@ void main() {
     expect(configureIosInfoPlist(value), value);
   });
 
+  test('the app lock has what the system prompt needs on both platforms', () {
+    // docs/mobile.md#app-lock. The prompt itself needs a phone.
+    const manifest =
+        '<manifest>\n    <application android:label="ANUM">\n    </application>\n</manifest>\n';
+    expect(configureAndroidManifest(manifest),
+        contains('android.permission.USE_BIOMETRIC'));
+    expect(configureIosInfoPlist(plist), contains('NSFaceIDUsageDescription'));
+    expect(File('android/app/src/main/AndroidManifest.xml').readAsStringSync(),
+        contains('android.permission.USE_BIOMETRIC'));
+    expect(File('ios/Runner/Info.plist').readAsStringSync(),
+        contains('NSFaceIDUsageDescription'));
+    // local_auth needs a FragmentActivity and an AppCompat theme.
+    final activity =
+        File('android/app/src/main/kotlin/com/anum/anum_mobile/MainActivity.kt')
+            .readAsStringSync();
+    expect(
+        activity, contains('class MainActivity : FlutterFragmentActivity()'));
+    for (final styles in const [
+      'android/app/src/main/res/values/styles.xml',
+      'android/app/src/main/res/values-night/styles.xml',
+    ]) {
+      final value = File(styles).readAsStringSync();
+      expect(RegExp('parent="Theme.AppCompat').allMatches(value), hasLength(2),
+          reason: styles);
+    }
+    expect(File('android/app/build.gradle.kts').readAsStringSync(),
+        contains('androidx.appcompat:appcompat'));
+    // The Android plugin stays on its last Java release while
+    // android.builtInKotlin=false (CLAUDE.md, plugins and AGP 9).
+    expect(File('pubspec.yaml').readAsStringSync(),
+        contains('local_auth_android: 2.0.7'));
+    expect(File('android/gradle.properties').readAsStringSync(),
+        contains('android.builtInKotlin=false'));
+  });
+
   test('Android uses the shipping applicationId', () {
     final value = configureAndroidGradle(gradle);
     expect(value, contains('applicationId = "com.anum.app"'));

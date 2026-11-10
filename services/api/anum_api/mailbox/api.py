@@ -809,7 +809,7 @@ def list_scheduled(
 
 
 @router.get("/drafts/{draft_id}", response_model=DraftView)
-async def get_draft(draft_id: str, context: TenantContext = Depends(tenant_context), repository: AnumRepository = Depends(repository_context)) -> DraftView:
+def get_draft(draft_id: str, context: TenantContext = Depends(tenant_context), repository: AnumRepository = Depends(repository_context)) -> DraftView:
     _require(context, Permission.EMAIL_READ, READ_DENIED)
     draft, _ = _load_draft(context, draft_id)
     return _draft_view(draft, repository, context)

@@ -27,7 +27,7 @@ from contextlib import contextmanager
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import Select, and_, delete, func, or_, select, text
+from sqlalchemy import Select, and_, delete, func, or_, select, text, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.orm import Session
 
@@ -74,8 +74,11 @@ from anum_api.automation import (
     next_fire,
     overlap_check,
     owner_inactive_message,
+    accepted_current,
+    require_confirmer,
     require_editor,
     require_take_over,
+    workflow_changed_message,
     resume_state,
     rotated,
     run_actor,
@@ -126,7 +129,7 @@ _DUE_SCHEDULES = text(
 # Runs as the application role inside the schedule's tenant context.
 _CLAIM_SCHEDULE = text(
     """
-    select id, workflow_id, cron, timezone, next_run_at, created_by, now() as db_now
+    select id, workflow_id, cron, timezone, next_run_at, created_by, accepted_version, last_outcome, now() as db_now
     from automation_schedules
     where id = :id and tenant_id = :tenant_id and workspace_id = :workspace_id
       and enabled and next_run_at is not null and next_run_at <= now()
@@ -192,6 +195,7 @@ def _schedule(record: AutomationScheduleRecord) -> AutomationSchedule:
         last_run_at=record.last_run_at,
         last_outcome=record.last_outcome,
         created_by=record.created_by,
+        accepted_version=record.accepted_version,
         created_at=record.created_at,
         updated_at=record.updated_at,
     )
@@ -243,6 +247,7 @@ def _trigger(record: AutomationTriggerRecord) -> AutomationTrigger:
         last_outcome=record.last_outcome,
         fire_count=record.fire_count,
         created_by=record.created_by,
+        accepted_version=record.accepted_version,
         created_at=record.created_at,
         updated_at=record.updated_at,
     )
@@ -250,7 +255,7 @@ def _trigger(record: AutomationTriggerRecord) -> AutomationTrigger:
 
 _TRIGGER_FIELDS = (
     "name", "event_type", "enabled", "rate_limit_per_minute", "replay_window_seconds", "secret_ciphertext", "secret_hint",
-    "secret_rotated_at", "cursor_at", "last_fired_at", "last_outcome", "fire_count", "created_by", "updated_at",
+    "secret_rotated_at", "cursor_at", "last_fired_at", "last_outcome", "fire_count", "created_by", "accepted_version", "updated_at",
 )
 
 
@@ -306,6 +311,8 @@ class SessionEffects(RepositoryEffects):
                 DomainEventRecord.workspace_id == context.workspace_id,
                 DomainEventRecord.type == event_type,
                 DomainEventRecord.created_at >= after,
+                # A private task's events never start a workspace workflow (docs/tasks.md#private-tasks).
+                DomainEventRecord.private_to.is_(None),
             )
             .order_by(DomainEventRecord.created_at, DomainEventRecord.id)
             .limit(limit)
@@ -329,7 +336,9 @@ class PostgresAutomationEngine:
         self.maintenance_session_factory = maintenance_session_factory or session_factory
 
     def _unit(self, context: TenantContext) -> Any:
-        return scoped_unit(self.session_factory, context.tenant_id, context.workspace_id)
+        # The user too: a task the run created can be private to the run's actor
+        # (0163_private_tasks), and its outcome is read back in this unit.
+        return scoped_unit(self.session_factory, context.tenant_id, context.workspace_id, user_id=context.user_id)
 
     @contextmanager
     def _work(self, context: TenantContext) -> Iterator[tuple[Session, RepositoryEffects]]:
@@ -530,6 +539,17 @@ class PostgresAutomationEngine:
             record.updated_by = context.user_id
             record.updated_at = utc_now()
             session.flush()
+            # The editor's own schedules and triggers accept what the editor just wrote; everyone
+            # else's stay bound to the version their owner accepted.
+            for model in (S, T):
+                session.execute(
+                    update(model)
+                    .where(
+                        model.tenant_id == context.tenant_id, model.workspace_id == context.workspace_id,
+                        model.workflow_id == workflow_id, model.created_by == context.user_id,
+                    )
+                    .values(accepted_version=record.version)
+                )
             effects.record_audit(
                 audit(context, "automation.workflow.updated", workflow_id, {"name": record.name, "version": record.version})
             )
@@ -577,8 +597,9 @@ class PostgresAutomationEngine:
     def create_schedule(self, context: TenantContext, payload: ScheduleCreate) -> AutomationSchedule:
         now = utc_now()
         with self._work(context) as (session, effects):
-            self._workflow_record(session, context, payload.workflow_id)
+            workflow_record = self._workflow_record(session, context, payload.workflow_id)
             record = S(
+                accepted_version=workflow_record.version,
                 id=new_id("schedule"),
                 tenant_id=context.tenant_id,
                 workspace_id=context.workspace_id,
@@ -811,9 +832,21 @@ class PostgresAutomationEngine:
                             candidate, context, effects, owner_inactive_message(context.user_id), workflow_creator=workflow.created_by
                         )
                         self._save_run_state(self._run_record(session, context, run.id), run)
+                elif not accepted_current(claimed["accepted_version"], workflow):
+                    # Someone else rewrote the steps: never run them as the schedule's owner. The
+                    # owner is told once (a failed run in the history), then it waits for them.
+                    outcome = ScheduleOutcome.WORKFLOW_CHANGED
+                    if claimed["last_outcome"] != outcome.value:
+                        candidate = new_run(context, workflow, idempotency_key=key, schedule_id=schedule_id)
+                        if self._insert_run(session, candidate):
+                            message = workflow_changed_message("schedule", workflow, claimed["accepted_version"])
+                            run = fail_before_start(candidate, context, effects, message, workflow_creator=None)
+                            self._save_run_state(self._run_record(session, context, run.id), run)
                 elif workflow.overlap_policy == OverlapPolicy.SKIP and self._active_records(session, context, workflow.id):
                     outcome = ScheduleOutcome.SKIPPED_OVERLAP
                 else:
+                    if claimed["accepted_version"] is None:  # stored before the binding existed
+                        session.execute(update(S).where(S.id == schedule_id, S.tenant_id == tenant_id).values(accepted_version=workflow.version))
                     # None: this fire time already produced its run.
                     run = self._launch(session, effects, context, workflow, idempotency_key=key, schedule_id=schedule_id)
             # A missed fire runs once; the schedule then continues from now, no catch-up.
@@ -851,10 +884,26 @@ class PostgresAutomationEngine:
             require_take_over(context, record.created_by, "schedule")
             previous = record.created_by
             record.created_by = context.user_id
+            record.accepted_version = self._workflow_record(session, context, record.workflow_id).version
             record.updated_at = utc_now()
             session.flush()
             effects.record_audit(
-                audit(context, "automation.schedule.taken_over", schedule_id, {"previous_owner": previous, "name": record.name})
+                audit(context, "automation.schedule.taken_over", schedule_id,
+                      {"previous_owner": previous, "name": record.name, "accepted_version": record.accepted_version})
+            )
+            return _schedule(record)
+
+    def confirm_schedule(self, context: TenantContext, schedule_id: str) -> AutomationSchedule:
+        with self._work(context) as (session, effects):
+            record = self._schedule_record(session, context, schedule_id, lock=True)
+            require_confirmer(context, record.created_by, "schedule")
+            record.accepted_version = self._workflow_record(session, context, record.workflow_id).version
+            if record.last_outcome == ScheduleOutcome.WORKFLOW_CHANGED.value:
+                record.last_outcome = None
+            record.updated_at = utc_now()
+            session.flush()
+            effects.record_audit(
+                audit(context, "automation.schedule.confirmed", schedule_id, {"name": record.name, "accepted_version": record.accepted_version})
             )
             return _schedule(record)
 
@@ -868,6 +917,9 @@ class PostgresAutomationEngine:
         )
         run = _run(record, workflow.name if workflow else None)
         context = run_actor(run)
+        # The engine acts as the run's actor here: a task the run created can be private to that
+        # person (0163_private_tasks), and its outcome is read back under their anum.user_id.
+        session.execute(text("select set_config('anum.user_id', :user_id, true)"), {"user_id": context.user_id})
         effects = session_effects(session, context)
         advance_state(run, context, effects, report=report, workflow_creator=workflow.created_by if workflow else None, now=now)
         self._save_run_state(record, run)
@@ -929,8 +981,9 @@ class PostgresAutomationEngine:
 
     def create_trigger(self, context: TenantContext, payload: TriggerCreate) -> tuple[AutomationTrigger, str | None]:
         with self._work(context) as (session, effects):
-            self._workflow_record(session, context, payload.workflow_id)
+            workflow_record = self._workflow_record(session, context, payload.workflow_id)
             trigger, secret = new_trigger(context, payload)
+            trigger.accepted_version = workflow_record.version
             record = T(
                 id=trigger.id,
                 tenant_id=trigger.tenant_id,
@@ -1005,10 +1058,26 @@ class PostgresAutomationEngine:
             require_take_over(context, record.created_by, "trigger")
             previous = record.created_by
             record.created_by = context.user_id
+            record.accepted_version = self._workflow_record(session, context, record.workflow_id).version
             record.updated_at = utc_now()
             session.flush()
             effects.record_audit(
-                audit(context, "automation.trigger.taken_over", trigger_id, {"previous_owner": previous, "name": record.name})
+                audit(context, "automation.trigger.taken_over", trigger_id,
+                      {"previous_owner": previous, "name": record.name, "accepted_version": record.accepted_version})
+            )
+            return _trigger(record).public()
+
+    def confirm_trigger(self, context: TenantContext, trigger_id: str) -> AutomationTrigger:
+        with self._work(context) as (session, effects):
+            record = self._trigger_record(session, context, trigger_id, lock=True)
+            require_confirmer(context, record.created_by, "trigger")
+            record.accepted_version = self._workflow_record(session, context, record.workflow_id).version
+            if record.last_outcome == TriggerOutcome.WORKFLOW_CHANGED.value:
+                record.last_outcome = None
+            record.updated_at = utc_now()
+            session.flush()
+            effects.record_audit(
+                audit(context, "automation.trigger.confirmed", trigger_id, {"name": record.name, "accepted_version": record.accepted_version})
             )
             return _trigger(record).public()
 
@@ -1065,9 +1134,21 @@ class PostgresAutomationEngine:
             recent=int(recent),
             active=len(active),
             looped=looped,
+            changed=workflow is not None and not accepted_current(trigger.accepted_version, workflow),
         )
         run = None
+        if outcome == TriggerOutcome.WORKFLOW_CHANGED and workflow is not None and record.last_outcome != outcome.value:
+            # Told once: a failed run in the history names who changed it and what to do.
+            refused = new_run(actor, workflow, idempotency_key=key, trigger=trigger, trigger_payload=payload)
+            if self._insert_run(session, refused):
+                message = workflow_changed_message("trigger", workflow, trigger.accepted_version)
+                fail_before_start(refused, actor, actor_effects, message, workflow_creator=None)
+                self._save_run_state(self._run_record(session, context, refused.id), refused)
+                effects.repository.recorded_events.extend(actor_effects.repository.recorded_events)
+                actor_effects.repository.recorded_events = []
         if outcome == TriggerOutcome.FIRED and workflow is not None:
+            if record.accepted_version is None:
+                record.accepted_version = workflow.version  # stored before the binding existed
             run = self._launch(session, actor_effects, actor, workflow, idempotency_key=key, trigger=trigger, trigger_payload=payload)
             effects.deferred.extend(actor_effects.deferred)
             effects.repository.recorded_events.extend(actor_effects.repository.recorded_events)

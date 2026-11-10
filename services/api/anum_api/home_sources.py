@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 
-from .approval_integrity import as_viewed
+from .approval_paging import pending_now
 from .authorization import Permission
 from .dependencies import has_permission
 from .home import (
@@ -31,7 +31,7 @@ from .home import (
     register_focus_source,
     register_insight_source,
 )
-from .schemas import ApprovalStatus, RiskLevel, RunPhase, Task, TaskStatus
+from .schemas import RiskLevel, RunPhase, Task, TaskStatus
 from .tasks import TaskFilters
 
 STALLED_AFTER = timedelta(hours=2)
@@ -58,8 +58,8 @@ def _recent_tasks(scope: HomeScope) -> list[Task]:
 
 
 def _pending_approvals(scope: HomeScope) -> list:  # type: ignore[type-arg]
-    viewed = [as_viewed(a, scope.now) for a in scope.repository.list_approvals(scope.context)]
-    return sorted((a for a in viewed if a.status == ApprovalStatus.PENDING), key=lambda a: a.created_at)
+    # The pending rows only (the paged query), oldest first; not the workspace's whole history.
+    return sorted(pending_now(scope.repository, scope.context, scope.now), key=lambda a: a.created_at)
 
 
 # -- Today's Focus --------------------------------------------------------------------------------

@@ -1252,7 +1252,7 @@ def _audit(
 
 
 @router.post("/commands/preview", response_model=CommandPlan)
-async def preview_command(
+def preview_command(
     payload: CommandPlanRequest,
     request: Request,
     context: TenantContext = Depends(tenant_context),
@@ -1322,7 +1322,7 @@ def _attachments(file_ids: list[str], context: TenantContext) -> list[CommandAtt
 
 
 @router.post("/commands", response_model=CommandView, status_code=status.HTTP_201_CREATED)
-async def create_command(
+def create_command(
     payload: CommandCreate,
     request: Request,
     context: TenantContext = Depends(tenant_context),
@@ -1489,7 +1489,7 @@ def _command_or_404(store: CommandStore, command_id: str) -> StoredCommand:
 
 
 @router.get("/commands", response_model=list[CommandSummary])
-async def list_commands(
+def list_commands(
     limit: int = Query(default=COMMAND_PAGE_DEFAULT, ge=1, le=COMMAND_PAGE_MAX),
     cursor: str | None = Query(default=None, max_length=80),
     context: TenantContext = Depends(tenant_context),
@@ -1525,7 +1525,7 @@ _STARTERS: list[tuple[str | None, str, str]] = [
 
 
 @router.get("/commands/suggestions", response_model=list[CommandSuggestion])
-async def command_suggestions(
+def command_suggestions(
     request: Request,
     locale: Locale = "en",
     context: TenantContext = Depends(tenant_context),
@@ -1577,7 +1577,7 @@ async def command_suggestions(
 
 
 @router.get("/commands/{command_id}", response_model=CommandView)
-async def get_command(
+def get_command(
     command_id: str,
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
@@ -1589,7 +1589,7 @@ async def get_command(
 
 
 @router.delete("/commands/{command_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None)
-async def delete_command(
+def delete_command(
     command_id: str,
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
@@ -1629,7 +1629,7 @@ def report_markdown(view: CommandView) -> str:
 
 
 @router.get("/commands/{command_id}/report")
-async def command_report(
+def command_report(
     command_id: str,
     report_format: str = Query(default="json", alias="format", pattern="^(json|markdown)$"),
     context: TenantContext = Depends(tenant_context),
@@ -1730,7 +1730,7 @@ def next_steps(view: CommandView, quick_texts: set[str]) -> list[NextStep]:
 
 
 @router.get("/commands/{command_id}/next-steps", response_model=list[NextStep])
-async def command_next_steps(
+def command_next_steps(
     command_id: str,
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
@@ -1784,7 +1784,7 @@ class QuickCommandUpdate(BaseModel):
 
 
 @router.get("/quick-commands", response_model=list[QuickCommand])
-async def list_quick_commands(
+def list_quick_commands(
     category: QuickCommandCategory | None = None,
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
@@ -1796,7 +1796,7 @@ async def list_quick_commands(
 
 
 @router.post("/quick-commands", response_model=QuickCommand, status_code=status.HTTP_201_CREATED)
-async def create_quick_command(
+def create_quick_command(
     payload: QuickCommandCreate,
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
@@ -1833,7 +1833,7 @@ def _quick_or_404(store: CommandStore, quick_id: str) -> QuickCommand:
 
 
 @router.put("/quick-commands/{quick_id}", response_model=QuickCommand)
-async def update_quick_command(
+def update_quick_command(
     quick_id: str,
     payload: QuickCommandUpdate,
     context: TenantContext = Depends(tenant_context),
@@ -1849,7 +1849,7 @@ async def update_quick_command(
 
 
 @router.delete("/quick-commands/{quick_id}", status_code=status.HTTP_204_NO_CONTENT, response_model=None)
-async def delete_quick_command(
+def delete_quick_command(
     quick_id: str,
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),

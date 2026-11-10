@@ -1,3 +1,4 @@
+import '../../data/readable_error.dart';
 import 'dart:async';
 import 'dart:math';
 
@@ -19,7 +20,7 @@ String automationErrorText(Object error) {
     if (error.statusCode == 401) return 'Your sign-in expired. Sign in again.';
     return error.readable;
   }
-  return error.toString();
+  return readableError(error);
 }
 
 /// The Automations list (search, status filter, "Show more" paging) and the

@@ -248,6 +248,8 @@ def lookup_membership(context: TenantContext) -> WorkspaceMembershipRecord | Non
 
     session = SessionLocal()
     try:
+        # No anum.user_id: this session reads workspace_memberships only, never a task or an event
+        # (the private-task policies of 0163 do not apply to it).
         set_tenant_context(session, context.tenant_id, context.workspace_id)
         return SqlAlchemyRepository(session, created_by_user_id=context.user_id).get_membership(context)
     finally:
@@ -255,20 +257,22 @@ def lookup_membership(context: TenantContext) -> WorkspaceMembershipRecord | Non
         session.close()
 
 
-def list_events_for_stream(context: TenantContext, after: str | None = None) -> list:
-    """Read the caller's events in a fresh, tenant-scoped session.
+# How many events one read of an event stream fetches. A stream that is behind by more
+# reads again at once instead of waiting for its next poll, so nothing is skipped and no
+# read (or response chunk) grows with the workspace's history.
+EVENT_STREAM_PAGE_SIZE = 500
+
+
+def _with_events_repository(context: TenantContext, read: Callable[[Any], Any]) -> Any:
+    """Run ``read`` with the caller's repository in a fresh, tenant-scoped session.
 
     Streaming responses must not read through the request's repository session (the
-    streaming routes release it before the body), so every poll opens its own short
+    streaming routes release it before the body), so every read opens its own short
     session with the tenant and workspace set for RLS. It blocks: callers on the event
-    loop run it in a thread. With ``after`` (the stream's last event id) only the newer
-    events are read, so a poll stays cheap as the history grows; an unknown cursor reads
-    everything.
+    loop run it in a thread.
     """
     if settings.repository_backend == "memory":
-        if after:
-            return memory_repository.list_events_after(context, after)
-        return memory_repository.list_events(context)
+        return read(memory_repository)
     if settings.repository_backend != "postgresql":
         raise RuntimeError(f"Unsupported repository backend: {settings.repository_backend}")
 
@@ -277,12 +281,40 @@ def list_events_for_stream(context: TenantContext, after: str | None = None) -> 
 
     session = SessionLocal()
     try:
-        set_tenant_context(session, context.tenant_id, context.workspace_id)
-        repository = SqlAlchemyRepository(session, created_by_user_id=context.user_id)
-        return repository.list_events_after(context, after) if after else repository.list_events(context)
+        # The user too: a private task's events are its person's only (0163_private_tasks).
+        set_tenant_context(session, context.tenant_id, context.workspace_id, user_id=context.user_id)
+        return read(SqlAlchemyRepository(session, created_by_user_id=context.user_id))
     finally:
         session.rollback()
         session.close()
+
+
+def list_events_for_stream(
+    context: TenantContext, after: str | None = None, *, limit: int | None = EVENT_STREAM_PAGE_SIZE
+) -> list:
+    """Read the next events of the caller's stream in a fresh, tenant-scoped session.
+
+    With ``after`` (the stream's last event id) only the events after it are read, at most
+    ``limit`` of them, so a poll stays cheap as the history grows; a full page means there
+    may be more, and the caller reads again from its new cursor. Without ``after`` the read
+    starts at the oldest event (a one-shot replay; a following stream passes the newest
+    event's id instead). With a cursor this workspace does not have (retention purged it,
+    or it is another workspace's) it starts at the newest event, which is returned alone
+    so the stream's cursor becomes a known one (docs/realtime.md#stale-stream-cursors).
+    """
+    if after:
+        return _with_events_repository(context, lambda repository: repository.list_events_after(context, after, limit=limit))
+    return _with_events_repository(context, lambda repository: repository.list_events(context, limit=limit))
+
+
+def latest_event_id_for_stream(context: TenantContext) -> str | None:
+    """The id of the caller's newest event: where a stream opened without a cursor starts.
+
+    A client that connects without ``Last-Event-ID`` wants what happens from now on; it
+    loads the current state through the REST endpoints. Before this (November 2026) such a
+    stream first sent the workspace's whole event history on every page load.
+    """
+    return _with_events_repository(context, lambda repository: repository.latest_event_id(context))
 
 
 def _membership_context(identity: TenantContext, membership: WorkspaceMembershipRecord) -> TenantContext:
@@ -331,6 +363,7 @@ def workspace_archived(context: TenantContext) -> bool:
 
     session = SessionLocal()
     try:
+        # No anum.user_id: this session reads workspaces only, never a task or an event.
         set_tenant_context(session, context.tenant_id, context.workspace_id)
         workspace = SqlAlchemyRepository(session).get_workspace(context.workspace_id, context)
         return workspace is not None and workspace.archived_at is not None
@@ -373,7 +406,7 @@ def open_read_only_repository(context: TenantContext) -> Iterator[AnumRepository
 
     session = SessionLocal()
     try:
-        set_tenant_context(session, context.tenant_id, context.workspace_id)
+        set_tenant_context(session, context.tenant_id, context.workspace_id, user_id=context.user_id)
         yield SqlAlchemyRepository(session, created_by_user_id=context.user_id)
     finally:
         session.rollback()
@@ -498,7 +531,9 @@ def _unit_of_work(context: TenantContext, *, require_membership: bool) -> Iterat
 
     session = SessionLocal()
     try:
-        set_tenant_context(session, context.tenant_id, context.workspace_id)
+        # The user too: private tasks, their runs, approvals and events are readable and writable
+        # only under their person's anum.user_id (0163_private_tasks, docs/tasks.md#private-tasks).
+        set_tenant_context(session, context.tenant_id, context.workspace_id, user_id=context.user_id)
         session.info["user_id"] = context.user_id
         repository = SqlAlchemyRepository(session, created_by_user_id=context.user_id)
         if require_membership:

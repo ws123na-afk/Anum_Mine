@@ -1,3 +1,4 @@
+import '../../data/readable_error.dart';
 import 'package:flutter/material.dart';
 
 import '../../data/api_client.dart';
@@ -45,7 +46,7 @@ class BrevoController extends ChangeNotifier {
       error = e.message;
     } on Object catch (e) {
       phase = BvPhase.error;
-      error = '$e';
+      error = readableError(e);
     }
     notifyListeners();
   }
@@ -63,7 +64,7 @@ class BrevoController extends ChangeNotifier {
     } on ApiException catch (e) {
       moreError = e.message;
     } on Object catch (e) {
-      moreError = '$e';
+      moreError = readableError(e);
     }
     loadingMore = false;
     notifyListeners();
@@ -265,7 +266,7 @@ class _BrevoReportScreenState extends State<BrevoReportScreen> {
     } on ApiException catch (e) {
       if (mounted) setState(() => error = e.message);
     } on Object catch (e) {
-      if (mounted) setState(() => error = '$e');
+      if (mounted) setState(() => error = readableError(e));
     }
   }
 

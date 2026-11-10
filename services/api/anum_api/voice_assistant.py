@@ -20,7 +20,7 @@ from pydantic import BaseModel
 from .current_time import with_time_line
 from .model_gateway import ChatMessage, ModelGateway, ModelRoute, route_gateway
 from .prompt_provenance import Provenance, label_untrusted, with_untrusted_rules
-from .schemas import ApprovalStatus, Task, TaskStatus
+from .schemas import ApprovalStatus, Task, TaskStatus, TaskSummary
 
 MAX_REPLY_CHARS = 1200
 
@@ -152,6 +152,17 @@ def snapshot(tasks: list[Task], pending_approval_statuses: list[ApprovalStatus])
         running=sum(task.status == TaskStatus.RUNNING for task in tasks),
         waiting_approval=sum(task.status == TaskStatus.WAITING_APPROVAL for task in tasks),
         pending_approvals=sum(item == ApprovalStatus.PENDING for item in pending_approval_statuses),
+    )
+
+
+def snapshot_from_counts(tasks: TaskSummary, pending_approvals: int) -> WorkspaceSnapshot:
+    """The same facts from the repository's count queries (``summarize_tasks`` with no
+    filter, ``summarize_approvals``) instead of every task and approval of the workspace."""
+    return WorkspaceSnapshot(
+        tasks_total=tasks.total + tasks.archived,
+        running=tasks.by_status.get(TaskStatus.RUNNING.value, 0),
+        waiting_approval=tasks.by_status.get(TaskStatus.WAITING_APPROVAL.value, 0),
+        pending_approvals=pending_approvals,
     )
 
 

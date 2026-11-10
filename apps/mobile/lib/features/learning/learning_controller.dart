@@ -1,3 +1,4 @@
+import '../../data/readable_error.dart';
 import 'package:flutter/foundation.dart';
 
 import '../../data/api_client.dart';
@@ -258,6 +259,6 @@ class LearningController extends ChangeNotifier {
       return 'Could not $what: ${error.message}. Check your connection and try again.';
     }
     if (_offline(error)) return 'You are offline. Reconnect, then try again.';
-    return 'Could not $what: $error. Try again.';
+    return 'Could not $what: ${readableError(error)}';
   }
 }

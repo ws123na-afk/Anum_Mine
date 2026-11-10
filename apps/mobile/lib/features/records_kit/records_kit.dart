@@ -1,3 +1,4 @@
+import '../../data/readable_error.dart';
 import 'dart:math';
 
 import 'package:flutter/foundation.dart';
@@ -50,7 +51,7 @@ class RecordsFailure {
         final ApiException e => RecordsFailure(e.readable,
             denied: e.isPermissionDenied, code: e.code, status: e.statusCode),
         final FormatException e => RecordsFailure(e.message),
-        _ => RecordsFailure('$error'),
+        _ => RecordsFailure(readableError(error)),
       };
 
   final String message;

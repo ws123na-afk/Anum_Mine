@@ -1,3 +1,4 @@
+import '../../data/readable_error.dart';
 import '../integrations/integrations_controller.dart';
 import '../integrations/integrations_repository.dart';
 import '../integrations/integrations_screen.dart';
@@ -531,7 +532,8 @@ class _WorkspaceHomeState extends State<WorkspaceHome> with RestorationMixin {
           content: Text(
             l.f('homeSwitchFailed', {
               'name': workspaceId,
-              'message': error is ApiException ? error.readable : '$error',
+              'message':
+                  error is ApiException ? error.readable : readableError(error),
             }),
           ),
         ),

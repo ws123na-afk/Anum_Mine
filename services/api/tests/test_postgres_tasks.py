@@ -169,3 +169,74 @@ def test_runs_events_and_approvals_of_a_task(seed_scopes: None, repository_facto
         assert repository.list_runs_for_task("task_runs", other) == []
         assert repository.list_task_events("task_runs", other) == []
         assert repository.list_task_approvals("task_runs", other) == []
+
+
+def test_locking_a_tasks_approvals_leaves_other_tasks_approvals_free(
+    seed_scopes: None, repository_factory: Callable[..., Any], database_engine: Any
+) -> None:
+    """Cancelling a task locks its own approvals only (it used to lock the workspace's)."""
+    from sqlalchemy import text
+    from sqlalchemy.exc import OperationalError
+
+    context = tenant_context()
+    with repository_factory(context, commit=True) as repository:
+        for name in ("lock_a", "lock_b"):
+            repository.create_task(_task(f"task_{name}"))
+            repository.save_approval(Approval(id=f"approval_{name}", task_id=f"task_{name}", action="external.action",
+                                              risk_level=RiskLevel.HIGH, status=ApprovalStatus.PENDING, reason="r",
+                                              created_at=FIXED_NOW))
+
+    with repository_factory(context) as repository:
+        held = repository.list_task_approvals("task_lock_a", context, for_update=True)
+        assert [approval.id for approval in held] == ["approval_lock_a"]
+        with database_engine.connect() as other:
+            # Another transaction can lock the other task's approval at once...
+            free = other.execute(text("select id from approvals where id = 'approval_lock_b' for update nowait")).all()
+            assert free == [("approval_lock_b",)]
+            other.rollback()
+            # ...and not the one whose task is being cancelled.
+            with pytest.raises(OperationalError, match="could not obtain lock"):
+                other.execute(text("select id from approvals where id = 'approval_lock_a' for update nowait"))
+            other.rollback()
+        # Without for_update nothing is locked.
+    with repository_factory(context) as repository:
+        assert [a.id for a in repository.list_task_approvals("task_lock_a", context)] == ["approval_lock_a"]
+        with database_engine.connect() as other:
+            assert other.execute(text("select id from approvals where id = 'approval_lock_a' for update nowait")).all()
+            other.rollback()
+
+
+def test_pending_approvals_and_status_counts_come_from_page_and_count_queries(
+    seed_scopes: None, repository_factory: Callable[..., Any]
+) -> None:
+    """``approval_paging.pending_now`` and the voice status counts on PostgreSQL (tests/test_bounded_reads.py
+    covers the in-memory repository): more than one page of pending approvals, none repeated or skipped."""
+    from anum_api.approval_paging import pending_now
+    from anum_api.voice_assistant import snapshot, snapshot_from_counts
+
+    context = tenant_context()
+    now = FIXED_NOW + timedelta(days=1)
+    with repository_factory(context, commit=True) as repository:
+        repository.create_task(_task("task_wait", status=TaskStatus.WAITING_APPROVAL))
+        repository.create_task(_task("task_run", status=TaskStatus.RUNNING))
+        repository.create_task(_task("task_done", status=TaskStatus.COMPLETED).model_copy(update={"archived_at": FIXED_NOW, "archived_by": "user_test"}))
+        for index in range(130):
+            repository.save_approval(Approval(id=f"wait_{index:03d}", task_id="task_wait", action="external.action",
+                                              risk_level=RiskLevel.HIGH, status=ApprovalStatus.PENDING, reason="r",
+                                              created_at=FIXED_NOW + timedelta(seconds=index // 2), expires_at=now + timedelta(hours=1)))
+        repository.save_approval(Approval(id="lapsed", task_id="task_wait", action="external.action", risk_level=RiskLevel.HIGH,
+                                          status=ApprovalStatus.PENDING, reason="r", created_at=FIXED_NOW, expires_at=now - timedelta(minutes=1)))
+        repository.save_approval(Approval(id="decided", task_id="task_run", action="external.action", risk_level=RiskLevel.HIGH,
+                                          status=ApprovalStatus.APPROVED, reason="r", created_at=FIXED_NOW, decided_at=FIXED_NOW))
+
+    with repository_factory(context) as repository:
+        waiting = pending_now(repository, context, now)
+        assert len(waiting) == 130 and {a.id for a in waiting} == {f"wait_{index:03d}" for index in range(130)}
+        assert [(a.created_at, a.id) for a in waiting] == sorted(((a.created_at, a.id) for a in waiting), reverse=True)
+        assert [a.id for a in pending_now(repository, context, now, limit=3)] == ["wait_129", "wait_128", "wait_127"]
+        counts = snapshot_from_counts(repository.summarize_tasks(context, TaskFilters()), repository.summarize_approvals(context, now).pending)
+        lists = snapshot(repository.list_tasks(context), [])
+        assert (counts.tasks_total, counts.running, counts.waiting_approval) == (lists.tasks_total, lists.running, lists.waiting_approval) == (3, 1, 1)
+        assert counts.pending_approvals == 130
+    with repository_factory(tenant_context(TENANT_B, WORKSPACE_B)) as repository:
+        assert pending_now(repository, tenant_context(TENANT_B, WORKSPACE_B), now) == []

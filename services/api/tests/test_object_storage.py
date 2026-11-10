@@ -13,9 +13,11 @@ from __future__ import annotations
 
 import os
 import socket
+import io
 from collections.abc import Iterator
 from pathlib import Path
 from types import SimpleNamespace
+from unittest import mock
 from urllib.parse import urlparse
 from uuid import uuid4
 
@@ -24,6 +26,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from moto import mock_aws
 
+from anum_api import files as files_module
 from anum_api.files import (
     InMemoryObjectStorage,
     LocalObjectStorage,
@@ -90,6 +93,64 @@ def test_in_memory_storage_round_trip() -> None:
         storage.get("tenants/t/workspaces/w/files/f/d")
 
 
+def _stream_round_trip(storage: object, key: str = "tenants/t/workspaces/w/lifecycle/job/export.zip") -> None:
+    content = bytes(range(256)) * 40  # 10,240 bytes
+    storage.put_file(key, io.BytesIO(content), "application/zip")  # type: ignore[attr-defined]
+    assert storage.get(key) == content  # type: ignore[attr-defined]
+    chunks = list(storage.open_stream(key, 4096))  # type: ignore[attr-defined]
+    assert b"".join(chunks) == content and [len(chunk) for chunk in chunks] == [4096, 4096, 2048]
+    storage.delete(key)  # type: ignore[attr-defined]
+    # A missing object is reported when the stream is opened, before anything is sent.
+    with pytest.raises(FileNotFoundError):
+        storage.open_stream(key)  # type: ignore[attr-defined]
+
+
+def test_a_stream_closed_before_its_first_read_closes_the_source(tmp_path: Path, moto_s3: None) -> None:
+    """``_chunks`` was a generator: ``close()`` on one that had not started skipped its ``finally``,
+    so a caller that opened a stream and then gave it up (the export download whose audit write
+    failed) leaked the file handle or the S3 body."""
+    key = workspace_object_key("tenant_a", "workspace_a", "lifecycle", "job_1", "export.zip")
+    config = _s3_config()
+    stores = [LocalObjectStorage(tmp_path), InMemoryObjectStorage(), S3ObjectStorage(create_s3_client(config), config.s3_bucket, create_bucket=True)]
+    for storage in stores:
+        storage.put(key, b"zip bytes", "application/zip")
+        sources: list[object] = []
+        original = files_module._chunks
+
+        def tracking(source, chunk_size, _sources=sources, _original=original):  # type: ignore[no-untyped-def]
+            source.close = mock.Mock(wraps=source.close)  # botocore's StreamingBody has no ``closed`` of its own
+            _sources.append(source)
+            return _original(source, chunk_size)
+
+        with mock.patch.object(files_module, "_chunks", tracking):
+            stream = storage.open_stream(key)
+        assert len(sources) == 1
+        stream.close()  # type: ignore[attr-defined]
+        assert sources[0].close.called, type(storage).__name__  # type: ignore[attr-defined]
+        # Reading it all still closes the source, and a stream read to its end answers nothing more.
+        stream = storage.open_stream(key, 4)
+        assert b"".join(stream) == b"zip bytes"
+        assert list(stream) == []
+
+
+def test_local_and_in_memory_storage_stream_objects_in_and_out(tmp_path: Path) -> None:
+    _stream_round_trip(InMemoryObjectStorage())
+    local = LocalObjectStorage(tmp_path)
+    _stream_round_trip(local)
+    assert not list(tmp_path.rglob("*.partial"))
+
+    class Broken(io.BytesIO):
+        def read(self, *_: object) -> bytes:
+            raise OSError("disk went away")
+
+    # A failed upload leaves neither the object nor a partial file behind.
+    with pytest.raises(OSError, match="disk went away"):
+        local.put_file("tenants/t/workspaces/w/lifecycle/job/export.zip", Broken(b"x"), "application/zip")
+    assert not [path for path in tmp_path.rglob("*") if path.is_file()]
+    with pytest.raises(ValueError):
+        local.put_file("../outside", io.BytesIO(b"x"), "text/plain")
+
+
 @pytest.fixture
 def moto_s3() -> Iterator[None]:
     with mock_aws():
@@ -111,6 +172,17 @@ def test_s3_storage_round_trip_with_bucket_creation_and_encryption(moto_s3: None
     storage.delete(key)
     with pytest.raises(FileNotFoundError):
         storage.get(key)
+
+
+def test_s3_storage_streams_objects_in_and_out_with_encryption(moto_s3: None) -> None:
+    config = _s3_config(s3_server_side_encryption="AES256")
+    s3 = create_s3_client(config)
+    storage = S3ObjectStorage(s3, config.s3_bucket, server_side_encryption="AES256", create_bucket=True)
+    key = workspace_object_key("tenant_a", "workspace_a", "lifecycle", "job_1", "export.zip")
+    storage.put_file(key, io.BytesIO(b"zip bytes"), "application/zip")
+    head = s3.head_object(Bucket="anum-test", Key=key)
+    assert head["ContentType"] == "application/zip" and head["ServerSideEncryption"] == "AES256" and head["ContentLength"] == 9
+    _stream_round_trip(storage, key)
 
 
 def test_s3_storage_without_create_bucket_does_not_touch_the_bucket(moto_s3: None) -> None:

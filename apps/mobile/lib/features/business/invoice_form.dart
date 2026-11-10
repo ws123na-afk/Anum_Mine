@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../src/localization/amount_input.dart';
 import '../../src/localization/anum_localizations.dart';
 import '../../src/theme/anum_theme.dart';
 import '../../src/widgets/anum_components.dart';
@@ -8,7 +9,7 @@ import 'business_controller.dart';
 import 'invoice_controller.dart';
 import 'invoice_models.dart';
 import 'invoice_repository.dart';
-import 'invoices.dart' show friendly, money, parseNumber, plainNumber;
+import 'invoices.dart' show friendly, money, plainNumber;
 
 /// The new-invoice and edit-draft forms (docs/business.md#where-lines-come-from).
 /// The phone only picks what to bill and types what a person writes; the
@@ -52,11 +53,11 @@ class LineDraft {
   (Map<String, Object?>?, String?) toJson() {
     final desc = description.text.trim();
     if (desc.isEmpty) return (null, 'desc');
-    final qty = parseNumber(quantity.text);
+    final qty = typedNumber(quantity.text);
     if (qty == null || qty <= 0) return (null, 'qty');
-    final unit = parseNumber(price.text);
+    final unit = typedNumber(price.text);
     if (unit == null || unit < 0) return (null, 'price');
-    final rate = tax.text.trim().isEmpty ? null : parseNumber(tax.text);
+    final rate = tax.text.trim().isEmpty ? null : typedNumber(tax.text);
     if (tax.text.trim().isNotEmpty &&
         (rate == null || rate < 0 || rate > 100)) {
       return (null, 'tax');
@@ -575,17 +576,20 @@ class _NewInvoiceState extends State<NewInvoiceScreen> {
     }
     if (milestones.isNotEmpty) body['milestone_ids'] = milestones.toList();
     if (b.contract != null && contractAmount.text.trim().isNotEmpty) {
-      final v = parseNumber(contractAmount.text);
+      final typed = readAmount(contractAmount.text);
+      final v = typed.number;
       if (v == null || v <= 0 || v > b.contract!.remaining + 0.004) {
-        problems['contract'] = l.f('biz.inv.new.contractInvalid',
-            {'remaining': money(context, b.contract!.remaining, b.currency)});
+        problems['contract'] = amountHint(l, typed) ??
+            l.f('biz.inv.new.contractInvalid', {
+              'remaining': money(context, b.contract!.remaining, b.currency)
+            });
       } else {
         body['contract_amount'] = v;
       }
     }
     if (usage.isNotEmpty) {
       body['usage_ids'] = usage.toList();
-      final pct = parseNumber(markup.text);
+      final pct = typedNumber(markup.text);
       if (pct == null || pct < 0 || pct > 100) {
         problems['markup'] = l.t('biz.inv.new.markupInvalid');
       } else {
@@ -594,8 +598,8 @@ class _NewInvoiceState extends State<NewInvoiceScreen> {
     }
     if (offerId != null) {
       final offer = b.offers.firstWhere((o) => o.id == offerId);
-      final qty = parseNumber(offerQty.text);
-      final price = parseNumber(offerPrice.text);
+      final qty = typedNumber(offerQty.text);
+      final price = typedNumber(offerPrice.text);
       if (qty == null || qty <= 0) {
         problems['offerQty'] = l.t('biz.inv.line.err.qty');
       }
@@ -618,7 +622,7 @@ class _NewInvoiceState extends State<NewInvoiceScreen> {
       manual.add(json!);
     }
     if (manual.isNotEmpty) body['lines'] = manual;
-    final rate = parseNumber(taxRate.text);
+    final rate = typedNumber(taxRate.text);
     if (taxRate.text.trim().isNotEmpty &&
         (rate == null || rate < 0 || rate > 100)) {
       problems['tax'] = l.t('biz.inv.profile.rateInvalid');

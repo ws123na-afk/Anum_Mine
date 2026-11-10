@@ -40,13 +40,15 @@ from threading import RLock
 from typing import Any, Protocol
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field
 
 from .audit import AuditRecord
 from .authorization import Permission
 from .dependencies import _unit_of_work, has_permission, memory_repository, tenant_context
 from .schemas import TenantContext, new_id, utc_now
+from .serving import PASS_STOP_TIMEOUT_SECONDS, wait_for_pass
 from .settings import settings
 from .tenant_lifecycle_tables import ACCESS_TABLES, EXPORTED_TABLES, PURGED_TABLES, TenantTable
 
@@ -528,7 +530,7 @@ def export_link(job_id: str, context: TenantContext = Depends(tenant_context)) -
 
 
 @router.get("/organization/lifecycle/exports/download/{token}")
-def download_export(token: str) -> Response:
+def download_export(token: str) -> StreamingResponse:
     """The archive behind a signed link. The link is the credential (no bearer token); it
     names the tenant, workspace, person and job, and with OIDC the person must still be an
     active owner of that workspace."""
@@ -553,17 +555,24 @@ def download_export(token: str) -> Response:
     from .files import file_store
 
     try:
-        content = file_store.storage.get(job.archive_key)
+        # Opened before the response starts, so a missing archive is still a 410; sent in
+        # chunks, never held in memory whole.
+        chunks = file_store.storage.open_stream(job.archive_key)
     except FileNotFoundError as exc:
         raise HTTPException(status.HTTP_410_GONE, "This export is no longer available. Request a new export.") from exc
-    with lifecycle_unit(context, require_membership=False) as (_, repository):
-        repository.record_audit(_audit(context, "organisation.export.downloaded", job.id, {"job_id": job.id, "bytes": len(content)}))
+    try:
+        with lifecycle_unit(context, require_membership=False) as (_, repository):
+            repository.record_audit(_audit(context, "organisation.export.downloaded", job.id, {"job_id": job.id, "bytes": job.archive_bytes}))
+    except BaseException:
+        # The audit record could not be written: close the opened file handle or S3 body
+        # (files._ChunkStream.close works before the first read; a generator's did not).
+        chunks.close()  # type: ignore[attr-defined]
+        raise
     name = f"anum-organisation-{claims.tenant_id}-{job.requested_at:%Y%m%d}.zip"
-    return Response(
-        content,
-        media_type="application/zip",
-        headers={"Content-Disposition": f'attachment; filename="{name}"', "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"},
-    )
+    headers = {"Content-Disposition": f'attachment; filename="{name}"', "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff"}
+    if job.archive_bytes is not None:
+        headers["Content-Length"] = str(job.archive_bytes)
+    return StreamingResponse(chunks, media_type="application/zip", headers=headers)
 
 
 # --- deletion
@@ -684,10 +693,22 @@ class MemoryTenantData:
         shape, collection = found
         return list(collection.values()) if shape == "dict" else list(collection)
 
+    @staticmethod
+    def _private_to_one_person(table: TenantTable, item: Any) -> bool:
+        """A private task and its runs, approvals and events are one person's (docs/tasks.md#private-tasks):
+        the export leaves them out, as the database's row policy does for PostgreSQL."""
+        key = {"tasks": "id", "agent_runs": "task_id", "approvals": "task_id", "domain_events": "correlation_id"}.get(table.name)
+        if key is None:
+            return False
+        task = memory_repository.store.tasks.get(getattr(item, key, None) or "")
+        return task is not None and task.private_to is not None
+
     def export_batches(self, tenant_id: str, workspace_id: str, table: TenantTable) -> Iterator[list[dict[str, Any]]]:
         rows = []
         for item in self._items(table):
             if getattr(item, "tenant_id", None) != tenant_id:
+                continue
+            if self._private_to_one_person(table, item):
                 continue
             if table.workspace_column is not None and self._workspace_of(table, item) != workspace_id:
                 continue
@@ -935,8 +956,10 @@ def run_export(job: LifecycleJob, data: TenantData) -> None:
                 digest.update(chunk)
         size = os.path.getsize(path)
         key = workspace_object_key(job.tenant_id, job.workspace_id, "lifecycle", job.id, "export.zip")
+        # Streamed from the file: reading the archive into memory first cost its whole size
+        # (up to ANUM_TENANT_EXPORT_MAX_BYTES) in RAM on the API's host.
         with open(path, "rb") as handle_in:
-            file_store.storage.put(key, handle_in.read(), "application/zip")
+            file_store.storage.put_file(key, handle_in, "application/zip")
         rows = sum(entry["rows"] for entry in manifest["tables"].values())
         _finish_export(
             context,
@@ -1386,7 +1409,7 @@ class LifecycleRunner:
             self._stop = asyncio.Event()
             self._task = asyncio.create_task(self._run(), name="anum-tenant-lifecycle")
 
-    async def stop(self, *, timeout: float = 30.0) -> None:
+    async def stop(self, *, timeout: float = 30.0, pass_timeout: float = PASS_STOP_TIMEOUT_SECONDS) -> None:
         task, self._task = self._task, None
         if self._stop is not None:
             self._stop.set()
@@ -1397,8 +1420,7 @@ class LifecycleRunner:
                 task.cancel()
             except Exception:
                 logger.exception("Lifecycle runner stopped with an error")
-        if self._pass is not None and not self._pass.done():
-            await asyncio.wait({self._pass})
+        await wait_for_pass(self._pass, name="organisation lifecycle", timeout=pass_timeout)
         self._pass = None
 
     async def _run(self) -> None:

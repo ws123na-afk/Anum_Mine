@@ -1,3 +1,4 @@
+import '../../data/readable_error.dart';
 import 'package:flutter/foundation.dart';
 
 import '../../data/api_client.dart';
@@ -67,7 +68,7 @@ class WhatsAppController extends ChangeNotifier {
     } on Object catch (e) {
       if (token != _token) return;
       phase = WaPhase.error;
-      error = '$e';
+      error = readableError(e);
     }
     _notify();
   }
@@ -106,7 +107,7 @@ class WhatsAppController extends ChangeNotifier {
       items = [...items, ...page.where((item) => !known.contains(item.id))];
       hasMore = page.length == pageSize;
     } on Object catch (e) {
-      error = e is ApiException ? e.message : '$e';
+      error = e is ApiException ? e.message : readableError(e);
     }
     loadingMore = false;
     _notify();
@@ -192,7 +193,7 @@ class WhatsAppThreadController extends ChangeNotifier {
       }
       onChanged?.call(conversation!);
     } on Object catch (e) {
-      error = e is ApiException ? e.message : '$e';
+      error = e is ApiException ? e.message : readableError(e);
     }
     loading = false;
     _notify();
@@ -333,7 +334,7 @@ class WhatsAppThreadController extends ChangeNotifier {
 
   void _fail(Object e) {
     noticeKey = null;
-    notice = e is ApiException ? e.message : '$e';
+    notice = e is ApiException ? e.message : readableError(e);
     noticeFailed = true;
   }
 

@@ -1,3 +1,4 @@
+import '../../data/readable_error.dart';
 import 'package:flutter/material.dart';
 
 import '../../data/api_client.dart';
@@ -45,7 +46,7 @@ class OrgChartController extends ChangeNotifier {
       error = e.readable;
     } on Object catch (e) {
       phase = OrgChartPhase.error;
-      error = '$e';
+      error = readableError(e);
     }
     notifyListeners();
   }

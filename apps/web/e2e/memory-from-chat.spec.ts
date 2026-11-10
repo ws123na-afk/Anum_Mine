@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { openNavMenu } from './support/navMenu';
 
 // Memories the Assistant remembered from the user's chats (docs/memory.md#from-conversations):
 // labeled with their conversation, linked back to it, and deletable.
@@ -64,6 +65,7 @@ test('a memory from a chat names its conversation, opens it and can be deleted',
   await expect(page.getByText('Noted.')).toBeVisible();
   await expect(page.getByText('I prefer short answers with code samples.')).toBeVisible();
 
+  await openNavMenu(page);
   await page.getByRole('button', { name: 'Knowledge Base', exact: true }).click();
   const again = page.locator('.memoryRow').filter({ hasText: 'short answers with code samples' });
   await again.getByRole('button', { name: 'Delete memory' }).click();

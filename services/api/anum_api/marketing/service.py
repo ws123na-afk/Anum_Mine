@@ -417,7 +417,7 @@ def read_media_link(token: str) -> tuple[TenantContext, str]:
 
 
 def load_media(context: TenantContext, post: Post) -> list[clients.MediaPayload]:
-    from ..files import file_store, open_file_metadata_store
+    from ..files import file_store, may_serve, open_file_metadata_store
 
     payloads: list[clients.MediaPayload] = []
     with open_file_metadata_store(context) as files:
@@ -426,6 +426,11 @@ def load_media(context: TenantContext, post: Post) -> list[clients.MediaPayload]
         record = records.get(item.file_id)
         if record is None:
             raise clients.platform_error("media_missing", f"{item.name or item.file_id} was deleted from Files.", "Attach the media again and schedule the post again.")
+        if not may_serve(record):
+            raise clients.platform_error(
+                "media_quarantined", f"{record.name} was quarantined by the malware scan, so it was not sent.",
+                "Remove it from the post and attach a clean file.",
+            )
         if record.size_bytes > marketing_settings.max_media_bytes:
             raise clients.platform_error("media_too_large", f"{record.name} is larger than this server sends to platforms.", "Use a smaller file, or raise ANUM_MARKETING_MAX_MEDIA_BYTES.")
         try:

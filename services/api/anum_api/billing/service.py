@@ -156,7 +156,13 @@ def issue_invoice(
     subscription_id: str | None = None, period: tuple[datetime, datetime] | None = None, due_at: datetime | None = None,
     use_credit: bool = True,
 ) -> Issued:
-    """Issue an invoice now: number from the issuer's gapless sequence, tax, credit balance used up."""
+    """Issue an invoice now: number from the issuer's gapless sequence, tax, credit balances used up.
+
+    Two kinds of credit (docs/billing.md#account-credit). Net credit (``credit_balance_minor``: a downgrade's prorated
+    credit) lowers the taxable subtotal, as a line. Tax-inclusive credit (``credit_gross_minor``: a credit note on a paid
+    invoice, money a card provider collected beyond what was due) settles the issued invoice after tax, as a payment of
+    method ``account_credit``. Net first, then tax, then the tax-inclusive credit against the total.
+    """
     issuer = account["issuer_tenant_id"]
     settings_row = issuer_settings(rows, issuer)
     lines = list(lines)
@@ -198,7 +204,37 @@ def issue_invoice(
         }
         rows.insert("billing_invoice_lines", row)
         stored_lines.append(row)
+    if use_credit and total > 0:
+        invoice = _settle_from_credit(rows, account, invoice, now=now, actor=actor)
     return Issued(invoice, stored_lines)
+
+
+CREDIT_METHOD = "account_credit"  # a payment made from the account's tax-inclusive credit: no new money arrived
+
+
+def add_gross_credit(rows: Rows, amount_minor: int, now: datetime) -> None:
+    """Put a tax-inclusive amount on the organisation's credit: a credit note beyond what was due, or money a card
+    provider collected that no invoice could take. The row is locked, so two events never lose one another's amount."""
+    if amount_minor <= 0:
+        return
+    account = rows.get("billing_accounts", for_update=True, tenant_id=rows.tenant_id)
+    if account is not None:
+        rows.update("billing_accounts", {"tenant_id": rows.tenant_id},
+                    {"credit_gross_minor": int(account.get("credit_gross_minor") or 0) + amount_minor, "updated_at": now})
+
+
+def _settle_from_credit(rows: Rows, account: dict[str, Any], invoice: dict[str, Any], *, now: datetime, actor: str) -> dict[str, Any]:
+    """Pay a just-issued invoice from the tax-inclusive credit, as far as it goes: a payment row, never below zero."""
+    held = rows.get("billing_accounts", for_update=True, tenant_id=rows.tenant_id)
+    available = int((held or {}).get("credit_gross_minor") or 0)
+    used = min(available, int(invoice["amount_due_minor"]))
+    if used <= 0:
+        return invoice
+    rows.update("billing_accounts", {"tenant_id": rows.tenant_id}, {"credit_gross_minor": available - used, "updated_at": now})
+    account["credit_gross_minor"] = available - used
+    record_payment(rows, invoice["id"], amount_minor=used, method=CREDIT_METHOD, reference="Credit from your account balance",
+                   received_at=now, now=now, actor=actor)
+    return rows.get("billing_invoices", id=invoice["id"]) or invoice
 
 
 def _currency(rows: Rows, account: dict[str, Any], subscription_id: str | None) -> str:
@@ -316,11 +352,8 @@ def issue_credit_note(rows: Rows, invoice_id: str, *, total_minor: int, reason: 
     if due - against_due == 0 and invoice["status"] in ("open", "uncollectible"):
         changes.update(status="paid", paid_at=now)
     rows.update("billing_invoices", {"id": invoice_id}, changes)
-    if to_balance:
-        account = account_of(rows)
-        if account:
-            rows.update("billing_accounts", {"tenant_id": rows.tenant_id},
-                        {"credit_balance_minor": int(account["credit_balance_minor"]) + to_balance, "updated_at": now})
+    # What the note credits beyond what was due was already paid, tax included: it goes to the tax-inclusive credit.
+    add_gross_credit(rows, to_balance, now)
     _settle(rows, now)
     return note
 
@@ -399,7 +432,7 @@ def ensure_account(rows: Rows, *, issuer_tenant_id: str, display_name: str, now:
         "tenant_id": rows.tenant_id, "issuer_tenant_id": issuer_tenant_id, "display_name": display_name[:200],
         "contact_name": "", "contact_email": contact_email[:254], "company_name": display_name[:200], "address_line1": "",
         "address_line2": "", "city": "", "postal_code": "", "country": (country or "SA").upper()[:2], "vat_number": "",
-        "credit_balance_minor": 0, "state": "active", "onboarding_dismissed": False, "plan_confirmed": False,
+        "credit_balance_minor": 0, "credit_gross_minor": 0, "state": "active", "onboarding_dismissed": False, "plan_confirmed": False,
         "created_at": now, "updated_at": now,
     }
     rows.insert("billing_accounts", account)

@@ -1,4 +1,5 @@
 import AxeBuilder from '@axe-core/playwright';
+import { closeNavMenu, openNavMenu } from './support/navMenu';
 import { expect, test, type Page } from '@playwright/test';
 import { useSavedLocale } from './support/workspaceApi';
 
@@ -171,7 +172,9 @@ async function seriousViolations(page: Page): Promise<string[]> {
 test('an owner asks for a change in a project, follows it and approves the merge with the payload hash', async ({ page }) => {
   const api = await mockApi(page);
   await page.goto('/#developer');
+  await openNavMenu(page);
   await expect(page.getByRole('navigation', { name: 'Primary' }).getByRole('button', { name: 'Developer' })).toBeVisible();
+  await closeNavMenu(page);
   await expect(page.getByRole('heading', { name: 'No developer requests yet' })).toBeVisible();
   // The only ready project is preselected.
   await expect(page.getByLabel('Project')).toHaveValue('devproj_anum');

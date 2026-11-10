@@ -427,7 +427,7 @@ def test_live_stream_replays_history_then_streams_only_own_scope() -> None:
         source = live_event_source(
             hub=hub,
             context=context,
-            list_events=lambda: list(history),
+            list_events=lambda _after=None: list(history),
             is_disconnected=_never,
             last_event_id="old_1",
         )
@@ -455,7 +455,7 @@ def test_live_stream_filters_by_task_and_catches_up_when_bus_is_down() -> None:
         source = live_event_source(
             hub=hub,
             context=context,
-            list_events=lambda: list(history),
+            list_events=lambda _after=None: list(history),
             is_disconnected=_never,
             task_id="task_1",
             fallback_poll_seconds=0.01,
@@ -477,7 +477,7 @@ def test_live_stream_without_follow_only_replays() -> None:
         source = live_event_source(
             hub=hub,
             context=ctx("tenant_a", "w1"),
-            list_events=lambda: [
+            list_events=lambda _after=None: [
                 make_event("mine", "tenant_a", "w1"),
                 make_event("leak", "tenant_b", "w1"),
             ],
