@@ -1,4 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
+import { openNavMenu } from './support/navMenu';
 import { approvalPagesResponse } from './support/approvalPages';
 
 const now = '2026-08-29T09:00:00.000Z';
@@ -80,8 +81,10 @@ test('task history filters by status and search', async ({ page, isMobile }) => 
 });
 
 test('navigation exposes automations and approvals', async ({ page }) => {
+  await openNavMenu(page);
   await page.getByRole('button', { name: 'Automations' }).click();
   await expect(page.getByRole('heading', { name: 'Automations', level: 1, exact: true })).toBeVisible();
+  await openNavMenu(page);
   await page.getByRole('button', { name: 'Approvals' }).click();
   await expect(page.getByRole('heading', { name: 'Queue clear' })).toBeVisible();
 });
