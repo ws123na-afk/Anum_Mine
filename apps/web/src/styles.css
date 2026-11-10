@@ -571,8 +571,9 @@ dd { color: var(--d-text); font-size: var(--text-md); font-weight: 600; margin: 
 .inlineDetails { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .approvalActions { display: flex; flex-wrap: wrap; gap: var(--d-s2); }
 .emptyState { color: var(--d-muted); display: grid; gap: var(--d-s2); justify-items: center; padding: var(--d-s7) var(--d-s5); text-align: center; }
-/* Empty states: the icon sits in a quiet tile, the copy says what to do next. */
-.emptyState svg { background: var(--d-glass-1); border: 1px solid var(--d-line); border-radius: var(--d-r-panel); box-sizing: content-box; color: var(--d-accent); height: 22px; margin-bottom: var(--d-s1); padding: 11px; width: 22px; }
+/* Empty states: the icon sits in a quiet tile, the copy says what to do next. Only the state's own
+   icon (a direct child) gets the tile: icons inside its buttons keep the button's size. */
+.emptyState > svg { background: var(--d-glass-1); border: 1px solid var(--d-line); border-radius: var(--d-r-panel); box-sizing: content-box; color: var(--d-accent); height: 22px; margin-bottom: var(--d-s1); padding: 11px; width: 22px; }
 .emptyState h2, .emptyState h3 { color: var(--d-text); }
 .emptyState p { max-width: 42ch; }
 
