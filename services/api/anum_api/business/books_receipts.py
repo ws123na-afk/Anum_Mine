@@ -14,6 +14,10 @@ A document already attached to a bill is not proposed again, and a bill gets at 
 It is only a suggestion: the review item (kind ``receipt_match``) and ``GET /evidence/receipt-matches`` show it, and
 ``POST /evidence/receipt-matches/accept`` attaches it through ``books_evidence.attach`` (every vault and evidence rule
 applies). Nothing is attached on its own.
+
+An owner or accountant may **dismiss** a proposal (:func:`dismiss`): the (bill, document) pair is stored
+(``business_book_receipt_dismissals``, migration 0159) and never proposed again; the same document may still be proposed
+for another bill and the bill may still get another document. :func:`restore` deletes the row, so the pair can come back.
 """
 
 from __future__ import annotations
@@ -25,7 +29,7 @@ from typing import Any
 
 from ..finance.merchant_match import merchants_agree
 from ..finance.money import quantize
-from ..schemas import TenantContext
+from ..schemas import TenantContext, new_id, utc_now
 from . import books_evidence as E
 from .books_store import MAX_SCAN, Between, open_books_store
 
@@ -91,6 +95,7 @@ def candidates(context: TenantContext, today: date) -> list[ReceiptMatch]:
         bills = [b for b in bills if str(getattr(b.status, "value", b.status)) != "void"]
         vendor_ids = {b.vendor_id for b in bills}
         vendors = {v.id: v.name for v in store.find("vendors", where={"id": vendor_ids}, limit=MAX_SCAN)[0]} if vendor_ids else {}
+        dismissed = {(row.bill_id, row.document_id) for row in store.find("receipt_dismissals", limit=MAX_SCAN)[0]}
     if not bills:
         return []
     attached = E.attached(context, "bill", [b.id for b in bills])
@@ -101,7 +106,7 @@ def candidates(context: TenantContext, today: date) -> list[ReceiptMatch]:
         if doc.id in taken_docs:
             continue
         merchant = str((doc.receipt or {}).get("merchant") or "")
-        fits = [b for b in open_bills if b.currency == currency and quantize(b.total, currency) == total and abs((b.bill_date - on).days) <= WINDOW_DAYS]
+        fits = [b for b in open_bills if (b.id, doc.id) not in dismissed and b.currency == currency and quantize(b.total, currency) == total and abs((b.bill_date - on).days) <= WINDOW_DAYS]
         agreeing = [b for b in fits if merchants_agree(merchant, vendors.get(b.vendor_id, "")) is True]
         if agreeing:
             chosen, agrees = agreeing, True
@@ -130,6 +135,77 @@ def accept(context: TenantContext, today: date, bill_id: str, document_id: str) 
     return E.attach(context, "bill", bill_id, document_id)
 
 
+def dismiss(context: TenantContext, today: date, bill_id: str, document_id: str) -> tuple[dict[str, Any], bool]:
+    """Never propose this receipt for this bill again. Returns the dismissal and whether it is new (dismissing a dismissed pair
+    answers the first dismissal); a pair that is not proposed now is refused (``match_gone``)."""
+    from .books_service import BooksError
+    from .books_store import DuplicateError
+
+    with open_books_store(context) as store:
+        earlier = store.first("receipt_dismissals", bill_id=bill_id, document_id=document_id)
+    if earlier is not None:
+        return dismissal_view(earlier, {}, {}), False
+    if not any(m.bill_id == bill_id and m.document_id == document_id for m in candidates(context, today)):
+        raise BooksError(409, "This receipt is no longer proposed for this bill: it was attached, or the bill or receipt changed.", "match_gone")
+    from .books_models import ReceiptDismissal
+
+    row = ReceiptDismissal(id=new_id("brdis"), tenant_id=context.tenant_id, workspace_id=context.workspace_id, created_at=utc_now(),
+                           bill_id=bill_id, document_id=document_id, dismissed_by=context.user_id)
+    try:
+        with open_books_store(context) as store:
+            store.add("receipt_dismissals", row)
+    except DuplicateError:  # dismissed at the same moment by someone else: answer theirs
+        with open_books_store(context) as store:
+            earlier = store.first("receipt_dismissals", bill_id=bill_id, document_id=document_id)
+        if earlier is None:
+            raise
+        return dismissal_view(earlier, {}, {}), False
+    return dismissal_view(row, {}, {}), True
+
+
+def dismissal_view(row: Any, bills: dict[str, Any], titles: dict[str, str]) -> dict[str, Any]:
+    bill = bills.get(row.bill_id)
+    return {"id": row.id, "bill_id": row.bill_id, "document_id": row.document_id, "dismissed_by": row.dismissed_by,
+            "dismissed_at": row.created_at.isoformat(), "bill_reference": (bill.reference[:60] if bill else ""),
+            "vendor": (bill.vendor_name if bill else ""), "bill_date": (bill.bill_date.isoformat() if bill else None),
+            "amount": (str(quantize(bill.total, bill.currency)) if bill else None), "currency": (bill.currency if bill else None),
+            "document_title": titles.get(row.document_id, ""), "bill_found": bill is not None, "document_found": row.document_id in titles}
+
+
+@dataclass(frozen=True)
+class _BillFacts:
+    reference: str
+    vendor_name: str
+    bill_date: date
+    total: Decimal
+    currency: str
+
+
+def dismissed(context: TenantContext, today: date, *, limit: int = 50, offset: int = 0) -> dict[str, Any]:
+    """The dismissed pairs, newest first, with the bill's reference, vendor and amount and the document's title when the
+    caller can still see them (a bill or document gone since is shown by id only)."""
+    with open_books_store(context) as store:
+        rows, total = store.find("receipt_dismissals", order_by="created_at", descending=True, limit=limit, offset=offset)
+        bill_ids = {row.bill_id for row in rows}
+        found = store.find("bills", where={"id": bill_ids}, limit=len(bill_ids) + 1)[0] if bill_ids else []
+        vendor_ids = {b.vendor_id for b in found}
+        vendors = {v.id: v.name for v in store.find("vendors", where={"id": vendor_ids}, limit=MAX_SCAN)[0]} if vendor_ids else {}
+    bills = {b.id: _BillFacts(b.reference, vendors.get(b.vendor_id, "")[:80], b.bill_date, b.total, b.currency) for b in found}
+    titles = {d.id: d.title[:120] for d in _receipts(context, today)} if rows else {}
+    return {"items": [dismissal_view(row, bills, titles) for row in rows], "total": total, "limit": limit, "offset": offset}
+
+
+def restore(context: TenantContext, dismissal_id: str) -> Any:
+    """Delete a dismissal so its pair may be proposed again. Returns the deleted row (``not_found`` when there is none)."""
+    from .books_service import BooksError
+
+    with open_books_store(context) as store:
+        row = store.get("receipt_dismissals", dismissal_id)
+        if row is None or not store.delete("receipt_dismissals", dismissal_id):
+            raise BooksError(404, "This dismissed receipt was not found. It may have been restored already.", "not_found")
+    return row
+
+
 def produce(ctx: Any) -> list[Any]:
     from . import books_review as BR
 
@@ -154,4 +230,4 @@ def _register() -> None:
 
 _register()
 
-__all__ = ["LOOKBACK_DAYS", "WINDOW_DAYS", "ReceiptMatch", "accept", "candidates", "produce"]
+__all__ = ["LOOKBACK_DAYS", "WINDOW_DAYS", "ReceiptMatch", "accept", "candidates", "dismiss", "dismissal_view", "dismissed", "produce", "restore"]

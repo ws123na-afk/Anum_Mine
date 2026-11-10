@@ -33,7 +33,18 @@ from .api_books import _audit, _csv, _page, _read, _today, refusals
 from .api_ledger import _period, can_account, require_accounting
 from .books_models import TaxRate, TaxSettings
 from .books_store import MAX_PAGE, open_books_store
-from .tax_rules import Frequency, Jurisdiction, TaxCode, TaxRuleError, check_registration
+from .tax_rules import (
+    FILING_PRESETS,
+    MAX_DUE_DAYS,
+    NO_VAT_COUNTRIES,
+    Frequency,
+    Jurisdiction,
+    TaxCode,
+    TaxRuleError,
+    check_registration,
+    deadline_source,
+    filing_country,
+)
 from .tax_service import rate_view, rates_of, seed_rates, settings_of, settings_view
 
 router = APIRouter(prefix="/api/v1/business/books/tax", tags=["business"])
@@ -71,6 +82,18 @@ def _periods(settings: TaxSettings | None, today: date) -> list[dict[str, str]]:
     return out
 
 
+def filing_deadline(settings: TaxSettings | None) -> dict[str, Any] | None:
+    """Where the VAT return deadline comes from for these settings, and the rule it follows (``None`` before tax is set up)."""
+    if settings is None:
+        return None
+    country = filing_country(settings.jurisdiction, settings.country)
+    source = deadline_source(settings.jurisdiction, settings.country, settings.filing_due_days)
+    preset = FILING_PRESETS.get(country or "")
+    return {"source": source, "country": country, "due_days": settings.filing_due_days,
+            "preset": None if preset is None else {"end_of_next_month": preset.end_of_next_month, "days_after": preset.days_after,
+                                                   "usual_frequency": preset.usual_frequency, "url": preset.source}}
+
+
 @router.get("")
 @refusals
 def overview(context: TenantContext = Depends(tenant_context)) -> Any:
@@ -89,6 +112,10 @@ def overview(context: TenantContext = Depends(tenant_context)) -> Any:
         "sales_codes": ["standard", "zero_rated", "export", "exempt", "out_of_scope"],
         "frequencies": [item.value for item in Frequency],
         "periods": _periods(settings, _today()),
+        "filing_deadline": filing_deadline(settings),
+        "filing_presets": sorted(FILING_PRESETS),
+        "no_vat_countries": sorted(NO_VAT_COUNTRIES),
+        "max_due_days": MAX_DUE_DAYS,
         "notice": {"en": Z.NOT_VERIFIED_EN, "ar": Z.NOT_VERIFIED_AR},
     }
 
@@ -100,6 +127,9 @@ class TaxSettingsInput(BaseModel):
     registration_date: date | None = None
     filing_frequency: Frequency = Frequency.QUARTERLY
     period_start_month: int = Field(default=1, ge=1, le=3)
+    # The filing country of an ``OTHER`` business (two letters) and the owner's own due day, in days after the period ends.
+    country: str | None = Field(default=None, pattern=r"^[A-Za-z]{2}$")
+    filing_due_days: int | None = Field(default=None, ge=1, le=MAX_DUE_DAYS)
     zatca_enabled: bool = False
     seller_crn: str = Field(default="", max_length=20, pattern=r"^[0-9]*$")
     seller_street: str = Field(default="", max_length=120)
@@ -126,10 +156,14 @@ def put_settings(payload: TaxSettingsInput, context: TenantContext = Depends(ten
         raise TaxRuleError("Mark the business as VAT registered before turning e-invoicing on.", "zatca_needs_registration")
     if payload.registration_date and payload.registration_date > _today():
         raise TaxRuleError("The registration date cannot be in the future.", "invalid_registration_date")
+    country = payload.country.upper() if payload.country and payload.jurisdiction == Jurisdiction.OTHER else None
+    if country in (Jurisdiction.SA.value, Jurisdiction.AE.value):
+        raise TaxRuleError("For Saudi Arabia or the UAE choose that jurisdiction, not Other.", "country_has_jurisdiction")
     fields = {
         "jurisdiction": payload.jurisdiction.value, "registered": payload.registered, "registration_number": number,
         "registration_date": payload.registration_date, "filing_frequency": payload.filing_frequency.value,
-        "period_start_month": payload.period_start_month, "zatca_enabled": payload.zatca_enabled,
+        "period_start_month": payload.period_start_month, "country": country, "filing_due_days": payload.filing_due_days,
+        "zatca_enabled": payload.zatca_enabled,
         **{name: S.clean(getattr(payload, name), limit) for name, limit in (("seller_crn", 20), ("seller_street", 120), ("seller_building", 10),
                                                                               ("seller_district", 120), ("seller_city", 80), ("seller_postal_code", 10))},
         "updated_by": context.user_id, "updated_at": now,
@@ -151,8 +185,9 @@ def put_settings(payload: TaxSettingsInput, context: TenantContext = Depends(ten
         seeded = seed_rates(store, context, payload.jurisdiction, context.user_id, now)
         rates = rates_of(store, value.jurisdiction)
     _audit(repository, context, "tax_settings_saved", value.id, {"jurisdiction": value.jurisdiction, "registered": value.registered,
-                                                                 "zatca_enabled": value.zatca_enabled, "rates_seeded": seeded})
-    return {"settings": settings_view(value), "rates": [rate_view(row) for row in rates]}
+                                                                 "zatca_enabled": value.zatca_enabled, "rates_seeded": seeded,
+                                                                 "country": value.country or "", "filing_due_days": str(value.filing_due_days or "")})
+    return {"settings": settings_view(value), "rates": [rate_view(row) for row in rates], "filing_deadline": filing_deadline(value)}
 
 
 class RateInput(BaseModel):

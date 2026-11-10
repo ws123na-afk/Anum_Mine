@@ -350,6 +350,30 @@ export interface BooksReceiptMatch {
   confidence: string;
 }
 
+/** A receipt dismissed for one bill (POST /evidence/receipt-matches/dismiss): that pair is never proposed again until restored. */
+export interface BooksReceiptDismissal {
+  id: string;
+  bill_id: string;
+  document_id: string;
+  dismissed_by: string;
+  dismissed_at: string;
+  bill_reference: string;
+  vendor: string;
+  bill_date: string | null;
+  amount: string | null;
+  currency: string | null;
+  document_title: string;
+  bill_found: boolean;
+  document_found: boolean;
+}
+
+export interface BooksReceiptDismissalPage {
+  items: BooksReceiptDismissal[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
 export interface BooksAdjustmentInput {
   kind: BooksAdjustmentKind;
   entry_date: string;

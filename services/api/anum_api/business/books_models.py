@@ -468,6 +468,10 @@ class TaxSettings(_Scoped):
     registration_date: date | None = None
     filing_frequency: str = "quarterly"  # tax_rules.Frequency
     period_start_month: int = 1  # the first month of a quarter cycle (1, 2 or 3)
+    # Migration 0159: the filing country of an ``OTHER`` business (ISO 3166 alpha-2; KSA and the UAE come from the
+    # jurisdiction) and the owner's own VAT return due day, in days after the period ends (wins over a preset).
+    country: str | None = None
+    filing_due_days: int | None = None
     zatca_enabled: bool = False
     zatca_onboarding: str = "not_started"
     seller_crn: str = ""  # commercial registration number (the seller's other identifier in the e-invoice)
@@ -618,6 +622,15 @@ class LoanRepayment(_Scoped):
     void_reason: str = ""
 
 
+class ReceiptDismissal(_Scoped):
+    """A receipt an owner or accountant dismissed for one bill (migration 0159): that pair is never proposed again until
+    someone restores it (the row is deleted)."""
+
+    bill_id: str
+    document_id: str
+    dismissed_by: str
+
+
 KINDS: dict[str, type[BaseModel]] = {
     "cost_centres": CostCentre,
     "vendors": Vendor,
@@ -644,6 +657,7 @@ KINDS: dict[str, type[BaseModel]] = {
     "asset_impairments": AssetImpairment,
     "loans": Loan,
     "loan_repayments": LoanRepayment,
+    "receipt_dismissals": ReceiptDismissal,
 }
 
 TABLES: dict[str, str] = {
@@ -672,6 +686,7 @@ TABLES: dict[str, str] = {
     "asset_impairments": "business_book_asset_impairments",
     "loans": "business_book_loans",
     "loan_repayments": "business_book_loan_repayments",
+    "receipt_dismissals": "business_book_receipt_dismissals",
 }
 
 

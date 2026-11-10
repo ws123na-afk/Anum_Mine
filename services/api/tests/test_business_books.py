@@ -700,6 +700,9 @@ def test_every_state_changing_books_route_is_audited_without_amounts_or_text() -
         vault_store.save_document(owner_ctx, record.model_copy(update={"receipt": {"merchant": "Synthetic Supplier", "date": today().isoformat(),
                                                                                      "total": "77", "currency": "SAR", "items": []}}), record.row_version)
         matched = bill(seller["id"], description="Synthetic matched bill", subtotal="77", tax="0").json()
+        # Dismissed (never proposed again for that bill), restored, then attached.
+        dismissal = call("POST", "/evidence/receipt-matches/dismiss", json={"bill_id": matched["id"], "document_id": scanned["id"]}).json()
+        call("DELETE", f"/evidence/receipt-matches/dismissed/{dismissal['id']}")
         call("POST", "/evidence/receipt-matches/accept", json={"bill_id": matched["id"], "document_id": scanned["id"]})
         files.file_store.clear()
         from anum_api.vault.store import memory_vault_store

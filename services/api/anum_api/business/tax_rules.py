@@ -145,20 +145,81 @@ def code_allowed(code: TaxCode | str, *, sales: bool) -> bool:
     return value in (SALES_CODES if sales else PURCHASE_CODES)
 
 
-def return_deadline(jurisdiction: Jurisdiction | str, period_end: date) -> date | None:
-    """The usual last day to file and pay the VAT return of a period ending on ``period_end``: in KSA the last day of the
-    month after the period (ZATCA), in the UAE 28 days after the period ends (FTA). ``None`` elsewhere: ANUM knows no
-    deadline. A reminder only: the authority's portal shows the binding date, and ANUM never files."""
-    if str(jurisdiction) == Jurisdiction.SA.value:
-        following = date(period_end.year + (period_end.month // 12), period_end.month % 12 + 1, 1)
-        after = date(following.year + (following.month // 12), following.month % 12 + 1, 1)
-        return date.fromordinal(after.toordinal() - 1)
-    if str(jurisdiction) == Jurisdiction.AE.value:
-        return date.fromordinal(period_end.toordinal() + 28)
-    return None
+@dataclass(frozen=True)
+class FilingPreset:
+    """The usual VAT return deadline of a country: ``end_of_next_month`` (the last day of the month after the period) or a
+    number of days after the period ends. The period itself (monthly or quarterly) stays the business's own setting."""
+
+    country: str
+    usual_frequency: str  # what the authority normally assigns, shown as a hint only
+    end_of_next_month: bool
+    days_after: int | None
+    source: str
+
+
+# Built-in VAT return deadlines (docs/business-tax.md#filing-deadlines). Each is a reminder only: the authority's portal shows
+# the binding date, and an owner's own due day (``TaxSettings.filing_due_days``) always wins.
+FILING_PRESETS: dict[str, FilingPreset] = {
+    # ZATCA: the return and payment are due by the last day of the month after the tax period.
+    "SA": FilingPreset("SA", "monthly or quarterly, as ZATCA assigns", True, None,
+                       "https://zatca.gov.sa/en/E-Invoicing/Introduction/Guidelines/Documents/E-Invoicing_Detailed__Guideline.pdf"),
+    # FTA: 28 days after the end of the tax period.
+    "AE": FilingPreset("AE", "quarterly, or monthly when the FTA assigns it", False, 28, "https://tax.gov.ae/-/media/Files/EN/PDF/Guides/VAT-Returns-User-Guide.pdf"),
+    # NBR (Bahrain): monthly above BHD 3 million of supplies a year, else quarterly; due by the last day of the month after
+    # the VAT period. https://www.nbr.gov.bh/VAT/vat_return_filing/when_to_file (read 10 November 2026).
+    "BH": FilingPreset("BH", "monthly above BHD 3 million a year, else quarterly", True, None, "https://www.nbr.gov.bh/VAT/vat_return_filing/when_to_file"),
+    # Oman Tax Authority: quarterly tax periods; the return is filed within 30 days after the tax period ends (VAT Law,
+    # Royal Decree 121/2020, and the VAT Taxpayer Guide on return filing, read 10 November 2026):
+    # https://tms.taxoman.gov.om/portal/documents/20126/1414820/VAT+Taxpayer+Guide+-+VAT+Return+Filing.pdf
+    "OM": FilingPreset("OM", "quarterly", False, 30,
+                       "https://tms.taxoman.gov.om/portal/documents/20126/1414820/VAT+Taxpayer+Guide+-+VAT+Return+Filing.pdf"),
+}
+# GCC countries without VAT (checked 10 November 2026): ANUM says so and never invents a deadline for them.
+NO_VAT_COUNTRIES: frozenset[str] = frozenset({"KW", "QA"})
+MAX_DUE_DAYS = 120
+
+
+def filing_country(jurisdiction: Jurisdiction | str, country: str | None) -> str | None:
+    """The country whose VAT return this is: KSA and the UAE from the jurisdiction, any other from the saved country."""
+    if str(jurisdiction) in (Jurisdiction.SA.value, Jurisdiction.AE.value):
+        return str(jurisdiction)
+    return (country or "").upper() or None
+
+
+def deadline_source(jurisdiction: Jurisdiction | str, country: str | None = None, due_days: int | None = None) -> str:
+    """Where the deadline comes from: ``owner`` (the business's own due day), ``preset``, ``no_vat`` (Kuwait, Qatar) or ``none``."""
+    if due_days is not None:
+        return "owner"
+    place = filing_country(jurisdiction, country)
+    if place in FILING_PRESETS:
+        return "preset"
+    if place in NO_VAT_COUNTRIES:
+        return "no_vat"
+    return "none"
+
+
+def _end_of_next_month(period_end: date) -> date:
+    following = date(period_end.year + (period_end.month // 12), period_end.month % 12 + 1, 1)
+    after = date(following.year + (following.month // 12), following.month % 12 + 1, 1)
+    return date.fromordinal(after.toordinal() - 1)
+
+
+def return_deadline(jurisdiction: Jurisdiction | str, period_end: date, *, country: str | None = None, due_days: int | None = None) -> date | None:
+    """The usual last day to file and pay the VAT return of a period ending on ``period_end``. The owner's own due day
+    (days after the period ends) always wins; otherwise the country's preset (:data:`FILING_PRESETS`: KSA and Bahrain the
+    last day of the next month, the UAE 28 days, Oman 30 days). ``None`` when neither exists: ANUM never guesses. A
+    reminder only: the authority's portal shows the binding date, and ANUM never files."""
+    if due_days is not None:
+        return date.fromordinal(period_end.toordinal() + due_days)
+    preset = FILING_PRESETS.get(filing_country(jurisdiction, country) or "")
+    if preset is None:
+        return None
+    if preset.end_of_next_month:
+        return _end_of_next_month(period_end)
+    return date.fromordinal(period_end.toordinal() + (preset.days_after or 0))
 
 
 __all__ = [
-    "DEFAULT_RATES", "NO_TAX_CODES", "PURCHASE_CODES", "SALES_CODES", "ZATCA_CATEGORY", "DefaultRate", "Frequency", "Jurisdiction", "TaxCode",
-    "TaxRuleError", "check_registration", "code_allowed", "rate_on", "return_deadline", "split", "tax_of",
+    "DEFAULT_RATES", "FILING_PRESETS", "MAX_DUE_DAYS", "NO_TAX_CODES", "NO_VAT_COUNTRIES", "FilingPreset", "PURCHASE_CODES", "SALES_CODES", "ZATCA_CATEGORY", "DefaultRate", "Frequency", "Jurisdiction", "TaxCode",
+    "TaxRuleError", "check_registration", "code_allowed", "deadline_source", "filing_country", "rate_on", "return_deadline", "split", "tax_of",
 ]

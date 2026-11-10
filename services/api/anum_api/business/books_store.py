@@ -149,6 +149,7 @@ _UNIQUE: dict[str, Callable[[Any], tuple[Any, ...] | None]] = {
     "assets": lambda r: ("source", r.source_kind, r.source_id),
     "loans": lambda r: ("idem", r.idem_key) if r.idem_key else None,
     "loan_repayments": lambda r: ("idem", r.loan_id, r.idem_key) if r.idem_key else None,
+    "receipt_dismissals": lambda r: ("pair", r.bill_id, r.document_id),
 }
 _SECOND_UNIQUE: dict[str, Callable[[Any], tuple[Any, ...] | None]] = {
     "bill_payments": lambda r: ("idem", r.bill_id, r.idem_key) if r.idem_key else None,

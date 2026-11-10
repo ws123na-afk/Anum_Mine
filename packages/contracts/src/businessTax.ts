@@ -21,6 +21,10 @@ export interface TaxSettings {
   registration_date: string | null;
   filing_frequency: TaxFrequency;
   period_start_month: number;
+  /** The filing country of an OTHER business (two letters); null for KSA and the UAE. */
+  country?: string | null;
+  /** The owner's own VAT return due day, in days after the period ends; it wins over a built-in deadline. */
+  filing_due_days?: number | null;
   zatca_enabled: boolean;
   zatca_onboarding: 'not_started';
   seller_crn: string;
@@ -42,6 +46,8 @@ export interface TaxSettingsInput {
   registration_date: string | null;
   filing_frequency: TaxFrequency;
   period_start_month: number;
+  country: string | null;
+  filing_due_days: number | null;
   zatca_enabled: boolean;
   seller_crn: string;
   seller_street: string;
@@ -80,6 +86,16 @@ export interface TaxNotice {
   ar: string;
 }
 
+/** Where the VAT return deadline comes from (docs/business-tax.md#filing-deadlines). */
+export type TaxDeadlineSource = 'owner' | 'preset' | 'no_vat' | 'none';
+
+export interface TaxFilingDeadline {
+  source: TaxDeadlineSource;
+  country: string | null;
+  due_days: number | null;
+  preset: { end_of_next_month: boolean; days_after: number | null; usual_frequency: string; url: string } | null;
+}
+
 export interface TaxOverview {
   settings: TaxSettings | null;
   rates: TaxRate[];
@@ -89,6 +105,10 @@ export interface TaxOverview {
   sales_codes: SalesTaxCode[];
   frequencies: TaxFrequency[];
   periods: TaxPeriod[];
+  filing_deadline?: TaxFilingDeadline | null;
+  filing_presets?: string[];
+  no_vat_countries?: string[];
+  max_due_days?: number;
   notice: TaxNotice;
 }
 
