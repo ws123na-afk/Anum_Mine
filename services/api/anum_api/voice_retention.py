@@ -34,13 +34,17 @@ owner's Finance automation policies (``anum_api.finance.suggestion_jobs``), repo
 from __future__ import annotations
 
 import argparse
+import importlib
 import json
 import sys
+import traceback
 from collections.abc import Sequence
 from dataclasses import asdict
 
 from .maintenance import SessionFactory, default_session_factory
 from .settings import settings
+
+VOICE_STEP = "voice_transcripts"
 
 
 def purge(
@@ -82,58 +86,68 @@ def main(argv: Sequence[str] | None = None) -> int:
             file=sys.stderr,
         )
         return 2
-    from .app_calls import purge_retention as purge_app_calls
-    from .conversation_retention import purge as purge_conversations
-    from .mail_retention import purge as purge_mail
-    from .retrieval_retention import purge as purge_retrieval_index
-    from .whatsapp_retention import purge as purge_whatsapp
-
-    report = purge(dry_run=args.dry_run, batch_size=args.batch_size)
-    report["retrieval_index"] = purge_retrieval_index(dry_run=args.dry_run, batch_size=args.batch_size)
-    report["conversations"] = purge_conversations(dry_run=args.dry_run, batch_size=args.batch_size)
-    report["whatsapp"] = purge_whatsapp(dry_run=args.dry_run, batch_size=args.batch_size)
-    report["mail"] = purge_mail(dry_run=args.dry_run, batch_size=args.batch_size)
-    from .calls.retention import purge as purge_call_recordings
-
-    report["call_recordings"] = purge_call_recordings(dry_run=args.dry_run, batch_size=args.batch_size)
-    report["app_calls"] = purge_app_calls(dry_run=args.dry_run, batch_size=args.batch_size)
-    # Last: on SIGTERM it finishes the workspace in progress and stops (``stopped: true``).
-    from .record_retention import purge as purge_records
-
-    report["record_retention"] = purge_records(dry_run=args.dry_run, batch_size=args.batch_size)
-    from .attendance.jobs import run as run_attendance  # docs/attendance.md#daily-job
-
-    report["attendance"] = run_attendance(dry_run=args.dry_run, batch_size=args.batch_size)
-    # The document vault's expiry reminders, retention and trash (docs/documents.md#expiry-reminders-trash-and-retention).
-    from .vault.jobs import run as run_vault
-
-    report["documents"] = run_vault(dry_run=args.dry_run)
-    # Vehicle expiry and service reminders (docs/vehicles.md#reminders).
-    from .vehicles.jobs import run as run_vehicles
-
-    report["vehicles"] = run_vehicles(dry_run=args.dry_run)
-    # Purchase delivery, return, refund and warranty reminders (docs/purchases.md#reminders).
-    from .purchases.jobs import run as run_purchases
-
-    report["purchases"] = run_purchases(dry_run=args.dry_run)
-    # Business books: automatic ECB rates and recurring bills (docs/business-books.md#daily-job).
-    from .business.books_jobs import run as run_books
-
-    report["business_books"] = run_books(dry_run=args.dry_run)
-    # The weekly Money advisor note (docs/finance.md#money-advisor): in-app notice and phone push, never email.
-    from .finance.advisor_jobs import run as run_advisor
-
-    report["finance_advisor"] = run_advisor(dry_run=args.dry_run)
-    # Money lent and borrowed with people: due and overdue reminders, in-app only (docs/finance.md#lent-and-borrowed).
-    from .finance.personal_jobs import run as run_loan_reminders
-
-    report["finance_loan_reminders"] = run_loan_reminders(dry_run=args.dry_run)
-    # Finance automation policies the owner turned on: auto-classify and the unresolved-suggestions notice (docs/finance.md#automation-policies).
-    from .finance.suggestion_jobs import run as run_suggestions
-
-    report["finance_suggestions"] = run_suggestions(dry_run=args.dry_run)
+    report, failed = run_steps(dry_run=args.dry_run, batch_size=args.batch_size)
     print(json.dumps(report, indent=2))
-    return 0
+    return 1 if failed else 0
+
+
+# The daily steps in order: report key, module, function, and whether it takes ``batch_size``.
+# The module is imported inside the step's guard, so a broken import fails that step only.
+STEPS: tuple[tuple[str, str, str, bool], ...] = (
+    (VOICE_STEP, ".voice_retention", "purge", True),
+    ("retrieval_index", ".retrieval_retention", "purge", True),
+    ("conversations", ".conversation_retention", "purge", True),
+    ("whatsapp", ".whatsapp_retention", "purge", True),
+    ("mail", ".mail_retention", "purge", True),
+    ("call_recordings", ".calls.retention", "purge", True),
+    ("app_calls", ".app_calls", "purge_retention", True),
+    # On SIGTERM it finishes the workspace in progress and stops (``stopped: true``).
+    ("record_retention", ".record_retention", "purge", True),
+    ("attendance", ".attendance.jobs", "run", True),  # docs/attendance.md#daily-job
+    # The document vault's expiry reminders, retention and trash (docs/documents.md#expiry-reminders-trash-and-retention).
+    ("documents", ".vault.jobs", "run", False),
+    ("vehicles", ".vehicles.jobs", "run", False),  # docs/vehicles.md#reminders
+    ("purchases", ".purchases.jobs", "run", False),  # docs/purchases.md#reminders
+    # Business books: automatic ECB rates and recurring bills (docs/business-books.md#daily-job).
+    ("business_books", ".business.books_jobs", "run", False),
+    # The weekly Money advisor note (docs/finance.md#money-advisor): in-app notice and phone push, never email.
+    ("finance_advisor", ".finance.advisor_jobs", "run", False),
+    # Money lent and borrowed with people: due and overdue reminders, in-app only (docs/finance.md#lent-and-borrowed).
+    ("finance_loan_reminders", ".finance.personal_jobs", "run", False),
+    # Finance automation policies the owner turned on (docs/finance.md#automation-policies).
+    ("finance_suggestions", ".finance.suggestion_jobs", "run", False),
+)
+
+
+def run_steps(
+    steps: Sequence[tuple[str, str, str, bool]] | None = None, *, dry_run: bool, batch_size: int
+) -> tuple[dict[str, object], list[str]]:
+    """Run every step, each on its own: one that raises is recorded and the rest still run.
+
+    Returns the report and the names of the steps that failed. A failed step is reported as
+    ``{"error": "<exception class>"}`` (never the message, which can quote a statement or a
+    value) and listed under ``failed_steps``; its traceback goes to stderr. The voice
+    transcript counts stay at the top level of the report, as before.
+    """
+    report: dict[str, object] = {}
+    failed: list[str] = []
+    for name, module, function, takes_batch_size in STEPS if steps is None else steps:
+        try:
+            step = getattr(importlib.import_module(module, __package__), function)
+            result = step(dry_run=dry_run, batch_size=batch_size) if takes_batch_size else step(dry_run=dry_run)
+        except Exception as exc:  # noqa: BLE001 - one step must not stop the others
+            print(f"retention step {name} failed", file=sys.stderr)
+            traceback.print_exc()
+            failed.append(name)
+            report[name] = {"error": type(exc).__name__}
+            continue
+        if name == VOICE_STEP:
+            report.update(result)
+        else:
+            report[name] = result
+    if failed:
+        report["failed_steps"] = failed
+    return report, failed
 
 
 if __name__ == "__main__":  # pragma: no cover - exercised through main()

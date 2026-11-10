@@ -189,6 +189,7 @@ Measured locally (PostgreSQL 16.15 with pgvector, synthetic data: 3 tenants, 60,
 - **Schedule:** run it at least daily with the API's configuration. On Kubernetes the chart's `anum-voice-retention` CronJob does (03:17 UTC, `voiceRetention.schedule`); run it now with `kubectl -n <ns> create job --from=cronjob/anum-voice-retention anum-voice-retention-manual`. The login must be a member of `anum_maintenance` (`infra/helm/bootstrap-database.sql` grants it to `anum_app`).
 - **Dry run:** `--dry-run` prints how many sessions and segments would be deleted, as counts only.
 - **Safe to repeat:** an interrupted run is finished by the next one.
+- **One step failing does not stop the others:** each step runs on its own. A step that raises is reported as `{"error": "<exception class>"}` under its key and listed under `failed_steps`, its traceback goes to stderr, the remaining steps still run and the process exits with code 1 (0 when every step ran, 2 when the backend is not PostgreSQL). Before November 2026 the first exception ended the run and every later purge and reminder was skipped that day. Covered by `services/api/tests/test_retention_steps.py`.
 - **Never** delete transcript rows by hand or as a superuser. If the job fails with a permission error, the login lost `anum_maintenance`.
 
 ## Automation Scheduler
