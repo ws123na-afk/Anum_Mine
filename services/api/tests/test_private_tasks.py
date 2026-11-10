@@ -441,3 +441,47 @@ def test_mail_from_a_private_mailbox_makes_its_task_private_and_shared_mail_does
         assert repository.get_task(task.id, _context("omar")) is None and repository.list_runs_for_task(task.id, _context("omar")) == []
     finally:
         email_backend.clear()
+
+
+def test_a_mailbox_check_that_fails_fails_the_call_and_never_marks_the_task(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The ``data`` marker is permanent, so a transient store error must not set it: the call
+    fails with a clear error instead, and only a definite unknown mailbox counts as private."""
+    from contextlib import contextmanager
+
+    from anum_api import email_inbox
+    from anum_api.email_inbox import MAILBOX_CHECK_FAILED, flags_private_mail
+
+    alice = _context("alice_check")
+
+    async def answers(call: ToolCall, context: TenantContext) -> ToolResult:
+        return ToolResult(status="succeeded", summary="Subject: quarterly figures", output={"messages": [{"id": "eml_missing"}]})
+
+    async def failed(call: ToolCall, context: TenantContext) -> ToolResult:
+        return ToolResult(status="failed", summary="Mailbox not connected", output={"account_id": "emb_missing"})
+
+    # A definite "cannot tell": the result names a message the store does not know. Fail closed.
+    unknown = asyncio.run(flags_private_mail(answers)(ToolCall(name="search_email"), alice))
+    assert unknown.status == "succeeded" and unknown.caller_private is True
+    # A failed result carries no mail: passed through, never private.
+    passed = asyncio.run(flags_private_mail(failed)(ToolCall(name="search_email"), alice))
+    assert passed.status == "failed" and passed.caller_private is False and passed.summary == "Mailbox not connected"
+
+    @contextmanager
+    def broken(context: TenantContext) -> Any:
+        raise RuntimeError("connection reset")
+        yield  # pragma: no cover
+
+    monkeypatch.setattr(email_inbox, "open_email_store", broken)
+    checked = asyncio.run(flags_private_mail(answers)(ToolCall(name="search_email"), alice))
+    assert checked.status == "failed" and checked.summary == MAILBOX_CHECK_FAILED and checked.caller_private is False
+    assert "quarterly" not in checked.summary
+
+    # Through the runtime: the run fails and reports it; the task stays a workspace task.
+    repository = InMemoryRepository(InMemoryStore())
+    tools = ToolRegistry()
+    tools.register(ToolDefinition(name="anum.respond", description="test", risk_level=RiskLevel.LOW, idempotent=True), flags_private_mail(answers))
+    task = repository.create_task(_task(alice))
+    run, _ = asyncio.run(AgentRuntime(MockModelGateway(), repository, tools=tools).run_task(task, alice))
+    assert run.status == TaskStatus.FAILED and run.result == MAILBOX_CHECK_FAILED
+    assert repository.store.tasks[task.id].private_to is None
+    assert repository.get_task(task.id, _context("omar")) is not None

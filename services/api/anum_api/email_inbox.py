@@ -1908,8 +1908,16 @@ TOOL_DEFINITIONS: list[tuple[ToolDefinition, Any]] = [
 FACTS = {SEND_TOOL: send_autonomy_facts}
 
 
+class _MailboxUnknown(Exception):
+    """The call or its result names a message, draft or account the store does not know."""
+
+
 def _reads_private_mailbox(call: ToolCall, context: TenantContext, result: ToolResult) -> bool:
-    """Whether the call or its result names a mailbox connected as private (blocking)."""
+    """Whether the call or its result names a mailbox connected as private (blocking).
+
+    Raises ``_MailboxUnknown`` when an id the result names cannot be resolved to an account: then
+    nobody can tell whose mailbox the mail came from, and the caller fails closed.
+    """
     output = result.output
     listed = output.get("messages") if isinstance(output.get("messages"), list) else []
     messages = {call.arguments.get("message_id"), output.get("message_id"), output.get("id"), *(m.get("id") for m in listed if isinstance(m, dict))}
@@ -1917,31 +1925,56 @@ def _reads_private_mailbox(call: ToolCall, context: TenantContext, result: ToolR
     accounts = {call.arguments.get("account_id"), output.get("account_id")}
     with open_email_store(context) as store:
         for message_id in messages:
-            message = store.get_message(str(message_id)) if isinstance(message_id, str) and message_id else None
-            accounts.add(message.account_id if message is not None else None)
+            if isinstance(message_id, str) and message_id:
+                message = store.get_message(message_id)
+                if message is None:
+                    raise _MailboxUnknown(f"message {message_id}")
+                accounts.add(message.account_id)
         for draft_id in drafts:
-            draft = store.get_draft(str(draft_id)) if isinstance(draft_id, str) and draft_id else None
-            accounts.add(draft.account_id if draft is not None else None)
+            if isinstance(draft_id, str) and draft_id:
+                draft = store.get_draft(draft_id)
+                if draft is None:
+                    raise _MailboxUnknown(f"draft {draft_id}")
+                accounts.add(draft.account_id)
         for account_id in accounts:
-            account = store.get_account(str(account_id)) if isinstance(account_id, str) and account_id else None
-            if account is not None and account.visibility == Visibility.PRIVATE:
-                return True
+            if isinstance(account_id, str) and account_id:
+                account = store.get_account(account_id)
+                if account is None:
+                    raise _MailboxUnknown(f"account {account_id}")
+                if account.visibility == Visibility.PRIVATE:
+                    return True
     return False
+
+
+# The run reports this when the mailbox check itself failed; the tool's answer is not stored.
+MAILBOX_CHECK_FAILED = (
+    "ANUM could not check which mailbox this mail came from, so the result was not kept. "
+    "Try again in a moment."
+)
 
 
 def flags_private_mail(handler: Any) -> Any:
     """Wrap an email tool: a result drawn from a mailbox connected as *private* is marked
     ``caller_private``, so the runtime keeps its task to the person (docs/tasks.md#private-tasks).
-    If that cannot be worked out, the result counts as private."""
+
+    The marker the runtime sets from it is permanent, so it is never set on a guess: when the
+    store cannot be read (a transient error) the call fails instead, with ``MAILBOX_CHECK_FAILED``
+    as the run's error, and the task stays as it was. Only a definite "cannot tell whose mailbox"
+    (the result names a message, draft or account the store does not know) counts as private.
+    A failed or blocked result carries no mail and is passed through unchanged.
+    """
 
     async def flagged(call: ToolCall, context: TenantContext) -> ToolResult:
         result = await handler(call, context)
-        if result.caller_private:
+        if result.caller_private or result.status in {"failed", "blocked"}:
             return result
         try:
             private = await asyncio.to_thread(_reads_private_mailbox, call, context, result)
-        except Exception:  # fail closed: an unreadable store must not publish private mail
-            private = True
+        except _MailboxUnknown:
+            private = True  # fail closed: mail of an unknown mailbox is never published
+        except Exception:
+            logger.exception("email tool %s: the mailbox visibility check failed", call.name)
+            return ToolResult(status="failed", summary=MAILBOX_CHECK_FAILED)
         return result.model_copy(update={"caller_private": True}) if private else result
 
     return flagged
