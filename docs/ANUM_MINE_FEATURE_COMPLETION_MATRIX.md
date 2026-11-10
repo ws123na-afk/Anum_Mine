@@ -36,7 +36,7 @@ The "How checked" column says how this audit saw the claim:
 ### What this audit could not run
 
 - **PostgreSQL tests** (`-m database`, including `test_postgres_hq_rls.py`, `test_postgres_office_spaces.py`, `test_postgres_live_agent_meeting_room.py`). The local cluster at 127.0.0.1:55450 accepts connections, but this sandbox has no `ANUM_TEST_DATABASE_URL` credentials, so those tests would skip. They are marked CI only.
-- **Browser end-to-end** (Playwright). Not run here; CI runs six shards. The matrix cites the spec names, not a local result.
+- **Browser end-to-end** (Playwright). Not run here; CI runs twelve shards. The matrix cites the spec names, not a local result.
 - **Visual comparison with the five concept renders.** No screenshots were taken or compared in this audit, so every "looks like the render" claim is Not verified.
 - **Real GPU, phone, microphone and speaker behaviour.** Not available in the sandbox.
 
