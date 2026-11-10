@@ -215,14 +215,83 @@ def test_month_rollover_resets_usage_and_enforcement() -> None:
     assert raised.value.resets_on == date(2026, 12, 1)
 
 
-def test_unpriced_models_count_tokens_but_no_cost() -> None:
-    _set(BudgetScope.WORKSPACE, monthly_cost_limit_usd=0.001)
+def test_unpriced_models_without_a_cost_limit_count_tokens_but_no_cost() -> None:
+    _set(BudgetScope.WORKSPACE, monthly_token_limit=10_000)
     gateway = BudgetedModelGateway(FixedGateway(cost=None), _context(), clock=lambda: OCTOBER)
     for _ in range(3):
-        _call(gateway)  # never refused on cost: there is no estimate
+        _call(gateway)
 
     usage = memory_model_budget_store.usage(_context(), BudgetScope.WORKSPACE, date(2026, 10, 1))
     assert (usage.calls, usage.unpriced_calls, usage.estimated_cost_usd, usage.total_tokens) == (3, 3, 0, 450)
+
+
+def test_an_unpriced_model_under_a_cost_limit_is_counted_at_the_worst_case_price(
+    caplog: pytest.LogCaptureFixture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A USD limit used to be ignored for a model with no price: its cost was None, counted as 0."""
+    monkeypatch.setattr(model_budget, "_WARNED_UNPRICED", set())
+    caplog.set_level(logging.WARNING, logger="anum.model_budget")
+    _set(BudgetScope.WORKSPACE, monthly_cost_limit_usd=0.005)
+    inner = FixedGateway(cost=None)  # 100 in, 50 out: 100 * $10/M + 50 * $50/M = $0.0035 a call
+    gateway = BudgetedModelGateway(inner, _context(), clock=lambda: OCTOBER)
+    _call(gateway)
+    _call(gateway)
+    with pytest.raises(ModelBudgetExceededError) as raised:
+        _call(gateway)
+    assert raised.value.kind == BudgetKind.COST and inner.calls == 2
+
+    usage = memory_model_budget_store.usage(_context(), BudgetScope.WORKSPACE, date(2026, 10, 1))
+    assert usage.calls == 2 and usage.unpriced_calls == 2
+    assert usage.estimated_cost_usd == pytest.approx(0.007)
+    warnings = [r for r in caplog.records if r.getMessage().startswith("model_budget_unpriced_model")]
+    assert len(warnings) == 1, "once per model"
+    assert "gpt-4.1-mini" in warnings[0].getMessage() and "ANUM_MODEL_UNPRICED_PRICE" in warnings[0].getMessage()
+
+
+def test_a_tenant_cost_limit_also_counts_unpriced_calls() -> None:
+    _set(BudgetScope.TENANT, monthly_cost_limit_usd=0.003)
+    gateway = BudgetedModelGateway(FixedGateway(cost=None), _context(), clock=lambda: OCTOBER)
+    _call(gateway)
+    with pytest.raises(ModelBudgetExceededError):
+        _call(gateway)
+
+
+def test_the_worst_case_price_is_configurable_and_can_be_switched_off(monkeypatch: pytest.MonkeyPatch) -> None:
+    from anum_api.settings import ModelPrice, Settings
+
+    assert Settings(environment="test", model_unpriced_price=None).model_unpriced_price is None
+    monkeypatch.setattr(model_budget.settings, "model_unpriced_price", ModelPrice(input_per_million=1.0, output_per_million=2.0))
+    _set(BudgetScope.WORKSPACE, monthly_cost_limit_usd=1.0)
+    gateway = BudgetedModelGateway(FixedGateway(cost=None), _context(), clock=lambda: OCTOBER)
+    _call(gateway)
+    usage = memory_model_budget_store.usage(_context(), BudgetScope.WORKSPACE, date(2026, 10, 1))
+    assert usage.estimated_cost_usd == pytest.approx(0.0002)
+
+    monkeypatch.setattr(model_budget.settings, "model_unpriced_price", None)
+    _call(gateway)
+    usage = memory_model_budget_store.usage(_context(), BudgetScope.WORKSPACE, date(2026, 10, 1))
+    assert usage.estimated_cost_usd == pytest.approx(0.0002) and usage.unpriced_calls == 2
+
+
+def test_a_delta_built_without_the_flag_is_unpriced_when_it_has_no_cost() -> None:
+    from anum_api.model_budget import UsageDelta
+
+    assert UsageDelta(10, 5, None).unpriced is True and UsageDelta(10, 5, 0.1).unpriced is False
+    assumed = UsageDelta(10, 5, None).with_assumed_cost("some-model")
+    assert assumed.unpriced is True and assumed.estimated_cost_usd is not None
+
+
+def test_a_priced_call_is_never_repriced() -> None:
+    _set(BudgetScope.WORKSPACE, monthly_cost_limit_usd=1.0)
+    _call(BudgetedModelGateway(FixedGateway(cost=0.004), _context(), clock=lambda: OCTOBER))
+    usage = memory_model_budget_store.usage(_context(), BudgetScope.WORKSPACE, date(2026, 10, 1))
+    assert usage.estimated_cost_usd == pytest.approx(0.004) and usage.unpriced_calls == 0
+
+
+def test_claude_sonnet_reads_its_cache_at_ten_cents() -> None:
+    from anum_api.model_gateway import estimate_cost_usd
+
+    assert estimate_cost_usd("anthropic", "claude-sonnet-5-5", 1_000_000, 0, cache_read_input_tokens=1_000_000) == pytest.approx(0.10)
 
 
 def test_zero_limit_blocks_every_call_and_null_limits_clear_the_budget() -> None:

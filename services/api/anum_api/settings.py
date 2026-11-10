@@ -37,9 +37,12 @@ DEFAULT_MODEL_PRICES: dict[str, ModelPrice] = {
     "gpt-4.1-nano": ModelPrice(input_per_million=0.10, output_per_million=0.40),
     "gpt-4o": ModelPrice(input_per_million=2.50, output_per_million=10.00),
     "gpt-4o-mini": ModelPrice(input_per_million=0.15, output_per_million=0.60),
-    # Anthropic list prices; Claude Opus 5.5 reads its cache at $0.20 (0.05x input).
+    # Anthropic list prices; Claude Opus 5.5 reads its cache at $0.20 and Claude Sonnet 5.5
+    # at $0.10 (0.05x input, not the default 0.1x).
     "claude-haiku-5-5": ModelPrice(input_per_million=0.10, output_per_million=0.50),
-    "claude-sonnet-5-5": ModelPrice(input_per_million=2.00, output_per_million=10.00),
+    "claude-sonnet-5-5": ModelPrice(
+        input_per_million=2.00, output_per_million=10.00, cache_read_per_million=0.10
+    ),
     "claude-opus-5-5": ModelPrice(
         input_per_million=4.00, output_per_million=20.00, cache_read_per_million=0.20
     ),
@@ -233,6 +236,13 @@ class Settings(BaseSettings):
     # Price table for estimated_cost_usd, keyed by model name (longest prefix wins).
     # Mock and Ollama calls always cost 0; unknown hosted models report no estimate.
     model_prices: dict[str, ModelPrice] = Field(default_factory=lambda: dict(DEFAULT_MODEL_PRICES))
+    # What a call to a model with no entry in ``model_prices`` is assumed to cost when a
+    # monthly cost limit applies (a budget or an agent cap): a worst case, so the limit still
+    # stops spending instead of never tripping. JSON, e.g. {"input_per_million": 10,
+    # "output_per_million": 50}; "null" turns it off (unpriced calls then add no cost).
+    model_unpriced_price: ModelPrice | None = Field(
+        default_factory=lambda: ModelPrice(input_per_million=10.00, output_per_million=50.00)
+    )
     # SSRF guard for workspace model base URLs (anum_api/model_egress.py, threat model G1).
     # Outside local/test only public HTTPS endpoints on port 443 are called. This
     # comma-separated list of host or host:port entries lets an operator allow a

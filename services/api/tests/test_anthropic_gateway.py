@@ -213,8 +213,8 @@ def test_generate_text_counts_cached_input_and_prices_it_at_cache_rates() -> Non
     assert usage.input_tokens == 13000  # uncached + written + read
     assert usage.cache_creation_input_tokens == 2000
     assert usage.cache_read_input_tokens == 10000
-    # 1000 x $2 + 2000 x $2.50 (1.25x write) + 10000 x $0.20 (0.1x read) + 500 x $10
-    assert usage.estimated_cost_usd == pytest.approx(14000 / 1_000_000)
+    # 1000 x $2 + 2000 x $2.50 (1.25x write) + 10000 x $0.10 (Sonnet 5.5's cache read price) + 500 x $10
+    assert usage.estimated_cost_usd == pytest.approx(13000 / 1_000_000)
 
 
 class Plan(BaseModel):
