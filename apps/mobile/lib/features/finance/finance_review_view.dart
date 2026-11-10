@@ -270,11 +270,16 @@ class SuggestionsView extends StatelessWidget {
       required this.appUrl,
       required this.openLink,
       required this.onOpenTransactions,
+      this.onReview,
       super.key});
   final FinanceController controller;
   final String appUrl;
   final MoneyLinkOpener openLink;
   final VoidCallback onOpenTransactions;
+
+  /// Opens a transaction with its FX section (an `fx_fee` item's Review);
+  /// null when this phone has no such screen.
+  final void Function(String transactionId)? onReview;
 
   @override
   Widget build(BuildContext context) {
@@ -309,7 +314,11 @@ class SuggestionsView extends StatelessWidget {
       else
         for (final item in c.suggestions)
           _SuggestionCard(
-              item: item, controller: c, appUrl: appUrl, openLink: openLink),
+              item: item,
+              controller: c,
+              appUrl: appUrl,
+              openLink: openLink,
+              onReview: onReview),
       if (c.suggestionsError != null && c.suggestions.isNotEmpty)
         Text(s.t('sug.moreFailed', {'message': c.suggestionsError!}),
             style: TextStyle(color: context.palette.stop)),
@@ -323,6 +332,18 @@ class SuggestionsView extends StatelessWidget {
           ),
         ),
       Text(s.t('sug.rulesOnWeb'), style: muted),
+      if (c.depth != null) ...[
+        Text(s.t('sug.notices'), style: muted),
+        Align(
+          alignment: AlignmentDirectional.centerStart,
+          child: TextButton.icon(
+            key: const Key('sug-open-notices'),
+            onPressed: () => c.select(FinanceSection.settings),
+            icon: const Icon(Icons.notifications_active_outlined),
+            label: Text(s.t('sug.openNotices')),
+          ),
+        ),
+      ],
       FinanceWebLink(
           appUrl: appUrl,
           openLink: openLink,
@@ -337,11 +358,13 @@ class _SuggestionCard extends StatelessWidget {
       {required this.item,
       required this.controller,
       required this.appUrl,
-      required this.openLink});
+      required this.openLink,
+      this.onReview});
   final Suggestion item;
   final FinanceController controller;
   final String appUrl;
   final MoneyLinkOpener openLink;
+  final void Function(String transactionId)? onReview;
 
   Map<String, Object> _vars(FinanceReviewStrings s, FinanceStrings f) {
     final p = item.params;
@@ -353,14 +376,26 @@ class _SuggestionCard extends StatelessWidget {
       'current': category(p['current']),
       if (item.kind == 'reconciliation')
         'exception': s.maybe('reconKind.${p['exception']}') ?? '',
+      if (p['treatment'] != null)
+        'treatment':
+            s.maybe('sug.treatment.${p['treatment']}') ?? p['treatment']!,
     };
   }
 
-  String _head(FinanceReviewStrings s, FinanceStrings f) =>
-      s.t('sug.head.${item.kind}', _vars(s, f));
+  String _head(FinanceReviewStrings s, FinanceStrings f) {
+    final variant = item.variant;
+    if (variant != null && s.maybe('sug.head.${item.kind}.$variant') != null) {
+      return s.t('sug.head.${item.kind}.$variant', _vars(s, f));
+    }
+    return s.t('sug.head.${item.kind}', _vars(s, f));
+  }
 
   String _why(FinanceReviewStrings s, FinanceStrings f) {
     if (item.kind == 'external') return item.why;
+    final variant = item.variant;
+    if (variant != null && s.maybe('sug.why.${item.kind}.$variant') != null) {
+      return s.t('sug.why.${item.kind}.$variant', _vars(s, f));
+    }
     if (item.kind == 'reconciliation') {
       final p = item.params;
       if (p['exception'] == 'missing_period') {
@@ -385,9 +420,11 @@ class _SuggestionCard extends StatelessWidget {
     final text = result.error ??
         (!accept
             ? s.t('sug.dismissed')
-            : result.changed != null
-                ? s.t('sug.accepted', {'n': result.changed!})
-                : s.t('sug.acknowledged'));
+            : item.acceptMode == 'link'
+                ? s.t('sug.linked')
+                : result.changed != null
+                    ? s.t('sug.accepted', {'n': result.changed!})
+                    : s.t('sug.acknowledged'));
     messenger
       ?..hideCurrentSnackBar()
       ..showSnackBar(SnackBar(content: Text(text)));
@@ -402,7 +439,19 @@ class _SuggestionCard extends StatelessWidget {
     final mode = item.acceptMode;
     final percent = item.percent;
     final description = item.params['description'];
+    final payment = item.params['payment'];
     final href = item.href?.replaceFirst('#', '');
+    final reviewId = item.kind == 'fx_fee' && onReview != null
+        ? item.transactionIds.firstOrNull
+        : null;
+    final acceptLabel = switch (mode) {
+      'apply' => s.t('sug.accept'),
+      'link' => s.t(
+          item.params['dimension'] == 'business' && item.kind == 'attribution'
+              ? 'sug.allocate'
+              : 'sug.link'),
+      _ => s.t('sug.seen'),
+    };
     return AnumSurface(
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         Wrap(
@@ -424,6 +473,8 @@ class _SuggestionCard extends StatelessWidget {
         Text(_head(s, f), style: Theme.of(context).textTheme.titleSmall),
         if (description != null && description.isNotEmpty)
           Text(description, textDirection: TextDirection.ltr, style: muted),
+        if (payment != null && payment.isNotEmpty)
+          Text(s.t('sug.payment', {'payment': payment}), style: muted),
         const SizedBox(height: AnumSpacing.xxs),
         Text(_why(s, f)),
         if (item.effects.isNotEmpty) ...[
@@ -444,7 +495,13 @@ class _SuggestionCard extends StatelessWidget {
               FilledButton(
                 key: Key('sug-accept-${item.key}'),
                 onPressed: busy ? null : () => _decide(context, true),
-                child: Text(s.t(mode == 'apply' ? 'sug.accept' : 'sug.seen')),
+                child: Text(acceptLabel),
+              ),
+            if (reviewId != null)
+              FilledButton(
+                key: Key('sug-review-${item.key}'),
+                onPressed: () => onReview!(reviewId),
+                child: Text(s.t('sug.review')),
               ),
             OutlinedButton(
               key: Key('sug-dismiss-${item.key}'),
@@ -453,7 +510,7 @@ class _SuggestionCard extends StatelessWidget {
             ),
           ],
         ),
-        if (mode == 'none')
+        if (mode == 'none' && reviewId == null)
           FinanceWebLink(
               appUrl: appUrl,
               openLink: openLink,

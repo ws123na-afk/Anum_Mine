@@ -200,6 +200,7 @@ class FinanceStrings {
     'section.safe': 'Safe to spend',
     'section.guardian': 'Guardian',
     'section.connections': 'Connections',
+    'section.settings': 'Finance settings',
     'safe.empty': 'Nothing to work from yet',
     'safe.emptyText':
         'Safe to spend starts from your bank and cash balances. Add an account first.',
@@ -482,6 +483,7 @@ class FinanceStrings {
     'section.safe': 'المتاح للصرف',
     'section.guardian': 'الحارس',
     'section.connections': 'الاتصالات',
+    'section.settings': 'إعدادات المالية',
     'safe.empty': 'لا شيء نحسب منه بعد',
     'safe.emptyText':
         'يبدأ المتاح للصرف من أرصدتك البنكية والنقدية. أضف حسابًا أولًا.',

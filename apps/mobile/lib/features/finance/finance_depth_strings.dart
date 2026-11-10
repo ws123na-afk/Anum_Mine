@@ -1,0 +1,378 @@
+import 'package:flutter/widgets.dart';
+
+import '../../src/localization/anum_localizations.dart';
+import '../records_kit/records_widgets.dart';
+
+/// English and Arabic strings of Finance settings, the emergency reserve,
+/// the exception notices and the card FX section on the phone
+/// (docs/finance.md). The terms follow the web catalogs (`financeForecast`
+/// `fset.*`, `financeRegister` `ffx.*`, `financeSuggestions` `fsug.*`).
+class FinanceDepthStrings extends ModuleStrings {
+  const FinanceDepthStrings(bool arabic) : super(arabic, _en, _ar);
+  static FinanceDepthStrings of(BuildContext context) =>
+      FinanceDepthStrings(AnumLocalizations.maybeOf(context).isArabic);
+  static bool get catalogsMatch => ModuleStrings.match(_en, _ar);
+
+  /// Every text in both catalogs, for the punctuation guard in tests.
+  static Iterable<String> get allTexts => [..._en.values, ..._ar.values];
+
+  static const _en = <String, String>{
+    // -- Finance settings ---------------------------------------------------
+    'set.intro':
+        'Everything that shapes your Finance figures. Each change saves through the same routes as the web.',
+    'set.denied':
+        'Finance settings belong to the person whose Finance this is. A viewer of this workspace cannot change them.',
+    'set.edit': 'Change',
+    'set.saved': 'Finance settings saved.',
+    'set.general.title': 'Currency and time zone',
+    'set.general.subtitle': 'Used by every Finance page',
+    'set.currency': 'Main currency (3 letters)',
+    'set.timezone': 'Finance time zone',
+    'set.zoneHelp':
+        'Months and days follow this time zone, so an evening on the last day of a month still counts in that month.',
+    'set.rulesKept':
+        'Your {n} statement keyword rules stay as they are. Edit them on the web, Finance settings.',
+    'set.currencyError': 'Enter a 3 letter currency such as AED.',
+    'set.safe.title': 'Safe to spend buffer',
+    'set.safe.subtitle': 'Money you always keep back, per currency',
+    'set.safe.noBuffer': 'No buffer: nothing is kept back.',
+    'set.safe.combineOn':
+        'One total in your main currency, with rates up to {days} days old.',
+    'set.safe.combineOff': 'Each currency on its own (no combined total).',
+    'set.safe.add': 'Set a buffer',
+    'set.safe.formTitle': 'Buffer for one currency',
+    'set.safe.formIntro':
+        'Safe to spend keeps this amount back before it shows what you can spend.',
+    'set.safe.currency': 'Currency (3 letters)',
+    'set.safe.amount': 'Keep back',
+    'set.safe.saved': 'Buffer saved.',
+    'set.safe.remove': 'Remove the {currency} buffer',
+    'set.safe.removed': 'Buffer removed.',
+    'set.safe.removeTitle': 'Remove this buffer?',
+    'set.safe.removeText':
+        'Safe to spend will keep nothing back in {currency}. You can set it again at any time.',
+    'set.safe.amountError': 'Enter an amount of zero or more.',
+    'set.salary.title': 'Salary',
+    'set.salary.subtitle': 'The forecast expects your salary from here',
+    'set.salary.none':
+        'No salary profile yet: the forecast counts no salary until you add one on the web.',
+    'set.salary.net': 'Expected net this month: {amount}',
+    'set.salary.next': 'Next pay day: {date}',
+    'set.salary.failed': 'The salary could not be loaded: {message}',
+    'set.salary.web': 'Open the salary profile on the web',
+    'set.links.title': 'Rules and automation',
+    'set.links.subtitle': 'How rows are filed',
+    'set.links.rules': 'Your rules',
+    'set.links.merchants': 'Merchants and subcategories',
+    'set.links.automation': 'Automatic filing',
+    'set.links.onWeb':
+        'Rules, merchants and automatic filing are edited on the web: Finance, Suggestions.',
+    'set.data.title': 'Statements and connections',
+    'set.data.subtitle': 'Where your records come from',
+    'set.data.health': 'Connection health',
+    'set.data.import': 'Import a statement on the web',
+    'set.data.reconciliation': 'Reconciliation on the web',
+    // -- emergency reserve --------------------------------------------------
+    'res.title': 'Emergency reserve',
+    'res.subtitle':
+        'A goal set aside for emergencies; the forecast warns before you go below it.',
+    'res.of': '{saved} of {target}',
+    'res.progress': 'Reserve {percent}% saved',
+    'res.covers': 'Covers {months} months of essentials',
+    'res.mode.months': '{months} months of essential spending',
+    'res.mode.amount': 'A fixed amount',
+    'res.status.reached': 'Reached',
+    'res.status.building': 'Building',
+    'res.status.empty': 'Nothing saved yet',
+    'res.paused': 'Paused',
+    'res.heldAccount': 'Kept in {account}',
+    'res.heldGoal': 'Kept in the goal itself',
+    'res.monthlyLine': 'Put aside each month: {amount}',
+    'res.drift':
+        'Your essentials changed: the same months would now be {amount}. Update the reserve to save it.',
+    'res.none': 'No emergency reserve in {currency} yet',
+    'res.noneText':
+        'Choose how many months of essential spending to keep, or a fixed amount.',
+    'res.suggest': 'Suggested: {months} months of essentials, {amount}.',
+    'res.create': 'Create the reserve',
+    'res.update': 'Update the reserve',
+    'res.saved': 'Emergency reserve saved.',
+    'res.defaultName': 'Emergency reserve',
+    'res.currency': 'Currency',
+    'res.mode': 'Size it by',
+    'res.modeMonths': 'Months of essential spending',
+    'res.modeAmount': 'A fixed amount',
+    'res.months': 'Months (1 to 24)',
+    'res.amount': 'Amount (for a fixed amount)',
+    'res.holder': 'Kept in',
+    'res.inGoal': 'The goal itself (I enter what is saved)',
+    'res.savedField': 'Saved so far (when kept in the goal)',
+    'res.monthly': 'Put aside each month (optional)',
+    'res.targetHelp':
+        'Months of essentials: the target is the months times {essential} a month (bills, minimum payments and essential spending).',
+    'res.noEssentials':
+        'There is not enough history to work out your essential spending yet: choose a fixed amount.',
+    'res.monthsError': 'Choose 1 to 24 months.',
+    'res.amountError': 'Enter an amount above zero.',
+    'res.change': 'Change the reserve',
+    // -- exception notices --------------------------------------------------
+    'not.title': 'Exception notices',
+    'not.subtitle':
+        'A notice in ANUM, never an email or a phone push. Each item at most once a day.',
+    'not.kind.reconciliation_overdue': 'Reconciliation exceptions left open',
+    'not.kind.statement_missing': 'Months with activity and no statement',
+    'not.kind.uncategorized_money':
+        'Uncategorized money above the amount below',
+    'not.kind.business_unposted':
+        'Business documents not posted to the journal',
+    'not.kind.evidence_missing':
+        'Business bills and adjustments with no supporting document',
+    'not.on': 'On',
+    'not.off': 'Off',
+    'not.days': 'Reconciliation exceptions open for at least (days)',
+    'not.min': 'Uncategorized money of at least (per currency)',
+    'not.thresholds':
+        'Exceptions open {days} days or more; uncategorized money from {amount} per currency.',
+    'not.edit': 'Change the notices',
+    'not.formIntro':
+        'Each kind stays off until you turn it on. Nothing here changes a record.',
+    'not.saved': 'Exception notices saved.',
+    'not.daysError': 'Choose 1 to 90 days.',
+    'not.minError': 'Enter an amount of zero or more.',
+    // -- a transaction and its FX section ----------------------------------
+    'tx.title': 'Transaction',
+    'tx.date': 'Date',
+    'tx.amount': 'Amount',
+    'tx.category': 'Category',
+    'tx.type': 'Type',
+    'tx.notes': 'Notes',
+    'tx.open': 'Open {description}',
+    'fx.title': 'Currency and bank fee',
+    'fx.transferTitle': 'Transfer between currencies',
+    'fx.loading': 'Loading the currency details',
+    'fx.error': 'The currency details could not be loaded: {message}',
+    'fx.denied':
+        'The currency details are for the person whose Finance this is.',
+    'fx.none': 'No foreign currency or bank fee on this transaction.',
+    'fx.original': 'Original amount',
+    'fx.billed': 'Billed amount',
+    'fx.rate': 'Rate',
+    'fx.rate.printed': 'printed by the bank',
+    'fx.rate.column': 'from the statement column',
+    'fx.rate.implied': 'worked out from the two amounts',
+    'fx.rate.notStated': 'rate not stated',
+    'fx.rateDate': 'Rate date and source',
+    'fx.source.statement': 'statement',
+    'fx.source.sms': 'bank message',
+    'fx.source.manual': 'entered by you',
+    'fx.fee': 'Bank FX fee',
+    'fx.feeSource.fee_row': 'a separate statement row',
+    'fx.feeSource.markup_stated': 'markup stated on the row',
+    'fx.feeSource.fee_stated': 'fee stated on the row',
+    'fx.purchase': 'Purchase without the fee',
+    'fx.feeOnly': 'A bank fee of {amount} belongs to this row.',
+    'fx.notIncluded':
+        'The row states a fee, but nothing shows it is part of the billed amount, so it is not separated.',
+    'fx.separated': 'Fee recorded as its own bank fee line',
+    'fx.smsCorrect':
+        'A bank message recorded this payment. Correct it on the web under Finance, iPhone SMS, Review.',
+    'fx.split.button': 'Separate the fee',
+    'fx.split.title': 'Separate the bank FX fee',
+    'fx.split.text':
+        'The purchase becomes {purchase} and the fee of {fee} becomes its own bank fee line on the same day. Together they stay {billed}, so the account balance does not change. The correction is kept in the journal.',
+    'fx.split.done': 'The fee is now its own bank fee line.',
+    'fx.link.button': 'Link the fee row',
+    'fx.link.title': 'Link the fee row to its purchase',
+    'fx.link.text':
+        'The separate statement row of {fee} is filed as a bank fee of this purchase. No amount changes.',
+    'fx.link.done': 'The fee row now belongs to this purchase.',
+    'fx.cancel': 'Cancel',
+    'fx.transfer.sent': 'Sent',
+    'fx.transfer.received': 'Received',
+    'fx.transfer.realised': 'Realised rate',
+    'fx.transfer.valuation': 'Earlier rate on record',
+    'fx.transfer.difference': 'Realised FX difference',
+    'fx.transfer.gain': 'gain',
+    'fx.transfer.loss': 'loss',
+    'fx.transfer.none': 'none',
+    'fx.transfer.noValuation':
+        'No earlier rate on record, so only the realised rate is shown.',
+    'fx.transfer.policy':
+        'The difference is shown here, never posted: it counts as neither spending nor income.',
+  };
+
+  static const _ar = <String, String>{
+    'set.intro':
+        'كل ما يشكّل أرقامك في المالية. كل تغيير يُحفظ عبر المسارات نفسها التي يستخدمها الويب.',
+    'set.denied':
+        'إعدادات المالية لصاحب هذه المالية. لا يستطيع المشاهد في مساحة العمل تغييرها.',
+    'set.edit': 'تغيير',
+    'set.saved': 'حُفظت إعدادات المالية.',
+    'set.general.title': 'العملة والمنطقة الزمنية',
+    'set.general.subtitle': 'تستخدمها كل صفحات المالية',
+    'set.currency': 'العملة الرئيسية (3 أحرف)',
+    'set.timezone': 'المنطقة الزمنية للمالية',
+    'set.zoneHelp':
+        'الأشهر والأيام تتبع هذه المنطقة الزمنية، فمساء آخر يوم في الشهر يبقى ضمن ذلك الشهر.',
+    'set.rulesKept':
+        'تبقى قواعد الكلمات في الكشوف ({n}) كما هي. عدّلها على الويب في إعدادات المالية.',
+    'set.currencyError': 'أدخل عملة من 3 أحرف مثل AED.',
+    'set.safe.title': 'هامش المتاح للصرف',
+    'set.safe.subtitle': 'المال الذي تحتفظ به دائمًا، لكل عملة',
+    'set.safe.noBuffer': 'لا هامش: لا يُحتفظ بشيء.',
+    'set.safe.combineOn':
+        'مجموع واحد بعملتك الرئيسية، بأسعار عمرها حتى {days} يومًا.',
+    'set.safe.combineOff': 'كل عملة وحدها (بلا مجموع موحّد).',
+    'set.safe.add': 'تحديد هامش',
+    'set.safe.formTitle': 'هامش لعملة واحدة',
+    'set.safe.formIntro':
+        'يحتفظ المتاح للصرف بهذا المبلغ قبل أن يعرض ما يمكنك صرفه.',
+    'set.safe.currency': 'العملة (3 أحرف)',
+    'set.safe.amount': 'المبلغ المحتفظ به',
+    'set.safe.saved': 'حُفظ الهامش.',
+    'set.safe.remove': 'إزالة هامش {currency}',
+    'set.safe.removed': 'أُزيل الهامش.',
+    'set.safe.removeTitle': 'إزالة هذا الهامش؟',
+    'set.safe.removeText':
+        'لن يحتفظ المتاح للصرف بشيء بعملة {currency}. يمكنك تحديده مرة أخرى في أي وقت.',
+    'set.safe.amountError': 'أدخل مبلغًا يساوي صفرًا أو أكثر.',
+    'set.salary.title': 'الراتب',
+    'set.salary.subtitle': 'يتوقع التوقع راتبك من هنا',
+    'set.salary.none':
+        'لا يوجد ملف راتب بعد: لا يحسب التوقع أي راتب حتى تضيفه على الويب.',
+    'set.salary.net': 'الصافي المتوقع هذا الشهر: {amount}',
+    'set.salary.next': 'يوم الراتب القادم: {date}',
+    'set.salary.failed': 'تعذر تحميل الراتب: {message}',
+    'set.salary.web': 'افتح ملف الراتب على الويب',
+    'set.links.title': 'القواعد والأتمتة',
+    'set.links.subtitle': 'كيف تُصنَّف الصفوف',
+    'set.links.rules': 'قواعدك',
+    'set.links.merchants': 'التجار والفئات الفرعية',
+    'set.links.automation': 'التصنيف التلقائي',
+    'set.links.onWeb':
+        'تُعدَّل القواعد والتجار والتصنيف التلقائي على الويب: المالية، الاقتراحات.',
+    'set.data.title': 'الكشوف والاتصالات',
+    'set.data.subtitle': 'من أين تأتي سجلاتك',
+    'set.data.health': 'سلامة الاتصالات',
+    'set.data.import': 'استيراد كشف على الويب',
+    'set.data.reconciliation': 'المطابقة على الويب',
+    'res.title': 'الاحتياطي الطارئ',
+    'res.subtitle': 'هدف مخصص للطوارئ؛ ينبّهك التوقع قبل أن تنزل تحته.',
+    'res.of': '{saved} من {target}',
+    'res.progress': 'المدّخر من الاحتياطي {percent}%',
+    'res.covers': 'يغطي {months} شهر من الأساسيات',
+    'res.mode.months': '{months} شهر من الإنفاق الأساسي',
+    'res.mode.amount': 'مبلغ ثابت',
+    'res.status.reached': 'مكتمل',
+    'res.status.building': 'قيد البناء',
+    'res.status.empty': 'لم يُدّخر شيء بعد',
+    'res.paused': 'متوقف مؤقتًا',
+    'res.heldAccount': 'محفوظ في {account}',
+    'res.heldGoal': 'محفوظ في الهدف نفسه',
+    'res.monthlyLine': 'ما يُجنَّب شهريًا: {amount}',
+    'res.drift':
+        'تغيّرت أساسياتك: الأشهر نفسها تساوي الآن {amount}. حدّث الاحتياطي لحفظه.',
+    'res.none': 'لا يوجد احتياطي طارئ بعملة {currency} بعد',
+    'res.noneText':
+        'اختر عدد أشهر الإنفاق الأساسي التي تحتفظ بها، أو مبلغًا ثابتًا.',
+    'res.suggest': 'المقترح: {months} شهر من الأساسيات، {amount}.',
+    'res.create': 'إنشاء الاحتياطي',
+    'res.update': 'تحديث الاحتياطي',
+    'res.saved': 'حُفظ الاحتياطي الطارئ.',
+    'res.defaultName': 'الاحتياطي الطارئ',
+    'res.currency': 'العملة',
+    'res.mode': 'حدّده حسب',
+    'res.modeMonths': 'أشهر من الإنفاق الأساسي',
+    'res.modeAmount': 'مبلغ ثابت',
+    'res.months': 'الأشهر (من 1 إلى 24)',
+    'res.amount': 'المبلغ (للمبلغ الثابت)',
+    'res.holder': 'محفوظ في',
+    'res.inGoal': 'الهدف نفسه (أُدخل ما ادّخرته)',
+    'res.savedField': 'المدّخر حتى الآن (عند الحفظ في الهدف)',
+    'res.monthly': 'ما يُجنَّب شهريًا (اختياري)',
+    'res.targetHelp':
+        'أشهر من الأساسيات: الهدف هو عدد الأشهر مضروبًا في {essential} شهريًا (الفواتير والحد الأدنى للسداد والإنفاق الأساسي).',
+    'res.noEssentials':
+        'لا يوجد سجل كافٍ لحساب إنفاقك الأساسي بعد: اختر مبلغًا ثابتًا.',
+    'res.monthsError': 'اختر من 1 إلى 24 شهرًا.',
+    'res.amountError': 'أدخل مبلغًا أكبر من صفر.',
+    'res.change': 'تغيير الاحتياطي',
+    'not.title': 'تنبيهات الاستثناءات',
+    'not.subtitle':
+        'تنبيه داخل ANUM، لا بريد إلكتروني ولا إشعار على الهاتف. كل بند مرة واحدة في اليوم على الأكثر.',
+    'not.kind.reconciliation_overdue': 'استثناءات مطابقة بقيت مفتوحة',
+    'not.kind.statement_missing': 'أشهر فيها حركة دون كشف',
+    'not.kind.uncategorized_money': 'مبالغ غير مصنفة فوق المبلغ أدناه',
+    'not.kind.business_unposted': 'مستندات النشاط غير المرحلة إلى اليومية',
+    'not.kind.evidence_missing': 'فواتير وتسويات النشاط دون مستند داعم',
+    'not.on': 'مفعّل',
+    'not.off': 'متوقف',
+    'not.days': 'استثناءات المطابقة المفتوحة منذ (أيام) على الأقل',
+    'not.min': 'مبالغ غير مصنفة لا تقل عن (لكل عملة)',
+    'not.thresholds':
+        'استثناءات مفتوحة منذ {days} يوم أو أكثر؛ مبالغ غير مصنفة من {amount} لكل عملة.',
+    'not.edit': 'تغيير التنبيهات',
+    'not.formIntro': 'يبقى كل نوع متوقفًا حتى تشغّله. لا شيء هنا يغيّر أي سجل.',
+    'not.saved': 'حُفظت تنبيهات الاستثناءات.',
+    'not.daysError': 'اختر من 1 إلى 90 يومًا.',
+    'not.minError': 'أدخل مبلغًا يساوي صفرًا أو أكثر.',
+    'tx.title': 'المعاملة',
+    'tx.date': 'التاريخ',
+    'tx.amount': 'المبلغ',
+    'tx.category': 'الفئة',
+    'tx.type': 'النوع',
+    'tx.notes': 'ملاحظات',
+    'tx.open': 'افتح {description}',
+    'fx.title': 'العملة ورسوم البنك',
+    'fx.transferTitle': 'تحويل بين عملتين',
+    'fx.loading': 'نحمّل تفاصيل العملة',
+    'fx.error': 'تعذر تحميل تفاصيل العملة: {message}',
+    'fx.denied': 'تفاصيل العملة لصاحب هذه المالية.',
+    'fx.none': 'لا عملة أجنبية ولا رسوم بنكية على هذه المعاملة.',
+    'fx.original': 'المبلغ الأصلي',
+    'fx.billed': 'المبلغ المحتسب',
+    'fx.rate': 'سعر الصرف',
+    'fx.rate.printed': 'مطبوع من البنك',
+    'fx.rate.column': 'من عمود الكشف',
+    'fx.rate.implied': 'محسوب من المبلغين',
+    'fx.rate.notStated': 'سعر الصرف غير مذكور',
+    'fx.rateDate': 'تاريخ السعر ومصدره',
+    'fx.source.statement': 'الكشف',
+    'fx.source.sms': 'رسالة البنك',
+    'fx.source.manual': 'أدخلته أنت',
+    'fx.fee': 'رسوم الصرف البنكية',
+    'fx.feeSource.fee_row': 'صف مستقل في الكشف',
+    'fx.feeSource.markup_stated': 'هامش مذكور في الصف',
+    'fx.feeSource.fee_stated': 'رسوم مذكورة في الصف',
+    'fx.purchase': 'المشتريات دون الرسوم',
+    'fx.feeOnly': 'رسوم بنكية قدرها {amount} تخص هذا الصف.',
+    'fx.notIncluded':
+        'يذكر الصف رسوما، لكن لا شيء يبين أنها جزء من المبلغ المحتسب، لذلك لم تفصل.',
+    'fx.separated': 'سجلت الرسوم كبند رسوم بنكية مستقل',
+    'fx.smsCorrect':
+        'سجلت رسالة البنك هذه الدفعة. صححها على الويب من المالية، رسائل iPhone، المراجعة.',
+    'fx.split.button': 'فصل الرسوم',
+    'fx.split.title': 'فصل رسوم الصرف البنكية',
+    'fx.split.text':
+        'تصبح المشتريات {purchase} وتصبح الرسوم البالغة {fee} بند رسوم بنكية مستقلا في اليوم نفسه. مجموعهما يبقى {billed}، فلا يتغير رصيد الحساب. يحفظ التصحيح في اليومية.',
+    'fx.split.done': 'أصبحت الرسوم بند رسوم بنكية مستقلا.',
+    'fx.link.button': 'ربط صف الرسوم',
+    'fx.link.title': 'ربط صف الرسوم بمشترياته',
+    'fx.link.text':
+        'يصنف صف الكشف المستقل البالغ {fee} رسوما بنكية لهذه المشتريات. لا يتغير أي مبلغ.',
+    'fx.link.done': 'أصبح صف الرسوم تابعا لهذه المشتريات.',
+    'fx.cancel': 'إلغاء',
+    'fx.transfer.sent': 'المرسل',
+    'fx.transfer.received': 'المستلم',
+    'fx.transfer.realised': 'السعر المحقق',
+    'fx.transfer.valuation': 'سعر سابق مسجل',
+    'fx.transfer.difference': 'فرق الصرف المحقق',
+    'fx.transfer.gain': 'ربح',
+    'fx.transfer.loss': 'خسارة',
+    'fx.transfer.none': 'لا شيء',
+    'fx.transfer.noValuation':
+        'لا يوجد سعر سابق مسجل، لذلك يظهر السعر المحقق فقط.',
+    'fx.transfer.policy':
+        'يظهر الفرق هنا ولا يرحل أبدا: لا يحتسب إنفاقا ولا دخلا.',
+  };
+}

@@ -4,6 +4,8 @@ import '../../src/theme/anum_theme.dart';
 import '../../src/widgets/anum_components.dart';
 import '../../src/widgets/depth.dart';
 import 'finance_controller.dart';
+import 'finance_depth_strings.dart';
+import 'finance_depth_view.dart';
 import 'finance_intel_view.dart';
 import '../admin/admin_models.dart' show configuredWebAppUrl;
 import 'finance_models.dart';
@@ -123,7 +125,10 @@ class _FinanceScreenState extends State<FinanceScreen> {
               controller: c,
               appUrl: widget.webAppUrl,
               openLink: widget.openLink,
-              onOpenTransactions: () => c.select(FinanceSection.transactions))
+              onOpenTransactions: () => c.select(FinanceSection.transactions),
+              onReview: c.depth == null
+                  ? null
+                  : (id) => _openTransaction(context, c, id))
         ],
       FinanceSection.accounts => _accounts(context, c, s),
       FinanceSection.bills => [
@@ -134,6 +139,14 @@ class _FinanceScreenState extends State<FinanceScreen> {
       FinanceSection.safe => _safe(context, c, s),
       FinanceSection.guardian => _guardian(context, c, s),
       FinanceSection.connections => _connections(context, c, s),
+      FinanceSection.settings => [
+          if (c.depth != null)
+            FinanceSettingsSection(
+                controller: c.depth!,
+                finance: c,
+                appUrl: widget.webAppUrl,
+                openLink: widget.openLink)
+        ],
       FinanceSection.trading => _trading(context, c, s),
       FinanceSection.intel => [
           if (c.intel != null) FinanceIntelView(controller: c.intel!)
@@ -436,6 +449,18 @@ class _FinanceScreenState extends State<FinanceScreen> {
         out.add(Text(s.t('reserve.covers', {'months': r.monthsCovered!}),
             style: muted));
       }
+    }
+    if (widget.controller.depth != null) {
+      final d = FinanceDepthStrings.of(context);
+      out.add(Align(
+        alignment: AlignmentDirectional.centerStart,
+        child: TextButton.icon(
+          key: Key('safe-reserve-change-$currency'),
+          onPressed: () => widget.controller.select(FinanceSection.settings),
+          icon: const Icon(Icons.tune),
+          label: Text(d.t('res.change')),
+        ),
+      ));
     }
     if (out.isNotEmpty) {
       out.add(Text(s.t('forecast.note'), style: muted));
@@ -919,6 +944,9 @@ class _FinanceScreenState extends State<FinanceScreen> {
                 children: [
                   AnumRow(
                     title: t.description,
+                    onTap: c.depth == null
+                        ? null
+                        : () => _openTransaction(context, c, t.id, row: t),
                     subtitle: [
                       t.postedOn,
                       s.t('category.${t.category}'),
@@ -967,6 +995,26 @@ class _FinanceScreenState extends State<FinanceScreen> {
               {'shown': c.transactions.length, 'total': c.transactionsTotal})),
         ),
     ];
+  }
+
+  /// A transaction with its card FX section, where the owner separates or
+  /// links the bank's FX fee (docs/finance.md#card-fx-and-fees).
+  void _openTransaction(BuildContext context, FinanceController c, String id,
+      {FinanceTransaction? row}) {
+    final repository = c.depth?.repository;
+    if (repository == null) return;
+    Navigator.of(context).push(MaterialPageRoute<void>(
+      builder: (_) => TransactionScreen(
+          repository: repository,
+          transactionId: id,
+          row: row,
+          onChanged: () => Future.wait([
+                c.loadTransactions(),
+                c.loadSummary(),
+                if (c.section == FinanceSection.suggestions)
+                  c.loadSuggestions(),
+              ])),
+    ));
   }
 
   // -- accounts ------------------------------------------------------------

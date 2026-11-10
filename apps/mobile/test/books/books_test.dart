@@ -10,6 +10,7 @@ import 'package:anum_mobile/features/books/books_controller.dart';
 import 'package:anum_mobile/features/books/books_data.dart';
 import 'package:anum_mobile/features/books/books_screen.dart';
 import 'package:anum_mobile/features/books/books_strings.dart';
+import 'package:anum_mobile/features/records_kit/records_kit.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -535,4 +536,23 @@ class _RacingBooks implements BooksRepository {
   @override
   Future<BooksBill> voidBill(String billId, String reason) =>
       inner.voidBill(billId, reason);
+  @override
+  Future<ReviewChunk> review({String kind = '', String? token}) =>
+      inner.review(kind: kind, token: token);
+  @override
+  Future<void> approveBill(String billId, int version) =>
+      inner.approveBill(billId, version);
+  @override
+  Future<EvidencePage> evidence(String sourceType, List<String> ids) =>
+      inner.evidence(sourceType, ids);
+  @override
+  Future<void> attach(String sourceType, String sourceId, String documentId) =>
+      inner.attach(sourceType, sourceId, documentId);
+  @override
+  Future<void> detach(String sourceType, String sourceId, String linkId) =>
+      inner.detach(sourceType, sourceId, linkId);
+  @override
+  Future<RecordsChunk<AttachableDoc>> documents(
+          {String query = '', String? token}) =>
+      inner.documents(query: query, token: token);
 }

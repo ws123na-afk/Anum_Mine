@@ -154,6 +154,42 @@ class FinanceReviewStrings {
         'Some checks could not run this time: {names}. The rest are shown.',
     'sug.rulesOnWeb':
         'Rules, merchant spellings, subcategories and automation are edited on the web: Finance, Suggestions.',
+    'sug.kind.attribution': 'Links to other records',
+    'sug.kind.fx_fee': 'Card FX fees',
+    'sug.head.attribution.business': 'Allocate to {business_name}?',
+    'sug.head.attribution.vehicle': 'The {vehicle} cost of {day}?',
+    'sug.head.attribution.vehicle_record': 'A cost of {vehicle}?',
+    'sug.head.attribution.purchase': 'Pays your {merchant} purchase?',
+    'sug.head.attribution.debt': 'A payment of {debt}?',
+    'sug.head.fx_fee.link': 'Bank FX fee of {currency} {fee}',
+    'sug.head.fx_fee.split': 'Separate the bank FX fee of {currency} {fee}',
+    'sug.why.attribution.business':
+        'You allocated {merchant} to this business {agree} of {seen} times, as {treatment}. The business sees only the allocation, never your account.',
+    'sug.why.attribution.vehicle':
+        'Same amount and currency within a few days, and the words say fuel, parking or a service.',
+    'sug.why.attribution.vehicle_record':
+        'The words say fuel, parking or a service and you have one vehicle. Record it there to track its cost.',
+    'sug.why.attribution.purchase':
+        'Same total and currency within a week. Accept to link the payment to the purchase.',
+    'sug.why.attribution.debt':
+        'The description names the debt, or the amount is its minimum payment.',
+    'sug.why.payment_match.link':
+        'A recorded payment fits this due date. Accept to match it, and the bill counts as paid.',
+    'sug.why.fx_fee.link':
+        'The fee is a separate statement row. Point it at its purchase so both are read together.',
+    'sug.why.fx_fee.split':
+        'The billed amount includes the stated markup, which makes the purchase look bigger. Review it to separate the fee as its own bank fee line.',
+    'sug.treatment.owner_contribution': 'paid by you for the business',
+    'sug.treatment.reimbursable': 'paid back to you later',
+    'sug.payment': 'Payment: {payment}',
+    'sug.link': 'Link',
+    'sug.allocate': 'Allocate',
+    'sug.linked':
+        'Linked. You can remove the link from the record if it is wrong.',
+    'sug.review': 'Review',
+    'sug.notices':
+        'Exception notices (in ANUM, never an email) are turned on in Finance settings.',
+    'sug.openNotices': 'Open Finance settings',
     'sug.kind.classification': 'Category from your history',
     'sug.kind.conflict': 'Rule and history differ',
     'sug.kind.uncategorized': 'Uncategorized',
@@ -336,6 +372,41 @@ class FinanceReviewStrings {
         'تعذر تشغيل بعض الفحوص هذه المرة: {names}. البقية معروضة.',
     'sug.rulesOnWeb':
         'تُعدَّل القواعد وكتابات التجار والفئات الفرعية والأتمتة على الويب: المالية، الاقتراحات.',
+    'sug.kind.attribution': 'روابط بسجلات أخرى',
+    'sug.kind.fx_fee': 'رسوم صرف البطاقة',
+    'sug.head.attribution.business': 'تخصيصها إلى {business_name}؟',
+    'sug.head.attribution.vehicle': 'تكلفة {vehicle} في {day}؟',
+    'sug.head.attribution.vehicle_record': 'تكلفة على {vehicle}؟',
+    'sug.head.attribution.purchase': 'دفعة لمشترياتك من {merchant}؟',
+    'sug.head.attribution.debt': 'دفعة من {debt}؟',
+    'sug.head.fx_fee.link': 'رسوم صرف بنكية {currency} {fee}',
+    'sug.head.fx_fee.split': 'فصل رسوم الصرف البنكية {currency} {fee}',
+    'sug.why.attribution.business':
+        'خصصت {merchant} لهذا النشاط {agree} من {seen} مرات، بصفة {treatment}. يرى النشاط التخصيص فقط، ولا يرى حسابك أبدا.',
+    'sug.why.attribution.vehicle':
+        'نفس المبلغ والعملة خلال أيام قليلة، والوصف يذكر الوقود أو المواقف أو الصيانة.',
+    'sug.why.attribution.vehicle_record':
+        'الوصف يذكر الوقود أو المواقف أو الصيانة ولديك مركبة واحدة. سجلها هناك لمتابعة تكلفتها.',
+    'sug.why.attribution.purchase':
+        'نفس الإجمالي والعملة خلال أسبوع. اقبل لربط الدفعة بالمشتريات.',
+    'sug.why.attribution.debt':
+        'الوصف يذكر الدين، أو المبلغ هو الحد الأدنى لسداده.',
+    'sug.why.payment_match.link':
+        'هناك دفعة مسجلة تناسب تاريخ الاستحقاق هذا. اقبل لمطابقتها، فتحتسب الفاتورة مدفوعة.',
+    'sug.why.fx_fee.link':
+        'الرسوم صف مستقل في الكشف. اربطها بمشترياتها لتقرأ معها.',
+    'sug.why.fx_fee.split':
+        'المبلغ المحتسب يشمل الهامش المذكور، فتبدو المشتريات أكبر. راجعها لفصل الرسوم كبند رسوم بنكية مستقل.',
+    'sug.treatment.owner_contribution': 'دفعتها أنت للنشاط',
+    'sug.treatment.reimbursable': 'تعاد إليك لاحقا',
+    'sug.payment': 'الدفعة: {payment}',
+    'sug.link': 'ربط',
+    'sug.allocate': 'تخصيص',
+    'sug.linked': 'تم الربط. يمكنك إزالة الرابط من السجل إن كان خاطئا.',
+    'sug.review': 'مراجعة',
+    'sug.notices':
+        'تُشغَّل تنبيهات الاستثناءات (داخل ANUM، لا بريد إلكتروني أبدا) من إعدادات المالية.',
+    'sug.openNotices': 'افتح إعدادات المالية',
     'sug.kind.classification': 'فئة من اختياراتك السابقة',
     'sug.kind.conflict': 'القاعدة تخالف اختياراتك',
     'sug.kind.uncategorized': 'غير مصنفة',
