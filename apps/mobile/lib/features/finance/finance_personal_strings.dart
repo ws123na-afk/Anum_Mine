@@ -88,7 +88,7 @@ class FinancePersonalStrings {
         'A reminder arrives in ANUM before a due date and once it is overdue. Linked repayments count as transfers, not spending or income.',
     'people.addTitle': 'Add an entry',
     'people.addIntro':
-        'Money lent or borrowed with a person, without interest. Link the transactions later as repayments come in.',
+        'Money lent or borrowed with a person, interest free unless you set a rate. Repaid once on the due date, or monthly with a schedule. Link the transactions later as repayments come in.',
     'people.save': 'Save',
     'people.direction': 'Who owes whom',
     'people.dirLent': 'I lent: they owe me',
@@ -162,7 +162,7 @@ class FinancePersonalStrings {
     'fixed.note.due_this_month': 'borrowed from a person, due this month',
     'debts.people': 'People',
     'debts.peopleText':
-        'Money lent to or borrowed from a person, without interest. Borrowed money also counts in the payoff order above.',
+        'Money lent to or borrowed from a person, interest free unless you set a rate. Borrowed money also counts in the payoff order above.',
     'fixed.share':
         'Fixed costs take {percent}% of your income ({income} a month).',
     'fixed.shareFrom.salary_profile': 'Income from your salary profile.',
@@ -273,7 +273,7 @@ class FinancePersonalStrings {
         'يصلك تذكير في ANUM قبل تاريخ الاستحقاق ومرة أخرى عند التأخر. السداد المربوط يُحسب تحويلًا، لا صرفًا ولا دخلًا.',
     'people.addTitle': 'أضف قيدًا',
     'people.addIntro':
-        'مال أقرضته أو اقترضته مع شخص، بلا فائدة. اربط المعاملات لاحقًا عند وصول السداد.',
+        'مال أقرضته أو اقترضته مع شخص، بلا فائدة ما لم تحدد نسبة. يُسدَّد مرة واحدة في تاريخ الاستحقاق، أو شهريًا بجدول. اربط المعاملات لاحقًا عند وصول السداد.',
     'people.save': 'حفظ',
     'people.direction': 'من يدين لمن',
     'people.dirLent': 'أقرضت: لي عندهم',
@@ -344,7 +344,7 @@ class FinancePersonalStrings {
     'fixed.note.due_this_month': 'مقترض من شخص، مستحق هذا الشهر',
     'debts.people': 'الأشخاص',
     'debts.peopleText':
-        'مال أقرضته لشخص أو اقترضته منه، بلا فائدة. المال المقترض يُحسب أيضًا في ترتيب السداد أعلاه.',
+        'مال أقرضته لشخص أو اقترضته منه، بلا فائدة ما لم تحدد نسبة. المال المقترض يُحسب أيضًا في ترتيب السداد أعلاه.',
     'fixed.share':
         'التكاليف الثابتة تأخذ {percent}% من دخلك ({income} شهريًا).',
     'fixed.shareFrom.salary_profile': 'الدخل من ملف راتبك.',

@@ -12,6 +12,7 @@ import 'package:anum_mobile/features/finance/finance_personal_models.dart';
 import 'package:anum_mobile/features/finance/finance_personal_repository.dart';
 import 'package:anum_mobile/features/finance/finance_personal_strings.dart';
 import 'package:anum_mobile/features/finance/finance_personal_view.dart';
+import 'package:anum_mobile/features/finance/finance_review_models.dart';
 import 'package:anum_mobile/features/finance/finance_screen.dart';
 import 'package:anum_mobile/features/finance/finance_strings.dart';
 import 'package:anum_mobile/src/localization/anum_localizations.dart';
@@ -395,6 +396,119 @@ class FakePersonal implements FinancePersonalRepository {
     requests
         .add('salary $month $transactionId ${confirm ? 'confirm' : 'reject'}');
     salaryDecided = true;
+  }
+
+  /// The loan detail answered for any id (with a schedule when set).
+  Map<String, Object?> Function(String id)? detailJson;
+
+  /// The repayment proposals the queue answers (`kind=loan_repayment`).
+  List<Map<String, Object?>> proposals = [];
+
+  /// Expected one-off income held in memory, soonest first.
+  List<Map<String, Object?>> incomeRows = [];
+
+  /// Fails only the proposals or only the expected income when set.
+  Object? suggestionsFailure, incomeFailure;
+
+  @override
+  Future<PersonLoanDetail> loan(String id) async {
+    requests.add('loan $id');
+    _check();
+    final found = detailJson?.call(id) ??
+        {
+          ...(loansJson()['items']! as List<Object?>).first!
+              as Map<String, Object?>,
+          'movements': <Object?>[],
+          'schedule': <Object?>[],
+        };
+    return PersonLoanDetail.fromJson(JsonReader.of(found));
+  }
+
+  @override
+  Future<PersonLoan> updateLoan(String id, PersonLoanInput input) async {
+    final body = input.toJson();
+    requests.add('update $id ${body['installments'] ?? '-'} '
+        '${body['interest_rate'] ?? '-'} ${body['first_due_on'] ?? '-'} '
+        '${body['remind']} ${body['closed']}');
+    return PersonLoan.fromJson(
+        JsonReader.of((loansJson()['items']! as List<Object?>).first));
+  }
+
+  @override
+  Future<SuggestionQueue> loanSuggestions(
+      {required int offset, int limit = 25}) async {
+    requests.add('proposals $offset');
+    final f = suggestionsFailure;
+    if (f != null) throw f;
+    final page = proposals.skip(offset).take(limit).toList();
+    return SuggestionQueue.fromJson(JsonReader.of({
+      'items': page,
+      'total': proposals.length,
+      'unavailable': <String>[],
+    }));
+  }
+
+  @override
+  Future<SuggestionDecision> acceptSuggestion(
+      String key, String payloadHash) async {
+    requests.add('accept $key $payloadHash');
+    proposals.removeWhere((p) => p['key'] == key);
+    return SuggestionDecision.fromJson(
+        JsonReader.of({'key': key, 'status': 'accepted', 'link_id': 'l_1'}));
+  }
+
+  @override
+  Future<void> dismissSuggestion(String key) async {
+    requests.add('dismiss $key');
+    proposals.removeWhere((p) => p['key'] == key);
+  }
+
+  @override
+  Future<ExpectedIncomePage> expectedIncome(
+      {String state = 'open', required int offset, int limit = 25}) async {
+    requests.add('income $state $offset');
+    final f = incomeFailure;
+    if (f != null) throw f;
+    final shown = [
+      for (final row in incomeRows)
+        if (state == 'all' || row['received_on'] == null) row
+    ];
+    return ExpectedIncomePage.fromJson(JsonReader.of({
+      'items': shown.skip(offset).take(limit).toList(),
+      'total': shown.length,
+    }));
+  }
+
+  Map<String, Object?> _incomeRow(String id, ExpectedIncomeInput input) => {
+        'id': id,
+        ...input.toJson(),
+        'currency': input.currency ?? 'AED',
+        'state': input.receivedOn != null ? 'received' : 'expected',
+      };
+
+  @override
+  Future<ExpectedIncome> createExpectedIncome(ExpectedIncomeInput input) async {
+    requests.add('income create ${input.label} ${input.amount}');
+    final row = _incomeRow('fin_xinc_${incomeRows.length + 1}', input);
+    incomeRows.add(row);
+    return ExpectedIncome.fromJson(JsonReader.of(row));
+  }
+
+  @override
+  Future<ExpectedIncome> updateExpectedIncome(
+      String id, ExpectedIncomeInput input) async {
+    requests.add('income update $id ${input.label} '
+        '${input.receivedOn ?? '-'}');
+    final row = _incomeRow(id, input);
+    final at = incomeRows.indexWhere((r) => r['id'] == id);
+    incomeRows[at] = row;
+    return ExpectedIncome.fromJson(JsonReader.of(row));
+  }
+
+  @override
+  Future<void> deleteExpectedIncome(String id) async {
+    requests.add('income delete $id');
+    incomeRows.removeWhere((r) => r['id'] == id);
   }
 }
 
@@ -822,10 +936,13 @@ void main() {
       await tester.enterText(
           find.byKey(const Key('field-person')), 'Lina Example');
       await tester.enterText(find.byKey(const Key('field-amount')), '0');
+      // The longer form scrolls: let the typed text lay out first.
+      await tester.pumpAndSettle();
       await tapVisible(tester, find.byKey(const Key('form-submit')));
       expect(find.text('Enter an amount above zero.'), findsOneWidget);
       await tester.enterText(find.byKey(const Key('field-amount')), '250');
       await tester.enterText(find.byKey(const Key('field-currency')), 'aed');
+      await tester.pumpAndSettle();
       await tapVisible(tester, find.byKey(const Key('form-submit')));
       expect(repo.requests, contains('create lent Lina Example 250 AED'));
       expect(find.text('Saved.'), findsOneWidget);
