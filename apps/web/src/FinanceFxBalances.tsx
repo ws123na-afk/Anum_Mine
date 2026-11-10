@@ -2,6 +2,7 @@
 // now at the newest stored rate and worth when the money came in, with the unrealised gain or loss. Display only: the API
 // never posts it or counts it as spending or income, and a missing rate is said, never guessed. On the Finance overview and
 // the Accounts page (one account when one is chosen).
+import { displayRate } from './lib/financeFx';
 import { useCallback, useEffect, useState } from 'react';
 import { Globe2 } from 'lucide-react';
 import type { FinanceFxRevaluation } from '@anum/contracts';
@@ -53,7 +54,7 @@ function FxBody({ page }: { page: FinanceFxRevaluation }) {
           <div><dt>{t('fdepth2.fx.change')}</dt><dd>{r.unrealised !== null
             ? <StatusChip tone={revaluationTone(r)}><bdi dir="ltr">{formatAmount(r.unrealised, r.base_currency)}</bdi></StatusChip> : '-'}</dd></div>
         </dl>}
-      {r.rate && r.rate_as_of && <small className="muted fdepth2FxRate">{t('fdepth2.fx.rate', { currency: r.currency, rate: isolate(r.rate), base: r.base_currency,
+      {r.rate && r.rate_as_of && <small className="muted fdepth2FxRate">{t('fdepth2.fx.rate', { currency: r.currency, rate: isolate(displayRate(r.rate)), base: r.base_currency,
         date: day(r.rate_as_of), source: r.rate_source ?? '-' })}</small>}
       {r.status === 'cost_rate_not_available' && <small className="muted fdepth2FxRate">
         {t('fdepth2.fx.noCost', { dates: r.missing_rate_dates.map(day).join(', ') })}. {t('fdepth2.fx.noCostHelp')}</small>}

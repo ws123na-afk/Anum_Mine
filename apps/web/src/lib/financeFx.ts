@@ -29,6 +29,29 @@ export function plainRate(value: string | null): string {
   return trimmed || '0';
 }
 
+/**
+ * A rate for reading beside a balance: at most six decimals, without trailing zeros
+ * ("3.7000000000" reads "3.7", "0.2722940776" reads "0.272294"). The stored rate is not changed.
+ */
+export function displayRate(value: string | null): string {
+  if (value === null || value.trim() === '') return '-';
+  const match = /^(-?)(\d+)(?:\.(\d+))?$/.exec(value.trim());
+  if (!match) return value;
+  const [, sign, whole, fraction = ''] = match;
+  if (fraction.length <= 6) return plainRate(`${sign}${whole}${fraction ? `.${fraction}` : ''}`);
+  // Round half up on the digits themselves, so a long decimal never passes through a float.
+  const digits = (whole + fraction.slice(0, 6)).split('').map(Number);
+  if (Number(fraction[6]) >= 5) {
+    let i = digits.length - 1;
+    while (i >= 0 && digits[i] === 9) { digits[i] = 0; i -= 1; }
+    if (i >= 0) digits[i] += 1; else digits.unshift(1);
+  }
+  const text = digits.join('');
+  const split = text.length - 6;
+  const rounded = plainRate(`${text.slice(0, split)}.${text.slice(split)}`);
+  return rounded === '0' ? '0' : `${sign}${rounded}`;
+}
+
 /** A realised FX difference: a gain, a loss, or nothing to say. */
 export function differenceTone(value: string | null): 'gain' | 'loss' | 'none' {
   if (value === null) return 'none';

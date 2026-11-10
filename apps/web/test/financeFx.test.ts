@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 import type { FinanceTransactionFx } from '@anum/contracts';
-import { differenceTone, plainRate, rateKey, separateAction, showsFx } from '../src/lib/financeFx.ts';
+import { differenceTone, displayRate, plainRate, rateKey, separateAction, showsFx } from '../src/lib/financeFx.ts';
 import { en } from '../src/lib/messages/en.ts';
 import { ar } from '../src/lib/messages/ar.ts';
 
@@ -42,5 +42,28 @@ describe('card FX details', () => {
     const keys = Object.keys(en).filter((key) => key.startsWith('ffx.'));
     assert.ok(keys.length > 30);
     for (const key of keys) assert.ok(key in ar, key);
+  });
+});
+
+describe('displayRate: a rate beside a foreign balance', () => {
+  it('drops trailing zeros', () => {
+    assert.equal(displayRate('3.7000000000'), '3.7');
+    assert.equal(displayRate('3.6725000000'), '3.6725');
+    assert.equal(displayRate('4.0000000000'), '4');
+    assert.equal(displayRate('1'), '1');
+  });
+  it('shows at most six decimals, rounded half up', () => {
+    assert.equal(displayRate('0.2722940776'), '0.272294');
+    assert.equal(displayRate('0.2722945000'), '0.272295');
+    assert.equal(displayRate('0.0000004999'), '0');
+    assert.equal(displayRate('0.0000005'), '0.000001');
+    assert.equal(displayRate('9.9999999'), '10');
+    assert.equal(displayRate('1234.56789012'), '1234.56789');
+    assert.equal(displayRate('-0.2722946'), '-0.272295');
+  });
+  it('keeps what it cannot read and says nothing for no rate', () => {
+    assert.equal(displayRate(null), '-');
+    assert.equal(displayRate(''), '-');
+    assert.equal(displayRate('n/a'), 'n/a');
   });
 });

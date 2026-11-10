@@ -163,8 +163,16 @@ export function FinanceOverviewPage({ summary, accounts, month, onMonth, onOpen,
       <FlowCard scope={shownScope} business={business} history={history} summary={s} currency={cur} month={shownMonth} onRetry={() => void loadBusiness()} />
       <SpendingCard scope={shownScope} business={business} summary={s} currency={cur} onOpen={onOpen} onRetry={() => void loadBusiness()} />
     </div>
+    {/* Two stacks that end on their own: a short card never leaves a band of empty space beside a tall neighbour. */}
     <div className="fovRow">
-      <ActivityCard scope={shownScope} recent={recent} business={business} accounts={accountList} onOpen={onOpen} onRetry={() => void loadPersonal()} />
+      <div className="fovColumn">
+        <ActivityCard scope={shownScope} recent={recent} business={business} accounts={accountList} onOpen={onOpen} onRetry={() => void loadPersonal()} />
+        <FinCard title={t('finance.overview.accounts')} icon={<Landmark />} actions={<button type="button" className="cmLinkButton" onClick={() => onOpen('accounts')}>{t('finance.overview.manage')}</button>}>
+          {s.accounts.length === 0 ? <p className="muted">{t('finance.accounts.none')}</p> : <ul className="cmList">{s.accounts.filter((a) => !a.archived).map((a) => <li key={a.id}>
+            <div><strong dir="auto">{a.name}</strong><small>{t(`finance.kind.${a.kind}` as MessageKey)}{a.last4 ? ` · ${t('finance.accounts.endingIn', { last4: a.last4 })}` : ''}</small></div>
+            <Money value={a.balance} currency={a.currency} signed /></li>)}</ul>}
+        </FinCard>
+      </div>
       <div className="fovColumn">
         <SafeToSpendCard base={s.base_currency} onOpen={onOpen} />
         <FinCard title={t('finance.overview.upcoming')} icon={<CalendarClock />} actions={<button type="button" className="cmLinkButton" onClick={() => onOpen('bills')}>{t('finance.overview.allBills')}</button>}>
@@ -176,20 +184,13 @@ export function FinanceOverviewPage({ summary, accounts, month, onMonth, onOpen,
             action={<button type="button" className="secondary" onClick={() => onOpen('guardian')}>{t('fov.review.open')}</button>}>{review.value.first ?? ''}</FinBanner>}
           <p className="muted fovNote"><Lock aria-hidden="true" />{t('finance.readOnly')}</p>
         </FinCard>
+        {s.goals.length > 0 ? <FinCard title={t('finance.tab.goals')} icon={<PiggyBank />} actions={<button type="button" className="cmLinkButton" onClick={() => onOpen('goals')}>{t('finance.overview.manage')}</button>}>
+          <ul className="cmList">{s.goals.map((g) => <li key={g.id}><div><strong dir="auto">{g.name}</strong><small>{t('finance.goals.progress', { saved: isolate(formatAmount(g.saved_amount, g.currency)), target: isolate(formatAmount(g.target_amount, g.currency)) })}</small></div>
+            <span className="finProgress" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={g.percent} aria-label={t('finance.goals.progressLabel', { name: g.name, percent: g.percent })}>
+              <span className="finTrack"><span className="finFill" style={{ width: `${g.percent}%` }} /></span><small aria-hidden="true">{g.percent}%</small></span></li>)}</ul>
+        </FinCard> : <FinCard title={t('finance.tab.goals')} icon={<PiggyBank />}><p className="muted">{t('fov.goalsNone')}</p>
+          <button type="button" className="secondary" onClick={() => onOpen('goals')}><Plus aria-hidden="true" />{t('fov.goalsAdd')}</button></FinCard>}
       </div>
-    </div>
-    <div className="fovRow">
-      <FinCard title={t('finance.overview.accounts')} icon={<Landmark />} actions={<button type="button" className="cmLinkButton" onClick={() => onOpen('accounts')}>{t('finance.overview.manage')}</button>}>
-        {s.accounts.length === 0 ? <p className="muted">{t('finance.accounts.none')}</p> : <ul className="cmList">{s.accounts.filter((a) => !a.archived).map((a) => <li key={a.id}>
-          <div><strong dir="auto">{a.name}</strong><small>{t(`finance.kind.${a.kind}` as MessageKey)}{a.last4 ? ` · ${t('finance.accounts.endingIn', { last4: a.last4 })}` : ''}</small></div>
-          <Money value={a.balance} currency={a.currency} signed /></li>)}</ul>}
-      </FinCard>
-      {s.goals.length > 0 ? <FinCard title={t('finance.tab.goals')} icon={<PiggyBank />} actions={<button type="button" className="cmLinkButton" onClick={() => onOpen('goals')}>{t('finance.overview.manage')}</button>}>
-        <ul className="cmList">{s.goals.map((g) => <li key={g.id}><div><strong dir="auto">{g.name}</strong><small>{t('finance.goals.progress', { saved: isolate(formatAmount(g.saved_amount, g.currency)), target: isolate(formatAmount(g.target_amount, g.currency)) })}</small></div>
-          <span className="finProgress" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={g.percent} aria-label={t('finance.goals.progressLabel', { name: g.name, percent: g.percent })}>
-            <span className="finTrack"><span className="finFill" style={{ width: `${g.percent}%` }} /></span><small aria-hidden="true">{g.percent}%</small></span></li>)}</ul>
-      </FinCard> : <FinCard title={t('finance.tab.goals')} icon={<PiggyBank />}><p className="muted">{t('fov.goalsNone')}</p>
-        <button type="button" className="secondary" onClick={() => onOpen('goals')}><Plus aria-hidden="true" />{t('fov.goalsAdd')}</button></FinCard>}
     </div>
     {shownScope !== 'business' && accountList.some((a) => !a.archived && a.currency !== s.base_currency) && <FxBalancesCard onOpen={onOpen} />}
   </div>;
