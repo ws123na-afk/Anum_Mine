@@ -540,10 +540,55 @@ class _AnumAppState extends State<AnumApp> {
     locale.addListener(push.languageChanged);
     theme = ThemeController()..restore();
     intro = IntroController()..restore();
+    assert(_noUserData.keys.every((name) => !_userData.containsKey(name)));
     auth.addListener(_onAuthChanged);
     auth.restore();
     push.start();
   }
+
+  /// Every app-wide object that holds the signed-in person's data, with how
+  /// it forgets it. Sign-out and an ended session run all of them
+  /// ([_onAuthChanged]). A new `late final` field of this state must be
+  /// added here or to [_noUserData]: `test/architecture/user_data_reset_test.dart`
+  /// fails otherwise (docs/mobile.md#per-user-state).
+  late final Map<String, VoidCallback> _userData = {
+    'workspace': workspace.reset,
+    'automations': automations.reset,
+    'chat': chat.reset,
+    'voice': voice.reset,
+    'settings': settings.reset,
+    'governance': governance.reset,
+    'developer': developer.reset,
+    'marketing': marketing.reset,
+    'business': business.reset,
+    'chatDeveloper': chatDeveloper.reset,
+    'voiceDeveloper': voiceDeveloper.reset,
+    'commerce': commerce.reset,
+    'finance': finance.reset,
+    'tyre': tyre.reset,
+    'agents': agents.reset,
+    'appCalls': appCalls.stop,
+    'whatsapp': whatsapp.reset,
+    'email': email.reset,
+    'command': command.reset,
+    'tools': tools.reset,
+  };
+
+  /// Fields that keep nothing of the signed-in person between sessions, and
+  /// why.
+  static const _noUserData = {
+    'auth': 'owns the session; signs itself out',
+    'push': 'unregisters in push.signedOut',
+    'billing': 'repository; each Billing page has its own controller',
+    'library': 'repository without state',
+    'locale': 'device preference',
+    'theme': 'device preference',
+    'intro': 'device preference',
+    '_portalSessions': 'factory; the portal token lives with its page',
+    'agentChat': 'builder; each chat page has its own controller',
+    'agentCall': 'builder; each call page has its own controller',
+    'records': 'routes; each page has its own controller',
+  };
 
   /// A person is signed in (any phase after sign-in), so the next
   /// signed-out phase is a sign-out or an ended session, not a cold start.
@@ -580,22 +625,10 @@ class _AnumAppState extends State<AnumApp> {
         // only the sign-in screen is left.
         _navigator.currentState?.popUntil((route) => route.isFirst);
       }
-      workspace.currentUserId = null;
-      appCalls.stop();
-      // The next person to sign in never sees these conversations.
-      chat.reset();
-      automations.reset();
-      developer.reset();
-      commerce.reset();
-      finance.reset();
-      tyre.reset();
-      marketing.reset();
-      business.reset();
-      chatDeveloper.reset();
-      voiceDeveloper.reset();
-      whatsapp.reset();
-      command.reset();
-      tools.reset();
+      // The next person to sign in never sees the previous person's data.
+      for (final reset in _userData.values) {
+        reset();
+      }
     }
     if (auth.phase == AuthPhase.ready && workspace.currentUserId == null) {
       _rememberUser();

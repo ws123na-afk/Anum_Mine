@@ -50,6 +50,27 @@ class EmailController extends ChangeNotifier {
 
   bool get hasFilters => query.trim().isNotEmpty || unreadOnly;
 
+  /// Forgets the mailboxes, messages, the opened message and drafts (sign-out).
+  void reset() {
+    phase = InboxPhase.idle;
+    error = null;
+    accounts = const [];
+    messages = const [];
+    nextCursor = null;
+    loadingMore = false;
+    query = '';
+    unreadOnly = false;
+    newDrafts = const [];
+    detail = null;
+    detailLoading = false;
+    detailError = null;
+    draftApproval = null;
+    busy = null;
+    notice = null;
+    noticeIsError = false;
+    notifyListeners();
+  }
+
   /// Mailboxes a new email can be sent from (not waiting for a reconnect).
   List<EmailAccount> get sendableAccounts => [
         for (final account in accounts)

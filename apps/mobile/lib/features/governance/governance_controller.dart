@@ -12,6 +12,16 @@ class GovernanceController extends ChangeNotifier {
   GovernanceSnapshot? snapshot;
   String? message;
   bool mutating = false;
+
+  /// Forgets the audit, policy and member data (sign-out).
+  void reset() {
+    phase = GovernancePhase.initial;
+    snapshot = null;
+    message = null;
+    mutating = false;
+    notifyListeners();
+  }
+
   Future<void> load() async {
     phase = GovernancePhase.loading;
     message = null;

@@ -89,6 +89,26 @@ class SettingsController extends ChangeNotifier {
   String? chatMemoryNotice;
   bool chatMemoryBusy = false;
 
+  /// Forgets the profile, session details, model and preferences (sign-out),
+  /// so Settings loads the next person's own.
+  void reset() {
+    phase = SettingsPhase.initial;
+    session = null;
+    model = null;
+    notifications = const NotificationPreferences();
+    message = null;
+    modelError = null;
+    chatMemory = null;
+    chatMemoryError = null;
+    chatMemoryNotice = null;
+    chatMemoryBusy = false;
+    channels = null;
+    emailTest = null;
+    emailTestError = null;
+    emailTestBusy = false;
+    notifyListeners();
+  }
+
   Future<void> load() async {
     phase = SettingsPhase.loading;
     message = null;

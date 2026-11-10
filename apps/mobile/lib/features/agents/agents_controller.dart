@@ -30,6 +30,22 @@ class AgentsController extends ChangeNotifier {
 
   bool get filtered => category != null || query.trim().isNotEmpty;
 
+  /// Forgets the agents and filters (sign-out); an answer on its way is dropped.
+  void reset() {
+    _generation++;
+    phase = AgentsPhase.loading;
+    items = const [];
+    counts = const {};
+    category = null;
+    query = '';
+    nextCursor = null;
+    error = null;
+    loadingMore = false;
+    catalog = null;
+    catalogError = null;
+    notifyListeners();
+  }
+
   Future<void> load() async {
     final generation = ++_generation;
     phase = AgentsPhase.loading;

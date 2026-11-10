@@ -61,6 +61,55 @@ void sessionJourneys() => group('Session', () {
         expect(tester.takeException(), isNull);
       });
 
+      testWidgets('the next person to sign in sees nothing of the previous one',
+          (tester) async {
+        final api = FakeAnumApi();
+        seedBaseline(api);
+        installSettings(api);
+        // Two people share the phone; the API answers for whoever signed in.
+        var person = 'a';
+        api.post('/api/v1/auth/local/session', (request) {
+          final body = request.json as Map<String, Object?>;
+          person = body['user_id'] == 'user_second' ? 'b' : 'a';
+          return FakeResponse.json({
+            ...Fx.session(),
+            'access_token': 'anum_local_$person',
+            'context': {
+              'tenant_id': Fx.tenantId,
+              'workspace_id': Fx.workspaceId,
+              'user_id': person == 'a' ? Fx.userId : 'user_second',
+              'roles': ['owner'],
+            },
+          }, status: 201);
+        });
+        Map<String, Object?> task() => person == 'a'
+            ? Fx.task('task_a', 'Renew the trade licence', 'completed')
+            : Fx.task('task_b', 'Order the new tyres', 'completed');
+        api.get('/api/v1/tasks', (_) => FakeResponse.json([task()]));
+        await launchApp(tester, api);
+        await signIn(tester, api);
+        await waitFor(tester, find.text("Today's Focus"), api: api);
+        await tapOn(tester, find.text('Tasks').last);
+        await waitFor(tester, find.text('Renew the trade licence'), api: api);
+
+        await signOutFromSettings(tester, api);
+        await waitFor(tester, find.text('Sign in to ANUM'), api: api);
+
+        await tester.enterText(
+            find.widgetWithText(TextFormField, 'User ID'), 'user_second');
+        await tapOn(tester, find.text('Continue'));
+        await waitFor(tester, find.text("Today's Focus"), api: api);
+        await tapOn(tester, find.text('Tasks').last);
+        await waitFor(tester, find.text('Order the new tyres'), api: api);
+        expect(find.text('Renew the trade licence'), findsNothing);
+
+        // Settings shows the second person's own profile and session.
+        await openFromMenu(tester, api, 'Settings');
+        await waitFor(tester, find.text('user_second'), api: api);
+        expect(find.text(Fx.userId), findsNothing);
+        expect(tester.takeException(), isNull);
+      });
+
       testWidgets('a session that expires mid-use returns to sign-in',
           (tester) async {
         final api = FakeAnumApi();

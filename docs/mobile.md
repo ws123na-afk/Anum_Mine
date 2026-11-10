@@ -82,6 +82,10 @@ Sign-out and a session that ends on its own both leave only the sign-in screen.
 
 Tests: `test/session_end_test.dart` (store and controller), `test/session_journeys_test.dart` (the whole app: sign out from Settings, sign out while the server answers 503, a session that expires while the app is open; the same journeys run in `integration_test/journeys/session.dart`).
 
+### Per-user state
+
+The app creates its controllers once and keeps them for its whole life, so each one that holds a person's data has a `reset()` and is listed in `_userData` in `lib/src/anum_app.dart` (workspace with its files and meetings, automations, chat, voice, settings, governance, developer, marketing, business, commerce, finance, tyre, agents, in-app calls, WhatsApp, email, Command and the workspace tools). Sign-out and an ended session run every entry, so the next person to sign in on the phone loads their own workspace, profile and lists; an answer that was still on its way for the previous person is dropped (`WorkspaceController` counts resets). Fields that keep nothing of the person (repositories, page builders, the device's language, theme and intro) are named in `_noUserData` with the reason. `test/architecture/user_data_reset_test.dart` fails when a new app-wide field is in neither list; `test/workspace_reset_test.dart` and the journey "the next person to sign in sees nothing of the previous one" cover the behaviour. Voice keeps the device's own preferences (assistant name, language, mute).
+
 ## Native Projects
 
 `android/` and `ios/` are committed; CI no longer runs `flutter create`. They were generated with

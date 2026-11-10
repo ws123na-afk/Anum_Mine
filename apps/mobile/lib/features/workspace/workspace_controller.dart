@@ -59,20 +59,48 @@ class WorkspaceController extends ChangeNotifier {
   List<WorkspaceIntegration> get integrations =>
       snapshot?.integrations ?? const [];
 
+  /// Changes on [reset], so an answer that was on its way for the previous
+  /// person is dropped instead of shown to the next one.
+  int _epoch = 0;
+
   Future<void> load() async {
+    final epoch = _epoch;
     phase = LoadPhase.loading;
     message = null;
     notifyListeners();
     try {
-      snapshot = _withRunApprovals(await repository.loadWorkspace());
+      final loaded = await repository.loadWorkspace();
+      if (epoch != _epoch) return;
+      snapshot = _withRunApprovals(loaded);
       phase = _isEmpty(snapshot!) ? LoadPhase.empty : LoadPhase.ready;
     } on WorkspaceOfflineException catch (error) {
+      if (epoch != _epoch) return;
       phase = LoadPhase.offline;
       message = error.message;
     } catch (error) {
+      if (epoch != _epoch) return;
       phase = LoadPhase.error;
       message = error.toString();
     }
+    notifyListeners();
+  }
+
+  /// Forgets everything (sign-out or an ended session): the next person to
+  /// sign in loads their own workspace and never sees this one.
+  void reset() {
+    _epoch++;
+    phase = LoadPhase.initial;
+    snapshot = null;
+    message = null;
+    mutating = false;
+    budgetMessage = null;
+    taskRefusal = null;
+    skillNotice = null;
+    currentUserId = null;
+    _runApprovals.clear();
+    decisionRefusals.clear();
+    filesController?.reset();
+    meetingsController?.reset();
     notifyListeners();
   }
 

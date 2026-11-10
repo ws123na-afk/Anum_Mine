@@ -38,6 +38,23 @@ class MeetingsController extends ChangeNotifier {
   bool get canCreate => setup?.canCreate ?? false;
   bool get hasMore => items.length < total;
 
+  /// Forgets the meetings and stops polling and any upload (sign-out).
+  void reset() {
+    _poll?.cancel();
+    _poll = null;
+    _upload?.cancel();
+    _upload = null;
+    uploadProgress = null;
+    phase = MeetingsPhase.loading;
+    setup = null;
+    error = notice = null;
+    items = const [];
+    total = 0;
+    query = status = '';
+    loadingMore = false;
+    if (!_disposed) notifyListeners();
+  }
+
   /// "Call summary" entries: the newest meetings with notes.
   List<Meeting> get recentActivity {
     final ready = items

@@ -556,6 +556,24 @@ class VoiceController extends ChangeNotifier {
     _notify();
   }
 
+  /// Forgets the conversation on this phone and stops listening and speaking
+  /// (sign-out). The device's own voice preferences (name, language, mute)
+  /// stay. The server keeps or drops the transcript by its retention setting.
+  void reset() {
+    unawaited(_stopEverything());
+    session = null;
+    _sessionLocale = null;
+    _sessionName = null;
+    _sequences.clear();
+    turns = const [];
+    heard = '';
+    notice = null;
+    pendingApprovals = 0;
+    followUp = false;
+    state = VoiceState.idle;
+    _notify();
+  }
+
   /// Ends the conversation and asks the server to discard its transcript.
   Future<void> clearConversation() async {
     await _interruptSpeaking();
