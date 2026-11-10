@@ -27,11 +27,11 @@
 [[bundled]]
 ecosystem = "python"
 package = "psycopg-binary"
-versions = ["3.3.6"]
-reviewed_on = "2026-11-04"
-note = "Read from the 3.3.6 wheels for CPython 3.13 on manylinux2014 x86_64 and manylinux_2_28 aarch64 (`psycopg_binary.libs/`). The libraries come from the manylinux build images: CentOS 7 packages on x86_64 and AlmaLinux 8 packages on aarch64; their exact source is those distributions' source packages. psycopg itself is LGPL-3.0-only (accepted in scripts/licenses/exceptions.toml). Used unmodified."
+versions = ["3.3.8"]
+reviewed_on = "2026-11-10"
+note = "Read from the 3.3.8 wheels for CPython 3.13 on manylinux2014 x86_64 and manylinux_2_28 aarch64 (`psycopg_binary.libs/`). The libraries come from the manylinux build images: CentOS 7 packages on x86_64 and AlmaLinux 8 packages on aarch64; their exact source is those distributions' source packages. psycopg itself is LGPL-3.0-only (accepted in scripts/licenses/exceptions.toml). Used unmodified."
 license_texts = [
-  "licenses/third-party/psycopg-3.3.6-LICENSE.txt",
+  "licenses/third-party/psycopg-3.3.8-LICENSE.txt",
   "licenses/third-party/GPL-3.0-only.txt",
   "licenses/third-party/LGPL-2.1-or-later.txt",
   "licenses/third-party/PostgreSQL.txt",
@@ -260,7 +260,7 @@ versions = ["3.2.3"]
 reviewed_on = "2026-11-04"
 note = "Backup image (infra/backup/Dockerfile). Read from the 3.2.3 wheels for CPython 3.13 on manylinux2014 x86_64 and aarch64 (`psycopg_binary.libs/`); the libraries come from the CentOS 7 based manylinux2014 build images. psycopg itself is LGPL-3.0-only (accepted in scripts/licenses/exceptions.toml). Used unmodified."
 license_texts = [
-  "licenses/third-party/psycopg-3.3.6-LICENSE.txt",
+  "licenses/third-party/psycopg-3.3.8-LICENSE.txt",
   "licenses/third-party/GPL-3.0-only.txt",
   "licenses/third-party/LGPL-2.1-or-later.txt",
   "licenses/third-party/PostgreSQL.txt",
