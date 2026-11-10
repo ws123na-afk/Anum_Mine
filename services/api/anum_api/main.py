@@ -2457,6 +2457,22 @@ def _route_refusal_response(
     )
 
 
+def _private_self_decision(task: Task, approval: Approval, context: TenantContext) -> bool:
+    """The one case a person decides their own request (docs/tasks.md#private-tasks, docs/approvals-and-risk.md#approval-routing).
+
+    A ``data``-private task's approval of a ``caller_scoped`` tool concerns the person's own
+    ledger or mailbox and their own action, and nobody else can see the task or the approval
+    (the repository filter and the row policies hide both). Routing an approval nobody else
+    can see to owners would leave the run stuck for good, and sharing it would publish the
+    private data, so the task's own person decides it: a confirm step, not a second pair of
+    eyes. Owners, routes and the two-person rule still apply to every other approval.
+    """
+    if task.private_kind != "data" or task.private_to != context.user_id:
+        return False
+    definition = tool_registry.definition(approval.action)
+    return definition is not None and definition.caller_scoped
+
+
 def _delegated_refusal(
     request: Request,
     context: TenantContext,
@@ -2570,11 +2586,23 @@ def _routing_view(
     route: Route,
     context: TenantContext,
     recorded: list[ApprovalApproverRecord],
-    task_creator: str | None,
+    task: Task | None,
     two_person_rule: bool,
 ) -> ApprovalRouting:
     """Who may approve this approval, why, and what the caller may do now."""
+    task_creator = task.created_by if task is not None else None
     pending = approval.status == ApprovalStatus.PENDING
+    if task is not None and _private_self_decision(task, approval, context):
+        # The task's own person, for a caller-scoped tool on their data-private task: the one approver.
+        refusal = "not_pending" if not pending else "no_hash" if not approval.payload_hash else None
+        return ApprovalRouting(
+            routed=False,
+            steps=[ApprovalStepView(approvers=[[f"user:{context.user_id}"]])],
+            can_approve=refusal is None,
+            can_reject=pending,
+            refusal=refusal,  # type: ignore[arg-type]
+            summary="This task reads your own data, so you decide this approval yourself.",
+        )
     owner_decides = has_permission(context, Permission.APPROVAL_DECIDE)
     own = context.user_id in {task_creator, approval.requested_by}
     already = any(row.user_id == context.user_id for row in recorded)
@@ -2649,7 +2677,7 @@ def _with_progress(
     governance = repository.get_tool_governance(context)
     two_person_rule = repository.get_approval_policy(context).two_person_rule
     by_task: dict[str, list[Approval]] = {}
-    creators: dict[str, str | None] = {}
+    tasks: dict[str, Task | None] = {}
     result = []
     for approval in approvals:
         rows = recorded.get(approval.id, [])
@@ -2664,10 +2692,9 @@ def _with_progress(
                 governance, tool=approval.action, target=approval.target, risk_level=approval.risk_level
             )
             required = required_approvals(decision_requirements(match)[0])
-        if approval.task_id not in creators:
-            task = repository.get_task(approval.task_id, context)
-            creators[approval.task_id] = task.created_by if task else None
-        routing = _routing_view(approval, route, context, rows, creators[approval.task_id], two_person_rule)
+        if approval.task_id not in tasks:
+            tasks[approval.task_id] = repository.get_task(approval.task_id, context)
+        routing = _routing_view(approval, route, context, rows, tasks[approval.task_id], two_person_rule)
         suppressed = (
             suppressed_for_call(context, approval.action, approval.arguments, tool_registry.definition(approval.action))
             if approval.status == ApprovalStatus.PENDING
@@ -2727,10 +2754,12 @@ def _decide_in_unit(
     if approval.status != ApprovalStatus.PENDING:
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Approval already decided")
 
-    # Who may decide: owners (approval:decide), or a person an approval route lists.
+    # Who may decide: owners (approval:decide), a person an approval route lists, or the task's own
+    # person for a caller-scoped tool on their data-private task (the one allowed self-approval).
     route = _route_for(approval, context, repository)
     recorded = repository.list_approval_approvers([approval.id], context).get(approval.id, [])
-    if not has_permission(context, Permission.APPROVAL_DECIDE):
+    own_private = _private_self_decision(task, approval, context)
+    if not own_private and not has_permission(context, Permission.APPROVAL_DECIDE):
         delegated_refusal = _delegated_refusal(request, context, repository, task, approval, route, recorded, decision)
         if delegated_refusal is not None:
             return _Decided(delegated_refusal)
@@ -2766,7 +2795,9 @@ def _decide_in_unit(
                 detail="Approval payload does not match what was shown; reload and review it again",
             )
     requirements = _DecisionRequirements()
-    if decision == ApprovalStatus.APPROVED:
+    if decision == ApprovalStatus.APPROVED and own_private:
+        pass  # one decision by the task's own person; routes and chains cannot reach a private approval
+    elif decision == ApprovalStatus.APPROVED:
         if route.routed:
             refusal, requirements = _routing_refusal(
                 request, context, repository, task, approval, route, recorded, now
@@ -2779,6 +2810,7 @@ def _decide_in_unit(
             return _Decided(refusal)
     if (
         decision == ApprovalStatus.APPROVED
+        and not own_private
         and approval.risk_level in TWO_PERSON_RISK_LEVELS
         and context.user_id in {task.created_by, approval.requested_by}
         and repository.get_approval_policy(context).two_person_rule
@@ -2904,6 +2936,8 @@ def _decide_in_unit(
                 "target": approval.target,
                 "reason": reason,
                 **chain_metadata,
+                # The task's own person decided their own request: visible in the audit log, which is shared.
+                **({"private_self_decision": True} if own_private else {}),
             },
         )
     )

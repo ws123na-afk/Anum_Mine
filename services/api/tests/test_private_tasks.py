@@ -525,3 +525,11 @@ def test_the_runtime_records_a_private_tasks_events_with_the_tasks_privacy_even_
     shared = repository.create_task(_task(alice))
     event = create_event(CanonicalEventName.TASK_CANCELLED, alice, shared.id, {}, correlation_id=shared.id, private_to="alice_stamp").event
     assert repository.record_event(event).private_to is None
+
+
+def test_the_tasks_person_decides_a_private_approval_in_memory() -> None:
+    from private_task_checks import check_the_tasks_person_decides_a_private_approval
+
+    people = _people("private_own_approval")
+    people["org_admin"] = {**people["alice"], "x-user-roles": "owner,org_admin"}
+    check_the_tasks_person_decides_a_private_approval(client, people.__getitem__, BALANCE)

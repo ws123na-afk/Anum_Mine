@@ -373,3 +373,20 @@ def test_an_event_of_a_private_task_is_never_recorded_as_public_by_another_perso
         assert session.execute(text("select count(*) from domain_events where private_to is null")).scalar_one() == 0
     with as_user("alice") as (_, repository):
         assert [event.type for event in repository.list_events(_context("alice"))] == ["task.created", "task.cancelled"]
+
+
+def test_the_tasks_person_decides_a_private_approval_in_sql(client: TestClient, database_engine: Engine) -> None:  # noqa: F811
+    """``private_task_checks``: the same end-to-end check ``test_private_tasks.py`` runs in memory."""
+    from private_task_checks import check_the_tasks_person_decides_a_private_approval
+
+    with database_engine.begin() as connection:
+        for user, role in (("alice_owner", "owner"), ("omar_owner", "owner"), ("mona_member", "member"), ("vic_viewer", "viewer")):
+            connection.execute(text(
+                "insert into workspace_memberships (user_id, tenant_id, workspace_id, role, active) values (:u, :t, :w, :r, true) "
+                "on conflict do nothing"), {"u": user, "r": role, "t": TENANT_A, "w": WORKSPACE_A})
+    people = {
+        "alice": _headers("alice_owner", "owner"), "omar": _headers("omar_owner", "owner"),
+        "mona": _headers("mona_member", "member"), "vic": _headers("vic_viewer", "viewer"),
+        "org_admin": _headers("alice_owner", "owner,org_admin"),
+    }
+    check_the_tasks_person_decides_a_private_approval(client, people.__getitem__, BALANCE)
