@@ -1780,13 +1780,22 @@ async def resume_agent_run(
     return RunTaskResponse(task=task, run=run, approval=await run_in_unit(units, context, shown))
 
 
+# GET /api/v1/approvals and GET /api/v1/events return a plain list; both are bounded.
+APPROVAL_LIST_MAX_LIMIT = APPROVAL_PAGE_MAX_LIMIT * 5
+EVENT_LIST_DEFAULT_LIMIT = 500
+EVENT_LIST_MAX_LIMIT = 1000
+
+
 @app.get("/api/v1/events", response_model=list[DomainEvent])
 def list_events(
+    limit: int = Query(default=EVENT_LIST_DEFAULT_LIMIT, ge=1, le=EVENT_LIST_MAX_LIMIT),
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
 ) -> list[DomainEvent]:
+    """The workspace's newest ``limit`` events, oldest first (it used to be every event the
+    workspace ever produced). A task's own events are ``GET /tasks/{id}/events``."""
     require_permission(context, Permission.EVENT_READ)
-    return [event for event in repository.list_events(context) if visible_on_workspace_stream(event)]
+    return [event for event in repository.list_recent_events(context, limit) if visible_on_workspace_stream(event)]
 
 
 @app.get("/api/v1/events/stream")
@@ -1879,28 +1888,30 @@ async def stream_events(
 @app.get("/api/v1/approvals", response_model=list[Approval])
 def list_approvals(
     status_filter: ApprovalFilter | None = Query(default=None, alias="status"),
-    limit: int | None = Query(default=None, ge=1, le=APPROVAL_PAGE_MAX_LIMIT * 5),
+    limit: int | None = Query(default=None, ge=1, le=APPROVAL_LIST_MAX_LIMIT),
     context: TenantContext = Depends(tenant_context),
     repository: AnumRepository = Depends(repository_context),
 ) -> list[Approval]:
-    """Every approval, oldest first (the original shape). ``status`` and ``limit`` narrow it:
-    ``?status=pending&limit=200`` is the cheap list the shell uses; use ``/page`` for history."""
+    """At most ``limit`` approvals (default and maximum 500): every pending one first, then
+    the newest of the rest. Without ``status`` and ``limit`` the list is returned oldest first
+    (the original shape); it used to be every approval the workspace ever had. With either,
+    the order is the paged one: ``?status=pending&limit=200`` is the list the shell uses.
+    Use ``/page`` for history."""
     require_permission(context, Permission.APPROVAL_READ)
     now = utc_now()
-    if status_filter is not None or limit is not None:
-        rows, _more = repository.list_approvals_page(
-            context,
-            now=now,
-            status=status_filter or ApprovalFilter.ALL,
-            query=None,
-            task_id=None,
-            cursor=None,
-            limit=limit or APPROVAL_PAGE_MAX_LIMIT * 5,
-        )
-        narrowed = [as_viewed(approval, now) for approval in rows]
-        return _with_progress(narrowed, context, repository)
-    approvals = [as_viewed(approval, now) for approval in repository.list_approvals(context)]
-    return _with_progress(approvals, context, repository, siblings=approvals)
+    rows, _more = repository.list_approvals_page(
+        context,
+        now=now,
+        status=status_filter or ApprovalFilter.ALL,
+        query=None,
+        task_id=None,
+        cursor=None,
+        limit=limit or APPROVAL_LIST_MAX_LIMIT,
+    )
+    approvals = [as_viewed(approval, now) for approval in rows]
+    if status_filter is None and limit is None:
+        approvals.sort(key=lambda approval: (approval.created_at, approval.id))
+    return _with_progress(approvals, context, repository)
 
 
 @app.get("/api/v1/approvals/page", response_model=ApprovalPage)
@@ -2520,11 +2531,14 @@ def _route_for(
     *,
     governance: object | None = None,
     siblings: list[Approval] | None = None,
+    by_task: dict[str, list[Approval]] | None = None,
 ) -> Route:
     """The approval route (docs/approvals-and-risk.md#approval-routing), re-read now.
 
     The rules come from the tenant's governance in the caller's RLS scope; the amounts
-    of the task's other pending or approved approvals are added (no splitting).
+    of the task's other pending or approved approvals are added (no splitting). The
+    task's approvals are read only when a routing rule matches, once per task when the
+    caller passes ``by_task`` (a list of approvals shares it).
     """
     match = match_governance(
         governance if governance is not None else repository.get_tool_governance(context),  # type: ignore[arg-type]
@@ -2535,7 +2549,14 @@ def _route_for(
     if not match.approval_rules:
         return Route()
     now = utc_now()
-    others = siblings if siblings is not None else repository.list_task_approvals(approval.task_id, context)
+    if siblings is not None:
+        others = siblings
+    elif by_task is None:
+        others = repository.list_task_approvals(approval.task_id, context)
+    else:
+        if approval.task_id not in by_task:
+            by_task[approval.task_id] = repository.list_task_approvals(approval.task_id, context)
+        others = by_task[approval.task_id]
     related = related_actions([as_viewed(other, now) for other in others], approval.id, approval.task_id)
     return build_route(match.approval_rules, approval.arguments, related)
 
@@ -2629,13 +2650,7 @@ def _with_progress(
     for approval in approvals:
         rows = recorded.get(approval.id, [])
         approvers = [row.view() for row in rows]
-        if siblings is not None:
-            others = siblings
-        else:
-            if approval.task_id not in by_task:
-                by_task[approval.task_id] = repository.list_task_approvals(approval.task_id, context)
-            others = by_task[approval.task_id]
-        route = _route_for(approval, context, repository, governance=governance, siblings=others)
+        route = _route_for(approval, context, repository, governance=governance, siblings=siblings, by_task=by_task)
         if approval.status == ApprovalStatus.APPROVED:
             required = max(1, len(approvers))
         elif route.routed:

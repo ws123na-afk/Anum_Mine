@@ -29,7 +29,7 @@ from .audit import AuditRecord
 from .authorization import Permission
 from .dependencies import UnitsOfWork, has_permission, repository_context, require_permission, run_in_unit, tenant_context, units_of_work
 from .repository import AnumRepository
-from .schemas import ApprovalStatus, TenantContext, new_id, utc_now
+from .schemas import TenantContext, new_id, utc_now
 from .scoped_store import open_scoped_store
 
 router = APIRouter(prefix="/api/v1/calendar", tags=["calendar"])
@@ -695,9 +695,8 @@ def next_steps(
                 action=NextStepAction(kind="open", destination="email_urgent"),
             ))
     if has_permission(context, Permission.APPROVAL_READ):
-        waiting_approvals = [a for a in repository.list_approvals(context) if a.status == ApprovalStatus.PENDING]
-        if waiting_approvals:
-            count = len(waiting_approvals)
+        count = repository.summarize_approvals(context, utc_now()).pending  # a count query, not every approval
+        if count:
             items.append(NextStep(
                 id="approvals:pending",
                 title=f"Review {count} approval{'s' if count != 1 else ''}",

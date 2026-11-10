@@ -90,6 +90,9 @@ def test_stream_reads_are_limited_merge_tenant_wide_events_and_use_the_index(
         # A cursor this workspace does not have reads from the start, limited.
         assert [e.id for e in repository.list_events_after(context, hidden, limit=2)] == order[:2]
         assert repository.latest_event_id(context) == order[-1]
+        # GET /events: the newest rows, oldest first.
+        assert [e.id for e in repository.list_recent_events(context, 3)] == order[-3:]
+        assert [e.id for e in repository.list_recent_events(context, 50)] == order
     with repository_factory(ctx(TENANT_A, WORKSPACE_A2)) as repository:
         # The other workspace's newest is its own event; the tenant-wide ones are older.
         assert repository.latest_event_id(ctx(TENANT_A, WORKSPACE_A2)) == hidden

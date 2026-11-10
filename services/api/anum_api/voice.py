@@ -40,6 +40,7 @@ from .model_budget import ModelBudgetExceededError
 from .onboarding import budgeted_model_gateway
 from .repository import AnumRepository
 from .schemas import Task, TaskStatus, TenantContext, new_id, utc_now
+from .tasks import TaskFilters
 from .scoped_store import open_scoped_store
 from .sse import SSE_HEADERS, sse
 from .tyre.tools import TYRE_PREFACE, mentions_tyres, tyre_grounding
@@ -56,7 +57,7 @@ from .voice_assistant import (
     confirm_reply,
     is_visual_only,
     mock_answer,
-    snapshot,
+    snapshot_from_counts,
     voice_messages,
     status_reply,
     small_talk_reply,
@@ -719,9 +720,10 @@ def _prepare_ask(
 
     arabic = session.locale.lower().startswith("ar")
     name = session.assistant_name
-    facts = snapshot(
-        repository.list_tasks(context),
-        [approval.status for approval in repository.list_approvals(context)],
+    # Counts from the database, not every task and approval of the workspace in Python.
+    facts = snapshot_from_counts(
+        repository.summarize_tasks(context, TaskFilters()),
+        repository.summarize_approvals(context, utc_now()).pending,
     )
     text = strip_wake_word(segment.text, name)
     intent, proposal = classify(text, name)

@@ -126,6 +126,7 @@ class AnumRepository(Protocol):
         self, context: TenantContext, event_id: str, *, limit: int | None = None
     ) -> list[DomainEvent]: ...
     def latest_event_id(self, context: TenantContext) -> str | None: ...
+    def list_recent_events(self, context: TenantContext, limit: int) -> list[DomainEvent]: ...
     def record_event(self, event: DomainEvent) -> DomainEvent: ...
     def get_approval_policy(self, context: TenantContext) -> WorkspaceApprovalPolicy: ...
     def save_approval_policy(
@@ -482,6 +483,10 @@ class InMemoryRepository:
         """The id of the caller's newest event (where a new event stream starts), or None."""
         events = self.list_events(context)
         return events[-1].id if events else None
+
+    def list_recent_events(self, context: TenantContext, limit: int) -> list[DomainEvent]:
+        """The caller's newest ``limit`` events, oldest first."""
+        return self.list_events(context)[-limit:] if limit > 0 else []
 
     def list_approvals_page(
         self,

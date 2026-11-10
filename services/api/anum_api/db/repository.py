@@ -981,6 +981,11 @@ class SqlAlchemyRepository(AnumRepository):
         newest = self._events_page(context, limit=1, newest_first=True)
         return newest[0].id if newest else None
 
+    def list_recent_events(self, context: TenantContext, limit: int) -> list[DomainEvent]:
+        """The caller's newest ``limit`` events, oldest first."""
+        newest = self._events_page(context, limit=limit, newest_first=True)
+        return [self._event_from_record(record) for record in reversed(newest)]
+
     def record_event(self, event: DomainEvent) -> DomainEvent:
         record = self.session.get(DomainEventRecord, event.id)
         if record is None:

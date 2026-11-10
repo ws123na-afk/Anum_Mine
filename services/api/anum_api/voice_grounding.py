@@ -52,7 +52,8 @@ from .agent_tools import (
 from .authorization import Permission
 from .dependencies import has_permission
 from .model_gateway import ChatMessage, ModelGateway, ModelRoute, route_gateway
-from .schemas import ApprovalStatus, RiskLevel, TaskStatus, TenantContext, utc_now
+from .approval_paging import pending_now
+from .schemas import RiskLevel, TaskStatus, TenantContext, utc_now
 from .tyre.tools import mentions_tyres
 from .voice_figures import FigureGuard, is_arabic, needs_figures
 
@@ -275,12 +276,7 @@ async def workspace_tasks_tool(call: ToolCall, context: TenantContext) -> ToolRe
 def _read_approvals(context: TenantContext) -> ToolResult:
     now = utc_now()
     with _units(context) as repository:
-        approvals = [
-            approval
-            for approval in repository.list_approvals(context)
-            if approval.status == ApprovalStatus.PENDING
-            and (getattr(approval, "expires_at", None) is None or approval.expires_at > now)
-        ]
+        approvals = pending_now(repository, context, now)  # the pending rows only, newest first
         titles = {task.id: task.title for task in repository.list_tasks(context, limit=500)}
     approvals.sort(key=lambda approval: approval.created_at, reverse=True)
     listed = [
