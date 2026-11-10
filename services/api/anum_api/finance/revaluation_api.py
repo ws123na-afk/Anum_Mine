@@ -17,7 +17,7 @@ from ..schemas import TenantContext
 from . import revaluation as R
 from .api import _not_found, _read
 from .store import TransactionFilter, open_finance_store
-from .summary import settings_for, today_in
+from .summary import account_balances, settings_for, today_in
 
 router = APIRouter(prefix="/api/v1/finance", tags=["finance"])
 
@@ -32,7 +32,7 @@ class RevaluationRow(BaseModel):
     currency: str
     base_currency: str
     balance: Decimal
-    status: Literal["ok", "rate_not_available", "cost_rate_not_available", "nothing_to_revalue"]
+    status: Literal["ok", "rate_not_available", "cost_rate_not_available", "nothing_to_revalue", "history_too_long"]
     value: Decimal | None
     rate: Decimal | None
     rate_as_of: date | None
@@ -68,14 +68,24 @@ def fx_revaluation(account_id: str | None = Query(default=None, max_length=80), 
             if not accounts:
                 raise _not_found("Account")
         rates = store.list_fx_rates(context, limit=10_000)
-        rows, total = store.list_transactions(context, TransactionFilter(account_id=account_id), limit=MAX_ROWS, offset=0)
-    base = settings.base_currency
-    found = R.revalue_all(accounts, rows, base, rates, today, max_age)
+        base = settings.base_currency
+        balances = {b.id: b.balance for b in account_balances(store, context)}
+        found: list[R.Revaluation] = []
+        truncated = False
+        # Each foreign account's own history, in full: other accounts' rows never crowd it out, and an account whose history is
+        # longer than MAX_ROWS is not valued from part of it.
+        for account in R.revalued_accounts(accounts, base):
+            rows, total = store.list_transactions(context, TransactionFilter(account_id=account.id), limit=MAX_ROWS, offset=0)
+            if total > MAX_ROWS:
+                truncated = True
+                found.append(R.too_long(account, base, balances.get(account.id, account.opening_balance)))
+            else:
+                found.append(R.revalue(account, rows, base, rates, today, max_age))
     complete = [r.unrealised for r in found if r.unrealised is not None]
-    incomplete = sum(1 for r in found if r.status in ("rate_not_available", "cost_rate_not_available"))
+    incomplete = sum(1 for r in found if r.status in ("rate_not_available", "cost_rate_not_available", "history_too_long"))
     return RevaluationPage(base_currency=base, as_of=today, rate_max_age_days=max_age,
                            items=[RevaluationRow(**{k: getattr(r, k) for k in RevaluationRow.model_fields}) for r in found],
-                           unrealised_total=sum(complete, Decimal(0)) if complete else None, incomplete=incomplete, truncated=total > MAX_ROWS)
+                           unrealised_total=sum(complete, Decimal(0)) if complete else None, incomplete=incomplete, truncated=truncated)
 
 
 __all__ = ["router"]

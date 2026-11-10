@@ -39,7 +39,7 @@ export type RevaluationTone = 'ok' | 'bad' | 'muted' | 'warn';
 
 /** A gain reads as good, a loss as bad, a missing rate as a warning, an empty balance as nothing. */
 export function revaluationTone(row: Pick<FinanceFxRevaluationRow, 'status' | 'unrealised'>): RevaluationTone {
-  if (row.status === 'rate_not_available' || row.status === 'cost_rate_not_available') return 'warn';
+  if (row.status === 'rate_not_available' || row.status === 'cost_rate_not_available' || row.status === 'history_too_long') return 'warn';
   if (row.status !== 'ok' || row.unrealised === null) return 'muted';
   const n = Number(row.unrealised);
   return n > 0 ? 'ok' : n < 0 ? 'bad' : 'muted';

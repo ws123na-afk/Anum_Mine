@@ -41,7 +41,10 @@ function FxBody({ page }: { page: FinanceFxRevaluation }) {
   return <>
     <ul className="fdepth2FxList">{rows.map((r) => <li key={r.account_id}>
       <div className="fdepth2FxHead"><strong dir="auto">{r.name}</strong><Money value={r.balance} currency={r.currency} /></div>
-      {r.status === 'rate_not_available'
+      {r.status === 'history_too_long'
+        ? <p className="fdepth2FxMissing"><StatusChip tone="warn">{t('fdepth2.fx.tooLong')}</StatusChip>
+          <small className="muted">{t('fdepth2.fx.tooLongHelp')}</small></p>
+        : r.status === 'rate_not_available'
         ? <p className="fdepth2FxMissing"><StatusChip tone="warn">{t('fdepth2.fx.noRate')}</StatusChip>
           <small className="muted">{t('fdepth2.fx.noRateHelp', { currency: r.currency, base: r.base_currency, days: page.rate_max_age_days })}</small></p>
         : <dl className="fdepth2FxFigures">
