@@ -1301,6 +1301,7 @@ class AutonomousActionRecord(Base):
     undone_by: Mapped[str | None] = mapped_column(String(160))
     undone_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     undo_error: Mapped[str | None] = mapped_column(String(500))
+    undo_claimed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))  # 0165_autonomy_undo_claim
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
     __table_args__ = (

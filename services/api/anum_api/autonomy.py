@@ -597,6 +597,10 @@ class AutonomousAction(BaseModel):
     undone_by: str | None = None
     undone_at: datetime | None = None
     undo_error: str | None = None
+    # When an undo claimed this action (committed before its compensating tool runs, so no
+    # transaction or row lock is held across the tool call); None once it finished or failed.
+    # A claim left by a process that stopped mid-undo expires after the inline run lease.
+    undo_claimed_at: datetime | None = None
     created_at: datetime
 
     def undoable(self, now: datetime) -> bool:
@@ -605,6 +609,14 @@ class AutonomousAction(BaseModel):
             and self.undo_tool is not None
             and self.undo_expires_at is not None
             and now < self.undo_expires_at
+        )
+
+    def undo_in_progress(self, now: datetime, lease_seconds: float) -> bool:
+        """An undo claimed this action less than ``lease_seconds`` ago and has not finished."""
+        return (
+            self.status == ActionStatus.DONE
+            and self.undo_claimed_at is not None
+            and now - self.undo_claimed_at < timedelta(seconds=lease_seconds)
         )
 
 
@@ -631,6 +643,9 @@ class AutonomyStore(Protocol):
     def add_action(self, action: AutonomousAction) -> AutonomousAction: ...
     def get_action(self, action_id: str, context: TenantContext, *, for_update: bool = False) -> AutonomousAction | None: ...
     def save_action(self, action: AutonomousAction) -> AutonomousAction: ...
+    def claim_undo(
+        self, action_id: str, context: TenantContext, *, now: datetime, lease_seconds: float
+    ) -> AutonomousAction | None: ...
     def list_actions(
         self, context: TenantContext, filters: ActionFilter, *, limit: int, after: str | None = None
     ) -> list[AutonomousAction]: ...
@@ -749,6 +764,20 @@ class InMemoryAutonomyStore:
         with self._lock:
             self.actions[action.id] = action
         return action
+
+    def claim_undo(
+        self, action_id: str, context: TenantContext, *, now: datetime, lease_seconds: float
+    ) -> AutonomousAction | None:
+        """Mark the action as being undone, atomically: None when it is already undone, not
+        found, or another undo claimed it less than ``lease_seconds`` ago."""
+        with self._lock:
+            action = self.actions.get(action_id)
+            if action is None or not self._scope(action, context) or action.status != ActionStatus.DONE:
+                return None
+            if action.undo_in_progress(now, lease_seconds):
+                return None
+            action.undo_claimed_at = now
+            return action.model_copy(deep=True)
 
     def list_actions(
         self, context: TenantContext, filters: ActionFilter, *, limit: int, after: str | None = None

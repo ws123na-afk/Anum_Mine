@@ -6,6 +6,9 @@ forced RLS policies decide what each workspace and tenant can see and write.
 
 from __future__ import annotations
 
+import asyncio
+import threading
+import time
 from collections.abc import Callable, Iterator
 from datetime import timedelta
 
@@ -17,7 +20,7 @@ from sqlalchemy.orm import Session
 
 from anum_api import main
 from anum_api.agent_planning import AgentPlanner
-from anum_api.agent_tools import ToolCall
+from anum_api.agent_tools import ToolCall, ToolResult
 from anum_api.autonomy import (
     ActionFilter,
     OrganizationGuardrails,
@@ -26,7 +29,7 @@ from anum_api.autonomy import (
 )
 from anum_api.db.autonomy_repository import SqlAlchemyAutonomyStore
 from anum_api.db.repository import SqlAlchemyRepository
-from anum_api.schemas import utc_now
+from anum_api.schemas import TenantContext, utc_now
 
 from conftest import TENANT_A, TENANT_B, WORKSPACE_A, WORKSPACE_A2, WORKSPACE_B, tenant_context
 from test_autonomy import UNDONE, _registry
@@ -74,6 +77,64 @@ def _approve(client: TestClient, body: dict) -> dict:
     response = client.post(f"/api/v1/approvals/{approval['id']}/approve", headers=HEADERS, json={"payload_hash": approval["payload_hash"]})
     assert response.status_code == 200, response.text
     return response.json()
+
+
+def test_a_second_undo_does_not_wait_on_the_first_undo_row_lock(
+    postgres_client: TestClient,  # noqa: F811
+    app_session: Callable[..., Iterator[Session]],
+) -> None:
+    """The undo used to hold the action's FOR UPDATE row lock across the compensating tool call
+    (a transaction open across an external call, forbidden by CLAUDE.md): a second undo waited
+    on the lock for as long as the tool took. Migration 0165_autonomy_undo_claim: the claim is
+    committed first, the tool runs with no transaction, and the second undo answers 409 at once."""
+    client = postgres_client
+    assert _run(client, ToolCall(name="email.archive", arguments={"message_id": "m1"}))["approval"] is None
+    item = client.get("/api/v1/autonomy/actions?limit=1", headers=HEADERS).json()["items"][0]
+    started, release = threading.Event(), threading.Event()
+
+    async def slow_unarchive(call: ToolCall, _: TenantContext) -> ToolResult:
+        started.set()
+        await asyncio.get_running_loop().run_in_executor(None, release.wait, 10)
+        UNDONE.append(dict(call.arguments))
+        return ToolResult(status="succeeded", summary="Moved back to the inbox")
+
+    main.app.state.tool_registry._handlers["email.unarchive"] = slow_unarchive  # the test registry
+    results: dict[str, object] = {}
+
+    def first() -> None:
+        results["first"] = client.post(f"/api/v1/autonomy/actions/{item['id']}/undo", headers=HEADERS, json={"undo_token": item["undo_token"]})
+
+    thread = threading.Thread(target=first)
+    thread.start()
+    try:
+        assert started.wait(10), "the first undo never reached its tool"
+        with app_session(tenant_context()) as session:
+            row = session.execute(
+                text("select status, undo_claimed_at from autonomy_actions where id = :id"), {"id": item["id"]}
+            ).one()
+            assert row.status == "done" and row.undo_claimed_at is not None  # the claim is committed
+            # No transaction holds the row (or the table) while the tool runs.
+            held = session.execute(
+                text(
+                    "select count(*) from pg_locks l join pg_class c on c.oid = l.relation "
+                    "where c.relname = 'autonomy_actions' and l.pid <> pg_backend_pid() and l.mode in ('RowShareLock', 'RowExclusiveLock')"
+                )
+            ).scalar_one()
+            assert held == 0
+        assert client.get(f"/api/v1/autonomy/actions/{item['id']}", headers=HEADERS).json()["undo_available"] is False
+        begun = time.monotonic()
+        second = client.post(f"/api/v1/autonomy/actions/{item['id']}/undo", headers=HEADERS, json={"undo_token": item["undo_token"]})
+        assert time.monotonic() - begun < 2, "the second undo waited on the first"
+        assert second.status_code == 409, second.text
+        assert "in progress" in second.json()["error"]["message"]
+    finally:
+        release.set()
+        thread.join(15)
+    assert results["first"].status_code == 200, results["first"].text  # type: ignore[union-attr]
+    assert UNDONE == [{"message_id": "m1"}]
+    with app_session(tenant_context()) as session:
+        row = session.execute(text("select status, undo_claimed_at from autonomy_actions where id = :id"), {"id": item["id"]}).one()
+        assert row.status == "undone" and row.undo_claimed_at is None
 
 
 def test_the_whole_loop_persists_in_postgresql(

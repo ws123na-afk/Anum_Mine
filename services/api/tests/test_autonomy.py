@@ -5,6 +5,9 @@ the activity feed and undo, through the pure evaluator, the runtime and the HTTP
 
 from __future__ import annotations
 
+import asyncio
+import threading
+import time
 from collections.abc import Iterator
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -520,6 +523,60 @@ def test_undo_after_the_window_is_gone_and_a_failed_undo_keeps_the_action() -> N
     UNDO_FAILS["value"] = False
     late = client.post(f"/api/v1/autonomy/actions/{item['id']}/undo", headers=OWNER, json={"undo_token": item["undo_token"]})
     assert late.status_code == 410
+
+
+def test_a_second_undo_while_the_first_tool_call_is_in_flight_is_refused_at_once() -> None:
+    """The first undo used to hold the action's FOR UPDATE row lock across the tool call, so a
+    second undo waited on the lock (and in memory mode ran the tool a second time). Now the
+    claim is committed before the tool runs and the second undo answers 409 at once."""
+    item = _archived()
+    started, release = threading.Event(), threading.Event()
+    registry = main.app.state.tool_registry
+
+    async def slow_unarchive(call: ToolCall, _: TenantContext) -> ToolResult:
+        started.set()
+        await asyncio.get_running_loop().run_in_executor(None, release.wait, 5)
+        UNDONE.append(dict(call.arguments))
+        return ToolResult(status="succeeded", summary="Moved back to the inbox")
+
+    registry._handlers["email.unarchive"] = slow_unarchive  # the test registry, swapped back by the fixture
+    results: dict[str, Any] = {}
+
+    def first() -> None:
+        results["first"] = client.post(f"/api/v1/autonomy/actions/{item['id']}/undo", headers=OWNER, json={"undo_token": item["undo_token"]})
+
+    thread = threading.Thread(target=first)
+    thread.start()
+    try:
+        assert started.wait(5), "the first undo never reached its tool"
+        feed = client.get(f"/api/v1/autonomy/actions/{item['id']}", headers=OWNER).json()
+        assert feed["status"] == "done" and feed["undo_available"] is False  # claimed: no second Undo button
+        begun = time.monotonic()
+        second = client.post(f"/api/v1/autonomy/actions/{item['id']}/undo", headers=OWNER, json={"undo_token": item["undo_token"]})
+        assert time.monotonic() - begun < 2, "the second undo waited on the first"
+        assert second.status_code == 409, second.text
+        assert "in progress" in second.json()["error"]["message"]
+    finally:
+        release.set()
+        thread.join(10)
+    assert results["first"].status_code == 200, results["first"].text
+    assert results["first"].json()["status"] == "undone"
+    assert UNDONE == [{"message_id": "m1"}]  # the compensating tool ran once
+    assert autonomy_memory_store.actions[item["id"]].undo_claimed_at is None  # the claim is released on completion
+
+
+def test_an_undo_claim_left_by_a_dead_process_expires_and_a_failed_undo_releases_it() -> None:
+    item = _archived()
+    stored = autonomy_memory_store.actions[item["id"]]
+    stored.undo_claimed_at = datetime.now(timezone.utc) - timedelta(seconds=main.settings.inline_run_lease_seconds + 1)
+    autonomy_memory_store.actions[item["id"]] = stored
+    UNDO_FAILS["value"] = True
+    failed = client.post(f"/api/v1/autonomy/actions/{item['id']}/undo", headers=OWNER, json={"undo_token": item["undo_token"]})
+    assert failed.status_code == 502, failed.text  # an expired claim is taken over
+    after = autonomy_memory_store.actions[item["id"]]
+    assert after.status == "done" and after.undo_claimed_at is None and after.undo_error
+    UNDO_FAILS["value"] = False
+    assert client.post(f"/api/v1/autonomy/actions/{item['id']}/undo", headers=OWNER, json={"undo_token": item["undo_token"]}).status_code == 200
 
 
 def test_only_owners_or_the_requester_can_undo() -> None:

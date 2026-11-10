@@ -44,7 +44,7 @@ _PROPOSAL_FIELDS = (
 _ACTION_FIELDS = (
     "id", "task_id", "run_id", "tool", "category", "action_kind", "level", "pattern_key", "template", "summary",
     "target", "status", "requested_by", "undo_tool", "undo_arguments", "undo_token", "undo_expires_at",
-    "undone_by", "undone_at", "undo_error", "created_at",
+    "undone_by", "undone_at", "undo_error", "undo_claimed_at", "created_at",
 )
 
 
@@ -249,6 +249,25 @@ class SqlAlchemyAutonomyStore:
         self._apply(record, action)
         self.session.flush()
         return action
+
+    def claim_undo(
+        self, action_id: str, context: TenantContext, *, now: datetime, lease_seconds: float
+    ) -> AutonomousAction | None:
+        """Mark the action as being undone: the row is locked only for this statement, in the
+        caller's short transaction; None when it is undone, missing or claimed by an undo that
+        started less than ``lease_seconds`` ago (no wait: the earlier claim is committed)."""
+        record = self.session.scalar(
+            select(AutonomousActionRecord)
+            .where(*self._scope(AutonomousActionRecord, context), AutonomousActionRecord.id == action_id)
+            .with_for_update()
+        )
+        if record is None or record.status != "done":
+            return None
+        if self._action(record).undo_in_progress(now, lease_seconds):
+            return None
+        record.undo_claimed_at = now
+        self.session.flush()
+        return self._action(record)
 
     def list_actions(
         self, context: TenantContext, filters: ActionFilter, *, limit: int, after: str | None = None
