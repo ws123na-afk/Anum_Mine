@@ -6,9 +6,9 @@ import '../../src/theme/anum_theme.dart';
 import '../../src/widgets/anum_components.dart';
 import '../../src/widgets/depth.dart';
 import '../records_kit/payment_picker.dart';
-import '../records_kit/records_form.dart';
-import '../records_kit/records_kit.dart';
 import '../records_kit/records_widgets.dart';
+import 'finance_lending_strings.dart';
+import 'finance_lending_view.dart';
 import 'finance_personal_controller.dart';
 import 'finance_personal_models.dart';
 import 'finance_personal_strings.dart';
@@ -331,6 +331,8 @@ class PeopleLoansView extends StatelessWidget {
                   _LoanRow(
                       loan: loan,
                       strings: s,
+                      onOpen: () => openLoanDetail(context, c, loan),
+                      onEdit: () => openLoanForm(context, c, loan: loan),
                       onRepay: loan.settled
                           ? null
                           : () => _repay(context, c, s, loan)),
@@ -349,6 +351,7 @@ class PeopleLoansView extends StatelessWidget {
                     : s.t('people.more')),
               ),
             ),
+          LoanSuggestionsView(controller: c),
           Text(s.t('people.reminders'),
               style: TextStyle(color: context.palette.muted)),
         ]);
@@ -357,55 +360,8 @@ class PeopleLoansView extends StatelessWidget {
   }
 
   Future<void> _add(BuildContext context, FinancePersonalController c,
-      FinancePersonalStrings s) async {
-    final saved = await openRecordsForm(
-      context,
-      RecordsForm(
-        title: s.t('people.addTitle'),
-        intro: s.t('people.addIntro'),
-        submitLabel: s.t('people.save'),
-        fields: [
-          RecordsInput.choice('direction', s.t('people.direction'),
-              options: {
-                'lent': s.t('people.dirLent'),
-                'borrowed': s.t('people.dirBorrowed'),
-              },
-              initial: 'lent'),
-          RecordsInput.text('person', s.t('people.person'),
-              required: true, maxLength: 120),
-          RecordsInput.number('amount', s.t('people.amount'), required: true),
-          RecordsInput.text('currency', s.t('people.currency'),
-              help: s.t('people.currencyHelp'), maxLength: 3),
-          RecordsInput.date('lent_on', s.t('people.date'),
-              required: true, initial: isoDay(DateTime.now())),
-          RecordsInput.date('due_on', s.t('people.dueDate')),
-          RecordsInput.multiline('notes', s.t('people.notes'), maxLength: 1000),
-        ],
-        onSubmit: (v) async {
-          final amount = v['amount'] as String?;
-          if (amount == null || (double.tryParse(amount) ?? 0) <= 0) {
-            throw FormatException(s.t('people.badAmount'));
-          }
-          final currency = (v['currency'] as String?)?.toUpperCase();
-          if (currency != null && !RegExp(r'^[A-Z]{3}$').hasMatch(currency)) {
-            throw FormatException(s.t('people.badCurrency'));
-          }
-          await c.addLoan(PersonLoanInput(
-            direction: v['direction'] == 'borrowed'
-                ? LoanDirection.borrowed
-                : LoanDirection.lent,
-            person: v['person'] as String,
-            amount: amount,
-            currency: currency,
-            lentOn: v['lent_on'] as String,
-            dueOn: v['due_on'] as String?,
-            notes: v['notes'] as String?,
-          ));
-        },
-      ),
-    );
-    if (saved && context.mounted) recordsToast(context, s.t('people.saved'));
-  }
+          FinancePersonalStrings s) =>
+      openLoanForm(context, c);
 
   Future<void> _repay(BuildContext context, FinancePersonalController c,
       FinancePersonalStrings s, PersonLoan loan) async {
@@ -453,6 +409,7 @@ class _Totals extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final s = strings;
+    final l = FinanceLendingStrings.of(context);
     final c = controller;
     return AnumSurface(
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
@@ -476,12 +433,28 @@ class _Totals extends StatelessWidget {
               title: s.t('people.theyOweMe'),
               detail: _money(context, total.theyOweMe, total.currency),
             ),
+            if ((double.tryParse(total.theyOweMeOverdue) ?? 0) > 0)
+              AnumRow(
+                key: Key('owed-overdue-in-${total.currency}'),
+                icon: Icons.warning_amber_outlined,
+                tone: AnumTone.stop,
+                title: l.t('loan.theyOweOverdue'),
+                detail: _money(context, total.theyOweMeOverdue, total.currency),
+              ),
             AnumRow(
               icon: Icons.call_made,
               tone: AnumTone.warn,
               title: s.t('people.iOwe'),
               detail: _money(context, total.iOwe, total.currency),
             ),
+            if ((double.tryParse(total.iOweOverdue) ?? 0) > 0)
+              AnumRow(
+                key: Key('owed-overdue-out-${total.currency}'),
+                icon: Icons.warning_amber_outlined,
+                tone: AnumTone.stop,
+                title: l.t('loan.iOweOverdue'),
+                detail: _money(context, total.iOweOverdue, total.currency),
+              ),
           ],
       ]),
     );
@@ -489,20 +462,39 @@ class _Totals extends StatelessWidget {
 }
 
 class _LoanRow extends StatelessWidget {
-  const _LoanRow({required this.loan, required this.strings, this.onRepay});
+  const _LoanRow(
+      {required this.loan,
+      required this.strings,
+      required this.onOpen,
+      required this.onEdit,
+      this.onRepay});
   final PersonLoan loan;
   final FinancePersonalStrings strings;
+  final VoidCallback onOpen, onEdit;
   final VoidCallback? onRepay;
 
   @override
   Widget build(BuildContext context) {
     final s = strings;
+    final l = FinanceLendingStrings.of(context);
     final lent = loan.direction == LoanDirection.lent;
-    final due = loan.dueOn == null
+    final nextOn = loan.settled ? null : (loan.nextDueOn ?? loan.dueOn);
+    final due = nextOn == null
         ? s.t('people.noDue')
-        : s.t('people.due', {'date': recordsDate(context, loan.dueOn)});
+        : s.t('people.due', {'date': recordsDate(context, nextOn)});
+    final terms = [
+      if (loan.installments != null)
+        l.t('loan.installmentsShort', {'n': loan.installments!}),
+      if (loan.interestRate != null)
+        l.t('loan.rateShort', {
+          'rate': (double.tryParse(loan.interestRate!) ?? 0)
+              .toString()
+              .replaceFirst(RegExp(r'\.0$'), '')
+        }),
+    ];
     final status = s.t('people.status.${loan.status.name}');
     return Padding(
+      key: Key('loan-${loan.id}'),
       padding: const EdgeInsets.symmetric(vertical: AnumSpacing.xs),
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         AnumRow(
@@ -513,8 +505,11 @@ class _LoanRow extends StatelessWidget {
                   ? AnumTone.ok
                   : AnumTone.warn,
           title: loan.person,
-          subtitle: '${s.t(lent ? 'people.rowLent' : 'people.rowBorrowed')}'
-              ' · $due',
+          subtitle: [
+            s.t(lent ? 'people.rowLent' : 'people.rowBorrowed'),
+            due,
+            ...terms,
+          ].join(' · '),
           detail: s.t('people.left', {
             'left': _money(context, loan.outstanding, loan.currency),
             'amount': _money(context, loan.amount, loan.currency),
@@ -533,6 +528,53 @@ class _LoanRow extends StatelessWidget {
                 LoanStatus.repaid || LoanStatus.closed => AnumTone.ok,
                 LoanStatus.open => AnumTone.neutral,
               },
+            ),
+            if (loan.hasOverdue)
+              AnumPill(
+                key: Key('loan-overdue-${loan.id}'),
+                label: l.t('loan.overdue', {
+                  'amount': _money(context, loan.overdueAmount, loan.currency)
+                }),
+                tone: AnumTone.stop,
+                icon: Icons.warning_amber_outlined,
+              ),
+            if (loan.nextDueOn != null &&
+                !loan.settled &&
+                (double.tryParse(loan.nextDueAmount) ?? 0) > 0)
+              Text(
+                  l.t('loan.next', {
+                    'date': recordsDate(context, loan.nextDueOn),
+                    'amount':
+                        _money(context, loan.nextDueAmount, loan.currency),
+                  }),
+                  style: TextStyle(color: context.palette.muted)),
+          ],
+        ),
+        Wrap(
+          spacing: AnumSpacing.xs,
+          runSpacing: AnumSpacing.xxs,
+          children: [
+            Semantics(
+              label: l.t('loan.openLabel', {'person': loan.person}),
+              button: true,
+              excludeSemantics: true,
+              child: TextButton.icon(
+                key: Key('loan-open-${loan.id}'),
+                onPressed: onOpen,
+                icon: const Icon(Icons.calendar_month_outlined),
+                label: Text(l.t('loan.open')),
+              ),
+            ),
+            Semantics(
+              label: l.t('loan.editLabel', {'person': loan.person}),
+              button: true,
+              excludeSemantics: true,
+              child: TextButton.icon(
+                key: Key('loan-edit-${loan.id}'),
+                onPressed: onEdit,
+                icon: const Icon(Icons.edit_outlined),
+                label: Text(l.t('loan.edit')),
+              ),
             ),
             if (onRepay != null)
               TextButton.icon(

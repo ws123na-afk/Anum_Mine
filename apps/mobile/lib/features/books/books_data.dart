@@ -22,7 +22,9 @@ class BooksPermissions {
   }
   final bool read, write, manage;
 
-  /// An owner or a named accountant: sees the Accountant review.
+  /// An owner or a named accountant: sees the Accountant review and records
+  /// adjustments. An accountant who is not an owner is [account] without
+  /// [manage]: their adjustments at or above the approval threshold wait.
   final bool account;
 }
 
@@ -36,6 +38,8 @@ class BooksSetup {
     this.periodFrom,
     this.periodTo,
     this.billCount = 0,
+    this.userId,
+    this.approvalThreshold,
   });
   factory BooksSetup.fromJson(JsonReader j) {
     final settings = j.optObject('settings');
@@ -49,6 +53,13 @@ class BooksSetup {
       periodFrom: period?.optString('from'),
       periodTo: period?.optString('to'),
       billCount: j.optObject('counts')?.optInt('bills') ?? 0,
+      userId: j.optString('user_id'),
+      approvalThreshold: switch (
+          settings?.json['adjustment_approval_threshold']) {
+        final String text when text.isNotEmpty => text,
+        final num n => '$n',
+        _ => null,
+      },
     );
   }
   final bool configured;
@@ -57,6 +68,46 @@ class BooksSetup {
   final String basis;
   final int? version;
   final int billCount;
+
+  /// Who is asking: the maker of a pending adjustment never approves it.
+  final String? userId;
+
+  /// Adjustments an accountant records at or above this amount in the base
+  /// currency wait for a second approval (docs/business-books.md
+  /// #adjustment-approval); null means no approval step.
+  final String? approvalThreshold;
+}
+
+/// The journal adjustment kinds (`BooksAdjustmentKind`).
+const adjustmentKinds = [
+  'accrual',
+  'prepayment',
+  'capital_item',
+  'loan_received',
+  'loan_repayment',
+  'loan_interest',
+  'loan_interest_accrued',
+  'loan_interest_paid',
+  'owner_contribution',
+  'owner_drawing',
+  'owner_reimbursement',
+];
+
+/// Kinds spread over months from a first month.
+bool adjustmentSpreads(String kind) =>
+    kind == 'prepayment' || kind == 'capital_item';
+
+/// A recorded adjustment: `active` (posted), `pending` (waits for another
+/// owner or accountant) or `void`.
+class BooksAdjustment {
+  const BooksAdjustment(
+      {required this.id, required this.kind, required this.status});
+  factory BooksAdjustment.fromJson(JsonReader j) => BooksAdjustment(
+      id: j.string('id'),
+      kind: j.optString('kind') ?? '',
+      status: j.optString('status') ?? 'active');
+  final String id, kind, status;
+  bool get pending => status == 'pending';
 }
 
 class BooksLine {
@@ -431,6 +482,17 @@ abstract interface class BooksRepository {
   /// Approves a draft bill (never one's own: the API refuses it).
   Future<void> approveBill(String billId, int version);
 
+  /// Records a journal adjustment (owners and accountants). One
+  /// [idempotencyKey] per form, so a retry records it once.
+  Future<BooksAdjustment> createAdjustment(Map<String, Object?> body,
+      {required String idempotencyKey});
+
+  /// Approves a pending adjustment (never one's own: the API refuses it).
+  Future<void> approveAdjustment(String adjustmentId);
+
+  /// Rejects a pending adjustment (or voids an active one) with a reason.
+  Future<void> voidAdjustment(String adjustmentId, String reason);
+
   /// The documents attached to up to 100 records of one type.
   Future<EvidencePage> evidence(String sourceType, List<String> ids);
   Future<void> attach(String sourceType, String sourceId, String documentId);
@@ -523,6 +585,22 @@ class ApiBooksRepository implements BooksRepository {
   Future<void> approveBill(String billId, int version) =>
       api.request('POST', '$_base/bills/${_id(billId)}/approve',
           body: {'version': version});
+
+  @override
+  Future<BooksAdjustment> createAdjustment(Map<String, Object?> body,
+          {required String idempotencyKey}) async =>
+      BooksAdjustment.fromJson(JsonReader(await api.request(
+          'POST', '$_base/adjustments',
+          body: body, headers: {'Idempotency-Key': idempotencyKey})));
+
+  @override
+  Future<void> approveAdjustment(String adjustmentId) =>
+      api.request('POST', '$_base/adjustments/${_id(adjustmentId)}/approve');
+
+  @override
+  Future<void> voidAdjustment(String adjustmentId, String reason) =>
+      api.request('POST', '$_base/adjustments/${_id(adjustmentId)}/void',
+          body: {'reason': reason});
 
   @override
   Future<EvidencePage> evidence(String sourceType, List<String> ids) async =>

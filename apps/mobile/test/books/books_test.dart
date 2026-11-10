@@ -537,6 +537,16 @@ class _RacingBooks implements BooksRepository {
   Future<BooksBill> voidBill(String billId, String reason) =>
       inner.voidBill(billId, reason);
   @override
+  Future<BooksAdjustment> createAdjustment(Map<String, Object?> body,
+          {required String idempotencyKey}) =>
+      inner.createAdjustment(body, idempotencyKey: idempotencyKey);
+  @override
+  Future<void> approveAdjustment(String adjustmentId) =>
+      inner.approveAdjustment(adjustmentId);
+  @override
+  Future<void> voidAdjustment(String adjustmentId, String reason) =>
+      inner.voidAdjustment(adjustmentId, reason);
+  @override
   Future<ReviewChunk> review({String kind = '', String? token}) =>
       inner.review(kind: kind, token: token);
   @override

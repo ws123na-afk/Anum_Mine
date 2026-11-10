@@ -4,6 +4,7 @@ import '../../src/localization/money_format.dart';
 import '../../src/theme/anum_theme.dart';
 import '../../src/widgets/anum_components.dart';
 import '../../src/widgets/depth.dart';
+import '../records_kit/records_form.dart';
 import '../records_kit/records_kit.dart';
 import '../records_kit/records_widgets.dart';
 import 'books_controller.dart';
@@ -20,6 +21,7 @@ import 'books_strings.dart';
 const _kinds = [
   '',
   'draft_bill',
+  'adjustment_approval',
   'unconverted',
   'posting_issue',
   'allocation_review',
@@ -41,6 +43,16 @@ class ReviewView extends StatelessWidget {
     final muted = TextStyle(color: context.palette.muted);
     final children = <Widget>[
       AnumHeader(title: b.t('review.title'), subtitle: b.t('review.intro')),
+      if (controller.setup?.permissions.account ?? false)
+        Align(
+          alignment: AlignmentDirectional.centerStart,
+          child: OutlinedButton.icon(
+            key: const Key('adjustment-new'),
+            onPressed: () => openAdjustmentForm(context, controller),
+            icon: const Icon(Icons.add),
+            label: Text(b.t('adj.new')),
+          ),
+        ),
       RecordsFilterChips(
         options: {
           for (final kind in _kinds)
@@ -142,16 +154,45 @@ class _ReviewCard extends StatelessWidget {
   final ReviewItem item;
   final BooksController controller;
 
+  bool get _adjustment => item.kind == 'adjustment_approval';
+
   Future<void> _approve(BuildContext context) async {
     final b = BooksStrings.of(context);
     try {
       await controller.approve(item);
-      if (context.mounted) recordsToast(context, b.t('review.approved'));
+      if (context.mounted) {
+        recordsToast(context,
+            b.t(_adjustment ? 'review.adjApproved' : 'review.approved'));
+      }
     } on Object catch (error) {
       if (context.mounted) {
         recordsToast(context, RecordsFailure.from(error).message);
       }
     }
+  }
+
+  Future<void> _reject(BuildContext context) async {
+    final b = BooksStrings.of(context);
+    final done = await openRecordsForm(
+      context,
+      RecordsForm(
+        title: b.t('review.rejectTitle'),
+        intro: b.t('review.rejectIntro'),
+        submitLabel: b.t('review.reject'),
+        fields: [
+          RecordsInput.text('reason', b.t('voidReason'),
+              required: true, maxLength: 300),
+        ],
+        onSubmit: (v) async {
+          final reason = (v['reason'] as String?) ?? '';
+          if (reason.length < 3) {
+            throw FormatException(b.t('voidReason'));
+          }
+          await controller.reject(item, reason);
+        },
+      ),
+    );
+    if (done && context.mounted) recordsToast(context, b.t('review.rejected'));
   }
 
   @override
@@ -168,20 +209,22 @@ class _ReviewCard extends StatelessWidget {
       'description': p['description'] ?? '-',
       'reason': p['reason'] ?? '-',
     };
-    final head = switch (item.kind) {
-      'external' => item.detected,
-      _ => b.t('review.head.${item.kind}', values),
-    };
-    final why = switch (item.kind) {
-      'external' => null,
-      _ => b.t('review.why.${item.kind}', values),
-    };
+    if (_adjustment) {
+      final kind = p['adjustment_kind'] ?? '';
+      values['kind'] = b.maybe('adj.kind.$kind') ?? kind;
+    }
+    final known = b.maybe('review.head.${item.kind}') != null;
+    final head =
+        known ? b.t('review.head.${item.kind}', values) : item.detected;
+    final why = known ? b.t('review.why.${item.kind}', values) : null;
     final busy = controller.approving == item.key;
     return AnumSurface(
       key: Key('review-${item.key}'),
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         Wrap(spacing: AnumSpacing.xs, runSpacing: AnumSpacing.xxs, children: [
-          AnumPill(label: b.t('review.kind.${item.kind}')),
+          AnumPill(
+              label: b.maybe('review.kind.${item.kind}') ??
+                  b.t('review.kind.external')),
           AnumPill(
               label: b.t(item.blocking
                   ? 'review.severity.blocking'
@@ -200,6 +243,33 @@ class _ReviewCard extends StatelessWidget {
         if (why != null) ...[
           const SizedBox(height: AnumSpacing.xxs),
           Text(why, style: muted),
+        ],
+        if (_adjustment) ...[
+          const SizedBox(height: AnumSpacing.xs),
+          if (!item.canAct)
+            Text(b.t('review.ownAdjustment'),
+                key: Key('review-own-${item.key}'),
+                style: TextStyle(color: context.palette.warn))
+          else
+            Wrap(
+                spacing: AnumSpacing.sm,
+                runSpacing: AnumSpacing.xs,
+                children: [
+                  FilledButton(
+                    key: Key('review-approve-${item.key}'),
+                    onPressed: busy || controller.approving != null
+                        ? null
+                        : () => _approve(context),
+                    child: Text(b.t('review.approve')),
+                  ),
+                  OutlinedButton(
+                    key: Key('review-reject-${item.key}'),
+                    onPressed: busy || controller.approving != null
+                        ? null
+                        : () => _reject(context),
+                    child: Text(b.t('review.reject')),
+                  ),
+                ]),
         ],
         if (item.kind == 'draft_bill') ...[
           const SizedBox(height: AnumSpacing.xs),
@@ -459,5 +529,90 @@ class _DocumentPickerState extends State<_DocumentPicker> {
         ],
       ),
     );
+  }
+}
+
+/// Records a journal adjustment from the phone (owners and accountants).
+/// The form says beforehand whether it is posted at once or waits for a
+/// second approval (docs/business-books.md#adjustment-approval); the API
+/// decides, converting with the business's own rates.
+Future<void> openAdjustmentForm(
+    BuildContext context, BooksController controller) async {
+  final b = BooksStrings.of(context);
+  final setup = controller.setup;
+  final base = setup?.baseCurrency ?? '';
+  final threshold = setup?.approvalThreshold;
+  final String note;
+  if (setup?.permissions.manage ?? false) {
+    note = b.t('adj.ownerNote');
+  } else if (threshold != null) {
+    note = b.t('adj.approvalNote', {
+      'amount': formatMoneyText(threshold, base,
+          locale: Localizations.localeOf(context)),
+    });
+  } else {
+    note = b.t('adj.noApproval');
+  }
+  final key = newIdempotencyKey('adj');
+  BooksAdjustment? saved;
+  final done = await openRecordsForm(
+    context,
+    RecordsForm(
+      key: const Key('adjustment-form'),
+      title: b.t('adj.new'),
+      intro: '$note ${b.t('adj.trail')}',
+      submitLabel: b.t('adj.record'),
+      fields: [
+        RecordsInput.choice('kind', b.t('adj.kind'),
+            options: {for (final k in adjustmentKinds) k: b.t('adj.kind.$k')},
+            initial: 'accrual'),
+        RecordsInput.date('entry_date', b.t('adj.date'),
+            required: true, initial: isoDay(DateTime.now())),
+        RecordsInput.text('currency', b.t('adj.currency'),
+            required: true, maxLength: 3, initial: base),
+        RecordsInput.number('amount', b.t('adj.amount'), required: true),
+        RecordsInput.text('description', b.t('adj.why'),
+            required: true, maxLength: 300),
+        RecordsInput.date('start_month', b.t('adj.start'),
+            help: b.t('adj.startHelp')),
+        RecordsInput.number('months', b.t('adj.months')),
+        RecordsInput.date('reverse_on', b.t('adj.reverse')),
+      ],
+      onSubmit: (v) async {
+        final kind = v['kind'] as String? ?? 'accrual';
+        final amount = v['amount'] as String?;
+        if (amount == null || (double.tryParse(amount) ?? 0) <= 0) {
+          throw FormatException(b.t('adj.badAmount'));
+        }
+        final currency = (v['currency'] as String? ?? '').toUpperCase();
+        if (!RegExp(r'^[A-Z]{3}$').hasMatch(currency)) {
+          throw FormatException(b.t('adj.badCurrency'));
+        }
+        final description = v['description'] as String? ?? '';
+        if (description.length < 3) {
+          throw FormatException(b.t('adj.badDescription'));
+        }
+        final spread = adjustmentSpreads(kind);
+        final start = v['start_month'] as String?;
+        final months = int.tryParse(v['months'] as String? ?? '');
+        if (spread && (start == null || months == null || months < 1)) {
+          throw FormatException(b.t('adj.needSpread'));
+        }
+        saved = await controller.recordAdjustment({
+          'kind': kind,
+          'entry_date': v['entry_date'],
+          'currency': currency,
+          'amount': amount,
+          'description': description,
+          'start_month': spread ? '${start!.substring(0, 8)}01' : null,
+          'months': spread ? months : null,
+          'reverse_on': kind == 'accrual' ? v['reverse_on'] : null,
+        }, idempotencyKey: key);
+      },
+    ),
+  );
+  if (done && context.mounted) {
+    recordsToast(
+        context, b.t((saved?.pending ?? false) ? 'adj.pending' : 'adj.posted'));
   }
 }

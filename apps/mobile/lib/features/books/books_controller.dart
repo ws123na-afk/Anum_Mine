@@ -171,20 +171,55 @@ class BooksController extends ChangeNotifier {
     await Future.wait([bills.load(), loadReport()]);
   }
 
-  /// Approves a draft bill shown in the review with its version; the API
-  /// refuses one's own draft (maker and checker). Throws the refusal.
+  /// Approves a draft bill shown in the review with its version, or a
+  /// pending adjustment; the API refuses one's own (maker and checker).
+  /// Throws the refusal.
   Future<void> approve(ReviewItem item) async {
     final id = item.refId, version = item.version;
-    if (id == null || version == null || approving != null) return;
+    final adjustment = item.kind == 'adjustment_approval';
+    if (id == null || (!adjustment && version == null) || approving != null) {
+      return;
+    }
     approving = item.key;
     _notify();
     try {
-      await repository.approveBill(id, version);
+      if (adjustment) {
+        await repository.approveAdjustment(id);
+      } else {
+        await repository.approveBill(id, version!);
+      }
     } finally {
       approving = null;
       _notify();
     }
-    await Future.wait([review.load(), bills.load(), loadReport()]);
+    await Future.wait(
+        [review.load(), if (!adjustment) bills.load(), loadReport()]);
+  }
+
+  /// Rejects a pending adjustment with [reason]; it is never posted.
+  /// Throws the refusal.
+  Future<void> reject(ReviewItem item, String reason) async {
+    final id = item.refId;
+    if (id == null || approving != null) return;
+    approving = item.key;
+    _notify();
+    try {
+      await repository.voidAdjustment(id, reason);
+    } finally {
+      approving = null;
+      _notify();
+    }
+    await review.load();
+  }
+
+  /// Records an adjustment; an accountant's at or above the threshold comes
+  /// back `pending`. Reloads the review and the P&L. Throws the refusal.
+  Future<BooksAdjustment> recordAdjustment(Map<String, Object?> body,
+      {required String idempotencyKey}) async {
+    final saved =
+        await repository.createAdjustment(body, idempotencyKey: idempotencyKey);
+    await Future.wait([review.load(), loadReport()]);
+    return saved;
   }
 
   /// Evidence on a bill changed: its badge follows.

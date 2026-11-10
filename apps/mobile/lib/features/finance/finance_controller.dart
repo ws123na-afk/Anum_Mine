@@ -176,6 +176,7 @@ class FinanceController extends ChangeNotifier {
           loadItems('debts'),
           if (personal != null) personal!.loadPayoff(),
           if (personal != null) personal!.loadLoans(),
+          if (personal != null) personal!.loadLoanSuggestions(),
         ]);
       case FinanceSection.planner:
         break;
@@ -184,8 +185,11 @@ class FinanceController extends ChangeNotifier {
       case FinanceSection.accounts:
         await loadAccounts();
       case FinanceSection.safe:
-        await Future.wait(
-            [loadSafe(), if (personal != null) personal!.loadSalary()]);
+        await Future.wait([
+          loadSafe(),
+          if (personal != null) personal!.loadSalary(),
+          if (personal != null) personal!.loadIncome(),
+        ]);
       case FinanceSection.guardian:
         await loadGuardian();
       case FinanceSection.connections:

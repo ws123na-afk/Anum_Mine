@@ -1,0 +1,262 @@
+import 'package:flutter/widgets.dart';
+
+import '../../src/localization/anum_localizations.dart';
+import '../records_kit/records_widgets.dart';
+
+/// English and Arabic strings of loan schedules, repayment suggestions and
+/// expected one-off income on the phone (docs/finance.md#lent-and-borrowed,
+/// #forecast). The terms follow the web catalog
+/// (apps/web/src/lib/messages/financeDepth.*.ts).
+class FinanceLendingStrings extends ModuleStrings {
+  const FinanceLendingStrings(bool arabic) : super(arabic, _en, _ar);
+  static FinanceLendingStrings of(BuildContext context) =>
+      FinanceLendingStrings(AnumLocalizations.maybeOf(context).isArabic);
+  static bool get catalogsMatch => ModuleStrings.match(_en, _ar);
+
+  static const _en = <String, String>{
+    'loan.open': 'Schedule',
+    'loan.openLabel': 'Schedule and details of the entry with {person}',
+    'loan.edit': 'Edit',
+    'loan.editLabel': 'Edit the entry with {person}',
+    'loan.editTitle': 'Edit the entry with {person}',
+    'loan.rate': 'Interest a year in percent (optional)',
+    'loan.rateHelp':
+        'Empty: interest free. Interest needs a due date or monthly repayments.',
+    'loan.installments': 'Monthly repayments (optional)',
+    'loan.installmentsHelp':
+        'Empty: repaid once on the due date. With repayments, the due date is the last one and each repayment is the same amount.',
+    'loan.firstDue': 'First repayment',
+    'loan.firstDueHelp':
+        'Needed with monthly repayments, after the date the money changed hands.',
+    'loan.remind': 'Remind me in ANUM before a repayment is due',
+    'loan.remindDays': 'Days before (0 to 30)',
+    'loan.closed':
+        'Closed without full repayment (forgiven or settled another way)',
+    'loan.badRate':
+        'The interest rate is a number of percent a year, above 0 and at most 100.',
+    'loan.badInstallments':
+        'Monthly repayments are a whole number from 1 to 360.',
+    'loan.needFirstDue':
+        'Give the first repayment date for monthly repayments.',
+    'loan.firstDueWithout':
+        'A first repayment date needs the number of monthly repayments.',
+    'loan.rateNeedsDue':
+        'Interest needs a due date or monthly repayments to be worked out.',
+    'loan.badDays': 'Days before is a whole number from 0 to 30.',
+    'loan.saved': 'Saved {person}.',
+    'loan.overdue': '{amount} overdue',
+    'loan.next': 'Next repayment {date}: {amount}',
+    'loan.installmentsShort': '{n} monthly repayments',
+    'loan.rateShort': '{rate}% a year',
+    'loan.theyOweOverdue': 'Owed to you, overdue',
+    'loan.iOweOverdue': 'You owe, overdue',
+    'loan.loading': 'Loading the schedule',
+    'loan.failed': 'The entry could not be loaded: {message}',
+    'loan.amount': 'Amount',
+    'loan.repaid': 'Repaid',
+    'loan.left': 'Left',
+    'loan.interestTotal': 'Interest at {rate}% a year',
+    'loan.interestFree': 'Interest free',
+    'loan.scheduleTitle': 'Repayment schedule',
+    'loan.once': 'Repaid once on {date}.',
+    'loan.noDue': 'No due date yet. Add one, or monthly repayments, with Edit.',
+    'loan.row': 'Repayment {n}, {date}',
+    'loan.rowDetail': 'Principal {principal}, interest {interest}',
+    'loan.state.repaid': 'Repaid',
+    'loan.state.partRepaid': 'Part repaid',
+    'loan.state.overdue': 'Overdue',
+    'loan.state.due': 'Due',
+    'loan.scheduleMore': 'Show all {n} repayments',
+    'loan.done': 'Close',
+    'loan.currencyLocked':
+        'The currency and who owes whom change only while no transaction is linked.',
+    'sugg.title': 'Possible repayments',
+    'sugg.intro':
+        'Transactions that look like a repayment of an entry above. Accept links it; nothing is linked until you do. ANUM never asks anyone for money and never pays anyone.',
+    'sugg.loading': 'Looking for possible repayments',
+    'sugg.failed': 'Possible repayments could not be loaded: {message}',
+    'sugg.empty': 'No possible repayments',
+    'sugg.emptyText':
+        'A transaction that names the person, or is exactly the next repayment, is proposed here. You can also link one yourself with Record a repayment.',
+    'sugg.head.lent': '{person} repaying you {amount}?',
+    'sugg.head.borrowed': 'Repaying {person} {amount}?',
+    'sugg.why.lent':
+        'Money came in, in the entry\'s currency, that names {person} or is exactly the next repayment.',
+    'sugg.why.borrowed':
+        'Money went out, in the entry\'s currency, that names {person} or is exactly the next repayment.',
+    'sugg.left': '{amount} still open on this entry',
+    'sugg.sure': '{n}% sure',
+    'sugg.accept': 'Accept and link',
+    'sugg.dismiss': 'Dismiss',
+    'sugg.linked': 'Linked as a repayment.',
+    'sugg.dismissed': 'Dismissed. It will not be proposed again.',
+    'sugg.decideFailed': 'Not done: {message}',
+    'sugg.more': 'Show more',
+    'sugg.loadingMore': 'Loading more',
+    'sugg.moreFailed': 'More proposals could not be loaded: {message}',
+    'income.title': 'Expected one-off income',
+    'income.subtitle':
+        'A bonus, a refund or a sale you expect once. The forecast counts it on its date until you mark it received.',
+    'income.add': 'Add expected income',
+    'income.edit': 'Edit expected income',
+    'income.label': 'What it is',
+    'income.labelHelp': 'For example, annual bonus.',
+    'income.amount': 'Amount',
+    'income.currency': 'Currency',
+    'income.currencyHelp':
+        'Three letters, for example AED. Empty: your main currency.',
+    'income.on': 'Expected on',
+    'income.notes': 'Notes (optional)',
+    'income.save': 'Save',
+    'income.showReceived': 'Show received ones too',
+    'income.state.expected': 'Expected',
+    'income.state.late': 'Late, not counted',
+    'income.state.received': 'Received',
+    'income.expectedOn': 'Expected {date}',
+    'income.receivedOn': 'Received {date}',
+    'income.receive': 'Mark received',
+    'income.markedReceived':
+        'Marked {name} as received. The forecast no longer counts it.',
+    'income.saved': 'Saved {name}.',
+    'income.deleted': 'Deleted {name}.',
+    'income.delete': 'Delete',
+    'income.cancel': 'Cancel',
+    'income.deleteTitle': 'Delete {name}?',
+    'income.deleteText':
+        'The forecast stops counting it. Nothing in your ledger changes.',
+    'income.editLabel': 'Edit {name}',
+    'income.deleteLabel': 'Delete {name}',
+    'income.emptyTitle': 'No expected income',
+    'income.empty':
+        'Add money you expect once, with its date, so the forecast counts it.',
+    'income.noneOpen':
+        'Nothing is expected now. Turn on Show received ones too to see the rest.',
+    'income.loading': 'Loading expected income',
+    'income.failed': 'Expected income could not be loaded: {message}',
+    'income.more': 'Show more',
+    'income.loadingMore': 'Loading more',
+    'income.moreFailed': 'More income could not be loaded: {message}',
+    'income.badAmount': 'Enter an amount above zero.',
+    'income.badCurrency':
+        'Enter the currency as three letters, for example AED.',
+    'income.failedAction': 'Not done: {message}',
+  };
+
+  static const _ar = <String, String>{
+    'loan.open': 'الجدول',
+    'loan.openLabel': 'جدول وتفاصيل القيد مع {person}',
+    'loan.edit': 'تعديل',
+    'loan.editLabel': 'عدّل القيد مع {person}',
+    'loan.editTitle': 'عدّل القيد مع {person}',
+    'loan.rate': 'الفائدة السنوية بالمئة (اختياري)',
+    'loan.rateHelp':
+        'فارغ: بلا فائدة. الفائدة تحتاج تاريخ استحقاق أو دفعات شهرية.',
+    'loan.installments': 'عدد الدفعات الشهرية (اختياري)',
+    'loan.installmentsHelp':
+        'فارغ: يُسدَّد مرة واحدة في تاريخ الاستحقاق. مع الدفعات يكون تاريخ الاستحقاق آخر دفعة، وكل دفعة بالمبلغ نفسه.',
+    'loan.firstDue': 'أول دفعة',
+    'loan.firstDueHelp': 'مطلوب مع الدفعات الشهرية، بعد تاريخ انتقال المال.',
+    'loan.remind': 'ذكّرني في ANUM قبل موعد الدفعة',
+    'loan.remindDays': 'عدد الأيام قبلها (من 0 إلى 30)',
+    'loan.closed': 'أُغلق دون سداد كامل (مسامحة أو تسوية بطريقة أخرى)',
+    'loan.badRate':
+        'نسبة الفائدة عدد بالمئة سنويًا، أكبر من 0 وحتى 100 على الأكثر.',
+    'loan.badInstallments': 'عدد الدفعات الشهرية رقم صحيح من 1 إلى 360.',
+    'loan.needFirstDue': 'أدخل تاريخ أول دفعة للدفعات الشهرية.',
+    'loan.firstDueWithout': 'تاريخ أول دفعة يحتاج عدد الدفعات الشهرية.',
+    'loan.rateNeedsDue': 'الفائدة تحتاج تاريخ استحقاق أو دفعات شهرية لحسابها.',
+    'loan.badDays': 'عدد الأيام رقم صحيح من 0 إلى 30.',
+    'loan.saved': 'حُفظ {person}.',
+    'loan.overdue': '{amount} متأخر',
+    'loan.next': 'الدفعة التالية {date}: {amount}',
+    'loan.installmentsShort': '{n} دفعة شهرية',
+    'loan.rateShort': '{rate}% سنويًا',
+    'loan.theyOweOverdue': 'مستحق لك ومتأخر',
+    'loan.iOweOverdue': 'عليك ومتأخر',
+    'loan.loading': 'جارٍ تحميل الجدول',
+    'loan.failed': 'تعذر تحميل القيد: {message}',
+    'loan.amount': 'المبلغ',
+    'loan.repaid': 'المسدد',
+    'loan.left': 'المتبقي',
+    'loan.interestTotal': 'الفائدة بنسبة {rate}% سنويًا',
+    'loan.interestFree': 'بلا فائدة',
+    'loan.scheduleTitle': 'جدول السداد',
+    'loan.once': 'يُسدَّد مرة واحدة في {date}.',
+    'loan.noDue': 'لا تاريخ استحقاق بعد. أضف تاريخًا أو دفعات شهرية من تعديل.',
+    'loan.row': 'الدفعة {n}، {date}',
+    'loan.rowDetail': 'أصل المبلغ {principal}، الفائدة {interest}',
+    'loan.state.repaid': 'مسددة',
+    'loan.state.partRepaid': 'مسددة جزئيًا',
+    'loan.state.overdue': 'متأخرة',
+    'loan.state.due': 'مستحقة',
+    'loan.scheduleMore': 'اعرض الدفعات كلها ({n})',
+    'loan.done': 'إغلاق',
+    'loan.currencyLocked':
+        'العملة ومن يدين لمن لا يتغيران إلا إذا لم تُربط أي معاملة.',
+    'sugg.title': 'دفعات سداد محتملة',
+    'sugg.intro':
+        'معاملات تبدو سدادًا لقيد أعلاه. القبول يربطها، ولا يُربط شيء قبل ذلك. ANUM لا يطلب المال من أحد ولا يدفع لأحد.',
+    'sugg.loading': 'جارٍ البحث عن دفعات سداد محتملة',
+    'sugg.failed': 'تعذر تحميل دفعات السداد المحتملة: {message}',
+    'sugg.empty': 'لا دفعات سداد محتملة',
+    'sugg.emptyText':
+        'المعاملة التي تذكر الشخص، أو تساوي الدفعة التالية تمامًا، تُقترح هنا. ويمكنك ربط واحدة بنفسك من سجّل سدادًا.',
+    'sugg.head.lent': 'هل هذا سداد {person} لك بمبلغ {amount}؟',
+    'sugg.head.borrowed': 'هل هذا سدادك لـ {person} بمبلغ {amount}؟',
+    'sugg.why.lent':
+        'وصل مال بعملة القيد يذكر {person} أو يساوي الدفعة التالية تمامًا.',
+    'sugg.why.borrowed':
+        'خرج مال بعملة القيد يذكر {person} أو يساوي الدفعة التالية تمامًا.',
+    'sugg.left': 'ما زال {amount} مفتوحًا في هذا القيد',
+    'sugg.sure': 'متأكد بنسبة {n}%',
+    'sugg.accept': 'اقبل واربط',
+    'sugg.dismiss': 'تجاهل',
+    'sugg.linked': 'رُبطت كسداد.',
+    'sugg.dismissed': 'تم التجاهل. لن تُقترح مرة أخرى.',
+    'sugg.decideFailed': 'لم يتم: {message}',
+    'sugg.more': 'اعرض المزيد',
+    'sugg.loadingMore': 'جارٍ تحميل المزيد',
+    'sugg.moreFailed': 'تعذر تحميل اقتراحات أخرى: {message}',
+    'income.title': 'دخل متوقع لمرة واحدة',
+    'income.subtitle':
+        'مكافأة أو استرداد أو بيع تتوقعه مرة واحدة. يحسبه التوقع في تاريخه حتى تعلّم أنه وصل.',
+    'income.add': 'أضف دخلًا متوقعًا',
+    'income.edit': 'عدّل الدخل المتوقع',
+    'income.label': 'ما هو',
+    'income.labelHelp': 'مثلًا المكافأة السنوية.',
+    'income.amount': 'المبلغ',
+    'income.currency': 'العملة',
+    'income.currencyHelp': 'ثلاثة أحرف، مثل AED. فارغ: عملتك الأساسية.',
+    'income.on': 'التاريخ المتوقع',
+    'income.notes': 'ملاحظات (اختياري)',
+    'income.save': 'حفظ',
+    'income.showReceived': 'اعرض ما وصل أيضًا',
+    'income.state.expected': 'متوقع',
+    'income.state.late': 'متأخر ولا يُحسب',
+    'income.state.received': 'وصل',
+    'income.expectedOn': 'متوقع في {date}',
+    'income.receivedOn': 'وصل في {date}',
+    'income.receive': 'علّم أنه وصل',
+    'income.markedReceived': 'عُلّم {name} أنه وصل. لم يعد التوقع يحسبه.',
+    'income.saved': 'حُفظ {name}.',
+    'income.deleted': 'حُذف {name}.',
+    'income.delete': 'احذف',
+    'income.cancel': 'إلغاء',
+    'income.deleteTitle': 'حذف {name}؟',
+    'income.deleteText': 'يتوقف التوقع عن حسابه. لا يتغير شيء في دفترك.',
+    'income.editLabel': 'عدّل {name}',
+    'income.deleteLabel': 'احذف {name}',
+    'income.emptyTitle': 'لا دخل متوقع',
+    'income.empty': 'أضف مالًا تتوقعه مرة واحدة مع تاريخه ليحسبه التوقع.',
+    'income.noneOpen':
+        'لا شيء متوقع الآن. فعّل اعرض ما وصل أيضًا لرؤية الباقي.',
+    'income.loading': 'جارٍ تحميل الدخل المتوقع',
+    'income.failed': 'تعذر تحميل الدخل المتوقع: {message}',
+    'income.more': 'اعرض المزيد',
+    'income.loadingMore': 'جارٍ تحميل المزيد',
+    'income.moreFailed': 'تعذر تحميل دخل آخر: {message}',
+    'income.badAmount': 'أدخل مبلغًا أكبر من صفر.',
+    'income.badCurrency': 'أدخل العملة بثلاثة أحرف، مثل AED.',
+    'income.failedAction': 'لم يتم: {message}',
+  };
+}
