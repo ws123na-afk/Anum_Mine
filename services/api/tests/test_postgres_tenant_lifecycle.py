@@ -146,7 +146,10 @@ def test_registry_matches_the_database_and_every_table_has_its_purge_policy(data
             )
         }
     # vault_document_access: the private-document policy of 0133_document_vault, which grants the purger its lookup columns.
-    assert lookups <= {"agent_profiles", "mail_account_grants", "attendance_shares", "vault_document_access"}, f"grant the purger the lookup columns of {lookups}"
+    # tasks, agent_runs: the private-task policies of 0163_private_tasks look the row's task (or run) up, and grant the
+    # purger the id column they read (the purger itself is admitted by name).
+    assert lookups <= {"agent_profiles", "mail_account_grants", "attendance_shares", "vault_document_access", "tasks", "agent_runs"}, (
+        f"grant the purger the lookup columns of {lookups}")
     assert in_database == {t.name for t in TENANT_TABLES}, "a tenant table is missing from anum_api/tenant_lifecycle_tables.py"
     assert policies == {t.name for t in PURGED_TABLES} and LIFECYCLE_JOBS_TABLE not in policies
     assert unextended == [], f"restrictive policies would hide rows from the purge: {unextended}"
