@@ -42,7 +42,9 @@ LoanStatus _loanStatus(String value) => switch (value) {
       _ => LoanStatus.open,
     };
 
-/// One loan with a person (`FinancePersonLoan`).
+/// One loan with a person (`FinancePersonLoan`): repaid once on its due
+/// date, or monthly from `first_due_on` (`installments`), interest free
+/// unless `interest_rate` (percent a year) is set.
 class PersonLoan {
   const PersonLoan({
     required this.id,
@@ -57,16 +59,35 @@ class PersonLoan {
     this.dueOn,
     this.daysUntilDue,
     this.notes,
+    this.remind = true,
+    this.remindDaysBefore = 3,
+    this.closedOn,
+    this.interestRate,
+    this.installments,
+    this.firstDueOn,
+    this.interest = '0',
+    this.nextDueOn,
+    this.nextDueAmount = '0',
+    this.overdueAmount = '0',
   });
 
   final String id, person, amount, currency, lentOn, repaid, outstanding;
   final LoanDirection direction;
   final LoanStatus status;
-  final String? dueOn, notes;
-  final int? daysUntilDue;
+  final String? dueOn, notes, closedOn, interestRate, firstDueOn, nextDueOn;
+  final int? daysUntilDue, installments;
+  final bool remind;
+  final int remindDaysBefore;
+
+  /// Scheduled interest in total, the next repayment not covered yet and
+  /// what was due before today and is not repaid, all in [currency].
+  final String interest, nextDueAmount, overdueAmount;
 
   bool get settled =>
       status == LoanStatus.repaid || status == LoanStatus.closed;
+
+  /// Something was due before today and is not repaid.
+  bool get hasOverdue => (double.tryParse(overdueAmount) ?? 0) > 0;
 
   factory PersonLoan.fromJson(JsonReader r) => PersonLoan(
         id: r.string('id'),
@@ -83,19 +104,81 @@ class PersonLoan {
         outstanding: _decimal(r, 'outstanding'),
         status: _loanStatus(r.string('status')),
         daysUntilDue: r.optInt('days_until_due'),
+        remind: r.optBool('remind') ?? true,
+        remindDaysBefore: r.optInt('remind_days_before') ?? 3,
+        closedOn: r.optString('closed_on'),
+        interestRate: _optDecimal(r, 'interest_rate'),
+        installments: r.optInt('installments'),
+        firstDueOn: r.optString('first_due_on'),
+        interest: _optDecimal(r, 'interest') ?? '0',
+        nextDueOn: r.optString('next_due_on'),
+        nextDueAmount: _optDecimal(r, 'next_due_amount') ?? '0',
+        overdueAmount: _optDecimal(r, 'overdue_amount') ?? '0',
       );
 }
 
-/// What is owed in one currency over every open loan (`FinanceOwed`).
+/// `repaid`, `part_repaid`, `overdue` or `due`.
+enum InstallmentState { repaid, partRepaid, overdue, due }
+
+/// One repayment of a loan's schedule (`FinanceLoanInstallment`).
+class LoanInstallment {
+  const LoanInstallment({
+    required this.number,
+    required this.dueOn,
+    required this.principal,
+    required this.interest,
+    required this.amount,
+    required this.state,
+  });
+  final int number;
+  final String dueOn, principal, interest, amount;
+  final InstallmentState state;
+
+  factory LoanInstallment.fromJson(JsonReader r) => LoanInstallment(
+        number: r.optInt('number') ?? 0,
+        dueOn: r.string('due_on'),
+        principal: _decimal(r, 'principal'),
+        interest: _decimal(r, 'interest'),
+        amount: _decimal(r, 'amount'),
+        state: switch (r.optString('state')) {
+          'repaid' => InstallmentState.repaid,
+          'part_repaid' => InstallmentState.partRepaid,
+          'overdue' => InstallmentState.overdue,
+          _ => InstallmentState.due,
+        },
+      );
+}
+
+/// `GET /people-loans/{id}` (`FinancePersonLoanDetail`): the loan with its
+/// schedule, repaid money applied in date order.
+class PersonLoanDetail {
+  const PersonLoanDetail({required this.loan, required this.schedule});
+  final PersonLoan loan;
+  final List<LoanInstallment> schedule;
+
+  factory PersonLoanDetail.fromJson(JsonReader r) => PersonLoanDetail(
+        loan: PersonLoan.fromJson(r),
+        schedule: r.optObjects('schedule', LoanInstallment.fromJson),
+      );
+}
+
+/// What is owed in one currency over every open loan (`FinanceOwed`), with
+/// the overdue part of each side. Never added across currencies.
 class OwedTotal {
   const OwedTotal(
-      {required this.currency, required this.theyOweMe, required this.iOwe});
-  final String currency, theyOweMe, iOwe;
+      {required this.currency,
+      required this.theyOweMe,
+      required this.iOwe,
+      this.theyOweMeOverdue = '0',
+      this.iOweOverdue = '0'});
+  final String currency, theyOweMe, iOwe, theyOweMeOverdue, iOweOverdue;
 
   factory OwedTotal.fromJson(JsonReader r) => OwedTotal(
         currency: r.string('currency'),
         theyOweMe: _decimal(r, 'they_owe_me'),
         iOwe: _decimal(r, 'i_owe'),
+        theyOweMeOverdue: _optDecimal(r, 'they_owe_me_overdue') ?? '0',
+        iOweOverdue: _optDecimal(r, 'i_owe_overdue') ?? '0',
       );
 }
 
@@ -119,7 +202,9 @@ class PersonLoanPage {
       );
 }
 
-/// A new loan (`FinancePersonLoanInput`).
+/// A new loan, or the full body that replaces one (`FinancePersonLoanInput`).
+/// Only what was given is sent; an edit passes every field it keeps (the
+/// API replaces the loan with the body, so a field left out is cleared).
 class PersonLoanInput {
   const PersonLoanInput({
     required this.direction,
@@ -129,21 +214,41 @@ class PersonLoanInput {
     this.currency,
     this.dueOn,
     this.notes,
+    this.remind,
+    this.remindDaysBefore,
+    this.closed,
+    this.interestRate,
+    this.installments,
+    this.firstDueOn,
   });
   final LoanDirection direction;
   final String person, amount, lentOn;
-  final String? currency, dueOn, notes;
+  final String? currency, dueOn, notes, interestRate, firstDueOn;
+  final bool? remind, closed;
+  final int? remindDaysBefore, installments;
 
-  Map<String, Object?> toJson() => {
-        'direction': direction.name,
-        'person': person,
-        'amount': amount,
-        if (currency != null && currency!.isNotEmpty)
-          'currency': currency!.toUpperCase(),
-        'lent_on': lentOn,
-        if (dueOn != null && dueOn!.isNotEmpty) 'due_on': dueOn,
-        if (notes != null && notes!.isNotEmpty) 'notes': notes,
-      };
+  Map<String, Object?> toJson() {
+    final scheduled = installments != null;
+    return {
+      'direction': direction.name,
+      'person': person,
+      'amount': amount,
+      if (currency != null && currency!.isNotEmpty)
+        'currency': currency!.toUpperCase(),
+      'lent_on': lentOn,
+      // A schedule decides the due date: the last repayment.
+      if (!scheduled && dueOn != null && dueOn!.isNotEmpty) 'due_on': dueOn,
+      if (notes != null && notes!.isNotEmpty) 'notes': notes,
+      if (remind != null) 'remind': remind,
+      if (remindDaysBefore != null) 'remind_days_before': remindDaysBefore,
+      if (closed != null) 'closed': closed,
+      if (interestRate != null && interestRate!.isNotEmpty)
+        'interest_rate': interestRate,
+      if (scheduled) 'installments': installments,
+      if (scheduled && firstDueOn != null && firstDueOn!.isNotEmpty)
+        'first_due_on': firstDueOn,
+    };
+  }
 }
 
 /// One of the person's recorded transactions a repayment can be linked to
@@ -489,4 +594,89 @@ class PlannerFailure implements Exception {
 
   @override
   String toString() => message;
+}
+
+/// The state of one expected one-off income: still `expected`, `late` (its
+/// date passed and it is not marked received, so the forecast stops
+/// counting it) or `received`.
+enum IncomeState { expected, late, received }
+
+/// One-off income the person expects on a date (`FinanceExpectedIncome`,
+/// docs/finance.md#forecast): counted by the forecast until received.
+class ExpectedIncome {
+  const ExpectedIncome({
+    required this.id,
+    required this.label,
+    required this.amount,
+    required this.currency,
+    required this.expectedOn,
+    required this.state,
+    this.receivedOn,
+    this.notes,
+  });
+  final String id, label, amount, currency, expectedOn;
+  final String? receivedOn, notes;
+  final IncomeState state;
+
+  factory ExpectedIncome.fromJson(JsonReader r) => ExpectedIncome(
+        id: r.string('id'),
+        label: r.string('label'),
+        amount: _decimal(r, 'amount'),
+        currency: r.string('currency'),
+        expectedOn: r.string('expected_on'),
+        receivedOn: r.optString('received_on'),
+        notes: r.optString('notes'),
+        state: switch (r.optString('state')) {
+          'late' => IncomeState.late,
+          'received' => IncomeState.received,
+          _ => IncomeState.expected,
+        },
+      );
+
+  /// The same income as a full body, received on [on] (or as it was).
+  ExpectedIncomeInput toInput({String? receivedOn}) => ExpectedIncomeInput(
+        label: label,
+        amount: amount,
+        currency: currency,
+        expectedOn: expectedOn,
+        receivedOn: receivedOn ?? this.receivedOn,
+        notes: notes,
+      );
+}
+
+/// `GET /expected-income` (`FinanceExpectedIncomePage`).
+class ExpectedIncomePage {
+  const ExpectedIncomePage({required this.items, required this.total});
+  final List<ExpectedIncome> items;
+  final int total;
+
+  factory ExpectedIncomePage.fromJson(JsonReader r) => ExpectedIncomePage(
+        items: r.optObjects('items', ExpectedIncome.fromJson),
+        total: r.optInt('total') ?? 0,
+      );
+}
+
+/// The body of `POST /expected-income` and `PATCH /expected-income/{id}`
+/// (the PATCH replaces the record with the full body).
+class ExpectedIncomeInput {
+  const ExpectedIncomeInput({
+    required this.label,
+    required this.amount,
+    required this.expectedOn,
+    this.currency,
+    this.receivedOn,
+    this.notes,
+  });
+  final String label, amount, expectedOn;
+  final String? currency, receivedOn, notes;
+
+  Map<String, Object?> toJson() => {
+        'label': label,
+        'amount': amount,
+        if (currency != null && currency!.isNotEmpty)
+          'currency': currency!.toUpperCase(),
+        'expected_on': expectedOn,
+        'received_on': receivedOn,
+        'notes': (notes == null || notes!.isEmpty) ? null : notes,
+      };
 }

@@ -448,6 +448,9 @@ class ModuleStrings {
     return text;
   }
 
+  /// The text for [key], or null when neither catalog has it.
+  String? maybe(String key) => (arabic ? ar : en)[key] ?? en[key];
+
   /// A label for an API value (`fuel.petrol_95`), or the value itself.
   String label(String prefix, String value) {
     final key = '$prefix.$value';

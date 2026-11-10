@@ -7,6 +7,7 @@ import 'finance_controller.dart';
 import 'finance_depth_strings.dart';
 import 'finance_depth_view.dart';
 import 'finance_intel_view.dart';
+import 'finance_lending_view.dart';
 import '../admin/admin_models.dart' show configuredWebAppUrl;
 import 'finance_models.dart';
 import 'finance_personal_strings.dart';
@@ -480,6 +481,9 @@ class _FinanceScreenState extends State<FinanceScreen> {
             controller: c.personal!,
             appUrl: widget.webAppUrl,
             openLink: widget.openLink);
+    final income = c.personal == null
+        ? null
+        : ExpectedIncomeView(controller: c.personal!, onChanged: c.loadSafe);
     if (d.currencies.isEmpty) {
       return [
         AnumEmpty(
@@ -488,6 +492,7 @@ class _FinanceScreenState extends State<FinanceScreen> {
             icon: Icons.account_balance_outlined,
             action: s.t('addAccount'),
             onAction: () => _addAccount(context, c, s)),
+        if (income != null) income,
         if (salary != null) salary,
       ];
     }
@@ -559,6 +564,7 @@ class _FinanceScreenState extends State<FinanceScreen> {
               AnumRow(title: line.label, subtitle: _safeNote(line, s)),
           ]),
         ),
+      if (income != null) income,
       if (salary != null) salary,
       Text(s.t('safe.disclaimer'),
           style: TextStyle(color: context.palette.muted)),
