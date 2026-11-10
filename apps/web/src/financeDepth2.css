@@ -1,0 +1,15 @@
+/* Foreign balances in the base currency and personal trips and projects (docs/finance.md#foreign-currency-balances,
+   #trips-and-projects). Spacing from the shared tokens; content-driven heights. */
+.fdepth2FxList { display: grid; gap: var(--d-s3); list-style: none; margin: 0; padding: 0; }
+.fdepth2FxList > li { display: grid; gap: var(--d-s1); padding-block-end: var(--d-s3); border-block-end: 1px solid var(--d-line, var(--border)); }
+.fdepth2FxList > li:last-child { border-block-end: 0; padding-block-end: 0; }
+.fdepth2FxHead { display: flex; flex-wrap: wrap; justify-content: space-between; gap: var(--d-s1) var(--d-s3); }
+.fdepth2FxHead strong { overflow-wrap: anywhere; }
+.fdepth2FxFigures { display: grid; grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr)); gap: var(--d-s1) var(--d-s3); margin: 0; }
+.fdepth2FxFigures dt { color: var(--d-muted); font-size: var(--text-sm); }
+.fdepth2FxFigures dd { margin: 0; }
+.fdepth2FxMissing { display: flex; flex-wrap: wrap; align-items: center; gap: var(--d-s1) var(--d-s2); margin: 0; }
+.fdepth2FxRate { overflow-wrap: anywhere; }
+.fdepth2FxTotal { margin: var(--d-s3) 0 0; font-weight: 600; }
+.fdepth2Tags .fpmFilters { margin-block-end: var(--d-s3); }
+.fdepth2TagDates { display: grid; grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr)); gap: var(--d-s2) var(--d-s3); }

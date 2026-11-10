@@ -6,7 +6,9 @@ tenant, workspace and user RLS context is set (``open_scoped_store(..., user_sco
 policy, and every query repeats the scope and the owner. The in-memory store serves local development and tests with
 the same rules. The salary profile (one per person, ``finance_salary_profiles``, migration ``0150_finance_salary_profile``)
 lives here too, next to the payslips, and so does expected one-off income (``finance_expected_income``, migration
-``0158_finance_depth``). Counted, exported and deleted with the rest of Finance.
+``0158_finance_depth``), and so do personal trips and projects (``finance_personal_tags``, migration ``0160_finance_depth_2``) and the
+payments accepted at once for a bank loan (``finance_loan_batches``, migration ``0161_finance_bank_loans``). Counted, exported and deleted
+with the rest of Finance.
 """
 
 from __future__ import annotations
@@ -19,11 +21,11 @@ from typing import Literal, Protocol, TypeVar
 
 from ..schemas import TenantContext
 from ..scoped_store import open_scoped_store
-from .personal import ExpectedIncome, Payslip, PersonLoan, Remittance, SalaryProfile
+from .personal import ExpectedIncome, LoanBatch, Payslip, PersonalTag, PersonLoan, Remittance, SalaryProfile
 
-Kind = Literal["person_loan", "payslip", "remittance", "salary_profile", "expected_income"]
+Kind = Literal["person_loan", "payslip", "remittance", "salary_profile", "expected_income", "tag", "loan_batch"]
 MODELS: dict[str, type] = {"person_loan": PersonLoan, "payslip": Payslip, "remittance": Remittance, "salary_profile": SalaryProfile,
-                          "expected_income": ExpectedIncome}
+                          "expected_income": ExpectedIncome, "tag": PersonalTag, "loan_batch": LoanBatch}
 MAX_ROWS = 2000  # per person and kind
 Item = TypeVar("Item", PersonLoan, Payslip, Remittance, SalaryProfile)
 
@@ -54,6 +56,10 @@ def sort_key(kind: Kind, item: object) -> tuple:
         return (item.joined_on, item.created_at)  # type: ignore[attr-defined]
     if kind == "expected_income":
         return (item.expected_on, item.created_at)  # type: ignore[attr-defined]
+    if kind == "tag":
+        return (item.created_at, item.created_at)  # type: ignore[attr-defined]
+    if kind == "loan_batch":
+        return (item.created_at, item.id)  # type: ignore[attr-defined]
     return (item.sent_on, item.created_at)  # type: ignore[attr-defined]
 
 

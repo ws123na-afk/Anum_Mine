@@ -546,7 +546,23 @@ export interface FinanceDebt {
   notes: string | null;
   created_at: string;
   updated_at: string;
+  /** A bank or finance loan's own terms (docs/finance.md#bank-loans), set with PUT /debts/{id}/loan; null when not entered. */
+  lender?: string | null;
+  loan_start_on?: string | null;
+  loan_amount?: FinanceMoney | null;
+  loan_rate_type?: 'reducing' | 'flat' | null;
+  loan_rate?: string | null;
+  loan_term_months?: number | null;
+  loan_installment?: FinanceMoney | null;
+  loan_payment_day?: number | null;
+  loan_repayment?: FinanceBankLoanRepayment | null;
+  loan_account_id?: string | null;
+  loan_status?: FinanceBankLoanStatus | null;
+  loan_closed_on?: string | null;
 }
+
+export type FinanceBankLoanRepayment = 'bank_debit' | 'salary_deduction' | 'manual';
+export type FinanceBankLoanStatus = 'open' | 'paid_off' | 'closed';
 
 export interface FinanceDebtInput {
   name: string;

@@ -1431,6 +1431,19 @@ class DebtView(BaseModel):
     notes: str | None
     created_at: Any
     updated_at: Any
+    # A bank or finance loan's terms (docs/finance.md#bank-loans; set with PUT /debts/{id}/loan).
+    lender: str | None = None
+    loan_start_on: date | None = None
+    loan_amount: Decimal | None = None
+    loan_rate_type: str | None = None
+    loan_rate: Decimal | None = None
+    loan_term_months: int | None = None
+    loan_installment: Decimal | None = None
+    loan_payment_day: int | None = None
+    loan_repayment: str | None = None
+    loan_account_id: str | None = None
+    loan_status: str | None = None
+    loan_closed_on: date | None = None
 
 
 class GoalView(BaseModel):
@@ -1525,7 +1538,17 @@ def _build_debt(store: FinanceStore, context: TenantContext, body: DebtInput, ex
         account_id=account.id if account else None, original_balance=_original_balance(body, currency, existing),
         notes=_clean(body.notes, 1000),
         created_at=existing.created_at if existing else now, updated_at=now,
+        # The loan terms are set with PUT /debts/{id}/loan; an edit here keeps them while the currency stays the same.
+        **(_loan_terms(existing) if existing is not None and existing.currency == currency else {}),
     )
+
+
+LOAN_FIELDS = ("lender", "loan_start_on", "loan_amount", "loan_rate_type", "loan_rate", "loan_term_months", "loan_installment", "loan_payment_day",
+               "loan_repayment", "loan_account_id", "loan_status", "loan_closed_on")
+
+
+def _loan_terms(debt: Debt) -> dict[str, Any]:
+    return {name: getattr(debt, name) for name in LOAN_FIELDS}
 
 
 def _build_goal(store: FinanceStore, context: TenantContext, body: GoalInput, existing: Goal | None) -> Goal:

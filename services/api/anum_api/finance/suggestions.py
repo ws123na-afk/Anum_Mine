@@ -38,13 +38,13 @@ logger = logging.getLogger("anum_api.finance.suggestions")
 Kind = Literal[
     "classification", "conflict", "uncategorized", "statement_hold", "sms_review", "duplicate", "refund_match", "payment_match", "bill_due",
     "subscription", "unusual_spend", "missing_statement", "cash_shortage", "reconciliation", "attribution", "fx_fee", "loan_overdue", "loan_repayment",
-    "external",
+    "loan_payments", "external",
 ]
-ActionKind = Literal["classify", "confirm_refund", "acknowledge", "open", "link"]
+ActionKind = Literal["classify", "confirm_refund", "acknowledge", "open", "link", "link_batch"]
 # The order the queue lists kinds in: money at risk first, then what blocks figures, then tidying.
 KIND_ORDER: tuple[str, ...] = (
     "cash_shortage", "bill_due", "loan_overdue", "unusual_spend", "reconciliation", "duplicate", "conflict", "classification", "uncategorized", "statement_hold", "sms_review",
-    "refund_match", "payment_match", "loan_repayment", "attribution", "fx_fee", "missing_statement", "subscription", "external",
+    "refund_match", "payment_match", "loan_repayment", "loan_payments", "attribution", "fx_fee", "missing_statement", "subscription", "external",
 )
 RECENT_DAYS = 120  # rows a classification suggestion looks at
 HISTORY_DAYS = 400  # what historical reuse learns from
@@ -70,10 +70,10 @@ class Effect(BaseModel):
 class LinkProposal(BaseModel):
     """What Accept links, through the finance links API (so every link check applies): a part of one canonical
     transaction to a bill's due date, a debt, a vehicle cost, a purchase, a loan with a person (a repayment), or a business
-    (an allocation)."""
+    (an allocation), or a personal trip or project tag."""
 
     canonical_id: str
-    dimension: Literal["bill", "debt", "vehicle", "purchase", "business", "person_loan"]
+    dimension: Literal["bill", "debt", "vehicle", "purchase", "business", "person_loan", "trip", "project"]
     target_type: str
     target_id: str
     amount: Decimal
@@ -85,6 +85,22 @@ class LinkProposal(BaseModel):
     project_id: str | None = None
 
 
+class LoanMonth(BaseModel):
+    """One instalment of a bank loan as the finder saw it (docs/finance.md#bank-loans): found (the debit, or the payslip or
+    salary rule that shows the deduction), missing or ambiguous (more than one debit fits)."""
+
+    number: int
+    due_on: date
+    state: Literal["found", "missing", "ambiguous"]
+    expected: Decimal
+    currency: str
+    amount: Decimal | None = None
+    canonical_id: str | None = None
+    source: Literal["bank_debit", "payslip", "salary_rule"] | None = None
+    source_id: str | None = None
+    candidates: int = 0
+
+
 class ProposedAction(BaseModel):
     kind: ActionKind
     transaction_ids: list[str] = Field(default_factory=list, max_length=200)
@@ -92,6 +108,14 @@ class ProposedAction(BaseModel):
     subcategory_id: str | None = None
     transaction_type: TransactionType | None = None
     link: LinkProposal | None = None
+    # A split: one transaction across several records of one dimension, an amount each (a repayment covering several loans
+    # with the same person). Accept makes every part or none (``links.create_many``).
+    parts: list[LinkProposal] = Field(default_factory=list, max_length=10)
+    # ``link_batch``: every found payment of one bank loan, linked at once (``links``) or, for months the salary paid,
+    # recorded in the accepted batch (``loan_months``); undone together.
+    debt_id: str | None = None
+    links: list[LinkProposal] = Field(default_factory=list, max_length=600)
+    loan_months: list[LoanMonth] = Field(default_factory=list, max_length=600)
 
 
 class Suggestion(BaseModel):
@@ -108,6 +132,8 @@ class Suggestion(BaseModel):
     href: str | None = None  # the existing page that owns it
     occurred_on: date | None = None
     payload_hash: str = ""
+    # ``loan_payments``: every instalment due so far with what the finder saw (found, missing or ambiguous).
+    months: list[LoanMonth] = Field(default_factory=list, max_length=600)
 
 
 @dataclass
@@ -517,6 +543,7 @@ __all__ = [
     "Effect",
     "Evidence",
     "LinkProposal",
+    "LoanMonth",
     "ProposedAction",
     "Queue",
     "Snapshot",
@@ -532,5 +559,6 @@ __all__ = [
 # The reconciliation workspace's exceptions (its module registers itself; imported last, once this module is complete).
 # Attribution (business, vehicle, purchase, debt) and card FX fee producers (docs/finance.md#attribution-suggestions).
 from . import attribution as _attribution  # noqa: F401
-from . import reconciliation_suggestions as _reconciliation_suggestions  # noqa: F401
+from . import bank_loan_service as _bank_loan_service  # noqa: F401
 from . import loan_suggestions as _loan_suggestions  # noqa: F401
+from . import reconciliation_suggestions as _reconciliation_suggestions  # noqa: F401

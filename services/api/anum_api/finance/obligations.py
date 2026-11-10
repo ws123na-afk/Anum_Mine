@@ -47,6 +47,8 @@ class DebtPayment:
     currency: str
     posted_on: date
     matched_at: object  # the link's created_at (a datetime)
+    canonical_id: str = ""
+    link_id: str = ""
 
 
 @dataclass
@@ -64,6 +66,8 @@ class Links:
     salary_profile: object | None = None
     payslips: list = field(default_factory=list)
     payslip_credits: dict[str, set[str]] = field(default_factory=dict)
+    # Payments accepted at once for bank loans (``LoanBatch``): their salary months count as paid instalments.
+    loan_batches: list = field(default_factory=list)
 
 
 def load(context: TenantContext) -> Links:
@@ -89,7 +93,7 @@ def load(context: TenantContext) -> Links:
             if entry is None:
                 continue
             payments.append(DebtPayment(debt_id=link.target_id, amount=link.amount, currency=link.currency, posted_on=entry.posted_on,
-                                        matched_at=link.created_at))
+                                        matched_at=link.created_at, canonical_id=link.canonical_id, link_id=link.id))
         loan_rows, _ = links.list_links(context, canonical_id=None, dimension=PERSON_LOAN_DIMENSION, target_type=None, target_id=None,
                                         status=None, limit=10_000, offset=0)
         lending: set[str] = set()
@@ -108,13 +112,14 @@ def load(context: TenantContext) -> Links:
         loans = people.list(context, "person_loan")
         slips = people.list(context, "payslip")
         profiles = people.list(context, "salary_profile")
+        batches = [b for b in people.list(context, "loan_batch") if b.status == "active"]
     credits: dict[str, set[str]] = {}
     for slip in slips:
         if slip.id in by_slip:
             credits.setdefault(slip.month, set()).update(by_slip[slip.id])
     return Links(bill_links=[l for l in bill_rows if l.status != LinkStatus.VOID], debt_payments=payments, lending_ids=frozenset(lending),
                  person_loans=loans, loan_links=[l for l in loan_rows if l.status != LinkStatus.VOID],
-                 salary_profile=profiles[0] if profiles else None, payslips=slips, payslip_credits=credits)
+                 salary_profile=profiles[0] if profiles else None, payslips=slips, payslip_credits=credits, loan_batches=batches)
 
 
 # -- bills ---------------------------------------------------------------------------------------------
@@ -183,13 +188,63 @@ def _after(matched_at: object, saved_at: object) -> bool:
         return True
 
 
+class LoanDebt(Debt):
+    """A debt with bank or finance loan terms, read from its schedule and the payments matched to it (never stored as such):
+    the balance is what the schedule and the payments leave, the minimum the instalment while it is open, the rate the
+    reducing rate its instalments give, and ``from_salary`` when the salary's expected net already takes the instalment
+    (so it is not a commitment of its own: ``commitment_math.debt_minimum``)."""
+
+    source: str = "bank_loan"
+    from_salary: bool = False
+
+
+def loan_payments(debt: Debt, links: Links | None) -> list:
+    """The payments toward a loan: active debt links in its currency and the salary months of its accepted batches."""
+    from . import bank_loans as BL
+
+    if links is None:
+        return []
+    out = [BL.Paid(on=p.posted_on, amount=p.amount, kind="link", ref=p.canonical_id, link_id=p.link_id or None)
+           for p in links.debt_payments if p.debt_id == debt.id and p.currency == debt.currency]
+    for batch in links.loan_batches:
+        if getattr(batch, "debt_id", None) != debt.id:
+            continue
+        for item in batch.items:
+            if item.source != "bank_debit" and item.currency == debt.currency:
+                out.append(BL.Paid(on=item.due_on, amount=item.amount, kind="salary", ref=item.source_id or "", batch_id=batch.id, due_on=item.due_on))
+    return out
+
+
+def loan_debt(debt: Debt, links: Links | None, today: date) -> Debt:
+    """The debt as every reader counts it when it has loan terms (else unchanged)."""
+    from . import bank_loans as BL
+
+    schedule = BL.build(debt)
+    if schedule is None:
+        return debt
+    view = BL.figures(debt, schedule, loan_payments(debt, links), today)
+    open_ = view.status == "open" and view.balance > 0
+    day = debt.loan_payment_day or (schedule.rows[0].due_on.day if schedule.rows else debt.due_day)
+    from_salary = open_ and links is not None and BL.salary_already_net(debt, links.salary_profile, links.payslips, today)
+    values = debt.model_dump()
+    values.update(balance=view.balance, minimum_payment=schedule.installment if open_ else Decimal(0), due_day=day if open_ else None,
+                  apr_percent=schedule.effective_rate or Decimal(0), from_salary=from_salary)
+    return LoanDebt(**values)
+
+
 def current_debts(debts: list[Debt], accounts: list[Account], balances: dict[str, Decimal], links: Links | None,
                   today: date | None = None) -> list[Debt]:
-    """The debts with today's balance (copies; nothing stored changes). With ``today``, money borrowed from a
-    person that is still open is added as a debt (``borrowed_debts``)."""
+    """The debts with today's balance (copies; nothing stored changes). A debt with bank loan terms owes what its schedule
+    and matched payments leave (``loan_debt``) unless a card or loan account already counts it. With ``today``, money
+    borrowed from a person that is still open is added as a debt (``borrowed_debts``)."""
+    from ..schemas import utc_now
+    from . import bank_loans as BL
+
     by_id = {a.id: a for a in accounts}
     payments = links.debt_payments if links is not None else []
-    out = [d.model_copy(update={"balance": debt_balance(d, by_id, balances, payments)}) for d in debts]
+    day = today or utc_now().date()
+    out = [loan_debt(d, links, day) if BL.has_terms(d) and not has_account(d, by_id)
+           else d.model_copy(update={"balance": debt_balance(d, by_id, balances, payments)}) for d in debts]
     if links is not None and today is not None:
         out.extend(borrowed_debts(links.person_loans, links.loan_links, debts, today))
     return out
@@ -292,5 +347,23 @@ def current_goals(goals: list[Goal], accounts: list[Account], balances: dict[str
     return out
 
 
-__all__ = ["Due", "DebtPayment", "Links", "PersonDebt", "bill_for_debt", "borrowed_debts", "current_debts", "current_goals", "debt_balance",
-           "has_account", "is_person_debt", "lent_receivables", "load", "unlinked", "unpaid"]
+__all__ = [
+    "DebtPayment",
+    "Due",
+    "Links",
+    "LoanDebt",
+    "PersonDebt",
+    "bill_for_debt",
+    "borrowed_debts",
+    "current_debts",
+    "current_goals",
+    "debt_balance",
+    "has_account",
+    "is_person_debt",
+    "lent_receivables",
+    "load",
+    "loan_debt",
+    "loan_payments",
+    "unlinked",
+    "unpaid",
+]

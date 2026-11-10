@@ -389,3 +389,64 @@ export interface FinanceSalaryMonth {
 export interface FinanceSalaryMonthsPage {
   currency: string | null; months: FinanceSalaryMonth[]; total: number; missing: number; waiting: number; limit: number; offset: number;
 }
+
+/** One transaction split across several loans, an amount each (docs/finance.md#lent-and-borrowed). */
+export interface FinancePersonLoanSplitInput {
+  canonical_id: string;
+  kind?: 'handed' | 'repayment';
+  parts: { loan_id: string; amount: string }[];
+}
+export interface FinancePersonLoanSplitResult { links: FinanceLink[]; replayed: boolean }
+
+/** A personal trip or project that transactions are tagged to (docs/finance.md#trips-and-projects). */
+export interface FinanceTag {
+  id: string;
+  kind: 'trip' | 'project';
+  name: string;
+  starts_on: string | null;
+  ends_on: string | null;
+  keywords: string | null;
+  notes: string | null;
+  archived: boolean;
+  /** What is tagged per currency, never added across currencies. */
+  totals: Record<string, string>;
+  links: number;
+}
+export interface FinanceTagDetail extends FinanceTag { movements: FinanceMovement[] }
+export interface FinanceTagPage { items: FinanceTag[]; total: number; limit: number; offset: number; note: string }
+export interface FinanceTagInput {
+  kind: 'trip' | 'project';
+  name: string;
+  starts_on?: string | null;
+  ends_on?: string | null;
+  keywords?: string | null;
+  notes?: string | null;
+  archived?: boolean;
+}
+
+/** A foreign-currency balance valued in the base currency (docs/finance.md#foreign-currency-balances). Display only. */
+export interface FinanceFxRevaluationRow {
+  account_id: string;
+  name: string;
+  currency: string;
+  base_currency: string;
+  balance: string;
+  status: 'ok' | 'rate_not_available' | 'cost_rate_not_available' | 'nothing_to_revalue' | 'history_too_long';
+  value: string | null;
+  rate: string | null;
+  rate_as_of: string | null;
+  rate_source: string | null;
+  cost: string | null;
+  unrealised: string | null;
+  missing_rate_dates: string[];
+}
+export interface FinanceFxRevaluation {
+  base_currency: string;
+  as_of: string;
+  rate_max_age_days: number;
+  items: FinanceFxRevaluationRow[];
+  unrealised_total: string | null;
+  incomplete: number;
+  truncated: boolean;
+  note: string;
+}

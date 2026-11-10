@@ -247,15 +247,7 @@ def create(context: TenantContext, request: LinkRequest, *, allocation: dict[str
                 raise LinkError(409, f"Only {remaining} {request.currency} of this payment is left to link as {request.dimension}.", "over_allocated",
                                 {"remaining": str(max(remaining, Decimal(0))), "currency": request.currency})
         sources = store.entry_sources(context, [e.id for e in chain])
-        link = FinanceLink(
-            id=new_id("fin_link"), tenant_id=context.tenant_id, workspace_id=context.workspace_id, owner_user_id=context.user_id,
-            canonical_id=request.canonical_id, dimension=request.dimension, role=request.role, target_type=request.target_type,
-            target_id=request.target_id, target_workspace_id=request.target_id if request.dimension == "business" else None,
-            amount=request.amount, currency=request.currency, status=LinkStatus.NEEDS_REVIEW if review else LinkStatus.ACTIVE,
-            status_reason="weak_match" if review else None, document_id=request.document_id,
-            source_event_ids=sorted({m.id for rows in sources.values() for m in rows})[:50], idem_key=key, created_by=context.user_id,
-            created_at=now, updated_at=now,
-        )
+        link = _new_link(context, request, key, sources, now, review=review)
         links.add_link(link)
         _observe(links, link)
         if request.dimension == "business" and allocation is not None:
@@ -266,6 +258,99 @@ def create(context: TenantContext, request: LinkRequest, *, allocation: dict[str
                 category=allocation.get("category") or current.category or "other", project_id=allocation.get("project_id"),
                 memo=allocation.get("memo"), treatment=allocation["treatment"], created_at=now, updated_at=now))
     return Created(link)
+
+
+def _new_link(context: TenantContext, request: LinkRequest, key: str, sources: dict[str, Any], now: datetime, *, review: bool = False) -> FinanceLink:
+    return FinanceLink(
+        id=new_id("fin_link"), tenant_id=context.tenant_id, workspace_id=context.workspace_id, owner_user_id=context.user_id,
+        canonical_id=request.canonical_id, dimension=request.dimension, role=request.role, target_type=request.target_type,
+        target_id=request.target_id, target_workspace_id=request.target_id if request.dimension == "business" else None,
+        amount=request.amount, currency=request.currency, status=LinkStatus.NEEDS_REVIEW if review else LinkStatus.ACTIVE,
+        status_reason="weak_match" if review else None, document_id=request.document_id,
+        source_event_ids=sorted({m.id for rows in sources.values() for m in rows})[:50], idem_key=key, created_by=context.user_id,
+        created_at=now, updated_at=now,
+    )
+
+
+MAX_PARTS = 10
+
+
+def create_many(context: TenantContext, requests: list[LinkRequest], *, now: datetime | None = None) -> list[Created]:
+    """Split one transaction across several targets of one dimension, each part with its own amount (docs/finance.md#lent-and-borrowed).
+
+    All or nothing: every part is checked (the target, the vet, the currency, single payment targets) and the parts together
+    must fit in what is left of the payment in that dimension before any part is written, in one unit of work under the
+    owner's lock. Every part is in the payment's own currency; parts in different currencies are refused. A retry with the
+    same parts returns the links already made (``replayed``)."""
+    from .sms_service import owner_lock
+
+    if not 2 <= len(requests) <= MAX_PARTS:
+        raise LinkError(422, f"A split has 2 to {MAX_PARTS} parts.", "invalid_parts")
+    requests = [_validate(r) for r in requests]
+    first = requests[0]
+    if first.dimension == "business" or first.role == "evidence":
+        raise LinkError(422, "Only amounts of one payment can be split here, never an allocation or a receipt.", "invalid_parts")
+    if any((r.canonical_id, r.dimension, r.role) != (first.canonical_id, first.dimension, first.role) for r in requests):
+        raise LinkError(422, "Every part of a split is the same payment, the same kind of record and the same role.", "invalid_parts")
+    if len({r.currency for r in requests}) != 1:
+        raise LinkError(422, "Every part of a split is in the payment's own currency. Parts in different currencies are never mixed.",
+                        "currency_mismatch")
+    if len({(r.target_type, r.target_id) for r in requests}) != len(requests):
+        raise LinkError(422, "Each part of a split goes to a different record.", "duplicate_part")
+    check = _targets.get(first.dimension)
+    if check is None:
+        raise LinkError(409, f"Linking to a {first.dimension} is not available in ANUM yet.", "target_unavailable")
+    for r in requests:
+        if not check(context, r.target_type, r.target_id):
+            raise LinkError(404, f"That {r.dimension} was not found. It may have been deleted.", "target_not_found")
+    now = now or utc_now()
+    keys = [idem_key(context, r.canonical_id, r.dimension, r.target_type, r.target_id, r.role, r.idempotency_key) for r in requests]
+    with owner_lock(context), open_link_stores(context) as (_finance, store, links):
+        store.lock_owner(context)
+        found = [links.link_by_idem(context, k) for k in keys]
+        for r, existing in zip(requests, found, strict=True):
+            if existing is not None and (existing.canonical_id, existing.target_id, existing.amount, existing.currency) != (
+                    r.canonical_id, r.target_id, r.amount, r.currency):
+                raise LinkError(409, "This idempotency key was used for a different link.", "idempotency_conflict")
+        if all(f is not None for f in found):
+            return [Created(f, replayed=True) for f in found if f is not None]
+        chain = store.chain(context, first.canonical_id)
+        if not chain:
+            raise LinkError(404, "Transaction not found. It may have been deleted.", "transaction_not_found")
+        current = live_entry(chain)
+        if current is None:
+            raise LinkError(409, "This payment was undone, so nothing can be linked to it.", "transaction_undone")
+        caps = capacity(chain)
+        currency = first.currency or ""
+        if currency not in caps:
+            raise LinkError(422, f"The payment is not in {currency}. Link it in its own currency.", "currency_mismatch", {"currencies": sorted(caps)})
+        todo = [(r, k) for r, k, f in zip(requests, keys, found, strict=True) if f is None]
+        vet = _vets.get(first.dimension)
+        for r, _k in todo:
+            if vet is not None:
+                vet(context, r, current)
+            if first.dimension in _single_payment and r.role == "payment":
+                taken, _ = links.list_links(context, canonical_id=None, dimension=r.dimension, target_type=r.target_type, target_id=r.target_id,
+                                            status=None, limit=50, offset=0)
+                if any(l.status != LinkStatus.VOID and l.role == "payment" and l.canonical_id != r.canonical_id for l in taken):
+                    raise LinkError(409, f"This {r.dimension} record is already linked to another payment. Remove that link first.", "target_linked")
+        remaining = caps[currency] - used(links.live_links(context, first.canonical_id), first.dimension, currency)
+        wanted = sum((r.amount or Decimal(0) for r, _k in todo), Decimal(0))
+        if wanted > remaining:
+            raise LinkError(409, f"The parts add up to {wanted} {currency}, more than the {max(remaining, Decimal(0))} {currency} left of this payment.",
+                            "over_allocated", {"remaining": str(max(remaining, Decimal(0))), "currency": currency})
+        sources = store.entry_sources(context, [e.id for e in chain])
+        out: list[Created] = []
+        made = iter([_new_link(context, r, k, sources, now) for r, k in todo])
+        for existing in found:
+            if existing is not None:
+                out.append(Created(existing, replayed=True))
+                continue
+            link = next(made)
+            links.add_link(link)
+            _observe(links, link)
+            out.append(Created(link))
+    return out
 
 
 def void(context: TenantContext, link_id: str, *, expected_version: int | None, now: datetime | None = None) -> FinanceLink:

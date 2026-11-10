@@ -17,6 +17,7 @@ import { describeError } from './lib/errors';
 import { formatDateTime, getLocale, intlLocale, t, type MessageKey } from './lib/i18n';
 import { ConfirmDialog, Modal } from './Dialog';
 import { Denied, Empty, FormActions, FormError, LoadError, Money, Notice, failed, type Load } from './FinanceParts';
+import { FxBalancesCard } from './FinanceFxBalances';
 import { FinBanner, FinCard, FinancePageHead, FinanceTabs, KpiCard, KpiRow, StatusChip, tabPanel } from './FinanceShell';
 import { AccountForm } from './FinanceView';
 import { CategoryChip, LedgerScope } from './FinanceTransactionsPage';
@@ -130,6 +131,7 @@ export function AccountsPage({ accounts, base, onChanged, onOpenTransactions, on
             {selected && tab !== 'sources' && <ReconcileCard account={selected} info={info.get(selected.id)} reviewCount={overview.kind === 'ready' ? overview.value.review_count : 0} onImport={onImport} />}
             <RulesCard onManage={() => { location.hash = '#finance-settings'; }} />
             {selected && tab !== 'sources' && <ActivityCard account={selected} />}
+            {selected && tab !== 'sources' && selected.currency !== base && <FxBalancesCard accountId={selected.id} />}
             <FinBanner icon={<Info />} title={t('facct.important.title')}>{t('facct.important.text')}</FinBanner>
           </div>
         </div>

@@ -14,9 +14,11 @@ export function suggestionsViewFromHash(hash: string): SuggestionsView {
 
 /** What the Accept button does for a suggestion: change rows, make a link (through the links API), only record that it was seen,
  * or nothing here. */
-export function acceptMode(item: Pick<FinanceSuggestion, 'action'>): 'apply' | 'link' | 'acknowledge' | 'none' {
+export function acceptMode(item: Pick<FinanceSuggestion, 'action'>): 'apply' | 'link' | 'batch' | 'acknowledge' | 'none' {
   if (item.action.kind === 'classify' || item.action.kind === 'confirm_refund') return 'apply';
-  if (item.action.kind === 'link' && item.action.link) return 'link';
+  // A bank loan's found payments, accepted at once (docs/finance.md#bank-loans).
+  if (item.action.kind === 'link_batch' && ((item.action.links?.length ?? 0) > 0 || (item.action.loan_months?.length ?? 0) > 0)) return 'batch';
+  if (item.action.kind === 'link' && (item.action.link || (item.action.parts ?? []).length > 0)) return 'link';
   if (item.action.kind === 'acknowledge') return 'acknowledge';
   return 'none';
 }
@@ -31,6 +33,8 @@ export function variantOf(item: Pick<FinanceSuggestion, 'kind' | 'params' | 'act
   if (item.kind === 'payment_match') return item.action.kind === 'link' ? 'link' : null;
   if (item.kind === 'fx_fee') return p.source === 'fee_row' ? 'link' : 'split';
   // Money lent and borrowed (docs/finance.md#lent-and-borrowed): worded by who owes whom.
+  // A split across several loans with one person reads as such (docs/finance.md#lent-and-borrowed).
+  if (item.kind === 'loan_repayment' && p.split) return p.direction === 'borrowed' ? 'borrowed_split' : 'lent_split';
   if (item.kind === 'loan_overdue' || item.kind === 'loan_repayment') return p.direction === 'borrowed' ? 'borrowed' : 'lent';
   return null;
 }
@@ -142,4 +146,4 @@ export const RULE_CATEGORIES = [
 ] as const;
 
 /** Never automated, in the order the Automation tab lists them (docs/finance.md#automation-policies). */
-export const NEVER_AUTOMATED = ['post_adjustment', 'delete_record', 'change_bank_mapping', 'approve_payment', 'change_period'] as const;
+export const NEVER_AUTOMATED = ['post_adjustment', 'delete_record', 'change_bank_mapping', 'approve_payment', 'change_period', 'link_loan_payments'] as const;

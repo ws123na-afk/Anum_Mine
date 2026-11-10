@@ -176,12 +176,15 @@ from .finance.broker_api import router as finance_broker_router
 from .finance.sms_api import router as finance_sms_router
 from .finance.links_api import router as finance_links_router
 from .finance.commitments_api import router as finance_commitments_router
+from .finance.bank_loans_api import router as finance_bank_loans_router
 from .finance.tamara_email_api import router as finance_tamara_email_router
 from .finance.installment_refunds_api import router as finance_installment_refunds_router
 from .finance.pdf_api import router as finance_pdf_router
 from .finance.statement_import import router as finance_statement_router
 from .finance.advisor_api import router as finance_advisor_router
 from .finance.personal_api import router as finance_personal_router
+from .finance.revaluation_api import router as finance_revaluation_router
+from .finance.tags_api import router as finance_tags_router
 from .finance.salary_api import router as finance_salary_router
 from .finance.card_fx_api import router as finance_card_fx_router  # docs/finance.md#card-fx-and-fees
 from .finance.reconciliation_api import router as finance_reconciliation_router
@@ -597,12 +600,15 @@ app.include_router(finance_broker_router)
 app.include_router(finance_sms_router)
 app.include_router(finance_links_router)
 app.include_router(finance_commitments_router)
+app.include_router(finance_bank_loans_router)
 app.include_router(finance_tamara_email_router)
 app.include_router(finance_installment_refunds_router)
 app.include_router(finance_pdf_router)
 app.include_router(finance_statement_router)
 app.include_router(finance_advisor_router)
 app.include_router(finance_personal_router)
+app.include_router(finance_tags_router)
+app.include_router(finance_revaluation_router)
 app.include_router(finance_salary_router)
 app.include_router(finance_reconciliation_router)
 app.include_router(finance_forecast_router)
@@ -2987,4 +2993,8 @@ _plug_commitment_links()
 from .finance.personal_api import plug_finance_links as _plug_personal_links  # noqa: E402
 
 _plug_personal_links()
+# Personal trips and projects: the ``trip`` and ``project`` link dimensions (docs/finance.md#trips-and-projects).
+from .finance.tags_api import plug_tag_links as _plug_tag_links  # noqa: E402
+
+_plug_tag_links()
 plug_module_authorities()

@@ -257,6 +257,21 @@ class Debt(_Owned):
     notes: str | None = None
     created_at: datetime
     updated_at: datetime
+    # A bank or finance loan's own terms (migration 0161_finance_bank_loans, docs/finance.md#bank-loans), all optional. With a
+    # start date, the amount borrowed and the term or the instalment, the schedule and the matched payments decide what is
+    # owed (``bank_loans.py``) instead of ``balance``.
+    lender: str | None = None
+    loan_start_on: date | None = None
+    loan_amount: Decimal | None = None
+    loan_rate_type: str | None = None  # "reducing" or "flat"
+    loan_rate: Decimal | None = None  # a yearly percentage; None: not known (never guessed)
+    loan_term_months: int | None = Field(default=None, ge=1, le=600)
+    loan_installment: Decimal | None = None  # the lender's instalment, when the person knows it (it wins over the computed one)
+    loan_payment_day: int | None = Field(default=None, ge=1, le=31)
+    loan_repayment: str | None = None  # "bank_debit", "salary_deduction" or "manual"
+    loan_account_id: str | None = None  # the account a bank debit leaves
+    loan_status: str | None = None  # "open", "paid_off" or "closed"
+    loan_closed_on: date | None = None  # when it was paid off or closed
 
 
 class Goal(_Owned):

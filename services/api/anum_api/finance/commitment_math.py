@@ -72,11 +72,21 @@ def bill_for_debt(debt: Debt, bills: list[Bill]) -> Bill | None:
 # -- debts ----------------------------------------------------------------------------------------------
 
 
-def debt_minimum(debt: Debt) -> Decimal:
-    """What the debt's minimum payment takes: at most what it owes, nothing once it is paid off or without a minimum."""
+def plan_minimum(debt: Debt) -> Decimal:
+    """The debt's monthly payment for the payoff plan: at most what it owes, nothing once it is paid off or without a
+    minimum. A loan taken off the salary still pays this (the planner counts it)."""
     if debt.balance <= 0 or debt.minimum_payment <= 0:
         return Decimal(0)
     return min(debt.minimum_payment, debt.balance)
+
+
+def debt_minimum(debt: Debt) -> Decimal:
+    """What the debt's minimum payment takes from the person's money this month: ``plan_minimum``, except a bank loan the
+    employer deducts from a salary whose expected net already leaves it out (``from_salary``, ``obligations.LoanDebt``):
+    nothing, so the deduction is never counted twice (docs/finance.md#bank-loans)."""
+    if getattr(debt, "from_salary", False):
+        return Decimal(0)
+    return plan_minimum(debt)
 
 
 def owes_minimum(debt: Debt) -> bool:
@@ -133,5 +143,5 @@ def next_due_day(due_day: int, today: date) -> date:
 
 __all__ = [
     "SPENDABLE", "account_balance", "bill_for_debt", "bill_monthly", "debt_minimum", "liquid", "month_end", "month_start", "monthly_equivalent",
-    "months_between", "name_key", "next_due_day", "owes_minimum", "previous_months",
+    "months_between", "name_key", "next_due_day", "owes_minimum", "plan_minimum", "previous_months",
 ]

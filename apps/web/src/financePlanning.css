@@ -229,3 +229,14 @@
   .frefundTable .frefundDetailRow > td { display: block; }
   .frefundDetail .finTableWrap { overflow: visible; }
 }
+
+/* bank loans (docs/finance.md#bank-loans) */
+.floanPage { display: grid; gap: var(--d-s4); min-width: 0; }
+.floanHead { align-items: flex-start; display: flex; flex-wrap: wrap; gap: var(--d-s3); justify-content: space-between; min-width: 0; }
+.floanHead h2 { font-size: var(--text-lg); margin: 0; }
+.floanHead p { margin: 4px 0 0; }
+.floanHead .actions { margin: 0; }
+.floanMonths { display: flex; flex-wrap: wrap; gap: var(--d-s2) var(--d-s3); list-style: none; margin: 0; padding: 0; }
+.floanMonths li { align-items: center; display: inline-flex; gap: var(--d-s2); }
+.floanPaid { display: block; white-space: nowrap; }
+.floanTable td:nth-child(2) { white-space: nowrap; }

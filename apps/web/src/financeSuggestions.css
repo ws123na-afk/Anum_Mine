@@ -79,3 +79,7 @@
 .fsugPreviewTable td { overflow-wrap: anywhere; }
 .fsugApply, .fsugVersions, .fsugSimilar { max-width: min(720px, 100%); width: 100%; }
 .fsugSimilar .finSegmented { margin: var(--d-s2) 0; }
+/* A split across several loans: one line per part (docs/finance.md#lent-and-borrowed). */
+.fsugParts { display: flex; flex-wrap: wrap; gap: var(--d-s1) var(--d-s3); margin: 0; font-size: var(--text-sm); }
+.fsugParts > span:first-child { color: var(--d-muted); }
+.fsugParts > span { overflow-wrap: anywhere; }

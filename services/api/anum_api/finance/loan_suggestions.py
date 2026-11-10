@@ -11,6 +11,10 @@ Two producers for the one Suggestions queue (``suggestions.register_producer``),
   amount. Accept makes the ``person_loan`` link through the links API (``repayment`` role, every link check applies);
   nothing is linked until the owner accepts. A transaction in another currency is never proposed: a loan's balance is
   never reduced by money in another currency.
+
+  When one transaction is exactly the repayments due on two or more loans with the same person (the earliest due first),
+  the proposal is a **split**: one part per loan, each for what is due on it, all in the transaction's currency and
+  together never more than the transaction. Accept makes every part or none (``links.create_many``).
 """
 
 from __future__ import annotations
@@ -106,6 +110,9 @@ def repayments(snap: SG.Snapshot, loans: list[P.PersonLoan], links: list[Any]) -
                 exact.append((loan, f))
         choice = named if len(named) == 1 else (exact if len(exact) == 1 and not named else [])
         if not choice:
+            split = _split(t, amount, kind, open_loans)
+            if split is not None:
+                out.append(_split_suggestion(t, canonical, amount, *split))
             continue
         loan, f = choice[0]
         both = loan in [n for n, _ in named] and amount == f.next_due_amount
@@ -126,6 +133,69 @@ def repayments(snap: SG.Snapshot, loans: list[P.PersonLoan], links: list[Any]) -
             href="#finance-debts-people", occurred_on=t.posted_on,
         ))
     return out
+
+
+def _due_now(f: P.LoanFigures) -> Decimal:
+    """What is due on a loan now: what is overdue, else the next repayment."""
+    return f.overdue_amount if f.overdue_amount > 0 else f.next_due_amount
+
+
+MAX_SPLIT_PARTS = 10  # SG.ProposedAction.parts allows 10
+
+
+def _person_key(name: str) -> str:
+    return " ".join(name.casefold().split())
+
+
+def _split(t: Any, amount: Decimal, kind: TransactionType, open_loans: list[tuple[P.PersonLoan, P.LoanFigures]]
+           ) -> tuple[list[tuple[P.PersonLoan, Decimal]], bool] | None:
+    """The loans with one person whose due repayments, earliest first, add up to exactly this transaction (two loans or more).
+    Answers each loan with its part and whether the words name the person; nothing when no person, or more than one, fits."""
+    money_in = t.amount > 0
+    groups: dict[str, list[tuple[P.PersonLoan, P.LoanFigures]]] = {}
+    for loan, f in open_loans:
+        if money_in != (loan.direction == P.LoanDirection.LENT) or t.currency != loan.currency or t.posted_on < loan.lent_on or _due_now(f) <= 0:
+            continue
+        groups.setdefault(_person_key(loan.person), []).append((loan, f))
+    found = []
+    for rows in groups.values():
+        if len(rows) < 2:
+            continue
+        agree = merchants_agree(rows[0][0].person, t.description)
+        if agree is False or (not agree and kind not in REPAYMENT_TYPES):
+            continue
+        rows.sort(key=lambda r: (r[1].next_due_on or r[0].due_on or r[0].lent_on, r[0].lent_on, r[0].id))
+        total = Decimal(0)
+        for size, (_loan, f) in enumerate(rows[:MAX_SPLIT_PARTS], start=1):  # a split action carries at most 10 parts
+            total += _due_now(f)
+            if total == amount and size >= 2:
+                found.append(([(loan, _due_now(fig)) for loan, fig in rows[:size]], bool(agree)))
+                break
+            if total > amount:
+                break
+    return found[0] if len(found) == 1 else None
+
+
+def _split_suggestion(t: Any, canonical: str, amount: Decimal, parts: list[tuple[P.PersonLoan, Decimal]], named: bool) -> SG.Suggestion:
+    first = parts[0][0]
+    lent = first.direction == P.LoanDirection.LENT
+    ids = ",".join(loan.id for loan, _part in parts)
+    return SG.Suggestion(
+        key=f"loan_repayment:{t.id}:split:{ids}"[:200], producer="person_loans", kind="loan_repayment",
+        detected=(f"This money in may be {first.person} repaying {len(parts)} loans at once." if lent
+                  else f"This payment may repay {len(parts)} loans from {first.person} at once."),
+        why=(f"The amount is exactly the repayments due on {len(parts)} loans with {first.person}"
+             + (", and the description names them." if named else ", though the description names no one.")),
+        params={"person": first.person[:80], "direction": first.direction.value, "currency": first.currency, "amount": str(amount),
+                "outstanding": str(amount), "split": str(len(parts))},
+        evidence=[SG._txn(t), *[SG.Evidence(label=f"{loan.person[:80]} {loan.lent_on.isoformat()}", ref_type="other", ref_id=loan.id,
+                                            value=f"{loan.currency} {part}") for loan, part in parts]],
+        confidence=Decimal("0.85") if named else Decimal("0.6"), effect=SG._out(t),
+        action=SG.ProposedAction(kind="link", transaction_ids=[t.id], parts=[SG.LinkProposal(
+            canonical_id=canonical, dimension="person_loan", target_type=P.PERSON_LOAN_TARGET, target_id=loan.id, amount=part,
+            currency=loan.currency, role=P.repaid_role(loan.direction)) for loan, part in parts]),
+        href="#finance-debts-people", occurred_on=t.posted_on,
+    )
 
 
 def produce(snap: SG.Snapshot) -> list[SG.Suggestion]:

@@ -226,7 +226,7 @@ class CandidatePage(BaseModel):
 
 @router.get("/payment-candidates", response_model=CandidatePage)
 def payment_candidates(
-    for_: Literal["bill", "debt", "person_loan", "payslip", "remittance"] = Query(alias="for"),
+    for_: Literal["bill", "debt", "person_loan", "payslip", "remittance", "trip", "project"] = Query(alias="for"),
     direction: Literal["in", "out"] | None = Query(default=None),
     around: date | None = Query(default=None),
     amount: Decimal | None = Query(default=None, ge=0, le=Decimal("1e15")),
@@ -238,7 +238,8 @@ def payment_candidates(
     """Your recorded payments near a date (60 days before to 15 after), closest in amount first. A suggestion only.
 
     Bills, debts and remittances take money out; a payslip takes the salary credit (money in); a loan with a person
-    takes either (``direction``: lending and repaying a loan are money out, borrowing and being repaid money in)."""
+    takes either (``direction``: lending and repaying a loan are money out, borrowing and being repaid money in), and so does a
+    personal trip or project (a payment, or a refund that came back)."""
     _read(context)
     return CandidatePage(items=find_candidates(context, for_, direction=direction, around=around, amount=amount, currency=currency, q=q, limit=limit))
 
