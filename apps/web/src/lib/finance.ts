@@ -13,10 +13,11 @@ export const FINANCE_TABS: readonly FinanceTab[] = ['overview', 'ledger', 'safe'
  * Sections inside a Finance page, each deep-linked as `#finance-<tab>-<section>` (docs/finance.md#finance-shell).
  * The personal money pages moved into the pages they belong to; their old hashes still open the new place.
  */
-export type FinanceSection = 'people' | 'send-home' | 'fixed' | 'salary';
+export type FinanceSection = 'people' | 'send-home' | 'fixed' | 'salary' | 'trips';
 const SECTIONS: Record<string, { tab: FinanceTab; section: FinanceSection }> = {
   'debts-people': { tab: 'debts', section: 'people' },
   'goals-send-home': { tab: 'goals', section: 'send-home' },
+  'goals-trips': { tab: 'goals', section: 'trips' },
   'bills-fixed': { tab: 'bills', section: 'fixed' },
   'advisor-salary': { tab: 'advisor', section: 'salary' },
 };

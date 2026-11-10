@@ -6,6 +6,7 @@ import type {
   FinancePayoffPage, FinancePayslip, FinancePayslipDetail, FinancePayslipInput, FinancePayslipPage, FinancePersonLoan, FinancePersonLoanDetail,
   FinancePersonLoanInput, FinancePersonLoanPage, FinanceRemittance, FinanceRemittanceDetail, FinanceRemittanceInput, FinanceRemittancePage,
   FinanceResearch, FinanceResearchInput, FinanceSalaryMonthsPage, FinanceSalaryProfile, FinanceSalaryProfileInput,
+  FinanceFxRevaluation, FinancePersonLoanSplitInput, FinancePersonLoanSplitResult, FinanceTag, FinanceTagDetail, FinanceTagInput, FinanceTagPage,
 } from '@anum/contracts';
 import { apiRequest, apiRequestVoid } from './api';
 import { query } from './financeApi';
@@ -19,7 +20,7 @@ const send = <T>(method: string, path: string, body: unknown, key?: string) => a
 const remove = (path: string) => apiRequestVoid(`${BASE}${path}`, { method: 'DELETE' });
 const newKey = () => (globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`);
 
-export type PersonalKind = 'person_loan' | 'payslip' | 'remittance';
+export type PersonalKind = 'person_loan' | 'payslip' | 'remittance' | 'trip' | 'project';
 
 export interface LoanQuery { q?: string; direction?: string; status?: string; limit: number; offset: number }
 export const listLoans = (p: LoanQuery) => get<FinancePersonLoanPage>(`/people-loans${query({ ...p })}`);
@@ -30,6 +31,22 @@ export const deleteLoan = (loanId: string) => remove(`/people-loans/${id(loanId)
 export const linkLoan = (loanId: string, canonicalId: string, kind: 'handed' | 'repayment', amount?: string | null) =>
   send<FinanceLinkResult>('POST', `/people-loans/${id(loanId)}/links`, { canonical_id: canonicalId, kind, ...(amount ? { amount } : {}) }, newKey());
 export const unlinkLoan = (loanId: string, linkId: string) => remove(`/people-loans/${id(loanId)}/links/${id(linkId)}`);
+/** One transaction split across several loans, an amount each: all parts are made or none (docs/finance.md#lent-and-borrowed). */
+export const splitLoans = (body: FinancePersonLoanSplitInput) => send<FinancePersonLoanSplitResult>('POST', '/people-loans/split', body, newKey());
+
+/** Personal trips and projects (docs/finance.md#trips-and-projects). */
+export interface TagQuery { kind?: 'trip' | 'project' | null; q?: string; archived?: boolean; limit: number; offset: number }
+export const listTags = (p: TagQuery) => get<FinanceTagPage>(`/tags${query({ kind: p.kind, q: p.q, archived: p.archived ? 'true' : null, limit: p.limit, offset: p.offset })}`);
+export const getTag = (tagId: string) => get<FinanceTagDetail>(`/tags/${id(tagId)}`);
+export const createTag = (body: FinanceTagInput) => send<FinanceTag>('POST', '/tags', body);
+export const updateTag = (tagId: string, body: FinanceTagInput) => send<FinanceTag>('PATCH', `/tags/${id(tagId)}`, body);
+export const deleteTag = (tagId: string) => remove(`/tags/${id(tagId)}`);
+export const tagTransaction = (tagId: string, canonicalId: string, amount?: string | null) =>
+  send<FinanceLinkResult>('POST', `/tags/${id(tagId)}/links`, { canonical_id: canonicalId, ...(amount ? { amount } : {}) }, newKey());
+export const untagTransaction = (tagId: string, linkId: string) => remove(`/tags/${id(tagId)}/links/${id(linkId)}`);
+
+/** Foreign-currency balances in the base currency at stored rates (docs/finance.md#foreign-currency-balances). Display only. */
+export const getFxRevaluation = (accountId?: string | null) => get<FinanceFxRevaluation>(`/fx-revaluation${query({ account_id: accountId })}`);
 
 export const listPayslips = (p: { year?: number | null; q?: string; limit: number; offset: number }) => get<FinancePayslipPage>(`/payslips${query({ ...p })}`);
 export const getPayslip = (payslipId: string) => get<FinancePayslipDetail>(`/payslips/${id(payslipId)}`);

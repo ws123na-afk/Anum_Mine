@@ -16,7 +16,7 @@ export function suggestionsViewFromHash(hash: string): SuggestionsView {
  * or nothing here. */
 export function acceptMode(item: Pick<FinanceSuggestion, 'action'>): 'apply' | 'link' | 'acknowledge' | 'none' {
   if (item.action.kind === 'classify' || item.action.kind === 'confirm_refund') return 'apply';
-  if (item.action.kind === 'link' && item.action.link) return 'link';
+  if (item.action.kind === 'link' && (item.action.link || (item.action.parts ?? []).length > 0)) return 'link';
   if (item.action.kind === 'acknowledge') return 'acknowledge';
   return 'none';
 }
@@ -31,6 +31,8 @@ export function variantOf(item: Pick<FinanceSuggestion, 'kind' | 'params' | 'act
   if (item.kind === 'payment_match') return item.action.kind === 'link' ? 'link' : null;
   if (item.kind === 'fx_fee') return p.source === 'fee_row' ? 'link' : 'split';
   // Money lent and borrowed (docs/finance.md#lent-and-borrowed): worded by who owes whom.
+  // A split across several loans with one person reads as such (docs/finance.md#lent-and-borrowed).
+  if (item.kind === 'loan_repayment' && p.split) return p.direction === 'borrowed' ? 'borrowed_split' : 'lent_split';
   if (item.kind === 'loan_overdue' || item.kind === 'loan_repayment') return p.direction === 'borrowed' ? 'borrowed' : 'lent';
   return null;
 }

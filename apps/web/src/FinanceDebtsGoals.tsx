@@ -26,11 +26,13 @@ import { OutlookChart } from './FinancePlanningCharts';
 import { MatchDialog, PersonalScope, Progress, RowMenu } from './FinancePlanningParts';
 import './financePlanning.css';
 
-// `people`: Lent and borrowed (#finance-debts-people); `send-home`: money sent to family (#finance-goals-send-home).
-type Section = 'debts' | 'goals' | 'plan' | 'history' | 'people' | 'send-home';
-const SECTIONS: readonly Section[] = ['debts', 'goals', 'plan', 'history', 'people', 'send-home'];
+// `people`: Lent and borrowed (#finance-debts-people); `send-home`: money sent to family (#finance-goals-send-home);
+// `trips`: personal trips and projects that payments are tagged to (#finance-goals-trips).
+type Section = 'debts' | 'goals' | 'plan' | 'history' | 'people' | 'send-home' | 'trips';
+const SECTIONS: readonly Section[] = ['debts', 'goals', 'plan', 'history', 'people', 'send-home', 'trips'];
 const People = lazy(() => import('./FinancePersonalMoney').then((m) => ({ default: m.PeopleSection })));
 const SendHome = lazy(() => import('./FinancePersonalMoney').then((m) => ({ default: m.RemittancesSection })));
+const Trips = lazy(() => import('./FinanceTags').then((m) => ({ default: m.TagsSection })));
 const HISTORY_PAGE = 10;
 const DEBT_ICON: Record<FinanceDebtKind, typeof CreditCard> = { card: CreditCard, loan: Car, mortgage: Home, other: Landmark };
 
@@ -132,8 +134,9 @@ export function DebtsGoalsPage({ initial, accounts, base, today, onOpen, onChang
     tabs={<FinanceTabs label={t('fplan.debts.tabs')} idPrefix="fdg" value={section} onChange={setSection}
       items={SECTIONS.map((id) => ({ id, label: t(`fplan.debts.tab.${id}` as MessageKey) }))} />} />;
 
-  if (section === 'people' || section === 'send-home') return <div className="fplPage">{head}<div {...tabPanel('fdg', section)}>
-    <Suspense fallback={<Notice busy>{t('fpm.loading')}</Notice>}>{section === 'people' ? <People base={base} /> : <SendHome base={base} onOpen={onOpen} />}</Suspense>
+  if (section === 'people' || section === 'send-home' || section === 'trips') return <div className="fplPage">{head}<div {...tabPanel('fdg', section)}>
+    <Suspense fallback={<Notice busy>{t('fpm.loading')}</Notice>}>{section === 'people' ? <People base={base} /> : section === 'trips' ? <Trips />
+      : <SendHome base={base} onOpen={onOpen} />}</Suspense>
   </div></div>;
   if (debts.kind === 'denied' || goals.kind === 'denied') return <div className="fplPage">{head}<Denied /></div>;
   const loadError = debts.kind === 'error' ? debts.message : goals.kind === 'error' ? goals.message : null;

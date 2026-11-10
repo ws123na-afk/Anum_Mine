@@ -16,7 +16,7 @@ from sqlalchemy import Boolean, Date, DateTime, Numeric, SmallInteger, String, d
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, Session, mapped_column
 
-from anum_api.finance.personal import ExpectedIncome, Payslip, PersonLoan, Remittance, SalaryProfile
+from anum_api.finance.personal import ExpectedIncome, Payslip, PersonalTag, PersonLoan, Remittance, SalaryProfile
 from anum_api.schemas import TenantContext
 
 from .models import Base
@@ -122,15 +122,34 @@ class FinanceExpectedIncomeRecord(Base, _Owned):
     updated_at: Mapped[datetime] = mapped_column(TS)
 
 
-RECORDS = (FinancePersonLoanRecord, FinancePayslipRecord, FinanceRemittanceRecord, FinanceSalaryProfileRecord, FinanceExpectedIncomeRecord)
+class FinancePersonalTagRecord(Base, _Owned):
+    """A personal trip or project (migration ``0160_finance_depth_2``, docs/finance.md#trips-and-projects)."""
+
+    __tablename__ = "finance_personal_tags"
+
+    id: Mapped[str] = mapped_column(String(80), primary_key=True)
+    kind: Mapped[str] = mapped_column(String(10))
+    name: Mapped[str] = mapped_column(String(120))
+    starts_on: Mapped[date | None] = mapped_column(Date, nullable=True)
+    ends_on: Mapped[date | None] = mapped_column(Date, nullable=True)
+    keywords: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    notes: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    archived: Mapped[bool] = mapped_column(Boolean)
+    created_at: Mapped[datetime] = mapped_column(TS)
+    updated_at: Mapped[datetime] = mapped_column(TS)
+
+
+RECORDS = (FinancePersonLoanRecord, FinancePayslipRecord, FinanceRemittanceRecord, FinanceSalaryProfileRecord, FinanceExpectedIncomeRecord,
+           FinancePersonalTagRecord)
 _BY_KIND: dict[str, tuple[type[Any], type[Any]]] = {
     "person_loan": (FinancePersonLoanRecord, PersonLoan),
     "payslip": (FinancePayslipRecord, Payslip),
     "remittance": (FinanceRemittanceRecord, Remittance),
     "salary_profile": (FinanceSalaryProfileRecord, SalaryProfile),
     "expected_income": (FinanceExpectedIncomeRecord, ExpectedIncome),
+    "tag": (FinancePersonalTagRecord, PersonalTag),
 }
-_ORDER = {"person_loan": "lent_on", "payslip": "month", "remittance": "sent_on", "salary_profile": "joined_on", "expected_income": "expected_on"}
+_ORDER = {"person_loan": "lent_on", "payslip": "month", "remittance": "sent_on", "salary_profile": "joined_on", "expected_income": "expected_on", "tag": "created_at"}
 
 
 def _mine(record: Any, context: TenantContext) -> list[Any]:
@@ -207,4 +226,4 @@ class SqlAlchemyPersonalStore:
         return sum(int(self.session.execute(delete(r).where(*_mine(r, context))).rowcount or 0) for r in RECORDS)
 
 
-__all__ = ["RECORDS", "FinanceExpectedIncomeRecord", "SqlAlchemyPersonalStore"]
+__all__ = ["RECORDS", "FinanceExpectedIncomeRecord", "FinancePersonalTagRecord", "SqlAlchemyPersonalStore"]

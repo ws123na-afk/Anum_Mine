@@ -16,6 +16,7 @@ import { PERSONAL_PAGE, commitmentGroups, loanTone, pages, previewNet, previewRe
 import { describeError } from './lib/errors';
 import { formatDateTime, t, type MessageKey } from './lib/i18n';
 import { ConfirmDialog, Modal } from './Dialog';
+import { LoanSplitDialog } from './FinanceLoanSplit';
 import { Denied, Empty, LoadError, Money, Notice, failed, type Load } from './FinanceParts';
 import { FinBanner, FinCard, KpiCard, KpiRow, StatusChip } from './FinanceShell';
 import './financePages.css';
@@ -257,7 +258,8 @@ function LoanForm({ loan, base, onDone }: { loan: FinancePersonLoan | null; base
 function LoanDetail({ loan, onClose }: { loan: FinancePersonLoan; onClose: () => void }) {
   const [state, reload] = useLoad(() => pm.getLoan(loan.id), [loan.id]);
   const [linking, setLinking] = useState<'handed' | 'repayment' | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [splitting, setSplitting] = useState(false);
+  const [error, setError] = useState<string | null>(null), [done, setDone] = useState<string | null>(null);
   const directionOf = (kind: 'handed' | 'repayment'): 'in' | 'out' => (loan.direction === 'lent') === (kind === 'handed') ? 'out' : 'in';
   return <Modal title={t('fpm.people.detail', { name: loan.person })} onClose={onClose} className="fpmDialog">
     <States state={state} retry={reload}>{(l) => <>
@@ -290,7 +292,11 @@ function LoanDetail({ loan, onClose }: { loan: FinancePersonLoan; onClose: () =>
       <div className="actions">
         <button type="button" className="secondary" onClick={() => setLinking('handed')}>{t(l.direction === 'lent' ? 'fpm.people.linkLent' : 'fpm.people.linkBorrowed')}</button>
         <button type="button" onClick={() => setLinking('repayment')} disabled={l.status === 'repaid'}>{t('fpm.people.linkRepayment')}</button>
+        <button type="button" className="secondary" onClick={() => { setDone(null); setSplitting(true); }} disabled={l.status === 'repaid' || l.status === 'closed'}>
+          {t('fdepth2.split.open')}</button>
       </div>
+      {done && <Notice>{done}</Notice>}
+      {splitting && <LoanSplitDialog loan={l} onClose={() => setSplitting(false)} onDone={(text) => { setSplitting(false); setDone(text); reload(); }} />}
       {linking && <LinkDialog title={t('fpm.link.title')} kind="person_loan" direction={directionOf(linking)} currency={l.currency} around={linking === 'handed' ? l.lent_on : null}
         expected={linking === 'repayment' ? l.outstanding : l.amount} onClose={() => setLinking(null)}
         onLink={async (canonical) => { await pm.linkLoan(l.id, canonical, linking); reload(); }} />}

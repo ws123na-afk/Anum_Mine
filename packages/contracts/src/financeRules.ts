@@ -109,7 +109,7 @@ export type FinanceSuggestionKind =
 /** What Accept links through the finance links API (docs/finance.md#attribution-suggestions). */
 export interface FinanceSuggestionLink {
   canonical_id: string;
-  dimension: 'bill' | 'debt' | 'vehicle' | 'purchase' | 'business' | 'person_loan';
+  dimension: 'bill' | 'debt' | 'vehicle' | 'purchase' | 'business' | 'person_loan' | 'trip' | 'project';
   target_type: string;
   target_id: string;
   amount: string;
@@ -144,6 +144,8 @@ export interface FinanceSuggestion {
     subcategory_id: string | null;
     transaction_type: FinanceTransactionType | null;
     link?: FinanceSuggestionLink | null;
+    /** A split: one transaction across several records, an amount each (a repayment covering several loans). */
+    parts?: FinanceSuggestionLink[];
   };
   href: string | null;
   occurred_on: string | null;
@@ -160,7 +162,11 @@ export interface FinanceSuggestionQueue {
   dismissed: number;
 }
 
-export interface FinanceSuggestionDecision { key: string; status: 'accepted' | 'rejected' | 'open'; batch: FinanceRuleBatch | null; link_id?: string | null }
+export interface FinanceSuggestionDecision {
+  key: string; status: 'accepted' | 'rejected' | 'open'; batch: FinanceRuleBatch | null; link_id?: string | null;
+  /** Every part a split made. */
+  link_ids?: string[];
+}
 
 /** Exception notices the daily job may send, each off until the owner turns it on (docs/finance.md#exception-notices). */
 export type FinanceNoticeKind = 'reconciliation_overdue' | 'statement_missing' | 'uncategorized_money' | 'business_unposted' | 'evidence_missing';

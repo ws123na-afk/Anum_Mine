@@ -181,12 +181,18 @@ function SuggestionCard({ item, busy, disabled, onAccept, onReject, onOpen }: {
     <h3 id={headingId} dir="auto">{headText(item)}</h3>
     <p className="fsugWhy" dir="auto">{whyText(item)}</p>
     {item.effect.length > 0 && <p className="fsugEffect">{item.effect.map((e, i) => <strong key={i} dir="ltr">{isolate(formatAmount(e.direction === 'out' ? `-${e.amount}` : e.amount, e.currency))}</strong>)}</p>}
+    {(item.action.parts ?? []).length > 0 && <p className="fsugParts"><span>{t('fsug.parts')}</span>
+      {(item.action.parts ?? []).map((part) => <span key={part.target_id} dir="auto">{t('fsug.part', {
+        amount: isolate(formatAmount(part.amount, part.currency)),
+        date: isolate(item.evidence.find((ev) => ev.ref_id === part.target_id)?.label.split(' ').pop() ?? '-') })}</span>)}</p>}
     {item.evidence.length > 0 && <details className="fsugEvidence"><summary>{t('fsug.evidence')}</summary>
       <ul>{item.evidence.map((ev, i) => <li key={i}><span dir="auto">{ev.label}</span>{ev.value && <small className="muted" dir="ltr"> {ev.value}</small>}</li>)}</ul></details>}
     <div className="fsugActions">
       {mode !== 'none' && <button type="button" disabled={disabled} onClick={onAccept}><Check aria-hidden="true" />
         {busy ? t('finance.saving') : t(mode === 'apply' ? 'fsug.accept.apply' : mode === 'link'
-          ? (item.action.link?.dimension === 'business' ? 'fsug.accept.allocate' : 'fsug.accept.link') : 'fsug.accept.acknowledge')}</button>}
+          ? (item.action.link?.dimension === 'business' ? 'fsug.accept.allocate'
+            : item.action.link?.dimension === 'trip' || item.action.link?.dimension === 'project' ? 'fsug.accept.tag' : 'fsug.accept.link')
+          : 'fsug.accept.acknowledge')}</button>}
       {item.href && <button type="button" className="secondary" disabled={disabled} onClick={onOpen}>{t('fsug.review')}</button>}
       <button type="button" className="secondary" disabled={disabled} onClick={onReject}><X aria-hidden="true" />{t('fsug.dismiss')}</button>
     </div>

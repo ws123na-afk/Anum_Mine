@@ -26,6 +26,7 @@ import { financeReconEn } from './financeRecon.en.ts';
 import { financeForecastEn } from './financeForecast.en.ts';
 import { booksReviewEn } from './booksReview.en.ts';
 import { financeDepthEn } from './financeDepth.en.ts';
+import { financeDepth2En } from './financeDepth2.en.ts';
 import { financeLastGapsEn } from './financeLastGaps.en.ts';
 import { financeSuggestionsEn } from './financeSuggestions.en.ts';
 import { financePlanningEn } from './financePlanning.en.ts';
@@ -154,6 +155,7 @@ export const en = {
   ...financeForecastEn,
   ...booksReviewEn,
   ...financeDepthEn,
+  ...financeDepth2En,
   ...financeLastGapsEn,
   ...financeSuggestionsEn,
   ...financePlanningEn,

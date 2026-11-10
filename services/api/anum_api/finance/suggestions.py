@@ -70,10 +70,10 @@ class Effect(BaseModel):
 class LinkProposal(BaseModel):
     """What Accept links, through the finance links API (so every link check applies): a part of one canonical
     transaction to a bill's due date, a debt, a vehicle cost, a purchase, a loan with a person (a repayment), or a business
-    (an allocation)."""
+    (an allocation), or a personal trip or project tag."""
 
     canonical_id: str
-    dimension: Literal["bill", "debt", "vehicle", "purchase", "business", "person_loan"]
+    dimension: Literal["bill", "debt", "vehicle", "purchase", "business", "person_loan", "trip", "project"]
     target_type: str
     target_id: str
     amount: Decimal
@@ -92,6 +92,9 @@ class ProposedAction(BaseModel):
     subcategory_id: str | None = None
     transaction_type: TransactionType | None = None
     link: LinkProposal | None = None
+    # A split: one transaction across several records of one dimension, an amount each (a repayment covering several loans
+    # with the same person). Accept makes every part or none (``links.create_many``).
+    parts: list[LinkProposal] = Field(default_factory=list, max_length=10)
 
 
 class Suggestion(BaseModel):

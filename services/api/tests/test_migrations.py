@@ -1416,6 +1416,23 @@ def test_finance_last_gaps_migration_is_expand_only_with_a_business_dismissals_t
     assert "bypassrls" not in upgrade and "security definer" not in upgrade and "anum_maintenance" not in upgrade
 
 
+def test_finance_depth_2_migration_is_expand_only_with_an_owner_only_tags_table() -> None:
+    versions = Path(__file__).parents[1] / "migrations" / "versions"
+    revision_text = (versions / "0160_finance_depth_2.py").read_text(encoding="utf-8")
+    assert 'revision = "0160_finance_depth_2"' in revision_text and len("0160_finance_depth_2") <= 32
+    assert 'down_revision = "0159_finance_last_gaps"' in revision_text
+    upgrade = revision_text.split("def upgrade", 1)[1].split("def downgrade", 1)[0].lower()
+    # Expand only: one new table, nothing dropped, altered or added to an existing table.
+    assert "op.drop" not in upgrade and "alter_column" not in upgrade and "op.add_column(" not in upgrade
+    assert upgrade.count("op.create_table(") == 1 and '"finance_personal_tags"' in revision_text
+    assert "kind in ('trip', 'project')" in upgrade and "ends_on >= starts_on" in upgrade
+    # Forced RLS: the tenant policy, the restrictive owner policy and the purge policy (delete only).
+    assert "force row level security" in upgrade and "create policy tenant_isolation_{tags}" in upgrade
+    assert "create policy owner_only_{tags}" in upgrade and "as restrictive" in upgrade
+    assert "create policy lifecycle_purge_finance_personal_tags" in upgrade and "with check (false)" in upgrade
+    assert "bypassrls" not in upgrade and "security definer" not in upgrade and "anum_maintenance" not in upgrade
+
+
 def test_calendar_sync_migration_is_expand_only_with_forced_rls_and_discovery_only_grants() -> None:
     versions = Path(__file__).parents[1] / "migrations" / "versions"
     revision_text = (versions / "0092_calendar_sync.py").read_text(encoding="utf-8")

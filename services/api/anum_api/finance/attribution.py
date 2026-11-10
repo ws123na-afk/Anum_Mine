@@ -15,6 +15,9 @@ record it belongs to in another module, each with a confidence and the reason in
 * **bill and installment**: the bills producer keeps its ``payment_match`` item and, through :func:`bill_link`, uses the
   one payment matcher (``commitments_api.find_candidates``, the matcher behind ``GET /payment-candidates``) to propose the
   payment; installment plans are bills, so their due dates come the same way. No second matcher.
+* **trip** and **project** (the person's own, docs/finance.md#trips-and-projects): a payment within a trip's dates whose words
+  carry the trip's place words, or that is filed as travel; a payment to a merchant the person tagged to a project before, or
+  whose words carry the project's words (within its dates when it has them). One trip or project fits, or nothing is proposed.
 * **fx_fee**: a foreign card purchase whose FX fee or markup can be separated (``card_fx``); Review opens the drawer.
 
 Accept on a ``link`` action creates the link through ``finance.links`` (``create`` or ``allocate``), so ownership,
@@ -335,6 +338,77 @@ def bill_link(snap: SG.Snapshot, occ: Any) -> tuple[SG.LinkProposal, Decimal, st
     return None
 
 
+# -- personal trips and projects -------------------------------------------------------------------------------------------
+
+TRIP_LAG_DAYS = 3  # a card payment made on the last day of a trip can post a few days later
+
+
+def tags(snap: SG.Snapshot, live: list[Any]) -> list[SG.Suggestion]:
+    from . import personal as P
+    from .models import Category
+    from .personal_store import open_personal_store
+
+    with open_personal_store(snap.context) as store:
+        found = [t for t in store.list(snap.context, "tag") if isinstance(t, P.PersonalTag) and not t.archived]
+    if not found:
+        return []
+    by_canonical_row = {snap.canon[t.id]: t for t in snap.rows if t.id in snap.canon}
+    history: dict[str, Counter[str]] = {}
+    for link in live:
+        if link.dimension == P.PROJECT_DIMENSION and (row := by_canonical_row.get(link.canonical_id)) is not None:
+            merchant = snap.aliases.key(row.description)
+            if merchant:
+                history.setdefault(merchant, Counter())[link.target_id] += 1
+    out = []
+    for dimension in P.TAG_DIMENSIONS:
+        linked = {l.canonical_id for l in live if l.dimension == dimension}
+        mine = [t for t in found if t.kind == dimension]
+        for t in _spend_rows(snap):
+            canonical = snap.canon[t.id]
+            if canonical in linked or not mine:
+                continue
+            fits: list[tuple[Any, Decimal, str]] = []
+            for tag in mine:
+                inside = (tag.starts_on is None or t.posted_on >= tag.starts_on) and (
+                    tag.ends_on is None or t.posted_on <= tag.ends_on + timedelta(days=TRIP_LAG_DAYS if dimension == "trip" else 0))
+                words = merchants_agree(tag.keywords, t.description) if tag.keywords else None
+                if dimension == "trip":
+                    if tag.starts_on is None or tag.ends_on is None or not inside:
+                        continue
+                    if words:
+                        fits.append((tag, Decimal("0.8"), "words"))
+                    elif t.category == Category.TRAVEL and words is not False:
+                        fits.append((tag, Decimal("0.6"), "travel"))
+                    continue
+                seen = history.get(snap.aliases.key(t.description) or "", Counter())
+                if seen.get(tag.id) and inside:
+                    total = sum(seen.values())
+                    share = Decimal(seen[tag.id]) / Decimal(total)
+                    fits.append((tag, min(Decimal("0.9"), Decimal("0.5") + Decimal("0.4") * share).quantize(Decimal("0.01")), "history"))
+                elif words and inside:
+                    fits.append((tag, Decimal("0.7"), "words"))
+            if len(fits) != 1:
+                continue  # none, or two that the payment does not tell apart
+            tag, confidence, reason = fits[0]
+            amount = -t.amount
+            when = f" ({tag.starts_on.isoformat()} to {tag.ends_on.isoformat()})" if tag.starts_on and tag.ends_on else ""
+            why = {"words": f"The description carries the words you gave {tag.name}" + (", within its dates." if when else "."),
+                   "travel": "It is filed as travel and was paid during the trip's dates.",
+                   "history": f"You tagged payments to the same merchant to {tag.name} before."}[reason]
+            out.append(_suggest(
+                t, canonical, f"attribution:{dimension}:{t.id}:{tag.id}", dimension, f"This payment may belong to your {dimension} {tag.name}{when}.",
+                why + " Accept tags it; it still counts by its own category.",
+                params={"tag": tag.name[:80], "reason": reason, "starts": tag.starts_on.isoformat() if tag.starts_on else "",
+                        "ends": tag.ends_on.isoformat() if tag.ends_on else ""},
+                evidence=[SG.Evidence(label=tag.name[:120], ref_type="other", ref_id=tag.id, value=(tag.keywords or "")[:200] or None)],
+                confidence=confidence,
+                link=SG.LinkProposal(canonical_id=canonical, dimension=dimension, target_type=P.TAG_TARGET, target_id=tag.id, amount=amount,
+                                     currency=t.currency),
+                href="#finance-goals-trips",
+            ))
+    return out
+
+
 # -- card FX fees ------------------------------------------------------------------------------------------------------
 
 
@@ -375,7 +449,7 @@ def fx_fees(snap: SG.Snapshot) -> list[SG.Suggestion]:
 def produce(snap: SG.Snapshot) -> list[SG.Suggestion]:
     live = _links(snap)
     out: list[SG.Suggestion] = []
-    for part in (business, vehicles, purchases, debts):
+    for part in (business, vehicles, purchases, debts, tags):
         try:
             out.extend(part(snap, live))
         except Exception:  # noqa: BLE001 - one module that cannot be read hides only its own suggestions
@@ -386,4 +460,4 @@ def produce(snap: SG.Snapshot) -> list[SG.Suggestion]:
 SG.register_producer("attribution", produce)
 SG.register_producer("card_fx", fx_fees)
 
-__all__ = ["bill_link", "business", "debts", "fx_fees", "produce", "purchases", "vehicles"]
+__all__ = ["bill_link", "business", "debts", "fx_fees", "produce", "purchases", "tags", "vehicles"]

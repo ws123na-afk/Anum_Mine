@@ -17,6 +17,7 @@ import { lineLabel, paymentStateLabel } from './lib/businessBooks';
 import { formatDateTime, formatNumber, t, type MessageKey } from './lib/i18n';
 import { Empty, LoadError, Money, Notice, failed, type Load } from './FinanceParts';
 import { SafeToSpendCard } from './FinancePlan';
+import { FxBalancesCard } from './FinanceFxBalances';
 import { FinBanner, FinCard, FinancePageHead, FinanceSectionNav, KpiCard, KpiRow, PeriodPicker, ScopeSwitch, StatusChip } from './FinanceShell';
 import { ShareBars, TrendLines } from './OpsParts';
 
@@ -190,6 +191,7 @@ export function FinanceOverviewPage({ summary, accounts, month, onMonth, onOpen,
       </FinCard> : <FinCard title={t('finance.tab.goals')} icon={<PiggyBank />}><p className="muted">{t('fov.goalsNone')}</p>
         <button type="button" className="secondary" onClick={() => onOpen('goals')}><Plus aria-hidden="true" />{t('fov.goalsAdd')}</button></FinCard>}
     </div>
+    {shownScope !== 'business' && accountList.some((a) => !a.archived && a.currency !== s.base_currency) && <FxBalancesCard onOpen={onOpen} />}
   </div>;
 }
 

@@ -283,10 +283,22 @@ def test_allocations_only_to_business_workspaces_the_owner_can_write_to() -> Non
 
 def test_links_need_a_registered_module_and_evidence_carries_no_amount() -> None:
     _s, canonical = fuel_payment()
-    # Trips have no module of their own yet (purchases and vehicles register theirs).
-    missing = client.post(f"{API}/links", headers=OWNER, json={"canonical_id": canonical, "dimension": "trip", "role": "payment",
+    # A dimension with no module registered is refused (personal trips register theirs: take it away for this check).
+    saved_trip = K._targets.get("trip")
+    K.unregister_target("trip")
+    try:
+        missing = client.post(f"{API}/links", headers=OWNER, json={"canonical_id": canonical, "dimension": "trip", "role": "payment",
+                                                                   "target_type": "finance_tag", "target_id": "trip_1", "amount": "5", "currency": "SAR"})
+        assert missing.status_code == 409 and missing.json()["code"] == "target_unavailable"
+    finally:
+        if saved_trip is not None:
+            from anum_api.finance.tags_api import plug_tag_links
+
+            plug_tag_links()
+    # A trip that is not the owner's own personal trip is not found.
+    unknown = client.post(f"{API}/links", headers=OWNER, json={"canonical_id": canonical, "dimension": "trip", "role": "payment",
                                                                "target_type": "trip", "target_id": "trip_1", "amount": "5", "currency": "SAR"})
-    assert missing.status_code == 409 and missing.json()["code"] == "target_unavailable"
+    assert unknown.status_code == 404 and unknown.json()["code"] == "target_not_found"
     assert link(canonical, "5", target_id="not_a_vehicle").status_code == 404
     saved = K._targets.get("document")
     K.register_target("document", lambda context, kind, target: True)

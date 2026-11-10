@@ -259,6 +259,42 @@ class ExpectedIncome(_Owned):
     updated_at: datetime
 
 
+# -- trips and projects (migration 0160_finance_depth_2, docs/finance.md#trips-and-projects) ------------------------------
+
+TRIP_DIMENSION = "trip"
+PROJECT_DIMENSION = "project"
+TAG_TARGET = "finance_tag"
+TAG_DIMENSIONS = (TRIP_DIMENSION, PROJECT_DIMENSION)
+
+
+class PersonalTag(_Owned):
+    """A personal trip or project the person tags transactions to (a finance link in the ``trip`` or ``project`` dimension).
+    A tag is a view: a tagged payment still counts by its own category, and nothing is posted."""
+
+    id: str
+    kind: Literal["trip", "project"]
+    name: str = Field(min_length=1, max_length=120)
+    starts_on: date | None = None
+    ends_on: date | None = None
+    # Words a payment's description may carry (a city, a venue, a supplier): used only to propose a tag.
+    keywords: str | None = Field(default=None, max_length=200)
+    notes: str | None = None
+    archived: bool = False
+    created_at: datetime
+    updated_at: datetime
+
+
+def tag_totals(links: list, tag_id: str) -> dict[str, Decimal]:
+    """What is tagged to one trip or project, per currency (never added across currencies): payments less refunds."""
+    out: dict[str, Decimal] = {}
+    for link in links:
+        if link.target_id != tag_id or link.amount is None or link.currency is None or str(link.status) == "void":
+            continue
+        sign = Decimal(-1) if link.role == "refund" else Decimal(1)
+        out[link.currency] = out.get(link.currency, Decimal(0)) + sign * link.amount
+    return {currency: quantize(value, currency) for currency, value in sorted(out.items())}
+
+
 # -- payslips --------------------------------------------------------------------------------------
 
 
@@ -603,6 +639,7 @@ def commitment_totals(rows: list[Commitment]) -> dict[str, Decimal]:
 
 
 __all__ = [
+    "PROJECT_DIMENSION", "PersonalTag", "TAG_DIMENSIONS", "TAG_TARGET", "TRIP_DIMENSION", "tag_totals",
     "Commitment", "Deduction", "DeductionKind", "ExpectedIncome", "Installment", "LoanDirection", "LoanFigures", "PAYSLIP_DIMENSION", "PAYSLIP_TARGET", "PERSONAL_DIMENSIONS",
     "PERSON_LOAN_DIMENSION", "PERSON_LOAN_TARGET", "PayMonth", "Payslip", "PayslipFigures", "PersonLoan", "ProviderCost", "REMITTANCE_DIMENSION",
     "REMITTANCE_TARGET", "RemitMonth", "Remittance", "SalaryDecision", "SalaryDeductionReason", "SalaryProfile", "SalaryRule", "SalaryRuleKind",

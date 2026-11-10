@@ -427,6 +427,76 @@ def unlink_people_loan(loan_id: str, link_id: str, context: TenantContext = Depe
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
+class LoanSplitPart(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    loan_id: str = Field(min_length=1, max_length=80)
+    amount: Decimal = Field(gt=0, le=Decimal("1e15"))
+
+
+class LoanSplitInput(BaseModel):
+    """One transaction split across several loans, an amount each (docs/finance.md#lent-and-borrowed)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    canonical_id: str = Field(min_length=1, max_length=80)
+    kind: Literal["handed", "repayment"] = "repayment"
+    parts: list[LoanSplitPart] = Field(min_length=2, max_length=K.MAX_PARTS)
+
+
+class LoanSplitResult(BaseModel):
+    links: list[LinkView]
+    replayed: bool
+
+
+def split_requests(context: TenantContext, canonical_id: str, kind: str, parts: list[tuple[str, Decimal]], today: date,
+                   key: str | None = None) -> list[K.LinkRequest]:
+    """The link requests of a split, after the loan checks: the caller's own loans, one direction, one currency, and no part more
+    than what that loan still expects (what is left to repay, or to hand over)."""
+    loans = [_own(context, "person_loan", loan_id, "Loan") for loan_id, _amount in parts]
+    if len({l.direction for l in loans}) != 1:
+        raise K.LinkError(422, "Every loan in a split goes the same way: all money you lent, or all money you borrowed.", "mixed_direction")
+    if len({l.currency for l in loans}) != 1:
+        raise K.LinkError(422, "Every loan in a split is in the transaction's currency. Loans in different currencies are never mixed.",
+                          "currency_mismatch")
+    links, _ = _links(context, P.PERSON_LOAN_DIMENSION)
+    out = []
+    for loan, (_loan_id, wanted) in zip(loans, parts, strict=True):
+        amount = quantize(wanted, loan.currency)
+        role = P.handed_role(loan.direction) if kind == "handed" else P.repaid_role(loan.direction)
+        request = K.LinkRequest(canonical_id=canonical_id, dimension=P.PERSON_LOAN_DIMENSION, role=role, target_type=P.PERSON_LOAN_TARGET,
+                                target_id=loan.id, amount=amount, currency=loan.currency,
+                                idempotency_key=f"{key.strip()}:{loan.id}" if key and key.strip() else None)
+        out.append(request)
+        # A part a retry already made is its own replay: what the loan still expects no longer counts it twice.
+        if any(l.idem_key == K.idem_key(context, canonical_id, request.dimension, request.target_type, loan.id, role, request.idempotency_key)
+               for l in links):
+            continue
+        figures = P.loan_figures(loan, links, today)
+        expected = max(loan.amount - figures.handed, Decimal(0)) if kind == "handed" else figures.outstanding
+        if amount > expected:
+            raise K.LinkError(409, f"{amount} {loan.currency} is more than the {expected} {loan.currency} {loan.person} still has to settle.",
+                              "over_loan", {"remaining": str(expected), "currency": loan.currency, "loan_id": loan.id})
+    return out
+
+
+@router.post("/people-loans/split", response_model=LoanSplitResult, status_code=status.HTTP_201_CREATED)
+@refusals
+def split_people_loans(body: LoanSplitInput, idempotency_key: str | None = Header(default=None, alias="Idempotency-Key", max_length=100),
+                       context: TenantContext = Depends(tenant_context), repository: AnumRepository = Depends(repository_context)) -> Any:
+    """Link one transaction to several loans, an amount each: the parts add up to no more than the transaction and are all in
+    its currency. All parts are made or none. Remove one part with ``DELETE /people-loans/{id}/links/{link_id}``."""
+    _manage(context)
+    _base, today = _settings(context)
+    requests = split_requests(context, body.canonical_id, body.kind, [(p.loan_id, p.amount) for p in body.parts], today, idempotency_key)
+    made = K.create_many(context, requests)
+    for item in made:
+        if not item.replayed:
+            _audit(repository, context, "finance.person_loan.link", item.link.id, {"target": item.link.target_id, "split": len(made)})
+    replayed = all(item.replayed for item in made)
+    return LoanSplitResult(links=[_view(item.link) for item in made], replayed=replayed)
+
+
 # -- payslips ----------------------------------------------------------------------------------------
 
 
