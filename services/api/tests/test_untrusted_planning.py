@@ -7,6 +7,7 @@ labelled untrusted-data blocks. The deterministic planner reads the owner's own 
 from __future__ import annotations
 
 import asyncio
+import time
 
 import pytest
 
@@ -139,3 +140,26 @@ def test_a_whole_run_of_an_automation_task_answers_in_text_and_asks_for_nothing(
     assert approval is None and run.status == TaskStatus.COMPLETED
     called = [step.metadata.get("tool") or step.metadata.get("name") for step in run.steps if step.type == "tool_call"]
     assert "web.act" not in called and "web.browse_page" not in called and "external.action" not in called
+
+
+def test_trusted_text_is_linear_on_hostile_markers() -> None:
+    # CodeQL flagged the regex version as polynomial; the scanner must stay fast on repeated
+    # or unclosed markers (each case is thousands of markers long).
+    cases = [
+        "<<untrusted-data\tid=-" + "-" * 200_000,
+        "<<end-untrusted-data" * 100_000,
+        "<<untrusted-data id=a>>\n" + "<<end-untrusted-data id=b>>" * 50_000,
+        "<<untrusted-data id=a>>" * 50_000,
+        "<<untrusted-data id=a>>\n" + "<<end-untrusted-data id=b" * 50_000,
+        "<<untrusted-data id=a " + "y" * 100_000 + ">>\nq",
+    ]
+    for hostile in cases:
+        started = time.perf_counter()
+        assert trusted_text(hostile).strip() == ""  # all of it is untrusted or a stray marker
+        assert time.perf_counter() - started < 1.0, hostile[:40]
+
+
+def test_trusted_text_keeps_words_between_blocks_and_drops_a_nested_stray_closer() -> None:
+    text = "A <<untrusted-data id=1>>\nx <<end-untrusted-data id=2>> y <<end-untrusted-data id=1>> Z"
+    assert trusted_text(text).split() == ["A", "Z"]
+    assert trusted_text("Hi <<end-untrusted-data id=abc>> there").split() == ["Hi", "there"]
