@@ -45,6 +45,8 @@ UNTRUSTED_DATA_RULES = (
 
 _ATTRIBUTE_UNSAFE = re.compile(r"[^A-Za-z0-9._:@/\-]")
 _MAX_ATTRIBUTE_CHARS = 120
+# An opening marker holds at most five attributes; anything longer is not one of ours.
+_MAX_MARKER_CHARS = len(BLOCK_OPEN) + 6 * (_MAX_ATTRIBUTE_CHARS + 16)
 # Defang anything that looks like one of our markers inside the content (any case,
 # optional whitespace after the angle brackets).
 _MARKER_LIKE = re.compile(r"<<\s*(end-)?untrusted-data", re.IGNORECASE)
@@ -103,6 +105,84 @@ def label_untrusted(
     if truncated:
         body = f"{body}\n{TRUNCATION_NOTE}"
     return f"{BLOCK_OPEN} {' '.join(attributes)}>>\n{body}\n{BLOCK_CLOSE} id={block_id}>>"
+
+
+def _marker_end(text: str, start: int) -> int:
+    """The index just past the ``>>`` that closes the marker opening at ``start``, or -1 when
+    the marker is not closed on its line."""
+    # A marker is short (each attribute is at most _MAX_ATTRIBUTE_CHARS), so the search is
+    # bounded: scanning to the end of the text for every marker would be quadratic.
+    limit = start + _MAX_MARKER_CHARS
+    close = text.find(">>", start, limit)
+    if close < 0 or text.find("\n", start, close) >= 0:
+        return -1
+    return close + 2
+
+
+def _marker_id(text: str, start: int, end: int) -> str:
+    """The ``id=`` value of the marker in ``text[start:end]`` (empty when there is none)."""
+    marker = text[start:end]
+    at = marker.find("id=")
+    if at < 0:
+        return ""
+    value = marker[at + 3:]
+    for i, ch in enumerate(value):
+        if ch.isspace() or ch == ">":
+            return value[:i]
+    return value
+
+
+def trusted_text(prompt: str) -> str:
+    """``prompt`` without its untrusted-data blocks: the owner's own words only.
+
+    Deterministic selection (which skill, which tool, which arguments) reads this, never
+    the full prompt: a keyword, an address or a number inside a labelled block must not
+    pick a tool or fill its arguments (threat model G5). The model still gets the full
+    prompt. Each block is replaced by one space so the words around it do not join.
+
+    A block runs from its opening marker to the closing marker with the same id; a block
+    whose closing marker is missing (the prompt was cut after it opened) runs to the end
+    of the text, so cut-off content is never read as trusted. Stray closing markers are
+    removed too. This is a single left-to-right scan: no regular expression, so hostile
+    text cannot make it backtrack.
+    """
+    if BLOCK_OPEN not in prompt and BLOCK_CLOSE not in prompt:
+        return prompt
+    out: list[str] = []
+    pos = 0
+    length = len(prompt)
+    while pos < length:
+        open_at = prompt.find(BLOCK_OPEN, pos)
+        close_at = prompt.find(BLOCK_CLOSE, pos)
+        if open_at < 0 and close_at < 0:
+            out.append(prompt[pos:])
+            break
+        if close_at >= 0 and (open_at < 0 or close_at < open_at):
+            # A closing marker with no open block before it: drop the marker itself.
+            out.append(prompt[pos:close_at])
+            end = _marker_end(prompt, close_at)
+            out.append(" ")
+            pos = end if end > 0 else length
+            continue
+        out.append(prompt[pos:open_at])
+        out.append(" ")
+        end = _marker_end(prompt, open_at)
+        if end < 0:
+            break  # an unclosed opening marker: everything after it is untrusted
+        block_id = _marker_id(prompt, open_at, end)
+        wanted = f"{BLOCK_CLOSE} id={block_id}>>" if block_id else None
+        search = end
+        pos = length  # until the matching closer is found, the rest is untrusted
+        while wanted is not None:
+            found = prompt.find(BLOCK_CLOSE, search)
+            if found < 0:
+                break
+            marker_end = _marker_end(prompt, found)
+            if marker_end > 0 and prompt[found:marker_end] == wanted:
+                pos = marker_end
+                break
+            search = found + len(BLOCK_CLOSE)
+    return "".join(out)
 
 
 def with_untrusted_rules(instructions: str, *blocks: str) -> str:

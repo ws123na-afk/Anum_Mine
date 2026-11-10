@@ -10,6 +10,7 @@ anyone but Caddy, or carry a value the API refuses at startup. No network, no Do
 from __future__ import annotations
 
 import ipaddress
+import json
 import os
 import re
 import shutil
@@ -68,6 +69,8 @@ S3_REQUIRED = {"ANUM_S3_ENDPOINT", "ANUM_S3_REGION", "ANUM_S3_BUCKET", "ANUM_S3_
 RETENTION_REQUIRED = {"ANUM_ENVIRONMENT", "ANUM_REPOSITORY_BACKEND", "ANUM_DATABASE_URL", "ANUM_SECRETS_KEY"}
 # The WhatsApp history default (docs/whatsapp.md#retention) the retention job applies.
 RETENTION_ENVIRONMENT = RETENTION_REQUIRED | {"ANUM_WHATSAPP_MESSAGE_RETENTION_DAYS"}
+# The bucket the API stores files in: the retention job deletes the bytes of what it purges.
+OBJECT_STORAGE = S3_REQUIRED | {"ANUM_OBJECT_STORAGE_BACKEND", "ANUM_S3_SERVER_SIDE_ENCRYPTION", "ANUM_S3_CREATE_BUCKET"}
 # The Ollama settings docs/deploy-oracle.md#ai-model and .env.example give for the ai profile.
 OLLAMA_VALUES = {
     "ANUM_MODEL_PROVIDER": "ollama",
@@ -190,8 +193,10 @@ def test_database_and_valkey_stay_on_the_internal_network() -> None:
     assert networks["backend"]["internal"] is True
     assert not networks["edge"].get("internal")
     services = compose["services"]
-    for name in ("postgres", "valkey", "db-init", "migrate", "retention", "backup", "restore-tools"):
+    for name in ("postgres", "valkey", "db-init", "migrate", "backup", "restore-tools"):
         assert set(services[name]["networks"]) == {"backend"}, name
+    # The retention job also reaches the file bucket and the ECB exchange rates.
+    assert set(services["retention"]["networks"]) == {"backend", "egress"}
     # Caddy, the internet-facing container, cannot reach the database or Valkey.
     assert set(services["caddy"]["networks"]) == {"edge", "sites"}
     assert set(services["web"]["networks"]) == {"edge"}
@@ -470,12 +475,36 @@ def test_retention_environment_alone_is_enough_for_settings(monkeypatch: pytest.
     variables = dict(_example())
     variables["ANUM_SECRETS_KEY"] = Fernet.generate_key().decode()
     environment = {key: _interpolate(value, variables) for key, value in _env(_services()["retention"]).items()}
-    assert set(environment) == RETENTION_ENVIRONMENT
+    assert set(environment) == RETENTION_ENVIRONMENT | OBJECT_STORAGE
     # The job and the API use the same deployment default.
     assert environment["ANUM_WHATSAPP_MESSAGE_RETENTION_DAYS"] == _api_environment()["ANUM_WHATSAPP_MESSAGE_RETENTION_DAYS"]
     settings = _settings(monkeypatch, environment)
     assert settings.environment == _api_environment()["ANUM_ENVIRONMENT"]
     assert settings.repository_backend == "postgresql"
+
+
+def test_retention_job_deletes_from_the_bucket_the_api_stores_in(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The job empties vault trash and purges mail attachments and call recordings. With
+    the default `local` backend it would delete nothing and leave the objects in the bucket."""
+    services = _services()
+    api, retention = _env(services["api"]), _env(services["retention"])
+    storage_keys = {key for key in api if key.startswith(("ANUM_S3_", "ANUM_OBJECT_STORAGE_"))}
+    assert storage_keys == OBJECT_STORAGE
+    # The same references to .env, value for value, so the two can never name two buckets.
+    assert {key: retention.get(key) for key in storage_keys} == {key: api[key] for key in storage_keys}
+    variables = dict(_example())
+    variables["ANUM_SECRETS_KEY"] = Fernet.generate_key().decode()
+    job = _settings(monkeypatch, {key: _interpolate(value, variables) for key, value in retention.items()})
+    serving = _settings(monkeypatch, _api_environment())
+    assert job.object_storage_backend == serving.object_storage_backend == "s3"
+    for field in ("s3_endpoint", "s3_region", "s3_bucket", "s3_access_key", "s3_secret_key", "s3_server_side_encryption", "s3_create_bucket"):
+        assert getattr(job, field) == getattr(serving, field), field
+    # The bucket is on the internet, and so are the ECB rates of the books' daily job.
+    networks = set(services["retention"]["networks"])
+    assert "egress" in networks and "egress" in services["api"]["networks"]
+    assert not _compose()["networks"]["egress"].get("internal")
+    # Still a one-shot nothing can reach: no ports, not on Caddy's network.
+    assert not services["retention"].get("ports") and "edge" not in networks
 
 
 # --------------------------------------------------------------------------- proxy
@@ -757,6 +786,8 @@ def test_scripts_are_strict_and_units_point_at_existing_files() -> None:
         assert (ORACLE / script).is_file(), script
     for timer in ("anum-retention.timer", "anum-backup.timer", "anum-update.timer", "anum-duckdns.timer"):
         assert f"write_unit {timer}" in install, timer
+    # heal.sh writes its own units, so update.sh can add them to a VM installed earlier.
+    assert '$SUDO bash "$ORACLE_DIR/heal.sh" install' in install
     assert "run --rm retention" in install
     # The firewall step edits Oracle's rules file instead of saving live rules (which
     # would store Docker's chains) and never enables ufw.
@@ -775,6 +806,301 @@ def test_scripts_are_strict_and_units_point_at_existing_files() -> None:
     # install.sh ends with the smoke test, as the owner, after the timers.
     smoke = install.index('run_as_owner bash "$ORACLE_DIR/smoke.sh"')
     assert smoke > install.index("systemctl daemon-reload")
+
+
+def _code(script: str) -> str:
+    text = (ORACLE / script).read_text(encoding="utf-8")
+    return "\n".join(line for line in text.splitlines() if not line.lstrip().startswith("#"))
+
+
+def test_update_backs_up_before_migrating_and_goes_back_when_the_new_version_fails() -> None:
+    """docs/deploy-oracle.md#updates. Order matters more than wording here."""
+    update = _code("update.sh")
+    memory = update.index("MemAvailable")
+    keep = update.index('docker tag "$image:local" "$image:previous"')
+    build = update.index('build --pull "$target"')
+    current = update.index("revisions current")
+    backup = update.index('bash "$ORACLE_DIR/backup.sh" backup')
+    migrate = update.index("dc run --rm --no-deps migrate\n")
+    up = update.index("dc up -d --remove-orphans")
+    # Enough free memory is checked before anything is tagged or built; the running images
+    # are kept before the build replaces the :local tags.
+    assert memory < keep < build
+    for image in ("anum/api", "anum/web", "anum/keycloak"):
+        assert image in update[: update.index("log \"Keeping the running images")], image
+    # One image at a time: no build of every service in one command.
+    assert "build --pull\n" not in update and "dc --profile jobs build --pull \"$target\"" in update
+    # The revision is compared, and the backup taken, before the migration; a failed backup
+    # or an unreadable revision stops the update with nothing replaced.
+    assert build < current < backup < migrate < up
+    assert update.index("revisions heads") < backup
+    failed_backup = update[backup : update.index("log \"Applying migrations\"")]
+    assert failed_backup.startswith('bash "$ORACLE_DIR/backup.sh" backup; then') and "exit 1" in failed_backup
+    assert 'if ! bash "$ORACLE_DIR/backup.sh" backup; then' in update
+    assert 'if ! current_revision="$(revisions current)"; then' in update
+    # The rollback: previous images back under :local, API and web recreated without their
+    # dependencies (the old image's migrate must not run against the newer schema), and a
+    # non-zero exit that says which version is running.
+    start = update.index("roll_back() {")
+    roll_back = update[start : update.index("\n}\n", start)]
+    assert 'docker tag "$image:previous" "$image:local"' in roll_back
+    assert "dc up -d --no-deps --no-build --force-recreate api web" in roll_back
+    assert "OLD version is running again" in roll_back and "THE SITE IS DOWN" in roll_back
+    assert roll_back.rstrip().endswith("exit 1")
+    assert "ROLLBACK_IMAGES=(anum/api anum/web)" in update
+    assert 'dc up -d --remove-orphans || roll_back' in update
+    assert "wait_healthy api 60 || roll_back" in update and "wait_healthy web 24 || roll_back" in update
+    # The smoke test runs last, as the repository's owner (no sudo), and its failure is the
+    # script's failure; install.sh runs its own with a longer wait for the certificates.
+    smoke = update.index('as_repo_owner bash "$ORACLE_DIR/smoke.sh"')
+    assert smoke > up and '[ -f "$ORACLE_DIR/smoke.sh" ]' in update
+    assert 'update.sh" --no-pull --no-smoke' in (ORACLE / "install.sh").read_text(encoding="utf-8")
+    # A VM installed before the heal timer existed gets it from update.sh, once.
+    assert "systemctl is-enabled --quiet anum-heal.timer" in update
+    assert 'bash "$ORACLE_DIR/heal.sh" install' in update
+
+
+FAKE_DOCKER = r"""#!/bin/sh
+# A stand-in for docker: records every call and answers from files in $STATE.
+printf '%s\n' "docker $*" >> "$STATE/calls.log"
+for last in "$@"; do :; done
+case "$*" in
+  *"alembic current"*) cat "$STATE/current" ;;
+  *"alembic heads"*) cat "$STATE/heads" ;;
+  *"config --format json"*) cat "$STATE/config.json" ;;
+  *" ps -q "*) echo "$last" ;;
+  "inspect --format"*) cat "$STATE/health_$last" 2>/dev/null || echo healthy ;;
+  "tag anum/api:previous anum/api:local") [ ! -e "$STATE/old_version_works" ] || echo healthy > "$STATE/health_api" ;;
+  *"up -d --remove-orphans"*) exit "$(cat "$STATE/up_status" 2>/dev/null || echo 0)" ;;
+esac
+exit 0
+"""
+
+
+def _run_update(tmp_path: Path, **state: str) -> tuple[subprocess.CompletedProcess[str], list[str]]:
+    """The real update.sh in a scratch checkout, with stand-ins for docker, systemctl, sleep,
+    configure_env.py, backup.sh and smoke.sh. `state` files steer the stand-ins."""
+    oracle = tmp_path / "repo" / "infra" / "oracle"
+    oracle.mkdir(parents=True)
+    bin_dir, state_dir = tmp_path / "bin", tmp_path / "state"
+    bin_dir.mkdir()
+    state_dir.mkdir()
+    shutil.copy(ORACLE / "update.sh", oracle / "update.sh")
+    (oracle / ".env").write_text("ANUM_WEB_HOST=app.example.org\n", encoding="utf-8")
+    (oracle / ".env.example").write_text("", encoding="utf-8")
+    (oracle / "compose.yaml").write_text("services: {}\n", encoding="utf-8")
+    (oracle / "configure_env.py").write_text("", encoding="utf-8")
+    for script in ("backup.sh", "smoke.sh"):
+        (oracle / script).write_text(
+            f'#!/bin/sh\nprintf \'%s\\n\' "{script} $*" >> "$STATE/calls.log"\n'
+            f'exit "$(cat "$STATE/{script}_status" 2>/dev/null || echo 0)"\n',
+            encoding="utf-8",
+        )
+    for name, body in (("docker", FAKE_DOCKER), ("systemctl", "#!/bin/sh\nexit 0\n"), ("sleep", "#!/bin/sh\nexit 0\n")):
+        (bin_dir / name).write_text(body, encoding="utf-8")
+        (bin_dir / name).chmod(0o755)
+    services = {
+        "api": {"build": {"context": "."}, "image": "anum/api:local"},
+        "migrate": {"build": {"context": "."}, "image": "anum/api:local"},
+        "web": {"build": {"context": "."}, "image": "anum/web:local"},
+        "postgres": {"image": "pgvector/pgvector:0.8.7-pg17-trixie"},
+    }
+    defaults = {"current": "0100_old\n", "heads": "0101_new (head)\n", "config.json": json.dumps({"services": services})}
+    for name, value in {**defaults, **state}.items():
+        (state_dir / name).write_text(value, encoding="utf-8")
+    environment = {
+        "PATH": f"{bin_dir}:{os.environ.get('PATH', '/usr/bin:/bin')}",
+        "STATE": str(state_dir),
+        "ANUM_UPDATE_MIN_BUILD_MEMORY_MB": state.get("minimum_mb", "1"),
+    }
+    result = subprocess.run(  # noqa: S603
+        ["/bin/bash", str(oracle / "update.sh"), "--no-pull"],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=120,
+        env=environment,
+    )
+    calls = state_dir / "calls.log"
+    return result, calls.read_text(encoding="utf-8").splitlines() if calls.exists() else []
+
+
+def _first(calls: list[str], fragment: str) -> int:
+    matches = [index for index, call in enumerate(calls) if fragment in call]
+    assert matches, f"{fragment!r} was never called"
+    return matches[0]
+
+
+needs_update_harness = pytest.mark.skipif(
+    sys.platform != "linux" or shutil.which("bash") is None or shutil.which("python3") is None,
+    reason="update.sh reads /proc/meminfo and needs bash and python3: Linux only (CI runs it)",
+)
+
+
+@needs_update_harness
+def test_update_run_backs_up_then_migrates_then_replaces_one_build_at_a_time(tmp_path: Path) -> None:
+    result, calls = _run_update(tmp_path)
+    assert result.returncode == 0, result.stderr
+    # The running images are kept before anything is built, and each image is built alone:
+    # migrate shares the API's image, so there are two builds, never one for everything.
+    builds = [call for call in calls if " build --pull" in call]
+    assert [call.rsplit(" ", 1)[1] for call in builds] == ["api", "web"]
+    assert _first(calls, "tag anum/api:local anum/api:previous") < _first(calls, " build --pull")
+    assert _first(calls, "tag anum/keycloak:local anum/keycloak:previous") < _first(calls, " build --pull")
+    # 0100_old is not 0101_new: backup, then the migration, then the services.
+    backup, migrate = _first(calls, "backup.sh backup"), _first(calls, "run --rm --no-deps migrate")
+    assert _first(calls, " build --pull") < backup < migrate < _first(calls, "up -d --remove-orphans")
+    # Healthy: no rollback, and the smoke test ran last and passed.
+    assert not [call for call in calls if ":previous anum/" in call]
+    assert calls[-1].startswith("smoke.sh") and "smoke test: passed" in result.stdout
+
+
+@needs_update_harness
+def test_update_run_without_new_migrations_takes_no_extra_backup(tmp_path: Path) -> None:
+    result, calls = _run_update(tmp_path, current="0101_new (head)\n")
+    assert result.returncode == 0, result.stderr
+    assert not [call for call in calls if call.startswith("backup.sh")]
+    assert "no migration, no extra backup" in result.stdout
+    # A first install has no revision yet and nothing to back up.
+    first = tmp_path / "first"
+    first.mkdir()
+    result, calls = _run_update(first, current="")
+    assert result.returncode == 0, result.stderr
+    assert not [call for call in calls if call.startswith("backup.sh")]
+    assert _first(calls, "run --rm --no-deps migrate")
+
+
+@needs_update_harness
+def test_update_run_stops_when_the_backup_fails_or_memory_is_short(tmp_path: Path) -> None:
+    result, calls = _run_update(tmp_path, **{"backup.sh_status": "1"})
+    assert result.returncode == 1
+    assert "the backup before the migrations failed" in result.stderr
+    # Nothing was migrated and nothing was replaced.
+    assert not [call for call in calls if "run --rm --no-deps migrate" in call or " up -d --remove-orphans" in call]
+    # More memory asked for than any machine has: stopped before tagging or building.
+    short = tmp_path / "short"
+    short.mkdir()
+    result, calls = _run_update(short, minimum_mb="99999999")
+    assert result.returncode == 1
+    assert "MB of memory is available" in result.stderr and "Nothing was changed" in result.stderr
+    assert not [call for call in calls if " build " in call or call.startswith("docker tag") or " up -d" in call]
+
+
+@needs_update_harness
+def test_update_run_goes_back_to_the_previous_images_when_the_new_api_is_unhealthy(tmp_path: Path) -> None:
+    result, calls = _run_update(tmp_path, health_api="unhealthy\n", old_version_works="")
+    assert result.returncode == 1
+    assert "the new API is not healthy after 5 minutes" in result.stderr
+    assert "the OLD version is running again" in result.stderr
+    retag = _first(calls, "tag anum/api:previous anum/api:local")
+    assert _first(calls, "up -d --remove-orphans") < retag
+    assert _first(calls, "tag anum/web:previous anum/web:local") > _first(calls, "up -d --remove-orphans")
+    # The failed images are kept for a look; Keycloak is never swapped back automatically.
+    assert _first(calls, "tag anum/api:local anum/api:failed") < retag
+    assert not [call for call in calls if call == "docker tag anum/keycloak:previous anum/keycloak:local"]
+    # The API and web come back without their dependencies: no second `migrate` run.
+    recreate = _first(calls, "up -d --no-deps --no-build --force-recreate api web")
+    assert recreate > retag
+    assert not [call for call in calls[recreate:] if "migrate" in call]
+    assert not [call for call in calls if call.startswith("smoke.sh")]
+    # The previous version does not come up either: said plainly, still non-zero.
+    down = tmp_path / "down"
+    down.mkdir()
+    result, _ = _run_update(down, health_api="unhealthy\n")
+    assert result.returncode == 1 and "THE SITE IS DOWN" in result.stderr
+    # `docker compose up` itself failing takes the same way back.
+    refused = tmp_path / "refused"
+    refused.mkdir()
+    result, calls = _run_update(refused, up_status="1")
+    assert result.returncode == 1 and "docker compose up failed" in result.stderr
+    assert _first(calls, "tag anum/api:previous anum/api:local")
+
+
+def _run_with_fake_docker(tmp_path: Path, listing: str, *arguments: str) -> tuple[subprocess.CompletedProcess[str], list[str]]:
+    """heal.sh with a `docker` on PATH that prints `listing` for `ps` and records every call."""
+    calls = tmp_path / "calls.log"
+    (tmp_path / "listing").write_text(listing, encoding="utf-8")
+    fake = tmp_path / "docker"
+    fake.write_text(
+        f'#!/bin/sh\nprintf \'%s\\n\' "$*" >> "{calls}"\nif [ "$1" = ps ]; then cat "{tmp_path / "listing"}"; fi\n',
+        encoding="utf-8",
+    )
+    fake.chmod(0o755)
+    result = subprocess.run(  # noqa: S603
+        ["/bin/bash", str(ORACLE / "heal.sh"), *arguments],
+        capture_output=True,
+        text=True,
+        check=False,
+        timeout=30,
+        env={"PATH": f"{tmp_path}:{os.environ.get('PATH', '/usr/bin:/bin')}"},
+    )
+    return result, calls.read_text(encoding="utf-8").splitlines() if calls.exists() else []
+
+
+def test_unhealthy_containers_are_restarted_except_clamd(tmp_path: Path) -> None:
+    heal = (ORACLE / "heal.sh").read_text(encoding="utf-8")
+    # Every 2 minutes, only this compose project, only containers Docker calls unhealthy.
+    assert "OnUnitActiveSec=2min" in heal and "write_unit anum-heal.timer" in heal
+    assert "ExecStart=/bin/bash $ORACLE_DIR/heal.sh run" in heal
+    assert "systemctl enable --now anum-heal.timer" in heal
+    # clamd's signature load outlasts a health check: its start period is why it is skipped.
+    assert _services()["clamd"]["healthcheck"]["start_period"] == "600s"
+    assert _compose()["name"] == "anum" and "PROJECT=anum" in heal
+    if shutil.which("bash") is None:
+        return
+    result, calls = _run_with_fake_docker(tmp_path, "aaa111 api\nbbb222 clamd\nccc333 keycloak\n")
+    assert result.returncode == 0, result.stderr
+    assert calls[0].startswith("ps --filter label=com.docker.compose.project=anum --filter health=unhealthy")
+    assert calls[1:] == ["restart aaa111", "restart ccc333"]
+    assert "restarting unhealthy api" in result.stdout and "clamd" not in result.stdout
+    # Nothing unhealthy: nothing restarted.
+    quiet = tmp_path / "quiet"
+    quiet.mkdir()
+    result, calls = _run_with_fake_docker(quiet, "")
+    assert result.returncode == 0 and len(calls) == 1 and result.stdout == ""
+    # An unknown argument changes nothing.
+    other = tmp_path / "other"
+    other.mkdir()
+    result, calls = _run_with_fake_docker(other, "aaa111 api\n", "bogus")
+    assert result.returncode == 2 and calls == []
+
+
+def test_backup_prunes_downloaded_copies_and_reminds_that_env_is_in_no_backup(tmp_path: Path) -> None:
+    backup = _code("backup.sh")
+    nightly = backup[backup.index("  backup)") : backup.index("  list)")]
+    # Decrypted downloads and drill leftovers go after 7 days, by arrival time (rclone keeps
+    # the original modification time), before the upload.
+    assert 'for directory in "$BACKUP_DIR/fetched" "$BACKUP_DIR/drill"; do' in nightly
+    assert "-type f -ctime +7 -print -delete" in nightly
+    assert nightly.index("-ctime +7") < nightly.index("dc run --rm backup-upload")
+    # The reminder is printed whether the upload worked or not.
+    assert nightly.count("env_copy_reminder") == 2
+    start = backup.index("env_copy_reminder() {")
+    function = backup[backup.index("ENV_COPIED_MARKER=") : backup.index("\n}\n", start) + 3]
+    assert 'ENV_COPIED_MARKER="$BACKUP_DIR/status/env-copied"' in function
+    if shutil.which("bash") is None:
+        return
+    env_file, marker_dir = tmp_path / ".env", tmp_path / "backups" / "status"
+    marker_dir.mkdir(parents=True)
+    env_file.write_text("ANUM_SECRETS_KEY=not-printed\n", encoding="utf-8")
+
+    def reminder() -> str:
+        script = f'ENV_FILE="{env_file}"; BACKUP_DIR="{tmp_path / "backups"}"\n{function}env_copy_reminder\n'
+        result = subprocess.run(["/bin/bash", "-c", script], capture_output=True, text=True, check=False)  # noqa: S603
+        assert result.returncode == 0 and result.stdout == ""
+        return result.stderr
+
+    # Never copied: warned, with the two commands, and never with the file's contents.
+    first = reminder()
+    assert "NOT in any backup" in first and f"sudo touch {marker_dir / 'env-copied'}" in first
+    assert "not-printed" not in first
+    # Copied and recorded: quiet. Edited afterwards: warned again.
+    marker = marker_dir / "env-copied"
+    marker.touch()
+    os.utime(env_file, (1_700_000_000, 1_700_000_000))
+    assert reminder() == ""
+    os.utime(marker, (1_600_000_000, 1_600_000_000))
+    assert "NOT in any backup" in reminder()
 
 
 def test_smoke_test_needs_no_sudo_and_covers_the_edge() -> None:
@@ -907,7 +1233,7 @@ def test_clamd_scans_every_upload_privately_and_fails_closed(monkeypatch: pytest
     assert "clamd" not in CADDYFILE.read_text(encoding="utf-8").lower()
     assert clamd["image"].startswith("clamav/clamav:") and clamd["image"].endswith("-debian13-slim")
     assert any(str(volume).startswith("clamav-db:") for volume in clamd["volumes"])
-    # A bounded share of the 24 GB VM, and clamd accepts a full-size upload.
+    # A bounded share of the VM, and clamd accepts a full-size upload.
     assert clamd["mem_limit"] == "2g"
     assert _env(clamd)["CLAMD_CONF_StreamMaxLength"] == "26M"
     # One copy of the signatures in memory: no concurrent reload, no test load by freshclam.
@@ -924,17 +1250,78 @@ def _mebibytes(value: str) -> int:
     return number * {"m": 1, "g": 1024}[unit]
 
 
-def test_the_default_stack_fits_a_12_gb_vm_with_headroom() -> None:
-    """docs/deploy-oracle.md#memory-budget: the ceilings of everything `up -d` starts
-    stay at or below 11 GiB, leaving at least 1 GiB of a 12 GB VM for the OS."""
+# The default stack's ceilings (docs/deploy-oracle.md#memory-budget): 2 OCPU / 12 GB shared
+# with other stacks ANUM does not control, so the total must leave room for them.
+MEMORY_BUDGET = {
+    "postgres": "2g",
+    "clamd": "2g",
+    "api": "1536m",
+    "keycloak": "1536m",
+    "searxng": "512m",
+    "valkey": "384m",
+    "caddy": "256m",
+    "web": "256m",
+}
+POSTGRES_MEMORY_SETTINGS = {
+    "shared_buffers": "512MB",
+    "effective_cache_size": "1536MB",
+    "work_mem": "8MB",
+    "maintenance_work_mem": "128MB",
+    "max_parallel_workers_per_gather": "1",
+}
+
+
+def _postgres_settings() -> dict[str, str]:
+    command = _services()["postgres"]["command"]
+    assert command[0] == "postgres"
+    pairs = command[1:]
+    assert pairs[0::2] == ["-c"] * (len(pairs) // 2)
+    return dict(item.split("=", 1) for item in pairs[1::2])
+
+
+def test_the_default_stack_leaves_room_for_the_other_stacks_on_a_12_gb_vm() -> None:
+    """docs/deploy-oracle.md#memory-budget: the ceilings of everything `up -d` starts are
+    exactly the documented budget, 8576 MiB in total, on a 12 GB VM shared with neighbours."""
     services = _services()
     default = {name for name, service in services.items() if not service.get("profiles") and name in LONG_RUNNING}
-    assert default == {"caddy", "postgres", "api", "web", "keycloak", "valkey", "searxng", "clamd"}
+    assert default == set(MEMORY_BUDGET)
+    assert {name: services[name]["mem_limit"] for name in default} == MEMORY_BUDGET
     total = sum(_mebibytes(services[name]["mem_limit"]) for name in default)
-    assert total <= 11 * 1024, total
+    assert total == 8576
     budget = (REPO_ROOT / "docs" / "deploy-oracle.md").read_text(encoding="utf-8")
     for name in default:
         assert f"| `{name}` | {services[name]['mem_limit']} |" in budget, name
+    assert f"| **Total** | **{total}m (8.4 GiB)** |" in budget
+    # The single-tenant budget must not come back as the table.
+    assert "| `postgres` | 3584m |" not in budget and "11136m" not in budget
+
+
+def test_postgres_is_sized_for_the_shared_vm_and_is_the_last_to_be_killed() -> None:
+    postgres = _services()["postgres"]
+    settings = _postgres_settings()
+    assert {name: settings[name] for name in POSTGRES_MEMORY_SETTINGS} == POSTGRES_MEMORY_SETTINGS
+    # Shared buffers are at most a quarter of the ceiling; the rest is for the backends.
+    assert 512 * 4 <= _mebibytes(postgres["mem_limit"])
+    # /dev/shm must hold the parallel-query segments; shared buffers do not live there.
+    assert postgres["shm_size"] == "512m"
+    # When the VM runs out of memory the kernel picks another process first, and no other
+    # ANUM service is protected the same way.
+    assert postgres["oom_score_adj"] == -500
+    others = {name for name, service in _services().items() if name != "postgres" and "oom_score_adj" in service}
+    assert others == set()
+    guide = (REPO_ROOT / "docs" / "deploy-oracle.md").read_text(encoding="utf-8")
+    for name, value in POSTGRES_MEMORY_SETTINGS.items():
+        assert f"`{name}={value}`" in guide, name
+
+
+def test_keycloak_heap_follows_its_ceiling() -> None:
+    """Keycloak's JVM takes 70% of the container limit by default; a fixed -Xmx or
+    JAVA_OPTS override would ignore the ceiling in the budget above."""
+    keycloak = _services()["keycloak"]
+    assert keycloak["mem_limit"] == MEMORY_BUDGET["keycloak"]
+    assert not {"JAVA_OPTS", "JAVA_OPTS_KC_HEAP", "JAVA_OPTS_APPEND"} & set(_env(keycloak))
+    dockerfile = (REPO_ROOT / "infra" / "render" / "keycloak.Dockerfile").read_text(encoding="utf-8")
+    assert "-Xmx" not in dockerfile and "JAVA_OPTS" not in dockerfile
 
 
 # --------------------------------------------------------------------------- monitoring

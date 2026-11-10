@@ -20,7 +20,7 @@ from pydantic import BaseModel
 from .authorization import Permission
 from .dependencies import require_permission, tenant_context
 from .model_config_store import open_model_config_store
-from .model_gateway import normalize_provider
+from .model_gateway import normalize_provider, server_key_missing
 from .schemas import TenantContext
 from .settings import settings
 
@@ -59,7 +59,8 @@ def workspace_model_status(context: TenantContext) -> ModelStatus:
         provider = normalize_provider(saved.provider)
         return ModelStatus(placeholder=provider == PLACEHOLDER_PROVIDER, provider=provider, source="workspace")
     server = server_model_state()
-    return ModelStatus(placeholder=bool(server["placeholder"]), provider=str(server["provider"]), source="server")
+    # A hosted provider whose key was missing at startup answers with the placeholder model.
+    return ModelStatus(placeholder=bool(server["placeholder"]) or server_key_missing(), provider=str(server["provider"]), source="server")
 
 
 @router.get("/model-status", response_model=ModelStatus)

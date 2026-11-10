@@ -31,7 +31,7 @@ import asyncio
 import logging
 from collections.abc import AsyncIterator, Callable, Iterator
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, datetime, timezone
 from enum import StrEnum
 from threading import RLock
@@ -60,6 +60,7 @@ from .model_gateway import (
 from .repository import AnumRepository
 from .schemas import TenantContext, new_id
 from .scoped_store import open_scoped_store
+from .settings import settings
 from .telemetry import telemetry
 
 logger = logging.getLogger("anum.model_budget")
@@ -127,10 +128,28 @@ class UsageDelta:
     input_tokens: int
     output_tokens: int
     estimated_cost_usd: float | None
+    # The model has no price: counted in ``unpriced_calls`` even when a worst-case cost was
+    # assumed for it (``with_assumed_cost``). Left out, it follows from a missing cost.
+    unpriced: bool | None = None
+
+    def __post_init__(self) -> None:
+        if self.unpriced is None:
+            object.__setattr__(self, "unpriced", self.estimated_cost_usd is None)
 
     @classmethod
     def of(cls, usage: ModelUsage) -> UsageDelta:
         return cls(usage.input_tokens, usage.output_tokens, usage.estimated_cost_usd)
+
+    def with_assumed_cost(self, model: str) -> UsageDelta:
+        """For a call no price is known for, under a cost limit: the cost at the configured
+        worst-case price (``ANUM_MODEL_UNPRICED_PRICE``), so the limit still counts it. Cache
+        discounts are not applied (worst case). Unchanged when priced or when switched off."""
+        price = settings.model_unpriced_price
+        if self.estimated_cost_usd is not None or price is None:
+            return self
+        cost = (self.input_tokens * price.input_per_million + self.output_tokens * price.output_per_million) / 1_000_000
+        _warn_unpriced_once(model)
+        return replace(self, estimated_cost_usd=round(cost, 8))
 
     def amount(self, kind: BudgetKind) -> float:
         if kind == BudgetKind.COST:
@@ -200,7 +219,7 @@ class InMemoryModelBudgetStore:
                 output_tokens=current.output_tokens + delta.output_tokens,
                 estimated_cost_usd=current.estimated_cost_usd + (delta.estimated_cost_usd or 0.0),
                 calls=current.calls + 1,
-                unpriced_calls=current.unpriced_calls + (delta.estimated_cost_usd is None),
+                unpriced_calls=current.unpriced_calls + bool(delta.unpriced),
             )
             self._usage[key] = updated
             return updated
@@ -346,6 +365,22 @@ def check_model_budget(
         check_agent_cap(context, agent_id, now=now)
 
 
+_WARNED_UNPRICED: set[str] = set()
+
+
+def _warn_unpriced_once(model: str) -> None:
+    """One warning per model and process: its cost is assumed, so the owner should add a price."""
+    if model in _WARNED_UNPRICED or len(_WARNED_UNPRICED) >= 200:
+        return
+    _WARNED_UNPRICED.add(model)
+    logger.warning(
+        "model_budget_unpriced_model model=%s: no price is configured, so calls under a cost limit are counted at the "
+        "worst-case price (ANUM_MODEL_UNPRICED_PRICE); add the model to ANUM_MODEL_PRICES for a real estimate",
+        _log_safe(model)[:120],
+        extra={"anum_model_budget": {"event": "unpriced_model", "model": _log_safe(model)[:120]}},
+    )
+
+
 def _log_safe(value: str) -> str:
     """Identifiers can come from request headers in local mode: no forged log lines."""
     return value.replace("\r", "").replace("\n", "")
@@ -358,8 +393,11 @@ def record_model_usage(
     month = month_start(now or utc_now())
     delta = UsageDelta.of(usage)
     with open_model_budget_store(context) as store:
-        workspace_total = store.record_usage(context, month, delta, now or utc_now())
         budgets = {scope: store.get_budget(context, scope) for scope in BudgetScope}
+        if delta.unpriced and any(budget is not None and budget.limit(BudgetKind.COST) is not None for budget in budgets.values()):
+            # A cost limit applies and the model has no price: count a worst case, not zero.
+            delta = delta.with_assumed_cost(usage.model)
+        workspace_total = store.record_usage(context, month, delta, now or utc_now())
         tenant_total = (
             store.usage(context, BudgetScope.TENANT, month)
             if budgets[BudgetScope.TENANT] is not None

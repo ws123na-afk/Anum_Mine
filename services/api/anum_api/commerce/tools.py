@@ -23,6 +23,7 @@ from urllib.parse import urlsplit
 
 from ..agent_tools import ToolCall, ToolDefinition, ToolRegistry, ToolResult
 from ..authorization import Permission
+from ..prompt_provenance import trusted_text
 from ..schemas import RiskLevel, TenantContext, utc_now
 from .clients.base import UnsupportedOperation
 from .config import commerce_config
@@ -367,8 +368,11 @@ def is_commerce_question(text: str) -> bool:
 
 
 def plan_call(prompt: str, language: str | None = None) -> ToolCall | None:
-    """The commerce tool call the user's own words ask for, or None."""
-    text = " ".join(prompt.split())
+    """The commerce tool call the user's own words ask for, or None.
+
+    Labelled untrusted-data blocks are dropped first, so neither their text nor the random
+    id in their markers can become a SKU, a price or a quantity."""
+    text = " ".join(trusted_text(prompt).split())
     channel = detect_channel(text)
     marketplace = detect_marketplace(text, channel)
     if is_change_request(text):

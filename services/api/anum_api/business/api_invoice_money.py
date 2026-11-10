@@ -28,7 +28,7 @@ from ..schemas import TenantContext, new_id, utc_now
 from .api_invoices import InvoiceView, invoice_view
 from .common import Reason, get_or_404, manage, read, write
 from .invoice_models import CreditNote, CreditNoteStatus, InvoiceStatus, PaymentNotice, PaymentNoticeStatus
-from .invoice_service import apply_payment, credit_notes_of, credit_split, notices_of
+from .invoice_service import apply_payment, business_day, credit_notes_of, credit_split, notices_of
 from .models import Money, money
 from .service import audit, http_error, record_activity
 from .store import open_business_store
@@ -91,7 +91,7 @@ def issue_credit_note(
         note = CreditNote(
             id=new_id("bcrn"), tenant_id=context.tenant_id, workspace_id=context.workspace_id, invoice_id=invoice.id, account_id=invoice.account_id, seq=seq,
             number=f"{invoice.number}-CN{seq}", currency=invoice.currency, amount=payload.amount, subtotal=subtotal, tax=tax, reason=reason,
-            issue_date=now.date(), issued_by=context.user_id, created_at=now, updated_at=now,
+            issue_date=business_day(store, now), issued_by=context.user_id, created_at=now, updated_at=now,
         )
         store.add("credit_notes", note)
         credited = money(invoice.amount_credited + payload.amount)

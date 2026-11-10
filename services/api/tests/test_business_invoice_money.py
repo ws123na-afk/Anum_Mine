@@ -24,11 +24,11 @@ from anum_api.suppression import suppression_store
 
 from test_business import BASE, MEMBER, OTHER_TENANT, OTHER_WORKSPACE, OWNER, VIEWER, ok
 from test_business_change_orders import project as make_project
-from test_business_invoices import create, send, sent_invoice, set_profile
+from test_business_invoices import business_today, create, send, sent_invoice, set_profile
 from test_business_invoices import portal_report as notice_for
 
 client = TestClient(main.app)
-TODAY = utc_now().date().isoformat()
+TODAY = business_today().isoformat()
 
 
 @pytest.fixture(autouse=True)

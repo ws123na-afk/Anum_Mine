@@ -17,6 +17,9 @@ Exchange rates (IAS 21): a transaction converts at the rate of its own day. A se
 or supplier payment) clears the receivable or payable at the rate it was booked at and books the
 difference to exchange gains and losses. Non-monetary items (an asset's depreciation, the release of
 a prepayment, a credit note reversing part of a sale) use the rate of the original transaction.
+"The rate it was booked at" is the rate on the posted entry of the invoice, bill or adjustment itself
+(``Leg.booked_by``), never the rate table asked again for that day: a closer rate recorded after the
+document was posted would differ, and the receivable or payable would never clear.
 """
 
 from __future__ import annotations
@@ -27,7 +30,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal
-from typing import Any
+from typing import Any, Protocol
 
 from ..finance.money import quantize
 from .books_chart import REVENUE_KEYS
@@ -70,6 +73,13 @@ class Leg:
     # Settles a monetary balance in another currency at its carrying rate (what it is booked at), so the settlement's
     # exchange difference is realised (loans, members' balances; docs/business-books.md#period-end-revaluation).
     carrying: bool = False
+    # The event key of the entry that booked what this leg reverses, releases or settles. In another currency the leg
+    # converts at the rate that entry was posted with, never at a rate read again for the same day. Not part of the
+    # fingerprint: the facts are the same, so nothing posted is posted again.
+    booked_by: str | None = None
+    # With ``booked_by``: pays the document's receivable or payable. It leaves at what the document is still booked at
+    # (in proportion for a part payment; the last payment takes what is left, so the balance clears to zero).
+    settles: bool = False
 
 
 @dataclass
@@ -243,7 +253,7 @@ def propose(inputs: Inputs, chart: Chart, today: date | None = None) -> list[Pro
         if invoice.issue_date is None:
             continue
         currency, booked = _cur(note), invoice.issue_date
-        dims = {"project_id": invoice.project_id, "customer_id": invoice.account_id}
+        dims = {"project_id": invoice.project_id, "customer_id": invoice.account_id, "booked_by": f"invoice:{invoice.id}"}
         legs = [Leg("key:ar", False, currency, Decimal(note.amount), booked, absorb=True, **dims)]
         for code, net, tax in _credit_split(invoice, Decimal(note.subtotal), Decimal(note.tax)):
             if net > 0:
@@ -259,7 +269,8 @@ def propose(inputs: Inputs, chart: Chart, today: date | None = None) -> list[Pro
         currency = _cur(invoice)
         dims = {"project_id": invoice.project_id, "customer_id": invoice.account_id}
         legs = [Leg("key:bank", True, currency, Decimal(payment.amount), payment.paid_on, flow="customers_paid", **dims),
-                Leg("key:ar", False, currency, Decimal(payment.amount), invoice.issue_date, absorb=True, **dims)]
+                Leg("key:ar", False, currency, Decimal(payment.amount), invoice.issue_date, absorb=True, booked_by=f"invoice:{invoice.id}",
+                    settles=True, **dims)]
         out.append(Proposal(f"invoice_payment:{payment.id}", "invoice_payment", payment.id, payment.paid_on,
                             f"Payment for invoice {invoice.number or invoice.id}", legs, fx_balance=True))
 
@@ -286,8 +297,9 @@ def propose(inputs: Inputs, chart: Chart, today: date | None = None) -> list[Pro
             for month, part in zip(_months(month_start(bill.bill_date), bill.useful_life_months), parts, strict=True):
                 if part > 0:
                     out.append(Proposal(f"bill:{bill.id}:dep:{_month_key(month)}", "bill", bill.id, month, f"Depreciation, {name}", [
-                        Leg("key:depreciation", True, bill.currency, part, bill.bill_date, category="depreciation", **dims),
-                        Leg("key:accumulated_depreciation", False, bill.currency, part, bill.bill_date, absorb=True, **dims)]))
+                        Leg("key:depreciation", True, bill.currency, part, bill.bill_date, category="depreciation", booked_by=f"bill:{bill.id}", **dims),
+                        Leg("key:accumulated_depreciation", False, bill.currency, part, bill.bill_date, absorb=True, booked_by=f"bill:{bill.id}",
+                            **dims)]))
 
     for payment in sorted(book.bill_payments, key=lambda item: item.id):
         bill = book.bills[payment.bill_id]
@@ -299,7 +311,8 @@ def propose(inputs: Inputs, chart: Chart, today: date | None = None) -> list[Pro
             credit = Leg("key:bank", False, bill.currency, payment.amount, payment.paid_on,
                          flow="capital_spend" if bill.section == Section.CAPITAL else "suppliers_paid", **dims)
         out.append(Proposal(f"bill_payment:{payment.id}", "bill_payment", payment.id, payment.paid_on,
-                            f"Payment of bill {bill.reference or bill.id[-6:]}", [Leg("key:ap", True, bill.currency, payment.amount, bill.bill_date, absorb=True, **dims), credit],
+                            f"Payment of bill {bill.reference or bill.id[-6:]}", [Leg("key:ap", True, bill.currency, payment.amount, bill.bill_date, absorb=True, booked_by=f"bill:{bill.id}", settles=True, **dims),
+                             credit],
                             fx_balance=True))
 
     for allocation in sorted(book.live_allocations.values(), key=lambda item: item.id):
@@ -355,25 +368,26 @@ def _assets(book: Book, inputs: Inputs, chart: Chart) -> list[Proposal]:
         if found is None:
             continue
         _, dims, prefix = found
+        held = {**dims, "booked_by": prefix}  # at the rate the purchase was posted with (historical cost)
         kind, source_id = asset.source_kind, asset.source_id
         cur, acquired = asset.currency, asset.acquired_on
         name = f"{asset.name}"
         for row in schedule(asset, inputs.asset_impairments):
             out.append(Proposal(f"{prefix}:dep:{_month_key(row.month)}", kind, source_id, row.month, f"Depreciation, {name}", [
-                Leg("key:depreciation", True, cur, row.amount, acquired, category="depreciation", **dims),
-                Leg("key:accumulated_depreciation", False, cur, row.amount, acquired, absorb=True, **dims)]))
+                Leg("key:depreciation", True, cur, row.amount, acquired, category="depreciation", **held),
+                Leg("key:accumulated_depreciation", False, cur, row.amount, acquired, absorb=True, **held)]))
         for loss in approved(inputs.asset_impairments, asset.id):
             if Decimal(loss.amount) <= 0:
                 continue
             out.append(Proposal(f"asset:{asset.id}:impairment:{loss.id}", "asset", asset.id, loss.entry_date, f"Impairment, {name}", [
-                Leg("key:impairment", True, cur, Decimal(loss.amount), acquired, category="impairment", **dims),
-                Leg("key:accumulated_depreciation", False, cur, Decimal(loss.amount), acquired, absorb=True, **dims)]))
+                Leg("key:impairment", True, cur, Decimal(loss.amount), acquired, category="impairment", **held),
+                Leg("key:accumulated_depreciation", False, cur, Decimal(loss.amount), acquired, absorb=True, **held)]))
         sold = disposal(asset, inputs.asset_impairments)
         if sold is not None and asset.disposed_on is not None:
-            legs = [Leg("key:fixed_assets", False, cur, sold["cost"], acquired, **dims)]
+            legs = [Leg("key:fixed_assets", False, cur, sold["cost"], acquired, **held)]
             taken = sold["depreciation"] + sold["impairment"]
             if taken > 0:
-                legs.append(Leg("key:accumulated_depreciation", True, cur, taken, acquired, **dims))
+                legs.append(Leg("key:accumulated_depreciation", True, cur, taken, acquired, **held))
             if sold["proceeds"] > 0:
                 legs.append(Leg("key:bank", True, cur, sold["proceeds"], asset.disposed_on, flow="asset_sales", **dims))
             label = "sold" if asset.disposal_kind == "sale" else "written off"
@@ -444,8 +458,8 @@ def _loans(book: Book, inputs: Inputs, chart: Chart, base: str, today: date | No
                 Leg("key:interest_payable", False, cur, amount, end, absorb=True)]))
             following = date.fromordinal(end.toordinal() + 1)
             out.append(Proposal(f"{accrual_key}:reverse", "loan", loan.id, following, f"Interest accrued reversed, {loan.lender}", [
-                Leg("key:interest_payable", True, cur, amount, end, absorb=True),
-                Leg("key:finance_costs", False, cur, amount, end, category="loan_interest")]))
+                Leg("key:interest_payable", True, cur, amount, end, absorb=True, booked_by=accrual_key),
+                Leg("key:finance_costs", False, cur, amount, end, category="loan_interest", booked_by=accrual_key)]))
     return out
 
 
@@ -470,12 +484,13 @@ def _adjustment(item: Any, chart: Chart, base: str = "", registered: bool = Fals
             Leg(f"key:{credit}", False, cur, amount, day, flow=flow if credit == "bank" else None, absorb=not settles, **dims)],
             fx_balance=settles)]
     expense = chart.expense(item.section.value if item.section else Section.OPERATING_EXPENSE.value, category)
+    later = {**dims, "booked_by": key}  # what the entry schedules converts at the rate the entry itself was posted with
     if kind == AdjustmentKind.ACCRUAL:
         out = [Proposal(key, "adjustment", item.id, day, label, [
             Leg(expense, True, cur, amount, day, category=category, **dims), Leg("key:accruals", False, cur, amount, day, absorb=True, **dims)])]
         if item.reverse_on:
             out.append(Proposal(f"{key}:reverse", "adjustment", item.id, item.reverse_on, f"{label} reversed", [
-                Leg("key:accruals", True, cur, amount, day, absorb=True, **dims), Leg(expense, False, cur, amount, day, category=category, **dims)]))
+                Leg("key:accruals", True, cur, amount, day, absorb=True, **later), Leg(expense, False, cur, amount, day, category=category, **later)]))
         return out
     if kind == AdjustmentKind.PREPAYMENT and item.start_month and item.months:
         out = [Proposal(key, "adjustment", item.id, day, label, [
@@ -483,7 +498,7 @@ def _adjustment(item: Any, chart: Chart, base: str = "", registered: bool = Fals
         for month, part in zip(_months(item.start_month, item.months), _spread(amount, cur, item.months), strict=True):
             if part > 0:
                 out.append(Proposal(f"{key}:release:{_month_key(month)}", "adjustment", item.id, month, f"{label} released", [
-                    Leg(expense, True, cur, part, day, category=category, **dims), Leg("key:prepayments", False, cur, part, day, absorb=True, **dims)]))
+                    Leg(expense, True, cur, part, day, category=category, **later), Leg("key:prepayments", False, cur, part, day, absorb=True, **later)]))
         return out
     if kind == AdjustmentKind.CAPITAL_ITEM and item.start_month and item.months:
         # An asset recorded outside a bill: brought in by the owner (a capital bill is the record for one the business bought).
@@ -494,8 +509,8 @@ def _adjustment(item: Any, chart: Chart, base: str = "", registered: bool = Fals
         for month, part in zip(_months(item.start_month, item.months), _spread(amount, cur, item.months), strict=True):
             if part > 0:
                 out.append(Proposal(f"{key}:dep:{_month_key(month)}", "adjustment", item.id, month, f"Depreciation, {label.lower()}", [
-                    Leg("key:depreciation", True, cur, part, day, category="depreciation", **dims),
-                    Leg("key:accumulated_depreciation", False, cur, part, day, absorb=True, **dims)]))
+                    Leg("key:depreciation", True, cur, part, day, category="depreciation", **later),
+                    Leg("key:accumulated_depreciation", False, cur, part, day, absorb=True, **later)]))
         return out
     return []
 
@@ -549,16 +564,50 @@ def _carried(leg: Leg, proposal: Proposal, chart: Chart, base: str, carrying: Ca
     return value, CarryingRate(rate, proposal.event_date)
 
 
-def realise(proposal: Proposal, converter: Converter, chart: Chart, carrying: Carrying | None = None) -> list[Line] | Issue:
+class Booked(Protocol):
+    """What the journal holds of a posted document, for the legs that reverse, release or settle it (``Leg.booked_by``)."""
+
+    def rate(self, event_key: str, currency: str) -> CarryingRate | None:
+        """The rate the live entry of ``event_key`` was posted with for ``currency`` (with its date and source), or None."""
+
+    def open(self, event_key: str, account_id: str, currency: str) -> tuple[Decimal, Decimal] | None:
+        """What is left of the document on an account: (original amount, base value), debit positive, counting its own
+        entry and every live entry that reverses or settles it."""
+
+
+def _booked(leg: Leg, chart: Chart, base: str, booked: Booked | None) -> tuple[Decimal, CarryingRate] | None:
+    """A leg's base value at the rate its document was posted with: (base value, rate), or None to use the rate table (the
+    document is not posted, or nothing reads the journal: a dry run)."""
+    if booked is None or leg.booked_by is None or leg.currency == base:
+        return None
+    rate = booked.rate(leg.booked_by, leg.currency)
+    if leg.settles:
+        left = booked.open(leg.booked_by, chart.resolve(leg.account), leg.currency)
+        # A debit leg pays a credit balance and the other way round; anything else (nothing left, paid twice) uses the rate.
+        if left is not None and left[0] != 0 and left[1] != 0 and (left[0] > 0) == (left[1] > 0) and (left[0] < 0) == leg.debit \
+                and leg.amount <= abs(left[0]):
+            original, value = abs(left[0]), abs(left[1])
+            part = value if leg.amount == original else quantize(leg.amount * value / original, base)
+            shown = rate or CarryingRate((value / original).quantize(Decimal("0.0000000001")), leg.rate_on, "Booked rate of the document")
+            if shown.rate > 0:
+                return part, shown
+    if rate is None:
+        return None
+    return quantize(leg.amount * rate.rate, base), rate
+
+
+def realise(proposal: Proposal, converter: Converter, chart: Chart, carrying: Carrying | None = None,
+            booked: Booked | None = None) -> list[Line] | Issue:
     """Base-currency lines that balance, or why the event cannot be posted (never a guessed rate). ``carrying`` reads what a
-    balance in another currency is booked at, for a leg that settles it (``Leg.carrying``)."""
+    balance in another currency is booked at, for a leg that settles it (``Leg.carrying``); ``booked`` reads what a posted
+    document is booked at, for the legs that reverse, release or pay it (``Leg.booked_by``)."""
     base = converter.base
     converted: list[tuple[Leg, Decimal, Any]] = []
     for leg in proposal.legs:
         if leg.currency == base:
             converted.append((leg, leg.amount, None))
             continue
-        carried = _carried(leg, proposal, chart, base, carrying)
+        carried = _carried(leg, proposal, chart, base, carrying) or _booked(leg, chart, base, booked)
         if carried is not None:
             converted.append((leg, carried[0], carried[1]))
             continue
@@ -613,4 +662,4 @@ def realise(proposal: Proposal, converter: Converter, chart: Chart, carrying: Ca
     return out
 
 
-__all__ = ["Carrying", "CarryingRate", "Chart", "Issue", "Leg", "Line", "Proposal", "propose", "realise"]
+__all__ = ["Booked", "Carrying", "CarryingRate", "Chart", "Issue", "Leg", "Line", "Proposal", "propose", "realise"]

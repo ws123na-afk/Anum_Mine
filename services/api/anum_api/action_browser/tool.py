@@ -33,7 +33,17 @@ from ..model_egress import EgressPolicy, UnsafeModelEndpointError, check_endpoin
 from ..schemas import RiskLevel, TenantContext, new_id, utc_now
 from . import ACT_TOOL
 from .card_code import CVC_MARKER, NO_CODE_AT_RUN, take_card_code
-from .classify import ALLOW, GATE, HANDOFF, REFUSE, Decision, classify, handoff_reason
+from .classify import (
+    ALLOW,
+    GATE,
+    HANDOFF,
+    REFUSE,
+    Decision,
+    classify,
+    handoff_reason,
+    signed_in_grant,
+    signed_in_sites,
+)
 from .handles import (
     CODE_PART,
     Handle,
@@ -580,7 +590,8 @@ class _Segment:
         described = await self._inspect(action)
         if described is None:
             return await self._too_many_refusals()
-        decision = classify(described, sites=record.sites, scope_logins=record.logins, scope_cards=set(record.cards), card_grants=set(record.grants))
+        decision = classify(described, sites=record.sites, scope_logins=record.logins, scope_cards=set(record.cards), card_grants=set(record.grants),
+                            signed_in=signed_in_sites(record.grants))
         if decision.kind == REFUSE:
             self.refusals += 1
             await self.note("refused", f"Refused: {decision.reason}", url=record.current_url, detail={"code": decision.code})
@@ -621,7 +632,7 @@ class _Segment:
         fields = _fields_shown(target, hints)
         amount = decision.amount.as_dict() if decision.amount is not None else {}
         verb = {"card_entry": "enter", "card_security_code": "enter the card security code in", "payment_field": "type into", "off_site": "open", "binding_button": "press",
-                "payment_form": "send", "payment_frame": "press"}.get(decision.code, "do")
+                "payment_form": "send", "form_submit": "send", "payment_frame": "press"}.get(decision.code, "do")
         what = f"{verb} {label}" if decision.code != "off_site" else f"open {site_of(decision.host)}"
         money = f" ({amount['amount_text']})" if amount.get("amount_text") and decision.code != "off_site" else ""
         host = str(page.get("host") or decision.host)
@@ -687,6 +698,12 @@ class _Segment:
             return None
         snapshot = result.get("snapshot") if isinstance(result.get("snapshot"), dict) else {}
         self.record.step_count += 1
+        typed = parse_handle(str(action.get("value") or "")) if action.get("type") == "type" else None
+        if typed is not None and typed.kind == "login" and typed.part == "password" and self.record.logins.get(typed.name):
+            # From here the session acts as the owner on that site: sending a form there stops
+            # for approval (classify). Kept first so the cap never drops it.
+            mark = signed_in_grant(str(self.record.logins[typed.name]))
+            self.record.grants = list(dict.fromkeys([mark, *self.record.grants]))[:20]
         self._observe(snapshot)
         await self.note(_log_kind(action), _log_line(action, described, step), url=self.record.current_url,
                         detail=_log_detail(action, described))
@@ -765,7 +782,7 @@ class _Segment:
             if fresh is None:
                 return None
             decision = classify(fresh, sites=self.record.sites, scope_logins=self.record.logins, scope_cards=set(self.record.cards),
-                                card_grants=set(self.record.grants))
+                                card_grants=set(self.record.grants), signed_in=signed_in_sites(self.record.grants))
             if decision.kind == GATE:
                 return await self._gate(action, fresh, decision, PlannedStep(action=str(action.get("type")), reason="Asked again"))  # type: ignore[arg-type]
             if decision.kind == HANDOFF:

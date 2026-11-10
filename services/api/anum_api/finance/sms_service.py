@@ -84,7 +84,7 @@ DEVICE_PREFIX = "anum_sms"
 SAFE_ID = re.compile(r"^[A-Za-z0-9_-]{1,80}$")
 PER_MINUTE = 30  # messages a device may send per minute
 PER_DAY = 1_000
-DUPLICATE_WINDOW = timedelta(minutes=10)  # same moment, when both messages give the time
+DUPLICATE_WINDOW = W.SAME_SOURCE_WINDOW  # same moment, when both messages give the time
 REFUND_LOOKBACK_DAYS = 120
 INGEST_PATH = "/api/v1/finance/sms/ingest"
 TEST_SENDER = "anumtest"
@@ -555,6 +555,14 @@ def _when(parsed: P.Parsed, received: datetime, tz_name: str) -> tuple[datetime,
     return P.occurred(parsed, local), parsed.occurred_at_time is not None or parsed.occurred_on is None
 
 
+def _stated_on(message: SmsMessage) -> date | None:
+    """The date a bank message states for its transaction (``parsed.occurred_on``), or None when it states none."""
+    try:
+        return date.fromisoformat(str(message.parsed.get("occurred_on") or ""))
+    except ValueError:
+        return None
+
+
 def candidates(store: SmsStore, context: TenantContext, fp: str, around: date | None = None) -> list[W.Candidate]:
     """The posted entries a new report could be another source of (same direction, amount, currency, account), posted
     within the matching window of ``around`` (every one of them, in a fixed order)."""
@@ -567,8 +575,11 @@ def candidates(store: SmsStore, context: TenantContext, fp: str, around: date | 
         kinds = frozenset({source_kind(m.source) for m in sources.get(e.id, []) if m.status in (MessageStatus.POSTED, MessageStatus.ATTACHED)}
                           | ({e.source.value} if e.source in (EntrySource.MANUAL, EntrySource.STATEMENT) else set()))
         day = datetime.combine(e.posted_on, datetime.min.time()).replace(hour=12, tzinfo=(e.occurred_at.tzinfo if e.occurred_at else None))
+        stated = frozenset(on for m in sources.get(e.id, []) if m.status in (MessageStatus.POSTED, MessageStatus.ATTACHED)
+                           and (on := _stated_on(m)) is not None)
         # Without a merchant (a salary, a transfer) the entry's own words ("Salary") are compared instead.
-        out.append(W.Candidate(entry_id=e.id, when=e.occurred_at, day=day, merchant=e.merchant or e.description, reference=e.reference, sources=kinds))
+        out.append(W.Candidate(entry_id=e.id, when=e.occurred_at, day=day, merchant=e.merchant or e.description, reference=e.reference, sources=kinds,
+                               stated=stated))
     return out
 
 
@@ -627,7 +638,7 @@ def process(finance: FinanceStore, store: SmsStore, context: TenantContext, mess
         fp = fingerprint(parsed.kind, resolved.amount, target.currency, _key_account(parsed.kind, resolved))
         message.fingerprint = fp
         report = W.Report(source="sms", when=when, precise=has_time,
-                          merchant=parsed.merchant, reference=parsed.reference)
+                          merchant=parsed.merchant, reference=parsed.reference, dated=parsed.occurred_on is not None)
         decision, existing_entry = match(store, context, fp, report)
         if existing_entry is not None:
             if decision == "same_source":

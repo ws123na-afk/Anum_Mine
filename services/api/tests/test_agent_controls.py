@@ -545,3 +545,20 @@ def test_a_batch_that_cancels_nothing_ends_the_loop(monkeypatch: pytest.MonkeyPa
     monkeypatch.setattr(agent_controls, "_cancel_batch", stuck)
     assert agent_controls.cancel_in_flight(_context(), [WORKSPACE_A]) == []
     assert calls == [1]
+
+
+def test_an_agent_cost_cap_counts_an_unpriced_model_at_the_worst_case_price() -> None:
+    """Without a price the call's cost was None and the cap never tripped."""
+    from anum_api.agent_controls import check_agent_cap
+
+    agent = _agent("Unpriced")
+    other = _agent("Uncapped")
+    assert client.put(f"/api/v1/agent-controls/agent-caps/{agent['id']}", headers=OWNER, json={"monthly_cost_limit_usd": 0.01}).status_code == 200
+    unpriced = ModelUsage(input_tokens=1000, output_tokens=100, provider="p", model="local-unpriced", estimated_cost_usd=None)
+    totals = record_agent_usage(_context(), agent["id"], unpriced)
+    assert totals.estimated_cost_usd == pytest.approx(0.015) and totals.unpriced_calls == 1  # 1000 * $10/M + 100 * $50/M
+    with pytest.raises(AgentCapExceededError):
+        check_agent_cap(_context(), agent["id"])
+    # No cost cap: tokens only, as before.
+    free = record_agent_usage(_context(), other["id"], unpriced)
+    assert free.estimated_cost_usd == 0 and free.unpriced_calls == 1

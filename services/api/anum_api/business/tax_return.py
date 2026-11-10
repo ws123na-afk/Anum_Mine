@@ -289,7 +289,9 @@ def compute(context: TenantContext, start: date, end: date, *, today: date) -> d
                 found.vat[code] += movement
         elif account.type == AccountType.REVENUE and sales:
             found.net[code] += -movement
-        elif not sales and (account.type == AccountType.EXPENSE or account.subtype == "fixed_asset"):
+        elif not sales and account.subtype != "depreciation" and (account.type == AccountType.EXPENSE or account.subtype == "fixed_asset"):
+            # The cost of a purchase. A capital bill's monthly depreciation (posted under the bill, ``bill:<id>:dep:<month>``) is
+            # not a purchase: the bill's own entry already counted its cost and VAT, in the period it was bought.
             found.net[code] += movement
     documents = classify(entries, parts, start, jurisdiction)
     boxes = boxes_from(jurisdiction, documents, self_assessed, self_assessed_adj, base)

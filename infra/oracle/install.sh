@@ -13,7 +13,8 @@
 # values are never printed), asks for the few values only the owner has, builds and
 # refuses duplicate or invalid host names and a world-open Keycloak admin allow-list,
 # builds and starts the stack (update.sh: migrations before the API is replaced),
-# installs the systemd timers (retention, backup, optional DuckDNS and auto-update) and
+# installs the systemd timers (retention, backup, unhealthy-container restarts, optional
+# DuckDNS and auto-update) and
 # ends with infra/oracle/smoke.sh, printing its summary (non-zero exit when a check
 # fails). Every step checks first, so a second run changes nothing already in place.
 set -euo pipefail
@@ -206,7 +207,7 @@ if [ -n "$(env_value DUCKDNS_TOKEN)" ]; then
   $SUDO bash "$ORACLE_DIR/duckdns.sh" || warn "DuckDNS update failed; check DUCKDNS_TOKEN and DUCKDNS_DOMAINS"
 fi
 log "Building the images on this VM and starting the stack (the first build takes a while)"
-$SUDO bash "$ORACLE_DIR/update.sh" --no-pull
+$SUDO bash "$ORACLE_DIR/update.sh" --no-pull --no-smoke
 
 # --- systemd timers ---------------------------------------------------------------------
 log "Installing systemd timers"
@@ -286,6 +287,9 @@ WantedBy=timers.target"
 
 $SUDO systemctl daemon-reload
 $SUDO systemctl enable --now anum-retention.timer anum-backup.timer >/dev/null
+# Restarts containers Docker reports as unhealthy, every 2 minutes (heal.sh writes its
+# own units, so update.sh can add them on a VM installed before they existed).
+$SUDO bash "$ORACLE_DIR/heal.sh" install
 if [ "$(env_value ANUM_AUTO_UPDATE)" = "true" ]; then
   $SUDO systemctl enable --now anum-update.timer >/dev/null
 else

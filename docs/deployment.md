@@ -221,6 +221,8 @@ The migration Job runs `python -m alembic upgrade head` as `anum_migrator` befor
 
 Migrations are forward-only in deployment. Because the old pods keep running against the new schema during a rolling update, and a rollback runs old code against it as well, every migration must be backward compatible with the previous release: add columns and tables first (expand), switch code, and remove old ones in a later release (contract).
 
+A migration never waits long for a lock. `ALTER TABLE` needs an exclusive lock on its table, and while it waits behind a long query or an open transaction every later query on that table waits behind the migration, so one slow report during a deploy would stop the API. `services/api/migrations/env.py` therefore sets `lock_timeout` to 5 seconds for the migration session (online mode, PostgreSQL): a statement that cannot get its lock in that time fails with `canceling statement due to lock timeout`, the migration's transaction is rolled back, nothing is replaced, and the deploy is run again at a quieter moment. Blocks that run outside the transaction (`op.get_context().autocommit_block()`, used for `CREATE INDEX CONCURRENTLY`) run without the timeout: a concurrent index build blocks nobody while it waits for older transactions, and a timed-out one would leave an invalid index behind. `tests/test_postgres_migration_lock_timeout.py` checks both against PostgreSQL.
+
 ## Rollback
 
 ```bash

@@ -256,7 +256,7 @@ class InMemoryAgentControlsStore:
                 output_tokens=current.output_tokens + delta.output_tokens,
                 estimated_cost_usd=current.estimated_cost_usd + (delta.estimated_cost_usd or 0.0),
                 calls=current.calls + 1,
-                unpriced_calls=current.unpriced_calls + (delta.estimated_cost_usd is None),
+                unpriced_calls=current.unpriced_calls + bool(delta.unpriced),
             )
             self._usage[key] = updated
             return updated.model_copy()
@@ -342,8 +342,11 @@ def record_agent_usage(context: TenantContext, agent_id: str, usage: ModelUsage,
     month = month_start(moment)
     delta = UsageDelta.of(usage)
     with open_agent_controls_store(context) as store:
-        totals = store.record_agent_usage(context, agent_id, month, delta, moment)
         cap = store.get_cap(context, agent_id)
+        if delta.unpriced and cap is not None and cap.monthly_cost_limit_usd is not None:
+            # The agent has a cost cap and the model has no price: count a worst case, not zero.
+            delta = delta.with_assumed_cost(usage.model)
+        totals = store.record_agent_usage(context, agent_id, month, delta, moment)
     if cap is not None:
         # Owners hear about 50, 75, 90 and 100 percent of the agent's cap in the app.
         from .budget_alerts import alert_agent, crossed

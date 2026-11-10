@@ -43,7 +43,7 @@ from . import books_report as R
 from .books_chart import accounts as chart_accounts
 from .books_chart import ensure_chart
 from .books_models import PNL_TYPES, AccountType, JournalEntry, JournalLine, LedgerAccount, PeriodClose, PostingIssue
-from .books_posting import Chart, Issue, Line, Proposal, propose, realise
+from .books_posting import CarryingRate, Chart, Issue, Line, Proposal, propose, realise
 from .books_store import MAX_SCAN, AtMost, Between, BooksStore, DuplicateError, Not, open_books_store
 
 logger = logging.getLogger("anum_api.business.books_ledger")
@@ -140,9 +140,10 @@ def reverse(store: BooksStore, context: TenantContext, entry: JournalEntry, *, a
 
 
 # Events a person recorded as already done, dated in their own calendar and checked "not in the future" by
-# ``books_service.latest_day``: personal payments allocated to the business, adjustments and payments. Only the event itself
+# ``books_service.latest_day``: personal payments allocated to the business, adjustments and payments; and invoices and credit
+# notes, dated on the business's own day when they are issued (``invoice_service.business_day``). Only the event itself
 # (``kind:id``); what it schedules (a reversal, a release, depreciation) waits for its UTC day.
-RECORDED_KINDS = frozenset({"allocation", "adjustment", "invoice_payment", "bill_payment"})
+RECORDED_KINDS = frozenset({"allocation", "adjustment", "invoice_payment", "bill_payment", "invoice", "credit_note"})
 
 
 def _plan(context: TenantContext, store: BooksStore, today: date) -> tuple[Any, Chart, list[Proposal], list[JournalEntry], date | None]:
@@ -206,7 +207,7 @@ def post(context: TenantContext, *, actor: str = SYSTEM_POSTER, today: date | No
             if key in live_by_key and key not in changed:
                 result.unchanged += 1
                 continue
-            if not dry_run and any(leg.carrying for leg in proposal.legs):
+            if not dry_run and any(leg.carrying or (leg.booked_by and leg.currency != settings.base_currency) for leg in proposal.legs):
                 settling.append(proposal)  # realised after the others are written: it reads the balance it settles
                 continue
             realised = realise(proposal, converter, chart)
@@ -226,9 +227,11 @@ def post(context: TenantContext, *, actor: str = SYSTEM_POSTER, today: date | No
         for proposal, lines in to_post:
             _write(store, context, proposal, lines, locked, actor, moment)
         # Settlements of a balance in another currency, in date order, each at the carrying rate of what is booked by then.
+        # So are the events that reverse, release or pay a document in another currency: at the rate its entry was posted with.
         reader = _carrying_reader(store)
+        booked = _BookedReader(store, chart, proposals)
         for proposal in sorted(settling, key=lambda item: (item.event_date, item.event_key)):
-            realised = realise(proposal, converter, chart, reader)
+            realised = realise(proposal, converter, chart, reader, booked)
             if isinstance(realised, Issue):
                 issues.append(realised)
                 continue
@@ -263,6 +266,38 @@ def _carrying_reader(store: BooksStore) -> Any:
         return rows[0]["amount"], rows[0]["debit"] - rows[0]["credit"]
 
     return read
+
+
+class _BookedReader:
+    """What the journal holds of a posted document (``books_posting.Booked``): the rate its live entry was posted with, and
+    what is left of it on an account after the live entries that reverse or settle it (its credit notes and payments). Read
+    again for every event, so a payment sees the payments written before it in the same run."""
+
+    def __init__(self, store: BooksStore, chart: Chart, proposals: list[Proposal]) -> None:
+        self.store = store
+        self.events: dict[tuple[str, str], set[str]] = {}
+        for proposal in proposals:
+            for leg in proposal.legs:
+                if leg.booked_by:
+                    self.events.setdefault((leg.booked_by, chart.resolve(leg.account)), {leg.booked_by}).add(proposal.event_key)
+
+    def _lines(self, keys: set[str], **where: Any) -> list[JournalLine]:
+        entries, _ = self.store.find("journal_entries", where={"event_key": keys, "status": "posted", "reverses_id": None}, limit=MAX_SCAN * 20)
+        if not entries:
+            return []
+        lines, _ = self.store.find("journal_lines", where={"entry_id": {entry.id for entry in entries}, **where}, order_by="line_no",
+                                   descending=False, limit=MAX_SCAN * 20)
+        return lines
+
+    def rate(self, event_key: str, currency: str) -> CarryingRate | None:
+        line = next((row for row in self._lines({event_key}, currency=currency) if row.rate is not None and row.rate_date is not None), None)
+        return CarryingRate(line.rate, line.rate_date, line.rate_source or "") if line is not None else None
+
+    def open(self, event_key: str, account_id: str, currency: str) -> tuple[Decimal, Decimal] | None:
+        lines = self._lines(self.events.get((event_key, account_id), {event_key}), account_id=account_id, currency=currency)
+        if not lines:
+            return None
+        return sum((row.amount for row in lines), Decimal(0)), sum((row.debit - row.credit for row in lines), Decimal(0))
 
 
 def _issue_view(issue: Issue) -> dict[str, Any]:

@@ -78,7 +78,7 @@ A leg without a code keeps the fingerprint it had, so turning tax on never re-po
 
 `GET /books/tax/return?from&to` reads posted journal lines dated in the period (`tax_return.compute`), in the base currency:
 
-- net amounts from the revenue lines of invoices and credit notes and the cost (or fixed asset) lines of bills, VAT from their 2100 and 1200 lines, each by tax code;
+- net amounts from the revenue lines of invoices and credit notes and the cost (or fixed asset) lines of bills, VAT from their 2100 and 1200 lines, each by tax code. The monthly depreciation of a capital bill (6100, posted under the bill) is not a purchase and is left out: a capital bill of 12,000.00 plus 1,800.00 VAT counts once, in the period it was bought, and its 1,000.00 a month is in no box and no "without a tax code" row;
 - a document without a code but with VAT counts as standard rated and is flagged **inferred**; without VAT it is **unknown**, left out of the boxes and listed;
 - an event of an earlier period posted late (a closed month) or a reversal of one lands in the **adjustment** columns of the period it is posted in; a closed period never changes;
 - KSA layout: rows 1 to 16 (row 2, 14 and 15 are entered on the ZATCA portal; row 9 VAT is due and recovered, as the form does); UAE: VAT 201 boxes 1 to 14 (box 1 for all emirates together; boxes 2 and 7 not tracked; box 6 pre-filled by the FTA); other: a summary by code;

@@ -34,13 +34,28 @@ BINDING_EN = re.compile(
     r"|cancel\s+(?:my\s+)?(?:order|booking|subscription|reservation|account|plan)|close\s+(?:my\s+)?account|publish|post|reply|agree\s+and)\b",
     re.IGNORECASE,
 )
+# Short commit words, looked for after the ones above. "order" alone commits ("Order", "Order
+# with obligation to pay"), but "Order status", "Order #1042", "Track order", "My order" and
+# "Sort order" are navigation. "Accept" alone commits (an offer, terms); "Accept all" and "Accept cookies" are a
+# cookie banner. "Apply" commits (a job, a loan, a change); "Apply filters" and "Apply coupon"
+# do not.
+BINDING_EN_SHORT = re.compile(
+    r"\b(?:(?<!track )(?<!view )(?<!my )(?<!your )(?<!sort )(?<!in )order(?!\s*[#:\d])(?!\s+(?:status|history|details?|tracking|number|no|summary|id|by|placed|date|total|confirmation|info(?:rmation)?)\b)"
+    r"|check\s?out|proceed|yes|accept(?!\s+(?:all\b|(?:the\s+)?cookies?\b))|apply(?!\s+(?:filters?|coupon|code|promo|discount|voucher)\b)"
+    r"|withdraw|unsubscribe|deactivate|upgrade|renew|bid)\b",
+    re.IGNORECASE,
+)
 BINDING_AR = frozenset({
     "ادفع", "دفع", "الدفع", "اشتر", "اشتري", "شراء", "الشراء", "اشتراء", "احجز", "حجز", "الحجز", "تأكيد", "تاكيد", "أكد", "اكد",
     "إرسال", "ارسال", "أرسل", "ارسل", "وقع", "توقيع", "التوقيع", "احذف", "حذف", "الحذف", "امسح", "مسح", "تحويل", "التحويل", "حول",
     "اشترك", "اشتراك", "الاشتراك", "إتمام", "اتمام", "أتمم", "اتمم", "تبرع", "انشر", "نشر", "سجل", "التسجيل", "قدم", "تقديم",
+    # order, yes, agree, accept, renew, withdraw, upgrade, deactivate, bid.
+    "اطلب", "طلب", "نعم", "موافق", "أوافق", "اوافق", "قبول", "أقبل", "اقبل", "تجديد", "جدد", "سحب", "اسحب", "ترقية", "تعطيل",
+    "مزايدة", "زايد",
 })
 # "حول" is also "about" ("حول الموقع"): only counted next to money words.
-AMBIGUOUS_AR = frozenset({"حول", "سجل", "قدم"})
+# "طلب" is also "the order" in "تتبع الطلب" (track the order).
+AMBIGUOUS_AR = frozenset({"حول", "سجل", "قدم", "طلب"})
 AR_PREFIXES = ("وال", "فال", "بال", "لل", "ال", "و", "ف", "ب", "ل")
 
 CARD_FIELD = re.compile(
@@ -82,6 +97,18 @@ CURRENCY_ALIASES: dict[str, str] = {
 _CUR = r"(?:AED|SAR|USD|EUR|GBP|KWD|QAR|BHD|OMR|US\$|Dhs?|\$|€|£|د\.إ|ر\.س|درهم|دراهم|ريالات|ريالا|ريال|دولار|يورو)"
 _NUM = r"(?:\d{1,3}(?:,\d{3})+(?:\.\d{1,3})?|\d+(?:\.\d{1,3})?)"
 AMOUNT = re.compile(rf"(?P<c1>{_CUR})\s?(?P<n1>{_NUM})|(?P<n2>{_NUM})\s?(?P<c2>{_CUR})(?![A-Za-z])", re.IGNORECASE)
+
+# A form that only reads or moves on: its control says so, it is sent with GET, or it is a
+# search box. "Next" and "Continue" move through a multi-step form; its last step commits
+# with a binding word, a payment form or card entry, which stop on their own.
+READING_CONTROL = re.compile(
+    r"\b(?:search|find|filter|sort|show|view|next|continue|previous|back|more|details|download|export|print|sign\s*in|log\s*in|login"
+    r"|add\s+to\s+(?:cart|bag|basket|wish\s?list|favou?rites))\b|بحث|ابحث|تصفية|فرز|عرض|التالي|متابعة|السابق|رجوع|تنزيل|تحميل|طباعة|تسجيل\s+الدخول|أضف\s+إلى\s+السلة|اضف\s+الى\s+السلة",
+    re.IGNORECASE,
+)
+SEARCH_FIELD = re.compile(r"\b(?:q|query|search|keywords?|term|s)\b|بحث", re.IGNORECASE)
+# How a session that typed a saved login's password on a site is remembered in its grants.
+SIGNED_IN_PREFIX = "signed_in@"
 
 ALLOW, GATE, HANDOFF, REFUSE = "allow", "gate", "handoff", "refuse"
 
@@ -165,7 +192,8 @@ def _ar_tokens(text: str) -> set[str]:
 
 def binding_words(text: str) -> str | None:
     """The binding word in a control's text (EN or AR), or None."""
-    match = BINDING_EN.search(text or "")
+    plain = " ".join((text or "").split())
+    match = BINDING_EN.search(plain) or BINDING_EN_SHORT.search(plain)
     if match:
         return " ".join(match.group(0).split()).lower()
     tokens = _ar_tokens(text)
@@ -242,12 +270,23 @@ def _form_is_payment(form: dict[str, Any] | None, page: dict[str, Any]) -> str |
     return None
 
 
-def classify(step: dict[str, Any], *, sites: list[str], scope_logins: dict[str, str], scope_cards: set[str], card_grants: set[str] | None = None) -> Decision:
+def signed_in_grant(site: str) -> str:
+    return f"{SIGNED_IN_PREFIX}{site}"
+
+
+def signed_in_sites(grants: Any) -> list[str]:
+    """The sites a session signed in to, from its stored grants."""
+    return [str(item)[len(SIGNED_IN_PREFIX):] for item in grants or [] if str(item).startswith(SIGNED_IN_PREFIX)]
+
+
+def classify(step: dict[str, Any], *, sites: list[str], scope_logins: dict[str, str], scope_cards: set[str], card_grants: set[str] | None = None,
+             signed_in: list[str] | None = None) -> Decision:
     """Decide one proposed step. ``step`` is ``{"action", "page", "target"}`` from ``kernel.inspect``.
 
     ``sites`` are the approved sites, ``scope_logins`` maps a login handle to its site,
     ``scope_cards`` are the card handles in scope and ``card_grants`` the ``card:form`` keys the
-    owner already approved for card entry.
+    owner already approved for card entry. ``signed_in`` are the sites where this session typed
+    a saved login's password: sending a form there acts as the owner.
     """
     action = step.get("action") if isinstance(step.get("action"), dict) else {}
     page = step.get("page") if isinstance(step.get("page"), dict) else {}
@@ -255,6 +294,7 @@ def classify(step: dict[str, Any], *, sites: list[str], scope_logins: dict[str, 
     kind = str(action.get("type") or "")
     host = str(page.get("host") or "").lower()
     page_text = str(page.get("text") or "")
+    as_owner = bool(host) and any(host_in_sites(host, [site]) for site in signed_in or [])
 
     if kind == "navigate":
         url = str(action.get("url") or "")
@@ -308,7 +348,7 @@ def classify(step: dict[str, Any], *, sites: list[str], scope_logins: dict[str, 
             if is_card_field(target):
                 return Decision(GATE, "payment_field", f"Type into a payment field on {host}.", host=host)
             if action.get("submit"):
-                return _submit(form, page, target, host, payment_frame)
+                return _submit(form, page, target, host, payment_frame, as_owner)
             return Decision(ALLOW, "type", "Type text.", host=host)
         if handle.kind == "login":
             site = scope_logins.get(handle.name)
@@ -317,7 +357,8 @@ def classify(step: dict[str, Any], *, sites: list[str], scope_logins: dict[str, 
             if not host_in_sites(host, [site]):
                 return Decision(REFUSE, "login_wrong_site", f"The saved login {handle.name} is for {site}, not {host}.", handle=handle, host=host)
             if action.get("submit"):
-                submitted = _submit(form, page, target, host, payment_frame)
+                # Enter after a saved login is a sign-in, also when the session signed in before.
+                submitted = _submit(form, page, target, host, payment_frame, False)
                 if submitted.kind != ALLOW:
                     return Decision(submitted.kind, submitted.code, submitted.reason, submitted.amount, handle, host)
             return Decision(ALLOW, "type_login", f"Type the saved login {handle.name} ({handle.part}).", handle=handle, host=host)
@@ -364,25 +405,65 @@ def classify(step: dict[str, Any], *, sites: list[str], scope_logins: dict[str, 
         return Decision(GATE, "binding_button", f"Press “{_short(text)}” on {host}.", amount=amount, host=host, extra={"word": word})
 
     is_submit = bool(target.get("submits")) or (tag == "button" and input_type in {"", "submit"} and form is not None) or (tag == "input" and input_type in {"submit", "image"})
+    button_like = tag == "button" or str(target.get("role") or "").lower() == "button" or (tag == "input" and input_type in {"submit", "button", "image"})
     if is_submit:
-        submitted = _submit(form, page, target, host, payment_frame)
+        submitted = _submit(form, page, target, host, payment_frame, as_owner)
         if submitted.kind != ALLOW:
             return submitted
+    elif button_like and form is not None:
+        # A scripted button inside a form sends it as well as a submit button does.
+        sent = _acts_for_owner(form, page, target, host, as_owner)
+        if sent is not None:
+            return sent
     if payment_frame and (tag == "button" or input_type in {"submit", "button", "image"} or str(target.get("role") or "") == "button"):
         amount = pick_amount(text, page_text, page.get("amounts"))
         return Decision(GATE, "payment_frame", f"Press “{_short(text) or 'a button'}” on a page with a payment form ({payment_frame}).", amount=amount, host=host)
     return Decision(ALLOW, "click", f"Click “{_short(text) or tag}”.", host=host)
 
 
-def _submit(form: dict[str, Any] | None, page: dict[str, Any], target: dict[str, Any], host: str, payment_frame: str | None) -> Decision:
+def _submit(form: dict[str, Any] | None, page: dict[str, Any], target: dict[str, Any], host: str, payment_frame: str | None,
+            as_owner: bool = False) -> Decision:
     why = _form_is_payment(form, page)
     if why is None and payment_frame:
         why = "payment_frame"
     if why is None:
-        return Decision(ALLOW, "submit", "Send a form.", host=host)
+        return _acts_for_owner(form, page, target, host, as_owner) or Decision(ALLOW, "submit", "Send a form.", host=host)
     text = _control_text(target)
     amount = pick_amount(text + " " + str((form or {}).get("text") or ""), str(page.get("text") or ""), page.get("amounts"))
     return Decision(GATE, "payment_form", f"Send a payment or order form on {host}.", amount=amount, host=host, extra={"why": why})
+
+
+def _reading_form(form: dict[str, Any], target: dict[str, Any], as_owner: bool) -> bool:
+    """A search, a filter, a sign-in or another form that changes nothing for the owner."""
+    fields = [item for item in (form.get("fields") or []) if isinstance(item, dict)]
+    if str(form.get("method") or "").lower() == "get":
+        return True
+    if not as_owner and any(str(item.get("type") or "").lower() == "password" for item in fields):
+        # Signing in (registering is caught by its words). Once signed in, a form that asks
+        # for the password again confirms a change (a new email, a deletion), so it is not
+        # exempt unless its control says "Sign in" or "Continue".
+        return True
+    if READING_CONTROL.search(" ".join(_control_text(target).split())):
+        return True
+    typed = [item for item in fields if str(item.get("type") or "text").lower() in {"", "text", "search"}]
+    return len(fields) <= 2 and any(str(item.get("type") or "").lower() == "search" or SEARCH_FIELD.search(str(item.get("name") or "")) for item in typed)
+
+
+def _acts_for_owner(form: dict[str, Any] | None, page: dict[str, Any], target: dict[str, Any], host: str, as_owner: bool) -> Decision | None:
+    """Sending a form that is not a search or a sign-in stops for the owner once the session has
+    signed in on the site (it acts as them: a message, a setting, an application) or while the
+    page shows a money amount (it may commit to it)."""
+    if form is None or _reading_form(form, target, as_owner):
+        return None
+    page_text = str(page.get("text") or "")
+    shows_amount = bool(detect_amounts(page_text)) or any(detect_amounts(str(text)) for text in page.get("amounts") or [])
+    if not as_owner and not shows_amount:
+        return None
+    text = _control_text(target)
+    amount = pick_amount(text + " " + str(form.get("text") or ""), page_text, page.get("amounts")) if shows_amount else None
+    where = f"on {host}, where this task is signed in" if as_owner else f"on {host}, on a page that shows an amount"
+    return Decision(GATE, "form_submit", f"Send a form {where}.", amount=amount, host=host,
+                    extra={"why": "signed_in" if as_owner else "shows_amount"})
 
 
 def card_grant_key(card: str, step: dict[str, Any]) -> str:
@@ -400,5 +481,5 @@ def _short(text: str) -> str:
 
 __all__ = [
     "ALLOW", "GATE", "HANDOFF", "REFUSE", "Amount", "Decision", "binding_words", "card_grant_key", "classify", "detect_amounts",
-    "handoff_reason", "is_card_field", "is_otp_field", "pick_amount",
+    "handoff_reason", "is_card_field", "is_otp_field", "pick_amount", "signed_in_grant", "signed_in_sites",
 ]

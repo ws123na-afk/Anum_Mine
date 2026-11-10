@@ -145,7 +145,7 @@ class SqlAlchemyModelBudgetStore:
                 "input_tokens": delta.input_tokens,
                 "output_tokens": delta.output_tokens,
                 "cost": delta.estimated_cost_usd or 0,
-                "unpriced": 1 if delta.estimated_cost_usd is None else 0,
+                "unpriced": 1 if delta.unpriced else 0,
                 "now": now,
             },
         ).one()

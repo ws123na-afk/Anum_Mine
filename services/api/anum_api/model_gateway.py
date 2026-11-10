@@ -67,6 +67,36 @@ class ModelResponse(BaseModel):
     usage: ModelUsage
     metadata: ModelCallMetadata | None = None
 
+    @property
+    def finish_reason(self) -> str | None:
+        """Why the model stopped (the provider's own word), when the provider said."""
+        return self.metadata.finish_reason if self.metadata else None
+
+
+# Provider words for "stopped at the output limit" and "declined to answer" (the Messages
+# API's ``stop_reason`` and the chat-completions ``finish_reason``).
+CUT_OFF_REASONS = frozenset({"max_tokens", "length"})
+REFUSAL_REASONS = frozenset({"refusal", "content_filter"})
+ANSWER_REFUSED = "refused"
+ANSWER_EMPTY_AT_LIMIT = "empty_at_limit"
+ANSWER_CUT_OFF = "cut_off"
+
+
+def answer_problem(response: ModelResponse) -> str | None:
+    """What is wrong with ``response`` as a finished answer, or None.
+
+    ``refused``: the provider declined. ``empty_at_limit``: the output limit was reached
+    before any answer text (thinking shares the limit). ``cut_off``: there is text, but it
+    stops at the limit. A caller that stores the text as a result must not present any of
+    these as a complete answer.
+    """
+    reason = response.finish_reason
+    if reason in REFUSAL_REASONS:
+        return ANSWER_REFUSED
+    if reason in CUT_OFF_REASONS:
+        return ANSWER_CUT_OFF if response.text.strip() else ANSWER_EMPTY_AT_LIMIT
+    return None
+
 
 class EmbeddingResponse(BaseModel):
     """Vectors for a batch of texts, in input order, plus the call's usage."""
@@ -527,7 +557,7 @@ class OpenAICompatibleGateway:
             normalized = self._normalize(
                 choice["message"]["content"] or "", payload, response, state, started
             )
-            self._log_call("generate_text", started, state, "ok", usage=normalized.usage)
+            self._log_call("generate_text", started, state, "ok", usage=normalized.usage, finish_reason=normalized.finish_reason)
             return normalized
 
     async def complete_chat(
@@ -550,7 +580,7 @@ class OpenAICompatibleGateway:
             normalized = self._normalize(
                 (choice.get("message") or {}).get("content") or "", payload, response, state, started
             )
-            self._log_call("complete_chat", started, state, "ok", usage=normalized.usage)
+            self._log_call("complete_chat", started, state, "ok", usage=normalized.usage, finish_reason=normalized.finish_reason)
             return normalized
 
     async def generate_structured(
@@ -578,7 +608,7 @@ class OpenAICompatibleGateway:
             choice = payload["choices"][0]
             text = choice["message"]["content"] or "{}"
             normalized = self._normalize(text, payload, response, state, started)
-            self._log_call("generate_structured", started, state, "ok", usage=normalized.usage)
+            self._log_call("generate_structured", started, state, "ok", usage=normalized.usage, finish_reason=normalized.finish_reason)
         return parse_structured(response_model, text), normalized
 
     async def stream_text(self, prompt: str) -> AsyncIterator[str]:
@@ -690,7 +720,8 @@ class OpenAICompatibleGateway:
                             messages, produced, stream.model
                         )
                         self._log_call(
-                            "stream_text", log_started, state, "ok", usage=stream.usage, span=span
+                            "stream_text", log_started, state, "ok", usage=stream.usage, span=span,
+                            finish_reason=stream.finish_reason,
                         )
                         return
                 except _RETRYABLE_EXCEPTIONS as exc:
@@ -964,6 +995,7 @@ class OpenAICompatibleGateway:
         usage: ModelUsage | None = None,
         error: BaseException | None = None,
         span: Span | None = None,
+        finish_reason: str | None = None,
     ) -> None:
         # Only metadata: the error is reduced to its class name because httpx and JSON
         # error messages can embed URLs, headers or response text. The same fields feed
@@ -982,6 +1014,8 @@ class OpenAICompatibleGateway:
             "cache_read_input_tokens": usage.cache_read_input_tokens if usage else None,
             "estimated_cost_usd": usage.estimated_cost_usd if usage else None,
             "error_class": type(error).__name__ if error else None,
+            # Why the model stopped: "max_tokens"/"length" is a cut-off answer, "refusal" a declined one.
+            "finish_reason": finish_reason,
         }
         logger.log(
             logging.INFO if status == "ok" else logging.WARNING,
@@ -1171,9 +1205,39 @@ def configured_route_models(config: Settings) -> dict[ModelRoute, str]:
     return {route: name for route, name in ((ModelRoute.FAST, fast), (ModelRoute.CAPABLE, capable)) if name}
 
 
+# True while the server's default gateway is the placeholder because its hosted provider's
+# key is missing (``build_default_model_gateway``); the model status endpoint reports it.
+_server_key_missing = False
+_key_missing_logged: set[str] = set()
+
+
+def server_key_missing() -> bool:
+    return _server_key_missing
+
+
 def build_default_model_gateway(config: Settings | None = None) -> ModelGateway:
     """The server's default gateway from ``ANUM_MODEL_*`` settings, with model routing."""
     config = config or settings
+    global _server_key_missing
+    is_server_default = config is settings
+    provider = normalize_provider(config.model_provider or "mock")
+    if provider in {"openai-compatible", "anthropic"} and not (config.model_api_key or "").strip():
+        # A hosted provider without its key used to raise here, at import of the API: every
+        # feature was down for one missing value. Start instead, answering with the
+        # placeholder model, which the app flags (docs/model-gateway.md#placeholder-answers).
+        if provider not in _key_missing_logged:  # several features build this gateway per request
+            _key_missing_logged.add(provider)
+            logger.error(
+                "model_api_key_missing provider=%s: ANUM_MODEL_PROVIDER needs ANUM_MODEL_API_KEY and it is empty; "
+                "AI answers are placeholders until the key is set and the API is restarted",
+                provider,
+                extra={"anum_model_gateway": {"event": "api_key_missing", "provider": provider}},
+            )
+        if is_server_default:
+            _server_key_missing = True
+        return build_model_gateway("mock")
+    if is_server_default:
+        _server_key_missing = False
     routes = configured_route_models(config)
     return build_model_gateway(
         config.model_provider,

@@ -37,7 +37,7 @@ from .zatca import qr_for_invoice, tax_settings_for
 from .invoice_pdf import render_invoice_pdf
 from .invoice_send import open_link_url
 from .invoice_print import render_invoice
-from .invoice_service import credit_notes_of, notices_of, payments_of
+from .invoice_service import business_day, credit_notes_of, notices_of, payments_of
 from .invoices import payment_state
 from .models import (
     ChangeAction,
@@ -624,7 +624,7 @@ def report_payment(invoice_id: str, payload: PaymentNoticeInput, response: Respo
             raise http_error(422, "Enter the amount you paid, above zero.")
         if payload.amount > balance:
             raise http_error(422, f"The amount is more than the balance of {invoice.currency.value} {balance}.")
-        if payload.paid_on > now.date():
+        if payload.paid_on > business_day(store, now):
             raise http_error(422, "The payment date cannot be in the future.")
         if invoice.issue_date and payload.paid_on < invoice.issue_date:
             raise http_error(422, f"The payment date is before the invoice was issued on {invoice.issue_date}.")

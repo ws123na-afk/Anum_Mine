@@ -1,5 +1,12 @@
 import { defineConfig, devices } from '@playwright/test';
 
+// CI builds the three bundles once ("Browser end-to-end (build)" in .github/workflows/ci.yml) and
+// every shard downloads them: with ANUM_E2E_PREBUILT set the servers below only serve dist,
+// dist-oidc and dist-sentry. Without it (a local run) each server builds its own bundle first.
+// The build commands and variables here and in that job must stay the same.
+const prebuilt = Boolean(process.env.ANUM_E2E_PREBUILT);
+const served = (build: string, preview: string): string => (prebuilt ? preview : `${build} && ${preview}`);
+
 export default defineConfig({
   testDir: './e2e',
   fullyParallel: true,
@@ -22,7 +29,7 @@ export default defineConfig({
   ],
   webServer: [
     {
-      command: 'pnpm build && pnpm exec vite preview --host 127.0.0.1 --port 4173',
+      command: served('pnpm build', 'pnpm exec vite preview --host 127.0.0.1 --port 4173'),
       url: 'http://127.0.0.1:4173',
       reuseExistingServer: !process.env.CI,
       timeout: 120_000,
@@ -30,7 +37,7 @@ export default defineConfig({
     {
       // The same app built with OIDC sign-in enabled, for e2e/oidc-sign-in.spec.ts. The issuer is a
       // placeholder host that the spec intercepts; nothing resolves or contacts it.
-      command: 'pnpm exec vite build --outDir dist-oidc --emptyOutDir && pnpm exec vite preview --outDir dist-oidc --host 127.0.0.1 --port 4174',
+      command: served('pnpm exec vite build --outDir dist-oidc --emptyOutDir', 'pnpm exec vite preview --outDir dist-oidc --host 127.0.0.1 --port 4174'),
       url: 'http://127.0.0.1:4174',
       reuseExistingServer: !process.env.CI,
       timeout: 120_000,
@@ -39,7 +46,7 @@ export default defineConfig({
     {
       // The same app built with browser error reporting on, for e2e/error-reporting.spec.ts. The DSN
       // names a placeholder host that the spec intercepts; nothing resolves or contacts it.
-      command: 'pnpm exec vite build --outDir dist-sentry --emptyOutDir && pnpm exec vite preview --outDir dist-sentry --host 127.0.0.1 --port 4175',
+      command: served('pnpm exec vite build --outDir dist-sentry --emptyOutDir', 'pnpm exec vite preview --outDir dist-sentry --host 127.0.0.1 --port 4175'),
       url: 'http://127.0.0.1:4175',
       reuseExistingServer: !process.env.CI,
       timeout: 120_000,

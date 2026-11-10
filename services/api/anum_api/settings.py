@@ -37,9 +37,12 @@ DEFAULT_MODEL_PRICES: dict[str, ModelPrice] = {
     "gpt-4.1-nano": ModelPrice(input_per_million=0.10, output_per_million=0.40),
     "gpt-4o": ModelPrice(input_per_million=2.50, output_per_million=10.00),
     "gpt-4o-mini": ModelPrice(input_per_million=0.15, output_per_million=0.60),
-    # Anthropic list prices; Claude Opus 5.5 reads its cache at $0.20 (0.05x input).
+    # Anthropic list prices; Claude Opus 5.5 reads its cache at $0.20 and Claude Sonnet 5.5
+    # at $0.10 (0.05x input, not the default 0.1x).
     "claude-haiku-5-5": ModelPrice(input_per_million=0.10, output_per_million=0.50),
-    "claude-sonnet-5-5": ModelPrice(input_per_million=2.00, output_per_million=10.00),
+    "claude-sonnet-5-5": ModelPrice(
+        input_per_million=2.00, output_per_million=10.00, cache_read_per_million=0.10
+    ),
     "claude-opus-5-5": ModelPrice(
         input_per_million=4.00, output_per_million=20.00, cache_read_per_million=0.20
     ),
@@ -109,7 +112,9 @@ class Settings(BaseSettings):
     # default). "low" keeps quick replies quick on models that think by default; clear
     # it for a fast model without effort support (claude-haiku-4-5).
     model_fast_effort: str = Field(default="low", pattern="^(|low|medium|high|xhigh|max)$")
-    model_capable_effort: str = Field(default="", pattern="^(|low|medium|high|xhigh|max)$")
+    # Planning and agent runs default to "medium": the current Sonnet thinks at "high" when
+    # no effort is sent, and thinking is paid from the same output limit as the answer.
+    model_capable_effort: str = Field(default="medium", pattern="^(|low|medium|high|xhigh|max)$")
     # Gateway hardening: per-attempt timeout, bounded retries with exponential backoff
     # and full jitter (timeouts, connection errors, 429 and 5xx only), and the cap on
     # how long a provider's Retry-After header may ask us to wait before we give up.
@@ -122,6 +127,10 @@ class Settings(BaseSettings):
     # replies are short, and an unbounded reply is what makes a slow model feel hung.
     # Structured (JSON) planning calls are not capped by it: a cut-off plan is invalid.
     model_max_output_tokens: int = Field(default=1024, ge=16, le=32768)
+    # The same cap for the anthropic provider, larger because thinking tokens count
+    # against ``max_tokens`` there: at 1024 a planning call could stop (``max_tokens``)
+    # with no answer text at all. Callers that ask for less (voice, 220) still get less.
+    model_anthropic_max_output_tokens: int = Field(default=4096, ge=16, le=32768)
     # Streaming (chat, voice): each attempt must produce its first token within
     # ``model_first_token_timeout_seconds``; the whole stream, retries included, ends
     # after ``model_stream_timeout_seconds``. Nothing is retried once text has streamed.
@@ -227,6 +236,13 @@ class Settings(BaseSettings):
     # Price table for estimated_cost_usd, keyed by model name (longest prefix wins).
     # Mock and Ollama calls always cost 0; unknown hosted models report no estimate.
     model_prices: dict[str, ModelPrice] = Field(default_factory=lambda: dict(DEFAULT_MODEL_PRICES))
+    # What a call to a model with no entry in ``model_prices`` is assumed to cost when a
+    # monthly cost limit applies (a budget or an agent cap): a worst case, so the limit still
+    # stops spending instead of never tripping. JSON, e.g. {"input_per_million": 10,
+    # "output_per_million": 50}; "null" turns it off (unpriced calls then add no cost).
+    model_unpriced_price: ModelPrice | None = Field(
+        default_factory=lambda: ModelPrice(input_per_million=10.00, output_per_million=50.00)
+    )
     # SSRF guard for workspace model base URLs (anum_api/model_egress.py, threat model G1).
     # Outside local/test only public HTTPS endpoints on port 443 are called. This
     # comma-separated list of host or host:port entries lets an operator allow a
