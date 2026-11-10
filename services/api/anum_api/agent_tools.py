@@ -313,8 +313,33 @@ class ToolPolicy:
         )
 
 
+# Why an ``anum.respond`` answer is not a finished one (``model_gateway.answer_problem``),
+# set by the planner; the task then fails or says it was cut off instead of looking complete.
+RESPOND_REFUSED_TEXT = (
+    "The model declined to answer this request, so the task has no result. Reword the task and run it "
+    "again. If it keeps happening, an owner can choose another model in Settings, Model gateway."
+)
+RESPOND_EMPTY_AT_LIMIT_TEXT = (
+    "The model reached its output limit before it wrote an answer, so the task has no result. Run it again "
+    "with a shorter or narrower request, or ask the administrator to raise the output limit "
+    "(ANUM_MODEL_ANTHROPIC_MAX_OUTPUT_TOKENS for Claude, ANUM_MODEL_MAX_OUTPUT_TOKENS otherwise)."
+)
+RESPOND_CUT_OFF_NOTE = (
+    "[This answer was cut off at the model's output limit and is not complete. Run the task again with a "
+    "narrower request, or ask for the remaining part.]"
+)
+
+
 async def _respond(call: ToolCall, _: TenantContext) -> ToolResult:
     text = str(call.arguments.get("text", "")).strip()
+    problem = call.arguments.get("answer_problem")
+    if problem == "refused":
+        return ToolResult(status="failed", summary=RESPOND_REFUSED_TEXT, output={"text": "", "answer_problem": problem})
+    if problem == "empty_at_limit" or (problem == "cut_off" and not text):
+        return ToolResult(status="failed", summary=RESPOND_EMPTY_AT_LIMIT_TEXT, output={"text": "", "answer_problem": "empty_at_limit"})
+    if problem == "cut_off":
+        marked = f"{text}\n\n{RESPOND_CUT_OFF_NOTE}"
+        return ToolResult(status="succeeded", summary=marked, output={"text": marked, "answer_problem": problem, "cut_off": True})
     return ToolResult(
         status="succeeded",
         # The model's answer is the task result; only fall back to a generic line when empty.

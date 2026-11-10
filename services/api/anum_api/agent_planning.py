@@ -7,7 +7,7 @@ from pydantic import BaseModel, Field
 from .agent_skills import SkillManifest, SkillRegistry
 from .agent_tools import ToolCall, ToolRegistry
 from .current_time import with_time_line
-from .model_gateway import ModelGateway, ModelResponse, ModelRoute, route_gateway
+from .model_gateway import ModelGateway, ModelResponse, ModelRoute, answer_problem, route_gateway
 from .prompt_provenance import trusted_text
 from .retrieval import build_cache_layout_prompt, build_task_prompt
 from .schemas import Task
@@ -98,6 +98,12 @@ class AgentPlanner:
             if agent is None
             else self._select_tool(own_words, selected, response, tools)
         )
+        if call.name == "anum.respond" and call.arguments.get("text") == response.text:
+            # The model's own text is the result: a refusal, or an answer that stopped at the
+            # output limit, must not be stored as a finished one (the tool fails or marks it).
+            problem = answer_problem(response)
+            if problem is not None:
+                call = ToolCall(name=call.name, arguments={**call.arguments, "answer_problem": problem})
         # A Brevo call with no working connection becomes a reply that says what to fix.
         from .brevo.planning import refusal as brevo_refusal
 

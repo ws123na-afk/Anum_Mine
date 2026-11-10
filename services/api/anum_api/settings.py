@@ -109,7 +109,9 @@ class Settings(BaseSettings):
     # default). "low" keeps quick replies quick on models that think by default; clear
     # it for a fast model without effort support (claude-haiku-4-5).
     model_fast_effort: str = Field(default="low", pattern="^(|low|medium|high|xhigh|max)$")
-    model_capable_effort: str = Field(default="", pattern="^(|low|medium|high|xhigh|max)$")
+    # Planning and agent runs default to "medium": the current Sonnet thinks at "high" when
+    # no effort is sent, and thinking is paid from the same output limit as the answer.
+    model_capable_effort: str = Field(default="medium", pattern="^(|low|medium|high|xhigh|max)$")
     # Gateway hardening: per-attempt timeout, bounded retries with exponential backoff
     # and full jitter (timeouts, connection errors, 429 and 5xx only), and the cap on
     # how long a provider's Retry-After header may ask us to wait before we give up.
@@ -122,6 +124,10 @@ class Settings(BaseSettings):
     # replies are short, and an unbounded reply is what makes a slow model feel hung.
     # Structured (JSON) planning calls are not capped by it: a cut-off plan is invalid.
     model_max_output_tokens: int = Field(default=1024, ge=16, le=32768)
+    # The same cap for the anthropic provider, larger because thinking tokens count
+    # against ``max_tokens`` there: at 1024 a planning call could stop (``max_tokens``)
+    # with no answer text at all. Callers that ask for less (voice, 220) still get less.
+    model_anthropic_max_output_tokens: int = Field(default=4096, ge=16, le=32768)
     # Streaming (chat, voice): each attempt must produce its first token within
     # ``model_first_token_timeout_seconds``; the whole stream, retries included, ends
     # after ``model_stream_timeout_seconds``. Nothing is retried once text has streamed.

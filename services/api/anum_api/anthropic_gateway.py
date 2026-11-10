@@ -49,6 +49,7 @@ from .model_gateway import (
     validate_messages,
 )
 from .punctuation import plain_dashes
+from .settings import settings
 from .telemetry import model_call_span
 
 ANTHROPIC_DEFAULT_BASE_URL = "https://api.anthropic.com"
@@ -273,6 +274,9 @@ class AnthropicGateway(OpenAICompatibleGateway):
     ) -> None:
         kwargs.pop("provider", None)
         kwargs.pop("require_api_key", None)
+        # Thinking shares ``max_tokens`` with the answer on the current Claude models, so the
+        # generic cap (1024) can be spent before any answer text: Anthropic has its own, larger one.
+        kwargs["max_output_tokens"] = kwargs.get("max_output_tokens") or settings.model_anthropic_max_output_tokens
         super().__init__(
             api_key=api_key,
             model=model,
@@ -448,7 +452,7 @@ class AnthropicGateway(OpenAICompatibleGateway):
             self._log_call(operation, started, state, "error", error=exc)
             raise
         normalized = self._normalize_message(payload, response, state, started)
-        self._log_call(operation, started, state, "ok", usage=normalized.usage)
+        self._log_call(operation, started, state, "ok", usage=normalized.usage, finish_reason=normalized.finish_reason)
         return normalized
 
     # -- responses -----------------------------------------------------------------

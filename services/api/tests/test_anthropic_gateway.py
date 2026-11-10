@@ -186,7 +186,7 @@ def test_generate_text_posts_to_the_messages_api_with_anthropic_headers() -> Non
     body = json.loads(request.content)
     assert body == {
         "model": ANTHROPIC_CAPABLE_MODEL,
-        "max_tokens": settings.model_max_output_tokens,
+        "max_tokens": settings.model_anthropic_max_output_tokens,
         "messages": [{"role": "user", "content": PROMPT}],
         "output_config": {"effort": "medium"},
     }
@@ -514,7 +514,7 @@ def test_anthropic_defaults_route_quick_replies_to_haiku_and_agent_work_to_sonne
     assert isinstance(gateway, AnthropicGateway)
     assert gateway.base_url == "https://api.anthropic.com"
     assert gateway.model == ANTHROPIC_CAPABLE_MODEL
-    assert gateway.effort is None
+    assert gateway.effort == "medium"  # planning's default effort (docs/model-gateway.md#model-routing)
     fast = route_gateway(gateway, ModelRoute.FAST)
     assert (fast.model, fast.effort) == (ANTHROPIC_FAST_MODEL, "low")
     assert fast.api_key == gateway.api_key and fast is not gateway

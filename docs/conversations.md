@@ -84,7 +84,7 @@ Usage up to that point is still metered (estimated when the provider reported no
 
 **Speed.** The reply streams token by token from the provider
 ([streaming](model-gateway.md#streaming)), every call is capped at
-`ANUM_MODEL_MAX_OUTPUT_TOKENS` (default 1024), a provider that sends no first token within
+`ANUM_MODEL_MAX_OUTPUT_TOKENS` (default 1024; `ANUM_MODEL_ANTHROPIC_MAX_OUTPUT_TOKENS`, default 4096, for the `anthropic` provider), a provider that sends no first token within
 `ANUM_MODEL_FIRST_TOKEN_TIMEOUT_SECONDS` (default 20) is retried or given up on, and the
 whole stream ends after `ANUM_MODEL_STREAM_TIMEOUT_SECONDS` (default 120). Nothing is
 retried once text has been shown, so a slow model can no longer hang the UI for three

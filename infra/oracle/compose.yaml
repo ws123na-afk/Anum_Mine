@@ -288,7 +288,7 @@ services:
       ANUM_MODEL_FAST_NAME: ${ANUM_MODEL_FAST_NAME:-}
       ANUM_MODEL_CAPABLE_NAME: ${ANUM_MODEL_CAPABLE_NAME:-}
       ANUM_MODEL_FAST_EFFORT: ${ANUM_MODEL_FAST_EFFORT-low}
-      ANUM_MODEL_CAPABLE_EFFORT: ${ANUM_MODEL_CAPABLE_EFFORT-}
+      ANUM_MODEL_CAPABLE_EFFORT: ${ANUM_MODEL_CAPABLE_EFFORT-medium}
       # Voice calls (docs/voice.md#call-mode): the camera's vision model and optional
       # server speech (OpenAI audio API: OpenAI or a self-hosted Whisper/Piper server).
       ANUM_MODEL_VISION_NAME: ${ANUM_MODEL_VISION_NAME:-}
