@@ -75,6 +75,7 @@ DEAD_PROXY = {"server": "http://127.0.0.1:9", "bypass": "<-loopback>"}
 LINKS_SCRIPT = """() => Array.from(document.querySelectorAll('a[href]')).slice(0, 2000)
   .map(a => [a.href, (a.innerText || a.getAttribute('aria-label') || '').trim().slice(0, 200)])"""
 TEXT_SCRIPT = "() => (document.body ? document.body.innerText : '')"
+TITLE_SCRIPT = "() => document.title"
 
 
 # The answer to a page navigation that is refused while a page is shown: Chromium keeps the
@@ -380,7 +381,9 @@ async def _browse(start: str, gate: Gate, limits: Limits, executable_path: str |
                 html = await page.content()
                 if CHALLENGE.search(html[:200_000]) or await page.locator("input[type=password]").count():
                     return _result("challenge", "The page is behind a login or a captcha, so it is not read.", start, target, gate.stats, status_code=status)
-                title = " ".join((await page.title()).split())[:300]
+                # From the document itself: since Playwright 1.64, page.title() reports a pending
+                # navigation the gate refused (a form post) as "Loading <url>".
+                title = " ".join(str(await page.evaluate(TITLE_SCRIPT)).split())[:300]
                 text, truncated = _clean_text(str(await page.evaluate(TEXT_SCRIPT)), limits.max_text_chars)
                 links = _clean_links(await page.evaluate(LINKS_SCRIPT), target, limits.max_links)
                 return _result(
