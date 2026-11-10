@@ -185,6 +185,12 @@
   .fregRowMeta .fregType { color: var(--d-muted); display: inline; font-size: var(--text-xs); }
 }
 @media (max-width: 760px) {
+  /* Phones: the stack above the table is shorter. The four figures sit two to a row without their
+     icon tiles, and the reconciliation card keeps its figures and drops the paragraph that explains
+     importing (the Imports tab says it where it is done). */
+  .fregPage .finKpis ul { gap: var(--d-s2); grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .fregPage .finKpi { padding: var(--d-s2) var(--d-s3); }
+  .fregPage .finKpiIcon, .fregReconNote { display: none; }
   .fregFilters > .fregSearch { flex-basis: 100%; }
   .fregHideSm, .fregHidePhone { display: none; }
   .fregRowDate { color: var(--d-muted); display: inline; font-size: var(--text-xs); margin-inline-end: var(--d-s1); }

@@ -110,11 +110,15 @@ ol.timeline { list-style: none; padding: 0; }
   column-gap: var(--d-s3); grid-template-columns: minmax(0, 1fr) auto; margin-bottom: var(--d-s4); padding: var(--d-s3) var(--d-s4);
 }
 .taskComposer:focus-within { border-color: rgb(var(--c-accent) / .45); }
-.taskComposer > .field { grid-column: 1; grid-row: 1 / span 2; }
-.taskComposer textarea { min-height: 44px; }
+/* The label and the state line share the first row, the field and Run task the second, so the
+   bar is two rows tall and the list below starts within the first window. The field is one line
+   until there is more to say (it grows with its text where the browser supports field-sizing). */
+.taskComposer > .field { display: contents; }
+.taskComposer > .field > span { align-self: center; grid-column: 1; grid-row: 1; }
+.taskComposer textarea { field-sizing: content; grid-column: 1; grid-row: 2; max-height: 40vh; min-height: 44px; }
 .taskComposer .taskComposerFoot { display: contents; }
 .taskComposer .taskComposerFoot > button { align-self: end; grid-column: 2; grid-row: 2; }
-.taskComposer .taskComposerFoot > .notice { grid-column: 1 / -1; grid-row: 3; }
+.taskComposer .taskComposerFoot > .notice { flex: none; grid-column: 1 / -1; grid-row: 1; justify-self: end; max-width: 60%; }
 .taskComposer > .fieldError, .taskComposer > .taskHint { grid-column: 1 / -1; }
 .taskComposer .fieldError { color: var(--d-error-text); font-size: var(--text-sm); margin: 0; }
 .taskComposer textarea[aria-invalid="true"] { border-color: rgb(var(--c-stop) / .7); }
@@ -130,8 +134,13 @@ ol.timeline { list-style: none; padding: 0; }
   .taskComposer:has(~ .tasksSplit[data-show="detail"]) { display: none; }
 }
 @media (max-width: 560px) {
-  .taskComposer { grid-template-columns: minmax(0, 1fr); }
-  .taskComposer > .field { grid-row: auto; }
-  .taskComposer .taskComposerFoot > button { grid-column: 1; grid-row: auto; justify-content: center; width: 100%; }
-  .taskComposer .taskComposerFoot > .notice { grid-row: auto; }
+  /* Phones: the field takes the full width (its placeholder needs two lines), and Run task shares the row under it with the state line. */
+  .taskComposer > .field > span, .taskComposer textarea { grid-column: 1 / -1; }
+  .taskComposer .taskComposerFoot > .notice { align-self: center; grid-column: 1; grid-row: 3; justify-self: start; max-width: none; }
+  .taskComposer .taskComposerFoot > button { grid-column: 2; grid-row: 3; }
+}
+/* Where the window is short or narrow the figures keep their label and number and drop the line of
+   explanation under each, so the list starts higher (the same compaction the sidebar makes). */
+@media (max-width: 760px), (max-height: 820px) {
+  .taskComposer ~ .pageSummary .pageFigure small { display: none; }
 }

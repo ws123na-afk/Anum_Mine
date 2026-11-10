@@ -202,7 +202,7 @@ function AgentTasks(p: TasksViewProps & { head: ReactNode }) {
     {/* The composer is the page's first job: a bar above the figures and the list and detail split (docs/web-design-system.md#pages). */}
     <form className="taskComposer" aria-labelledby="task-composer-heading" onSubmit={(e) => { e.preventDefault(); if (!p.prompt.trim()) { setEmptyTried(true); composerRef.current?.focus(); return; } if (canRun && !p.busy) { setPicked(true); p.runTask(); } }}>
       <h2 id="task-composer-heading" className="visuallyHidden">{t('tasks.composer.title')}</h2>
-      <label className="field"><span>{t('tasks.instructions')}</span><textarea ref={composerRef} dir="auto" rows={2} value={p.prompt} maxLength={8000} aria-invalid={emptyTried && !p.prompt.trim() ? true : undefined} aria-describedby={emptyTried && !p.prompt.trim() ? 'task-composer-error' : undefined} onChange={(e) => { setEmptyTried(false); p.setPrompt(e.target.value); }} placeholder={t('tasks.instructionsPlaceholder')}
+      <label className="field"><span>{t('tasks.instructions')}</span><textarea ref={composerRef} dir="auto" rows={1} value={p.prompt} maxLength={8000} aria-invalid={emptyTried && !p.prompt.trim() ? true : undefined} aria-describedby={emptyTried && !p.prompt.trim() ? 'task-composer-error' : undefined} onChange={(e) => { setEmptyTried(false); p.setPrompt(e.target.value); }} placeholder={t('tasks.instructionsPlaceholder')}
         onKeyDown={(e) => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) { e.preventDefault(); e.currentTarget.form?.requestSubmit(); } }} /></label>
       <div className="taskComposerFoot">
         <Notice>{p.message}</Notice>
@@ -220,10 +220,11 @@ function AgentTasks(p: TasksViewProps & { head: ReactNode }) {
         </div>
         <div className="paneBody taskListBody">
           <div className="taskFilters" role="search" aria-label={t('tasks.filter.label')}>
-            <label className="field taskSearch"><span>{t('tasks.search')}</span><input type="search" dir="auto" value={search} maxLength={200} onChange={(e) => setSearch(e.target.value)} placeholder={t('tasks.searchPlaceholder')} /></label>
-            <label className="field"><span>{t('tasks.status')}</span><select value={query.status} onChange={(e) => setQuery({ ...query, status: e.target.value as StatusFilter })}>{FILTERS.map((f) => <option key={f} value={f}>{t(`tasks.filter.${f}` as MessageKey)}</option>)}</select></label>
-            <label className="field"><span>{t('tasks.filter.creator')}</span><select value={query.creator} onChange={(e) => setQuery({ ...query, creator: e.target.value })}>
-              <option value="">{t('tasks.filter.anyone')}</option><option value="me">{t('tasks.filter.me')}</option>
+            {/* The labels are for screen readers: the placeholder and each select's current choice ("All statuses", "Anyone") say what the control is, so the list starts higher. */}
+            <label className="field taskSearch"><span className="visuallyHidden">{t('tasks.search')}</span><input type="search" dir="auto" value={search} maxLength={200} onChange={(e) => setSearch(e.target.value)} placeholder={t('tasks.searchPlaceholder')} /></label>
+            <label className="field"><span className="visuallyHidden">{t('tasks.status')}</span><select value={query.status} onChange={(e) => setQuery({ ...query, status: e.target.value as StatusFilter })}>{FILTERS.map((f) => <option key={f} value={f}>{t(`tasks.filter.${f}` as MessageKey)}</option>)}</select></label>
+            <label className="field"><span className="visuallyHidden">{t('tasks.filter.creator')}</span><select value={query.creator} onChange={(e) => setQuery({ ...query, creator: e.target.value })}>
+              <option value="">{t('tasks.filter.anyCreator')}</option><option value="me">{t('tasks.filter.me')}</option>
               {creators.filter((c) => c !== userId).map((c) => <option key={c} value={c}>{c}</option>)}
             </select></label>
             <details className="taskDates" open={Boolean(query.from || query.to)}>
