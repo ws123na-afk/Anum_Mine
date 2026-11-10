@@ -893,7 +893,8 @@ def hand_off(item_id: str, context: TenantContext = Depends(tenant_context)) -> 
         )
         unit.repository.create_task(task)
         unit.repository.record_event(
-            create_event(CanonicalEventName.TASK_CREATED, context, task.id, {"title": task.title}, correlation_id=task.id, created_at=now).event
+            create_event(CanonicalEventName.TASK_CREATED, context, task.id, {"title": task.title}, correlation_id=task.id, created_at=now,
+                         private_to=task.private_to).event
         )
         item.agent_task_id = task.id
         if item.status == WorkStatus.TODO:

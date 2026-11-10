@@ -962,6 +962,7 @@ async def create_task(
                 task.id,
                 {"title": task.title},
                 correlation_id=task.id,
+                private_to=task.private_to,
                 created_at=now,
             ).event
         )
@@ -1165,7 +1166,7 @@ def _record_task_event(
     payload: dict[str, object],
 ) -> None:
     repository.record_event(
-        create_event(name, context, task.id, {"task_id": task.id, **payload}, correlation_id=task.id).event
+        create_event(name, context, task.id, {"task_id": task.id, **payload}, correlation_id=task.id, private_to=task.private_to).event
     )
 
 
@@ -1669,6 +1670,7 @@ def cancel_task_record(task_id: str, context: TenantContext, repository: AnumRep
             task.id,
             {"task_id": task.id},
             correlation_id=task.id,
+            private_to=task.private_to,
         ).event
     )
     return task, run
@@ -2879,6 +2881,7 @@ def _decide_in_unit(
             approval.id,
             decided_payload,
             correlation_id=task.id,
+            private_to=task.private_to,
             created_at=approval.decided_at,
         ).event
     )
@@ -2976,6 +2979,7 @@ def _record_partial_approval(
             approval.id,
             event_payload,
             correlation_id=task.id,
+            private_to=task.private_to,
             created_at=now,
         ).event
     )

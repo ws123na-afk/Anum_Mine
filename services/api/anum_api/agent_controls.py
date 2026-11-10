@@ -427,7 +427,7 @@ def _cancel_batch(scoped: TenantContext) -> tuple[int, list[str]]:
             repository.record_event(
                 create_event(
                     CanonicalEventName.TASK_CANCELLED, scoped, task.id, {"task_id": task.id, "reason": "emergency_stop"},
-                    correlation_id=task.id,
+                    correlation_id=task.id, private_to=task.private_to,
                 ).event
             )
             done.append(task.id)

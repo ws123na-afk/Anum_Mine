@@ -634,7 +634,7 @@ class AgentRuntime:
         if record_resume:
             self._record_event(
                 "agent_run.resumed", context, run.id,
-                {"task_id": task.id, "checkpoint_version": str(run.checkpoint.version)}, task.id,
+                {"task_id": task.id, "checkpoint_version": str(run.checkpoint.version)}, task,
             )
         return call
 
@@ -683,7 +683,7 @@ class AgentRuntime:
             return run
         self._record_event(
             "agent_run.resumed", context, run.id,
-            {"task_id": task.id, "checkpoint_version": str(run.checkpoint.version)}, task.id,
+            {"task_id": task.id, "checkpoint_version": str(run.checkpoint.version)}, task,
         )
         run.checkpoint.version += 1
         result = await self._execute_tool(call, task, run, context)
@@ -738,7 +738,7 @@ class AgentRuntime:
         approval.decided_at = now
         self.repository.save_approval(approval)
         self._record_event(
-            CanonicalEventName.APPROVAL_EXPIRED.value, context, approval.id, {"task_id": task.id}, task.id
+            CanonicalEventName.APPROVAL_EXPIRED.value, context, approval.id, {"task_id": task.id}, task
         )
         if (
             run is not None
@@ -778,7 +778,7 @@ class AgentRuntime:
             context,
             approval.id,
             {"task_id": task.id},
-            task.id,
+            task,
         )
         self._audit(
             context,
@@ -953,7 +953,7 @@ class AgentRuntime:
             context,
             approval.id,
             requested_payload,
-            task.id,
+            task,
         )
         return run, approval
 
@@ -1101,7 +1101,7 @@ class AgentRuntime:
         payload = {"task_id": task.id}
         if approval_id:
             payload["approval_id"] = approval_id
-        self._record_event("agent_run.completed", context, run.id, payload, task.id)
+        self._record_event("agent_run.completed", context, run.id, payload, task)
         self._after_success(task, run, context, result, approval_id)
         return run
 
@@ -1143,7 +1143,7 @@ class AgentRuntime:
                     context,
                     proposal.id,
                     {"pattern_key": proposal.pattern_key, "tool": proposal.tool, "approvals": str(proposal.approvals)},
-                    task.id,
+                    task,
                 )
                 self._audit(
                     context,
@@ -1186,7 +1186,7 @@ class AgentRuntime:
             }
             if action.undo_expires_at is not None:
                 payload["undo_until"] = action.undo_expires_at.isoformat()
-            self._record_event("autonomy.action_taken", context, action.id, payload, task.id)
+            self._record_event("autonomy.action_taken", context, action.id, payload, task)
         self._audit(
             context,
             "autonomy.action_taken",
@@ -1229,7 +1229,7 @@ class AgentRuntime:
         payload = {"task_id": task.id}
         if approval_id:
             payload["approval_id"] = approval_id
-        self._record_event("agent_run.failed", context, run.id, payload, task.id)
+        self._record_event("agent_run.failed", context, run.id, payload, task)
 
     def _record_event(
         self,
@@ -1237,14 +1237,18 @@ class AgentRuntime:
         context: TenantContext,
         subject: str,
         payload: dict[str, str],
-        correlation_id: str,
+        task: Task,
     ) -> None:
+        """Record an event of ``task`` (its id is the correlation id). The task's privacy goes with
+        it: a session that is not the task's person cannot look the task up, so the runtime's own
+        copy is the one reliable source (docs/tasks.md#private-tasks)."""
         envelope = create_event(
             CanonicalEventName(event_type),
             context,
             subject,
             payload,
-            correlation_id=correlation_id,
+            correlation_id=task.id,
+            private_to=task.private_to,
         )
         self.repository.record_event(envelope.event)
 

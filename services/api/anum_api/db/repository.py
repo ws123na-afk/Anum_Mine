@@ -1056,12 +1056,20 @@ class SqlAlchemyRepository(AnumRepository):
         record.payload = dict(event.payload)
         record.created_at = event.created_at
         if record.private_to is None:
-            # An event of a private task (correlation id = task id) is that person's only.
-            record.private_to = self.session.scalar(
-                select(TaskRecord.private_to).where(
-                    TaskRecord.tenant_id == event.tenant_id, TaskRecord.id == event.correlation_id
+            # An event of a private task (correlation id = task id) is that person's only. The task
+            # row is read under the private-task policy: this session sees it only when the task is
+            # a workspace task or its own person's. When the row is hidden, the caller's own copy
+            # of the task decides (``create_event(..., private_to=task.private_to)``); the restrictive
+            # policy then refuses the insert from anyone but that person, so an event of a private
+            # task is never recorded as public by a session that cannot see the task.
+            owner = self.session.execute(
+                select(TaskRecord.id, TaskRecord.private_to).where(
+                    TaskRecord.tenant_id == event.tenant_id,
+                    TaskRecord.workspace_id == event.workspace_id,
+                    TaskRecord.id == event.correlation_id,
                 )
-            )
+            ).first()
+            record.private_to = owner.private_to if owner is not None else event.private_to
         self.session.flush()
         return self._event_from_record(record)
 

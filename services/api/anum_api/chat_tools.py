@@ -727,6 +727,7 @@ def create_task(question: str, context: TenantContext) -> "Task":
                 {"title": task.title},
                 correlation_id=task.id,
                 created_at=task.created_at,
+                private_to=task.private_to,
             ).event
         )
     return task

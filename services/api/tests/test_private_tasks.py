@@ -506,3 +506,22 @@ def test_events_follow_the_task_in_memory_as_they_do_in_sql() -> None:
         return RepositoryEffects(repository, lambda context: None).events_since(_context(user), event_type, since(), 50)
 
     check_events_follow_the_task(as_user, events_since, _context, new_id("task"))
+
+
+def test_the_runtime_records_a_private_tasks_events_with_the_tasks_privacy_even_when_it_cannot_see_the_task() -> None:
+    """The SQL repository's task lookup is filtered by the private-task policy, so the runtime passes
+    the privacy of the task it holds (``create_event(..., private_to=)``); a repository that does not
+    hold the task keeps that stamp instead of recording the event as public."""
+    from anum_api.events import CanonicalEventName, create_event
+
+    alice = _context("alice_stamp")
+    task = _task(alice, private_to="alice_stamp", private_kind="data")
+    repository = InMemoryRepository(InMemoryStore())  # the task is not in this store
+    AgentRuntime(MockModelGateway(), repository)._record_event("agent_run.completed", alice, "run_1", {"task_id": task.id}, task)
+    recorded = repository.store.events[-1]
+    assert recorded.correlation_id == task.id and recorded.private_to == "alice_stamp"
+    assert repository.list_events(_context("omar")) == [] and [e.id for e in repository.list_events(alice)] == [recorded.id]
+    # A stored task's marker wins over a stale copy: a shared task's event stays public.
+    shared = repository.create_task(_task(alice))
+    event = create_event(CanonicalEventName.TASK_CANCELLED, alice, shared.id, {}, correlation_id=shared.id, private_to="alice_stamp").event
+    assert repository.record_event(event).private_to is None

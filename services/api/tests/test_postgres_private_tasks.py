@@ -341,3 +341,35 @@ def test_events_follow_the_task_in_sql_as_they_do_in_memory(seed_scopes: None, a
             return session_effects(session, _context(user)).events_since(_context(user), event_type, since(), 50)
 
     check_events_follow_the_task(repository_as, events_since, _context, "task_follow")
+
+
+def test_an_event_of_a_private_task_is_never_recorded_as_public_by_another_persons_session(
+    seed_scopes: None, as_user: Callable[..., Any]
+) -> None:
+    """``record_event`` looks the task up under the private-task policy, so another person's session
+    cannot see it; the runtime therefore passes the task's own ``private_to`` with the event, and the
+    restrictive policy refuses the insert from that session instead of storing a public event."""
+    from anum_api.model_gateway import MockModelGateway
+    from anum_api.runtime import AgentRuntime
+
+    _seed_private(as_user)
+    with as_user("alice") as (_, repository):
+        private = repository.get_task("task_private", _context("alice"))
+        assert private is not None and private.private_to == "alice"
+        # The person's own session: the lookup sees the task; the stamp is the task's.
+        AgentRuntime(MockModelGateway(), repository)._record_event("task.cancelled", _context("alice"), "task_private", {"task_id": "task_private"}, private)
+        assert [event.private_to for event in repository.list_events(_context("alice"))] == ["alice", "alice"]
+    # Another person's session holding a copy of the task: refused by PostgreSQL, nothing recorded.
+    with pytest.raises(DBAPIError), as_user("omar") as (_, repository):
+        AgentRuntime(MockModelGateway(), repository)._record_event("task.cancelled", _context("omar"), "task_private", {"task_id": "task_private"}, private)
+    # The same for any caller that passes the task's privacy to create_event.
+    from anum_api.events import CanonicalEventName, create_event
+
+    with pytest.raises(DBAPIError), as_user("omar") as (_, repository):
+        repository.record_event(create_event(CanonicalEventName.TASK_CANCELLED, _context("omar"), "task_private", {},
+                                             correlation_id="task_private", private_to="alice").event)
+    with as_user("omar") as (session, repository):
+        assert repository.list_events(_context("omar")) == []
+        assert session.execute(text("select count(*) from domain_events where private_to is null")).scalar_one() == 0
+    with as_user("alice") as (_, repository):
+        assert [event.type for event in repository.list_events(_context("alice"))] == ["task.created", "task.cancelled"]
