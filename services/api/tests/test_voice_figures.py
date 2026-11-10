@@ -14,7 +14,7 @@ import anum_api.main  # noqa: F401
 from anum_api.agent_tools import ToolCall, ToolResult, tool_output_prompt_block
 from anum_api.anthropic_gateway import ToolRound
 from anum_api.schemas import TenantContext
-from anum_api.tyre import read_cache, tools as tyre_tools
+from anum_api.tyre import read_cache
 from anum_api.voice import VOICE_MAX_TOKENS
 from anum_api.voice_assistant import WorkspaceSnapshot
 from anum_api.voice_figures import FigureGuard, figures_in, needs_figures, word_figures
@@ -42,7 +42,7 @@ class Model:
         self.messages: list[Any] = []
         self._round: ToolRound | None = None
 
-    def with_tool_round(self, tool_round: ToolRound) -> "Model":
+    def with_tool_round(self, tool_round: ToolRound) -> Model:
         variant = copy.copy(self)
         variant._round = tool_round
         return variant
@@ -97,6 +97,17 @@ def test_the_data_markers_random_id_never_vouches_for_a_figure() -> None:
     model = Model(["1,948 tyres are due in 30 days. ", "Also 77 are scrapped."])
     reply, timing, _ = ask(model, "What is due on the tyres?", blocks=[block], sourced=True)
     assert "1,948" in reply and "77" not in reply and timing.figures_withheld == 1
+
+
+def test_generated_ids_inside_the_data_never_vouch_for_a_figure() -> None:
+    result = ToolResult(status="succeeded", summary="1,948 tyres are due.", output={
+        "due_next_30_days": 1948, "vehicle_id": "veh_ab77cd0000ef1111ab22cd3333ef4444", "run": "0f8fad5b-d9cb-469f-a165-70867728950e",
+        "account": "4000123412341234"})
+    block = tool_output_prompt_block(ToolCall(name="tyre_fleet_summary"), result)
+    guard = FigureGuard("What is due on the tyres?", arabic=False, evidence=[block])
+    assert guard.unsupported("1,948 tyres are due.") == []
+    assert guard.unsupported("77 are scrapped, 469 are new and 165 are sold.") == [77.0, 165.0, 469.0]
+    assert guard.unsupported("The account is 4000123412341234.") == []  # digits only is a number, not an id
 
 
 def test_figures_in_the_turns_data_are_spoken_and_others_are_withheld() -> None:
