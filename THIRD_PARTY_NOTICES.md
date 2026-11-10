@@ -755,7 +755,7 @@ Apps: `api` services/api (FastAPI image, also the worker), `browser` services/ap
 
 ## Dart and Flutter packages (pub.dev)
 
-103 components.
+109 components.
 
 | Component | License | Used in | Source |
 |---|---|---|---|
@@ -789,6 +789,7 @@ Apps: `api` services/api (FastAPI image, also the worker), `browser` services/ap
 | flutter_appauth | BSD-3-Clause | mobile | <https://github.com/MaikuB/flutter_appauth/tree/master/flutter_appauth> |
 | flutter_appauth_platform_interface | BSD-3-Clause | mobile | <https://github.com/MaikuB/flutter_appauth/tree/master/flutter_appauth_platform_interface> |
 | flutter_localizations | BSD-3-Clause | mobile | <https://github.com/flutter/flutter> |
+| flutter_plugin_android_lifecycle | BSD-3-Clause | mobile | <https://github.com/flutter/packages/tree/main/packages/flutter_plugin_android_lifecycle> |
 | flutter_secure_storage | BSD-3-Clause | mobile | <https://github.com/mogol/flutter_secure_storage/tree/develop/flutter_secure_storage> |
 | flutter_secure_storage_darwin | BSD-3-Clause | mobile | <https://github.com/juliansteenbakker/flutter_secure_storage> |
 | flutter_secure_storage_linux | BSD-3-Clause | mobile | <https://github.com/mogol/flutter_secure_storage> |
@@ -806,6 +807,11 @@ Apps: `api` services/api (FastAPI image, also the worker), `browser` services/ap
 | jni_flutter | BSD-3-Clause | mobile | <https://github.com/dart-lang/native/tree/main/pkgs/jni_flutter> |
 | jni_util | BSD-3-Clause | mobile | <https://github.com/dart-lang/native/tree/main/pkgs/jni_util> |
 | json_annotation | BSD-3-Clause | mobile | <https://github.com/google/json_serializable.dart/tree/master/json_annotation> |
+| local_auth | BSD-3-Clause | mobile | <https://github.com/flutter/packages/tree/main/packages/local_auth/local_auth> |
+| local_auth_android | BSD-3-Clause | mobile | <https://github.com/flutter/packages/tree/main/packages/local_auth/local_auth_android> |
+| local_auth_darwin | BSD-3-Clause | mobile | <https://github.com/flutter/packages/tree/main/packages/local_auth/local_auth_darwin> |
+| local_auth_platform_interface | BSD-3-Clause | mobile | <https://github.com/flutter/packages/tree/main/packages/local_auth/local_auth_platform_interface> |
+| local_auth_windows | BSD-3-Clause | mobile | <https://github.com/flutter/packages/tree/main/packages/local_auth/local_auth_windows> |
 | logger | MIT | mobile | <https://github.com/SourceHorizon/logger> |
 | logging | BSD-3-Clause | mobile | <https://github.com/dart-lang/core/tree/main/pkgs/logging> |
 | material_color_utilities | Apache-2.0 | mobile | <https://github.com/material-foundation/material-color-utilities/tree/main/dart> |

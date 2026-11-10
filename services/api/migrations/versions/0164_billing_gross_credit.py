@@ -43,12 +43,12 @@ def upgrade() -> None:
     op.create_check_constraint("ck_billing_accounts_credit_gross", ACCOUNTS, "credit_gross_minor >= 0")
     op.drop_constraint("ck_billing_payments_method", PAYMENTS, type_="check")
     op.create_check_constraint("ck_billing_payments_method", PAYMENTS, _in((*METHODS, CREDIT)))
-    op.execute(f"grant select (method) on {PAYMENTS} to anum_platform_reader")
+    op.execute("grant select (method) on billing_payments to anum_platform_reader")
 
 
 def downgrade() -> None:
     # Only for an empty test workspace: production rolls back by restoring a backup.
-    op.execute(f"revoke select (method) on {PAYMENTS} from anum_platform_reader")
+    op.execute("revoke select (method) on billing_payments from anum_platform_reader")
     op.drop_constraint("ck_billing_payments_method", PAYMENTS, type_="check")
     op.create_check_constraint("ck_billing_payments_method", PAYMENTS, _in(METHODS))
     op.drop_constraint("ck_billing_accounts_credit_gross", ACCOUNTS, type_="check")
