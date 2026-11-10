@@ -494,10 +494,16 @@ class InMemoryRepository:
     def list_events_after(
         self, context: TenantContext, event_id: str, *, limit: int | None = None
     ) -> list[DomainEvent]:
-        """The caller's events after ``event_id`` (at most ``limit``); from the start when it is unknown."""
+        """The caller's events after ``event_id`` (at most ``limit``).
+
+        An unknown cursor (retention purged it, or it is another workspace's) starts at the
+        newest event: that one event is returned, so the stream's cursor becomes one the
+        workspace has, and the next read sees only what follows. It used to start at the
+        oldest event, so a resumed stream replayed the whole history.
+        """
         events = self.list_events(context)
         index = next((i for i, event in enumerate(events) if event.id == event_id), None)
-        events = events if index is None else events[index + 1 :]
+        events = events[-1:] if index is None else events[index + 1 :]
         return events if limit is None else events[:limit]
 
     def latest_event_id(self, context: TenantContext) -> str | None:

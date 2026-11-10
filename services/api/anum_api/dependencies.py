@@ -294,8 +294,11 @@ def list_events_for_stream(
 
     With ``after`` (the stream's last event id) only the events after it are read, at most
     ``limit`` of them, so a poll stays cheap as the history grows; a full page means there
-    may be more, and the caller reads again from its new cursor. Without ``after``, or with
-    a cursor this workspace does not have, the read starts at the oldest event.
+    may be more, and the caller reads again from its new cursor. Without ``after`` the read
+    starts at the oldest event (a one-shot replay; a following stream passes the newest
+    event's id instead). With a cursor this workspace does not have (retention purged it,
+    or it is another workspace's) it starts at the newest event, which is returned alone
+    so the stream's cursor becomes a known one (docs/realtime.md#stale-stream-cursors).
     """
     if after:
         return _with_events_repository(context, lambda repository: repository.list_events_after(context, after, limit=limit))

@@ -126,6 +126,25 @@ def test_last_event_id_still_resumes_and_a_one_shot_replay_still_replays(
     assert _stream(monkeypatch, polls=5, follow=False, last_event_id="e_2") == ["e_3"]
 
 
+def test_a_stream_resumed_with_a_purged_cursor_starts_at_the_newest_event(
+    events: list[DomainEvent], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A ``Last-Event-ID`` retention purged (or another workspace's) used to fall back to the
+    oldest event, so the resumed stream replayed the whole history in 500-row pages."""
+    events.extend(event(f"old_{index}", seconds=index) for index in range(5))
+    reads: list[str | None] = []
+
+    sent = _stream(
+        monkeypatch, polls=2, reads=reads, last_event_id="purged_0",
+        between_polls=[lambda: events.append(event("new_1", seconds=60))],
+    )
+
+    # The newest event is sent once (it is now the cursor), then only what is new.
+    assert sent == ["old_4", "new_1"]
+    assert reads == ["purged_0", "old_4"]
+    assert _stream(monkeypatch, polls=3, follow=False, last_event_id="purged_0") == ["new_1"]  # now the newest
+
+
 def test_a_task_stream_moves_its_cursor_past_events_of_other_tasks(
     events: list[DomainEvent], monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -164,9 +183,13 @@ def test_stream_reads_are_limited_and_start_after_the_cursor(events: list[Domain
     assert [e.id for e in dependencies.list_events_for_stream(CONTEXT, limit=2)] == ["e_0", "e_1"]
     assert [e.id for e in dependencies.list_events_for_stream(CONTEXT, "e_1", limit=2)] == ["e_2", "e_3"]
     assert [e.id for e in dependencies.list_events_for_stream(CONTEXT, "e_3")] == ["e_4"]
-    # Another workspace's event is not this workspace's newest, and not a cursor it has.
+    # Another workspace's event is not this workspace's newest, and not a cursor it has: a
+    # read from such a cursor (or one retention purged) starts at the newest event, so the
+    # stream's cursor becomes one the workspace has, never at the oldest.
     assert dependencies.latest_event_id_for_stream(CONTEXT) == "e_4"
-    assert [e.id for e in dependencies.list_events_for_stream(CONTEXT, "elsewhere", limit=2)] == ["e_0", "e_1"]
+    assert [e.id for e in dependencies.list_events_for_stream(CONTEXT, "elsewhere", limit=2)] == ["e_4"]
+    assert [e.id for e in dependencies.list_events_for_stream(CONTEXT, "purged_long_ago")] == ["e_4"]
+    assert dependencies.list_events_for_stream(CONTEXT.model_copy(update={"workspace_id": "workspace_empty"}), "purged") == []
     other = CONTEXT.model_copy(update={"workspace_id": "workspace_empty"})
     assert dependencies.latest_event_id_for_stream(other) is None
 

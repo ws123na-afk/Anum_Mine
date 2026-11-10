@@ -1005,7 +1005,10 @@ class SqlAlchemyRepository(AnumRepository):
 
         An open event stream polls every second; reading only what follows its cursor
         (at most ``limit`` rows) keeps a poll cheap however long the workspace's history
-        grows. An unknown or invisible cursor reads from the start, like ``list_events``.
+        grows. An unknown or invisible cursor (retention purged it, or it is another
+        workspace's) starts at the newest event: that one event is returned, so the stream's
+        cursor becomes one the workspace has and the next read sees only what follows. It
+        used to read from the start, so a resumed stream replayed the whole history in pages.
         """
         visible = self._events_visible_to(context)
         cursor = self.session.execute(
@@ -1014,7 +1017,8 @@ class SqlAlchemyRepository(AnumRepository):
             )
         ).first()
         if cursor is None:
-            return self.list_events(context, limit=limit)
+            newest = self._events_page(context, limit=1, newest_first=True)
+            return [self._event_from_record(record) for record in newest]
         after = tuple_(DomainEventRecord.created_at, DomainEventRecord.id) > tuple_(cursor.created_at, cursor.id)
         if limit is not None:
             return [self._event_from_record(record) for record in self._events_page(context, after, limit=limit)]

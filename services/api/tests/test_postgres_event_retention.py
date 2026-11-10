@@ -87,8 +87,9 @@ def test_stream_reads_are_limited_merge_tenant_wide_events_and_use_the_index(
         assert [e.id for e in repository.list_events_after(context, order[0], limit=3)] == order[1:4]
         assert [e.id for e in repository.list_events_after(context, order[3], limit=10)] == order[4:]
         assert repository.list_events_after(context, order[-1], limit=10) == []
-        # A cursor this workspace does not have reads from the start, limited.
-        assert [e.id for e in repository.list_events_after(context, hidden, limit=2)] == order[:2]
+        # A cursor this workspace does not have (or one retention purged) starts at the newest event.
+        assert [e.id for e in repository.list_events_after(context, hidden, limit=2)] == order[-1:]
+        assert [e.id for e in repository.list_events_after(context, "event_purged", limit=2)] == order[-1:]
         assert repository.latest_event_id(context) == order[-1]
         # GET /events: the newest rows, oldest first.
         assert [e.id for e in repository.list_recent_events(context, 3)] == order[-3:]
