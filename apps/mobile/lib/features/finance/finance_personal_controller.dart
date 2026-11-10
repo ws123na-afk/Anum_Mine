@@ -173,6 +173,28 @@ class FinancePersonalController extends ChangeNotifier {
     await Future.wait([loadLoans(), loadLoanSuggestions()]);
   }
 
+  /// Links the money handed over, then reloads.
+  Future<void> recordHanded(PersonLoan loan,
+      {required String canonicalId, required String idempotencyKey}) async {
+    await repository.linkHanded(loan.id,
+        canonicalId: canonicalId, idempotencyKey: idempotencyKey);
+    await loadLoans();
+  }
+
+  /// Removes a linked transaction from [loan], then reloads. Throws the
+  /// refusal.
+  Future<void> unlinkLoan(PersonLoan loan, String linkId) async {
+    await repository.unlinkLoan(loan.id, linkId);
+    await Future.wait([loadLoans(), loadLoanSuggestions()]);
+  }
+
+  /// Deletes [loan] and its links (the transactions stay), then reloads.
+  /// Throws the refusal.
+  Future<void> deleteLoan(PersonLoan loan) async {
+    await repository.deleteLoan(loan.id);
+    await Future.wait([loadLoans(), loadLoanSuggestions()]);
+  }
+
   /// Replaces a loan (schedule, rate and the rest), then reloads. Throws
   /// the server's refusal so the form shows it under the fields.
   Future<void> updateLoan(String id, PersonLoanInput input) async {

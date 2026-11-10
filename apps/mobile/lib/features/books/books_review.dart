@@ -308,11 +308,15 @@ class EvidenceSection extends StatefulWidget {
     required this.sourceType,
     required this.sourceId,
     this.onChanged,
+    this.missingText,
     super.key,
   });
   final BooksRepository repository;
   final String sourceType, sourceId;
   final void Function(bool missing)? onChanged;
+
+  /// Why this record needs a document, when it is not a bill.
+  final String? missingText;
 
   @override
   State<EvidenceSection> createState() => _EvidenceSectionState();
@@ -402,7 +406,11 @@ class _EvidenceSectionState extends State<EvidenceSection> {
                   label: b.t('evidence.missing'),
                   tone: AnumTone.warn),
             ),
-            Text(b.t('evidence.missingText'), style: muted),
+            Text(
+                widget.missingText ??
+                    b.maybe('evidence.missingText.${widget.sourceType}') ??
+                    b.t('evidence.missingText'),
+                style: muted),
           ],
           if (_docs.isEmpty)
             Text(b.t('evidence.none'), style: muted)
@@ -428,7 +436,9 @@ class _EvidenceSectionState extends State<EvidenceSection> {
                                     widget.sourceType,
                                     widget.sourceId,
                                     doc.linkId),
-                                b.t('evidence.removed')),
+                                widget.sourceType == 'bill'
+                                    ? b.t('evidence.removed')
+                                    : b.t('evidence.removedOther')),
                       )
                     : null,
               ),

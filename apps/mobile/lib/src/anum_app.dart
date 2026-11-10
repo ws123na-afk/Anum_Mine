@@ -6,6 +6,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 
 import '../data/api_client.dart';
 import '../data/session_store.dart';
+import '../features/books/books_data.dart';
 import '../features/autonomy/autonomy_repository.dart';
 import '../features/meetings/meetings_repository.dart';
 import '../features/auth/auth_controller.dart';
@@ -466,7 +467,8 @@ class _AnumAppState extends State<AnumApp> {
     business = BusinessController(ApiBusinessRepository(api),
         money: ApiProjectMoney(api),
         support: SupportController(ApiSupportRepository(api)),
-        invoices: InvoicesController(ApiInvoicesRepository(api)),
+        invoices: InvoicesController(ApiInvoicesRepository(api),
+            books: ApiBooksRepository(api)),
         catalog: CatalogController(ApiCatalogRepository(api)),
         accounts: AccountsController(ApiAccountsRepository(api)),
         deals: ApiDealsRepository(api));

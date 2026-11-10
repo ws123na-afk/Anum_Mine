@@ -135,6 +135,40 @@ Map<String, Object?> detailFor(String id) {
   };
 }
 
+/// The first loan's detail with the money handed over and one repayment
+/// linked, the repayment still in review.
+Map<String, Object?> detailWithMovements(String id) => {
+      ...detailFor(id),
+      'movements': [
+        {
+          'link': {
+            'id': 'flink_1',
+            'canonical_id': 'canon_1',
+            'role': 'payment',
+            'amount': '1400.00',
+            'currency': 'AED',
+            'status': 'active',
+          },
+          'posted_on': '2026-07-15',
+          'description': 'TRANSFER TO SARA EXAMPLE',
+          'account_id': null,
+        },
+        {
+          'link': {
+            'id': 'flink_2',
+            'canonical_id': 'canon_2',
+            'role': 'deposit',
+            'amount': '100.00',
+            'currency': 'AED',
+            'status': 'needs_review',
+          },
+          'posted_on': '2026-08-02',
+          'description': 'TRANSFER FROM SARA EXAMPLE',
+          'account_id': null,
+        },
+      ],
+    };
+
 Map<String, Object?> proposal(String id, {String direction = 'lent'}) => {
       'key': 'loan_repayment:fin_tx_$id:fin_ploan_1',
       'producer': 'person_loans',
@@ -344,6 +378,38 @@ void main() {
       });
       await repo.deleteExpectedIncome('fin_xinc_1');
       expect(transport.requests.last.method, 'DELETE');
+      final sara = PersonLoan.fromJson(JsonReader.of(
+          (scheduledLoans()['items']! as List<Object?>).first!
+              as Map<String, Object?>));
+      expect(sara.handed, '1400.00');
+      await repo.handedCandidates(sara, query: 'sara');
+      expect(transport.requests.last.uri.queryParameters, {
+        'for': 'person_loan',
+        'direction': 'out',
+        'currency': 'AED',
+        'amount': '1400.00',
+        'around': '2026-07-15',
+        'q': 'sara',
+      });
+      await repo.linkHanded('fin_ploan_1',
+          canonicalId: 'canon_7', idempotencyKey: 'key_example');
+      expect(transport.requests.last.uri.path,
+          '/api/v1/finance/people-loans/fin_ploan_1/links');
+      expect(transport.requests.last.body,
+          {'canonical_id': 'canon_7', 'kind': 'handed'});
+      expect(transport.requests.last.headers['Idempotency-Key'], 'key_example');
+      await repo.unlinkLoan('fin_ploan_1', 'flink_1');
+      expect(transport.requests.last.method, 'DELETE');
+      expect(transport.requests.last.uri.path,
+          '/api/v1/finance/people-loans/fin_ploan_1/links/flink_1');
+      await repo.deleteLoan('fin_ploan_1');
+      expect(transport.requests.last.method, 'DELETE');
+      expect(transport.requests.last.uri.path,
+          '/api/v1/finance/people-loans/fin_ploan_1');
+      final linked = PersonLoanDetail.fromJson(
+          JsonReader.of(detailWithMovements('fin_ploan_1')));
+      expect(linked.movements.map((m) => (m.linkId, m.role, m.active)),
+          [('flink_1', 'payment', true), ('flink_2', 'deposit', false)]);
     });
   });
 
@@ -637,6 +703,110 @@ void main() {
               matching: find.textContaining('Your role cannot see')),
           findsOneWidget);
     });
+  });
+
+  group('linked money and delete', () {
+    Future<LendingFake> openSara(WidgetTester tester,
+        {Size size = const Size(390, 844),
+        Locale locale = const Locale('en')}) async {
+      final fake = LendingFake()..detailJson = detailWithMovements;
+      final c = lending(fake);
+      await pumpAt(tester, c, size: size, locale: locale);
+      await show(tester, c, FinanceSection.debts);
+      await tapVisible(tester, find.byKey(const Key('loan-open-fin_ploan_1')));
+      return fake;
+    }
+
+    testWidgets('the linked transactions show with the money handed over',
+        (tester) async {
+      await openSara(tester);
+      expect(find.byKey(const Key('loan-detail-handed')), findsOneWidget);
+      expect(find.text('Handed over (linked)'), findsOneWidget);
+      expect(find.byKey(const Key('loan-movement-flink_1')), findsOneWidget);
+      expect(find.textContaining('money out'), findsOneWidget);
+      expect(find.textContaining('money in · needs review'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('unlink asks first, then removes the link', (tester) async {
+      final fake = await openSara(tester);
+      await tapVisible(tester, find.byKey(const Key('loan-unlink-flink_2')));
+      expect(find.text('Remove this link?'), findsOneWidget);
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+      expect(fake.requests.where((r) => r.startsWith('unlink')), isEmpty);
+      await tapVisible(tester, find.byKey(const Key('loan-unlink-flink_2')));
+      await tester.tap(find.byKey(const Key('loan-confirm')));
+      await tester.pumpAndSettle();
+      expect(fake.requests, contains('unlink fin_ploan_1 flink_2'));
+      expect(find.text('Link removed.'), findsOneWidget);
+    });
+
+    testWidgets('a refused unlink says why', (tester) async {
+      final fake = await openSara(tester);
+      fake.changeFailure =
+          const ApiException(403, 'Your role cannot change personal money.');
+      await tapVisible(tester, find.byKey(const Key('loan-unlink-flink_1')));
+      await tester.tap(find.byKey(const Key('loan-confirm')));
+      await tester.pumpAndSettle();
+      expect(
+          find.textContaining('cannot change personal money'), findsOneWidget);
+    });
+
+    testWidgets('links the money handed over from a recorded transaction',
+        (tester) async {
+      final fake = await openSara(tester);
+      await tapVisible(tester, find.byKey(const Key('loan-link-handed')));
+      expect(find.text('Link the money you lent'), findsWidgets);
+      expect(fake.requests, contains('handed candidates fin_ploan_1'));
+      await tapVisible(tester, find.byKey(const Key('candidate-fin_tx_7')));
+      expect(fake.requests, contains('handed fin_ploan_1 fin_tx_7'));
+      expect(
+          find.text('Linked. The money handed over now counts as a transfer, '
+              'not spending.'),
+          findsOneWidget);
+    });
+
+    testWidgets('delete asks first, then removes the entry', (tester) async {
+      final fake = await openSara(tester);
+      await tapVisible(tester, find.byKey(const Key('loan-delete')));
+      expect(find.text('Delete the entry with Sara Example?'), findsOneWidget);
+      await tester.tap(find.byKey(const Key('loan-confirm')));
+      await tester.pumpAndSettle();
+      expect(fake.requests, contains('delete fin_ploan_1'));
+      expect(find.byKey(const Key('loan-detail-fin_ploan_1')), findsNothing);
+      expect(find.text('Sara Example was deleted.'), findsOneWidget);
+    });
+
+    for (final size in const [Size(390, 844), Size(768, 1024)]) {
+      for (final locale in const [Locale('en'), Locale('ar')]) {
+        testWidgets(
+            'linked money lays out at '
+            '${size.width.toInt()}x${size.height.toInt()} '
+            '(${locale.languageCode})', (tester) async {
+          await openSara(tester, size: size, locale: locale);
+          expect(tester.takeException(), isNull);
+          await tester.ensureVisible(find.byKey(const Key('loan-link-handed')));
+          await tester.pumpAndSettle();
+          expect(tester.takeException(), isNull);
+          expect(
+              Directionality.of(tester
+                  .element(find.byKey(const Key('loan-movement-flink_1')))),
+              locale.languageCode == 'ar'
+                  ? TextDirection.rtl
+                  : TextDirection.ltr);
+          await tapVisible(tester, find.byKey(const Key('loan-delete')));
+          expect(tester.takeException(), isNull);
+          await tester.tap(find.byKey(const Key('loan-confirm')));
+          await tester.pumpAndSettle();
+          await tapVisible(
+              tester, find.byKey(const Key('loan-open-fin_ploan_1')));
+          await tapVisible(tester, find.byKey(const Key('loan-link-handed')));
+          expect(find.byKey(const Key('loan-handed-picker')), findsOneWidget);
+          expect(tester.takeException(), isNull);
+        });
+      }
+    }
   });
 
   group('layouts', () {
