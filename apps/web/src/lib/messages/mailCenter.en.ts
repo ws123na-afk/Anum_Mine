@@ -36,7 +36,7 @@ export const mailCenterEn = {
   'mailc.starLabel': 'Star message: {subject}',
   'mailc.unstarLabel': 'Remove star: {subject}',
   'mailc.search.label': 'Search this folder',
-  'mailc.search.placeholder': 'Search sender, subject or text',
+  'mailc.search.placeholder': 'Sender, subject or text',
   'mailc.search.submit': 'Search',
   'mailc.search.clear': 'Clear search and filters',
   'mailc.filter.label': 'Show only',

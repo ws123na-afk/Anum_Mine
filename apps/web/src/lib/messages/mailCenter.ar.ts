@@ -38,7 +38,7 @@ export const mailCenterAr: Record<keyof typeof mailCenterEn, Message> = {
   'mailc.starLabel': 'تمييز الرسالة بنجمة: {subject}',
   'mailc.unstarLabel': 'إزالة النجمة: {subject}',
   'mailc.search.label': 'البحث في هذا المجلد',
-  'mailc.search.placeholder': 'ابحث في المرسل أو الموضوع أو النص',
+  'mailc.search.placeholder': 'المرسل أو الموضوع أو النص',
   'mailc.search.submit': 'بحث',
   'mailc.search.clear': 'مسح البحث والمرشحات',
   'mailc.filter.label': 'إظهار فقط',
