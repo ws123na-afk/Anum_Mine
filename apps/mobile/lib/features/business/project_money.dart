@@ -1,3 +1,4 @@
+import '../../data/readable_error.dart';
 import 'package:flutter/material.dart';
 
 import '../../data/api_client.dart';
@@ -297,7 +298,7 @@ class _ProjectMoneyScreenState extends State<ProjectMoneyScreen> {
         state = e is ApiException && e.isPermissionDenied
             ? MoneyLoad.denied
             : MoneyLoad.error;
-        error = e is ApiException ? e.message : '$e';
+        error = e is ApiException ? e.message : readableError(e);
       });
     }
   }

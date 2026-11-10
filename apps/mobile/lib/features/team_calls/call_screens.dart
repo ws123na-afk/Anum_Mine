@@ -1,6 +1,7 @@
 // In-app calls in the mobile app (docs/in-app-calls.md#flutter): the overlay
 // that shows the incoming ring and the call in progress above every screen,
 // and the Calls screen (teammates to call, recent and missed calls).
+import '../../data/readable_error.dart';
 import 'package:flutter/material.dart';
 
 import '../../src/theme/anum_type.dart';
@@ -431,7 +432,7 @@ class _TeamCallsScreenState extends State<TeamCallsScreen> {
         });
       }
     } on Object catch (error) {
-      if (mounted) setState(() => _peopleError = '$error');
+      if (mounted) setState(() => _peopleError = readableError(error));
     }
   }
 
@@ -451,7 +452,7 @@ class _TeamCallsScreenState extends State<TeamCallsScreen> {
     } on Object catch (error) {
       if (mounted) {
         setState(() {
-          _historyError = '$error';
+          _historyError = readableError(error);
           _loading = false;
         });
       }

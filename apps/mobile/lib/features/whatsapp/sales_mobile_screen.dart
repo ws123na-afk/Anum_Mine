@@ -1,3 +1,4 @@
+import '../../data/readable_error.dart';
 import 'package:flutter/material.dart';
 
 import '../../data/api_client.dart';
@@ -132,7 +133,7 @@ class _MobileSalesScreenState extends State<MobileSalesScreen> {
     } on ApiException catch (error) {
       if (mounted) setState(() => _error = error.readable);
     } catch (error) {
-      if (mounted) setState(() => _error = error.toString());
+      if (mounted) setState(() => _error = readableError(error));
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -326,7 +327,7 @@ class _SalesLeadScreenState extends State<_SalesLeadScreen> {
     } catch (error) {
       if (mounted) {
         ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(error.toString())));
+            .showSnackBar(SnackBar(content: Text(readableError(error))));
       }
     } finally {
       if (mounted) setState(() => busy = false);

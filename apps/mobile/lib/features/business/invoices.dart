@@ -1,3 +1,4 @@
+import '../../data/readable_error.dart';
 import 'package:clock/clock.dart';
 import 'package:flutter/material.dart';
 
@@ -44,7 +45,7 @@ String invoiceTitle(AnumLocalizations l, String? number, String status) =>
     number ?? l.t('biz.inv.status.$status');
 
 String friendly(Object error) =>
-    error is ApiException ? error.readable : '$error';
+    error is ApiException ? error.readable : readableError(error);
 
 /// The Invoices section of Business.
 class InvoicesView extends StatefulWidget {

@@ -1,3 +1,4 @@
+import '../../data/readable_error.dart';
 import 'package:flutter/foundation.dart';
 
 import '../../data/api_client.dart';
@@ -392,7 +393,8 @@ class CommerceOps extends ChangeNotifier {
   CommerceLoad _stateOf(Object e) => e is ApiException && e.isPermissionDenied
       ? CommerceLoad.denied
       : CommerceLoad.error;
-  String _message(Object e) => e is ApiException ? e.readable : '$e';
+  String _message(Object e) =>
+      e is ApiException ? e.readable : readableError(e);
 
   Future<void> loadRights() async {
     try {

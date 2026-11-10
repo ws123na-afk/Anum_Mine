@@ -1,3 +1,4 @@
+import '../../data/readable_error.dart';
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
@@ -201,7 +202,7 @@ class LifecycleController extends ChangeNotifier {
       'organisationDeletion' => 'error.organisationDeletion',
       _ => 'error.workspaceDeletion',
     });
-    final reason = error is ApiException ? error.message : error.toString();
+    final reason = error is ApiException ? error.message : readableError(error);
     return s.t('error.generic', {'what': what, 'reason': reason});
   }
 }

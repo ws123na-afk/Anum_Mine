@@ -1,3 +1,4 @@
+import '../../data/readable_error.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -31,7 +32,7 @@ String _when(BuildContext context, DateTime value) {
 }
 
 String _message(Object error) =>
-    error is ApiException ? error.readable : '$error';
+    error is ApiException ? error.readable : readableError(error);
 
 /// Phone calls (docs/calls.md#clients): Contacts, the Dialpad, Recents and AI
 /// calls (with the voice provider's status).

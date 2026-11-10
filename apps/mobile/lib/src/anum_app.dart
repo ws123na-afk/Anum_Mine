@@ -1,3 +1,4 @@
+import '../data/readable_error.dart';
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
@@ -1048,8 +1049,9 @@ class _TaskDeepLinkState extends State<_TaskDeepLink> {
           if (snapshot.hasError) {
             return Scaffold(
               appBar: AppBar(title: const Text('Task detail')),
-              body:
-                  Center(child: Text('Unable to load task: ${snapshot.error}')),
+              body: Center(
+                  child: Text(
+                      'Unable to load task: ${readableError(snapshot.error)}')),
             );
           }
           final task = snapshot.data;

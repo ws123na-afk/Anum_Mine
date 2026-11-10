@@ -1,3 +1,4 @@
+import '../../data/readable_error.dart';
 import 'package:flutter/foundation.dart';
 
 import '../../data/api_client.dart';
@@ -90,7 +91,7 @@ class EmailSummaryController extends ChangeNotifier {
       error = e.readable;
     } on Object catch (e) {
       phase = SummaryPhase.error;
-      error = '$e';
+      error = readableError(e);
     }
     notifyListeners();
   }
@@ -111,7 +112,7 @@ class EmailSummaryController extends ChangeNotifier {
       messages = [...messages, ...page.items];
       nextCursor = page.nextCursor;
     } on Object catch (e) {
-      notice = e is ApiException ? e.readable : '$e';
+      notice = e is ApiException ? e.readable : readableError(e);
     }
     loadingMore = false;
     notifyListeners();

@@ -1,3 +1,4 @@
+import '../../data/readable_error.dart';
 import 'package:flutter/foundation.dart';
 import '../../data/api_client.dart';
 import '../files/file_versions_repository.dart';
@@ -80,7 +81,7 @@ class WorkspaceController extends ChangeNotifier {
     } catch (error) {
       if (epoch != _epoch) return;
       phase = LoadPhase.error;
-      message = error.toString();
+      message = readableError(error);
     }
     notifyListeners();
   }
@@ -310,14 +311,14 @@ class WorkspaceController extends ChangeNotifier {
         // The task was created before its run was refused: show it.
         await load();
       } else {
-        message = error.toString();
+        message = error.readable;
         phase = LoadPhase.error;
       }
     } on WorkspaceOfflineException catch (error) {
       phase = LoadPhase.offline;
       message = error.message;
     } catch (error) {
-      message = error.toString();
+      message = readableError(error);
       phase = LoadPhase.error;
     } finally {
       mutating = false;

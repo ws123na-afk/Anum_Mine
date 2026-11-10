@@ -1,3 +1,4 @@
+import '../../data/readable_error.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -68,7 +69,7 @@ class BillingController extends ChangeNotifier {
       return;
     } on Object catch (e) {
       phase = BlPhase.error;
-      error = '$e';
+      error = readableError(e);
       notifyListeners();
       return;
     }
@@ -84,7 +85,7 @@ class BillingController extends ChangeNotifier {
     } on ApiException catch (e) {
       plansError = e.message;
     } on Object catch (e) {
-      plansError = '$e';
+      plansError = readableError(e);
     }
   }
 
@@ -105,7 +106,7 @@ class BillingController extends ChangeNotifier {
     } on ApiException catch (e) {
       invoicesError = e.message;
     } on Object catch (e) {
-      invoicesError = '$e';
+      invoicesError = readableError(e);
     }
     invoicesLoading = false;
   }
@@ -136,7 +137,7 @@ class BillingController extends ChangeNotifier {
     } on ApiException catch (e) {
       moreError = e.message;
     } on Object catch (e) {
-      moreError = '$e';
+      moreError = readableError(e);
     }
     loadingMore = false;
     notifyListeners();
@@ -154,7 +155,7 @@ class BillingController extends ChangeNotifier {
     } on ApiException catch (e) {
       failure = e.statusCode == 409 ? e.message : e.readable;
     } on Object catch (e) {
-      failure = '$e';
+      failure = readableError(e);
     }
     busy = false;
     if (failure == null) {
@@ -953,7 +954,7 @@ class _PlanChangeSheetState extends State<PlanChangeSheet> {
     } on ApiException catch (e) {
       if (mounted) setState(() => error = e.readable);
     } on Object catch (e) {
-      if (mounted) setState(() => error = '$e');
+      if (mounted) setState(() => error = readableError(e));
     }
   }
 
@@ -1240,7 +1241,7 @@ class _InvoiceScreenState extends State<InvoiceScreen> {
     } on ApiException catch (e) {
       if (mounted) setState(() => error = e.message);
     } on Object catch (e) {
-      if (mounted) setState(() => error = '$e');
+      if (mounted) setState(() => error = readableError(e));
     }
   }
 
@@ -1253,7 +1254,7 @@ class _InvoiceScreenState extends State<InvoiceScreen> {
     } on ApiException catch (e) {
       message = l.f('bl.pdfFailed', {'message': e.message});
     } on Object catch (e) {
-      message = l.f('bl.pdfFailed', {'message': '$e'});
+      message = l.f('bl.pdfFailed', {'message': readableError(e)});
     }
     if (!mounted) return;
     setState(() => saving = false);
@@ -1272,7 +1273,7 @@ class _InvoiceScreenState extends State<InvoiceScreen> {
     } on ApiException catch (e) {
       message = l.f('bl.payFailed', {'message': e.message});
     } on Object catch (e) {
-      message = l.f('bl.payFailed', {'message': '$e'});
+      message = l.f('bl.payFailed', {'message': readableError(e)});
     }
     if (!mounted) return;
     setState(() => paying = false);

@@ -1,3 +1,4 @@
+import '../../data/readable_error.dart';
 import 'package:flutter/foundation.dart';
 
 import '../../data/api_client.dart';
@@ -36,7 +37,7 @@ class SupportController extends ChangeNotifier {
           ? BusinessLoad.denied
           : BusinessLoad.error;
   static String messageOf(Object error) =>
-      error is ApiException ? error.readable : '$error';
+      error is ApiException ? error.readable : readableError(error);
 
   /// Setup, who can be assigned, the counts and the first page.
   Future<void> load() async {

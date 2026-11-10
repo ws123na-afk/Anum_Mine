@@ -1,3 +1,4 @@
+import '../../data/readable_error.dart';
 import 'package:flutter/foundation.dart';
 
 import '../../data/api_client.dart';
@@ -82,7 +83,7 @@ class FilesController extends ChangeNotifier {
       error = e.message;
     } catch (e) {
       phase = FilesPhase.error;
-      error = '$e';
+      error = readableError(e);
     }
     notifyListeners();
     await loadUsage();

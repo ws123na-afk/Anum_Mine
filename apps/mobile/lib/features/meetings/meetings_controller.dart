@@ -1,3 +1,4 @@
+import '../../data/readable_error.dart';
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
@@ -87,7 +88,7 @@ class MeetingsController extends ChangeNotifier {
       error = e.message;
     } on Object catch (e) {
       phase = MeetingsPhase.error;
-      error = '$e';
+      error = readableError(e);
     }
     _schedulePoll();
     _notify();
@@ -133,7 +134,7 @@ class MeetingsController extends ChangeNotifier {
       items = [...items, ...page.items.where((m) => !seen.contains(m.id))];
       total = page.total;
     } on Object catch (e) {
-      notice = e is ApiException ? e.message : '$e';
+      notice = e is ApiException ? e.message : readableError(e);
     } finally {
       loadingMore = false;
       _notify();

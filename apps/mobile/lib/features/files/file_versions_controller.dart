@@ -1,3 +1,4 @@
+import '../../data/readable_error.dart';
 import 'package:flutter/foundation.dart';
 
 import '../../data/api_client.dart';
@@ -59,7 +60,7 @@ class FileVersionsController extends ChangeNotifier {
       loadError = s.t('ver.loadFailed', {'message': e.message});
     } catch (e) {
       phase = VersionsPhase.error;
-      loadError = s.t('ver.loadFailed', {'message': '$e'});
+      loadError = s.t('ver.loadFailed', {'message': readableError(e)});
     }
     notifyListeners();
   }
@@ -81,7 +82,7 @@ class FileVersionsController extends ChangeNotifier {
     }
   }
 
-  String _message(Object e) => e is ApiException ? e.message : '$e';
+  String _message(Object e) => e is ApiException ? e.message : readableError(e);
 
   Future<void> _afterChange(WorkspaceFile updated, FileStrings s) async {
     file = updated;
@@ -124,7 +125,8 @@ class FileVersionsController extends ChangeNotifier {
           : s.t('ver.uploadFailed', {'name': file.name, 'message': e.message});
       if (e.statusCode == 409) await load(s);
     } catch (e) {
-      error = s.t('ver.uploadFailed', {'name': file.name, 'message': '$e'});
+      error = s.t(
+          'ver.uploadFailed', {'name': file.name, 'message': readableError(e)});
     } finally {
       upload = null;
       busy = false;
@@ -179,7 +181,7 @@ class FileVersionsController extends ChangeNotifier {
           e.isPermissionDenied ? s.t('ver.manageDenied') : failed(e.message);
       if (e.statusCode == 404 || e.statusCode == 409) await load(s);
     } catch (e) {
-      error = failed('$e');
+      error = failed(readableError(e));
     } finally {
       busy = false;
       working = null;

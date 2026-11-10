@@ -1,3 +1,4 @@
+import '../../data/readable_error.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'dart:math' show Random;
@@ -764,7 +765,7 @@ class _PortalOfferState extends State<PortalOfferScreen>
             : e.readable);
       }
     } catch (e) {
-      if (mounted) setState(() => problem = '$e');
+      if (mounted) setState(() => problem = readableError(e));
     } finally {
       if (mounted) setState(() => busy = false);
     }
@@ -1038,7 +1039,7 @@ class _PortalChangeState extends State<PortalChangeScreen>
             : e.readable);
       }
     } catch (e) {
-      if (mounted) setState(() => problem = '$e');
+      if (mounted) setState(() => problem = readableError(e));
     } finally {
       if (mounted) setState(() => busy = false);
     }
@@ -1933,7 +1934,7 @@ class _PortalNewTicketState extends State<PortalNewTicketScreen> {
     } catch (e) {
       if (mounted) {
         setState(() {
-          error = '$e';
+          error = readableError(e);
           busy = false;
         });
       }

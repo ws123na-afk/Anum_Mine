@@ -1,3 +1,4 @@
+import '../../data/readable_error.dart';
 import 'package:flutter/foundation.dart';
 import '../../data/api_client.dart';
 import 'governance_models.dart';
@@ -34,7 +35,7 @@ class GovernanceController extends ChangeNotifier {
       message = e.message;
     } catch (e) {
       phase = GovernancePhase.error;
-      message = e.toString();
+      message = readableError(e);
     }
     notifyListeners();
   }
@@ -62,7 +63,7 @@ class GovernanceController extends ChangeNotifier {
       message = e.statusCode == 403 ? 'Not allowed: ${e.message}' : e.message;
       phase = GovernancePhase.error;
     } catch (e) {
-      message = e.toString();
+      message = readableError(e);
       phase = GovernancePhase.error;
     } finally {
       mutating = false;

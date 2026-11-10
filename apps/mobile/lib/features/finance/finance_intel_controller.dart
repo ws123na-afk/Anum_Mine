@@ -1,3 +1,4 @@
+import '../../data/readable_error.dart';
 import 'package:flutter/foundation.dart';
 
 import '../../data/api_client.dart';
@@ -69,7 +70,7 @@ class FinanceIntelController extends ChangeNotifier {
           : FinanceLoad.error;
 
   String _reason(Object error) =>
-      error is ApiException ? error.message : '$error';
+      error is ApiException ? error.message : readableError(error);
 
   Future<void> load() => Future.wait([
         loadOverview(),

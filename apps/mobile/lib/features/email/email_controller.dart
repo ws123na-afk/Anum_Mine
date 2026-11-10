@@ -1,3 +1,4 @@
+import '../../data/readable_error.dart';
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
@@ -77,7 +78,8 @@ class EmailController extends ChangeNotifier {
           if (!account.needsReconnect) account,
       ];
 
-  String _describe(Object e) => e is ApiException ? e.message : '$e';
+  String _describe(Object e) =>
+      e is ApiException ? e.message : readableError(e);
 
   Future<void> load() async {
     phase = InboxPhase.loading;
@@ -387,7 +389,7 @@ class ComposeController extends ChangeNotifier {
     } on ApiException catch (e) {
       error = e.readable;
     } on Object catch (e) {
-      error = '$e';
+      error = readableError(e);
     }
     busy = null;
     _notify();

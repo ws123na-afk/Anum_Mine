@@ -1,3 +1,4 @@
+import '../../data/readable_error.dart';
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
@@ -24,8 +25,8 @@ MailPhase phaseFor(Object error) => switch (error) {
 
 String describe(Object error) => switch (error) {
       ApiException() => error.readable,
-      UnsupportedError(:final message) => message ?? '$error',
-      _ => '$error',
+      UnsupportedError(:final message) => message ?? readableError(error),
+      _ => readableError(error),
     };
 
 /// One file on its way to a draft: progress and a stop button.

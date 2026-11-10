@@ -1,3 +1,4 @@
+import '../../data/readable_error.dart';
 import 'package:flutter/material.dart';
 
 import '../../data/api_client.dart';
@@ -69,7 +70,7 @@ class SuppressionsController extends ChangeNotifier {
     } on Object catch (e) {
       if (id != _request) return;
       phase = SuppressionsPhase.error;
-      error = '$e';
+      error = readableError(e);
     }
     notifyListeners();
   }
@@ -92,7 +93,7 @@ class SuppressionsController extends ChangeNotifier {
     } on ApiException catch (e) {
       moreError = e.readable;
     } on Object catch (e) {
-      moreError = '$e';
+      moreError = readableError(e);
     }
     loadingMore = false;
     notifyListeners();

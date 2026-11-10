@@ -1,3 +1,4 @@
+import '../../data/readable_error.dart';
 import 'package:flutter/foundation.dart';
 
 import '../../data/api_client.dart';
@@ -56,7 +57,7 @@ class InvoicesController extends ChangeNotifier {
           ? BusinessLoad.denied
           : BusinessLoad.error;
   static String messageOf(Object error) =>
-      error is ApiException ? error.readable : '$error';
+      error is ApiException ? error.readable : readableError(error);
 
   /// The tiles and the first page.
   Future<void> load() async {

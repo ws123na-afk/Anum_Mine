@@ -1,9 +1,8 @@
+import '../../data/readable_error.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-
-import '../../data/api_client.dart';
 
 import '../../src/localization/anum_localizations.dart';
 import '../../src/theme/anum_theme.dart';
@@ -1214,8 +1213,7 @@ class _Step extends StatelessWidget {
 const _noRun = WorkspaceRun(id: '', status: WorkStatus.created, steps: []);
 
 /// A sentence for a failed call: the API's own message when it sent one.
-String _describe(Object error) =>
-    error is ApiException ? error.message : error.toString();
+String _describe(Object error) => readableError(error);
 
 /// Owns its text controller so it is disposed only after the dialog is gone.
 class _RenameDialog extends StatefulWidget {

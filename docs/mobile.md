@@ -608,6 +608,17 @@ Platform behaviour
 - [ ] Tablets switch to the navigation rail at 840 logical pixels in both orientations; iPad split view and Android multi-window do not break layout.
 - [ ] Safe areas: nothing is hidden under the notch, Dynamic Island, gesture bar or keyboard.
 
+## Error text
+
+A person never sees a program's description of an error (`ApiException(500, ...)`, `Bad state: ...`, `Instance of 'Foo'`, `SocketException: ...`). Every place that shows a failure goes through `readableError` (`lib/data/readable_error.dart`):
+
+- an API refusal shows the API's own sentence (`ApiException.readable`: the 422 field messages first, else the message);
+- no connection and no answer in time show "The server could not be reached. Check the connection and try again." and "The server did not answer in time. Check the connection and try again.";
+- a sentence the app wrote itself (a form's `FormatException`, an unexpected-response message, an exception whose text is already a sentence) is kept;
+- anything else shows "Something went wrong. Try again."
+
+The app's own sentences follow the app's language (English or Arabic). The workspace controller (load and every change), governance, Settings, automations, billing, calls, commerce, WhatsApp, email, files, the portal and the other controllers that used `error.toString()` or `'$error'` now use it. Tests: `test/readable_error_test.dart`.
+
 ## Amount fields
 
 Typed amounts are read by one parser, `readAmount` in `lib/src/localization/amount_input.dart`, next to the one formatter (`formatMoney`). The app shows amounts with a comma for thousands and a dot for decimals in English and Arabic, and typing follows the same reading:

@@ -1,3 +1,4 @@
+import 'package:anum_mobile/data/api_client.dart';
 import 'package:anum_mobile/data/json_read.dart';
 import 'package:anum_mobile/features/business/invoice_document.dart';
 import 'package:anum_mobile/features/business/invoice_models.dart';
@@ -261,7 +262,9 @@ void main() {
         InvoicePreviewScreen(
           document: InvoiceDocument.fromInvoice(repo.inv),
           loadHtml: (_) async => '<html></html>',
-          loadPdf: () async => throw StateError('The PDF failed.'),
+          // A refusal with a sentence for the person; program text such as a
+          // StateError is never shown (docs/mobile.md#error-text).
+          loadPdf: () async => throw const ApiException(502, 'The PDF failed.'),
           saver: FakeSaver(),
         ),
         textScale: 1));

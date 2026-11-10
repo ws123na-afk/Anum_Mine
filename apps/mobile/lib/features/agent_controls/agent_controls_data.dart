@@ -1,3 +1,4 @@
+import '../../data/readable_error.dart';
 import 'package:flutter/foundation.dart';
 
 import '../../data/api_client.dart';
@@ -308,7 +309,7 @@ class AgentControlsController extends ChangeNotifier {
       error = e.message;
     } on Object catch (e) {
       phase = AgentControlsPhase.error;
-      error = '$e';
+      error = readableError(e);
     }
     notifyListeners();
     await Future.wait([loadCaps(), loadHeld()]);
@@ -334,7 +335,7 @@ class AgentControlsController extends ChangeNotifier {
       heldError = e.message;
     } on Object catch (e) {
       heldPhase = HeldPhase.error;
-      heldError = '$e';
+      heldError = readableError(e);
     }
     notifyListeners();
   }
@@ -357,7 +358,7 @@ class AgentControlsController extends ChangeNotifier {
       capsError = e.message;
     } on Object catch (e) {
       capsPhase = CapsPhase.error;
-      capsError = '$e';
+      capsError = readableError(e);
     }
     notifyListeners();
   }
@@ -398,7 +399,7 @@ class AgentControlsController extends ChangeNotifier {
     } on ApiException catch (e) {
       stopNotice = ControlsNotice(raw: e.message, failed: true);
     } on Object catch (e) {
-      stopNotice = ControlsNotice(raw: '$e', failed: true);
+      stopNotice = ControlsNotice(raw: readableError(e), failed: true);
     } finally {
       changing = false;
       notifyListeners();
@@ -448,7 +449,9 @@ class AgentControlsController extends ChangeNotifier {
           key: 'ac.capFailed', values: {'message': e.message}, failed: true);
     } on Object catch (e) {
       capNotices[item.agentId] = ControlsNotice(
-          key: 'ac.capFailed', values: {'message': '$e'}, failed: true);
+          key: 'ac.capFailed',
+          values: {'message': readableError(e)},
+          failed: true);
     } finally {
       savingAgent = null;
       notifyListeners();

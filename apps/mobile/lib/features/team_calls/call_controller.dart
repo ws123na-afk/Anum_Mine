@@ -1,6 +1,7 @@
 // The app-wide state of in-app calls (docs/in-app-calls.md#flutter): this
 // phone's call stream (reconnecting with backoff), the incoming ring, the call
 // in progress with its timer and heartbeats, and what ended it.
+import '../../data/readable_error.dart';
 import 'dart:async';
 
 import 'package:flutter/foundation.dart';
@@ -115,7 +116,7 @@ class AppCallsController extends ChangeNotifier {
       configError = error.message;
     } on Object catch (error) {
       configPhase = CallConfigPhase.error;
-      configError = '$error';
+      configError = readableError(error);
     }
     notifyListeners();
     if (_running && (config?.enabled ?? false)) _listen();
@@ -310,8 +311,9 @@ class AppCallsController extends ChangeNotifier {
             .end(placedId, 'failed')
             .then((_) {}, onError: (Object _) {}));
       }
-      notice = CallNotice('startFailed',
-          {'message': error is ApiException ? error.message : '$error'});
+      notice = CallNotice('startFailed', {
+        'message': error is ApiException ? error.message : readableError(error)
+      });
       notifyListeners();
     }
   }
@@ -353,8 +355,9 @@ class AppCallsController extends ChangeNotifier {
     } on Object catch (error) {
       await media0.close();
       _reset();
-      notice = CallNotice('answerFailed',
-          {'message': error is ApiException ? error.message : '$error'});
+      notice = CallNotice('answerFailed', {
+        'message': error is ApiException ? error.message : readableError(error)
+      });
       revision += 1;
       notifyListeners();
     }

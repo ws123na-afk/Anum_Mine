@@ -1,3 +1,4 @@
+import '../../data/readable_error.dart';
 import 'dart:convert';
 
 import 'package:file_picker/file_picker.dart';
@@ -815,7 +816,7 @@ class _DailyReportScreenState extends State<DailyReportScreen> {
     } catch (error) {
       if (!mounted) return;
       setState(() {
-        _error = error is ApiException ? error.message : '$error';
+        _error = error is ApiException ? error.message : readableError(error);
         _denied = error is ApiException && error.isPermissionDenied;
       });
     }

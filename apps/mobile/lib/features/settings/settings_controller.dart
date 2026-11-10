@@ -1,3 +1,4 @@
+import '../../data/readable_error.dart';
 import 'package:flutter/foundation.dart';
 
 import '../../data/api_client.dart';
@@ -351,7 +352,7 @@ String modelPermissionMessage(String action) =>
     'an owner to do it, or to change your role.';
 
 String _describe(Object error) {
-  final text = error is ApiException ? error.message : error.toString();
+  final text = error is ApiException ? error.message : readableError(error);
   return text.endsWith('.') ? text : '$text.';
 }
 

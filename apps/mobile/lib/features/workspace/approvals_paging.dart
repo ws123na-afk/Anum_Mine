@@ -1,3 +1,4 @@
+import '../../data/readable_error.dart';
 import 'package:flutter/foundation.dart';
 
 import '../../data/api_client.dart';
@@ -190,7 +191,7 @@ class ApprovalsListController extends ChangeNotifier {
       if (mine != _generation) return;
       if (quiet && phase == ApprovalsPhase.ready) return;
       phase = ApprovalsPhase.error;
-      error = '$e';
+      error = readableError(e);
     }
     _notify();
   }
@@ -225,7 +226,7 @@ class ApprovalsListController extends ChangeNotifier {
     } on ApiException catch (e) {
       if (mine == _generation) pagingError = e.message;
     } catch (e) {
-      if (mine == _generation) pagingError = '$e';
+      if (mine == _generation) pagingError = readableError(e);
     } finally {
       paging = false;
     }

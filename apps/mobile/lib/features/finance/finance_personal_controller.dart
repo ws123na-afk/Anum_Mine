@@ -1,3 +1,4 @@
+import '../../data/readable_error.dart';
 import 'package:flutter/foundation.dart';
 
 import '../../data/api_client.dart';
@@ -110,7 +111,7 @@ class FinancePersonalController extends ChangeNotifier {
         final ApiException e => e.readable,
         final EventStreamTimeoutException e => e.message,
         final PlannerFailure e => e.message,
-        _ => '$error',
+        _ => readableError(error),
       };
 
   Future<void> loadLoans() async {

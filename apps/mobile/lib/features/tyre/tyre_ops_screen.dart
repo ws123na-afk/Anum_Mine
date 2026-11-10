@@ -1,3 +1,4 @@
+import '../../data/readable_error.dart';
 import 'package:flutter/material.dart';
 
 import '../../data/api_client.dart';
@@ -599,7 +600,7 @@ class _DeliverDialogState extends State<_DeliverDialog> {
       if (mounted) {
         setState(() {
           channels = const [];
-          loadError = e is ApiException ? e.readable : '$e';
+          loadError = e is ApiException ? e.readable : readableError(e);
         });
       }
     });

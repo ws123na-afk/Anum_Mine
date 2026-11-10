@@ -1,3 +1,4 @@
+import '../../data/readable_error.dart';
 import 'package:flutter/foundation.dart';
 
 import '../../data/api_client.dart';
@@ -74,7 +75,7 @@ class CommerceController extends ChangeNotifier {
       summaryError = error.message;
     } catch (error) {
       summaryState = CommerceLoad.error;
-      summaryError = '$error';
+      summaryError = readableError(error);
     }
     notifyListeners();
   }
@@ -97,7 +98,7 @@ class CommerceController extends ChangeNotifier {
       ordersError = error.message;
     } catch (error) {
       ordersState = CommerceLoad.error;
-      ordersError = '$error';
+      ordersError = readableError(error);
     }
     notifyListeners();
   }
@@ -114,7 +115,7 @@ class CommerceController extends ChangeNotifier {
     } on ApiException catch (error) {
       ordersError = error.message;
     } catch (error) {
-      ordersError = '$error';
+      ordersError = readableError(error);
     } finally {
       loadingMore = false;
       notifyListeners();

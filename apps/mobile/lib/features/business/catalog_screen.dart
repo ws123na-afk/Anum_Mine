@@ -1,3 +1,4 @@
+import '../../data/readable_error.dart';
 import 'package:flutter/material.dart';
 
 import '../../data/api_client.dart';
@@ -220,7 +221,7 @@ class _ProductScreenState extends State<ProductScreen> {
         state = e is ApiException && e.isPermissionDenied
             ? BusinessLoad.denied
             : BusinessLoad.error;
-        error = e is ApiException ? e.readable : '$e';
+        error = e is ApiException ? e.readable : readableError(e);
       });
     }
   }

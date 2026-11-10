@@ -1,3 +1,4 @@
+import '../../data/readable_error.dart';
 import 'package:flutter/foundation.dart';
 
 import '../../data/api_client.dart';
@@ -262,7 +263,7 @@ class AccountsController extends ChangeNotifier {
       state = e is ApiException && e.isPermissionDenied
           ? BusinessLoad.denied
           : BusinessLoad.error;
-      error = e is ApiException ? e.readable : '$e';
+      error = e is ApiException ? e.readable : readableError(e);
     }
     notifyListeners();
   }
@@ -287,7 +288,7 @@ class AccountsController extends ChangeNotifier {
       items.addAll(page.items);
       total = page.total;
     } catch (e) {
-      error = e is ApiException ? e.readable : '$e';
+      error = e is ApiException ? e.readable : readableError(e);
     } finally {
       loadingMore = false;
       notifyListeners();

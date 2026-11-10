@@ -1,6 +1,7 @@
 // The WebRTC side of an in-app call (docs/in-app-calls.md#media), behind an
 // interface so widget tests use a fake. Media flows peer to peer; the API only
 // carries the offer, the answer and the ICE candidates.
+import '../../data/readable_error.dart';
 import 'dart:async';
 
 import 'package:flutter/widgets.dart';
@@ -81,7 +82,7 @@ class WebRtcCallMedia implements CallMediaSession {
         'video': video ? {'facingMode': 'user'} : false,
       });
     } on Object catch (error) {
-      final text = '$error';
+      final text = readableError(error);
       final lower = text.toLowerCase();
       if (lower.contains('permission') ||
           lower.contains('notallowed') ||

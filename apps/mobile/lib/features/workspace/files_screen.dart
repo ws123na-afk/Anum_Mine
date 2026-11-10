@@ -1,3 +1,4 @@
+import '../../data/readable_error.dart';
 import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
@@ -510,7 +511,7 @@ class _FileDetailScreenState extends State<FileDetailScreen> {
         try {
           await widget.controller.repository.download(file);
         } catch (e) {
-          error = 'Could not download: $e';
+          error = 'Could not download: ${readableError(e)}';
         }
       });
 
@@ -607,7 +608,7 @@ class _FileDetailScreenState extends State<FileDetailScreen> {
     Widget failed(Object? e) => AnumEmpty(
         icon: Icons.error_outline,
         title: 'Could not load the preview',
-        message: '$e',
+        message: readableError(e),
         action: 'Retry',
         onAction: () => setState(_loadPreview));
     final text = _text, image = _image;

@@ -1,3 +1,4 @@
+import '../../data/readable_error.dart';
 import 'package:flutter/foundation.dart';
 
 import '../../data/api_client.dart';
@@ -93,7 +94,7 @@ class BusinessController extends ChangeNotifier {
           ? BusinessLoad.denied
           : BusinessLoad.error;
   String _message(Object error) =>
-      error is ApiException ? error.message : '$error';
+      error is ApiException ? error.message : readableError(error);
 
   Future<void> load() async {
     setupState = BusinessLoad.loading;

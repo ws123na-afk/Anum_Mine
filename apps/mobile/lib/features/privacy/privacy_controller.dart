@@ -1,3 +1,4 @@
+import '../../data/readable_error.dart';
 import 'package:flutter/foundation.dart';
 
 import '../../data/api_client.dart';
@@ -107,7 +108,7 @@ class PrivacyController extends ChangeNotifier {
       'export' => 'error.export',
       _ => 'error.delete',
     });
-    final reason = error is ApiException ? error.message : error.toString();
+    final reason = error is ApiException ? error.message : readableError(error);
     final fix = s.t(action == 'delete' ? 'error.fixDelete' : 'error.fixOther');
     return s.t('error.generic', {'what': what, 'reason': reason, 'fix': fix});
   }
