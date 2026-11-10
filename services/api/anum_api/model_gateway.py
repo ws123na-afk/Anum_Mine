@@ -1205,9 +1205,39 @@ def configured_route_models(config: Settings) -> dict[ModelRoute, str]:
     return {route: name for route, name in ((ModelRoute.FAST, fast), (ModelRoute.CAPABLE, capable)) if name}
 
 
+# True while the server's default gateway is the placeholder because its hosted provider's
+# key is missing (``build_default_model_gateway``); the model status endpoint reports it.
+_server_key_missing = False
+_key_missing_logged: set[str] = set()
+
+
+def server_key_missing() -> bool:
+    return _server_key_missing
+
+
 def build_default_model_gateway(config: Settings | None = None) -> ModelGateway:
     """The server's default gateway from ``ANUM_MODEL_*`` settings, with model routing."""
     config = config or settings
+    global _server_key_missing
+    is_server_default = config is settings
+    provider = normalize_provider(config.model_provider or "mock")
+    if provider in {"openai-compatible", "anthropic"} and not (config.model_api_key or "").strip():
+        # A hosted provider without its key used to raise here, at import of the API: every
+        # feature was down for one missing value. Start instead, answering with the
+        # placeholder model, which the app flags (docs/model-gateway.md#placeholder-answers).
+        if provider not in _key_missing_logged:  # several features build this gateway per request
+            _key_missing_logged.add(provider)
+            logger.error(
+                "model_api_key_missing provider=%s: ANUM_MODEL_PROVIDER needs ANUM_MODEL_API_KEY and it is empty; "
+                "AI answers are placeholders until the key is set and the API is restarted",
+                provider,
+                extra={"anum_model_gateway": {"event": "api_key_missing", "provider": provider}},
+            )
+        if is_server_default:
+            _server_key_missing = True
+        return build_model_gateway("mock")
+    if is_server_default:
+        _server_key_missing = False
     routes = configured_route_models(config)
     return build_model_gateway(
         config.model_provider,
