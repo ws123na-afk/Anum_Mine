@@ -121,6 +121,33 @@ def test_private_report_rows_cannot_be_written_for_someone_else(app_session: Cal
             )
 
 
+def test_favorites_search_sort_and_move_in_postgres(client: TestClient, app_session: Callable[..., Iterator[Session]]) -> None:
+    starred = []
+    for title in ("Bravo fuel", "alpha tyres", "Charlie fuel 50%"):
+        report = _report(client, title=title)
+        starred.append(client.post("/api/v1/favorites", headers=ME, json={"item_type": "report", "item_id": report["id"]}).json())
+    first, second, third = starred
+    favorite_store.clear()
+
+    def ids(**params: str) -> list[str]:
+        return [f["id"] for f in client.get("/api/v1/favorites", headers=ME, params=params).json()["items"]]
+
+    assert ids() == [third["id"], second["id"], first["id"]]
+    assert ids(sort="oldest") == [first["id"], second["id"], third["id"]]
+    assert ids(sort="name") == [second["id"], first["id"], third["id"]]
+    assert ids(q="FUEL") == [third["id"], first["id"]]
+    assert ids(q="50%") == [third["id"]] and ids(q="_") == []
+    moved = client.post(f"/api/v1/favorites/{first['id']}/move", headers=ME, json={"before_id": third["id"]})
+    assert moved.status_code == 200, moved.text
+    assert ids(sort="custom") == [first["id"], third["id"], second["id"]]
+    # Another user can neither move nor see these rows; their own list stays empty.
+    assert client.post(f"/api/v1/favorites/{first['id']}/move", headers=OTHER, json={"before_id": second["id"]}).status_code == 404
+    with app_session(tenant_context(), commit=True) as session:
+        session.execute(text("select set_config('anum.user_id', 'user_other', true)"))
+        assert session.execute(text("update favorites set position = 99")).rowcount == 0
+    assert ids(sort="custom") == [first["id"], third["id"], second["id"]]
+
+
 def test_favorites_are_private_to_their_user(client: TestClient, app_session: Callable[..., Iterator[Session]]) -> None:
     report = _report(client)
     assert client.post("/api/v1/favorites", headers=ME, json={"item_type": "report", "item_id": report["id"]}).status_code == 201

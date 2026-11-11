@@ -8,8 +8,12 @@ any path or body, the store is keyed by tenant, workspace and user, and with Pos
 the ``favorites`` row is under forced RLS on ``anum.tenant_id``, ``anum.workspace_id`` and
 ``anum.user_id`` (migration ``0042_library``).
 
-* ``GET /api/v1/favorites?item_type=&limit=&offset=``: newest first, with ``total``.
+* ``GET /api/v1/favorites?item_type=&q=&sort=&limit=&offset=``: newest first by default, with ``total``;
+  ``q`` matches the label, ``sort`` is ``newest``, ``oldest``, ``name`` or ``custom`` (the person's own
+  order, migration ``0171_favorites_position``).
 * ``POST /api/v1/favorites``: star (idempotent: starring again returns the same row).
+* ``POST /api/v1/favorites/{id}/move {"before_id"} | {"after_id"}``: put one favorite just before or
+  just after another in the caller's own order (drag, or Move up and Move down).
 * ``DELETE /api/v1/favorites/{id}`` or ``DELETE /api/v1/favorites?item_type=&item_id=``.
 
 Every member may star what they can read; a viewer stars too, since nothing shared changes.
@@ -62,12 +66,20 @@ READ_PERMISSION: dict[FavoriteType, Permission] = {
 }
 
 
+class FavoriteSort(StrEnum):
+    NEWEST = "newest"
+    OLDEST = "oldest"
+    NAME = "name"
+    CUSTOM = "custom"
+
+
 class Favorite(BaseModel):
     id: str
     item_type: FavoriteType
     item_id: str
     label: str
     created_at: datetime
+    position: int | None = Field(default=None, description="Place in the person's own order; null until arranged")
 
 
 class FavoriteCreate(BaseModel):
@@ -75,6 +87,15 @@ class FavoriteCreate(BaseModel):
 
     item_type: FavoriteType
     item_id: str = Field(min_length=1, max_length=200)
+
+
+class FavoriteMove(BaseModel):
+    """Exactly one of the two: the favorite goes just before or just after that one."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    before_id: str | None = Field(default=None, min_length=1, max_length=80)
+    after_id: str | None = Field(default=None, min_length=1, max_length=80)
 
 
 class FavoritePage(BaseModel):
@@ -86,8 +107,18 @@ class FavoritePage(BaseModel):
 
 class FavoriteStore(Protocol):
     def list(
-        self, context: TenantContext, item_type: FavoriteType | None, limit: int, offset: int
+        self,
+        context: TenantContext,
+        item_type: FavoriteType | None,
+        limit: int,
+        offset: int,
+        q: str = "",
+        sort: FavoriteSort = FavoriteSort.NEWEST,
     ) -> tuple[list[Favorite], int]: ...
+    def ordered(self, context: TenantContext) -> list[Favorite]:
+        """Every favorite of the caller in their own order (at most ``MAX_FAVORITES_PER_USER``)."""
+        ...
+    def set_positions(self, context: TenantContext, positions: dict[str, int]) -> None: ...
     def find(self, context: TenantContext, item_type: FavoriteType, item_id: str) -> Favorite | None: ...
     def count(self, context: TenantContext) -> int: ...
     def add(self, context: TenantContext, favorite: Favorite) -> Favorite: ...
@@ -117,12 +148,35 @@ class InMemoryFavoriteStore:
         return self._items.setdefault(_scope(context), {})
 
     def list(
-        self, context: TenantContext, item_type: FavoriteType | None, limit: int, offset: int
+        self,
+        context: TenantContext,
+        item_type: FavoriteType | None,
+        limit: int,
+        offset: int,
+        q: str = "",
+        sort: FavoriteSort = FavoriteSort.NEWEST,
     ) -> tuple[list[Favorite], int]:
+        needle = q.strip().casefold()
         with self._lock:
-            rows = [f for f in self._mine(context).values() if item_type is None or f.item_type == item_type]
-        rows.sort(key=lambda f: (f.created_at, f.id), reverse=True)
+            rows = [
+                f
+                for f in self._mine(context).values()
+                if (item_type is None or f.item_type == item_type) and needle in f.label.casefold()
+            ]
+        rows = sort_favorites(rows, sort)
         return [f.model_copy() for f in rows[offset : offset + limit]], len(rows)
+
+    def ordered(self, context: TenantContext) -> list[Favorite]:
+        with self._lock:
+            rows = list(self._mine(context).values())
+        return [f.model_copy() for f in sort_favorites(rows, FavoriteSort.CUSTOM)]
+
+    def set_positions(self, context: TenantContext, positions: dict[str, int]) -> None:
+        with self._lock:
+            mine = self._mine(context)
+            for favorite_id, position in positions.items():
+                if favorite_id in mine:
+                    mine[favorite_id] = mine[favorite_id].model_copy(update={"position": position})
 
     def find(self, context: TenantContext, item_type: FavoriteType, item_id: str) -> Favorite | None:
         with self._lock:
@@ -156,6 +210,33 @@ class InMemoryFavoriteStore:
                     continue
                 for key in [k for k, f in rows.items() if (f.item_type, f.item_id) == (item_type, item_id)]:
                     rows.pop(key, None)
+
+
+def sort_favorites(rows: list[Favorite], sort: FavoriteSort) -> list[Favorite]:
+    """The order the API answers in. ``custom``: arranged ones by place, then the rest newest first."""
+    newest = sorted(rows, key=lambda f: (f.created_at, f.id), reverse=True)
+    if sort == FavoriteSort.OLDEST:
+        return list(reversed(newest))
+    if sort == FavoriteSort.NAME:
+        return sorted(newest, key=lambda f: (f.label.casefold(), f.id))
+    if sort == FavoriteSort.CUSTOM:
+        # Stable: rows without a place keep their newest-first order after the arranged ones.
+        return sorted(newest, key=lambda f: (f.position is None, f.position or 0))
+    return newest
+
+
+def moved_order(rows: list[Favorite], favorite_id: str, before_id: str | None, after_id: str | None) -> list[str] | None:
+    """The ids in their new order, or None when the favorite or the anchor is not the caller's."""
+    ids = [f.id for f in rows]
+    anchor = before_id or after_id
+    if favorite_id not in ids or anchor not in ids:
+        return None
+    if anchor == favorite_id:
+        return ids
+    ids.remove(favorite_id)
+    index = ids.index(anchor) + (0 if before_id else 1)
+    ids.insert(index, favorite_id)
+    return ids
 
 
 favorite_store = InMemoryFavoriteStore()
@@ -245,13 +326,15 @@ def forget_item(context: TenantContext, item_type: FavoriteType, item_id: str) -
 @router.get("", response_model=FavoritePage)
 def list_favorites(
     item_type: FavoriteType | None = Query(default=None),
+    q: str = Query(default="", max_length=200, description="Matches the label, case and accents as typed"),
+    sort: FavoriteSort = Query(default=FavoriteSort.NEWEST),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0, le=MAX_FAVORITES_PER_USER),
     context: TenantContext = Depends(tenant_context),
 ) -> FavoritePage:
-    """The caller's own favorites, newest first. Open to every member."""
+    """The caller's own favorites, newest first unless ``sort`` says otherwise. Open to every member."""
     with open_favorite_store(context) as store:
-        items, total = store.list(context, item_type, limit, offset)
+        items, total = store.list(context, item_type, limit, offset, q.strip(), sort)
     return FavoritePage(items=items, total=total, limit=limit, offset=offset)
 
 
@@ -284,6 +367,10 @@ def add_favorite(
         created_at=utc_now(),
     )
     with open_favorite_store(context) as store:
+        arranged = [f.position for f in store.ordered(context) if f.position is not None]
+        # A new star goes first in an arranged list, the way it is first in the newest-first one.
+        if arranged:
+            favorite = favorite.model_copy(update={"position": min(arranged) - 1})
         return store.add(context, favorite)
 
 
@@ -297,6 +384,25 @@ def remove_favorite_item(
     with open_favorite_store(context) as store:
         store.delete_item(context, item_type, item_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post("/{favorite_id}/move", response_model=Favorite)
+def move_favorite(favorite_id: str, payload: FavoriteMove, context: TenantContext = Depends(tenant_context)) -> Favorite:
+    """Put one of the caller's favorites just before or just after another in their own order.
+
+    Every favorite of the caller is renumbered 0, 1, 2... in one transaction, so the order is the
+    same on every device and two moves never leave a gap or a tie. Only the caller's own rows are
+    read and written (RLS on user)."""
+    if (payload.before_id is None) == (payload.after_id is None):
+        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, "Send exactly one of before_id and after_id")
+    with open_favorite_store(context) as store:
+        rows = store.ordered(context)
+        order = moved_order(rows, favorite_id, payload.before_id, payload.after_id)
+        if order is None:
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Favorite not found")
+        store.set_positions(context, {item: index for index, item in enumerate(order)})
+        moved = next(f for f in rows if f.id == favorite_id)
+    return moved.model_copy(update={"position": order.index(favorite_id)})
 
 
 @router.delete("/{favorite_id}", status_code=status.HTTP_204_NO_CONTENT)

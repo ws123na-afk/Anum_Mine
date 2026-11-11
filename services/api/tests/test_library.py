@@ -260,6 +260,52 @@ def test_favorites_star_list_filter_unstar(client: TestClient) -> None:
     assert client.get("/api/v1/favorites", headers=H).json()["total"] == 0
 
 
+def _star_reports(client: TestClient, titles: list[str]) -> list[dict]:
+    starred = []
+    for title in titles:
+        report = _report(client, title=title)
+        response = client.post("/api/v1/favorites", headers=H, json={"item_type": "report", "item_id": report["id"]})
+        assert response.status_code == 201, response.text
+        starred.append(response.json())
+    return starred
+
+
+def test_favorites_search_and_sort(client: TestClient) -> None:
+    first, second, third = _star_reports(client, ["Bravo fuel", "alpha tyres", "Charlie fuel 50%"])
+    labels = lambda **params: [f["label"] for f in client.get("/api/v1/favorites", headers=H, params=params).json()["items"]]  # noqa: E731
+    assert labels() == ["Charlie fuel 50%", "alpha tyres", "Bravo fuel"]
+    assert labels(sort="oldest") == ["Bravo fuel", "alpha tyres", "Charlie fuel 50%"]
+    assert labels(sort="name") == ["alpha tyres", "Bravo fuel", "Charlie fuel 50%"]
+    page = client.get("/api/v1/favorites", headers=H, params={"q": "FUEL"}).json()
+    assert page["total"] == 2 and [f["id"] for f in page["items"]] == [third["id"], first["id"]]
+    # LIKE's own characters are matched as typed, not as wildcards.
+    assert labels(q="50%") == ["Charlie fuel 50%"] and labels(q="_") == []
+    assert client.get("/api/v1/favorites", headers=H, params={"sort": "random"}).status_code == 422
+    assert client.get("/api/v1/favorites", headers=OTHER, params={"q": "fuel"}).json()["total"] == 0
+    assert second["position"] is None
+
+
+def test_favorites_move_keeps_one_order_for_the_caller(client: TestClient) -> None:
+    first, second, third = _star_reports(client, ["One", "Two", "Three"])
+    ids = lambda: [f["id"] for f in client.get("/api/v1/favorites", headers=H, params={"sort": "custom"}).json()["items"]]  # noqa: E731
+    # Nothing arranged yet: the custom order is newest first.
+    assert ids() == [third["id"], second["id"], first["id"]]
+    moved = client.post(f"/api/v1/favorites/{first['id']}/move", headers=H, json={"before_id": third["id"]})
+    assert moved.status_code == 200 and moved.json()["position"] == 0
+    assert ids() == [first["id"], third["id"], second["id"]]
+    assert client.post(f"/api/v1/favorites/{first['id']}/move", headers=H, json={"after_id": second["id"]}).json()["position"] == 2
+    assert ids() == [third["id"], second["id"], first["id"]]
+    # A new star goes first in an arranged list.
+    (fourth,) = _star_reports(client, ["Four"])
+    assert ids()[0] == fourth["id"] and fourth["position"] == -1
+    # Exactly one anchor; only the caller's own rows; another person's order is not touched.
+    assert client.post(f"/api/v1/favorites/{first['id']}/move", headers=H, json={}).status_code == 422
+    assert client.post(f"/api/v1/favorites/{first['id']}/move", headers=H, json={"before_id": second["id"], "after_id": third["id"]}).status_code == 422
+    assert client.post(f"/api/v1/favorites/{first['id']}/move", headers=OTHER, json={"before_id": second["id"]}).status_code == 404
+    assert client.post(f"/api/v1/favorites/{first['id']}/move", headers=H, json={"before_id": "fav_missing"}).status_code == 404
+    assert client.post(f"/api/v1/favorites/{first['id']}/move", headers=H, json={"before_id": first["id"]}).status_code == 200
+
+
 def test_deleting_a_report_drops_its_star(client: TestClient) -> None:
     report = _report(client)
     client.post("/api/v1/favorites", headers=H, json={"item_type": "report", "item_id": report["id"]})

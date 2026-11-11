@@ -9,7 +9,12 @@ export interface Favorite {
   item_id: string;
   label: string;
   created_at: string;
+  /** Place in the person's own order (sort=custom); null until they arrange their favorites. Absent from older servers. */
+  position?: number | null;
 }
+
+/** `GET /favorites?sort=`: newest first (the default), oldest first, by name, or the person's own order. */
+export type FavoriteSort = 'newest' | 'oldest' | 'name' | 'custom';
 
 export interface Page<T> {
   items: T[];
