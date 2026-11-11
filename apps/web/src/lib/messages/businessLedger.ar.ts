@@ -218,6 +218,7 @@ export const businessLedgerAr = {
   'ledger.source.invoice': 'فاتورة',
   'ledger.source.credit_note': 'إشعار دائن',
   'ledger.source.invoice_payment': 'دفعة فاتورة',
+  'ledger.source.invoice_refund': 'استرداد بالبطاقة',
   'ledger.source.bill': 'فاتورة مورد',
   'ledger.source.bill_payment': 'دفعة فاتورة مورد',
   'ledger.source.allocation': 'دفعه عضو',

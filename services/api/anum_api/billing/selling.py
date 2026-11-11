@@ -207,6 +207,11 @@ def handle_moyasar_event(issuer_tenant_id: str, payload: bytes, *, now: datetime
                 from ..business.invoice_send import apply_moyasar_payment
 
                 outcome = apply_moyasar_payment(issuer_tenant_id, metadata, payment.id, payment.status, payment.amount_minor, payment.currency, now)
+            elif event_type == "payment_refunded":
+                # A refund made in the Moyasar dashboard (docs/business.md#refunds-made-in-the-provider-dashboard): the total comes from Moyasar's API.
+                from ..business.invoice_refunds import apply_moyasar_refunds
+
+                outcome = apply_moyasar_refunds(issuer_tenant_id, metadata, payment.id, payment.refunded_minor, payment.currency, now)
         elif tenant_id and invoice_id and re.fullmatch(TENANT_ID, tenant_id):
             if event_type == "payment_paid" and payment.status == "paid":
                 outcome = _apply_moyasar_payment(issuer_tenant_id, tenant_id, invoice_id, payment, now)

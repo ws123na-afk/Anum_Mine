@@ -34,6 +34,7 @@ from .invoice_models import (
     Invoice,
     InvoiceLine,
     InvoicePayment,
+    InvoiceRefund,
     InvoiceStatus,
     LineSource,
     PaymentMethod,
@@ -42,6 +43,7 @@ from .invoice_models import (
     PaymentLink,
     PaymentNotice,
     PaymentNoticeStatus,
+    RefundStatus,
 )
 from .zatca import qr_for_invoice, tax_settings_for
 from .invoice_pdf import (
@@ -52,6 +54,7 @@ from .invoice_pdf import (
     render_invoice_pdf,
     render_receipt_pdf,
 )
+from .invoice_refunds import payment_refunds, refunds_of
 from .invoice_send import next_reminder_due, open_link, open_link_url, payment_by_key, refresh_messages
 from .invoice_print import render_invoice
 from .invoice_service import (
@@ -184,6 +187,8 @@ class InvoiceView(Invoice):
     days_overdue: int = 0
     payment_state: Literal["unpaid", "partially_paid", "paid", "credited"] = "unpaid"
     payments: list[InvoicePayment] = Field(default_factory=list)
+    # Refunds made in the Stripe or Moyasar dashboard, synced from the provider (docs/business.md#refunds-made-in-the-provider-dashboard).
+    refunds: list[InvoiceRefund] = Field(default_factory=list)
     credit_notes: list[CreditNote] = Field(default_factory=list)
     payment_notices: list[PaymentNotice] = Field(default_factory=list)
     approval_state: ApprovalState = "none"
@@ -260,7 +265,7 @@ def invoice_view(store: BusinessStore, repository: AnumRepository, context: Tena
     return InvoiceView(
         messages=messages, next_reminder=next_reminder_due(invoice, messages, utc_now().date()), payment_link=open_link(store, invoice),
         **invoice.model_dump(), account_name=account_name, project_name=project_name, payments=payments_of(store, invoice.id),
-        credit_notes=credit_notes_of(store, invoice.id), payment_notices=notices_of(store, invoice.id),
+        refunds=refunds_of(store, invoice.id), credit_notes=credit_notes_of(store, invoice.id), payment_notices=notices_of(store, invoice.id),
         approval_state=state, approval=approval if state == "pending" else None,
         issues=problems(checked) if invoice.status in OPEN_INVOICE_STATES else [], can=_can(context, invoice), **payment_state(invoice, utc_now().date()),
     )
@@ -645,6 +650,7 @@ def invoice_summary(context: TenantContext = Depends(tenant_context)) -> Invoice
     with open_business_store(context) as store:
         items, total = store.find("invoices", Query(order_by="created_at", limit=MAX_SCAN))
         payments, _ = store.find("invoice_payments", Query(where={}, order_by="paid_on", limit=MAX_SCAN))
+        refunds, _ = store.find("invoice_refunds", Query(where={"status": RefundStatus.RECORDED}, order_by="refunded_on", limit=MAX_SCAN))
         notices_pending = store.count("payment_notices", Query(where={"status": PaymentNoticeStatus.PENDING}))
     by_invoice = {item.id: item for item in items}
     counts = {state.value: 0 for state in InvoiceStatus}
@@ -669,12 +675,16 @@ def invoice_summary(context: TenantContext = Depends(tenant_context)) -> Invoice
         invoice = by_invoice.get(payment.invoice_id)
         if invoice is not None and payment.paid_on >= month:
             row(invoice.currency)["collected"] += payment.amount
+    for refund in refunds:
+        invoice = by_invoice.get(refund.invoice_id)
+        if invoice is not None and refund.refunded_on >= month:
+            row(invoice.currency)["collected"] -= refund.amount
     return InvoiceSummary(
         counts=counts, truncated=total > len(items), notices_pending=notices_pending,
         currencies=[CurrencyFigures(currency=currency, outstanding=money(value["outstanding"]), overdue=money(value["overdue"]), overdue_count=value["overdue_count"],
                                     invoiced_this_month=money(value["invoiced"]), collected_this_month=money(value["collected"]), drafts=money(value["drafts"]))
                     for currency, value in sorted(figures.items())],
-        notes=["Collected is the payments a person recorded on invoices; ANUM takes no payments.", "Amounts in different currencies are listed apart and never converted."],
+        notes=["Collected is the payments recorded on invoices, less refunds made in the card provider's dashboard.", "Amounts in different currencies are listed apart and never converted."],
     )
 
 
@@ -881,6 +891,9 @@ def remove_payment(invoice_id: str, payment_id: str, context: TenantContext = De
             raise http_error(404, "Payment not found")
         if invoice.status not in {InvoiceStatus.SENT, InvoiceStatus.PAID}:
             raise http_error(409, f"The invoice is {invoice.status.value}; its payments no longer change.")
+        if payment_refunds(store, payment.id):
+            raise http_error(409, "This card payment has refunds made in the provider's dashboard recorded against it, so it stays as their history. "
+                                  "Issue a credit note if the customer no longer owes the money.")
         store.delete("invoice_payments", payment_id)
         update: dict[str, Any] = {"amount_paid": money(invoice.amount_paid - payment.amount), "updated_at": now}
         if invoice.status == InvoiceStatus.PAID:

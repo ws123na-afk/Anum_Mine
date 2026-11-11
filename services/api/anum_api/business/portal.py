@@ -32,7 +32,9 @@ from .invoice_models import (
     PaymentNotice,
     PaymentNoticeStatus,
     PortalDecision,
+    RefundStatus,
 )
+from .invoice_refunds import refunds_of
 from .zatca import qr_for_invoice, tax_settings_for
 from .invoice_pdf import render_invoice_pdf
 from .invoice_send import open_link_url
@@ -211,6 +213,13 @@ class PortalPayment(BaseModel):
     reference: str
 
 
+class PortalRefund(BaseModel):
+    """A card refund the business made (docs/business.md#refunds-made-in-the-provider-dashboard): what it gave back on the balance."""
+
+    refunded_on: date
+    amount: Money
+
+
 class PortalCreditNote(BaseModel):
     number: str
     issue_date: date
@@ -279,6 +288,7 @@ class PortalInvoice(PortalInvoiceSummary):
     bill_to_tax_number: str
     seller: PortalSeller
     payments: list[PortalPayment]
+    refunds: list[PortalRefund] = Field(default_factory=list)
     credit_notes: list[PortalCreditNote]
     payment_notices: list[PortalPaymentNotice]
     # True when this link may report a payment on this invoice now (a sent invoice with a balance, a link that may act).
@@ -591,6 +601,8 @@ def _detail(store: BusinessStore, session: PortalSession, invoice: Invoice) -> P
         seller=PortalSeller(legal_name=seller.legal_name, address=seller.address, tax_label=seller.tax_label, tax_number=seller.tax_number, email=seller.email,
                             phone=seller.phone, bank_details=seller.bank_details) if seller else PortalSeller(legal_name="", address="", tax_label="", tax_number="", email="", phone="", bank_details=""),
         payments=[PortalPayment(paid_on=item.paid_on, amount=item.amount, method=item.method, reference=item.reference) for item in payments],
+        refunds=[PortalRefund(refunded_on=item.refunded_on, amount=item.amount) for item in refunds_of(store, invoice.id)
+                 if item.status == RefundStatus.RECORDED and item.amount > 0],
         credit_notes=[PortalCreditNote(number=item.number, issue_date=item.issue_date, amount=item.amount, reason=item.reason, status=item.status) for item in credit_notes],
         payment_notices=[PortalPaymentNotice(id=item.id, amount=item.amount, paid_on=item.paid_on, method=item.method, reference=item.reference, status=item.status,
                                              decision_note=item.decision_note, created_at=item.created_at) for item in notices],

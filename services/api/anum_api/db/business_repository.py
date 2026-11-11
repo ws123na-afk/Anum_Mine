@@ -475,6 +475,40 @@ class BusinessInvoicePaymentRecord(Base, _Updated):
     idempotency_key: Mapped[str | None] = mapped_column(String(80))
     provider: Mapped[str | None] = mapped_column(String(20))
     provider_payment_id: Mapped[str | None] = mapped_column(String(200))
+    # Migration 0176_business_refunds_otp: what the card was charged.
+    provider_amount: Mapped[Decimal | None] = mapped_column(MONEY)
+
+
+class BusinessInvoiceRefundRecord(Base, _Updated):
+    __tablename__ = "business_invoice_refunds"
+    invoice_id: Mapped[str] = mapped_column(String(80))
+    payment_id: Mapped[str] = mapped_column(String(80))
+    provider: Mapped[str] = mapped_column(String(20))
+    provider_refund_id: Mapped[str] = mapped_column(String(200))
+    provider_payment_id: Mapped[str] = mapped_column(String(200))
+    currency: Mapped[str] = mapped_column(String(3))
+    provider_amount: Mapped[Decimal] = mapped_column(MONEY)
+    amount: Mapped[Decimal] = mapped_column(MONEY)
+    refunded_on: Mapped[date] = mapped_column(Date)
+    status: Mapped[str] = mapped_column(String(10))
+    note: Mapped[str] = mapped_column(String(300))
+    recorded_by: Mapped[str] = mapped_column(String(160))
+    reversed_at: Mapped[datetime | None] = mapped_column(TS)
+
+
+class BusinessPortalSignInRecord(Base, _Updated):
+    __tablename__ = "business_portal_sign_ins"
+    email_hash: Mapped[str] = mapped_column(String(64))
+    ip_hash: Mapped[str] = mapped_column(String(64))
+    access_id: Mapped[str | None] = mapped_column(String(80))
+    code_hash: Mapped[str | None] = mapped_column(String(64))
+    status: Mapped[str] = mapped_column(String(10))
+    attempts: Mapped[int] = mapped_column(Integer)
+    expires_at: Mapped[datetime] = mapped_column(TS)
+    used_at: Mapped[datetime | None] = mapped_column(TS)
+    session_hash: Mapped[str | None] = mapped_column(String(64))
+    session_expires_at: Mapped[datetime | None] = mapped_column(TS)
+    ended_at: Mapped[datetime | None] = mapped_column(TS)
 
 
 class BusinessInvoiceMessageRecord(Base, _Updated):
@@ -648,6 +682,8 @@ class BusinessSettingsRecord(Base):
     research_searches_per_day: Mapped[int] = mapped_column(Integer)
     support_policy: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     billing_profile: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
+    # Migration 0176_business_refunds_otp: the portal's emailed code sign-in switch.
+    portal_code_sign_in: Mapped[bool] = mapped_column(Boolean, default=False)
     updated_by: Mapped[str | None] = mapped_column(String(160))
     updated_at: Mapped[datetime] = mapped_column(TS)
 
@@ -680,6 +716,8 @@ RECORDS: dict[str, Any] = {
     "payment_notices": BusinessPaymentNoticeRecord,
     "invoice_messages": BusinessInvoiceMessageRecord,
     "payment_links": BusinessInvoicePaymentLinkRecord,
+    "invoice_refunds": BusinessInvoiceRefundRecord,
+    "portal_sign_ins": BusinessPortalSignInRecord,
     "portal_access": BusinessPortalAccessRecord,
     "portal_decisions": BusinessPortalDecisionRecord,
     "invoice_schedules": BusinessInvoiceScheduleRecord,
@@ -814,6 +852,7 @@ class SqlAlchemyBusinessStore:
             research_runs_per_day=found.research_runs_per_day, research_searches_per_day=found.research_searches_per_day,
             support_policy=SupportPolicy.model_validate(found.support_policy) if found.support_policy else SupportPolicy(),
             billing=BillingProfile.model_validate(found.billing_profile) if found.billing_profile else BillingProfile(),
+            portal_code_sign_in=bool(found.portal_code_sign_in),
             updated_by=found.updated_by, updated_at=found.updated_at,
         )
 
@@ -827,6 +866,7 @@ class SqlAlchemyBusinessStore:
         found.research_searches_per_day = value.research_searches_per_day
         found.support_policy = value.support_policy.model_dump(mode="json")
         found.billing_profile = value.billing.model_dump(mode="json")
+        found.portal_code_sign_in = value.portal_code_sign_in
         found.updated_by = value.updated_by
         found.updated_at = value.updated_at or datetime.now().astimezone()
         self.session.flush()

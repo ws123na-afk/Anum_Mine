@@ -152,9 +152,9 @@ class SettingsUpdate(BaseModel):
 def put_settings(payload: SettingsUpdate, context: TenantContext = Depends(tenant_context), repository: AnumRepository = Depends(repository_context)) -> BusinessSettings:
     manage(context)
     with open_business_store(context) as store:
-        # The support policy and the billing profile are saved on their own routes and kept here.
+        # The support policy, the billing profile and the portal sign-in switch are saved on their own routes and kept here.
         current = store.get_settings()
-        value = BusinessSettings(**payload.model_dump(), support_policy=current.support_policy, billing=current.billing, updated_by=context.user_id, updated_at=utc_now())
+        value = BusinessSettings(**payload.model_dump(), support_policy=current.support_policy, billing=current.billing, portal_code_sign_in=current.portal_code_sign_in, updated_by=context.user_id, updated_at=utc_now())
         store.save_settings(value)
     audit(repository, context, "business.settings.updated", context.workspace_id, metadata=payload.model_dump())
     return value

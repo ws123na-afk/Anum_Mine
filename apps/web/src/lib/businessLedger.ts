@@ -158,7 +158,7 @@ export function sourceHash(kind: LedgerSourceKind, sourceId: string | null): str
   if (kind === 'intercompany') return 'business-books/intercompany';
   if (kind === 'allocation') return 'business-books/allocations';
   if (kind === 'invoice') return `business-invoices/${encodeURIComponent(sourceId)}`;
-  if (kind === 'invoice_payment' || kind === 'credit_note') return 'business-invoices';
+  if (kind === 'invoice_payment' || kind === 'invoice_refund' || kind === 'credit_note') return 'business-invoices';
   if (kind === 'asset') return 'business-books/assets';
   if (kind === 'loan' || kind === 'loan_repayment') return 'business-books/loans';
   if (kind === 'revaluation') return 'business-books/revaluation';

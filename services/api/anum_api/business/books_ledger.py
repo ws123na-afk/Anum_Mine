@@ -48,7 +48,7 @@ from .books_store import MAX_SCAN, AtMost, Between, BooksStore, DuplicateError, 
 
 logger = logging.getLogger("anum_api.business.books_ledger")
 
-AUTO_KINDS = frozenset({"invoice", "credit_note", "invoice_payment", "bill", "bill_payment", "allocation", "adjustment", "intercompany",
+AUTO_KINDS = frozenset({"invoice", "credit_note", "invoice_payment", "invoice_refund", "bill", "bill_payment", "allocation", "adjustment", "intercompany",
                         "asset", "loan", "loan_repayment"})
 SYSTEM_POSTER = "system:books"
 _process_locks: dict[tuple[str, str], RLock] = {}
@@ -143,7 +143,7 @@ def reverse(store: BooksStore, context: TenantContext, entry: JournalEntry, *, a
 # ``books_service.latest_day``: personal payments allocated to the business, adjustments and payments; and invoices and credit
 # notes, dated on the business's own day when they are issued (``invoice_service.business_day``). Only the event itself
 # (``kind:id``); what it schedules (a reversal, a release, depreciation) waits for its UTC day.
-RECORDED_KINDS = frozenset({"allocation", "adjustment", "invoice_payment", "bill_payment", "invoice", "credit_note"})
+RECORDED_KINDS = frozenset({"allocation", "adjustment", "invoice_payment", "invoice_refund", "bill_payment", "invoice", "credit_note"})
 
 
 def _plan(context: TenantContext, store: BooksStore, today: date) -> tuple[Any, Chart, list[Proposal], list[JournalEntry], date | None]:

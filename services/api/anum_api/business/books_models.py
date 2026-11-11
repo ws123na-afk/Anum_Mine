@@ -389,7 +389,7 @@ class LedgerAccount(_Scoped):
 class JournalEntry(_Scoped):
     entry_date: date  # the day it is posted on: the event's day, or the first open day when that day is in a closed period
     event_date: date  # the day the source document says
-    # invoice, credit_note, invoice_payment, bill, bill_payment, allocation, adjustment, intercompany, manual, closing,
+    # invoice, credit_note, invoice_payment, invoice_refund (migration 0176), bill, bill_payment, allocation, adjustment, intercompany, manual, closing,
     # asset, loan, loan_repayment, revaluation (migration 0155)
     source_kind: str
     source_id: str | None = None

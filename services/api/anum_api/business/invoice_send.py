@@ -461,7 +461,8 @@ def apply_card_payment(provider: Literal["moyasar", "stripe"], issuer_tenant_id:
         reference = f"{name} {payment_id}"[:120]
         note = f"Paid by card on the {name} payment page." + (f" {name} took {amount}; {amount - applied} more than the balance, refund it there." if applied < amount else "")
         invoice, payment = apply_payment(store, context, invoice, amount=applied, paid_on=business_day(store, now), method=PaymentMethod.CARD,
-                                         reference=reference, note=note[:300], now=now, provider=provider, provider_payment_id=payment_id[:200])
+                                         reference=reference, note=note[:300], now=now, provider=provider, provider_payment_id=payment_id[:200],
+                                         provider_amount=amount)
         for link in links_of(store, invoice.id):
             if link.status == PaymentLinkStatus.OPEN:
                 store.save("payment_links", link.model_copy(update={"status": PaymentLinkStatus.PAID if invoice.status == InvoiceStatus.PAID else PaymentLinkStatus.REPLACED,

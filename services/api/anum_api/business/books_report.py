@@ -72,6 +72,8 @@ class Inputs:
     settings: BookSettings
     invoices: list[Any] = field(default_factory=list)  # business.invoice_models.Invoice
     payments: list[Any] = field(default_factory=list)  # InvoicePayment
+    # Refunds made in the card provider's dashboard (business.invoice_refunds): money given back on a payment.
+    refunds: list[Any] = field(default_factory=list)  # InvoiceRefund
     credit_notes: list[Any] = field(default_factory=list)  # CreditNote
     allocations: list[Any] = field(default_factory=list)  # finance.links_store.BusinessAllocation
     tags: dict[str, AllocationTag] = field(default_factory=dict)
@@ -208,6 +210,16 @@ def _per_currency(values: dict[str, Decimal]) -> list[dict[str, str]]:
 # -- the records, read once ---------------------------------------------------------------------------
 
 
+@dataclass(frozen=True)
+class RefundAsPayment:
+    """A refund as the cash figures see it: a customer payment of a negative amount on the refund's day."""
+
+    id: str
+    invoice_id: str
+    amount: Decimal
+    paid_on: date
+
+
 class Book:
     """Indexes over the inputs, shared by every figure."""
 
@@ -226,6 +238,10 @@ class Book:
         self.paying = {item.allocation_id for item in inputs.bill_payments if item.voided_at is None and item.allocation_id}
         self.credit_notes = [item for item in inputs.credit_notes if _status(item) == "issued" and item.invoice_id in self.invoices]
         self.payments = [item for item in inputs.payments if item.invoice_id in self.invoices]
+        # A recorded refund is money given back to the customer: the cash figures count it as a negative customer payment
+        # on its own day (``RefundAsPayment``); the posting run posts it as its own event (``books_posting``).
+        self.refunds = [item for item in inputs.refunds if _status(item) == "recorded" and Decimal(item.amount) > 0 and item.invoice_id in self.invoices]
+        self.payments += [RefundAsPayment(f"refund:{item.id}", item.invoice_id, -Decimal(item.amount), item.refunded_on) for item in self.refunds]
         self.adjustments = [item for item in inputs.adjustments if item.status == "active"]
         self.intercompany = [item for item in inputs.intercompany if item.status == "active"]
         # Bills that are a loan repayment (the loan schedules split them into principal and interest).

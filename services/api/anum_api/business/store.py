@@ -29,10 +29,12 @@ from .invoice_models import (
     InvoiceMessage,
     InvoiceSchedule,
     InvoicePayment,
+    InvoiceRefund,
     PaymentLink,
     PaymentNotice,
     PortalAccess,
     PortalDecision,
+    PortalSignIn,
 )
 from .models import (
     Account,
@@ -105,6 +107,9 @@ KINDS: dict[str, type[BaseModel]] = {
     "invoice_schedules": InvoiceSchedule,
     "invoice_automation": InvoiceAutomation,
     "ticket_messages": TicketMessage,
+    # Refunds synced from the card provider and the portal's emailed code sign-in (migration 0176_business_refunds_otp).
+    "invoice_refunds": InvoiceRefund,
+    "portal_sign_ins": PortalSignIn,
 }
 
 ModelT = TypeVar("ModelT", bound=BaseModel)

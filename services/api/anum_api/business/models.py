@@ -893,5 +893,7 @@ class BusinessSettings(BaseModel):
     research_searches_per_day: int = Field(default=30, ge=0, le=500)
     support_policy: SupportPolicy = Field(default_factory=SupportPolicy)
     billing: BillingProfile = Field(default_factory=BillingProfile)
+    # The owner's switch for the portal's emailed code sign-in (migration 0176, docs/business-portal.md#signing-in-with-an-emailed-code).
+    portal_code_sign_in: bool = False
     updated_by: str | None = None
     updated_at: datetime | None = None

@@ -274,6 +274,20 @@ def propose(inputs: Inputs, chart: Chart, today: date | None = None) -> list[Pro
         out.append(Proposal(f"invoice_payment:{payment.id}", "invoice_payment", payment.id, payment.paid_on,
                             f"Payment for invoice {invoice.number or invoice.id}", legs, fx_balance=True))
 
+    for refund in sorted(book.refunds, key=lambda item: item.id):
+        # A refund made in the card provider's dashboard: the money leaves the bank and the customer owes it again,
+        # until a credit note takes it off (docs/business.md#refunds-made-in-the-provider-dashboard).
+        invoice = book.invoices[refund.invoice_id]
+        if invoice.issue_date is None:
+            continue
+        currency = _cur(invoice)
+        dims = {"project_id": invoice.project_id, "customer_id": invoice.account_id}
+        legs = [Leg("key:ar", True, currency, Decimal(refund.amount), invoice.issue_date, absorb=True, booked_by=f"invoice:{invoice.id}",
+                    settles=True, **dims),
+                Leg("key:bank", False, currency, Decimal(refund.amount), refund.refunded_on, flow="customers_paid", **dims)]
+        out.append(Proposal(f"invoice_refund:{refund.id}", "invoice_refund", refund.id, refund.refunded_on,
+                            f"Card refund on invoice {invoice.number or invoice.id}", legs, fx_balance=True))
+
     for bill in sorted(book.bills.values(), key=lambda item: item.id):
         if bill.status != BillStatus.OPEN:
             continue
