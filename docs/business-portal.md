@@ -110,7 +110,7 @@ Owners: Business, **Accounts** tab: pick a client account and use its "Customer 
 
 Migration `0089_business_invoices_portal` creates `business_portal_access` (the contact's link: SHA-256 of the secret, expiry, revocation, last use) and `business_portal_decisions` (one decision per exact version) under forced row-level security with scoped composite foreign keys, plus the purge grants and policies of organisation and workspace deletion ([lifecycle](organisation-lifecycle.md)). `token_hash` is never exported. Expand only.
 
-Migration `0176_business_refunds_otp` adds `business_portal_sign_ins` (hashes of the address, the IP address, the code and the session; a scoped foreign key to the access, cascade) and `business_settings.portal_code_sign_in` (off) under the same rules.
+Migration `0177_business_refunds_otp` adds `business_portal_sign_ins` (hashes of the address, the IP address, the code and the session; a scoped foreign key to the access, cascade) and `business_settings.portal_code_sign_in` (off) under the same rules.
 
 ## Tests
 

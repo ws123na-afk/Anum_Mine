@@ -475,7 +475,7 @@ class BusinessInvoicePaymentRecord(Base, _Updated):
     idempotency_key: Mapped[str | None] = mapped_column(String(80))
     provider: Mapped[str | None] = mapped_column(String(20))
     provider_payment_id: Mapped[str | None] = mapped_column(String(200))
-    # Migration 0176_business_refunds_otp: what the card was charged.
+    # Migration 0177_business_refunds_otp: what the card was charged.
     provider_amount: Mapped[Decimal | None] = mapped_column(MONEY)
 
 
@@ -682,7 +682,7 @@ class BusinessSettingsRecord(Base):
     research_searches_per_day: Mapped[int] = mapped_column(Integer)
     support_policy: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     billing_profile: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
-    # Migration 0176_business_refunds_otp: the portal's emailed code sign-in switch.
+    # Migration 0177_business_refunds_otp: the portal's emailed code sign-in switch.
     portal_code_sign_in: Mapped[bool] = mapped_column(Boolean, default=False)
     updated_by: Mapped[str | None] = mapped_column(String(160))
     updated_at: Mapped[datetime] = mapped_column(TS)

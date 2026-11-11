@@ -239,7 +239,7 @@ def test_every_purged_table_is_covered_by_the_purge_migration() -> None:
             "model_usage_daily": "0170_model_usage_daily",
             "calendar_reminder_email_sends": "0171_calendar_sync_depth",
             **{name: "0175_business_depth" for name in ("business_invoice_schedules", "business_invoice_automation", "business_ticket_messages")},
-            **{name: "0176_business_refunds_otp" for name in ("business_invoice_refunds", "business_portal_sign_ins")},
+            **{name: "0177_business_refunds_otp" for name in ("business_invoice_refunds", "business_portal_sign_ins")},
             **{name: "0152_finance_rules_learning" for name in (
                 "finance_rules", "finance_merchant_aliases", "finance_subcategories", "finance_suggestion_decisions", "finance_rule_batches",
                 "finance_automation_settings")},

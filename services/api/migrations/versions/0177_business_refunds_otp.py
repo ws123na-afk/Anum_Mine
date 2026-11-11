@@ -3,7 +3,7 @@
 docs/business.md#refunds-made-in-the-provider-dashboard, docs/business-portal.md#signing-in-with-an-emailed-code.
 
 Two workspace tables under forced RLS on ``anum.tenant_id`` and ``anum.workspace_id`` (``tenant_isolation_<table>``,
-the pattern of ``0175_business_depth``), each with the ``anum_tenant_purger`` grants and purge policy of
+the pattern of ``0176_files_audit_probe``), each with the ``anum_tenant_purger`` grants and purge policy of
 ``0079_tenant_lifecycle`` and listed in ``anum_api/tenant_lifecycle_tables.py``:
 
 * ``business_invoice_refunds``: a refund the owner made in the Stripe or Moyasar dashboard on a card payment a Business
@@ -20,15 +20,15 @@ One nullable column on ``business_invoice_payments`` (``provider_amount``: what 
 than the payment applied to the balance) and one defaulted column on ``business_settings`` (``portal_code_sign_in``,
 the owner's switch, off).
 
-Chained after ``0175_business_depth``. Expand only: the previous release never reads or writes the new tables and
+Chained after ``0176_files_audit_probe``. Expand only: the previous release never reads or writes the new tables and
 columns (nullable or defaulted), so it keeps working. Rollback never reverses it in production.
 """
 
 import sqlalchemy as sa
 from alembic import op
 
-revision = "0176_business_refunds_otp"
-down_revision = "0175_business_depth"
+revision = "0177_business_refunds_otp"
+down_revision = "0176_files_audit_probe"
 branch_labels = None
 depends_on = None
 
