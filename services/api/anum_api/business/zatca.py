@@ -24,7 +24,7 @@ import base64
 import hashlib
 import uuid as uuid_module
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, tzinfo
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any, Protocol
 from xml.etree import (
@@ -34,6 +34,7 @@ from xml.etree import (
 from ..schemas import TenantContext, new_id, utc_now
 from .books_models import TaxSettings, ZatcaChain, ZatcaDocument
 from .books_store import DuplicateError, open_books_store
+from .invoice_service import business_zone
 from .tax_rules import SA_VAT, ZATCA_CATEGORY, Jurisdiction, split
 
 NOT_VERIFIED_EN = ("Not verified with ZATCA. ANUM does not claim compliance until the business completes onboarding and the invoices pass "
@@ -205,7 +206,9 @@ def build_xml(document: XmlDocument) -> str:
     _el(root, "cbc:ProfileID", "reporting:1.0")
     _el(root, "cbc:ID", document.number)
     _el(root, "cbc:UUID", document.uuid)
-    moment = document.issued_at.astimezone(UTC) if document.issued_at.tzinfo else document.issued_at
+    # The seller's own date and time: ``generate`` passes the moment on the business's clock (Asia/Riyadh by default), so
+    # an invoice sent after 21:00 UTC carries the next day, as the business dated it. Written as given, never moved to UTC.
+    moment = document.issued_at
     _el(root, "cbc:IssueDate", moment.strftime("%Y-%m-%d"))
     _el(root, "cbc:IssueTime", moment.strftime("%H:%M:%S"))
     _el(root, "cbc:InvoiceTypeCode", document.type_code, name=document.subtype)
@@ -349,6 +352,11 @@ def _document(settings: TaxSettings, invoice: Any, *, number: str, counter: int,
     )
 
 
+def _on_clock(moment: datetime, zone: tzinfo) -> datetime:
+    """``moment`` on the business's clock (a naive value is read as UTC)."""
+    return (moment if moment.tzinfo else moment.replace(tzinfo=UTC)).astimezone(zone)
+
+
 def generate(context: TenantContext, source_kind: str, source_id: str, *, actor: str, now: datetime | None = None) -> tuple[ZatcaDocument, bool]:
     """Generate the e-invoice data of one sent invoice or credit note, once (a second call returns the first). Returns the
     document and whether it was made now. The counter and the previous hash are taken under the business's books lock."""
@@ -372,6 +380,7 @@ def generate(context: TenantContext, source_kind: str, source_id: str, *, actor:
             invoice = business.get("invoices", note.invoice_id)
         else:
             raise ZatcaError(422, "Choose an invoice or a credit note.", "invalid_source")
+        zone = business_zone(business)  # read while the business store is open
     with open_books_store(context) as store:
         settings = store.first("tax_settings")
         if settings is None or not settings.zatca_enabled or settings.jurisdiction != Jurisdiction.SA.value:
@@ -392,9 +401,12 @@ def generate(context: TenantContext, source_kind: str, source_id: str, *, actor:
         chain = store.get("zatca_chain", chain.id, for_update=True)
         counter = chain.last_counter + 1
         previous = chain.last_hash or INITIAL_PREVIOUS_HASH
-        issued_at = invoice.sent_at or moment
+        # The seller's local date and time (docs/business-tax.md#xml): the business's day, as its invoices are dated.
+        issued_at = _on_clock(invoice.sent_at or moment, zone)
         if note is not None:
-            issued_at = datetime.combine(note.issue_date, moment.timetz())
+            # The note's issue date is already the business's day; the time is the local time of generation.
+            local = _on_clock(moment, zone)
+            issued_at = datetime.combine(note.issue_date, local.time(), tzinfo=zone)
         number = note.number if note is not None else (invoice.number or invoice.id)
         document = _document(settings, invoice, number=number, counter=counter, previous=previous, issued_at=issued_at, note=note)
         xml = build_xml(document)

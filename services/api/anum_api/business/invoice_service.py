@@ -35,12 +35,16 @@ def business_day(store: BusinessStore, now: datetime) -> date:
     """The business's own calendar day at ``now``: in its time zone (Business, Settings: the one the support policy keeps,
     Asia/Riyadh by default), not the UTC day. An invoice sent at 00:30 on 1 January in Riyadh (21:30 UTC on 31 December)
     is dated 1 January and numbered in the new year, and a payment dated that day is not "in the future"."""
-    try:
-        zone = ZoneInfo(store.get_settings().support_policy.timezone)
-    except (ZoneInfoNotFoundError, ValueError):
-        zone = ZoneInfo(DEFAULT_ZONE)
     moment = now if now.tzinfo is not None else now.replace(tzinfo=UTC)
-    return moment.astimezone(zone).date()
+    return moment.astimezone(business_zone(store)).date()
+
+
+def business_zone(store: BusinessStore) -> ZoneInfo:
+    """The business's time zone (Business, Settings: the support policy's), Asia/Riyadh when unset or unknown."""
+    try:
+        return ZoneInfo(store.get_settings().support_policy.timezone)
+    except (ZoneInfoNotFoundError, ValueError):
+        return ZoneInfo(DEFAULT_ZONE)
 
 
 def take_number(store: BusinessStore, context: TenantContext, year: int, now: datetime) -> int:
