@@ -831,7 +831,8 @@ class _InvoiceDetailState extends State<InvoiceDetailScreen> {
                     if (p.reference.isNotEmpty) p.reference,
                     if (p.note.isNotEmpty) p.note,
                   ].join(' · '),
-                  trailing: inv.can.removePayment
+                  trailing: inv.can.removePayment &&
+                          !inv.refunds.any((r) => r.paymentId == p.id)
                       ? IconButton(
                           key: Key('inv-payment-remove-${p.id}'),
                           tooltip: l.t('biz.inv.removePayment'),
@@ -840,6 +841,25 @@ class _InvoiceDetailState extends State<InvoiceDetailScreen> {
                         )
                       : null,
                 ),
+              for (final r in inv.refunds)
+                AnumRow(
+                  key: Key('inv-refund-${r.id}'),
+                  title: '-${m(r.providerAmount)}',
+                  subtitle: l.f('biz.inv.refund.line', {
+                    'provider': r.provider == 'moyasar' ? 'Moyasar' : 'Stripe',
+                    'date': r.refundedOn,
+                  }),
+                  detail: r.reversed
+                      ? l.t('biz.inv.refund.reversed')
+                      : r.amount < r.providerAmount
+                          ? l.f('biz.inv.refund.surplus',
+                              {'amount': m(r.providerAmount - r.amount)})
+                          : '',
+                ),
+              if (inv.status == 'sent' &&
+                  inv.refunds.any((r) => !r.reversed && r.amount > 0))
+                Text(l.t('biz.inv.refund.owed'),
+                    style: TextStyle(color: context.palette.muted)),
             ],
           ),
         ),

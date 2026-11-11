@@ -19,6 +19,14 @@ class PortalLinkOk extends PortalLinkResult {
   String toString() => 'PortalLinkOk(<hidden>)';
 }
 
+/// The business's sign-in address (`/portal#signin=<tenant>.<workspace>`,
+/// docs/business-portal.md#signing-in-with-an-emailed-code): identifiers, not a
+/// credential. The customer then signs in with a code emailed to them.
+class PortalSignInAddress extends PortalLinkResult {
+  const PortalSignInAddress(this.workspace);
+  final String workspace;
+}
+
 /// Why the text is not a portal link: a localization key suffix
 /// (`portal.link.empty`, `.noToken`, `.malformed`).
 class PortalLinkInvalid extends PortalLinkResult {
@@ -35,6 +43,8 @@ PortalLinkResult parsePortalLink(String input) {
   if (text.isEmpty) return const PortalLinkInvalid('empty');
 
   String? candidate;
+  final signIn = _signInValue(text);
+  if (signIn != null) return PortalSignInAddress(signIn);
   if (text.contains('#') || text.contains('://') || text.contains('/')) {
     final hash = text.indexOf('#');
     final fragment = hash >= 0 ? text.substring(hash + 1) : '';
@@ -71,6 +81,20 @@ String? _accessValue(String fragment) {
       final value = part.substring('access='.length);
       return value.isEmpty ? null : value;
     }
+  }
+  return null;
+}
+
+final _workspaceShape = RegExp(r'^[A-Za-z0-9_-]{1,80}\.[A-Za-z0-9_-]{1,80}$');
+
+/// The workspace in a `#signin=` fragment (or bare `signin=` text), or null.
+String? _signInValue(String text) {
+  final hash = text.indexOf('#');
+  final fragment = hash >= 0 ? text.substring(hash + 1) : text;
+  for (final part in fragment.split('&')) {
+    if (!part.startsWith('signin=')) continue;
+    final value = part.substring('signin='.length).trim();
+    return _workspaceShape.hasMatch(value) ? value : null;
   }
   return null;
 }

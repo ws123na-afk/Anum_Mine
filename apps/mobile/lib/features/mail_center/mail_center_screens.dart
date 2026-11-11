@@ -6,6 +6,7 @@ import '../../src/theme/anum_theme.dart';
 import '../workspace/workspace_models.dart';
 import 'mail_center_controller.dart';
 import 'mail_center_models.dart';
+import 'mail_save_purchase.dart';
 import 'mail_directory.dart';
 import 'mail_directory_models.dart';
 import 'mail_outgoing.dart';
@@ -1410,6 +1411,11 @@ class MailMessageScreen extends StatelessWidget {
             ),
           Text(l.t('mc.attachmentsNote'), style: theme.textTheme.bodySmall),
         ],
+        const SizedBox(height: AnumSpacing.sm),
+        Align(
+          alignment: AlignmentDirectional.centerStart,
+          child: SaveAsPurchaseButton(controller: c),
+        ),
         if (c.aiAvailable || c.ai?.reason != null) ...[
           const SizedBox(height: AnumSpacing.sm),
           MailAssistPanel(controller: c),

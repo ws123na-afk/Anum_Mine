@@ -129,6 +129,33 @@ class InvoicePayment {
       );
 }
 
+/// A refund made in the Stripe or Moyasar dashboard on a card payment, synced
+/// from the provider (docs/business.md#refunds-made-in-the-provider-dashboard).
+/// `amount` is what it took off the invoice; `providerAmount` what was given back.
+class InvoiceRefund {
+  const InvoiceRefund({
+    required this.id,
+    required this.paymentId,
+    required this.provider,
+    required this.providerAmount,
+    required this.amount,
+    required this.refundedOn,
+    required this.status,
+  });
+  final String id, paymentId, provider, refundedOn, status;
+  final double providerAmount, amount;
+  bool get reversed => status == 'reversed';
+  factory InvoiceRefund.fromJson(JsonReader r) => InvoiceRefund(
+        id: r.string('id'),
+        paymentId: r.string('payment_id'),
+        provider: r.optString('provider') ?? 'stripe',
+        providerAmount: r.number('provider_amount'),
+        amount: r.number('amount'),
+        refundedOn: dayOf(r.string('refunded_on')),
+        status: r.optString('status') ?? 'recorded',
+      );
+}
+
 /// Money an owner took off a sent invoice (docs/business.md#credit-notes). The
 /// invoice itself never changes; its balance does.
 class CreditNote {
@@ -269,6 +296,7 @@ class Invoice {
     this.amountCredited = 0,
     this.creditNotes = const [],
     this.paymentNotices = const [],
+    this.refunds = const [],
     this.projectId,
     this.projectName,
     this.number,
@@ -289,6 +317,7 @@ class Invoice {
   final int dueInDays, daysOverdue;
   final bool overdue;
   final List<InvoicePayment> payments;
+  final List<InvoiceRefund> refunds;
   final List<CreditNote> creditNotes;
   final List<PaymentNotice> paymentNotices;
   final List<String> issues;
@@ -334,6 +363,7 @@ class Invoice {
         daysOverdue: r.optInt('days_overdue') ?? 0,
         paymentState: r.optString('payment_state') ?? 'unpaid',
         payments: r.optObjects('payments', InvoicePayment.fromJson),
+        refunds: r.optObjects('refunds', InvoiceRefund.fromJson),
         creditNotes: r.optObjects('credit_notes', CreditNote.fromJson),
         paymentNotices: r.optObjects('payment_notices', PaymentNotice.fromJson),
         approvalState: r.optString('approval_state') ?? 'none',

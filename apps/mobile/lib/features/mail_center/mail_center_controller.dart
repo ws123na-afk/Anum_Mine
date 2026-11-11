@@ -734,6 +734,44 @@ class MailCenterController extends ChangeNotifier with MailNoticeSource {
     });
   }
 
+  /// The purchase the open message was last saved as (Save as purchase).
+  String? savedPurchaseId;
+
+  /// Why the last Save as purchase was refused, in plain words.
+  String? purchaseError;
+
+  /// The server's sentence after the open message was saved as a purchase,
+  /// with the message it is about (shown in the reader under the button).
+  ({String folder, int uid, String text})? purchaseSaved;
+
+  /// Save the open message as a purchase draft (docs/purchases.md#save-as-purchase-from-the-email-center).
+  /// The server reads the message with the person's own access; a refusal says what is missing.
+  Future<bool> saveAsPurchase(
+      {int? attachmentIndex, String ownership = 'personal'}) async {
+    final open = account, message = detail?.message;
+    if (open == null || message == null) return false;
+    busy = 'purchase';
+    purchaseError = null;
+    notifyListeners();
+    var saved = false;
+    try {
+      final result = await repository.saveAsPurchase(
+          open.id, message.folder, message.uid,
+          attachmentIndex: attachmentIndex, ownership: ownership);
+      savedPurchaseId = result.purchaseId;
+      saved = true;
+      purchaseSaved =
+          (folder: message.folder, uid: message.uid, text: result.message);
+      _say(result.message.isEmpty ? 'mc.purchase.saved' : result.message);
+    } on Object catch (e) {
+      // Shown in the dialog, which stays open so the person can change the choice.
+      purchaseError = describe(e);
+    }
+    busy = null;
+    notifyListeners();
+    return saved;
+  }
+
   // -- AI on one message --------------------------------------------------------
 
   Future<void> summarize({bool thread = false}) async {

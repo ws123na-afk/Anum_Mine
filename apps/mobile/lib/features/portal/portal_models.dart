@@ -432,9 +432,14 @@ class PortalInvoice extends PortalInvoiceSummary {
     super.dueDate,
     this.creditNotes = const [],
     this.paymentNotices = const [],
+    this.refunds = const [],
     this.canReportPayment = false,
   });
   final List<PortalInvoiceLine> lines;
+
+  /// Card refunds the business made: (day, amount) pairs
+  /// (docs/business.md#refunds-made-in-the-provider-dashboard).
+  final List<(String, double)> refunds;
   final double subtotal, tax;
   final String notes, paymentTerms, billToName, billToAddress, billToTaxNumber;
   final PortalSeller seller;
@@ -508,6 +513,8 @@ class PortalInvoice extends PortalInvoiceSummary {
               x.number('amount'),
               x.string('method'),
               x.optString('reference') ?? '')),
+      refunds: r.optObjects('refunds',
+          (x) => (dayPart(x.optString('refunded_on')), x.number('amount'))),
       voidReason: r.optString('void_reason') ?? '',
     );
   }

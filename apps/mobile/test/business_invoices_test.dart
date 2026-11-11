@@ -1190,6 +1190,45 @@ void main() {
     expect(find.byKey(const Key('inv-payment-remove-binpay_1')), findsNothing);
   });
 
+  testWidgets('a dashboard refund shows under its card payment, which stays',
+      (tester) async {
+    sized(tester, 390, 3600);
+    final json =
+        invoiceJson(status: 'sent', payments: [paymentJson('binpay_1', 1150)]);
+    final repo = FakeInvoices()
+      ..current = {
+        ...json,
+        'refunds': [
+          {
+            'id': 'binref_1',
+            'payment_id': 'binpay_1',
+            'provider': 'stripe',
+            'provider_amount': 350,
+            'amount': 300,
+            'refunded_on': '2026-10-12',
+            'status': 'recorded'
+          },
+          {
+            'id': 'binref_2',
+            'payment_id': 'binpay_1',
+            'provider': 'stripe',
+            'provider_amount': 20,
+            'amount': 20,
+            'refunded_on': '2026-10-12',
+            'status': 'reversed'
+          },
+        ],
+      };
+    await pumpDetail(tester, repo);
+    expect(find.byKey(const Key('inv-refund-binref_1')), findsOneWidget);
+    expect(
+        find.textContaining('Refunded in Stripe on 2026-10-12'), findsWidgets);
+    expect(find.textContaining('took above the balance'), findsOneWidget);
+    expect(find.textContaining('no longer counts'), findsOneWidget);
+    expect(find.textContaining('Issue a credit note'), findsOneWidget);
+    expect(find.byKey(const Key('inv-payment-remove-binpay_1')), findsNothing);
+  });
+
   testWidgets('editing a draft drops a sourced line and keeps written ones',
       (tester) async {
     sized(tester, 390, 5000);

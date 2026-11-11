@@ -3,6 +3,30 @@
 /// Business catalogs, so the Business key parity test covers them too. Plain
 /// words: the reader is the business's customer, not an ANUM user.
 const portalEn = <String, String>{
+  'portal.invoice.refunds': 'Refunded to your card',
+  'portal.invoice.refundLine': 'Refunded on {date}',
+  'portal.code.title': 'Sign in with an emailed code',
+  'portal.code.help':
+      'Enter the email address the business has for you. If it may use this portal, we email you a six-digit code.',
+  'portal.code.email': 'Email address',
+  'portal.code.send': 'Email me a code',
+  'portal.code.sending': 'Sending',
+  'portal.code.linkInstead':
+      'You can also open the link the business sent you.',
+  'portal.code.code': 'Six-digit code',
+  'portal.code.codeHelp':
+      'The code works for 10 minutes and only once. Check your spam folder if it has not arrived.',
+  'portal.code.signIn': 'Sign in',
+  'portal.code.checking': 'Checking',
+  'portal.code.again': 'Send a new code',
+  'portal.code.other': 'Use another address',
+  'portal.code.emailInvalid':
+      'Enter your email address in full, like name@company.com.',
+  'portal.code.codeInvalid': 'Enter the six digits from the email.',
+  'portal.code.wrong':
+      'This code is not right, or it has expired. Check the latest email, or send a new code.',
+  'portal.code.limit':
+      'Too many codes were asked for. Wait an hour and try again, or open the link the business sent you.',
   'portal.title': 'Customer portal',
   'portal.eyebrow': 'Customer portal',
   'portal.signIn.cta': 'Customer portal: open the link a business sent you',
@@ -193,6 +217,29 @@ const portalEn = <String, String>{
 };
 
 const portalAr = <String, String>{
+  'portal.invoice.refunds': 'مبالغ أعيدت إلى بطاقتك',
+  'portal.invoice.refundLine': 'أُعيد في {date}',
+  'portal.code.title': 'الدخول برمز يصلك بالبريد',
+  'portal.code.help':
+      'أدخل عنوان البريد الذي لدى الجهة لك. إذا كان مسموحًا له باستخدام هذه البوابة نرسل إليك رمزًا من ستة أرقام.',
+  'portal.code.email': 'البريد الإلكتروني',
+  'portal.code.send': 'أرسل لي رمزًا',
+  'portal.code.sending': 'جارٍ الإرسال',
+  'portal.code.linkInstead': 'يمكنك أيضًا فتح الرابط الذي أرسلته إليك الجهة.',
+  'portal.code.code': 'الرمز المكوّن من ستة أرقام',
+  'portal.code.codeHelp':
+      'يعمل الرمز لمدة 10 دقائق ولمرة واحدة. افحص مجلد الرسائل غير المرغوب فيها إن لم يصل.',
+  'portal.code.signIn': 'دخول',
+  'portal.code.checking': 'جارٍ التحقق',
+  'portal.code.again': 'أرسل رمزًا جديدًا',
+  'portal.code.other': 'استخدم عنوانًا آخر',
+  'portal.code.emailInvalid':
+      'أدخل بريدك الإلكتروني كاملًا، مثل name@company.com.',
+  'portal.code.codeInvalid': 'أدخل الأرقام الستة الواردة في الرسالة.',
+  'portal.code.wrong':
+      'هذا الرمز غير صحيح أو انتهت صلاحيته. افحص آخر رسالة أو اطلب رمزًا جديدًا.',
+  'portal.code.limit':
+      'طُلبت رموز كثيرة. انتظر ساعة ثم حاول مجددًا، أو افتح الرابط الذي أرسلته إليك الجهة.',
   'portal.title': 'بوابة العميل',
   'portal.eyebrow': 'بوابة العميل',
   'portal.signIn.cta': 'بوابة العميل: افتح الرابط الذي أرسلته لك الجهة',

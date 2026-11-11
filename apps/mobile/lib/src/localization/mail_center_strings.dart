@@ -1,6 +1,22 @@
 /// Email Center strings (docs/email.md#email-center), English and Arabic.
 /// Looked up by `AnumLocalizations.t` after the main catalogs.
 const mailCenterEn = <String, String>{
+  'mc.purchase.button': 'Save as purchase',
+  'mc.purchase.title': 'Save this email as a purchase',
+  'mc.purchase.help':
+      'ANUM reads this message for an order number, shop, amount, carrier and tracking number, and saves a draft under Purchases for you to check. Nothing is sent and the message is not changed.',
+  'mc.purchase.whose': 'Whose purchase',
+  'mc.purchase.owner.personal': 'Mine (personal)',
+  'mc.purchase.owner.business': 'The business',
+  'mc.purchase.receipt': 'Keep as the receipt',
+  'mc.purchase.noReceipt': 'No attachment',
+  'mc.purchase.noFiles': 'This message has no attachment ANUM can keep.',
+  'mc.purchase.private':
+      'The file is stored privately in your document vault and linked to the purchase.',
+  'mc.purchase.save': 'Save purchase',
+  'mc.purchase.saving': 'Saving',
+  'mc.purchase.cancel': 'Cancel',
+  'mc.purchase.saved': 'Saved under Purchases as a draft. Check its details.',
   'mc.title': 'Email Center',
   'mc.subtitle':
       'Your own mailbox on the workspace mail server. Nothing is sent until an owner approves the exact message.',
@@ -579,6 +595,23 @@ const mailCenterEn = <String, String>{
 };
 
 const mailCenterAr = <String, String>{
+  'mc.purchase.button': 'احفظ كمشتريات',
+  'mc.purchase.title': 'احفظ هذه الرسالة كعملية شراء',
+  'mc.purchase.help':
+      'يقرأ ANUM هذه الرسالة بحثًا عن رقم الطلب والمتجر والمبلغ وشركة الشحن ورقم التتبع، ويحفظ مسودة في المشتريات لتراجعها. لا يُرسل شيء ولا تتغير الرسالة.',
+  'mc.purchase.whose': 'لمن عملية الشراء',
+  'mc.purchase.owner.personal': 'لي (شخصية)',
+  'mc.purchase.owner.business': 'للنشاط التجاري',
+  'mc.purchase.receipt': 'احتفظ به كإيصال',
+  'mc.purchase.noReceipt': 'دون مرفق',
+  'mc.purchase.noFiles':
+      'لا يوجد في هذه الرسالة مرفق يمكن لـ ANUM الاحتفاظ به.',
+  'mc.purchase.private':
+      'يُحفظ الملف بشكل خاص في خزنة مستنداتك ويُربط بعملية الشراء.',
+  'mc.purchase.save': 'احفظ عملية الشراء',
+  'mc.purchase.saving': 'جارٍ الحفظ',
+  'mc.purchase.cancel': 'إلغاء',
+  'mc.purchase.saved': 'حُفظت في المشتريات كمسودة. راجع تفاصيلها.',
   'mc.title': 'مركز البريد',
   'mc.subtitle':
       'صندوق بريدك على خادم بريد مساحة العمل. لا يُرسل شيء حتى يوافق مالك على الرسالة نفسها.',
