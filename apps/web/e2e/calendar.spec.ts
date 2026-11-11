@@ -259,3 +259,105 @@ test('the month view shows the month and opens a day; the small month picks a da
   await expect(agenda(page).getByRole('button', { name: /Supplier call/ })).toBeVisible();
   expect(await noHorizontalOverflow(page)).toBe(true);
 });
+
+// Repeating, all-day events and reminders (docs/calendar.md#recurrence).
+const back = (page: Page) => page.getByRole('button', { name: 'Back to the list' }).click();
+
+test('a repeating all-day event with reminders is added through the form and shows on every day it repeats', async ({ page, isMobile }) => {
+  const state = await openCalendar(page, { empty: true });
+  await page.getByRole('button', { name: 'Week', exact: true }).click();
+  await page.getByRole('button', { name: 'New event' }).first().click();
+  const dialog = page.getByRole('dialog', { name: 'New event' });
+  await dialog.getByLabel('Title').fill('Site inspection');
+  await dialog.getByLabel('All day').check();
+  await expect(dialog.getByLabel('Starts')).toHaveCount(0);
+  await dialog.getByRole('group', { name: 'Repeat' }).getByRole('combobox', { name: 'Repeat' }).selectOption('daily');
+  await dialog.getByRole('radiogroup', { name: 'Ends' }).getByLabel('After a number of times').check();
+  await dialog.getByRole('spinbutton', { name: 'Times' }).fill('3');
+  await expect(dialog.getByText('Every day, 3 times')).toBeVisible();
+  await dialog.getByRole('button', { name: 'Add reminder' }).click();
+  await dialog.getByRole('combobox', { name: 'Reminder 1' }).selectOption('1440');
+  await dialog.getByRole('button', { name: 'Add event' }).click();
+  await expect(page.getByText('Added "Site inspection".')).toBeVisible();
+  const body = state.created[0] as Record<string, unknown>;
+  expect(body.all_day).toBe(true);
+  expect(body.recurrence).toEqual({ freq: 'daily', interval: 1, count: 3 });
+  expect(body.reminders).toEqual([1440]);
+  expect(typeof body.timezone).toBe('string');
+  const detail = page.getByRole('article', { name: 'Site inspection' });
+  await expect(detail.getByText('Every day, 3 times')).toBeVisible();
+  await expect(detail.getByText('1 day before')).toBeVisible();
+  // Three occurrences: on a desktop in the all-day row above the hours (not in the lanes); on a phone the week is a list.
+  if (isMobile) await back(page);
+  const rows = isMobile ? agenda(page) : agenda(page).getByRole('list', { name: 'All-day events' });
+  await expect(rows.getByRole('button', { name: /Site inspection/ })).toHaveCount(3);
+  await expect(rows.getByRole('button', { name: /Site inspection/ }).first()).toHaveAccessibleName(isMobile ? /All day.*Every day/ : /All day.*Repeats/);
+  expect(await noHorizontalOverflow(page)).toBe(true);
+});
+
+test('editing, cancelling and deleting a repeating event asks which occurrences; one occurrence changes on its own', async ({ page, isMobile }) => {
+  const state = await openCalendar(page, { empty: true });
+  const start = new Date(); start.setHours(15, 0, 0, 0);
+  (state.events as Record<string, unknown>[]).push({
+    tenant_id: 'tenant_local', workspace_id: 'workspace_foundation', source: 'manual', created_by: 'user_local', created_at: start.toISOString(), updated_at: start.toISOString(),
+    id: 'evt_series', title: 'Daily standup', kind: 'meeting', status: 'scheduled', starts_at: start.toISOString(), ends_at: new Date(start.getTime() + 30 * 60_000).toISOString(),
+    location: null, conference_url: null, phone: null, description: null, attendees: [], reminders: [10], timezone: 'Asia/Dubai', recurrence: { freq: 'daily', interval: 1, count: 5 },
+  });
+  await page.getByRole('button', { name: 'Week', exact: true }).click();
+  await page.getByRole('button', { name: 'Today', exact: true }).click();
+  const occurrences = agenda(page).getByRole('button', { name: /Daily standup/ });
+  await expect(occurrences.first()).toBeVisible();
+  const shown = await occurrences.count();
+  expect(shown).toBeGreaterThanOrEqual(2);
+  await occurrences.first().click();
+  const detail = page.getByRole('article', { name: 'Daily standup' });
+  await expect(detail.getByText('Every day, 5 times')).toBeVisible();
+  // Edit this occurrence only: the form has no Repeat section and the request names the occurrence.
+  await detail.getByRole('button', { name: 'Edit' }).click();
+  const ask = page.getByRole('dialog', { name: 'Edit a repeating event' });
+  await expect(ask.getByText('"Daily standup" repeats. Which events should change?')).toBeVisible();
+  await ask.getByRole('button', { name: 'This event only' }).click();
+  const form = page.getByRole('dialog', { name: 'Edit this event only' });
+  await expect(form.getByText('Only this occurrence changes.')).toBeVisible();
+  await expect(form.getByRole('group', { name: 'Repeat' })).toHaveCount(0);
+  await form.getByLabel('Title').fill('Standup (moved)');
+  await form.getByRole('button', { name: 'Save changes' }).click();
+  await expect(page.getByText('Saved "Standup (moved)".')).toBeVisible();
+  const update = state.updates[0] as Record<string, unknown>;
+  expect(update.scope).toBe('this');
+  expect(update.occurrence_start).toBe(start.toISOString());
+  expect('recurrence' in update).toBe(false);
+  if (isMobile) await back(page);
+  await expect(agenda(page).getByRole('button', { name: /Standup \(moved\).*Changed from the series/ })).toHaveCount(1);
+  await expect(agenda(page).getByRole('button', { name: /Daily standup/ })).toHaveCount(shown - 1);
+  // Cancel one occurrence: the series keeps the others.
+  await agenda(page).getByRole('button', { name: /Daily standup/ }).first().click();
+  await page.getByRole('article', { name: 'Daily standup' }).getByRole('button', { name: 'Cancel event' }).click();
+  await page.getByRole('dialog', { name: 'Cancel a repeating event' }).getByRole('button', { name: 'This event only' }).click();
+  await expect(page.getByText('Cancelled this occurrence of "Daily standup".')).toBeVisible();
+  expect((state.updates[1] as Record<string, unknown>).scope).toBe('this');
+  // Delete the whole series after the three-way question.
+  if (isMobile) await back(page);
+  await page.getByLabel('Show cancelled').uncheck();
+  await agenda(page).getByRole('button', { name: /Daily standup/ }).first().click();
+  await page.getByRole('article', { name: 'Daily standup' }).getByRole('button', { name: 'Delete' }).click();
+  const remove = page.getByRole('dialog', { name: 'Delete a repeating event' });
+  await expect(remove.getByText('Every occurrence, including ones that were changed on their own.')).toBeVisible();
+  await remove.getByRole('button', { name: /All events in the series/ }).click();
+  await expect(page.getByText('Deleted "Daily standup".')).toBeVisible();
+  expect(state.deleted).toEqual(['evt_series']);
+  await expect(agenda(page).getByRole('button', { name: /standup/i })).toHaveCount(0);
+});
+
+test('the repeat form reads right to left in Arabic with its own words', async ({ page }) => {
+  await useSavedLocale(page, 'ar');
+  await openCalendar(page, { empty: true });
+  await page.getByRole('button', { name: 'حدث جديد' }).first().click();
+  const dialog = page.getByRole('dialog', { name: 'حدث جديد' });
+  await dialog.getByRole('combobox', { name: 'التكرار' }).selectOption('weekly');
+  await expect(dialog.getByRole('group', { name: 'في هذه الأيام' })).toBeVisible();
+  await expect(dialog.getByText(/^كل أسبوع في /)).toBeVisible();
+  await dialog.getByRole('button', { name: 'إضافة تذكير' }).click();
+  await expect(dialog.getByRole('combobox', { name: 'التذكير 1' })).toBeVisible();
+  expect(await noHorizontalOverflow(page)).toBe(true);
+});

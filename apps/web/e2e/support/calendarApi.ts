@@ -45,6 +45,29 @@ export function createCalendarMock(options: CalendarMockOptions = {}) {
     { provider: 'microsoft', name: 'Microsoft 365 Calendar', configured: true, missing: [], scopes: ['Calendars.ReadWrite'] },
   ];
   const view = (event: Record<string, unknown>) => ({ ...event, can_manage: owner && (event.created_by === 'user_local' || owner) });
+  // Repeating events (docs/calendar.md#recurrence): daily and weekly rules with a count or an end date, the series'
+  // skipped occurrences and child rows that replace one occurrence, expanded the way the API does.
+  const DAY = 86_400_000;
+  function occurrencesOf(event: Record<string, unknown>, start: number, end: number): Record<string, unknown>[] {
+    const rule = event.recurrence as { freq: string; interval?: number; count?: number | null; until?: string | null; by_weekday?: string[] } | null | undefined;
+    if (!rule) return [event];
+    const first = Date.parse(event.starts_at as string), length = Date.parse(event.ends_at as string) - first;
+    const skipped = new Set((event.skipped as string[] | undefined) ?? []);
+    const overrides = new Set(state.events.filter((e) => e.series_id === event.id).map((e) => e.recurrence_start as string));
+    const out: Record<string, unknown>[] = [];
+    const step = (rule.freq === 'weekly' ? 7 : 1) * (rule.interval ?? 1) * DAY;
+    for (let n = 0, at = first; n < (rule.count ?? 400) && at < end; n += 1, at += step) {
+      if (rule.until && at > Date.parse(`${rule.until}T23:59:59`)) break;
+      const iso = new Date(at).toISOString();
+      if (at + length <= start || skipped.has(iso) || overrides.has(iso)) continue;
+      out.push({ ...event, starts_at: iso, ends_at: new Date(at + length).toISOString(), occurrence_start: iso, occurrence_key: `${event.id}@${iso}`, is_recurring: true, rrule: `FREQ=${rule.freq.toUpperCase()}` });
+    }
+    return out;
+  }
+  const childView = (child: Record<string, unknown>) => {
+    const parent = state.events.find((e) => e.id === child.series_id);
+    return { ...child, id: parent?.id ?? child.id, series_id: child.series_id, recurrence: parent?.recurrence ?? null, occurrence_start: child.recurrence_start, occurrence_key: `${child.series_id}@${child.recurrence_start}`, is_recurring: true, overridden: true, override_id: child.id };
+  };
   async function handle(route: Route): Promise<boolean> {
     const request = route.request();
     const url = new URL(request.url());
@@ -98,22 +121,27 @@ export function createCalendarMock(options: CalendarMockOptions = {}) {
       const start = Date.parse(url.searchParams.get('start') ?? at(0, 0));
       const end = Date.parse(url.searchParams.get('end') ?? at(8, 0));
       const cancelled = url.searchParams.get('include_cancelled') === 'true';
-      const items = state.events.filter((e) => Date.parse(e.starts_at as string) < end && Date.parse(e.ends_at as string) > start && (cancelled || e.status !== 'cancelled'))
+      const items = state.events.filter((e) => cancelled || e.status !== 'cancelled')
+        .flatMap((e) => (e.series_id ? [childView(e)] : occurrencesOf(e, start, end)))
+        .filter((e) => Date.parse(e.starts_at as string) < end && Date.parse(e.ends_at as string) > start)
         .sort((a, b) => String(a.starts_at).localeCompare(String(b.starts_at)));
-      return json({ items: items.map(view), start: new Date(start).toISOString(), end: new Date(end).toISOString(), truncated: false, can_write: owner });
+      return json({ items: items.map(view), start: new Date(start).toISOString(), end: new Date(end).toISOString(), truncated: false, can_write: owner, offset: 0 });
     }
     if (path === '/api/v1/calendar/events' && method === 'POST') {
       if (!owner) return json({ detail: 'Adding and changing events needs the member or owner role in this workspace.' }, 403);
       const body = request.postDataJSON() as Record<string, unknown>;
       state.created.push(body);
       const attendees = ((body.attendees as Record<string, unknown>[]) ?? []).map((a, i) => ({ id: `att_new_${i}`, role: null, response: 'invited', ...a }));
-      const event = { ...base, id: `evt_new_${state.created.length}`, status: 'scheduled', ...body, attendees, created_at: new Date().toISOString(), updated_at: new Date().toISOString() };
+      const event: Record<string, unknown> = { ...base, id: `evt_new_${state.created.length}`, status: 'scheduled', reminders: [], ...body, attendees, created_at: new Date().toISOString(), updated_at: new Date().toISOString() };
+      if (event.all_day && event.start_date) { event.end_date = event.end_date ?? event.start_date; event.starts_at = `${event.start_date}T00:00:00.000Z`; event.ends_at = new Date(Date.parse(`${event.end_date}T00:00:00.000Z`) + DAY).toISOString(); }
+      if (event.recurrence) { event.is_recurring = true; event.rrule = `FREQ=${String((event.recurrence as { freq: string }).freq).toUpperCase()}`; event.occurrence_start = event.starts_at; event.occurrence_key = `${event.id}@${event.starts_at}`; }
       state.events.push(event);
       return json(view(event), 201);
     }
     const match = /^\/api\/v1\/calendar\/events\/([^/]+)(\/attendees\/([^/]+)\/response)?$/.exec(path);
     const event = match ? state.events.find((e) => e.id === match[1]) : undefined;
     if (!match || !event) return json({ detail: 'Event not found' }, 404);
+    const scoped = url.searchParams.get('scope') ?? undefined;
     if (match[2] && method === 'PUT') {
       const body = request.postDataJSON() as { response: string };
       state.responses.push({ event: event.id, attendee: match[3], ...body });
@@ -124,13 +152,39 @@ export function createCalendarMock(options: CalendarMockOptions = {}) {
     if (method === 'PATCH') {
       const body = request.postDataJSON() as Record<string, unknown>;
       state.updates.push({ id: event.id, ...body });
-      Object.assign(event, body, { updated_at: new Date().toISOString() });
+      const { scope, occurrence_start: occurrence, ...fields } = body;
+      if (event.recurrence && scope === 'this' && typeof occurrence === 'string') {
+        // One occurrence changed on its own: a child row keyed by the occurrence's original start.
+        let child = state.events.find((e) => e.series_id === event.id && e.recurrence_start === occurrence);
+        if (!child) {
+          const length = Date.parse(event.ends_at as string) - Date.parse(event.starts_at as string);
+          child = { ...event, id: `evt_child_${state.updates.length}`, series_id: event.id, recurrence_start: occurrence, recurrence: null, starts_at: occurrence, ends_at: new Date(Date.parse(occurrence) + length).toISOString() };
+          state.events.push(child);
+        }
+        Object.assign(child, fields, { updated_at: new Date().toISOString() });
+        return json(view(childView(child)));
+      }
+      if (event.recurrence && scope === 'following' && typeof occurrence === 'string') {
+        const rule = event.recurrence as { count?: number | null; until?: string | null };
+        const before = occurrencesOf(event, 0, Date.parse(occurrence)).length;
+        const fresh = { ...event, ...fields, id: `evt_split_${state.updates.length}`, starts_at: (fields.starts_at as string) ?? occurrence, recurrence: { ...(fields.recurrence as object ?? event.recurrence as object), ...(rule.count ? { count: rule.count - before } : {}) } };
+        event.recurrence = { ...rule, ...(rule.count ? { count: before } : { until: new Date(Date.parse(occurrence) - DAY).toISOString().slice(0, 10) }) };
+        state.events.push(fresh);
+        return json(view(fresh));
+      }
+      Object.assign(event, fields, { updated_at: new Date().toISOString() });
       if (Array.isArray(body.attendees)) event.attendees = (body.attendees as Record<string, unknown>[]).map((a, i) => ({ id: a.id ?? `att_edit_${i}`, role: null, response: 'invited', ...a }));
       return json(view(event));
     }
     if (method === 'DELETE') {
-      state.deleted.push(event.id as string);
-      state.events = state.events.filter((e) => e !== event);
+      state.deleted.push(scoped ? `${event.id}:${scoped}` : (event.id as string));
+      const occurrence = url.searchParams.get('occurrence_start');
+      if (scoped === 'this' && occurrence) {
+        event.skipped = [...((event.skipped as string[] | undefined) ?? []), occurrence];
+        state.events = state.events.filter((e) => !(e.series_id === event.id && e.recurrence_start === occurrence));
+      } else if (scoped === 'following' && occurrence) {
+        event.recurrence = { ...(event.recurrence as object), count: occurrencesOf(event, 0, Date.parse(occurrence)).length, until: null };
+      } else state.events = state.events.filter((e) => e !== event && e.series_id !== event.id);
       await route.fulfill({ status: 204 });
       return true;
     }

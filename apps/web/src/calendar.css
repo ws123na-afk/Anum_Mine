@@ -289,3 +289,41 @@
 }
 .calMonthDays .calendarEvents, .calDay .calendarEvents { grid-template-columns: minmax(0, 1fr); }
 .calNext.current { cursor: default; margin: 0; }
+
+/* Repeating, all-day events and reminders (docs/calendar.md#recurrence). */
+.calMarks { display: inline-flex; margin-inline-end: 3px; vertical-align: -1px; }
+.calMarks svg { height: 11px; width: 11px; }
+.calAllDayRow { align-items: start; border-bottom: 1px solid var(--d-line); display: grid; grid-template-columns: 60px repeat(var(--cal-days), minmax(56px, 1fr)); min-width: calc(60px + var(--cal-days) * 56px); }
+.calGrid.oneDay .calAllDayRow { min-width: 0; }
+.calAllDayRow .calGridCorner { padding: var(--d-s1); text-align: end; }
+.calAllDayCell { border-inline-start: 1px solid var(--d-line); display: grid; gap: 2px; min-height: 26px; min-width: 0; padding: 2px; }
+.calChip.allDay { background: color-mix(in srgb, var(--kind) 22%, var(--d-surface-1)); font-weight: 600; }
+.calendarAllDay { color: var(--d-muted); font-size: var(--text-xs); font-weight: 600; text-transform: uppercase; letter-spacing: .02em; }
+.calendarForm .calendarFormRow.three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.calendarForm .calendarFormRow.allDay { grid-template-columns: minmax(0, 1fr); }
+@media (max-width: 520px) { .calendarForm .calendarFormRow.three { grid-template-columns: minmax(0, 1fr); } }
+.calendarAllDayToggle { margin-bottom: var(--d-s2); }
+.calendarForm fieldset.calRepeat, .calendarForm fieldset.calReminders { border: 1px solid var(--d-line); border-radius: var(--d-r-md); margin: 0 0 var(--d-s3); min-width: 0; padding: var(--d-s2) var(--d-s3) var(--d-s1); }
+.calendarForm fieldset legend { color: var(--d-muted); font-size: var(--text-sm); font-weight: 600; padding: 0 var(--d-s1); }
+.calIntervalRow { align-items: center; display: flex; gap: var(--d-s2); }
+.calIntervalRow input { width: 5.5em; }
+.calendarForm fieldset.calWeekdays { border: 0; display: flex; flex-wrap: wrap; gap: var(--d-s1) var(--d-s2); margin: 0 0 var(--d-s2); padding: 0; }
+.calendarForm fieldset.calWeekdays legend { flex-basis: 100%; margin-bottom: 0; padding: 0; }
+.calendarForm .calWeekday { align-items: center; border: 1px solid var(--d-line); border-radius: var(--d-r-pill); cursor: pointer; display: inline-flex; gap: var(--d-s1); margin: 0; min-height: 36px; padding: 0 var(--d-s2); white-space: nowrap; }
+.calendarForm .calWeekday input, .calendarForm .calRadios > label > input[type="radio"], .calendarForm .calendarToggle input { accent-color: var(--d-violet); flex: none; height: 16px; margin: 0; min-height: 0; width: 16px; }
+.calWeekday:has(input:checked) { background: var(--d-glass-2); border-color: var(--d-line-strong); }
+.calRadios { display: flex; flex-wrap: wrap; gap: var(--d-s1) var(--d-s3); margin-bottom: var(--d-s2); }
+.calendarForm .calRadios > label { align-items: center; display: inline-flex; gap: var(--d-s1); margin: 0; min-height: 36px; white-space: nowrap; }
+.calendarForm .calRadios > label.field { display: grid; flex: 1 1 160px; margin: 0; min-height: 0; white-space: normal; }
+.calEndsLabel { align-self: center; color: var(--d-muted); font-size: var(--text-sm); font-weight: 600; }
+.calRepeatSummary { align-items: center; display: flex; gap: var(--d-s1); margin: 0 0 var(--d-s1); }
+.calRepeatSummary svg { flex: none; height: 14px; width: 14px; }
+.calReminderList { display: grid; gap: var(--d-s1); list-style: none; margin: 0 0 var(--d-s2); padding: 0; }
+.calReminderList li { align-items: center; display: flex; gap: var(--d-s2); }
+.calReminderList li label { flex: 1; min-width: 0; }
+.calReminderList select { width: 100%; }
+.calReminders > button { margin-bottom: var(--d-s2); }
+.calReminders > p { margin: 0 0 var(--d-s1); }
+.calScopeChoices { display: grid; gap: var(--d-s2); margin: var(--d-s3) 0; }
+.calScopeChoices button { display: grid; justify-items: center; min-height: 44px; text-align: center; }
+.calScopeChoices button small { color: var(--d-muted); font-weight: 400; }

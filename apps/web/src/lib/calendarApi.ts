@@ -2,7 +2,7 @@
 // own permission check: `calendar:read` lists, `calendar:write` adds, the creator or an owner changes.
 import { apiRequest, apiRequestVoid } from './api';
 import {
-  eventsQuery, type AttendeeResponse, type CalendarEventView, type EventPage, type InvitationRequest, type NextStep, type SyncConnection, type SyncProvider, type SyncSetup, type SyncSummary,
+  eventsQuery, type AttendeeResponse, type CalendarEventView, type EditScope, type EventPage, type InvitationRequest, type NextStep, type SyncConnection, type SyncProvider, type SyncSetup, type SyncSummary,
 } from './calendar';
 
 const base = '/api/v1/calendar';
@@ -13,7 +13,11 @@ export const listEvents = (start: Date, end: Date, includeCancelled: boolean) =>
 export const getEvent = (id: string) => apiRequest<CalendarEventView>(`${base}/events/${encodeURIComponent(id)}`, { method: 'GET' });
 export const createEvent = (body: Record<string, unknown>) => apiRequest<CalendarEventView>(`${base}/events`, json('POST', body));
 export const updateEvent = (id: string, body: Record<string, unknown>) => apiRequest<CalendarEventView>(`${base}/events/${encodeURIComponent(id)}`, json('PATCH', body));
-export const deleteEvent = (id: string) => apiRequestVoid(`${base}/events/${encodeURIComponent(id)}`, { method: 'DELETE' });
+/** Deletes an event, or with a scope one occurrence of a series or this and the following ones (docs/calendar.md#recurrence). */
+export const deleteEvent = (id: string, scope: EditScope = 'all', occurrenceStart?: string | null) => {
+  const query = scope === 'all' ? '' : `?${new URLSearchParams({ scope, occurrence_start: occurrenceStart ?? '' }).toString()}`;
+  return apiRequestVoid(`${base}/events/${encodeURIComponent(id)}${query}`, { method: 'DELETE' });
+};
 export const setResponse = (id: string, attendeeId: string, response: AttendeeResponse) =>
   apiRequest<CalendarEventView>(`${base}/events/${encodeURIComponent(id)}/attendees/${encodeURIComponent(attendeeId)}/response`, json('PUT', { response }));
 export const getNextSteps = () => apiRequest<{ items: NextStep[] }>(`${base}/next-steps`, { method: 'GET' });
