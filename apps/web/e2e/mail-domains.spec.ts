@@ -1,3 +1,4 @@
+import AxeBuilder from '@axe-core/playwright';
 import { expect, test, type Page } from '@playwright/test';
 import { mockWorkspaceApi, useSavedLocale } from './support/workspaceApi';
 
@@ -147,6 +148,10 @@ for (const [width, height] of [[1440, 900], [1366, 768], [1024, 768], [768, 1024
       const pane = page.locator('.mailDomainsPane');
       const box = await pane.boundingBox();
       expect(box && box.x >= -1 && box.x + box.width <= width + 1).toBe(true);
+      // The mailbox and alias forms included: no serious or critical axe finding in either language.
+      await expect(page.getByRole('form', { name: locale === 'ar' ? 'أضف صندوق بريد' : 'Add a mailbox' }).first()).toBeVisible();
+      const axe = await new AxeBuilder({ page }).include('.mailDomainsPane').analyze();
+      expect(axe.violations.filter((v) => v.impact === 'serious' || v.impact === 'critical').map((v) => v.id)).toEqual([]);
       await pane.screenshot({ path: `test-results/mail-domains-${locale}-${width}.png` });
     });
   }

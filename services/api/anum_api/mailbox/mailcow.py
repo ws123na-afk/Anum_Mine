@@ -1,7 +1,7 @@
 """Optional Mailcow API for the platform operator (docs/email.md#operator-view, #mail-domains).
 
 Off unless ``ANUM_MAILCOW_API_ENABLED=true``. Reads use ``ANUM_MAILCOW_API_KEY`` (a Mailcow
-*read-only* API key). Changes (add or remove a domain or an alias) are a second, separate
+*read-only* API key). Changes (add or remove a domain or an alias, add a mailbox) are a second, separate
 switch: ``ANUM_MAILCOW_WRITE_ENABLED=true`` with ``ANUM_MAILCOW_API_WRITE_KEY`` (a read-write
 key), and they run only from an approved ``change_mail_domains`` call (``domains_api.py``).
 Neither key is ever returned, logged or audited. Only the fixed paths below are ever called.
