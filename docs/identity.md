@@ -226,7 +226,8 @@ Implemented in `services/api/anum_api/workspace_members.py`, persisted in `works
 | `POST /api/v1/workspace-invitations/accept` `{token}` | any authenticated caller, membership not required | Redeems the token for a membership in the workspace selected by `x-workspace-id` (or the token's default workspace). |
 | `GET /api/v1/workspace-members?q=&status=&role=&limit=&cursor=` | owners | Lists memberships, active first, then owners, members and viewers, then by user id. Each carries `email`: the verified email of the invitation the member accepted, or null. `q` matches the user id or that email (case-insensitive), `status` is `all`, `active` or `deactivated`, `role` one role. Without `limit` every match is returned; with `limit` (1 to 200) one page, and the `X-Next-Cursor` response header (exposed to browsers by CORS) holds the cursor of the next one. |
 | `GET /api/v1/workspace-members/summary` | owners | `{total, active, deactivated, active_owners, pending_invitations}` for the whole workspace, independent of search and paging. Clients use `active_owners` for the last-owner protection. |
-| `PUT /api/v1/workspace-members/{user_id}/role` `{role}` | owners | Changes a member's role. |
+| `PUT /api/v1/workspace-members/{user_id}/role` `{role}` | owners | Changes a member's role. Promoting a templated member to owner drops their role template. |
+| `PUT /api/v1/workspace-members/{user_id}/role-template` `{role_template_id}` | owners | Gives a member or viewer a [role template](governance-and-scale.md#role-templates) (their effective permissions become the role's intersected with the template's) or, with `null`, takes it away. `404` for an unknown template, `409` for an owner. |
 | `POST /api/v1/workspace-members/{user_id}/deactivate` / `reactivate` | owners | Deactivates (the member then gets `403 Active workspace membership required`) or reactivates a membership. |
 
 ### Invitation email

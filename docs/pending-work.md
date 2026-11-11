@@ -42,6 +42,8 @@ Earlier state (4 November): `main` was at `6643fc1` (#359, the action browser) p
 
 ## Build work still open (with reasons)
 
+- **Governance depth, November 2026 ([Policy packs](governance-and-scale.md#policy-packs), [Role templates](governance-and-scale.md#role-templates), [Routing targets](governance-and-scale.md#routing-targets)):** migration `0166_governance_depth` (after `0165_autonomy_undo_claim`). Open: the Flutter Organization screen has no policy pack editor, version comparison, pack delete or role template assignment (it keeps Add baseline, activate and archive; templates are given to members on the web Members page); the scheduled re-probe of routing targets runs only where `ANUM_AUTOMATION_SCHEDULER_ENABLED` is on and only for targets somebody probed once from a workspace whose model configuration reaches the target's provider; a probe reaches a target through that workspace's configuration (base URL and key), so a target of another provider stays "not yet probed" with the reason until a workspace configured for it probes it; a marketplace install is a record only (it adds no tools or skills) and says so.
+
 - **Team calls:** no real-device call yet; no CallKit/ConnectionService screens, group calls, video switch mid-call or screen sharing; signaling polls the database instead of the event bus.
 - **Phone calls:** desktop app calls only through `tel:` (its CSP lacks the Twilio hosts); AI calls and provider setup are web only.
 - **Brevo:** untested against a real Brevo account; no planner skill turns plain words ("send the winter newsletter") into the Brevo tools; webhooks, contacts and templates out of scope.
