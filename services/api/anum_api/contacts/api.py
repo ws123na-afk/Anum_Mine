@@ -207,8 +207,13 @@ def merge_people(contact_id: str, payload: MergeRequest, context: TenantContext 
     """Keep ``contact_id``; move the other person's identifiers, links and do-not-contact marks onto it and delete the other."""
     _write(context)
     with open_contacts_store(context) as store:
-        keep = _person_or_404(store, contact_id)
-        remove = store.get_person(payload.other_id)
+        # Both rows are locked in id order for this short transaction (no outside call happens in it), so two
+        # merges of the same pair, in either direction, run one after the other and the second finds one gone.
+        locked = {p.id: p for p in store.lock_people([contact_id, payload.other_id])}
+        keep = locked.get(contact_id)
+        if keep is None:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Person not found")
+        remove = locked.get(payload.other_id)
         if remove is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="The other person was not found; the list may be out of date.")
         keep, moved = service.merge_people(store, context, keep, remove)

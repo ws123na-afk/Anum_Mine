@@ -33,7 +33,6 @@ depends_on = None
 
 TS = sa.DateTime(timezone=True)
 PURGER = "anum_tenant_purger"
-MAINT = "anum_maintenance"
 JOBS = "tenant_lifecycle_jobs"
 SCOPE = (
     "tenant_id = nullif(current_setting('anum.tenant_id', true), '') "
@@ -41,7 +40,6 @@ SCOPE = (
 )
 CHILDREN = ("contact_identifiers", "contact_links", "contact_do_not_contact", "contact_merge_proposals")
 TABLES = ("contacts", *CHILDREN)
-SOURCES = ("call_contacts", "business_contacts", "whatsapp_contacts")
 
 
 def _in(column: str, values: tuple[str, ...]) -> str:
@@ -173,23 +171,29 @@ def upgrade() -> None:
         _purge_policy(table)
 
     # Discovery for the daily build: the scope of every source contact, nothing else of it.
-    for table in SOURCES:
-        op.execute(f"grant select (tenant_id, workspace_id) on {table} to {MAINT}")
-        op.execute(f"create policy maintenance_contacts_scope_{table} on {table} for select to {MAINT} using (true)")
+    op.execute("grant select (tenant_id, workspace_id) on call_contacts to anum_maintenance")
+    op.execute("create policy maintenance_contacts_scope_call_contacts on call_contacts for select to anum_maintenance using (true)")
+    op.execute("grant select (tenant_id, workspace_id) on business_contacts to anum_maintenance")
+    op.execute("create policy maintenance_contacts_scope_business_contacts on business_contacts for select to anum_maintenance using (true)")
+    op.execute("grant select (tenant_id, workspace_id) on whatsapp_contacts to anum_maintenance")
+    op.execute("create policy maintenance_contacts_scope_whatsapp_contacts on whatsapp_contacts for select to anum_maintenance using (true)")
 
 
 def downgrade() -> None:
-    for table in SOURCES:
-        op.execute(f"drop policy if exists maintenance_contacts_scope_{table} on {table}")
-        op.execute(
-            f"""
-            do $$
-            begin
-              if exists (select 1 from pg_roles where rolname = '{MAINT}') then
-                revoke select (tenant_id, workspace_id) on {table} from {MAINT};
-              end if;
-            end $$
-            """
-        )
+    op.execute("drop policy if exists maintenance_contacts_scope_call_contacts on call_contacts")
+    op.execute("drop policy if exists maintenance_contacts_scope_business_contacts on business_contacts")
+    op.execute("drop policy if exists maintenance_contacts_scope_whatsapp_contacts on whatsapp_contacts")
+    op.execute(
+        """
+        do $$
+        begin
+          if exists (select 1 from pg_roles where rolname = 'anum_maintenance') then
+            revoke select (tenant_id, workspace_id) on call_contacts from anum_maintenance;
+            revoke select (tenant_id, workspace_id) on business_contacts from anum_maintenance;
+            revoke select (tenant_id, workspace_id) on whatsapp_contacts from anum_maintenance;
+          end if;
+        end $$
+        """
+    )
     for table in reversed(TABLES):
         op.drop_table(table)

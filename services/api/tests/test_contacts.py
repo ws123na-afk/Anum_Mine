@@ -165,6 +165,11 @@ def test_edit_replaces_identifiers_and_keeps_the_rest() -> None:
     assert [e["value"] for e in edited["emails"]] == ["huda@example.com"] and edited["name"] == "Huda Ali"
     assert list(audits("contacts.updated")[-1].metadata["fields"]) == ["organisation", "phones"]
     assert client.patch(f"{URL}/missing", headers=MEMBER, json={"name": "x"}).status_code == 404
+    # A refused number changes nothing, not even the name sent with it.
+    refused = client.patch(f"{URL}/{created['id']}", headers=MEMBER, json={"name": "Someone Else", "phones": ["12"]})
+    assert refused.status_code == 422
+    unchanged = ok(client.get(f"{URL}/{created['id']}", headers=MEMBER))["person"]
+    assert unchanged["name"] == "Huda Ali" and [p["value"] for p in unchanged["phones"]] == ["+971501110001"]
 
 
 # -- the directory build -----------------------------------------------------------------------

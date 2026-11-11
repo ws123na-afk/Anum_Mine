@@ -236,6 +236,13 @@ def create_person(store: ContactsStore, context: TenantContext, payload: PersonI
 
 def update_person(store: ContactsStore, context: TenantContext, person: Person, payload: PersonPatch) -> tuple[Person, int]:
     now = utc_now()
+    # Every value is checked before anything is written, so a 422 changes nothing.
+    identifiers: list[tuple[IdentifierKind, str, str]] | None = None
+    if payload.phones is not None or payload.emails is not None:
+        current = store.identifiers_of([person.id]).get(person.id, [])
+        phones = payload.phones if payload.phones is not None else [i.label or i.value for i in current if i.kind == IdentifierKind.PHONE]
+        emails = payload.emails if payload.emails is not None else [i.label or i.value for i in current if i.kind == IdentifierKind.EMAIL]
+        identifiers = identifiers_from(phones, emails, strict=True)
     changes: dict[str, Any] = {"updated_at": now}
     for field in ("name", "organisation", "notes"):
         value = getattr(payload, field)
@@ -243,11 +250,7 @@ def update_person(store: ContactsStore, context: TenantContext, person: Person, 
             changes[field] = value
     person = store.save_person(person.model_copy(update=changes))
     proposals = 0
-    if payload.phones is not None or payload.emails is not None:
-        current = store.identifiers_of([person.id]).get(person.id, [])
-        phones = payload.phones if payload.phones is not None else [i.label or i.value for i in current if i.kind == IdentifierKind.PHONE]
-        emails = payload.emails if payload.emails is not None else [i.label or i.value for i in current if i.kind == IdentifierKind.EMAIL]
-        identifiers = identifiers_from(phones, emails, strict=True)
+    if identifiers is not None:
         store.remove_identifiers(person.id)
         proposals = _add_identifiers(store, context, person, identifiers, now)
     return person, proposals
@@ -267,8 +270,9 @@ def merge_people(store: ContactsStore, context: TenantContext, keep: Person, rem
     if remove.notes and remove.notes not in notes:
         notes = f"{notes}\n\n{remove.notes}".strip()[:4000]
     organisation = keep.organisation or remove.organisation
-    keep = store.save_person(keep.model_copy(update={"notes": notes, "organisation": organisation, "updated_at": now,
-                                                    "source": keep.source if keep.source != PersonSource.MANUAL or remove.source == PersonSource.MANUAL else PersonSource.MERGE}))
+    # A person added by hand that absorbs one built from a source is marked as merged; otherwise the source stays.
+    source = PersonSource.MERGE if keep.source == PersonSource.MANUAL and remove.source != PersonSource.MANUAL else keep.source
+    keep = store.save_person(keep.model_copy(update={"notes": notes, "organisation": organisation, "updated_at": now, "source": source}))
     decided = 0
     for proposal in store.proposals_of([keep.id, remove.id]):
         pair = {proposal.contact_a_id, proposal.contact_b_id}

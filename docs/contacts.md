@@ -52,7 +52,7 @@ The build runs in two places:
 
 ## Merging and proposals
 
-A proposal is decided by a person: **Keep A** or **Keep B** merges the other into the one kept; **Different people** dismisses it (a dismissed pair is never proposed again). Merging (`POST /{id}/merge {"other_id"}`) moves the other person's identifiers (duplicates dropped), links and do-not-contact marks (the kept person's mark wins per channel) onto the kept person, appends their notes and fills a missing organisation, closes the pair's proposal, re-points the other person's open proposals at the kept one, and deletes the other record. The merge is one audit record (`contacts.merged`: the kept and removed ids and the counts moved). The source records are untouched: a merge changes which person they are linked to, nothing in their modules.
+A proposal is decided by a person: **Keep A** or **Keep B** merges the other into the one kept; **Different people** dismisses it (a dismissed pair is never proposed again). Merging (`POST /{id}/merge {"other_id"}`) locks both rows in id order for its short transaction (no outside call happens in it), so two merges of the same pair run one after the other and the second answers `404`. It moves the other person's identifiers (duplicates dropped), links and do-not-contact marks (the kept person's mark wins per channel) onto the kept person, appends their notes and fills a missing organisation, closes the pair's proposal, re-points the other person's open proposals at the kept one, and deletes the other record. The merge is one audit record (`contacts.merged`: the kept and removed ids and the counts moved). The source records are untouched: a merge changes which person they are linked to, nothing in their modules.
 
 ## Do not contact
 
@@ -91,7 +91,7 @@ All routes are under `/api/v1/contacts` and take the usual tenant context. Every
 
 | Route | Permission | What it does |
 |---|---|---|
-| `GET /` `?q=&source=&dnc=&sort=&offset=&limit=` | read | Paged people (25, at most 100). `q` searches name, organisation, numbers and addresses; `source` is `manual`, `calls`, `business`, `whatsapp` or `merge`; `dnc` is `any`, `phone`, `email`, `whatsapp` or `none`; `sort` is `name`, `updated` or `created`. Answers `counts` (people, people marked, open proposals, people by source) and what the caller may do |
+| `GET /` `?q=&source=&dnc=&sort=&offset=&limit=` | read | Paged people (25, at most 100), searched, filtered, sorted and paged in one SQL statement (a search's `%` and `_` match literally). `q` searches name, organisation, numbers and addresses; `source` is `manual`, `calls`, `business`, `whatsapp` or `merge`; `dnc` is `any`, `phone`, `email`, `whatsapp` or `none`; `sort` is `name`, `updated` or `created`. Answers `counts` (people, people marked, open proposals, people by source) and what the caller may do |
 | `GET /export` | manage | CSV of every person (name, organisation, numbers, addresses, sources, marked channels, dates); cells guarded against spreadsheet formulas, so a number starting with `+` is prefixed with `'` |
 | `POST /` | write | Create a person: name, organisation, notes, up to 10 numbers and 10 addresses; `422` names a value that is not a number or an address |
 | `GET /{id}` | read | The person with their linked records read live (a deleted source says so), the channel summary, their open proposals and the caller's own mailbox contacts for their addresses |

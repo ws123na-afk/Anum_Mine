@@ -55,6 +55,7 @@ Done in [Calendar](calendar.md#recurrence): series with the RFC 5545 subset, exc
 
 - **Team calls:** no real-device call yet; no CallKit/ConnectionService screens, group calls, video switch mid-call or screen sharing; signaling polls the database instead of the event bus.
 - **Phone calls:** desktop app calls only through `tel:` (its CSP lacks the Twilio hosts); AI calls and provider setup are web only.
+- **Contacts directory ([Contacts](contacts.md)):** the phone has search, the person page and do-not-contact controls, but no possible duplicates, merge, edit, add or export (web only); no import from a file; a source record deleted in its module stays as a "deleted" link until a person edits or merges; Email Center contacts are personal and only shown to their owner, never linked for the workspace. Follow-up outside this module: `calls.service.place_ai_call` is an async tool handler that opens the calls store (and now the directory check) on the event loop; move that unit of work to a thread like `voice.prepare_ask_in_own_session`.
 - **Brevo:** untested against a real Brevo account; no planner skill turns plain words ("send the winter newsletter") into the Brevo tools; webhooks, contacts and templates out of scope.
 - **Email:** more than 1000 new messages between two background checks are not forwarded (the rule reports it).
 - **Finance:** market-data fetch waits on the provider decision.

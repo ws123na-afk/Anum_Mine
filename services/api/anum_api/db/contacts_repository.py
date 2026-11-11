@@ -29,11 +29,64 @@ from anum_api.contacts.models import (
     ProposalStatus,
     SourcePerson,
 )
-from anum_api.contacts.store import PeopleQuery, dnc_matches, person_matches, sort_people
+from anum_api.contacts.store import PeopleQuery
 from anum_api.schemas import TenantContext
 
 from .repository import SqlAlchemyRepository
 from .scope import require_workspace
+
+# The people list (docs/contacts.md#api): search, filters, sort and paging in one literal statement, and the same
+# filters in the count. A NULL parameter leaves its filter out. Keep the two WHERE clauses identical.
+_LIST_PEOPLE = """
+    select c.id, c.tenant_id, c.workspace_id, c.name, c.organisation, c.notes, c.source, c.created_by, c.created_at, c.updated_at
+    from contacts c
+    where c.tenant_id = :t and c.workspace_id = :w
+      and (cast(:source as varchar) is null or c.source = cast(:source as varchar))
+      and (cast(:like as varchar) is null
+           or lower(c.name) like cast(:like as varchar) escape '\\'
+           or lower(c.organisation) like cast(:like as varchar) escape '\\'
+           or exists (select 1 from contact_identifiers i
+                      where i.tenant_id = c.tenant_id and i.workspace_id = c.workspace_id and i.contact_id = c.id
+                        and (i.value like cast(:like as varchar) escape '\\' or i.value like cast(:bare as varchar) escape '\\')))
+      and (cast(:dnc as varchar) is null
+           or (cast(:dnc as varchar) = 'none' and not exists (
+                 select 1 from contact_do_not_contact d where d.tenant_id = c.tenant_id and d.workspace_id = c.workspace_id and d.contact_id = c.id))
+           or (cast(:dnc as varchar) = 'any' and exists (
+                 select 1 from contact_do_not_contact d where d.tenant_id = c.tenant_id and d.workspace_id = c.workspace_id and d.contact_id = c.id))
+           or (cast(:dnc as varchar) in ('phone', 'email', 'whatsapp') and exists (
+                 select 1 from contact_do_not_contact d where d.tenant_id = c.tenant_id and d.workspace_id = c.workspace_id and d.contact_id = c.id
+                   and d.channel in (cast(:dnc as varchar), 'all'))))
+    order by case when cast(:sort as varchar) = 'name' then lower(c.name) end,
+             case when cast(:sort as varchar) = 'updated' then c.updated_at end desc,
+             case when cast(:sort as varchar) = 'created' then c.created_at end desc,
+             c.id
+    limit :limit offset :offset
+"""
+_COUNT_PEOPLE = """
+    select count(*) as n
+    from contacts c
+    where c.tenant_id = :t and c.workspace_id = :w
+      and (cast(:source as varchar) is null or c.source = cast(:source as varchar))
+      and (cast(:like as varchar) is null
+           or lower(c.name) like cast(:like as varchar) escape '\\'
+           or lower(c.organisation) like cast(:like as varchar) escape '\\'
+           or exists (select 1 from contact_identifiers i
+                      where i.tenant_id = c.tenant_id and i.workspace_id = c.workspace_id and i.contact_id = c.id
+                        and (i.value like cast(:like as varchar) escape '\\' or i.value like cast(:bare as varchar) escape '\\')))
+      and (cast(:dnc as varchar) is null
+           or (cast(:dnc as varchar) = 'none' and not exists (
+                 select 1 from contact_do_not_contact d where d.tenant_id = c.tenant_id and d.workspace_id = c.workspace_id and d.contact_id = c.id))
+           or (cast(:dnc as varchar) = 'any' and exists (
+                 select 1 from contact_do_not_contact d where d.tenant_id = c.tenant_id and d.workspace_id = c.workspace_id and d.contact_id = c.id))
+           or (cast(:dnc as varchar) in ('phone', 'email', 'whatsapp') and exists (
+                 select 1 from contact_do_not_contact d where d.tenant_id = c.tenant_id and d.workspace_id = c.workspace_id and d.contact_id = c.id
+                   and d.channel in (cast(:dnc as varchar), 'all'))))
+"""
+
+
+def _like(text: str) -> str:
+    """``text`` for a LIKE pattern: its own %, _ and backslash match literally."""
+    return text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
 
@@ -95,6 +148,14 @@ class SqlAlchemyContactsStore:
         row = self._one("select id, tenant_id, workspace_id, name, organisation, notes, source, created_by, created_at, updated_at from contacts where tenant_id = :t and workspace_id = :w and id = :id", id=contact_id)
         return _person(row) if row is not None else None
 
+    def lock_people(self, contact_ids: list[str]) -> list[Person]:
+        rows = self._rows(
+            "select id, tenant_id, workspace_id, name, organisation, notes, source, created_by, created_at, updated_at from contacts "
+            "where tenant_id = :t and workspace_id = :w and id = any(:ids) order by id for update",
+            ids=sorted(set(contact_ids)),
+        )
+        return [_person(r) for r in rows]
+
     def save_person(self, person: Person) -> Person:
         changed = self._run(
             "update contacts set name = :name, organisation = :org, notes = :notes, source = :source, updated_at = :updated "
@@ -113,17 +174,20 @@ class SqlAlchemyContactsStore:
         return [_person(r) for r in self._rows("select id, tenant_id, workspace_id, name, organisation, notes, source, created_by, created_at, updated_at from contacts where tenant_id = :t and workspace_id = :w order by lower(name), id")]
 
     def list_people(self, query: PeopleQuery) -> tuple[list[Person], int]:
-        # Filters need the identifiers and marks of each person; a workspace directory fits in memory (the
-        # list is bounded by the people the workspace holds), so the filter runs in Python over one read each.
-        people = self.all_people()
-        if query.source is not None:
-            people = [p for p in people if p.source == query.source]
-        ids = [p.id for p in people]
-        identifiers = self.identifiers_of(ids) if query.q else {}
-        marks = self.dnc_of(ids) if query.dnc else {}
-        found = [p for p in people if (query.q is None or person_matches(p, identifiers.get(p.id, []), query.q)) and dnc_matches(marks.get(p.id, []), query.dnc)]
-        found = sort_people(found, query.sort)
-        return found[query.offset: query.offset + query.limit], len(found)
+        """Search, filters, sort and paging in one statement (and one count), never the whole workspace in memory."""
+        needle = query.q
+        params = {
+            "source": query.source.value if query.source else None,
+            "like": f"%{_like(needle)}%" if needle else None,
+            "bare": f"%{_like(needle.replace(' ', '').replace('-', ''))}%" if needle else None,
+            "dnc": query.dnc,
+            "sort": query.sort,
+            "limit": query.limit,
+            "offset": query.offset,
+        }
+        rows = self._rows(_LIST_PEOPLE, **params)
+        total = self._one(_COUNT_PEOPLE, **params)
+        return [_person(r) for r in rows], int(total.n) if total else 0
 
     def count_people(self) -> int:
         row = self._one("select count(*) as n from contacts where tenant_id = :t and workspace_id = :w")

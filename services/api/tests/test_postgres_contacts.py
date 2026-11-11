@@ -195,3 +195,34 @@ def test_maintenance_role_discovers_scopes_only_and_the_daily_job_builds(client:
     page = ok(client.get(URL, headers=A_MEMBER))
     assert page["total"] == 2 and all(p["created_by"] == jobs.SYSTEM_ACTOR for p in page["items"])
     assert jobs.run() == {"workspaces": 1, "scanned": 0, "linked": 0, "people_created": 0, "proposals_created": 0, "incomplete_workspaces": 0}
+
+
+def test_list_searches_filters_sorts_and_pages_in_sql(client: TestClient) -> None:
+    for i in range(12):
+        ok(client.post(URL, headers=A_MEMBER, json={"name": f"Person {i:02d}", "organisation": "Acme" if i % 2 else "Beta_Co",
+                                                     "phones": [f"+9715011100{i:02d}"]}), 201)
+    first = ok(client.post(URL, headers=A_MEMBER, json={"name": "Aaa First", "emails": ["aaa@example.com"]}), 201)["person"]
+    ok(client.put(f"{URL}/{first['id']}/do-not-contact", headers=A_MEMBER, json={"channel": "all", "reason": "Left the company"}), 201)
+    page = ok(client.get(URL, headers=A_MEMBER, params={"limit": 5}))
+    assert page["total"] == 13 and [p["name"] for p in page["items"]][:2] == ["Aaa First", "Person 00"]
+    assert ok(client.get(URL, headers=A_MEMBER, params={"limit": 5, "offset": 10}))["items"][0]["name"] == "Person 09"
+    assert ok(client.get(URL, headers=A_MEMBER, params={"q": "ACME"}))["total"] == 6
+    # LIKE wildcards in the search are literal: "_" matches only an underscore.
+    assert ok(client.get(URL, headers=A_MEMBER, params={"q": "beta_co"}))["total"] == 6
+    assert ok(client.get(URL, headers=A_MEMBER, params={"q": "a%c"}))["total"] == 0
+    assert ok(client.get(URL, headers=A_MEMBER, params={"q": "+971 50 111 0007"}))["total"] == 1
+    assert ok(client.get(URL, headers=A_MEMBER, params={"q": "aaa@"}))["total"] == 1
+    assert ok(client.get(URL, headers=A_MEMBER, params={"dnc": "email"}))["total"] == 1  # "all" covers e-mail
+    assert ok(client.get(URL, headers=A_MEMBER, params={"dnc": "none"}))["total"] == 12
+    assert ok(client.get(URL, headers=A_MEMBER, params={"source": "calls"}))["total"] == 0
+    assert ok(client.get(URL, headers=A_MEMBER, params={"sort": "created", "limit": 1}))["items"][0]["name"] == "Aaa First"
+
+
+def test_a_second_merge_of_the_same_pair_finds_one_gone(client: TestClient, app_session: Callable[..., Iterator[Session]]) -> None:
+    a = ok(client.post(URL, headers=A_MEMBER, json={"name": "Huda Ali", "phones": ["+971501110000"]}), 201)["person"]
+    b = ok(client.post(URL, headers=A_MEMBER, json={"name": "H. Ali", "phones": ["+971501110000"]}), 201)["person"]
+    ok(client.post(f"{URL}/{a['id']}/merge", headers=A_MEMBER, json={"other_id": b["id"]}))
+    reverse = client.post(f"{URL}/{b['id']}/merge", headers=A_MEMBER, json={"other_id": a["id"]})
+    assert reverse.status_code == 404
+    assert _count(app_session, "select count(*) from contacts") == 1
+    assert _count(app_session, "select count(*) from contact_identifiers") == 1
