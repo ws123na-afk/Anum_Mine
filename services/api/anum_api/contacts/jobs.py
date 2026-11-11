@@ -5,7 +5,7 @@ or alone with ``python -m anum_api.contacts.jobs [--dry-run] [--batch-size N]``.
 pattern, never BYPASSRLS:
 
 1. **Discover** as ``anum_maintenance`` the tenant and workspace (nothing else) of every Phone
-   calls, Business and WhatsApp contact (migration ``0166_contacts_directory`` grants those two
+   calls, Business and WhatsApp contact (migration ``0169_contacts_directory`` grants those two
    columns and a select policy on the three tables).
 2. **Act** per workspace as the application role inside that workspace's RLS context, where the
    build reads the source records and writes people, identifiers, links and proposals under the

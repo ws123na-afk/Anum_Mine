@@ -1,4 +1,4 @@
-"""PostgreSQL Contacts directory (migration ``0166_contacts_directory``, docs/contacts.md#data-model).
+"""PostgreSQL Contacts directory (migration ``0169_contacts_directory``, docs/contacts.md#data-model).
 
 Five tables under forced RLS on tenant and workspace; every statement also names the scope. The
 source lists are read through ``contacts.sources.sql_rows`` in the same session, so the caller's

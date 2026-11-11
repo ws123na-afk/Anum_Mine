@@ -20,14 +20,14 @@ build, migration 0011's pattern, never BYPASSRLS: ``anum_maintenance`` may read 
 else of them: no name, number or address) to find the workspaces that have contacts.
 
 Expand only: new tables, policies and column grants. The previous release ignores them.
-Numbered 0166 and chained after ``0165_autonomy_undo_claim``.
+Chained after ``0168_files_folders_tags``.
 """
 
 import sqlalchemy as sa
 from alembic import op
 
-revision = "0166_contacts_directory"
-down_revision = "0165_autonomy_undo_claim"
+revision = "0169_contacts_directory"
+down_revision = "0168_files_folders_tags"
 branch_labels = None
 depends_on = None
 

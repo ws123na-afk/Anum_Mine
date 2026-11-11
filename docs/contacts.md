@@ -2,11 +2,11 @@
 
 Before this module a person could exist in a workspace up to four times: as a Phone calls contact ([Phone calls](calls.md)), as a Business contact under an account ([Business](business.md)), as a WhatsApp contact behind a conversation ([WhatsApp](whatsapp.md)) and as someone's Email Center address book entry ([Email](email.md#email-center)), each list with its own consent flags and do-not-contact marks. The Contacts directory puts one **person** record over them: who they are, every number and address they are known by, which source records they came from, what each module says about contacting them on each channel, and one workspace-wide **do not contact** mark per channel that every sending path obeys.
 
-The directory is additive. The four lists stay as they are and keep working; the directory links to their records and never changes them. Code: `services/api/anum_api/contacts/` (`models.py`, `store.py`, `sources.py`, `service.py`, `api.py`, `jobs.py`), `db/contacts_repository.py`, migration `0166_contacts_directory`; web `apps/web/src/ContactsView.tsx`; Flutter: see [Clients](#clients).
+The directory is additive. The four lists stay as they are and keep working; the directory links to their records and never changes them. Code: `services/api/anum_api/contacts/` (`models.py`, `store.py`, `sources.py`, `service.py`, `api.py`, `jobs.py`), `db/contacts_repository.py`, migration `0169_contacts_directory`; web `apps/web/src/ContactsView.tsx`; Flutter: see [Clients](#clients).
 
 ## Data model
 
-Migration `0166_contacts_directory` (expand only, chained after `0165_autonomy_undo_claim`) adds five tables, every one scoped to tenant and workspace with forced row level security, the `lifecycle_purge_<table>` policy and grants of [organisation deletion](organisation-lifecycle.md), and listed in `anum_api/tenant_lifecycle_tables.py` (export folder `contacts`):
+Migration `0169_contacts_directory` (expand only, chained after `0168_files_folders_tags`) adds five tables, every one scoped to tenant and workspace with forced row level security, the `lifecycle_purge_<table>` policy and grants of [organisation deletion](organisation-lifecycle.md), and listed in `anum_api/tenant_lifecycle_tables.py` (export folder `contacts`):
 
 | Table | Holds |
 |---|---|
@@ -18,7 +18,7 @@ Migration `0166_contacts_directory` (expand only, chained after `0165_autonomy_u
 
 Nothing from a source record is copied except its names, numbers, addresses and organisation: no notes, call logs or message text. The directory build also never stores anything about Email Center contacts (see [Privacy](#privacy)).
 
-Rollback: `alembic downgrade 0165_autonomy_undo_claim` drops the five tables and the maintenance grants; the four lists are untouched because the directory never wrote to them.
+Rollback: `alembic downgrade 0168_files_folders_tags` drops the five tables and the maintenance grants; the four lists are untouched because the directory never wrote to them.
 
 ## Sources
 

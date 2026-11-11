@@ -1,4 +1,4 @@
-"""The Contacts directory in PostgreSQL (migration ``0166_contacts_directory``, docs/contacts.md#data-model).
+"""The Contacts directory in PostgreSQL (migration ``0169_contacts_directory``, docs/contacts.md#data-model).
 
 The API runs as the non-owner ``anum_test_app`` role: the five tables are under forced RLS on tenant
 and workspace, the build links real Phone calls, Business and WhatsApp rows through the same policies,
