@@ -298,6 +298,8 @@ class ApiWorkspaceRepository
         archivedAt: j['archived_at'] == null ? null : _date(j, 'archived_at'),
         priority: taskPriorityFromWire(j.optString('priority')),
         dueAt: j.optDate('due_at')?.toLocal(),
+        privateTo: j.optString('private_to'),
+        privateKind: j.optString('private_kind'),
       );
   WorkspaceRun _run(JsonReader j) => WorkspaceRun(
         id: j.string('id'),

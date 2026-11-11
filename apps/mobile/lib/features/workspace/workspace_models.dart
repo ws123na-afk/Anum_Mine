@@ -32,8 +32,17 @@ class WorkspaceTask {
       this.createdBy,
       this.archivedAt,
       this.priority = TaskPriority.medium,
-      this.dueAt});
+      this.dueAt,
+      this.privateTo,
+      this.privateKind});
   final String id, title, prompt;
+
+  /// The one person who can see this task, and why (`data`: it read their
+  /// own data; `chat`: it came from their private chat). Null for an
+  /// ordinary workspace task (docs/tasks.md#private-tasks). The API returns a
+  /// private task only to that person, so the phone shows "Private to you".
+  final String? privateTo, privateKind;
+  bool get isPrivate => privateTo != null && privateTo!.isNotEmpty;
 
   /// Planning fields (docs/tasks.md): shown on the lists, never change what
   /// the agent may do. [dueAt] is local time; null for no due date.
