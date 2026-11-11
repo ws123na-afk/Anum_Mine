@@ -13,7 +13,7 @@ import * as api from './lib/financeApi';
 import * as rc from './lib/financeReconciliation';
 import * as rapi from './lib/financeReconciliationApi';
 import { formatAmount, isolate, monthLabel, parseAmount, type FinanceTab } from './lib/finance';
-import { describeError, isPermissionDenied } from './lib/errors';
+import { describeError } from './lib/errors';
 import { formatDateTime, t, type MessageKey } from './lib/i18n';
 import { ConfirmDialog, Modal } from './Dialog';
 import { Denied, Empty, LoadError, Money, Notice, failed, type Load } from './FinanceParts';
@@ -345,7 +345,7 @@ function SessionDetail({ id, onBack, onDeleted, onChanged, onOpen }: { id: strin
       onConfirm={() => {
         setBusy(true); setMessage(null);
         rapi.deleteReconciliation(d.id).then(() => { setDeleting(false); onDeleted(); })
-          .catch((e) => { setDeleting(false); setMessage({ text: isPermissionDenied(e) ? describeError(e) : describeError(e), error: true }); })
+          .catch((e) => { setDeleting(false); setMessage({ text: describeError(e), error: true }); })
           .finally(() => setBusy(false));
       }}>
       <p>{t('frec.delete.text', { account: d.account_name, start: day(d.period_start), end: day(d.period_end) })}</p>
