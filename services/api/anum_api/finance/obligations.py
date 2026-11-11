@@ -94,12 +94,7 @@ def load(context: TenantContext) -> Links:
                 continue
             payments.append(DebtPayment(debt_id=link.target_id, amount=link.amount, currency=link.currency, posted_on=entry.posted_on,
                                         matched_at=link.created_at, canonical_id=link.canonical_id, link_id=link.id))
-        loan_rows, _ = links.list_links(context, canonical_id=None, dimension=PERSON_LOAN_DIMENSION, target_type=None, target_id=None,
-                                        status=None, limit=10_000, offset=0)
-        lending: set[str] = set()
-        for canonical in {l.canonical_id for l in loan_rows if l.status != LinkStatus.VOID}:
-            for entry in sms.chain(context, canonical):
-                lending.update(p.transaction_id for p in entry.postings if p.transaction_id)
+        loan_rows, lending = _lending(sms, links, context)
         slip_rows, _ = links.list_links(context, canonical_id=None, dimension=PAYSLIP_DIMENSION, target_type=None, target_id=None,
                                         status=LinkStatus.ACTIVE.value, limit=10_000, offset=0)
         by_slip: dict[str, set[str]] = {}
@@ -117,9 +112,38 @@ def load(context: TenantContext) -> Links:
     for slip in slips:
         if slip.id in by_slip:
             credits.setdefault(slip.month, set()).update(by_slip[slip.id])
-    return Links(bill_links=[l for l in bill_rows if l.status != LinkStatus.VOID], debt_payments=payments, lending_ids=frozenset(lending),
+    return Links(bill_links=[l for l in bill_rows if l.status != LinkStatus.VOID], debt_payments=payments, lending_ids=lending,
                  person_loans=loans, loan_links=[l for l in loan_rows if l.status != LinkStatus.VOID],
                  salary_profile=profiles[0] if profiles else None, payslips=slips, payslip_credits=credits, loan_batches=batches)
+
+
+def _lending(sms: object, links: object, context: TenantContext) -> tuple[list, frozenset[str]]:
+    """The live ``person_loan`` links and the ids of every transaction in their canonical chains."""
+    from .links_store import LinkStatus
+    from .personal import PERSON_LOAN_DIMENSION
+
+    loan_rows, _ = links.list_links(context, canonical_id=None, dimension=PERSON_LOAN_DIMENSION, target_type=None,  # type: ignore[attr-defined]
+                                    target_id=None, status=None, limit=10_000, offset=0)
+    found: set[str] = set()
+    for canonical in {l.canonical_id for l in loan_rows if l.status != LinkStatus.VOID}:
+        for entry in sms.chain(context, canonical):  # type: ignore[attr-defined]
+            found.update(p.transaction_id for p in entry.postings if p.transaction_id)
+    return loan_rows, frozenset(found)
+
+
+def lending_ids_on(finance: object, context: TenantContext) -> frozenset[str]:
+    """``Links.lending_ids`` read on the caller's open finance unit of work (the same SQL session, never a nested one),
+    for readers that already hold a finance store: the Guardian's caps and alerts (``policy.py``, ``guardian_review.py``)."""
+    from .links_store import links_memory_store
+    from .sms_store import sms_memory_store
+
+    session = getattr(finance, "session", None)
+    if session is None:
+        return _lending(sms_memory_store, links_memory_store, context)[1]
+    from ..db.finance_links_repository import SqlAlchemyLinkStore
+    from ..db.sms_repository import SqlAlchemySmsStore
+
+    return _lending(SqlAlchemySmsStore(session), SqlAlchemyLinkStore(session), context)[1]
 
 
 # -- bills ---------------------------------------------------------------------------------------------
