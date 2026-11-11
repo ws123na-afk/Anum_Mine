@@ -26,12 +26,16 @@ class EventScreen extends StatefulWidget {
   const EventScreen({
     required this.controller,
     required this.eventId,
+    this.occurrenceStart,
     this.openLink = openInBrowser,
     this.fromCalendar = true,
     super.key,
   });
   final CalendarController controller;
   final String eventId;
+
+  /// For a series: the occurrence this screen shows (its original start).
+  final DateTime? occurrenceStart;
   final LinkOpener openLink;
 
   /// Opened from the calendar (View in Calendar goes back) or by a link.
@@ -79,7 +83,8 @@ class _EventScreenState extends State<EventScreen> {
       _error = null;
     });
     try {
-      _event = await c.repository.event(widget.eventId);
+      _event = await c.repository
+          .event(widget.eventId, occurrenceStart: widget.occurrenceStart);
       _missing = false;
     } on ApiException catch (e) {
       _missing = e.statusCode == 404;
@@ -91,24 +96,61 @@ class _EventScreenState extends State<EventScreen> {
     if (mounted) setState(() => _loading = false);
   }
 
+  /// For a repeating event: which occurrences the action is for; null when
+  /// the person backed out. A one-off event is always "all".
+  Future<EditScope?> _scopeFor(CalendarEvent event, String titleKey) async {
+    if (!event.isRecurring) return EditScope.all;
+    final l = AnumLocalizations.maybeOf(context);
+    return askEditScope(context, l.t(titleKey),
+        allowFollowing: !event.overridden);
+  }
+
   Future<void> _edit() async {
     final event = _event;
     if (event == null) return;
-    final draft = await showEventForm(context, draft: EventDraft.from(event));
+    final scope = await _scopeFor(event, 'calendarScopeEditTitle');
+    if (scope == null || !mounted) return;
+    final draft = await showEventForm(context,
+        draft: EventDraft.from(event), scope: event.isRecurring ? scope : null);
     if (draft == null) return;
-    final saved = await c.save(event.id, draft.toJson());
-    if (saved != null && mounted) setState(() => _event = saved);
+    final saved = await c.save(
+        event.id,
+        draft.toJson(
+            scope: event.isRecurring ? scope : null,
+            occurrenceStart: event.isRecurring ? event.occurrenceStart : null));
+    if (saved != null && mounted) {
+      if (event.isRecurring) {
+        await _load();
+      } else {
+        setState(() => _event = saved);
+      }
+    }
   }
 
   Future<void> _cancel() async {
     final event = _event;
     if (event == null) return;
     final l = AnumLocalizations.maybeOf(context);
-    final sure = await _confirm(l.t('calendarCancelTitle'),
-        l.t('calendarCancelText'), l.t('calendarCancelEvent'));
-    if (!sure) return;
-    final saved = await c.save(event.id, {'status': 'cancelled'});
-    if (saved != null && mounted) setState(() => _event = saved);
+    final scope = await _scopeFor(event, 'calendarScopeCancelTitle');
+    if (scope == null || !mounted) return;
+    if (!event.isRecurring) {
+      final sure = await _confirm(l.t('calendarCancelTitle'),
+          l.t('calendarCancelText'), l.t('calendarCancelEvent'));
+      if (!sure) return;
+    }
+    final saved = await c.save(event.id, {
+      'status': 'cancelled',
+      if (event.isRecurring) 'scope': scope.api,
+      if (event.isRecurring && event.occurrenceStart != null)
+        'occurrence_start': event.occurrenceStart!.toUtc().toIso8601String(),
+    });
+    if (saved != null && mounted) {
+      if (event.isRecurring) {
+        await _load();
+      } else {
+        setState(() => _event = saved);
+      }
+    }
   }
 
   Future<void> _delete() async {
@@ -116,10 +158,17 @@ class _EventScreenState extends State<EventScreen> {
     if (event == null) return;
     final l = AnumLocalizations.maybeOf(context);
     final navigator = Navigator.of(context);
-    final sure = await _confirm(l.t('calendarDeleteTitle'),
-        l.t('calendarDeleteText'), l.t('calendarDelete'));
-    if (!sure) return;
-    if (await c.delete(event.id) && mounted) navigator.pop();
+    final scope = await _scopeFor(event, 'calendarScopeDeleteTitle');
+    if (scope == null || !mounted) return;
+    if (!event.isRecurring) {
+      final sure = await _confirm(l.t('calendarDeleteTitle'),
+          l.t('calendarDeleteText'), l.t('calendarDelete'));
+      if (!sure) return;
+    }
+    final ok = await c.delete(event.id,
+        scope: event.isRecurring ? scope : null,
+        occurrenceStart: event.isRecurring ? event.occurrenceStart : null);
+    if (ok && mounted) navigator.pop();
   }
 
   Future<bool> _confirm(String title, String text, String action) async {
@@ -337,14 +386,52 @@ class _EventScreenState extends State<EventScreen> {
                             fontSize: AnumType.lg,
                             fontWeight: FontWeight.w700)),
                     Text(
-                        l.f('calendarTimeRange', {
-                          'start': timeOf(context, event.startsAt),
-                          'end': timeOf(context, event.endsAt)
-                        }),
+                        event.allDay
+                            ? (event.allDayLength > 1
+                                ? l.f('calendarAllDays',
+                                    {'count': event.allDayLength})
+                                : l.t('calendarAllDay'))
+                            : l.f('calendarTimeRange', {
+                                'start': timeOf(context, event.startsAt),
+                                'end': timeOf(context, event.endsAt)
+                              }),
                         style: TextStyle(color: p.muted)),
                     if (event.location != null)
                       Text(event.location!, style: TextStyle(color: p.muted)),
                   ]),
+            ),
+          ]),
+          if (event.isRecurring) ...[
+            const SizedBox(height: AnumSpacing.sm),
+            Row(children: [
+              Icon(
+                  event.overridden
+                      ? Icons.edit_calendar_outlined
+                      : Icons.repeat,
+                  size: 18,
+                  color: p.muted),
+              const SizedBox(width: AnumSpacing.xs),
+              Expanded(
+                child: Text(
+                    event.overridden
+                        ? '${l.t('calendarChangedOccurrence')} · ${recurrenceSummary(context, event.recurrence)}'
+                        : recurrenceSummary(context, event.recurrence),
+                    style: TextStyle(color: p.muted, fontSize: AnumType.sm)),
+              ),
+            ]),
+          ],
+          const SizedBox(height: AnumSpacing.xs),
+          Row(children: [
+            Icon(Icons.notifications_none, size: 18, color: p.muted),
+            const SizedBox(width: AnumSpacing.xs),
+            Expanded(
+              child: Text(
+                  event.reminders.isEmpty
+                      ? l.t('calendarNoReminders')
+                      : event.reminders
+                          .map((m) => reminderLabel(l, m))
+                          .join(' · '),
+                  style: TextStyle(color: p.muted, fontSize: AnumType.sm)),
             ),
           ]),
           if (event.cancelled) ...[

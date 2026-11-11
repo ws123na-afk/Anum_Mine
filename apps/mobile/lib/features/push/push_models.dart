@@ -74,6 +74,7 @@ enum PushDestinationKind {
   financeReport,
   financeAdvice,
   teamCalls,
+  calendar,
 }
 
 /// Where a tapped notification leads. A push carries ids only
@@ -115,6 +116,7 @@ class PushDestination {
         PushDestinationKind.automation,
       'finance_report' => PushDestinationKind.financeReport,
       'finance_advice' => PushDestinationKind.financeAdvice,
+      'calendar_reminder' => PushDestinationKind.calendar,
       _ => null,
     };
     if (kind == null || workspaceId == null) return null;
@@ -149,6 +151,7 @@ class PushDestination {
         PushDestinationKind.financeReport => '/finance/intel',
         PushDestinationKind.financeAdvice => '/finance',
         PushDestinationKind.teamCalls => '/team-calls',
+        PushDestinationKind.calendar => '/calendar',
       };
 }
 

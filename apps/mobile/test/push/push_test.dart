@@ -72,6 +72,12 @@ void main() {
       })!;
       expect(advice.kind, PushDestinationKind.financeAdvice);
       expect(advice.route, '/finance');
+      final reminder = PushDestination.fromData({
+        'anum_kind': 'calendar_reminder',
+        'workspace_id': 'workspace_test',
+      })!;
+      expect(reminder.kind, PushDestinationKind.calendar);
+      expect(reminder.route, '/calendar');
       expect(PushDestination.fromData({'anum_kind': 'task_completed'}), isNull);
       expect(
           PushDestination.fromData(

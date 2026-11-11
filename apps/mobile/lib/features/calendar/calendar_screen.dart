@@ -112,9 +112,14 @@ class _CalendarScreenState extends State<CalendarScreen> {
   Future<void> _openEvent(CalendarEvent event) async {
     await Navigator.of(context).push(MaterialPageRoute<void>(
       builder: (_) => EventScreen(
-          controller: c, eventId: event.id, openLink: widget.openLink),
+          controller: c,
+          eventId: event.id,
+          occurrenceStart: event.isRecurring ? event.occurrenceStart : null,
+          openLink: widget.openLink),
     ));
-    if (mounted) await c.loadSteps();
+    if (mounted) {
+      await c.load();
+    }
   }
 
   Future<void> _runStep(NextStep step) async {
@@ -389,20 +394,38 @@ class _EventRow extends StatelessWidget {
             : null;
     final where = [
       l.t('calendarKind_${event.kind}'),
+      if (event.isRecurring)
+        event.overridden
+            ? l.t('calendarChangedOccurrence')
+            : recurrenceSummary(context, event.recurrence),
       if (event.location != null) event.location!,
     ].join(' · ');
-    final time = Text(timeOf(context, event.startsAt),
+    final time = Text(
+        event.allDay ? l.t('calendarAllDay') : timeOf(context, event.startsAt),
         style: TextStyle(
             color: p.muted,
             fontSize: AnumType.sm,
             fontWeight: FontWeight.w600));
     final details =
         Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Text(event.title,
-          style: TextStyle(
-              color: p.text,
-              fontSize: AnumType.base,
-              fontWeight: FontWeight.w600)),
+      Row(children: [
+        if (event.isRecurring) ...[
+          Icon(event.overridden ? Icons.edit_calendar_outlined : Icons.repeat,
+              size: 14,
+              color: p.muted,
+              semanticLabel: event.overridden
+                  ? l.t('calendarChangedOccurrence')
+                  : l.t('calendarRepeats')),
+          const SizedBox(width: AnumSpacing.xs),
+        ],
+        Expanded(
+          child: Text(event.title,
+              style: TextStyle(
+                  color: p.text,
+                  fontSize: AnumType.base,
+                  fontWeight: FontWeight.w600)),
+        ),
+      ]),
       Text(where, style: TextStyle(color: p.muted, fontSize: AnumType.sm)),
       if (event.attendees.isNotEmpty)
         Text(l.f('calendarAttendeesCount', {'count': event.attendees.length}),

@@ -4,6 +4,95 @@ import '../../data/json_read.dart';
 const eventKinds = ['meeting', 'call', 'review', 'reminder', 'focus'];
 const attendeeResponses = ['invited', 'accepted', 'tentative', 'declined'];
 
+/// Repeat frequencies and weekdays of the RFC 5545 subset the API stores
+/// (docs/calendar.md#recurrence).
+const repeatFrequencies = ['daily', 'weekly', 'monthly', 'yearly'];
+const weekdayCodes = ['MO', 'TU', 'WE', 'TH', 'FR', 'SA', 'SU'];
+
+/// Minutes-before choices for reminders.
+const reminderPresets = [0, 5, 10, 15, 30, 60, 120, 1440, 2880, 10080];
+const maxReminders = 5;
+
+/// Which occurrences of a series an edit or a deletion applies to.
+enum EditScope { thisOne, following, all }
+
+extension EditScopeApi on EditScope {
+  String get api => switch (this) {
+        EditScope.thisOne => 'this',
+        EditScope.following => 'following',
+        EditScope.all => 'all',
+      };
+}
+
+/// The repeat rule of a series (docs/calendar.md#recurrence).
+class Recurrence {
+  const Recurrence({
+    required this.freq,
+    this.interval = 1,
+    this.byWeekday = const [],
+    this.byMonthday,
+    this.bySetpos,
+    this.until,
+    this.count,
+  });
+
+  final String freq;
+  final int interval;
+  final List<String> byWeekday;
+  final int? byMonthday, bySetpos, count;
+
+  /// The last day an occurrence may start on, as YYYY-MM-DD.
+  final String? until;
+
+  Recurrence copyWith({
+    String? freq,
+    int? interval,
+    List<String>? byWeekday,
+    int? byMonthday,
+    int? bySetpos,
+    String? until,
+    int? count,
+    bool clearEnd = false,
+    bool clearMonthly = false,
+  }) =>
+      Recurrence(
+        freq: freq ?? this.freq,
+        interval: interval ?? this.interval,
+        byWeekday: byWeekday ?? this.byWeekday,
+        byMonthday: clearMonthly ? null : byMonthday ?? this.byMonthday,
+        bySetpos: clearMonthly ? null : bySetpos ?? this.bySetpos,
+        until: clearEnd ? null : until ?? this.until,
+        count: clearEnd ? null : count ?? this.count,
+      );
+
+  Map<String, Object?> toJson() => {
+        'freq': freq,
+        'interval': interval,
+        'by_weekday': byWeekday,
+        if (byMonthday != null) 'by_monthday': byMonthday,
+        if (bySetpos != null) 'by_setpos': bySetpos,
+        if (until != null) 'until': until,
+        if (count != null) 'count': count,
+      };
+
+  factory Recurrence.fromJson(JsonReader j) => Recurrence(
+        freq: j.string('freq'),
+        interval: j.optInt('interval') ?? 1,
+        byWeekday: j.optStrings('by_weekday') ?? const [],
+        byMonthday: j.optInt('by_monthday'),
+        bySetpos: j.optInt('by_setpos'),
+        until: j.optString('until'),
+        count: j.optInt('count'),
+      );
+
+  @override
+  bool operator ==(Object other) =>
+      other is Recurrence && other.toJson().toString() == toJson().toString();
+
+  @override
+  int get hashCode => toJson().toString().hashCode;
+}
+
 class Attendee {
   const Attendee({
     this.id,
@@ -62,6 +151,17 @@ class CalendarEvent {
     this.connectionId,
     this.syncState,
     this.invitationsPending = false,
+    this.allDay = false,
+    this.timezone,
+    this.recurrence,
+    this.reminders = const [],
+    this.occurrenceStart,
+    this.occurrenceKey,
+    this.isRecurring = false,
+    this.overridden = false,
+    this.overrideId,
+    this.startDate,
+    this.endDate,
   });
 
   final String id, title, kind, status;
@@ -69,6 +169,27 @@ class CalendarEvent {
   final DateTime startsAt, endsAt;
   final List<Attendee> attendees;
   final bool canManage;
+
+  /// Repeating, all-day events and reminders (docs/calendar.md#recurrence).
+  /// An item of a series is one occurrence: [occurrenceStart] is its
+  /// original start (what scoped edits and deletions name), [overridden]
+  /// marks one changed on its own.
+  final bool allDay, isRecurring, overridden;
+  final String? timezone, occurrenceKey, overrideId, startDate, endDate;
+  final Recurrence? recurrence;
+  final List<int> reminders;
+  final DateTime? occurrenceStart;
+
+  /// Tells one shown occurrence from another.
+  String get key => occurrenceKey ?? id;
+
+  /// Whole days an all-day event covers.
+  int get allDayLength {
+    final first = startDate, last = endDate;
+    if (first == null || last == null) return 1;
+    final a = DateTime.parse(first), b = DateTime.parse(last);
+    return b.difference(a).inDays + 1;
+  }
 
   /// Calendar sync (docs/calendar.md#sync): the connected Google or Microsoft
   /// calendar this event mirrors, and `synced`, `pending_push` or `local`.
@@ -129,6 +250,24 @@ class CalendarEvent {
         connectionId: j.optString('connection_id'),
         syncState: j.optString('sync_state'),
         invitationsPending: j.optBool('invitations_pending') ?? false,
+        allDay: j.optBool('all_day') ?? false,
+        timezone: j.optString('timezone'),
+        recurrence: j.optObject('recurrence') == null
+            ? null
+            : Recurrence.fromJson(j.optObject('recurrence')!),
+        reminders: [
+          for (final value in j.optList('reminders') ?? const <Object?>[])
+            if (value is num) value.toInt()
+        ],
+        occurrenceStart: j.optString('occurrence_start') == null
+            ? null
+            : j.date('occurrence_start'),
+        occurrenceKey: j.optString('occurrence_key'),
+        isRecurring: j.optBool('is_recurring') ?? false,
+        overridden: j.optBool('overridden') ?? false,
+        overrideId: j.optString('override_id'),
+        startDate: j.optString('start_date'),
+        endDate: j.optString('end_date'),
       );
 }
 
@@ -240,6 +379,10 @@ class EventDraft {
     this.conferenceUrl,
     this.phone,
     this.attendees = const [],
+    this.allDay = false,
+    this.timezone,
+    this.recurrence,
+    this.reminders = const [],
   });
 
   String title, kind;
@@ -247,33 +390,72 @@ class EventDraft {
   String? description, location, conferenceUrl, phone;
   List<Attendee> attendees;
 
+  /// Repeating, all-day and reminders (docs/calendar.md#recurrence). For an
+  /// all-day event [startsAt] and [endsAt] are local days (the end inclusive).
+  bool allDay;
+  String? timezone;
+  Recurrence? recurrence;
+  List<int> reminders;
+
   factory EventDraft.from(CalendarEvent e) => EventDraft(
         title: e.title,
         kind: e.kind,
-        startsAt: e.startsAt.toLocal(),
-        endsAt: e.endsAt.toLocal(),
+        startsAt: e.allDay && e.startDate != null
+            ? DateTime.parse(e.startDate!)
+            : e.startsAt.toLocal(),
+        endsAt: e.allDay && e.endDate != null
+            ? DateTime.parse(e.endDate!)
+            : e.endsAt.toLocal(),
         description: e.description,
         location: e.location,
         conferenceUrl: e.conferenceUrl,
         phone: e.phone,
         attendees: e.attendees,
+        allDay: e.allDay,
+        timezone: e.timezone,
+        recurrence: e.recurrence,
+        reminders: [...e.reminders],
       );
 
   static String? _blank(String? value) =>
       value == null || value.trim().isEmpty ? null : value.trim();
 
-  Map<String, Object?> toJson() => {
+  /// The API body. [scope] and [occurrenceStart] address one occurrence of a
+  /// series; one occurrence cannot carry a rule of its own.
+  Map<String, Object?> toJson({EditScope? scope, DateTime? occurrenceStart}) =>
+      {
         'title': title.trim(),
         'kind': kind,
-        'starts_at': startsAt.toUtc().toIso8601String(),
-        'ends_at': endsAt.toUtc().toIso8601String(),
+        'all_day': allDay,
+        if (allDay) 'start_date': dayText(startsAt),
+        if (allDay) 'end_date': dayText(endsAt),
+        'starts_at': allDay
+            ? DateTime(startsAt.year, startsAt.month, startsAt.day)
+                .toUtc()
+                .toIso8601String()
+            : startsAt.toUtc().toIso8601String(),
+        'ends_at': allDay
+            ? DateTime(endsAt.year, endsAt.month, endsAt.day, 23, 59)
+                .toUtc()
+                .toIso8601String()
+            : endsAt.toUtc().toIso8601String(),
+        if (timezone != null) 'timezone': timezone,
+        if (scope != EditScope.thisOne) 'recurrence': recurrence?.toJson(),
+        'reminders': ([...reminders.toSet()]..sort()),
         'description': _blank(description),
         'location': _blank(location),
         'conference_url': _blank(conferenceUrl),
         'phone': _blank(phone),
         'attendees': [for (final a in attendees) a.toJson()],
+        if (scope != null) 'scope': scope.api,
+        if (occurrenceStart != null)
+          'occurrence_start': occurrenceStart.toUtc().toIso8601String(),
       };
 }
+
+/// A local day as YYYY-MM-DD (the API's all-day dates).
+String dayText(DateTime value) =>
+    '${value.year.toString().padLeft(4, '0')}-${value.month.toString().padLeft(2, '0')}-${value.day.toString().padLeft(2, '0')}';
 
 DateTime dayOf(DateTime value) {
   final l = value.toLocal();
