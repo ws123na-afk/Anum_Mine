@@ -119,6 +119,14 @@ class TeamTransport implements ApiTransport {
         'assignee_name': 'Ahmed Saleh'
       });
     }
+    if (path == '/api/v1/notifications/kinds') {
+      return const ApiResponse(statusCode: 200, body: {
+        'items': [
+          {'kind': 'work_assigned', 'total': 1, 'unread': 1},
+          {'kind': 'finance_daily_report', 'total': 1, 'unread': 0},
+        ]
+      });
+    }
     if (path == '/api/v1/notifications') {
       return const ApiResponse(statusCode: 200, body: {
         'items': [

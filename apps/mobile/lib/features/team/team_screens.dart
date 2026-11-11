@@ -15,7 +15,11 @@ import '../mail_center/mail_health.dart';
 import 'team_controllers.dart';
 import 'team_models.dart';
 import 'team_repository.dart';
+import 'notifications_screen.dart';
 import 'team_strings.dart';
+
+export 'notifications_screen.dart'
+    show NotificationsScreen, NotificationCenterController, NotificationState;
 
 String _date(BuildContext context, DateTime value) {
   final local = value.toLocal();
@@ -606,98 +610,6 @@ class _AskAnumScreenState extends State<AskAnumScreen> {
       ),
     );
   }
-}
-
-class NotificationsScreen extends StatelessWidget {
-  const NotificationsScreen({required this.repository, super.key});
-  final TeamRepository repository;
-
-  /// Where a notice that is not about a work item opens, by its kind. The
-  /// app registers these (for example the post-close trading report opens
-  /// Finance, Trading intelligence; docs/finance-trading-intel.md#daily-report).
-  static final Map<String, Future<void> Function(BuildContext context)>
-      openers = {};
-
-  @override
-  Widget build(BuildContext context) =>
-      OwnedController<TeamLoader<NotificationPage>>(
-        create: () => TeamLoader(() => repository.notifications())..load(),
-        builder: (context, c) => ListenableBuilder(
-          listenable: c,
-          builder: (context, _) {
-            final s = TeamText.of(context);
-            final page = c.value;
-            return Scaffold(
-              appBar: AppBar(
-                title: Text(s.t('notifications')),
-                actions: [
-                  if (page != null && page.unread > 0)
-                    IconButton(
-                      tooltip: s.t('readAll'),
-                      onPressed: () async {
-                        await repository.markAllRead();
-                        c.load();
-                      },
-                      icon: const Icon(Icons.done_all),
-                    ),
-                ],
-              ),
-              body: page == null
-                  ? _state(context, c.phase, c.error, c.load)
-                  : page.items.isEmpty
-                      ? AnumFeedback(
-                          kind: AnumFeedbackKind.empty,
-                          message: s.t('noNotifications'),
-                        )
-                      : ListView(
-                          children: [
-                            for (final n in page.items)
-                              ListTile(
-                                leading: Icon(
-                                  n.read
-                                      ? Icons.notifications_none
-                                      : Icons.notifications_active,
-                                ),
-                                title: Text(
-                                  n.title,
-                                  style: TextStyle(
-                                    fontWeight: n.read
-                                        ? FontWeight.normal
-                                        : FontWeight.w700,
-                                  ),
-                                ),
-                                subtitle: Text(
-                                  '${n.body}\n${_date(context, n.createdAt)}',
-                                ),
-                                isThreeLine: true,
-                                onTap: () async {
-                                  if (!n.read) await repository.markRead(n.id);
-                                  final id = n.workItemId;
-                                  final opener = openers[n.kind];
-                                  if (id == null &&
-                                      opener != null &&
-                                      context.mounted) {
-                                    await opener(context);
-                                  } else if (id != null && context.mounted) {
-                                    await Navigator.push<void>(
-                                      context,
-                                      MaterialPageRoute(
-                                        builder: (_) => WorkDetailScreen(
-                                          repository: repository,
-                                          itemId: id,
-                                        ),
-                                      ),
-                                    );
-                                  }
-                                  c.load();
-                                },
-                              ),
-                          ],
-                        ),
-            );
-          },
-        ),
-      );
 }
 
 class WorkloadScreen extends StatelessWidget {

@@ -202,6 +202,34 @@ class TeamNotification {
 
   /// What the notice is about (`assigned`, `finance_daily_report`, ...).
   final String kind;
+
+  TeamNotification withRead(bool value) => TeamNotification(
+        id: id,
+        kind: kind,
+        title: title,
+        body: body,
+        workItemId: workItemId,
+        read: value,
+        createdAt: createdAt,
+      );
+}
+
+/// One kind the caller has, with how many and how many are unread
+/// (`GET /api/v1/notifications/kinds`): a filter chip.
+class NotificationKindCount {
+  const NotificationKindCount({
+    required this.kind,
+    required this.total,
+    required this.unread,
+  });
+  factory NotificationKindCount.fromJson(JsonReader r) => NotificationKindCount(
+        kind: r.string('kind'),
+        total: r.integer('total'),
+        unread: r.integer('unread'),
+      );
+  final String kind;
+  final int total;
+  final int unread;
 }
 
 class NotificationPage {
