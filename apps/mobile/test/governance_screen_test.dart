@@ -31,7 +31,13 @@ class FakeGovernance implements GovernanceRepository {
               name: 'Organization baseline',
               version: 1,
               active: active,
-              rules: const ['integration.write: require_approval'])
+              rules: const ['integration.write: require_approval'],
+              ruleItems: const [
+                PackRule(
+                    action: 'integration.write',
+                    effect: 'require_approval',
+                    conditions: {'risk': 'high'})
+              ])
         ],
         marketplace: const [],
         targets: const [
@@ -69,6 +75,20 @@ class FakeGovernance implements GovernanceRepository {
             active: active,
             rules: const []);
       });
+  @override
+  Future<PolicyPack> publishPolicyPack(Map<String, Object?> body) =>
+      _write('publish', () {
+        published.add(body);
+        return PolicyPack(
+            id: 'p2',
+            name: body['name']! as String,
+            version: 2,
+            active: true,
+            rules: const []);
+      });
+  final published = <Map<String, Object?>>[];
+  @override
+  Future<void> deletePolicyPack(String id) => _write('delete $id', () {});
   @override
   Future<PolicyPack> createBaselinePolicy(String name) => _write(
       'baseline',
@@ -138,8 +158,9 @@ void main() {
     expect(find.textContaining('Owning this workspace is not enough'),
         findsOneWidget);
     expect(find.text('Organization baseline'), findsOneWidget);
-    expect(find.byType(Switch), findsNothing);
-    expect(find.text('Add baseline policy'), findsNothing);
+    expect(find.byKey(const Key('pack-new')), findsNothing);
+    expect(find.byKey(const Key('pack-new-version-Organization baseline')),
+        findsNothing);
     expect(repo.calls, isEmpty);
   });
 
@@ -168,10 +189,13 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byKey(const Key('organization-read-only')), findsNothing);
-    await tester.tap(find.byType(Switch));
+    await tester.tap(find.byKey(const Key('pack-versions-Organization baseline')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('pack-toggle-policy_1')));
     await tester.pumpAndSettle();
     expect(repo.calls, ['setPolicyActive']);
-    expect(tester.widget<Switch>(find.byType(Switch)).value, isFalse);
+    expect(find.text('Organization baseline v1 archived.'), findsOneWidget);
+    expect(find.text('No active version'), findsOneWidget);
   });
 
   testWidgets('a refused change keeps the data and shows the API answer',
@@ -180,9 +204,11 @@ void main() {
     await tester.pumpWidget(_app(GovernanceController(repo)));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byType(Switch));
+    await tester.tap(find.byKey(const Key('pack-versions-Organization baseline')));
     await tester.pumpAndSettle();
-    expect(find.text('Not allowed: $_orgAdminRequired'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('pack-toggle-policy_1')));
+    await tester.pumpAndSettle();
+    expect(find.text('Not changed: $_orgAdminRequired'), findsOneWidget);
     expect(find.text('Organization baseline'), findsOneWidget);
   });
 }

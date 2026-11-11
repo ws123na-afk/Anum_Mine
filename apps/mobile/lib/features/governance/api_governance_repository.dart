@@ -59,6 +59,17 @@ class ApiGovernanceRepository implements GovernanceRepository {
         ]
       })));
   @override
+  Future<PolicyPack> publishPolicyPack(JsonMap body) async =>
+      _policy(JsonReader(
+          await api.request('POST', '/api/v1/policy-packs', body: body)));
+
+  @override
+  Future<void> deletePolicyPack(String id) async {
+    await api.request(
+        'DELETE', '/api/v1/policy-packs/${Uri.encodeComponent(id)}');
+  }
+
+  @override
   Future<PolicyPack> setPolicyActive(String id, {required bool active}) async =>
       _policy(JsonReader(await api.request('POST',
           '/api/v1/policy-packs/$id/${active ? 'activate' : 'archive'}')));
@@ -156,9 +167,17 @@ class ApiGovernanceRepository implements GovernanceRepository {
   PolicyPack _policy(JsonReader j) => PolicyPack(
       id: j.string('id'),
       name: j.string('name'),
+      description: j.optString('description') ?? '',
       version: j.integer('version'),
       active: j.boolean('active'),
-      rules: j.optObjects('rules', (x) => '${x['action']}: ${x['effect']}'));
+      createdAt: j.optDate('created_at'),
+      rules: j.optObjects('rules', (x) => '${x['action']}: ${x['effect']}'),
+      ruleItems: j.optObjects(
+          'rules',
+          (x) => PackRule(
+              action: x.optString('action') ?? '',
+              effect: x.optString('effect') ?? '',
+              conditions: x.optMap('conditions') ?? const {})));
   MarketplaceItem _market(JsonReader j, List<JsonReader> i) => MarketplaceItem(
       id: j.string('id'),
       name: j.string('name'),

@@ -4,6 +4,7 @@ import '../../src/theme/anum_theme.dart';
 import '../../src/widgets/depth.dart';
 import 'governance_controller.dart';
 import 'governance_models.dart';
+import 'policy_packs.dart';
 
 enum GovernanceSection { policies, marketplace, routing }
 
@@ -168,7 +169,6 @@ class _PoliciesTab extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final s = snapshot;
-    final p = context.palette;
     final canManage = s.summary.canManageOrganizationPolicy;
     return _list(controller.load, [
       if (!canManage) const _ReadOnlyNotice(),
@@ -190,94 +190,7 @@ class _PoliciesTab extends StatelessWidget {
             value: '${s.summary.approvalRules}',
             icon: Icons.front_hand_outlined),
       ]),
-      if (s.policies.isEmpty)
-        AnumSurface(
-          child: AnumEmpty(
-            icon: Icons.policy_outlined,
-            title: 'No policy packs yet',
-            message: canManage
-                ? 'A baseline pack sets the default rules every agent must follow.'
-                : 'An organization administrator adds the baseline pack that sets the default rules every agent must follow.',
-            action: canManage ? 'Add baseline policy' : null,
-            onAction: !canManage || controller.mutating
-                ? null
-                : () => controller.baseline('Organization baseline'),
-          ),
-        )
-      else ...[
-        if (canManage)
-          Align(
-            alignment: AlignmentDirectional.centerEnd,
-            child: TextButton.icon(
-              onPressed: controller.mutating
-                  ? null
-                  : () => controller.baseline('Organization baseline'),
-              icon: const Icon(Icons.add),
-              label: const Text('Add baseline policy'),
-            ),
-          ),
-        for (final policy in s.policies)
-          AnumSurface(
-            accent: policy.active ? p.ok : null,
-            child:
-                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Row(children: [
-                AnumIconChip(
-                  icon: policy.active
-                      ? Icons.verified_user_outlined
-                      : Icons.policy_outlined,
-                  tone: policy.active ? AnumTone.ok : null,
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(policy.name,
-                            style: TextStyle(
-                                color: p.text,
-                                fontSize: AnumType.lg,
-                                fontWeight: FontWeight.w700)),
-                        Text(
-                            'Version ${policy.version} · ${policy.rules.length} rules',
-                            style: TextStyle(
-                                color: p.faint, fontSize: AnumType.xs)),
-                      ]),
-                ),
-                if (canManage)
-                  Switch(
-                    value: policy.active,
-                    onChanged: controller.mutating
-                        ? null
-                        : (value) => controller.setPolicyActive(policy.id,
-                            active: value),
-                  )
-                else
-                  AnumPill(
-                      label: policy.active ? 'Active' : 'Archived',
-                      tone: policy.active ? AnumTone.ok : AnumTone.neutral),
-              ]),
-              if (policy.rules.isNotEmpty) ...[
-                const SizedBox(height: 10),
-                for (final rule in policy.rules)
-                  Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 3),
-                    child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Icon(Icons.rule, size: 16, color: p.sky),
-                          const SizedBox(width: 8),
-                          Expanded(
-                              child: Text(rule,
-                                  style: TextStyle(
-                                      color: p.muted,
-                                      fontSize: AnumType.smPlus))),
-                        ]),
-                  ),
-              ],
-            ]),
-          ),
-      ],
+      PolicyPacksSection(controller: controller, canManage: canManage),
     ]);
   }
 }
