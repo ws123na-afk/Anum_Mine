@@ -54,6 +54,9 @@ export const listImports = (limit: number, offset: number) => get<FinancePage<Fi
 /** One import with what happened to each row; `disposition` filters (`not_in_ledger`: held or left out). */
 export const getImport = (id: string, options: { disposition?: string | null; limit: number; offset: number }) =>
   get<FinanceImportDetail>(`/imports/${encodeURIComponent(id)}${query({ disposition: options.disposition || null, limit: options.limit, offset: options.offset })}`);
+/** Undo one row matched to several recorded payments: every record is detached and the row waits in Review (docs/finance.md#one-row-for-several-recorded-payments). */
+export const undoSplitMatch = (importId: string, groupId: string) =>
+  apiRequest<FinanceImport>(`${BASE}/imports/${encodeURIComponent(importId)}/splits/${encodeURIComponent(groupId)}/undo`, { method: 'POST' });
 export const deleteImport = (importId: string) => remove(`/imports/${id(importId)}`);
 /** Own transfers already in the ledger, not yet paired (docs/finance.md#own-transfers). A preview: nothing changes. */
 export const findTransfers = (start: string, end: string) => get<FinanceTransferCandidates>(`/transfers/candidates${query({ start, end })}`);

@@ -27,6 +27,7 @@ import { ConfirmDialog, Modal } from './Dialog';
 import { Denied, Empty, LoadError, Money, Notice, failed, type Load } from './FinanceParts';
 import { FinBanner, FinCard, FinancePageHead, FinanceTabs, KpiCard, KpiRow, ScopeSwitch, StatusChip, tabPanel } from './FinanceShell';
 import { FxDetails } from './FinanceFxDetails';
+import { TransferPair } from './FinanceTransferPair';
 import { Import, TransactionForm } from './FinanceView';
 import { useMediaQuery } from './PageParts';
 import './financeRegister.css';
@@ -465,6 +466,7 @@ function TransactionDrawer({ id, onClose, onOpen, onChanged, inModal }: {
     </div>
     {row.receipts > 0 && <p className="fregReceiptsLink"><a href="#vault">{t('freg.drawer.openVault')}</a></p>}
     <FxDetails transactionId={row.id} onChanged={() => { void load(); onChanged(); }} />
+    <TransferPair transactionId={row.id} onChanged={() => { void load(); onChanged(); }} />
     <div className="fregCategory">
       <label htmlFor={categoryId}>{t('freg.drawer.chooseCategory')}</label>
       <select id={categoryId} value={category} onChange={(e) => { setCategory(e.target.value as FinanceCategory); setCategoryTouched(true); setSub(''); }}>

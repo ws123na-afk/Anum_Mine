@@ -137,7 +137,7 @@ function TicketRow({ item, selected, assignees, onOpen }: { item: SupportTicket;
     <th scope="row"><button type="button" className="linkButton" onClick={onOpen}><span className="bzRef">{item.reference}</span> <span dir="auto">{item.title}</span></button>
       <small dir="auto">{[item.account_name, item.escalated ? t('biz.sup.escalatedMark') : null].filter(Boolean).join(' · ') || sourceLabel(item.source)}</small></th>
     <td><Badge tone={severityTone(item.severity)}>{severityLabel(item.severity)}</Badge></td>
-    <td><Badge tone={ticketStatusTone(item.status)}>{ticketStatusLabel(item.status)}</Badge></td>
+    <td><Badge tone={ticketStatusTone(item.status)}>{ticketStatusLabel(item.status)}</Badge>{(item.portal_unread ?? 0) > 0 && <> <Badge tone="warning">{t('biz.sup.portal.unread', { count: item.portal_unread ?? 0 })}</Badge></>}</td>
     <td><Badge tone={sla.tone}>{sla.label}</Badge>{item.escalated && <Flag className="bzInlineIcon bzFlag" aria-label={t('biz.sup.escalatedMark')} />}</td>
     <td className="bzHideSm"><span dir="auto">{item.requester_name || item.requester_email || item.requester_phone || '-'}</span></td>
     <td className="bzHideMd">{assigneeName(assignees, item.assignee_id)}</td>
@@ -335,6 +335,8 @@ function TicketDrawer({ setup, sup, products, assignees, initial, id, onClose, o
 
       <Replies item={item} sup={sup} write={write} busy={busy} setBusy={setBusy} onTicket={(next, done) => { setItem(next); onChanged(); setMessage(done ?? null); }} onProblem={setProblem} />
 
+      <PortalConversation item={item} write={write} busy={busy} setBusy={setBusy} onTicket={(next, done) => { setItem(next); onChanged(); setMessage(done ?? null); }} onProblem={setProblem} />
+
       <NoteForm disabled={!write || busy} onAdd={(text, responded) => run(t('biz.sup.note.add'), () => b.addTicketNote(item.id, text, responded), t('biz.sup.note.added'))} />
 
       <section className="bzBlock" aria-labelledby="bz-ticket-trail"><h3 id="bz-ticket-trail">{t('biz.activity.title')}</h3>
@@ -480,6 +482,44 @@ function Replies({ item, sup, write, busy, setBusy, onTicket, onProblem }: {
       <p className="muted bzHint">{t('biz.sup.reply.noPromises')}</p>
       <div className="actions"><button type="submit" className="secondary" disabled={busy}>{t('biz.sup.reply.saveDraft')}</button></div>
     </form> : <p className="muted bzHint">{item.status === 'closed' ? t('biz.sup.reply.closed') : item.reply_channel ? t('biz.sup.readOnly') : t('biz.sup.reply.manual')}</p>}
+  </section>;
+}
+
+// ---- the conversation in the customer portal (docs/business-portal.md#replying-inside-a-request) --------------
+
+function PortalConversation({ item, write, busy, setBusy, onTicket, onProblem }: {
+  item: TicketDetail; write: boolean; busy: boolean; setBusy: (busy: boolean) => void;
+  onTicket: (next: TicketDetail, done?: string) => void; onProblem: (text: string | null) => void;
+}) {
+  const [body, setBody] = useState('');
+  const field = useId();
+  const messages = item.portal_messages ?? [];
+  const unread = item.portal_unread ?? 0;
+  // Opening the ticket marks the customer's new messages read (once per open).
+  useEffect(() => {
+    if (!write || unread === 0) return;
+    void b.readPortalMessages(item.id).then((next) => onTicket(next)).catch(() => undefined);
+  }, [item.id]);
+  if (!item.account_id) return null;
+  async function answer() {
+    if (!body.trim()) { onProblem(t('biz.sup.portal.required')); return; }
+    setBusy(true); onProblem(null);
+    try { onTicket(await b.answerInPortal(item.id, body.trim()), t('biz.sup.portal.answered')); setBody(''); }
+    catch (error) { onProblem(failure(error, t('biz.sup.portal.answer'))); } finally { setBusy(false); }
+  }
+  return <section className="bzBlock" aria-labelledby="bz-portal-thread"><h3 id="bz-portal-thread">{t('biz.sup.portal.title')}</h3>
+    <p className="muted bzHint">{t('biz.sup.portal.help')}</p>
+    {messages.length === 0 ? <p className="muted">{t('biz.sup.portal.none')}</p>
+      : <ol className="bzTrail portalThread">{messages.map((message) => <li key={message.id} className={message.author === 'staff' ? 'fromTeam' : 'fromCustomer'}>
+        <span className="bzMeta"><strong dir="auto">{message.author === 'staff' ? t('biz.sup.portal.team') : message.author_name}</strong>
+          {message.author === 'customer' && !message.read_at && <Badge tone="warning">{t('biz.sup.portal.new')}</Badge>}</span>
+        <p className="bzDraftBody" dir="auto">{message.body}</p>
+        <small>{when(message.created_at)}</small>
+      </li>)}</ol>}
+    {write && item.portal_open ? <form className="bzForm" aria-label={t('biz.sup.portal.answer')} onSubmit={(event) => { event.preventDefault(); void answer(); }}>
+      <label className="field" htmlFor={field}><span>{t('biz.sup.portal.label')}</span><textarea id={field} rows={3} maxLength={4000} value={body} disabled={busy} onChange={(event) => setBody(event.target.value)} /></label>
+      <div className="actions"><button type="submit" disabled={busy}>{t('biz.sup.portal.answer')}</button></div>
+    </form> : <p className="muted bzHint">{!write ? t('biz.sup.readOnly') : item.status === 'closed' ? t('biz.sup.portal.closed') : t('biz.sup.portal.noLink')}</p>}
   </section>;
 }
 

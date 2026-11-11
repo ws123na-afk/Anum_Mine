@@ -205,4 +205,12 @@ export const financeConnectionsEn = {
   'fconn.perm.devicesText': 'Each iPhone has its own token that reaches only the scopes listed. Tokens are shown once and never again.',
   'fconn.perm.manageDevices': 'Manage devices',
   'fconn.perm.scopes': 'Scopes',
+  'fimprows.reason.split_match': 'stands for several recorded payments together',
+  'fimprows.reason.split_changed': 'the payments you picked changed since the preview, so none were attached',
+  'fimprows.reason.split_undone': 'the match with several payments was undone',
+  'fimprows.split.records': { one: 'Attached to {count} recorded payment', other: 'Attached to {count} recorded payments' },
+  'fimprows.split.undo': 'Undo the match',
+  'fimprows.split.undoTitle': 'Undo this match?',
+  'fimprows.split.undoText': 'Every recorded payment this row stood for is detached from it, and the row waits in Finance, iPhone SMS, Review, where you can import it as its own payment or leave it out.',
+  'fimprows.split.undone': 'Undone. The row waits in Review.',
 } satisfies Record<string, Message>;

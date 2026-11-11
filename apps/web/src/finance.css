@@ -369,3 +369,8 @@
   .fmatchHead { grid-template-columns: minmax(0, 1fr) auto; }
   .fmatchDate { grid-column: 1 / -1; }
 }
+
+/* One statement row for several recorded payments (FinanceStatementMatch.tsx). */
+.fmatchSplit { border: 1px solid var(--d-line-strong); border-radius: var(--d-r-control); display: grid; gap: var(--d-s2); margin: 0; min-width: 0; padding: var(--d-s2) var(--d-s3); }
+.fmatchSplit legend { font-weight: 600; padding-inline: var(--d-s1); }
+.fmatchSplitOption { display: grid; gap: var(--d-s1); min-width: 0; }

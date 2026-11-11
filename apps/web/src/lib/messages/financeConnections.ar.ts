@@ -204,4 +204,12 @@ export const financeConnectionsAr: Record<keyof typeof financeConnectionsEn, Mes
   'fconn.perm.devicesText': 'لكل آيفون رمزه الخاص الذي يصل فقط إلى النطاقات المذكورة. تظهر الرموز مرة واحدة ولا تظهر بعدها.',
   'fconn.perm.manageDevices': 'إدارة الأجهزة',
   'fconn.perm.scopes': 'النطاقات',
+  'fimprows.reason.split_match': 'يمثل عدة دفعات مسجلة معا',
+  'fimprows.reason.split_changed': 'تغيرت الدفعات التي اخترتها منذ المعاينة، لذلك لم يُربط أي منها',
+  'fimprows.reason.split_undone': 'أُلغيت المطابقة مع عدة دفعات',
+  'fimprows.split.records': { zero: 'لم يُربط بأي دفعة', one: 'مربوط بدفعة مسجلة واحدة', two: 'مربوط بدفعتين مسجلتين', few: 'مربوط بـ {count} دفعات مسجلة', many: 'مربوط بـ {count} دفعة مسجلة', other: 'مربوط بـ {count} دفعة مسجلة' },
+  'fimprows.split.undo': 'إلغاء المطابقة',
+  'fimprows.split.undoTitle': 'هل تريد إلغاء هذه المطابقة؟',
+  'fimprows.split.undoText': 'تُفصل كل الدفعات المسجلة التي كان هذا الصف يمثلها، وينتظر الصف في المالية، رسائل iPhone، المراجعة، حيث يمكنك استيراده دفعة مستقلة أو تركه.',
+  'fimprows.split.undone': 'أُلغيت. ينتظر الصف في المراجعة.',
 };

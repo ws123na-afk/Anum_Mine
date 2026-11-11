@@ -170,6 +170,8 @@ export interface FinanceRowMatch {
   transfer: { direction: 'to' | 'from'; account_id: string; account_name: string; account_last4: string | null; strength: 'strong' | 'weak';
     reasons: string[]; lag_days: number; other: FinanceMatchedRecord } | null;
   default_import: boolean;
+  /** Groups of 2 to 4 recorded payments that add up to this row exactly; offered only (docs/finance.md#one-row-for-several-recorded-payments). */
+  splits?: FinanceMatchedRecord[][];
 }
 
 /** A row's foreign currency details, as printed (or `implied` from two printed amounts); never an invented rate. */
@@ -187,7 +189,7 @@ export interface FinanceRowFx {
   implied_markup_percent: string | null;
 }
 
-export interface FinanceMatchCounts { new: number; exact_duplicate: number; matched_existing: number; possible_duplicate: number; bills: number; transfers: number }
+export interface FinanceMatchCounts { new: number; exact_duplicate: number; matched_existing: number; possible_duplicate: number; bills: number; transfers: number; splits?: number }
 
 export interface FinanceReconciliation {
   status: 'tied' | 'differs' | 'unknown';
@@ -208,6 +210,8 @@ export interface FinanceRowDecision {
   bill?: boolean | null;
   transfer?: boolean | null;
   correct?: boolean | null;
+  /** The record ids of one offered group: the row stands for all of them (all attached, or none). */
+  split?: string[] | null;
 }
 
 export interface FinanceImportInput {
@@ -272,6 +276,8 @@ export interface FinanceImport {
   dropped?: number;
   /** Statement rows the ledger does not hold (held for review or left out by the person). */
   not_in_ledger?: number;
+  /** Rows attached to several recorded payments. */
+  split_matched?: number;
 }
 
 export type FinanceRowDispositionKind = 'imported' | 'held_for_review' | 'attached_to_existing' | 'duplicate_skipped' | 'unticked' | 'dropped_by_reader';
@@ -287,6 +293,19 @@ export interface FinanceRowDisposition {
   message: string | null;
   /** The transaction or record the row was imported as, attached to, or duplicates. */
   record_id: string | null;
+  /** One row attached to several recorded payments (reason `split_match`): its group, to undo it, and the records. */
+  split_group?: string | null;
+  split_records?: string[] | null;
+}
+
+/** Whether a transaction is one side of an own transfer, and the other side (`GET /finance/links/transfer`). */
+export interface FinanceTransferPairOf {
+  paired: boolean;
+  link_id: string | null;
+  link_version: number | null;
+  role: 'out' | 'in' | null;
+  other: { transaction_id: string | null; account_id: string | null; account_name: string | null; posted_on: string | null; amount: FinanceMoney | null;
+    currency: string | null; description: string | null } | null;
 }
 
 export interface FinanceImportDetail extends FinanceImport {
@@ -441,6 +460,8 @@ export interface FinancePdfImportRow {
   bill?: boolean | null;
   transfer?: boolean | null;
   correct?: boolean | null;
+  /** The record ids of one offered group (docs/finance.md#one-row-for-several-recorded-payments). */
+  split?: string[] | null;
   /** False: unticked. Still sent so identical rows keep their place; never checked or imported. */
   include?: boolean;
 }

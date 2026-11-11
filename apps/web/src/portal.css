@@ -65,3 +65,9 @@
 @media (max-width: 599px) { .ptHideSm { display: none; } .ptShell { padding-inline: var(--d-s3); } .ptTable th[scope="row"] { min-width: 0; } }
 /* A checkbox keeps its own size next to its label. */
 .ptShell input[type="checkbox"] { accent-color: var(--d-violet); flex: none; height: 18px; min-height: 0; padding: 0; width: 18px; }
+
+/* The conversation inside a request (docs/business-portal.md#replying-inside-a-request). */
+.ptThread { display: grid; gap: var(--d-s2); list-style: none; margin: 0; padding: 0; }
+.ptThread li { display: grid; gap: var(--d-s1); max-width: min(100%, 640px); min-width: 0; overflow-wrap: anywhere; padding: var(--d-s3); }
+.ptThread li.ptMine { border-inline-start: 3px solid var(--d-accent); justify-self: end; }
+.ptThread li.ptTheirs { justify-self: start; }

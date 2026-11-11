@@ -107,4 +107,7 @@ export const financeMatchEn = {
   'ftransfer.days': { one: '{count} day apart', other: '{count} days apart' },
   'ftransfer.sameDay': 'same day',
   'ftransfer.error.range': 'Pick a start date on or before the end date, at most 400 days apart.',
+  'fmatch.split.legend': 'Several recorded payments add up to this row',
+  'fmatch.split.help': 'Banks sometimes book several payments as one statement row. Tick the group only if this row is exactly those payments: all of them are then attached to it, and nothing new is added. You can undo it under Import history.',
+  'fmatch.split.option': { one: 'This row is this {count} payment', other: 'This row is these {count} payments together' },
 } satisfies Record<string, Message>;

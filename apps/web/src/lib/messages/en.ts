@@ -72,6 +72,7 @@ import { filesOrganizeEn } from './filesOrganize.en.ts';
 import { invoiceMoneyEn } from './invoiceMoney.en.ts';
 import { businessAccountsEn } from './businessAccounts.en.ts';
 import { invoiceSendEn } from './invoiceSend.en.ts';
+import { invoiceSchedulesEn } from './invoiceSchedules.en.ts';
 import { invoicesEn } from './invoices.en.ts';
 import { portalEn } from './portal.en.ts';
 import { brevoEn } from './brevo.en.ts';
@@ -180,6 +181,7 @@ export const en = {
   ...invoiceMoneyEn,
   ...businessAccountsEn,
   ...invoiceSendEn,
+  ...invoiceSchedulesEn,
   ...portalEn,
   ...brevoEn,
   ...agentControlsEn,

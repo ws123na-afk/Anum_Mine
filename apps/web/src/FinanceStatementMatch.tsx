@@ -11,7 +11,8 @@ import { formatAmount as rawAmount, isolate } from './lib/finance';
 
 const formatAmount = (value: string | null | undefined, currency: string) => isolate(rawAmount(value, currency));
 import {
-  GROUP_ORDER, GROUP_PAGE, billOn, canImportAnyway, correctOn, fxText, groupRows, outcomeOf, reasonText, reconciliationText, sourceText, tally, transferOn,
+  GROUP_ORDER, GROUP_PAGE, billOn, canImportAnyway, correctOn, fxText, groupRows, outcomeOf, reasonText, reconciliationText, sameRecords, sourceText, splitsOf, tally,
+  transferOn,
   type Choice, type GroupId, type MatchRow,
 } from './lib/financeMatch';
 import { t, type MessageKey } from './lib/i18n';
@@ -79,6 +80,20 @@ function MatchItem({ group, row, currency, choice, onChoose }: { group: GroupId;
     {match.candidates.length > 0 && <ul className="fmatchCandidates">{match.candidates.map((c) => <li key={c.record_id} dir="auto">
       {t('fmatch.candidate', { source: sourceText(c), description: c.description, date: isolate(c.posted_on), amount: formatAmount(c.amount, c.currency) })}</li>)}</ul>}
     {fx.length > 0 && <p className="fmatchFx" dir="auto">{fx.join(' · ')}</p>}
+    {splitsOf(match).length > 0 && <fieldset className="fmatchSplit">
+      <legend>{t('fmatch.split.legend')}</legend>
+      <p className="muted fmatchHelp">{t('fmatch.split.help')}</p>
+      {splitsOf(match).map((group, index) => {
+        const on = sameRecords(choice?.split, group);
+        return <div key={index} className="fmatchSplitOption">
+          <label className="finCheck fmatchTick"><input type="checkbox" checked={on}
+            onChange={(e) => onChoose({ split: e.target.checked ? group.map((record) => record.record_id) : null, action: null })} />
+            <span>{t('fmatch.split.option', { count: group.length })}</span></label>
+          <ul className="fmatchCandidates">{group.map((c) => <li key={c.record_id} dir="auto">
+            {t('fmatch.candidate', { source: sourceText(c), description: c.description, date: isolate(c.posted_on), amount: formatAmount(c.amount, c.currency) })}</li>)}</ul>
+        </div>;
+      })}
+    </fieldset>}
     {bill && group !== 'transfers' && <p className="fmatchNote" dir="auto">{t(bill.strength === 'strong' ? 'fmatch.bill.strong' : 'fmatch.bill.weak',
       { bill: bill.name, date: isolate(bill.due_on), expected: formatAmount(bill.expected, bill.currency) })}</p>}
     {transfer && group !== 'bills' && <p className="fmatchNote" dir="auto">{transfer.strength === 'strong'
