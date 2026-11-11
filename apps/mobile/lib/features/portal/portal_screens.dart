@@ -358,8 +358,9 @@ class _PortalCodeSignInState extends State<PortalCodeSignInScreen> {
           AnumHeader(
               eyebrow: l.t('portal.eyebrow'),
               title: l.t('portal.code.title'),
-              subtitle:
-                  waiting == null ? l.t('portal.code.help') : waiting.message),
+              subtitle: waiting == null
+                  ? l.t('portal.code.help')
+                  : l.t('portal.code.sent')),
           if (waiting == null) ...[
             TextField(
               key: const Key('portal-code-email'),

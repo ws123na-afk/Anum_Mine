@@ -172,7 +172,7 @@ export function PortalApp() {
 
 /** The business's sign-in page: an email address, then the six-digit code sent to it. */
 function CodeSignIn({ workspace, notice, onSignedIn }: { workspace: string; notice?: string | null; onSignedIn: (token: string) => void }) {
-  const [email, setEmail] = useState(''), [code, setCode] = useState(''), [challenge, setChallenge] = useState<{ id: string; message: string } | null>(null);
+  const [email, setEmail] = useState(''), [code, setCode] = useState(''), [challenge, setChallenge] = useState<{ id: string } | null>(null);
   const [busy, setBusy] = useState(false), [problem, setProblem] = useState<string | null>(null);
   const emailId = useId(), codeId = useId(), hintId = useId();
   const heading = useFocus<HTMLHeadingElement>(true);
@@ -190,7 +190,7 @@ function CodeSignIn({ workspace, notice, onSignedIn }: { workspace: string; noti
     setBusy(true); setProblem(null);
     try {
       const answer = await p.requestCode(workspace, email.trim());
-      setChallenge({ id: answer.challenge_id, message: answer.message }); setCode('');
+      setChallenge({ id: answer.challenge_id }); setCode('');
     } catch (error) { say(error); } finally { setBusy(false); }
   }
   async function verify(event: FormEvent) {
@@ -213,7 +213,7 @@ function CodeSignIn({ workspace, notice, onSignedIn }: { workspace: string; noti
       <div className="actions"><button type="submit" disabled={busy}>{busy ? t('pt.signin.sending') : t('pt.signin.send')}</button></div>
       <p className="muted">{t('pt.signin.linkInstead')}</p>
     </form> : <form onSubmit={(event) => void verify(event)} noValidate>
-      <Notice live>{challenge.message}</Notice>
+      <Notice live>{t('pt.signin.sent')}</Notice>
       <label htmlFor={codeId}>{t('pt.signin.code')}</label>
       <input id={codeId} ref={codeRef} className="ptCode" type="text" inputMode="numeric" autoComplete="one-time-code" dir="ltr" maxLength={9} value={code} required
         aria-describedby={hintId} onChange={(event) => setCode(event.target.value)} />

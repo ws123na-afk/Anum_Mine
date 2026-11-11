@@ -13,6 +13,8 @@ const portalEn = <String, String>{
   'portal.code.sending': 'Sending',
   'portal.code.linkInstead':
       'You can also open the link the business sent you.',
+  'portal.code.sent':
+      'If this address may use this business\'s portal, a code is on its way. It works for 10 minutes.',
   'portal.code.code': 'Six-digit code',
   'portal.code.codeHelp':
       'The code works for 10 minutes and only once. Check your spam folder if it has not arrived.',
@@ -226,6 +228,8 @@ const portalAr = <String, String>{
   'portal.code.send': 'أرسل لي رمزًا',
   'portal.code.sending': 'جارٍ الإرسال',
   'portal.code.linkInstead': 'يمكنك أيضًا فتح الرابط الذي أرسلته إليك الجهة.',
+  'portal.code.sent':
+      'إذا كان هذا العنوان مسموحًا له باستخدام بوابة هذه الجهة فالرمز في طريقه إليك. يعمل لمدة 10 دقائق.',
   'portal.code.code': 'الرمز المكوّن من ستة أرقام',
   'portal.code.codeHelp':
       'يعمل الرمز لمدة 10 دقائق ولمرة واحدة. افحص مجلد الرسائل غير المرغوب فيها إن لم يصل.',

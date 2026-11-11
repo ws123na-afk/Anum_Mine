@@ -233,6 +233,7 @@ export const portalEn = {
   'pt.signin.send': 'Email me a code',
   'pt.signin.sending': 'Sending',
   'pt.signin.linkInstead': 'You can also open the link the business sent you.',
+  'pt.signin.sent': 'If this address may use this business\'s portal, a code is on its way. It works for 10 minutes.',
   'pt.signin.code': 'Six-digit code',
   'pt.signin.codeHelp': 'The code works for 10 minutes and only once. Check your spam folder if it has not arrived.',
   'pt.signin.signIn': 'Sign in',

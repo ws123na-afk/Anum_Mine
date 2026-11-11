@@ -233,6 +233,7 @@ export const portalAr: Record<keyof typeof portalEn, Message> = {
   'pt.signin.send': 'أرسل لي رمزًا',
   'pt.signin.sending': 'جارٍ الإرسال',
   'pt.signin.linkInstead': 'يمكنك أيضًا فتح الرابط الذي أرسلته إليك الجهة.',
+  'pt.signin.sent': 'إذا كان هذا العنوان مسموحًا له باستخدام بوابة هذه الجهة فالرمز في طريقه إليك. يعمل لمدة 10 دقائق.',
   'pt.signin.code': 'الرمز المكوّن من ستة أرقام',
   'pt.signin.codeHelp': 'يعمل الرمز لمدة 10 دقائق ولمرة واحدة. افحص مجلد الرسائل غير المرغوب فيها إن لم يصل.',
   'pt.signin.signIn': 'دخول',
